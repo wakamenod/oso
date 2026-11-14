@@ -478,7 +478,7 @@ item notes when it must be settled.
   ([ADR 0066](adr/0066-text-stays-in-logical-order.md)).
 - A right-to-left file in the `just perf` inputs, so its rows are measured
   ([ADR 0066](adr/0066-text-stays-in-logical-order.md)).
-- Exact command subset for org. The directory editor's is proposed in
+- Exact command subset for org. The directory editor's is decided in
   [ADR 0134](adr/0134-a-directory-editor.md).
 - PDF engine and isolation (pdfium, a pure-Rust renderer, a separate
   process); image decoders.

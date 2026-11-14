@@ -1,6 +1,6 @@
 # 0134. A directory editor
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-15
 
 ## Context
@@ -187,22 +187,21 @@ A mock at 80 columns, with details shown:
     directory is copied whole, at most 256 deep; pipes, sockets and devices are skipped and
     named.
   - **A rename** is one `renameat` on the same file system. Across file systems it copies, syncs,
-    then deletes the source, which is not trashed: the move is the person's.
+    then deletes the source.
   - **A buffer whose file is renamed** follows it: its path becomes the new one, with unsaved
     edits kept, and its verdict is judged again from the new name, never becoming less secret
     until it is opened again, as a reload never does ([`security.md`](../security.md)).
   - **Targets that exist (Q8)** are found before anything is written: one question names how many
     and the first three (`3 exist (a.txt, b.txt, c.rs): overwrite them? (y or n)`); `n` does
     nothing. A directory is never written over a file or a file over a directory.
-- **`D` deletes (Q3)** to the trash. One question names the count and the first three rows,
-  `Trash 3 files (a.txt, b.txt, notes/)? (y or n)`; a directory among them says it goes with what
-  it holds. Where there is no trash (a volume without one, or Windows until its step), the
-  question says so: `No trash here: delete 3 files permanently? (y or n)`. `C-u D` deletes
-  permanently, with that question.
-  - **The trash** is the system's: `NSFileManager trashItemAtURL` on macOS; the freedesktop.org
-    Trash specification on Linux, written in-process (the home trash, and a volume's
-    `.Trash-$uid` where the specification allows); the Recycle Bin on Windows later. No process
-    is started for it (no Finder script, no `gio`).
+- **`D` deletes permanently (Q3),** as Emacs's default, after one question that names the count
+  and the first three rows, `Delete 3 files (a.txt, b.txt, notes/)? (y or n)`. A directory among
+  them is deleted with what it holds, and the question says so (`notes/ and what it holds`); it
+  asks once, not again for each directory.
+  - A directory's contents are removed from its descriptor, a name at a time with `unlinkat`,
+    following no link (a link is removed, never what it leads to), at most 256 deep. An entry
+    that cannot be removed stops the operation, and the echo area names it and how far it got.
+  - There is no trash: no system trash call, no process.
   - A buffer whose file was deleted stays, and the watcher reports the file gone, as now.
 - **`+`** makes a directory, with its parents, read with the prompt from this listing's
   directory.
@@ -225,7 +224,7 @@ A mock at 80 columns, with details shown:
 | `m` / `u` / `DEL` | `dired-mark` / `dired-unmark` / `dired-unmark-backward` | |
 | `U` / `t` | `dired-unmark-all-marks` / `dired-toggle-marks` | |
 | `C` / `R` | `dired-do-copy` / `dired-do-rename` | |
-| `D` | `dired-do-delete` | to the trash; `C-u` permanently |
+| `D` | `dired-do-delete` | permanently, after one question |
 | `+` | `dired-create-directory` | |
 | `w` | `dired-copy-filename-as-kill` | `0 w`: absolute paths |
 | `(` | `dired-hide-details-mode` | |
@@ -268,28 +267,23 @@ A mock at 80 columns, with details shown:
 ### Platforms
 
 - **macOS (Tier 1)** is built and checked first.
-- **Linux:** the same Unix code (`getdents64` through `std`, `fstatat`); the freedesktop.org trash.
+- **Linux:** the same Unix code (`getdents64` through `std`, `fstatat`).
 - **Windows:** `Directory` is a path there; the listing's attributes come with the names from
   `FindFirstFileExW` (`FindExInfoBasic`, `FIND_FIRST_EX_LARGE_FETCH`), so no `lstat` is needed. The mode column shows PowerShell's `Mode`
-  (`d----`, `-a---`, `l----`), and no owner. The Recycle Bin (`IFileOperation`) waits for its
-  step; until then `D` asks to delete permanently. Built and linted with `just clippy-windows`.
+  (`d----`, `-a---`, `l----`), and no owner. Built and linted with `just clippy-windows`.
 
 ### Code, crates and layers
 
 - **Tip crate:** `crates/oso/src/dired/` for the listing request and rows (`rows.rs`), the order,
-  the operations worker (`ops.rs`) and the trash glue; `commands/dired.rs`, `bindings/dired.rs`,
+  the operations worker (`ops.rs`); `commands/dired.rs`, `bindings/dired.rs`,
   `app/dired.rs` for the glue. Each file stays under 600 lines.
 - **`oso-core`:** `Mode::Directory`; a way to swap an internal buffer's whole text for a rope and
   display map built off the UI thread (in O(1), mapping the windows' cursors by line), and to
   replace a range of it keeping the cursors (for marks). No new module or trait.
 - **`oso-platform`:** `file_meta::Directory` gains an entry's metadata, rename, unlink, and a copy
-  from an opened file; a new public module, `trash`, moves a file to the system's trash. This
-  ADR is the record ADR 0038 asks for. No new crate and no new crate edge.
-- **Dependencies:** no new crate expected. macOS's trash call goes through `objc2-foundation`,
-  which `oso-platform` already uses, though it may need its `NSFileManager` feature turned on: a
-  `Cargo.toml` change asked for first. Anything more (for example for Windows's Recycle Bin)
-  goes through the `add-dependency` skill. The `trash` crate is not chosen: on macOS its default asks
-  Finder through a script, which starts a process.
+  from an opened file. No new module, trait, crate or crate edge.
+- **Dependencies:** none. As `D` deletes permanently (Q3), no trash call is needed, so
+  `objc2-foundation`'s features and `Cargo.toml` stay as they are.
 
 ### Cost
 
@@ -312,8 +306,7 @@ One pull request each.
 1. **The listing (step 1a):** the mode, the worker's listing, rows, faces, sort, details, the
    header, `RET`, `o`, `^`, `n`, `p`, `g`, `q`, `w`, `C-x C-j`, `C-x d`, the watcher's refresh,
    the restart carry, the `just perf` flow.
-2. **Operations (step 1b):** marks, `oso-files`, `C`, `R`, `D`, `+`, the trash on macOS and
-   Linux, the dwim target, the questions, buffers following a rename.
+2. **Operations (step 1b):** marks, `oso-files`, `C`, `R`, `D`, `+`, the dwim target, the questions, buffers following a rename.
 
 Later steps, listed and not designed here; each is proposed when it is next:
 
@@ -326,7 +319,7 @@ Later steps, listed and not designed here; each is proposed when it is next:
   it goes beside `*Sessions*` is decided then.
 - File-type icons once oso has a font setting.
 - More marks (`% m`, `* /`), `d` and `x`, `M` (mode), `S` (link), a preview as dirvish's.
-- The Recycle Bin on Windows.
+- Deleting to the system's trash, if the author wants it later.
 
 ## Questions
 
@@ -392,8 +385,23 @@ For the author, the recommended option first. Each stands on its own.
 
 ### Dependencies
 
-No new crate expected; possibly `objc2-foundation`'s `NSFileManager` feature. See Code, crates
-and layers.
+None (after Q3 (b), no trash call and no `Cargo.toml` change).
+
+## The author's choices
+
+The author answered every question on 2026-11-15, through the coordinator: (a) for each, but Q3.
+
+- **Q3: (b).** `D` deletes permanently, as Emacs's default, after one question that names the
+  count and the first files, as dired does. There is no trash, so no system trash call and no
+  `Cargo.toml` change (`objc2-foundation`'s `NSFileManager` feature is not needed).
+- The rest, as recommended: the standard command set in Keys (Q1); one listing per window's
+  travel, as `dired-single` (Q2); rows as `ls -lh`, the owner and group only when not the
+  person's (Q4); no icons in step 1, faces per type (Q5); a `stat` once a second while shown and
+  on focus, keeping point and marks, `g` and oso's own operations at once (Q6); the next window's
+  listing as the default target, `C-u` for this one (Q7); one question for existing targets, `y`
+  overwrites them all (Q8); agents read listings and run `Look` commands, `C`, `R`, `D` and `+`
+  are `Person`, listings inside `.ssh`, `.gnupg` and `.aws` withheld (Q9); listings come back
+  after a restart, marks dropped (Q10).
 
 ## Consequences
 
@@ -402,10 +410,10 @@ and layers.
   listed, following no link it did not name; a crafted name cannot pose as another row.
 - `oso-core` gains a whole-text swap and a range replace for internal buffers, which `*Sessions*`
   and the review can use too.
-- `oso-platform` gains a `trash` module and the descriptor-relative rename, unlink and copy,
-  with tests on each Unix system; Windows's Recycle Bin is left for later.
+- `oso-platform` gains descriptor-relative rename, unlink and copy, with tests on each Unix
+  system.
 - The lister serves two kinds of request, so its threads' limit is shared with `C-x C-f`.
-- Deleting is to the trash by default, which is slower than an unlink and needs per-system code.
+- Deleting is permanent, as in Emacs: the one question is the only guard, so it names what goes.
 
 ## Alternatives considered
 
@@ -415,8 +423,9 @@ and layers.
   use is dired, and a tree on the left competes with `*Sessions*`. It is a later step.
 - **Marks as decorations drawn beside the text.** Rejected: a `*` in the text is what dired
   shows, isearch finds it, and changing one character is as cheap.
-- **The `trash` crate.** Rejected for macOS: its default asks Finder through a script, which
-  starts a process; the system call is a few lines in `oso-platform`.
+- **Deleting to the system's trash (Q3 (a)).** Not chosen by the author: they delete
+  permanently, as Emacs's default. Had it been, the `trash` crate would have been rejected for
+  macOS, as its default asks Finder through a script, which starts a process.
 - **Listing on the UI thread for small directories.** Rejected: a small directory on a slow or
   hung file system would still freeze the window.
 
