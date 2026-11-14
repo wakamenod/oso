@@ -63,8 +63,12 @@ fn a_listing_reads_every_entry_with_dots_first_and_no_backups() {
         .iter()
         .map(|row| row.name.to_str().unwrap())
         .collect();
-    #[cfg(unix)]
-    assert_eq!(names, [".", "..", "sub", "to-sub", "b.txt"]);
+    let expected: &[&str] = if cfg!(unix) {
+        &[".", "..", "sub", "to-sub", "b.txt"]
+    } else {
+        &[".", "..", "sub", "b.txt"]
+    };
+    assert_eq!(names, expected);
     let text = built.text.text().to_string();
     assert!(!text.contains("a.txt~"));
     let face_at = |needle: &str| built.highlights.at(text.find(needle).unwrap());
