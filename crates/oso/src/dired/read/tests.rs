@@ -6,7 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use super::super::{Answer, Options, Request, Sort};
-use super::{header_of, list, shown_name};
+use super::{header_of, list, reaches_out, shown_name};
 
 struct Scratch(PathBuf);
 
@@ -35,12 +35,13 @@ fn request(directory: PathBuf, sort: Sort) -> Request {
             details: true,
         },
         home: None,
+        partials: true,
     }
 }
 
 fn answers(request: &Request) -> Vec<Answer> {
     let mut answers = Vec::new();
-    list(request, &mut |answer| answers.push(answer));
+    list(request, &|| false, &mut |answer| answers.push(answer));
     answers
 }
 
@@ -112,4 +113,59 @@ fn a_database_name_shows_only_when_it_is_plain_ascii() {
     assert_eq!(shown_name(Some("b\u{202e}d".to_owned()), 12), "12");
     assert_eq!(shown_name(Some("a b".to_owned()), 13), "13");
     assert_eq!(shown_name(None, 14), "14");
+}
+
+#[test]
+fn a_link_that_may_reach_another_machine_is_not_followed() {
+    let here = PathBuf::from("/Users/me/src");
+    assert!(reaches_out(&here, &PathBuf::from("//host/share")));
+    assert!(reaches_out(&here, &PathBuf::from("\\\\host\\share")));
+    #[cfg(unix)]
+    {
+        assert!(reaches_out(&here, &PathBuf::from("/net/host/x")));
+        assert!(reaches_out(&here, &PathBuf::from("../../../net/host")));
+        assert!(!reaches_out(&here, &PathBuf::from("../lib")));
+        assert!(!reaches_out(&here, &PathBuf::from("/usr/local")));
+        assert!(!reaches_out(&here, &PathBuf::from("network")));
+    }
+}
+
+#[test]
+fn a_stale_listing_stops_and_sends_nothing() {
+    let scratch = Scratch::new("stale");
+    for index in 0..600 {
+        fs::write(scratch.0.join(format!("f{index:04}")), b"").unwrap();
+    }
+    let mut sent = 0;
+    list(
+        &request(scratch.0.clone(), Sort::Name),
+        &|| true,
+        &mut |_| sent += 1,
+    );
+    assert_eq!(sent, 0);
+}
+
+#[test]
+fn rows_are_found_by_what_they_are_ordered_by() {
+    use super::super::{Row, position, position_of_name};
+    let row = |name: &str, enters: bool| Row {
+        name: name.into(),
+        enters,
+        modified: None,
+    };
+    let rows = vec![
+        row(".", true),
+        row("..", true),
+        row("alpha", true),
+        row("zeta", true),
+        row("A.md", false),
+        row("b.md", false),
+    ];
+    for (index, shown) in rows.iter().enumerate() {
+        assert_eq!(position(&rows, Sort::Name, shown), Some(index), "{shown:?}");
+    }
+    // One whose kind changed is still found, by its name.
+    assert_eq!(position(&rows, Sort::Name, &row("b.md", true)), Some(5));
+    assert_eq!(position(&rows, Sort::Name, &row("gone", false)), None);
+    assert_eq!(position_of_name(&rows, "zeta".as_ref()), Some(3));
 }

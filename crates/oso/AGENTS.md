@@ -15,7 +15,7 @@ often, so it must rebuild within 2 s.
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
   the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`, `configuration`,
-  `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps`, `reviews` and `terminals` do the work, `control`
+  `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps`, `reviews`, `dired` and `terminals` do the work, `control`
   answers the dev socket, and `handover` exports and imports the state of an `oso dev` restart.
 - `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies
   (ADR 0062), and recovering them (ADR 0064). Their writer sits above `saver`, and nothing
@@ -57,6 +57,12 @@ often, so it must rebuild within 2 s.
   `review/count.rs` counts the review menu's scopes on `oso-review-count`. A review buffer's
   keys are listed in `commands::review::KEYS`, which `?` reads, and bound by
   `bindings/review.rs`.
+- `src/dired.rs` and `src/dired/` are the directory editor's listings (ADR 0134): read on the
+  lister's threads (`lister.rs`) from the descriptor, following no link but to tell where one
+  leads, ordered and built there into a rope, highlights and a table of what each row names. A
+  listing's keys are listed in `commands::dired::KEYS` and bound by `bindings/dired.rs`. Its
+  commands that open a file, show a buffer or write the clipboard are `Person`, as the host
+  carries them out after the command, where the agent channel's guards no longer see it.
 - `src/walk.rs` walks a project's files on `oso-walk` (ADR 0114). Only it and
   `sessions/worktree/include.rs`, which matches `.worktreeinclude` (ADR 0121), use `ignore`,
   which review keeps: no guard test checks it. `src/grep.rs` searches them on `oso-grep` over the same

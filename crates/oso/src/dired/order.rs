@@ -5,26 +5,65 @@
 //! Must not depend on: `app`, `dispatch`, `commands` or the file system.
 
 use std::cmp::Ordering;
+use std::time::SystemTime;
 
-use super::Sort;
 use super::build::Entry;
+use super::{Row, Sort};
+
+/// What an entry or a row is ordered by.
+pub(super) trait Keyed {
+    fn enters(&self) -> bool;
+    fn modified(&self) -> Option<SystemTime>;
+    fn name(&self) -> &[u8];
+}
+
+impl Keyed for Entry {
+    fn enters(&self) -> bool {
+        Entry::enters(self)
+    }
+
+    fn modified(&self) -> Option<SystemTime> {
+        self.modified
+    }
+
+    fn name(&self) -> &[u8] {
+        self.name.as_encoded_bytes()
+    }
+}
+
+impl Keyed for Row {
+    fn enters(&self) -> bool {
+        self.enters
+    }
+
+    fn modified(&self) -> Option<SystemTime> {
+        self.modified
+    }
+
+    fn name(&self) -> &[u8] {
+        self.name.as_encoded_bytes()
+    }
+}
 
 /// Orders `entries`, which hold neither `.` nor `..`.
 pub(super) fn sort(entries: &mut [Entry], sort: Sort) {
-    entries.sort_unstable_by(|a, b| {
-        let groups = b.enters().cmp(&a.enters());
-        let within = match sort {
-            Sort::Name => by_name(a, b),
-            // Newest first, and an unknown time last.
-            Sort::Time => b.modified.cmp(&a.modified).then_with(|| by_name(a, b)),
-        };
-        groups.then(within)
-    });
+    entries.sort_unstable_by(|a, b| compare(a, b, sort));
+}
+
+/// Where `a` goes before `b`, by `sort`, directories first. A total order.
+pub(super) fn compare<K: Keyed>(a: &K, b: &K, sort: Sort) -> Ordering {
+    let groups = b.enters().cmp(&a.enters());
+    let within = match sort {
+        Sort::Name => by_name(a, b),
+        // Newest first, and an unknown time last.
+        Sort::Time => b.modified().cmp(&a.modified()).then_with(|| by_name(a, b)),
+    };
+    groups.then(within)
 }
 
 /// By name ignoring ASCII case, then by bytes, so that the order is total.
-fn by_name(a: &Entry, b: &Entry) -> Ordering {
-    let (a, b) = (a.name.as_encoded_bytes(), b.name.as_encoded_bytes());
+fn by_name<K: Keyed>(a: &K, b: &K) -> Ordering {
+    let (a, b) = (a.name(), b.name());
     let folded = a
         .iter()
         .map(u8::to_ascii_lowercase)

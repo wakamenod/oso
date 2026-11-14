@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use oso_platform::file_meta::{self, Directory, EntryKind, EntryMeta};
@@ -15,12 +16,22 @@ use oso_platform::file_meta::{self, Directory, EntryKind, EntryMeta};
 use super::build::{Entry, Leads, build};
 use super::{Answer, Built, MAX_ENTRIES, Request, order};
 
-/// How often a listing still being read is shown.
+/// How long reading goes before the first partial listing, and between two of them.
+const FIRST_PARTIAL: Duration = Duration::from_millis(20);
 const PARTIAL: Duration = Duration::from_millis(50);
 
+/// The rows a partial listing shows: the first in order of those read so far, a few screens'
+/// worth, so that one costs a selection over what was read and not a whole listing's build.
+const PARTIAL_ROWS: usize = 500;
+
+/// How many entries go between two looks at the clock and at whether the listing is still
+/// wanted.
+const CHECK_EVERY: usize = 256;
+
 /// Lists `request`'s directory, handing `emit` each listing it builds: partial ones while it
-/// reads, then the whole one, or why it could not be read.
-pub(crate) fn list(request: &Request, emit: &mut dyn FnMut(Answer)) {
+/// reads, if the request asks for them, then the whole one, or why it could not be read. It
+/// stops, sending nothing more, once `stale` says a newer request replaced this one.
+pub(crate) fn list(request: &Request, stale: &dyn Fn() -> bool, emit: &mut dyn FnMut(Answer)) {
     let answer = |built| Answer {
         buffer: request.buffer,
         generation: request.generation,
@@ -35,29 +46,103 @@ pub(crate) fn list(request: &Request, emit: &mut dyn FnMut(Answer)) {
             return emit(answer(Ok(reading.built(true))));
         }
     };
-    let resolved = std::fs::canonicalize(&request.directory)
-        .ok()
-        .map(|real| vec![real]);
+    let resolved = resolved_place(&request.directory, &directory);
     let mut reading = Reading::new(request, resolved);
-    let started = Instant::now();
-    let mut next = started + PARTIAL;
+    let mut next = Instant::now() + FIRST_PARTIAL;
+    let mut seen = 0_usize;
+    let mut gone = false;
     let listed = directory.list_with_metadata(&mut |entry| {
+        // Every entry counts, those left out too, so that no directory is read past the limit.
+        if seen == MAX_ENTRIES {
+            reading.cut = true;
+            return false;
+        }
         match entry {
             Ok(entry) => reading.take(&directory, entry),
             Err(_) => reading.unreadable += 1,
         }
-        if Instant::now() >= next {
-            next = Instant::now() + PARTIAL;
-            emit(answer(Ok(reading.built(false))));
+        seen += 1;
+        if !seen.is_multiple_of(CHECK_EVERY) {
+            return true;
         }
-        reading.entries.len() < MAX_ENTRIES
+        if stale() {
+            gone = true;
+            return false;
+        }
+        if request.partials && Instant::now() >= next {
+            emit(answer(Ok(reading.partial())));
+            next = Instant::now() + PARTIAL;
+        }
+        true
     });
+    if gone || stale() {
+        return;
+    }
     if let Err(error) = listed {
         reading.failed = Some(error.to_string());
     }
-    reading.look_at_links(&directory);
     reading.add_dots(&directory);
+    // The listing goes before its links are followed, which may wait on another file system,
+    // then again once they are.
+    let links = reading
+        .entries
+        .iter()
+        .any(|entry| entry.kind == EntryKind::Link);
+    if links {
+        emit(answer(Ok(reading.built(true))));
+        reading.look_at_links(&directory, stale);
+        if stale() {
+            return;
+        }
+    }
     emit(answer(Ok(reading.built(true))));
+}
+
+/// The real place of `path`, which `directory` was opened as, for its verdict: `None` if it
+/// cannot be found, or if what is there now is not, by device and inode, the directory opened,
+/// as a link swapped between the two would make it.
+fn resolved_place(path: &Path, directory: &Directory) -> Option<Vec<PathBuf>> {
+    let real = std::fs::canonicalize(path).ok()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let opened = directory.metadata().ok()?;
+        let there = std::fs::metadata(&real).ok()?;
+        if (opened.dev(), opened.ino()) != (there.dev(), there.ino()) {
+            return None;
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = directory;
+    Some(vec![real])
+}
+
+/// Whether following the link `target`, in `directory`, may reach another machine by its words
+/// alone: a UNC or device path, or a place the system mounts from the network when it is looked
+/// at, such as `/net`. Such a link is shown, and not followed to tell what it leads to.
+pub(super) fn reaches_out(directory: &Path, target: &Path) -> bool {
+    let words = target.as_os_str().as_encoded_bytes();
+    if words.starts_with(b"//") || words.starts_with(b"\\\\") {
+        return true;
+    }
+    let mut place = PathBuf::new();
+    for component in directory.join(target).components() {
+        match component {
+            std::path::Component::ParentDir => {
+                place.pop();
+            }
+            std::path::Component::CurDir => {}
+            #[cfg(windows)]
+            std::path::Component::Prefix(_) => return true,
+            other => place.push(other),
+        }
+    }
+    let automounted: &[&str] = if cfg!(target_os = "macos") {
+        &["/net", "/Network", "/home"]
+    } else {
+        &["/net", "/misc"]
+    };
+    automounted.iter().any(|root| place.starts_with(root))
 }
 
 /// A listing being read.
@@ -75,7 +160,10 @@ struct Reading<'a> {
     unopened: Option<String>,
     /// Backups ending in `~`, left out as `ls -B` does.
     backups: usize,
+    /// More entries were there than a listing keeps.
+    cut: bool,
     names: Names,
+    offsets: Offsets,
     now: SystemTime,
 }
 
@@ -90,7 +178,9 @@ impl<'a> Reading<'a> {
             failed: None,
             unopened: None,
             backups: 0,
+            cut: false,
             names: Names::default(),
+            offsets: Offsets::default(),
             now: SystemTime::now(),
         }
     }
@@ -124,10 +214,22 @@ impl<'a> Reading<'a> {
     }
 
     /// Looks where each link leads, following it: a link to a directory is entered, and one to
-    /// nothing is shown broken. A link to another file system waits for it, on this thread.
-    fn look_at_links(&mut self, directory: &Directory) {
-        for entry in &mut self.entries {
+    /// nothing is shown broken. A link to another file system waits for it, on this thread; one
+    /// that may reach another machine is not followed. It stops once `stale` says so.
+    fn look_at_links(&mut self, directory: &Directory, stale: &dyn Fn() -> bool) {
+        let place = &self.request.directory;
+        for (index, entry) in self.entries.iter_mut().enumerate() {
             if entry.kind != EntryKind::Link {
+                continue;
+            }
+            if index.is_multiple_of(CHECK_EVERY) && stale() {
+                return;
+            }
+            if entry
+                .target
+                .as_ref()
+                .is_none_or(|target| reaches_out(place, target))
+            {
                 continue;
             }
             entry.leads = match directory.target_kind(&entry.name) {
@@ -157,17 +259,30 @@ impl<'a> Reading<'a> {
         }
     }
 
-    /// The listing of what has been read, ordered.
+    /// A partial listing: the first [`PARTIAL_ROWS`] of what has been read, in order, under a
+    /// line that says how many were read.
+    fn partial(&mut self) -> Built {
+        let sort = self.request.options.sort;
+        if self.entries.len() > PARTIAL_ROWS {
+            self.entries
+                .select_nth_unstable_by(PARTIAL_ROWS, |a, b| order::compare(a, b, sort));
+        }
+        let first = self.entries.len().min(PARTIAL_ROWS);
+        order::sort(&mut self.entries[..first], sort);
+        let notes = vec![format!("reading… {} entries so far", self.entries.len())];
+        let shown: Vec<&Entry> = self.entries[..first].iter().collect();
+        let parts = (self.request, self.resolved.as_ref(), self.now);
+        listing(parts, &mut self.offsets, &notes, &shown, false)
+    }
+
+    /// The whole listing, ordered.
     fn built(&mut self, done: bool) -> Built {
         order::sort(&mut self.entries, self.request.options.sort);
         let mut notes = Vec::new();
         if let Some(why) = &self.unopened {
             notes.push(format!("cannot be read: {why}"));
         }
-        if !done {
-            notes.push(format!("reading… {} entries so far", self.entries.len()));
-        }
-        if self.entries.len() >= MAX_ENTRIES {
+        if self.cut {
             notes.push(format!("cut at {MAX_ENTRIES} entries"));
         }
         if self.unreadable > 0 {
@@ -179,29 +294,42 @@ impl<'a> Reading<'a> {
         if let Some(failed) = &self.failed {
             notes.push(format!("not read to its end: {failed}"));
         }
-        let header = header_of(&self.request.directory, self.request.home.as_deref());
-        let mut shown: Vec<Entry> = Vec::with_capacity(self.dots.len() + self.entries.len());
-        shown.extend(self.dots.iter().cloned());
-        shown.extend(self.entries.iter().cloned());
-        let mut offsets = Offsets::default();
-        let shown = build(
-            header.as_encoded_bytes(),
-            &notes,
-            &shown,
-            self.request.options.details,
-            self.now,
-            &mut |time| offsets.at(time),
-        );
-        Built {
-            text: shown.text,
-            highlights: shown.highlights,
-            rows: shown.rows,
-            header_lines: shown.header_lines,
-            name_column: shown.name_column,
-            resolved: self.resolved.clone(),
-            done,
-            stamp: None,
-        }
+        let shown: Vec<&Entry> = self.dots.iter().chain(&self.entries).collect();
+        let parts = (self.request, self.resolved.as_ref(), self.now);
+        listing(parts, &mut self.offsets, &notes, &shown, done)
+    }
+}
+
+/// The request, the directory's real place and the time it is read at, which every listing
+/// of a reading shares.
+type Parts<'a> = (&'a Request, Option<&'a Vec<PathBuf>>, SystemTime);
+
+/// Builds the text of `shown` under the header and `notes`.
+fn listing(
+    (request, resolved, now): Parts<'_>,
+    offsets: &mut Offsets,
+    notes: &[String],
+    shown: &[&Entry],
+    done: bool,
+) -> Built {
+    let header = header_of(&request.directory, request.home.as_deref());
+    let shown = build(
+        header.as_encoded_bytes(),
+        notes,
+        shown,
+        request.options.details,
+        now,
+        &mut |time| offsets.at(time),
+    );
+    Built {
+        text: shown.text,
+        highlights: shown.highlights,
+        rows: shown.rows,
+        header_lines: shown.header_lines,
+        name_column: shown.name_column,
+        resolved: resolved.cloned(),
+        done,
+        stamp: None,
     }
 }
 
@@ -236,21 +364,21 @@ fn fill_from(entry: &mut Entry, metadata: &std::fs::Metadata) {
     }
 }
 
-/// The names of owners and groups, looked up once each.
+/// The names of owners and groups, looked up once each and shared by the rows.
 #[derive(Default)]
 struct Names {
-    users: HashMap<u32, String>,
-    groups: HashMap<u32, String>,
+    users: HashMap<u32, Arc<str>>,
+    groups: HashMap<u32, Arc<str>>,
 }
 
 impl Names {
     /// The owner and group of `meta`, only when someone other than this user owns it.
-    fn owner(&mut self, meta: &EntryMeta) -> Option<(String, String)> {
+    fn owner(&mut self, meta: &EntryMeta) -> Option<(Arc<str>, Arc<str>)> {
         let (uid, gid) = meta.owner.filter(|_| meta.others)?;
         Some(self.pair(uid, gid))
     }
 
-    fn owner_of_metadata(&mut self, metadata: &std::fs::Metadata) -> Option<(String, String)> {
+    fn owner_of_metadata(&mut self, metadata: &std::fs::Metadata) -> Option<(Arc<str>, Arc<str>)> {
         if oso_platform::privacy::is_this_users(metadata) {
             return None;
         }
@@ -263,16 +391,16 @@ impl Names {
         None
     }
 
-    fn pair(&mut self, uid: u32, gid: u32) -> (String, String) {
+    fn pair(&mut self, uid: u32, gid: u32) -> (Arc<str>, Arc<str>) {
         let user = self
             .users
             .entry(uid)
-            .or_insert_with(|| shown_name(file_meta::user_name(uid), uid))
+            .or_insert_with(|| shown_name(file_meta::user_name(uid), uid).into())
             .clone();
         let group = self
             .groups
             .entry(gid)
-            .or_insert_with(|| shown_name(file_meta::group_name(gid), gid))
+            .or_insert_with(|| shown_name(file_meta::group_name(gid), gid).into())
             .clone();
         (user, group)
     }

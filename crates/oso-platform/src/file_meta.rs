@@ -1,7 +1,9 @@
 //! What a file or directory holds beyond its mode that decides who may reach it, opening a
 //! file with what could not be done with `std`, and where an open file is. This is the file-system
 //! module ADR 0062 expected (ADR 0044, ADR 0065, ADR 0067). That means access lists, on macOS and
-//! POSIX ones on Linux, and macOS's quarantine flag. Other systems are decided later.
+//! POSIX ones on Linux, and macOS's quarantine flag. Other systems are decided later. It also
+//! opens and lists a directory relative to itself (ADR 0114), with what a directory listing shows
+//! of each entry, its owner's and group's names and the local time zone's offset (ADR 0134).
 //!
 //! Must not depend on: `control`, `privacy`, `process` or `text`.
 

@@ -474,6 +474,26 @@ The author agreed to each on 2026-11-15, through the coordinator.
 - **A buffer with no file lists the directory oso started in** for `C-x C-j`; a terminal's own
   directory is a later step.
 - **`quit-window` shows the buffer shown before,** the most recent other one, and keeps the listing.
+  It is a buffer command (`commands/buffers.rs`), bound to `q` in a listing.
+- **The listing's keys are listed in `commands::dired::KEYS`,** beside the commands, and bound by
+  `bindings/dired.rs`, as a review's are.
+- **Reach:** the commands whose request the host carries out after the command, where the agent
+  channel's guards no longer see it, are `Person`: `dired-jump`, `dired-find-file`,
+  `dired-find-file-other-window` (they open a file or show a buffer), `dired-copy-filename-as-kill`
+  (it writes the clipboard) and `quit-window`. Moving, refreshing, sorting and hiding details
+  stay `Look`.
+- **Partial listings** show the first 500 rows in order of what has been read, under the
+  `reading…` line, and come only for a listing of a directory the buffer did not show whole: a
+  refresh replaces the whole listing at once. A listing no longer wanted stops reading. A
+  listing with links is handed over before its links are followed, then again once they are; a
+  link whose target's words name a UNC or device path, or a place mounted from the network when
+  looked at (`/net`), is not followed.
+- **Judging:** a directory whose real place cannot be found, or whose real place is not the
+  directory opened by device and inode, counts as one that may hold secrets. No line of such a
+  listing is carried over a restart.
+- **Rows:** a backslash in a name shows as `\\`, so that no name reads as one with a line break;
+  a link's target shows at most 1 KiB. `w` refuses a name that is not UTF-8 or holds a line
+  break. The 100,000-entry limit counts every entry read, backups and unreadable ones too.
 
 ## Consequences
 

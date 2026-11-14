@@ -150,13 +150,15 @@ pub(crate) fn decoded_len(bytes: &[u8]) -> usize {
 }
 
 /// A name's bytes as a row shows them: a line break or a carriage return as `\n` or `\r`, so
-/// that no name starts a row or ends one early. Anything else is left for the display, which
-/// shows control, invisible and bidirectional characters and invalid bytes as such.
+/// that no name starts a row or ends one early, and a backslash as `\\`, so that no name reads
+/// as one with a line break. Anything else is left for the display, which shows control,
+/// invisible and bidirectional characters and invalid bytes as such.
 pub(crate) fn push_name(out: &mut Vec<u8>, name: &[u8]) {
     for byte in name {
         match byte {
             b'\n' => out.extend_from_slice(b"\\n"),
             b'\r' => out.extend_from_slice(b"\\r"),
+            b'\\' => out.extend_from_slice(b"\\\\"),
             _ => out.push(*byte),
         }
     }

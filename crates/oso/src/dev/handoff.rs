@@ -44,9 +44,9 @@ use super::protocol::{EXIT_REFUSED, MAX_LINE, Reply};
 
 pub mod carry;
 mod format;
+mod internal;
 mod layout;
-mod listings;
-use listings::{behind_internal, handed_over};
+use internal::{behind_internal, handed_over};
 mod look;
 mod restore;
 
@@ -104,7 +104,7 @@ pub fn export(
     {
         buffers.push(buffer_state(id, buffer, &mut items)?);
     }
-    buffers.extend(listings::states(editor));
+    buffers.extend(internal::listing_states(editor));
     // Internal buffers are not handed over (ADR 0051). A window on one with nothing to go
     // back to comes back on `*scratch*`, which this entry stands for.
     // Once each, however many windows show it.

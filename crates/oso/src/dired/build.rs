@@ -20,6 +20,9 @@ use oso_platform::file_meta::EntryKind;
 use super::Row;
 use super::rows::{attributes_text, decoded_len, mode_text, push_name, size_text, time_text};
 
+/// The most bytes of a link's target a row shows.
+const MAX_TARGET: usize = 1024;
+
 /// Where a link leads, as a look found; `Here` for an entry that is no link.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum Leads {
@@ -42,7 +45,7 @@ pub(super) struct Entry {
     pub(super) len: u64,
     pub(super) modified: Option<SystemTime>,
     /// Its owner's and group's names, only when someone other than this user owns it.
-    pub(super) owner: Option<(String, String)>,
+    pub(super) owner: Option<(Arc<str>, Arc<str>)>,
     /// A link's target, as its words say.
     pub(super) target: Option<PathBuf>,
     pub(super) leads: Leads,
@@ -109,7 +112,7 @@ pub(super) type Offsets<'a> = &'a mut dyn FnMut(SystemTime) -> i32;
 pub(super) fn build(
     header: &[u8],
     notes: &[String],
-    entries: &[Entry],
+    entries: &[&Entry],
     details: bool,
     now: SystemTime,
     offsets: Offsets<'_>,
@@ -141,13 +144,18 @@ pub(super) fn build(
         out.part(&name, entry.face());
         if let (Some(target), true) = (&entry.target, details) {
             let mut arrow = b" -> ".to_vec();
-            push_name(&mut arrow, target.as_os_str().as_encoded_bytes());
+            let words = target.as_os_str().as_encoded_bytes();
+            push_name(&mut arrow, &words[..words.len().min(MAX_TARGET)]);
+            if words.len() > MAX_TARGET {
+                arrow.extend_from_slice("…".as_bytes());
+            }
             out.part(&arrow, None);
         }
         out.end_line();
         rows.push(Row {
             name: entry.name.clone(),
             enters: entry.enters(),
+            modified: entry.modified,
         });
     }
     let (text, highlights) = out.finish();
@@ -171,8 +179,8 @@ struct Columns {
 }
 
 impl Columns {
-    fn of(entries: &[Entry], now: SystemTime, offsets: Offsets<'_>) -> Self {
-        let modes: Vec<String> = entries.iter().map(Entry::mode_column).collect();
+    fn of(entries: &[&Entry], now: SystemTime, offsets: Offsets<'_>) -> Self {
+        let modes: Vec<String> = entries.iter().map(|entry| entry.mode_column()).collect();
         let sizes: Vec<String> = entries
             .iter()
             .map(|entry| match entry.kind {

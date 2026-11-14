@@ -456,6 +456,7 @@ impl Editor {
         if self.buffer(id).is_none() {
             return;
         }
+        self.forget_listing(id);
         let shown = self.windows.iter().any(|window| window.buffer() == id);
         if shown {
             self.isearch_abandon();

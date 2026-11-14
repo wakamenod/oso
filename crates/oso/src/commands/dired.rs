@@ -3,7 +3,9 @@
 //! and copying names.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
-//! and asks the host, which lists directories on the lister's threads. What a row names is the
+//! and asks the host, which lists directories on the lister's threads. A command whose request
+//! opens a file, shows a buffer or writes the clipboard is `Person`: the host carries it out
+//! after the command, where the agent channel's guards no longer see it (ADR 0085). What a row names is the
 //! host's: a command says which lines it means, and the host reads its row table, never the
 //! text.
 
@@ -31,7 +33,7 @@ pub const COMMANDS: &[Command] = &[
         name: "dired-jump",
         doc: "List the directory of the buffer's file, with point on the file.\n\nIn a listing, it goes up to the directory above, as `^` does. A buffer with no file lists the directory oso started in.",
         args: ArgSpec::None,
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: dired_jump,
         state: None,
     },
@@ -39,7 +41,7 @@ pub const COMMANDS: &[Command] = &[
         name: "dired-find-file",
         doc: "In a listing, open what the row at point names: a file in this window, as `C-x C-f` opens it, or a directory in place of the listing.",
         args: ArgSpec::None,
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: find_file,
         state: None,
     },
@@ -47,7 +49,7 @@ pub const COMMANDS: &[Command] = &[
         name: "dired-find-file-other-window",
         doc: "In a listing, open what the row at point names in another window, splitting the frame if it has one window.",
         args: ArgSpec::None,
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: find_file_other_window,
         state: None,
     },
@@ -87,7 +89,7 @@ pub const COMMANDS: &[Command] = &[
         name: "dired-copy-filename-as-kill",
         doc: "In a listing, copy the names of the rows at the cursors to the kill ring and the clipboard, separated by spaces.\n\nWith a prefix argument of 0, their absolute paths.",
         args: ArgSpec::Count,
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: copy_filename_as_kill,
         state: None,
     },
@@ -105,14 +107,6 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: sort_toggle,
-        state: None,
-    },
-    Command {
-        name: "quit-window",
-        doc: "Leave the buffer in this window, showing the one shown before it.\n\nThe buffer stays; `C-x b` goes back to it.",
-        args: ArgSpec::None,
-        reach: Reach::Look,
-        run: quit_window,
         state: None,
     },
 ];
@@ -303,22 +297,6 @@ fn sort_toggle(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let buffer = listing(ctx)?;
     ctx.editor
         .request_listing(ListingRequest::ToggleSort { buffer });
-    Ok(())
-}
-
-fn quit_window(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    super::not_in_prompt(ctx)?;
-    let here = ctx.editor.window().buffer();
-    let Some(back) = ctx
-        .editor
-        .buffers_by_recency()
-        .into_iter()
-        .find(|id| *id != here)
-    else {
-        return Ok(());
-    };
-    ctx.editor.show(back);
-    ctx.request_redraw();
     Ok(())
 }
 

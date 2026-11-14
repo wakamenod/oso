@@ -56,7 +56,8 @@ fn entries() -> Vec<Entry> {
 }
 
 fn shown(details: bool, entries: &[Entry]) -> (String, super::Shown) {
-    let shown = build(b"~/crates/", &[], entries, details, at(), &mut |_| 0);
+    let refs: Vec<&Entry> = entries.iter().collect();
+    let shown = build(b"~/crates/", &[], &refs, details, at(), &mut |_| 0);
     (shown.text.text().to_string(), shown)
 }
 
@@ -134,7 +135,7 @@ fn each_part_has_its_face() {
 #[test]
 fn owners_show_only_when_someone_else_owns_a_row() {
     let mut rows = entries();
-    rows[6].owner = Some(("root".to_owned(), "wheel".to_owned()));
+    rows[6].owner = Some(("root".into(), "wheel".into()));
     let (text, _) = shown(true, &rows);
     assert!(text.contains("-rw-r--r--  root wheel  4.0K"), "{text}");
     assert!(
@@ -162,7 +163,9 @@ fn a_name_with_invalid_bytes_or_a_line_break_keeps_its_row() {
 #[test]
 fn notes_go_under_the_header() {
     let notes = vec!["reading… 3 entries so far".to_owned()];
-    let shown = build(b"/tmp/", &notes, &entries(), true, at(), &mut |_| 0);
+    let entries = entries();
+    let refs: Vec<&Entry> = entries.iter().collect();
+    let shown = build(b"/tmp/", &notes, &refs, true, at(), &mut |_| 0);
     assert_eq!(shown.header_lines, 2);
     let text = shown.text.text().to_string();
     assert_eq!(text.lines().nth(1).unwrap(), "  reading… 3 entries so far");

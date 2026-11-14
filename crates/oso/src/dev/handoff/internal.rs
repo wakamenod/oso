@@ -12,7 +12,7 @@ use oso_core::window::{Scroll, Window};
 use serde_json::{Value, json};
 
 /// Every listing's entry in the state's buffers.
-pub(super) fn states(editor: &Editor) -> Vec<Value> {
+pub(super) fn listing_states(editor: &Editor) -> Vec<Value> {
     editor
         .listings()
         .map(|(id, listing)| state(editor, id, listing))
@@ -26,9 +26,10 @@ fn state(editor: &Editor, id: BufferId, listing: &Listing) -> Value {
     let Some(directory) = listing.directory.to_str() else {
         return json!({ "id": id.get(), "path": null });
     };
-    let line = editor
-        .listing_points(id)
-        .first()
+    // No position in a listing that may hold secrets is carried (ADR 0058).
+    let secret = editor.buffer(id).is_none_or(|buffer| buffer.is_secret());
+    let line = (editor.listing_points(id).first())
+        .filter(|_| !secret)
         .map_or(0, |(_, line)| *line);
     json!({
         "id": id.get(),
@@ -36,7 +37,7 @@ fn state(editor: &Editor, id: BufferId, listing: &Listing) -> Value {
         "listing": {
             "directory": directory,
             "details": listing.details,
-            "by_date": listing.note == "by date",
+            "by_date": listing.note == crate::dired::Sort::Time.note(),
             "line": line,
         },
     })

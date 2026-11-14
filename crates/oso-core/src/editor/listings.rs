@@ -58,7 +58,7 @@ pub enum ListingRequest {
     },
     /// List the directory above in place of the listing, with point on the one left.
     Up { buffer: BufferId },
-    /// List the directory again: `g`, `revert-buffer`.
+    /// List the directory again: `g`.
     Revert { buffer: BufferId },
     /// Copy the names of the rows at `lines` to the kill ring, or their absolute paths.
     CopyNames {
@@ -107,6 +107,11 @@ impl Editor {
         };
         self.listings.records.insert(id, record);
         id
+    }
+
+    /// Drops the record of the listing `id`, as its buffer goes.
+    pub(super) fn forget_listing(&mut self, id: BufferId) {
+        self.listings.records.remove(&id);
     }
 
     /// The record of the listing buffer `id`, if it is one and is still there.

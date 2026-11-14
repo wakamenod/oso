@@ -274,7 +274,7 @@ fn a_busy_directory_holds_up_only_its_own_requests() {
     queue.push(list_of("/fine", 3));
     assert_eq!(queue.next(), Some(list_of("/fine", 3)), "past the busy one");
     assert_eq!(queue.next(), None, "the busy directory's next waits");
-    queue.done(Path::new("/hung"));
+    queue.done((Path::new("/hung"), true));
     assert_eq!(
         queue.next(),
         Some(Request::Look(PathBuf::from("/hung"), Vec::new(), 2))

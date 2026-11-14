@@ -131,7 +131,7 @@ impl App {
 fn looked(look: &Look, now: SystemTime) -> (String, Looked) {
     let mut annotation = format!(
         "{}  {:>5}  {}",
-        mode_text(look.mode),
+        crate::dired::rows::mode_text(look.mode),
         crate::dispatch::size(usize::try_from(look.len).unwrap_or(usize::MAX)),
         look.modified
             .map_or_else(String::new, |modified| age(now, modified)),
@@ -155,27 +155,6 @@ fn looked(look: &Look, now: SystemTime) -> (String, Looked) {
     (name, looked)
 }
 
-/// Unix mode bits as `ls -l` writes them, such as `drwxr-xr-x`.
-fn mode_text(mode: u32) -> String {
-    let kind = match mode & 0o170_000 {
-        0o040_000 => 'd',
-        0o120_000 => 'l',
-        0o010_000 => 'p',
-        0o020_000 => 'c',
-        0o060_000 => 'b',
-        0o140_000 => 's',
-        _ => '-',
-    };
-    let bits = ['r', 'w', 'x'];
-    let mut text = String::with_capacity(10);
-    text.push(kind);
-    for shift in (0..9).rev() {
-        let on = mode & (1 << shift) != 0;
-        text.push(if on { bits[(8 - shift) % 3] } else { '-' });
-    }
-    text
-}
-
 /// How long ago `then` was, as marginalia says it: `now`, `5 min ago`, `3 days ago`.
 fn age(now: SystemTime, then: SystemTime) -> String {
     let seconds = now.duration_since(then).unwrap_or(Duration::ZERO).as_secs();
@@ -194,13 +173,6 @@ fn age(now: SystemTime, then: SystemTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_mode_reads_as_ls_writes_it() {
-        assert_eq!(mode_text(0o040_755), "drwxr-xr-x");
-        assert_eq!(mode_text(0o100_644), "-rw-r--r--");
-        assert_eq!(mode_text(0o120_777), "lrwxrwxrwx");
-    }
 
     #[test]
     fn an_age_reads_as_marginalia_says_it() {

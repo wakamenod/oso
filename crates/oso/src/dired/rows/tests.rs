@@ -79,6 +79,6 @@ fn a_decoded_length_counts_a_replacement_for_each_invalid_byte() {
 #[test]
 fn a_line_break_in_a_name_never_starts_a_row() {
     let mut out = Vec::new();
-    push_name(&mut out, b"a\nb\rc\td");
-    assert_eq!(out, b"a\\nb\\rc\td");
+    push_name(&mut out, b"a\nb\rc\td\\n");
+    assert_eq!(out, b"a\\nb\\rc\td\\\\n");
 }

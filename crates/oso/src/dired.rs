@@ -81,6 +81,9 @@ pub(crate) struct Request {
     pub(crate) options: Options,
     /// The home directory, which the header writes as `~`.
     pub(crate) home: Option<PathBuf>,
+    /// Whether to send partial listings while a large directory is read: not when the buffer
+    /// shows a whole listing of it already, which a partial one would cut short.
+    pub(crate) partials: bool,
 }
 
 /// A row of a listing: what its line names.
@@ -90,6 +93,35 @@ pub(crate) struct Row {
     pub(crate) name: OsString,
     /// Whether `RET` on it lists it: a directory, or a link a look found leads to one.
     pub(crate) enters: bool,
+    /// When it was last modified, by which a listing by date is ordered.
+    pub(crate) modified: Option<std::time::SystemTime>,
+}
+
+/// The index in `rows`, a listing's ordered by `sort`, of the row named as `row` is, found by
+/// what it is ordered by in O(log n), or by its name alone if that has changed. `.` and `..`
+/// come first and are found by name.
+pub(crate) fn position(rows: &[Row], sort: Sort, row: &Row) -> Option<usize> {
+    let dots = rows
+        .iter()
+        .take(2)
+        .take_while(|shown| shown.name == "." || shown.name == "..")
+        .count();
+    if let Some(index) = rows[..dots].iter().position(|shown| shown.name == row.name) {
+        return Some(index);
+    }
+    let rest = &rows[dots..];
+    if let Ok(index) = rest.binary_search_by(|shown| order::compare(shown, row, sort))
+        && rest[index].name == row.name
+    {
+        return Some(dots + index);
+    }
+    position_of_name(rows, &row.name)
+}
+
+/// The index of the row named `name`, looked for one by one: for a name whose kind or time is
+/// not known, as the one a command asks point to go to.
+pub(crate) fn position_of_name(rows: &[Row], name: &std::ffi::OsStr) -> Option<usize> {
+    rows.iter().position(|shown| shown.name == name)
 }
 
 /// A listing built on a lister's thread.

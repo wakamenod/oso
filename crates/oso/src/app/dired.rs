@@ -11,14 +11,13 @@
 //!   asked for, and waits while the editor's text must not change ([`Editor::reload_waits`]).
 
 use std::collections::HashMap;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use oso_core::buffer::{BufferId, FileStamp};
-use oso_core::editor::{Editor, Listing as Record, ListingRequest, ListingShown};
+use oso_core::editor::{Editor, ListingRequest};
 use oso_core::frame::Way;
-use oso_core::selection::SelectionSet;
 
 use super::App;
 use crate::dired::{self, Answer, Options, Row};
@@ -44,6 +43,9 @@ struct Listing {
     generation: u64,
     /// What each row's line names, from the listing shown.
     rows: Arc<[Row]>,
+    /// The directory the rows are of: `directory` once the listing asked for is shown, and the
+    /// one before until then, so that no row's name is taken as one in another directory.
+    rows_of: PathBuf,
     header_lines: usize,
     /// The name point goes to once the next listing comes, as `^` and `C-x C-j` ask.
     point: Option<OsString>,
@@ -53,25 +55,43 @@ struct Listing {
     stamp: Option<Option<FileStamp>>,
     /// What the watcher last saw of it.
     seen: Option<Option<FileStamp>>,
+    /// Whether it shows a whole listing of `directory`, which a new one replaces at once,
+    /// without partial ones that would cut it short.
+    whole: bool,
 }
 
 impl Listing {
+    /// The row at `line`, while the rows shown are of the directory it lists, and only one whose
+    /// name is one entry's, so that joining it to the directory names that entry.
     fn row_at(&self, line: usize) -> Option<&Row> {
-        self.rows.get(line.checked_sub(self.header_lines)?)
-    }
-
-    fn line_of(&self, name: &OsStr) -> Option<usize> {
-        let index = self.rows.iter().position(|row| row.name == name)?;
-        Some(self.header_lines + index)
+        if self.rows_of != self.directory {
+            return None;
+        }
+        let row = self.rows.get(line.checked_sub(self.header_lines)?)?;
+        let bytes = row.name.as_encoded_bytes();
+        let one = !bytes.is_empty()
+            && !bytes.contains(&b'/')
+            && !bytes.contains(&0)
+            && (cfg!(unix) || !bytes.contains(&b'\\'));
+        one.then_some(row)
     }
 }
 
 impl App {
     /// Does what the directory editor's commands asked.
     pub(super) fn serve_listings(&mut self) {
-        self.dired
-            .by_buffer
-            .retain(|id, _| self.editor.listing(*id).is_some());
+        // A listing killed: its reading stops, and its rows are freed off this thread.
+        let gone: Vec<BufferId> = (self.dired.by_buffer.keys())
+            .filter(|id| self.editor.listing(**id).is_none())
+            .copied()
+            .collect();
+        for id in gone {
+            self.lister.forget_dired(id);
+            let listing = self.dired.by_buffer.remove(&id);
+            let waiting = self.dired.waiting.remove(&id);
+            self.freer
+                .free((listing.map(|listing| listing.rows), waiting));
+        }
         for request in self.editor.take_listing_requests() {
             match request {
                 ListingRequest::Open { directory, point } => {
@@ -107,30 +127,34 @@ impl App {
     /// Shows a listing of `directory`, the one open if there is one, with point on `point`.
     fn open_listing_of(&mut self, directory: &Path, point: Option<OsString>) {
         let directory = lexically_clean(directory, self.editor.start_directory());
-        if let Some(id) = self.editor.listing_of(&directory) {
+        if let Some(id) = self.listing_of_directory(&directory) {
             self.editor.show(id);
-            if let Some(point) = point {
-                self.put_listing_point(id, &point);
+            if let Some(listing) = self.dired.by_buffer.get_mut(&id) {
+                listing.point = point.or(listing.point.take());
             }
             self.list_again(id);
             return;
         }
         let name = listing_name(&self.editor, &directory, None);
         let id = self.editor.add_listing(name, directory.clone());
-        let mut header = directory.as_os_str().to_string_lossy().into_owned();
-        header.push_str(":\n  listing…\n");
-        self.editor.set_internal_text(id, &format!("  {header}"));
+        let mut header = b"  ".to_vec();
+        dired::rows::push_name(&mut header, directory.as_os_str().as_encoded_bytes());
+        header.extend_from_slice(":\n  listing…\n".as_bytes());
+        self.editor
+            .set_internal_text(id, &String::from_utf8_lossy(&header));
         self.editor.show(id);
         let listing = Listing {
             directory,
             options: self.dired.options,
             generation: 0,
             rows: Arc::from([]),
+            rows_of: PathBuf::new(),
             header_lines: 0,
             point,
             line: None,
             stamp: None,
             seen: None,
+            whole: false,
         };
         self.dired.by_buffer.insert(id, listing);
         self.list_again(id);
@@ -160,11 +184,13 @@ impl App {
             options,
             generation: 0,
             rows: Arc::from([]),
+            rows_of: PathBuf::new(),
             header_lines: 0,
             point: None,
             line: Some(entry.line),
             stamp: None,
             seen: None,
+            whole: false,
         };
         self.dired.by_buffer.insert(id, listing);
         self.list_again(id);
@@ -176,6 +202,9 @@ impl App {
         let Some(listing) = self.dired.by_buffer.get(&buffer) else {
             return;
         };
+        if listing.rows_of != listing.directory {
+            return self.editor.message("Still listing the directory");
+        }
         let Some(row) = listing.row_at(line).cloned() else {
             return self.editor.message("No file on this line");
         };
@@ -225,12 +254,12 @@ impl App {
     /// Lists `directory` in `buffer`, in place of the one it lists, as dired-single does.
     fn move_listing_to(&mut self, buffer: BufferId, directory: PathBuf, point: Option<OsString>) {
         // A listing of it open already is shown instead, so that no two list one directory.
-        if let Some(open) = self.editor.listing_of(&directory)
+        if let Some(open) = self.listing_of_directory(&directory)
             && open != buffer
         {
             self.editor.show(open);
-            if let Some(point) = point {
-                self.put_listing_point(open, &point);
+            if let Some(listing) = self.dired.by_buffer.get_mut(&open) {
+                listing.point = point.or(listing.point.take());
             }
             return self.list_again(open);
         }
@@ -239,6 +268,7 @@ impl App {
             listing.point = point;
             listing.stamp = None;
             listing.seen = None;
+            listing.whole = false;
         }
         self.list_again(buffer);
     }
@@ -257,6 +287,7 @@ impl App {
             directory: listing.directory.clone(),
             options: listing.options,
             home: self.editor.home().map(Path::to_path_buf),
+            partials: !listing.whole,
         });
     }
 
@@ -269,31 +300,12 @@ impl App {
         self.list_again(buffer);
     }
 
-    /// Puts point in every window showing `buffer` on the row of `name`, if it has one.
-    fn put_listing_point(&mut self, buffer: BufferId, name: &OsStr) {
-        let Some(line) = self
-            .dired
-            .by_buffer
-            .get(&buffer)
-            .and_then(|listing| listing.line_of(name))
-        else {
-            if let Some(listing) = self.dired.by_buffer.get_mut(&buffer) {
-                listing.point = Some(name.to_os_string());
-            }
-            return;
-        };
-        let column = self
-            .editor
-            .listing(buffer)
-            .map_or(0, |record| record.name_column);
-        let (window, shown) = self.editor.current_mut();
-        if window.buffer() != buffer {
-            return;
-        }
-        let text = shown.text();
-        let at = text.line_start(line) + column.min(text.line_len(line));
-        window.selections = SelectionSet::new(at);
-        self.editor.follow_cursor();
+    /// The listing that lists `directory`, as the app knows it: it moves to the directory it
+    /// lists next as soon as it is asked to.
+    fn listing_of_directory(&self, directory: &Path) -> Option<BufferId> {
+        (self.dired.by_buffer.iter())
+            .find(|(_, listing)| listing.directory == directory)
+            .map(|(id, _)| *id)
     }
 
     /// Copies the names of the rows at `lines`, or their absolute paths, as a kill.
@@ -301,21 +313,27 @@ impl App {
         let Some(listing) = self.dired.by_buffer.get(&buffer) else {
             return;
         };
-        let names: Vec<String> = lines
+        let rows: Vec<&Row> = lines
             .iter()
             .filter_map(|line| listing.row_at(*line))
             .filter(|row| row.name != "." && row.name != "..")
-            .map(|row| {
-                let name = if absolute {
-                    listing.directory.join(&row.name).into_os_string()
-                } else {
-                    row.name.clone()
-                };
-                name.to_string_lossy().into_owned()
-            })
             .collect();
-        if names.is_empty() {
+        if rows.is_empty() {
             return self.editor.message("No file on this line");
+        }
+        // Copied as text, a name that is not UTF-8 would name another file, and a line break in
+        // one would read as two.
+        let mut names = Vec::with_capacity(rows.len());
+        for row in rows {
+            let name = if absolute {
+                listing.directory.join(&row.name).into_os_string()
+            } else {
+                row.name.clone()
+            };
+            match name.into_string() {
+                Ok(name) if !name.contains(['\n', '\r']) => names.push(name),
+                _ => return self.editor.message("A name is not plain text; not copied"),
+            }
         }
         let text = names.join(" ");
         let secret = self
@@ -326,158 +344,6 @@ impl App {
         self.write_clipboard();
         if !secret {
             self.editor.message(text);
-        }
-    }
-
-    /// A lister's thread built a listing: shows it if it is the newest for its buffer, now or
-    /// once the editor's text may change. Returns whether a frame is needed.
-    pub(super) fn dired_answered(&mut self, answer: Answer) -> bool {
-        let newest = self
-            .dired
-            .by_buffer
-            .get(&answer.buffer)
-            .is_some_and(|listing| listing.generation == answer.generation);
-        if !newest {
-            return false;
-        }
-        if self.editor.reload_waits() {
-            self.dired.waiting.insert(answer.buffer, answer);
-            return false;
-        }
-        self.show_built_listing(answer)
-    }
-
-    /// Shows the listings that waited, once nothing makes them wait.
-    fn show_waiting_listings(&mut self) {
-        if self.dired.waiting.is_empty() || self.editor.reload_waits() {
-            return;
-        }
-        let waiting: Vec<Answer> = self
-            .dired
-            .waiting
-            .drain()
-            .map(|(_, answer)| answer)
-            .collect();
-        let mut shown = false;
-        for answer in waiting {
-            shown |= self.dired_answered(answer);
-        }
-        if shown {
-            self.request_redraw();
-        }
-    }
-
-    fn show_built_listing(&mut self, answer: Answer) -> bool {
-        let built = match answer.built {
-            Ok(built) => built,
-            Err(why) => {
-                self.editor
-                    .message(format!("Cannot list the directory: {why}"));
-                return false;
-            }
-        };
-        let Some(listing) = self.dired.by_buffer.get_mut(&answer.buffer) else {
-            return false;
-        };
-        // Each window stays on the name it was on, or goes to the one asked for.
-        let points = self.editor.listing_points(answer.buffer);
-        let old_rows = std::mem::replace(&mut listing.rows, Arc::clone(&built.rows));
-        let old_header = std::mem::replace(&mut listing.header_lines, built.header_lines);
-        let line_of = |name: &OsStr| {
-            let index = built.rows.iter().position(|row| row.name == name)?;
-            Some(built.header_lines + index)
-        };
-        let asked = listing.point.as_deref().and_then(line_of).or(listing.line);
-        let first = built.header_lines + built.rows.len().min(2);
-        let last = (built.header_lines + built.rows.len()).saturating_sub(1);
-        let line = asked.unwrap_or(first).min(last.max(built.header_lines));
-        let lines: Vec<_> = points
-            .iter()
-            .filter(|_| asked.is_none())
-            .filter_map(|(window, line)| {
-                let name = &old_rows.get(line.checked_sub(old_header)?)?.name;
-                Some((*window, line_of(name)?))
-            })
-            .collect();
-        // What was asked for holds until the whole listing is in.
-        let mut stale = false;
-        if built.done {
-            listing.point = None;
-            listing.line = None;
-            listing.stamp = Some(built.stamp);
-            // The watcher saw it change while it was read.
-            stale = listing.seen.is_some_and(|seen| seen != built.stamp);
-        }
-        let record = Record {
-            directory: listing.directory.clone(),
-            header_lines: built.header_lines,
-            name_column: built.name_column,
-            rows: built.rows.len(),
-            details: listing.options.details,
-            note: listing.options.sort.note().to_owned(),
-        };
-        let directory = listing.directory.clone();
-        let name = listing_name(&self.editor, &directory, Some(answer.buffer));
-        let old_text = self
-            .editor
-            .buffer(answer.buffer)
-            .map(|shown| shown.text().clone());
-        let refused = self.editor.set_listing_text(
-            answer.buffer,
-            built.text,
-            ListingShown {
-                record,
-                highlights: built.highlights,
-                name,
-                resolved: built.resolved.or_else(|| Some(vec![directory])),
-                line,
-                lines,
-            },
-        );
-        // What the listing replaced is freed off this thread.
-        self.freer.free((old_text, refused, old_rows));
-        self.buffers_changed();
-        if stale {
-            self.list_again(answer.buffer);
-        }
-        true
-    }
-
-    /// The directories of the shown listings, for the watcher, when they changed.
-    pub(super) fn watched_listings(&mut self) -> Option<Vec<(BufferId, PathBuf)>> {
-        let shown: Vec<(BufferId, PathBuf)> = self
-            .dired
-            .by_buffer
-            .iter()
-            .filter(|(id, _)| self.editor.windows().any(|window| window.buffer() == **id))
-            .map(|(id, listing)| (*id, listing.directory.clone()))
-            .collect();
-        let mut sorted = shown;
-        sorted.sort_unstable_by_key(|(id, _)| *id);
-        if sorted == self.dired.watched {
-            return None;
-        }
-        self.dired.watched.clone_from(&sorted);
-        Some(sorted)
-    }
-
-    /// What the watcher saw of the shown listings' directories: one that changed since it was
-    /// listed is listed again, keeping each window's point on its name.
-    pub(super) fn listings_watched(&mut self, seen: Vec<(BufferId, Option<FileStamp>)>) {
-        let mut changed = Vec::new();
-        for (id, stamp) in seen {
-            let Some(listing) = self.dired.by_buffer.get_mut(&id) else {
-                continue;
-            };
-            listing.seen = Some(stamp);
-            // Once, until the listing asked for comes whole.
-            if listing.stamp.is_some_and(|listed| listed != stamp) {
-                listing.stamp = None;
-                changed.push(id);
-            }
-        }
-        for id in changed {
-            self.list_again(id);
         }
     }
 }
@@ -535,5 +401,6 @@ fn lexically_clean(directory: &Path, start: &Path) -> PathBuf {
     clean
 }
 
+mod show;
 #[cfg(test)]
 mod tests;

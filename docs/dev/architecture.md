@@ -598,7 +598,8 @@ The UI thread never blocks on I/O or parsing:
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
 - The directory editor's listings are read on the same threads, a request kept per listing
   buffer (`crates/oso/src/dired.rs`, glue in `app/dired.rs`): each entry's metadata from the
-  descriptor, following no link (`getattrlistbulk` on macOS, `fstatat` elsewhere), sorted, and
+  descriptor, following no link (`getattrlistbulk` on macOS, `fstatat` on Linux, the
+  names' own metadata on Windows), sorted, and
   built there into a rope with its display map, highlights and a table of what each row names,
   a partial one every 50 ms while a large directory is read. The UI swaps it in at O(1)
   (`Editor::set_listing_text`), each window's point kept on its name. The watcher looks at the

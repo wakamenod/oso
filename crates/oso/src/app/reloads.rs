@@ -87,7 +87,7 @@ impl App {
             .as_ref()
             .and_then(Watcher::take_directories)
         {
-            self.listings_watched(seen);
+            self.listing_stamps_seen(seen);
         }
         let Some((generation, mut seen)) = self.disk.watcher.as_ref().and_then(Watcher::take)
         else {
@@ -136,7 +136,7 @@ impl App {
         if std::mem::take(&mut self.disk.files_changed) {
             self.sync_watched_files();
         }
-        if let Some(directories) = self.watched_listings()
+        if let Some(directories) = self.listings_to_watch()
             && let Some(watcher) = &self.disk.watcher
         {
             watcher.watch_directories(directories);
