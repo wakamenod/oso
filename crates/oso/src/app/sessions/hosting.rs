@@ -17,8 +17,8 @@ use oso_core::project::ProjectId;
 use super::super::{App, UserEvent};
 use crate::review::TrustedRoot;
 use crate::sessions::hosted::{New, Run, Table};
+use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
-use crate::sessions::record::Origin;
 use crate::sessions::start::{self, Kind, Order, Ready, Report};
 use crate::sessions::worker::{Job, SessionKey};
 
@@ -52,9 +52,6 @@ pub(in crate::app) struct Hosting {
     /// The internal `*Session explain*` buffer, once there is one. Kept by its id, never found
     /// by its name, which anyone may give a buffer of their own.
     pub(in crate::app) explain: Option<BufferId>,
-    /// What `session-explain` says first of the session it was asked about, when an agent
-    /// started it without asking: who, and its brief (ADR 0135).
-    pub(in crate::app) explain_origin: Option<String>,
     /// The sessions being started by another session's hand-off, by key: their parent.
     parents: HashMap<SessionKey, SessionId>,
     /// How sessions being started by an agent's tool start, with the brief of one that starts
@@ -71,8 +68,8 @@ pub(in crate::app) struct Hosting {
     pub(in crate::app) tools: super::tools::Tools,
 }
 
-/// What a new session starts with.
-#[derive(Debug, Clone, Default)]
+/// What a new session starts with. Its default is the person's start, by a key.
+#[derive(Debug, Clone)]
 pub(in crate::app) struct Begin {
     /// Its name's base, else its directory's name.
     pub name: Option<String>,
@@ -89,6 +86,20 @@ pub(in crate::app) struct Begin {
     pub check_shared: bool,
     /// The trust of its directory, when it is no open project's: a worktree just made.
     pub trusted: Option<TrustedRoot>,
+}
+
+impl Default for Begin {
+    fn default() -> Self {
+        Self {
+            name: None,
+            directory: None,
+            brief: None,
+            parent: None,
+            origin: Origin::Person,
+            check_shared: false,
+            trusted: None,
+        }
+    }
 }
 
 impl Hosting {
@@ -124,7 +135,6 @@ impl Hosting {
             fork_offered: Vec::new(),
             adopting: Adopting::default(),
             explain: None,
-            explain_origin: None,
             parents: HashMap::new(),
             origins: HashMap::new(),
             shared: None,
@@ -254,9 +264,9 @@ impl App {
             self.hosting.parents.insert(key, parent);
         }
         if begin.origin != Origin::Person {
+            // Empty for a start without asking that had no brief.
             let brief = (begin.origin == Origin::Unasked)
-                .then(|| begin.brief.as_deref().map(Arc::from))
-                .flatten();
+                .then(|| Arc::from(begin.brief.as_deref().unwrap_or_default()));
             self.hosting.origins.insert(key, (begin.origin, brief));
         }
         if begin.check_shared {
@@ -512,7 +522,9 @@ impl App {
         let key = ready.token;
         let new = self.hosting.table.get(key).is_none();
         if new {
-            let (origin, unasked_brief) = self.hosting.origins.remove(&key).unwrap_or_default();
+            // Only an agent's tool puts an origin here; a start of the person's has none.
+            let (origin, unasked_brief) =
+                (self.hosting.origins.remove(&key)).unwrap_or((Origin::Person, None));
             let added = self.hosting.table.add(
                 key,
                 New {

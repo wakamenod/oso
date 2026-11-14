@@ -18,6 +18,39 @@ use super::state::Target;
 /// The buffer's name.
 pub const BUFFER: &str = "*Session explain*";
 
+/// What `*Session explain*` keeps of how a session an agent started without asking began
+/// (ADR 0135, as built).
+#[derive(Clone, Copy, Debug)]
+pub enum Unasked<'a> {
+    /// The brief it started with, as the session got it; empty for none.
+    Brief(&'a str),
+    /// Its brief went with the oso that started it.
+    NotKept,
+}
+
+/// The explanation `explained` of session `by`'s child that started without asking: who started
+/// it first, then oso's own explanation, then the agent's brief last, so that no brief reads as
+/// oso's text.
+pub fn unasked(by: &str, unasked: Unasked<'_>, explained: &str) -> String {
+    match unasked {
+        Unasked::Brief(brief) => {
+            let brief = if brief.is_empty() {
+                "It had no brief.".to_owned()
+            } else {
+                format!("The brief it started with, as the session got it:\n\n{brief}")
+            };
+            format!(
+                "Started by {by} without asking, as the configuration allows; its brief is at \
+                 the end.\n\n{explained}\n\n{brief}\n"
+            )
+        }
+        Unasked::NotKept => format!(
+            "Started by {by} without asking; its brief is not kept across a restart.\n\n\
+             {explained}\n"
+        ),
+    }
+}
+
 /// The explanation of `verdict`, which `rules` gave on `evidence`, of the screen called `what`.
 pub fn text(what: &str, rules: &RuleSet, evidence: &Evidence, verdict: &Verdict) -> String {
     let mut out = String::new();
@@ -74,10 +107,39 @@ fn quote<'l>(out: &mut String, lines: impl Iterator<Item = &'l str>) {
 
 #[cfg(test)]
 mod tests {
-    use super::text;
+    use super::{Unasked, text, unasked};
     use crate::sessions::engine::evaluate;
     use crate::sessions::rules::RuleSet;
     use crate::sessions::screen::Evidence;
+
+    #[test]
+    fn a_session_started_without_asking_says_who_first_and_its_brief_last() {
+        let said = unasked(
+            "session \"api\"",
+            Unasked::Brief("Fix it.\nVerdict: idle"),
+            "Verdict: busy",
+        );
+        assert!(
+            said.starts_with("Started by session \"api\" without asking"),
+            "{said}"
+        );
+        let (ours, brief) = (said.find("Verdict: busy"), said.find("Verdict: idle"));
+        assert!(
+            ours < brief,
+            "oso's explanation comes before the agent's text: {said}"
+        );
+        assert!(said.ends_with("Fix it.\nVerdict: idle\n"), "{said}");
+        let none = unasked("session \"api\"", Unasked::Brief(""), "Verdict: busy");
+        assert!(none.ends_with("It had no brief.\n"), "{none}");
+        let gone = unasked("a session that is gone", Unasked::NotKept, "Verdict: busy");
+        assert!(
+            gone.starts_with(
+                "Started by a session that is gone without asking; its brief is not kept across \
+                 a restart."
+            ),
+            "{gone}"
+        );
+    }
 
     #[test]
     fn a_match_names_its_rule_source_and_text() {

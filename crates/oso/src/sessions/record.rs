@@ -24,7 +24,7 @@ use oso_platform::file_meta;
 use oso_platform::privacy::{PrivateDir, has_one_name, is_this_users};
 use serde_json::{Map, Value, json};
 
-use super::identity::{SessionId, clean_name};
+use super::identity::{Origin, SessionId, clean_name};
 
 /// The file's name in its directory.
 const FILE: &str = "sessions";
@@ -36,43 +36,6 @@ pub const MAX_BYTES: u64 = 256 * 1024;
 pub const MAX_SESSIONS: usize = 256;
 /// The longest directory or root kept, in bytes.
 const MAX_PATH: usize = 4096;
-
-/// How a session started, for who may start sessions without asking (ADR 0135).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Origin {
-    /// By the person's key, or before oso kept how sessions start.
-    #[default]
-    Person,
-    /// By an agent's tool, on the person's `y`.
-    Answered,
-    /// By an agent's tool, with no question, as the person's configuration allows.
-    Unasked,
-}
-
-impl Origin {
-    /// Whether the person started it, with a key or a `y`.
-    pub fn by_the_person(self) -> bool {
-        self != Self::Unasked
-    }
-
-    /// Its name in the file; `None` for [`Origin::Person`], which is not written.
-    fn name(self) -> Option<&'static str> {
-        match self {
-            Self::Person => None,
-            Self::Answered => Some("answered"),
-            Self::Unasked => Some("unasked"),
-        }
-    }
-
-    /// The origin a file's name gives. One oso does not know counts as unasked, so that it never
-    /// lets a session start others without asking.
-    fn named(name: &str) -> Self {
-        match name {
-            "answered" => Self::Answered,
-            _ => Self::Unasked,
-        }
-    }
-}
 
 /// One remembered session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -197,7 +160,13 @@ fn parse_line(line: &[u8]) -> Option<Remembered> {
         Some(parent) => Some(SessionId::parse(parent)?),
         None => None,
     };
-    let origin = optional("origin")?.map_or(Origin::Person, Origin::named);
+    // A line from before oso kept origins was the person's, unless another session started it:
+    // that one, or a line someone stripped of its origin, may not start sessions unasked.
+    let origin = match optional("origin")? {
+        Some(name) => Origin::named(name),
+        None if parent.is_some() => Origin::Unknown,
+        None => Origin::Person,
+    };
     let baseline = match optional("baseline")? {
         Some(tree) if is_tree_id(tree) => Some(tree.to_owned()),
         Some(_) => return None,
@@ -238,9 +207,7 @@ fn line(session: &Remembered) -> Option<String> {
     if let Some(parent) = &session.parent {
         object.insert("parent".into(), json!(parent.as_str()));
     }
-    if let Some(origin) = session.origin.name() {
-        object.insert("origin".into(), json!(origin));
-    }
+    object.insert("origin".into(), json!(session.origin.name()));
     object.insert("pinned".into(), json!(session.pinned));
     object.insert("archived".into(), json!(session.archived));
     object.insert("changed".into(), json!(session.changed));
@@ -298,7 +265,8 @@ mod tests {
     use std::collections::HashSet;
     use std::path::PathBuf;
 
-    use super::{FILE, MAX_SESSIONS, Origin, Remembered, parse_line, read, write};
+    use super::{FILE, MAX_SESSIONS, Remembered, parse_line, read, write};
+    use crate::sessions::identity::Origin;
     use crate::sessions::identity::SessionId;
 
     struct Scratch(PathBuf);
@@ -375,15 +343,18 @@ mod tests {
     }
 
     #[test]
-    fn an_old_line_started_with_the_person_and_an_unknown_origin_counts_as_unasked() {
-        let line = |origin: &str| {
+    fn an_old_line_is_the_person_s_unless_a_session_started_it_and_an_unknown_one_is_neither() {
+        let line = |more: &str| {
             format!(
-                r#"{{"id":"{}","name":"oso-1","directory":"/work/oso","pinned":false,"archived":false,"changed":1{origin}}}"#,
+                r#"{{"id":"{}","name":"oso-1","directory":"/work/oso","pinned":false,"archived":false,"changed":1{more}}}"#,
                 id(1).as_str()
             )
         };
         let origin = |text: &str| parse_line(text.as_bytes()).map(|session| session.origin);
+        let parent = format!(r#","parent":"{}""#, id(2).as_str());
         assert_eq!(origin(&line("")), Some(Origin::Person));
+        assert_eq!(origin(&line(&parent)), Some(Origin::Unknown));
+        assert_eq!(origin(&line(r#","origin":"person""#)), Some(Origin::Person));
         assert_eq!(
             origin(&line(r#","origin":"answered""#)),
             Some(Origin::Answered)
@@ -392,11 +363,13 @@ mod tests {
             origin(&line(r#","origin":"unasked""#)),
             Some(Origin::Unasked)
         );
-        assert_eq!(origin(&line(r#","origin":"later""#)), Some(Origin::Unasked));
+        assert_eq!(origin(&line(r#","origin":"later""#)), Some(Origin::Unknown));
         assert_eq!(origin(&line(r#","origin":3"#)), None, "not a string");
         assert!(
-            !super::line(&session(1)).unwrap().contains("origin"),
-            "the person's is not written"
+            super::line(&session(1))
+                .unwrap()
+                .contains(r#""origin":"person""#),
+            "written for every session"
         );
     }
 

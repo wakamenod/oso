@@ -145,7 +145,7 @@ fn a_saved_screen_is_explained_and_odd_files_are_refused() {
     fs::write(&saved, b"out \xff\n  esc to interrupt\n").unwrap();
     let mut core = core();
     let found = core.handle(Job::ExplainFile(saved.clone()), Instant::now());
-    let [Out::Explained(text)] = found.as_slice() else {
+    let [Out::Explained(None, text)] = found.as_slice() else {
         panic!("{found:?}");
     };
     assert!(text.contains("Rule: busy (bundled)"), "{text}");
@@ -157,7 +157,7 @@ fn a_saved_screen_is_explained_and_odd_files_are_refused() {
         (dir.join("none"), "Cannot explain"),
     ] {
         let found = core.handle(Job::ExplainFile(path.clone()), Instant::now());
-        let [Out::Unexplained(why)] = found.as_slice() else {
+        let [Out::Unexplained(None, why)] = found.as_slice() else {
             panic!("{found:?}");
         };
         assert!(why.contains(says), "{why}");

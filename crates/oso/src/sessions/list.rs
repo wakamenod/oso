@@ -445,10 +445,10 @@ impl Row<'_> {
         let left = room.saturating_sub(cells(&name) + 2);
         let mut place = None;
         // Under its worktree in the tree, only the mark of a start without asking.
-        let shown = if self.place {
-            Some(self.place())
+        let shown: Option<std::borrow::Cow<'_, str>> = if self.place {
+            Some(self.place().into())
         } else {
-            entry.unasked.then(|| UNASKED.to_owned())
+            entry.unasked.then_some(UNASKED.into())
         };
         if let Some(shown) = shown.filter(|_| left >= PLACE_FROM) {
             text.push_str("  ");

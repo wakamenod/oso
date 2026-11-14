@@ -6,45 +6,48 @@
 
 use super::super::super::App;
 use super::super::hosting::Begin;
-use super::asks::{Creating, Plan, Question};
-use super::{Caller, Job, shown};
-use crate::sessions::record::Origin;
+use super::asks::{Creating, Plan};
+use super::{Caller, Job, Pending, shown};
+use crate::sessions::explain::{self, Unasked};
+use crate::sessions::identity::{Origin, SessionId};
 use crate::sessions::tools as rules;
+use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::jobs::{Report, Trust};
 use crate::sessions::worktree::porcelain::printable;
 
 impl App {
-    /// Whether `caller`'s start in a project that is `trusted` or not goes ahead without the
-    /// question, by [`rules::starts_without_asking`].
-    pub(super) fn starts_without_asking(&self, caller: &Caller, trusted: bool) -> bool {
+    /// Whether `caller`'s call of `tool`, a start in a project that is `trusted` now or not,
+    /// goes ahead without the question, by [`rules::starts_without_asking`].
+    pub(super) fn starts_without_asking(&self, caller: &Caller, tool: &str, trusted: bool) -> bool {
         let tools = &self.hosting.tools;
-        let live = self
-            .hosting
-            .table
-            .all()
-            .iter()
-            .filter(|session| {
-                session.origin == Origin::Unasked
-                    && session.runs()
-                    && session.parent.as_ref() == Some(&caller.id)
-            })
-            .count()
-            + self.hosting.readying_unasked(&caller.id)
-            + tools.unasked_worktrees_being_made(&caller.id);
         rules::starts_without_asking(rules::Unasked {
-            allowed: tools.agent_starts.on && !tools.agent_starts_held,
+            tool: rules::tool(tool).map_or(rules::Asks::Each, |tool| tool.asks),
+            allowed: self.agent_starts_allowed(),
             caller: caller.origin,
             trusted,
-            live,
+            live_unasked: self.unasked_children(&caller.id),
             limit: tools.agent_starts.limit,
         })
     }
 
+    /// How many sessions `parent` started without asking that run, are being got ready, or
+    /// wait for their worktree.
+    fn unasked_children(&self, parent: &SessionId) -> usize {
+        let running = self.hosting.table().all().iter().filter(|session| {
+            session.origin == Origin::Unasked
+                && session.runs()
+                && session.parent.as_ref() == Some(parent)
+        });
+        running.count()
+            + self.hosting.readying_unasked(parent)
+            + self.hosting.tools.unasked_worktrees_being_made(parent)
+    }
+
     /// The person's `y`, or a start without asking: what the question named runs, as the
-    /// person's act or their configuration's.
-    pub(super) fn carry_out(&mut self, question: Question) {
-        let pending = question.pending;
-        match question.plan {
+    /// person's act or their configuration's. `said`, for a start without asking, is said once
+    /// the session's start is under way, so that the echo area ends on it.
+    pub(super) fn carry_out(&mut self, pending: Pending, plan: Plan, said: Option<String>) {
+        match plan {
             Plan::Worktree {
                 trust,
                 order,
@@ -60,8 +63,9 @@ impl App {
                     ..trust
                 };
                 self.worktree_jobs().create(token, trust, order);
+                let by = if said.is_some() { " for an agent" } else { "" };
                 self.editor
-                    .message(format!("Making the worktree for {branch}…"));
+                    .message(format!("Making the worktree for {branch}{by}…"));
                 self.hosting.tools.jobs.insert(
                     token,
                     Job::Creating(Creating {
@@ -69,12 +73,16 @@ impl App {
                         name,
                         parent,
                         origin,
+                        said,
                     }),
                 );
             }
             Plan::Start(begin) => match self.begin_session(begin) {
                 Some(key) => {
                     self.hosting.tools.starts.insert(key, pending);
+                    if let Some(said) = said {
+                        self.editor.message(format!("Agent: {said}"));
+                    }
                 }
                 None => pending.answer(Err("the session did not start".into())),
             },
@@ -115,6 +123,9 @@ impl App {
                 match key {
                     Some(key) => {
                         self.hosting.tools.starts.insert(key, creating.pending);
+                        if let Some(said) = creating.said {
+                            self.editor.message(format!("Agent: {said}"));
+                        }
                     }
                     None => creating.pending.answer(Err(
                         "the worktree was made; its session did not start".into(),
@@ -131,5 +142,32 @@ impl App {
                 .pending
                 .answer(Err("making the worktree ended unexpectedly".into())),
         }
+    }
+
+    /// The explanation `explained` of session `key`, with who started it and its brief when an
+    /// agent started it without asking; `None` for any other session (ADR 0135, as built).
+    pub(in crate::app) fn unasked_explained(
+        &self,
+        key: SessionKey,
+        explained: &str,
+    ) -> Option<String> {
+        let table = self.hosting.table();
+        let session = table.get(key)?;
+        if session.origin != Origin::Unasked {
+            return None;
+        }
+        let by = session
+            .parent
+            .as_ref()
+            .and_then(|parent| table.all().iter().find(|s| &s.id == parent))
+            .map_or_else(
+                || "a session that is gone".to_owned(),
+                |parent| format!("session {}", rules::quoted(&parent.name)),
+            );
+        let kept = session
+            .unasked_brief
+            .as_deref()
+            .map_or(Unasked::NotKept, Unasked::Brief);
+        Some(explain::unasked(&by, kept, explained))
     }
 }

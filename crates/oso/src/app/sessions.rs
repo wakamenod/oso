@@ -129,15 +129,19 @@ impl App {
     /// The worker found something.
     pub(super) fn sessions_reported(&mut self, out: Out) {
         match out {
-            Out::Explained(text) => match self.hosting.explain_origin.take() {
-                Some(origin) => self.show_explanation(&format!("{origin}{text}")),
-                None => self.show_explanation(&text),
-            },
+            Out::Explained(key, text) => {
+                match key.and_then(|key| self.unasked_explained(key, &text)) {
+                    Some(text) => self.show_explanation(&text),
+                    None => self.show_explanation(&text),
+                }
+            }
             // A session started without asking still shows who started it and its brief.
-            Out::Unexplained(why) => match self.hosting.explain_origin.take() {
-                Some(origin) => self.show_explanation(&format!("{origin}{why}\n")),
-                None => self.editor.message(why),
-            },
+            Out::Unexplained(key, why) => {
+                match key.and_then(|key| self.unasked_explained(key, &why)) {
+                    Some(text) => self.show_explanation(&text),
+                    None => self.editor.message(why),
+                }
+            }
             Out::Slow(slowest) => self.editor.note(format!(
                 "Agent rules took more than {} ms on a screen, so its state holds; the slowest \
                  rule was {slowest}. See agent-rules/claude.toml",

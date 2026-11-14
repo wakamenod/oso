@@ -6,7 +6,8 @@
 //! worktree on `y`, `n` refuses it and the same call for a minute after, and `worktree_remove`
 //! removes a finished worktree with no question and keeps its branch. With
 //! `[sessions] agents_start_without_asking`, the start asks nothing up to the limit, says so and
-//! marks the row, asks past the limit, and asks again after `agent-starts-ask` (ADR 0135).
+//! marks the row, asks past the limit, asks again after `agent-starts-ask`, and asks for a
+//! `session_start` once the person no longer trusts the project (ADR 0135).
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the tools' table,
 //! the questions' wording, the loop guard and the refusals have their own tests.
@@ -389,7 +390,7 @@ fn a_worktree_session_starts_without_asking_up_to_the_limit_and_asks_past_it() {
     });
     let messages = rows_after(&mut app, "C-x b * M e s s a g e s * RET", "*Messages*");
     assert!(
-        messages.contains("Agent: session \\\"repo\\\" started a session in a new worktree"),
+        messages.contains("Agent: session \\\"repo\\\" is starting a session in a new worktree"),
         "{messages}"
     );
     assert!(messages.contains("without asking"), "{messages}");
@@ -429,5 +430,40 @@ fn after_agent_starts_ask_a_start_asks_again() {
     let (said, error) = bridge.result(id);
     assert!(error, "{said}");
     assert_eq!(runs(&flow).len(), 1, "a second fake ran");
+    flow.exit_with(0);
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_session_in_its_own_directory_starts_without_asking_until_the_project_is_untrusted() {
+    let sessions = "agents_start_without_asking = true\n";
+    let flow = Flow::with_fake("session-tools-own", sessions, FAKE);
+    let (mut app, mut bridge) = hosted(&flow);
+
+    let (started, error) = bridge.tool("session_start", json!({ "brief": "Look around" }));
+    assert!(!error, "{started}");
+    assert_eq!(started["asked"], false, "{started}");
+    assert_eq!(app.state()["prompts"], json!([]), "nobody was asked");
+    let name = started["session"]["name"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    app.wait_for("the unasked session's terminal", |state| {
+        terminal(state, &format!("*claude: {name}*")).is_some()
+    });
+
+    // Once the person untrusts the project, which both sessions' buffers are in, the same call
+    // asks.
+    app.run_command("untrust-project", None).unwrap();
+    app.wait_for("the project restricted", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.ends_with("is restricted again"))
+    });
+    thread::sleep(AFTER_TYPING);
+    let id = bridge.call("session_start", json!({ "brief": "Look again" }));
+    answer(&mut app, "n");
+    let (said, error) = bridge.result(id);
+    assert!(error, "{said}");
     flow.exit_with(0);
 }

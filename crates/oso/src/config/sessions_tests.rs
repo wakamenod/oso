@@ -127,3 +127,42 @@ fn steering_worktrees_is_off_until_set() {
     );
     assert!(!loaded.settings.sessions.steer_worktrees);
 }
+
+#[test]
+fn agents_start_without_asking_and_its_limit() {
+    let f = Fixture::new();
+    let loaded = f.parse("[sessions]\n");
+    assert!(!loaded.settings.sessions.agents_start_without_asking);
+    assert_eq!(
+        loaded.settings.sessions.agents_start_limit(),
+        4,
+        "the default"
+    );
+    let loaded =
+        f.parse("[sessions]\nagents_start_without_asking = true\nagents_start_limit = 8\n");
+    assert_eq!(messages(&loaded), Vec::<String>::new());
+    assert!(loaded.settings.sessions.agents_start_without_asking);
+    assert_eq!(loaded.settings.sessions.agents_start_limit(), 8);
+    for (value, said) in [
+        ("0", "not 0"),
+        ("9", "not 9"),
+        ("-1", "not -1"),
+        ("2.5", "not a number"),
+        ("\"4\"", "not a string"),
+    ] {
+        let loaded = f.parse(&format!("[sessions]\nagents_start_limit = {value}\n"));
+        let messages = messages(&loaded);
+        assert_eq!(messages.len(), 1, "{value}");
+        assert!(
+            messages[0].ends_with(&format!(
+                "[sessions] agents_start_limit takes a number from 1 to 8, {said}"
+            )),
+            "{}",
+            messages[0]
+        );
+        assert_eq!(loaded.settings.sessions.agents_start_limit(), 4, "{value}");
+    }
+    let loaded = f.parse("[sessions]\nagents_start_without_asking = 1\n");
+    assert_eq!(messages(&loaded).len(), 1);
+    assert!(!loaded.settings.sessions.agents_start_without_asking);
+}

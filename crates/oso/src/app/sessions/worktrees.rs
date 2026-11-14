@@ -399,7 +399,7 @@ impl App {
         spaces.add(&created.main, None);
         spaces.add(&created.path, Some(&created.main));
         self.begin_session(Begin {
-            origin: crate::sessions::record::Origin::Person,
+            origin: crate::sessions::identity::Origin::Person,
             name: None,
             directory: Some(created.path),
             brief: Some(created.prompt),

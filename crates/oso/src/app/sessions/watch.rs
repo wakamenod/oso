@@ -457,7 +457,7 @@ impl App {
                     recap: self.row_recap(session.key),
                     pinned: session.pinned,
                     archived: session.archived,
-                    unasked: session.origin == crate::sessions::record::Origin::Unasked,
+                    unasked: session.origin == crate::sessions::identity::Origin::Unasked,
                     parent,
                     dir: Some(session.directory.clone()),
                     repo: None,

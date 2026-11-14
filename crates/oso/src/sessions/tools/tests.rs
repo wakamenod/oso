@@ -11,8 +11,8 @@ use super::{
     Asks, Branch, Guard, MAX_CALLS, REFUSED_FOR, Refusal, TOOLS, Unasked, quoted, start_question,
     start_started, starts_without_asking, tool, worktree_question, worktree_started,
 };
+use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
-use crate::sessions::record::Origin;
 
 fn session(n: u8) -> SessionId {
     SessionId::from_random([n; 16])
@@ -32,14 +32,21 @@ fn the_tools_and_their_reach() {
             ("session_state", Reach::Look, Asks::No, false, true),
             ("worktree_list", Reach::Look, Asks::No, false, true),
             ("worktree_remove", Reach::Change, Asks::No, true, false),
+            // They start without asking only as ADR 0135 lets them; nothing else does.
             (
                 "start_worktree_session",
                 Reach::Change,
-                Asks::Each,
+                Asks::UnlessAllowed,
                 true,
                 false
             ),
-            ("session_start", Reach::Change, Asks::Each, true, false),
+            (
+                "session_start",
+                Reach::Change,
+                Asks::UnlessAllowed,
+                true,
+                false
+            ),
         ]
     );
     let destructive: Vec<_> = TOOLS
@@ -237,25 +244,26 @@ fn a_start_says_what_started_without_asking() {
             Branch::New { from: "main" },
             42
         ),
-        "session \"api\" started a session in a new worktree \"/r/.claude/worktrees/x\" on new branch \"x\" from \"main\", without asking (brief: 42 lines; C-x a e explains)"
+        "session \"api\" is starting a session in a new worktree \"/r/.claude/worktrees/x\" on new branch \"x\" from \"main\", without asking (brief: 42 lines; C-x a e explains)"
     );
     assert_eq!(
         start_started("api", "/r", None),
-        "session \"api\" started a session in \"/r\", without asking (no brief; C-x a e explains)"
+        "session \"api\" is starting a session in \"/r\", without asking (no brief; C-x a e explains)"
     );
     assert_eq!(
         start_started("api", "/r", Some(1)),
-        "session \"api\" started a session in \"/r\", without asking (brief: 1 line; C-x a e explains)"
+        "session \"api\" is starting a session in \"/r\", without asking (brief: 1 line; C-x a e explains)"
     );
 }
 
 #[test]
 fn only_the_person_s_session_starts_without_asking_trusted_and_below_its_limit() {
     let yes = Unasked {
+        tool: Asks::UnlessAllowed,
         allowed: true,
         caller: Origin::Person,
         trusted: true,
-        live: 3,
+        live_unasked: 3,
         limit: 4,
     };
     assert!(starts_without_asking(yes));
@@ -269,15 +277,29 @@ fn only_the_person_s_session_starts_without_asking_trusted_and_below_its_limit()
             ..yes
         },
         Unasked {
+            tool: Asks::Each,
+            ..yes
+        },
+        Unasked {
             caller: Origin::Unasked,
+            ..yes
+        },
+        Unasked {
+            caller: Origin::Unknown,
             ..yes
         },
         Unasked {
             trusted: false,
             ..yes
         },
-        Unasked { live: 4, ..yes },
-        Unasked { live: 9, ..yes },
+        Unasked {
+            live_unasked: 4,
+            ..yes
+        },
+        Unasked {
+            live_unasked: 9,
+            ..yes
+        },
     ] {
         assert!(!starts_without_asking(no), "{no:?}");
     }

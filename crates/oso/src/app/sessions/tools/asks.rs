@@ -19,8 +19,8 @@ use oso_core::minibuffer::PromptId;
 use super::super::super::App;
 use super::super::hosting::Begin;
 use super::{Caller, Job, Pending, shown};
+use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
-use crate::sessions::record::Origin;
 use crate::sessions::tools::{self as rules, Branch, Tool};
 use crate::sessions::worktree::create::{Handover, Order};
 use crate::sessions::worktree::jobs::{Report, Trust};
@@ -71,11 +71,7 @@ impl Plan {
 
 /// What a call's question says, what `?` shows, and what the echo area says of a start
 /// without asking.
-struct Words {
-    label: String,
-    details: String,
-    said: String,
-}
+struct Words(String, String, String);
 
 /// A call whose job looks before the person is asked.
 #[derive(Debug)]
@@ -125,6 +121,8 @@ pub(in crate::app) struct Creating {
     pub(super) name: Option<String>,
     pub(super) parent: SessionId,
     pub(super) origin: Origin,
+    /// What the echo area says once its session starts, for a start without asking.
+    pub(super) said: Option<String>,
 }
 
 impl App {
@@ -194,7 +192,10 @@ impl App {
             check_shared: false,
             trusted: self.caller_root(caller),
         };
-        self.queue_start_question(pending, caller, target, begin);
+        // Without asking only in a project an open buffer has trusted now: the trust the session
+        // began with may have been taken back since (ADR 0135, Q4).
+        let trusted = self.caller_trusted_now(caller);
+        self.queue_start_question(pending, caller, (target, trusted), begin);
     }
 
     /// Admits `pending`'s call on `target`, and starts the job that looks at what `prepare`
@@ -293,12 +294,8 @@ impl App {
                     parent: caller.id.clone(),
                     origin: Origin::Answered,
                 };
-                let words = Words {
-                    label,
-                    details,
-                    said,
-                };
-                self.queue_question(pending, &caller, (target, true), words, plan);
+                let words = Words(label, details, said);
+                self.ask_or_start(pending, &caller, (target, true), words, plan);
             }
             (Prepared::Directory(directory), Then::Start { brief, name }) => {
                 let begin = Begin {
@@ -310,7 +307,9 @@ impl App {
                     check_shared: false,
                     trusted,
                 };
-                self.queue_start_question(pending, &caller, target, begin);
+                // Its job, as a worktree's, looked at trust against the record as it is now.
+                let now = (target, begin.trusted.is_some());
+                self.queue_start_question(pending, &caller, now, begin);
             }
             _ => pending.answer(Err("the call's check found something else".into())),
         }
@@ -320,7 +319,7 @@ impl App {
         &mut self,
         pending: Pending,
         caller: &Caller,
-        target: String,
+        (target, trusted): (String, bool),
         begin: Begin,
     ) {
         let mut begin = begin;
@@ -341,9 +340,6 @@ impl App {
         );
         let details = details(&caller.name, &label, brief.unwrap_or("(no brief)"));
         let said = rules::start_started(&caller.name, &shown(&directory), brief.map(rules::lines));
-        // A directory whose project is not trusted, the caller's own restricted one among them,
-        // always asks (ADR 0135, Q4).
-        let trusted = begin.trusted.is_some();
         // The new session's first prompt starts with oso's line, never with the agent's text,
         // so that no brief is read as a command of Claude Code's own (`/`, `!`, `#`).
         begin.brief = begin.brief.map(|brief| {
@@ -352,12 +348,8 @@ impl App {
                 rules::quoted(&caller.name)
             )
         });
-        let words = Words {
-            label,
-            details,
-            said,
-        };
-        self.queue_question(
+        let words = Words(label, details, said);
+        self.ask_or_start(
             pending,
             caller,
             (target, trusted),
@@ -366,28 +358,35 @@ impl App {
         );
     }
 
-    /// Asks the person about `plan`, `caller`'s call on `target`, or starts it at once when the
-    /// person's configuration lets it start without asking (ADR 0135); `trusted` when the
-    /// project it starts in is.
-    fn queue_question(
+    /// Starts `plan`, `caller`'s call on `target`, at once when the person's configuration lets
+    /// it start without asking (ADR 0135), else asks the person; `trusted` when the project it
+    /// starts in is trusted now.
+    fn ask_or_start(
         &mut self,
-        pending: Pending,
+        mut pending: Pending,
         caller: &Caller,
         (target, trusted): (String, bool),
         words: Words,
-        plan: Plan,
+        mut plan: Plan,
     ) {
-        let Words {
-            label,
-            details,
-            said,
-        } = words;
-        if self.hosting.tools.question.is_some() {
-            return pending.answer(Err(
-                "a question an agent caused waits for the person; try again".into(),
-            ));
+        let Words(label, details, said) = words;
+        if self.starts_without_asking(caller, pending.tool, trusted) {
+            plan.started_as(Origin::Unasked);
+            pending.unasked = true;
+            self.agent_log(&format!("{}: starting without asking", pending.tool));
+            return self.carry_out(pending, plan, Some(said));
         }
-        let mut question = super::Question {
+        if self.agent_question_waits() {
+            return pending.answer(Err(super::QUESTION_WAITS.into()));
+        }
+        // A `y` here lets the new session start sessions without asking in turn (Q3): the
+        // question says when the one asking began without the person.
+        let label = if caller.origin.by_the_person() {
+            label
+        } else {
+            format!("{label} It started without asking itself.")
+        };
+        self.hosting.tools.question = Some(super::Question {
             pending,
             caller: caller.id.clone(),
             target,
@@ -395,18 +394,7 @@ impl App {
             details,
             plan,
             asked: None,
-        };
-        if self.starts_without_asking(caller, trusted) {
-            question.plan.started_as(Origin::Unasked);
-            question.pending.unasked = true;
-            self.agent_log(&format!(
-                "{}: starting without asking",
-                question.pending.tool
-            ));
-            self.editor.message(format!("Agent: {said}"));
-            return self.carry_out(question);
-        }
-        self.hosting.tools.question = Some(question);
+        });
         self.ask_about_a_tool();
     }
 
@@ -451,7 +439,7 @@ impl App {
                 self.hide_question_details();
                 if self.editor.take_agent_allowed() {
                     self.agent_log(&format!("{}: allowed", question.pending.tool));
-                    self.carry_out(question);
+                    self.carry_out(question.pending, question.plan, None);
                 } else {
                     let tool = question.pending.tool;
                     self.hosting.tools.guard.refused(

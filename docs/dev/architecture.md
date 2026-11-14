@@ -702,8 +702,12 @@ The UI thread never blocks on I/O or parsing:
   rules are `sessions::tools` (reach, the loop guard, refusals, the questions' wording), and
   `app/sessions/tools/` carries a call out with the hosted table, the start thread and the
   worktree jobs. A call that asks is looked at first by a job (`worktree::prepare`), then its
-  question waits for the person as the connection's own does; a job's reports for a tool's call
-  are taken by token before the person's own worktree commands see them.
+  question waits for the person as the connection's own does, unless the person's
+  configuration lets the caller start sessions without asking
+  ([ADR 0135](adr/0135-agents-start-sessions-without-asking.md)):
+  `sessions::tools::starts_without_asking` decides where the question would open, and
+  `app/sessions/tools/starting.rs` runs the plan. A job's reports for a tool's call are taken
+  by token before the person's own worktree commands see them.
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.

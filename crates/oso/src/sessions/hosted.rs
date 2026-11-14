@@ -12,8 +12,9 @@ use std::sync::Arc;
 use oso_core::buffer::BufferId;
 
 use super::bridge::{self, Candidate};
+use super::identity::Origin;
 use super::identity::{SessionId, unique_name};
-use super::record::{Origin, Remembered};
+use super::record::Remembered;
 use super::state::Exit;
 use super::worker::SessionKey;
 use crate::channel::Connection;
@@ -400,8 +401,9 @@ mod tests {
 
     use super::{New, Run, Table, exit_of};
     use crate::channel::Connection;
+    use crate::sessions::identity::Origin;
     use crate::sessions::identity::SessionId;
-    use crate::sessions::record::{Origin, Remembered};
+    use crate::sessions::record::Remembered;
     use crate::sessions::state::Exit;
 
     fn new(n: u8) -> New {

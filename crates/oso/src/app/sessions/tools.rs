@@ -4,7 +4,8 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here touches the disk or
 //! starts a process: git runs on the worktree jobs, and a session starts on its start thread,
-//! only after the person's `y`.
+//! only after the person's `y`, or without asking as the person's configuration lets a session
+//! they started (ADR 0135).
 //!
 //! - A connection proven to be a hosted session's bridge calls as that session. Any other
 //!   connection may only read, within the selected window's project (the author's choice).
@@ -28,8 +29,8 @@ use crate::channel::protocol::sessions::Call;
 use crate::channel::{Connection, Reply};
 use crate::config::AgentStarts;
 use crate::sessions::hosted::Hosted;
+use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
-use crate::sessions::record::Origin;
 use crate::sessions::tools::{self as rules, Asks, Guard, Tool};
 use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::jobs::{Report, Trust};
@@ -42,6 +43,9 @@ mod starting;
 
 pub(in crate::app) use asks::Question;
 use reads::Listing;
+
+/// What a call that would ask is told while another agent's question waits.
+const QUESTION_WAITS: &str = "a question an agent caused waits for the person; try again";
 
 /// What the app keeps of the agents' session tools.
 #[derive(Debug, Default)]
@@ -237,10 +241,14 @@ impl App {
 
     /// Counts a call of `tool` on `target` from `caller` toward the loop guard, or says why
     /// it is refused: past the guard, within a minute of the person's `n` to the same call, or,
-    /// for a tool that asks, while another agent's question waits.
+    /// for a tool that asks, while another agent's question waits. A start that may go ahead
+    /// without asking is not held back by another's question here; it is if it asks after all.
     fn admit_tool(&mut self, tool: &Tool, caller: &Caller, target: &str) -> Result<(), String> {
-        if tool.asks == Asks::Each && (self.hosting.tools.question.is_some() || self.agent_asks()) {
-            return Err("a question an agent caused waits for the person; try again".into());
+        let may_go_unasked = tool.asks == Asks::UnlessAllowed
+            && self.agent_starts_allowed()
+            && caller.origin.by_the_person();
+        if tool.asks != Asks::No && !may_go_unasked && self.agent_question_waits() {
+            return Err(QUESTION_WAITS.into());
         }
         if tool.asks == Asks::No
             && let Some(why) = self.agent_waits()
@@ -270,7 +278,16 @@ impl App {
     /// looked up now so that the person's later trust or distrust counts, else the one the
     /// session started with (a worktree just made, which no buffer opened).
     fn caller_root(&self, caller: &Caller) -> Option<crate::review::TrustedRoot> {
-        let open = caller.root.as_deref().and_then(|root| {
+        match self.open_caller_root(caller) {
+            Some(now) => now,
+            None => self.hosting.trusts.get(&caller.key).cloned(),
+        }
+    }
+
+    /// The trust of the caller's project as an open buffer of it has it now: `None` when no
+    /// buffer has it open, `Some(None)` when it is not trusted.
+    fn open_caller_root(&self, caller: &Caller) -> Option<Option<crate::review::TrustedRoot>> {
+        caller.root.as_deref().and_then(|root| {
             let id = self
                 .editor
                 .buffers()
@@ -278,11 +295,16 @@ impl App {
                 .find(|&id| self.editor.project(id).is_some_and(|p| p.root() == root))?;
             // An open project that is not trusted is not trusted, whatever the session began with.
             Some(crate::review::TrustedRoot::of(&self.editor, id))
-        });
-        match open {
-            Some(now) => now,
-            None => self.hosting.trusts.get(&caller.key).cloned(),
-        }
+        })
+    }
+
+    /// Whether the caller's project is trusted now, by an open buffer of it, the session's own
+    /// among them: never by the trust the session began with, which the person may have taken
+    /// back since (ADR 0135).
+    fn caller_trusted_now(&self, caller: &Caller) -> bool {
+        self.open_caller_root(caller)
+            .flatten()
+            .is_some_and(|root| !root.revoked())
     }
 
     /// The person's input reached the terminal of the session `buffer` holds: its agent may
@@ -350,6 +372,18 @@ impl App {
         None
     }
 
+    /// Whether another agent's question waits for the person, or one of this tool's.
+    fn agent_question_waits(&self) -> bool {
+        self.hosting.tools.question.is_some() || self.agent_asks()
+    }
+
+    /// Whether the configuration and the commands let sessions the person started start
+    /// sessions without asking now (ADR 0135).
+    fn agent_starts_allowed(&self) -> bool {
+        let tools = &self.hosting.tools;
+        tools.agent_starts.on && !tools.agent_starts_held
+    }
+
     /// `agent-starts-ask` when `held`, `agent-starts-allow` when not: whether sessions the person
     /// started may start sessions without asking, as the configuration said at oso's start
     /// (ADR 0135).
@@ -389,6 +423,7 @@ impl App {
             (Ok(()), Some(session)) => Ok(json!({
                 "session": { "id": session.id.as_str(), "name": session.name },
                 "directory": session.directory.display().to_string(),
+                "asked": true,
             })),
             (Ok(()), None) => Err("the session started, and ended at once".into()),
             (Err(why), _) => Err(format!("the session did not start: {why}")),

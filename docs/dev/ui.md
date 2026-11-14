@@ -933,11 +933,11 @@ a switch made with its command stands until that setting changes in the file
   session's state in `*Session explain*`.
 - With `[sessions] agents_start_without_asking`, a session the person started starts sessions with
   no question in a trusted project, up to `agents_start_limit` each
-  ([ADR 0135](adr/0135-agents-start-sessions-without-asking.md)). The echo area says `Agent:
-  session "repo" started a session in a new worktree … without asking (brief: 1 line; C-x a e
-  explains)`, the row's place ends in `· unasked` (alone under its worktree in the tree), and
-  `*Session explain*` starts with who started it and its brief, or that the brief is not kept
-  across a restart. `agent-starts-ask` and `agent-starts-allow` turn the question back on and off
+  ([ADR 0135](adr/0135-agents-start-sessions-without-asking.md)). Once its start is under way, the
+  echo area says `Agent: session "repo" is starting a session in a new worktree … without asking
+  (brief: 1 line; C-x a e explains)`, the row's place ends in `· unasked` (alone under its worktree in the tree), and
+  `*Session explain*` starts with who started it and ends with its brief, or says that the brief
+  is not kept across a restart. `agent-starts-ask` and `agent-starts-allow` turn the question back on and off
   until oso restarts.
 - A space is a project with its sessions, and keeps its own windows. `C-x a j` (`space-switch`)
   switches to another; showing a session of another space switches to it first. A space

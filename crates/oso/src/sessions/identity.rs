@@ -13,6 +13,47 @@
 use std::fmt;
 use std::io;
 
+/// How a session started, for who may start sessions without asking (ADR 0135).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    /// By the person's key, or before oso kept how sessions start.
+    Person,
+    /// By an agent's tool, on the person's `y`.
+    Answered,
+    /// By an agent's tool, with no question, as the person's configuration allows.
+    Unasked,
+    /// Not known: a record line another session started that holds no origin, or one oso does
+    /// not know. It may not start sessions without asking.
+    Unknown,
+}
+
+impl Origin {
+    /// Whether the person started it, with a key or a `y`.
+    pub fn by_the_person(self) -> bool {
+        matches!(self, Self::Person | Self::Answered)
+    }
+
+    /// Its name in the record.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Person => "person",
+            Self::Answered => "answered",
+            Self::Unasked => "unasked",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// The origin a record's name gives; one oso does not know is [`Origin::Unknown`].
+    pub fn named(name: &str) -> Self {
+        match name {
+            "person" => Self::Person,
+            "answered" => Self::Answered,
+            "unasked" => Self::Unasked,
+            _ => Self::Unknown,
+        }
+    }
+}
+
 /// The longest name, in bytes, before a `-N` that tells it from another.
 pub const MAX_NAME: usize = 48;
 

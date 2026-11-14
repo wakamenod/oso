@@ -333,3 +333,18 @@ fn a_spinner_tick_with_twenty_spinning_rows_stays_within_its_budget() {
     // A debug build is several times slower; the budget is a release build's (ADR 0131).
     assert!(cfg!(debug_assertions) || best.as_micros() < 200, "{best:?}");
 }
+
+#[test]
+fn a_session_started_without_asking_says_so_after_its_place() {
+    let t = Instant::now();
+    let mut unasked = entry(1, "fix", State::Idle, t);
+    unasked.unasked = true;
+    unasked.pinned = true;
+    let entries = [unasked, entry(2, "mine", State::Idle, t)];
+    let shown = List::by_state().render(&entries, 60, t);
+    let rows: Vec<&str> = shown.text.lines().collect();
+    let fix = rows.iter().find(|row| row.contains("fix")).unwrap();
+    assert!(fix.contains("oso · main · pinned · unasked"), "{rows:?}");
+    let mine = rows.iter().find(|row| row.contains("mine")).unwrap();
+    assert!(!mine.contains("unasked"), "{rows:?}");
+}
