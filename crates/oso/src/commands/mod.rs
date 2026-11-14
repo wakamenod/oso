@@ -299,6 +299,7 @@ mod tests {
         "session-explain-file",
         // A hosted session's `claude`, a process the person starts (ADR 0121).
         "claude",
+        "session-adopt",
         "session-fork",
         // Sending to a session is the person's typing into its terminal (ADR 0120, Q15).
         "session-follow-message",

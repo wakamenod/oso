@@ -661,6 +661,9 @@ The UI thread never blocks on I/O or parsing:
   (`sessions/record.rs`), is read and written on `oso-sessions`. A bridge's claim of a session is
   judged on the UI thread by one pure function (`sessions/bridge.rs`) when the channel's server
   asks (`Event::Claims`).
+  `session-adopt`'s list of conversations oso does not host is made on a short
+  `oso-session-adopt-list` thread (`sessions/adopt.rs`, `sessions/transcripts.rs`, glue in
+  `app/sessions/hosting/adopt.rs`), and its pick resumes through the same start thread.
 - Sending to a session ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 5) has one
   delivery path on the UI thread, `App::send_to_session` (`app/sessions/watch/sending.rs`): it
   refuses a session that cannot take a paste (`sessions/send.rs::refusal`, pure), pastes with

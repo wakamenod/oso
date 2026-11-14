@@ -24,9 +24,12 @@
 //! - `attention`: when a session's state asks for the person's attention.
 //! - `list`: `*Sessions*`, grouped, nested and folded, rendered to a width.
 //! - `spaces`: each project's window tree, zoom and last buffers.
+//! - `transcripts`: the ids, names, times and directories of Claude Code's conversations, and
+//!   `adopt`: what `session-adopt` offers, found on a thread of its own.
 //! - `messages`: who sent a session a message, from its screen.
 //! - `send`: what the person sends to a session, and why a send is refused.
 
+pub mod adopt;
 pub mod attention;
 pub mod bridge;
 pub mod command;
@@ -46,6 +49,7 @@ pub mod send;
 pub mod spaces;
 pub mod start;
 pub mod state;
+pub mod transcripts;
 pub mod worker;
 pub mod worktree;
 

@@ -59,6 +59,10 @@ impl App {
                     self.fork_session(buffer);
                     continue;
                 }
+                SessionRequest::Adopt(pick) => {
+                    self.adopt_session(&pick);
+                    continue;
+                }
                 SessionRequest::Worktree { .. }
                 | SessionRequest::SendBrief(_)
                 | SessionRequest::CancelBrief(_)
@@ -86,6 +90,7 @@ impl App {
             }
         }
         self.drop_unanswered_fork_offer();
+        self.show_waiting_adoptable();
         // After the requests, so that a `session-stop` that a question's yes ran finds its
         // stop still asked.
         self.drop_unasked_stop();
@@ -129,6 +134,9 @@ impl App {
             Out::Recalled(remembered) => {
                 self.sessions_recalled(remembered);
                 self.sessions_touched();
+                // Once oso knows its own, the others it may adopt.
+                self.hosting.adopting.recalled = true;
+                self.list_adoptable();
             }
             Out::Changed(key, change) => {
                 log::debug!("session {key}: {}", change.state);

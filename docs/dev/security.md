@@ -477,12 +477,20 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   controls, never from text an agent gave, and passes no permission option, so a session starts
   in the mode the person's own settings give it. Through the login shell, its arguments are
   positional parameters of a fixed script, never script text, and `claude` is found on the
-  shell's `PATH` as in any terminal the person opens, unless `[sessions] claude` names it by
-  absolute path. `[sessions] env` cannot pass `PATH` or the loader's variables. Starting,
+  shell's `PATH` as in any terminal the person opens, outside the session's directory and its
+  project, unless `[sessions] claude` names it by absolute path. `[sessions] env` cannot pass `PATH` or the loader's variables. Starting,
   resuming and forking are `Person`. oso's start brings sessions back stopped, and runs nothing.
   - A resume reads Claude Code's registry first, and refuses while a live process has that id,
     offering a fork. The registry is read on a thread, `<digits>.json` names only, bounded,
     without following links and only the reading user's; oso never reads the `*.key` files.
+  - `session-adopt` (`Person`) lists Claude Code's transcripts, `<uuid>.jsonl` names only, on a
+    thread, bounded, without following links and only the reading user's with one name. Of each
+    it reads only the id, the change time, a name from lines that start as title lines, and the
+    top-level `cwd`, found by a scanner that never decodes another value. It never reads what
+    was said. A directory from either file is taken only absolute, with no `.` or `..` part.
+    Names and directories are escaped before they are shown. Each candidate's text stands for
+    one conversation, looked up in the list its prompt showed. The resume is a resume, refused
+    while the registry says the conversation runs.
   - A session's `oso mcp` names its session, and is let in without the question only if its
     parent is the `claude` oso started and has not reaped, it runs oso's own program, and no
     other connection holds that session. Such a bridge is outside the channel's cap of 2, one a

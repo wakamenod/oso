@@ -11,7 +11,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use oso_core::display_map::cell::classify;
 
@@ -314,7 +314,12 @@ fn group_name(group: &Group) -> &str {
 
 /// An age as the list shows it: `12s`, `5m`, `3h`, `2d`.
 pub fn age(since: Instant, now: Instant) -> String {
-    let seconds = now.saturating_duration_since(since).as_secs();
+    age_of(now.saturating_duration_since(since))
+}
+
+/// A time gone by as the list shows it, as [`age`].
+pub fn age_of(ago: Duration) -> String {
+    let seconds = ago.as_secs();
     match seconds {
         0..60 => format!("{seconds}s"),
         60..3600 => format!("{}m", seconds / 60),

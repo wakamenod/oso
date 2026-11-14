@@ -5,11 +5,11 @@
 //! files, so it runs on the session's start thread.
 //!
 //! - For `sh`, `bash`, `zsh`, `dash` and `ksh`, by the shell's file name, the program is
-//!   `SHELL -l -c SCRIPT CLAUDE ARGS…`. The arguments are positional parameters, never text
-//!   inside the script, so nothing in a name or a brief is parsed by the shell.
+//!   `SHELL -l -c SCRIPT PROJECT CLAUDE ARGS…`. The arguments are positional parameters, never
+//!   text inside the script, so nothing in a name or a brief is parsed by the shell.
 //! - [`SCRIPT`] runs `[sessions] claude` as given. Else it looks for `claude` on the `PATH` the
 //!   login shell set, as oso's own look does: only in absolute entries, and in none inside the
-//!   session's directory.
+//!   session's directory or its project.
 //! - For any other shell (`fish`, `nu`), `claude` runs directly, with the environment the
 //!   terminal gives: `[sessions] claude`, else `claude` on oso's own `PATH`, else the person is
 //!   told to set `[sessions] claude`.
@@ -22,21 +22,26 @@ use oso_platform::process::Executable;
 /// The shells that run [`SCRIPT`] as POSIX has it, by file name.
 const POSIX_SHELLS: [&str; 5] = ["sh", "bash", "zsh", "dash", "ksh"];
 
-/// The script a POSIX login shell runs: its first operand as the program, the rest as its
-/// arguments, each as given. An operand that is not an absolute path is looked for on `PATH`,
-/// in its absolute entries outside the directory the session runs in, each compared by the
-/// directory it is with links resolved; if none has it, the script says so and ends with 127.
-pub const SCRIPT: &str = r#"case $0 in /*) exec "$0" "$@";; esac
+/// The script a POSIX login shell runs: its first operand as the project, `-` for none, its
+/// second as the program, the rest as its arguments, each as given. A program that is not an
+/// absolute path is looked for on `PATH`, in its absolute entries outside the directory the
+/// session runs in and outside the project, each compared by the directory it is with links
+/// resolved; if none has it, the script says so and ends with 127.
+pub const SCRIPT: &str = r#"o=$0; c=$1; shift
+case $c in /*) exec "$c" "$@";; esac
 here=$(pwd -P)
+top=
+case $o in /*) top=$(cd "$o" 2>/dev/null && pwd -P) || top=$o;; esac
 p=$PATH:
 while [ -n "$p" ]; do
   d=${p%%:*}; p=${p#*:}
   case $d in /*) ;; *) continue ;; esac
   r=$(cd "$d" 2>/dev/null && pwd -P) || continue
   case $r in "$here"|"$here"/*) continue ;; esac
-  if [ -f "$r/$0" ] && [ -x "$r/$0" ]; then exec "$r/$0" "$@"; fi
+  if [ -n "$top" ]; then case $r in "$top"|"$top"/*) continue ;; esac; fi
+  if [ -f "$r/$c" ] && [ -x "$r/$c" ]; then exec "$r/$c" "$@"; fi
 done
-printf 'oso: no %s on an absolute PATH entry outside this directory; set [sessions] claude\n' "$0" >&2
+printf 'oso: no %s on an absolute PATH entry outside this directory and its project; set [sessions] claude\n' "$c" >&2
 exit 127"#;
 
 /// The program's name when the login shell finds it on its own `PATH`.
@@ -85,7 +90,10 @@ pub fn launch(
 ) -> Result<Launch, LaunchError> {
     if is_posix(shell.path()) {
         let program = claude.map_or_else(|| OsString::from(CLAUDE), |c| c.path().into());
-        let mut wrapped: Vec<OsString> = vec!["-l".into(), "-c".into(), SCRIPT.into(), program];
+        // Not absolute, so the script leaves out no project.
+        let project = project.map_or_else(|| OsString::from("-"), |p| p.into());
+        let mut wrapped: Vec<OsString> =
+            vec!["-l".into(), "-c".into(), SCRIPT.into(), project, program];
         wrapped.extend(args);
         return Ok(Launch {
             program: shell.clone(),
@@ -169,6 +177,11 @@ mod tests {
 
     /// Whether the launch ran and ended with 0.
     fn status(launch: &super::Launch, scratch: &Scratch) -> bool {
+        status_in(launch, scratch, &scratch.0)
+    }
+
+    /// Whether the launch ran in `cwd` and ended with 0.
+    fn status_in(launch: &super::Launch, scratch: &Scratch, cwd: &Path) -> bool {
         let out = scratch.0.join("out");
         let home = scratch.0.join("home");
         std::fs::create_dir_all(&home).unwrap();
@@ -180,7 +193,7 @@ mod tests {
         let mut child = process::spawn(&Spawn {
             executable: &launch.program,
             args: &launch.args,
-            cwd: Some(&scratch.0),
+            cwd: Some(cwd),
             project: None,
             inherit: &[],
             stdin: Source::Closed,
@@ -285,6 +298,46 @@ mod tests {
             profile(&home, &format!("bin:{}", bin.display()));
             assert!(!status(&launch, &session), "{name}");
             assert!(!session.0.join("out.pwned").exists(), "{name}");
+            ran += 1;
+        }
+        assert!(ran > 0, "no POSIX shell found");
+    }
+
+    #[test]
+    fn a_bare_claude_is_never_found_inside_the_project() {
+        let mut ran = 0;
+        for shell in ["/bin/sh", "/bin/bash", "/bin/zsh", "/bin/dash", "/bin/ksh"] {
+            let Ok(shell) = Executable::absolute(shell) else {
+                continue;
+            };
+            let name = shell.path().file_name().unwrap().to_str().unwrap();
+            let project = Scratch::new(&format!("project-{name}"));
+            let elsewhere = Scratch::new(&format!("project-elsewhere-{name}"));
+            // The session runs below the project, whose own `claude` must never run.
+            let session = project.0.join("sub").join("dir");
+            std::fs::create_dir_all(&session).unwrap();
+            let bin = project.0.join("bin");
+            std::fs::create_dir_all(&bin).unwrap();
+            std::fs::write(
+                bin.join("claude"),
+                "#!/bin/sh\n/usr/bin/touch \"$OUT.pwned\"\n",
+            )
+            .unwrap();
+            std::fs::set_permissions(bin.join("claude"), std::fs::Permissions::from_mode(0o755))
+                .unwrap();
+            let _ = fake_claude(&elsewhere.0);
+            let launch = launch(&shell, None, hostile(), Some(&project.0)).unwrap();
+            let home = project.0.join("home");
+            profile(
+                &home,
+                &format!("{}:{}", bin.display(), elsewhere.0.display()),
+            );
+            assert!(status_in(&launch, &project, &session), "{name}");
+            assert_eq!(read_out(&project), hostile(), "{name}");
+            // With no other, nothing runs.
+            profile(&home, &bin.display().to_string());
+            assert!(!status_in(&launch, &project, &session), "{name}");
+            assert!(!project.0.join("out.pwned").exists(), "{name}");
             ran += 1;
         }
         assert!(ran > 0, "no POSIX shell found");

@@ -76,6 +76,9 @@ pub enum SessionRequest {
     /// Copy the conversation of the session whose terminal is this buffer under a new id, in a
     /// new buffer (`session-fork`).
     Fork(BufferId),
+    /// Resume the conversation this `session-adopt` candidate names, which runs or ran outside
+    /// oso, as a hosted session in a new buffer (`session-adopt`).
+    Adopt(String),
     /// Open `*Brief*` for a new worktree session on `branch`, a new one starting at `base`
     /// (`session-worktree`).
     Worktree {

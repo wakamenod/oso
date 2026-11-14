@@ -22,7 +22,13 @@ use crate::sessions::identity::SessionId;
 use crate::sessions::start::{self, Kind, Order, Ready, Report};
 use crate::sessions::worker::{Job, SessionKey};
 
+mod adopt;
+mod fork;
 mod terminal;
+
+use fork::ForkFrom;
+
+pub(in crate::app) use adopt::Adopting;
 
 /// What the app keeps of its hosted sessions.
 #[derive(Debug, Default)]
@@ -32,15 +38,16 @@ pub(in crate::app) struct Hosting {
     pub(in crate::app) directory: Option<PathBuf>,
     /// The buffer each session being started has, by its key, until the start thread reports.
     starting: HashMap<SessionKey, BufferId>,
-    /// The trusted project each new session takes a baseline of, and the root its baseline
-    /// thread runs git in, by its key, until the baseline comes or the start is refused: the
-    /// review takes it as the project's, and the root is revoked with the project's trust.
-    baselines: HashMap<SessionKey, (ProjectId, TrustedRoot)>,
+    /// The baseline each new session takes, by its key, until it comes or the start is
+    /// refused.
+    baselines: HashMap<SessionKey, Baseline>,
     /// The sessions changed since the worker was last given them to remember.
     unsaved: bool,
-    /// The "fork it instead?" question of a refused resume, and the session it is about: its
-    /// `y` forks that session, whichever buffer is selected then.
-    fork_offered: Option<(PromptId, SessionKey)>,
+    /// The "fork it instead?" questions of refused resumes, and the conversation each is
+    /// about: a `y` forks the one whose question it closed, whichever buffer is selected then.
+    fork_offered: Vec<(PromptId, ForkFrom)>,
+    /// What `session-adopt` lists, and the adoptions being started.
+    pub(in crate::app) adopting: Adopting,
     /// The internal `*Session explain*` buffer, once there is one. Kept by its id, never found
     /// by its name, which anyone may give a buffer of their own.
     pub(in crate::app) explain: Option<BufferId>,
@@ -89,13 +96,25 @@ impl Hosting {
             starting: HashMap::new(),
             baselines: HashMap::new(),
             unsaved: false,
-            fork_offered: None,
+            fork_offered: Vec::new(),
+            adopting: Adopting::default(),
             explain: None,
             parents: HashMap::new(),
             shared: None,
             worktrees: super::worktrees::Worktrees::default(),
         }
     }
+}
+
+/// The trusted project a new session takes a baseline of, and the root its baseline thread
+/// runs git in. The root is revoked with the project's trust.
+#[derive(Debug)]
+struct Baseline {
+    project: ProjectId,
+    root: TrustedRoot,
+    /// The project's review takes the baseline as its own: not an adopted session's, whose
+    /// changes before oso hosted it stay in the review.
+    to_review: bool,
 }
 
 /// Now, in ms since the epoch, for a session's last change.
@@ -117,30 +136,16 @@ fn base_name(directory: &Path) -> String {
 
 /// Revokes and forgets each of `baselines` whose project `trusted` no longer says is trusted.
 fn revoke_untrusted(
-    baselines: &mut HashMap<SessionKey, (ProjectId, TrustedRoot)>,
+    baselines: &mut HashMap<SessionKey, Baseline>,
     trusted: impl Fn(ProjectId) -> bool,
 ) {
-    baselines.retain(|_, (project, root)| {
-        let kept = trusted(*project);
+    baselines.retain(|_, baseline| {
+        let kept = trusted(baseline.project);
         if !kept {
-            root.revoke();
+            baseline.root.revoke();
         }
         kept
     });
-}
-
-/// The most bytes of a registry's directory a question shows.
-const MAX_SHOWN_DIRECTORY: usize = 200;
-
-/// A directory from Claude Code's registry, which any process of the person's may write, as a
-/// question shows it: escaped so that it stays on one row and cannot reorder it, and cut short.
-fn shown_directory(directory: &Path) -> String {
-    let mut shown = oso_core::editor::row_text(&directory.to_string_lossy());
-    if shown.len() > MAX_SHOWN_DIRECTORY {
-        shown.truncate(shown.floor_char_boundary(MAX_SHOWN_DIRECTORY));
-        shown.push('…');
-    }
-    shown
 }
 
 impl App {
@@ -235,8 +240,13 @@ impl App {
             Some(trusted) => (Some(trusted), Some(directory.clone())),
             None => {
                 let trusted = project.and_then(|id| TrustedRoot::of(&self.editor, id));
-                if let (Some(id), Some(root)) = (project, &trusted) {
-                    self.hosting.baselines.insert(key, (id, root.clone()));
+                if let (Some(project), Some(root)) = (project, &trusted) {
+                    let baseline = Baseline {
+                        project,
+                        root: root.clone(),
+                        to_review: true,
+                    };
+                    self.hosting.baselines.insert(key, baseline);
                 }
                 let root = project
                     .and_then(|id| self.editor.project(id))
@@ -322,65 +332,6 @@ impl App {
         });
     }
 
-    /// `session-fork`: the conversation of the session whose terminal is `buffer`, copied
-    /// under a new id, in a new buffer; or, as the `y` of a refused resume's question, that
-    /// session's.
-    pub(in crate::app) fn fork_session(&mut self, buffer: BufferId) {
-        let offered = self.answered_fork_offer();
-        let session = match offered {
-            Some(key) => self.hosting.table.get(key),
-            None => self.hosting.table.by_buffer(buffer),
-        };
-        let Some(session) = session else {
-            self.editor.message("This buffer holds no session");
-            return;
-        };
-        let (from, directory, root, base) = (
-            session.id.clone(),
-            session.directory.clone(),
-            session.root.clone(),
-            session.name.clone(),
-        );
-        let (key, name) = self.hosting.table.reserve(&directory, &base);
-        self.turn_agent_channel_on_for_a_session();
-        let terminal = self.session_terminal(key, &name, None);
-        self.order_session(Order {
-            token: key,
-            kind: Kind::Fork(from),
-            name,
-            directory,
-            project: root,
-            trusted: None,
-            state: super::super::reviews::state(),
-            claude: self.configuration.session_claude().map(Path::to_path_buf),
-            terminal,
-            brief: None,
-            steer_worktrees: self.configuration.steer_worktrees(),
-            check_shared: false,
-        });
-    }
-
-    /// The session of the refused resume whose question just closed, once: the question was
-    /// answered `y` if `session-fork` runs now.
-    fn answered_fork_offer(&mut self) -> Option<SessionKey> {
-        let (asked, _) = self.hosting.fork_offered?;
-        if self
-            .editor
-            .prompts()
-            .iter()
-            .any(|prompt| prompt.id() == asked)
-        {
-            return None;
-        }
-        self.hosting.fork_offered.take().map(|(_, key)| key)
-    }
-
-    /// After the requests of an event: a fork offer whose question closed without a `y` goes,
-    /// so that a later `session-fork` forks the selected buffer's session.
-    pub(in crate::app) fn drop_unanswered_fork_offer(&mut self) {
-        let _ = self.answered_fork_offer();
-    }
-
     fn order_session(&self, order: Order) {
         let waker = std::sync::Mutex::new(self.waker.clone());
         start::spawn(order, move |report| {
@@ -394,8 +345,17 @@ impl App {
     /// What a session's start thread found.
     pub(in crate::app) fn session_start_reported(&mut self, report: Report) {
         match report {
-            Report::Ready(ready) => self.session_ready(ready),
+            Report::Ready(ready) => {
+                let key = ready.token;
+                self.session_ready(ready);
+                if let Some(adopted) = self.take_adoption(key)
+                    && self.hosting.table.get(key).is_some()
+                {
+                    self.session_adopted(&adopted);
+                }
+            }
             Report::Refused { token, why } => {
+                self.take_adoption(token);
                 self.session_not_started(token);
                 self.hosting.parents.remove(&token);
                 self.editor.message(why);
@@ -405,27 +365,9 @@ impl App {
                 pid,
                 directory,
             } => {
+                let adopted = self.take_adoption(token);
                 self.session_not_started(token);
-                let name = self
-                    .hosting
-                    .table
-                    .get(token)
-                    .map_or_else(String::new, |session| session.name.clone());
-                let place = directory
-                    .map(|directory| format!(" in {}", shown_directory(&directory)))
-                    .unwrap_or_default();
-                let question = match pid {
-                    Some(pid) => format!(
-                        "Session {name} runs already as process {pid}{place}; fork it instead?"
-                    ),
-                    None => format!(
-                        "Session {name} may run already: oso cannot tell from Claude Code's registry; fork it instead?"
-                    ),
-                };
-                match self.editor.ask(question, "session-fork") {
-                    Ok(asked) => self.hosting.fork_offered = Some((asked, token)),
-                    Err(e) => self.editor.message(e.to_string()),
-                }
+                self.offer_fork(token, adopted, pid, directory.as_deref());
             }
             Report::Baseline { token, tree } => {
                 self.session_baseline_to_review(token, &tree);
@@ -455,8 +397,10 @@ impl App {
 
     /// Session `key`'s start baseline goes to its project's review, once.
     fn session_baseline_to_review(&mut self, key: SessionKey, tree: &str) {
-        if let Some((project, _)) = self.hosting.baselines.remove(&key) {
-            self.session_baseline_taken(project, tree);
+        if let Some(baseline) = self.hosting.baselines.remove(&key)
+            && baseline.to_review
+        {
+            self.session_baseline_taken(baseline.project, tree);
         }
     }
 
@@ -575,39 +519,26 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use std::collections::HashMap;
 
-    use super::{MAX_SHOWN_DIRECTORY, revoke_untrusted, shown_directory};
+    use super::{Baseline, revoke_untrusted};
     use crate::review::TrustedRoot;
 
     #[test]
     fn a_start_baseline_of_a_project_no_longer_trusted_is_revoked_and_forgotten() {
         let (_editor, project) = crate::commands::review::tests::in_project(true);
         let root = TrustedRoot::for_tests(std::env::temp_dir());
-        let mut baselines = HashMap::from([(1, (project, root.clone()))]);
+        let baseline = Baseline {
+            project,
+            root: root.clone(),
+            to_review: true,
+        };
+        let mut baselines = HashMap::from([(1, baseline)]);
         revoke_untrusted(&mut baselines, |_| true);
         assert!(!root.revoked());
         assert_eq!(baselines.len(), 1);
         revoke_untrusted(&mut baselines, |_| false);
         assert!(root.revoked(), "its git run stops between requests");
         assert!(baselines.is_empty());
-    }
-
-    #[test]
-    fn a_registry_directory_is_shown_escaped_on_one_row_and_cut_short() {
-        let shown = shown_directory(Path::new("/p/a\nb\u{202e}c"));
-        assert!(!shown.contains('\n'), "{shown}");
-        assert!(!shown.contains('\u{202e}'), "{shown}");
-        let long = format!("/{}", "é".repeat(400));
-        let shown = shown_directory(Path::new(&long));
-        assert!(
-            shown.len() <= MAX_SHOWN_DIRECTORY + '…'.len_utf8(),
-            "{}",
-            shown.len()
-        );
-        assert!(shown.ends_with('…'));
-        assert_eq!(shown_directory(Path::new("/p/oso")), "/p/oso");
     }
 }
