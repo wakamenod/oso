@@ -118,7 +118,7 @@ impl Editor {
             let buffer = self.current().1;
             let snapshot = (buffer.text(), buffer.invalid_bytes());
             let never: &dyn Fn() -> bool = &|| false;
-            let limits = (Limits::key(started), never);
+            let limits = (Limits::key(self.key_until(started)), never);
             match find {
                 Find::Forward { from, after_match } => {
                     needle.find_forward(snapshot, (from, after_match), limits, &mut None)
