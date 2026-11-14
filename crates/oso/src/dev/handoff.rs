@@ -40,6 +40,7 @@ use serde_json::{Value, json};
 use super::protocol::{MAX_LINE, Reply};
 
 mod allowed;
+mod base64;
 pub mod carry;
 mod format;
 mod layout;
@@ -79,16 +80,21 @@ pub struct Frame {
 /// `restores` are what the windows have yet to take from the previous instance: if a file
 /// is still loading, those positions are the real ones. `number` names this export. Every
 /// tiled window goes, in the tree's order, with the layout and which is selected (ADR 0112).
-/// `terminals` are the running terminals the state carries, in its terminals' order; the
-/// caller adds them (ADR 0120, step 11). Without them a running terminal holds the export.
+/// `terminals` are the running terminals the state carries, in its terminals' order, and the
+/// bytes their states take, which kills may not use; the caller adds them (ADR 0120, step 11).
+/// Without them a running terminal holds the export.
 pub fn export(
     editor: &Editor,
     pending: &[KeyPress],
     frame: Option<Frame>,
     restores: &[Restore],
     number: u64,
-    terminals: Option<&[BufferId]>,
+    terminals: Option<(&[BufferId], usize)>,
 ) -> Result<(Value, Exported), String> {
+    let (terminals, reserved) = match terminals {
+        Some((carried, reserved)) => (Some(carried), reserved),
+        None => (None, 0),
+    };
     if shows_judged_secret(editor) {
         return Err(SECRET_SHOWN.into());
     }
@@ -131,8 +137,8 @@ pub fn export(
         }
     }
     let histories = histories_state(editor, &mut items);
-    // The buffers' texts and the histories come first; kills fill what is left.
-    let room = MAX_CARRIED.saturating_sub(items.iter().map(Item::len).sum());
+    // The buffers' texts, the histories and the terminals come first; kills fill what is left.
+    let room = MAX_CARRIED.saturating_sub(items.iter().map(Item::len).sum::<usize>() + reserved);
     let kills = kills_state(editor, room, &mut items);
     let (windows, selected) = windows_state(editor, restores);
     let state = json!({

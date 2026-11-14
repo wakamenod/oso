@@ -40,8 +40,9 @@ pub const MAX_HISTORIES: usize = 64;
 /// The longest name of a history.
 pub const MAX_HISTORY_NAME: usize = 64;
 
-/// The most items one state may carry: each buffer's text, kill entry and history.
-pub const MAX_ITEMS: usize = MAX_BUFFERS + kill::MAX_ENTRIES + MAX_HISTORIES;
+/// The most items one state may carry: each buffer's text, kill entry, history and terminal.
+pub const MAX_ITEMS: usize =
+    MAX_BUFFERS + kill::MAX_ENTRIES + MAX_HISTORIES + super::terminals::MAX_TERMINALS;
 
 /// The largest window side, in pixels: the largest texture wgpu's default
 /// limits allow, since the surface follows the window.

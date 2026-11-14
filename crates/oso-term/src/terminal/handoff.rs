@@ -9,15 +9,21 @@
 
 use std::fmt;
 use std::io;
+#[cfg(unix)]
 use std::os::fd::OwnedFd;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::SystemTime;
 
 use oso_platform::process::pty::Size;
 
 use super::Terminal;
 use crate::snapshot::Palette;
+
+/// A descriptor; there are none to pass where terminals do not exist yet.
+#[cfg(not(unix))]
+pub type OwnedFd = std::convert::Infallible;
 
 /// How a terminal's state is written for the next instance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,7 +103,7 @@ impl fmt::Debug for Adopt {
 pub(super) enum Request {
     Export {
         library: String,
-        budget: usize,
+        budget: Arc<AtomicUsize>,
         reply: mpsc::Sender<Result<Exported, NotExported>>,
     },
     Resume,
@@ -118,8 +124,8 @@ impl Terminal {
         library
     }
 
-    /// Stops reading the PTY and writes the terminal's state for the next instance in at
-    /// most `budget` bytes: a snapshot if `library` is [`Terminal::library`], else escape
+    /// Stops reading the PTY and writes the terminal's state for the next instance, taking its
+    /// bytes from `budget`, which the terminals exported for the same restart share: a snapshot if `library` is [`Terminal::library`], else escape
     /// sequences. Input still goes to the program, and what it writes waits in the kernel.
     /// The answer comes on the receiver, and the thread's `wake` is called. Reading starts
     /// again at [`Terminal::resume`], or by itself after `limits::PAUSE_MAX`; either counts
@@ -127,7 +133,7 @@ impl Terminal {
     pub fn export(
         &self,
         library: &str,
-        budget: usize,
+        budget: Arc<AtomicUsize>,
     ) -> mpsc::Receiver<Result<Exported, NotExported>> {
         let (reply, answer) = mpsc::channel();
         let request = Request::Export {

@@ -179,7 +179,7 @@ fn a_split_frame_comes_back_after_a_restart_with_each_windows_buffer_and_place()
     let mut new = App::start(None, scratch.path());
     new.wait_until_ready();
     let (state, _) = super::handover::hand_over(&mut old, &mut new);
-    assert_eq!(state["version"], 4);
+    assert_eq!(state["version"], 5);
     let after = new.wait_for("both files loaded", |state| {
         windows(state).len() == 3
             && state["buffers"]

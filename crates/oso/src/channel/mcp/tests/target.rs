@@ -136,3 +136,14 @@ fn a_named_instance_replaced_by_a_restart_is_followed_to_the_one_that_took_over(
         .unwrap_err();
     assert!(refused.contains("--pid"), "{refused}");
 }
+
+#[cfg(feature = "dev")]
+#[test]
+fn a_follows_record_reads_back_each_instance_once() {
+    let text = super::super::follows::follows_text(&[41, 42]);
+    assert_eq!(text, "41\n42\n");
+    assert_eq!(
+        super::super::follows::parse_follows("41\n41\n 42 \nx\n41\n"),
+        [41, 42]
+    );
+}

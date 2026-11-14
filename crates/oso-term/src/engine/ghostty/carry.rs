@@ -28,11 +28,11 @@ pub(crate) fn library() -> String {
 }
 
 impl Ghostty {
-    /// This terminal written as `encoding`, in at most `budget` bytes.
+    /// This terminal written as `encoding`, its bytes taken from `budget`.
     pub(crate) fn encode(
         &mut self,
         encoding: Encoding,
-        budget: usize,
+        budget: &std::sync::atomic::AtomicUsize,
     ) -> Result<Vec<u8>, NotEncoded> {
         self.vt.encode(encoding, budget)
     }

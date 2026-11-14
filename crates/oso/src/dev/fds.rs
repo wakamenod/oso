@@ -14,7 +14,9 @@ use std::io;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use oso_platform::control::{ControlDir, ControlStream};
+use oso_platform::control::ControlDir;
+#[cfg(unix)]
+use oso_platform::control::ControlStream;
 use serde_json::Value;
 
 /// A descriptor passed over the socket; there are none where descriptors cannot pass.
@@ -22,6 +24,14 @@ use serde_json::Value;
 pub type Fd = std::os::fd::OwnedFd;
 #[cfg(not(unix))]
 pub type Fd = std::convert::Infallible;
+
+/// Another descriptor for what `fd` refers to, close-on-exec.
+pub fn try_clone(fd: &Fd) -> io::Result<Fd> {
+    #[cfg(unix)]
+    return fd.try_clone();
+    #[cfg(not(unix))]
+    match *fd {}
+}
 
 /// The descriptors a reply takes, which the UI thread puts and the client's thread sends.
 #[derive(Clone, Default)]

@@ -36,6 +36,11 @@ escape-sequence policy, and a thread per terminal that owns its PTY, its child a
 - oso's patch to the library is in `patches/`, with its sha256 and the sha256 of each file it
   changes in the lock. A bump drops a patch the release makes needless, or rebases it and
   updates the hashes. Change the library only through a patch there, never in `OUT_DIR`.
+- `oso dev`'s restart (ADR 0120, step 11) is behind the `dev` feature: a thread stops reading
+  and writes the library's snapshot (`terminal/thread/handoff.rs`, `engine/ghostty/carry.rs`),
+  and a terminal is adopted from one with its master attached later. Only one instance
+  reads a PTY at a time: an exported terminal reads nothing and applies no resize until it
+  resumes or is released, and a released one hangs nothing up and reaps nothing.
 - Terminals exist on Unix only for now: on Windows nothing is built and `Terminal::start`
   returns `Unsupported`.
 - Every Rust file opens with its responsibility and a `Must not depend on:` paragraph (ADR

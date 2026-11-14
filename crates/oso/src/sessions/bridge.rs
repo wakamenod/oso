@@ -30,7 +30,9 @@ pub struct Candidate<'a> {
     pub child: Option<u32>,
     /// A connection holds this session already.
     pub bridged: bool,
-    /// When its `claude` started, if it is not oso's child (a carried session's).
+    /// Whether its `claude` is not oso's child: a session carried over `oso dev`'s restart.
+    pub carried: bool,
+    /// When that `claude` started, if the system said.
     pub started: Option<std::time::SystemTime>,
 }
 
@@ -51,9 +53,10 @@ pub fn admit<'a>(
         session.id == claim
             && session.child == Some(parent)
             && !session.bridged
-            && session
-                .started
-                .is_none_or(|started| parent_started == Some(started))
+            && (!session.carried
+                || session
+                    .started
+                    .is_some_and(|started| parent_started == Some(started)))
     })
 }
 
@@ -73,6 +76,17 @@ mod tests {
         Option<usize>,
     );
 
+    /// A session oso started, its `claude` its own child.
+    fn own(id: &SessionId, child: Option<u32>, bridged: bool) -> Candidate<'_> {
+        Candidate {
+            id,
+            child,
+            bridged,
+            carried: false,
+            started: None,
+        }
+    }
+
     fn peer(runs_this_program: bool, parent: Option<u32>) -> Peer {
         Peer {
             process: Some(PeerProcess::new(900, Some("oso"))),
@@ -87,32 +101,9 @@ mod tests {
             SessionId::from_random([1; 16]),
             SessionId::from_random([2; 16]),
         );
-        let sessions = [
-            Candidate {
-                id: &a,
-                child: Some(100),
-                bridged: false,
-                started: None,
-            },
-            Candidate {
-                id: &b,
-                child: Some(200),
-                bridged: false,
-                started: None,
-            },
-        ];
-        let ended = [Candidate {
-            id: &a,
-            child: None,
-            bridged: false,
-            started: None,
-        }];
-        let bridged = [Candidate {
-            id: &a,
-            child: Some(100),
-            bridged: true,
-            started: None,
-        }];
+        let sessions = [own(&a, Some(100), false), own(&b, Some(200), false)];
+        let ended = [own(&a, None, false)];
+        let bridged = [own(&a, Some(100), true)];
         let cases: [Case<'_>; 9] = [
             (
                 "its own",
@@ -172,6 +163,7 @@ mod tests {
             id: &a,
             child: Some(100),
             bridged: false,
+            carried: true,
             started: Some(then),
         }];
         let by = peer(true, Some(100));
@@ -183,5 +175,14 @@ mod tests {
             "a later process with the same id"
         );
         assert_eq!(admitted(None), None, "a start the system did not say");
+        let unknown = [Candidate {
+            started: None,
+            ..carried[0]
+        }];
+        assert_eq!(
+            admit(&by, Some(&a), Some(then), unknown.iter().copied()),
+            None,
+            "a carried session whose start is unknown lets no bridge in unasked"
+        );
     }
 }

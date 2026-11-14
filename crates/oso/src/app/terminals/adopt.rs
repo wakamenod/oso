@@ -10,7 +10,6 @@
 //! terminal's text: its state goes from the items to its thread as bytes.
 
 use std::io;
-use std::os::fd::OwnedFd;
 use std::time::{Duration, Instant};
 
 use oso_core::buffer::BufferId;
@@ -23,9 +22,6 @@ use super::carry::{CarryEvent, NOT_PARENT};
 use crate::app::{App, UserEvent};
 use crate::dev;
 use crate::dev::handoff::terminals::{self, TerminalState};
-use crate::sessions::hosted::Run;
-use crate::sessions::identity::SessionId;
-use crate::sessions::record::Remembered;
 
 /// How long carried terminals wait for their masters after the import.
 const MASTERS_TIME: Duration = Duration::from_secs(30);
@@ -34,7 +30,7 @@ const MASTERS_TIME: Duration = Duration::from_secs(30);
 #[derive(Default)]
 pub(in crate::app) struct Coming {
     /// Each carried terminal's buffer, in the state's order, and its master once it came.
-    terminals: Vec<(BufferId, Option<OwnedFd>)>,
+    terminals: Vec<(BufferId, Option<crate::dev::fds::Fd>)>,
     since: Option<Instant>,
 }
 
@@ -97,71 +93,14 @@ impl App {
         buffers
     }
 
-    /// The buffer a carried terminal comes back in: its session's, if that came back
-    /// stopped already, else a new one, its session hosted as it was.
+    /// The buffer a carried terminal comes back in: its hosted session's, as the sessions
+    /// take it back, else a new one.
     fn carried_buffer(&mut self, terminal: &TerminalState) -> BufferId {
-        // A session whose id is not one comes back as a plain terminal.
-        let ids = terminal.session.as_ref().and_then(|session| {
-            let parent = match &session.parent {
-                Some(parent) => Some(SessionId::parse(parent)?),
-                None => None,
-            };
-            Some((session, SessionId::parse(&session.id)?, parent))
-        });
-        let Some((session, id, parent)) = ids else {
-            let buffer = self.editor.add_terminal_buffer(&terminal.name);
-            self.terminals.map.add(buffer);
+        if let Some(buffer) = self.host_carried_session(terminal) {
             return buffer;
-        };
-        let known = self
-            .hosting
-            .table
-            .iter()
-            .find(|s| s.id == id)
-            .map(|s| (s.key, s.buffer));
-        let key = match known {
-            Some((key, _)) => key,
-            None => {
-                let back = self.hosting.table.recall(vec![Remembered {
-                    id,
-                    name: session.name.clone(),
-                    directory: session.directory.clone(),
-                    root: session.root.clone(),
-                    parent,
-                    pinned: session.pinned,
-                    archived: false,
-                    changed: session.changed,
-                    baseline: session.baseline.clone(),
-                }]);
-                match back.first() {
-                    Some(&key) => key,
-                    None => {
-                        let buffer = self.editor.add_terminal_buffer(&terminal.name);
-                        self.terminals.map.add(buffer);
-                        return buffer;
-                    }
-                }
-            }
-        };
-        let stopped = known.and_then(|(_, buffer)| buffer);
-        let buffer = match stopped {
-            Some(buffer) if self.editor.buffer(buffer).is_some() => {
-                self.terminals.map.restart(buffer);
-                buffer
-            }
-            _ => {
-                let buffer = self.editor.add_terminal_buffer(&terminal.name);
-                self.terminals.map.add(buffer);
-                buffer
-            }
-        };
-        if let Some(hosted) = self.hosting.table.get_mut(key) {
-            hosted.buffer = Some(buffer);
-            hosted.run = Run::Running {
-                child: terminal.pid,
-            };
-            hosted.started = terminal.started;
         }
+        let buffer = self.editor.add_terminal_buffer(&terminal.name);
+        self.terminals.map.add(buffer);
         buffer
     }
 
@@ -173,7 +112,10 @@ impl App {
         let spawned = std::thread::Builder::new()
             .name("oso-adopt-terminal".into())
             .spawn(move || {
-                let adopted = match terminals::unbase64(&text.to_string()) {
+                let decoded = terminals::unbase64(&text.to_string());
+                // Only the bytes are kept while the engine is restored.
+                drop(text);
+                let adopted = match decoded {
                     Some(state) => {
                         adopt.state = state;
                         let wake = Box::new(move || {

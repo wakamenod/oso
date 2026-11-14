@@ -29,6 +29,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use oso_platform::control::{ControlDir, ControlStream, Socket};
+
+mod follows;
+use follows::follower;
+#[cfg(feature = "dev")]
+pub use follows::{FOLLOWS, follows_text};
 use serde_json::{Map, Value, json};
 
 use super::protocol::PROTOCOL_VERSION;
@@ -436,47 +441,6 @@ fn connect(target: &mut Target) -> Result<Box<dyn Link>, String> {
         next_id: 1,
     }))
 }
-
-/// The instance that took over from `pid` in `oso dev`'s restart, as the record each one
-/// leaves beside its socket says: the newest of those that list it (ADR 0120, step 11). Only
-/// a dev build looks; the connection is then checked as any other.
-#[cfg(feature = "dev")]
-fn follower(pid: u32) -> Option<u32> {
-    let dir = ControlDir::open_existing().ok()?;
-    let suffix = format!("-{FOLLOWS}");
-    std::fs::read_dir(dir.path())
-        .ok()?
-        .take(MAX_LOOKED)
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let name = entry.file_name().into_string().ok()?;
-            let follower: u32 = name.strip_suffix(&suffix)?.parse().ok()?;
-            let file = std::fs::File::open(entry.path()).ok()?;
-            let mut text = String::new();
-            std::io::Read::read_to_string(&mut std::io::Read::take(file, 4096), &mut text).ok()?;
-            let followed: Vec<u32> = text.lines().filter_map(|l| l.trim().parse().ok()).collect();
-            // The newest follower lists the most instances before it.
-            followed
-                .contains(&pid)
-                .then_some((followed.len(), follower))
-        })
-        .max()
-        .map(|(_, follower)| follower)
-}
-
-#[cfg(not(feature = "dev"))]
-fn follower(_pid: u32) -> Option<u32> {
-    None
-}
-
-/// The name of the file, beside an instance's socket, that lists the instances it took over
-/// from in `oso dev`'s restart, which a dev build writes and this reads.
-#[cfg(feature = "dev")]
-pub const FOLLOWS: &str = "follows";
-
-/// The most names in the control directory looked at for a follower.
-#[cfg(feature = "dev")]
-const MAX_LOOKED: usize = 1024;
 
 /// Says `what` on stderr: stdout is the protocol's.
 fn say(what: &str) {

@@ -5,7 +5,8 @@
 //!
 //! Must not depend on: the UI.
 
-use std::sync::mpsc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use super::{Seen, sh};
@@ -17,7 +18,9 @@ const BUDGET: usize = 64 << 20;
 
 /// What `seen`'s terminal exports for `library`.
 fn export(seen: &mut Seen, library: &str, budget: usize) -> Result<Exported, NotExported> {
-    let answer = seen.terminal.export(library, budget);
+    let answer = seen
+        .terminal
+        .export(library, Arc::new(AtomicUsize::new(budget)));
     let got = answer
         .recv_timeout(Duration::from_secs(10))
         .expect("an answer");
@@ -219,4 +222,49 @@ fn a_released_terminal_hangs_nothing_up() {
     new.until(|s| s.shows("still here"));
     new.terminal.hang_up();
     new.until(|s| s.end().is_some());
+}
+
+#[test]
+fn terminals_share_one_budget_and_a_refusal_gives_back_what_it_took() {
+    let mut first = Seen::start(sh("printf 'one\\n'; read x"));
+    let mut second = Seen::start(sh("printf 'two\\n'; read x"));
+    first.until(|s| s.shows("one"));
+    second.until(|s| s.shows("two"));
+    // Room for one terminal's state, not two.
+    let size = export(&mut first, &Terminal::library(), BUDGET)
+        .expect("exported")
+        .state
+        .len();
+    first.terminal.resume();
+    let budget = Arc::new(AtomicUsize::new(size + size / 2));
+    let got = |seen: &mut Seen| {
+        let answer = seen
+            .terminal
+            .export(&Terminal::library(), Arc::clone(&budget));
+        answer
+            .recv_timeout(Duration::from_secs(10))
+            .expect("an answer")
+    };
+    assert!(got(&mut first).is_ok());
+    let left = budget.load(std::sync::atomic::Ordering::Acquire);
+    assert!(matches!(got(&mut second), Err(NotExported::TooLarge)));
+    assert_eq!(
+        budget.load(std::sync::atomic::Ordering::Acquire),
+        left,
+        "the refused one gave back what it took"
+    );
+    first.terminal.hang_up();
+    second.terminal.hang_up();
+}
+
+#[test]
+fn a_password_prompt_opened_while_exported_is_seen() {
+    let mut seen = Seen::start(sh("printf 'one\\n'; read x; stty -echo; read y"));
+    seen.until(|s| s.shows("one"));
+    let exported = export(&mut seen, &Terminal::library(), BUDGET).expect("exported");
+    drop(exported);
+    seen.terminal.send(b"\r".to_vec()).expect("queued");
+    seen.until(|s| s.echo_off);
+    seen.terminal.resume();
+    seen.terminal.hang_up();
 }

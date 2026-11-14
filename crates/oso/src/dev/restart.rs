@@ -32,6 +32,10 @@ use super::protocol::MAX_DEV_MESSAGE as MAX_MESSAGE;
 /// survive a restart.
 pub const CHECK: &str = "check-handover";
 
+/// How long an old instance whose exit went unanswered may yet take to go, its terminals'
+/// masters kept meanwhile: longer than it waits for an exit after handing them over.
+const MAY_YET_GO: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// The method that puts a message in an instance's echo area and `*Messages*`.
 pub const MESSAGE: &str = "dev-message";
 
@@ -77,12 +81,14 @@ pub enum NotStopped {
     Refused(String),
     /// It did not answer, or did not exit. It may yet.
     Unknown(String),
+    /// It said it exits, but has not yet: it let its terminals go (ADR 0120, step 11).
+    Agreed(String),
 }
 
 impl NotStopped {
     fn into_reason(self) -> String {
         match self {
-            Self::Refused(reason) | Self::Unknown(reason) => reason,
+            Self::Refused(reason) | Self::Unknown(reason) | Self::Agreed(reason) => reason,
         }
     }
 }
@@ -106,6 +112,8 @@ pub trait Instance {
     fn wait_until_ready(&mut self) -> Result<(), String>;
     /// Whether it has exited.
     fn gone(&mut self) -> bool;
+    /// Whether it exits within `limit`, looking now and then.
+    fn gone_within(&mut self, limit: std::time::Duration) -> bool;
     /// Asks it to exit if its generation is still `generation`, and waits for
     /// it to. Never forces it.
     fn stop(&mut self, generation: u64) -> Result<(), NotStopped>;
@@ -306,8 +314,15 @@ fn stop_old<I: Instance>(
         // It may have agreed and be on its way out, and then the new one must be
         // there. Whichever goes first, the other is what remains. Its terminals are the new
         // one's only once it has gone; until then it may read them again.
+        // It agreed, so it let the terminals go: they are the new one's.
+        Err(NotStopped::Agreed(reason)) => {
+            give_masters(&mut new, masters);
+            Handover::Beside { new, reason }
+        }
+        // Its answer did not come: it may have let the terminals go, and then they are the
+        // new one's once it has gone, or it may read them again soon.
         Err(NotStopped::Unknown(reason)) => {
-            if old.gone() {
+            if terminals > 0 && old.gone_within(MAY_YET_GO) {
                 give_masters(&mut new, masters);
             } else if terminals > 0 {
                 abandon_terminals(&mut new);
@@ -556,6 +571,7 @@ mod tests {
         }
 
         /// An instance whose export carries `count` terminals, and gives their masters.
+        #[cfg(unix)]
         fn with_terminals(name: &'static str, log: &Log, count: usize) -> Self {
             Self {
                 export: Ok(json!({
@@ -568,6 +584,7 @@ mod tests {
         }
 
         /// A new instance that reads terminals.
+        #[cfg(unix)]
         fn reading_terminals(name: &'static str, log: &Log) -> Self {
             Self {
                 library: Some("lib"),
@@ -709,6 +726,10 @@ mod tests {
             self.exited
         }
 
+        fn gone_within(&mut self, _limit: std::time::Duration) -> bool {
+            self.exited
+        }
+
         fn imported(&self) -> Option<u64> {
             self.generation_imported
         }
@@ -723,6 +744,7 @@ mod tests {
                 Ok(()) => Ok(()),
                 Err(NotStopped::Refused(reason)) => Err(NotStopped::Refused(reason.clone())),
                 Err(NotStopped::Unknown(reason)) => Err(NotStopped::Unknown(reason.clone())),
+                Err(NotStopped::Agreed(reason)) => Err(NotStopped::Agreed(reason.clone())),
             }
         }
     }
@@ -816,6 +838,22 @@ mod tests {
             !log.borrow().iter().any(|l| l.starts_with("old stop")),
             "{log:?}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_old_instance_that_agreed_but_is_slow_to_go_lets_its_terminals_go() {
+        let log = log();
+        let mut old = Fake {
+            stop: Err(NotStopped::Agreed("slow".into())),
+            ..Fake::with_terminals("old", &log, 2)
+        };
+        let new = Fake::reading_terminals("new", &log);
+        let Handover::Beside { new, .. } = handed_over(&mut old, new) else {
+            panic!("not beside");
+        };
+        assert_eq!(new.given, Some(2), "the masters go to the new one");
+        assert!(!new.abandoned);
     }
 
     #[cfg(unix)]

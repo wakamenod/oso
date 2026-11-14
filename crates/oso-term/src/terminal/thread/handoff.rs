@@ -1,7 +1,8 @@
 //! A terminal's thread over `oso dev`'s restart (ADR 0120, step 11). Exporting stops reading
 //! the PTY at a chunk's end, writes the engine's state and hands back a second descriptor for
 //! the master; until a resume or a release the thread still writes input and serves the UI,
-//! but reads nothing and applies no resize, so the state stays the terminal's. A release ends
+//! but reads nothing and applies no resize, so the state stays the terminal's; it reads the
+//! PTY's flags still, so that a password prompt opened meanwhile is seen. A release ends
 //! the thread with nothing hung up or reaped. An adopted terminal restores its engine, sends
 //! its first snapshot and keeps what is asked until its master comes, then reads where the
 //! instance before stopped.
@@ -30,6 +31,9 @@ use crate::terminal::handoff::{Adopt, Encoding, Exported, NotExported, Request a
 
 /// How often input waiting to be written is tried again while the thread reads nothing.
 const WRITE_AGAIN: Duration = Duration::from_millis(10);
+
+/// How often the PTY's flags are read while the thread reads nothing, for a password prompt.
+const LOOK_EVERY: Duration = Duration::from_millis(250);
 
 /// The most requests an adopted terminal keeps until its master comes; input past them is
 /// dropped and its share of the queue given back.
@@ -66,7 +70,7 @@ impl Running<'_> {
                 budget,
                 reply,
             } => {
-                let answer = self.export(&library, budget);
+                let answer = self.export(&library, &budget);
                 if reply.send(answer).is_ok() {
                     (self.channels.wake)();
                 }
@@ -83,7 +87,11 @@ impl Running<'_> {
     }
 
     /// Writes the terminal's state and stops reading.
-    fn export(&mut self, library: &str, budget: usize) -> Result<Exported, NotExported> {
+    fn export(
+        &mut self,
+        library: &str,
+        budget: &std::sync::atomic::AtomicUsize,
+    ) -> Result<Exported, NotExported> {
         let written = if library == carry::library() {
             Written::Snapshot
         } else {
@@ -152,9 +160,12 @@ impl Running<'_> {
                 self.resume();
                 break;
             }
+            // A password prompt that opens meanwhile holds the restart: the flags are read
+            // though the output is not, and the UI hears of it at once.
+            self.look();
             self.publish();
             let waiting = !self.input.is_empty() || !self.replies.is_empty();
-            let wait = if waiting { left.min(WRITE_AGAIN) } else { left };
+            let wait = left.min(if waiting { WRITE_AGAIN } else { LOOK_EVERY });
             match self.channels.requests.recv_timeout(wait) {
                 Ok(request) => {
                     self.touched = true;

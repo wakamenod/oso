@@ -10,6 +10,7 @@
 use std::ffi::{c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The library's declarations, `snapshot.h`'s and `formatter.h`'s among them.
 mod ffi {
@@ -37,10 +38,11 @@ pub(crate) enum NotEncoded {
     Refused(c_int),
 }
 
-/// What a write collects, up to `left` more bytes.
-struct Collected {
+/// What a write collects, taking each byte from `left`, the bytes left for every terminal
+/// written for the same restart.
+struct Collected<'a> {
     bytes: Vec<u8>,
-    left: usize,
+    left: &'a AtomicUsize,
     over: bool,
 }
 
@@ -50,8 +52,13 @@ unsafe extern "C" fn collect(userdata: *mut c_void, data: *const u8, len: usize)
     catch_unwind(AssertUnwindSafe(|| {
         // SAFETY: `userdata` is the `Collected` that `Vt::encode` lent the writer for this
         // call, alive and reached only through this callback meanwhile.
-        let collected = unsafe { &mut *userdata.cast::<Collected>() };
-        if len > collected.left {
+        let collected = unsafe { &mut *userdata.cast::<Collected<'_>>() };
+        let took = collected
+            .left
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| {
+                left.checked_sub(len)
+            });
+        if took.is_err() {
             collected.over = true;
             return false;
         }
@@ -61,7 +68,6 @@ unsafe extern "C" fn collect(userdata: *mut c_void, data: *const u8, len: usize)
         // SAFETY: the library passes `len` readable bytes at `data` for the call.
         let bytes = unsafe { std::slice::from_raw_parts(data, len) };
         collected.bytes.extend_from_slice(bytes);
-        collected.left -= len;
         true
     }))
     .unwrap_or(false)
@@ -84,10 +90,15 @@ impl Vt {
         set == ffi::SUCCESS
     }
 
-    /// The terminal written as `encoding`, in at most `budget` bytes. A snapshot of a
+    /// The terminal written as `encoding`, its bytes taken from `budget`, which other
+    /// terminals of the same restart share; a failed write gives back what it took. A snapshot of a
     /// terminal whose program left a sequence longer than the library kept unfinished ends
     /// that sequence first, with CAN, as a terminal does.
-    pub fn encode(&mut self, encoding: Encoding, budget: usize) -> Result<Vec<u8>, NotEncoded> {
+    pub fn encode(
+        &mut self,
+        encoding: Encoding,
+        budget: &AtomicUsize,
+    ) -> Result<Vec<u8>, NotEncoded> {
         match self.encode_once(encoding, budget) {
             Err(NotEncoded::Refused(ffi::INVALID_VALUE)) if encoding == Encoding::Snapshot => {
                 self.write(b"\x18");
@@ -97,7 +108,11 @@ impl Vt {
         }
     }
 
-    fn encode_once(&mut self, encoding: Encoding, budget: usize) -> Result<Vec<u8>, NotEncoded> {
+    fn encode_once(
+        &mut self,
+        encoding: Encoding,
+        budget: &AtomicUsize,
+    ) -> Result<Vec<u8>, NotEncoded> {
         self.at = Rows::Unset;
         let mut collected = Collected {
             bytes: Vec::new(),
@@ -115,6 +130,9 @@ impl Vt {
             Encoding::Snapshot => unsafe { ffi::ghostty_snapshot_encode(self.terminal, writer) },
             Encoding::Escapes => self.format(writer),
         };
+        if done != ffi::SUCCESS || collected.over {
+            budget.fetch_add(collected.bytes.len(), Ordering::AcqRel);
+        }
         if collected.over {
             Err(NotEncoded::TooLarge)
         } else if done == ffi::SUCCESS {

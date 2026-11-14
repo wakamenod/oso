@@ -164,7 +164,7 @@ impl DevState {
     /// step 11). It goes with the socket when this instance exits.
     pub fn write_follows(&self, pids: &[u32]) {
         let dir = self.dir.clone();
-        let text: String = pids.iter().map(|pid| format!("{pid}\n")).collect();
+        let text = crate::channel::mcp::follows_text(pids);
         let spawned = thread::Builder::new()
             .name("oso-follows".into())
             .spawn(move || {

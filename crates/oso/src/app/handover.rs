@@ -24,9 +24,9 @@ pub(super) struct Handover {
     /// have loaded (ADR 0112).
     pub(super) restore: Vec<handoff::Restore>,
     /// How many states this instance has exported, which names the latest.
-    exports: u64,
+    pub(super) exports: u64,
     /// The texts the latest export carries, for `export-text`.
-    exported: Option<carry::Exported>,
+    pub(super) exported: Option<carry::Exported>,
     /// The texts `import-text` has brought for the import that follows.
     staging: carry::Staging,
     /// The reply to an import that waits for its carried buffers to be judged.
@@ -61,7 +61,7 @@ impl App {
     /// running terminals it carries too, which the caller adds.
     pub(super) fn export_texts(
         &self,
-        terminals: Option<&[BufferId]>,
+        terminals: Option<(&[BufferId], usize)>,
     ) -> Result<(Value, carry::Exported), String> {
         handoff::export(
             &self.editor,
@@ -209,6 +209,11 @@ impl App {
         if !parent && !state.terminals.is_empty() {
             let refused = super::terminals::carry::NOT_PARENT.to_owned();
             return Some((reply, Err(refused)));
+        }
+        // Which instances a bridge follows here is the parent's to say.
+        let mut state = state;
+        if !parent {
+            state.follows.clear();
         }
         let judging = match self.import_state(state) {
             Ok(judging) => judging,

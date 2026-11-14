@@ -9,7 +9,6 @@
 //! Must not depend on: sockets; the server passes the descriptors. Nothing here reads a
 //! terminal's text: its state goes from its thread to the items as bytes.
 
-use std::os::fd::OwnedFd;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -21,7 +20,9 @@ use serde_json::{Value, json};
 use crate::app::{App, UserEvent};
 use crate::dev;
 use crate::dev::handoff::carry::{self, Item, MAX_CARRIED};
-use crate::dev::handoff::terminals::{self, MAX_TERMINALS, SessionState, TerminalState};
+use crate::dev::handoff::terminals::{self, MAX_TERMINALS, TerminalState};
+
+mod release;
 
 /// How long the terminals' states may take: less than the dev socket waits for a reply.
 const EXPORT_TIME: Duration = Duration::from_secs(8);
@@ -44,11 +45,9 @@ pub(in crate::app) struct Going {
 /// An export whose reply waits for its terminals.
 struct Exporting {
     reply: mpsc::Sender<dev::Reply>,
-    state: Value,
-    texts: carry::Exported,
-    /// The items the texts take, before the terminals'.
-    items: usize,
-    /// The bytes left for the terminals' states, in base64.
+    /// The running terminals it carries, in the state's order.
+    carried: Vec<BufferId>,
+    /// The bytes the texts leave for the terminals' states, in base64, before kills.
     room: usize,
     asked: Vec<(BufferId, mpsc::Receiver<Result<Exported, NotExported>>)>,
     done: Vec<(BufferId, Exported)>,
@@ -61,8 +60,6 @@ struct Exporting {
 struct Outgoing {
     export: u64,
     terminals: Vec<Carried>,
-    /// The first item that holds a terminal's state: only the parent reads those.
-    first_item: usize,
     /// The last request about the restart.
     touched: Instant,
     /// When the masters went to the supervisor.
@@ -72,7 +69,7 @@ struct Outgoing {
 /// A carried terminal: its buffer, its master, and how often it had read again by then.
 struct Carried {
     buffer: BufferId,
-    master: OwnedFd,
+    master: crate::dev::fds::Fd,
     resumes: u64,
 }
 
@@ -103,11 +100,15 @@ impl App {
         if let Err(why) = self.terminals_may_go(&carried) {
             return Some((reply, Err(why)));
         }
-        let (state, texts) = match self.export_texts(Some(&carried)) {
-            Ok(exported) => exported,
+        // What the texts take but the kills, which fill only what the terminals leave: the
+        // state itself is made again once the terminals' states are in.
+        let state = match self.export_texts(Some((&carried, MAX_CARRIED))) {
+            Ok((state, texts)) => {
+                carry::drop_later(texts);
+                state
+            }
             Err(why) => return Some((reply, Err(why))),
         };
-        let items = state["items"].as_array().map_or(0, Vec::len);
         let used: usize = state["items"]
             .as_array()
             .into_iter()
@@ -116,20 +117,22 @@ impl App {
             .map(|len| usize::try_from(len).unwrap_or(usize::MAX))
             .sum();
         let room = MAX_CARRIED.saturating_sub(used);
-        // A state in base64 takes 4 bytes for 3.
-        let budget = room / 4 * 3;
+        // A state in base64 takes 4 bytes for 3. The terminals share the room: the one that
+        // passes it stops writing at once.
+        let budget = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(room / 4 * 3));
         let asked = carried
             .iter()
             .filter_map(|&buffer| {
                 let terminal = self.terminals.map.get(buffer)?.terminal.as_ref()?;
-                Some((buffer, terminal.export(library, budget)))
+                Some((
+                    buffer,
+                    terminal.export(library, std::sync::Arc::clone(&budget)),
+                ))
             })
             .collect();
         self.handover.going.exporting = Some(Exporting {
             reply,
-            state,
-            texts,
-            items,
+            carried,
             room,
             asked,
             done: Vec::new(),
@@ -199,8 +202,8 @@ impl App {
             let name = self.buffer_name(buffer);
             let why = match why {
                 Some(NotExported::TooLarge) => format!(
-                    "cannot hand over {name}: the terminals' scrollback takes more than the \
-                     64 MiB a restart carries; clear it or end the terminal"
+                    "cannot hand over {name}: the terminals' scrollback and the unsaved text \
+                     take more than the 64 MiB a restart carries; clear some or end a terminal"
                 ),
                 Some(NotExported::Ended) | None => format!("cannot hand over {name}: it ended"),
                 Some(NotExported::Failed(error)) => format!("cannot hand over {name}: {error}"),
@@ -217,29 +220,7 @@ impl App {
             return;
         };
         match &exporting.encoding {
-            None => {
-                let states: Vec<Vec<u8>> = exporting
-                    .done
-                    .iter_mut()
-                    .map(|(_, exported)| std::mem::take(&mut exported.state))
-                    .collect();
-                let (sent, got) = mpsc::channel();
-                exporting.encoding = Some(got);
-                let waker = self.waker.clone();
-                let spawned = std::thread::Builder::new()
-                    .name("oso-export-terminals".into())
-                    .spawn(move || {
-                        let items = states
-                            .iter()
-                            .map(|state| Item(vec![Rope::from(terminals::base64(state).as_str())]))
-                            .collect();
-                        let _ = sent.send(items);
-                        waker.send(UserEvent::Carry(CarryEvent::Encoded));
-                    });
-                if spawned.is_err() {
-                    self.export_failed("cannot hand over the terminals: no thread".into());
-                }
-            }
+            None => self.start_encoding(),
             Some(encoding) => match encoding.try_recv() {
                 Ok(items) => self.export_done(items),
                 Err(mpsc::TryRecvError::Empty) => {}
@@ -247,6 +228,45 @@ impl App {
                     self.export_failed("cannot hand over the terminals: no thread".into());
                 }
             },
+        }
+    }
+
+    /// Puts the states of the export waiting in base64 on a thread of its own, in the state's
+    /// order, whatever order the threads answered in: the windows name the terminals by their
+    /// place.
+    fn start_encoding(&mut self) {
+        let Some(exporting) = self.handover.going.exporting.as_mut() else {
+            return;
+        };
+        let carried = &exporting.carried;
+        exporting
+            .done
+            .sort_by_key(|(buffer, _)| carried.iter().position(|c| c == buffer));
+        let states: Vec<Vec<u8>> = exporting
+            .done
+            .iter_mut()
+            .map(|(_, exported)| std::mem::take(&mut exported.state))
+            .collect();
+        let (sent, got) = mpsc::channel();
+        exporting.encoding = Some(got);
+        let waker = self.waker.clone();
+        let spawned = std::thread::Builder::new()
+            .name("oso-export-terminals".into())
+            .spawn(move || {
+                // Each state goes once it is in base64, so that few copies are held.
+                let items = states
+                    .into_iter()
+                    .map(|state| {
+                        let text = terminals::base64(&state);
+                        drop(state);
+                        Item(vec![Rope::from(text.as_str())])
+                    })
+                    .collect();
+                let _ = sent.send(items);
+                waker.send(UserEvent::Carry(CarryEvent::Encoded));
+            });
+        if spawned.is_err() {
+            self.export_failed("cannot hand over the terminals: no thread".into());
         }
     }
 
@@ -285,21 +305,23 @@ impl App {
         let Some(mut exporting) = self.handover.going.exporting.take() else {
             return;
         };
-        let mut entries = Vec::with_capacity(exporting.done.len());
-        let mut lengths = Vec::with_capacity(items.len());
-        let mut carried = Vec::with_capacity(exporting.done.len());
-        for (at, ((buffer, exported), item)) in exporting.done.drain(..).zip(&items).enumerate() {
-            let state = self.terminal_state(buffer, &exported, exporting.items + at);
-            match terminals::entry(&state) {
+        // The state now, the kills filling what the texts and the terminals leave.
+        let taken = items.iter().map(Item::len).sum();
+        let (mut state, mut texts) = match self.export_texts(Some((&exporting.carried, taken))) {
+            Ok(exported) => exported,
+            Err(why) => return self.export_given_up(exporting, items, why),
+        };
+        let first = state["items"].as_array().map_or(0, Vec::len);
+        let done = std::mem::take(&mut exporting.done);
+        let mut entries = Vec::with_capacity(done.len());
+        let mut carried = Vec::with_capacity(done.len());
+        let mut failed = None;
+        for (at, (buffer, exported)) in done.into_iter().enumerate() {
+            let terminal = self.terminal_state(buffer, &exported, first + at);
+            match terminals::entry(&terminal) {
                 Ok(entry) => entries.push(entry),
-                Err(why) => {
-                    self.handover.going.exporting = None;
-                    self.resume_terminals();
-                    let _ = exporting.reply.send(Err(why));
-                    return;
-                }
+                Err(why) => failed = failed.or(Some(why)),
             }
-            lengths.push(json!(item.len()));
             let resumes = self
                 .terminals
                 .map
@@ -312,7 +334,11 @@ impl App {
                 resumes,
             });
         }
-        let mut state = exporting.state;
+        if let Some(why) = failed {
+            carry::drop_later((texts, carried));
+            return self.export_given_up(exporting, items, why);
+        }
+        let lengths: Vec<Value> = items.iter().map(|item| json!(item.len())).collect();
         if let Some(all) = state["items"].as_array_mut() {
             all.extend(lengths);
         }
@@ -321,17 +347,15 @@ impl App {
         state["pid"] = json!(std::process::id());
         state["follows"] = json!(self.handover.follows);
         if let Err(why) = crate::dev::handoff::fits(&state) {
-            self.resume_terminals();
-            let _ = exporting.reply.send(Err(why));
-            return;
+            carry::drop_later(texts);
+            return self.export_given_up(exporting, items, why);
         }
-        let export = exporting.texts.number();
-        exporting.texts.extend(items);
-        self.keep_export(exporting.texts);
+        let export = texts.number();
+        texts.extend_with_terminals(items);
+        self.keep_export(texts);
         self.handover.going.exported = Some(Outgoing {
             export,
             terminals: carried,
-            first_item: exporting.items,
             touched: Instant::now(),
             handed: None,
         });
@@ -340,11 +364,6 @@ impl App {
 
     /// What the state says of the carried terminal `buffer`.
     fn terminal_state(&self, buffer: BufferId, exported: &Exported, item: usize) -> TerminalState {
-        let session = self
-            .hosting
-            .table()
-            .iter()
-            .find(|s| s.buffer == Some(buffer));
         TerminalState {
             item,
             snapshot: exported.encoding == oso_term::Encoding::Snapshot,
@@ -356,192 +375,26 @@ impl App {
             agent_reads: self.editor.buffer(buffer).is_some_and(|b| b.agent_reads()),
             char_mode: self.dispatcher.terminal_input(buffer)
                 == crate::terminal::route::Input::Char,
-            session: session.map(|s| SessionState {
-                id: s.id.as_str().to_owned(),
-                name: s.name.clone(),
-                directory: s.directory.clone(),
-                root: s.root.clone(),
-                parent: s.parent.as_ref().map(|p| p.as_str().to_owned()),
-                baseline: s.baseline.clone(),
-                pinned: s.pinned,
-                changed: s.changed,
-            }),
+            session: self.carried_session_state(buffer),
         }
+    }
+
+    /// Replies `why` to the export, has its terminals read again, and frees what it held
+    /// off this thread.
+    fn export_given_up(&mut self, exporting: Exporting, items: Vec<Item>, why: String) {
+        let _ = exporting.reply.send(Err(why));
+        self.resume_carried(&exporting.carried);
+        carry::drop_later((exporting, items));
     }
 
     fn export_failed(&mut self, why: String) {
         if let Some(exporting) = self.handover.going.exporting.take() {
             let _ = exporting.reply.send(Err(why));
+            self.resume_carried(&exporting.carried);
+            // States of up to 64 MiB are freed off this thread.
+            carry::drop_later(exporting);
         }
         self.resume_terminals();
-    }
-
-    /// Whether `item` of the latest export holds a terminal's state, which only the parent
-    /// may read.
-    pub(in crate::app) fn is_terminal_item(&self, export: u64, item: usize) -> bool {
-        self.handover
-            .going
-            .exported
-            .as_ref()
-            .is_some_and(|e| e.export == export && item >= e.first_item)
-    }
-
-    /// Notes a request about the restart, which keeps exported terminals waiting.
-    pub(in crate::app) fn touch_carried(&mut self) {
-        if let Some(exported) = self.handover.going.exported.as_mut() {
-            exported.touched = Instant::now();
-        }
-    }
-
-    /// `hand-over-terminals`: a second descriptor for each carried master, in the state's
-    /// order, put to go with the reply, if nothing changed since the export.
-    pub(in crate::app) fn hand_over_terminals(
-        &mut self,
-        generation: u64,
-        passed: &dev::Passed,
-    ) -> dev::Reply {
-        if !passed.parent {
-            return Err(NOT_PARENT.into());
-        }
-        // A refusal ends that restart: the terminals read again at once.
-        let allowed = crate::dev::handoff::exit_allowed(&self.editor, Some(generation))
-            .and_then(|()| self.carried_unchanged());
-        if let Err(why) = allowed {
-            self.resume_terminals();
-            return Err(why);
-        }
-        let exported = self
-            .handover
-            .going
-            .exported
-            .as_mut()
-            .ok_or("no terminals were exported")?;
-        let fds = exported
-            .terminals
-            .iter()
-            .map(|t| t.master.try_clone())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("cannot hand over the terminals: {e}"))?;
-        let count = fds.len();
-        passed.passing.put(fds);
-        exported.handed = Some(Instant::now());
-        exported.touched = Instant::now();
-        Ok(json!({ "terminals": count }))
-    }
-
-    /// Whether every carried terminal is still there and has read nothing since the export.
-    fn carried_unchanged(&self) -> Result<(), String> {
-        let Some(exported) = self.handover.going.exported.as_ref() else {
-            return Ok(());
-        };
-        let changed = exported.terminals.iter().any(|carried| {
-            self.terminals
-                .map
-                .get(carried.buffer)
-                .and_then(|hosted| hosted.terminal.as_ref())
-                .is_none_or(|terminal| terminal.resumes() != carried.resumes)
-        });
-        if changed {
-            return Err(format!(
-                "{}: a terminal has read again or ended since the export",
-                crate::dev::EXIT_REFUSED
-            ));
-        }
-        Ok(())
-    }
-
-    /// Before an `exit` with a generation: the carried terminals go if they were handed over,
-    /// and an exit that would end terminals not handed over is refused.
-    pub(in crate::app) fn exit_with_terminals(&mut self) -> Result<(), String> {
-        let Some(exported) = self.handover.going.exported.as_ref() else {
-            return Ok(());
-        };
-        if exported.handed.is_none() {
-            self.resume_terminals();
-            return Err(format!(
-                "{}: the terminals were exported but not handed over",
-                crate::dev::EXIT_REFUSED
-            ));
-        }
-        if let Err(why) = self.carried_unchanged() {
-            self.resume_terminals();
-            return Err(why);
-        }
-        let Some(exported) = self.handover.going.exported.take() else {
-            return Ok(());
-        };
-        for carried in exported.terminals {
-            let terminal = self
-                .terminals
-                .map
-                .get_mut(carried.buffer)
-                .and_then(|hosted| hosted.terminal.take());
-            if let Some(terminal) = terminal {
-                terminal.release();
-            }
-        }
-        Ok(())
-    }
-
-    /// Has every exported terminal read again, and forgets their masters here.
-    pub(in crate::app) fn resume_terminals(&mut self) {
-        if let Some(exporting) = self.handover.going.exporting.take() {
-            let _ = exporting
-                .reply
-                .send(Err("the export was overtaken by another".into()));
-        }
-        let Some(exported) = self.handover.going.exported.take() else {
-            return;
-        };
-        for carried in exported.terminals {
-            if let Some(terminal) = self
-                .terminals
-                .map
-                .get(carried.buffer)
-                .and_then(|hosted| hosted.terminal.as_ref())
-            {
-                terminal.resume();
-            }
-        }
-    }
-
-    /// Before the event loop waits: terminals read again once the restart has gone quiet,
-    /// and an export that takes too long fails.
-    pub(in crate::app) fn carried_terminals_due(&mut self) {
-        let now = Instant::now();
-        if self
-            .handover
-            .going
-            .exporting
-            .as_ref()
-            .is_some_and(|e| now.duration_since(e.since) >= EXPORT_TIME)
-        {
-            self.export_failed("cannot hand over the terminals: they took too long".into());
-        }
-        let over = self
-            .handover
-            .going
-            .exported
-            .as_ref()
-            .is_some_and(|e| match e.handed {
-                Some(at) => now.duration_since(at) >= EXIT_TIME,
-                None => now.duration_since(e.touched) >= QUIET_TIME,
-            });
-        if over {
-            log::info!("oso dev: the restart went quiet, so the terminals read again");
-            self.resume_terminals();
-        }
-    }
-
-    /// When the event loop wakes for the restart's terminals.
-    pub(in crate::app) fn carried_terminals_deadline(&self) -> Option<Instant> {
-        let going = &self.handover.going;
-        let exporting = going.exporting.as_ref().map(|e| e.since + EXPORT_TIME);
-        let exported = going.exported.as_ref().map(|e| match e.handed {
-            Some(at) => at + EXIT_TIME,
-            None => e.touched + QUIET_TIME,
-        });
-        exporting.into_iter().chain(exported).min()
     }
 
     fn buffer_name(&self, buffer: BufferId) -> String {

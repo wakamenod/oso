@@ -221,7 +221,7 @@ fn switch(object: &Map<String, Value>, name: &str) -> Result<bool, String> {
 pub const MAX_FOLLOWS: usize = 16;
 
 /// The instance that exported `state` and those it took over from, the newest last, at most
-/// [`MAX_FOLLOWS`]; none in a state that carries no terminals.
+/// [`MAX_FOLLOWS`]; none in a state that does not say.
 pub(super) fn parse_follows(state: &Map<String, Value>) -> Result<Vec<u32>, String> {
     let pid = |value: &Value| {
         value
@@ -272,55 +272,7 @@ pub fn count(params: &Map<String, Value>) -> Result<Option<usize>, String> {
     Ok(Some(count))
 }
 
-const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-/// How long `len` bytes are in base64.
-pub fn base64_len(len: usize) -> usize {
-    len.div_ceil(3) * 4
-}
-
-/// `bytes` in base64, with padding: what an item carries of a terminal's state. Run off the
-/// UI thread.
-pub fn base64(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(base64_len(bytes.len()));
-    for chunk in bytes.chunks(3) {
-        let at = |i: usize| chunk.get(i).copied().map_or(0, u32::from);
-        let n = (at(0) << 16) | (at(1) << 8) | at(2);
-        for (i, shift) in [18, 12, 6, 0].into_iter().enumerate() {
-            if i <= chunk.len() {
-                out.push(char::from(ALPHABET[(n >> shift) as usize & 63]));
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
-}
-
-/// The bytes `text` holds in base64, or `None` if it is not that. Run off the UI thread.
-pub fn unbase64(text: &str) -> Option<Vec<u8>> {
-    let text = text.as_bytes();
-    if !text.len().is_multiple_of(4) {
-        return None;
-    }
-    let value = |c: u8| ALPHABET.iter().position(|&a| a == c).map(|v| v as u32);
-    let mut out = Vec::with_capacity(text.len() / 4 * 3);
-    let quads = text.chunks(4).count();
-    for (n, quad) in text.chunks(4).enumerate() {
-        let padding = quad.iter().rev().take_while(|&&c| c == b'=').count();
-        if padding > 2 || (padding > 0 && n + 1 != quads) {
-            return None;
-        }
-        let mut bits = 0u32;
-        for &c in &quad[..4 - padding] {
-            bits = (bits << 6) | value(c)?;
-        }
-        bits <<= 6 * padding;
-        let bytes = [(bits >> 16) as u8, (bits >> 8) as u8, bits as u8];
-        out.extend_from_slice(&bytes[..3 - padding]);
-    }
-    Some(out)
-}
+pub use super::base64::{base64, base64_len, unbase64};
 
 #[cfg(test)]
 mod tests {
@@ -328,7 +280,7 @@ mod tests {
 
     use serde_json::json;
 
-    use super::{SessionState, TerminalState, base64, base64_len, entry, parse, unbase64};
+    use super::{SessionState, TerminalState, entry, parse};
     use crate::dev::handoff::format::Items;
 
     fn terminal(session: bool) -> TerminalState {
@@ -406,21 +358,5 @@ mod tests {
             "one item each"
         );
         assert!(parsed(json!(vec![json!({}); 65])).is_err());
-    }
-
-    #[test]
-    fn base64_goes_both_ways_and_refuses_what_it_is_not() {
-        for len in 0..10 {
-            let bytes: Vec<u8> = (0..len).map(|n| (n * 37 + 200) as u8).collect();
-            let text = base64(&bytes);
-            assert_eq!(text.len(), base64_len(len));
-            assert_eq!(unbase64(&text).unwrap(), bytes);
-        }
-        assert_eq!(base64(b"Man"), "TWFu");
-        assert_eq!(base64(b"Ma"), "TWE=");
-        assert_eq!(base64(b"M"), "TQ==");
-        for bad in ["TWF", "TW=u", "T===", "TQ==TWFu", "TW-u"] {
-            assert!(unbase64(bad).is_none(), "{bad}");
-        }
     }
 }

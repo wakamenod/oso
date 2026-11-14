@@ -65,9 +65,11 @@ pub struct Hosted {
     pub changed: u64,
     /// The bridge connection that holds it, at most one.
     pub bridge: Option<Connection>,
-    /// When its `claude` started, for a session carried over `oso dev`'s restart: its process
-    /// is no longer oso's child, so its id could be another's once it ends, and a bridge's
-    /// parent must have started then too (ADR 0120, step 11).
+    /// Whether it came over `oso dev`'s restart: its `claude` is no longer oso's child, so its
+    /// id could be another's once it ends (ADR 0120, step 11).
+    pub carried: bool,
+    /// When that `claude` started, as the instance before read it: a bridge's parent must
+    /// have started then too, and with no start known, no bridge is believed unasked.
     pub started: Option<std::time::SystemTime>,
 }
 
@@ -150,6 +152,7 @@ impl Table {
             archived: false,
             changed: new.changed,
             bridge: None,
+            carried: false,
             started: None,
         });
         self.sessions.last_mut()
@@ -184,6 +187,7 @@ impl Table {
                 archived: session.archived,
                 changed: session.changed,
                 bridge: None,
+                carried: false,
                 started: None,
             });
         }
@@ -294,6 +298,7 @@ impl Table {
                 _ => None,
             },
             bridged: session.bridge.is_some(),
+            carried: session.carried,
             started: session.started,
         });
         let index = bridge::admit(peer, claim, parent_started, candidates)?;

@@ -84,7 +84,7 @@ fn a_shell_goes_on_in_the_new_instance_with_its_screen_and_what_it_printed_meanw
     let state = hand_over(&mut old, &mut new);
     assert_eq!(state["terminals"].as_array().map(Vec::len), Some(1));
     let shown = new.wait_for("the ticks", |state| {
-        rows(state).iter().any(|row| row.ends_with("ticked"))
+        rows(state).iter().any(|row| row == "ticked")
     });
     assert_eq!(terminal(&shown)["running"], true);
     let rows = rows(&shown);
@@ -169,11 +169,86 @@ fn a_password_prompt_holds_the_restart() {
     app.wait_for("the password prompt", |state| {
         terminal(state)["echo_off"] == true
     });
+    // Shown, it is a buffer that may hold secrets, which holds the restart for that one reason
+    // (ADR 0079); out of sight, the terminal itself holds it.
+    let held = app
+        .try_call("check-handover", Some(json!({ "terminals": true })))
+        .unwrap_err();
+    assert!(held.contains("secrets is shown"), "{held}");
+    app.send_keys("C-x b * s c r a t c h * RET");
     let held = app
         .try_call("check-handover", Some(json!({ "terminals": true })))
         .unwrap_err();
     assert!(held.contains("reads a password"), "{held}");
+    app.send_keys("C-x b * t e r m i n a l * RET");
     type_line(&mut app, "hunter2");
     wait_for_row(&mut app, "read-it");
     app.call("check-handover", Some(json!({ "terminals": true })));
+}
+
+/// The rows of the terminal the window `window` of `state` shows.
+fn rows_in(state: &Value, window: &Value) -> Vec<String> {
+    state["terminals"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|terminal| terminal["id"] == window["buffer"])
+        .and_then(|terminal| terminal["rows"].as_array())
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| row.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn two_terminals_come_back_each_in_its_own_window() {
+    let (scratch, mut old) = start("terminal-restart-windows");
+    open_terminal(&mut old);
+    type_line(&mut old, "echo in-the-first");
+    wait_for_row(&mut old, "in-the-first");
+    old.send_keys("C-x 2");
+    old.run_command("terminal", Some(4))
+        .expect("a second terminal");
+    old.wait_for("two terminals", |state| {
+        state["terminals"].as_array().is_some_and(|t| t.len() == 2)
+            && state["terminals"][1]["running"] == true
+    });
+    type_line(&mut old, "echo in-the-second");
+    old.wait_for("the second's row", |state| {
+        state["terminals"][1]["rows"]
+            .as_array()
+            .is_some_and(|rows| rows.iter().any(|row| row == "in-the-second"))
+    });
+    let first_shown = |state: &Value| -> Vec<bool> {
+        let windows = state["windows"].as_array().cloned().unwrap_or_default();
+        windows
+            .iter()
+            .map(|window| {
+                rows_in(state, window)
+                    .iter()
+                    .any(|row| row == "in-the-first")
+            })
+            .collect()
+    };
+    let before = first_shown(&old.state());
+    assert_eq!(before.iter().filter(|&&f| f).count(), 1, "{before:?}");
+    let mut new = next(&scratch);
+    hand_over(&mut old, &mut new);
+    let state = new.wait_for("both screens", |state| {
+        let windows = state["windows"].as_array().cloned().unwrap_or_default();
+        windows.len() == 2
+            && windows.iter().all(|window| {
+                rows_in(state, window)
+                    .iter()
+                    .any(|row| row.starts_with("in-the-"))
+            })
+    });
+    assert_eq!(
+        first_shown(&state),
+        before,
+        "each window shows the terminal it showed"
+    );
 }
