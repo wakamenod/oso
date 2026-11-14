@@ -1,6 +1,6 @@
 # 0110. ADR 0108 as built
 
-- Status: Accepted
+- Status: Accepted, amended by 0132
 - Date: 2026-11-11
 
 ## Context
