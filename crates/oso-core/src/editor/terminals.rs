@@ -84,6 +84,21 @@ impl Editor {
         }
     }
 
+    /// Notes whether the terminal buffer `id` hosts an agent session (ADR 0132): session
+    /// mode's keys apply in it and its modeline says `Session`. Taking it back leaves the
+    /// buffer outside every project again. Nothing happens to a buffer that is not a
+    /// terminal's.
+    pub fn set_hosts_session(&mut self, id: BufferId, hosts: bool) {
+        let Some(buffer) = self.buffer_mut(id).filter(|buffer| buffer.is_terminal()) else {
+            return;
+        };
+        buffer.set_session(hosts);
+        if !hosts {
+            buffer.set_project(None);
+            self.project_requests.retain(|request| request.buffer != id);
+        }
+    }
+
     /// A command asks the host for `request`.
     pub fn request_terminal(&mut self, request: TerminalRequest) {
         self.terminal_requests.push(request);

@@ -321,6 +321,62 @@ modeline says `Session` (Q5). `C-s`, `M-p` and `M-n` go to Claude Code, and the 
 session's buffer is in its session's project (Q8). `C-x a o` and `C-c o` show ADR 0131's pane at
 the project's row (Q9). `[keys.session]` comes in step 2, for `C-c` sequences only (Q10).
 
+## Step 1, as built
+
+- **One keymap (the author's choice, 2026-11-14).** A session's terminal uses one keymap, the
+  terminal's table and session mode's (`bindings::session_keymap`), which `Keymaps::active` picks
+  for a terminal buffer whose `Buffer::hosts_session()` holds. The two tables share no key, so a
+  lookup gives what a minor layer over the terminal's keymap would; `Layers` is unchanged. Step 2
+  settles how the user's `[keys.session]` joins it, as a layer above it or built into it, with
+  `false` unbinding a default, and builds `C-c ?`'s line again whenever it changes.
+- **oso-core** gains `Buffer::hosts_session`, `Editor::set_hosts_session`, which also drops the
+  buffer's project when the mark is taken back, `Editor::request_directory_project`, and
+  `SessionRequest::OnBuffer`. `OnBuffer` takes any `RowAction`; `Explain` and `Resume` keep their
+  own requests, and `Show` and `Fold` mean nothing for a buffer.
+- **A session's project.** The buffer keeps its session's directory, and is asked about it as a
+  file is about its path: the request names a stand-in file in the directory, which detection
+  never looks up, as it starts from a location's directory. So it is asked again when the record
+  of trusted projects changes, as a file is, and an answer for a directory it no longer runs in
+  is dropped. The project thread resolves the directory to the real place it leads first, as a
+  file's path already is: through a link, and `..` by the real place. A directory that does not
+  exist, as a removed worktree's, is in no project, where a new file's missing directories are
+  passed over.
+- **The mark** is set when the host makes or reuses a session's buffer (start, worktree, adopt,
+  fork, resume), while the session is still only reserved, and when it brings a stopped one back
+  at start. A buffer whose session went past the table's 256 ("forgotten") is a plain terminal
+  again.
+- **`C-c ?`** (`session-help`, `Look`) says the keys in the echo area (the author's choice): one
+  line, `C-c then:  a adopt  b switch  …`, letters, then capitals, signs and control keys, built
+  from the session keymap with it (`dispatch/session_help.rs`), leaving `C-c ?` itself out. The
+  command only checks that it runs in a session's buffer; the dispatcher, which holds the keymaps,
+  writes the line after it succeeded. A narrow frame cuts it, and `*Messages*` keeps it whole.
+- **`session-stop`** acts on a session's buffer too; `session-pin` and `session-archive` are new,
+  `Person`.
+- **`C-z` was checked first,** in the running app with Claude Code 2.1.325: Claude Code said it
+  was suspended, left raw mode and stopped drawing, but its process never stopped (`ps` said
+  `S`, not `T`): a stop signal to an orphaned process group is discarded. So oso saw it running
+  and idle, and nothing showed that it was stuck; `kill -CONT` brought it back. `C-z` is kept back
+  as Q7 decided (`Route::SuspendKept`).
+- **Shift-Enter** was checked in the same run: on an empty prompt, `S-RET` made a new line, so
+  Claude Code reads the kitty keyboard forms oso sends, and no follow-up is needed. Ctrl-Enter was
+  not pressed, as it sends a draft; with the kitty flags pushed it reaches Claude Code as itself.
+- **`w` in `*Sessions*` moved to [ADR 0131](0131-an-orca-style-sessions-pane.md)'s step 2** (the
+  author's choice, 2026-11-14): `session-worktree` reads its branch before it runs and a row has no
+  project, and that step gives the rows their keys anew. `C-x a w` and `C-c w` work from a
+  session's buffer.
+- **After `C-c C-u`,** `C-c` and a key still reads the session's and the terminal's keys only, so
+  a global `C-c` key such as `C-c t` is undefined there too.
+- **A fix to ADR 0120's step 4:** after `C-c` and a key that went to the program, the echo area
+  kept showing `C-c-` until the next key of oso's; it is cleared at once now.
+- **What a session's project reaches.** Every lookup of "the selected buffer's project" or "an open
+  buffer of the project" now counts a session's buffer too, each still gated by trust (ADR 0114):
+  from a session's buffer, an outside agent connection's `session_list`, `session_state` and
+  `worktree_list` scope to its project, where they were refused; a session's tools take the
+  project's trust as it is now, not as the session began; turn-end git looks run for a trusted
+  project that only a session's buffer holds open; and `session-adopt` finds a project by it.
+- **e2e:** `sessions::mode`, with a fake `claude` that reads its terminal raw and keeps every
+  byte, so the flow checks exactly what reached the program.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it.
@@ -340,6 +396,9 @@ Each passage stays in its ADR as written; what holds now follows it.
   repository's row.
 - [ADR 0110](0110-adr-0108-as-built.md), "so does every other name under `[keys]` but `global`":
   but `global` and `session`.
+- [ADR 0131](0131-an-orca-style-sessions-pane.md), step 2, "the keys (`c`, `M-n`/`M-p`, `RET` on a
+  worktree)": also `w` on every row, as its table says, which ADR 0121 planned for `*Sessions*`
+  and step 1 here left to it.
 
 ## Consequences
 

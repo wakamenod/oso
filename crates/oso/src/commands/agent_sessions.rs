@@ -2,7 +2,8 @@
 //! stopped one, and explaining a saved screen with the rules in force, for writing a rule; and
 //! seeing what needs the person: `*Sessions*`, the switch float, the next session waiting or
 //! done, spaces and zoom, and a session's live explanation. `list` holds `*Sessions*`'s own
-//! keys, and `send` sending to a session and mentioning one. `session.rs` beside it is the editing session's: cancelling and exiting.
+//! keys, `mode` session mode's commands on a session's own buffer (ADR 0132), and `send` sending
+//! to a session and mentioning one. `session.rs` beside it is the editing session's: cancelling and exiting.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host, whose start thread and sessions worker do the work.
@@ -14,10 +15,12 @@
 //! channel cannot answer, and the second shows only a buffer withheld from agents.
 
 mod list;
+mod mode;
 mod send;
 
 pub use list::COMMANDS as LIST_COMMANDS;
 pub use list::ROW_MARKS;
+pub use mode::{COMMANDS as MODE_COMMANDS, SESSION_HELP};
 pub use send::{COMMANDS as SEND_COMMANDS, MAX_SEND_BYTES, MENTION_LIST, SEND_LIST, too_large};
 
 use std::path::PathBuf;

@@ -324,7 +324,8 @@ A panicking command is caught at the command boundary
   minor mode layer of digits while a prefix argument is typed, another while the layer of
   `C-x TAB` is open, whose arrows shift the region until another key closes it
   ([ADR 0115](adr/0115-indentation.md)), a major mode layer in the buffers that show emergency
-  copies, in a prompt and in a Markdown buffer (`M-RET`), and a layer for the user's keys, which
+  copies, in a prompt, in a Markdown buffer (`M-RET`) and in a terminal, whose keymap holds session
+  mode's keys too in a terminal that hosts an agent session ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)), and a layer for the user's keys, which
   the configuration file will fill ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
   take the global layer's place, so that no other key reaches a command. While a jump is on, its
   keymap comes before every other but a question's ([ADR 0116](adr/0116-migemo-and-jumps.md)).
@@ -545,7 +546,10 @@ The UI thread never blocks on I/O or parsing:
   read, by the record's spelling of that root, to check the claim. The editor keeps a table of
   projects that buffers point into (`oso_core::project`), and each request carries the trusted
   roots of its moment, so the thread never reads the record itself
-  ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
+  ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)). A hosted
+  session's terminal has no file: it is asked about by its session's directory, under a stand-in
+  file name, which the thread resolves to its real place first; a directory that does not exist
+  is in no project ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)).
 - A project's files for `C-x p f` are walked on a thread of their own, `oso-walk`
   (`crates/oso/src/walk.rs`, glue in `app/walks.rs`): a depth-first walk of its own, each
   directory opened from its parent by name and listed from the descriptor

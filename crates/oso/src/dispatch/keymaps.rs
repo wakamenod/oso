@@ -8,7 +8,7 @@
 //! The default keymaps come from `bindings`. The user's keymap from the configuration goes in
 //! here too, once no prefix key waits for the one before.
 
-use oso_core::buffer::Mode;
+use oso_core::buffer::{Buffer, Mode};
 use oso_core::command::{CommandId, Prefix, Registry};
 use oso_core::editor::Editor;
 use oso_core::keymap::{Keymap, Layers};
@@ -17,6 +17,7 @@ use oso_core::minibuffer::Kind;
 use crate::bindings;
 
 use super::Dispatcher;
+use super::session_help::SessionHelp;
 
 /// Every keymap a dispatcher holds.
 pub(super) struct Keymaps {
@@ -59,6 +60,11 @@ pub(super) struct Keymaps {
     pub(super) review: Keymap,
     /// A terminal's own keys, above the global ones in a terminal's buffer (ADR 0120).
     pub(super) terminal: Keymap,
+    /// A terminal's own keys and session mode's, in a terminal's buffer that hosts a session
+    /// (ADR 0132).
+    pub(super) session: Keymap,
+    /// What `session-help` says: session mode's keys, from its keymap (ADR 0132).
+    pub(super) session_help: SessionHelp,
 }
 
 impl Keymaps {
@@ -68,6 +74,7 @@ impl Keymaps {
         let (digits, minus) = bindings::prefix_keymaps(registry);
         let (list, copy) = bindings::recovery_keymaps(registry);
         let [minibuffer, question, completing, draft] = bindings::prompt_keymaps(registry);
+        let session = bindings::session_keymap(registry);
         Self {
             global,
             user: Keymap::new(),
@@ -87,12 +94,14 @@ impl Keymaps {
             sessions: bindings::sessions_keymap(registry),
             review: bindings::review_keymap(registry),
             terminal: bindings::terminal_keymap(registry),
+            session_help: SessionHelp::new(&session, registry),
+            session,
         }
     }
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 20] {
+    pub(super) fn all(&self) -> [&Keymap; 21] {
         let Self {
             global,
             user,
@@ -112,10 +121,13 @@ impl Keymaps {
             sessions,
             review,
             terminal,
+            session,
+            session_help: _,
         } = self;
         [
             global, user, digits, minus, list, copy, minibuffer, question, completing, draft,
             isearch, jump, replace, rigid, markdown, brief, worktrees, sessions, review, terminal,
+            session,
         ]
     }
 
@@ -175,7 +187,7 @@ impl Keymaps {
                 Mode::Sessions => Some(&self.sessions),
                 Mode::CopyList => Some(&self.copy[0]),
                 Mode::CopyView => Some(&self.copy[1]),
-                Mode::Terminal => Some(&self.terminal),
+                Mode::Terminal => Some(self.terminal_keys(editor.current().1)),
             }
         };
         Layers {
@@ -183,6 +195,16 @@ impl Keymaps {
             major,
             user: self.user(),
             ..Layers::global(&self.global)
+        }
+    }
+
+    /// The keymap of a terminal's buffer: session mode's over the terminal's in one that hosts
+    /// a session (ADR 0132), else the terminal's.
+    pub(super) fn terminal_keys(&self, buffer: &Buffer) -> &Keymap {
+        if buffer.hosts_session() {
+            &self.session
+        } else {
+            &self.terminal
         }
     }
 

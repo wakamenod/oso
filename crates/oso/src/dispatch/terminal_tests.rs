@@ -62,6 +62,11 @@ fn c_x_stays_oso_s_and_c_c_c_c_sends_c_c() {
     // Another key after C-c sends both.
     send(&mut dispatcher, &mut editor, "C-c a");
     assert_eq!(sent(&mut dispatcher, &mut editor), keys("C-c a"));
+    // And the echo area no longer shows the prefix.
+    assert!(!dispatcher.keys_in_progress());
+    let mut status = oso_core::editor::Status::default();
+    editor.status_into(editor.tiled().0.id(), &mut status);
+    assert_eq!(status.echo, "");
 }
 
 #[test]
@@ -306,4 +311,133 @@ fn a_replay_stops_before_a_command_sends_to_a_password_prompt() {
     replay(&mut dispatcher, &mut editor);
     assert!(dispatcher.take_terminal_sends(&mut editor).is_empty());
     assert!(!editor.macro_replaying());
+}
+
+/// A terminal that hosts a session, with session mode on (ADR 0132).
+fn in_session() -> (Dispatcher, Editor) {
+    let (dispatcher, mut editor) = in_terminal();
+    let terminal = editor.window().buffer();
+    editor.set_hosts_session(terminal, true);
+    (dispatcher, editor)
+}
+
+fn echo(editor: &Editor) -> String {
+    let mut status = oso_core::editor::Status::default();
+    editor.status_into(editor.tiled().0.id(), &mut status);
+    status.echo
+}
+
+#[test]
+fn in_a_session_c_c_and_a_key_runs_what_c_x_a_and_the_key_runs() {
+    use oso_core::editor::{RowAction, SessionRequest};
+    let (mut dispatcher, mut editor) = in_session();
+    let terminal = editor.window().buffer();
+    send(
+        &mut dispatcher,
+        &mut editor,
+        "C-c n C-c d C-c z C-c e C-c K C-c P C-c A",
+    );
+    assert_eq!(
+        editor.take_session_requests(),
+        [
+            SessionRequest::NextWaiting,
+            SessionRequest::NextDone,
+            SessionRequest::Zoom,
+            SessionRequest::Explain(terminal),
+            SessionRequest::OnBuffer(terminal, RowAction::Stop),
+            SessionRequest::OnBuffer(terminal, RowAction::Pin),
+            SessionRequest::OnBuffer(terminal, RowAction::Archive),
+        ]
+    );
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
+    // The terminal's own keys stay: `C-c C-c` sends one `C-c`.
+    send(&mut dispatcher, &mut editor, "C-c C-c");
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("C-c"));
+}
+
+#[test]
+fn in_a_session_an_unbound_c_c_key_sends_nothing() {
+    let (mut dispatcher, mut editor) = in_session();
+    send(&mut dispatcher, &mut editor, "C-c g");
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
+    assert_eq!(echo(&editor), "C-c g is undefined (C-c C-c sends C-c)");
+    // The global keymap's `C-c` keys do not reach a terminal either: `C-c t` is no menu.
+    send(&mut dispatcher, &mut editor, "C-c t");
+    assert!(!dispatcher.menu_open());
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
+    // Nothing waits after it: the next key goes to the program.
+    send(&mut dispatcher, &mut editor, "a");
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("a"));
+}
+
+#[test]
+fn in_a_session_c_z_is_kept_and_c_q_c_z_sends_it() {
+    let (mut dispatcher, mut editor) = in_session();
+    send(&mut dispatcher, &mut editor, "C-z");
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
+    assert!(echo(&editor).starts_with("C-z would suspend Claude Code"));
+    send(&mut dispatcher, &mut editor, "C-q C-z");
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("C-z"));
+    // A plain terminal sends it.
+    let (mut dispatcher, mut editor) = in_terminal();
+    send(&mut dispatcher, &mut editor, "C-z");
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("C-z"));
+}
+
+#[test]
+fn in_char_mode_a_session_s_keys_go_to_the_program() {
+    let (mut dispatcher, mut editor) = in_session();
+    send(&mut dispatcher, &mut editor, "C-c C-k C-c n C-z");
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("C-c n C-z"));
+    assert!(editor.take_session_requests().is_empty());
+}
+
+#[test]
+fn c_c_c_u_gives_a_session_key_a_prefix_argument() {
+    let (mut dispatcher, mut editor) = in_session();
+    send(&mut dispatcher, &mut editor, "C-c C-u");
+    assert!(dispatcher.keys_in_progress());
+    // `C-c n` reads the prefix, and nothing reaches the program.
+    send(&mut dispatcher, &mut editor, "C-c n");
+    assert!(!dispatcher.keys_in_progress());
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
+    // After it, the global keymap's `C-c` keys still do not apply: `C-c t` opens no menu.
+    send(&mut dispatcher, &mut editor, "C-c C-u C-c t");
+    assert!(!dispatcher.menu_open());
+    assert!(!dispatcher.keys_in_progress());
+    assert_eq!(echo(&editor), "C-c t is undefined (C-c C-c sends C-c)");
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
+}
+
+#[test]
+fn c_c_question_mark_says_the_session_keys() {
+    let (mut dispatcher, mut editor) = in_session();
+    send(&mut dispatcher, &mut editor, "C-c ?");
+    let said = echo(&editor);
+    assert!(said.starts_with("C-c then:  a adopt  b switch"), "{said}");
+    for part in [
+        " n next-waiting",
+        " K stop",
+        " V review menu",
+        " C-c send-interrupt",
+        " C-u universal-argument",
+    ] {
+        assert!(said.contains(part), "{part} in {said}");
+    }
+    assert!(!said.contains("help"), "{said}");
+    // Elsewhere it says why not.
+    let (mut dispatcher, mut editor) = in_terminal();
+    dispatcher
+        .run_command(&mut editor, "session-help", None)
+        .1
+        .unwrap_err();
+}
+
+#[test]
+fn a_session_s_modeline_says_session() {
+    let (mut dispatcher, mut editor) = in_session();
+    send(&mut dispatcher, &mut editor, "C-c C-k");
+    let mut status = oso_core::editor::Status::default();
+    editor.status_into(editor.tiled().0.id(), &mut status);
+    assert!(status.state.starts_with("Session"), "{}", status.state);
 }

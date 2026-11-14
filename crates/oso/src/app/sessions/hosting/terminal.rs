@@ -4,6 +4,8 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn, beyond a window's size.
 
+use std::path::Path;
+
 use oso_core::buffer::BufferId;
 use oso_term::End;
 
@@ -48,6 +50,7 @@ impl App {
                 id
             }
         };
+        self.mark_session_buffer(key, buffer);
         // Running from now on, as a terminal is while its shell is found: an exit asks first.
         let size = self.prepare_terminal(buffer);
         self.editor.set_mode_note(buffer, String::new());
@@ -170,6 +173,18 @@ impl App {
             session.buffer = Some(buffer);
             session.run = Run::Stopped;
         }
+        self.mark_session_buffer(key, buffer);
+    }
+
+    /// `buffer` is session `key`'s terminal: session mode's keys apply in it, its modeline says
+    /// `Session`, and it is in the project of the directory the session runs in (ADR 0132).
+    fn mark_session_buffer(&mut self, key: SessionKey, buffer: BufferId) {
+        // A new session is only reserved yet, with its directory.
+        let Some(directory) = self.hosting.table.directory(key).map(Path::to_path_buf) else {
+            return;
+        };
+        self.editor.set_hosts_session(buffer, true);
+        self.editor.request_directory_project(buffer, &directory);
     }
 
     /// `buffer`'s terminal has no program, and its modeline says `note`.
@@ -177,6 +192,8 @@ impl App {
     pub(super) fn prune_sessions(&mut self) {
         for buffer in self.hosting.table.prune() {
             self.show_stopped(buffer, FORGOTTEN);
+            // No session to act on any more: a plain terminal's keys (ADR 0132).
+            self.editor.set_hosts_session(buffer, false);
         }
     }
 

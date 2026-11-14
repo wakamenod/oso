@@ -50,6 +50,12 @@ impl App {
                 None => self.editor.message("This buffer holds no session"),
             },
             SessionRequest::Row { line, action } => self.on_row(line, action),
+            SessionRequest::OnBuffer(buffer, action) => {
+                match self.hosting.table().by_buffer(buffer).map(|s| s.key) {
+                    Some(key) => self.on_session(key, action),
+                    None => self.editor.message("This buffer holds no session"),
+                }
+            }
             SessionRequest::Regroup => self.watch.list.regroup(),
             SessionRequest::Refresh => {}
             SessionRequest::Send { to, parts } => self.send_request(&to, &parts),
@@ -199,6 +205,12 @@ impl App {
             }
             Line::Session(Key::Hosted(key)) => key,
         };
+        self.on_session(key, action);
+    }
+
+    /// Does `action` to hosted session `key`, from its row or from its own terminal's session
+    /// mode (ADR 0132).
+    fn on_session(&mut self, key: SessionKey, action: RowAction) {
         match action {
             RowAction::Show => self.show_session(key),
             RowAction::Fold => {}
