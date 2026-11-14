@@ -105,6 +105,7 @@ impl App {
     /// command registry. Keys from the dev control socket take the same
     /// path, through [`crate::dispatch::Dispatcher::handle_keys_with`].
     fn handle_key(&mut self, event_loop: &Loop<'_>, key: KeyPress) {
+        self.note_person_acted();
         let started = Instant::now();
         #[cfg(feature = "dev")]
         let mut watch = dev::SecretWatch::new(&self.editor);
@@ -126,6 +127,7 @@ impl App {
     /// Handles text from one key press that types several characters.
     fn handle_text(&mut self, event_loop: &Loop<'_>, text: &str) {
         self.person_typed("text");
+        self.note_person_acted();
         let started = Instant::now();
         #[cfg(feature = "dev")]
         let mut watch = dev::SecretWatch::new(&self.editor);
@@ -197,6 +199,7 @@ impl App {
         let moved_columns = columns != 0 && self.editor.scroll_view_sideways(window, columns);
         let moved = moved_rows || moved_columns;
         if moved {
+            self.note_person_acted();
             self.request_redraw();
         }
         Some((window, moved))

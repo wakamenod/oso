@@ -60,6 +60,7 @@ impl App {
                 Err(why.into())
             }
             dev::UiOp::SendKeys(keys) => {
+                self.note_person_acted();
                 let count = keys.len();
                 let started = Instant::now();
                 let timings = &mut self.timings;

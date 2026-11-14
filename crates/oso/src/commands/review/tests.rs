@@ -1,6 +1,7 @@
 //! The review's commands on an editor with a review in it: moving by its rows, opening a scope
 //! only in a trusted project, from a review buffer too, refreshing, burying, listing the keys
-//! and killing the review asked about.
+//! and killing the review asked about; and a review that holds comments, with their rows, for
+//! the comments' tests here and in `dispatch`.
 //!
 //! Must not depend on: `bindings`, `dispatch`, `app` or winit; these run commands through the
 //! registry.
@@ -13,10 +14,13 @@ use oso_core::command::{Args, Ctx, Invocation};
 use oso_core::editor::{Editor, ReviewId, ReviewRequest, ScopeKind};
 use oso_core::load::decode_all;
 use oso_core::project::{Found, ProjectId, RootIdentity, TrustList};
-use oso_core::review::{Anchor, Author, Base, Hunk, RowKind, Rows, Section, Shape, Side};
+use oso_core::review::{
+    Anchor, Author, Base, CommentId, Hunk, RowKind, Rows, Section, Shape, Side,
+};
 use oso_core::rope::Rope;
+use oso_core::selection::{Selection, SelectionSet};
 use oso_core::syntax::Highlights;
-use oso_core::window::ViewSize;
+use oso_core::window::{Scroll, ViewSize};
 
 use super::super::tests::{cursor, run};
 
@@ -109,6 +113,127 @@ fn comment_in(editor: &mut Editor, review: ReviewId) {
     model
         .add_comment(Author::Person, b"a", anchor, "fix this".into())
         .unwrap();
+}
+
+/// The comments [`with_comments`] gives its review.
+pub(crate) struct Comments {
+    /// The person's, on line 1 of `a`'s new side.
+    pub(crate) mine: CommentId,
+    /// The agent's reply to it.
+    pub(crate) agents_reply: CommentId,
+    /// The person's reply to that.
+    pub(crate) my_reply: CommentId,
+    /// The agent's, on `a`'s hunk.
+    pub(crate) agents: CommentId,
+}
+
+/// The text of [`with_comments`]'s review: `a`'s lines and its comments, then `b`.
+pub(crate) const COMMENTED: &str = "Review\nmodified  a  +2 \u{2212}1\n@@ -1 +1,2 @@\n-x\n+y\n+z\nYou\nfix this\nYou\nok\nAgent\nwhy\nadded  b  +1 \u{2212}0\n@@ -0,0 +1 @@\n+w\n";
+
+/// The lines of [`COMMENTED`]: the title, `a`'s header, its hunk's, its old line, its first
+/// new line, the person's label and card, the person's reply's label, the agent's label, and
+/// `b`'s header and line.
+pub(crate) mod lines {
+    pub(crate) const TITLE: usize = 0;
+    pub(crate) const FILE: usize = 1;
+    pub(crate) const HUNK: usize = 2;
+    pub(crate) const OLD: usize = 3;
+    pub(crate) const NEW_2: usize = 5;
+    pub(crate) const MINE: usize = 6;
+    pub(crate) const MINE_CARD: usize = 7;
+    pub(crate) const MY_REPLY: usize = 8;
+    pub(crate) const AGENTS: usize = 10;
+    pub(crate) const AGENTS_CARD: usize = 11;
+    pub(crate) const B_LINE: usize = 14;
+}
+
+/// A review of `project` shown in the selected window, holding [`COMMENTED`]: `a` has a
+/// reading, and its comments rows; `b` has no reading, so a comment on it has no target.
+pub(crate) fn with_comments(editor: &mut Editor, project: ProjectId) -> (ReviewId, Comments) {
+    let (review, buffer) = editor.add_review(project, "*review: uncommitted oso*".into());
+    let window = editor.window().id();
+    editor.show_in(window, buffer);
+    let shape = Arc::new(
+        Shape::new(
+            Base::Unknown,
+            vec![Hunk {
+                old_start: 1,
+                new_start: 1,
+                removed: vec![b"x\n".as_slice().into()],
+                added: vec![b"y\n".as_slice().into(), b"z\n".as_slice().into()],
+            }],
+        )
+        .unwrap(),
+    );
+    let model = editor.review_mut(review).unwrap();
+    let carried = model.carry(b"a", shape).run(|_, _| None, |_, _| Vec::new());
+    model.apply(carried);
+    let line = Anchor::Line {
+        side: Side::New,
+        number: 1,
+    };
+    let mine = model
+        .add_comment(Author::Person, b"a", line, "fix this".into())
+        .unwrap();
+    let agents_reply = model.reply(Author::Agent, mine, "done".into()).unwrap();
+    let my_reply = model
+        .reply(Author::Person, agents_reply, "ok".into())
+        .unwrap();
+    let hunk = Anchor::Hunk { index: 0 };
+    let agents = model
+        .add_comment(Author::Agent, b"a", hunk, "why".into())
+        .unwrap();
+    let mut title = Section::new(Box::default());
+    title.push(RowKind::Note, 1);
+    let lines = |side, first| RowKind::Lines {
+        hunk: 0,
+        side,
+        first,
+    };
+    let mut a = Section::new(b"a".as_slice().into());
+    a.push(RowKind::File, 1);
+    a.push(RowKind::Hunk { hunk: 0 }, 1);
+    a.push(lines(Side::Old, 1), 1);
+    a.push(lines(Side::New, 1), 2);
+    for comment in [mine, my_reply, agents] {
+        a.push(RowKind::Label { comment }, 1);
+        a.push(RowKind::Card { comment }, 1);
+    }
+    let mut b = Section::new(b"b".as_slice().into());
+    b.push(RowKind::File, 1);
+    b.push(RowKind::Hunk { hunk: 0 }, 1);
+    b.push(lines(Side::New, 1), 1);
+    let rows = Rows::new(vec![Arc::new(title), Arc::new(a), Arc::new(b)]);
+    let text = decode_all(COMMENTED.as_bytes(), Default::default()).compared_with(&Rope::new());
+    let _ = editor.set_review_text(review, text, rows, Highlights::new(COMMENTED.len()));
+    let comments = Comments {
+        mine,
+        agents_reply,
+        my_reply,
+        agents,
+    };
+    (review, comments)
+}
+
+/// Puts the selected window's cursors at the starts of `lines`, the first primary.
+pub(crate) fn put_at(editor: &mut Editor, lines: &[usize]) {
+    let text = editor.current().1.text().clone();
+    let selections = lines
+        .iter()
+        .map(|line| Selection::at(text.line_start(*line)))
+        .collect();
+    let set = SelectionSet::from_parts(selections, 0).unwrap();
+    editor.restore_positions(set, Scroll::default());
+}
+
+/// The line of each cursor of the selected window.
+pub(crate) fn lines_of(editor: &Editor) -> Vec<usize> {
+    let (window, buffer) = editor.current();
+    window
+        .selections
+        .iter()
+        .map(|selection| buffer.text().offset_to_point(selection.cursor).row)
+        .collect()
 }
 
 fn line(editor: &Editor) -> usize {

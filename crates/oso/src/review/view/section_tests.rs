@@ -52,12 +52,24 @@ fn reading(content: Content) -> Reading {
     }
 }
 
-fn text_of(rendered: &Rendered) -> String {
+/// The section of `reading` with no comments; `whole` false as past the text's limit.
+fn plain(reading: &Reading, whole: bool) -> Rendered {
+    let cards = Cards::default();
+    let shown = Shown {
+        cards: &cards,
+        placed: None,
+        cut_short: false,
+        folded: false,
+    };
+    render(reading, if whole { usize::MAX } else { 0 }, &shown)
+}
+
+pub(crate) fn text_of(rendered: &Rendered) -> String {
     String::from_utf8_lossy(&rendered.bytes).into_owned()
 }
 
 /// Each line's text and what its row is.
-fn lines_of(rendered: &Rendered) -> Vec<(String, RowKind)> {
+pub(crate) fn lines_of(rendered: &Rendered) -> Vec<(String, RowKind)> {
     let rows = Rows::new(vec![Arc::clone(&rendered.section)]);
     let text = text_of(rendered);
     text.lines()
@@ -75,7 +87,7 @@ fn a_text_reading_shows_its_header_hunks_and_lines() {
             hunk(9, 10, &[], &[b"put in\n"]),
         ],
     );
-    let rendered = render(&reading, true);
+    let rendered = plain(&reading, true);
     let lines = lines_of(&rendered);
     let hunk_lines = |hunk, side, first| RowKind::Lines { hunk, side, first };
     assert_eq!(
@@ -125,12 +137,12 @@ fn every_note_kind_says_what_it_hides() {
         ),
     ];
     for (content, note) in cases {
-        let lines = lines_of(&render(&reading(content), true));
+        let lines = lines_of(&plain(&reading(content), true));
         assert_eq!(lines.len(), 2, "{note}");
         assert_eq!(lines[0].1, RowKind::File);
         assert_eq!(lines[1], (note.to_owned(), RowKind::Note));
     }
-    let lines = lines_of(&unread(&entry(b"b", Status::Added)));
+    let lines = lines_of(&unread(&entry(b"b", Status::Added), &Cards::default()));
     assert_eq!(
         lines,
         [
@@ -138,7 +150,7 @@ fn every_note_kind_says_what_it_hides() {
             ("reading\u{2026}".into(), RowKind::Note)
         ]
     );
-    let past = lines_of(&render(
+    let past = lines_of(&plain(
         &text_reading(b"c", vec![hunk(1, 1, &[b"a\n"], &[])]),
         false,
     ));
@@ -150,7 +162,7 @@ fn every_note_kind_says_what_it_hides() {
 #[test]
 fn line_endings_and_a_last_line_without_newline_are_noted() {
     let reading = text_reading(b"a", vec![hunk(1, 1, &[b"x\r\n"], &[b"x\n", b"end"])]);
-    let lines = lines_of(&render(&reading, true));
+    let lines = lines_of(&plain(&reading, true));
     let notes: Vec<&str> = lines
         .iter()
         .filter(|(_, kind)| *kind == RowKind::Note)
@@ -172,7 +184,7 @@ fn line_endings_and_a_last_line_without_newline_are_noted() {
 fn a_path_or_a_reason_never_makes_a_line_of_its_own() {
     let mut entry = entry(b"a\nmodified  b\xff\xe2\x80\xae.rs", Status::Renamed);
     entry.old_path = Some(b"old\npath".as_slice().into());
-    let rendered = unread(&entry);
+    let rendered = unread(&entry, &Cards::default());
     assert_eq!(rendered.bytes.iter().filter(|&&b| b == b'\n').count(), 2);
     assert_eq!(rendered.section.lines(), 2);
     let text = text_of(&rendered);
@@ -192,7 +204,7 @@ fn a_lines_text_cannot_pass_for_a_header() {
         b"a",
         vec![hunk(1, 1, &[], &[b"modified  evil  +1 \xe2\x88\x921\n"])],
     );
-    let lines = lines_of(&render(&reading, true));
+    let lines = lines_of(&plain(&reading, true));
     assert_eq!(lines.len(), 3);
     assert_eq!(
         lines[2].1,

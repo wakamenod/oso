@@ -559,6 +559,13 @@ impl WrapSnapshot {
     }
 }
 
+/// How many view rows `display` takes from its start in a window `columns` wide, as its wrap
+/// breaks them, counting no more than `most`: it reads only those rows.
+pub(crate) fn rows_at_most(display: &DisplaySnapshot, columns: usize, most: usize) -> usize {
+    let width = wrap_width(columns);
+    RowStream::new(display, 0, width).take(most).count().max(1)
+}
+
 /// The cells a row holds in a window `columns` wide, the mark's column aside.
 fn wrap_width(columns: usize) -> usize {
     if columns < MIN_COLUMNS {

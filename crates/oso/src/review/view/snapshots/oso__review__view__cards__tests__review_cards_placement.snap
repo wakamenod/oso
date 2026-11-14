@@ -1,0 +1,62 @@
+---
+source: crates/oso/src/review/view/cards_tests.rs
+expression: grid(&rendered)
+---
+file     |modified  a.rs  +3 −1  · 11 comments (4 agent, 3 unread)
+         |hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+label 0  |    ▍You  #0 · outdated, was L1 (new)
+         |    ppppppppooooooooooooooooooooooooo
+card 0   |    ▍  was on gone
+         |    p
+label 1  |    ▍Agent  #1 · new · outdated, was hunk 2
+         |    aaaaaaaaaaaaaaaaooooooooooooooooooooooo
+card 1   |    ▍  was on the second hunk
+         |    a
+hunk     |@@ -2 +2,2 @@
+         |@@@@@@@@@@@@@
+line     |-old two
+         |--------
+label 3  |    ▍You  #3
+         |    pppppppp
+card 3   |    ▍  on old two
+         |    p
+line     |+new two
+         |++++++++
+line     |+new three
+         |++++++++++
+label 2  |    ▍You  #2
+         |    pppppppp
+card 2   |    ▍  on new three
+         |    p
+label 5  |    ▍  Agent  #5
+         |    a  aaaaaaaaa
+card 5   |    ▍    reply one
+         |    a
+label 6  |    ▍    You  #6
+         |    p    ppppppp
+card 6   |    ▍      reply two
+         |    p
+label 7  |    ▍      Agent  #7 · new
+         |    a      aaaaaaaaaaaaaaa
+card 7   |    ▍        reply three
+         |    a
+label 8  |    ▍      You  #8
+         |    p      ppppppp
+card 8   |    ▍        reply four, drawn at three
+         |    p
+label 9  |    ▍  You  #9
+         |    p  ppppppp
+card 9   |    ▍    a second reply to the first
+         |    p
+label 4  |    ▍Agent  #4 · new
+         |    aaaaaaaaaaaaaaaa
+card 4   |    ▍  on the hunk
+         |    a
+hunk     |@@ -8,0 +10 @@
+         |@@@@@@@@@@@@@@
+line     |+put in
+         |+++++++
+label 10 |    ▍You  #10
+         |    ppppppppp
+card 10  |    ▍  on put in
+         |    p

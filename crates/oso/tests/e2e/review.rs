@@ -1,6 +1,8 @@
 //! Reviews in a running instance (ADR 0122): a trusted project's uncommitted changes reviewed
 //! with `C-x v r w`, its review buffer read whole with each file's header, hunk and lines, `n`
-//! moving to the first hunk, `g` reading a file changed meanwhile, and `q` going back.
+//! moving to the first hunk, `g` reading a file changed meanwhile, and `q` going back; and the
+//! person's comments: typed in a draft, kept as a card, edited, dropped to the kill ring,
+//! removed and yanked back, and asked about before the review closes.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The sections'
 //! text, the rows and the keys have their own tests.
@@ -174,4 +176,103 @@ fn a_review_of_uncommitted_changes_reads_its_files_moves_refreshes_and_quits() {
     // `q` goes back to the file.
     app.send_keys("q");
     assert_eq!(app.state()["buffer"]["name"], "a.rs");
+}
+
+/// A review of `proj-review`'s uncommitted changes, open and read whole, with the project
+/// trusted.
+fn open_review(scratch: &Scratch) -> App {
+    set_mode(scratch.path(), 0o700);
+    let config = scratch.write("config.toml", b"");
+    set_mode(&config, 0o644);
+    let file = project(scratch);
+    let mut app = App::start_with_config(Some(&file), scratch.path(), &config);
+    app.wait_until_ready();
+    app.wait_for("the project", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("  proj-review  restricted  "))
+    });
+    app.send_keys(&format!("M-x {} RET y", typing("trust-project")));
+    app.wait_for("the trust", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.starts_with("Trusted "))
+    });
+    app.send_keys("C-x v r w");
+    app.wait_for("the review", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+    });
+    rows_until(&mut app, "+fn b() {}");
+    app
+}
+
+/// The innermost prompt's label, if one is open.
+fn prompt_label(app: &mut App) -> Option<String> {
+    let state = app.state();
+    let prompts = state["prompts"].as_array()?;
+    Some(prompts.last()?["prompt"].as_str()?.to_owned())
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_comment_is_drafted_kept_edited_removed_and_yanked_back() {
+    let scratch = Scratch::new("review-comments");
+    let mut app = open_review(&scratch);
+    // On `+2`, the hunk's added line.
+    app.send_keys("n C-n C-n");
+    assert_eq!(cursor(&app.state()), (4, 0));
+    app.send_keys("c");
+    assert_eq!(
+        prompt_label(&mut app).as_deref(),
+        Some("Comment on a.rs L2 (new)")
+    );
+    assert_eq!(app.state()["prompts"][0]["kind"], "draft");
+    app.send_keys(&format!(
+        "{} RET {} C-c C-c",
+        typing("first"),
+        typing("second")
+    ));
+    assert_eq!(prompt_label(&mut app), None, "the draft is kept and closed");
+    let shown = rows_until(&mut app, "    \u{258d}  second");
+    let card = [
+        "+2",
+        "    \u{258d}You  #0",
+        "    \u{258d}  first",
+        "    \u{258d}  second",
+    ];
+    let at = shown.iter().position(|row| row == "+2").expect("the line");
+    assert_eq!(&shown[at..at + 4], &card[..], "{shown:?}");
+    assert!(
+        shown[1].ends_with("  \u{b7} 1 comment"),
+        "the header counts it: {shown:?}"
+    );
+
+    // `e` on its label: the draft holds its text; `C-g` drops it into the kill ring.
+    app.send_keys("C-n");
+    assert_eq!(cursor(&app.state()), (5, 0));
+    app.send_keys("e");
+    assert_eq!(prompt_label(&mut app).as_deref(), Some("Edit #0"));
+    assert_eq!(app.state()["prompts"][0]["text"], "first\nsecond");
+    app.send_keys("C-g");
+    assert_eq!(prompt_label(&mut app), None);
+    assert_eq!(app.state()["echo"], "Draft in the kill ring: C-y");
+
+    // Closing asks while the comment was not sent.
+    app.send_keys(&format!("M-x {} RET", typing("review-kill")));
+    assert_eq!(
+        prompt_label(&mut app).as_deref(),
+        Some("1 comment of yours will be lost; kill? (y or n)")
+    );
+    app.send_keys("n");
+
+    // `k` removes it at once, and `C-y` yanks it back as text elsewhere.
+    app.send_keys("k");
+    assert_eq!(app.state()["echo"], "Removed #0: C-y yanks it");
+    let seen = rows_until(&mut app, "+fn b() {}");
+    assert!(!seen.iter().any(|row| row.contains("You  #0")), "{seen:?}");
+    app.send_keys("q M-> C-y");
+    let state = app.state();
+    assert_eq!(state["buffer"]["name"], "a.rs");
+    let text = rows(&mut app, 20).join("\n");
+    assert!(text.ends_with("You  #0\nfirst\nsecond"), "{text:?}");
 }
