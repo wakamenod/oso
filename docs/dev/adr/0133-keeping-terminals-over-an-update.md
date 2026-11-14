@@ -94,9 +94,11 @@ running work (Q5).
 ### Security
 
 - **T-socket** does not arise: there is no socket.
-- **T-parse:** the decoder reads only what came over the pair, from the parent. Before this
-  step lands, the decoder is fuzzed on both library builds, as step 11's follow-up did under
-  `oso dev`.
+- **T-parse:** the decoder reads only what came over the pair, from the parent. Before the
+  decoder ships in release builds, a patch to libghostty-vt (oso's third, in its own pull
+  request) makes a decode refuse any snapshot it cannot restore consistently, and the decoder
+  is fuzzed on both library builds, damaged snapshots included, until no input stops it or
+  holds it (the author's choice, 2026-11-15).
 - **T-agent:** the command is `Person`, and the agent channel stops before the handoff, as an
   exit stops it. Each bridge follows its session to the new instance as under `oso dev`.
 - **T-exec** is bounded by the checks above but not removed. A process that can write the
@@ -159,8 +161,9 @@ team identity when the running one has one (Q3). Everything step 11 and ADR 0090
   socket pair. The order and the state stay shared.
 - `just release-safety` keeps every dev method's name out of release binaries.
 - A quit or a crash still ends the terminals. Option C's "quit when idle" (Q5) covers the quit.
-- The steps, once accepted: the socket-pair transport and `oso-restart`, then the binary
-  checks, then the notice on focus, then the quit (Q5).
+- The steps: first the library patch and the fuzzing that T-parse asks for, then the
+  socket-pair transport and `oso-restart`, then the binary checks, then the notice on focus,
+  then the quit (Q5). The release handoff lands only after the first.
 
 ## Alternatives considered
 
