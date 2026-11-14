@@ -461,6 +461,9 @@ item notes when it must be settled.
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 3). [ADR
   0131](adr/0131-an-orca-style-sessions-pane.md) puts the branch on worktree rows from
   `git worktree list` on the git pool.
+- Whether Claude Code pushes the kitty keyboard flags in oso's terminal, so that Shift-Enter and
+  Ctrl-Enter reach it, and whether `C-z` leaves a session suspended with nothing to resume it
+  ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md); checked with its step 1).
 - An option for East Asian Ambiguous characters to take 2 cells
   ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)). It needs the
   `cjk` feature of `unicode-width`.
