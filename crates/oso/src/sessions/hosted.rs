@@ -72,6 +72,12 @@ pub struct Hosted {
     pub changed: u64,
     /// The bridge connection that holds it, at most one.
     pub bridge: Option<Connection>,
+    /// Whether it came over `oso dev`'s restart: its `claude` is no longer oso's child, so its
+    /// id could be another's once it ends (ADR 0120, step 11).
+    pub carried: bool,
+    /// When that `claude` started, as the instance before read it: a bridge's parent must
+    /// have started then too, and with no start known, no bridge is believed unasked.
+    pub started: Option<std::time::SystemTime>,
 }
 
 impl Hosted {
@@ -171,6 +177,8 @@ impl Table {
             archived: false,
             changed: new.changed,
             bridge: None,
+            carried: false,
+            started: None,
         });
         self.sessions.last_mut()
     }
@@ -206,6 +214,8 @@ impl Table {
                 archived: session.archived,
                 changed: session.changed,
                 bridge: None,
+                carried: false,
+                started: None,
             });
         }
         back
@@ -306,6 +316,7 @@ impl Table {
         connection: Connection,
         peer: &oso_platform::control::Peer,
         claim: Option<&SessionId>,
+        parent_started: Option<std::time::SystemTime>,
     ) -> Option<&Hosted> {
         let candidates = self.sessions.iter().map(|session| Candidate {
             id: &session.id,
@@ -314,8 +325,10 @@ impl Table {
                 _ => None,
             },
             bridged: session.bridge.is_some(),
+            carried: session.carried,
+            started: session.started,
         });
-        let index = bridge::admit(peer, claim, candidates)?;
+        let index = bridge::admit(peer, claim, parent_started, candidates)?;
         let session = &mut self.sessions[index];
         session.bridge = Some(connection);
         Some(session)
@@ -330,10 +343,11 @@ impl Table {
         connection: Connection,
         peer: &oso_platform::control::Peer,
         claim: Option<&SessionId>,
+        parent_started: Option<std::time::SystemTime>,
         answer: impl FnOnce(bool) -> bool,
     ) -> Option<String> {
         let name = self
-            .admit(connection, peer, claim)
+            .admit(connection, peer, claim, parent_started)
             .map(|session| session.name.clone());
         let reached = answer(name.is_some());
         if name.is_some() && !reached {
@@ -533,13 +547,19 @@ mod tests {
             Connection { run: 1, number: 1 },
             Connection { run: 1, number: 2 },
         );
-        assert!(table.admit(first, &peer, Some(&id)).is_none(), "starting");
+        assert!(
+            table.admit(first, &peer, Some(&id), None).is_none(),
+            "starting"
+        );
         table.get_mut(key).unwrap().run = Run::Running { child: Some(77) };
-        assert!(table.admit(first, &peer, Some(&id)).is_some());
-        assert!(table.admit(second, &peer, Some(&id)).is_none(), "held");
+        assert!(table.admit(first, &peer, Some(&id), None).is_some());
+        assert!(
+            table.admit(second, &peer, Some(&id), None).is_none(),
+            "held"
+        );
         assert_eq!(table.by_connection(first).unwrap().key, key);
         table.bridge_gone(first);
-        assert!(table.admit(second, &peer, Some(&id)).is_some());
+        assert!(table.admit(second, &peer, Some(&id), None).is_some());
         assert_eq!(table.ended(key, Some(0), 2), Some(Exit::Stopped));
         assert!(table.by_connection(second).is_none());
     }
@@ -562,7 +582,7 @@ mod tests {
         // The server stopped waiting: its receiver is gone, and the send fails.
         let (reply, gone) = std::sync::mpsc::channel::<bool>();
         drop(gone);
-        let kept = table.answer_claim(late, &peer, Some(&id), |admitted| {
+        let kept = table.answer_claim(late, &peer, Some(&id), None, |admitted| {
             reply.send(admitted).is_ok()
         });
         assert_eq!(kept, None);
@@ -570,7 +590,7 @@ mod tests {
         assert!(table.get(key).unwrap().bridge.is_none());
         // The session's next bridge is let in.
         let (reply, answered) = std::sync::mpsc::channel::<bool>();
-        let kept = table.answer_claim(next, &peer, Some(&id), |admitted| {
+        let kept = table.answer_claim(next, &peer, Some(&id), None, |admitted| {
             reply.send(admitted).is_ok()
         });
         assert_eq!(kept.as_deref(), Some(table.get(key).unwrap().name.as_str()));

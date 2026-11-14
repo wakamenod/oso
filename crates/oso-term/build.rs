@@ -3,7 +3,8 @@
 //! checks their signatures; this checks their sha256 again, unpacks them into `OUT_DIR`, and
 //! fails unless the dependency tarball holds exactly the packages the lock lists. It then
 //! applies oso's patches in `patches/`, each checked against its sha256 in the lock, and fails
-//! unless every patched file has the sha256 the lock gives it.
+//! unless every patched file has the sha256 the lock gives it. The archive Zig built is kept
+//! in the target directory (`build/archive_cache.rs`), so a build with other features reuses it.
 //!
 //! Must not depend on: the network, or anything but the lock, the tarballs, the patches, Zig,
 //! `tar`, `patch` and a sha256 tool.
@@ -33,6 +34,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+#[path = "build/archive_cache.rs"]
+mod archive_cache;
 #[path = "build/patch_check.rs"]
 mod patch_check;
 
@@ -55,6 +58,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=ghostty-vt.lock");
     println!("cargo:rerun-if-changed=build/patch_check.rs");
+    println!("cargo:rerun-if-changed=build/archive_cache.rs");
     for name in [
         "OSO_TERM_ENGINE",
         "OSO_GHOSTTY_VT_DIR",
@@ -83,12 +87,20 @@ fn main() {
     let deps = unpack(&tarballs, &lock.deps, &out.join("deps"));
     check_packages(&deps, &lock.packages);
     let zig = env::var_os("ZIG").unwrap_or_else(|| "zig".into());
-    check_zig(&zig, &lock.zig);
-    let archive = zig_build(&zig, &src, &deps, &out);
+    let zig_version = check_zig(&zig, &lock.zig);
     let link_dir = out.join("link");
     fs::create_dir_all(&link_dir).expect("create the link directory");
     // The archive alone in its own directory, so the linker never picks the dylib beside it.
-    fs::copy(&archive, link_dir.join("libghostty-vt.a")).expect("copy libghostty-vt.a");
+    let linked = link_dir.join("libghostty-vt.a");
+    let key = cache_key(&manifest, &out, &zig_version);
+    let cache = archive_cache::Cache::new(&out, &key);
+    if !cache.as_ref().is_some_and(|cache| cache.get(&linked)) {
+        let archive = zig_build(&zig, &src, &deps, &out);
+        fs::copy(&archive, &linked).expect("copy libghostty-vt.a");
+        if let Some(cache) = &cache {
+            cache.put(&archive);
+        }
+    }
     println!("cargo:rustc-link-search=native={}", link_dir.display());
     println!("cargo:rustc-link-lib=static=ghostty-vt");
 }
@@ -327,7 +339,32 @@ fn check_packages(deps: &Path, listed: &[String]) {
     }
 }
 
-fn check_zig(zig: &std::ffi::OsStr, wanted: &str) {
+/// The sha256 of what the archive is built from: the lock (the release, the patches and
+/// their results), this script (Zig's arguments), the optimize mode, the target and the host,
+/// and Zig's version.
+fn cache_key(manifest: &Path, out: &Path, zig_version: &str) -> String {
+    let mut text = fs::read(manifest.join("ghostty-vt.lock")).expect("read ghostty-vt.lock");
+    text.extend(fs::read(manifest.join("build.rs")).expect("read build.rs"));
+    for name in ["TARGET", "HOST"] {
+        text.extend(format!("\n{name} {}", env::var(name).unwrap_or_default()).bytes());
+    }
+    text.extend(format!("\noptimize {}\nzig {zig_version}\n", optimize()).bytes());
+    let file = out.join("archive-key");
+    fs::write(&file, text).expect("write the archive's key");
+    sha256(&file)
+}
+
+/// Zig's optimize mode: `OSO_GHOSTTY_VT_OPTIMIZE`, `ReleaseFast` by default.
+fn optimize() -> String {
+    let optimize = env::var("OSO_GHOSTTY_VT_OPTIMIZE").unwrap_or_else(|_| "ReleaseFast".into());
+    if !OPTIMIZE_MODES.contains(&optimize.as_str()) {
+        panic!("OSO_GHOSTTY_VT_OPTIMIZE must be one of {OPTIMIZE_MODES:?}, not {optimize:?}");
+    }
+    optimize
+}
+
+/// Fails unless `zig` is the lock's version; returns the version it reports.
+fn check_zig(zig: &std::ffi::OsStr, wanted: &str) -> String {
     let output = Command::new(zig)
         .arg("version")
         .output()
@@ -336,13 +373,11 @@ fn check_zig(zig: &std::ffi::OsStr, wanted: &str) {
     if version != wanted && !version.starts_with(&format!("{wanted}.")) {
         panic!("Zig {version} found, but libghostty-vt needs Zig {wanted} (set ZIG)");
     }
+    version
 }
 
 fn zig_build(zig: &std::ffi::OsStr, src: &Path, deps: &Path, out: &Path) -> PathBuf {
-    let optimize = env::var("OSO_GHOSTTY_VT_OPTIMIZE").unwrap_or_else(|_| "ReleaseFast".into());
-    if !OPTIMIZE_MODES.contains(&optimize.as_str()) {
-        panic!("OSO_GHOSTTY_VT_OPTIMIZE must be one of {OPTIMIZE_MODES:?}, not {optimize:?}");
-    }
+    let optimize = optimize();
     let prefix = out.join("zig-out");
     // Zig 0.17 fails ("reached unreachable code") on a global cache that already holds a
     // package archive, so each run starts with an empty one.

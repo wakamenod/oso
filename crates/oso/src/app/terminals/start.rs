@@ -166,7 +166,7 @@ impl App {
         self.request_redraw();
     }
 
-    fn terminal_failed(&mut self, buffer: BufferId, why: &str) {
+    pub(in crate::app) fn terminal_failed(&mut self, buffer: BufferId, why: &str) {
         if let Some(hosted) = self.terminals.map.get_mut(buffer) {
             hosted.ended = Some("failed".to_owned());
         }

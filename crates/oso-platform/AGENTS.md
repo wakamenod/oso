@@ -9,7 +9,8 @@ state and configuration live, the home directory, and who else can change a file
 `file_meta` what decides who may reach a file beyond its mode (ADR 0065). The
 control sockets' transport lives in `control`, in every build, for the dev socket
 and the agent channel (ADR 0085); only the dev tooling and the agent channel
-listen. Process spawning lives in `process`, and pseudo-terminals in
+listen. Passing descriptors over a connection (`control/unix/rights.rs`) and a PTY master
+from a descriptor are `dev` only, for `oso dev`'s restart of terminals (ADR 0120, step 11). Process spawning lives in `process`, and pseudo-terminals in
 `process::pty`, in every build (ADR 0120). `notify` asks for the person's attention for agent
 sessions (ADR 0121). `random` reads the system's random bytes, for ids such as a hosted
 session's (ADR 0121). `window` holds the window layer's

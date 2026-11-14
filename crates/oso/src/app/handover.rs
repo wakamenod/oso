@@ -24,13 +24,20 @@ pub(super) struct Handover {
     /// have loaded (ADR 0112).
     pub(super) restore: Vec<handoff::Restore>,
     /// How many states this instance has exported, which names the latest.
-    exports: u64,
+    pub(super) exports: u64,
     /// The texts the latest export carries, for `export-text`.
-    exported: Option<carry::Exported>,
+    pub(super) exported: Option<carry::Exported>,
     /// The texts `import-text` has brought for the import that follows.
     staging: carry::Staging,
     /// The reply to an import that waits for its carried buffers to be judged.
     import: Option<ImportReply>,
+    /// Terminals going to the next instance (ADR 0120, step 11).
+    pub(super) going: super::terminals::carry::Going,
+    /// Terminals the import carried, until their masters come.
+    pub(super) coming: super::terminals::Coming,
+    /// The instances this one took over from, the newest last, at most 16: what a session's
+    /// bridge pinned to one of them looks for (ADR 0121).
+    pub(super) follows: Vec<u32>,
 }
 
 /// An import's reply, held until every carried buffer has a verdict.
@@ -44,17 +51,89 @@ impl App {
     /// `export-state`: the state, with an O(1) snapshot of each text it carries kept for
     /// `export-text`, replacing the one before.
     pub(super) fn export_state(&mut self) -> dev::Reply {
-        let number = self.handover.exports + 1;
-        let (state, exported) = handoff::export(
+        self.resume_terminals();
+        let (state, exported) = self.export_texts(None)?;
+        self.keep_export(exported);
+        Ok(state)
+    }
+
+    /// The state and the texts it carries, numbered as the next export; `terminals` the
+    /// running terminals it carries too, which the caller adds.
+    pub(super) fn export_texts(
+        &self,
+        terminals: Option<(&[BufferId], usize)>,
+    ) -> Result<(Value, carry::Exported), String> {
+        handoff::export(
             &self.editor,
             self.dispatcher.pending(),
             self.frame(),
             &self.handover.restore,
-            number,
-        )?;
-        self.handover.exports = number;
+            self.handover.exports + 1,
+            terminals,
+        )
+    }
+
+    /// Keeps `exported` for `export-text`, as the latest export, dropping the one before.
+    pub(super) fn keep_export(&mut self, exported: carry::Exported) {
+        self.handover.exports = exported.number();
         carry::drop_later(self.handover.exported.replace(exported));
-        Ok(state)
+    }
+
+    /// The methods of a restart but `exit`: their reply, if it is ready now.
+    pub(super) fn answer_restart(
+        &mut self,
+        op: dev::UiOp,
+        reply: mpsc::Sender<dev::Reply>,
+        passed: dev::Passed,
+    ) -> Option<(mpsc::Sender<dev::Reply>, dev::Reply)> {
+        let result = match op {
+            dev::UiOp::ExportState { terminals: None } => self.export_state(),
+            dev::UiOp::ExportState {
+                terminals: Some(library),
+            } => return self.export_with_terminals(&library, passed.parent, reply),
+            op @ (dev::UiOp::ExportText { .. } | dev::UiOp::ImportText(_)) => {
+                return self.carry_text(op, reply, passed.parent);
+            }
+            dev::UiOp::HandOverTerminals { generation } => {
+                self.hand_over_terminals(generation, &passed)
+            }
+            dev::UiOp::ImportTerminals { count } => self.import_terminals(count, passed),
+            dev::UiOp::CheckHandover { terminals } => self.check_handover(terminals, passed.parent),
+            dev::UiOp::ImportState(state) => {
+                return self.answer_import(*state, reply, passed.parent);
+            }
+            _ => Err("not a method of a restart".into()),
+        };
+        Some((reply, result))
+    }
+
+    /// `check-handover`: with `terminals`, whether the running terminals can go too, which
+    /// only the parent may ask; without, a running terminal holds the restart.
+    pub(super) fn check_handover(&self, terminals: bool, parent: bool) -> dev::Reply {
+        if terminals && !parent {
+            return Err(super::terminals::carry::NOT_PARENT.into());
+        }
+        if self.terminals_coming() {
+            return Err(
+                "cannot hand over: the terminals carried here wait for their masters".into(),
+            );
+        }
+        let answer = handoff::check(&self.editor, terminals)?;
+        if terminals {
+            let running: Vec<BufferId> = self.editor.running_terminals().collect();
+            self.terminals_may_go(&running)?;
+        }
+        Ok(answer)
+    }
+
+    /// What a thread of the restart of terminals found.
+    pub(super) fn carry_event(&mut self, event: super::terminals::carry::CarryEvent) {
+        match event {
+            super::terminals::carry::CarryEvent::Encoded => self.carry_terminals(),
+            super::terminals::carry::CarryEvent::Adopted(buffer, adopted) => {
+                self.terminal_adopted(buffer, adopted);
+            }
+        }
     }
 
     /// Forgets the snapshot of the latest export, as the restart it was for is over.
@@ -79,16 +158,23 @@ impl App {
     /// `export-text` and `import-text`. Only the lookup happens here: a background thread
     /// copies or builds the piece, and replies. Returns the reply if there is one now.
     pub(super) fn carry_text(
-        &self,
+        &mut self,
         op: dev::UiOp,
         reply: mpsc::Sender<dev::Reply>,
+        parent: bool,
     ) -> Option<(mpsc::Sender<dev::Reply>, dev::Reply)> {
+        self.touch_carried();
         match op {
             dev::UiOp::ExportText {
                 export,
                 item,
                 offset,
             } => {
+                // A terminal's state goes only to the parent (the author's choice).
+                if !parent && self.is_terminal_item(export, item) {
+                    let refused = super::terminals::carry::NOT_PARENT.to_owned();
+                    return Some((reply, Err(refused)));
+                }
                 let job = self
                     .handover
                     .exported
@@ -118,7 +204,17 @@ impl App {
         &mut self,
         state: handoff::State,
         reply: mpsc::Sender<dev::Reply>,
+        parent: bool,
     ) -> Option<(mpsc::Sender<dev::Reply>, dev::Reply)> {
+        if !parent && !state.terminals.is_empty() {
+            let refused = super::terminals::carry::NOT_PARENT.to_owned();
+            return Some((reply, Err(refused)));
+        }
+        // Which instances a bridge follows here is the parent's to say.
+        let mut state = state;
+        if !parent {
+            state.follows.clear();
+        }
         let judging = match self.import_state(state) {
             Ok(judging) => judging,
             Err(message) => return Some((reply, Err(message))),
@@ -169,6 +265,8 @@ impl App {
             .iter()
             .map(|kill| split(take(kill.item)?.text(), &kill.pieces))
             .collect::<Result<Vec<_>, _>>()?;
+        let carried_terminals = std::mem::take(&mut state.terminals);
+        let follows = std::mem::take(&mut state.follows);
         let histories = state
             .histories
             .iter()
@@ -177,6 +275,10 @@ impl App {
                 Ok((history.name.as_str(), parts))
             })
             .collect::<Result<Vec<_>, String>>()?;
+        let terminal_texts = carried_terminals
+            .iter()
+            .map(|terminal| take(terminal.item).map(|text| text.text().clone()))
+            .collect::<Result<Vec<_>, _>>()?;
         let mut carried = Vec::new();
         for entry in &state.buffers {
             carried.push(match &entry.carried {
@@ -190,8 +292,15 @@ impl App {
         let mut added = Vec::new();
         let mut judging = Vec::new();
         let mut scratch_text = None;
+        let mut stand_for = Vec::new();
         for (entry, carried) in std::mem::take(&mut state.buffers).into_iter().zip(carried) {
             let (opened_by_agent, wraps) = (entry.opened_by_agent, entry.wraps);
+            // A carried terminal's window, once its buffer is made below.
+            if let Some(terminal) = entry.terminal {
+                stand_for.push((named.len(), terminal));
+                named.push(scratch);
+                continue;
+            }
             let buffer = match (entry.path, carried) {
                 // The old instance held it, so it opens without asking, whatever its size
                 // (ADR 0087).
@@ -223,10 +332,41 @@ impl App {
             self.editor.set_wraps(buffer, wraps);
             named.push(buffer);
         }
+        // The terminals only once nothing can fail: their threads start here.
+        self.place_terminals(carried_terminals, terminal_texts, &stand_for, &mut named);
+        self.handover.follows = follows;
         if let (Some((text, facts)), Some(buffer)) = (scratch_text, self.editor.buffer_mut(scratch))
         {
             buffer.apply_carried(text, facts);
         }
+        self.carry_ring_and_histories(kills, histories);
+        self.take_view(&named, state);
+        Ok(judging)
+    }
+
+    /// Adopts the `terminals` a state carries, `texts` their states, and has each window that
+    /// stood for one, by its place in `named`, show its buffer (ADR 0120, step 11).
+    fn place_terminals(
+        &mut self,
+        terminals: Vec<handoff::terminals::TerminalState>,
+        texts: Vec<Rope>,
+        stand_for: &[(usize, usize)],
+        named: &mut [BufferId],
+    ) {
+        let adopted = self.adopt_terminals(terminals, texts);
+        for &(at, terminal) in stand_for {
+            if let (Some(&buffer), Some(slot)) = (adopted.get(terminal), named.get_mut(at)) {
+                *slot = buffer;
+            }
+        }
+    }
+
+    /// Puts in the kill ring's entries and the histories a state carried.
+    fn carry_ring_and_histories(
+        &mut self,
+        kills: Vec<Vec<Rope>>,
+        histories: Vec<(&str, Vec<Rope>)>,
+    ) {
         self.editor.carry_kills(
             kills
                 .into_iter()
@@ -237,8 +377,6 @@ impl App {
             let answers = answers.iter().map(Rope::to_string);
             self.editor.carry_history(name, answers);
         }
-        self.take_view(&named, state);
-        Ok(judging)
     }
 
     /// Lays the frame out as the state's windows were, each showing its buffer of `named` with

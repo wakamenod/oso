@@ -117,6 +117,10 @@ impl core::fmt::Debug for oso_platform::control::ControlListener
 pub fn oso_platform::control::ControlListener::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_platform::control::ControlStream(_)
 impl oso_platform::control::ControlStream
+pub const oso_platform::control::ControlStream::MAX_FDS: usize
+pub fn oso_platform::control::ControlStream::recv_with_fds(&self, &mut [u8], &mut alloc::vec::Vec<std::os::fd::owned::OwnedFd>) -> std::io::error::Result<usize>
+pub fn oso_platform::control::ControlStream::send_with_fds(&self, &[u8], &[std::os::fd::owned::BorrowedFd<'_>]) -> std::io::error::Result<()>
+impl oso_platform::control::ControlStream
 pub fn oso_platform::control::ControlStream::peer(&self) -> oso_platform::control::Peer
 pub fn oso_platform::control::ControlStream::set_read_timeout(&self, core::option::Option<core::time::Duration>) -> std::io::error::Result<()>
 pub fn oso_platform::control::ControlStream::set_write_timeout(&self, core::option::Option<core::time::Duration>) -> std::io::error::Result<()>
@@ -301,6 +305,9 @@ pub fn oso_platform::process::pty::Master::reads_secret(&self) -> std::io::error
 pub fn oso_platform::process::pty::Master::resize(&self, oso_platform::process::pty::Size) -> std::io::error::Result<()>
 pub fn oso_platform::process::pty::Master::wait(&self, &oso_platform::process::pty::Wakeup, bool, core::option::Option<core::time::Duration>) -> std::io::error::Result<oso_platform::process::pty::Ready>
 pub fn oso_platform::process::pty::Master::write(&self, &[u8]) -> std::io::error::Result<usize>
+impl oso_platform::process::pty::Master
+pub fn oso_platform::process::pty::Master::from_fd(std::os::fd::owned::OwnedFd) -> std::io::error::Result<oso_platform::process::pty::Master>
+pub fn oso_platform::process::pty::Master::try_clone_fd(&self) -> std::io::error::Result<std::os::fd::owned::OwnedFd>
 impl core::fmt::Debug for oso_platform::process::pty::Master
 pub fn oso_platform::process::pty::Master::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_platform::process::pty::Ready

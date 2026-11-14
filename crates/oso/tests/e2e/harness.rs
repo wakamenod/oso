@@ -338,6 +338,50 @@ impl App {
         }
     }
 
+    /// Sends one request on a connection of its own, with `fds` passed along, as `oso dev`
+    /// passes terminals' masters (ADR 0120, step 11), and returns its result and the
+    /// descriptors that came with the reply.
+    pub fn call_passing(
+        &mut self,
+        method: &str,
+        params: Option<Value>,
+        fds: &[std::os::fd::OwnedFd],
+    ) -> Result<(Value, Vec<std::os::fd::OwnedFd>), String> {
+        use std::os::fd::AsFd;
+        let failed = |e: std::io::Error| format!("{method}: {e}");
+        let (_, mut stream) = self
+            .dir
+            .connect(Socket::Dev, Some(self.pid()))
+            .map_err(failed)?;
+        stream.set_read_timeout(Some(TIMEOUT)).map_err(failed)?;
+        let mut request = json!({ "id": 1, "method": method });
+        if let Some(params) = params {
+            request["params"] = params;
+        }
+        let line = format!("{request}\n");
+        let borrowed: Vec<_> = fds.iter().map(AsFd::as_fd).collect();
+        if borrowed.is_empty() {
+            stream.write_all(line.as_bytes()).map_err(failed)?;
+        } else {
+            stream
+                .send_with_fds(line.as_bytes(), &borrowed)
+                .map_err(failed)?;
+        }
+        let mut got = Vec::new();
+        let mut response = Vec::new();
+        let mut buf = [0u8; 64 * 1024];
+        while response.last() != Some(&b'\n') {
+            let n = stream.recv_with_fds(&mut buf, &mut got).map_err(failed)?;
+            if n == 0 {
+                return Err(format!("{method}: the instance hung up"));
+            }
+            response.extend_from_slice(&buf[..n]);
+        }
+        let line = String::from_utf8_lossy(&response);
+        let result = response_result(&line).map_err(|message| format!("{method}: {message}"))?;
+        Ok((result, got))
+    }
+
     /// Sends one request and returns its result, or the error it came back
     /// with. Panics if no response came.
     pub fn try_call(&mut self, method: &str, params: Option<Value>) -> Result<Value, String> {

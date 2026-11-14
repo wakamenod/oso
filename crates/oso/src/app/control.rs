@@ -27,6 +27,7 @@ impl App {
             op,
             received,
             reply,
+            passed,
         } = request;
         // `exit` only sets a flag, and the loop still delivers what is queued. An
         // edit run now would be confirmed and then lost with the process.
@@ -37,7 +38,7 @@ impl App {
         self.drop_stale_texts();
         let newest = self.editor.prompts().last().map(|prompt| prompt.id());
         self.dispatcher.set_input_from_socket(true);
-        let result = self.answer_control(event_loop, op, received, reply);
+        let result = self.answer_control(event_loop, op, received, reply, passed);
         self.dispatcher.set_input_from_socket(false);
         if let Some((reply, result)) = result {
             self.note_remote_questions(newest);
@@ -53,6 +54,7 @@ impl App {
         op: dev::UiOp,
         received: Instant,
         reply: std::sync::mpsc::Sender<dev::Reply>,
+        passed: dev::Passed,
     ) -> Option<(std::sync::mpsc::Sender<dev::Reply>, dev::Reply)> {
         let result = match op {
             // Keys from the dev socket stand in for the person's (ADR 0085).
@@ -113,34 +115,41 @@ impl App {
                 self.take_screenshot(reply);
                 return None;
             }
-            dev::UiOp::ExportState => self.export_state(),
-            op @ (dev::UiOp::ExportText { .. } | dev::UiOp::ImportText(_)) => {
-                return self.carry_text(op, reply);
-            }
             dev::UiOp::DevMessage(text) => self.dev_message(text),
-            dev::UiOp::CheckHandover => handoff::check(&self.editor),
             dev::UiOp::Panic | dev::UiOp::EndUnasked => self.end_for_a_test(event_loop, &op),
             dev::UiOp::Ime(report) => self.report_ime(event_loop, report, received),
             dev::UiOp::Clipboard(op) => self.memory_clipboard(op),
             dev::UiOp::Wheel { delta, at } => self.dev_wheel(delta, at),
             dev::UiOp::Mouse { action, at, shift } => self.dev_mouse(action, at, shift),
             dev::UiOp::Focus(focused) => Ok(self.dev_focus(focused)),
-            dev::UiOp::ImportState(state) => return self.answer_import(*state, reply),
-            // Checked here on the UI thread, and nothing runs after it (see the
-            // top), so no edit can come between the check and the exit.
-            dev::UiOp::Exit { generation } => {
-                let allowed = handoff::exit_allowed(&self.editor, generation);
-                if allowed.is_err() {
-                    // That restart is over, and its snapshot need hold no text.
-                    self.forget_export();
-                }
-                allowed.map(|()| {
-                    self.leave(event_loop, true);
-                    json!({ "exiting": true })
-                })
-            }
+            dev::UiOp::Exit { generation } => self.answer_exit(event_loop, generation),
+            // The rest are a restart's: exporting and importing the state, its texts and its
+            // terminals, and whether it may go.
+            op => return self.answer_restart(op, reply, passed),
         };
         Some((reply, result))
+    }
+
+    /// `exit`: checked here on the UI thread, and nothing runs after it (see
+    /// `handle_control`), so no edit can come between the check and the exit. With a
+    /// generation, terminals handed over go now: the next instance has their masters
+    /// (ADR 0120, step 11).
+    fn answer_exit(&mut self, event_loop: &Loop<'_>, generation: Option<u64>) -> dev::Reply {
+        let allowed = handoff::exit_allowed(&self.editor, generation).and_then(|()| {
+            if generation.is_some() {
+                self.exit_with_terminals()
+            } else {
+                Ok(())
+            }
+        });
+        if allowed.is_err() {
+            // That restart is over, and its snapshot need hold no text.
+            self.forget_export();
+        }
+        allowed.map(|()| {
+            self.leave(event_loop, true);
+            json!({ "exiting": true })
+        })
     }
 
     /// Remembers the questions a request opened, and the prompts that complete, those newer

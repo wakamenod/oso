@@ -7,6 +7,8 @@
 
 #![cfg(unix)]
 
+#[cfg(feature = "dev")]
+mod handoff;
 mod input;
 
 use std::ffi::OsString;

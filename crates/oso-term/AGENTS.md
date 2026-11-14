@@ -5,9 +5,9 @@ escape-sequence policy, and a thread per terminal that owns its PTY, its child a
 
 - May depend on `oso-core` and `oso-platform` only; only the tip crate depends on it. Module
   layers are in `guardrails/layers.txt` (`[oso-term]`).
-- It parses untrusted output in memory-unsafe code. All `unsafe` is in `engine/ghostty/ffi.rs` and
-  `ffi/mouse.rs`, `raw.rs`, `raw/callbacks.rs` and `raw/mouse.rs` (the architecture test checks
-  it): one operation per block,
+- It parses untrusted output in memory-unsafe code. All `unsafe` is in `engine/ghostty/ffi.rs`,
+  `ffi/mouse.rs` and `ffi/snapshot.rs`, `raw.rs`, `raw/callbacks.rs`, `raw/mouse.rs` and
+  `raw/snapshot.rs` (the architecture test checks it): one operation per block,
   each with its `// SAFETY:` comment. Everything else is safe code over `raw`. No `unwrap` or
   `expect` outside tests.
 - A callback runs inside the library's parse: it only pushes onto the sink, never calls back
@@ -33,9 +33,23 @@ escape-sequence policy, and a thread per terminal that owns its PTY, its child a
   both and re-reads each linked package; any change to the lock is fuzzed again (`just fuzz-term`, ReleaseFast and
   ReleaseSafe, an hour each, on the Mac mini, and on Linux) before it lands. `build.rs` never
   downloads; `just ghostty-vt` fetches and checks the tarballs.
+- `build.rs` keeps the archive Zig built in the profile directory (`ghostty-vt-cache/<key>`,
+  `build/archive_cache.rs`), as cargo runs it once per feature set. The key is the sha256 of
+  the lock, `build.rs`, the optimize mode, the target, the host and Zig's version: change any
+  of them, or what decides Zig's arguments, only in those. The archive is reused only through
+  plain directories and files and when its recorded sha256 matches; every other check runs
+  each time.
 - oso's patch to the library is in `patches/`, with its sha256 and the sha256 of each file it
   changes in the lock. A bump drops a patch the release makes needless, or rebases it and
   updates the hashes. Change the library only through a patch there, never in `OUT_DIR`.
+- `oso dev`'s restart (ADR 0120, step 11) is behind the `dev` feature: a thread stops reading
+  and writes the terminal's state (`terminal/thread/handoff.rs`, `engine/ghostty/carry.rs`),
+  and a terminal is adopted from it with its master attached later. The state is escape
+  sequences until oso's third patch to the library lands; only then may `SNAPSHOTS` in
+  `terminal/thread/handoff.rs` turn the library's snapshot on, after `terminal::fuzz::restore`
+  runs clean with and without `OSO_TERM_FUZZ_DAMAGE`. Only one instance
+  reads a PTY at a time: an exported terminal reads nothing and applies no resize until it
+  resumes or is released, and a released one hangs nothing up and reaps nothing.
 - Terminals exist on Unix only for now: on Windows nothing is built and `Terminal::start`
   returns `Unsupported`.
 - Every Rust file opens with its responsibility and a `Must not depend on:` paragraph (ADR

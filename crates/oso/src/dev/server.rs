@@ -19,6 +19,9 @@ use oso_platform::control::{ControlListener, ControlStream};
 use serde_json::{Value, json};
 
 use super::DEV_BUILD_MARKER;
+#[cfg(unix)]
+use super::fds::Receiving;
+use super::fds::{Fd, Passing};
 use super::protocol::{self, MAX_LINE, Method, Reply, UiOp};
 use crate::channel::wire::{bounded, read_line_within};
 
@@ -48,6 +51,21 @@ pub struct UiRequest {
     /// includes any wait for a busy UI thread (ADR 0046).
     pub received: Instant,
     pub reply: mpsc::Sender<Reply>,
+    /// What `oso dev`'s restart of terminals passes besides the line (ADR 0120, step 11).
+    pub passed: Passed,
+}
+
+/// The descriptors a request brought and those its reply takes, and who asked.
+#[derive(Debug, Default)]
+pub struct Passed {
+    /// What came with the request: only `import-terminals` takes them, and the rest close
+    /// when the request is dropped.
+    pub brought: Vec<Fd>,
+    /// What goes with the reply, which the UI thread puts.
+    pub passing: Passing,
+    /// Whether the client is this instance's parent: `oso dev`'s supervisor, or the harness
+    /// that started it. Only it may ask for terminals.
+    pub parent: bool,
 }
 
 /// Starts the accept loop on a background thread. `send` hands a request to
@@ -140,6 +158,10 @@ where
     S: Fn(UiRequest) -> bool,
 {
     stream.set_write_timeout(Some(WRITE_TIMEOUT))?;
+    let parent = is_parent(&stream);
+    #[cfg(unix)]
+    let mut reader = BufReader::new(Receiving::new(stream.try_clone()?));
+    #[cfg(not(unix))]
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = stream;
     let mut line = Vec::new();
@@ -167,10 +189,16 @@ where
             writeln!(writer, "{}", protocol::failure(&Value::Null, &message))?;
             return Ok(());
         }
+        #[cfg(unix)]
+        let brought = reader.get_mut().take_fds();
+        #[cfg(not(unix))]
+        let brought = Vec::new();
         let text = String::from_utf8_lossy(&line);
         let text = text.trim();
         if !text.is_empty() {
-            writeln!(writer, "{}", respond(text, send))?;
+            let passing = Passing::default();
+            let response = respond(text, send, brought, &passing, parent);
+            write_response(&mut writer, &response, &passing.take())?;
         }
         if !ended {
             // The client closed the connection after a final line.
@@ -179,8 +207,34 @@ where
     }
 }
 
-/// The response line for one request line.
-fn respond<S>(line: &str, send: &S) -> String
+/// Whether the peer of `stream` is the process that started this one.
+fn is_parent(stream: &ControlStream) -> bool {
+    #[cfg(unix)]
+    let parent = stream
+        .peer()
+        .process
+        .is_some_and(|process| process.pid() == std::os::unix::process::parent_id());
+    #[cfg(not(unix))]
+    let parent = {
+        let _ = stream;
+        false
+    };
+    parent
+}
+
+/// Writes `response` with the descriptors its reply took, if any.
+fn write_response(writer: &mut ControlStream, response: &str, fds: &[Fd]) -> io::Result<()> {
+    #[cfg(unix)]
+    return super::fds::write_line(writer, response, fds);
+    #[cfg(not(unix))]
+    {
+        let _ = fds;
+        writeln!(writer, "{response}")
+    }
+}
+
+/// The response line for one request line, which `brought` came with.
+fn respond<S>(line: &str, send: &S, brought: Vec<Fd>, passing: &Passing, parent: bool) -> String
 where
     S: Fn(UiRequest) -> bool,
 {
@@ -198,10 +252,20 @@ where
         op,
         received,
         reply,
+        passed: Passed {
+            brought,
+            passing: passing.clone(),
+            parent,
+        },
     }) {
         return protocol::failure(&request.id, "the editor is shutting down");
     }
-    match replied.recv_timeout(REPLY_TIMEOUT) {
+    let answer = replied.recv_timeout(REPLY_TIMEOUT);
+    // Descriptors go only with a reply that went well; any put for another close here.
+    if !matches!(answer, Ok(Ok(_))) {
+        drop(passing.take());
+    }
+    match answer {
         Ok(Ok(result)) => bounded(&request.id, protocol::success(&request.id, result)),
         Ok(Err(message)) => bounded(&request.id, protocol::failure(&request.id, &message)),
         Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -220,6 +284,8 @@ fn version() -> Value {
         "oso": env!("CARGO_PKG_VERSION"),
         "build": DEV_BUILD_MARKER,
         "pid": std::process::id(),
+        // Which terminals' snapshots this build reads (ADR 0120, step 11).
+        "terminal_library": oso_term::Terminal::library(),
     })
 }
 
@@ -260,10 +326,13 @@ mod tests {
             | UiOp::Focus(_)
             | UiOp::ExportText { .. }
             | UiOp::ImportText(_)
+            | UiOp::HandOverTerminals { .. }
+            | UiOp::ImportTerminals { .. }
             | UiOp::DevMessage(_) => Err("not in this fake".to_owned()),
-            UiOp::CheckHandover | UiOp::ExportState | UiOp::ImportState(_) | UiOp::Exit { .. } => {
-                Ok(json!({}))
-            }
+            UiOp::CheckHandover { .. }
+            | UiOp::ExportState { .. }
+            | UiOp::ImportState(_)
+            | UiOp::Exit { .. } => Ok(json!({})),
             UiOp::Screenshot => return true,
         };
         let _ = request.reply.send(result);
