@@ -95,7 +95,8 @@ Inside a session's own buffer, the modeline says `Session`, and `C-c` and a key 
 | `C-c ?` | Say these keys in the echo area. |
 
 `C-c C-c` sends Claude Code a `Ctrl-C`, and `C-c C-k` switches char mode, where every key goes to
-Claude Code. Any other `C-c` key that is not listed here sends nothing. `C-z` would suspend
+Claude Code. Any other `C-c` key that is not listed here sends nothing. To change these keys, see
+[Session settings](#session-settings). `C-z` would suspend
 Claude Code with nothing to resume it, so oso keeps it back; `C-q C-z` sends it. Every other key
 Claude Code uses reaches it as you type it, but `C-x` and `C-y`, which stay oso's: `C-q C-x C-e`
 sends Claude Code's `Ctrl-X Ctrl-E`, and `C-q C-y` its own yank.
@@ -288,6 +289,18 @@ ready_for_review = false
 tools and points the agent to `start_worktree_session`, so its worktrees show in oso.
 `spinner = false` stops the working marks from turning, and with them the only timer the list
 runs. The `[sessions.notify]` values shown are the defaults.
+
+`[keys.session]` changes the keys of a session's own buffer, as `[keys.global]` does elsewhere:
+
+```toml
+[keys.session]
+"C-c g" = "sessions"                 # C-c g shows the list
+"C-c s" = false                      # C-c s does nothing
+"C-c R" = { menu = "review" }        # C-c R opens the review menu
+```
+
+Only keys that start with `C-c` reach it, and `C-c C-c` and `C-c C-k` stay as they are. `C-c ?`
+says the keys with your changes.
 
 ## Developing beside it
 

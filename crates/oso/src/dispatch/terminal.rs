@@ -9,11 +9,11 @@
 //! prompt drops the recording, and a replay stops before it would type at one (the author's
 //! choice, 2026-11-14; ADR 0120, Q17).
 
-use oso_core::buffer::BufferId;
+use oso_core::buffer::{Buffer, BufferId};
 use oso_core::command::Effects;
 use oso_core::editor::{Editor, TerminalRequest};
 use oso_core::key::KeyPress;
-use oso_core::keymap::{display_keys, is_cancel};
+use oso_core::keymap::{Binding, display_keys, is_cancel};
 
 use crate::terminal::route::{self, Input, Route, State, ToProgram};
 
@@ -45,14 +45,7 @@ impl Dispatcher {
         // (ADR 0132): its global and user `C-c` keys must not apply after it either.
         let pending_c_c =
             self.resolver.pending() == [route::C_C] && (self.prefix.is_none() || session);
-        if pending_c_c
-            && !is_cancel(key)
-            && self
-                .keymaps
-                .terminal_keys(buffer)
-                .lookup(&[route::C_C, key])
-                .is_none()
-        {
+        if pending_c_c && !is_cancel(key) && !self.binds_c_c(buffer, key) {
             self.resolver.reset();
             self.forget_keys(editor);
             // The echo area no longer shows `C-c-`, which only an input of oso's would clear.
@@ -100,6 +93,22 @@ impl Dispatcher {
                     ..Effects::default()
                 })
             }
+        }
+    }
+
+    /// Whether `C-c` and `key` are oso's in the terminal `buffer`: its keymap binds them, or in
+    /// a session's, the user's `[keys.session]` binds them over it, and does not leave them
+    /// undefined (ADR 0132, step 2).
+    fn binds_c_c(&self, buffer: &Buffer, key: KeyPress) -> bool {
+        let keys = [route::C_C, key];
+        let user = buffer
+            .hosts_session()
+            .then(|| self.keymaps.user_session.lookup(&keys))
+            .flatten();
+        match user {
+            Some(Binding::Undefined) => false,
+            Some(_) => true,
+            None => self.keymaps.terminal_keys(buffer).lookup(&keys).is_some(),
         }
     }
 

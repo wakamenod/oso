@@ -12,15 +12,15 @@ use oso_core::window::ViewSize;
 use super::{Dispatcher, TerminalSend};
 use crate::terminal::route::Input;
 
-fn keys(text: &str) -> Vec<KeyPress> {
+pub(super) fn keys(text: &str) -> Vec<KeyPress> {
     text.parse::<KeySequence>().unwrap().0
 }
 
-fn send(dispatcher: &mut Dispatcher, editor: &mut Editor, text: &str) {
+pub(super) fn send(dispatcher: &mut Dispatcher, editor: &mut Editor, text: &str) {
     dispatcher.handle_keys(editor, keys(text));
 }
 
-fn in_terminal() -> (Dispatcher, Editor) {
+pub(super) fn in_terminal() -> (Dispatcher, Editor) {
     let mut editor = Editor::default();
     editor.set_view_size(ViewSize::new(10, 40));
     let terminal = editor.add_terminal_buffer("*terminal*");
@@ -29,7 +29,7 @@ fn in_terminal() -> (Dispatcher, Editor) {
 }
 
 /// The keys waiting to go to programs, one send's after another's.
-fn sent(dispatcher: &mut Dispatcher, editor: &mut Editor) -> Vec<KeyPress> {
+pub(super) fn sent(dispatcher: &mut Dispatcher, editor: &mut Editor) -> Vec<KeyPress> {
     dispatcher
         .take_terminal_sends(editor)
         .into_iter()
@@ -314,14 +314,14 @@ fn a_replay_stops_before_a_command_sends_to_a_password_prompt() {
 }
 
 /// A terminal that hosts a session, with session mode on (ADR 0132).
-fn in_session() -> (Dispatcher, Editor) {
+pub(super) fn in_session() -> (Dispatcher, Editor) {
     let (dispatcher, mut editor) = in_terminal();
     let terminal = editor.window().buffer();
     editor.set_hosts_session(terminal, true);
     (dispatcher, editor)
 }
 
-fn echo(editor: &Editor) -> String {
+pub(super) fn echo(editor: &Editor) -> String {
     let mut status = oso_core::editor::Status::default();
     editor.status_into(editor.tiled().0.id(), &mut status);
     status.echo

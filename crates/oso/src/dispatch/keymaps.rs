@@ -1,7 +1,8 @@
 //! The keymaps a dispatcher holds, and which of them are active at a moment: a prefix
 //! argument's, the layer `C-x TAB` opens, a prompt's, a completion's, a review comment's
-//! draft's or a question's, a jump's, isearch's, a mode's, the user's and the global one
-//! (ADR 0034, ADR 0072, ADR 0076, ADR 0082, ADR 0108, ADR 0115, ADR 0116, ADR 0121, ADR 0122).
+//! draft's or a question's, a jump's, isearch's, a mode's, a session's terminal's with the
+//! user's `[keys.session]` over it, the user's and the global one (ADR 0034, ADR 0072,
+//! ADR 0076, ADR 0082, ADR 0108, ADR 0115, ADR 0116, ADR 0121, ADR 0122, ADR 0132).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 //!
@@ -15,6 +16,7 @@ use oso_core::keymap::{Keymap, Layers};
 use oso_core::minibuffer::Kind;
 
 use crate::bindings;
+use crate::terminal::route;
 
 use super::Dispatcher;
 use super::session_help::SessionHelp;
@@ -63,6 +65,9 @@ pub(super) struct Keymaps {
     /// A terminal's own keys and session mode's, in a terminal's buffer that hosts a session
     /// (ADR 0132).
     pub(super) session: Keymap,
+    /// The user's keys from `[keys.session]`, above `session` in a session's terminal
+    /// (ADR 0132, step 2). Empty without any, and then not a layer.
+    pub(super) user_session: Keymap,
     /// What `session-help` says: session mode's keys, from its keymap (ADR 0132).
     pub(super) session_help: SessionHelp,
 }
@@ -96,12 +101,13 @@ impl Keymaps {
             terminal: bindings::terminal_keymap(registry),
             session_help: SessionHelp::new(&session, registry),
             session,
+            user_session: Keymap::new(),
         }
     }
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 21] {
+    pub(super) fn all(&self) -> [&Keymap; 22] {
         let Self {
             global,
             user,
@@ -122,30 +128,58 @@ impl Keymaps {
             review,
             terminal,
             session,
+            user_session,
             session_help: _,
         } = self;
         [
-            global, user, digits, minus, list, copy, minibuffer, question, completing, draft,
-            isearch, jump, replace, rigid, markdown, brief, worktrees, sessions, review, terminal,
+            global,
+            user,
+            digits,
+            minus,
+            list,
+            copy,
+            minibuffer,
+            question,
+            completing,
+            draft,
+            isearch,
+            jump,
+            replace,
+            rigid,
+            markdown,
+            brief,
+            worktrees,
+            sessions,
+            review,
+            terminal,
             session,
+            user_session,
         ]
     }
 
-    /// The prefix argument's keymaps and the layer of `C-x TAB`, as [`Keymaps::active`] takes
-    /// them.
-    pub(super) fn reading(&self) -> [&Keymap; 3] {
-        [&self.prefix[0], &self.prefix[1], &self.rigid]
+    /// The prefix argument's keymaps, the user's session keys and the layer of `C-x TAB`, as
+    /// [`Keymaps::active`] takes them: in this order, so that each set it makes active is
+    /// one slice.
+    pub(super) fn reading(&self) -> [&Keymap; 4] {
+        [
+            &self.prefix[1],
+            &self.prefix[0],
+            &self.user_session,
+            &self.rigid,
+        ]
     }
 
     /// The keymaps active now. A question's keys take the global keymap's place, so that
     /// no other key reaches a command, and a prompt's go above it (ADR 0072), a completion's
     /// with them (ADR 0076), and a draft's in their place (ADR 0122). So do isearch's, and a
     /// key they do not bind ends the search first (ADR 0082). The user's keys go just above
-    /// the global ones, so neither a question nor a search under way sees them (ADR 0108). `reading` holds the keymaps of a prefix argument,
-    /// then the layer of `C-x TAB`, first while it is open and no prefix argument reads.
+    /// the global ones, so neither a question nor a search under way sees them (ADR 0108), and
+    /// the user's session keys above a session's terminal's (ADR 0132). `reading` holds the
+    /// keymaps of a prefix argument, the user's session keys, then the layer of `C-x TAB`, first
+    /// while it is open and no prefix argument reads.
     pub(super) fn active<'a>(
         &'a self,
-        reading: &'a [&'a Keymap; 3],
+        reading: &'a [&'a Keymap; 4],
         prefix: Option<Prefix>,
         editor: &Editor,
     ) -> Layers<'a> {
@@ -164,11 +198,16 @@ impl Keymaps {
         if editor.replace().is_some() {
             return Layers::global(&self.replace);
         }
+        let buffer = editor.current().1;
+        // The user's session keys come after the prefix argument's, which bind no `C-c` key.
+        let session = usize::from(
+            !self.user_session.is_empty() && editor.prompt().is_none() && buffer.hosts_session(),
+        );
         let minor: &[&Keymap] = match prefix {
-            Some(prefix) if prefix.reads_minus() => &reading[..2],
-            Some(prefix) if prefix.reads_digits() => &reading[..1],
-            _ if editor.indent_rigidly_layer() => &reading[2..],
-            _ => &[],
+            Some(prefix) if prefix.reads_minus() => &reading[..2 + session],
+            Some(prefix) if prefix.reads_digits() => &reading[1..2 + session],
+            _ if editor.indent_rigidly_layer() => &reading[3 - session..],
+            _ => &reading[2..2 + session],
         };
         let major = if let Some(prompt) = editor.prompt() {
             match prompt.kind() {
@@ -178,7 +217,7 @@ impl Keymaps {
                 _ => Some(&self.minibuffer),
             }
         } else {
-            match editor.current().1.mode() {
+            match buffer.mode() {
                 Mode::Fundamental | Mode::Rust | Mode::Toml => None,
                 Mode::Review => Some(&self.review),
                 Mode::Markdown => Some(&self.markdown),
@@ -187,7 +226,7 @@ impl Keymaps {
                 Mode::Sessions => Some(&self.sessions),
                 Mode::CopyList => Some(&self.copy[0]),
                 Mode::CopyView => Some(&self.copy[1]),
-                Mode::Terminal => Some(self.terminal_keys(editor.current().1)),
+                Mode::Terminal => Some(self.terminal_keys(buffer)),
             }
         };
         Layers {
@@ -229,6 +268,10 @@ impl Dispatcher {
             let old = std::mem::replace(&mut self.keymaps.user, user);
             self.replaced.push(old);
         }
+        if let Some((keys, help)) = self.session_waiting.take() {
+            let old = self.put_session_keys(keys, help);
+            self.replaced.push(old);
+        }
     }
 
     /// Puts the user's keys from the configuration just above the global keymap, in place of
@@ -248,6 +291,40 @@ impl Dispatcher {
         } else {
             self.user_waiting.replace(user)
         }
+    }
+
+    /// Puts the user's `[keys.session]` above a session's terminal's keys, in place of those
+    /// before, with `help`, what `C-c ?` says of them, or `None` for the default line
+    /// (ADR 0132). They wait for a pending prefix key as [`Dispatcher::set_user_keymap`]'s do,
+    /// and the keymap this replaces now is returned in the same way.
+    ///
+    /// Keys that would take `C-c C-c` or `C-c C-k` from the terminal are not put in, as the
+    /// configuration refuses them: `C-c` would no longer reach the program, or char mode
+    /// would not switch. The default line is said then.
+    pub fn set_session_keys(&mut self, keys: Keymap, help: Option<String>) -> Option<Keymap> {
+        let takes = |key| keys.lookup(&[route::C_C, key]).is_some();
+        let (keys, help) = if takes(route::C_C) || takes(route::C_K) {
+            log::warn!("session keys that bind C-c C-c or C-c C-k were not put in");
+            (Keymap::new(), None)
+        } else {
+            (keys, help)
+        };
+        if self.resolver.pending().is_empty() {
+            if let Some((stale, _)) = self.session_waiting.take() {
+                self.replaced.push(stale);
+            }
+            Some(self.put_session_keys(keys, help))
+        } else {
+            self.session_waiting
+                .replace((keys, help))
+                .map(|(stale, _)| stale)
+        }
+    }
+
+    /// Puts in the user's session keys and their line, and returns the keys they replace.
+    fn put_session_keys(&mut self, keys: Keymap, help: Option<String>) -> Keymap {
+        self.keymaps.session_help.set(help);
+        std::mem::replace(&mut self.keymaps.user_session, keys)
     }
 
     /// A user's keymap that a waiting one replaced, once its prefix key resolved, for the

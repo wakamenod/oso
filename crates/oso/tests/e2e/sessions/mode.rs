@@ -3,7 +3,8 @@
 //! session command and sends nothing, an unbound one sends nothing either, `C-c C-c` sends one
 //! `C-c`, `C-z` is kept back and `C-q C-z` sends it, char mode sends them all, the modeline
 //! says `Session`, the buffer is in its directory's project, and after a stop the mode stays and
-//! `C-c r` resumes.
+//! `C-c r` resumes. `[keys.session]` binds and unbinds `C-c` keys there, `C-c ?` says them, and a
+//! change to the file takes them away again (step 2).
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the route, the
 //! keymaps and the help text have their own tests.
@@ -142,6 +143,65 @@ fn a_session_s_c_c_keys_are_oso_s_and_claude_code_gets_the_rest() {
     app.send_keys("z");
     wait_for_keys(&flow, &mut app, b"z");
     assert_eq!(keys(&flow), b"z", "nothing else from all of that");
+    flow.exit_with(0);
+    app.wait_for("the end", |state| ended(state, BUFFER).is_some());
+}
+
+/// `[keys.session]`, appended to the flow's configuration.
+const SESSION_KEYS: &str = "\n[keys.session]\n\"C-c g\" = \"sessions\"\n\"C-c s\" = false\n";
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_session_s_keys_from_the_configuration_apply_and_go_with_it() {
+    let flow = flow("sessions-mode-keys");
+    let config = fs::read_to_string(&flow.config).unwrap();
+    fs::write(&flow.config, format!("{config}{SESSION_KEYS}")).unwrap();
+    let mut app = flow.start();
+    app.run_command("claude", None).unwrap();
+    app.wait_for("the fake", |state| shows(state, BUFFER, "fake ready"));
+
+    // `C-c g` runs what the file binds it to, and `C-c s`, which it unbinds, is undefined.
+    app.send_keys("C-c g");
+    app.wait_for("the list selected", |state| {
+        state["buffer"]["name"] == "*Sessions*"
+    });
+    app.send_keys("C-x a s");
+    app.wait_for("the session again", |state| {
+        state["buffer"]["name"] == BUFFER
+    });
+    app.send_keys("C-c s");
+    app.wait_for("the unbound key", |state| {
+        echo(state) == "C-c s is undefined (C-c C-c sends C-c)"
+    });
+    app.send_keys("C-c ?");
+    let state = app.wait_for("the keys", |state| echo(state).starts_with("C-c then:"));
+    let said = echo(&state);
+    assert!(said.contains("  g sessions"), "{said}");
+    assert!(!said.contains("  s sessions"), "{said}");
+
+    // Without the table, the defaults are back: `C-c ?` says `s` again.
+    let new = flow.config.with_extension("new");
+    fs::write(&new, config).unwrap();
+    fs::rename(&new, &flow.config).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        app.send_keys("C-c ?");
+        let state = app.wait_for("the keys", |state| echo(state).starts_with("C-c then:"));
+        if echo(&state).contains("  s sessions") {
+            assert!(!echo(&state).contains("  g sessions"), "{}", echo(&state));
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the keys stayed: {}",
+            echo(&state)
+        );
+        thread::sleep(Duration::from_millis(200));
+    }
+
+    // None of it reached the program.
+    app.send_keys("a");
+    wait_for_keys(&flow, &mut app, b"a");
     flow.exit_with(0);
     app.wait_for("the end", |state| ended(state, BUFFER).is_some());
 }

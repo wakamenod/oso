@@ -83,6 +83,9 @@ pub struct Dispatcher {
     /// The user's keymap given while a prefix key was pending, which goes in once none is
     /// (ADR 0108).
     user_waiting: Option<Keymap>,
+    /// The user's `[keys.session]` and their `C-c ?` line, waiting for a prefix key in the
+    /// same way.
+    session_waiting: Option<(Keymap, Option<String>)>,
     /// The user's keymaps waiting ones replaced, for the caller to drop elsewhere.
     replaced: Vec<Keymap>,
     /// The menus in force, which go in with the user's keymap (ADR 0117).
@@ -154,6 +157,7 @@ impl Dispatcher {
             resolver: KeyResolver::new(),
             prefix: None,
             user_waiting: None,
+            session_waiting: None,
             replaced: Vec::new(),
             menus,
             last: None,
@@ -638,6 +642,8 @@ mod replace_tests;
 mod review_tests;
 #[cfg(test)]
 mod save_tests;
+#[cfg(test)]
+mod session_keys_tests;
 #[cfg(test)]
 mod sessions_send_tests;
 #[cfg(test)]
