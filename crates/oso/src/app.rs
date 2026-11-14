@@ -131,6 +131,8 @@ pub enum UserEvent {
     /// A look for a session's changes after its turn ended: whether its tree differs from its
     /// baseline, `None` if git failed (ADR 0121 step 3).
     SessionChanges(crate::sessions::worker::SessionKey, Option<bool>),
+    /// A worktree job found something (ADR 0121 step 4).
+    Worktree(Box<crate::sessions::worktree::jobs::Report>),
     /// The thread that reads migemo's dictionary read it, or could not (ADR 0116).
     Migemo(Box<migemo::DictionaryRead>),
     /// A review's threads, or the review menu's counts, reported (ADR 0122).
@@ -452,6 +454,8 @@ impl App {
     /// Does what commands asked for.
     fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
         let effects = effects.union(self.sync_clipboard());
+        // A command that reads a branch waits for them as a yank does (ADR 0121).
+        let effects = effects.union(self.sync_branch_wait());
         let input = self.flash_after_input();
         self.time_jump(input);
         self.forget_killed();

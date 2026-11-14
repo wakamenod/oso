@@ -50,6 +50,24 @@ pub(super) fn open_directory(inner: &Inner, name: &OsStr) -> io::Result<Option<I
     Ok((kind.is_dir() && !kind.is_symlink()).then_some(path))
 }
 
+pub(super) fn create_directory(inner: &Inner, name: &OsStr) -> io::Result<Option<Inner>> {
+    match std::fs::create_dir(joined(inner, name)?) {
+        Ok(()) => {}
+        // Something is there already: it is taken below if it is a directory, not a link.
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error),
+    }
+    open_directory(inner, name)
+}
+
+pub(super) fn create_file(inner: &Inner, name: &OsStr, _mode: u32) -> io::Result<File> {
+    // `create_new` refuses anything there, a dangling link too.
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(joined(inner, name)?)
+}
+
 pub(super) fn kind_of(inner: &Inner, name: &OsStr) -> io::Result<EntryKind> {
     let path = joined(inner, name)?;
     Ok(kind_of_type(std::fs::symlink_metadata(path)?.file_type()))

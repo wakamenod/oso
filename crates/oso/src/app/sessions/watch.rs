@@ -10,6 +10,7 @@ mod alerts;
 #[cfg(feature = "dev")]
 mod dev_state;
 mod requests;
+mod shared;
 mod view;
 
 use std::collections::{HashMap, HashSet};
@@ -117,9 +118,15 @@ impl App {
                 scrolled: terminal.grid.scrolled(),
             };
             if self.watch.feed.look(session.key, screen, now) {
-                let rows = terminal.grid.row_texts();
-                let evidence =
-                    Evidence::new(rows.iter().map(String::as_str), &terminal.title, progress);
+                // While its program reads a password, no row leaves the UI thread: the worker
+                // hears only that, and holds the state (ADR 0120, Q17; ADR 0121).
+                let secret = session.buffer.and_then(|id| self.editor.buffer(id));
+                let evidence = if secret.is_some_and(crate::app::terminals::reads_a_password) {
+                    Evidence::echo_off(&terminal.title, progress)
+                } else {
+                    let rows = terminal.grid.row_texts();
+                    Evidence::new(rows.iter().map(String::as_str), &terminal.title, progress)
+                };
                 worker.send_screen(session.key, evidence);
             }
         }

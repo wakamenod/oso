@@ -71,6 +71,14 @@ impl App {
         }
     }
 
+    /// The roots the record of trusted projects holds now, for a thread to compare with.
+    pub(super) fn trusted_list(&self) -> Trusted {
+        self.editor
+            .trust_list()
+            .map(|list| list.paths().map(PathBuf::from).collect())
+            .unwrap_or_else(|| Arc::from([]))
+    }
+
     /// Hands the files whose project is wanted to the thread that finds them, with the roots
     /// trusted now.
     pub(super) fn find_projects(&mut self) {
@@ -78,11 +86,7 @@ impl App {
         if requests.is_empty() {
             return;
         }
-        let trusted: Trusted = self
-            .editor
-            .trust_list()
-            .map(|list| list.paths().map(PathBuf::from).collect())
-            .unwrap_or_else(|| Arc::from([]));
+        let trusted = self.trusted_list();
         for request in requests {
             self.projects.find(request, Arc::clone(&trusted));
         }

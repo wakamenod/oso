@@ -40,16 +40,17 @@ enum Held {
     Composition(bool),
 }
 
-/// Where a yank was when it began waiting, to drop it if that changed.
+/// Where a command was when it began waiting, for the clipboard or for the branches
+/// (`branches`), to drop it if that changed.
 #[derive(PartialEq, Eq)]
-struct Place {
+pub(super) struct Place {
     window: usize,
     buffer: BufferId,
     prompts: usize,
 }
 
 impl Place {
-    fn of(editor: &Editor) -> Self {
+    pub(super) fn of(editor: &Editor) -> Self {
         Self {
             window: editor.selected_window(),
             buffer: editor.window().buffer(),

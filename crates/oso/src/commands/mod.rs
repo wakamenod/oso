@@ -42,6 +42,7 @@ mod theme;
 mod view;
 mod whitespace;
 mod windows;
+mod worktrees;
 
 #[cfg(test)]
 pub(crate) use messages::kept_messages;
@@ -110,6 +111,7 @@ const TABLES: &[&[Command]] = &[
     view::COMMANDS,
     whitespace::COMMANDS,
     windows::COMMANDS,
+    worktrees::COMMANDS,
 ];
 
 /// Refuses a command that would change which buffer a window shows, while a prompt is
@@ -310,9 +312,23 @@ mod tests {
         "sessions-show",
         "space-switch",
         "space-zoom",
+        // Worktree sessions, which run git, gh and a session (ADR 0121).
+        "brief-cancel",
+        "brief-send",
+        "session-start-shared",
+        "session-worktree",
+        "worktree-list",
+        "worktree-remove",
+        "worktree-list-refresh",
+        "worktree-list-remove",
+        "worktree-remove-confirmed",
         // A terminal, which runs a program and takes the person's keys (ADR 0120).
         "terminal",
+        // Letting an agent read a terminal is the person's to give and to take back
+        // (ADR 0120, Q16).
+        "terminal-allow-agent-read",
         "terminal-char-mode",
+        "terminal-deny-agent-read",
         "terminal-paste-lines",
         "terminal-send-interrupt",
         "terminal-send-next-key",

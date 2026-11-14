@@ -27,6 +27,10 @@ pub enum Mode {
     Markdown,
     /// TOML.
     Toml,
+    /// `*Brief*`, a worktree session's brief being written (ADR 0121).
+    Brief,
+    /// `*Worktrees*`, a repository's linked worktrees (ADR 0121).
+    Worktrees,
     /// A review's buffer (ADR 0122).
     Review,
     /// A terminal (ADR 0120): its keys go to the program in it, but for oso's own.
@@ -68,6 +72,8 @@ impl Mode {
             Self::Rust => "Rust",
             Self::Markdown => "Markdown",
             Self::Toml => "TOML",
+            Self::Brief => "Brief",
+            Self::Worktrees => "Worktrees",
             Self::Review => "Review",
             Self::Terminal => "Terminal",
         }
@@ -78,9 +84,9 @@ impl Mode {
         matches!(self, Self::CopyList | Self::CopyView)
     }
 
-    /// The rules its lines are indented by (ADR 0115), or none for the emergency copies'
-    /// buffers and the sessions' list, whose text is not the person's to indent, and for a
-    /// terminal, which has none.
+    /// The rules its lines are indented by (ADR 0115), or none for the emergency copies' and
+    /// the worktrees' buffers and the sessions' list, whose text is not the person's to indent,
+    /// and for a terminal, which has none. A brief is prose.
     #[expect(
         clippy::type_complexity,
         reason = "the rules' own signature, which naming would make a public item of its own"
@@ -90,10 +96,13 @@ impl Mode {
             Self::Rust => Some(indent::rust),
             Self::Toml => Some(indent::toml),
             Self::Markdown => Some(indent::markdown),
-            Self::Fundamental => Some(indent::fundamental),
-            Self::CopyList | Self::CopyView | Self::Review | Self::Sessions | Self::Terminal => {
-                None
-            }
+            Self::Fundamental | Self::Brief => Some(indent::fundamental),
+            Self::CopyList
+            | Self::CopyView
+            | Self::Worktrees
+            | Self::Review
+            | Self::Terminal
+            | Self::Sessions => None,
         }
     }
 }
@@ -116,13 +125,20 @@ mod tests {
     }
 
     #[test]
-    fn each_mode_but_the_copies_has_indentation_rules() {
-        let modes = [Mode::Rust, Mode::Toml, Mode::Markdown, Mode::Fundamental];
+    fn each_mode_but_the_listings_has_indentation_rules() {
+        let modes = [
+            Mode::Rust,
+            Mode::Toml,
+            Mode::Markdown,
+            Mode::Fundamental,
+            Mode::Brief,
+        ];
         assert!(modes.iter().all(|mode| mode.indent_rules().is_some()));
         assert!(Mode::CopyList.indent_rules().is_none());
         assert!(Mode::CopyView.indent_rules().is_none());
-        assert!(Mode::Sessions.indent_rules().is_none());
+        assert!(Mode::Worktrees.indent_rules().is_none());
         assert!(Mode::Terminal.indent_rules().is_none());
+        assert!(Mode::Sessions.indent_rules().is_none());
     }
 
     #[test]

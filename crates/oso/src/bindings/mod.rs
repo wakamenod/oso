@@ -33,6 +33,7 @@ mod terminal;
 mod theme;
 mod view;
 mod windows;
+mod worktrees;
 
 use oso_core::command::Registry;
 use oso_core::key::KeySequence;
@@ -210,6 +211,13 @@ pub fn markdown_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, markdown::MARKDOWN).unwrap_or_default()
 }
 
+/// The keymaps of a `*Brief*` buffer and of a `*Worktrees*` buffer, above the global one there
+/// (ADR 0121). Empty for a registry without their commands, as in tests that bring their own.
+pub fn worktree_keymaps(registry: &Registry) -> [Keymap; 2] {
+    let keymap = |table| Keymap::from_table(registry, table).unwrap_or_default();
+    [keymap(worktrees::BRIEF), keymap(worktrees::WORKTREES)]
+}
+
 /// A terminal's own keymap, above the global one in a terminal's buffer (ADR 0120). Empty for
 /// a registry without its commands, as in tests that bring their own.
 pub fn terminal_keymap(registry: &Registry) -> Keymap {
@@ -238,7 +246,7 @@ mod tests {
         TABLES, complete, global_keymap, indent, isearch, isearch_commands, isearch_keymap, jump,
         jump_keymap, markdown, markdown_keymap, minibuffer, prefix, prefix_keymaps, prompt_keymaps,
         recovery, recovery_keymaps, review, review_keymap, rigid_commands, rigid_keymap, terminal,
-        terminal_keymap,
+        terminal_keymap, worktree_keymaps, worktrees,
     };
     use crate::commands;
     use oso_core::key::KeySequence;
@@ -278,6 +286,21 @@ mod tests {
         assert_eq!(rigid_keymap(&registry).len(), indent::RIGID.len());
         assert_eq!(markdown_keymap(&registry).len(), markdown::MARKDOWN.len());
         assert_eq!(rigid_commands(&registry).len(), indent::RIGID.len());
+    }
+
+    #[test]
+    fn the_worktree_keymaps_bind_all_their_rows() {
+        let registry = commands::registry();
+        let [brief, listing] = worktree_keymaps(&registry);
+        for (keymap, table) in [(&brief, worktrees::BRIEF), (&listing, worktrees::WORKTREES)] {
+            for (keys, name) in table {
+                let keys: KeySequence = keys.parse().unwrap();
+                let Some(Binding::Command(id)) = keymap.lookup(&keys.0) else {
+                    panic!("{keys} is not bound to a command");
+                };
+                assert_eq!(registry.get(id).unwrap().name, *name);
+            }
+        }
     }
 
     #[test]

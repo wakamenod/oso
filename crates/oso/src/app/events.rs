@@ -89,6 +89,7 @@ impl App {
             UserEvent::Sessions(out) => self.sessions_reported(out),
             UserEvent::SessionStart(report) => self.session_start_reported(report),
             UserEvent::SessionChanges(key, changed) => self.session_changes(key, changed),
+            UserEvent::Worktree(report) => self.worktree_reported(event_loop, *report),
             UserEvent::Review(event) => self.review_reported(event),
             UserEvent::Terminal(buffer) => self.terminal_ready(buffer),
             UserEvent::TerminalStarted(started) => self.terminal_started(*started),
