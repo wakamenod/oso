@@ -1,6 +1,8 @@
 //! What a frame of a full terminal grid costs to build, with every row changed and with none
 //! (ADR 0120). Run with `cargo test --release -p oso-render
-//! -- --ignored a_full_grids_frame --nocapture`: it writes the times to stderr.
+//! -- --ignored a_full_grids_frame --nocapture`: it writes the times to stderr. The three grids
+//! take turns frame by frame, so a busy machine slows all three alike, and their order is
+//! judged by each one's fastest frame: being preempted only adds time.
 //!
 //! Must not depend on: `capture` or `paint`. It shapes with the OS's font where there is one,
 //! and with the fake text system where there is none; no GPU is touched.
@@ -77,24 +79,37 @@ fn line(seed: u64, per_cell: bool) -> Vec<GridCell> {
     cells
 }
 
-/// The time a frame of the grid takes on average: every row of a new generation and other
-/// text each frame if `changed`, or none.
-fn time(system: &mut dyn TextSystem, (changed, per_cell): (bool, bool)) -> Duration {
-    // Each frame's rows, and one more frame's to start from.
-    let lines: Vec<Vec<_>> = (0..u64::from(FRAMES + 2) * ROWS as u64)
-        .map(|seed| line(seed, per_cell))
-        .collect();
-    let limits = Limits {
-        rects: crate::shape::MAX_RECTS,
-        quads: 1 << 18,
-    };
-    let mut scene = Scene::new(limits, theme());
-    let mut frame = |n: u32| {
-        let n = if changed { n as usize } else { 0 };
+/// A grid that shows every row of a new generation and other text each frame if `changed`, or
+/// the same rows.
+struct Grid {
+    scene: Scene,
+    /// Each frame's rows, and one more frame's to start from.
+    lines: Vec<Vec<GridCell>>,
+    changed: bool,
+}
+
+impl Grid {
+    fn new((changed, per_cell): (bool, bool)) -> Grid {
+        let limits = Limits {
+            rects: crate::shape::MAX_RECTS,
+            quads: 1 << 18,
+        };
+        Grid {
+            scene: Scene::new(limits, theme()),
+            lines: (0..u64::from(FRAMES + 2) * ROWS as u64)
+                .map(|seed| line(seed, per_cell))
+                .collect(),
+            changed,
+        }
+    }
+
+    /// Builds frame `n` and says what it took.
+    fn frame(&mut self, system: &mut dyn TextSystem, n: u32) -> Duration {
+        let n = if self.changed { n as usize } else { 0 };
         let rows: Vec<_> = (0..ROWS)
             .map(|row| GridRow {
                 generation: n as u64,
-                cells: &lines[n * ROWS + row],
+                cells: &self.lines[n * ROWS + row],
                 text: "",
                 graphemes: &[],
             })
@@ -106,18 +121,20 @@ fn time(system: &mut dyn TextSystem, (changed, per_cell): (bool, bool)) -> Durat
             preedit: None,
             preedit_at: (0, 0),
         });
-        scene.build(
+        let start = Instant::now();
+        self.scene.build(
             &[grid_pane(rect(0, 0, ROWS, COLUMNS), content)],
             system,
             &mut Places,
         );
-    };
-    frame(FRAMES + 1);
-    let start = Instant::now();
-    for n in 1..=FRAMES {
-        frame(n);
+        start.elapsed()
     }
-    start.elapsed() / FRAMES
+}
+
+/// The median frame and the fastest.
+fn median_and_fastest(mut times: Vec<Duration>) -> (Duration, Duration) {
+    times.sort_unstable();
+    (times[times.len() / 2], times[0])
 }
 
 #[test]
@@ -131,14 +148,24 @@ fn a_full_grids_frame() {
         Ok(system) => system,
         Err(_) => Box::new(Recorder::default()),
     };
-    let words = time(&mut *system, (true, false));
-    let cells = time(&mut *system, (true, true));
-    let none = time(&mut *system, (false, false));
+    // A colour a word, a colour a cell, and none changed.
+    let mut grids = [(true, false), (true, true), (false, false)].map(Grid::new);
+    for grid in &mut grids {
+        grid.frame(&mut *system, FRAMES + 1);
+    }
+    let mut times: [Vec<Duration>; 3] = Default::default();
+    for n in 1..=FRAMES {
+        for (grid, times) in grids.iter_mut().zip(&mut times) {
+            times.push(grid.frame(&mut *system, n));
+        }
+    }
+    let [words, cells, none] = times.map(median_and_fastest);
     let mut err = std::io::stderr();
     let _ = writeln!(
         err,
-        "{COLUMNS} x {ROWS} grid, a frame: every row changed {words:?} (a colour a word), \
-         {cells:?} (a colour a cell); none changed {none:?}"
+        "{COLUMNS} x {ROWS} grid, a frame's median (fastest): every row changed {:?} ({:?}) \
+         (a colour a word), {:?} ({:?}) (a colour a cell); none changed {:?} ({:?})",
+        words.0, words.1, cells.0, cells.1, none.0, none.1
     );
-    assert!(none < words && words < cells);
+    assert!(none.1 < words.1 && words.1 < cells.1);
 }
