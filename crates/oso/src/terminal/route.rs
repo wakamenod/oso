@@ -66,6 +66,12 @@ pub(crate) const C_C: KeyPress = KeyPress {
     key: Key::Char('c'),
 };
 
+/// `C-k`, which after `C-c` leaves char mode, and switches it in semi-char mode.
+pub(crate) const C_K: KeyPress = KeyPress {
+    modifiers: Modifiers::CONTROL,
+    key: Key::Char('k'),
+};
+
 /// `C-z`.
 const C_Z: KeyPress = KeyPress {
     modifiers: Modifiers::CONTROL,
@@ -102,11 +108,7 @@ pub(crate) fn route(state: State, key: KeyPress) -> Route {
         Input::SemiChar if state.session && key == C_Z => Route::SuspendKept,
         Input::SemiChar => Route::Send(vec![key]),
         Input::Char if state.held_c_c => {
-            let c_k = KeyPress {
-                modifiers: Modifiers::CONTROL,
-                key: Key::Char('k'),
-            };
-            if key == c_k {
+            if key == C_K {
                 Route::LeaveCharMode
             } else if key == C_C {
                 // `C-c C-c` sends one `C-c`, as in semi-char mode and Emacs's term.

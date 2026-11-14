@@ -282,7 +282,7 @@ alongside the steps above, after M2-16:
 
 ### After M4
 
-- Directory editor (dired-like), org subset.
+- Directory editor (dired-like, [ADR 0134](adr/0134-a-directory-editor.md)), org subset.
 - Terminal: ConPTY on Windows, Sixel and iTerm2 images
   ([ADR 0120](adr/0120-the-terminal.md)).
 - A wiki/GTD client, to be considered.

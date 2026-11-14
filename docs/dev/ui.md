@@ -802,7 +802,8 @@ a switch made with its command stands until that setting changes in the file
   the key runs elsewhere. `C-c K`, `C-c P` and `C-c A` stop, pin and archive the session, `C-c v`
   and `C-c V` review it, `C-c +` and `C-c -` allow and deny the agent channel's reads, `C-c C-u` is
   a prefix argument and `C-c ?` says the keys in the echo area. After `C-c`, only the session's and
-  the terminal's keys are read, never the global or the user's; any other key says
+  the terminal's keys are read, and the user's `[keys.session]` over them, never the global keys
+  or `[keys.global]`; any other key, or one `[keys.session]` sets to `false`, says
   `C-c g is undefined (C-c C-c sends C-c)` and sends nothing. `C-z` says
   `C-z would suspend Claude Code, and nothing here resumes it; C-q C-z sends it`. In char mode
   every key but `C-c C-k` goes to Claude Code, as in any terminal. The buffer is in the project

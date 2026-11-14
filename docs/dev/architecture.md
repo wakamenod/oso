@@ -325,8 +325,9 @@ A panicking command is caught at the command boundary
   `C-x TAB` is open, whose arrows shift the region until another key closes it
   ([ADR 0115](adr/0115-indentation.md)), a major mode layer in the buffers that show emergency
   copies, in a prompt, in a Markdown buffer (`M-RET`) and in a terminal, whose keymap holds session
-  mode's keys too in a terminal that hosts an agent session ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)), and a layer for the user's keys, which
-  the configuration file will fill ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
+  mode's keys too in a terminal that hosts an agent session ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)), with the user's
+  `[keys.session]` as a minor mode layer above it there, and a layer for the user's keys, which
+  the configuration file fills ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
   take the global layer's place, so that no other key reaches a command. While a jump is on, its
   keymap comes before every other but a question's ([ADR 0116](adr/0116-migemo-and-jumps.md)).
 - `KeyResolver` keeps the pending prefix between key presses: `C-x` waits,

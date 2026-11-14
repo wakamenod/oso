@@ -187,6 +187,11 @@ impl App {
         if let Some(keys) = outcome.keys.take() {
             self.replace_user_keymap(keys, menus);
         }
+        if let Some(session) = outcome.session.take()
+            && let Some(old) = self.dispatcher.set_session_keys(session.keys, session.help)
+        {
+            self.freer.free(old);
+        }
         if let Some(settings) = outcome.settings.take() {
             let look = Look {
                 launch,
