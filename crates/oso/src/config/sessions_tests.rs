@@ -109,3 +109,21 @@ fn a_wrong_notify_toggle_keeps_its_default_and_is_said() {
 fn messages_of(loaded: &super::Loaded) -> String {
     messages(loaded).join("\n")
 }
+
+#[test]
+fn steering_worktrees_is_off_until_set() {
+    let f = Fixture::new();
+    assert!(!f.parse("[sessions]\n").settings.sessions.steer_worktrees);
+    let loaded = f.parse("[sessions]\nsteer_worktrees = true\n");
+    assert_eq!(messages(&loaded), Vec::<String>::new());
+    assert!(loaded.settings.sessions.steer_worktrees);
+    let loaded = f.parse("[sessions]\nsteer_worktrees = \"yes\"\n");
+    let messages = messages(&loaded);
+    assert_eq!(messages.len(), 1);
+    assert!(
+        messages[0].ends_with("[sessions] steer_worktrees takes true or false, not a string"),
+        "{}",
+        messages[0]
+    );
+    assert!(!loaded.settings.sessions.steer_worktrees);
+}

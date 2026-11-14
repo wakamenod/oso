@@ -1,7 +1,7 @@
 //! The keymaps a dispatcher holds, and which of them are active at a moment: a prefix
 //! argument's, the layer `C-x TAB` opens, a prompt's, a completion's or a question's, a jump's,
 //! isearch's, a mode's, the user's and the global one (ADR 0034, ADR 0072, ADR 0076, ADR 0082,
-//! ADR 0108, ADR 0115, ADR 0116).
+//! ADR 0108, ADR 0115, ADR 0116, ADR 0121).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 //!
@@ -48,6 +48,9 @@ pub(super) struct Keymaps {
     pub(super) rigid_commands: Vec<CommandId>,
     /// Markdown's own keys, above the global ones in a Markdown buffer.
     pub(super) markdown: Keymap,
+    /// A `*Brief*` buffer's own keys, and a `*Worktrees*` buffer's, above the global ones
+    /// (ADR 0121).
+    pub(super) worktrees: [Keymap; 2],
     /// `*Sessions*`'s own keys, above the global ones in it (ADR 0121).
     pub(super) sessions: Keymap,
     /// A review buffer's own keys, above the global ones (ADR 0122).
@@ -77,6 +80,7 @@ impl Keymaps {
             rigid: bindings::rigid_keymap(registry),
             rigid_commands: bindings::rigid_commands(registry),
             markdown: bindings::markdown_keymap(registry),
+            worktrees: bindings::worktree_keymaps(registry),
             sessions: bindings::sessions_keymap(registry),
             review: bindings::review_keymap(registry),
             terminal: bindings::terminal_keymap(registry),
@@ -85,7 +89,7 @@ impl Keymaps {
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 17] {
+    pub(super) fn all(&self) -> [&Keymap; 19] {
         let Self {
             global,
             user,
@@ -100,13 +104,14 @@ impl Keymaps {
             rigid,
             rigid_commands: _,
             markdown,
+            worktrees: [brief, worktrees],
             sessions,
             review,
             terminal,
         } = self;
         [
             global, user, digits, minus, list, copy, minibuffer, question, completing, isearch,
-            jump, replace, rigid, markdown, sessions, review, terminal,
+            jump, replace, rigid, markdown, brief, worktrees, sessions, review, terminal,
         ]
     }
 
@@ -159,6 +164,8 @@ impl Keymaps {
                 Mode::Fundamental | Mode::Rust | Mode::Toml => None,
                 Mode::Review => Some(&self.review),
                 Mode::Markdown => Some(&self.markdown),
+                Mode::Brief => Some(&self.worktrees[0]),
+                Mode::Worktrees => Some(&self.worktrees[1]),
                 Mode::Sessions => Some(&self.sessions),
                 Mode::CopyList => Some(&self.copy[0]),
                 Mode::CopyView => Some(&self.copy[1]),
@@ -219,5 +226,51 @@ impl Dispatcher {
     /// caller to drop elsewhere. Call it until it gives `None`.
     pub fn take_replaced_keymap(&mut self) -> Option<Keymap> {
         self.replaced.pop()
+    }
+}
+
+/// What the dispatcher is reading now: a prefix key, a prefix argument, or text as typed.
+impl Dispatcher {
+    /// The keys of the pending prefix, empty if none is pending.
+    #[cfg(any(test, feature = "dev"))]
+    pub fn pending(&self) -> &[oso_core::key::KeyPress] {
+        self.resolver.pending()
+    }
+
+    /// Whether keys are in progress at all: a prefix key, or a prefix argument, even one that
+    /// takes no more digits, which the next command would take.
+    pub fn keys_in_progress(&self) -> bool {
+        !self.resolver.pending().is_empty() || self.prefix.is_some()
+    }
+
+    /// Whether the next key is read as a key rather than typed: a prefix key is
+    /// pending, a prefix argument reads digits or a minus, or a menu is open. The input method
+    /// stays off then, as a letter or a digit would start a composition (ADR 0069, ADR 0117).
+    pub fn reads_keys(&self) -> bool {
+        self.menu_open()
+            || !self.resolver.pending().is_empty()
+            || self
+                .prefix
+                .is_some_and(|prefix| prefix.reads_digits() || prefix.reads_minus())
+    }
+
+    /// Whether text would go in as typed now: no prefix key or prefix argument waits, no
+    /// question or menu is open, and what is active takes text. A commit the window layer makes
+    /// unasked waits otherwise, so that it neither takes a prefix argument nor is lost
+    /// (ADR 0077).
+    pub fn types_text(&self, editor: &Editor) -> bool {
+        let question = editor
+            .prompt()
+            .is_some_and(|prompt| prompt.kind().is_question());
+        if question
+            || self.prefix.is_some()
+            || !self.resolver.pending().is_empty()
+            || self.menu_open()
+        {
+            return false;
+        }
+        let reading = self.keymaps.reading();
+        let active = self.keymaps.active(&reading, self.prefix, editor);
+        active.text_command().is_some()
     }
 }

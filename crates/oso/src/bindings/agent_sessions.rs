@@ -8,6 +8,7 @@
 pub const BINDINGS: &[(&str, &str)] = &[
     ("C-x a c", "claude"),
     ("C-x a r", "session-resume"),
+    ("C-x a w", "session-worktree"),
     ("C-x a s", "sessions"),
     ("C-x a b", "session-switch"),
     ("C-x a n", "session-next-waiting"),

@@ -10,6 +10,7 @@ mod alerts;
 #[cfg(feature = "dev")]
 mod dev_state;
 mod requests;
+mod shared;
 mod view;
 
 use std::collections::{HashMap, HashSet};

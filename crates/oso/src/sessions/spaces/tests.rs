@@ -177,6 +177,75 @@ fn zoom_from_the_side_window_acts_on_the_tree() {
 }
 
 #[test]
+fn closing_a_space_moves_the_later_ones_down_and_keeps_the_current() {
+    let mut editor = editor();
+    let mut spaces = Spaces::default();
+    let a = spaces.add(Path::new("/src/a"), None);
+    let b = spaces.add(Path::new("/src/b"), None);
+    let c = spaces.add(Path::new("/src/c"), None);
+    spaces.adopt(a);
+    spaces.enter(&mut editor, c).unwrap();
+    assert_eq!(spaces.remove(&mut editor, b), Ok(()));
+    assert_eq!(spaces.current(), Some(1), "c moved down one place");
+    assert_eq!(spaces.get(1).unwrap().name, "c");
+    assert_eq!(spaces.find(Path::new("/src/b")), None);
+    assert_eq!(spaces.remove(&mut editor, 7), Ok(()), "no such space");
+}
+
+#[test]
+fn closing_the_current_worktree_space_enters_its_repository() {
+    let mut editor = editor();
+    let mut spaces = Spaces::default();
+    let other = spaces.add(Path::new("/src/other"), None);
+    let repo = spaces.add(Path::new("/src/oso"), None);
+    let tree = spaces.add(
+        Path::new("/src/oso/.claude/worktrees/fix"),
+        Some(Path::new("/src/oso")),
+    );
+    spaces.adopt(other);
+    spaces.enter(&mut editor, repo).unwrap();
+    spaces.enter(&mut editor, tree).unwrap();
+    assert_eq!(spaces.remove(&mut editor, tree), Ok(()));
+    assert_eq!(
+        spaces.current(),
+        Some(repo),
+        "back in its repository's space"
+    );
+    assert_eq!(spaces.get(spaces.current().unwrap()).unwrap().name, "oso");
+}
+
+#[test]
+fn closing_the_current_space_with_no_repository_enters_the_first_other() {
+    let mut editor = editor();
+    let mut spaces = Spaces::default();
+    let a = spaces.add(Path::new("/src/a"), None);
+    let b = spaces.add(Path::new("/src/b"), None);
+    spaces.adopt(a);
+    spaces.enter(&mut editor, b).unwrap();
+    assert_eq!(spaces.remove(&mut editor, b), Ok(()));
+    assert_eq!(spaces.current(), Some(a));
+    // The last space: none is current, and the frame keeps its tree.
+    let windows = ids(&editor);
+    assert_eq!(spaces.remove(&mut editor, a), Ok(()));
+    assert_eq!(spaces.current(), None);
+    assert_eq!(ids(&editor), windows);
+}
+
+#[test]
+fn closing_the_current_space_waits_while_a_prompt_is_open() {
+    let mut editor = editor();
+    let mut spaces = Spaces::default();
+    let a = spaces.add(Path::new("/src/a"), None);
+    let b = spaces.add(Path::new("/src/b"), None);
+    spaces.adopt(a);
+    spaces.enter(&mut editor, b).unwrap();
+    editor.ask("Sure?", "keyboard-quit").unwrap();
+    assert_eq!(spaces.remove(&mut editor, b), Err(Refused));
+    assert_eq!(spaces.current(), Some(b), "nothing changed");
+    assert!(spaces.get(b).is_some());
+}
+
+#[test]
 fn a_zoom_goes_with_the_frames_tree() {
     let mut editor = editor();
     let mut spaces = Spaces::default();

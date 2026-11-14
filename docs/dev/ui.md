@@ -782,19 +782,52 @@ a switch made with its command stands until that setting changes in the file
   selected by then. `session-fork` copies the conversation into a
   new session and buffer.
 - `C-x k` on a session's buffer archives the session: it is not brought back at the next start.
+- `C-x a w` (`session-worktree`), in a trusted project whose main repository is trusted too,
+  starts a session in a new git worktree.
+  - It reads a branch, completing the project's local branches; a new name is a new branch from
+    `HEAD`, or from a base that `C-u C-x a w` reads after it. The echo area says "Listing
+    branches…" until they come; another command, or `C-g`, drops the prompt.
+  - The brief is written in `*Brief*`: `C-c C-c` sends it, `C-c C-k` drops it.
+  - The worktree goes in `.claude/worktrees/<branch's slug>`. The files that `.worktreeinclude`
+    names and git ignores, such as `.env`, are copied in.
+  - The session gets the brief as its first prompt, after a header that says where it is. From
+    a session's buffer, the brief also names that session to report back to, with its
+    transcript, plan files, uncommitted changes and the files it touched.
+- Starting a session where another one runs asks first: a worktree keeps their changes apart.
+- `M-x worktree-list` shows `*Worktrees*`: each linked worktree with its branch, uncommitted
+  and untracked files, whether its branch is merged and how that was found, its sessions and
+  their states, unsaved buffers, its space, and whether it can be removed. `gh` is asked last, only for a branch that was
+  pushed and that its remote's main branches do not hold. `g` lists again, and `D` removes the
+  one at point.
+- `M-x worktree-remove` removes the worktree of the selected buffer, or of the row at point,
+  only when nothing would be lost. Each of these must hold, checked in this order:
+  - it is a linked worktree of this repository;
+  - it has nothing uncommitted or untracked;
+  - no buffer in it is unsaved and no brief for it is unsent;
+  - no session in it is busy: one oso hosts is busy unless its state is idle or done and Claude
+    Code's registry calls it idle;
+  - its branch is merged, into a remote's main branch or through a merged pull request that
+    `gh` knows of.
+
+  It then asks, naming what git ignores there and will delete with it, such as `target/`. `y`
+  runs every check again before it removes the worktree. It never uses `--force`, and the branch
+  is kept.
 - `config.toml`:
 
   ```toml
   [sessions]
   claude = "/usr/local/bin/claude"   # absolute; else the login shell finds it on PATH
   env = ["HTTPS_PROXY", "NODE_EXTRA_CA_CERTS"]
+  steer_worktrees = true             # sessions oso starts are steered to C-x a w
   ```
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and
   proxies apply; set `claude` when the shell is not `sh`, `bash`, `zsh`, `dash` or `ksh`. `env`
   names at most 64 more variables a session takes from oso's environment; `PATH`, `LD_*` and
   `DYLD_*` are refused. A session never gets a permission option: it starts in the mode Claude
-  Code's own settings give it.
+  Code's own settings give it. With `steer_worktrees`, a session oso starts gets a hook that
+  denies Claude's own `EnterWorktree` and `git worktree add`, pointing it to `C-x a w`; nothing
+  is written into Claude Code's settings files.
 - A session gets oso's `CLAUDE_CONFIG_DIR`. If a login profile sets its own, set the same value
   where oso starts too: oso reads Claude Code's registry there to refuse resuming a session that
   runs elsewhere.

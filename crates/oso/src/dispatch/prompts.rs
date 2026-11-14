@@ -18,6 +18,7 @@ use oso_core::editor::{CompletionStyle, Editor};
 use oso_core::kill::FromClipboard;
 use oso_core::minibuffer::{Kind, Outcome, PromptError, PromptId};
 
+use super::branches::BasePrompt;
 use super::{Dispatcher, Step, buffers, extended};
 
 mod paths;
@@ -56,6 +57,11 @@ enum Then {
     DirectoryThenText(TextPrompt),
     /// The text a `DirectoryAndTextOnPrefix` command reads after this directory.
     TextAfter(String),
+    /// The branch a `BranchAndBaseOnPrefix` command read after a prefix argument; its base
+    /// prompt follows (ADR 0121).
+    BranchThenBase(BasePrompt),
+    /// The base a `BranchAndBaseOnPrefix` command reads after this branch.
+    BaseAfter(String),
 }
 
 /// The text prompt that follows a directory's (ADR 0121).
@@ -84,6 +90,28 @@ impl Reading {
             passphrase: false,
             then: Then::Run,
             switches: Vec::new(),
+        }
+    }
+
+    /// The command `id` waiting for the branch `prompt` reads: to run with it, or after a prefix
+    /// argument to read `base` next (ADR 0121).
+    pub(super) fn branch(
+        (id, prefix): (CommandId, Option<Prefix>),
+        prompt: PromptId,
+        base: Option<BasePrompt>,
+    ) -> Self {
+        Self {
+            then: base.map_or(Then::Run, Then::BranchThenBase),
+            ..Self::run(id, prefix, prompt)
+        }
+    }
+
+    /// The same command, with its prefix argument, waiting for the base `prompt` reads after
+    /// `branch`.
+    pub(super) fn base_after(&self, prompt: PromptId, branch: String) -> Self {
+        Self {
+            then: Then::BaseAfter(branch),
+            ..Self::run(self.id, self.prefix, prompt)
         }
     }
 }
@@ -156,6 +184,10 @@ impl Dispatcher {
                     (directory, directory_history),
                     then,
                 );
+            }
+            // The branches are listed off the UI thread before its prompt opens (ADR 0121).
+            Some(ArgSpec::BranchAndBaseOnPrefix { .. }) => {
+                return self.wait_for_branches(editor, id, args.raw());
             }
             Some(ArgSpec::TextOnPrefix { prompt, history }) if args.raw().is_some() => (
                 prompt,
@@ -371,9 +403,12 @@ impl Dispatcher {
             Then::DirectoryThenText(then) => {
                 self.open_text_after(editor, reading, *then, text.to_owned())
             }
-            Then::TextAfter(directory) => {
+            Then::BranchThenBase(base) => {
+                self.open_base_after(editor, reading, base, text.to_owned())
+            }
+            Then::TextAfter(first) | Then::BaseAfter(first) => {
                 let invocation = Invocation {
-                    answer: Some(directory),
+                    answer: Some(first),
                     second: Some(text),
                     ..Invocation::default()
                 };

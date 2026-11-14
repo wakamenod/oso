@@ -854,6 +854,8 @@ What was built:
   repository's clean filter that must not run, carrying a comment across a moved old side,
   the thread's end, and that the person's index is left as it was. `cat-file`'s standard error
   goes nowhere, so a warning cannot end it.
+- **The runner is shared:** ADR 0121's worktree jobs run git through `review/git.rs` too, on
+  their own threads, with the same arguments, environment and bounds.
 
 ### Step 3: the unified view, part one
 
