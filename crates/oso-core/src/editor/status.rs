@@ -19,7 +19,7 @@ use std::fmt::Write;
 
 use super::Editor;
 use super::messages::CUT;
-use crate::buffer::{Buffer, Verdict};
+use crate::buffer::{Buffer, Mode, Verdict};
 use crate::decode::{FileInfo, LineEnding};
 use crate::display_map::text_clusters;
 use crate::frame::CellRect;
@@ -190,6 +190,12 @@ fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
             out.push_str(GAP);
             push_cut(out, buffer.mode_note(), NOTE_CELLS);
         }
+        return;
+    }
+    // `*Sessions*` has no position worth saying: what the host notes, its grouping and its help
+    // key (ADR 0131).
+    if buffer.mode() == Mode::Sessions && !buffer.mode_note().is_empty() {
+        push_cut(out, buffer.mode_note(), NOTE_CELLS);
         return;
     }
     if let Some(progress) = buffer.loading() {
@@ -429,6 +435,17 @@ mod tests {
         let status = status(&editor);
         assert_eq!(status.name, "%% *terminal*  ");
         assert_eq!(status.state, "Terminal  vim");
+    }
+
+    #[test]
+    fn the_sessions_list_says_what_the_host_notes_and_no_position() {
+        let mut editor = Editor::default();
+        let list = editor.add_internal_buffer("*Sessions*", crate::buffer::Mode::Sessions);
+        editor.set_internal_text(list, "▾ oso\n");
+        editor.show(list);
+        assert!(status(&editor).state.starts_with("1:0"), "no note yet");
+        editor.set_mode_note(list, "tree · ? keys".to_owned());
+        assert_eq!(status(&editor).state, "tree · ? keys");
     }
 
     #[test]

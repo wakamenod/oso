@@ -1,6 +1,6 @@
 //! The mouse in the app (ADR 0120, step 4b-2; ADR 0112). A press selects the window under it,
 //! and the first press on a window not selected does only that; point never moves in a text
-//! buffer. In the selected window's terminal, a program that asked for mouse reports gets them,
+//! buffer. `*Sessions*` in the side window takes a left press itself (ADR 0131). In the selected window's terminal, a program that asked for mouse reports gets them,
 //! but never while it reads a password; otherwise, or with Shift held, a drag selects cells,
 //! and the release copies them to the kill ring and the OS clipboard, as `M-w` does. The wheel
 //! is `wheel`'s. While oso holds input (a prompt, a menu, a key sequence and the rest that
@@ -151,6 +151,11 @@ impl App {
         let Some((window, in_text)) = self.window_under(at) else {
             return;
         };
+        // `*Sessions*` in the side window takes a left press itself (ADR 0131, step 2b).
+        if button == MouseButton::Left && self.sessions_pressed(window, at) {
+            self.terminals.pointer.begin(button, Drag::Nothing);
+            return;
+        }
         let buffer = self.editor.window_by_id(window).map(|w| w.buffer());
         let hosted = buffer.and_then(|buffer| self.terminals.map.get(buffer));
         // While its program reads a password, no report reaches it (the author, 2026-11-14).
@@ -312,7 +317,7 @@ impl App {
 
     /// Whether oso holds input from terminals now, as it holds keys: see
     /// `Dispatcher::holds_the_mouse`, and a composition.
-    pub(super) fn oso_holds_input(&self) -> bool {
+    pub(in crate::app) fn oso_holds_input(&self) -> bool {
         self.dispatcher.holds_the_mouse(&self.editor) || self.composing()
     }
 

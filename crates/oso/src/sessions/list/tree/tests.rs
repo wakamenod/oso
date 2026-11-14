@@ -258,3 +258,38 @@ fn twenty_worktrees_forty_sessions_and_three_hundred_folded_externals_render_in_
     // A debug build is several times slower; the budget is a release build's (ADR 0131).
     assert!(cfg!(debug_assertions) || best.as_micros() < 500, "{best:?}");
 }
+
+#[test]
+fn a_directory_is_held_by_its_deepest_worktree_and_a_project_found_by_its_root() {
+    let tree = tree();
+    let held = |dir: &str| {
+        tree.holding(std::path::Path::new(dir))
+            .map(|(project, worktree)| (project.name.as_str(), worktree.path.clone()))
+    };
+    assert_eq!(
+        held("/w/oso/.claude/worktrees/pane/crates"),
+        Some(("oso", PathBuf::from("/w/oso/.claude/worktrees/pane")))
+    );
+    assert_eq!(held("/w/oso/src"), Some(("oso", PathBuf::from("/w/oso"))));
+    // A sibling whose name only starts the same is not inside.
+    assert_eq!(held("/w/oso-other"), None);
+    assert!(tree.project(std::path::Path::new("/w/oso")).is_some());
+    assert!(tree.project(std::path::Path::new("/w/oso/src")).is_none());
+}
+
+#[test]
+fn archived_sessions_take_a_sessions_indent_under_their_group() {
+    let mut list = List::default();
+    list.set_tree(tree());
+    let gone = Entry {
+        archived: true,
+        ..session(9, "gone", State::Stopped, "/w/oso")
+    };
+    list.fold(&Line::Header(Group::Archived));
+    let rows = shown(&list, &[gone], 40);
+    let at = rows
+        .iter()
+        .position(|row| row.starts_with("▾ Archived"))
+        .unwrap();
+    assert!(rows[at + 1].starts_with("    ■ gone"), "{rows:#?}");
+}
