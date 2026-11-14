@@ -161,6 +161,46 @@ most 4 live unasked sessions per caller, `agents_start_limit` 1 to 8, and past t
 (Q7). `agent-starts-ask` and `agent-starts-allow` hold until oso restarts (Q8). The loop guard is
 unchanged (Q9), and the registry entry records how a session started (Q10).
 
+## As built
+
+Built on 2026-11-15 in one step. The coordinator approved the plan, and the author the two points
+below and the oso-core variant.
+
+- **The brief is kept in memory only (the author's choice, 2026-11-15).** The registry entry's
+  cap is 256 KiB for 256 sessions and a brief may be 64 KiB, so the record keeps only `origin`
+  (`answered` or `unasked`; none for the person's, so older records read as the person's, and a
+  value oso does not know reads as `unasked`). `Hosted::unasked_brief` keeps the brief of a
+  session started without asking until oso exits. `session-explain` starts with "Started by
+  session "api-fix" without asking, as the configuration allows. Its brief:", or after a restart
+  "Started by session "api-fix" without asking; its brief is not kept across a restart.", also
+  when there is no look at its screen to explain yet.
+- **The row's mark is `· unasked` (the author's choice, 2026-11-15),** after the place and the pin,
+  in place of "started by api-fix without asking": a row is already nested under the session
+  that started it. In the tree, where a row under its worktree shows no place, the mark shows
+  alone.
+- **`SessionRequest::AgentStarts(bool)` is a new oso-core public variant (the author's OK,
+  2026-11-15).** Commands reach the app only through the editor's requests, and the setting lives
+  in the app, so `agent-starts-ask` and `agent-starts-allow` need one; the snapshot gains one
+  line.
+- **Where it decides:** `sessions::tools::starts_without_asking`, a pure function over the
+  setting and the commands, the caller's origin, the trust and the caller's live unasked
+  sessions (running ones, ones being got ready and worktrees being made for them), at the point
+  where the question would open. Every check and the loop guard run before it, as for a question.
+  `app/sessions/tools/starting.rs` holds what runs once a call may, on `y` or without asking.
+- **The launch:** `InForce::changes` gives the setting on the launch's look only, off from a file
+  a group can change ("config.toml: [sessions] agents_start_without_asking not applied: other users
+  in a group can change it"), and a later change says "… = true applies from the next start", or
+  "agents_start_limit = N applies from the next start". With it on, oso says "Sessions started by
+  agents start without asking, as config.toml says (agent-starts-ask stops it)".
+- **What is said:** each start's line goes to the echo area and `*Messages*` (`Agent: session
+  "repo" started a session in a new worktree "…" on new branch "x" from "main", without asking
+  (brief: 1 line; C-x a e explains)`); the worktree's "Making…" and "made" lines follow it there.
+  `*Agent*` logs "start_worktree_session: starting without asking" and then "started". The reply
+  gains `"asked": false` and a note.
+- **e2e:** `session_tools::a_worktree_session_starts_without_asking_up_to_the_limit_and_asks_past_it`
+  and `session_tools::after_agent_starts_ask_a_start_asks_again`. A caller that itself started
+  without asking, which needs a second bridge, is a unit test of the rule.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it.

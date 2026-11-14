@@ -41,6 +41,32 @@ pub struct Changes {
     pub start_channel: bool,
     /// What to say of a change that applies only at the next start.
     pub later: Option<String>,
+    /// Whether agents start sessions without asking, and how many, from the launch's look
+    /// only (ADR 0135).
+    pub agent_starts: Option<AgentStarts>,
+    /// What to say of `[sessions] agents_start_without_asking`: not applied, or applying from
+    /// the next start.
+    pub agent_starts_later: Option<String>,
+}
+
+/// Whether sessions oso hosts may start sessions without asking, and how many each, as
+/// `[sessions]` says at oso's start (ADR 0135).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AgentStarts {
+    /// `agents_start_without_asking`.
+    pub on: bool,
+    /// `agents_start_limit`.
+    pub limit: u8,
+}
+
+impl AgentStarts {
+    /// What `sessions` asks for.
+    fn of(sessions: &super::settings::Sessions) -> Self {
+        Self {
+            on: sessions.agents_start_without_asking,
+            limit: sessions.agents_start_limit(),
+        }
+    }
 }
 
 /// When a look came.
@@ -52,7 +78,8 @@ pub struct Look {
     /// so they win, and the file's become those in force without being applied (ADR 0108).
     pub handed_over: bool,
     /// Other users in a group can change the file, or the way to it: it does not start the
-    /// agent channel, as they could otherwise open it at launch (ADR 0110).
+    /// agent channel, as they could otherwise open it at launch (ADR 0110), nor let agents
+    /// start sessions without asking (ADR 0135).
     pub group_writes: bool,
 }
 
@@ -180,6 +207,7 @@ impl InForce {
                 format!("{name}: [agent-channel] start = {start} applies from the next start")
             })
         };
+        let (agent_starts, agent_starts_later) = self.agent_starts(before, look, name);
         Changes {
             aids,
             electric_indent,
@@ -187,7 +215,48 @@ impl InForce {
             theme,
             start_channel,
             later,
+            agent_starts,
+            agent_starts_later,
         }
+    }
+
+    /// Whether agents start sessions without asking, decided at the launch's look only and
+    /// never from a file a group can change; a later change says it applies from the next
+    /// start, so a session that writes the file gains nothing in this oso (ADR 0135).
+    fn agent_starts(
+        &self,
+        before: &Self,
+        look: Look,
+        name: &str,
+    ) -> (Option<AgentStarts>, Option<String>) {
+        let (now, then) = (
+            AgentStarts::of(&self.sessions),
+            AgentStarts::of(&before.sessions),
+        );
+        if look.launch {
+            if now.on && look.group_writes {
+                let refused = format!(
+                    "{name}: [sessions] agents_start_without_asking not applied: other users in \
+                     a group can change it"
+                );
+                return (Some(AgentStarts { on: false, ..now }), Some(refused));
+            }
+            return (Some(now), None);
+        }
+        let later = if now.on != then.on {
+            Some(format!(
+                "{name}: [sessions] agents_start_without_asking = {} applies from the next start",
+                now.on
+            ))
+        } else {
+            (now.limit != then.limit).then(|| {
+                format!(
+                    "{name}: [sessions] agents_start_limit = {} applies from the next start",
+                    now.limit
+                )
+            })
+        };
+        (None, later)
     }
 
     /// `current`, with each aid whose setting differs here from `before` switched as it is
@@ -209,7 +278,7 @@ mod tests {
     use oso_core::editor::VisualAids;
     use oso_core::indent;
 
-    use super::{Changes, InForce, JUMP_TIMEOUT, JumpInForce, Look};
+    use super::{AgentStarts, Changes, InForce, JUMP_TIMEOUT, JumpInForce, Look};
     use crate::config::Settings;
     use std::time::Duration;
 
@@ -323,9 +392,21 @@ mod tests {
             theme: None,
             start_channel: false,
             later: None,
+            agent_starts: None,
+            agent_starts_later: None,
         };
         assert_eq!(changes(&compiled, &compiled, LATER), none);
-        assert_eq!(changes(&compiled, &compiled, LAUNCH), none);
+        let off = Some(AgentStarts {
+            on: false,
+            limit: 4,
+        });
+        assert_eq!(
+            changes(&compiled, &compiled, LAUNCH),
+            Changes {
+                agent_starts: off,
+                ..none
+            }
+        );
     }
 
     #[test]
@@ -403,6 +484,61 @@ mod tests {
             )
         );
         assert!(changes.aids.is_some(), "the other settings apply");
+    }
+
+    #[test]
+    fn agents_start_without_asking_only_from_the_launch_and_never_from_a_group_s_file() {
+        let off = InForce::compiled(THEMES);
+        let mut on = off.clone();
+        on.sessions.agents_start_without_asking = true;
+        on.sessions.agents_start_limit = Some(2);
+        let launch = changes(&on, &off, LAUNCH);
+        assert_eq!(
+            launch.agent_starts,
+            Some(AgentStarts { on: true, limit: 2 })
+        );
+        assert_eq!(launch.agent_starts_later, None);
+        // A later look changes nothing in this oso, and says when it will.
+        let later = changes(&on, &off, LATER);
+        assert_eq!(later.agent_starts, None);
+        assert_eq!(
+            later.agent_starts_later.as_deref(),
+            Some(
+                "config.toml: [sessions] agents_start_without_asking = true applies from the \
+                 next start"
+            )
+        );
+        let mut fewer = on.clone();
+        fewer.sessions.agents_start_limit = Some(1);
+        assert_eq!(
+            changes(&fewer, &on, LATER).agent_starts_later.as_deref(),
+            Some("config.toml: [sessions] agents_start_limit = 1 applies from the next start")
+        );
+        assert_eq!(
+            changes(&on, &on, LATER).agent_starts_later,
+            None,
+            "unchanged"
+        );
+        // A file a group can change does not apply it.
+        let look = Look {
+            group_writes: true,
+            ..LAUNCH
+        };
+        let group = changes(&on, &off, look);
+        assert_eq!(
+            group.agent_starts,
+            Some(AgentStarts {
+                on: false,
+                limit: 2
+            })
+        );
+        assert_eq!(
+            group.agent_starts_later.as_deref(),
+            Some(
+                "config.toml: [sessions] agents_start_without_asking not applied: other users \
+                 in a group can change it"
+            )
+        );
     }
 
     #[test]

@@ -11,6 +11,7 @@ use oso_core::editor::{Editor, RowAction, SessionRequest};
 
 use crate::app::App;
 use crate::sessions::list::{Key, Line};
+use crate::sessions::record::Origin;
 use crate::sessions::spaces::{Refused, Zoom};
 use crate::sessions::state::State;
 use crate::sessions::worker::{Job, SessionKey};
@@ -177,12 +178,40 @@ impl App {
 
     /// Asks the worker to explain the last look at session `key`'s screen.
     fn explain_session(&mut self, key: SessionKey) {
+        self.hosting.explain_origin = self.unasked_origin(key);
         match &self.sessions {
             Some(worker) => worker.send(Job::Explain(key)),
             None => self
                 .editor
                 .message("Sessions are not available: see the log"),
         }
+    }
+
+    /// What `session-explain` says first of session `key` if an agent started it without
+    /// asking: who did, and the brief, which is kept in memory only (ADR 0135, as built).
+    fn unasked_origin(&self, key: SessionKey) -> Option<String> {
+        let table = self.hosting.table();
+        let session = table.get(key)?;
+        if session.origin != Origin::Unasked {
+            return None;
+        }
+        let by = session
+            .parent
+            .as_ref()
+            .and_then(|parent| table.all().iter().find(|s| &s.id == parent))
+            .map_or_else(
+                || "a session that is gone".to_owned(),
+                |parent| format!("session {}", crate::sessions::tools::quoted(&parent.name)),
+            );
+        Some(match &session.unasked_brief {
+            Some(brief) => format!(
+                "Started by {by} without asking, as the configuration allows. Its brief:\n\n\
+                 {brief}\n\n"
+            ),
+            None => format!(
+                "Started by {by} without asking; its brief is not kept across a restart.\n\n"
+            ),
+        })
     }
 
     /// A key of `*Sessions*` on line `line`.

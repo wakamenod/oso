@@ -26,8 +26,10 @@ use serde_json::json;
 use super::super::App;
 use crate::channel::protocol::sessions::Call;
 use crate::channel::{Connection, Reply};
+use crate::config::AgentStarts;
 use crate::sessions::hosted::Hosted;
 use crate::sessions::identity::SessionId;
+use crate::sessions::record::Origin;
 use crate::sessions::tools::{self as rules, Asks, Guard, Tool};
 use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::jobs::{Report, Trust};
@@ -36,6 +38,7 @@ use crate::sessions::worktree::porcelain::printable;
 mod asks;
 mod reads;
 mod remove;
+mod starting;
 
 pub(in crate::app) use asks::Question;
 use reads::Listing;
@@ -56,6 +59,11 @@ pub(in crate::app) struct Tools {
     details: Option<BufferId>,
     /// The one agent listing that runs, by its job's token, and what stops it.
     listing: Option<(u64, Arc<AtomicBool>)>,
+    /// Whether sessions the person started may start sessions without asking, and how many
+    /// each, as `config.toml` said at oso's start (ADR 0135).
+    pub(in crate::app) agent_starts: AgentStarts,
+    /// `agent-starts-ask` since: every start asks, until `agent-starts-allow` or oso restarts.
+    pub(in crate::app) agent_starts_held: bool,
 }
 
 /// A call whose reply waits.
@@ -64,6 +72,21 @@ pub(in crate::app) struct Pending {
     connection: Connection,
     reply: Sender<Reply>,
     tool: &'static str,
+    /// It starts without asking (ADR 0135), which its reply says.
+    unasked: bool,
+}
+
+impl Tools {
+    /// How many worktrees are being made for sessions `parent` starts without asking.
+    fn unasked_worktrees_being_made(&self, parent: &SessionId) -> usize {
+        self.jobs
+            .values()
+            .filter(|job| {
+                matches!(job, Job::Creating(creating)
+                    if creating.origin == Origin::Unasked && &creating.parent == parent)
+            })
+            .count()
+    }
 }
 
 impl Pending {
@@ -110,6 +133,8 @@ pub(in crate::app) struct Caller {
     directory: PathBuf,
     root: Option<PathBuf>,
     runs: bool,
+    /// How it started, for whether it may start sessions without asking (ADR 0135).
+    origin: Origin,
 }
 
 impl Caller {
@@ -121,6 +146,7 @@ impl Caller {
             directory: session.directory.clone(),
             root: session.root.clone(),
             runs: session.runs(),
+            origin: session.origin,
         }
     }
 }
@@ -143,6 +169,7 @@ impl App {
             connection,
             reply,
             tool: tool.name,
+            unasked: false,
         };
         if caller.is_none() && !tool.outside {
             return pending.answer(Err(format!(
@@ -323,6 +350,25 @@ impl App {
         None
     }
 
+    /// `agent-starts-ask` when `held`, `agent-starts-allow` when not: whether sessions the person
+    /// started may start sessions without asking, as the configuration said at oso's start
+    /// (ADR 0135).
+    pub(in crate::app) fn hold_agent_starts(&mut self, held: bool) {
+        let tools = &mut self.hosting.tools;
+        tools.agent_starts_held = held;
+        let said = match (held, tools.agent_starts.on) {
+            (true, _) => "Sessions started by agents ask you first, until oso restarts",
+            (false, true) => {
+                "Sessions started by agents start without asking again, as the configuration says"
+            }
+            (false, false) => {
+                "Sessions started by agents ask you first: the configuration does not set \
+                 [sessions] agents_start_without_asking"
+            }
+        };
+        self.editor.message(said);
+    }
+
     /// The session `key` that a tool's call asked for started, or did not.
     pub(in crate::app) fn session_tool_started(
         &mut self,
@@ -334,6 +380,12 @@ impl App {
         };
         let session = self.hosting.table.get(key);
         let reply = match (started, session) {
+            (Ok(()), Some(session)) if pending.unasked => Ok(json!({
+                "session": { "id": session.id.as_str(), "name": session.name },
+                "directory": session.directory.display().to_string(),
+                "asked": false,
+                "note": "started without asking, as the person's config.toml allows",
+            })),
             (Ok(()), Some(session)) => Ok(json!({
                 "session": { "id": session.id.as_str(), "name": session.name },
                 "directory": session.directory.display().to_string(),

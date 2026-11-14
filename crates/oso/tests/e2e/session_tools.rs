@@ -4,7 +4,9 @@
 //! The bridge is let in unasked as that session's. `session_list` and `session_state` read the
 //! hosted sessions, `start_worktree_session` asks the person and starts a session in a new
 //! worktree on `y`, `n` refuses it and the same call for a minute after, and `worktree_remove`
-//! removes a finished worktree with no question and keeps its branch.
+//! removes a finished worktree with no question and keeps its branch. With
+//! `[sessions] agents_start_without_asking`, the start asks nothing up to the limit, says so and
+//! marks the row, asks past the limit, and asks again after `agent-starts-ask` (ADR 0135).
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the tools' table,
 //! the questions' wording, the loop guard and the refusals have their own tests.
@@ -354,5 +356,78 @@ fn a_refused_worktree_session_is_refused_again_without_asking() {
     assert_eq!(state["prompts"], json!([]));
     assert_eq!(runs(&flow).len(), 1, "a second fake ran");
     assert!(!flow.repo.join(".claude/worktrees/e2e-refused").exists());
+    flow.exit_with(0);
+}
+
+/// The rows of the buffer the instance shows, read after `keys` select it.
+fn rows_after(app: &mut App, keys: &str, name: &str) -> String {
+    app.send_keys(keys);
+    app.wait_for(name, |state| state["buffer"]["name"] == name);
+    let rows = app.call("get-text", Some(json!({ "start_row": 0, "rows": 200 })));
+    rows["rows"].to_string()
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_worktree_session_starts_without_asking_up_to_the_limit_and_asks_past_it() {
+    let sessions = "agents_start_without_asking = true\nagents_start_limit = 1\n";
+    let flow = Flow::with_fake("session-tools-unasked", sessions, FAKE);
+    let (mut app, mut bridge) = hosted(&flow);
+    let place = flow.repo.join(".claude/worktrees/e2e-unasked");
+
+    let (started, error) = bridge.tool(
+        "start_worktree_session",
+        json!({ "branch": "e2e-unasked", "brief": "Fix the parser" }),
+    );
+    assert!(!error, "{started}");
+    assert_eq!(started["session"]["name"], "e2e-unasked");
+    assert_eq!(started["asked"], false, "{started}");
+    assert_eq!(app.state()["prompts"], json!([]), "nobody was asked");
+    run_in(&flow, &place);
+    app.wait_for("the unasked session's terminal", |state| {
+        terminal(state, "*claude: e2e-unasked*").is_some()
+    });
+    let messages = rows_after(&mut app, "C-x b * M e s s a g e s * RET", "*Messages*");
+    assert!(
+        messages.contains("Agent: session \\\"repo\\\" started a session in a new worktree"),
+        "{messages}"
+    );
+    assert!(messages.contains("without asking"), "{messages}");
+    let list = rows_after(&mut app, "C-x a s", "*Sessions*");
+    assert!(list.contains("unasked"), "{list}");
+
+    // The limit is 1 and that session runs: the next start asks, and `n` refuses it.
+    let id = bridge.call(
+        "start_worktree_session",
+        json!({ "branch": "e2e-asked", "brief": "Fix the lexer" }),
+    );
+    let question = answer(&mut app, "n");
+    assert!(question.contains("e2e-asked"), "{question}");
+    let (said, error) = bridge.result(id);
+    assert!(error, "{said}");
+    assert!(!flow.repo.join(".claude/worktrees/e2e-asked").exists());
+    flow.exit_with(0);
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn after_agent_starts_ask_a_start_asks_again() {
+    let sessions = "agents_start_without_asking = true\n";
+    let flow = Flow::with_fake("session-tools-held", sessions, FAKE);
+    let (mut app, mut bridge) = hosted(&flow);
+    app.run_command("agent-starts-ask", None).unwrap();
+    app.wait_for("the commands' line", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.starts_with("Sessions started by agents ask you first"))
+    });
+    let id = bridge.call(
+        "start_worktree_session",
+        json!({ "branch": "e2e-held", "brief": "Fix the parser" }),
+    );
+    answer(&mut app, "n");
+    let (said, error) = bridge.result(id);
+    assert!(error, "{said}");
+    assert_eq!(runs(&flow).len(), 1, "a second fake ran");
     flow.exit_with(0);
 }

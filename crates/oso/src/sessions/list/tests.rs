@@ -25,6 +25,7 @@ fn entry(key: u64, name: &str, state: State, since: Instant) -> Entry {
         recap: format!("{name} recap"),
         pinned: false,
         archived: false,
+        unasked: false,
         parent: None,
         dir: Some(PathBuf::from("/w/oso")),
         repo: None,

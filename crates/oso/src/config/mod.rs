@@ -44,7 +44,7 @@ use crate::bindings;
 
 pub use agent_rules::RulesReport;
 pub use checked::read_checked;
-pub use in_force::{InForce, JUMP_TIMEOUT, Look};
+pub use in_force::{AgentStarts, InForce, JUMP_TIMEOUT, Look};
 pub use indentation::MODES;
 pub use outcome::{group_writes_note, outcome};
 pub use problems::Problem;

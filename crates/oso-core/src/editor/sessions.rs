@@ -102,6 +102,10 @@ pub enum SessionRequest {
     /// The person's `?` in a question the agent caused: show what it would run
     /// (`agent-question-details`).
     QuestionDetails,
+    /// Let the sessions the person started start sessions without asking, as the configuration
+    /// says, or make every start ask until oso restarts (`agent-starts-allow`,
+    /// `agent-starts-ask`).
+    AgentStarts(bool),
     /// Show `*Sessions*` in the side window and select it; select it if shown; hide it if
     /// selected (`sessions`).
     ShowList,

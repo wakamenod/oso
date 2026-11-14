@@ -251,7 +251,8 @@ tools besides oso's editing ones:
 A tool that starts a session asks you in oso first. The question names the session that asks
 and what would start. `y` allows it, `n` or `C-g` refuses it, and `?` shows the whole brief. A refusal
 holds for the same request for a minute. After 20 such calls, a session's tools wait until you
-type in its terminal.
+type in its terminal. To let sessions you started start sessions without the question, see
+[Session settings](#session-settings).
 
 Claude Code run in a plain `M-x terminal`, or outside oso, is not a session. If you gave it
 `oso mcp` as an MCP server yourself, it reaches oso only after `M-x agent-channel-start`, and
@@ -277,6 +278,8 @@ claude = "/usr/local/bin/claude"  # the executable, by absolute path; else found
 env = ["AWS_PROFILE"]                # more variables a session takes from oso's environment
 steer_worktrees = true               # point the agent to start_worktree_session (off by default)
 spinner = false                      # keep working marks in *Sessions* still (they spin by default)
+agents_start_without_asking = true   # let your sessions start sessions with no question (off by default)
+agents_start_limit = 4               # how many such sessions each may run at once, 1 to 8
 
 [sessions.notify]                    # which states ask for your attention
 needs_input = true
@@ -289,6 +292,16 @@ ready_for_review = false
 tools and points the agent to `start_worktree_session`, so its worktrees show in oso.
 `spinner = false` stops the working marks from turning, and with them the only timer the list
 runs. The `[sessions.notify]` values shown are the defaults.
+
+`agents_start_without_asking` lets a session you started, with a key or a `y`, start sessions
+through `start_worktree_session` and `session_start` without asking you, in a trusted project
+only, up to `agents_start_limit` running sessions each; past that it asks again. A session started
+this way asks for its own. Each start is said in the echo area and `*Messages*`, its row in
+`*Sessions*` says `unasked`, and `C-x a e` on it shows who started it and its brief, until oso
+restarts. `M-x agent-starts-ask` brings the question back until oso restarts, and
+`M-x agent-starts-allow` takes that back. The setting is read when oso starts, so a change applies
+from the next start, and it does not apply from a file other users in a group can change. Each new
+session still asks you for its own permissions, as your Claude Code settings say.
 
 `[keys.session]` changes the keys of a session's own buffer, as `[keys.global]` does elsewhere:
 

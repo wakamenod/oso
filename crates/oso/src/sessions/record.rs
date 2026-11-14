@@ -5,8 +5,9 @@
 //! Must not depend on: threads, the UI or `app`; the sessions worker reads and writes it, never
 //! the UI thread.
 //!
-//! - It holds each session's id, name, directory, project root, parent, pin and archive marks,
-//!   when it last changed and its baseline. No screen text and no transcript text.
+//! - It holds each session's id, name, directory, project root, parent, how it started (ADR
+//!   0135), pin and archive marks, when it last changed and its baseline. No screen text, no
+//!   transcript text and no brief.
 //! - It is read only if the directory is private and the file a regular one of this user's
 //!   with one name, at most [`MAX_BYTES`] and [`MAX_SESSIONS`] sessions. A line that does not
 //!   hold a whole, valid session is left out, and only how many were is logged.
@@ -36,6 +37,43 @@ pub const MAX_SESSIONS: usize = 256;
 /// The longest directory or root kept, in bytes.
 const MAX_PATH: usize = 4096;
 
+/// How a session started, for who may start sessions without asking (ADR 0135).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Origin {
+    /// By the person's key, or before oso kept how sessions start.
+    #[default]
+    Person,
+    /// By an agent's tool, on the person's `y`.
+    Answered,
+    /// By an agent's tool, with no question, as the person's configuration allows.
+    Unasked,
+}
+
+impl Origin {
+    /// Whether the person started it, with a key or a `y`.
+    pub fn by_the_person(self) -> bool {
+        self != Self::Unasked
+    }
+
+    /// Its name in the file; `None` for [`Origin::Person`], which is not written.
+    fn name(self) -> Option<&'static str> {
+        match self {
+            Self::Person => None,
+            Self::Answered => Some("answered"),
+            Self::Unasked => Some("unasked"),
+        }
+    }
+
+    /// The origin a file's name gives. One oso does not know counts as unasked, so that it never
+    /// lets a session start others without asking.
+    fn named(name: &str) -> Self {
+        match name {
+            "answered" => Self::Answered,
+            _ => Self::Unasked,
+        }
+    }
+}
+
 /// One remembered session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Remembered {
@@ -48,6 +86,8 @@ pub struct Remembered {
     pub root: Option<PathBuf>,
     /// The session that started it.
     pub parent: Option<SessionId>,
+    /// How it started.
+    pub origin: Origin,
     pub pinned: bool,
     /// Archived: not brought back at start.
     pub archived: bool,
@@ -157,6 +197,7 @@ fn parse_line(line: &[u8]) -> Option<Remembered> {
         Some(parent) => Some(SessionId::parse(parent)?),
         None => None,
     };
+    let origin = optional("origin")?.map_or(Origin::Person, Origin::named);
     let baseline = match optional("baseline")? {
         Some(tree) if is_tree_id(tree) => Some(tree.to_owned()),
         Some(_) => return None,
@@ -168,6 +209,7 @@ fn parse_line(line: &[u8]) -> Option<Remembered> {
         directory: path(text("directory")?)?,
         root,
         parent,
+        origin,
         pinned: flag("pinned")?,
         archived: flag("archived")?,
         changed: object.get("changed")?.as_u64()?,
@@ -195,6 +237,9 @@ fn line(session: &Remembered) -> Option<String> {
     }
     if let Some(parent) = &session.parent {
         object.insert("parent".into(), json!(parent.as_str()));
+    }
+    if let Some(origin) = session.origin.name() {
+        object.insert("origin".into(), json!(origin));
     }
     object.insert("pinned".into(), json!(session.pinned));
     object.insert("archived".into(), json!(session.archived));
@@ -253,7 +298,7 @@ mod tests {
     use std::collections::HashSet;
     use std::path::PathBuf;
 
-    use super::{FILE, MAX_SESSIONS, Remembered, read, write};
+    use super::{FILE, MAX_SESSIONS, Origin, Remembered, parse_line, read, write};
     use crate::sessions::identity::SessionId;
 
     struct Scratch(PathBuf);
@@ -292,6 +337,7 @@ mod tests {
             directory: PathBuf::from("/work/oso"),
             root: Some(PathBuf::from("/work")),
             parent: None,
+            origin: Origin::Person,
             pinned: false,
             archived: false,
             changed: 1_794_512_815_000,
@@ -309,11 +355,13 @@ mod tests {
         assert!(read(&scratch.oso()).is_empty(), "nothing yet");
         let mut full = session(1);
         full.parent = Some(id(9));
+        full.origin = Origin::Unasked;
         full.pinned = true;
         full.archived = true;
         full.baseline = Some("a".repeat(40));
         let mut bare = session(2);
         bare.root = None;
+        bare.origin = Origin::Answered;
         bare.baseline = Some("0".repeat(64));
         let sessions = [full, bare];
         write(&scratch.oso(), &sessions, &known(&[1, 2])).unwrap();
@@ -324,6 +372,32 @@ mod tests {
             let meta = std::fs::metadata(scratch.oso().join(FILE)).unwrap();
             assert_eq!(meta.permissions().mode() & 0o777, 0o600);
         }
+    }
+
+    #[test]
+    fn an_old_line_started_with_the_person_and_an_unknown_origin_counts_as_unasked() {
+        let line = |origin: &str| {
+            format!(
+                r#"{{"id":"{}","name":"oso-1","directory":"/work/oso","pinned":false,"archived":false,"changed":1{origin}}}"#,
+                id(1).as_str()
+            )
+        };
+        let origin = |text: &str| parse_line(text.as_bytes()).map(|session| session.origin);
+        assert_eq!(origin(&line("")), Some(Origin::Person));
+        assert_eq!(
+            origin(&line(r#","origin":"answered""#)),
+            Some(Origin::Answered)
+        );
+        assert_eq!(
+            origin(&line(r#","origin":"unasked""#)),
+            Some(Origin::Unasked)
+        );
+        assert_eq!(origin(&line(r#","origin":"later""#)), Some(Origin::Unasked));
+        assert_eq!(origin(&line(r#","origin":3"#)), None, "not a string");
+        assert!(
+            !super::line(&session(1)).unwrap().contains("origin"),
+            "the person's is not written"
+        );
     }
 
     #[test]

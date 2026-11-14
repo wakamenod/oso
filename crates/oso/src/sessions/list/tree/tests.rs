@@ -31,6 +31,7 @@ fn session(key: u64, name: &str, state: State, dir: &str) -> Entry {
         recap: String::new(),
         pinned: false,
         archived: false,
+        unasked: false,
         parent: None,
         dir: Some(PathBuf::from(dir)),
         repo: None,

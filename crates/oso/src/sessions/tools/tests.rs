@@ -8,10 +8,11 @@ use std::time::{Duration, Instant};
 use oso_core::command::Reach;
 
 use super::{
-    Asks, Branch, Guard, MAX_CALLS, REFUSED_FOR, Refusal, TOOLS, quoted, start_question, tool,
-    worktree_question,
+    Asks, Branch, Guard, MAX_CALLS, REFUSED_FOR, Refusal, TOOLS, Unasked, quoted, start_question,
+    start_started, starts_without_asking, tool, worktree_question, worktree_started,
 };
 use crate::sessions::identity::SessionId;
+use crate::sessions::record::Origin;
 
 fn session(n: u8) -> SessionId {
     SessionId::from_random([n; 16])
@@ -224,4 +225,60 @@ fn a_question_shows_what_no_eye_would_see_and_the_end_of_a_long_path() {
     let shown = quoted(&long);
     assert!(shown.ends_with("the-one\""), "{shown}");
     assert!(shown.chars().count() <= 82, "{shown}");
+}
+
+#[test]
+fn a_start_says_what_started_without_asking() {
+    assert_eq!(
+        worktree_started(
+            "api",
+            "/r/.claude/worktrees/x",
+            "x",
+            Branch::New { from: "main" },
+            42
+        ),
+        "session \"api\" started a session in a new worktree \"/r/.claude/worktrees/x\" on new branch \"x\" from \"main\", without asking (brief: 42 lines; C-x a e explains)"
+    );
+    assert_eq!(
+        start_started("api", "/r", None),
+        "session \"api\" started a session in \"/r\", without asking (no brief; C-x a e explains)"
+    );
+    assert_eq!(
+        start_started("api", "/r", Some(1)),
+        "session \"api\" started a session in \"/r\", without asking (brief: 1 line; C-x a e explains)"
+    );
+}
+
+#[test]
+fn only_the_person_s_session_starts_without_asking_trusted_and_below_its_limit() {
+    let yes = Unasked {
+        allowed: true,
+        caller: Origin::Person,
+        trusted: true,
+        live: 3,
+        limit: 4,
+    };
+    assert!(starts_without_asking(yes));
+    assert!(starts_without_asking(Unasked {
+        caller: Origin::Answered,
+        ..yes
+    }));
+    for no in [
+        Unasked {
+            allowed: false,
+            ..yes
+        },
+        Unasked {
+            caller: Origin::Unasked,
+            ..yes
+        },
+        Unasked {
+            trusted: false,
+            ..yes
+        },
+        Unasked { live: 4, ..yes },
+        Unasked { live: 9, ..yes },
+    ] {
+        assert!(!starts_without_asking(no), "{no:?}");
+    }
 }

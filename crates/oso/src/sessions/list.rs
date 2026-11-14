@@ -59,6 +59,8 @@ pub struct Entry {
     pub recap: String,
     pub pinned: bool,
     pub archived: bool,
+    /// An agent started it without asking (ADR 0135).
+    pub unasked: bool,
     /// The session that started it.
     pub parent: Option<Key>,
     /// The directory it runs in, as the tree places it (ADR 0131): a hosted session's own, an
@@ -396,6 +398,9 @@ pub fn age_of(ago: Duration) -> String {
     }
 }
 
+/// The mark of a session an agent started without asking (ADR 0135, as built).
+const UNASKED: &str = "unasked";
+
 /// One session's lines.
 struct Row<'e> {
     entry: &'e Entry,
@@ -426,10 +431,16 @@ impl Row<'_> {
         let mut text = format!("{head}{name}");
         let left = room.saturating_sub(cells(&name) + 2);
         let mut place = None;
-        if self.place && left >= PLACE_FROM {
+        // Under its worktree in the tree, only the mark of a start without asking.
+        let shown = if self.place {
+            Some(self.place())
+        } else {
+            entry.unasked.then(|| UNASKED.to_owned())
+        };
+        if let Some(shown) = shown.filter(|_| left >= PLACE_FROM) {
             text.push_str("  ");
             let start = text.len();
-            text.push_str(&cut_middle(unmarked(&self.place()), left));
+            text.push_str(&cut_middle(unmarked(&shown), left));
             place = Some(start..text.len());
         }
         let text = pad(&text, width.saturating_sub(cells(&age))) + &age;
@@ -464,7 +475,8 @@ impl Row<'_> {
         out.push_drawn(&text, line, &quiet);
     }
 
-    /// Where the session runs: its space and branch, and whether it is pinned.
+    /// Where the session runs: its space and branch, whether it is pinned, and whether an agent
+    /// started it without asking.
     fn place(&self) -> String {
         let entry = self.entry;
         let mut place = entry.space.clone();
@@ -473,6 +485,9 @@ impl Row<'_> {
         }
         if entry.pinned {
             place.push_str(" · pinned");
+        }
+        if entry.unasked {
+            let _ = write!(place, " · {UNASKED}");
         }
         place
     }
