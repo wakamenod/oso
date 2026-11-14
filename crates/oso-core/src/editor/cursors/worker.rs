@@ -112,6 +112,7 @@ impl Editor {
         // The worker has no time to keep to.
         let text = Text {
             until: None,
+            on_key: false,
             ..text
         };
         let loading = self.current().1.loading().map(|_| text.rope.len());

@@ -62,8 +62,11 @@ pub(crate) struct Text {
     pub(crate) invalid: InvalidBytes,
     pub(crate) display: DisplaySnapshot,
     /// When a search on the UI thread stops, as a regexp can read far past each place it
-    /// looks; `None` on the worker.
+    /// looks; `None` on the worker, and in oso-core's tests.
     pub(crate) until: Option<Instant>,
+    /// Whether it searches for a key on the UI thread, which leaves a regexp's long lines to
+    /// the worker.
+    pub(crate) on_key: bool,
 }
 
 /// What `check` decides with a budget of `cap`, taking what it read from `left`.
@@ -88,7 +91,7 @@ impl Text {
         Limits {
             work: left,
             until: self.until,
-            on_key: self.until.is_some(),
+            on_key: self.on_key,
         }
     }
 
@@ -315,6 +318,7 @@ mod tests {
             rope,
             display,
             until: None,
+            on_key: false,
         }
     }
 

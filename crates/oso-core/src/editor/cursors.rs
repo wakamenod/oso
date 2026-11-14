@@ -19,7 +19,7 @@ use super::Editor;
 use crate::buffer::BufferId;
 use crate::display_map::{DisplayPoint, DisplaySnapshot};
 use crate::motion::{self, WalkBudget};
-use crate::search::{KEY_BUDGET, KEY_TIME, MAX_QUERY_CHARS, Matched, Needle, Query};
+use crate::search::{KEY_BUDGET, MAX_QUERY_CHARS, Matched, Needle, Query};
 use crate::selection::{Goal, MAX_CURSORS, MarkActive, Selection, SelectionSet};
 use crate::sum_tree::Bias;
 use crate::window::WindowId;
@@ -549,7 +549,8 @@ impl Editor {
             rope: buffer.text().clone(),
             invalid: buffer.invalid_bytes().clone(),
             display: buffer.display(),
-            until: Some(std::time::Instant::now() + KEY_TIME),
+            until: self.key_until(std::time::Instant::now()),
+            on_key: true,
         }
     }
 }

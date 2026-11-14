@@ -268,6 +268,11 @@ pub struct Editor {
     search_live: Arc<AtomicU64>,
     /// A job for a worker, until the host takes it.
     search_job: Option<SearchJob>,
+    /// How long a key's search for isearch or for cursors runs on the UI thread before the
+    /// worker goes on with it: [`KEY_TIME`](crate::search::KEY_TIME), but none in oso-core's own
+    /// tests, so that what one key finds does not depend on the machine's speed. Tests of the
+    /// hand-off set it to zero.
+    key_time: Option<std::time::Duration>,
     /// The query a window keeps for the keys that add cursors (ADR 0091).
     marking: Option<cursors::Marking>,
     /// Buffers a person asked to read again from their files, for the host (ADR 0083).
@@ -308,6 +313,10 @@ impl Default for Editor {
 
 impl Editor {
     /// An editor whose one window shows `buffer`.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one line for each of the editor's fields"
+    )]
     pub fn with_buffer(buffer: Buffer) -> Self {
         let mut editor = Self {
             buffers: Vec::new(),
@@ -368,6 +377,11 @@ impl Editor {
             jump_scratch: jump::Scratch::default(),
             search_live: Arc::new(AtomicU64::new(0)),
             search_job: None,
+            key_time: if cfg!(test) {
+                None
+            } else {
+                Some(crate::search::KEY_TIME)
+            },
             marking: None,
             reverts: Vec::new(),
             projects: Vec::new(),
@@ -448,6 +462,17 @@ impl Editor {
     /// The window named `id`, if there is one.
     pub fn window_by_id(&self, id: WindowId) -> Option<&Window> {
         self.windows.iter().find(|window| window.id() == id)
+    }
+
+    /// When a key's search that began at `started` leaves the rest to the worker, if it does.
+    pub(crate) fn key_until(&self, started: std::time::Instant) -> Option<std::time::Instant> {
+        self.key_time.map(|time| started + time)
+    }
+
+    /// Gives keys' searches `time` on the UI thread, or no limit but their work's.
+    #[cfg(test)]
+    pub(crate) fn set_key_time(&mut self, time: Option<std::time::Duration>) {
+        self.key_time = time;
     }
 
     /// A new window showing `buffer`, with a name no window had before.
@@ -1052,6 +1077,8 @@ mod isearch_tests;
 mod jump_actions_tests;
 #[cfg(test)]
 mod jump_tests;
+#[cfg(test)]
+mod key_time_tests;
 #[cfg(test)]
 mod migemo_costs;
 #[cfg(test)]
