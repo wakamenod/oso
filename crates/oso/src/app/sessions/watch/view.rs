@@ -18,9 +18,7 @@ use oso_core::syntax::Highlights;
 use crate::app::App;
 use crate::sessions::list::{Entry, Key, Line, Rendered};
 use crate::sessions::spinner::Spinner;
-
-/// The side window's width, in columns (Q1).
-pub(in crate::app) const SIDE_COLUMNS: usize = 32;
+use crate::sessions::width;
 
 /// The list's buffer name.
 pub(in crate::app) const BUFFER: &str = "*Sessions*";
@@ -44,6 +42,10 @@ pub(super) struct View {
     occluded: bool,
     /// The tree's projects and their listings (ADR 0131).
     pub(super) pane: super::pane::Pane,
+    /// The pane's width as `<` and `>` left it, for this oso (ADR 0131, Q7).
+    columns: Option<usize>,
+    /// `[sessions] pane_width` in force.
+    configured: Option<usize>,
 }
 
 impl super::Watch {
@@ -60,6 +62,48 @@ impl super::Watch {
 }
 
 impl App {
+    /// The pane's width in force (ADR 0131, Q7): as `<` and `>` left it, else
+    /// `[sessions] pane_width`, else 44 columns.
+    fn pane_columns(&self) -> usize {
+        let view = &self.watch.view;
+        view.columns.or(view.configured).unwrap_or(width::DEFAULT)
+    }
+
+    /// `[sessions] pane_width` in force: a new one replaces the width `<` and `>` left.
+    pub(in crate::app) fn set_pane_width(&mut self, configured: Option<usize>) {
+        if configured != self.watch.view.configured {
+            self.watch.view.configured = configured;
+            self.watch.view.columns = None;
+            self.refit_sessions_side();
+        }
+    }
+
+    /// `<` and `>`: the pane `columns` wider, narrower if negative, within 24 to 80, for this
+    /// oso; never written to the configuration (the author, 2026-11-15).
+    pub(super) fn change_pane_width(&mut self, columns: isize) {
+        let from = self.pane_columns();
+        let to = width::changed(from, columns);
+        if to == from {
+            let edge = if columns > 0 { "widest" } else { "narrowest" };
+            return self
+                .editor
+                .message(format!("The sessions pane is at its {edge}, {to} columns"));
+        }
+        self.watch.view.columns = Some(to);
+        self.refit_sessions_side();
+        self.editor.message(format!("Sessions pane: {to} columns"));
+    }
+
+    /// The side window at the width in force while it shows `*Sessions*`, rendered again.
+    fn refit_sessions_side(&mut self) {
+        if self.sessions_list_shown()
+            && let Some(buffer) = self.watch.view.buffer
+        {
+            self.editor.show_side_window(buffer, self.pane_columns());
+        }
+        self.watch.stale = true;
+    }
+
     /// The `*Sessions*` buffer: the one kept, or a new one, withheld from agents.
     pub(super) fn sessions_buffer(&mut self) -> BufferId {
         let kept = self
@@ -87,7 +131,7 @@ impl App {
     /// Shows `*Sessions*` in the side window, not selected, rendered.
     pub(super) fn show_sessions_side(&mut self) {
         let buffer = self.sessions_buffer();
-        self.editor.show_side_window(buffer, SIDE_COLUMNS);
+        self.editor.show_side_window(buffer, self.pane_columns());
         self.watch.view.shown = true;
         self.watch.view.hidden = false;
         self.watch.stale = true;
@@ -117,7 +161,7 @@ impl App {
             .any(|entry| matches!(entry.key, Key::Hosted(_)) && !entry.archived);
         if any && !self.watch.view.hidden && self.editor.side_window().is_none() {
             let buffer = self.sessions_buffer();
-            self.editor.show_side_window(buffer, SIDE_COLUMNS);
+            self.editor.show_side_window(buffer, self.pane_columns());
             self.watch.view.shown = true;
             self.watch.view.text.clear();
             changed = true;

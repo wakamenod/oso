@@ -107,7 +107,8 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
         .find(|window| window["id"] == side)
         .unwrap();
     assert_eq!(window["selected"], false);
-    assert!(window["columns"].as_u64().unwrap() <= 32, "{window}");
+    // 44 columns, as no `[sessions] pane_width` says otherwise (ADR 0131).
+    assert_eq!(window["columns"], 44, "{window}");
 
     // A dialog, with the session shown: needs input, with the dialog's question as its recap.
     print(&flow, PERMISSION);

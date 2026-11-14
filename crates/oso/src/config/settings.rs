@@ -17,6 +17,7 @@ use toml::de::DeValue;
 use super::indentation::{Indent, Modes};
 use super::problems::{Found, cut, quoted};
 use super::{table, type_name, unknown};
+use crate::sessions::width;
 
 /// Every setting the file holds.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -56,6 +57,8 @@ pub struct Sessions {
     /// `spinner = false`: working marks in `*Sessions*` stand still (ADR 0131, Q14). They spin
     /// unless set.
     pub no_spinner: bool,
+    /// `pane_width`: the columns of `*Sessions*`' pane, from 24 to 80; else 44 (ADR 0131, Q7).
+    pub pane_width: Option<usize>,
     /// `[sessions.notify]`: which states ask for the person's attention (ADR 0121, step 3).
     pub notify: crate::sessions::attention::Toggles,
 }
@@ -303,11 +306,38 @@ pub(super) fn sessions(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Sessi
                     sessions.no_spinner = !on;
                 }
             }
+            "pane_width" => sessions.pane_width = pane_width(value, found),
             "notify" => notify(value, &mut sessions.notify, found),
             other => unknown(found, name.span().start, other, "[sessions]"),
         }
     }
     sessions
+}
+
+/// `[sessions] pane_width`: a whole number of columns within [`width::WIDTHS`].
+fn pane_width(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<usize> {
+    let refuse = |found: &mut Found, what: &dyn std::fmt::Display| {
+        found.at(
+            value.span().start,
+            format_args!(
+                "[sessions] pane_width takes a whole number of columns from {} to {}, not {what}",
+                width::WIDTHS.start(),
+                width::WIDTHS.end()
+            ),
+        );
+        None
+    };
+    let DeValue::Integer(n) = value.get_ref() else {
+        return refuse(found, &type_name(value.get_ref()));
+    };
+    let columns = i64::from_str_radix(n.as_str(), n.radix())
+        .ok()
+        .and_then(|n| usize::try_from(n).ok())
+        .filter(|columns| width::WIDTHS.contains(columns));
+    match columns {
+        Some(columns) => Some(columns),
+        None => refuse(found, &cut(n)),
+    }
 }
 
 /// `[sessions.notify]`: a switch for each kind; one left out or wrong keeps its default.

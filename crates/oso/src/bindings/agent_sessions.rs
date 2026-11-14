@@ -73,4 +73,6 @@ pub const LIST: &[(&str, &str)] = &[
     ("M-n", "sessions-next-heading"),
     ("M-p", "sessions-previous-heading"),
     ("/", "session-switch"),
+    ("<", "sessions-narrower"),
+    (">", "sessions-wider"),
 ];

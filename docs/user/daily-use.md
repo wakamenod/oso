@@ -108,7 +108,8 @@ option. It starts the agent channel, which its tools need.
 
 ### The sessions list
 
-`*Sessions*` shows in a narrow window at the frame's left while you have sessions. It is a
+`*Sessions*` shows in a window 44 columns wide at the frame's left while you have sessions;
+a frame with no room for that narrows it, down to 24 columns. It is a
 tree: each project, its worktrees (the main checkout first, then the newest), and the sessions
 in each, one line each: a mark, a name, and how long since it last changed state (`now` under
 a minute). A worktree's mark is its most urgent session's. Worktrees made with git outside oso
@@ -135,6 +136,7 @@ In `*Sessions*`:
 | `c` | Start a session in this row's worktree: a project's main checkout, the worktree, or the session's worktree. |
 | `w` | Start a session in a new worktree of this row's project. From a worktree, the new branch starts at its branch; from a session, it is also that session's child. |
 | `/` | Switch to a session by name, as `C-x a b`. |
+| `<`, `>` | The pane 4 columns narrower or wider, from 24 to 80, for this oso. |
 | `g` | Refresh. |
 | `s` | The tree, or grouped by state. |
 | `P` | Pin or unpin: pinned sessions come first. |
@@ -284,6 +286,7 @@ claude = "/usr/local/bin/claude"  # the executable, by absolute path; else found
 env = ["AWS_PROFILE"]                # more variables a session takes from oso's environment
 steer_worktrees = true               # point the agent to start_worktree_session (off by default)
 spinner = false                      # keep working marks in *Sessions* still (they spin by default)
+pane_width = 52                      # the *Sessions* pane's columns, 24 to 80 (44 by default)
 
 [sessions.notify]                    # which states ask for your attention
 needs_input = true
@@ -295,7 +298,8 @@ ready_for_review = false
 `steer_worktrees` gives each new session a hook that turns down Claude Code's own worktree
 tools and points the agent to `start_worktree_session`, so its worktrees show in oso.
 `spinner = false` stops the working marks from turning, and with them the only timer the list
-runs. The `[sessions.notify]` values shown are the defaults.
+runs. `pane_width` is where the pane starts; `<` and `>` in it change it for this oso only.
+The `[sessions.notify]` values shown are the defaults.
 
 ## Developing beside it
 

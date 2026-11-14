@@ -59,6 +59,7 @@ impl App {
                 }
             }
             SessionRequest::Regroup => self.watch.list.regroup(),
+            SessionRequest::PaneWidth(columns) => self.change_pane_width(columns),
             SessionRequest::Refresh => self.relist_projects(),
             SessionRequest::Send { to, parts } => self.send_request(&to, &parts),
             SessionRequest::FollowMessage(buffer) => self.follow_message(buffer),
