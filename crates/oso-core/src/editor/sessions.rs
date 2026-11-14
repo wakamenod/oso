@@ -99,6 +99,9 @@ pub enum SessionRequest {
     WorktreeRemoveConfirmed,
     /// The person's `y` to "another session runs in this directory" (`session-start-shared`).
     StartShared,
+    /// The person's `?` in a question the agent caused: show what it would run
+    /// (`agent-question-details`).
+    QuestionDetails,
     /// Show `*Sessions*` in the side window and select it; select it if shown; hide it if
     /// selected (`sessions`).
     ShowList,

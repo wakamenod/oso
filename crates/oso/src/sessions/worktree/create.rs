@@ -30,6 +30,7 @@ use super::porcelain;
 use super::slug::{self, PARENT};
 use super::transcript;
 use crate::project::ours;
+use crate::review::git::Git;
 use crate::review::git::{MAX_SHORT, check_revision};
 
 /// The most lines of the starting session's uncommitted changes the brief names.
@@ -57,6 +58,9 @@ pub struct Order {
     pub brief: String,
     /// The session it is handed from, if any.
     pub from: Option<Handover>,
+    /// The directory whose `HEAD` a new branch with no base starts at: the main checkout's if
+    /// none, else an agent's own (ADR 0121, step 6).
+    pub start_at: Option<PathBuf>,
 }
 
 /// What a step reached, for the echo area while the job runs.
@@ -84,10 +88,10 @@ pub struct Created {
 }
 
 /// The local branch `branch`'s state, once its name is checked.
-struct Branch {
-    name: String,
+pub(super) struct Branch {
+    pub(super) name: String,
     /// Its tip, if it exists.
-    tip: Option<String>,
+    pub(super) tip: Option<String>,
 }
 
 /// What the job says of not being where it was made.
@@ -117,21 +121,12 @@ pub(super) fn create_with(
     trusted: &dyn Fn() -> Result<(), String>,
     before_add: &dyn Fn(),
 ) -> Result<Created, String> {
-    let branch = checked_branch(repo, &order.branch)?;
-    refuse_checked_out(repo, &branch.name)?;
-    let shown = porcelain::printable(&branch.name, 120);
-    let base = match (&branch.tip, &order.base) {
-        (Some(_), Some(_)) => {
-            return Err(format!(
-                "Branch {shown} exists; a base is only for a new branch"
-            ));
-        }
-        (Some(_), None) => None,
-        (None, base) => Some(base_of(repo, base.as_deref())?),
+    let start = || match &order.start_at {
+        Some(directory) => head_of(repo, directory),
+        None => base_of(repo.git(), None),
     };
-    let slug = slug::slug(&branch.name).ok_or("That branch makes no directory name")?;
-    let path = slug::place(repo.main(), &slug, |p| p.symlink_metadata().is_ok())
-        .ok_or("Ten worktrees of that name exist already")?;
+    let Resolved { branch, base, path } =
+        resolve(repo, &order.branch, order.base.as_deref(), &start)?;
     let shown_base = base.as_ref().map_or("its existing tip", |(name, _)| name);
     let header = Header {
         repo: repo.main(),
@@ -246,16 +241,61 @@ fn refuse_checked_out(repo: &Repo, branch: &str) -> Result<(), String> {
     }
 }
 
-/// A new branch's base, by the name to show and its commit: the one typed, else `HEAD`.
-fn base_of(repo: &Repo, typed: Option<&str>) -> Result<(String, String), String> {
+/// A worktree session's branch, where a new one starts, and where its worktree goes: as its
+/// agent's question shows them, and as the job that makes it finds them again.
+pub(super) struct Resolved {
+    pub(super) branch: Branch,
+    /// For a new branch: its start, by the name to show and its commit.
+    pub(super) base: Option<(String, String)>,
+    pub(super) path: PathBuf,
+}
+
+/// Resolves the branch `name` of `repo`: a new one starts at `base` if given, else where
+/// `start` says.
+///
+/// # Errors
+///
+/// A name git refuses, a branch checked out already, a base for a branch that exists, a base
+/// that is no commit, or no room for its worktree.
+pub(super) fn resolve(
+    repo: &Repo,
+    name: &str,
+    base: Option<&str>,
+    start: &dyn Fn() -> Result<(String, String), String>,
+) -> Result<Resolved, String> {
+    let branch = checked_branch(repo, name)?;
+    refuse_checked_out(repo, &branch.name)?;
+    let shown = porcelain::printable(&branch.name, 120);
+    let base = match (&branch.tip, base) {
+        (Some(_), Some(_)) => {
+            return Err(format!(
+                "Branch {shown} exists; a base is only for a new branch"
+            ));
+        }
+        (Some(_), None) => None,
+        (None, Some(base)) => Some(base_of(repo.git(), Some(base))?),
+        (None, None) => Some(start()?),
+    };
+    let slug = slug::slug(&branch.name).ok_or("That branch makes no directory name")?;
+    let path = slug::place(repo.main(), &slug, |p| p.symlink_metadata().is_ok())
+        .ok_or("Ten worktrees of that name exist already")?;
+    Ok(Resolved { branch, base, path })
+}
+
+/// A new branch's base in `git`'s checkout, by the name to show and its commit: the one typed,
+/// else `HEAD`, named by its branch or its commit's first 12 digits. The name is as git or the
+/// caller gave it, not yet made printable.
+fn base_of(git: &Git, typed: Option<&str>) -> Result<(String, String), String> {
     let revision = typed.unwrap_or("HEAD");
-    let id = repo
-        .commit(revision)?
+    let id = git
+        .resolve(revision, "commit")
+        .map_err(|e| said(&e))?
+        .map(|id| id.as_str().to_owned())
         .ok_or_else(|| format!("Not a commit: {}", porcelain::printable(revision, 80)))?;
     let name = match typed {
         Some(typed) => typed.to_owned(),
         None => run(
-            repo.git(),
+            git,
             &["symbolic-ref", "--quiet", "--short", "HEAD"],
             MAX_SHORT,
         )
@@ -265,7 +305,25 @@ fn base_of(repo: &Repo, typed: Option<&str>) -> Result<(String, String), String>
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| id.chars().take(12).collect()),
     };
-    Ok((porcelain::printable(&name, 120), id))
+    // Raw: whoever shows it makes it printable, once.
+    Ok((name, id))
+}
+
+/// Where `HEAD` is in `directory`, the repository's main checkout or one of its linked
+/// worktrees, as [`base_of`] gives it.
+///
+/// # Errors
+///
+/// A directory that is neither, or a `HEAD` that is no commit.
+pub(super) fn head_of(repo: &Repo, directory: &Path) -> Result<(String, String), String> {
+    let git = if directory == repo.main() {
+        Some(repo.git().clone())
+    } else {
+        repo.in_worktree(directory)
+    };
+    let git = git.ok_or("Your session's directory is not this repository's")?;
+    base_of(&git, None)
+        .map_err(|_| "Your session's directory has no commit to start a branch from".to_owned())
 }
 
 /// Makes or opens `<main>/.claude/worktrees` without following a link, each the person's.

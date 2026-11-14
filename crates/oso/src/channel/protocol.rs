@@ -16,6 +16,7 @@
 //!   is judged ordinary; `line` is optional.
 //! - `text`: `{"buffer": 3, "start_row": 0, "rows": 200}` gives whole rows of a buffer, or
 //!   `{"region": true}` the selected window's region.
+//! - The session methods, one for each session tool (ADR 0121), in [`sessions`].
 
 use std::path::PathBuf;
 
@@ -26,7 +27,7 @@ use serde_json::{Map, Value};
 use super::wire::{self, BadRequest};
 
 /// The channel's protocol version. Bump it on incompatible changes.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// The longest command name `run` takes, in bytes.
 const MAX_COMMAND_NAME: usize = 256;
@@ -50,6 +51,8 @@ pub const MAX_ROWS: usize = 2000;
 pub const METHODS: [&str; 7] = [
     "version", "state", "commands", "run", "cancel", "open", "text",
 ];
+
+pub mod sessions;
 
 /// A parsed request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,6 +90,8 @@ pub enum Op {
         line: Option<usize>,
     },
     Text(TextOf),
+    /// A session tool's call (ADR 0121).
+    Session(sessions::Call),
 }
 
 /// What `text` reads.
@@ -141,7 +146,10 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         "run" => Method::Ui(parse_run(&parts.params).map_err(bad)?),
         "open" => Method::Ui(parse_open(&parts.params).map_err(bad)?),
         "text" => Method::Ui(Op::Text(parse_text(&parts.params).map_err(bad)?)),
-        _ => return Err(parts.unknown()),
+        other => match sessions::parse(other, &parts.params) {
+            Some(call) => Method::Ui(Op::Session(call.map_err(bad)?)),
+            None => return Err(parts.unknown()),
+        },
     };
     Ok(Request { id, method })
 }
@@ -459,6 +467,7 @@ mod tests {
         ];
         for method in dev {
             assert!(!METHODS.contains(&method), "{method}");
+            assert!(!super::sessions::METHODS.contains(&method), "{method}");
             let message = error(&json!({ "method": method }).to_string());
             assert!(message.starts_with("unknown method"), "{method}: {message}");
         }

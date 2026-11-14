@@ -6,6 +6,7 @@
 use serde_json::{Map, Value, json};
 
 use super::super::wire::short;
+use super::session_tools;
 use super::{INSTRUCTIONS, MCP_VERSIONS};
 
 /// The channel's method and parameters for the tool `name`.
@@ -35,7 +36,11 @@ pub(super) fn channel_request(
         "change" => ("run", run("change")?),
         "open" => ("open", only(&["path", "line"])?),
         "cancel" => ("cancel", only(&[])?),
-        _ => return Err(format!("no tool {:?}", short(name))),
+        _ => match session_tools::method(name) {
+            // A session tool is the channel's method of its name (ADR 0121).
+            Some((method, names)) => (method, only(names)?),
+            None => return Err(format!("no tool {:?}", short(name))),
+        },
     })
 }
 
@@ -61,7 +66,7 @@ pub(super) fn initialize(params: &Map<String, Value>) -> Value {
 
 /// A tool: its name, what it does, the properties it takes, which of them it needs, and
 /// whether it only reads or may destroy.
-fn tool(
+pub(super) fn tool(
     name: &str,
     description: &str,
     properties: Value,
@@ -89,7 +94,9 @@ fn tool(
 /// The tools, those that only read first.
 pub(super) fn tools() -> Value {
     let mut tools = reading_tools();
+    tools.extend(session_tools::reading());
     tools.extend(acting_tools());
+    tools.extend(session_tools::acting());
     Value::Array(tools)
 }
 

@@ -1,7 +1,8 @@
 //! Agent sessions in the app (ADR 0121): the sessions worker, what commands ask of it, the
-//! hosted sessions (`hosting`), worktree sessions and their jobs (`worktrees`), the rules the
-//! configuration's thread compiled, and what the worker and the jobs found, carried out on the
-//! UI thread. Nothing here reads a file or judges a screen.
+//! hosted sessions (`hosting`), worktree sessions and their jobs (`worktrees`), the agents'
+//! session tools (`tools`), the rules the configuration's thread compiled, and what the worker
+//! and the jobs found, carried out on the UI thread. Nothing here reads a file or judges a
+//! screen.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -12,6 +13,7 @@ use oso_core::editor::{Editor, SessionRequest};
 
 mod feed;
 mod hosting;
+mod tools;
 mod watch;
 mod worktrees;
 pub(super) use hosting::Hosting;
@@ -57,6 +59,10 @@ impl App {
                 }
                 SessionRequest::Fork(buffer) => {
                     self.fork_session(buffer);
+                    continue;
+                }
+                SessionRequest::QuestionDetails => {
+                    self.show_question_details();
                     continue;
                 }
                 SessionRequest::Adopt(pick) => {

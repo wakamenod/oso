@@ -22,9 +22,9 @@ pub const HOOK: [&str; 2] = ["hook", "deny-worktree"];
 /// The most bytes of hook input looked at; more is allowed unread.
 pub const MAX_INPUT: usize = 64 * 1024;
 
-/// Why the hook denies (until ADR 0121 step 6 gives agents `start_worktree_session`; the author
-/// chose this wording).
-pub const REASON: &str = "oso makes worktrees for its sessions. Ask the person to run session-worktree (C-x a w) in oso: it makes the worktree, a space and a session with your brief. Do not make a worktree another way.";
+/// Why the hook denies: it names the session tool an agent makes worktrees with (ADR 0121,
+/// step 6).
+pub const REASON: &str = "oso makes worktrees for its sessions. Use the oso tool start_worktree_session: it makes the worktree, a space and a session with your brief, once the person allows it. Do not make a worktree another way.";
 
 /// The most memory the command pattern compiles to.
 const PATTERN_LIMIT: usize = 1 << 20;

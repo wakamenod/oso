@@ -228,6 +228,7 @@ mod tests {
         // Who may drive the editor.
         "agent-channel-allow",
         "agent-channel-start",
+        "agent-question-details",
         "agent-channel-stop",
         // Answering a prompt, choosing what it answers, and running a command by name
         // (ADR 0076).

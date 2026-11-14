@@ -17,7 +17,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, SyncSender};
 use std::time::Duration;
 
@@ -29,6 +29,7 @@ use super::facts::RepoFacts;
 use super::git::{Gh, Repo, said};
 use super::merged::{self, Merged};
 use super::pool::Pool;
+use super::prepare::{self, Prepare, Prepared};
 use crate::project::{Trusted, linked_worktree};
 use crate::review::TrustedRoot;
 use crate::review::git::MAX_SHORT;
@@ -133,12 +134,35 @@ pub enum Report {
         path: PathBuf,
         result: Result<Vec<PathBuf>, Check>,
     },
-    /// A removal ended; the branch is kept either way.
+    /// A removal ended, with what git ignored there, which went with it; the branch is kept
+    /// either way.
     Removed {
         token: u64,
         path: PathBuf,
-        result: Result<(), String>,
+        result: Result<Vec<PathBuf>, String>,
     },
+    /// A listing ended: every row and every answer of `gh` came. It follows every listing
+    /// job that reached its repository, a stopped one too; one that could not open the
+    /// repository sends [`Report::Listed`] with an error instead.
+    ListEnded { token: u64 },
+    /// What an agent's session tool needs to know before the person is asked (ADR 0121,
+    /// step 6).
+    ///
+    /// A directory found is given with its trust, which a session started there takes.
+    Prepared {
+        token: u64,
+        result: Result<(Prepared, Option<TrustedRoot>), String>,
+    },
+}
+
+/// How a removal was asked for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Asked {
+    /// The person's question named this many of what git ignores there: a removal that would
+    /// delete more is refused.
+    Named(usize),
+    /// An agent's `worktree_remove`, which asks no question once every check holds (Q14).
+    Unasked,
 }
 
 /// The jobs, run on a pool of their own.
@@ -252,15 +276,67 @@ impl Jobs {
     pub fn list(&self, token: u64, trust: Trust, snapshot: Snapshot) {
         let number = self.listing.fetch_add(1, Ordering::SeqCst) + 1;
         let newest = Arc::clone(&self.listing);
+        self.list_while(token, trust, snapshot, move || {
+            newest.load(Ordering::SeqCst) == number
+        });
+    }
+
+    /// Lists as [`Self::list`] does, for an agent's `worktree_list`, until `stop` is set: no
+    /// listing of the person's stops it, and it stops none of theirs.
+    pub fn list_for_agent(
+        &self,
+        token: u64,
+        trust: Trust,
+        snapshot: Snapshot,
+        stop: Arc<AtomicBool>,
+    ) {
+        self.list_while(token, trust, snapshot, move || !stop.load(Ordering::SeqCst));
+    }
+
+    /// A listing that goes on while `live` says so, and says when it ended.
+    fn list_while(
+        &self,
+        token: u64,
+        trust: Trust,
+        snapshot: Snapshot,
+        live: impl Fn() -> bool + Send + 'static,
+    ) {
         let gh_host = self.gh_host.clone();
         self.on_repo(
             trust,
             false,
             move |_, repo, send| {
-                let live = || newest.load(Ordering::SeqCst) == number;
-                list(repo, &snapshot, gh_host.as_deref(), &live, token, send);
+                // One stopped while it waited for a thread runs nothing.
+                if live() {
+                    list(repo, &snapshot, gh_host.as_deref(), &live, token, send);
+                }
+                send(Report::ListEnded { token });
             },
             move |why| Report::Listed {
+                token,
+                result: Err(why),
+            },
+        );
+    }
+
+    /// Looks at what an agent's session tool would do, before the person is asked.
+    pub fn prepare(&self, token: u64, trust: Trust, what: Prepare) {
+        self.on_repo(
+            trust,
+            true,
+            move |root, repo, send| {
+                let result = prepare::prepare(repo, &what).map(|prepared| {
+                    let trusted = match &prepared {
+                        Prepared::Directory(directory) => {
+                            Some(root.for_worktree(directory.clone()))
+                        }
+                        Prepared::Worktree { .. } => None,
+                    };
+                    (prepared, trusted)
+                });
+                send(Report::Prepared { token, result });
+            },
+            move |why| Report::Prepared {
                 token,
                 result: Err(why),
             },
@@ -299,7 +375,7 @@ impl Jobs {
         trust: Trust,
         path: PathBuf,
         snapshot: Snapshot,
-        asked: usize,
+        asked: Asked,
     ) {
         let failed_path = path.clone();
         let gh_host = self.gh_host.clone();
@@ -307,13 +383,15 @@ impl Jobs {
             trust,
             false,
             move |_, repo, send| {
-                let result = match check(repo, gh_host.as_deref(), &path, &snapshot) {
-                    Err(check) => Err(check.why()),
-                    Ok(ignored) if ignored.len() > asked => Err(
+                let result = match (check(repo, gh_host.as_deref(), &path, &snapshot), asked) {
+                    (Err(check), _) => Err(check.why()),
+                    (Ok(ignored), Asked::Named(named)) if ignored.len() > named => Err(
                         "git ignores more there than the question named: run worktree-remove again"
                             .to_owned(),
                     ),
-                    Ok(_) => cleared(token, &path, send).and_then(|()| checks::remove(repo, &path)),
+                    (Ok(ignored), _) => cleared(token, &path, send)
+                        .and_then(|()| checks::remove(repo, &path))
+                        .map(|()| ignored),
                 };
                 send(Report::Removed {
                     token,
