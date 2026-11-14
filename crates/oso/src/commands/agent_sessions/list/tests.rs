@@ -40,6 +40,22 @@ fn each_row_command_names_the_line_and_its_action() {
 }
 
 #[test]
+fn help_says_the_marks_and_keys_in_the_list_only() {
+    let mut list = listing();
+    assert_eq!(run(&mut list, "sessions-help", Args::NONE).0, Ok(()));
+    let id = list.messages_buffer();
+    let said = list.buffer(id).unwrap().text().to_string();
+    assert!(
+        said.contains("⚠ needs input  ✗ failed  ▶ working"),
+        "{said}"
+    );
+    assert!(list.take_session_requests().is_empty());
+    let mut elsewhere = editor("text");
+    let refused = run(&mut elsewhere, "sessions-help", Args::NONE).0;
+    assert_eq!(refused, Err("Not in *Sessions*".to_owned()));
+}
+
+#[test]
 fn outside_the_list_they_refuse_and_ask_nothing() {
     let mut editor = editor("text");
     for name in [

@@ -6,8 +6,8 @@
 # Needs input is strict: only a rule that knows a dialog sets it. An unknown prompt is idle.
 # Every hold rule ranks below every needs-input rule, so that no view hides a dialog.
 #
-# A `recap` finds the line `*Sessions*` shows under a session: the dialog's question, or what a
-# turn is doing. It reads the rule's region, or `recap_region`, from the bottom up.
+# A `recap` finds the line `*Sessions*` shows under a session: the dialog's question. A session
+# with no recap shows its title. It reads the rule's region, or `recap_region`, from the bottom up.
 
 version = 1
 
@@ -104,14 +104,14 @@ region = "after_last_rule"
 line_regex = ['(?i)·\s+esc to interrupt\b']
 
 # The status line: a spinner, a word, and an ellipsis. The line a finished turn leaves
-# ("✻ Brewed for 1s") has none.
+# ("✻ Brewed for 1s") has none. Its word means nothing, so it is no recap (ADR 0131): a
+# working session's recap is its title, the topic the TUI gives the conversation.
 [[rule]]
 name = "status-line"
 state = "working"
 priority = 790
 region = "bottom(8)"
 line_regex = ['^[·✢✳✶✻✽*]\s+\S[^…]*…']
-recap = '^[·✢✳✶✻✽*]\s+(\S[^…]*…)'
 
 [[rule]]
 name = "title-spinner"

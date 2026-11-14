@@ -114,6 +114,15 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
     assert!(modeline(&state).contains("⚠ 1"), "{}", modeline(&state));
     let recap = sessions(&state)["sessions"][0]["recap"].as_str().unwrap();
     assert!(!recap.is_empty());
+    // The list says it under the row, as the person has something to do.
+    let list = sessions(&state)["list"].as_str().unwrap();
+    assert!(
+        list.contains(&format!(
+            "\n  {}",
+            recap.chars().take(8).collect::<String>()
+        )),
+        "{list}"
+    );
 
     // Away from it, its turn ends: done, a notice, and the mark.
     let notes = flow.project.join("notes.txt");
@@ -146,6 +155,13 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
     app.send_keys("C-x a s");
     app.wait_for("the list selected", |state| {
         state["buffer"]["name"] == "*Sessions*"
+    });
+    // `?` says what the marks mean.
+    app.send_keys("?");
+    app.wait_for("the legend", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.starts_with("⚠ needs input"))
     });
     app.send_keys("C-x a s");
     app.wait_for("the list hidden", |state| sessions(state)["side"].is_null());
@@ -205,15 +221,23 @@ fn another_programs_session_in_the_registry_is_listed() {
     fs::write(
         registry.join(format!("{}.json", outside.id())),
         format!(
-            r#"{{"pid":{},"startedAt":{now},"name":"elsewhere","kind":"interactive","status":"busy"}}"#,
-            outside.id()
+            r#"{{"pid":{},"startedAt":{now},"name":"elsewhere","kind":"interactive","status":"busy","statusUpdatedAt":{}}}"#,
+            outside.id(),
+            now - 5 * 60 * 1000
         ),
     )
     .unwrap();
     let mut app = start(&flow);
-    app.wait_for("the external row", |state| {
+    let state = app.wait_for("the external row", |state| {
         state_of(state, "elsewhere").as_deref() == Some("working")
     });
+    // One line, aged from the registry's change of status, not from oso's first look.
+    let list = sessions(&state)["list"].as_str().unwrap().to_owned();
+    let row = list.lines().find(|row| row.contains("elsewhere")).unwrap();
+    assert!(
+        row.starts_with("▶ elsewhere") && (row.ends_with(" 5m") || row.ends_with(" 6m")),
+        "{list}"
+    );
     let _ = outside.kill();
     let _ = outside.wait();
     app.wait_for("the external row gone", |state| {

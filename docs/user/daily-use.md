@@ -86,7 +86,10 @@ option. It starts the agent channel, which its tools need.
 ### The sessions list
 
 `*Sessions*` shows in a narrow window at the frame's left while you have sessions. It groups
-them by state, the most urgent first, and shows each one's space and a one-line recap. The
+them by state, the most urgent first, one line each: its mark, its name, its space where there
+is room, and how long since it last changed state (`now` under a minute). A session that needs
+you takes a second line with the question it asks. Sessions run outside oso are listed too,
+their space beginning `external`. The
 modeline shows `⚠ N` while sessions need input and `● N` while sessions are done or ready for
 review. When a session needs you and you are looking elsewhere, oso says so in the echo area
 and asks the desktop for your attention.
@@ -105,6 +108,7 @@ In `*Sessions*`:
 | `r` | Resume a stopped session. |
 | `k` | Stop the session. It asks first while the session works or needs input. |
 | `e` | Explain its state. |
+| `?` | Say what the marks mean, and these keys. |
 
 `C-x o` skips the list, and `C-x a s` hides it when it is selected. `C-x k` in a session's
 buffer stops and archives the session.
