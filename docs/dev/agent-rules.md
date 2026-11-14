@@ -37,6 +37,8 @@ line_regex = ['^\s*❯ 1\. Yes'] # every pattern matches some line of the region
 any = [{ contains = ["x"] }, { regex = ['y'] }]  # at least one table holds
 all = [{ contains = ["z"] }]                     # every table holds
 not = [{ contains = ["help"] }]                  # no table holds
+recap = '(?i)^\s*(do you want to\b.*\?)\s*$'      # optional: the session's recap; see below
+recap_region = "after_last_rule"                 # optional: where recap looks; the rule's region if left out
 ```
 
 - The rules are tried from the highest priority down. Rules of the same priority keep the
@@ -78,6 +80,25 @@ When no rule matches, the session counts as idle.
 Rows are the last 40 non-empty rows of the live screen. oso never reads your scrolled view or
 copy mode. Each row is cut at 1 KiB, and control characters become spaces.
 
+### Recaps
+
+`*Sessions*` and `session-switch` show one line under each session: its recap.
+- A session that needs input shows what the matched rule's `recap` finds: the dialog's question.
+- A working session shows what the matched rule's `recap` finds, or else the first other working
+  rule's whose recap finds something: the status line.
+- Any other session, or one whose rule has no recap or finds nothing, shows the terminal's title.
+- While a hold rule matches, the recap stays as it was.
+
+`recap` is a pattern, matched against each line of `recap_region` (the rule's own region if
+left out), from the bottom up. The lowest line it matches gives the recap: the pattern's first
+group if it has one, else the whole match. A recap is one line of at most 80 characters, ending
+in `…` if cut; control and bidirectional formatting characters are dropped, and runs of spaces
+become one.
+
+A recap never decides whether a rule matches. A wrong `recap` or `recap_region` is skipped and
+named in `*Messages*`, and its rule stays. A recap counts among the file's 256 patterns. Finding
+it gets 5 ms of its own after the rules' verdict; past that, the recap stays as it was.
+
 ### Replacing and disabling
 
 - A rule in your file replaces the bundled rule of the same name.
@@ -117,6 +138,7 @@ oso says what is wrong in `*Messages*`, with the line:
   stay.
 - Anything else wrong in a rule skips that rule: an unknown name, a bad value, a pattern that
   does not compile. A misspelt matcher must not leave a rule that matches more than you meant.
+  A wrong `recap` skips only the recap.
 
 oso does not read the file when anyone else can change it, a group included, or the
 directories on the way to it. A problem in a file whose name, or where it leads, says it may

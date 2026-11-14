@@ -482,3 +482,25 @@ fn a_keyboard_macro_holds_the_handover_and_an_exit_for_a_generation() {
     editor.macro_stop(None);
     assert!(check(&editor).is_ok());
 }
+
+#[test]
+fn the_side_window_is_left_out_and_the_state_reads_back() {
+    use oso_core::buffer::Mode;
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\ndef\n");
+    editor.set_view_size(oso_core::window::ViewSize::new(30, 120));
+    let list = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+    let side = editor.show_side_window(list, 32);
+    for selected in [false, true] {
+        if selected {
+            editor.select_window(side);
+        }
+        let state = export(&editor, &[], None, None).unwrap();
+        assert_eq!(state["windows"].as_array().unwrap().len(), 1, "{state}");
+        assert_eq!(state["selected"], 0);
+        let parsed = parse(&state).unwrap();
+        assert_eq!(
+            parsed.paths()[parsed.window().shown],
+            Some(PathBuf::from(absolute("/p/a.txt")))
+        );
+    }
+}

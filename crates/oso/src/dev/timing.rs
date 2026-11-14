@@ -89,6 +89,15 @@ pub struct Timings {
     /// Each frame that showed a review's new text, as wall-clock time, for the review
     /// benchmark (ADR 0122). Taken by `take`.
     review_frames: Vec<(u64, ReviewText)>,
+    /// The UI thread's time on each presented frame, in microseconds: to the renderer's start,
+    /// then its preparing. For the sessions benchmark (ADR 0121). Taken by `take`.
+    ui_frame_us: Vec<u32>,
+    /// How many agent sessions the modeline counts as needing input, as of the last frame.
+    needs_input: u16,
+    /// That count went up since the last frame presented.
+    needs_input_rose: bool,
+    /// Each frame that showed a rise of that count, as wall-clock time. Taken by `take`.
+    needs_input_frames: Vec<u64>,
 }
 
 /// How far a review's reading was in a text put in: files read of those listed, or done.
@@ -144,6 +153,10 @@ impl Timings {
             load: LoadTimes::default(),
             review_text: None,
             review_frames: Vec::new(),
+            ui_frame_us: Vec::new(),
+            needs_input: 0,
+            needs_input_rose: false,
+            needs_input_frames: Vec::new(),
         }
     }
 
@@ -221,11 +234,21 @@ impl Timings {
         {
             self.review_frames.push((micros(unix_now()), text));
         }
+        if complete && std::mem::take(&mut self.needs_input_rose) {
+            self.needs_input_frames.push(micros(unix_now()));
+            self.needs_input_frames.truncate(MAX_KEY_SAMPLES);
+        }
         if withheld {
             self.waiting_keys.clear();
             return;
         }
         self.frames += 1;
+        if let Some(frame) = spans
+            && self.ui_frame_us.len() < MAX_KEY_SAMPLES
+        {
+            let ui = frame.rendering.saturating_duration_since(frame.started) + frame.prepared;
+            self.ui_frame_us.push(micros_u32(ui));
+        }
         for (received, handled) in self.waiting_keys.drain(..) {
             if self.key_latency_us.len() < MAX_KEY_SAMPLES {
                 self.key_latency_us.push(micros_u32(received.elapsed()));
@@ -243,6 +266,12 @@ impl Timings {
                 self.dropped_keys += 1;
             }
         }
+    }
+
+    /// The frame about to be drawn counts `needs` agent sessions as needing input.
+    pub fn session_marks(&mut self, needs: u16) {
+        self.needs_input_rose |= needs > self.needs_input;
+        self.needs_input = needs;
     }
 
     /// The result of `take-timings`. The key samples are handed over, so
@@ -272,6 +301,8 @@ impl Timings {
                 "done_us": self.load.done.map(micros),
             },
             "review_frames": reviews,
+            "ui_frame_us": std::mem::take(&mut self.ui_frame_us),
+            "needs_input_frames": std::mem::take(&mut self.needs_input_frames),
         })
     }
 }

@@ -132,6 +132,12 @@ impl App {
             // A terminal that failed is a session that failed.
             End::Failed(_) => Some(-1),
         };
+        // A hang-up the session list asked for ends it as stopped (ADR 0121, step 3).
+        let status = if self.watch.take_hung_up(key) {
+            Some(0)
+        } else {
+            status
+        };
         let Some(exit) = self.hosting.table.ended(key, status, now_ms()) else {
             return;
         };

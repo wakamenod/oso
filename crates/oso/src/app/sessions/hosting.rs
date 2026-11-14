@@ -27,7 +27,7 @@ mod terminal;
 /// What the app keeps of its hosted sessions.
 #[derive(Debug, Default)]
 pub(in crate::app) struct Hosting {
-    table: Table,
+    pub(in crate::app) table: Table,
     /// oso's own state directory, where the record is kept.
     directory: Option<PathBuf>,
     /// The buffer each session being started has, by its key, until the start thread reports.
@@ -47,6 +47,16 @@ pub(in crate::app) struct Hosting {
 }
 
 impl Hosting {
+    /// The hosted sessions.
+    pub(in crate::app) fn table(&self) -> &Table {
+        &self.table
+    }
+
+    /// oso's own state directory, where reviews make their index copies.
+    pub(in crate::app) fn state_directory(&self) -> Option<PathBuf> {
+        self.directory.clone()
+    }
+
     /// Sessions remembered in `directory`, oso's state directory.
     pub(in crate::app) fn new(directory: Option<PathBuf>) -> Self {
         Self {
@@ -124,8 +134,10 @@ impl App {
 
     /// Notes that the sessions changed: [`App::save_sessions`] hands them to the worker once
     /// for every change an event made.
-    fn remember_sessions(&mut self) {
+    /// The views of sessions are made again too (ADR 0121, step 3).
+    pub(in crate::app) fn remember_sessions(&mut self) {
         self.hosting.unsaved = true;
+        self.sessions_touched();
     }
 
     /// After an event: hands the sessions to the worker to remember, keeping another

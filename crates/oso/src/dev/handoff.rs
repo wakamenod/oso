@@ -164,15 +164,18 @@ pub fn export(
     Ok((state, Exported::new(number, items)))
 }
 
-/// Every tiled window as the state keeps it, in the tree's order, and the selected one's place
-/// among them. `restores` are positions still waiting for their files, which go on as they
+/// Every window of the tree as the state keeps it, in the tree's order, and the selected one's
+/// place among them, the first while the side window is selected. `restores` are positions still waiting for their files, which go on as they
 /// came; a window on a buffer that may hold secrets goes at its start (ADR 0090, ADR 0112).
 fn windows_state(editor: &Editor, restores: &[Restore]) -> (Vec<Value>, usize) {
     let at_the_top = SelectionSet::default();
+    // Not the side window: the layout is the tree's, and it comes back by itself (ADR 0121).
+    let side = editor.side_window();
     let tiled: Vec<&Window> = editor
         .frame()
         .windows()
         .iter()
+        .filter(|(id, _)| Some(*id) != side)
         .filter_map(|(id, _)| editor.window_by_id(*id))
         .collect();
     let windows: Vec<Value> = tiled

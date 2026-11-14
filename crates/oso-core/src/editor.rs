@@ -105,7 +105,7 @@ pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use reviews::*;
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
-pub use sessions::SessionRequest;
+pub use sessions::{RowAction, SessionMarks, SessionRequest, WindowTree};
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
 pub use terminals::TerminalRequest;
@@ -248,8 +248,8 @@ pub struct Editor {
     kills: kill::Kills,
     /// What the editor knows of the agent channel (ADR 0085).
     agent: agent::Agent,
-    /// What commands asked of the host about agent sessions (ADR 0121).
-    session_requests: Vec<SessionRequest>,
+    /// Agent sessions' requests, side window, marks and lists (ADR 0121).
+    sessions: sessions::Sessions,
     terminal_requests: Vec<TerminalRequest>,
     /// The isearch under way in the selected window (ADR 0082).
     isearch: Option<Isearch>,
@@ -356,7 +356,7 @@ impl Editor {
             save_over_asked: None,
             kills: kill::Kills::default(),
             agent: agent::Agent::default(),
-            session_requests: Vec::new(),
+            sessions: sessions::Sessions::default(),
             terminal_requests: Vec::new(),
             isearch: None,
             migemo: migemo::Migemo::default(),
@@ -432,7 +432,7 @@ impl Editor {
     pub fn show(&mut self, buffer: BufferId) {
         if self.buffer(buffer).is_some() {
             self.window_moves_on();
-            let index = self.tiled_index();
+            let index = self.leave_side_at();
             self.window_shows(index, buffer);
         }
     }

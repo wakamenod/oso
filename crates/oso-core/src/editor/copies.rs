@@ -135,6 +135,7 @@ impl Editor {
         if !self.prompts.is_empty() {
             return;
         }
+        self.leave_side();
         if self.current().1.mode().shows_copies() {
             self.leave_internal();
             return;
@@ -152,6 +153,7 @@ impl Editor {
             | Mode::Markdown
             | Mode::Toml
             | Mode::Review
+            | Mode::Sessions
             | Mode::Terminal => {}
             Mode::CopyList => self.leave_internal(),
             Mode::CopyView => {
@@ -165,7 +167,7 @@ impl Editor {
     pub fn leave_all_internal(&mut self) {
         // The first place is the user's, as showing one of theirs empties the way. If that buffer
         // has gone, this goes to `*scratch*`.
-        let index = self.tiled_index();
+        let index = self.leave_side_at();
         let first = self.windows[index].way_back_mut().drain(..).next();
         self.go_back(first);
     }
