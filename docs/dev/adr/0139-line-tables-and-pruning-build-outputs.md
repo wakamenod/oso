@@ -1,6 +1,6 @@
 # 0139. Line tables for oso's own crates, and pruning stale build outputs
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-16
 
 ## Context
