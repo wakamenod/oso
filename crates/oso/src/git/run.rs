@@ -1,10 +1,10 @@
 //! Running `git` for a review (ADR 0122), for worktree sessions (ADR 0121) and for a git status
-//! (ADR 0127): oso's own arguments and environment, every read bounded, and a run past
-//! [`RUN_LIMIT`] killed.
+//! and its commits (ADR 0127): oso's own arguments and environment, every read bounded, and a
+//! run past [`RUN_LIMIT`] killed.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs on a review's
-//! thread, `oso-review`, on the worktree jobs' threads, `oso-sessions-git`, and on a status's,
-//! `oso-vcs`, and waits for git.
+//! thread, `oso-review`, on the worktree jobs' threads, `oso-sessions-git`, on a status's,
+//! `oso-vcs`, and on a repository's run thread, `oso-vcs-run`, and waits for git.
 //!
 //! - Every run starts `git --no-pager -c core.quotePath=false -c core.fsmonitor=false
 //!   -c core.hooksPath=HOOKS`, where `HOOKS` is an empty private directory, so that no hook
@@ -25,7 +25,10 @@
 //!   Standard error is kept up to [`MAX_STDERR`] for the message a failure gives.
 //! - Its output is read on threads of their own, `oso-git-read` and `oso-git-write`, and a run
 //!   past [`RUN_LIMIT`] is killed and left: a process git started may still hold its output
-//!   open, and the caller does not wait for it.
+//!   open, and the caller does not wait for it. A write that must not be cut short runs with
+//!   no limit instead, in a group of its own that can be stopped (`long`).
+//! - A run may let the repository's own hooks run ([`Git::with_own_hooks`]), for a commit,
+//!   with the variables a hook needs.
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -59,6 +62,9 @@ const PREFIX: [&str; 5] = [
 const LIST_SEPARATOR: char = if cfg!(windows) { ';' } else { ':' };
 /// The variables passed by name, besides the process module's allowlist.
 const INHERIT: [&str; 1] = ["XDG_CONFIG_HOME"];
+/// What a hook may need besides, for the person's own agents: an SSH key's, and GnuPG's, as a
+/// hook or a signature asks them (ADR 0127, step 1b).
+const HOOK_INHERIT: [&str; 3] = ["SSH_AUTH_SOCK", "GNUPGHOME", "GPG_AGENT_INFO"];
 /// How often a run whose output has ended is asked whether it has exited.
 const EXIT_POLL: Duration = Duration::from_millis(1);
 
@@ -82,6 +88,8 @@ pub(crate) enum GitError {
     Unexpected(&'static str),
     /// A revision refused before git saw it.
     BadRevision,
+    /// It was asked to stop, and did (ADR 0127, step 1b).
+    Stopped,
 }
 
 impl fmt::Display for GitError {
@@ -104,6 +112,7 @@ impl fmt::Display for GitError {
             Self::BadRevision => f.write_str(
                 "not a revision: it is empty, starts with '-' or holds a control character",
             ),
+            Self::Stopped => f.write_str("git was stopped"),
         }
     }
 }
@@ -125,8 +134,10 @@ pub(crate) struct Git {
     top: PathBuf,
     /// Where git stops looking for a repository: the project's parent.
     ceiling: OsString,
-    /// `core.hooksPath=` an empty directory.
-    hooks: OsString,
+    /// `core.hooksPath=` an empty directory, or `None` where the repository's own hooks run.
+    hooks: Option<OsString>,
+    /// The names `[git] pass_env` passes on to a run whose hooks run.
+    pass: Vec<String>,
     /// `GIT_DIR` and `GIT_WORK_TREE` of a linked worktree whose claim was checked, so that git
     /// finds no repository of its own (ADR 0121).
     worktree: Option<(OsString, OsString)>,
@@ -150,9 +161,24 @@ impl Git {
             executable,
             top: for_git(project),
             ceiling,
-            hooks: hooks_path,
+            hooks: Some(hooks_path),
+            pass: Vec::new(),
             worktree: None,
         })
+    }
+
+    /// The same git, but the repository's own hooks run, as the person's own git would run
+    /// them: for a commit (ADR 0011, ADR 0127). Such a run gets the variables a hook or a
+    /// signature may need, the SSH agent's and GnuPG's, and the names in `pass`, and none of
+    /// the reads' own (`GIT_OPTIONAL_LOCKS`, `GIT_NO_LAZY_FETCH`, `GIT_NO_REPLACE_OBJECTS`),
+    /// which the git a hook runs would take from it. `GIT_EDITOR=:` keeps any editor from
+    /// opening.
+    pub(crate) fn with_own_hooks(&self, pass: &[String]) -> Git {
+        Git {
+            hooks: None,
+            pass: pass.to_vec(),
+            ..self.clone()
+        }
     }
 
     /// The same git, run in the linked worktree at `work_tree`, whose own directory in the main
@@ -193,18 +219,47 @@ impl Git {
         stdin: Source,
         stderr: Sink,
     ) -> Result<Child, GitError> {
+        self.spawn_with(args, set, stdin, stderr, false)
+    }
+
+    /// [`Git::start`], in a process group of its own if `group`, so that ending the group
+    /// ends what git started too.
+    pub(super) fn spawn_with(
+        &self,
+        args: &[&OsStr],
+        set: &[(&str, &OsStr)],
+        stdin: Source,
+        stderr: Sink,
+        group: bool,
+    ) -> Result<Child, GitError> {
+        let hooks = self
+            .hooks
+            .iter()
+            .flat_map(|hooks| [OsString::from("-c"), hooks.clone()]);
         let args: Vec<OsString> = PREFIX
             .iter()
             .map(OsString::from)
-            .chain([OsString::from("-c"), self.hooks.clone()])
+            .chain(hooks)
             .chain(args.iter().map(|arg| (*arg).to_owned()))
             .collect();
-        let mut variables: Vec<(&str, &OsStr)> = vec![
-            ("GIT_OPTIONAL_LOCKS", OsStr::new("0")),
-            ("GIT_TERMINAL_PROMPT", OsStr::new("0")),
-            ("GIT_NO_LAZY_FETCH", OsStr::new("1")),
-            ("GIT_NO_REPLACE_OBJECTS", OsStr::new("1")),
-        ];
+        let mut variables: Vec<(&str, &OsStr)> = if self.hooks.is_some() {
+            vec![
+                ("GIT_OPTIONAL_LOCKS", OsStr::new("0")),
+                ("GIT_TERMINAL_PROMPT", OsStr::new("0")),
+                ("GIT_NO_LAZY_FETCH", OsStr::new("1")),
+                ("GIT_NO_REPLACE_OBJECTS", OsStr::new("1")),
+            ]
+        } else {
+            vec![
+                ("GIT_TERMINAL_PROMPT", OsStr::new("0")),
+                ("GIT_EDITOR", OsStr::new(":")),
+            ]
+        };
+        let mut inherit: Vec<&str> = INHERIT.to_vec();
+        if self.hooks.is_none() {
+            inherit.extend(HOOK_INHERIT);
+            inherit.extend(self.pass.iter().map(String::as_str));
+        }
         if !self.ceiling.is_empty() {
             variables.push(("GIT_CEILING_DIRECTORIES", &self.ceiling));
         }
@@ -218,11 +273,11 @@ impl Git {
             args: &args,
             cwd: Some(&self.top),
             project: Some(&self.top),
-            inherit: &INHERIT,
+            inherit: &inherit,
             stdin,
             stdout: Sink::Piped,
             stderr,
-            own_process_group: false,
+            own_process_group: group,
             set: &variables,
             terminal: None,
             pass_fd: None,
@@ -392,7 +447,7 @@ fn reader(
 
 /// Writes `input` to `child`'s standard input on a thread of its own, and closes it after: a
 /// run that is given up on leaves the thread to end when the pipe does.
-fn write_away(child: &mut Child, input: Vec<u8>) -> Result<(), GitError> {
+pub(super) fn write_away(child: &mut Child, input: Vec<u8>) -> Result<(), GitError> {
     let mut writer = child
         .stdin
         .take()

@@ -177,6 +177,8 @@ impl Editor {
             | Mode::Terminal
             | Mode::Directory
             | Mode::GitStatus
+            | Mode::GitCommit
+            | Mode::GitLog
             | Mode::Sessions => {}
             Mode::CopyList => self.leave_internal(),
             Mode::CopyView => {

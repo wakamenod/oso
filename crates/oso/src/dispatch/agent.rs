@@ -96,6 +96,11 @@ impl Dispatcher {
     ) -> Result<(Effects, Result<(), String>), Refused> {
         let refused = |why: String| Err(Refused(why));
         let (id, command) = self.by_reach(name, reach)?;
+        // A commit's message is the person's to write until `draft_set` (ADR 0127, Q6); the
+        // agent may read it.
+        if reach == Reach::Change && editor.current().1.mode() == Mode::GitCommit {
+            return refused(MESSAGE_REFUSED.into());
+        }
         if self.waits_for_clipboard() {
             return refused("a yank is waiting for the clipboard".into());
         }
@@ -179,6 +184,9 @@ impl Dispatcher {
 /// Why the agent may not select a terminal or a list with keys of its own, such as
 /// `*Sessions*`: the person's next keys would go to its program, or act on the list's rows.
 const KEYS_REFUSED: &str = "switching to a terminal or a list with keys of its own is the person's";
+
+/// Why the agent may not change a commit's message the person has in front.
+const MESSAGE_REFUSED: &str = "a commit's message is the person's to write; ask the person";
 
 /// Why the agent may not delete the side window.
 const SIDE_REFUSED: &str = "hiding the list of sessions is the person's";
@@ -321,6 +329,8 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::Terminal
         | Mode::Directory
         | Mode::GitStatus
+        | Mode::GitCommit
+        | Mode::GitLog
         | Mode::Sessions => true,
         Mode::Fundamental | Mode::Rust | Mode::Markdown | Mode::Toml => false,
     }
@@ -835,6 +845,34 @@ mod tests {
         assert!(
             dispatcher.keys_in_progress(),
             "the next command takes the argument"
+        );
+    }
+
+    #[test]
+    fn a_commits_message_in_front_is_read_but_never_changed() {
+        use oso_core::buffer::Mode;
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("ab"));
+        let mut message = Buffer::from_text("*commit: p*", "Subject\n");
+        assert!(message.set_mode(Mode::GitCommit));
+        let id = editor.add_buffer(message);
+        editor.show(id);
+        let (_, result) = dispatcher
+            .run_for_agent(&mut editor, "forward-char", Given::Count(1), Reach::Look)
+            .unwrap();
+        assert_eq!(result, Ok(()));
+        let why = refusal(
+            &mut dispatcher,
+            &mut editor,
+            "insert",
+            Given::Text("x"),
+            Reach::Change,
+        );
+        assert!(why.contains("the person's to write"), "{why}");
+        assert_eq!(editor.current().1.text().to_string(), "Subject\n");
+        // Its keys are the person's, so the agent cannot show it either.
+        assert_eq!(
+            super::unshowable(editor.buffer(id).unwrap()),
+            Some(super::Unshowable::OwnKeys)
         );
     }
 

@@ -4,16 +4,16 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
-use oso_core::buffer::BufferId;
+use oso_core::buffer::{BufferId, Mode};
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::{Editor, Quit};
+use oso_core::editor::{Editor, GitRequest, Quit};
 use oso_core::minibuffer::Third;
 
 /// The session commands.
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "keyboard-quit",
-        doc: "Cancel what is in progress, one thing at a time.\n\nA pending prefix key or prefix argument goes first, in the key resolver. Then the region is hidden, then the innermost prompt or question closes, and runs nothing, and then isearch takes away a failing part, or else ends where it began.",
+        doc: "Cancel what is in progress, one thing at a time.\n\nA pending prefix key or prefix argument goes first, in the key resolver. Then the region is hidden, then the innermost prompt or question closes, and runs nothing, and then isearch takes away a failing part, or else ends where it began. In a git status or its log, it also stops what git runs there.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: keyboard_quit,
@@ -21,7 +21,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "save-buffers-kill-terminal",
-        doc: "Exit oso, if nothing is at risk.\n\nWith a modified buffer, a save running, or a program running in a terminal, this asks whether to exit, and says how many. It names the sessions with a turn under way and the terminals with a job running. `y` exits, unless more is at risk by then, when it asks again, and a save still running then gets to finish. With work under way, `w` waits for it, as `quit-when-idle` does.",
+        doc: "Exit oso, if nothing is at risk.\n\nWith a modified buffer, a save running, or a program running in a terminal, this asks whether to exit, and says how many. It names the sessions with a turn under way, the terminals with a job running, and the repositories git commits in. `y` exits, unless more is at risk by then, when it asks again, and a save still running then gets to finish. With work under way, `w` waits for it, as `quit-when-idle` does.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: save_buffers_kill_terminal,
@@ -29,7 +29,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "quit-when-idle",
-        doc: "Exit oso once no session has a turn under way and no terminal runs a job.\n\nYou go on working meanwhile. Once every terminal has been idle for 2 seconds, oso exits as `C-x C-c` would, and if more is at risk by then than you agreed to lose, or a review comment of yours is not sent, it stops and says so instead. `C-x C-c` cancels, as it asks again and only `w` waits again, and so does `C-g` where oso has the keys: a terminal sends it to its program. A shell started with no job control, as `sh -c` is, shows no job, and a job in the background is not waited for.",
+        doc: "Exit oso once no session has a turn under way, no terminal runs a job, and git commits nowhere.\n\nYou go on working meanwhile. Once every terminal has been idle for 2 seconds, oso exits as `C-x C-c` would, and if more is at risk by then than you agreed to lose, or a review comment of yours is not sent, it stops and says so instead. `C-x C-c` cancels, as it asks again and only `w` waits again, and so does `C-g` where oso has the keys: a terminal sends it to its program. A shell started with no job control, as `sh -c` is, shows no job, and a job in the background is not waited for.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: quit_when_idle,
@@ -63,6 +63,15 @@ fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         ctx.editor.echo("Stopping after the file in hand…");
         return Ok(());
     }
+    // In a git status or its log it stops what git runs in the repository, if anything, which
+    // the host says (ADR 0127, step 1b).
+    if quit == Quit::Nothing {
+        let (window, buffer) = ctx.editor.current();
+        if matches!(buffer.mode(), Mode::GitStatus | Mode::GitLog) {
+            let buffer = window.buffer();
+            ctx.editor.request_git(GitRequest::Stop { buffer });
+        }
+    }
     // With nothing else to do, it cancels an exit that waits for the terminals (ADR 0133).
     if quit == Quit::Nothing && ctx.editor.quit_when_idle() {
         ctx.editor.set_quit_when_idle(false);
@@ -88,9 +97,10 @@ fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandE
     // An exit that waited for the terminals asks again, and waits again only on `w`.
     ctx.editor.set_quit_when_idle(false);
     let (turns, jobs) = busy(ctx.editor);
+    let runs: Vec<BufferId> = ctx.editor.git_runs().collect();
     // Comments of the person's not sent yet are lost with the editor until reviews are saved
     // (ADR 0122, step 6), and work and programs in terminals end with it (ADR 0120,
-    // ADR 0133): one question says all of it.
+    // ADR 0133), as git's runs do (ADR 0127): one question says all of it.
     let mut lost = Vec::new();
     match super::review::unsent_everywhere(ctx.editor) {
         0 => {}
@@ -113,7 +123,10 @@ fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandE
         1 => lost.push(format!("a job runs in {}", names(ctx.editor, &jobs))),
         _ => lost.push(format!("jobs run in {}", names(ctx.editor, &jobs))),
     }
-    let work = !turns.is_empty() || !jobs.is_empty();
+    if !runs.is_empty() {
+        lost.push(format!("git runs in {}", names(ctx.editor, &runs)));
+    }
+    let work = !turns.is_empty() || !jobs.is_empty() || !runs.is_empty();
     let more = if work { " more" } else { "" };
     let others = ctx.editor.running_terminals().count();
     match others.saturating_sub(turns.len() + jobs.len()) {
@@ -173,9 +186,11 @@ fn quit_when_idle(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         1 => Some(format!("1 {one}")),
         n => Some(format!("{n} {many}")),
     };
+    let runs = ctx.editor.git_runs().count();
     let under_way: Vec<String> = [
         count(turns.len(), "turn", "turns"),
         count(jobs.len(), "job", "jobs"),
+        count(runs, "git run", "git runs"),
     ]
     .into_iter()
     .flatten()
@@ -202,7 +217,7 @@ fn busy(editor: &Editor) -> (Vec<BufferId>, Vec<BufferId>) {
 }
 
 /// The names of the buffers `ids`, up to [`NAMED`], and how many more.
-fn names(editor: &Editor, ids: &[BufferId]) -> String {
+pub(super) fn names(editor: &Editor, ids: &[BufferId]) -> String {
     let named: Vec<&str> = (ids.iter().take(NAMED))
         .filter_map(|id| editor.buffer(*id))
         .map(oso_core::buffer::Buffer::name)

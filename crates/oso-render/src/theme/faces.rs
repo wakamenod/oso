@@ -7,7 +7,7 @@ use super::palettes::Name;
 use crate::pane::Face;
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-pub(super) const FACES: [Face; 93] = [
+pub(super) const FACES: [Face; 94] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -101,6 +101,7 @@ pub(super) const FACES: [Face; 93] = [
     Face::GitBranchRemote,
     Face::GitHash,
     Face::GitDetail,
+    Face::GitCommitOverlong,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -204,6 +205,7 @@ pub(super) const fn index(face: Face) -> usize {
         Face::GitBranchRemote => 90,
         Face::GitHash => 91,
         Face::GitDetail => 92,
+        Face::GitCommitOverlong => 93,
     }
 }
 
@@ -323,6 +325,9 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         Face::GitBranchLocal => (Terminal(12), BgMain),
         Face::GitBranchRemote => (Terminal(10), BgMain),
         Face::GitHash | Face::GitDetail => (FgPrompt, BgMain),
+        // What a commit's line holds past its length, as magit's overlong summary, in the
+        // warning's colour.
+        Face::GitCommitOverlong => (Warning, BgMain),
     }
 }
 

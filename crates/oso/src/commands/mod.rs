@@ -120,6 +120,7 @@ const TABLES: &[&[Command]] = &[
     terminal::COMMANDS,
     theme::COMMANDS,
     vcs::COMMANDS,
+    vcs::commit::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
     windows::COMMANDS,
@@ -396,6 +397,17 @@ mod tests {
         "git-unstage",
         "git-unstage-all",
         "git-visit",
+        // Committing runs git with the repository's hooks, and the log stops it (step 1b).
+        "git-commit",
+        "git-commit-amend",
+        "git-commit-cancel",
+        "git-commit-extend",
+        "git-commit-finish",
+        "git-commit-next-message",
+        "git-commit-previous-message",
+        "git-commit-reword",
+        "git-show-log",
+        "git-stop",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).

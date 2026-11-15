@@ -22,13 +22,15 @@ pub const MENU_KEYS: &[(&str, &str)] = &[
     ("C-x a S", "space"),
 ];
 
-/// One head of a built-in menu: its keys, command, label, whether it stays, and a fixed count.
+/// One head of a built-in menu: its keys, command (or switch's name), label, whether it stays,
+/// a fixed count, and whether it flips a switch rather than run a command.
 struct BuiltInHead {
     keys: &'static str,
     command: &'static str,
     label: &'static str,
     stay: bool,
     count: Option<i16>,
+    switch: bool,
 }
 
 /// A head that closes the menu.
@@ -39,6 +41,15 @@ const fn exit(keys: &'static str, command: &'static str, label: &'static str) ->
         label,
         stay: false,
         count: None,
+        switch: false,
+    }
+}
+
+/// A head that flips the switch `name`, as transient's arguments (ADR 0117).
+const fn switch(keys: &'static str, name: &'static str, label: &'static str) -> BuiltInHead {
+    BuiltInHead {
+        switch: true,
+        ..exit(keys, name, label)
     }
 }
 
@@ -270,8 +281,41 @@ const SPACE: BuiltInMenu = BuiltInMenu {
     describe: None,
 };
 
+/// Committing (ADR 0127, step 1b), from a git status's `c`, as magit's commit transient: its
+/// switches, then each kind. Fixup and squash at point come with step 2.
+const COMMIT: BuiltInMenu = BuiltInMenu {
+    name: "commit",
+    title: "Commit",
+    groups: &[
+        (
+            "Arguments",
+            &[
+                switch("- n", crate::commands::vcs::commit::NO_VERIFY, "no verify"),
+                switch("- s", crate::commands::vcs::commit::SIGNOFF, "sign off"),
+                switch(
+                    "- e",
+                    crate::commands::vcs::commit::ALLOW_EMPTY,
+                    "allow empty",
+                ),
+            ],
+        ),
+        ("Create", &[exit("c", "git-commit", "commit")]),
+        (
+            "Edit HEAD",
+            &[
+                exit("a", "git-commit-amend", "amend"),
+                exit("e", "git-commit-extend", "extend"),
+                exit("w", "git-commit-reword", "reword"),
+            ],
+        ),
+    ],
+    describe: None,
+};
+
 /// The built-in menus, in the order their ids are given.
-const BUILT_IN: [&BuiltInMenu; 6] = [&TOGGLES, &WINDOWS, &JUMPS, &SEARCH, &REVIEW, &SPACE];
+const BUILT_IN: [&BuiltInMenu; 7] = [
+    &TOGGLES, &WINDOWS, &JUMPS, &SEARCH, &REVIEW, &SPACE, &COMMIT,
+];
 
 /// The built-in menus over the commands in `registry`. A head whose command `registry` lacks is
 /// left out, as in tests that bring their own commands; with the default commands every head is
@@ -307,8 +351,13 @@ fn definition(menu: &BuiltInMenu, registry: &Registry) -> Definition {
             .add_group(Some(title), 1)
             .unwrap_or_else(|e| fail(&e));
         for head in heads {
-            let Some(command) = registry.lookup(head.command) else {
-                continue;
+            let action = if head.switch {
+                HeadAction::Switch(head.command.to_owned())
+            } else {
+                let Some(command) = registry.lookup(head.command) else {
+                    continue;
+                };
+                HeadAction::Command(command)
             };
             let keys: KeySequence = head
                 .keys
@@ -318,8 +367,8 @@ fn definition(menu: &BuiltInMenu, registry: &Registry) -> Definition {
                 .add_head(Head {
                     keys,
                     label: head.label.to_owned(),
-                    action: HeadAction::Command(command),
-                    stay: head.stay.then_some(Stay::Stay),
+                    action,
+                    stay: (head.stay && !head.switch).then_some(Stay::Stay),
                     count: head.count,
                 })
                 .unwrap_or_else(|e| fail(&format_args!("{}: {e}", head.keys)));

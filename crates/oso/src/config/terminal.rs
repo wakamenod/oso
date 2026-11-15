@@ -1,5 +1,6 @@
 //! `[terminal]`: the shell a terminal starts, whether as a login shell, the environment names
-//! it is given, and how much scrollback it keeps (ADR 0120, Q11 and Q18).
+//! it is given, and how much scrollback it keeps (ADR 0120, Q11 and Q18). Its list of names is
+//! read for `[git] pass_env` too (ADR 0127, step 1b).
 //!
 //! Must not depend on: `app`, `dispatch` or the file system; nothing is looked at on disk
 //! here. Whether the shell exists is found when a terminal starts, off the UI thread.
@@ -55,7 +56,7 @@ pub(super) fn terminal(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Termi
         match name.get_ref().as_ref() {
             "shell" => terminal.shell = shell(value, found),
             "login" => terminal.login = switch(value, "[terminal]", "login", found),
-            "env" => terminal.env = env(value, found),
+            "env" => terminal.env = env(value, "[terminal] env", terminal_refused, found),
             "scrollback" => terminal.scrollback = scrollback(value, found),
             other => unknown(found, name.span().start, other, "[terminal]"),
         }
@@ -89,15 +90,20 @@ fn shell(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<PathBuf> {
     None
 }
 
-/// `[terminal] env`: a list of names, each refused that the process module would refuse or
-/// that a terminal sets itself. The rest are kept.
-fn env(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<Vec<String>> {
+/// `[terminal] env` or `[git] pass_env`, called `label`: a list of names, each refused that
+/// `refused` refuses. The rest are kept.
+pub(super) fn env(
+    value: &Spanned<DeValue<'_>>,
+    label: &str,
+    refused: fn(&str) -> Option<&'static str>,
+    found: &mut Found,
+) -> Option<Vec<String>> {
     let at = value.span().start;
     let DeValue::Array(items) = value.get_ref() else {
         found.at(
             at,
             format_args!(
-                "[terminal] env takes a list of variables' names, not {}",
+                "{label} takes a list of variables' names, not {}",
                 type_name(value.get_ref())
             ),
         );
@@ -109,24 +115,19 @@ fn env(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<Vec<String>> {
         let DeValue::String(name) = item.get_ref() else {
             found.at(
                 at,
-                format_args!(
-                    "[terminal] env takes names, not {}",
-                    type_name(item.get_ref())
-                ),
+                format_args!("{label} takes names, not {}", type_name(item.get_ref())),
             );
             continue;
         };
         if let Some(why) = refused(name) {
             found.at(
                 at,
-                format_args!("[terminal] env {}: {why}, skipped", quoted(cut(name))),
+                format_args!("{label} {}: {why}, skipped", quoted(cut(name))),
             );
         } else if names.len() == MAX_ENV_NAMES {
             found.at(
                 at,
-                format_args!(
-                    "[terminal] env takes at most {MAX_ENV_NAMES} names, the rest skipped"
-                ),
+                format_args!("{label} takes at most {MAX_ENV_NAMES} names, the rest skipped"),
             );
             break;
         } else if !names.iter().any(|kept| kept == name.as_ref()) {
@@ -136,22 +137,32 @@ fn env(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<Vec<String>> {
     Some(names)
 }
 
+/// Why `name` cannot be passed on to a terminal, if it cannot: as [`refused`] says, and a
+/// terminal sets some names itself.
+fn terminal_refused(name: &str) -> Option<&'static str> {
+    if OWN_NAMES.contains(&name) {
+        Some("a terminal sets it itself")
+    } else {
+        refused(name)
+    }
+}
+
 /// Why `name` cannot be passed on, if it cannot: the process module refuses an empty name, one
 /// holding `=` or NUL, `PATH` (its own) and the loader's `LD_*` and `DYLD_*` (ADR 0120, step 2),
-/// and a terminal sets some names itself.
-fn refused(name: &str) -> Option<&'static str> {
+/// ignoring case on Windows, as it does.
+pub(super) fn refused(name: &str) -> Option<&'static str> {
+    let upper = name.to_ascii_uppercase();
+    let own = if cfg!(windows) { upper.as_str() } else { name };
     if name.is_empty() {
         Some("an empty name")
     } else if name.len() > MAX_ENV_NAME {
         Some("a name of at most 256 bytes")
     } else if name.contains(['=', '\0']) || name.chars().any(char::is_control) {
         Some("a name holds no =, NUL or control character")
-    } else if name == "PATH" {
+    } else if own == "PATH" {
         Some("PATH is oso's own, filtered")
-    } else if name.starts_with("LD_") || name.starts_with("DYLD_") {
+    } else if own.starts_with("LD_") || own.starts_with("DYLD_") {
         Some("the loader's variables are never passed on")
-    } else if OWN_NAMES.contains(&name) {
-        Some("a terminal sets it itself")
     } else {
         None
     }

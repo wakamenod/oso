@@ -215,10 +215,36 @@ pub fn dired_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, &dired::LISTING.concat()).unwrap_or_default()
 }
 
-/// A git status's own keymap, above the global one in it (ADR 0127). Empty for a registry
-/// without its commands, as in tests that bring their own.
+/// A git status's own keymap, above the global one in it (ADR 0127), with the keys of the
+/// built-in menus it opens. Empty for a registry without its commands, as in tests that bring
+/// their own.
 pub fn git_status_keymap(registry: &Registry) -> Keymap {
-    Keymap::from_table(registry, vcs::STATUS).unwrap_or_default()
+    let Ok(mut keymap) = Keymap::from_table(registry, vcs::STATUS) else {
+        return Keymap::default();
+    };
+    let built_in = built_in_menus(registry);
+    for (keys, name) in vcs::STATUS_MENUS {
+        let sequence: KeySequence = keys.parse().unwrap_or_else(|e| panic!("{keys}: {e}"));
+        let Some(id) = built_in.lookup(name) else {
+            panic!("no built-in menu {name} for {keys}");
+        };
+        keymap
+            .bind_menu(&sequence.0, id)
+            .unwrap_or_else(|e| panic!("{keys}: {e}"));
+    }
+    keymap
+}
+
+/// A commit's message's own keymap, above the global one in it (ADR 0127, step 1b). Empty for
+/// a registry without its commands.
+pub fn git_commit_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, vcs::MESSAGE).unwrap_or_default()
+}
+
+/// The log of git's runs' own keymap, above the global one in it. Empty for a registry without
+/// its commands.
+pub fn git_log_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, vcs::LOG).unwrap_or_default()
 }
 
 /// `*Sessions*`'s own keymap, above the global one in it (ADR 0121). Empty for a registry

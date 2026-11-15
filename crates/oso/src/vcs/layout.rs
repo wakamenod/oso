@@ -307,6 +307,9 @@ impl Row {
 /// What a status text shows, kept with it so that a line can be told back into what it is.
 #[derive(Debug, Default)]
 pub(crate) struct Built {
+    /// What the head line shows: the branch, and whether there is a commit yet, which a commit
+    /// is made from (step 1b).
+    pub(crate) branch: Branch,
     pub(crate) sections: Vec<(Section, Vec<File>)>,
     /// The patches of the open files shown, by section and file.
     pub(crate) patches: HashMap<(Section, usize), Arc<Patch>>,

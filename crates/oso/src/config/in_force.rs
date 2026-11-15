@@ -116,6 +116,8 @@ pub struct InForce {
     pub terminal: super::Terminal,
     /// `[spaces]`: it applies to the next space made (ADR 0136).
     pub spaces: super::Spaces,
+    /// `[git]`: it applies to the next commit (ADR 0127, step 1b).
+    pub git: super::GitSettings,
 }
 
 impl InForce {
@@ -143,6 +145,7 @@ impl InForce {
             sessions: super::settings::Sessions::default(),
             terminal: super::Terminal::default(),
             spaces: super::Spaces::default(),
+            git: super::GitSettings::default(),
         }
     }
 
@@ -181,6 +184,7 @@ impl InForce {
             sessions: settings.sessions.clone(),
             terminal: settings.terminal.clone(),
             spaces: settings.spaces.clone(),
+            git: settings.git.clone(),
         }
     }
 
@@ -314,6 +318,7 @@ mod tests {
                 sessions: crate::config::settings::Sessions::default(),
                 terminal: crate::config::Terminal::default(),
                 spaces: crate::config::Spaces::default(),
+                git: crate::config::GitSettings::default(),
             }
         );
         assert_eq!(InForce::of(&Settings::default(), THEMES), compiled);
@@ -369,6 +374,7 @@ mod tests {
                 sessions: crate::config::settings::Sessions::default(),
                 terminal: crate::config::Terminal::default(),
                 spaces: crate::config::Spaces::default(),
+                git: crate::config::GitSettings::default(),
             }
         );
     }

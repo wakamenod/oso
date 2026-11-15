@@ -341,11 +341,15 @@ planned.
   - `search`: `f` a project's file, `r` the project's lines.
   - `review` on `C-x v r` (ADR 0122): a review of each scope and the session's baseline, with
     each scope's count of files; see [Reviews](#reviews).
+  - `space` on `C-x a S` (ADR 0136): the space in front's repositories, instructions,
+    directory and name, and closing and reopening.
+  - `commit` on `c` in a git status (ADR 0127): its switches and kinds; see
+    [Committing](#committing).
   `windows`, `jumps` and `search` have no key: `M-x open-menu` opens them, or a key in
   `config.toml`.
 - `[menus.<name>]` in `config.toml` adds a menu, replaces a built-in one of the same name whole,
   or removes it with `false`. A removed menu's default key is then undefined. There are at most
-  256 menus, the five built-in ones among them even when removed. For example
+  256 menus, the seven built-in ones among them even when removed. For example
   (`config/menus_tests.rs` loads this sample, and changes with it):
 
   ```toml
@@ -460,7 +464,8 @@ to run: M-x trust-project".
   instead, and stage as a whole.
 - `s` stages and `u` unstages what each cursor is on: a section's files, a file, or a hunk alone;
   a region stages each heading it holds. `S` stages every unstaged change of tracked files,
-  `U` unstages every staged one. Part of a hunk is refused, and so is a hunk git no longer accepts, which reads the
+  `U` unstages every staged one. A write to the index has no time limit, and `C-g` stops it; it
+  is refused while a commit runs. `$` shows the log of git's runs. Part of a hunk is refused, and so is a hunk git no longer accepts, which reads the
   status again and says so.
 - `n`/`p` go to the next and previous heading, `M-n`/`M-p` to the next and previous of the same
   depth, `^` to the section holding point's. `RET` visits the file, at the line a hunk's line
@@ -470,6 +475,29 @@ to run: M-x trust-project".
   repository is saved while it shows, each window's point kept on what it was on. What an agent
   does reads nothing: its save, or a status its command left shown, says `stale: g reads it
   again` in the modeline until the person's next key in it.
+
+### Committing
+
+`c` in a status opens the commit menu (step 1b): `- n` `--no-verify`, `- s` `--signoff` and
+`- e` `--allow-empty` flip their switches, then `c` commits, `a` amends, `e` extends the last
+commit with what is staged and keeps its message, and `w` rewords it alone.
+
+- A commit, an amend and a reword open `*commit: NAME*`: the message, then `#` lines with the
+  branch and the staged files, which are left out. Past 50 characters on the summary, past 72
+  on a body line, and a second line that is not empty, show in the warning's colour. `C-c C-c`
+  commits, `C-c C-k` cancels, and `M-p`/`M-n` bring back the last 20 messages committed or
+  cancelled.
+- git runs the repository's hooks, with no time limit: the echo area counts the seconds, `$` in
+  the status shows `*git log: NAME*` with what git and its hooks wrote, and `C-g` there or in the
+  status, or `k` in the log, stops it (`SIGTERM`, then `SIGKILL` after 5 s). A commit that fails
+  keeps its message and says `commit failed (hook pre-commit): $ shows the output`.
+- Nothing staged, an amend before the first commit, an empty message, a second message while
+  one is open, or a second commit while one runs, is refused before git runs. `C-x C-c` and
+  `oso-restart` ask while git commits.
+- A hook gets oso's allowlist of variables, `XDG_CONFIG_HOME`, `SSH_AUTH_SOCK`, `GNUPGHOME` and
+  `GPG_AGENT_INFO`,
+  and the names `[git] pass_env` lists, passed on from oso's own environment; `PATH`, `LD_*`,
+  `DYLD_*` and git's own `GIT_*` are refused there.
 
 ## Echo area
 

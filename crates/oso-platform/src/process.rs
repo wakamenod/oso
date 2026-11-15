@@ -11,7 +11,8 @@
 //!   API token, stays behind.
 //! - Standard input is closed, unless the caller pipes it ([`Source::Piped`]) or the child
 //!   runs in a terminal ([`pty`]).
-//! - A caller can ask for a process group of its own, so that Ctrl-C leaves it.
+//! - A caller can ask for a process group of its own, so that Ctrl-C leaves it, and then end
+//!   the group, with what the child started in it ([`Child::signal_group`]).
 //! - Every spawn is logged, with the names of the variables but not their
 //!   values.
 //! - [`account_shell`] reads the account's login shell from the user database.
@@ -67,6 +68,15 @@ const BASE_ENV: [&str; 12] = [
     "PATHEXT",
     "COMSPEC",
 ];
+
+/// A signal [`Child::signal_group`] sends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Signal {
+    /// Asks it to end (`SIGTERM`), which a program may catch to clean up first.
+    Terminate,
+    /// Ends it at once (`SIGKILL`).
+    Kill,
+}
 
 /// An executable found by the rules above.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,9 +209,11 @@ pub struct Spawn<'a> {
     pub stdout: Sink,
     pub stderr: Sink,
     /// Starts it in a process group of its own, so that what a terminal signals to
-    /// its foreground group, such as Ctrl-C, does not reach it. It then outlives
-    /// this process. Only Unix has this: the one caller needs the control socket,
-    /// which is not supported elsewhere (ADR 0032, ADR 0055).
+    /// its foreground group, such as Ctrl-C, does not reach it, and so that
+    /// [`Child::signal_group`] reaches what it starts too. It then outlives this
+    /// process. Only Unix has this: the dev tooling's caller needs the control socket,
+    /// which is not supported elsewhere (ADR 0032, ADR 0055), and git's long runs end
+    /// git alone there (ADR 0127).
     pub own_process_group: bool,
     /// Variables set to these values, after the allowlist and over it. Their
     /// values are not logged. A name that is empty, holds `=` or NUL, or is
@@ -494,6 +506,11 @@ mod other {
         pub(super) fn kill(&mut self) -> io::Result<()> {
             self.0.kill()
         }
+
+        /// Windows has neither `SIGTERM` nor a group here: the process alone ends at once.
+        pub(super) fn signal(&mut self, _: super::Signal, _: bool) -> io::Result<()> {
+            self.0.kill()
+        }
     }
 }
 
@@ -569,6 +586,97 @@ mod tests {
         assert_eq!(group, pid, "it leads a group of its own");
         let (pid, group) = group_of_a_child(false);
         assert_ne!(group, pid, "it stays in this process's group");
+    }
+
+    /// `sh -c script`, piped out, in a process group of its own if `group`.
+    #[cfg(unix)]
+    fn shell(script: &str, group: bool) -> super::Child {
+        use super::{Sink, Source, Spawn, spawn};
+        spawn(&Spawn {
+            executable: &Executable::from_path("sh", None).unwrap(),
+            args: &["-c".into(), script.into()],
+            cwd: None,
+            project: None,
+            inherit: &[],
+            stdin: Source::Closed,
+            stdout: Sink::Piped,
+            stderr: Sink::Null,
+            own_process_group: group,
+            set: &[],
+            terminal: None,
+            pass_fd: None,
+        })
+        .unwrap()
+    }
+
+    /// Whether a process `pid` is listed, as `ps` says.
+    #[cfg(unix)]
+    fn listed(pid: &str) -> bool {
+        use super::{Sink, Source, Spawn, spawn};
+        let ps = spawn(&Spawn {
+            executable: &Executable::from_path("ps", None).unwrap(),
+            args: &["-o".into(), "stat=".into(), "-p".into(), pid.into()],
+            cwd: None,
+            project: None,
+            inherit: &[],
+            stdin: Source::Closed,
+            stdout: Sink::Piped,
+            stderr: Sink::Null,
+            own_process_group: false,
+            set: &[],
+            terminal: None,
+            pass_fd: None,
+        })
+        .unwrap();
+        let out = ps.wait_with_output().unwrap();
+        // A zombie waits for its new parent to reap it, and runs nothing.
+        let stat = String::from_utf8_lossy(&out.stdout);
+        !stat.trim().is_empty() && !stat.trim().starts_with('Z')
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminate_asks_the_child_alone_to_end() {
+        use std::os::unix::process::ExitStatusExt;
+        let mut child = shell("exec sleep 60", false);
+        child.terminate().unwrap();
+        let status = child.wait().unwrap();
+        assert_eq!(status.signal(), Some(15), "{status:?}");
+        // Once waited for, nothing more is sent.
+        child.terminate().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_group_signal_reaches_what_the_child_started() {
+        use super::Signal;
+        use std::io::{BufRead, BufReader};
+        let mut child = shell("sleep 60 & echo $!; wait", true);
+        let mut line = String::new();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+        let grandchild = line.trim().to_owned();
+        assert!(listed(&grandchild));
+        child.signal_group(Signal::Terminate).unwrap();
+        child.wait().unwrap();
+        let gone = (0..200).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            !listed(&grandchild)
+        });
+        assert!(gone, "the grandchild {grandchild} still runs");
+        child.signal_group(Signal::Kill).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_group_signal_is_refused_for_a_child_in_this_group() {
+        use super::Signal;
+        let mut child = shell("exec sleep 60", false);
+        let error = child.signal_group(Signal::Kill).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        child.kill().unwrap();
+        child.wait().unwrap();
     }
 
     #[test]

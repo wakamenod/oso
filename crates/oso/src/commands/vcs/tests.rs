@@ -206,7 +206,8 @@ fn the_keys_list_names_every_key_with_its_commands_summary() {
     let text = super::keys_text();
     for (keys, name) in super::KEYS {
         assert!(text.contains(keys) && text.contains(name), "{keys} {name}");
-        let own = super::COMMANDS.iter().any(|command| command.name == *name);
+        let own = (super::COMMANDS.iter().chain(super::commit::COMMANDS))
+            .any(|command| command.name == *name);
         assert!(own || *name == "quit-window", "{name} has no summary");
     }
 }
@@ -214,7 +215,7 @@ fn the_keys_list_names_every_key_with_its_commands_summary() {
 #[test]
 fn each_command_has_the_reach_it_needs() {
     use oso_core::command::Reach;
-    for command in super::COMMANDS {
+    for command in super::COMMANDS.iter().chain(super::commit::COMMANDS) {
         let looks = matches!(
             command.name,
             "git-next-section"
