@@ -166,6 +166,7 @@ impl App {
         })?;
         Some(SpaceStart {
             in_space_directory: true,
+            reads: Vec::new(),
             made: space.stored.directory_identity,
             members: space.stored.members.clone(),
             trusted: Vec::new(),
@@ -215,6 +216,7 @@ impl App {
         });
         Ok(SpaceStart {
             in_space_directory: true,
+            reads: Vec::new(),
             made: stored.directory_identity,
             members: stored.members.clone(),
             trusted: trusted_members,

@@ -750,15 +750,19 @@ worker's brief names them in its header (Q5); `session-worktree` asks for none (
 - **The job before the question** checks each in its own repository: the root still the
   directory trusted, and the path that root or one of its linked worktrees, no link; it gives
   each back with its identity.
-- **The question** ends "It also reads "A", "B"."; the echo area says the same for a start
-  without asking. The worker's brief header adds "You can also read: A, B (added to your working
-  directories)."; a `session_start`'s brief has the line before oso's own.
-- **The start** passes each as its own `--add-dir=PATH`; its start thread checks each one's
-  identity again and leaves out, and says, one put in another's place.
-- **The record** keeps them, with their identities, under `reads` in the session's line, at most
-  8. A resume gives again only those still a trusted repository of the session's space, or a
-  worktree git listed of one, and says which it left out; the start thread checks their
-  identities again.
+- **The question** ends "It also reads N more directories: "A", "B"."; the echo area says the
+  same for a start without asking. The worker's brief header adds "You can also read: A, B
+  (added to your working directories)."; a `session_start`'s brief has the line before oso's own.
+- **At the person's `y`,** and again once a worktree is made, a directory whose repository oso no
+  longer trusts is left out, and said.
+- **The start** passes each as its own `--add-dir=PATH`. Its start thread checks each again with
+  git, as the job did, under its repository's trust, and leaves out, and says, one that no longer
+  passes.
+- **The record** keeps their paths under `reads` in the session's line, at most 8. The record is
+  one agents can write, so a resume takes nothing in it as checked: it gives them again only to
+  a session started by its open space's orchestrator, current or earlier, each in a trusted
+  repository of that space, and its start thread checks each with git as a new start's does.
+  The echo area says what is given and what is left out.
 
 ## Changes to accepted ADRs
 

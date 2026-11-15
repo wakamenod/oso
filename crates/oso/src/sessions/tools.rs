@@ -392,7 +392,11 @@ pub fn also_reads(said: String, dirs: &[std::path::PathBuf]) -> String {
     let dirs: Vec<String> = (dirs.iter())
         .map(|dir| quoted(&dir.display().to_string()))
         .collect();
-    format!("{said} It also reads {}.", dirs.join(", "))
+    let count = match dirs.len() {
+        1 => "1 more directory".to_owned(),
+        n => format!("{n} more directories"),
+    };
+    format!("{said} It also reads {count}: {}.", dirs.join(", "))
 }
 
 #[cfg(test)]

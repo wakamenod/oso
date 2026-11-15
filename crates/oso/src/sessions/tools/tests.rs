@@ -318,6 +318,6 @@ fn a_question_names_each_directory_the_new_session_also_reads() {
     let said = super::also_reads("let it start?".to_owned(), &dirs);
     assert_eq!(
         said,
-        "let it start? It also reads \"/web\", \"/a\\u{202e}b\"."
+        "let it start? It also reads 2 more directories: \"/web\", \"/a\\u{202e}b\"."
     );
 }

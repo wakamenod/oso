@@ -338,15 +338,8 @@ impl Jobs {
             trust,
             true,
             move |root, repo, send| {
-                let readable = with
-                    .iter()
-                    .map(|(trust, dir)| {
-                        let repo = trust
-                            .root
-                            .check()
-                            .and_then(|()| self::repo(trust, state.as_deref()));
-                        prepare::readable(&repo?, dir)
-                    })
+                let readable = (with.iter())
+                    .map(|(trust, dir)| readable_in(trust, dir, state.as_deref()))
                     .collect::<Result<Vec<Member>, String>>();
                 let result = prepare::prepare(repo, &what).and_then(|prepared| {
                     let trusted = match &prepared {
@@ -437,6 +430,19 @@ impl Jobs {
 
 /// git in the main checkout of the repository of `trust`, with the empty private directory
 /// for hooks under `state`, if that main checkout is trusted too.
+/// `dir`, a directory a new session also reads, checked in the repository `trust` names, with
+/// `state` oso's state directory: the root still the one trusted, and `dir` that root or one
+/// of its linked worktrees itself (ADR 0136, step 4b). It runs git, so it belongs off the UI
+/// thread.
+///
+/// # Errors
+///
+/// Why not, in words for the agent or the echo area.
+pub fn readable_in(trust: &Trust, dir: &Path, state: Option<&Path>) -> Result<Member, String> {
+    trust.root.check()?;
+    prepare::readable(&repo(trust, state)?, dir)
+}
+
 fn repo(trust: &Trust, state: Option<&Path>) -> Result<Repo, String> {
     let state = state.ok_or("oso has no state directory, so it runs no git for worktrees")?;
     let hooks = PrivateDir::open(state.join("worktrees").join("hooks"))

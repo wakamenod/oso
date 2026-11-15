@@ -14,7 +14,6 @@ use std::path::{Path, PathBuf};
 
 use super::super::super::App;
 use super::Caller;
-use crate::review::TrustedRoot;
 use crate::sessions::hosted::Hosted;
 use crate::sessions::spaces::SpaceId;
 use crate::sessions::spaces::stored::same;
@@ -193,14 +192,6 @@ impl App {
             .orchestrator()
             .then(|| self.orchestrated_space(&caller.id))
             .flatten()
-    }
-
-    /// Whether `root` is still trusted, by path and identity, and not taken back.
-    pub(super) fn still_trusted(&self, root: &TrustedRoot) -> bool {
-        !root.revoked()
-            && (self.editor.trust_list()).is_some_and(|list| {
-                TrustedRoot::of_member(list, root.path(), root.identity()).is_some()
-            })
     }
 
     /// The repositories of `caller`'s space by name and root; none outside a space.

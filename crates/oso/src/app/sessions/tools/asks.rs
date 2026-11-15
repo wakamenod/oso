@@ -21,7 +21,6 @@ use super::super::hosting::Begin;
 use super::{Caller, Job, Pending, shown};
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
-use crate::sessions::spaces::Member;
 use crate::sessions::tools::{self as rules, Branch, Tool};
 use crate::sessions::worktree::create::{Handover, Order};
 use crate::sessions::worktree::jobs::{Report, Trust};
@@ -56,8 +55,8 @@ pub(super) enum Plan {
         name: Option<String>,
         parent: SessionId,
         origin: Origin,
-        /// The directories it also reads, as the job checked them.
-        reads: Vec<Member>,
+        /// The directories it also reads, as the job checked them, with their trust.
+        reads: Vec<(Trust, PathBuf)>,
     },
     /// A session to start, and for an orchestrator's call the space's repository whose trust
     /// is asked again before it starts.
@@ -86,6 +85,8 @@ pub(in crate::app) struct Preparing {
     target: String,
     trust: Trust,
     then: Then,
+    /// The directories the new session also reads, which the job checks too.
+    with: Vec<(Trust, PathBuf)>,
 }
 
 /// What the call does once looked at.
@@ -130,8 +131,8 @@ pub(in crate::app) struct Creating {
     pub(super) name: Option<String>,
     pub(super) parent: SessionId,
     pub(super) origin: Origin,
-    /// The directories its session also reads.
-    pub(super) reads: Vec<Member>,
+    /// The directories its session also reads, with their trust.
+    pub(super) reads: Vec<(Trust, PathBuf)>,
     /// What the echo area says once its session starts, for a start without asking.
     pub(super) said: Option<String>,
 }
@@ -236,7 +237,7 @@ impl App {
         };
         let token = self.worktree_token();
         self.worktree_jobs()
-            .prepare(token, trust.clone(), prepare, with);
+            .prepare(token, trust.clone(), prepare, with.clone());
         self.hosting.tools.jobs.insert(
             token,
             Job::Prepared(Box::new(Preparing {
@@ -245,6 +246,7 @@ impl App {
                 target,
                 trust,
                 then,
+                with,
             })),
         );
     }
@@ -257,11 +259,13 @@ impl App {
             target,
             trust,
             then,
+            with,
         } = preparing;
         let Report::Prepared { result, .. } = report else {
             return pending.answer(Err("the call's check ended unexpectedly".into()));
         };
-        let (prepared, trusted, reads) = match result {
+        // Each directory to read was checked with the rest; its start thread checks it again.
+        let (prepared, trusted, _) = match result {
             Ok(found) => found,
             Err(why) => return pending.answer(Err(why)),
         };
@@ -290,7 +294,7 @@ impl App {
                 let target = branch.clone();
                 let from = start.as_ref().map(|(_, name)| name.as_str());
                 let start = from.map_or(Branch::Existing, |from| Branch::New { from });
-                let paths: Vec<PathBuf> = reads.iter().map(|m| m.root.clone()).collect();
+                let paths: Vec<PathBuf> = with.iter().map(|(_, dir)| dir.clone()).collect();
                 let words = worktree_words(&caller.name, (&place, &branch, start), &brief, &paths);
                 // The job that makes it resolves the start again, as the question named it: the
                 // base given, else the caller's `HEAD`.
@@ -314,7 +318,7 @@ impl App {
                     name,
                     parent: caller.id.clone(),
                     origin: Origin::Answered,
-                    reads,
+                    reads: with,
                 };
                 self.ask_or_start(pending, &caller, (target, true), words, plan);
             }
@@ -327,7 +331,7 @@ impl App {
                     origin: Origin::Answered,
                     check_shared: false,
                     trusted,
-                    space: App::worker_reads(reads),
+                    space: App::worker_reads(with),
                 };
                 // Its job, as a worktree's, looked at trust against the record as it is now.
                 let now = (target, begin.trusted.is_some());

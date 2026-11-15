@@ -16,6 +16,7 @@ use crate::sessions::spaces::stored::now_ms;
 use crate::sessions::start::SpaceStart;
 use crate::sessions::tools::repo;
 use crate::sessions::worker::SessionKey;
+use crate::sessions::worktree::jobs::Trust;
 
 impl App {
     /// The trust of space repository `member`, if oso trusts it by its path and the identity
@@ -32,14 +33,16 @@ impl App {
         self.member_trust(member).is_some()
     }
 
-    /// What a worker that also reads `reads` starts with: those directories, checked again
-    /// on its start thread (ADR 0136, step 4b); nothing for none.
-    pub(in crate::app) fn worker_reads(reads: Vec<Member>) -> Option<SpaceStart> {
+    /// What a worker that also reads `reads` starts with: those directories, each with its
+    /// repository's trust, checked again with git on its start thread (ADR 0136, step 4b);
+    /// nothing for none.
+    pub(in crate::app) fn worker_reads(reads: Vec<(Trust, PathBuf)>) -> Option<SpaceStart> {
         (!reads.is_empty()).then(|| SpaceStart {
             in_space_directory: false,
             made: None,
             members: Vec::new(),
-            trusted: reads,
+            trusted: Vec::new(),
+            reads,
             prompt: String::new(),
             instructions: None,
         })
@@ -47,52 +50,120 @@ impl App {
 
     /// The directories a start with `space` also reads: a worker's; none for another.
     pub(in crate::app) fn reads_of(space: Option<&SpaceStart>) -> Vec<PathBuf> {
-        let reads = space.filter(|space| !space.in_space_directory);
-        reads.map_or_else(Vec::new, |space| {
-            space.trusted.iter().map(|m| m.root.clone()).collect()
-        })
+        let reads = space.map_or(&[][..], |space| space.reads.as_slice());
+        reads.iter().map(|(_, dir)| dir.clone()).collect()
     }
 
-    /// The directories session `key` also reads, for its resume (Q1): each still a trusted
-    /// repository of the session's space, or a worktree git listed of one, as the record is one
-    /// agents can write; the start thread checks each one's identity again. Those left out are
-    /// said.
+    /// `reads` as they stand at the person's `y`, or before a start: those whose repository oso
+    /// still trusts, with the trusted roots as they are now; the others are said and left out.
+    pub(in crate::app) fn reads_now(
+        &mut self,
+        reads: Vec<(Trust, PathBuf)>,
+    ) -> Vec<(Trust, PathBuf)> {
+        let (kept, left): (Vec<_>, Vec<_>) = reads
+            .into_iter()
+            .partition(|(trust, _)| self.still_trusted(&trust.root));
+        self.say_left_out(left.iter().map(|(_, dir)| dir.as_path()));
+        let trusted = self.trusted_list();
+        (kept.into_iter())
+            .map(|(trust, dir)| {
+                let trusted = trusted.clone();
+                (Trust { trusted, ..trust }, dir)
+            })
+            .collect()
+    }
+
+    /// `space` with its worker's directories as they stand now ([`App::reads_now`]).
+    pub(in crate::app) fn space_now(&mut self, space: Option<SpaceStart>) -> Option<SpaceStart> {
+        match space {
+            Some(space) if !space.in_space_directory => {
+                Self::worker_reads(self.reads_now(space.reads))
+            }
+            other => other,
+        }
+    }
+
+    /// The directories session `key` also reads, for its resume (Q1), when it is a worker of
+    /// an open space, started by that space's orchestrator, current or earlier: each in a
+    /// trusted repository of the space, with that repository's trust, for its start thread to
+    /// check with git as the tool's job did. The record is one agents can write, so nothing in
+    /// it is taken as checked. What is given, and what is left out, is said.
     pub(in crate::app) fn reads_again(&mut self, key: SessionKey) -> Option<SpaceStart> {
         let session = self.hosting.table.get(key)?;
         if session.reads.is_empty() {
             return None;
         }
         let spaces = self.watch.spaces();
-        let stored = self
-            .space_of_session(session)
-            .and_then(|at| spaces.stored(at));
-        let still = |dir: &Path| {
-            let stored = stored?;
-            let root = match stored.member(dir) {
-                Some(member) => member.root.clone(),
-                None => self.listed_repository_of(dir)?,
-            };
-            stored.member(&root).filter(|member| self.trusts(member))
+        let stored = (self.space_of_session(session))
+            .and_then(|at| spaces.stored(at))
+            .filter(|stored| !stored.archived)
+            .filter(|stored| {
+                (session.parent.as_ref()).is_some_and(|parent| {
+                    stored.orchestrator.as_ref() == Some(parent) || stored.earlier.contains(parent)
+                })
+            });
+        let members: Vec<(String, PathBuf)> = (stored.iter())
+            .flat_map(|stored| stored.members.iter())
+            .map(|member| (String::new(), member.root.clone()))
+            .collect();
+        let trust_of = |dir: &Path| {
+            let root = crate::sessions::tools::repo::holding(&members, dir)?;
+            let member = stored?.member(root)?;
+            let root = self.member_trust(member)?;
+            Some(Trust {
+                root,
+                trusted: self.trusted_list(),
+            })
         };
-        let (kept, left): (Vec<Member>, Vec<Member>) =
-            (session.reads.iter().cloned()).partition(|read| still(&read.root).is_some());
-        if !left.is_empty() {
-            let shown: Vec<String> = (left.iter())
-                .map(|read| super::printable(&read.root.display().to_string()))
+        let mut given = Vec::new();
+        let mut left = Vec::new();
+        for read in &session.reads {
+            match trust_of(&read.root) {
+                Some(trust) => given.push((trust, read.root.clone())),
+                None => left.push(read.root.clone()),
+            }
+        }
+        self.say_left_out(left.iter().map(PathBuf::as_path));
+        if !given.is_empty() {
+            let shown: Vec<String> = (given.iter())
+                .map(|(_, dir)| super::printable(&dir.display().to_string()))
                 .collect();
             (self.editor).message(format!(
-                "Not given again, as no trusted repository of the space holds it now: {}",
+                "Given again to read, once checked: {}",
                 shown.join(", ")
             ));
         }
-        Self::worker_reads(kept)
+        Self::worker_reads(given)
+    }
+
+    /// Says which directories to read are left out.
+    fn say_left_out<'a>(&mut self, left: impl Iterator<Item = &'a Path>) {
+        let shown: Vec<String> = left
+            .map(|dir| super::printable(&dir.display().to_string()))
+            .collect();
+        if !shown.is_empty() {
+            (self.editor).message(format!(
+                "Not given to read, as no trusted repository of the space holds it now: {}",
+                shown.join(", ")
+            ));
+        }
+    }
+
+    /// Whether `root` is still trusted, by path and identity, and not taken back.
+    pub(in crate::app) fn still_trusted(&self, root: &TrustedRoot) -> bool {
+        !root.revoked()
+            && (self.editor.trust_list()).is_some_and(|list| {
+                TrustedRoot::of_member(list, root.path(), root.identity()).is_some()
+            })
     }
 
     /// Hosted session `key`, about to start as `space` says: the directories it also reads
-    /// are kept for its record, which a resume passes again once checked.
+    /// are kept for its record, which a resume checks again before it passes them.
     pub(in crate::app) fn note_reads(&mut self, key: SessionKey, space: Option<&SpaceStart>) {
-        if let Some(space) = space.filter(|space| !space.in_space_directory) {
-            (self.hosting.spaces.reads).insert(key, space.trusted.clone());
+        let dirs = Self::reads_of(space);
+        if !dirs.is_empty() {
+            let reads = dirs.iter().map(|dir| Member::at(dir)).collect();
+            (self.hosting.spaces.reads).insert(key, reads);
         }
     }
 

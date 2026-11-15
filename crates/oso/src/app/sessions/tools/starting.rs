@@ -56,6 +56,8 @@ impl App {
                 origin,
                 reads,
             } => {
+                // As the reads stand at the person's `y`.
+                let reads = self.reads_now(reads);
                 let token = self.worktree_token();
                 let branch = printable(&order.branch, 80);
                 // The record of trusted projects as it is at the person's `y`.
@@ -83,15 +85,19 @@ impl App {
             Plan::Start(_, Some(root)) if !self.still_trusted(&root) => {
                 pending.answer(Err("the repository is no longer trusted".into()));
             }
-            Plan::Start(begin, _) => match self.begin_session(begin) {
-                Some(key) => {
-                    self.hosting.tools.starts.insert(key, pending);
-                    if let Some(said) = said {
-                        self.editor.message(format!("Agent: {said}"));
+            Plan::Start(mut begin, _) => {
+                // As the directories to read stand at the person's `y`.
+                begin.space = self.space_now(begin.space.take());
+                match self.begin_session(begin) {
+                    Some(key) => {
+                        self.hosting.tools.starts.insert(key, pending);
+                        if let Some(said) = said {
+                            self.editor.message(format!("Agent: {said}"));
+                        }
                     }
+                    None => pending.answer(Err("the session did not start".into())),
                 }
-                None => pending.answer(Err("the session did not start".into())),
-            },
+            }
         }
     }
 
@@ -120,6 +126,8 @@ impl App {
                 // Held as the person's worktree would be (ADR 0136).
                 let asker = Some(&creating.parent);
                 self.hold_made_worktree(asker, &created.path, &created.main);
+                // As the reads stand now, the worktree made.
+                let reads = self.reads_now(creating.reads);
                 let key = self.begin_session(Begin {
                     name: creating.name,
                     directory: Some(created.path),
@@ -128,7 +136,7 @@ impl App {
                     origin: creating.origin,
                     check_shared: false,
                     trusted: Some(trusted),
-                    space: App::worker_reads(creating.reads),
+                    space: App::worker_reads(reads),
                 });
                 match key {
                     Some(key) => {

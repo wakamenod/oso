@@ -107,4 +107,17 @@ fn a_directory_also_read_is_the_repositorys_root_or_a_linked_worktree_itself() {
     let elsewhere = scratch.dir.join("elsewhere-read");
     fs::create_dir(&elsewhere).unwrap();
     assert!(readable(&repo, &elsewhere).is_err());
+    // A link to the worktree, or another spelling of it, is not it.
+    #[cfg(unix)]
+    {
+        let link = scratch.dir.join("link-read");
+        std::os::unix::fs::symlink(&made.path, &link).unwrap();
+        assert!(readable(&repo, &link).is_err(), "a link");
+    }
+    let name = made.path.file_name().unwrap();
+    let spelled = made.path.join("..").join(name);
+    assert!(readable(&repo, &spelled).is_err(), "a spelling with ..");
+    // Another repository's main checkout is not this one's.
+    let other = Scratch::new("readable-other");
+    assert!(readable(&repo, &other.root).is_err(), "another repository");
 }
