@@ -62,6 +62,8 @@ pub(super) struct Keymaps {
     pub(super) review: Keymap,
     /// A directory listing's own keys, above the global ones (ADR 0134).
     pub(super) dired: Keymap,
+    /// A git status's own keys, above the global ones (ADR 0127).
+    pub(super) git: Keymap,
     /// A terminal's own keys, above the global ones in a terminal's buffer (ADR 0120).
     pub(super) terminal: Keymap,
     /// A terminal's own keys and session mode's, in a terminal's buffer that hosts a session
@@ -101,6 +103,7 @@ impl Keymaps {
             sessions: bindings::sessions_keymap(registry),
             review: bindings::review_keymap(registry),
             dired: bindings::dired_keymap(registry),
+            git: bindings::git_status_keymap(registry),
             terminal: bindings::terminal_keymap(registry),
             session_help: SessionHelp::new(&session, registry),
             session,
@@ -110,7 +113,7 @@ impl Keymaps {
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 23] {
+    pub(super) fn all(&self) -> [&Keymap; 24] {
         let Self {
             global,
             user,
@@ -130,6 +133,7 @@ impl Keymaps {
             sessions,
             review,
             dired,
+            git,
             terminal,
             session,
             user_session,
@@ -156,6 +160,7 @@ impl Keymaps {
             sessions,
             review,
             dired,
+            git,
             terminal,
             session,
             user_session,
@@ -226,6 +231,7 @@ impl Keymaps {
                 Mode::Fundamental | Mode::Rust | Mode::Toml => None,
                 Mode::Review => Some(&self.review),
                 Mode::Directory => Some(&self.dired),
+                Mode::GitStatus => Some(&self.git),
                 Mode::Markdown => Some(&self.markdown),
                 Mode::Brief => Some(&self.worktrees[0]),
                 Mode::Worktrees => Some(&self.worktrees[1]),

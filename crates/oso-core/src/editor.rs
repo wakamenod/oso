@@ -45,6 +45,7 @@ mod cursors;
 mod excerpt;
 mod files;
 mod follow;
+mod git;
 mod gutter;
 mod indent;
 mod isearch;
@@ -88,6 +89,7 @@ pub use copies::RecoveryAction;
 pub use crossing::Crossing;
 pub use cursors::{CursorError, Toward};
 pub use files::Looked;
+pub use git::{GitHead, GitLines, GitRequest, GitShown};
 pub use gutter::Gutter;
 pub use indent::{IndentError, Shift};
 pub use isearch::{Isearch, MatchCells};
@@ -222,8 +224,7 @@ pub struct Editor {
     preedit_withheld: bool,
     /// Saves the host has yet to start.
     save_jobs: Vec<SaveJob>,
-    /// The buffers the last refused exit put at risk, until a question about it is answered
-    /// or a save changes what is at risk.
+    /// The buffers the last refused exit put at risk, until its question is answered or a save.
     exit_attempt: Option<Vec<BufferId>>,
     /// What an input method is composing, shown at the selected window's primary
     /// cursor and in no buffer (ADR 0069).
@@ -243,8 +244,7 @@ pub struct Editor {
     next_prompt: u64,
     /// The command running got a passphrase, so what it says stays out of the log.
     passphrase_command: bool,
-    /// The buffer a question about saving over its changed file was asked of, so that `y`
-    /// saves that buffer and no other.
+    /// The buffer a question about saving over its changed file was asked of: `y` saves it.
     save_over_asked: Option<BufferId>,
     /// The kill ring, and whether the command before killed (ADR 0074).
     kills: kill::Kills,
@@ -303,6 +303,7 @@ pub struct Editor {
     macros: macros::Macros,
     reviews: reviews::Reviews,
     listings: listings::Listings,
+    git: git::Statuses,
 }
 
 impl Default for Editor {
@@ -400,6 +401,7 @@ impl Editor {
             macros: macros::Macros::default(),
             reviews: reviews::Reviews::default(),
             listings: listings::Listings::default(),
+            git: git::Statuses::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(FIRST_WINDOW, id));

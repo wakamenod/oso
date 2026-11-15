@@ -83,6 +83,10 @@ impl App {
         self.agent_save_ended(&report);
         saver::apply(&mut self.editor, report);
         self.look_again_after_save(buffer);
+        // A shown git status of the file's repository is read again (ADR 0127).
+        if confirmed {
+            self.git_saved(buffer);
+        }
         // The save may have been of the configuration file, which is read again at once.
         self.look_at_configuration_again();
         self.dispatcher.publish_for_emergency(&self.editor);

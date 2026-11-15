@@ -185,13 +185,13 @@ fn write(root: &Path, index: usize, text: &str) -> Result<(), String> {
 }
 
 /// The empty directory beside the repository at `root` that git looks for hooks in.
-fn hooks_of(root: &Path) -> std::path::PathBuf {
+pub(super) fn hooks_of(root: &Path) -> std::path::PathBuf {
     root.with_file_name("hooks")
 }
 
 /// Runs git in the repository at `root`, kept from the person's configuration, hooks and git
 /// variables, so that the benchmark runs only what it asks.
-fn git(root: &Path, args: &[&str]) -> Result<(), String> {
+pub(super) fn git(root: &Path, args: &[&str]) -> Result<(), String> {
     let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
     let mut hooks = std::ffi::OsString::from("core.hooksPath=");
     hooks.push(hooks_of(root));
@@ -218,7 +218,7 @@ fn git(root: &Path, args: &[&str]) -> Result<(), String> {
 }
 
 /// Trusts the project of the file shown, as a person does: `M-x trust-project`, then `y`.
-fn trust(app: &mut App) -> Result<(), String> {
+pub(super) fn trust(app: &mut App) -> Result<(), String> {
     wait_for_state(app, "the project restricted", |state| {
         state["modeline"]
             .as_str()

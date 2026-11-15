@@ -320,6 +320,7 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::Review
         | Mode::Terminal
         | Mode::Directory
+        | Mode::GitStatus
         | Mode::Sessions => true,
         Mode::Fundamental | Mode::Rust | Mode::Markdown | Mode::Toml => false,
     }

@@ -433,6 +433,32 @@ file, in a listing buffer named after the directory, `crates/`, as Emacs's dired
   question names what is there. Past half a second the echo area counts what is done, and `C-g`
   stops after the file in hand.
 
+## Git status
+
+`C-x g` shows the git status of the selected window's project in `*git: NAME*`, as magit's
+status buffer ([ADR 0127](adr/0127-source-control-and-github.md), step 1a). It runs git, so only in
+a trusted project; a restricted one says "The status runs git, which this project is not trusted
+to run: M-x trust-project".
+
+- The first lines are the head, `Head:     main 1a2b3c4 Subject`, and the upstream with ahead and
+  behind. Then the sections in magit's order, each `Heading (N)`: unmerged paths, untracked
+  files, unstaged changes and staged changes. A file's row is its status letter, its path (a
+  rename as `old -> new`) and its lines added and removed.
+- `TAB` on a file shows its hunks under it, as git's patch has them, in the diff faces; on a
+  section's heading it folds the section (`…`); on a hunk it hides its file's hunks. A file that
+  may hold secrets, an untracked or unmerged file and a submodule show why they have no hunks
+  instead, and stage as a whole.
+- `s` stages and `u` unstages what each cursor is on: a section's files, a file, or a hunk alone;
+  a region stages each heading it holds. `S` stages every unstaged change, `U` unstages every
+  staged one. Part of a hunk is refused, and so is a hunk git no longer accepts, which reads the
+  status again and says so.
+- `n`/`p` go to the next and previous heading, `M-n`/`M-p` to the next and previous of the same
+  depth, `^` to the section holding point's. `RET` visits the file, at the line a hunk's line
+  shows. `g` reads it again, `q` shows the buffer before, `?` lists the keys. `C-x k` kills a
+  status, and `C-x b` goes back to one.
+- It is read again when it becomes shown, on `g`, after each staging, and when a file of the
+  repository is saved while it shows, each window's point kept on what it was on.
+
 ## Echo area
 
 - A single line at the bottom of the frame shows messages such as "Saved"

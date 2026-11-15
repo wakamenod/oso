@@ -217,6 +217,7 @@ impl Buffer {
             | Mode::Review
             | Mode::Terminal
             | Mode::Directory
+            | Mode::GitStatus
             | Mode::Sessions => false,
         };
         language && !self.internal && !self.is_secret()
@@ -317,10 +318,14 @@ impl Buffer {
     }
 
     /// Whether the host generates this buffer's text and highlights: a review, or
-    /// `*Sessions*` or a directory's listing (ADR 0134), which are internal.
+    /// `*Sessions*`, a directory's listing (ADR 0134) or a git status (ADR 0127), which are
+    /// internal.
     fn generated(&self) -> bool {
         self.mode == Mode::Review
-            || (matches!(self.mode, Mode::Sessions | Mode::Directory) && self.internal)
+            || (matches!(
+                self.mode,
+                Mode::Sessions | Mode::Directory | Mode::GitStatus
+            ) && self.internal)
     }
 
     /// Stops showing highlights, as when highlighting is turned off.

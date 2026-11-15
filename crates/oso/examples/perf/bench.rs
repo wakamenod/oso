@@ -23,6 +23,7 @@ mod compose;
 mod dired;
 mod edits;
 mod finding;
+mod git_status;
 mod review;
 mod sessions;
 mod startup;
@@ -158,6 +159,7 @@ pub fn run_all(exe: &Path, scale: &Scale) -> Result<Report, String> {
     syntax::highlighted_typing(exe, scale.key_runs, scale.keys, &mut report)?;
     syntax::indented_returns(exe, scale.key_runs, scale.keys, &mut report)?;
     review::review(exe, scale.key_runs, scale.keys, &mut report)?;
+    git_status::git_status(exe, scale.key_runs, scale.keys, &mut report)?;
     sessions::sessions(exe, scale.key_runs, &mut report)?;
 
     log_step("opening a large file");

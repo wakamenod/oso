@@ -1,0 +1,539 @@
+//! A status buffer's thread, `oso-vcs` (ADR 0127): it reads the status, the open files' hunks
+//! and the head, runs what `s` and `u` asked, and lays out the buffer's text.
+//!
+//! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
+//! takes reports out, and supplies the wake-up.
+//!
+//! - It starts only from a [`TrustedRoot`], and looks at the root again before each batch: a
+//!   restricted project, or another directory put in a trusted one's place, runs no git (ADR
+//!   0009, ADR 0011, ADR 0114). The repository's top must be the root, as a review's.
+//! - git runs through `review`'s runner: oso's arguments and environment, no hook and no file
+//!   system monitor, each read bounded, a run past ten seconds killed. Every run here adds
+//!   `GIT_LITERAL_PATHSPECS=1`, so that a path is only ever itself, and paths go to `add` and
+//!   `restore` on standard input. Nothing here runs a hook: `add`, `restore`, `rm --cached`
+//!   and `apply --cached` run none.
+//! - Reads ask for git's own bytes and keep the person's configuration from reshaping them:
+//!   diffs run with `--no-ext-diff --no-textconv --no-color --no-relative` and `a/` and `b/`
+//!   prefixes, and a hunk is applied with no whitespace loosening, so that what was shown is
+//!   what goes in, or git refuses it.
+//! - What waits is taken as one batch: each staging in order, then one reading and one text.
+//! - Nothing here logs a file's text; a report's `Debug` gives its kind.
+
+use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::fmt;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
+
+use oso_platform::privacy::PrivateDir;
+
+use super::layout::{self, Head, Hunks, Laid, Section, View};
+use super::patch;
+use super::stage::Op;
+use super::status::{self, Status};
+use crate::review::git::{Git, GitError, MAX_SHORT, read_at_most};
+use crate::review::{TrustedRoot, may_hold_secrets, os_path};
+
+/// The most bytes of the status's listing read; past it, the files after are not shown.
+pub(crate) const MAX_LIST: usize = 32 * 1024 * 1024;
+/// The most bytes of one file's patch read.
+pub(crate) const MAX_PATCH: usize = 1024 * 1024;
+
+/// The variable every run here sets.
+const LITERAL: [(&str, &str); 1] = [("GIT_LITERAL_PATHSPECS", "1")];
+
+/// What the thread is asked to do. Each carries the view to lay out with.
+pub(crate) enum Request {
+    /// Read the status again, then lay it out.
+    Read { generation: u64, view: View },
+    /// Lay out what was read, reading the hunks of files newly open.
+    Layout { generation: u64, view: View },
+    /// Run `ops` in order, say `said` if they all ran, then read the status again.
+    Run {
+        generation: u64,
+        ops: Vec<Op>,
+        said: String,
+        view: View,
+    },
+}
+
+impl Request {
+    fn generation(&self) -> u64 {
+        match self {
+            Self::Read { generation, .. }
+            | Self::Layout { generation, .. }
+            | Self::Run { generation, .. } => *generation,
+        }
+    }
+
+    fn view(&self) -> &View {
+        match self {
+            Self::Read { view, .. } | Self::Layout { view, .. } | Self::Run { view, .. } => view,
+        }
+    }
+}
+
+/// What the thread found.
+pub(crate) enum Report {
+    /// A text, laid out for the newest request of `generation` and those before it.
+    Laid { generation: u64, laid: Box<Laid> },
+    /// Staging ran; what the echo area says.
+    Ran { said: String },
+    /// Something failed: why, with no file's text.
+    Failed { why: String },
+}
+
+impl fmt::Debug for Report {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Laid { generation, .. } => f
+                .debug_struct("Laid")
+                .field("generation", generation)
+                .finish_non_exhaustive(),
+            Self::Ran { said } => f.debug_struct("Ran").field("said", said).finish(),
+            Self::Failed { why } => f.debug_struct("Failed").field("why", why).finish(),
+        }
+    }
+}
+
+/// A status buffer's thread. Dropping it ends the thread once its batch is done.
+pub(crate) struct Worker {
+    requests: Sender<Request>,
+    live: Arc<AtomicBool>,
+}
+
+impl Worker {
+    /// Starts the thread for the project at `root`, telling git that an empty private
+    /// directory under `state`, oso's own in the per-user state directory, holds the hooks, and
+    /// handing each report to `send`, which says `false` once the event loop has gone.
+    pub(crate) fn start(
+        root: TrustedRoot,
+        state: Option<PathBuf>,
+        send: impl FnMut(Report) -> bool + Send + 'static,
+    ) -> std::io::Result<Worker> {
+        let (requests, queue) = mpsc::channel::<Request>();
+        let live = Arc::new(AtomicBool::new(true));
+        let thread_live = Arc::clone(&live);
+        thread::Builder::new()
+            .name("oso-vcs".into())
+            .spawn(move || serve(&queue, send, &root, state, &thread_live))?;
+        Ok(Worker { requests, live })
+    }
+
+    /// Asks the thread for `request`; `false` if it has ended.
+    pub(crate) fn ask(&self, request: Request) -> bool {
+        self.requests.send(request).is_ok()
+    }
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        self.live.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Answers each batch until the worker is dropped or the event loop has gone.
+fn serve(
+    queue: &Receiver<Request>,
+    mut send: impl FnMut(Report) -> bool,
+    root: &TrustedRoot,
+    state_dir: Option<PathBuf>,
+    live: &AtomicBool,
+) {
+    let mut state = State {
+        state_dir: state_dir.clone(),
+        ..State::default()
+    };
+    while let Ok(first) = queue.recv() {
+        let mut batch = vec![first];
+        batch.extend(queue.try_iter());
+        if !live.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Err(why) = root.check() {
+            if !send(Report::Failed { why }) {
+                return;
+            }
+            continue;
+        }
+        let mut reports = Vec::new();
+        let answered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            state.answer(batch, root.path(), &mut reports);
+        }));
+        if answered.is_err() {
+            log::warn!("a git status's batch panicked");
+            state = State {
+                state_dir: state_dir.clone(),
+                ..State::default()
+            };
+            reports.push(Report::Failed {
+                why: "the status's thread failed".into(),
+            });
+        }
+        for report in reports {
+            if !send(report) {
+                return;
+            }
+        }
+    }
+}
+
+/// What the thread keeps between batches.
+#[derive(Default)]
+struct State {
+    /// oso's own directory in the per-user state directory.
+    state_dir: Option<PathBuf>,
+    git: Option<Git>,
+    head: Head,
+    notes: Vec<String>,
+    status: Status,
+    unstaged: HashMap<Vec<u8>, status::Counts>,
+    staged: HashMap<Vec<u8>, status::Counts>,
+    /// The open files' hunks read since the status was.
+    hunks: HashMap<(Section, Vec<u8>), Hunks>,
+    /// Whether the status was read at all.
+    read: bool,
+}
+
+impl State {
+    fn answer(&mut self, batch: Vec<Request>, root: &Path, out: &mut Vec<Report>) {
+        let Some(last) = batch.last() else {
+            return;
+        };
+        let generation = batch.iter().map(Request::generation).max().unwrap_or(0);
+        let view = last.view().clone();
+        let mut read = !self.read;
+        for request in batch {
+            match request {
+                Request::Read { .. } => read = true,
+                Request::Layout { .. } => {}
+                Request::Run { ops, said, .. } => {
+                    read = true;
+                    match self.run_all(&ops, root) {
+                        Ok(()) => out.push(Report::Ran { said }),
+                        Err(why) => out.push(Report::Failed { why }),
+                    }
+                }
+            }
+        }
+        if read && let Err(why) = self.read_status(root) {
+            out.push(Report::Failed { why: why.clone() });
+            self.notes = vec![format!("git status failed: {why}")];
+        }
+        self.read_open_hunks(&view, root);
+        let sections = layout::sections(&self.status, &self.unstaged, &self.staged, &|path| {
+            may_hold_secrets(root, path)
+        });
+        let laid = layout::lay_out(&self.head, &self.notes, sections, &self.hunks, &view);
+        out.push(Report::Laid {
+            generation,
+            laid: Box::new(laid),
+        });
+    }
+
+    /// git in the repository whose top is `root`, found once, with the empty private
+    /// directory for hooks made under the state directory.
+    fn git(&mut self, root: &Path) -> Result<&Git, String> {
+        if self.git.is_none() {
+            let hooks = hooks_dir(self.state_dir.as_deref())?;
+            self.git = Some(find(root, &hooks)?);
+        }
+        self.git.as_ref().ok_or_else(|| "no git".to_owned())
+    }
+
+    fn read_status(&mut self, root: &Path) -> Result<(), String> {
+        self.read = true;
+        self.hunks.clear();
+        self.notes.clear();
+        let git = self.git(root)?.clone();
+        let listing = git
+            .output(
+                &args(&[
+                    "status",
+                    "--porcelain=v2",
+                    "-z",
+                    "--branch",
+                    "--untracked-files=all",
+                ]),
+                &set(),
+                MAX_LIST,
+            )
+            .map_err(|e| e.to_string())?;
+        if !listing.status.success() {
+            return Err(GitError::Failed {
+                status: listing.status.code(),
+                stderr: listing.stderr,
+            }
+            .to_string());
+        }
+        let mut listed = listing.stdout;
+        if listing.cut {
+            self.notes
+                .push("git listed more than oso reads: some files are not shown".into());
+            // The last record may stop part way: it is left out.
+            let whole = listed
+                .iter()
+                .rposition(|&byte| byte == 0)
+                .map_or(0, |at| at + 1);
+            listed.truncate(whole);
+        }
+        self.status = status::parse(&listed);
+        let diff = [
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--numstat",
+            "-z",
+        ];
+        self.unstaged = numstat(&git, &args(&diff)).unwrap_or_default();
+        let mut cached = args(&diff);
+        cached.push(OsStr::new("--cached"));
+        self.staged = numstat(&git, &cached).unwrap_or_default();
+        self.head = Head {
+            branch: self.status.branch.clone(),
+            commit: self
+                .status
+                .branch
+                .oid
+                .as_ref()
+                .and_then(|_| head_commit(&git)),
+        };
+        Ok(())
+    }
+
+    /// Reads the hunks of each open file not read since the status was.
+    fn read_open_hunks(&mut self, view: &View, root: &Path) {
+        let Some(git) = self.git.clone() else {
+            return;
+        };
+        let sections = layout::sections(&self.status, &self.unstaged, &self.staged, &|path| {
+            may_hold_secrets(root, path)
+        });
+        for (section, path) in &view.open {
+            if self.hunks.contains_key(&(*section, path.clone())) {
+                continue;
+            }
+            let Some(file) = (sections.iter())
+                .find(|(of, _)| of == section)
+                .and_then(|(_, files)| files.iter().find(|file| file.path == *path))
+            else {
+                continue;
+            };
+            if !file.reads {
+                continue;
+            }
+            let hunks = match read_patch(&git, *section, &file.path, file.from.as_deref()) {
+                Ok(patch) => Hunks::Patch(Arc::new(patch)),
+                Err(why) => Hunks::Note(format!("cannot read its hunks: {why}")),
+            };
+            self.hunks.insert((*section, path.clone()), hunks);
+        }
+    }
+
+    fn run_all(&mut self, ops: &[Op], root: &Path) -> Result<(), String> {
+        let initial = self.read && self.status.branch.oid.is_none();
+        let git = self.git(root)?.clone();
+        for op in ops {
+            run(&git, op, initial)?;
+        }
+        Ok(())
+    }
+}
+
+/// `vcs/hooks` under `state`, made private if missing, and checked to be empty: git is told the
+/// hooks are there, so that none runs (ADR 0127, step 1a runs none).
+fn hooks_dir(state: Option<&Path>) -> Result<PathBuf, String> {
+    let state = state.ok_or("oso has no state directory, so it runs no git for a status")?;
+    let hooks = PrivateDir::open(state.join("vcs").join("hooks"))
+        .map_err(|e| format!("cannot make oso's directory for git: {e}"))?;
+    let empty = std::fs::read_dir(hooks.path()).is_ok_and(|mut entries| entries.next().is_none());
+    if !empty {
+        return Err("oso's empty directory for git's hooks is not empty".to_owned());
+    }
+    Ok(hooks.path().to_path_buf())
+}
+
+/// git for the repository whose work tree's top is `root`; a top elsewhere is refused.
+fn find(root: &Path, hooks: &Path) -> Result<Git, String> {
+    let git = Git::new(root, hooks).map_err(|e| e.to_string())?;
+    let out = git
+        .run(&args(&["rev-parse", "--show-toplevel"]), &set(), MAX_SHORT)
+        .map_err(|e| e.to_string())?;
+    let top = crate::review::trim_line(&out);
+    let top = os_path(top).map_err(|e| e.to_string())?;
+    let same = match (Path::new(top).canonicalize(), root.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    };
+    if !same {
+        return Err("git found a repository whose top is not the project's root".into());
+    }
+    Ok(git)
+}
+
+fn args<'a>(words: &[&'a str]) -> Vec<&'a OsStr> {
+    words.iter().map(|word| OsStr::new(*word)).collect()
+}
+
+fn set() -> Vec<(&'static str, &'static OsStr)> {
+    LITERAL
+        .iter()
+        .map(|(name, value)| (*name, OsStr::new(value)))
+        .collect()
+}
+
+fn numstat(git: &Git, args: &[&OsStr]) -> Option<HashMap<Vec<u8>, status::Counts>> {
+    let out = git.output(args, &set(), MAX_LIST).ok()?;
+    (out.status.success() && !out.cut).then(|| status::parse_numstat(&out.stdout))
+}
+
+/// `HEAD`'s short id and subject.
+fn head_commit(git: &Git) -> Option<(String, Vec<u8>)> {
+    let words = [
+        "log",
+        "-1",
+        "--no-show-signature",
+        "--no-color",
+        "--format=%h%x00%s",
+        "HEAD",
+        "--",
+    ];
+    let out = git.run(&args(&words), &set(), MAX_SHORT).ok()?;
+    let line = crate::review::trim_line(&out);
+    let at = line.iter().position(|&byte| byte == 0)?;
+    let id = std::str::from_utf8(&line[..at]).ok()?;
+    id.bytes()
+        .all(|byte| byte.is_ascii_hexdigit())
+        .then(|| (id.to_owned(), line[at + 1..].to_vec()))
+}
+
+/// The patch of `path` in `section`, as git writes it for staging, from `from` if renamed.
+fn read_patch(
+    git: &Git,
+    section: Section,
+    path: &[u8],
+    from: Option<&[u8]>,
+) -> Result<patch::Patch, String> {
+    let mut words = args(&[
+        "-c",
+        "diff.suppressBlankEmpty=false",
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--no-relative",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+        "-U3",
+    ]);
+    if section == Section::Staged {
+        words.push(OsStr::new("--cached"));
+    }
+    if from.is_some() {
+        words.push(OsStr::new("-M"));
+    }
+    words.push(OsStr::new("--"));
+    if let Some(from) = from {
+        words.push(os_path(from).map_err(|e| e.to_string())?);
+    }
+    words.push(os_path(path).map_err(|e| e.to_string())?);
+    let out = git
+        .output(&words, &set(), MAX_PATCH)
+        .map_err(|e| e.to_string())?;
+    if !out.cut && !out.status.success() {
+        return Err(GitError::Failed {
+            status: out.status.code(),
+            stderr: out.stderr,
+        }
+        .to_string());
+    }
+    Ok(patch::parse(&out.stdout, out.cut))
+}
+
+/// Runs one op; `initial` before the repository's first commit, when unstaging is `rm --cached`.
+fn run(git: &Git, op: &Op, initial: bool) -> Result<(), String> {
+    let (words, input, refused): (Vec<&str>, Vec<u8>, bool) = match op {
+        Op::Add(paths) => (
+            vec!["add", "--pathspec-from-file=-", "--pathspec-file-nul"],
+            nul_joined(paths),
+            false,
+        ),
+        Op::Unstage(paths) if initial => (
+            vec![
+                "rm",
+                "--cached",
+                "--quiet",
+                "--ignore-unmatch",
+                "--pathspec-from-file=-",
+                "--pathspec-file-nul",
+            ],
+            nul_joined(paths),
+            false,
+        ),
+        Op::Unstage(paths) => (
+            vec![
+                "restore",
+                "--staged",
+                "--pathspec-from-file=-",
+                "--pathspec-file-nul",
+            ],
+            nul_joined(paths),
+            false,
+        ),
+        Op::Apply { patch, reverse } => {
+            let mut words = vec![
+                "-c",
+                "apply.ignoreWhitespace=no",
+                "apply",
+                "--cached",
+                "--whitespace=nowarn",
+            ];
+            if *reverse {
+                words.push("-R");
+            }
+            words.push("-");
+            (words, patch.clone(), true)
+        }
+    };
+    let out = git
+        .output_with(&args(&words), &set(), Some(input), |stdout| {
+            read_at_most(stdout, MAX_SHORT)
+        })
+        .map_err(|e| e.to_string())?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let first = out
+        .stderr
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    if refused {
+        return Err(format!(
+            "git refused the hunk, as the file changed since it was read: {first}"
+        ));
+    }
+    Err(GitError::Failed {
+        status: out.status.code(),
+        stderr: out.stderr,
+    }
+    .to_string())
+}
+
+fn nul_joined(paths: &[Vec<u8>]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for path in paths {
+        out.extend_from_slice(path);
+        out.push(0);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests;

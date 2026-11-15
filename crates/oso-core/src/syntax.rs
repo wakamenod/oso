@@ -101,4 +101,15 @@ pub enum Highlight {
     DiredMark,
     /// The name of a marked row.
     DiredMarked,
+    /// A git status section's heading, such as `Unstaged changes (2)` (ADR 0127). Only the
+    /// host's status buffers give these five; no parser does.
+    GitSectionHeading,
+    /// A local branch's name.
+    GitBranchLocal,
+    /// A remote branch's name, such as an upstream.
+    GitBranchRemote,
+    /// A commit's short id.
+    GitHash,
+    /// Counts said quietly: a file's added and removed lines, ahead and behind.
+    GitCount,
 }

@@ -26,6 +26,7 @@ mod saver;
 mod sessions;
 mod terminal;
 mod text;
+mod vcs;
 mod walk;
 
 use std::ffi::OsString;

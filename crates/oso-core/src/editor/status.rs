@@ -226,8 +226,12 @@ fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
         }
     }
     out.push_str(buffer.mode().name());
-    // A listing has no encoding: its order instead, as dired's `Dired by name` (ADR 0134).
-    if buffer.mode() == crate::buffer::Mode::Directory {
+    // A listing has no encoding: its order instead, as dired's `Dired by name` (ADR 0134). A git
+    // status has none either (ADR 0127).
+    if matches!(
+        buffer.mode(),
+        crate::buffer::Mode::Directory | crate::buffer::Mode::GitStatus
+    ) {
         if !buffer.mode_note().is_empty() {
             out.push(' ');
             push_cut(out, buffer.mode_note(), NOTE_CELLS);

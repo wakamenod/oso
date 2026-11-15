@@ -1,0 +1,511 @@
+//! Git status buffers in the app (ADR 0127): what their commands ask, carried out on the UI
+//! thread, and the texts their threads lay out.
+//!
+//! Must not depend on: key presses or how a frame is drawn. Nothing here runs git, reads a
+//! file or lays out a text: each status buffer's thread, `oso-vcs`, does, and its text goes in
+//! at O(1), with what it replaces freed off the UI thread. What a line names comes from the
+//! table built with the text, never from the text.
+//!
+//! - A status is read when its buffer becomes shown, on `g`, after each staging, and when a
+//!   file of its repository is saved while it is shown; nothing runs while it is not shown.
+//! - Restricted projects get no status buffer, and one whose project is no longer trusted runs
+//!   nothing more.
+//! - A new text keeps each window's point on what it was on (the same hunk's line, hunk, file
+//!   or section), and waits while the editor's text must not change.
+
+use std::sync::Arc;
+
+use oso_core::buffer::BufferId;
+use oso_core::editor::{GitLines, GitRequest, GitShown};
+use oso_core::project::ProjectId;
+
+use super::{App, UserEvent};
+use crate::commands::review::{MAX_NAME, one_line};
+use crate::commands::vcs::RESTRICTED;
+use crate::review::{TrustedRoot, os_path};
+use crate::vcs::layout::{Laid, Row};
+use crate::vcs::stage::{self, Target};
+use crate::vcs::{Built, Report, Request, Section, View, Worker};
+
+/// The most characters of a failure the echo area shows.
+const MAX_MESSAGE: usize = 200;
+
+/// What a status buffer's thread sent the UI thread, as its `serial`th start.
+pub(crate) struct GitEvent {
+    buffer: BufferId,
+    serial: u64,
+    report: Report,
+}
+
+impl std::fmt::Debug for GitEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GitEvent")
+            .field("serial", &self.serial)
+            .field("report", &self.report)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The status buffers the app keeps.
+#[derive(Default)]
+pub(super) struct Gits {
+    open: Vec<Open>,
+    serial: u64,
+    generation: u64,
+}
+
+/// A status buffer as the app knows it.
+struct Open {
+    buffer: BufferId,
+    project: ProjectId,
+    root: TrustedRoot,
+    /// Which start of the thread its reports must come from.
+    serial: u64,
+    worker: Option<Worker>,
+    view: View,
+    /// What the text shown is about, line by line.
+    built: Arc<Built>,
+    /// The newest request's generation, and the one shown.
+    asked: u64,
+    shown_generation: u64,
+    /// Whether a window showed it at the last look.
+    shown: bool,
+    /// A read was asked while no window showed it.
+    stale: bool,
+    /// The newest text, held while the editor's text must not change.
+    waiting: Option<Box<Laid>>,
+    revoked: bool,
+}
+
+impl App {
+    /// After commands and after each event: takes back the trust of projects no longer
+    /// trusted, forgets killed buffers, carries out what git commands asked, reads a status
+    /// that became shown, and puts in a text that waited.
+    pub(super) fn sync_git(&mut self) {
+        self.revoke_untrusted_git();
+        let gone: Vec<usize> = (self.gits.open.iter().enumerate())
+            .filter(|(_, open)| self.editor.git_status_of(open.buffer).is_none())
+            .map(|(index, _)| index)
+            .collect();
+        for index in gone.into_iter().rev() {
+            let open = self.gits.open.remove(index);
+            self.freer.free((open.built, open.waiting));
+        }
+        for request in self.editor.take_git_requests() {
+            self.git_request(request);
+        }
+        for index in 0..self.gits.open.len() {
+            let buffer = self.gits.open[index].buffer;
+            let shown = self
+                .editor
+                .windows()
+                .any(|window| window.buffer() == buffer);
+            let open = &mut self.gits.open[index];
+            let read = shown && (!open.shown || open.stale);
+            open.shown = shown;
+            if read {
+                self.git_ask(index, Ask::Read);
+            }
+        }
+        self.put_in_waiting_git();
+    }
+
+    fn revoke_untrusted_git(&mut self) {
+        for open in &mut self.gits.open {
+            if !open.revoked && !self.editor.project_trusted(open.project) {
+                open.root.revoke();
+                open.worker = None;
+                open.revoked = true;
+            }
+        }
+    }
+
+    fn git_request(&mut self, request: GitRequest) {
+        match request {
+            GitRequest::Status { project } => self.open_git_status(project),
+            GitRequest::Refresh { buffer } => {
+                if let Some(index) = self.git_index(buffer) {
+                    self.git_ask(index, Ask::Read);
+                }
+            }
+            GitRequest::Toggle { buffer, line } => self.toggle_git(buffer, line),
+            GitRequest::Stage { buffer, lines } => self.stage_git(buffer, &lines, true),
+            GitRequest::Unstage { buffer, lines } => self.stage_git(buffer, &lines, false),
+            GitRequest::StageAll { buffer } => self.stage_git_all(buffer, true),
+            GitRequest::UnstageAll { buffer } => self.stage_git_all(buffer, false),
+            GitRequest::Visit {
+                buffer,
+                line,
+                column,
+            } => self.visit_git_line(buffer, line, column),
+        }
+    }
+
+    /// Shows the status of `project` in the selected window, read again, making its buffer if
+    /// it has none.
+    fn open_git_status(&mut self, project: ProjectId) {
+        let Some(root) = TrustedRoot::of(&self.editor, project) else {
+            return self.editor.message(RESTRICTED);
+        };
+        if let Some(index) = self
+            .gits
+            .open
+            .iter()
+            .position(|open| open.project == project)
+        {
+            let buffer = self.gits.open[index].buffer;
+            self.editor.show(buffer);
+            if self.gits.open[index].revoked {
+                self.gits.open[index].root = root;
+                self.gits.open[index].revoked = false;
+                self.start_git_worker(index);
+            }
+            self.gits.open[index].shown = true;
+            self.git_ask(index, Ask::Read);
+            return self.request_redraw();
+        }
+        let name = self
+            .editor
+            .project(project)
+            .map_or_else(String::new, |project| one_line(project.name(), MAX_NAME));
+        let buffer = self
+            .editor
+            .add_git_status(project, format!("*git: {name}*"));
+        self.editor
+            .set_internal_text(buffer, "Reading the status…\n");
+        self.editor.show(buffer);
+        self.gits.open.push(Open {
+            buffer,
+            project,
+            root,
+            serial: 0,
+            worker: None,
+            view: View::default(),
+            built: Arc::default(),
+            asked: 0,
+            shown_generation: 0,
+            shown: true,
+            stale: false,
+            waiting: None,
+            revoked: false,
+        });
+        let index = self.gits.open.len() - 1;
+        self.start_git_worker(index);
+        self.git_ask(index, Ask::Read);
+        self.request_redraw();
+    }
+
+    fn start_git_worker(&mut self, index: usize) {
+        self.gits.serial += 1;
+        let serial = self.gits.serial;
+        let open = &mut self.gits.open[index];
+        open.serial = serial;
+        open.worker = None;
+        let buffer = open.buffer;
+        let waker = self.waker.clone();
+        let started = Worker::start(open.root.clone(), super::reviews::state(), move |report| {
+            waker.send(UserEvent::Git(GitEvent {
+                buffer,
+                serial,
+                report,
+            }))
+        });
+        match started {
+            Ok(worker) => open.worker = Some(worker),
+            Err(e) => self
+                .editor
+                .message(format!("Cannot start the status's thread: {e}")),
+        }
+    }
+
+    /// Asks the status's thread to read, lay out, or run `ops`; while no window shows it, a
+    /// read waits until one does.
+    fn git_ask(&mut self, index: usize, ask: Ask) {
+        let open = &mut self.gits.open[index];
+        if open.revoked || !self.editor.project_trusted(open.project) {
+            return self.editor.message(RESTRICTED);
+        }
+        if matches!(ask, Ask::Read) && !open.shown {
+            open.stale = true;
+            return;
+        }
+        self.gits.generation += 1;
+        let generation = self.gits.generation;
+        open.asked = generation;
+        open.stale = false;
+        let view = open.view.clone();
+        let request = match ask {
+            Ask::Read => Request::Read { generation, view },
+            Ask::Layout => Request::Layout { generation, view },
+            Ask::Run(ops, said) => Request::Run {
+                generation,
+                ops,
+                said,
+                view,
+            },
+        };
+        let asked = open
+            .worker
+            .as_ref()
+            .is_some_and(|worker| worker.ask(request));
+        if !asked {
+            self.editor
+                .message("The status's thread has ended: C-x k, then C-x g again");
+        }
+    }
+
+    fn git_index(&self, buffer: BufferId) -> Option<usize> {
+        self.gits.open.iter().position(|open| open.buffer == buffer)
+    }
+
+    /// Folds or unfolds the section at `line`, or shows or hides the hunks of the file there;
+    /// on a hunk, hides its file's hunks.
+    fn toggle_git(&mut self, buffer: BufferId, line: usize) {
+        let Some(index) = self.git_index(buffer) else {
+            return;
+        };
+        let open = &mut self.gits.open[index];
+        let row = open.built.rows.get(line).copied().unwrap_or(Row::Other);
+        let file_key = |section: Section, file: usize| {
+            open.built
+                .file(section, file)
+                .map(|file| (section, file.path.clone()))
+        };
+        match row {
+            Row::Heading(section) => {
+                if !open.view.folded.remove(&section) {
+                    open.view.folded.insert(section);
+                }
+            }
+            Row::File { section, file } => {
+                if let Some(key) = file_key(section, file)
+                    && !open.view.open.remove(&key)
+                {
+                    open.view.open.insert(key);
+                }
+            }
+            Row::Detail { section, file }
+            | Row::Hunk { section, file, .. }
+            | Row::Line { section, file, .. } => {
+                if let Some(key) = file_key(section, file) {
+                    open.view.open.remove(&key);
+                }
+            }
+            Row::Other | Row::More(_) => return,
+        }
+        self.git_ask(index, Ask::Layout);
+    }
+
+    fn stage_git(&mut self, buffer: BufferId, lines: &[GitLines], stage: bool) {
+        let Some(index) = self.git_index(buffer) else {
+            return;
+        };
+        let built = Arc::clone(&self.gits.open[index].built);
+        let ran = stage::targets(&built, lines)
+            .map_err(str::to_owned)
+            .and_then(|targets| stage::ops(&built, &targets, stage));
+        match ran {
+            Ok((ops, said)) => self.git_ask(index, Ask::Run(ops, said)),
+            Err(why) => self.editor.message(why),
+        }
+    }
+
+    fn stage_git_all(&mut self, buffer: BufferId, stage: bool) {
+        let Some(index) = self.git_index(buffer) else {
+            return;
+        };
+        let built = Arc::clone(&self.gits.open[index].built);
+        let section = if stage {
+            Section::Unstaged
+        } else {
+            Section::Staged
+        };
+        if built.files(section).is_empty() {
+            let why = if stage {
+                "No unstaged changes"
+            } else {
+                "No staged changes"
+            };
+            return self.editor.message(why);
+        }
+        match stage::ops(&built, &[Target::Section(section)], stage) {
+            Ok((ops, said)) => self.git_ask(index, Ask::Run(ops, said)),
+            Err(why) => self.editor.message(why),
+        }
+    }
+
+    /// Visits the file `line` is about, at the line of it a hunk's line shows.
+    fn visit_git_line(&mut self, buffer: BufferId, line: usize, column: usize) {
+        let Some(index) = self.git_index(buffer) else {
+            return;
+        };
+        let open = &self.gits.open[index];
+        let row = open.built.rows.get(line).copied().unwrap_or(Row::Other);
+        let (section, file, at) = match row {
+            Row::File { section, file } | Row::Detail { section, file } => (section, file, None),
+            Row::Hunk {
+                section,
+                file,
+                hunk,
+            } => {
+                let patch = open.built.patches.get(&(section, file));
+                let start = patch
+                    .and_then(|patch| patch.hunks.get(hunk))
+                    .map(|h| h.new_line(0));
+                (section, file, start.map(|line| (line, 0)))
+            }
+            Row::Line {
+                section,
+                file,
+                hunk,
+                line,
+            } => {
+                let patch = open.built.patches.get(&(section, file));
+                let at = patch
+                    .and_then(|patch| patch.hunks.get(hunk))
+                    .map(|hunk| (hunk.new_line(line), column.saturating_sub(1)));
+                (section, file, at)
+            }
+            Row::Other | Row::Heading(_) | Row::More(_) => {
+                return self.editor.message("No file on this line");
+            }
+        };
+        let Some(shown) = open.built.file(section, file) else {
+            return;
+        };
+        if shown.deleted {
+            return self.editor.message("That file is deleted");
+        }
+        let Ok(relative) = os_path(&shown.path) else {
+            return self
+                .editor
+                .message("That file's name is not one this system can open");
+        };
+        let path = open.root.path().join(relative);
+        match at {
+            Some((line, column)) => self.editor.request_visit_at(
+                path,
+                oso_core::load::UNASKED,
+                usize::try_from(line).unwrap_or(usize::MAX),
+                column,
+            ),
+            None => self.editor.request_visit(path, oso_core::load::UNASKED),
+        }
+        self.serve_files();
+    }
+
+    /// A status's thread reported.
+    pub(super) fn git_reported(&mut self, event: GitEvent) {
+        let GitEvent {
+            buffer,
+            serial,
+            report,
+        } = event;
+        let current = self
+            .git_index(buffer)
+            .filter(|index| self.gits.open[*index].serial == serial);
+        let Some(index) = current else {
+            return self.freer.free(report);
+        };
+        match report {
+            Report::Laid { generation, laid } => {
+                let open = &mut self.gits.open[index];
+                if generation < open.shown_generation {
+                    return self.freer.free(laid);
+                }
+                open.shown_generation = generation;
+                let replaced = open.waiting.replace(laid);
+                self.freer.free(replaced);
+                self.put_in_waiting_git();
+            }
+            Report::Ran { said } => self.editor.message(one_line(&said, MAX_MESSAGE)),
+            Report::Failed { why } => {
+                let why = one_line(&why, MAX_MESSAGE);
+                self.editor.message(format!("git: {why}"));
+            }
+        }
+    }
+
+    /// Puts in each status text that waited, once nothing makes it wait.
+    fn put_in_waiting_git(&mut self) {
+        if self.editor.reload_waits() {
+            return;
+        }
+        let mut put = false;
+        for index in 0..self.gits.open.len() {
+            let Some(laid) = self.gits.open[index].waiting.take() else {
+                continue;
+            };
+            self.put_in_git_text(index, *laid);
+            put = true;
+        }
+        if put {
+            self.buffers_changed();
+            self.request_redraw();
+        }
+    }
+
+    fn put_in_git_text(&mut self, index: usize, laid: Laid) {
+        let Laid {
+            text,
+            highlights,
+            outline,
+            built,
+        } = laid;
+        let open = &self.gits.open[index];
+        let buffer = open.buffer;
+        let old = Arc::clone(&open.built);
+        let lines: Vec<_> = (self.editor.git_points(buffer).into_iter())
+            .map(|(window, line)| {
+                if old.rows.is_empty() {
+                    return (window, first_line(&built));
+                }
+                (window, built.line_of(&old.place(line)))
+            })
+            .collect();
+        let line = lines
+            .first()
+            .map_or_else(|| first_line(&built), |(_, line)| *line);
+        let old_text = (self.editor.buffer(buffer)).map(|shown| shown.text().clone());
+        let refused = self.editor.set_git_text(
+            buffer,
+            text,
+            GitShown {
+                highlights,
+                outline,
+                line,
+                lines,
+            },
+        );
+        self.gits.open[index].built = built;
+        self.freer.free((old, old_text, refused));
+    }
+
+    /// A save of `buffer` ended: the status of its repository is read again if it is shown.
+    pub(super) fn git_saved(&mut self, buffer: BufferId) {
+        let Some(path) = self.editor.buffer(buffer).and_then(|b| b.path()) else {
+            return;
+        };
+        let path = path.to_path_buf();
+        for index in 0..self.gits.open.len() {
+            let open = &self.gits.open[index];
+            if !open.revoked && path.starts_with(open.root.path()) {
+                self.git_ask(index, Ask::Read);
+            }
+        }
+    }
+}
+
+/// What a status's thread is asked for.
+enum Ask {
+    Read,
+    Layout,
+    Run(Vec<stage::Op>, String),
+}
+
+/// Where point goes in a first text: the first section's heading, else the top.
+fn first_line(built: &Built) -> usize {
+    (built.rows.iter())
+        .position(|row| matches!(row, Row::Heading(_)))
+        .unwrap_or(0)
+}

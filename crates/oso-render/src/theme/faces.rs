@@ -7,7 +7,7 @@ use super::palettes::Name;
 use crate::pane::Face;
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-pub(super) const FACES: [Face; 88] = [
+pub(super) const FACES: [Face; 93] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -96,6 +96,11 @@ pub(super) const FACES: [Face; 88] = [
     Face::DiredDetails,
     Face::DiredMark,
     Face::DiredMarked,
+    Face::GitSectionHeading,
+    Face::GitBranchLocal,
+    Face::GitBranchRemote,
+    Face::GitHash,
+    Face::GitCount,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -194,6 +199,11 @@ pub(super) const fn index(face: Face) -> usize {
         Face::DiredDetails => 85,
         Face::DiredMark => 86,
         Face::DiredMarked => 87,
+        Face::GitSectionHeading => 88,
+        Face::GitBranchLocal => 89,
+        Face::GitBranchRemote => 90,
+        Face::GitHash => 91,
+        Face::GitCount => 92,
     }
 }
 
@@ -307,6 +317,12 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         Face::DiredDetails => (FgPrompt, BgMain),
         // A mark and a marked name in the warning's colour, as dired's marks stand out.
         Face::DiredMark | Face::DiredMarked => (Warning, BgMain),
+        // A git status's headings as headings, its branches in a terminal's blue and green, as
+        // magit's local and remote branches are, and its ids and counts quiet (ADR 0127).
+        Face::GitSectionHeading => (SynHeading, BgMain),
+        Face::GitBranchLocal => (Terminal(12), BgMain),
+        Face::GitBranchRemote => (Terminal(10), BgMain),
+        Face::GitHash | Face::GitCount => (FgPrompt, BgMain),
     }
 }
 

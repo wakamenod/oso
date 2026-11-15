@@ -172,6 +172,16 @@ pub enum Face {
     DiredMark,
     /// The name of a marked row.
     DiredMarked,
+    /// A git status section's heading (ADR 0127), as a heading.
+    GitSectionHeading,
+    /// A local branch's name in a git status.
+    GitBranchLocal,
+    /// A remote branch's name in a git status, such as its upstream.
+    GitBranchRemote,
+    /// A commit's short id, dim.
+    GitHash,
+    /// A file's added and removed lines, and ahead and behind, dim.
+    GitCount,
     /// A terminal's colour 0, black (ADR 0120): one colour, its foreground, which a cell takes
     /// for its text or its background. A theme gives the 16 colours that suit it.
     TerminalColor0,
@@ -243,6 +253,11 @@ impl Face {
             Highlight::DiredDetails => Self::DiredDetails,
             Highlight::DiredMark => Self::DiredMark,
             Highlight::DiredMarked => Self::DiredMarked,
+            Highlight::GitSectionHeading => Self::GitSectionHeading,
+            Highlight::GitBranchLocal => Self::GitBranchLocal,
+            Highlight::GitBranchRemote => Self::GitBranchRemote,
+            Highlight::GitHash => Self::GitHash,
+            Highlight::GitCount => Self::GitCount,
         }
     }
 

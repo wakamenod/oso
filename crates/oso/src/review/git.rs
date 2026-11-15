@@ -242,7 +242,7 @@ impl Git {
     /// Runs git with `args` and `set`, writing `input` to its standard input if there is one,
     /// and keeping what `read` keeps of its output, which says whether it cut it. A cut run is
     /// killed.
-    pub(super) fn output_with(
+    pub(crate) fn output_with(
         &self,
         args: &[&OsStr],
         set: &[(&str, &OsStr)],

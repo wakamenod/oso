@@ -34,6 +34,7 @@ impl Language {
             | Mode::Review
             | Mode::Terminal
             | Mode::Directory
+            | Mode::GitStatus
             | Mode::Sessions => None,
         }
     }

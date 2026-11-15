@@ -15,7 +15,7 @@ often, so it must rebuild within 2 s.
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
   the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`, `configuration`,
-  `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps`, `reviews`, `dired` and `terminals` do the work, `control`
+  `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps`, `reviews`, `dired`, `vcs` and `terminals` do the work, `control`
   answers the dev socket, and `handover` exports and imports the state of a restart, `oso dev`'s
   or `oso-restart`'s; its terminals go in `terminals/carry.rs` (the instance going) and
   `terminals/adopt.rs` (the one coming) (ADR 0120, step 11). `restart` starts `oso-restart`
@@ -67,6 +67,12 @@ often, so it must rebuild within 2 s.
   `review/count.rs` counts the review menu's scopes on `oso-review-count`. A review buffer's
   keys are listed in `commands::review::KEYS`, which `?` reads, and bound by
   `bindings/review.rs`.
+- `src/vcs.rs` and `src/vcs/` are source control's git status (ADR 0127): one thread per status
+  buffer, `oso-vcs` (`work`), which runs git through `review`'s runner for a trusted root only,
+  reads porcelain v2 and patches as untrusted bytes (`status`, `patch`), lays out the text with
+  its outline and the table of what each line is about (`layout`), and turns the lines commands
+  name into staging (`stage`). Its keys are listed in `commands::vcs::KEYS` and bound by
+  `bindings/vcs.rs`; `app/vcs.rs` carries out what its commands ask.
 - `src/dired.rs` and `src/dired/` are the directory editor's listings (ADR 0134): read on the
   lister's threads (`lister.rs`) from the descriptor, following no link but to tell where one
   leads, ordered and built there into a rope, highlights and a table of what each row names. A

@@ -62,11 +62,12 @@ use oso_core::editor::Editor;
 use oso_core::project::ProjectId;
 use oso_core::review::{Carried, Carry, Shape};
 
-pub(crate) use id::Id;
+pub(crate) use id::{Id, trim_line};
 pub(crate) use list::Entry;
 #[cfg(test)]
 pub(crate) use list::Status;
 pub(crate) use scope::Scope;
+pub(crate) use side::{may_hold_secrets, os as os_path};
 
 /// The largest side read: a blob or a work tree file past it shows its size only.
 pub(crate) const MAX_BLOB: u64 = 8 * 1024 * 1024;

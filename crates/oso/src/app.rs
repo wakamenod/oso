@@ -46,6 +46,7 @@ mod syntax;
 mod terminals;
 mod theme_file;
 mod trims;
+mod vcs;
 mod walks;
 mod wraps;
 // The window system: oso's own layer on macOS, and winit on Windows and Linux (ADR 0070,
@@ -142,6 +143,8 @@ pub enum UserEvent {
     Migemo(Box<migemo::DictionaryRead>),
     /// A review's threads, or the review menu's counts, reported (ADR 0122).
     Review(reviews::ReviewEvent),
+    /// A git status buffer's thread reported (ADR 0127).
+    Git(vcs::GitEvent),
     /// A terminal's thread has a snapshot ready (ADR 0120).
     Terminal(oso_core::buffer::BufferId),
     /// A terminal's start thread found the shell and started it, or could not.
@@ -258,6 +261,8 @@ pub struct App {
     watch: sessions::Watch,
     /// The open reviews' threads and the review menu's counts (ADR 0122).
     reviews: reviews::Reviews,
+    /// The git status buffers and their threads (ADR 0127).
+    gits: vcs::Gits,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -399,6 +404,7 @@ impl App {
             trust_file: None,
             sessions,
             reviews: reviews::Reviews::default(),
+            gits: vcs::Gits::default(),
             log_gate,
             agent: agent::Agent::default(),
             flash: flash::Flash::default(),
@@ -490,6 +496,7 @@ impl App {
         self.start_searches();
         self.start_reverts();
         self.sync_reviews();
+        self.sync_git();
         self.answer_about_copies();
         self.remember_theme();
         if effects.redraw {
