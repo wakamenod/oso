@@ -9,6 +9,9 @@ use super::paths::expand;
 use super::spaces::DEFAULT_ROOT;
 use super::tests::{Fixture, messages};
 
+/// The start of an absolute path here.
+const ABSOLUTE: &str = if cfg!(windows) { "C:/" } else { "/" };
+
 #[test]
 fn root_is_absolute_or_under_home_and_defaults_to_spaces() {
     let f = Fixture::new();
@@ -30,7 +33,7 @@ fn root_is_absolute_or_under_home_and_defaults_to_spaces() {
 #[test]
 fn a_bad_root_is_said_and_the_default_stays() {
     let f = Fixture::new();
-    let long = format!("/{}", "a".repeat(1024));
+    let long = format!("{ABSOLUTE}{}", "a".repeat(1024));
     for (value, said) in [
         (
             "\"spaces\"",
@@ -56,12 +59,10 @@ fn a_bad_root_is_said_and_the_default_stays() {
 
 #[test]
 fn a_root_under_home_needs_a_home() {
-    let home = Path::new("/h");
-    assert_eq!(
-        expand("~/spaces", Some(home)),
-        Some(PathBuf::from("/h/spaces"))
-    );
+    let home = PathBuf::from(format!("{ABSOLUTE}h"));
+    assert_eq!(expand("~/spaces", Some(&home)), Some(home.join("spaces")));
     assert_eq!(expand("~/spaces", None), None);
     assert_eq!(expand("~/spaces", Some(Path::new("relative"))), None);
-    assert_eq!(expand("/w/s", None), Some(PathBuf::from("/w/s")));
+    let written = format!("{ABSOLUTE}w/s");
+    assert_eq!(expand(&written, None), Some(PathBuf::from(&written)));
 }
