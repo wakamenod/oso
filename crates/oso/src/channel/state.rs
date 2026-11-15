@@ -20,8 +20,9 @@ use oso_core::sum_tree::Bias;
 use oso_core::window::Window;
 use serde_json::{Value, json};
 
-/// The state's version. Bump it on incompatible changes.
-pub const STATE_VERSION: u32 = 1;
+/// The state's version. Bump it on incompatible changes. 2 added each buffer's `waits`
+/// (ADR 0118, Q6).
+pub const STATE_VERSION: u32 = 2;
 
 /// The most text of the selected window's rows the state holds, in bytes.
 pub const MAX_VISIBLE_TEXT: usize = 64 * 1024;
@@ -156,6 +157,8 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
         "read_only": buffer.read_only().is_some(),
         "loading": buffer.loading().is_some(),
         "wrapped": shown.then(|| buffer.wraps()),
+        // What an agent's open or save would have started, waiting for the person (ADR 0118).
+        "waits": buffer.waits().shown(),
     });
     if buffer.is_terminal() {
         if let Some(fields) = state.as_object_mut() {
@@ -172,7 +175,7 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
 /// A tiled window, in the tree's order (ADR 0112): its id, its cells, gutter, text and
 /// modeline together, so that a secret buffer's gutter says nothing of its lines (ADR 0097),
 /// and its positions only if what it shows may hold no secrets. The selected one is the
-/// selected tiled window, also beneath a prompt. New fields keep the state's version 1
+/// selected tiled window, also beneath a prompt. New fields keep the state's version
 /// (ADR 0085).
 fn window_state(
     editor: &Editor,
@@ -390,8 +393,9 @@ mod tests {
     #[test]
     fn shows_buffers_windows_and_the_rows_in_view() {
         let state = state(&editor("one\ntwo"), None, 0);
-        assert_eq!(state["version"], 1);
+        assert_eq!(state["version"], 2);
         assert_eq!(state["buffers"][0]["name"], "notes.md");
+        assert_eq!(state["buffers"][0]["waits"], json!([]));
         assert_eq!(state["buffers"][0]["secret"], false);
         assert_eq!(state["windows"][0]["selected"], true);
         assert_eq!(
@@ -434,7 +438,7 @@ mod tests {
             state(&editor, None, 0)
         };
         let state = shown(3);
-        assert_eq!(state["version"], 1, "new fields keep the version");
+        assert_eq!(state["version"], 2, "new fields keep the version");
         let windows = state["windows"].as_array().unwrap();
         assert_eq!(windows.len(), 2);
         assert_eq!(

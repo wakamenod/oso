@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use oso_core::buffer::{Baseline, FileFacts, FileStamp};
+use oso_core::buffer::{Baseline, FileFacts, FileStamp, Starts};
 use oso_core::decode::{FileInfo, LineEnding};
 use oso_core::key::{KeyPress, KeySequence};
 use oso_core::kill;
@@ -106,6 +106,9 @@ pub struct BufferEntry {
     pub path: Option<PathBuf>,
     pub carried: Option<Carried>,
     pub opened_by_agent: bool,
+    /// What an agent's open and save left waiting for the person (ADR 0118), said only when
+    /// something waits.
+    pub waits: (Starts, Starts),
     /// Whether its long lines wrap (ADR 0100), said only when they do.
     pub wraps: bool,
     /// The carried terminal it stands for, by its place among the state's terminals.
@@ -395,6 +398,7 @@ fn parse_buffer(entry: &Value, items: &mut Items) -> Result<BufferEntry, String>
         Some(Value::Bool(opened)) => *opened,
         Some(_) => return Err("a buffer's opened_by_agent is not true or false".into()),
     };
+    let waits = super::waits::parse(entry)?;
     let wraps = match entry.get("wraps") {
         None => false,
         Some(Value::Bool(wraps)) => *wraps,
@@ -419,6 +423,7 @@ fn parse_buffer(entry: &Value, items: &mut Items) -> Result<BufferEntry, String>
         path,
         carried,
         opened_by_agent,
+        waits,
         wraps,
         terminal,
         listing,

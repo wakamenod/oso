@@ -43,6 +43,7 @@ mod sessions;
 mod sessions_tree;
 mod space_tools;
 mod spaces;
+mod starts;
 mod terminal;
 mod undo;
 mod windows;

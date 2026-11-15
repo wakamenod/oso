@@ -62,6 +62,7 @@ mod look;
 pub mod notice;
 mod restore;
 pub mod terminals;
+mod waits;
 pub use allowed::{exit_allowed, generation, import_allowed};
 
 use pieces::{Exported, Item, MAX_CARRIED};
@@ -274,6 +275,8 @@ fn buffer_state(id: BufferId, buffer: &Buffer, items: &mut Vec<Item>) -> Result<
     if buffer.opened_by_agent() {
         entry["opened_by_agent"] = Value::Bool(true);
     }
+    // What waits for the person, only when something does (ADR 0118, Q8).
+    waits::export(buffer, &mut entry);
     // Also only when true (ADR 0100).
     if buffer.wraps() {
         entry["wraps"] = Value::Bool(true);

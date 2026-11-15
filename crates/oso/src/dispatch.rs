@@ -410,6 +410,8 @@ impl Dispatcher {
             }
         }
         editor.end_command();
+        // A command of the person's lets go what an agent's open left in its buffer (ADR 0118).
+        editor.note_persons_command();
         self.macro_ran(id, result.is_err(), editor);
         // What the command typed in a prompt that completes is matched once, now (ADR 0076).
         editor.match_completion();

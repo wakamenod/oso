@@ -178,6 +178,16 @@ impl App {
         Self::launch(None, cwd, Some(config), set)
     }
 
+    /// [`App::start_with_config_and_env`], visiting `file`.
+    pub fn start_with_file_config_and_env(
+        file: &Path,
+        cwd: &Path,
+        config: &Path,
+        set: &[(&str, &std::ffi::OsStr)],
+    ) -> Self {
+        Self::launch(Some(file), cwd, Some(config), set)
+    }
+
     fn launch(
         file: Option<&Path>,
         cwd: &Path,

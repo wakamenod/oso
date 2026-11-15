@@ -365,6 +365,43 @@ fn a_buffer_the_agent_opened_says_so_read_again_or_carried() {
 }
 
 #[test]
+fn what_waits_for_the_person_is_carried_by_kind_and_an_unknown_kind_is_left_out() {
+    use oso_core::buffer::{Start, Starts};
+    let path = absolute("/p/main.rs");
+    let mut editor = visiting(&path, "fn main() {}\n");
+    let id = editor.window().buffer();
+    let state = export(&editor, &[], None, None).unwrap();
+    assert_eq!(
+        state["buffers"][1].get("waits_open"),
+        None,
+        "said only when something waits"
+    );
+    assert_eq!(
+        parse(&state).unwrap().buffers[1].waits,
+        (Starts::NONE, Starts::NONE)
+    );
+    let (open, save) = (
+        Starts::of(Start::ServerStart),
+        Starts::of(Start::ServerSave),
+    );
+    editor.buffer_mut(id).unwrap().carry_waits(open, save);
+    let state = export(&editor, &[], None, None).unwrap();
+    assert_eq!(state["buffers"][1]["waits_open"], json!(["server-start"]));
+    assert_eq!(state["buffers"][1]["waits_save"], json!(["server-save"]));
+    assert_eq!(parse(&state).unwrap().buffers[1].waits, (open, save));
+    let newer =
+        carrying(|state| state["buffers"][1]["waits_open"] = json!(["format", "server-open"]));
+    assert_eq!(
+        parse(&newer).unwrap().buffers[1].waits.0,
+        Starts::of(Start::ServerOpen)
+    );
+    let bad = carrying(|state| state["buffers"][1]["waits_save"] = json!("server-save"));
+    assert!(parse(&bad).unwrap_err().contains("waits_save"));
+    let bad = carrying(|state| state["buffers"][1]["waits_save"] = json!([1]));
+    assert!(parse(&bad).unwrap_err().contains("waits_save"));
+}
+
+#[test]
 fn an_entry_that_does_not_say_was_not_opened_by_the_agent_and_a_bad_value_is_refused() {
     let state = carrying(|state| {
         state["buffers"][1]

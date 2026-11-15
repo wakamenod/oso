@@ -992,7 +992,12 @@ Full details are in [`security.md`](security.md).
     process, such as the final newline and the whitespace cleanup. From M4, each kind of thing
     opening or saving starts declares `Runs::InOso` or `Runs::Program` in `oso-core`; a
     `Program` kind for an agent's open or save marks the buffer instead, and the person's next
-    command there, or next save of it, lets it run (ADR 0118). Nothing in M3 is `Program`.
+    command there, or next save of it, lets it run (ADR 0118). Nothing in M3 is `Program`. The
+    kinds are `oso_core::buffer::Start`, with the buffer's two marks; `Editor::starts_on_open`
+    and `starts_on_save` decide, `Dispatcher::execute` and a click into a window let an open's
+    mark go (`Editor::note_persons_command`), and `app/starts.rs` settles each open once its
+    file has loaded, its project is found and the trust record is read, and each save as it
+    ends (ADR 0138, step 1). The language servers are the first `Program` kinds.
   - Each `Command` has a `reach` (`Look`, `Change`, `Person`), and the channel refuses `Person`
     commands. `Dispatcher::run_for_agent` checks the argument against the spec and runs the
     command inside `Editor::for_agent`, so the prompts it opens are the agent's.

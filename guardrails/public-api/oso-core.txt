@@ -1,5 +1,17 @@
 pub mod oso_core
 pub mod oso_core::buffer
+pub enum oso_core::buffer::Acted
+pub oso_core::buffer::Acted::Agent
+pub oso_core::buffer::Acted::Person
+impl core::clone::Clone for oso_core::buffer::Acted
+pub fn oso_core::buffer::Acted::clone(&self) -> oso_core::buffer::Acted
+impl core::cmp::Eq for oso_core::buffer::Acted
+impl core::cmp::PartialEq for oso_core::buffer::Acted
+pub fn oso_core::buffer::Acted::eq(&self, &oso_core::buffer::Acted) -> bool
+impl core::fmt::Debug for oso_core::buffer::Acted
+pub fn oso_core::buffer::Acted::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::buffer::Acted
+impl core::marker::StructuralPartialEq for oso_core::buffer::Acted
 pub enum oso_core::buffer::DiskState
 pub oso_core::buffer::DiskState::File(oso_core::buffer::FileStamp)
 pub oso_core::buffer::DiskState::Gone
@@ -90,6 +102,39 @@ impl core::hash::Hash for oso_core::buffer::ReadOnly
 pub fn oso_core::buffer::ReadOnly::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::buffer::ReadOnly
 impl core::marker::StructuralPartialEq for oso_core::buffer::ReadOnly
+pub enum oso_core::buffer::Runs
+pub oso_core::buffer::Runs::InOso
+pub oso_core::buffer::Runs::Program
+impl core::clone::Clone for oso_core::buffer::Runs
+pub fn oso_core::buffer::Runs::clone(&self) -> oso_core::buffer::Runs
+impl core::cmp::Eq for oso_core::buffer::Runs
+impl core::cmp::PartialEq for oso_core::buffer::Runs
+pub fn oso_core::buffer::Runs::eq(&self, &oso_core::buffer::Runs) -> bool
+impl core::fmt::Debug for oso_core::buffer::Runs
+pub fn oso_core::buffer::Runs::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::buffer::Runs
+impl core::marker::StructuralPartialEq for oso_core::buffer::Runs
+pub enum oso_core::buffer::Start
+pub oso_core::buffer::Start::ServerOpen
+pub oso_core::buffer::Start::ServerSave
+pub oso_core::buffer::Start::ServerStart
+impl oso_core::buffer::Start
+pub const oso_core::buffer::Start::ALL: [Self; 3]
+pub fn oso_core::buffer::Start::from_id(&str) -> core::option::Option<Self>
+pub const fn oso_core::buffer::Start::id(self) -> &'static str
+pub const fn oso_core::buffer::Start::runs(self) -> oso_core::buffer::Runs
+pub const fn oso_core::buffer::Start::shown(self) -> &'static str
+impl core::clone::Clone for oso_core::buffer::Start
+pub fn oso_core::buffer::Start::clone(&self) -> oso_core::buffer::Start
+impl core::cmp::Eq for oso_core::buffer::Start
+impl core::cmp::PartialEq for oso_core::buffer::Start
+pub fn oso_core::buffer::Start::eq(&self, &oso_core::buffer::Start) -> bool
+impl core::fmt::Debug for oso_core::buffer::Start
+pub fn oso_core::buffer::Start::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::buffer::Start
+pub fn oso_core::buffer::Start::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::buffer::Start
+impl core::marker::StructuralPartialEq for oso_core::buffer::Start
 pub enum oso_core::buffer::Verdict
 pub oso_core::buffer::Verdict::EchoOff
 pub oso_core::buffer::Verdict::Ordinary
@@ -191,6 +236,11 @@ pub fn oso_core::buffer::Buffer::highlights(&self) -> core::option::Option<&oso_
 pub fn oso_core::buffer::Buffer::splices_since(&self, u64) -> core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
 pub fn oso_core::buffer::Buffer::take_highlights(&mut self, u64, oso_core::syntax::Highlights) -> bool
 impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::carry_waits(&mut self, oso_core::buffer::Starts, oso_core::buffer::Starts)
+pub fn oso_core::buffer::Buffer::open_waits(&self) -> oso_core::buffer::Starts
+pub fn oso_core::buffer::Buffer::save_waits(&self) -> oso_core::buffer::Starts
+pub fn oso_core::buffer::Buffer::waits(&self) -> oso_core::buffer::Starts
+impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::naming(&self) -> u32
@@ -263,6 +313,31 @@ pub oso_core::buffer::Replacement::range: core::ops::range::Range<usize>
 pub oso_core::buffer::Replacement::text: &'a str
 impl<'a> core::clone::Clone for oso_core::buffer::Replacement<'a>
 pub fn oso_core::buffer::Replacement<'a>::clone(&self) -> oso_core::buffer::Replacement<'a>
+pub struct oso_core::buffer::Starts(_)
+impl oso_core::buffer::Starts
+pub const oso_core::buffer::Starts::NONE: Self
+pub const fn oso_core::buffer::Starts::contains(self, oso_core::buffer::Start) -> bool
+pub fn oso_core::buffer::Starts::in_oso(self) -> Self
+pub const fn oso_core::buffer::Starts::is_empty(self) -> bool
+pub fn oso_core::buffer::Starts::iter(self) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::buffer::Start>
+pub const fn oso_core::buffer::Starts::of(oso_core::buffer::Start) -> Self
+pub fn oso_core::buffer::Starts::programs(self) -> Self
+pub fn oso_core::buffer::Starts::shown(self) -> alloc::vec::Vec<&'static str>
+pub const fn oso_core::buffer::Starts::union(self, Self) -> Self
+pub const fn oso_core::buffer::Starts::with(self, oso_core::buffer::Start) -> Self
+impl core::clone::Clone for oso_core::buffer::Starts
+pub fn oso_core::buffer::Starts::clone(&self) -> oso_core::buffer::Starts
+impl core::cmp::Eq for oso_core::buffer::Starts
+impl core::cmp::PartialEq for oso_core::buffer::Starts
+pub fn oso_core::buffer::Starts::eq(&self, &oso_core::buffer::Starts) -> bool
+impl core::default::Default for oso_core::buffer::Starts
+pub fn oso_core::buffer::Starts::default() -> oso_core::buffer::Starts
+impl core::fmt::Debug for oso_core::buffer::Starts
+pub fn oso_core::buffer::Starts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::buffer::Starts
+pub fn oso_core::buffer::Starts::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::buffer::Starts
+impl core::marker::StructuralPartialEq for oso_core::buffer::Starts
 pub mod oso_core::command
 pub enum oso_core::command::ArgSpec
 pub oso_core::command::ArgSpec::BranchAndBaseOnPrefix
@@ -2195,6 +2270,11 @@ pub fn oso_core::editor::Editor::written_elsewhere(&mut self, oso_core::buffer::
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::newline(&mut self, &str, usize, bool, usize) -> core::result::Result<bool, oso_core::buffer::EditError>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::note_persons_command(&mut self)
+pub fn oso_core::editor::Editor::starts_on_open(&mut self, oso_core::buffer::BufferId, oso_core::buffer::Starts, oso_core::buffer::Acted) -> oso_core::buffer::Starts
+pub fn oso_core::editor::Editor::starts_on_save(&mut self, oso_core::buffer::BufferId, oso_core::buffer::Starts, oso_core::buffer::Acted) -> oso_core::buffer::Starts
+pub fn oso_core::editor::Editor::take_released_starts(&mut self) -> alloc::vec::Vec<(oso_core::buffer::BufferId, oso_core::buffer::Starts)>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::open_project_search(&mut self, std::path::PathBuf, &str, &'static str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::rows_found(&mut self, u64, alloc::vec::Vec<oso_core::editor::ProjectSearchRow>, core::option::Option<oso_core::editor::WalkEnd>)
 pub fn oso_core::editor::Editor::search_highlights(&self, usize, &str, &mut alloc::vec::Vec<core::ops::range::Range<usize>>) -> core::option::Option<usize>
@@ -2631,6 +2711,7 @@ pub oso_core::editor::Status::restricted: &'static str
 pub oso_core::editor::Status::selected: bool
 pub oso_core::editor::Status::sessions: alloc::string::String
 pub oso_core::editor::Status::state: alloc::string::String
+pub oso_core::editor::Status::waits: alloc::string::String
 pub oso_core::editor::Status::warnings: alloc::string::String
 impl oso_core::editor::Status
 pub fn oso_core::editor::Status::echo_warnings(&self) -> &str

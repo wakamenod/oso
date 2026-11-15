@@ -65,6 +65,7 @@ mod reviews;
 mod save;
 mod screen;
 mod sessions;
+mod starts;
 mod status;
 mod switch;
 mod tab;
@@ -1103,6 +1104,8 @@ mod reload_tests;
 mod reviews_tests;
 #[cfg(test)]
 mod save_tests;
+#[cfg(test)]
+mod starts_tests;
 #[cfg(test)]
 mod test_buffers;
 #[cfg(test)]

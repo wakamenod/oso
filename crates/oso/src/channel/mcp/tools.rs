@@ -104,7 +104,7 @@ fn reading_tools() -> Vec<Value> {
     vec![
         tool(
             "state",
-            "The editor's state: buffers, windows with their cursors and selections, the rows the selected window shows, the echo area, open prompts, and `undoing`, how far an undo or a redo of a large step is. What a buffer that may hold secrets would show is left out. A terminal's buffer has `kind` \"terminal\", `running`, and `agent_reads`, whether the person let agents read its rows.",
+            "The editor's state: buffers, windows with their cursors and selections, the rows the selected window shows, the echo area, open prompts, and `undoing`, how far an undo or a redo of a large step is. What a buffer that may hold secrets would show is left out. Each buffer's `waits` lists what this agent's open or save would have started there, such as a language server, which waits for the person. A terminal's buffer has `kind` \"terminal\", `running`, and `agent_reads`, whether the person let agents read its rows.",
             json!({
                 "buffer_offset": { "type": "integer", "minimum": 0, "description": "Where the list of buffers starts, for more than one state holds." },
             }),
@@ -155,7 +155,7 @@ fn acting_tools() -> Vec<Value> {
         ),
         tool(
             "change",
-            "Run a command that edits text or saves, such as `insert` with text. Saving a file this agent opened asks the person first.",
+            "Run a command that edits text or saves, such as `insert` with text. Saving a file this agent opened asks the person first. A save starts no program: what it would start, such as telling a language server, waits for the person's next save of that file, and the reply's `waits` says so. Tell the person, or run the tool yourself.",
             command,
             &["name"],
             false,
@@ -163,7 +163,7 @@ fn acting_tools() -> Vec<Value> {
         ),
         tool(
             "open",
-            "Open a file that exists, by its absolute path, at a line if given. A file that may hold secrets stays closed.",
+            "Open a file that exists, by its absolute path, at a line if given. A file that may hold secrets stays closed. Opening starts no program: what it would start, such as a language server, waits for the person's first command in that file, and the reply's `waits` says so.",
             json!({
                 "path": { "type": "string", "description": "An absolute path." },
                 "line": { "type": "integer", "minimum": 1 },

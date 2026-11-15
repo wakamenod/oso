@@ -137,13 +137,18 @@ impl fmt::Display for ExitRefused {
 }
 
 /// Why `buffer` cannot be saved now, if it cannot. Unmodified comes before no file,
-/// as in Emacs, where `C-x C-s` in an untouched `*scratch*` has nothing to do.
+/// as in Emacs, where `C-x C-s` in an untouched `*scratch*` has nothing to do. An unmodified
+/// buffer where an agent's save left something waiting saves all the same, so that the
+/// person's `C-x C-s` lets it go without an edit first (ADR 0118, Q3).
 pub(super) fn refusal(buffer: &Buffer) -> Option<SaveRefused> {
     if let Some(reason) = buffer.read_only() {
         Some(SaveRefused::ReadOnly(reason))
     } else if buffer.is_saving() {
         Some(SaveRefused::AlreadySaving)
-    } else if !buffer.is_modified() && !may_have_lost_its_file(buffer) {
+    } else if !buffer.is_modified()
+        && !may_have_lost_its_file(buffer)
+        && buffer.save_waits().is_empty()
+    {
         Some(SaveRefused::Unmodified)
     } else if buffer.path().is_none() {
         Some(SaveRefused::NoFile)

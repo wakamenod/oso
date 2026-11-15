@@ -359,6 +359,27 @@ mod tests {
     }
 
     #[test]
+    fn the_persons_key_lets_an_agents_open_go_and_the_agents_command_does_not() {
+        use oso_core::buffer::{Start, Starts};
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abcdef"));
+        let id = editor.window().buffer();
+        let server = Starts::of(Start::ServerStart);
+        editor
+            .buffer_mut(id)
+            .unwrap()
+            .carry_waits(server, Starts::NONE);
+        let (_, result) = dispatcher
+            .run_for_agent(&mut editor, "forward-char", Given::Count(1), Reach::Look)
+            .unwrap();
+        assert_eq!(result, Ok(()));
+        assert!(editor.take_released_starts().is_empty(), "the agent's");
+        let keys = "C-f".parse::<oso_core::key::KeySequence>().unwrap().0;
+        dispatcher.handle_keys(&mut editor, keys);
+        assert_eq!(editor.take_released_starts(), [(id, server)]);
+        assert!(editor.buffer(id).unwrap().waits().is_empty());
+    }
+
+    #[test]
     fn runs_a_look_command_with_a_count() {
         let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abcdef"));
         let (_, result) = dispatcher

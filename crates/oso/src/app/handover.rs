@@ -329,7 +329,7 @@ impl App {
         let mut scratch_text = None;
         let mut stand_for = Vec::new();
         for (entry, carried) in std::mem::take(&mut state.buffers).into_iter().zip(carried) {
-            let (opened_by_agent, wraps) = (entry.opened_by_agent, entry.wraps);
+            let (opened_by_agent, wraps, waits) = (entry.opened_by_agent, entry.wraps, entry.waits);
             if let Some(listing) = entry.listing {
                 named.push(self.listing_handed_over(listing, &mut added));
                 continue;
@@ -367,6 +367,11 @@ impl App {
                 if opened_by_agent && let Some(buffer) = self.editor.buffer_mut(buffer) {
                     buffer.mark_opened_by_agent();
                 }
+                // What waited for the person still does: a restart lets nothing go (ADR 0118).
+                if let Some(buffer) = self.editor.buffer_mut(buffer) {
+                    buffer.carry_waits(waits.0, waits.1);
+                }
+                self.starting.carried(buffer);
             }
             self.editor.set_wraps(buffer, wraps);
             named.push(buffer);

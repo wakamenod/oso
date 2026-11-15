@@ -46,6 +46,8 @@ pub(super) struct Agent {
     /// is the agent's too.
     answered: bool,
     log: Option<BufferId>,
+    /// The open marks the person's commands let go, for the host (ADR 0118).
+    pub(super) released: Vec<(BufferId, crate::buffer::Starts)>,
 }
 
 impl Editor {

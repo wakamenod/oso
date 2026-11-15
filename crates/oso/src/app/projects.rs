@@ -124,6 +124,8 @@ impl App {
         for (request, found) in answers {
             self.editor.project_found(&request, found);
         }
+        self.starting.ask();
+        self.settle_opens();
         self.request_redraw();
     }
 
@@ -142,6 +144,8 @@ impl App {
         for said in look.said {
             self.editor.message(said);
         }
+        self.starting.ask();
+        self.settle_opens();
         self.request_redraw();
     }
 }

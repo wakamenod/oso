@@ -875,3 +875,41 @@ gains `amended by 0138`.
   writing because oso stopped reading would look hung.
 - **Keeping diagnostics in the server's positions and converting while drawing:** each frame would
   pay for the conversion, and edits made since would move nothing.
+
+## As built
+
+### Step 1: what an agent's open or save starts (ADR 0118's code)
+
+- **`oso_core::buffer::Start`** lists the kinds, `ServerStart`, `ServerOpen` and `ServerSave`, each
+  with its `Runs` from an exhaustive match, an id for the handoff (`server-start` and so on) and
+  what is shown of it (`server`). `Starts` is a set of them. ADR 0118's list of oso's own work is
+  not routed through the enum: nothing in it runs a program, so `Runs::InOso` has no kind yet.
+- **Each buffer has two marks** (`open_waits`, `save_waits`). `Editor::starts_on_open` and
+  `starts_on_save` take the buffer, what would start for the person and who acted (`Acted`),
+  and return what runs now. A project that is not trusted runs and keeps nothing. Untrusting,
+  or a record that stops trusting a root, clears its buffers' marks.
+- **What lets an open's mark go** is `Editor::note_persons_command`, called after every command
+  `Dispatcher::execute` runs that is not the agent's, macro replays and the dev socket's keys
+  included, and after a click that selects a window. The host takes the marks let go
+  (`take_released_starts`) and works out again what would start.
+- **`app/starts.rs` settles each open once:** when the file has loaded, its project is found and
+  the record of trusted projects is read, after a load ends, a project is found or the record is
+  read. A buffer the agent opened is the agent's, unless a restart carried it. A save's starts
+  are settled as it ends, unless it failed, before the agent's reply goes, by who started it.
+- **The agent's reply** to `open` has `waits` (`"server waits for the person in lib.rs"`) when the
+  project was found by the time the file showed. Otherwise only `state` says so, a moment later.
+  The reply to a save has `waits` whenever its save holds something. `state`'s buffers list
+  `waits`, and its version is 2. The handoff carries `waits_open` and `waits_save` by id, only
+  when something waits, and leaves out an id the build does not know.
+- **`C-x C-s` in an unmodified buffer with a save waiting goes ahead.** The job writes only if the
+  file has gone, as for any unmodified buffer, and its end lets the mark go.
+- **The modeline** shows `waits: server` dim, after `restricted`. `*Agent*` says what waits, what
+  the person let go and, in a dev build run with `OSO_DEV_STARTS=1`, what the stand-in ran: it
+  makes a Rust file in a trusted project start a server on open and tell it of a save. Nothing
+  else starts yet. `just release-safety` passes, and a release binary holds neither the variable
+  nor the stand-in's words.
+- **Tests:** unit tests of each rule in `oso-core` (`editor/starts_tests.rs`, the modeline, the
+  save), a dispatcher test that the person's key lets go and the agent's command does not, the
+  handoff's format, a guard test listing the `Program` kinds (`app/starts.rs`), and the
+  end-to-end flow `starts.rs`: an agent's open waits for the person's key, an agent's save for
+  the person's `C-x C-s`, and a restricted project holds nothing.

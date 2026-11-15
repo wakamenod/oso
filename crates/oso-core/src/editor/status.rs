@@ -79,6 +79,10 @@ pub struct Status {
     /// `restricted` while that project is not trusted, which the host draws dim, or nothing
     /// (ADR 0114). It comes from the record of trusted projects alone, never from a name.
     pub restricted: &'static str,
+    /// `waits: server` while what an agent's open or save would have started waits for the
+    /// person, which the host draws dim, or nothing (ADR 0118). It comes from the buffer's marks
+    /// alone.
+    pub waits: String,
     /// Loading progress, the position, the major mode, the encoding and line endings.
     pub state: String,
     /// The echo area's line, as it comes from a message.
@@ -97,13 +101,14 @@ impl Status {
     /// The modeline as one string.
     pub fn modeline(&self) -> String {
         format!(
-            "{}{}{}{}{}{}{}",
+            "{}{}{}{}{}{}{}{}",
             self.agent,
             self.sessions,
             self.warnings,
             self.name,
             self.project,
             self.restricted,
+            self.waits,
             self.state
         )
     }
@@ -117,6 +122,23 @@ impl Status {
             ""
         }
     }
+}
+
+/// `waits: server  ` while something waits in `buffer` for the person (ADR 0118), each name
+/// once, or nothing.
+fn push_waits(out: &mut String, buffer: &Buffer) {
+    let shown = buffer.waits().shown();
+    if shown.is_empty() {
+        return;
+    }
+    out.push_str("waits: ");
+    for (n, name) in shown.into_iter().enumerate() {
+        if n > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(name);
+    }
+    out.push_str(GAP);
 }
 
 /// `--`, or `**` once modified, with `%` in the first place for a read-only buffer,
@@ -300,6 +322,8 @@ impl Editor {
             }
         }
 
+        status.waits.clear();
+        push_waits(&mut status.waits, buffer);
         let marker = marker(buffer);
         // These parts are ASCII, so their bytes are their cells.
         let others = status.agent.len()
@@ -310,6 +334,7 @@ impl Editor {
             + GAP.len()
             + text_cells(&status.project)
             + status.restricted.len()
+            + status.waits.len()
             + status.state.len();
         let columns = regions.modeline.columns;
         let cells = columns.saturating_sub(others).max(MIN_NAME_CELLS);
@@ -538,6 +563,34 @@ mod tests {
         assert_eq!(status(&editor).project, "oso  ");
         editor.set_trust_list(None);
         assert_eq!(status(&editor).restricted, RESTRICTED, "refused");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn what_waits_for_the_person_follows_restricted_and_goes_when_let_go() {
+        use crate::buffer::{Acted, Start, Starts};
+        let mut editor = file("main.rs", 80);
+        in_project(&mut editor, "/w/oso");
+        let (list, _) = crate::project::TrustList::parse("/w/oso\tdev=1 ino=2\n");
+        editor.set_trust_list(Some(list));
+        let id = editor.window().buffer();
+        assert_eq!(status(&editor).waits, "");
+        editor.starts_on_open(id, Starts::of(Start::ServerStart), Acted::Agent);
+        editor.starts_on_save(id, Starts::of(Start::ServerSave), Acted::Agent);
+        assert_eq!(status(&editor).waits, "waits: server  ", "each name once");
+        assert!(
+            status(&editor)
+                .modeline()
+                .contains("oso  waits: server  Loading")
+        );
+        editor.note_persons_command();
+        assert_eq!(
+            status(&editor).waits,
+            "waits: server  ",
+            "the save's still waits"
+        );
+        editor.starts_on_save(id, Starts::NONE, Acted::Person);
+        assert_eq!(status(&editor).waits, "");
     }
 
     #[test]
