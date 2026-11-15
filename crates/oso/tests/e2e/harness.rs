@@ -15,13 +15,13 @@ use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ExitStatus};
+use std::process::ExitStatus;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use oso_platform::control::{ControlDir, ControlStream, Socket};
-use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
+use oso_platform::process::{Child, Executable, Sink, Source, Spawn, spawn};
 use serde_json::{Value, json};
 
 use crate::png::Png;
@@ -603,13 +603,13 @@ impl App {
 
     /// Starts `oso mcp --pid PID`, reading its requests from `requests`, as a child's stdin
     /// is closed (ADR 0085). Its standard output is piped.
-    pub fn mcp(&self, requests: &Path) -> std::process::Child {
+    pub fn mcp(&self, requests: &Path) -> Child {
         self.mcp_claiming(requests, None)
     }
 
     /// [`App::mcp`], with `OSO_SESSION` set to `session`, as a hosted session's bridge has it
     /// (ADR 0121).
-    pub fn mcp_claiming(&self, requests: &Path, session: Option<&str>) -> std::process::Child {
+    pub fn mcp_claiming(&self, requests: &Path, session: Option<&str>) -> Child {
         let set: Vec<(&str, &std::ffi::OsStr)> = session
             .map(|id| ("OSO_SESSION", std::ffi::OsStr::new(id)))
             .into_iter()

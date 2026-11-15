@@ -12,12 +12,12 @@
 
 use std::ffi::OsStr;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, ChildStdin, ChildStdout};
+use std::process::{ChildStdin, ChildStdout};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::Instant;
 
-use oso_platform::process::{Sink, Source};
+use oso_platform::process::{Child, Sink, Source};
 
 use super::MAX_BLOB;
 use super::git::{self, Git, GitError};

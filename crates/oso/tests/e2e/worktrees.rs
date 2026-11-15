@@ -15,11 +15,11 @@ use std::fs;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ExitStatus};
+use std::process::ExitStatus;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
+use oso_platform::process::{Child, Executable, Sink, Source, Spawn, spawn};
 use serde_json::{Value, json};
 
 use super::config::set_mode;

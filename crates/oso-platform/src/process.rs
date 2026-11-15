@@ -18,16 +18,27 @@
 //! - [`start_time`] says when a process started, by its ID (ADR 0121).
 //! - A caller can pass one descriptor, which the child finds as its descriptor 3
 //!   ([`PassedFd`]): `oso-restart`'s end of the pair for the instance it starts (ADR 0133).
-//!   Every other descriptor of this process is close-on-exec in the child.
-//! - A spawn waits while a descriptor this process made is not yet close-on-exec
-//!   (`privacy::inheritance`), so that no child inherits one by chance.
+//! - On Unix a child gets only its standard streams and the descriptor passed, whatever else
+//!   this process holds, and is started with `posix_spawn`, never a fork, but a terminal's
+//!   child on macOS (`unix`, ADR 0137).
+//!   Windows starts it through the standard library's `Command` (`other`).
 //!
 //! In every build since the terminal ships (ADR 0120).
 
 #[cfg(unix)]
 mod account;
+mod child;
 pub mod pty;
 mod started;
+#[cfg(unix)]
+mod unix;
+
+#[cfg(not(unix))]
+use other as imp;
+#[cfg(unix)]
+use unix as imp;
+
+pub use child::Child;
 
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -35,7 +46,7 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::Stdio;
 
 /// Starts the log line of every spawn, so that a log can be searched for them.
 const SPAWN_MARKER: &str = "oso-process-spawn";
@@ -203,12 +214,8 @@ pub struct Spawn<'a> {
     /// and its controlling terminal, in a session of its own. `stdin` must then
     /// be [`Source::Closed`], `stdout` and `stderr` [`Sink::Inherit`], and
     /// `own_process_group` false.
-    /// Such a spawn forks this whole process, which can take milliseconds, so
-    /// it never runs on the UI thread.
     pub terminal: Option<&'a pty::Slave>,
-    /// A descriptor the child gets as its descriptor 3, with every other one of this process
-    /// closed to it. Not with `terminal`. Such a spawn forks this whole process too, so it
-    /// never runs on the UI thread.
+    /// A descriptor the child gets as its descriptor 3. Not with `terminal`.
     pub pass_fd: Option<PassedFd<'a>>,
 }
 
@@ -234,8 +241,7 @@ impl fmt::Debug for Spawn<'_> {
     }
 }
 
-/// Starts a process. It may wait while another thread makes a descriptor that is not yet
-/// close-on-exec, and a spawn with a terminal or a passed descriptor forks, so it never runs on
+/// Starts a process. It reads the file system to build the child's `PATH`, so it never runs on
 /// the UI thread.
 pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
     check(request)?;
@@ -270,90 +276,15 @@ pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
             .chain(request.set.iter().map(|(name, _)| OsStr::new(name)))
             .collect::<Vec<_>>(),
     );
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "this module is the one place allowed to spawn (ADR 0010)"
-    )]
-    let mut command = Command::new(request.executable.path());
-    command
-        .args(request.args)
-        .env_clear()
-        .envs(variables)
-        .env("PATH", path)
-        .envs(request.set.iter().copied())
-        .stdin(request.stdin)
-        .stdout(request.stdout)
-        .stderr(request.stderr);
-    if let Some(cwd) = request.cwd {
-        command.current_dir(cwd);
-    }
-    #[cfg(unix)]
-    if request.own_process_group {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    if let Some(terminal) = request.terminal {
-        pty::run_in(terminal, &mut command)?;
-    }
-    #[cfg(unix)]
-    let _held = match request.pass_fd {
-        Some(passed) => pass_in(passed.fd, &mut command)?,
-        None => None,
-    };
-    #[cfg(not(unix))]
-    if let Some(passed) = request.pass_fd {
-        match passed.never {}
-    }
-    let _starting = crate::privacy::inheritance::spawning();
-    command.spawn()
-}
-
-/// Gives the child `command` starts `fd` as its descriptor 3, and marks every other descriptor
-/// of this process close-on-exec in the child, as a terminal's child gets them (ADR 0133).
-/// Returns what holds descriptor 3 here until the spawn is over, if it was free.
-#[cfg(unix)]
-fn pass_in(fd: std::os::fd::BorrowedFd<'_>, command: &mut Command) -> io::Result<Option<fs::File>> {
-    use std::os::fd::AsRawFd;
-    use std::os::unix::process::CommandExt;
-
-    const PASSED: libc::c_int = crate::privacy::inheritance::INHERITED_FD;
-    let from = fd.as_raw_fd();
-    // The standard library's pipe that reports a failed `exec` must not be the descriptor the
-    // child puts `fd` at, or the child would close it. It takes the lowest free number, so a
-    // free descriptor 3 is held, until the spawn is over, by a file of nothing.
-    // SAFETY: `F_GETFD` reads the flags of a descriptor number and touches no memory.
-    let held = if from != PASSED && unsafe { libc::fcntl(PASSED, libc::F_GETFD) } < 0 {
-        Some(fs::File::open("/dev/null")?)
-    } else {
-        None
-    };
-    let last = pty::open_limit();
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the passed descriptor's child-side hook, in the process module (ADR 0133)"
-    )]
-    // SAFETY: the hook runs in the child between `fork` and `exec`, where only
-    // async-signal-safe functions may be called. It calls only `dup2` and `fcntl`, and
-    // `syscall` (`close_range`) and `fcntl` through `pty::mark_close_on_exec`, which are. It
-    // allocates nothing (an OS error is a number) and takes no lock. `dup2` makes a copy without
-    // close-on-exec, and the descriptor already there is the one copy that keeps it; marking the
-    // rest close-on-exec, rather than closing them, keeps the standard library's pipe that
-    // reports a failed `exec`, which is close-on-exec already.
-    unsafe {
-        command.pre_exec(move || {
-            let placed = if from == PASSED {
-                libc::fcntl(PASSED, libc::F_SETFD, 0)
-            } else {
-                libc::dup2(from, PASSED)
-            };
-            if placed < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            pty::mark_close_on_exec(PASSED + 1, last);
-            Ok(())
-        });
-    }
-    Ok(held)
+    let mut environment = variables;
+    environment.push(("PATH".into(), path));
+    environment.extend(
+        request
+            .set
+            .iter()
+            .map(|&(name, value)| (OsString::from(name), value.to_owned())),
+    );
+    imp::start(request, &environment)
 }
 
 /// Refuses what [`Spawn`] says it refuses.
@@ -485,6 +416,85 @@ fn is_executable(path: &Path) -> bool {
 #[cfg(not(unix))]
 fn is_executable(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
+}
+
+/// The standard library's `Command` for `request`, with exactly the variables of `environment`,
+/// the last of a name winning: where oso does not start a child by hand, Windows, and a
+/// terminal's child on macOS (ADR 0137).
+#[cfg(any(not(unix), target_os = "macos"))]
+fn command(request: &Spawn<'_>, environment: &[(OsString, OsString)]) -> std::process::Command {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "this module is the one place allowed to spawn (ADR 0010)"
+    )]
+    let mut command = std::process::Command::new(request.executable.path());
+    command
+        .args(request.args)
+        .env_clear()
+        .envs(environment.iter().map(|(name, value)| (name, value)));
+    if let Some(cwd) = request.cwd {
+        command.current_dir(cwd);
+    }
+    command
+}
+
+/// Starting a child where oso does not start it by hand: Windows, through the standard
+/// library's `Command` (ADR 0137). There is no terminal (ConPTY is later, ADR 0120) and no
+/// descriptor to pass, so no value of either reaches it.
+#[cfg(not(unix))]
+mod other {
+    use std::ffi::OsString;
+    use std::io;
+    use std::process::ExitStatus;
+
+    use super::{Child, Spawn};
+
+    /// A process the standard library started, its pipes taken out into [`Child`].
+    #[derive(Debug)]
+    pub(super) struct Process(std::process::Child);
+
+    /// Starts the child `request` asks for, with exactly the variables of `environment`, the last
+    /// of a name winning.
+    pub(super) fn start(
+        request: &Spawn<'_>,
+        environment: &[(OsString, OsString)],
+    ) -> io::Result<Child> {
+        if let Some(slave) = request.terminal {
+            slave.never();
+        }
+        if let Some(passed) = request.pass_fd {
+            match passed.never {}
+        }
+        let mut child = super::command(request, environment)
+            .stdin(request.stdin)
+            .stdout(request.stdout)
+            .stderr(request.stderr)
+            .spawn()?;
+        Ok(Child {
+            stdin: child.stdin.take(),
+            stdout: child.stdout.take(),
+            stderr: child.stderr.take(),
+            process: Process(child),
+        })
+    }
+
+    impl Process {
+        pub(super) fn id(&self) -> u32 {
+            self.0.id()
+        }
+
+        pub(super) fn wait(&mut self) -> io::Result<ExitStatus> {
+            self.0.wait()
+        }
+
+        pub(super) fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
+            self.0.try_wait()
+        }
+
+        pub(super) fn kill(&mut self) -> io::Result<()> {
+            self.0.kill()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -779,5 +789,91 @@ mod tests {
             io::ErrorKind::NotFound
         );
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn no_spawn_forks_but_a_terminals_on_macos() {
+        use super::{PassedFd, Sink, Source, Spawn, pty, spawn};
+        use std::os::fd::AsFd;
+        use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+
+        // Forks on this test's thread from here on: the prepare handler `pthread_atfork`
+        // stores runs on the forking thread before every `fork`, and `posix_spawn` runs none.
+        // Statics, as the handler takes no argument; they live only in this test.
+        static WATCHED: AtomicUsize = AtomicUsize::new(0);
+        static FORKS: AtomicU32 = AtomicU32::new(0);
+        extern "C" fn counted() {
+            // SAFETY: `pthread_self` takes nothing and cannot fail.
+            if unsafe { libc::pthread_self() } as usize == WATCHED.load(Ordering::SeqCst) {
+                FORKS.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        // SAFETY: `pthread_self` takes nothing and cannot fail.
+        WATCHED.store(unsafe { libc::pthread_self() } as usize, Ordering::SeqCst);
+        // SAFETY: `pthread_atfork` stores the handler, a function that lives as long as the
+        // process and only reads and adds to atomics.
+        let registered = unsafe { libc::pthread_atfork(Some(counted), None, None) };
+        assert_eq!(registered, 0);
+        let forks = |request: Spawn<'_>| {
+            let before = FORKS.load(Ordering::SeqCst);
+            assert!(spawn(&request).unwrap().wait().unwrap().success());
+            FORKS.load(Ordering::SeqCst) - before
+        };
+        let sh = Executable::absolute("/bin/sh").unwrap();
+        let args = ["-c".into(), "true".into()];
+        let plain = Spawn {
+            executable: &sh,
+            args: &args,
+            cwd: None,
+            project: None,
+            inherit: &[],
+            stdin: Source::Closed,
+            stdout: Sink::Null,
+            stderr: Sink::Null,
+            own_process_group: false,
+            set: &[],
+            terminal: None,
+            pass_fd: None,
+        };
+        let (_reader, writer) = std::io::pipe().unwrap();
+        let size = pty::Size {
+            rows: 24,
+            columns: 80,
+            width: 0,
+            height: 0,
+        };
+        let (_master, slave) = pty::open(size).unwrap();
+        let piped = Spawn {
+            stdin: Source::Piped,
+            stdout: Sink::Piped,
+            stderr: Sink::Piped,
+            ..plain
+        };
+        let grouped = Spawn {
+            own_process_group: true,
+            ..plain
+        };
+        let passed = Spawn {
+            pass_fd: Some(PassedFd::new(writer.as_fd())),
+            ..plain
+        };
+        let in_terminal = Spawn {
+            stdout: Sink::Inherit,
+            stderr: Sink::Inherit,
+            terminal: Some(&slave),
+            ..plain
+        };
+        for (name, request) in [
+            ("plain", plain),
+            ("piped", piped),
+            ("in a group of its own", grouped),
+            ("with a descriptor passed", passed),
+        ] {
+            assert_eq!(forks(request), 0, "{name}");
+        }
+        // Only a child's own `TIOCSCTTY` gives macOS a controlling terminal (ADR 0137).
+        let expected = u32::from(cfg!(target_os = "macos"));
+        assert_eq!(forks(in_terminal), expected, "in a terminal");
     }
 }
