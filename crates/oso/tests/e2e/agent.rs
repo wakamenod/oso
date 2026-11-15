@@ -525,10 +525,10 @@ fn oso_mcp_drives_the_editor_once_the_person_lets_it_in() {
         "no response to the notification: {output}"
     );
     assert_eq!(responses[0]["result"]["serverInfo"]["name"], "oso");
-    // The editor's 7 and the session tools of ADR 0121 step 6a.
+    // The editor's 7, the session tools of ADR 0121 step 6a, and ADR 0136's space_status.
     assert_eq!(
         responses[1]["result"]["tools"].as_array().unwrap().len(),
-        13
+        14
     );
     let text = |response: &Value| {
         response["result"]["content"][0]["text"]
