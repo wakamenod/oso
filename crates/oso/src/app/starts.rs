@@ -120,11 +120,12 @@ impl App {
 
     /// A save of `id` ended: unless it failed, what it starts runs, or waits if it was the
     /// agent's; the person's lets go what an agent's save left waiting there.
-    pub(super) fn save_starts(&mut self, id: BufferId, failed: bool) {
+    /// Returns who started it, a save no one here started being the agent's.
+    pub(super) fn save_starts(&mut self, id: BufferId, failed: bool) -> Acted {
         // A save no one here started is taken as the agent's, so that it runs nothing.
         let by = self.starting.saves.remove(&id).unwrap_or(Acted::Agent);
         if failed {
-            return;
+            return by;
         }
         let held = self
             .editor
@@ -138,6 +139,7 @@ impl App {
             Acted::Agent => self.log_held(id, true),
         }
         self.run_starts(id, runs);
+        by
     }
 
     /// What waits in `id` for the person after an agent's open, or its save if `save`, as the

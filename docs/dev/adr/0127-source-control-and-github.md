@@ -592,6 +592,9 @@ agent, after ADR 0122's step 12. The plan's questions were answered (a) each:
   entries on one line may not use each other.
 - **One wording:** the worktree jobs' "Cannot make oso's directory for git" is now the status's
   "cannot make oso's directory for git", as one helper says it for both.
+- **Who saved:** a save's end asks ADR 0118's record of who started it (`Starting::saves`)
+  instead of the agent's list of saves under way, so that a save no one here started counts as
+  the agent's and only marks the status stale (the author's choice, 2026-11-16).
 
 ## Sources
 
