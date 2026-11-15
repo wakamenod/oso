@@ -184,6 +184,7 @@ impl Editor {
         if changed.is_empty() {
             return;
         }
+        self.drop_untrusted_waits();
         let again: Vec<BufferId> = self
             .buffers
             .iter()

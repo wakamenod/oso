@@ -65,9 +65,12 @@ impl App {
         if let Some(why) = failure {
             self.agent_log(&format!("save: {why}"));
         }
-        let _ = saving
-            .reply
-            .send(save_reply(saving.done, failure, report.wrote()));
+        let mut done = saving.done;
+        // What the save would have started waits for the person (ADR 0118, Q6).
+        if let Some(note) = self.waits_note(saving.buffer, true) {
+            done["waits"] = json!(note);
+        }
+        let _ = saving.reply.send(save_reply(done, failure, report.wrote()));
     }
 
     /// Replies `why` to the request whose save of `buffer` waited for a whitespace scan and

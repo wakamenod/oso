@@ -44,6 +44,7 @@ mod sessions_tree;
 mod space_handover;
 mod space_tools;
 mod spaces;
+mod starts;
 mod terminal;
 mod undo;
 mod windows;

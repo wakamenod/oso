@@ -111,6 +111,7 @@ fn flashing_grid(editor: &Editor, flashing: bool) -> String {
             &status.name[..],
             &status.project[..],
             status.restricted,
+            &status.waits[..],
             &status.state[..],
         ];
         let edge = if status.selected { '=' } else { '-' };

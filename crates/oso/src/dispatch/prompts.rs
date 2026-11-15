@@ -545,8 +545,11 @@ impl Dispatcher {
         self.resolver.reset();
         self.forget_keys(editor);
         self.show_keys_in_progress(editor);
+        // Any process may ask the window to close, so it lets no mark go (ADR 0118).
         let effects = self
-            .execute(editor, id, Args::NONE, Invocation::default(), Step::MayJoin)
+            .not_as_input(|this| {
+                this.execute(editor, id, Args::NONE, Invocation::default(), Step::MayJoin)
+            })
             .0;
         let effects = effects.union(self.after_prompts(editor));
         // The question takes the keys from an open menu, which closes, as it would from a key

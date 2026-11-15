@@ -43,6 +43,7 @@ mod saves;
 mod searches;
 mod sessions;
 mod slices;
+mod starts;
 mod syntax;
 mod terminals;
 mod theme_file;
@@ -266,6 +267,8 @@ pub struct App {
     log_gate: LogGate,
     /// The agent channel, once the person turns it on (ADR 0085).
     agent: agent::Agent,
+    /// What opening and saving files start, and what waits for the person (ADR 0118).
+    starting: starts::Starting,
     /// The cursor flash fading after a large jump (ADR 0097).
     flash: flash::Flash,
     /// The terminals, by their buffers, and what they share (ADR 0120).
@@ -345,8 +348,7 @@ impl App {
         let projects = projects::detector(&waker);
         let (home_dir, editorconfigs) = projects::editorconfig_reader(&waker);
         let walker = walks::walker(&waker);
-        let grep = greps::grep(&waker);
-        let previewer = greps::previewer(&waker);
+        let (grep, previewer) = (greps::grep(&waker), greps::previewer(&waker));
         let sessions = sessions::worker(&waker, theme_directory.as_deref());
         let mut editor = starting_editor();
         let themes = theme_names();
@@ -405,6 +407,7 @@ impl App {
             reviews: reviews::Reviews::default(),
             log_gate,
             agent: agent::Agent::default(),
+            starting: starts::Starting::new(),
             flash: flash::Flash::default(),
             terminals: terminals::Host::new(),
             jump_timer: jumps::JumpTimer::default(),
@@ -490,6 +493,8 @@ impl App {
         self.start_walks();
         self.start_project_search();
         self.start_saves();
+        self.start_released();
+        self.settle_opens();
         self.start_trims();
         self.start_searches();
         self.start_reverts();

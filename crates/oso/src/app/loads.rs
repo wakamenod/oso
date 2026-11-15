@@ -192,6 +192,7 @@ impl App {
             }
         }
         self.reply_to_import();
+        self.settle_opens();
     }
 
     /// Starts filling an internal buffer with a copy's text.
@@ -252,6 +253,7 @@ impl App {
                     self.timings.load_first_content(load.started);
                 }
                 if done {
+                    self.starting.ask();
                     no_baseline = buffer.baseline().is_none() && !buffer.is_internal();
                     self.scan_for_copies |= !buffer.is_internal();
                     if timed {

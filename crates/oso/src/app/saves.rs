@@ -8,7 +8,7 @@
 
 use std::time::Instant;
 
-use oso_core::buffer::BufferId;
+use oso_core::buffer::{Acted, BufferId};
 
 use super::shell::Loop;
 use super::{App, UserEvent};
@@ -63,7 +63,15 @@ impl App {
             };
             log::trace!("save started in {:?}", started.elapsed());
             match spawned {
-                Ok(()) => started_saves.push(buffer),
+                Ok(()) => {
+                    let by = if for_agent {
+                        Acted::Agent
+                    } else {
+                        Acted::Person
+                    };
+                    self.starting.save_started(buffer, by);
+                    started_saves.push(buffer);
+                }
                 Err(e) => {
                     let report = SaveReport::not_started(buffer, path, e);
                     failed = failed.or_else(|| report.agent_failure());
@@ -80,6 +88,8 @@ impl App {
     pub(super) fn save_ended(&mut self, event_loop: &Loop<'_>, report: SaveReport) {
         let failed = report.failed();
         let (buffer, confirmed) = (report.buffer(), report.reached_the_disk());
+        // What the save starts is settled first, so that the agent's reply says what waits.
+        self.save_starts(buffer, failed);
         self.agent_save_ended(&report);
         saver::apply(&mut self.editor, report);
         self.look_again_after_save(buffer);

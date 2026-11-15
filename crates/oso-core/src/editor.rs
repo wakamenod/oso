@@ -65,6 +65,7 @@ mod reviews;
 mod save;
 mod screen;
 mod sessions;
+mod starts;
 mod status;
 mod switch;
 mod tab;
@@ -257,8 +258,7 @@ pub struct Editor {
     terminal_requests: Vec<TerminalRequest>,
     /// The isearch under way in the selected window (ADR 0082).
     isearch: Option<Isearch>,
-    /// Migemo's setting, its dictionary, and the needles of the last romaji strings
-    /// (ADR 0116).
+    /// Migemo's setting, its dictionary, and the last romaji strings' needles (ADR 0116).
     migemo: migemo::Migemo,
     /// The jump under way, and the keys its labels are typed with (ADR 0116).
     jump: Option<crate::jump::Jump>,
@@ -1105,6 +1105,8 @@ mod reload_tests;
 mod reviews_tests;
 #[cfg(test)]
 mod save_tests;
+#[cfg(test)]
+mod starts_tests;
 #[cfg(test)]
 mod test_buffers;
 #[cfg(test)]
