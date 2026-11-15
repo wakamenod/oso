@@ -191,15 +191,16 @@ one layer:
 | Syntax | tree-sitter highlights | computed in the background, swapped atomically; a map of runs that follows edits until the next report, coloured after shaping ([ADR 0111](adr/0111-tree-sitter-highlighting.md)) |
 | Search | isearch matches | built in M2-20 as rectangles of the view's cells, worked out each frame ([ADR 0082](adr/0082-isearch.md)) |
 | Diagnostics | LSP errors and warnings | underline styles and gutter signs |
-| Modes | dired file lines, git sections and hunks | carry typed data; a directory listing keeps what each line names in the host, beside the buffer, never in its text ([ADR 0134](adr/0134-a-directory-editor.md)) |
+| Modes | dired file lines, git sections and hunks | carry typed data; a directory listing keeps what each line names in the host, beside the buffer, never in its text ([ADR 0134](adr/0134-a-directory-editor.md)), as a git status does ([ADR 0127](adr/0127-source-control-and-github.md)) |
 | Selections | regions of every cursor | built in M2-13 as rectangles of the frame's cells, not as a layer ([ADR 0071](adr/0071-mark-and-region.md)) |
 
 - Anchors shift with edits, so decorations stay attached to the right text.
 - Decorations do **not** travel with text on copy and yank. This differs from
   Emacs text properties and is deliberate: it keeps async highlighting simple.
 - A semantic decoration can carry arbitrary typed data and a **keymap at
-  point**. For example, `s` stages the hunk under the cursor in the git status
-  buffer.
+  point**. The git status buffer does without one: its mode's keymap sends the
+  cursors' lines, and the host's table says what each line is
+  ([ADR 0127](adr/0127-source-control-and-github.md)).
 - Replace-style decorations (concealment, link descriptions) feed the
   InlayMap.
 

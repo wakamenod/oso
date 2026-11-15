@@ -45,6 +45,7 @@ mod cursors;
 mod excerpt;
 mod files;
 mod follow;
+mod git;
 mod gutter;
 mod indent;
 mod isearch;
@@ -89,6 +90,7 @@ pub use copies::RecoveryAction;
 pub use crossing::Crossing;
 pub use cursors::{CursorError, Toward};
 pub use files::Looked;
+pub use git::{GitHeading, GitLines, GitRequest, GitShown};
 pub use gutter::Gutter;
 pub use indent::{IndentError, Shift};
 pub use isearch::{Isearch, MatchCells};
@@ -176,8 +178,7 @@ pub struct Editor {
     /// While a command runs, whether it has taken a buffer that may hold secrets off the
     /// screen. This holds whatever then becomes of that buffer.
     command_left_secret: Option<bool>,
-    /// A file a write to a new place found, which the next `C-x C-w` of it asks to write over
-    /// (ADR 0087).
+    /// A file a write to a new place found, which the next `C-x C-w` asks to write over (ADR 0087).
     write_over_asked: Option<write::WriteOver>,
     /// What the prompt that reads a path keeps beside its candidates (ADR 0087).
     file_list: files::FileList,
@@ -191,8 +192,7 @@ pub struct Editor {
     completion_work: completion::CompletionWork,
     /// Files commands asked to visit, with the most bytes each may read, for the host.
     visits: Vec<(std::path::PathBuf, u64)>,
-    /// A file a load stopped before reading as too large, with its size, which `C-x C-f` asks
-    /// about next (ADR 0087).
+    /// A file a load stopped as too large, with its size, which `C-x C-f` asks about (ADR 0087).
     large: Option<(std::path::PathBuf, u64)>,
     /// The directory oso started in.
     start_directory: std::path::PathBuf,
@@ -218,8 +218,7 @@ pub struct Editor {
     /// The keys in progress were typed, or stayed, while a buffer that may hold secrets was
     /// shown, so the control socket leaves them out until they end.
     keys_withheld: bool,
-    /// The composition was open while such a buffer was shown, so the control socket leaves it
-    /// out until it ends.
+    /// The composition was open while such a buffer was shown, so the socket leaves it out too.
     preedit_withheld: bool,
     /// Saves the host has yet to start.
     save_jobs: Vec<SaveJob>,
@@ -245,8 +244,7 @@ pub struct Editor {
     next_prompt: u64,
     /// The command running got a passphrase, so what it says stays out of the log.
     passphrase_command: bool,
-    /// The buffer a question about saving over its changed file was asked of, so that `y`
-    /// saves that buffer and no other.
+    /// The buffer a question about saving over its changed file was asked of: `y` saves it.
     save_over_asked: Option<BufferId>,
     /// The kill ring, and whether the command before killed (ADR 0074).
     kills: kill::Kills,
@@ -304,6 +302,7 @@ pub struct Editor {
     macros: macros::Macros,
     reviews: reviews::Reviews,
     listings: listings::Listings,
+    git: git::Statuses,
 }
 
 impl Default for Editor {
@@ -402,6 +401,7 @@ impl Editor {
             macros: macros::Macros::default(),
             reviews: reviews::Reviews::default(),
             listings: listings::Listings::default(),
+            git: git::Statuses::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(FIRST_WINDOW, id));

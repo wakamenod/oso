@@ -1,0 +1,31 @@
+---
+source: crates/oso/src/vcs/layout/tests.rs
+expression: grid(&laid)
+---
+other   |Head:     main 1111111 Add the first file
+        |          bbbb hhhhhhh
+other   |Upstream: origin/main  ahead 2, behind 0
+        |          rrrrrrrrrrrccccccccccccccccccc
+other   |
+heading |Unmerged paths (1)
+        |HHHHHHHHHHHHHHcccc
+file    |UU both.rs
+other   |
+heading |Untracked files (1)
+        |HHHHHHHHHHHHHHHcccc
+file    |?  notes.txt
+other   |
+heading |Unstaged changes (2)
+        |HHHHHHHHHHHHHHHHcccc
+file    |M  src/a.rs  +2 -2
+        |           ccccccc
+file    |M  .env  +1 -0
+        |       ccccccc
+other   |
+heading |Staged changes (2)
+        |HHHHHHHHHHHHHHcccc
+file    |M  src/a.rs  +2 -2
+        |           ccccccc
+file    |R  old.rs -> new.rs  +0 -0
+        |                   ccccccc
+end     |

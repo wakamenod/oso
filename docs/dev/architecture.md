@@ -325,7 +325,8 @@ A panicking command is caught at the command boundary
   `C-x TAB` is open, whose arrows shift the region until another key closes it
   ([ADR 0115](adr/0115-indentation.md)), a major mode layer in the buffers that show emergency
   copies, in a prompt, in a Markdown buffer (`M-RET`), in a directory listing
-  ([ADR 0134](adr/0134-a-directory-editor.md)) and in a terminal, whose keymap holds session
+  ([ADR 0134](adr/0134-a-directory-editor.md)), in a git status
+  ([ADR 0127](adr/0127-source-control-and-github.md)) and in a terminal, whose keymap holds session
   mode's keys too in a terminal that hosts an agent session ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)), with the user's
   `[keys.session]` as a minor mode layer above it there, and a layer for the user's keys, which
   the configuration file fills ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
@@ -488,7 +489,7 @@ loop. Render errors are logged and are never fatal.
 | Buffer kind | Backing | Examples |
 |---|---|---|
 | File | rope loaded from disk | source files, notes |
-| Generated | rope produced by a mode, read-only by default | git status, directory listings ([ADR 0134](adr/0134-a-directory-editor.md)), compile output, help |
+| Generated | rope produced by a mode, read-only by default | git status ([ADR 0127](adr/0127-source-control-and-github.md)), directory listings ([ADR 0134](adr/0134-a-directory-editor.md)), compile output, help |
 | Internal | rope the editor keeps for itself, not the user's work | `*Messages*`, `*Emergency Copies*` and a copy being looked at |
 | Terminal | `oso-term` cell grid, owned by the terminal's thread | shells, project terminals, the floating terminal, compile output |
 
@@ -611,6 +612,14 @@ The UI thread never blocks on I/O or parsing:
   from the listed directory's descriptor, after the questions the UI asked. It reports how far
   it got and how it ended (`UserEvent::FileOps`), and `C-g` stops it between two entries
   ([ADR 0134](adr/0134-a-directory-editor.md)).
+- A git status is read on a thread of its own per status buffer, `oso-vcs`
+  (`crates/oso/src/vcs.rs`, glue in `app/vcs.rs`), only for a trusted project's root, through
+  `review`'s git runner: `git status --porcelain=v2 -z`, `git diff --numstat -z` and an open
+  file's patch, each bounded, then laid out there into a rope with its display map, highlights,
+  outline and a table of what each line is about. The UI swaps it in at O(1)
+  (`Editor::set_git_text`), each window's point kept on its hunk, file or section. Staging runs
+  there too, with paths on standard input and a hunk as git's own patch
+  ([ADR 0127](adr/0127-source-control-and-github.md)).
 - A prompt's list past 5000 candidates is built and matched on a thread of its own
   (`app/completions.rs`), from a job `oso_core::complete` makes over `Arc` snapshots, superseded
   by the next through a generation. The rows shown stay and the count says `…` until the result

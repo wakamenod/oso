@@ -51,6 +51,14 @@ impl App {
     }
 
     /// A save has ended: the request that started it, if one waits, hears how it went.
+    /// Whether the agent asked for the save of `buffer` under way.
+    pub(in crate::app) fn agent_saving(&self, buffer: oso_core::buffer::BufferId) -> bool {
+        self.agent
+            .saving
+            .iter()
+            .any(|saving| saving.buffer == buffer)
+    }
+
     pub(in crate::app) fn agent_save_ended(&mut self, report: &crate::saver::SaveReport) {
         let Some(index) = self
             .agent

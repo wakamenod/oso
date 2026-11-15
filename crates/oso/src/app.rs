@@ -48,6 +48,7 @@ mod syntax;
 mod terminals;
 mod theme_file;
 mod trims;
+mod vcs;
 mod walks;
 mod wraps;
 // The window system: oso's own layer on macOS, and winit on Windows and Linux (ADR 0070,
@@ -144,6 +145,8 @@ pub enum UserEvent {
     Migemo(Box<migemo::DictionaryRead>),
     /// A review's threads, or the review menu's counts, reported (ADR 0122).
     Review(reviews::ReviewEvent),
+    /// A git status buffer's thread reported (ADR 0127).
+    Git(vcs::GitEvent),
     /// A terminal's thread has a snapshot ready (ADR 0120).
     Terminal(oso_core::buffer::BufferId),
     /// A terminal's start thread found the shell and started it, or could not.
@@ -262,6 +265,8 @@ pub struct App {
     watch: sessions::Watch,
     /// The open reviews' threads and the review menu's counts (ADR 0122).
     reviews: reviews::Reviews,
+    /// The git status buffers and their threads (ADR 0127).
+    gits: vcs::GitStatuses,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -295,6 +300,16 @@ pub struct App {
 struct ShownTheme {
     index: usize,
     default: String,
+}
+
+impl ShownTheme {
+    /// The first theme, with `default` as the configured one.
+    fn first(default: &str) -> Self {
+        Self {
+            index: 0,
+            default: default.to_owned(),
+        }
+    }
 }
 
 /// The thread that drops what the UI thread is done with, or none if it could not start.
@@ -353,10 +368,7 @@ impl App {
         let mut editor = starting_editor();
         let themes = theme_names();
         let configuration = configuration::Configuration::new(&themes);
-        let remembered_theme = ShownTheme {
-            index: 0,
-            default: configuration.default_theme().to_owned(),
-        };
+        let remembered_theme = ShownTheme::first(configuration.default_theme());
         editor.set_themes(themes.clone(), 0);
         Self {
             view: None,
@@ -405,6 +417,7 @@ impl App {
             trust_file: None,
             sessions,
             reviews: reviews::Reviews::default(),
+            gits: vcs::GitStatuses::default(),
             log_gate,
             agent: agent::Agent::default(),
             starting: starts::Starting::new(),
@@ -499,6 +512,7 @@ impl App {
         self.start_searches();
         self.start_reverts();
         self.sync_reviews();
+        self.sync_git(true, false);
         self.answer_about_copies();
         self.remember_theme();
         if effects.redraw {

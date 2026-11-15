@@ -37,6 +37,8 @@ pub enum Mode {
     Terminal,
     /// A directory's listing, as Emacs's dired shows it (ADR 0134).
     Directory,
+    /// A repository's status, as magit's status buffer shows it (ADR 0127).
+    GitStatus,
 }
 
 impl Mode {
@@ -79,6 +81,7 @@ impl Mode {
             Self::Review => "Review",
             Self::Terminal => "Terminal",
             Self::Directory => "Dired",
+            Self::GitStatus => "Git",
         }
     }
 
@@ -106,6 +109,7 @@ impl Mode {
             | Self::Review
             | Self::Terminal
             | Self::Directory
+            | Self::GitStatus
             | Self::Sessions => None,
         }
     }

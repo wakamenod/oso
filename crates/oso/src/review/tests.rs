@@ -29,13 +29,13 @@ pub(crate) fn scratch_dir(name: &str) -> PathBuf {
 }
 
 /// A temporary repository, with a state directory beside it.
-pub(super) struct Repo {
-    pub(super) dir: PathBuf,
-    pub(super) root: PathBuf,
+pub(crate) struct Repo {
+    pub(crate) dir: PathBuf,
+    pub(crate) root: PathBuf,
 }
 
 impl Repo {
-    pub(super) fn new(name: &str) -> Repo {
+    pub(crate) fn new(name: &str) -> Repo {
         let dir = scratch_dir(name);
         let root = dir.join("repo");
         fs::create_dir(&root).unwrap();
@@ -46,7 +46,7 @@ impl Repo {
 
     /// Runs git in the repository for the test's own setup, with a fixed identity and no
     /// configuration of the person's.
-    pub(super) fn git(&self, args: &[&str]) -> Vec<u8> {
+    pub(crate) fn git(&self, args: &[&str]) -> Vec<u8> {
         use std::io::Read;
         let git = Executable::from_path("git", None).expect("git is on PATH");
         let mut all: Vec<OsString> = [
@@ -82,13 +82,13 @@ impl Repo {
         out
     }
 
-    pub(super) fn write(&self, path: &str, text: &[u8]) {
+    pub(crate) fn write(&self, path: &str, text: &[u8]) {
         let path = self.root.join(path);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, text).unwrap();
     }
 
-    pub(super) fn commit(&self, message: &str) {
+    pub(crate) fn commit(&self, message: &str) {
         self.git(&["add", "-A"]);
         self.git(&["commit", "-q", "-m", message]);
     }

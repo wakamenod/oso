@@ -41,6 +41,7 @@ mod scroll;
 mod session;
 mod terminal;
 mod theme;
+pub(crate) mod vcs;
 mod view;
 mod whitespace;
 mod windows;
@@ -118,6 +119,7 @@ const TABLES: &[&[Command]] = &[
     agent_sessions::SPACE_COMMANDS,
     terminal::COMMANDS,
     theme::COMMANDS,
+    vcs::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
     windows::COMMANDS,
@@ -385,6 +387,15 @@ mod tests {
         "terminal-send-interrupt",
         "terminal-send-next-key",
         "terminal-yank",
+        // A git status runs git, which stages and unstages, and visits a file (ADR 0127).
+        "git-refresh",
+        "git-stage",
+        "git-stage-all",
+        "git-status",
+        "git-toggle",
+        "git-unstage",
+        "git-unstage-all",
+        "git-visit",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).

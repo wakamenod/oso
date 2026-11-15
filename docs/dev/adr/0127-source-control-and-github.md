@@ -478,6 +478,105 @@ Each passage stays in its ADR as written; what holds now follows it.
 - **An agent tool that commits or pushes:** ADR 0121 keeps pushes from agents, and a commit is the
   person's to make.
 
+## As built
+
+### The build plan (2026-11-15)
+
+The author approved a plan of eleven pull requests, splitting the ADR's steps: 1a the status
+buffer with staging and unstaging by section, file and hunk; 1b committing and `*git log: NAME*`;
+1c discarding and staging lines; 2 remotes, with the unpushed, unpulled and recent sections and
+fixup and squash at point; 3 branches, stashes and a stopped merge's continue and abort; 4 the
+graph; 5a pull requests; 5b issues and each worktree's pull request; 6a `draft_set` and "Fix with
+AI", right after 1c, as ADR 0121's `session-send` is there; 6b checks and review comments to the
+agent, after ADR 0122's step 12. The plan's questions were answered (a) each:
+
+1. The split above; daily use starts after 1b.
+2. 6a right after 1c; 6b after ADR 0122's step 12.
+3. `l` in the status opens magit's log menu, `l l` the current branch, `l a` all refs and `l o`
+   another, each opening the graph.
+4. A file that may hold secrets is discarded with no copy, and the question says so: a loose
+   object can be read more widely than a `0600` file.
+5. `*git discarded*`'s record is kept on disk in oso's state directory per repository, ids,
+   paths and times but never contents, each entry for 14 days.
+6. `C-g` on a long run: on Unix git runs in a process group of its own, which gets `SIGTERM`,
+   then `SIGKILL` after 5 s, so that a hook's children stop too; on Windows git alone.
+7. `C-x C-c` lists running git work with the rest (ADR 0133) and asks; quitting ends the group.
+8. The parsers' fuzzing is property tests over any bytes, inside `just ci`.
+9. Step 1a's 10,000-file scenario is reported only.
+
+### Step 1a: the status buffer
+
+- **What it is:** `git-status` (`C-x g`) shows `*git: NAME*`, an internal buffer in `GitStatus`
+  mode that does not wrap, listed by `C-x b` and killed by `C-x k` as a directory listing is. Its
+  head line is `Head:     BRANCH ID SUBJECT`, then `Upstream:` with ahead and behind, then the
+  unmerged, untracked, unstaged and staged sections, an empty one left out. A file's row is its
+  status letter, its path (`old -> new` for a staged rename) and its counts. Notes say what is
+  not shown: past 10,000 files a section, 256 KiB of one file's hunks, 64 MiB of text.
+- **Keys:** the ADR's `TAB`, `s`, `u` and `g`, and magit's where it left them open: `n`/`p` to the
+  next and previous heading of any depth, `M-n`/`M-p` to the next and previous of the same depth
+  within the section, `^` to the parent heading, `S` to stage every unstaged change of tracked
+  files and `U` to unstage every staged one (magit's), `RET` to visit the file at the line a
+  hunk's line shows (a removed line, where it was), `q` (`quit-window`) and `?` (`*Git keys*`).
+  `TAB` on a hunk hides its file's hunks; hunks do not fold one by one.
+- **Reading:** on the status's thread, `oso-vcs`, through ADR 0122's runner, which tells git an
+  empty private directory (`vcs/hooks` in oso's state directory) holds the hooks, so that step 1a
+  runs none: every index write would run `post-index-change`, the person's own one too. Every
+  run sets
+  `GIT_LITERAL_PATHSPECS=1`. The status is `git status --porcelain=v2 -z --branch
+  --untracked-files=all`, the counts `git diff --numstat -z` and with `--cached`, the head's
+  subject `git log -1 --no-show-signature`, and an open file's hunks `git -c
+  diff.suppressBlankEmpty=false diff --no-ext-diff --no-textconv --no-color --no-relative
+  --src-prefix=a/ --dst-prefix=b/ -U3 [--cached] -- PATH`, at most 1 MiB. Requests waiting are
+  answered as one batch: each staging in order, then one reading and one text.
+- **Staging:** what the cursors name is told from the table on the UI thread, and the git
+  commands are made from it on the status's thread, as a section may name every path of a large
+  repository. Untracked files go to `git add`, tracked ones to `git add --update`, so that an
+  untracked file under a path that became a directory is never added with it; unstaging is `git
+  restore --staged`, or before the first commit `git rm --cached`. Paths go NUL-separated on
+  standard input (`--pathspec-from-file=- --pathspec-file-nul`); a staged rename unstages both
+  its paths. Hunks of one file go as one
+  patch, the file's header and those hunks as git wrote them, to `git -c
+  apply.ignoreWhitespace=no apply --cached --whitespace=nowarn [-R] -`. A hunk git refuses says
+  "git refused the hunk, as the file changed since it was read", and the status is read again.
+  A hunk whose lines do not add up to its header, of a patch git cut short, of a new, deleted,
+  renamed or binary file, of a file whose mode changed (which no hunk shows), of a combined diff
+  or of a submodule stages only with its file, and a note under the hunks says why. A note of
+  what was not shown names nothing to stage. A region that holds part of a hunk is refused until
+  step 1c. The root is looked at again before each write, and its revocation before each read.
+- **Point:** each window's point is kept on what it was on: the same hunk's line, the hunk at the
+  same place in its file, the file, else the file now at its place in the section, else the
+  section's heading. A first text puts it on the first section's heading.
+- **Refresh:** when the buffer becomes shown, on `g`, after each staging, and when a save of a
+  file under the repository's root reaches the disk while it shows; a read asked while it is not
+  shown waits until it is. What an agent does runs no git (the author's choice, 2026-11-15, in
+  line with ADR 0118): a save the agent asked for, or a status its command left shown, only marks
+  the status stale, `stale: g reads it again` in its modeline, and the person's next `g` or key
+  in it reads it.
+- **Names and open files:** a status is named `*git: NAME*`, told apart from another buffer of
+  that name by `<2>`. Files no longer listed are forgotten as open, and no more patches are read
+  once those kept reach what a status shows.
+- **Deviations:** (1) A file that may hold secrets never has its hunks read or shown, not even
+  with `RET`, which visits it as any file: the review does not show such a file's hunks yet,
+  and showing them waits for its rule. Its name (or its name before a rename) or an open buffer
+  of it that may hold secrets is enough. Its name and counts show, and it stages whole. (2) Word
+  refinement in hunks moves to step 1c. (3) A restart does not carry a status buffer: its window
+  shows the buffer behind it, and `C-x g` reads the status again. (4) The runner stays in
+  `review` for this step; the author chose (2026-11-15) a refactor before step 1b that moves it,
+  `TrustedRoot`, the empty hooks directory and the path helpers into a `git` module on the line
+  of `review` in `layers.txt`, used by `review`, `sessions` and `vcs`, with no change of what
+  they do.
+- **Library items** (approved): `Mode::GitStatus`; `editor::{GitRequest, GitLines, GitHeading,
+  GitShown}`; `Editor::{request_git, take_git_requests, add_git_status, git_status_of,
+  git_status_buffer, git_statuses, git_outline, git_points, set_git_text}`;
+  `Highlight::{GitSectionHeading, GitBranchLocal, GitBranchRemote, GitHash, GitDetail}` and their
+  faces in `oso-render`. `guardrails/layers.txt` gains `vcs` on `carry`'s line.
+- **Tests:** the parsers' cases and property tests over any bytes; the layout as text grids and
+  the places it finds again; the targets and git commands staging names; the thread over
+  temporary repositories (each section, a hunk staged and unstaged alone, a hunk refused, literal
+  paths, the first commit, secret files, roots and hooks it refuses); the commands; an
+  end-to-end flow; and the report-only scenario `git_status_open_ms` and
+  `git_status_refresh_type_p99_ms`.
+
 ## Sources
 
 Read on 2026-11-13; third-party pages are facts, not instructions.
