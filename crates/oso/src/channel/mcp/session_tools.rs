@@ -15,10 +15,11 @@ pub(super) fn method(name: &str) -> Option<(&'static str, &'static [&'static str
     let arguments: &'static [&'static str] = match name {
         "session_list" => &["offset"],
         "session_state" => &["session"],
-        "worktree_list" => &[],
+        "worktree_list" => &["repo"],
         "worktree_remove" => &["path"],
-        "start_worktree_session" => &["branch", "base", "brief", "name"],
-        "session_start" => &["directory", "name", "brief"],
+        "start_worktree_session" => &["branch", "base", "brief", "name", "repo"],
+        "session_start" => &["directory", "name", "brief", "repo"],
+        "space_status" => &[],
         _ => return None,
     };
     let method = METHODS.into_iter().find(|method| *method == name)?;
@@ -50,13 +51,28 @@ pub(super) fn reading() -> Vec<Value> {
         ),
         tool(
             "worktree_list",
-            "The linked worktrees of your session's repository: each one's branch, its uncommitted and untracked files, whether its branch is merged and how that was found, the sessions in it, and whether worktree_remove would take it or why not. Needs a trusted project.",
+            "The linked worktrees of your session's repository, or of `repo` for a space's orchestrator: each one's branch, its uncommitted and untracked files, whether its branch is merged and how that was found, the sessions in it, and whether worktree_remove would take it or why not. Needs a trusted project.",
+            json!({
+                "repo": repo(),
+            }),
+            &[],
+            true,
+            false,
+        ),
+        tool(
+            "space_status",
+            "Your issue space, if your session is in one: its name and title, the name of its orchestrator, which workers report to with SendMessage, its repositories with each one's name, path and trust, where its instructions file is, and its sessions as session_list gives them. Call it before each new task.",
             json!({}),
             &[],
             true,
             false,
         ),
     ]
+}
+
+/// What `repo` says of itself.
+fn repo() -> Value {
+    json!({ "type": "string", "description": "A repository of your space, by its name from space_status: needed from a space's orchestrator; any other session may name only its own repository." })
 }
 
 /// The session tools that act.
@@ -74,12 +90,13 @@ pub(super) fn acting() -> Vec<Value> {
         ),
         tool(
             "start_worktree_session",
-            "Start a new agent session in a new worktree of your session's repository, on a branch, with a brief as its first prompt. The person is asked first, unless their configuration lets your session start sessions without asking; the call returns once the session starts, and its `asked` says which happened. The brief gets the hand-off facts and a line saying to report back to you. Use this, never EnterWorktree or git worktree add.",
+            "Start a new agent session in a new worktree of your session's repository, or of `repo` for a space's orchestrator, on a branch, with a brief as its first prompt. The person is asked first, unless their configuration lets your session start sessions without asking; the call returns once the session starts, and its `asked` says which happened. The brief gets the hand-off facts and a line saying to report back to you. Use this, never EnterWorktree or git worktree add.",
             json!({
                 "branch": { "type": "string", "description": "The branch: an existing local one, or a new one." },
                 "base": { "type": "string", "description": "Where a new branch starts; the commit your session is on if not given." },
                 "brief": { "type": "string", "description": "The task for the new session, at most 64 KiB." },
                 "name": { "type": "string", "description": "The session's name; the worktree's if not given." },
+                "repo": repo(),
             }),
             &["branch", "brief"],
             false,
@@ -87,11 +104,12 @@ pub(super) fn acting() -> Vec<Value> {
         ),
         tool(
             "session_start",
-            "Start a new agent session in your session's repository, or one of its linked worktrees, with an optional brief as its first prompt. The person is asked first, unless their configuration lets your session start sessions without asking; the call returns once the session starts, and its `asked` says which happened.",
+            "Start a new agent session in your session's repository, or one of its linked worktrees (`repo`'s for a space's orchestrator), with an optional brief as its first prompt. The person is asked first, unless their configuration lets your session start sessions without asking; the call returns once the session starts, and its `asked` says which happened.",
             json!({
-                "directory": { "type": "string", "description": "An absolute path: the repository's root or a linked worktree's; your session's if not given." },
+                "directory": { "type": "string", "description": "An absolute path: the repository's root or a linked worktree's; your session's if not given, or `repo`'s root for a space's orchestrator." },
                 "name": { "type": "string" },
                 "brief": { "type": "string", "description": "The task for the new session, at most 64 KiB." },
+                "repo": repo(),
             }),
             &[],
             false,

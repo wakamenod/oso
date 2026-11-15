@@ -12,7 +12,6 @@
 use std::path::{Path, PathBuf};
 
 use oso_core::minibuffer::PromptId;
-use oso_core::project::RootIdentity;
 
 use crate::app::App;
 use crate::app::sessions::hosting::Begin;
@@ -111,11 +110,12 @@ impl App {
         }
     }
 
-    /// Hosted session `key` started as an orchestrator: it belongs to its space, which
-    /// records it, the one before kept as an earlier one.
-    pub(in crate::app) fn orchestrator_started(&mut self, key: SessionKey) {
+    /// Hosted session `key` just started: as an orchestrator, it belongs to its space, which
+    /// records it, the one before kept as an earlier one; started by one, it is a worker of
+    /// that space (ADR 0136, step 4).
+    pub(in crate::app) fn space_session_started(&mut self, key: SessionKey) {
         let Some(space) = self.hosting.spaces.starting.remove(&key) else {
-            return;
+            return self.worker_joined(key);
         };
         let Some(session) = self.hosting.table.get_mut(key) else {
             return;
@@ -217,18 +217,6 @@ impl App {
             prompt,
             instructions,
         })
-    }
-
-    /// Whether oso trusts `member`: its path and identity are both recorded, so one made again
-    /// at a trusted path is not. One with no identity kept is not, where the system has them.
-    fn trusts(&self, member: &Member) -> bool {
-        let root = RootIdentity {
-            path: member.root.clone(),
-            identity: member.identity,
-        };
-        self.editor
-            .trust_list()
-            .is_some_and(|list| list.trusts(&root))
     }
 
     /// The key of space `at`'s orchestrator while it runs.

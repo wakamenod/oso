@@ -725,7 +725,10 @@ The UI thread never blocks on I/O or parsing:
   ([ADR 0135](adr/0135-agents-start-sessions-without-asking.md)):
   `sessions::tools::starts_without_asking` decides where the question would open, and
   `app/sessions/tools/starting.rs` runs the plan. A job's reports for a tool's call are taken
-  by token before the person's own worktree commands see them.
+  by token before the person's own worktree commands see them. In an issue space
+  ([ADR 0136](adr/0136-issue-spaces.md) step 4), `sessions::tools::repo` says which repository
+  a call's `repo` names, and `app/sessions/tools/space.rs` gives a caller its part in its space
+  and scopes an orchestrator's calls to the space's sessions and repositories.
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.

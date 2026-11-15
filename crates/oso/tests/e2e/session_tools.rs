@@ -28,7 +28,7 @@ use super::worktrees::{DEADLINE, Flow, asks, terminal};
 /// once the flow wrote `bridge.PID`, that script run as its child, writing to `out.PID`. It
 /// exits with the status the flow writes to `go.PID`, or to `go` for every run, and ends once
 /// the flow's directory is gone. `DIR` is the flow's scratch directory.
-const FAKE: &str = r#"#!/bin/sh
+pub(super) const FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 printf '%s\0' "$(pwd -P)" "$@" > "$dir/tmp.$$"
 mkfifo "$dir/in.$$"
@@ -55,10 +55,10 @@ const QUIET: Duration = Duration::from_millis(700);
 const AFTER_TYPING: Duration = Duration::from_millis(1200);
 
 /// One run of the fake: its process id, the directory it ran in, and its arguments.
-struct Run {
+pub(super) struct Run {
     pid: String,
     cwd: PathBuf,
-    args: Vec<String>,
+    pub(super) args: Vec<String>,
 }
 
 /// Each run of the fake in `flow` so far.
@@ -84,7 +84,7 @@ fn runs(flow: &Flow) -> Vec<Run> {
 }
 
 /// The fake's run in `cwd`, once it is there.
-fn run_in(flow: &Flow, cwd: &Path) -> Run {
+pub(super) fn run_in(flow: &Flow, cwd: &Path) -> Run {
     let cwd = fs::canonicalize(cwd).unwrap();
     let deadline = Instant::now() + DEADLINE;
     loop {
@@ -106,7 +106,7 @@ fn quoted(word: &str) -> String {
 }
 
 /// The `oso mcp` of one run of the fake, spoken to over its FIFO.
-struct Bridge {
+pub(super) struct Bridge {
     input: File,
     output: PathBuf,
     next: u64,
@@ -115,7 +115,7 @@ struct Bridge {
 impl Bridge {
     /// Runs the server that `run`'s `--mcp-config` names, as the fake's child, and opens its
     /// stdin. Asks for `initialize` first, as Claude Code does.
-    fn start(flow: &Flow, run: &Run) -> Bridge {
+    pub(super) fn start(flow: &Flow, run: &Run) -> Bridge {
         let config = run
             .args
             .iter()
@@ -187,7 +187,7 @@ impl Bridge {
     }
 
     /// Calls the tool `name` with `arguments`, and returns the request's id.
-    fn call(&mut self, name: &str, arguments: Value) -> u64 {
+    pub(super) fn call(&mut self, name: &str, arguments: Value) -> u64 {
         self.send(
             "tools/call",
             json!({ "name": name, "arguments": arguments }),
@@ -213,7 +213,7 @@ impl Bridge {
 
     /// The result of the tool call `id`: what it said, parsed if it is JSON, and whether it is
     /// an error.
-    fn result(&self, id: u64) -> (Value, bool) {
+    pub(super) fn result(&self, id: u64) -> (Value, bool) {
         let response = self.reply(id);
         let result = &response["result"];
         let text = result["content"][0]["text"]
@@ -224,7 +224,7 @@ impl Bridge {
     }
 
     /// Calls the tool `name` with `arguments` and waits for its result.
-    fn tool(&mut self, name: &str, arguments: Value) -> (Value, bool) {
+    pub(super) fn tool(&mut self, name: &str, arguments: Value) -> (Value, bool) {
         let id = self.call(name, arguments);
         self.result(id)
     }
@@ -244,7 +244,7 @@ fn hosted(flow: &Flow) -> (App, Bridge) {
 }
 
 /// Waits for the agent's question, and answers it with `key` as the person.
-fn answer(app: &mut App, key: &str) -> String {
+pub(super) fn answer(app: &mut App, key: &str) -> String {
     let state = app.wait_for("the agent's question", |state| {
         asks(state).is_some_and(|prompt| prompt.starts_with("Agent: "))
     });

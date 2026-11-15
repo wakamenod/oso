@@ -19,6 +19,8 @@ use std::time::{Duration, Instant};
 
 use oso_core::command::Reach;
 
+pub mod repo;
+
 use super::identity::Origin;
 use super::identity::SessionId;
 
@@ -71,11 +73,16 @@ const fn reads(name: &'static str) -> Tool {
 
 /// The tools, the reading ones first. A change here is a change of what an agent may do: the
 /// test below spells the table out, so that review sees it.
-pub const TOOLS: [Tool; 6] = [
+pub const TOOLS: [Tool; 7] = [
     reads("session_list"),
     reads("session_state"),
     // It runs git and `gh` with no question, as the author chose (ADR 0121, step 4).
     reads("worktree_list"),
+    // A hosted session's own space, which another connection has none of (ADR 0136, step 4).
+    Tool {
+        outside: false,
+        ..reads("space_status")
+    },
     // No question once every check holds (Q14).
     Tool {
         name: "worktree_remove",

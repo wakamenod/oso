@@ -280,6 +280,8 @@ impl App {
         if let Some(trusted) = &trusted {
             self.hosting.trusts.insert(key, trusted.clone());
         }
+        // A start in a space's directory passes its checks (ADR 0136).
+        let space = begin.space.or_else(|| self.space_checks(&directory));
         self.order_session(Order {
             token: key,
             kind: Kind::New,
@@ -293,7 +295,7 @@ impl App {
             brief: begin.brief,
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: begin.check_shared,
-            space: begin.space,
+            space,
         });
         Some(key)
     }
@@ -534,7 +536,7 @@ impl App {
             if added.is_none() {
                 return;
             }
-            self.orchestrator_started(key);
+            self.space_session_started(key);
             self.prune_sessions();
         }
         if let Some(tree) = &ready.baseline {

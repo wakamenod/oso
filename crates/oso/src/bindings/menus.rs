@@ -241,6 +241,7 @@ const SPACE: BuiltInMenu = BuiltInMenu {
             &[
                 exit("a", "space-add-repo", "add\u{2026}"),
                 exit("r", "space-remove-repo", "remove\u{2026}"),
+                exit("u", "space-use-repo", "use for commands\u{2026}"),
             ],
         ),
         (

@@ -122,6 +122,7 @@ fn initializes_without_connecting_and_lists_its_tools() {
             "session_list",
             "session_state",
             "worktree_list",
+            "space_status",
             "look",
             "change",
             "open",

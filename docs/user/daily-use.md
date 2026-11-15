@@ -183,6 +183,7 @@ can write.
 |---|---|---|
 | `a` | `space-add-repo` | Add a repository, by completion or its path; it must be a main checkout. |
 | `r` | `space-remove-repo` | Take a repository out; refused while a session of the space runs in it. |
+| `u` | `space-use-repo` | Choose the repository that `session-worktree`, `worktree-list` and `worktree-remove` use from the orchestrator's buffer, when the space has several trusted ones. |
 | `i` | `space-instructions` | Edit the goal the space's orchestrator is given. |
 | `d` | `space-directory` | List the space's directory. |
 | `n` | `space-rename` | Give the space a new title, and a name made from it. |
@@ -195,6 +196,11 @@ keep a `handoff.md` in its directory for whoever takes over. Its row is right un
 space's, and `RET` on the space's row shows it. A repository added to the space, or trusted,
 while it runs is offered to it: `y` pastes `/add-dir PATH` into its prompt, not sent. In
 Claude Code, `/permissions` and its Workspace tab list the directories it was given.
+
+The orchestrator works through sessions: its tools name a repository of the space with
+`repo`, and it sees the space's sessions only. A worker it starts belongs to the space, and
+its brief says to report to the orchestrator by the space's name. `space_status` gives any
+session of the space the space, its repositories with their trust, and its sessions.
 
 ### Send work to a session
 
@@ -292,6 +298,7 @@ tools besides oso's editing ones:
 | `start_worktree_session` | Start a session in a new worktree, with a brief. Asks you first. |
 | `worktree_list` | List the repository's worktrees, as `M-x worktree-list` does. |
 | `worktree_remove` | Remove a finished worktree, under the same rules as `M-x worktree-remove`. |
+| `space_status` | Read the session's issue space: its repositories, their trust, the orchestrator's name, its sessions. |
 
 A tool that starts a session asks you in oso first. The question names the session that asks
 and what would start. `y` allows it, `n` or `C-g` refuses it, and `?` shows the whole brief. A refusal
