@@ -17,7 +17,7 @@
 //! - A space's directory is made new: one already at its place is not taken over.
 
 #![cfg_attr(
-    not(test),
+    any(not(test), not(unix)),
     expect(
         dead_code,
         reason = "space-new makes and checks directories in step 1b"
