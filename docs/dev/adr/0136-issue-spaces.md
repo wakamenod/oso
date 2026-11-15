@@ -1,6 +1,6 @@
 # 0136. Issue spaces
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-15
 
 ## Context
@@ -126,13 +126,34 @@ space's orchestrator and its workers.
 
 ### The space's directory (Q1)
 
-- **The orchestrator starts in a directory of the space's own, outside every repository:**
-  `spaces/<name>/` in oso's state directory (on macOS `~/Library/Application Support/oso/`),
-  made by oso with mode `0700` when the space is made. Two spaces of one name over time get
-  `<name>-2`.
-- **Before every start or resume there,** on the worker: the directory exists or is made, is a
-  directory and not a link, is owned by the person, is writable by no one else, holds no `.git`,
-  and is inside no member repository. Otherwise the start refuses and says which check failed.
+- **The orchestrator starts in a directory of the space's own, outside every repository (Q1):**
+  `<root>/<name>/`, where the root is `[spaces] root` in the person's `config.toml` (default
+  `~/spaces`), so it is easy to reach from a shell. oso makes the root and the space's directory
+  with mode `0700` when the space is made. Two spaces of one name over time get `<name>-2`.
+- **The setting** is read from `config.toml` only, as the rest of it ([ADR
+  0110](0110-adr-0108-as-built.md)): an absolute path or one under `~`, at most 1 KiB, never from
+  a repository or an agent. A change applies to spaces made after it.
+- **A space's directory is fixed when the space is made:** the record keeps its absolute path and
+  its device and inode. A later change of the root does not move existing spaces.
+- **Before every start or resume there,** on the worker:
+  - the space's directory exists, is a directory and not a link, has the recorded device and
+    inode, is owned by the person and is writable by no one else;
+  - the root and each directory above it are owned by the person or root and writable by no one
+    else, as ADR 0108 checks `config.toml`'s directories;
+  - neither holds `.git`, and neither is inside a member repository.
+
+  Otherwise the start refuses and says which check failed. Nothing is changed to make a check
+  hold: oso does not change a mode or an owner.
+- **A shared root:** a root, or a directory above it, that a group or other users can write is
+  refused, so another user cannot plant `.claude/settings.json` hooks or a `CLAUDE.md` in a space.
+  The space stays listed; its orchestrator cannot start until the person fixes the mode or sets
+  another root for new spaces.
+- **A moved or deleted directory:** Claude Code keys the orchestrator's memory and transcripts by
+  its path, so oso does not follow a move. A directory missing at its recorded path refuses
+  the start with "space directory missing: PATH". `space-orchestrator-start` with a prefix
+  argument makes an empty one there again. A directory with another device or inode at the path
+  (replaced or moved back by hand) is refused as replaced. The person moves it back, or makes a
+  new space.
 - **oso reads nothing in it.** It holds what the orchestrator writes: its handoff memo
   (`handoff.md`, see the orchestrator's text) and notes. `space-directory` opens it in a
   directory listing ([ADR 0134](0134-a-directory-editor.md)).
@@ -213,14 +234,15 @@ space's orchestrator and its workers.
 
 ### Session tools in a space (Q6)
 
-- **Scope:** a tool called from a session of a space acts only on the space's sessions and on
-  worktrees of its member repositories, where ADR 0121 said "the caller's repository".
-  `session_list` lists the space's sessions only. Sessions oso did not start are listed only when
-  their directory is in a worktree of the space.
+- **Scope (Q6):** a tool called by a space's orchestrator acts only on the space's sessions and on
+  worktrees of its member repositories. `session_list` from it lists the space's sessions only,
+  and sessions oso did not start only when their directory is in a worktree of the space. Every
+  other session, workers included, keeps ADR 0121's scope: the caller's repository.
 - **`start_worktree_session` and `session_start` gain `repo`:** the name of a member repository,
-  as `space_status` gives it. A caller in a repository may leave it out for its own. An
-  orchestrator must give it. A name that is not a member refuses with the members' names.
-- **`space_status` (`Look`, read-only):** the space's name, title, issue reference, instructions,
+  as `space_status` gives it. An orchestrator must give it; a name that is not a member refuses
+  with the members' names. Any other caller may leave it out or name its own repository only.
+- **`space_status` (`Look`, read-only),** for any session of a space, so a worker can find its
+  orchestrator: the space's name, title, issue reference, instructions,
   the current orchestrator's name, each member repository's name, path and trust, and its
   sessions as `session_list` gives them.
 - **No tool** makes, closes or reopens a space, adds or removes a repository, or replaces an
@@ -349,16 +371,17 @@ One pull request each, about the size of ADR 0131's 2a or 2b. Step 5 needs ADR 0
 `session_stop` path; the others need nothing unbuilt.
 
 1. **The space model:** the record and file, a session's space id, migration to one-repository
-   spaces, `space-new` without the orchestrator, `space-add-repo`, `space-remove-repo`,
+   spaces, `[spaces] root` and the space's directory with its checks, `space-new` without the
+   orchestrator, `space-add-repo`, `space-remove-repo`,
    `space-close`, `space-reopen`, `space-rename`, `space-instructions`, the menu, `space-switch`
    over stored spaces.
 2. **The pane's space level:** space and repository rows, the orchestrator row, which worktrees
    show where, `Archived spaces`, keys.
-3. **The orchestrator:** the directory and its checks, `--add-dir`, the text and header, its name,
+3. **The orchestrator:** the checks before each start, `--add-dir`, the text and header, its name,
    resume, `space-orchestrator-start`, `space-directory`. First, check on the current CLI that
    `--add-dir` may be repeated before a positional brief, that auto memory outside a git
    repository is keyed by the start directory, and that the trust question is asked once there.
-4. **Scoped tools:** the space scope, `repo` and `with_dirs`, `space_status`, ADR 0135's rule in a
+4. **Scoped tools:** the orchestrator's space scope, `repo` and `with_dirs`, `space_status`, ADR 0135's rule in a
    space, the commands' project question for an orchestrator's buffer.
 5. **Handover:** `space-orchestrator-replace`, the renaming, the earlier orchestrators.
 
@@ -422,6 +445,26 @@ For the author, the recommended option first.
 
 None.
 
+## The author's choices
+
+The author answered every question on 2026-11-15, through the coordinator: (a) for each, but Q1
+and Q6.
+
+- **Q1: (b).** The space's directory is under `[spaces] root` in `config.toml` (default
+  `~/spaces`), easy to reach from a shell, with (a)'s checks: mode `0700`, the owner, no `.git`,
+  nothing read by oso; a shared or moved root is handled as [The space's
+  directory](#the-spaces-directory-q1) says.
+- **Q6: (b).** Only the orchestrator is scoped to its space; workers keep their own repository's
+  scope.
+- The rest, as recommended: existing repository spaces become spaces of one repository, and a
+  loose session joins the space in front, else one with its repository, else a new one (Q2);
+  `handoff.md` kept current and `space-orchestrator-replace` when idle (Q3); the orchestrator
+  named after the space, a replaced one `<name>-was-<n>` (Q4); a run is a space's orchestrator
+  and workers, `workers_start` names a repository and `merge_branches` a worktree of the space
+  (Q5); `with_dirs` chosen by the orchestrator, trusted members' worktrees, at most 8 (Q7);
+  restricted members listed but unused until trusted (Q8); `space-close` archives and
+  `space-reopen` brings back (Q9); a space from a GitHub issue later, with ADR 0127's `gh` (Q10).
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it. They apply once this ADR is
@@ -435,8 +478,8 @@ accepted and the step that builds each is merged.
   [--append-system-prompt TEXT] [BRIEF]`: an orchestrator's adds `--add-dir PATH` for each trusted
   member repository, and a worker's for the directories its caller named. `--add-dir` grants file
   access only; it is not a permission flag, and none is passed.
-- ADR 0121, "A tool acts only on sessions and worktrees of the caller's repository": of the
-  caller's space, when it is in one.
+- ADR 0121, "A tool acts only on sessions and worktrees of the caller's repository": for a
+  space's orchestrator, of its space.
 - ADR 0121, "Projects, light", the overview: the pane at the current space's row (as ADR 0132
   already has it).
 - [ADR 0128](0128-orchestration-and-automations.md), "`orchestrate` (`Person`, `C-x a O`) … in a
@@ -470,6 +513,8 @@ accepted and the step that builds each is merged.
 
 ## Alternatives considered
 
+- **The space's directory in oso's state directory** (Q1 (a)): private by place, but hidden from a
+  shell; the author chose a root of their own, with the same checks.
 - **Keep spaces derived from repositories and add a "group of spaces":** no place for an issue's
   orchestrator, goal and memory; the pane stays split by repository.
 - **The orchestrator in a primary repository's main checkout:** shares that repository's memory
