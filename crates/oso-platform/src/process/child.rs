@@ -10,7 +10,7 @@
 use std::io::{self, Read};
 use std::process::{ChildStderr, ChildStdin, ChildStdout, ExitStatus, Output};
 
-use super::imp;
+use super::{Signal, imp};
 
 /// A process [`super::spawn`] started.
 #[derive(Debug)]
@@ -46,6 +46,23 @@ impl Child {
     /// for, as its ID may be another process's by then.
     pub fn kill(&mut self) -> io::Result<()> {
         self.process.kill()
+    }
+
+    /// Asks the process to end (`SIGTERM` on Unix), so that it can clean up first, as git
+    /// takes its lock files away. Windows has no such signal: there it ends at once. Does
+    /// nothing once it has been waited for.
+    pub fn terminate(&mut self) -> io::Result<()> {
+        self.process.signal(Signal::Terminate, false)
+    }
+
+    /// Sends `signal` to the process group the process leads, as one started with
+    /// [`super::Spawn::own_process_group`] does on Unix, so that what it started gets it too,
+    /// unless that moved to a group of its own. Refused for one that leads no group. Windows
+    /// has no group here: the process alone ends at once. Does nothing once the process has
+    /// been waited for, as its group's ID may be another's by then, so what it left running
+    /// is not reached.
+    pub fn signal_group(&mut self, signal: Signal) -> io::Result<()> {
+        self.process.signal(signal, true)
     }
 
     /// Closes the standard input, reads the standard output and error to their ends at the same

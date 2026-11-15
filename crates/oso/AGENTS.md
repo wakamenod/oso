@@ -72,14 +72,19 @@ often, so it must rebuild within 2 s.
   runner (`run`), which starts git only through `oso_platform::process` with oso's own
   arguments and environment, every read bounded and a run past 10 s killed; object ids (`id`);
   `TrustedRoot` (`trust`), the only place git starts from; git's names and the secret-name
-  check (`path`); and the empty hooks directory under oso's state directory (`hooks`). The
+  check (`path`); the empty hooks directory under oso's state directory (`hooks`); and runs
+  with no time limit in a process group of their own, which the person stops (`long`). The
   review, the worktree jobs and the git status use it; it uses none of them.
 - `src/vcs.rs` and `src/vcs/` are source control's git status (ADR 0127): one thread per status
   buffer, `oso-vcs` (`work`), which runs git through `git`'s runner for a trusted root only,
   reads porcelain v2 and patches as untrusted bytes (`status`, `patch`), lays out the text with
   its outline and the table of what each line is about (`layout`), and turns the lines commands
-  name into staging (`stage`). Its keys are listed in `commands::vcs::KEYS` and bound by
-  `bindings/vcs.rs`; `app/vcs.rs` carries out what its commands ask.
+  name into staging (`stage`). A commit runs on its repository's thread, `oso-vcs-run`
+  (`run`), with the repository's hooks; what needs no git, its arguments, message, highlights,
+  ring and log lines, is `commit`'s. Its keys are listed in `commands::vcs::KEYS` and
+  `commands::vcs::commit`, the commit menu is built in, and `bindings/vcs.rs` binds them;
+  `app/vcs.rs` carries out what its commands ask, with `app/vcs/commit.rs` (messages) and
+  `app/vcs/runs.rs` (runs and their log).
 - `src/dired.rs` and `src/dired/` are the directory editor's listings (ADR 0134): read on the
   lister's threads (`lister.rs`) from the descriptor, following no link but to tell where one
   leads, ordered and built there into a rope, highlights and a table of what each row names. A

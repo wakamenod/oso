@@ -31,7 +31,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::process::ExitStatusExt;
 use std::process::ExitStatus;
 
-use super::{Child, Sink, Source, Spawn};
+use super::{Child, Signal, Sink, Source, Spawn};
 use crate::privacy::inheritance::INHERITED_FD;
 
 mod objects;
@@ -74,6 +74,9 @@ pub(super) struct Process {
     /// Waited for by something else, which the system said as `ECHILD`: its ID may be another
     /// process's too, and how it ended is not known.
     gone: bool,
+    /// It leads a process group of its own, whose ID is its own: started with one, or in a
+    /// terminal, as a session's leader.
+    group: bool,
 }
 
 /// Starts the child `request` asks for, with exactly the variables of `environment`, the last
@@ -124,6 +127,7 @@ pub(super) fn start(
             pid,
             status: None,
             gone: false,
+            group: request.own_process_group || request.terminal.is_some(),
         },
     })
 }
@@ -268,6 +272,7 @@ fn controls(slave: &super::pty::Slave, pid: libc::pid_t) -> io::Result<()> {
         pid,
         status: None,
         gone: false,
+        group: true,
     };
     let _ = child.kill();
     let _ = child.wait();
@@ -296,6 +301,7 @@ fn forked_in_terminal(
                 .map_err(|_| io::Error::other("a process ID out of range"))?,
             status: None,
             gone: false,
+            group: true,
         },
     })
 }
@@ -424,13 +430,31 @@ impl Process {
     }
 
     pub(super) fn kill(&mut self) -> io::Result<()> {
+        self.signal(Signal::Kill, false)
+    }
+
+    /// Sends `signal` to the child, or with `group` to the process group it leads.
+    pub(super) fn signal(&mut self, signal: Signal, group: bool) -> io::Result<()> {
+        if group && !self.group {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the process leads no process group of its own",
+            ));
+        }
         if self.status.is_some() || self.gone {
             return Ok(());
         }
+        let number = match signal {
+            Signal::Terminate => libc::SIGTERM,
+            Signal::Kill => libc::SIGKILL,
+        };
+        // A negative ID names the group whose ID it is: the child's own, as it leads one.
+        let target = if group { -self.pid } else { self.pid };
         // SAFETY: `kill` takes and returns plain numbers, and `pid` is this child's, which has
         // not been waited for, here or, as `ECHILD` would have said, elsewhere, so no other
-        // process can have it.
-        if unsafe { libc::kill(self.pid, libc::SIGKILL) } == 0 {
+        // process can have it, nor another group its ID: an ID stays taken while its process
+        // is unreaped.
+        if unsafe { libc::kill(target, number) } == 0 {
             Ok(())
         } else {
             Err(io::Error::last_os_error())

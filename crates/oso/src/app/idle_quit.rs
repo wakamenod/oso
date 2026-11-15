@@ -2,7 +2,8 @@
 //! busy (`quit-when-idle`, or `w` to `C-x C-c`'s question), the host waits until none has
 //! been for [`HOLD`], with no prompt open, then exits as a confirmed `C-x C-c` would. Which
 //! terminals are busy is the editor's: a hosted session with a turn under way or a question
-//! open, or another terminal's shell waiting for a job (`Buffer::is_busy`). A hosted session that is starting,
+//! open, or another terminal's shell waiting for a job (`Buffer::is_busy`), and git's runs
+//! (ADR 0127). A hosted session that is starting,
 //! or whose terminal printed within the hold, holds it too: its state is read from its screen,
 //! which is untrusted text.
 //!
@@ -61,7 +62,9 @@ impl App {
         }
         // A session that is still starting has said nothing of a turn yet.
         let starting = (self.hosting.table().iter()).any(|session| session.run == Run::Starting);
-        let idle = !starting && self.editor.busy_terminals().next().is_none();
+        let idle = !starting
+            && self.editor.busy_terminals().next().is_none()
+            && self.editor.git_running().next().is_none();
         if !self.idle_quit.due(idle, Instant::now()) {
             return;
         }

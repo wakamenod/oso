@@ -4,9 +4,9 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
-use oso_core::buffer::BufferId;
+use oso_core::buffer::{BufferId, Mode};
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::{Editor, Quit};
+use oso_core::editor::{Editor, GitRequest, Quit};
 use oso_core::minibuffer::Third;
 
 /// The session commands.
@@ -63,6 +63,15 @@ fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         ctx.editor.echo("Stopping after the file in hand…");
         return Ok(());
     }
+    // In a git status or its log it stops what git runs in the repository, if anything, which
+    // the host says (ADR 0127, step 1b).
+    if quit == Quit::Nothing {
+        let (window, buffer) = ctx.editor.current();
+        if matches!(buffer.mode(), Mode::GitStatus | Mode::GitLog) {
+            let buffer = window.buffer();
+            ctx.editor.request_git(GitRequest::Stop { buffer });
+        }
+    }
     // With nothing else to do, it cancels an exit that waits for the terminals (ADR 0133).
     if quit == Quit::Nothing && ctx.editor.quit_when_idle() {
         ctx.editor.set_quit_when_idle(false);
@@ -88,9 +97,10 @@ fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandE
     // An exit that waited for the terminals asks again, and waits again only on `w`.
     ctx.editor.set_quit_when_idle(false);
     let (turns, jobs) = busy(ctx.editor);
+    let runs: Vec<BufferId> = ctx.editor.git_running().collect();
     // Comments of the person's not sent yet are lost with the editor until reviews are saved
     // (ADR 0122, step 6), and work and programs in terminals end with it (ADR 0120,
-    // ADR 0133): one question says all of it.
+    // ADR 0133), as git's runs do (ADR 0127): one question says all of it.
     let mut lost = Vec::new();
     match super::review::unsent_everywhere(ctx.editor) {
         0 => {}
@@ -113,7 +123,10 @@ fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandE
         1 => lost.push(format!("a job runs in {}", names(ctx.editor, &jobs))),
         _ => lost.push(format!("jobs run in {}", names(ctx.editor, &jobs))),
     }
-    let work = !turns.is_empty() || !jobs.is_empty();
+    if !runs.is_empty() {
+        lost.push(format!("git runs in {}", names(ctx.editor, &runs)));
+    }
+    let work = !turns.is_empty() || !jobs.is_empty() || !runs.is_empty();
     let more = if work { " more" } else { "" };
     let others = ctx.editor.running_terminals().count();
     match others.saturating_sub(turns.len() + jobs.len()) {
@@ -173,9 +186,11 @@ fn quit_when_idle(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         1 => Some(format!("1 {one}")),
         n => Some(format!("{n} {many}")),
     };
+    let runs = ctx.editor.git_running().count();
     let under_way: Vec<String> = [
         count(turns.len(), "turn", "turns"),
         count(jobs.len(), "job", "jobs"),
+        count(runs, "git run", "git runs"),
     ]
     .into_iter()
     .flatten()
@@ -202,7 +217,7 @@ fn busy(editor: &Editor) -> (Vec<BufferId>, Vec<BufferId>) {
 }
 
 /// The names of the buffers `ids`, up to [`NAMED`], and how many more.
-fn names(editor: &Editor, ids: &[BufferId]) -> String {
+pub(super) fn names(editor: &Editor, ids: &[BufferId]) -> String {
     let named: Vec<&str> = (ids.iter().take(NAMED))
         .filter_map(|id| editor.buffer(*id))
         .map(oso_core::buffer::Buffer::name)

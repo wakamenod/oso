@@ -8,7 +8,9 @@
 //!   restricted project, or another directory put in a trusted one's place, runs no git (ADR
 //!   0009, ADR 0011, ADR 0114). The repository's top must be the root, as a review's.
 //! - git runs through `git`'s runner: oso's arguments and environment, no hook and no file
-//!   system monitor, each read bounded, a run past ten seconds killed. Every run here adds
+//!   system monitor, each read bounded, a read past ten seconds killed. A write to the index
+//!   has no time limit, as a kill could leave the index locked (ADR 0127, step 1b): `C-g`
+//!   stops it, with `SIGTERM` first, which git cleans up on. Every run here adds
 //!   `GIT_LITERAL_PATHSPECS=1`, so that a path is only ever itself, and paths go to `add` and
 //!   `restore` on standard input. No hook runs: every index write would run
 //!   `post-index-change`, and only the runner's empty hooks directory keeps it from running.
@@ -35,7 +37,7 @@ use super::layout::{self, Head, Hunks, Laid, Section, View};
 use super::patch;
 use super::stage::{self, Op, Target};
 use super::status::{self, Status};
-use crate::git::{Git, GitError, MAX_SHORT, read_at_most};
+use crate::git::{Git, GitError, MAX_SHORT};
 use crate::git::{TrustedRoot, may_hold_secrets, os_path};
 
 /// The most bytes of the status's listing read; past it, the files after are not shown.
@@ -106,10 +108,13 @@ impl fmt::Debug for Report {
     }
 }
 
-/// A status buffer's thread. Dropping it ends the thread once its batch is done.
+/// A status buffer's thread. Dropping it ends the thread once its batch is done, and stops a
+/// write under way.
 pub(crate) struct Worker {
     requests: Sender<Request>,
     live: Arc<AtomicBool>,
+    /// Set to stop the write under way; the thread clears it as its next batch begins.
+    stop: Arc<AtomicBool>,
 }
 
 impl Worker {
@@ -123,22 +128,33 @@ impl Worker {
     ) -> std::io::Result<Worker> {
         let (requests, queue) = mpsc::channel::<Request>();
         let live = Arc::new(AtomicBool::new(true));
-        let thread_live = Arc::clone(&live);
+        let stop = Arc::new(AtomicBool::new(false));
+        let flags = (Arc::clone(&live), Arc::clone(&stop));
         thread::Builder::new()
             .name("oso-vcs".into())
-            .spawn(move || serve(&queue, send, &root, state, &thread_live))?;
-        Ok(Worker { requests, live })
+            .spawn(move || serve(&queue, send, &root, state, &flags))?;
+        Ok(Worker {
+            requests,
+            live,
+            stop,
+        })
     }
 
     /// Asks the thread for `request`; `false` if it has ended.
     pub(crate) fn ask(&self, request: Request) -> bool {
         self.requests.send(request).is_ok()
     }
+
+    /// Stops the write to the index under way, and those waiting in its batch.
+    pub(crate) fn stop(&self) {
+        self.stop.store(true, Ordering::SeqCst);
+    }
 }
 
 impl Drop for Worker {
     fn drop(&mut self) {
         self.live.store(false, Ordering::SeqCst);
+        self.stop.store(true, Ordering::SeqCst);
     }
 }
 
@@ -148,7 +164,7 @@ fn serve(
     mut send: impl FnMut(Report) -> bool,
     root: &TrustedRoot,
     state_dir: Option<PathBuf>,
-    live: &AtomicBool,
+    (live, stop): &(Arc<AtomicBool>, Arc<AtomicBool>),
 ) {
     let mut state = State {
         state_dir: state_dir.clone(),
@@ -167,6 +183,9 @@ fn serve(
             continue;
         }
         let mut reports = Vec::new();
+        // A stop is for the batch it came in, and not one asked for after it.
+        stop.store(false, Ordering::SeqCst);
+        state.stop = Arc::clone(stop);
         let answered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             state.answer(batch, root, &mut reports);
         }));
@@ -203,6 +222,8 @@ struct State {
     hunks: HashMap<(Section, Vec<u8>), Hunks>,
     /// Whether the status was read at all.
     read: bool,
+    /// Set to stop the write under way.
+    stop: Arc<AtomicBool>,
 }
 
 impl State {
@@ -375,7 +396,7 @@ impl State {
         let git = self.git(root.path())?.clone();
         for op in ops {
             root.check()?;
-            run(&git, op, initial)?;
+            run(&git, op, initial, &self.stop)?;
         }
         Ok(())
     }
@@ -383,13 +404,13 @@ impl State {
 
 /// `vcs/hooks` under `state`, made private if missing, and checked to be empty: git is told the
 /// hooks are there, so that none runs, `post-index-change` neither (ADR 0127, step 1a).
-fn hooks_dir(state: Option<&Path>) -> Result<PathBuf, String> {
+pub(super) fn hooks_dir(state: Option<&Path>) -> Result<PathBuf, String> {
     let state = state.ok_or("oso has no state directory, so it runs no git for a status")?;
     crate::git::empty_hooks(state, "vcs")
 }
 
 /// git for the repository whose work tree's top is `root`; a top elsewhere is refused.
-fn find(root: &Path, hooks: &Path) -> Result<Git, String> {
+pub(super) fn find(root: &Path, hooks: &Path) -> Result<Git, String> {
     let git = Git::new(root, hooks).map_err(|e| e.to_string())?;
     let out = git
         .run(&args(&["rev-parse", "--show-toplevel"]), &set(), MAX_SHORT)
@@ -485,8 +506,9 @@ fn read_patch(
     Ok(patch::parse(&out.stdout, out.cut))
 }
 
-/// Runs one op; `initial` before the repository's first commit, when unstaging is `rm --cached`.
-fn run(git: &Git, op: &Op, initial: bool) -> Result<(), String> {
+/// Runs one op, with no time limit until `stop` is set; `initial` before the repository's first
+/// commit, when unstaging is `rm --cached`.
+fn run(git: &Git, op: &Op, initial: bool, stop: &AtomicBool) -> Result<(), String> {
     let (words, input, refused): (Vec<&str>, Vec<u8>, bool) = match op {
         Op::Add(paths) => (
             vec!["add", "--pathspec-from-file=-", "--pathspec-file-nul"],
@@ -541,9 +563,7 @@ fn run(git: &Git, op: &Op, initial: bool) -> Result<(), String> {
         }
     };
     let out = git
-        .output_with(&args(&words), &set(), Some(input), |stdout| {
-            read_at_most(stdout, MAX_SHORT)
-        })
+        .run_long(&args(&words), &set(), Some(input), stop)
         .map_err(|e| e.to_string())?;
     if out.status.success() {
         return Ok(());

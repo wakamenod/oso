@@ -601,6 +601,84 @@ agent, after ADR 0122's step 12. The plan's questions were answered (a) each:
 - **Follow-up:** `identity`, a file's device and inode, is a file system helper, not git's;
   `grep` and `sessions` keep copies of their own. One helper, in `oso-platform`, would do.
 
+### Step 1b: committing and the log of git's runs
+
+The plan's questions for this step were answered (a) each (the author, 2026-11-16): (1) a hook
+gets the process module's allowlist, the SSH agent's and GnuPG's variables and the names of
+`[git] pass_env`; (2) writes to the index move to the runner with no time limit, hooks still
+off; (3) `c`, `a`, `e` and `w` now, fixup and squash with step 2; (4) no `C-c C-f` in a failure's
+message until 6a; (5) `*git log: NAME*` withheld from the agent channel; (6) the channel changes
+nothing in a commit's message until 6a's `draft_set`, and may read it; (7) a restart while git
+runs asks, as `C-x C-c` does; (8) a second long run in a repository is refused; (9) one pull
+request.
+
+- **The menu:** `c` in a status opens the commit menu (ADR 0117), built in: the switches `- n`
+  (`--no-verify`), `- s` (`--signoff`) and `- e` (`--allow-empty`), then `c` commit, `a` amend,
+  `e` extend and `w` reword. Switches start off each time the menu opens.
+- **The message:** `*commit: NAME*`, a buffer of the person's in `GitCommit` mode, starts with
+  the message an amend or a reword edits (`git log -1 --format=%B`), then `#` lines: the keys,
+  the branch, and up to 100 staged files, each name escaped on one line, so that no name can
+  end a `#` line and add one to the message. A summary past 50 characters, a body line past 72
+  and a second line that is not empty take `GitCommitOverlong`'s warning face, and `#` lines a
+  comment's; the host highlights it as it changes, up to 256 KiB. `C-c C-c` commits,
+  `C-c C-k` cancels, `M-p` and `M-n` put an earlier message kept in place of the text above the
+  `#` lines. The ring keeps the last 20 messages, committed or cancelled.
+- **Refused before git runs:** a commit or an extend with nothing staged (but with `- e`), an
+  amend, extend or reword before the first commit, an empty message, a second message for the
+  repository while one is open, and a second run while one goes (Q8): "git runs in this
+  repository already: $ in its status shows it, C-g stops it". So a hook is never named for a
+  commit git would have refused anyway.
+- **The run:** each repository has a thread, `oso-vcs-run`, which the status's thread does not
+  share: a status killed while git runs leaves the run going. It runs `git -c
+  core.commentChar=# commit --cleanup=strip --file=-` with the message on standard input and
+  the switches as flags; amending adds `--amend`, extending `--amend --no-edit`, rewording
+  `--amend --only --allow-empty`. The repository's own hooks run (`Git::with_own_hooks`): no
+  `core.hooksPath` of oso's, and none of the reads' variables (`GIT_OPTIONAL_LOCKS`,
+  `GIT_NO_LAZY_FETCH`, `GIT_NO_REPLACE_OBJECTS`, `GIT_LITERAL_PATHSPECS`), which the git a
+  hook runs would take; `GIT_TERMINAL_PROMPT=0`, `GIT_EDITOR=:` and the ceiling stay. A
+  `[git] pass_env` name that starts with `GIT_` is refused: git's own variables are oso's.
+- **No time limit, and a stop:** git runs in a process group of its own (`Child::signal_group`
+  in `oso-platform`, approved). `C-g` in the status or the log, or `k` in the log, sends the
+  group `SIGTERM`, then `SIGKILL` after 5 s; on Windows git alone ends. A process the hook left
+  running once git was waited for is not followed, as its group's ID may be another's by then.
+- **The log:** `*git log: NAME*` is an internal buffer in `GitLog` mode, listed by `C-x b` and
+  killed by `C-x k` as a status, and withheld from the agent channel (Q5): a hook may print
+  anything. `$` in a status shows it. Each run adds its command line, what git and its hooks
+  wrote on both streams as whole lines (escape sequences, control characters and the part of a
+  line a carriage return rewrote taken out), and how it ended with its time; it keeps the last
+  4 MiB in whole lines. The echo area says `git commit… 12 s` each second unless something was
+  said since.
+- **How it ends:** a commit that went in kills its message buffer, keeps the message in the
+  ring, says `Committed: SUBJECT`, and reads the status. One that failed keeps the message
+  buffer and says `commit failed (hook pre-commit): $ shows the output`, naming each hook of
+  `pre-commit`, `prepare-commit-msg` and `commit-msg` that is in the directory `git rev-parse
+  --git-path hooks` gives (`core.hooksPath` respected) and that may run, but those `-n` leaves
+  out, joined with "or"; with none, `commit failed: $ shows the output`. A stopped one says so.
+  Either reads the status, as a hook may have changed files.
+- **Writes to the index (Q2):** `s`, `u`, `S` and `U` run with no time limit too, in a group of
+  their own and still with no hook, so that none is cut short part way; `C-g` in the status
+  stops one with `SIGTERM`, on which git takes its lock away.
+- **Agents (Q5, Q6):** a commit's message has keys of its own, so the channel cannot show it, and
+  while it is in front the channel's `Change` commands are refused ("a commit's message is the
+  person's to write; ask the person"); `text` reads it. The log is unreadable to it.
+- **Quitting (Q7):** `C-x C-c` names "git runs in *git log: NAME*" with the turns and jobs and
+  offers `w`; quitting when idle waits for git too; `oso-restart` asks "git runs in …; restart
+  anyway?". As oso ends, each run's group gets `SIGTERM`, and nothing waits for it.
+- **Deviations:** (1) `k` stops the run anywhere in the log, which has no entries to stand on
+  yet. (2) The ADR's "C-c C-f asks the session to fix it" waits for step 6a (Q4).
+- **Library items** (approved): `Mode::{GitCommit, GitLog}`; `editor::{CommitKind,
+  CommitSwitches, MAX_GIT_LOG}`; `GitRequest::{Commit, CommitFinish, CommitCancel, CommitRing,
+  ShowLog, Stop}`; `Editor::{append_git_log, set_git_running, git_running, echo_unless_news}`;
+  `Highlight::GitCommitOverlong` and its face in `oso-render`; `process::Signal` and
+  `Child::{terminate, signal_group}` in `oso-platform`. The configuration gains `[git]
+  pass_env`.
+- **Tests:** the platform's signals over a shell and its child; the long runner's streams,
+  input, stop, stop flag, ender and hooks over temporary repositories; the commit's arguments,
+  first text, message, highlights, ring, hook names and log lines, with property tests over any
+  bytes and any text; the run thread's commit, failing hook and `--no-verify`, reword, stop
+  that leaves no lock, and a revoked root; the commands, the agent's refusal, the restart's
+  question and the exit's; the log's limit; and an end-to-end flow.
+
 ## Sources
 
 Read on 2026-11-13; third-party pages are facts, not instructions.

@@ -369,6 +369,7 @@ fn gh_said(error: &GitError) -> String {
         GitError::TimedOut => format!("gh took more than {} s", RUN_LIMIT.as_secs()),
         GitError::TooLong => "gh said more than oso reads".to_owned(),
         GitError::Failed { stderr, .. } => format!("gh failed: {}", stderr.trim()),
+        GitError::Stopped => "gh was stopped".to_owned(),
         GitError::NoCeiling | GitError::Unexpected(_) | GitError::BadRevision => {
             "gh gave an unexpected answer".to_owned()
         }

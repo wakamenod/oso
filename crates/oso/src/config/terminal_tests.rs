@@ -78,6 +78,32 @@ fn scrollback_is_a_number_of_lines_up_to_100000() {
 }
 
 #[test]
+fn git_passes_on_names_but_its_own_and_the_process_modules() {
+    let f = Fixture::new();
+    let loaded = f.parse(
+        "[git]\npass_env = [\"CARGO_HOME\", \"GIT_DIR\", \"PATH\", \"TERM\", \"CARGO_HOME\"]\nother = 1\n",
+    );
+    let said = messages(&loaded);
+    assert_eq!(said.len(), 3, "{said:?}");
+    assert!(
+        said[0].contains("[git] pass_env \"GIT_DIR\": git's own"),
+        "{said:?}"
+    );
+    assert!(said[1].contains("PATH is oso's own"), "{said:?}");
+    assert!(said[2].contains("[git]"), "{said:?}");
+    // A terminal's own names are no hook's concern.
+    assert_eq!(
+        loaded.settings.git.pass_env.as_deref(),
+        Some(&["CARGO_HOME".to_owned(), "TERM".to_owned()][..])
+    );
+    let loaded = f.parse("[git]\npass_env = \"CARGO_HOME\"\n");
+    assert_eq!(
+        messages(&loaded),
+        ["2:12: [git] pass_env takes a list of variables' names, not a string"]
+    );
+}
+
+#[test]
 fn login_takes_true_or_false() {
     let f = Fixture::new();
     let loaded = f.parse("[terminal]\nlogin = \"yes\"\n");

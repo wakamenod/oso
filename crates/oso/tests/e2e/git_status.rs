@@ -20,7 +20,7 @@ const TEXT: &str = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n";
 
 /// A committed project, `proj-git`, with `a.txt` changed near its start and its end and
 /// `new.txt` untracked; returns `a.txt`.
-fn project(scratch: &Scratch) -> PathBuf {
+pub(super) fn project(scratch: &Scratch) -> PathBuf {
     let file = scratch.write("proj-git/a.txt", TEXT.as_bytes());
     let root = scratch.path().join("proj-git");
     git(&root, &["init", "-q", "-b", "main"]);
@@ -49,7 +49,7 @@ fn project(scratch: &Scratch) -> PathBuf {
 }
 
 /// The status's rows once `done` holds for them, or the last read after 5 s.
-fn rows_until(app: &mut App, done: impl Fn(&[String]) -> bool) -> Vec<String> {
+pub(super) fn rows_until(app: &mut App, done: impl Fn(&[String]) -> bool) -> Vec<String> {
     let mut seen = Vec::new();
     for _ in 0..200 {
         seen = rows(app, 40);
@@ -61,7 +61,7 @@ fn rows_until(app: &mut App, done: impl Fn(&[String]) -> bool) -> Vec<String> {
     seen
 }
 
-fn has(rows: &[String], row: &str) -> bool {
+pub(super) fn has(rows: &[String], row: &str) -> bool {
     rows.iter().any(|shown| shown == row)
 }
 
@@ -94,7 +94,7 @@ fn started(scratch: &Scratch, file: &Path) -> App {
 
 /// An instance on `file`, whose status `C-x g` first refuses, as its project is restricted, then
 /// shows once the project is trusted.
-fn trusted_status(scratch: &Scratch, file: &Path) -> App {
+pub(super) fn trusted_status(scratch: &Scratch, file: &Path) -> App {
     let mut app = started(scratch, file);
     // A restricted project runs no git: the status refuses.
     app.send_keys("C-x g");

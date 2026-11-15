@@ -471,6 +471,27 @@ to run: M-x trust-project".
   does reads nothing: its save, or a status its command left shown, says `stale: g reads it
   again` in the modeline until the person's next key in it.
 
+### Committing
+
+`c` in a status opens the commit menu (step 1b): `- n` `--no-verify`, `- s` `--signoff` and
+`- e` `--allow-empty` flip their switches, then `c` commits, `a` amends, `e` extends the last
+commit with what is staged and keeps its message, and `w` rewords it alone.
+
+- A commit, an amend and a reword open `*commit: NAME*`: the message, then `#` lines with the
+  branch and the staged files, which are left out. Past 50 characters on the summary, past 72
+  on a body line, and a second line that is not empty, show in the warning's colour. `C-c C-c`
+  commits, `C-c C-k` cancels, and `M-p`/`M-n` bring back the last 20 messages committed or
+  cancelled.
+- git runs the repository's hooks, with no time limit: the echo area counts the seconds, `$` in
+  the status shows `*git log: NAME*` with what git and its hooks wrote, and `C-g` there or in the
+  status, or `k` in the log, stops it (`SIGTERM`, then `SIGKILL` after 5 s). A commit that fails
+  keeps its message and says `commit failed (hook pre-commit): $ shows the output`.
+- Nothing staged, an amend before the first commit, an empty message, or a second commit while
+  one runs, is refused before git runs. `C-x C-c` and `oso-restart` ask while git runs.
+- A hook gets oso's allowlist of variables, `SSH_AUTH_SOCK`, `GNUPGHOME` and `GPG_AGENT_INFO`,
+  and the names `[git] pass_env` lists, passed on from oso's own environment; `PATH`, `LD_*`,
+  `DYLD_*` and git's own `GIT_*` are refused there.
+
 ## Echo area
 
 - A single line at the bottom of the frame shows messages such as "Saved"

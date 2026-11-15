@@ -19,6 +19,15 @@ pub const COMMANDS: &[Command] = &[Command {
 
 fn restart(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
+    // git's runs end with this instance, as with `C-x C-c`, which asks first (ADR 0127, Q7).
+    let runs: Vec<_> = ctx.editor.git_running().collect();
+    if !runs.is_empty() && !ctx.confirmed() {
+        let question = format!(
+            "git runs in {}; restart anyway?",
+            super::session::names(ctx.editor, &runs)
+        );
+        return super::session::ask(ctx, question, "oso-restart", ["restart", "stay"]);
+    }
     ctx.editor
         .request_terminal(oso_core::editor::TerminalRequest::Restart);
     ctx.request_redraw();
@@ -29,6 +38,20 @@ fn restart(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 mod tests {
     use crate::commands::tests::{editor, run};
     use oso_core::command::Args;
+
+    #[test]
+    fn a_restart_while_git_runs_asks_first() {
+        let mut editor = editor("text");
+        let log = editor.add_internal_buffer("*git log: p*", oso_core::buffer::Mode::GitLog);
+        editor.set_git_running(log, true);
+        let (result, _) = run(&mut editor, "oso-restart", Args::NONE);
+        assert_eq!(result, Ok(()));
+        assert!(editor.take_terminal_requests().is_empty());
+        assert_eq!(
+            editor.prompt().expect("a question").label(),
+            "git runs in *git log: p*; restart anyway? (y or n)"
+        );
+    }
 
     #[test]
     fn it_asks_the_host_once() {

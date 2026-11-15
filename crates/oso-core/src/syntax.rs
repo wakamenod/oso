@@ -112,4 +112,8 @@ pub enum Highlight {
     GitHash,
     /// What a status says quietly: a file's counts, ahead and behind, notes and marks.
     GitDetail,
+    /// What a commit's message holds past what its line should (ADR 0127, step 1b): the
+    /// summary's characters past 50, a body line's past 72, and a second line that is not
+    /// empty. Only the host gives these; no parser does.
+    GitCommitOverlong,
 }

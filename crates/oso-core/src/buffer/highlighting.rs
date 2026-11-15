@@ -207,8 +207,9 @@ impl Buffer {
     /// Whether the buffer can be highlighted at some length: a language mode, not an internal
     /// buffer, and not one that may hold secrets.
     fn may_highlight(&self) -> bool {
+        // A commit's message is highlighted by the host as it changes, not parsed (ADR 0127).
         let language = match self.mode {
-            Mode::Rust | Mode::Markdown | Mode::Toml => true,
+            Mode::Rust | Mode::Markdown | Mode::Toml | Mode::GitCommit => true,
             Mode::Fundamental
             | Mode::CopyList
             | Mode::CopyView
@@ -218,6 +219,7 @@ impl Buffer {
             | Mode::Terminal
             | Mode::Directory
             | Mode::GitStatus
+            | Mode::GitLog
             | Mode::Sessions => false,
         };
         language && !self.internal && !self.is_secret()

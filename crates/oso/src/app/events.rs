@@ -111,6 +111,7 @@ impl App {
             UserEvent::Worktree(report) => self.worktree_reported(event_loop, *report),
             UserEvent::Review(event) => self.review_reported(event),
             UserEvent::Git(event) => self.git_reported(event),
+            UserEvent::GitRun(event) => self.git_run_reported(event),
             UserEvent::Terminal(buffer) => self.terminal_ready(buffer),
             UserEvent::TerminalStarted(started) => self.terminal_started(*started),
             UserEvent::Carry(event) => self.carry_event(event),

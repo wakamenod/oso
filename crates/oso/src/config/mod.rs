@@ -56,7 +56,7 @@ pub use settings::Settings;
 pub use source::FILE_NAME;
 pub use source::Source;
 pub use spaces::Spaces;
-pub use terminal::Terminal;
+pub use terminal::{Git, Terminal};
 pub use trust::{Record, TRUST_FILE_NAME, TrustFile};
 pub use watch::{Reader, Report};
 
@@ -226,6 +226,7 @@ fn apply(
             "sessions" => settings.sessions = settings::sessions(value, found),
             "terminal" => settings.terminal = terminal::terminal(value, found),
             "spaces" => settings.spaces = spaces::spaces(value, found),
+            "git" => settings.git = terminal::git(value, found),
             other => found.at(
                 name.span().start,
                 format_args!("unknown table [{}], skipped", TableName(other)),

@@ -147,6 +147,8 @@ pub enum UserEvent {
     Review(reviews::ReviewEvent),
     /// A git status buffer's thread reported (ADR 0127).
     Git(vcs::GitEvent),
+    /// A repository's thread for git's long runs reported (ADR 0127, step 1b).
+    GitRun(vcs::RunEvent),
     /// A terminal's thread has a snapshot ready (ADR 0120).
     Terminal(oso_core::buffer::BufferId),
     /// A terminal's start thread found the shell and started it, or could not.

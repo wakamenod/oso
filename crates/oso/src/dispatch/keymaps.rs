@@ -64,6 +64,10 @@ pub(super) struct Keymaps {
     pub(super) dired: Keymap,
     /// A git status's own keys, above the global ones (ADR 0127).
     pub(super) git: Keymap,
+    /// A commit's message's own keys, above the global ones (ADR 0127, step 1b).
+    pub(super) git_commit: Keymap,
+    /// The log of git's runs' own keys, above the global ones.
+    pub(super) git_log: Keymap,
     /// A terminal's own keys, above the global ones in a terminal's buffer (ADR 0120).
     pub(super) terminal: Keymap,
     /// A terminal's own keys and session mode's, in a terminal's buffer that hosts a session
@@ -104,6 +108,8 @@ impl Keymaps {
             review: bindings::review_keymap(registry),
             dired: bindings::dired_keymap(registry),
             git: bindings::git_status_keymap(registry),
+            git_commit: bindings::git_commit_keymap(registry),
+            git_log: bindings::git_log_keymap(registry),
             terminal: bindings::terminal_keymap(registry),
             session_help: SessionHelp::new(&session, registry),
             session,
@@ -113,7 +119,7 @@ impl Keymaps {
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 24] {
+    pub(super) fn all(&self) -> [&Keymap; 26] {
         let Self {
             global,
             user,
@@ -134,6 +140,8 @@ impl Keymaps {
             review,
             dired,
             git,
+            git_commit,
+            git_log,
             terminal,
             session,
             user_session,
@@ -161,6 +169,8 @@ impl Keymaps {
             review,
             dired,
             git,
+            git_commit,
+            git_log,
             terminal,
             session,
             user_session,
@@ -232,6 +242,8 @@ impl Keymaps {
                 Mode::Review => Some(&self.review),
                 Mode::Directory => Some(&self.dired),
                 Mode::GitStatus => Some(&self.git),
+                Mode::GitCommit => Some(&self.git_commit),
+                Mode::GitLog => Some(&self.git_log),
                 Mode::Markdown => Some(&self.markdown),
                 Mode::Brief => Some(&self.worktrees[0]),
                 Mode::Worktrees => Some(&self.worktrees[1]),

@@ -624,8 +624,16 @@ The UI thread never blocks on I/O or parsing:
   and an open file's patch, each bounded, then laid out there into a rope with its display map, highlights,
   outline and a table of what each line is about. The UI swaps it in at O(1)
   (`Editor::set_git_text`), each window's point kept on its hunk, file or section. Staging runs
-  there too, with paths on standard input and a hunk as git's own patch
+  there too, with paths on standard input and a hunk as git's own patch, with no time limit in
+  a process group of its own that `C-g` stops
   ([ADR 0127](adr/0127-source-control-and-github.md)).
+- A commit runs on its repository's thread, `oso-vcs-run` (`crates/oso/src/vcs/run.rs`, glue in
+  `app/vcs/runs.rs` and `app/vcs/commit.rs`), with the repository's hooks and no time limit, in
+  a process group of its own (`crate::git`'s `long`), which `C-g` sends `SIGTERM` and then
+  `SIGKILL`. What git writes streams, cleaned and in whole lines, into `*git log: NAME*`
+  (`Editor::append_git_log`, the last 4 MiB), and the echo area counts the seconds. Quitting
+  sends each run's group `SIGTERM` and waits for nothing
+  ([ADR 0127](adr/0127-source-control-and-github.md), step 1b).
 - A prompt's list past 5000 candidates is built and matched on a thread of its own
   (`app/completions.rs`), from a job `oso_core::complete` makes over `Arc` snapshots, superseded
   by the next through a generation. The rows shown stay and the count says `…` until the result
