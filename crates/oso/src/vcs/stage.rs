@@ -16,7 +16,7 @@ use oso_core::editor::GitLines;
 use super::layout::{Built, Row, Section};
 
 /// What a command means.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) enum Target {
     Section(Section),
     File {
@@ -34,42 +34,13 @@ pub(crate) enum Target {
 pub(crate) const PART_OF_A_HUNK: &str =
     "Staging part of a hunk comes later: put point on its @@ line to stage it whole";
 
-/// The targets `lines` name in `built`, each once, those a section holds folded into it.
+/// The targets `lines` name in `built`, each once, those a section or a file holds folded into
+/// it. O(lines) for the rows the regions hold, and O(n log n) for the targets found.
 pub(crate) fn targets(built: &Built, lines: &[GitLines]) -> Result<Vec<Target>, &'static str> {
     let mut found = Vec::new();
     for one in lines {
         if one.region && one.last > one.first {
-            let rows = (one.first..=one.last).filter_map(|line| built.rows.get(line).copied());
-            let mut headers = Vec::new();
-            for row in rows.clone() {
-                if let Some(target) = target_of(row, false) {
-                    headers.push(target);
-                }
-            }
-            for row in rows {
-                if let Row::Line {
-                    section,
-                    file,
-                    hunk,
-                    ..
-                } = row
-                {
-                    let held = headers.iter().any(|target| {
-                        holds(
-                            *target,
-                            Target::Hunk {
-                                section,
-                                file,
-                                hunk,
-                            },
-                        )
-                    });
-                    if !held {
-                        return Err(PART_OF_A_HUNK);
-                    }
-                }
-            }
-            found.extend(headers);
+            region(built, one.first, one.last, &mut found)?;
         } else if let Some(row) = built.rows.get(one.first)
             && let Some(target) = target_of(*row, true)
         {
@@ -78,13 +49,63 @@ pub(crate) fn targets(built: &Built, lines: &[GitLines]) -> Result<Vec<Target>, 
     }
     found.sort_unstable();
     found.dedup();
-    let outer = found.clone();
-    found.retain(|target| {
-        !outer
-            .iter()
-            .any(|other| other != target && holds(*other, *target))
-    });
+    let set: std::collections::HashSet<Target> = found.iter().copied().collect();
+    found.retain(|target| !parents(*target).iter().flatten().any(|p| set.contains(p)));
     Ok(found)
+}
+
+/// The headings rows `first..=last` hold, in order: the rows are in the text's order, so a hunk's
+/// line is held when its hunk's, its file's or its section's heading came before it in the
+/// region.
+fn region(
+    built: &Built,
+    first: usize,
+    last: usize,
+    found: &mut Vec<Target>,
+) -> Result<(), &'static str> {
+    let mut held: [Option<Target>; 3] = [None; 3];
+    for row in (first..=last).filter_map(|line| built.rows.get(line).copied()) {
+        if let Row::Line {
+            section,
+            file,
+            hunk,
+            ..
+        } = row
+        {
+            let hunk = Target::Hunk {
+                section,
+                file,
+                hunk,
+            };
+            let mut holders = parents(hunk).into_iter().flatten().chain([hunk]);
+            if !holders.any(|holder| held.contains(&Some(holder))) {
+                return Err(PART_OF_A_HUNK);
+            }
+            continue;
+        }
+        let Some(target) = target_of(row, false) else {
+            continue;
+        };
+        match target {
+            Target::Section(_) => held = [Some(target), None, None],
+            Target::File { .. } => held[1..].copy_from_slice(&[Some(target), None]),
+            Target::Hunk { .. } => held[2] = Some(target),
+        }
+        found.push(target);
+    }
+    Ok(())
+}
+
+/// What holds `target`: its section's heading and, for a hunk, its file.
+fn parents(target: Target) -> [Option<Target>; 2] {
+    match target {
+        Target::Section(_) => [None, None],
+        Target::File { section, .. } => [Some(Target::Section(section)), None],
+        Target::Hunk { section, file, .. } => [
+            Some(Target::Section(section)),
+            Some(Target::File { section, file }),
+        ],
+    }
 }
 
 /// What a row names: a heading its section, a file's row or note the file, a hunk's header
@@ -92,9 +113,12 @@ pub(crate) fn targets(built: &Built, lines: &[GitLines]) -> Result<Vec<Target>, 
 fn target_of(row: Row, cursor: bool) -> Option<Target> {
     match row {
         Row::Heading(section) => Some(Target::Section(section)),
-        Row::File { section, file } | Row::Detail { section, file } => {
-            Some(Target::File { section, file })
-        }
+        Row::File { section, file }
+        | Row::Detail {
+            section,
+            file,
+            whole: true,
+        } => Some(Target::File { section, file }),
         Row::Hunk {
             section,
             file,
@@ -114,33 +138,36 @@ fn target_of(row: Row, cursor: bool) -> Option<Target> {
             file,
             hunk,
         }),
-        Row::Line { .. } | Row::Other | Row::More(_) => None,
+        Row::Line { .. } | Row::Detail { .. } | Row::Other | Row::More(_) => None,
     }
 }
 
-/// Whether `outer` holds `inner`: a section its files and hunks, a file its hunks.
-fn holds(outer: Target, inner: Target) -> bool {
-    match (outer, inner) {
-        (Target::Section(a), Target::File { section, .. } | Target::Hunk { section, .. }) => {
-            a == section
-        }
-        (
-            Target::File { section, file },
-            Target::Hunk {
-                section: s,
-                file: f,
-                ..
-            },
-        ) => section == s && file == f,
-        _ => outer == inner,
+/// What `S` (`stage`) or `U` stages or unstages: every unstaged change of tracked files, or every
+/// staged one; or why there is none.
+pub(crate) fn all(built: &Built, stage: bool) -> Result<Target, &'static str> {
+    let section = if stage {
+        Section::Unstaged
+    } else {
+        Section::Staged
+    };
+    if built.files(section).is_empty() {
+        return Err(if stage {
+            "No unstaged changes"
+        } else {
+            "No staged changes"
+        });
     }
+    Ok(Target::Section(section))
 }
 
 /// A git command that stages or unstages.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Op {
-    /// `git add` of these paths.
+    /// `git add` of these untracked paths.
     Add(Vec<Vec<u8>>),
+    /// `git add --update` of these tracked paths: only what git tracks under each, so that an
+    /// untracked file under a path that became a directory is never added with it.
+    Update(Vec<Vec<u8>>),
     /// `git restore --staged` of these paths, or, before the first commit, `git rm --cached`.
     Unstage(Vec<Vec<u8>>),
     /// `git apply --cached` of this patch, in reverse to unstage it.
@@ -160,16 +187,22 @@ pub(crate) fn ops(
     }
     let Picked {
         mut paths,
+        mut untracked,
         patches,
         files,
         hunks,
     } = picked;
     let mut ops = Vec::new();
-    paths.sort_unstable();
-    paths.dedup();
+    for list in [&mut untracked, &mut paths] {
+        list.sort_unstable();
+        list.dedup();
+    }
+    if !untracked.is_empty() {
+        ops.push(Op::Add(untracked));
+    }
     if !paths.is_empty() {
         ops.push(if stage {
-            Op::Add(paths)
+            Op::Update(paths)
         } else {
             Op::Unstage(paths)
         });
@@ -212,7 +245,10 @@ fn said(stage: bool, files: usize, hunks: usize) -> String {
 /// The files and hunks picked so far.
 #[derive(Default)]
 struct Picked {
+    /// Tracked paths, staged with `--update` or unstaged.
     paths: Vec<Vec<u8>>,
+    /// Untracked paths, added.
+    untracked: Vec<Vec<u8>>,
     /// Each file's hunks, by section and file.
     patches: Vec<(Section, usize, Vec<usize>)>,
     files: usize,
@@ -275,7 +311,11 @@ impl Picked {
             return;
         };
         self.files += 1;
-        self.paths.push(file.path.clone());
+        if section == Section::Untracked {
+            self.untracked.push(file.path.clone());
+        } else {
+            self.paths.push(file.path.clone());
+        }
         if !stage && let Some(from) = &file.from {
             self.paths.push(from.clone());
         }

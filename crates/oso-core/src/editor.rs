@@ -89,7 +89,7 @@ pub use copies::RecoveryAction;
 pub use crossing::Crossing;
 pub use cursors::{CursorError, Toward};
 pub use files::Looked;
-pub use git::{GitHead, GitLines, GitRequest, GitShown};
+pub use git::{GitHeading, GitLines, GitRequest, GitShown};
 pub use gutter::Gutter;
 pub use indent::{IndentError, Shift};
 pub use isearch::{Isearch, MatchCells};

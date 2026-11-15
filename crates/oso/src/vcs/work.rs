@@ -10,8 +10,10 @@
 //! - git runs through `review`'s runner: oso's arguments and environment, no hook and no file
 //!   system monitor, each read bounded, a run past ten seconds killed. Every run here adds
 //!   `GIT_LITERAL_PATHSPECS=1`, so that a path is only ever itself, and paths go to `add` and
-//!   `restore` on standard input. Nothing here runs a hook: `add`, `restore`, `rm --cached`
-//!   and `apply --cached` run none.
+//!   `restore` on standard input. No hook runs: every index write would run
+//!   `post-index-change`, and only the runner's empty hooks directory keeps it from running.
+//! - The root is looked at before each batch and each write, and its revocation before each
+//!   read, so that a revoked project runs nothing more.
 //! - Reads ask for git's own bytes and keep the person's configuration from reshaping them:
 //!   diffs run with `--no-ext-diff --no-textconv --no-color --no-relative` and `a/` and `b/`
 //!   prefixes, and a hunk is applied with no whitespace loosening, so that what was shown is
@@ -30,9 +32,10 @@ use std::thread;
 
 use oso_platform::privacy::PrivateDir;
 
+use super::layout::Built;
 use super::layout::{self, Head, Hunks, Laid, Section, View};
 use super::patch;
-use super::stage::Op;
+use super::stage::{self, Op, Target};
 use super::status::{self, Status};
 use crate::review::git::{Git, GitError, MAX_SHORT, read_at_most};
 use crate::review::{TrustedRoot, may_hold_secrets, os_path};
@@ -51,11 +54,14 @@ pub(crate) enum Request {
     Read { generation: u64, view: View },
     /// Lay out what was read, reading the hunks of files newly open.
     Layout { generation: u64, view: View },
-    /// Run `ops` in order, say `said` if they all ran, then read the status again.
-    Run {
+    /// Stage (`stage`) or unstage `targets`, which name what `built` shows, then read the status
+    /// again. The git commands are made here, off the UI thread: a section's may name every
+    /// path of a large repository.
+    Stage {
         generation: u64,
-        ops: Vec<Op>,
-        said: String,
+        built: Arc<Built>,
+        targets: Vec<Target>,
+        stage: bool,
         view: View,
     },
 }
@@ -65,13 +71,13 @@ impl Request {
         match self {
             Self::Read { generation, .. }
             | Self::Layout { generation, .. }
-            | Self::Run { generation, .. } => *generation,
+            | Self::Stage { generation, .. } => *generation,
         }
     }
 
     fn view(&self) -> &View {
         match self {
-            Self::Read { view, .. } | Self::Layout { view, .. } | Self::Run { view, .. } => view,
+            Self::Read { view, .. } | Self::Layout { view, .. } | Self::Stage { view, .. } => view,
         }
     }
 }
@@ -82,6 +88,8 @@ pub(crate) enum Report {
     Laid { generation: u64, laid: Box<Laid> },
     /// Staging ran; what the echo area says.
     Ran { said: String },
+    /// Staging was refused before git ran: why, for the echo area.
+    Refused { why: String },
     /// Something failed: why, with no file's text.
     Failed { why: String },
 }
@@ -94,6 +102,7 @@ impl fmt::Debug for Report {
                 .field("generation", generation)
                 .finish_non_exhaustive(),
             Self::Ran { said } => f.debug_struct("Ran").field("said", said).finish(),
+            Self::Refused { why } => f.debug_struct("Refused").field("why", why).finish(),
             Self::Failed { why } => f.debug_struct("Failed").field("why", why).finish(),
         }
     }
@@ -161,7 +170,7 @@ fn serve(
         }
         let mut reports = Vec::new();
         let answered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            state.answer(batch, root.path(), &mut reports);
+            state.answer(batch, root, &mut reports);
         }));
         if answered.is_err() {
             log::warn!("a git status's batch panicked");
@@ -199,10 +208,11 @@ struct State {
 }
 
 impl State {
-    fn answer(&mut self, batch: Vec<Request>, root: &Path, out: &mut Vec<Report>) {
+    fn answer(&mut self, batch: Vec<Request>, trusted: &TrustedRoot, out: &mut Vec<Report>) {
         let Some(last) = batch.last() else {
             return;
         };
+        let root = trusted.path();
         let generation = batch.iter().map(Request::generation).max().unwrap_or(0);
         let view = last.view().clone();
         let mut read = !self.read;
@@ -210,23 +220,31 @@ impl State {
             match request {
                 Request::Read { .. } => read = true,
                 Request::Layout { .. } => {}
-                Request::Run { ops, said, .. } => {
-                    read = true;
-                    match self.run_all(&ops, root) {
-                        Ok(()) => out.push(Report::Ran { said }),
-                        Err(why) => out.push(Report::Failed { why }),
+                Request::Stage {
+                    built,
+                    targets,
+                    stage,
+                    ..
+                } => match stage::ops(&built, &targets, stage) {
+                    Ok((ops, said)) => {
+                        read = true;
+                        match self.run_all(&ops, trusted) {
+                            Ok(()) => out.push(Report::Ran { said }),
+                            Err(why) => out.push(Report::Failed { why }),
+                        }
                     }
-                }
+                    Err(why) => out.push(Report::Refused { why }),
+                },
             }
         }
-        if read && let Err(why) = self.read_status(root) {
+        if read && let Err(why) = self.read_status(trusted) {
             out.push(Report::Failed { why: why.clone() });
             self.notes = vec![format!("git status failed: {why}")];
         }
-        self.read_open_hunks(&view, root);
-        let sections = layout::sections(&self.status, &self.unstaged, &self.staged, &|path| {
-            may_hold_secrets(root, path)
-        });
+        // Once a batch: a file may hold secrets by its name, or as an open buffer of it does.
+        let secret = |path: &[u8]| may_hold_secrets(root, path) || view.withheld.contains(path);
+        let sections = layout::sections(&self.status, &self.unstaged, &self.staged, &secret);
+        self.read_open_hunks(&view, &sections, trusted);
         let laid = layout::lay_out(&self.head, &self.notes, sections, &self.hunks, &view);
         out.push(Report::Laid {
             generation,
@@ -244,11 +262,16 @@ impl State {
         self.git.as_ref().ok_or_else(|| "no git".to_owned())
     }
 
-    fn read_status(&mut self, root: &Path) -> Result<(), String> {
+    fn read_status(&mut self, trusted: &TrustedRoot) -> Result<(), String> {
         self.read = true;
         self.hunks.clear();
         self.notes.clear();
-        let git = self.git(root)?.clone();
+        let git = self.git(trusted.path())?.clone();
+        let still = || {
+            (!trusted.revoked())
+                .then_some(())
+                .ok_or_else(|| "the project is no longer trusted".to_owned())
+        };
         let listing = git
             .output(
                 &args(&[
@@ -281,6 +304,7 @@ impl State {
             listed.truncate(whole);
         }
         self.status = status::parse(&listed);
+        still()?;
         let diff = [
             "diff",
             "--no-ext-diff",
@@ -293,6 +317,7 @@ impl State {
         let mut cached = args(&diff);
         cached.push(OsStr::new("--cached"));
         self.staged = numstat(&git, &cached).unwrap_or_default();
+        still()?;
         self.head = Head {
             branch: self.status.branch.clone(),
             commit: self
@@ -305,39 +330,53 @@ impl State {
         Ok(())
     }
 
-    /// Reads the hunks of each open file not read since the status was.
-    fn read_open_hunks(&mut self, view: &View, root: &Path) {
+    /// Reads the hunks of each open file of `sections` not read since the status was, while
+    /// the patches kept stay within what a status shows.
+    fn read_open_hunks(
+        &mut self,
+        view: &View,
+        sections: &[(Section, Vec<layout::File>)],
+        root: &TrustedRoot,
+    ) {
         let Some(git) = self.git.clone() else {
             return;
         };
-        let sections = layout::sections(&self.status, &self.unstaged, &self.staged, &|path| {
-            may_hold_secrets(root, path)
-        });
-        for (section, path) in &view.open {
-            if self.hunks.contains_key(&(*section, path.clone())) {
-                continue;
+        let mut kept: usize = (self.hunks.values())
+            .map(|hunks| match hunks {
+                Hunks::Patch(patch) => patch.len(),
+                Hunks::Note(_) | Hunks::Whole(_) => 0,
+            })
+            .sum();
+        for (section, files) in sections {
+            for file in files.iter().filter(|file| file.reads) {
+                let key = (*section, file.path.clone());
+                if !view.is_open(*section, &file.path) || self.hunks.contains_key(&key) {
+                    continue;
+                }
+                let hunks = if root.revoked() {
+                    Hunks::Note("not read: the project is no longer trusted".into())
+                } else if kept >= layout::MAX_TEXT {
+                    Hunks::Note("not read: the status holds as much as oso shows".into())
+                } else {
+                    match read_patch(&git, *section, &file.path, file.from.as_deref()) {
+                        Ok(patch) => {
+                            kept += patch.len();
+                            Hunks::Patch(Arc::new(patch))
+                        }
+                        Err(why) => Hunks::Note(format!("cannot read its hunks: {why}")),
+                    }
+                };
+                self.hunks.insert(key, hunks);
             }
-            let Some(file) = (sections.iter())
-                .find(|(of, _)| of == section)
-                .and_then(|(_, files)| files.iter().find(|file| file.path == *path))
-            else {
-                continue;
-            };
-            if !file.reads {
-                continue;
-            }
-            let hunks = match read_patch(&git, *section, &file.path, file.from.as_deref()) {
-                Ok(patch) => Hunks::Patch(Arc::new(patch)),
-                Err(why) => Hunks::Note(format!("cannot read its hunks: {why}")),
-            };
-            self.hunks.insert((*section, path.clone()), hunks);
         }
     }
 
-    fn run_all(&mut self, ops: &[Op], root: &Path) -> Result<(), String> {
+    /// Runs `ops` in order, each only while the root is still the one trusted.
+    fn run_all(&mut self, ops: &[Op], root: &TrustedRoot) -> Result<(), String> {
         let initial = self.read && self.status.branch.oid.is_none();
-        let git = self.git(root)?.clone();
+        let git = self.git(root.path())?.clone();
         for op in ops {
+            root.check()?;
             run(&git, op, initial)?;
         }
         Ok(())
@@ -345,7 +384,7 @@ impl State {
 }
 
 /// `vcs/hooks` under `state`, made private if missing, and checked to be empty: git is told the
-/// hooks are there, so that none runs (ADR 0127, step 1a runs none).
+/// hooks are there, so that none runs, `post-index-change` neither (ADR 0127, step 1a).
 fn hooks_dir(state: Option<&Path>) -> Result<PathBuf, String> {
     let state = state.ok_or("oso has no state directory, so it runs no git for a status")?;
     let hooks = PrivateDir::open(state.join("vcs").join("hooks"))
@@ -459,6 +498,16 @@ fn run(git: &Git, op: &Op, initial: bool) -> Result<(), String> {
     let (words, input, refused): (Vec<&str>, Vec<u8>, bool) = match op {
         Op::Add(paths) => (
             vec!["add", "--pathspec-from-file=-", "--pathspec-file-nul"],
+            nul_joined(paths),
+            false,
+        ),
+        Op::Update(paths) => (
+            vec![
+                "add",
+                "--update",
+                "--pathspec-from-file=-",
+                "--pathspec-file-nul",
+            ],
             nul_joined(paths),
             false,
         ),

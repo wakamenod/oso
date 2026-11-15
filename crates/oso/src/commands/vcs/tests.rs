@@ -4,7 +4,7 @@
 //! Must not depend on: `app` or winit.
 
 use oso_core::command::{Args, Prefix};
-use oso_core::editor::{Editor, GitHead, GitLines, GitRequest, GitShown};
+use oso_core::editor::{Editor, GitHeading, GitLines, GitRequest, GitShown};
 use oso_core::load::decode_all;
 use oso_core::syntax::Highlights;
 
@@ -23,8 +23,8 @@ M  b.rs\n\
 +y\n\
 M  c.rs\n";
 
-fn heads() -> Vec<GitHead> {
-    let head = |line, depth| GitHead { line, depth };
+fn heads() -> Vec<GitHeading> {
+    let head = |line, depth| GitHeading { line, depth };
     vec![
         head(2, 0),
         head(3, 1),
@@ -197,9 +197,30 @@ fn the_status_needs_a_trusted_project() {
 }
 
 #[test]
-fn the_keys_list_names_every_key() {
+fn the_keys_list_names_every_key_with_its_commands_summary() {
     let text = super::keys_text();
     for (keys, name) in super::KEYS {
         assert!(text.contains(keys) && text.contains(name), "{keys} {name}");
+        let own = super::COMMANDS.iter().any(|command| command.name == *name);
+        assert!(own || *name == "quit-window", "{name} has no summary");
+    }
+}
+
+#[test]
+fn each_command_has_the_reach_it_needs() {
+    use oso_core::command::Reach;
+    for command in super::COMMANDS {
+        let looks = matches!(
+            command.name,
+            "git-next-section"
+                | "git-previous-section"
+                | "git-next-sibling"
+                | "git-previous-sibling"
+                | "git-up-section"
+                | "git-status-keys"
+        );
+        // Anything that makes the host run git or open a file is the person's (ADR 0085).
+        let want = if looks { Reach::Look } else { Reach::Person };
+        assert_eq!(command.reach, want, "{}", command.name);
     }
 }

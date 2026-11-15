@@ -31,6 +31,9 @@
 //! - The thread's stack is [`STACK`]: Myers' diff recurses, and needs up to half a MiB at the
 //!   line limit.
 //! - Nothing here logs a file's text; `Debug` of a reading gives its path and kind.
+//! - Its runner (`git`), [`TrustedRoot`] and its secret-name check are shared with the worktree
+//!   jobs (ADR 0121) and the git status (`vcs`, ADR 0127), until a module of their own holds
+//!   them.
 
 mod batch;
 pub(crate) mod count;

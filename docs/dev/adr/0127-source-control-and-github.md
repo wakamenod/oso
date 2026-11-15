@@ -519,38 +519,53 @@ agent, after ADR 0122's step 12. The plan's questions were answered (a) each:
   hunk's line shows (a removed line, where it was), `q` (`quit-window`) and `?` (`*Git keys*`).
   `TAB` on a hunk hides its file's hunks; hunks do not fold one by one.
 - **Reading:** on the status's thread, `oso-vcs`, through ADR 0122's runner, which tells git an
-  empty private directory (`vcs/hooks` in oso's state directory) holds the hooks: step 1a runs
-  none, as `add`, `restore`, `rm --cached` and `apply --cached` run none. Every run sets
+  empty private directory (`vcs/hooks` in oso's state directory) holds the hooks, so that step 1a
+  runs none: every index write would run `post-index-change`, the person's own one too. Every
+  run sets
   `GIT_LITERAL_PATHSPECS=1`. The status is `git status --porcelain=v2 -z --branch
   --untracked-files=all`, the counts `git diff --numstat -z` and with `--cached`, the head's
   subject `git log -1 --no-show-signature`, and an open file's hunks `git -c
   diff.suppressBlankEmpty=false diff --no-ext-diff --no-textconv --no-color --no-relative
   --src-prefix=a/ --dst-prefix=b/ -U3 [--cached] -- PATH`, at most 1 MiB. Requests waiting are
   answered as one batch: each staging in order, then one reading and one text.
-- **Staging:** files go to `git add`, `git restore --staged`, or before the first commit `git rm
-  --cached`, as NUL-separated paths on standard input (`--pathspec-from-file=-
-  --pathspec-file-nul`); a staged rename unstages both its paths. Hunks of one file go as one
+- **Staging:** what the cursors name is told from the table on the UI thread, and the git
+  commands are made from it on the status's thread, as a section may name every path of a large
+  repository. Untracked files go to `git add`, tracked ones to `git add --update`, so that an
+  untracked file under a path that became a directory is never added with it; unstaging is `git
+  restore --staged`, or before the first commit `git rm --cached`. Paths go NUL-separated on
+  standard input (`--pathspec-from-file=- --pathspec-file-nul`); a staged rename unstages both
+  its paths. Hunks of one file go as one
   patch, the file's header and those hunks as git wrote them, to `git -c
   apply.ignoreWhitespace=no apply --cached --whitespace=nowarn [-R] -`. A hunk git refuses says
   "git refused the hunk, as the file changed since it was read", and the status is read again.
   A hunk whose lines do not add up to its header, of a patch git cut short, of a new, deleted,
-  renamed or binary file, of a combined diff or of a submodule stages only with its file. A
-  region that holds part of a hunk is refused until step 1c.
+  renamed or binary file, of a file whose mode changed (which no hunk shows), of a combined diff
+  or of a submodule stages only with its file, and a note under the hunks says why. A note of
+  what was not shown names nothing to stage. A region that holds part of a hunk is refused until
+  step 1c. The root is looked at again before each write, and its revocation before each read.
 - **Point:** each window's point is kept on what it was on: the same hunk's line, the hunk at the
   same place in its file, the file, else the file now at its place in the section, else the
   section's heading. A first text puts it on the first section's heading.
 - **Refresh:** when the buffer becomes shown, on `g`, after each staging, and when a save of a
   file under the repository's root reaches the disk while it shows; a read asked while it is not
   shown waits until it is.
+- **Names and open files:** a status is named `*git: NAME*`, told apart from another buffer of
+  that name by `<2>`. Files no longer listed are forgotten as open, and no more patches are read
+  once those kept reach what a status shows.
 - **Deviations:** (1) A file that may hold secrets never has its hunks read or shown, not even
   with `RET`, which visits it as any file: the review does not show such a file's hunks yet,
-  and showing them waits for its rule. Its name and counts show, and it stages whole. (2) Word
+  and showing them waits for its rule. Its name (or its name before a rename) or an open buffer
+  of it that may hold secrets is enough. Its name and counts show, and it stages whole. (2) Word
   refinement in hunks moves to step 1c. (3) A restart does not carry a status buffer: its window
-  shows the buffer behind it, and `C-x g` reads the status again.
-- **Library items** (approved): `Mode::GitStatus`; `editor::{GitRequest, GitLines, GitHead,
+  shows the buffer behind it, and `C-x g` reads the status again. (4) The runner stays in
+  `review` for this step; the author chose (2026-11-15) a refactor before step 1b that moves it,
+  `TrustedRoot`, the empty hooks directory and the path helpers into a `git` module on the line
+  of `review` in `layers.txt`, used by `review`, `sessions` and `vcs`, with no change of what
+  they do.
+- **Library items** (approved): `Mode::GitStatus`; `editor::{GitRequest, GitLines, GitHeading,
   GitShown}`; `Editor::{request_git, take_git_requests, add_git_status, git_status_of,
   git_status_buffer, git_statuses, git_outline, git_points, set_git_text}`;
-  `Highlight::{GitSectionHeading, GitBranchLocal, GitBranchRemote, GitHash, GitCount}` and their
+  `Highlight::{GitSectionHeading, GitBranchLocal, GitBranchRemote, GitHash, GitDetail}` and their
   faces in `oso-render`. `guardrails/layers.txt` gains `vcs` on `carry`'s line.
 - **Tests:** the parsers' cases and property tests over any bytes; the layout as text grids and
   the places it finds again; the targets and git commands staging names; the thread over

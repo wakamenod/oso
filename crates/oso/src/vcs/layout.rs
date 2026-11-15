@@ -10,7 +10,7 @@
 //! - Limits, each saying what it hides: [`MAX_FILES`] files a section, [`MAX_FILE_TEXT`] of one
 //!   file's hunks and [`MAX_TEXT`] in all, past which files show their row alone.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use super::patch::Patch;
@@ -167,7 +167,10 @@ fn changed(
 #[derive(Clone, Debug)]
 pub(crate) enum Hunks {
     Patch(Arc<Patch>),
+    /// What was not read, or why it could not be.
     Note(String),
+    /// Why its hunks are not read: it stages only whole.
+    Whole(&'static str),
 }
 
 /// What the head shows: the branch, and the subject of `HEAD`'s commit with its short id.
@@ -181,7 +184,61 @@ pub(crate) struct Head {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct View {
     pub(crate) folded: BTreeSet<Section>,
-    pub(crate) open: BTreeSet<(Section, Vec<u8>)>,
+    /// The paths, from the root, of files whose open buffer may hold secrets: their hunks are
+    /// not read, as a secret name's are not.
+    pub(crate) withheld: BTreeSet<Vec<u8>>,
+    /// Each section's open files, by path, so that a file is looked up without a copy of it.
+    open: BTreeMap<Section, BTreeSet<Vec<u8>>>,
+}
+
+impl View {
+    /// Shows the hunks of `path` in `section`, as `TAB` on its row does.
+    #[cfg(test)]
+    pub(crate) fn open_file(&mut self, section: Section, path: Vec<u8>) {
+        self.open.entry(section).or_default().insert(path);
+    }
+
+    /// Whether the hunks of `path` in `section` show.
+    pub(crate) fn is_open(&self, section: Section, path: &[u8]) -> bool {
+        self.open
+            .get(&section)
+            .is_some_and(|paths| paths.contains(path))
+    }
+
+    /// What `TAB` on `line` of `built` does: folds or unfolds a section's heading, opens or
+    /// closes a file's row, and on a hunk or a note under a file closes the file. Whether it
+    /// changed anything.
+    pub(crate) fn toggle(&mut self, built: &Built, line: usize) -> bool {
+        let row = built.rows.get(line).copied().unwrap_or(Row::Other);
+        if let Row::Heading(section) = row {
+            if !self.folded.remove(&section) {
+                self.folded.insert(section);
+            }
+            return true;
+        }
+        let (Some(section), Some(file)) = (row.section(), row.file()) else {
+            return false;
+        };
+        let Some(path) = built.file(section, file).map(|file| file.path.clone()) else {
+            return false;
+        };
+        let paths = self.open.entry(section).or_default();
+        let opened = matches!(row, Row::File { .. }) && !paths.remove(&path);
+        if opened {
+            paths.insert(path);
+        } else {
+            paths.remove(&path);
+        }
+        true
+    }
+
+    /// Forgets the open files `built` no longer lists, so that their hunks are not read again.
+    pub(crate) fn forget_gone(&mut self, built: &Built) {
+        for (section, paths) in &mut self.open {
+            paths.retain(|path| built.file_rows.contains_key(&(*section, path.clone())));
+        }
+        self.open.retain(|_, paths| !paths.is_empty());
+    }
 }
 
 /// What a line is about.
@@ -195,10 +252,12 @@ pub(crate) enum Row {
         section: Section,
         file: usize,
     },
-    /// A note under an open file: why it shows no hunks, or what was not shown.
+    /// A note under an open file: why it stages only whole (`whole`), which `s` and `u` read as
+    /// the file, or what was not shown or could not be read, which they read as nothing.
     Detail {
         section: Section,
         file: usize,
+        whole: bool,
     },
     Hunk {
         section: Section,
@@ -257,6 +316,14 @@ pub(crate) struct Built {
     hunk_rows: HashMap<(Section, usize), Vec<usize>>,
 }
 
+/// What `RET` visits: a file of the work tree, by its path from the root, at a line, from 1, and
+/// a column, from 0, if a hunk's line named one.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Visit<'a> {
+    pub(crate) path: &'a [u8],
+    pub(crate) at: Option<(usize, usize)>,
+}
+
 /// Where a cursor is, by what it is on, so that it can be found in another text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Place {
@@ -279,6 +346,32 @@ impl Built {
     /// The file a row names, if any.
     pub(crate) fn file(&self, section: Section, file: usize) -> Option<&File> {
         self.files(section).get(file)
+    }
+
+    /// What `RET` on `line` at `column` visits: the file's path, and for a hunk's header or line
+    /// the line of the file it shows, from 1, and the column, from 0; or why there is none.
+    pub(crate) fn visit(&self, line: usize, column: usize) -> Result<Visit<'_>, &'static str> {
+        let row = self.rows.get(line).copied().unwrap_or(Row::Other);
+        let (Some(section), Some(index)) = (row.section(), row.file()) else {
+            return Err("No file on this line");
+        };
+        let file = self.file(section, index).ok_or("No file on this line")?;
+        if file.deleted {
+            return Err("That file is deleted");
+        }
+        let hunk =
+            (row.hunk()).and_then(|hunk| self.patches.get(&(section, index))?.hunks.get(hunk));
+        let at = match (row, hunk) {
+            (Row::Line { line, .. }, Some(hunk)) => {
+                Some((hunk.new_line(line), column.saturating_sub(1)))
+            }
+            (_, Some(hunk)) => Some((hunk.new_line(0), 0)),
+            _ => None,
+        };
+        Ok(Visit {
+            path: &file.path,
+            at: at.map(|(line, column)| (usize::try_from(line).unwrap_or(usize::MAX), column)),
+        })
     }
 
     /// What `line` is on, to find it again in another text.

@@ -46,7 +46,7 @@ fn built() -> Arc<Built> {
     ]));
     let sections = sections(&status, &HashMap::new(), &HashMap::new(), &|_| false);
     let mut view = View::default();
-    view.open.insert((Section::Unstaged, b"a.rs".to_vec()));
+    view.open_file(Section::Unstaged, b"a.rs".to_vec());
     let hunks = HashMap::from([(
         (Section::Unstaged, b"a.rs".to_vec()),
         Hunks::Patch(Arc::new(patch::parse(PATCH, false))),
@@ -227,4 +227,50 @@ fn a_hunk_of_a_file_that_stages_whole_is_refused() {
     )
     .unwrap_err();
     assert!(why.contains("a submodule"), "{why}");
+}
+
+#[test]
+fn a_note_of_what_was_not_shown_names_nothing() {
+    let status = status::parse(&record(&[
+        b"# branch.oid 1111111111111111111111111111111111111111",
+        b"1 .M N... 100644 100644 100644 aaaa bbbb a.rs",
+    ]));
+    let sections = sections(&status, &HashMap::new(), &HashMap::new(), &|_| false);
+    let mut view = View::default();
+    view.open_file(Section::Unstaged, b"a.rs".to_vec());
+    let cut = &PATCH[..PATCH.len() - 2];
+    let hunks = HashMap::from([(
+        (Section::Unstaged, b"a.rs".to_vec()),
+        Hunks::Patch(Arc::new(patch::parse(cut, true))),
+    )]);
+    let built = lay_out(&Head::default(), &[], sections, &hunks, &view).built;
+    let note = (built.rows.iter())
+        .position(|row| matches!(row, Row::Detail { whole: false, .. }))
+        .expect("a note of what was cut");
+    assert_eq!(targets(&built, &[cursor(note)]).unwrap(), []);
+}
+
+#[test]
+fn a_region_over_ten_thousand_rows_is_told_apart_quickly() {
+    let mut records = vec![b"# branch.oid 1111111111111111111111111111111111111111".to_vec()];
+    for index in 0..10_000 {
+        records.push(format!("1 .M N... 100644 100644 100644 a b f{index:05}").into_bytes());
+    }
+    let parts: Vec<&[u8]> = records.iter().map(Vec::as_slice).collect();
+    let status = status::parse(&record(&parts));
+    let sections = sections(&status, &HashMap::new(), &HashMap::new(), &|_| false);
+    let built = lay_out(
+        &Head::default(),
+        &[],
+        sections,
+        &HashMap::new(),
+        &View::default(),
+    )
+    .built;
+    let first = line_of(&built, UNSTAGED_A);
+    let started = std::time::Instant::now();
+    let found = targets(&built, &[region(first, built.rows.len() - 1)]).unwrap();
+    // Linear: some milliseconds in a debug build, where the quadratic one took seconds.
+    assert!(started.elapsed() < std::time::Duration::from_millis(500));
+    assert_eq!(found.len(), 10_000);
 }

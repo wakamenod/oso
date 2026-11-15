@@ -10,7 +10,7 @@
 
 use oso_core::buffer::{BufferId, Mode};
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::{Editor, GitHead, GitLines, GitRequest};
+use oso_core::editor::{Editor, GitHeading, GitLines, GitRequest};
 use oso_core::project::ProjectId;
 use oso_core::selection::Selection;
 
@@ -52,7 +52,7 @@ pub const COMMANDS: &[Command] = &[
     ),
     command!(
         "git-toggle",
-        "In a git status, show or hide the hunks of the file at point, or fold or unfold the section at point (`TAB`).\n\nOn a hunk, it hides its file's hunks. A file that may hold secrets shows no hunks: it stages as a whole.",
+        "In a git status, show or hide the hunks of the file at point, or fold or unfold the section at point (`TAB`).\n\nOn a hunk, it hides its file's hunks. A file that may hold secrets shows no hunks: it stages as a whole. It acts at the primary cursor.",
         Person,
         ArgSpec::None,
         toggle
@@ -87,7 +87,7 @@ pub const COMMANDS: &[Command] = &[
     ),
     command!(
         "git-visit",
-        "In a git status, visit the file at point, at the line a hunk's line shows (`RET`).",
+        "In a git status, visit the file at the primary cursor, at the line a hunk's line shows (`RET`).",
         Person,
         ArgSpec::None,
         visit
@@ -293,30 +293,45 @@ fn visit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 /// Where a cursor on `row` goes, given the outline `heads`.
-type Step = fn(&[GitHead], usize) -> Option<usize>;
+type Step = fn(&[GitHeading], usize) -> Option<usize>;
 
 /// Moves every cursor by `step`, `count` times, to the start of the heading's line; one that
-/// has nowhere to go stays.
+/// has nowhere to go stays. The outline is read in place, each cursor's place found under it
+/// first and then put in.
 fn move_by(ctx: &mut Ctx<'_>, count: isize, forward: Step, back: Step) -> Result<(), CommandError> {
     let buffer = status(ctx)?;
-    let heads = ctx.editor.git_outline(buffer).to_vec();
+    let step = if count < 0 { back } else { forward };
+    let times = count.unsigned_abs().max(1);
+    let (window, shown) = ctx.editor.current();
+    let heads = ctx.editor.git_outline(buffer);
     if heads.is_empty() {
         return Ok(());
     }
-    let step = if count < 0 { back } else { forward };
-    let times = count.unsigned_abs().max(1);
-    let (window, shown) = ctx.editor.current_mut();
-    let text = shown.text().clone();
-    let update = window.selections.update(|selection: &mut Selection| {
-        let mut row = text.offset_to_point(selection.cursor).row;
-        for _ in 0..times {
-            match step(&heads, row) {
-                Some(next) => row = next,
-                None => break,
+    let text = shown.text();
+    let mut moves: Vec<(usize, usize)> = window
+        .selections
+        .iter()
+        .map(|selection| {
+            let mut row = text.offset_to_point(selection.cursor).row;
+            for _ in 0..times {
+                match step(heads, row) {
+                    Some(next) => row = next,
+                    None => break,
+                }
             }
+            (
+                selection.cursor,
+                text.line_start(row.min(text.max_point().row)),
+            )
+        })
+        .collect();
+    moves.sort_unstable();
+    let (window, _) = ctx.editor.current_mut();
+    let update = window.selections.update(|selection: &mut Selection| {
+        if let Ok(at) = moves.binary_search_by_key(&selection.cursor, |(from, _)| *from) {
+            selection.cursor = moves[at].1;
+            selection.goal = None;
         }
-        selection.cursor = text.line_start(row.min(text.max_point().row));
-        selection.goal = None;
         Ok::<(), ()>(())
     });
     if update.changed {
@@ -325,29 +340,28 @@ fn move_by(ctx: &mut Ctx<'_>, count: isize, forward: Step, back: Step) -> Result
     Ok(())
 }
 
-/// The next heading below `row`.
-pub(crate) fn next_head(heads: &[GitHead], row: usize) -> Option<usize> {
-    heads
-        .iter()
-        .find(|head| head.line > row)
-        .map(|head| head.line)
+/// The next heading below `row`. O(log n): the outline is in the text's order.
+pub(crate) fn next_head(heads: &[GitHeading], row: usize) -> Option<usize> {
+    let at = heads.partition_point(|head| head.line <= row);
+    heads.get(at).map(|head| head.line)
 }
 
 /// The previous heading above `row`.
-pub(crate) fn previous_head(heads: &[GitHead], row: usize) -> Option<usize> {
-    (heads.iter().rev())
-        .find(|head| head.line < row)
-        .map(|head| head.line)
+pub(crate) fn previous_head(heads: &[GitHeading], row: usize) -> Option<usize> {
+    let at = heads.partition_point(|head| head.line < row);
+    at.checked_sub(1).map(|at| heads[at].line)
 }
 
 /// The index of the heading `row` is under, if any.
-fn current(heads: &[GitHead], row: usize) -> Option<usize> {
-    heads.iter().rposition(|head| head.line <= row)
+fn current(heads: &[GitHeading], row: usize) -> Option<usize> {
+    heads
+        .partition_point(|head| head.line <= row)
+        .checked_sub(1)
 }
 
 /// The next heading of the same depth as the one `row` is under, before its parent ends; before
 /// the first heading, the first one.
-pub(crate) fn next_sibling_head(heads: &[GitHead], row: usize) -> Option<usize> {
+pub(crate) fn next_sibling_head(heads: &[GitHeading], row: usize) -> Option<usize> {
     let Some(at) = current(heads, row) else {
         return heads.first().map(|head| head.line);
     };
@@ -360,7 +374,7 @@ pub(crate) fn next_sibling_head(heads: &[GitHead], row: usize) -> Option<usize> 
 }
 
 /// The previous heading of the same depth as the one `row` is under, after its parent's.
-pub(crate) fn previous_sibling_head(heads: &[GitHead], row: usize) -> Option<usize> {
+pub(crate) fn previous_sibling_head(heads: &[GitHeading], row: usize) -> Option<usize> {
     let at = current(heads, row)?;
     let depth = heads[at].depth;
     heads[..at]
@@ -372,7 +386,7 @@ pub(crate) fn previous_sibling_head(heads: &[GitHead], row: usize) -> Option<usi
 }
 
 /// The heading of the section that holds the one `row` is under.
-pub(crate) fn parent_head(heads: &[GitHead], row: usize) -> Option<usize> {
+pub(crate) fn parent_head(heads: &[GitHeading], row: usize) -> Option<usize> {
     let at = current(heads, row)?;
     let depth = heads[at].depth;
     (heads[..at].iter().rev())
@@ -432,8 +446,12 @@ fn keys_text() -> String {
         let summary = COMMANDS
             .iter()
             .find(|command| command.name == *name)
-            .and_then(|command| command.doc.lines().next())
-            .unwrap_or("Leave the status, showing the buffer shown before it.");
+            .and_then(|command| command.doc.lines().next());
+        // `q` is the buffers' own `quit-window`.
+        let summary = match (*name, summary) {
+            ("quit-window", _) => "Leave the status, showing the buffer shown before it.",
+            (_, summary) => summary.unwrap_or_default(),
+        };
         text.push_str(&format!("{keys:<6}{name:<24}{summary}\n"));
     }
     text.push_str("\nC-x g shows the status from any buffer of the project; C-x k kills it.\n");

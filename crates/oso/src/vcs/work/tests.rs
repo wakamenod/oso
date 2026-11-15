@@ -25,7 +25,11 @@ fn state(repo: &Repo) -> State {
 /// What one request reported: its text, and everything else.
 fn answer(state: &mut State, root: &Path, request: Request) -> (Laid, Vec<Report>) {
     let mut out = Vec::new();
-    state.answer(vec![request], root, &mut out);
+    state.answer(
+        vec![request],
+        &TrustedRoot::for_tests(root.to_path_buf()),
+        &mut out,
+    );
     let mut laid = None;
     let mut other = Vec::new();
     for report in out {
@@ -50,14 +54,23 @@ fn read(state: &mut State, root: &Path, view: &View) -> Laid {
     laid
 }
 
-fn run(state: &mut State, root: &Path, ops: Vec<Op>, view: &View) -> (Laid, Vec<Report>) {
+/// Stages (`stage`) or unstages `targets` of `laid`, as the UI asks.
+fn run(
+    state: &mut State,
+    root: &Path,
+    laid: &Laid,
+    targets: &[Target],
+    stage: bool,
+    view: &View,
+) -> (Laid, Vec<Report>) {
     answer(
         state,
         root,
-        Request::Run {
+        Request::Stage {
             generation: 2,
-            ops,
-            said: "done".into(),
+            built: std::sync::Arc::clone(&laid.built),
+            targets: targets.to_vec(),
+            stage,
             view: view.clone(),
         },
     )
@@ -79,18 +92,17 @@ fn two_hunks(name: &str) -> Repo {
     let repo = Repo::new(name);
     repo.write("a.txt", TEN.as_bytes());
     repo.commit("first");
-    repo.write(
-        "a.txt",
-        TEN.replace("2\n", "two\n")
-            .replace("14\n", "fourteen\n")
-            .as_bytes(),
-    );
+    // Lines 2 and 14 only: a replace of "2\n" would change line 12 too.
+    let changed = TEN
+        .replacen("\n2\n", "\ntwo\n", 1)
+        .replace("\n14\n", "\nfourteen\n");
+    repo.write("a.txt", changed.as_bytes());
     repo
 }
 
 fn open_a(section: Section) -> View {
     let mut view = View::default();
-    view.open.insert((section, b"a.txt".to_vec()));
+    view.open_file(section, b"a.txt".to_vec());
     view
 }
 
@@ -134,9 +146,9 @@ fn a_hunk_stages_and_unstages_alone() {
         file: 0,
         hunk: 0,
     };
-    let (ops, said) = stage::ops(&laid.built, &[target], true).unwrap();
+    let (_, said) = stage::ops(&laid.built, &[target], true).unwrap();
     assert_eq!(said, "Staged a hunk");
-    let (_, reports) = run(&mut state, &repo.root, ops, &view);
+    let (_, reports) = run(&mut state, &repo.root, &laid, &[target], true, &view);
     assert!(
         matches!(reports.as_slice(), [Report::Ran { .. }]),
         "{reports:?}"
@@ -152,8 +164,7 @@ fn a_hunk_stages_and_unstages_alone() {
         file: 0,
         hunk: 0,
     };
-    let (ops, _) = stage::ops(&laid.built, &[target], false).unwrap();
-    let (laid, reports) = run(&mut state, &repo.root, ops, &view);
+    let (laid, reports) = run(&mut state, &repo.root, &laid, &[target], false, &view);
     assert!(
         matches!(reports.as_slice(), [Report::Ran { .. }]),
         "{reports:?}"
@@ -173,12 +184,11 @@ fn a_hunk_whose_file_moved_on_is_refused() {
         file: 0,
         hunk: 0,
     };
-    let (ops, _) = stage::ops(&laid.built, &[target], true).unwrap();
     // Someone stages a change to the same lines meanwhile: the hunk no longer applies.
     repo.write("a.txt", b"1\nzwei\n3\n");
     repo.git(&["add", "a.txt"]);
     let before = cached(&repo);
-    let (_, reports) = run(&mut state, &repo.root, ops, &view);
+    let (_, reports) = run(&mut state, &repo.root, &laid, &[target], true, &view);
     let [Report::Failed { why }] = reports.as_slice() else {
         panic!("refused: {reports:?}");
     };
@@ -207,16 +217,28 @@ fn files_stage_and_unstage_whole_with_their_names_taken_literally() {
         section: Section::Untracked,
         file: index,
     };
-    let (ops, _) = stage::ops(&laid.built, &[target], true).unwrap();
-    let (laid, reports) = run(&mut state, &repo.root, ops, &View::default());
+    let (laid, reports) = run(
+        &mut state,
+        &repo.root,
+        &laid,
+        &[target],
+        true,
+        &View::default(),
+    );
     assert!(
         matches!(reports.as_slice(), [Report::Ran { .. }]),
         "{reports:?}"
     );
     let names = String::from_utf8(repo.git(&["diff", "--cached", "--name-only"])).unwrap();
     assert_eq!(names.trim(), star);
-    let (ops, _) = stage::ops(&laid.built, &[Target::Section(Section::Staged)], false).unwrap();
-    let (_, reports) = run(&mut state, &repo.root, ops, &View::default());
+    let (_, reports) = run(
+        &mut state,
+        &repo.root,
+        &laid,
+        &[Target::Section(Section::Staged)],
+        false,
+        &View::default(),
+    );
     assert!(
         matches!(reports.as_slice(), [Report::Ran { .. }]),
         "{reports:?}"
@@ -231,15 +253,27 @@ fn before_the_first_commit_unstaging_takes_the_file_out_of_the_index() {
     let mut state = state(&repo);
     let laid = read(&mut state, &repo.root, &View::default());
     assert!(text(&laid).contains("(no commits yet)"));
-    let (ops, _) = stage::ops(&laid.built, &[Target::Section(Section::Untracked)], true).unwrap();
-    let (laid, _) = run(&mut state, &repo.root, ops, &View::default());
+    let (laid, _) = run(
+        &mut state,
+        &repo.root,
+        &laid,
+        &[Target::Section(Section::Untracked)],
+        true,
+        &View::default(),
+    );
     assert!(
         text(&laid).contains("Staged changes (1)\nA  first.txt"),
         "{}",
         text(&laid)
     );
-    let (ops, _) = stage::ops(&laid.built, &[Target::Section(Section::Staged)], false).unwrap();
-    let (laid, reports) = run(&mut state, &repo.root, ops, &View::default());
+    let (laid, reports) = run(
+        &mut state,
+        &repo.root,
+        &laid,
+        &[Target::Section(Section::Staged)],
+        false,
+        &View::default(),
+    );
     assert!(
         matches!(reports.as_slice(), [Report::Ran { .. }]),
         "{reports:?}"
@@ -259,7 +293,7 @@ fn a_file_that_may_hold_secrets_is_never_read_for_hunks() {
     repo.write(".env", b"TOKEN=two\n");
     let mut state = state(&repo);
     let mut view = View::default();
-    view.open.insert((Section::Unstaged, b".env".to_vec()));
+    view.open_file(Section::Unstaged, b".env".to_vec());
     let laid = read(&mut state, &repo.root, &view);
     assert!(state.hunks.is_empty());
     let shown = text(&laid);
@@ -281,7 +315,7 @@ fn a_file_that_may_hold_secrets_is_never_read_for_hunks() {
     )
     .unwrap();
     let (ops, _) = stage::ops(&laid.built, &targets, true).unwrap();
-    assert_eq!(ops, [Op::Add(vec![b".env".to_vec()])]);
+    assert_eq!(ops, [Op::Update(vec![b".env".to_vec()])]);
 }
 
 #[test]
@@ -362,3 +396,5 @@ fn the_thread_runs_nothing_for_a_revoked_root_and_takes_a_batch_as_one() {
     };
     assert!(why.contains("no longer trusted"), "{why}");
 }
+
+mod guards;

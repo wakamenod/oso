@@ -507,7 +507,7 @@ pub(crate) mod tests {
             | Face::DiredMarked => &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)],
             // A git status's as a listing's (ADR 0127).
             Face::GitSectionHeading => &SYNTAX_PAIRS,
-            Face::GitBranchLocal | Face::GitBranchRemote | Face::GitHash | Face::GitCount => {
+            Face::GitBranchLocal | Face::GitBranchRemote | Face::GitHash | Face::GitDetail => {
                 &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)]
             }
             // A terminal's colours are read on the text's background, as highlighted text is,

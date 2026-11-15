@@ -449,8 +449,8 @@ to run: M-x trust-project".
   may hold secrets, an untracked or unmerged file and a submodule show why they have no hunks
   instead, and stage as a whole.
 - `s` stages and `u` unstages what each cursor is on: a section's files, a file, or a hunk alone;
-  a region stages each heading it holds. `S` stages every unstaged change, `U` unstages every
-  staged one. Part of a hunk is refused, and so is a hunk git no longer accepts, which reads the
+  a region stages each heading it holds. `S` stages every unstaged change of tracked files,
+  `U` unstages every staged one. Part of a hunk is refused, and so is a hunk git no longer accepts, which reads the
   status again and says so.
 - `n`/`p` go to the next and previous heading, `M-n`/`M-p` to the next and previous of the same
   depth, `^` to the section holding point's. `RET` visits the file, at the line a hunk's line

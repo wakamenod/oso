@@ -351,6 +351,12 @@ impl Editor {
     /// listing `id`, so that the host can tell which name each is on before it puts in a new
     /// text.
     pub fn listing_points(&self, id: BufferId) -> Vec<(WindowId, usize)> {
+        self.cursor_rows(id)
+    }
+
+    /// Each window's id and the buffer line its primary cursor is on, for the windows that show
+    /// `id`.
+    pub(super) fn cursor_rows(&self, id: BufferId) -> Vec<(WindowId, usize)> {
         let Some(buffer) = self.buffer(id) else {
             return Vec::new();
         };

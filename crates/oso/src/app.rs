@@ -262,7 +262,7 @@ pub struct App {
     /// The open reviews' threads and the review menu's counts (ADR 0122).
     reviews: reviews::Reviews,
     /// The git status buffers and their threads (ADR 0127).
-    gits: vcs::Gits,
+    gits: vcs::GitStatuses,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -404,7 +404,7 @@ impl App {
             trust_file: None,
             sessions,
             reviews: reviews::Reviews::default(),
-            gits: vcs::Gits::default(),
+            gits: vcs::GitStatuses::default(),
             log_gate,
             agent: agent::Agent::default(),
             flash: flash::Flash::default(),

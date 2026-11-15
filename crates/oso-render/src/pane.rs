@@ -180,8 +180,8 @@ pub enum Face {
     GitBranchRemote,
     /// A commit's short id, dim.
     GitHash,
-    /// A file's added and removed lines, and ahead and behind, dim.
-    GitCount,
+    /// What a git status says quietly, dim: counts, notes and marks.
+    GitDetail,
     /// A terminal's colour 0, black (ADR 0120): one colour, its foreground, which a cell takes
     /// for its text or its background. A theme gives the 16 colours that suit it.
     TerminalColor0,
@@ -257,7 +257,7 @@ impl Face {
             Highlight::GitBranchLocal => Self::GitBranchLocal,
             Highlight::GitBranchRemote => Self::GitBranchRemote,
             Highlight::GitHash => Self::GitHash,
-            Highlight::GitCount => Self::GitCount,
+            Highlight::GitDetail => Self::GitDetail,
         }
     }
 

@@ -48,6 +48,15 @@ pub(crate) struct Patch {
 }
 
 impl Patch {
+    /// The bytes it holds.
+    pub(crate) fn len(&self) -> usize {
+        let hunks = self
+            .hunks
+            .iter()
+            .map(|hunk| hunk.header.len() + hunk.lines.iter().map(Vec::len).sum::<usize>());
+        self.header.len() + hunks.sum::<usize>()
+    }
+
     /// The patch that stages hunk `index` alone, or unstages it when applied in reverse: the
     /// header and the hunk as git wrote them. `None` if it cannot be staged alone.
     pub(crate) fn hunk_patch(&self, index: usize) -> Option<Vec<u8>> {
@@ -118,6 +127,9 @@ fn whole_only(header: &[u8], cut: bool) -> Option<&'static str> {
         Some("a new file")
     } else if has(b"deleted file mode") {
         Some("a deleted file")
+    } else if has(b"old mode ") || has(b"new mode ") {
+        // A change of mode is in the header, which no hunk shows: it goes only with its file.
+        Some("a change of mode")
     } else if has(b"rename from") || has(b"copy from") {
         Some("a renamed file")
     } else if cut {

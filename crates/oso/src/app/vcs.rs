@@ -13,6 +13,7 @@
 //! - A new text keeps each window's point on what it was on (the same hunk's line, hunk, file
 //!   or section), and waits while the editor's text must not change.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use oso_core::buffer::BufferId;
@@ -25,7 +26,7 @@ use crate::commands::vcs::RESTRICTED;
 use crate::review::{TrustedRoot, os_path};
 use crate::vcs::layout::{Laid, Row};
 use crate::vcs::stage::{self, Target};
-use crate::vcs::{Built, Report, Request, Section, View, Worker};
+use crate::vcs::{Built, Report, Request, View, Worker};
 
 /// The most characters of a failure the echo area shows.
 const MAX_MESSAGE: usize = 200;
@@ -48,7 +49,7 @@ impl std::fmt::Debug for GitEvent {
 
 /// The status buffers the app keeps.
 #[derive(Default)]
-pub(super) struct Gits {
+pub(super) struct GitStatuses {
     open: Vec<Open>,
     serial: u64,
     generation: u64,
@@ -233,14 +234,16 @@ impl App {
         let generation = self.gits.generation;
         open.asked = generation;
         open.stale = false;
+        open.view.withheld = withheld(&self.editor, open.root.path());
         let view = open.view.clone();
         let request = match ask {
             Ask::Read => Request::Read { generation, view },
             Ask::Layout => Request::Layout { generation, view },
-            Ask::Run(ops, said) => Request::Run {
+            Ask::Stage(targets, stage) => Request::Stage {
                 generation,
-                ops,
-                said,
+                built: Arc::clone(&open.built),
+                targets,
+                stage,
                 view,
             },
         };
@@ -265,47 +268,18 @@ impl App {
             return;
         };
         let open = &mut self.gits.open[index];
-        let row = open.built.rows.get(line).copied().unwrap_or(Row::Other);
-        let file_key = |section: Section, file: usize| {
-            open.built
-                .file(section, file)
-                .map(|file| (section, file.path.clone()))
-        };
-        match row {
-            Row::Heading(section) => {
-                if !open.view.folded.remove(&section) {
-                    open.view.folded.insert(section);
-                }
-            }
-            Row::File { section, file } => {
-                if let Some(key) = file_key(section, file)
-                    && !open.view.open.remove(&key)
-                {
-                    open.view.open.insert(key);
-                }
-            }
-            Row::Detail { section, file }
-            | Row::Hunk { section, file, .. }
-            | Row::Line { section, file, .. } => {
-                if let Some(key) = file_key(section, file) {
-                    open.view.open.remove(&key);
-                }
-            }
-            Row::Other | Row::More(_) => return,
+        if open.view.toggle(&open.built, line) {
+            self.git_ask(index, Ask::Layout);
         }
-        self.git_ask(index, Ask::Layout);
     }
 
     fn stage_git(&mut self, buffer: BufferId, lines: &[GitLines], stage: bool) {
         let Some(index) = self.git_index(buffer) else {
             return;
         };
-        let built = Arc::clone(&self.gits.open[index].built);
-        let ran = stage::targets(&built, lines)
-            .map_err(str::to_owned)
-            .and_then(|targets| stage::ops(&built, &targets, stage));
-        match ran {
-            Ok((ops, said)) => self.git_ask(index, Ask::Run(ops, said)),
+        match stage::targets(&self.gits.open[index].built, lines) {
+            Ok(targets) if targets.is_empty() => self.editor.message("Nothing here to stage"),
+            Ok(targets) => self.git_ask(index, Ask::Stage(targets, stage)),
             Err(why) => self.editor.message(why),
         }
     }
@@ -314,22 +288,8 @@ impl App {
         let Some(index) = self.git_index(buffer) else {
             return;
         };
-        let built = Arc::clone(&self.gits.open[index].built);
-        let section = if stage {
-            Section::Unstaged
-        } else {
-            Section::Staged
-        };
-        if built.files(section).is_empty() {
-            let why = if stage {
-                "No unstaged changes"
-            } else {
-                "No staged changes"
-            };
-            return self.editor.message(why);
-        }
-        match stage::ops(&built, &[Target::Section(section)], stage) {
-            Ok((ops, said)) => self.git_ask(index, Ask::Run(ops, said)),
+        match stage::all(&self.gits.open[index].built, stage) {
+            Ok(target) => self.git_ask(index, Ask::Stage(vec![target], stage)),
             Err(why) => self.editor.message(why),
         }
     }
@@ -340,55 +300,21 @@ impl App {
             return;
         };
         let open = &self.gits.open[index];
-        let row = open.built.rows.get(line).copied().unwrap_or(Row::Other);
-        let (section, file, at) = match row {
-            Row::File { section, file } | Row::Detail { section, file } => (section, file, None),
-            Row::Hunk {
-                section,
-                file,
-                hunk,
-            } => {
-                let patch = open.built.patches.get(&(section, file));
-                let start = patch
-                    .and_then(|patch| patch.hunks.get(hunk))
-                    .map(|h| h.new_line(0));
-                (section, file, start.map(|line| (line, 0)))
-            }
-            Row::Line {
-                section,
-                file,
-                hunk,
-                line,
-            } => {
-                let patch = open.built.patches.get(&(section, file));
-                let at = patch
-                    .and_then(|patch| patch.hunks.get(hunk))
-                    .map(|hunk| (hunk.new_line(line), column.saturating_sub(1)));
-                (section, file, at)
-            }
-            Row::Other | Row::Heading(_) | Row::More(_) => {
-                return self.editor.message("No file on this line");
-            }
+        let visit = match open.built.visit(line, column) {
+            Ok(visit) => visit,
+            Err(why) => return self.editor.message(why),
         };
-        let Some(shown) = open.built.file(section, file) else {
-            return;
-        };
-        if shown.deleted {
-            return self.editor.message("That file is deleted");
-        }
-        let Ok(relative) = os_path(&shown.path) else {
+        let Ok(relative) = os_path(visit.path) else {
             return self
                 .editor
                 .message("That file's name is not one this system can open");
         };
         let path = open.root.path().join(relative);
-        match at {
-            Some((line, column)) => self.editor.request_visit_at(
-                path,
-                oso_core::load::UNASKED,
-                usize::try_from(line).unwrap_or(usize::MAX),
-                column,
-            ),
+        match visit.at {
+            Some((line, column)) => {
+                self.editor
+                    .request_visit_at(path, oso_core::load::UNASKED, line, column);
+            }
             None => self.editor.request_visit(path, oso_core::load::UNASKED),
         }
         self.serve_files();
@@ -419,6 +345,7 @@ impl App {
                 self.put_in_waiting_git();
             }
             Report::Ran { said } => self.editor.message(one_line(&said, MAX_MESSAGE)),
+            Report::Refused { why } => self.editor.message(one_line(&why, MAX_MESSAGE)),
             Report::Failed { why } => {
                 let why = one_line(&why, MAX_MESSAGE);
                 self.editor.message(format!("git: {why}"));
@@ -466,7 +393,9 @@ impl App {
         let line = lines
             .first()
             .map_or_else(|| first_line(&built), |(_, line)| *line);
-        let old_text = (self.editor.buffer(buffer)).map(|shown| shown.text().clone());
+        // Kept, at O(1), so that what the text replaces is freed off the UI thread.
+        let old_text =
+            (self.editor.buffer(buffer)).map(|shown| (shown.text().clone(), shown.display()));
         let refused = self.editor.set_git_text(
             buffer,
             text,
@@ -477,7 +406,9 @@ impl App {
                 lines,
             },
         );
-        self.gits.open[index].built = built;
+        let open = &mut self.gits.open[index];
+        open.view.forget_gone(&built);
+        open.built = built;
         self.freer.free((old, old_text, refused));
     }
 
@@ -500,7 +431,31 @@ impl App {
 enum Ask {
     Read,
     Layout,
-    Run(Vec<stage::Op>, String),
+    Stage(Vec<Target>, bool),
+}
+
+/// The paths, from `root`, of the open buffers under it that may hold secrets, as git names them.
+fn withheld(editor: &oso_core::editor::Editor, root: &std::path::Path) -> BTreeSet<Vec<u8>> {
+    (editor.buffers())
+        .filter(|(_, buffer)| buffer.is_secret())
+        .filter_map(|(_, buffer)| buffer.path()?.strip_prefix(root).ok())
+        .filter_map(git_bytes)
+        .collect()
+}
+
+/// A relative path as git writes it: its bytes, with `/` between names.
+#[cfg(unix)]
+fn git_bytes(path: &std::path::Path) -> Option<Vec<u8>> {
+    use std::os::unix::ffi::OsStrExt;
+    Some(path.as_os_str().as_bytes().to_vec())
+}
+
+#[cfg(not(unix))]
+fn git_bytes(path: &std::path::Path) -> Option<Vec<u8>> {
+    let words: Vec<&str> = (path.components())
+        .map(|part| part.as_os_str().to_str())
+        .collect::<Option<_>>()?;
+    Some(words.join("/").into_bytes())
 }
 
 /// Where point goes in a first text: the first section's heading, else the top.

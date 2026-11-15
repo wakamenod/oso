@@ -198,8 +198,9 @@ one layer:
 - Decorations do **not** travel with text on copy and yank. This differs from
   Emacs text properties and is deliberate: it keeps async highlighting simple.
 - A semantic decoration can carry arbitrary typed data and a **keymap at
-  point**. For example, `s` stages the hunk under the cursor in the git status
-  buffer.
+  point**. The git status buffer does without one: its mode's keymap sends the
+  cursors' lines, and the host's table says what each line is
+  ([ADR 0127](adr/0127-source-control-and-github.md)).
 - Replace-style decorations (concealment, link descriptions) feed the
   InlayMap.
 

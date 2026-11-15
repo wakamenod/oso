@@ -36,7 +36,10 @@ fn project(scratch: &Scratch) -> PathBuf {
             "base",
         ],
     );
-    let changed = TEXT.replace("2\n", "two\n").replace("14\n", "fourteen\n");
+    // Lines 2 and 14 only: a replace of "2\n" would change line 12 too.
+    let changed = TEXT
+        .replacen("\n2\n", "\ntwo\n", 1)
+        .replace("\n14\n", "\nfourteen\n");
     std::fs::write(&file, changed).unwrap();
     scratch.write("proj-git/new.txt", b"new\n");
     file

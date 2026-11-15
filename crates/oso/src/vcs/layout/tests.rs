@@ -107,7 +107,7 @@ fn grid(laid: &Laid) -> String {
                 Some(Highlight::GitBranchLocal) => 'b',
                 Some(Highlight::GitBranchRemote) => 'r',
                 Some(Highlight::GitHash) => 'h',
-                Some(Highlight::GitCount) => 'c',
+                Some(Highlight::GitDetail) => 'c',
                 Some(Highlight::DiffHunkHeader) => '@',
                 Some(Highlight::DiffAdded) => '+',
                 Some(Highlight::DiffRemoved) => '-',
@@ -143,8 +143,8 @@ fn grid_tests_status_sections_in_magits_order() {
 #[test]
 fn grid_tests_status_an_open_file_shows_its_hunks() {
     let mut view = View::default();
-    view.open.insert((Section::Unstaged, b"src/a.rs".to_vec()));
-    view.open.insert((Section::Unstaged, b".env".to_vec()));
+    view.open_file(Section::Unstaged, b"src/a.rs".to_vec());
+    view.open_file(Section::Unstaged, b".env".to_vec());
     view.folded.insert(Section::Untracked);
     let laid = laid(&view);
     insta::assert_snapshot!("git_status_open_file", grid(&laid));
@@ -155,7 +155,7 @@ fn grid_tests_status_an_open_file_shows_its_hunks() {
 #[test]
 fn a_file_that_may_hold_secrets_shows_no_hunks() {
     let mut view = View::default();
-    view.open.insert((Section::Unstaged, b".env".to_vec()));
+    view.open_file(Section::Unstaged, b".env".to_vec());
     let secret = |path: &[u8]| path == b".env";
     let sections = sections(&status(), &counts(), &counts(), &secret);
     let env = sections
@@ -214,7 +214,7 @@ fn a_section_past_its_limit_counts_the_rest() {
 #[test]
 fn a_place_is_found_again_by_what_it_is_on() {
     let mut view = View::default();
-    view.open.insert((Section::Unstaged, b"src/a.rs".to_vec()));
+    view.open_file(Section::Unstaged, b"src/a.rs".to_vec());
     let open = laid(&view);
     let rows = &open.built.rows;
     let line_of = |want: Row| rows.iter().position(|row| *row == want).unwrap();
@@ -299,4 +299,81 @@ fn a_line_break_in_a_name_or_a_hunk_never_makes_two_rows() {
     let laid = lay_out(&head(), &[], sections, &HashMap::new(), &View::default());
     let lines = laid.text.text().to_string().split('\n').count();
     assert_eq!(lines, laid.built.rows.len() + 1);
+}
+
+#[test]
+fn tab_folds_a_section_opens_a_file_and_closes_it_from_a_hunk() {
+    let mut view = View::default();
+    let closed = laid(&view);
+    let rows = &closed.built.rows;
+    let heading = rows
+        .iter()
+        .position(|row| *row == Row::Heading(Section::Untracked))
+        .unwrap();
+    assert!(view.toggle(&closed.built, heading));
+    assert!(view.folded.contains(&Section::Untracked));
+    assert!(view.toggle(&closed.built, heading));
+    assert!(view.folded.is_empty());
+    let file = rows
+        .iter()
+        .position(|row| {
+            *row == Row::File {
+                section: Section::Unstaged,
+                file: 0,
+            }
+        })
+        .unwrap();
+    assert!(view.toggle(&closed.built, file));
+    assert!(view.is_open(Section::Unstaged, b"src/a.rs"));
+    let open = laid(&view);
+    let hunk_line = open
+        .built
+        .rows
+        .iter()
+        .position(|row| matches!(row, Row::Line { .. }))
+        .unwrap();
+    assert!(view.toggle(&open.built, hunk_line));
+    assert!(!view.is_open(Section::Unstaged, b"src/a.rs"));
+    // The head's lines are about nothing.
+    assert!(!view.toggle(&open.built, 0));
+}
+
+#[test]
+fn ret_visits_a_files_row_or_the_line_a_hunks_line_shows() {
+    let mut view = View::default();
+    view.open_file(Section::Unstaged, b"src/a.rs".to_vec());
+    let open = laid(&view);
+    let at = |want: Row| open.built.rows.iter().position(|row| *row == want).unwrap();
+    let file = at(Row::File {
+        section: Section::Unstaged,
+        file: 0,
+    });
+    let visit = open.built.visit(file, 0).unwrap();
+    assert_eq!((visit.path, visit.at), (b"src/a.rs".as_slice(), None));
+    // `+deux`, the new side's line 2, at the column after its `+`.
+    let added = at(Row::Line {
+        section: Section::Unstaged,
+        file: 0,
+        hunk: 0,
+        line: 2,
+    });
+    assert_eq!(open.built.visit(added, 3).unwrap().at, Some((2, 2)));
+    let header = at(Row::Hunk {
+        section: Section::Unstaged,
+        file: 0,
+        hunk: 1,
+    });
+    assert_eq!(open.built.visit(header, 0).unwrap().at, Some((10, 0)));
+    assert_eq!(open.built.visit(0, 0), Err("No file on this line"));
+}
+
+#[test]
+fn files_no_longer_listed_are_forgotten_as_open() {
+    let mut view = View::default();
+    view.open_file(Section::Unstaged, b"src/a.rs".to_vec());
+    view.open_file(Section::Unstaged, b"gone.rs".to_vec());
+    let laid = laid(&view);
+    view.forget_gone(&laid.built);
+    assert!(view.is_open(Section::Unstaged, b"src/a.rs"));
+    assert!(!view.is_open(Section::Unstaged, b"gone.rs"));
 }

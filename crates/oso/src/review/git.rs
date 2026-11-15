@@ -1,9 +1,10 @@
-//! Running `git` for a review (ADR 0122) and for worktree sessions (ADR 0121): oso's own
-//! arguments and environment, every read bounded, and a run past [`RUN_LIMIT`] killed.
+//! Running `git` for a review (ADR 0122), for worktree sessions (ADR 0121) and for a git status
+//! (ADR 0127): oso's own arguments and environment, every read bounded, and a run past
+//! [`RUN_LIMIT`] killed.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs on a review's
-//! thread, `oso-review`, and on the worktree jobs' threads, `oso-sessions-git`, and waits for
-//! git.
+//! thread, `oso-review`, on the worktree jobs' threads, `oso-sessions-git`, and on a status's,
+//! `oso-vcs`, and waits for git.
 //!
 //! - Every run starts `git --no-pager -c core.quotePath=false -c core.fsmonitor=false
 //!   -c core.hooksPath=HOOKS`, where `HOOKS` is an empty private directory, so that no hook

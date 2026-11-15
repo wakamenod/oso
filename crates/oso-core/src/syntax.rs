@@ -110,6 +110,6 @@ pub enum Highlight {
     GitBranchRemote,
     /// A commit's short id.
     GitHash,
-    /// Counts said quietly: a file's added and removed lines, ahead and behind.
-    GitCount,
+    /// What a status says quietly: a file's counts, ahead and behind, notes and marks.
+    GitDetail,
 }

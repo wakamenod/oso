@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use oso_core::editor::GitHead;
+use oso_core::editor::GitHeading;
 use oso_core::load::{Builder, LoadSnapshot};
 use oso_core::syntax::{Highlight, Highlights};
 
@@ -18,7 +18,7 @@ use crate::dired::rows::{decoded_len, push_name};
 pub(crate) struct Laid {
     pub(crate) text: LoadSnapshot,
     pub(crate) highlights: Highlights,
-    pub(crate) outline: Vec<GitHead>,
+    pub(crate) outline: Vec<GitHeading>,
     pub(crate) built: Arc<Built>,
 }
 
@@ -73,7 +73,7 @@ pub(crate) fn lay_out(
 struct Shown<'a> {
     out: &'a mut Out,
     built: &'a mut Built,
-    outline: &'a mut Vec<GitHead>,
+    outline: &'a mut Vec<GitHeading>,
 }
 
 impl Shown<'_> {
@@ -97,7 +97,7 @@ impl Shown<'_> {
         }
         out.end_line();
         built.rows.push(Row::Other);
-        outline.push(GitHead {
+        outline.push(GitHeading {
             line: built.rows.len(),
             depth: 0,
         });
@@ -108,10 +108,10 @@ impl Shown<'_> {
         );
         out.part(
             format!(" ({})", files.len()).as_bytes(),
-            Some(Highlight::GitCount),
+            Some(Highlight::GitDetail),
         );
         if view.folded.contains(&section) {
-            out.part("…".as_bytes(), Some(Highlight::GitCount));
+            out.part("…".as_bytes(), Some(Highlight::GitDetail));
         }
         out.end_line();
         built.rows.push(Row::Heading(section));
@@ -119,7 +119,7 @@ impl Shown<'_> {
             return cut;
         }
         for (index, file) in files.iter().enumerate().take(MAX_FILES) {
-            outline.push(GitHead {
+            outline.push(GitHeading {
                 line: built.rows.len(),
                 depth: 1,
             });
@@ -131,7 +131,7 @@ impl Shown<'_> {
                 section,
                 file: index,
             });
-            if !view.open.contains(&(section, file.path.clone())) {
+            if !view.is_open(section, &file.path) {
                 continue;
             }
             if out.len >= MAX_TEXT {
@@ -139,7 +139,7 @@ impl Shown<'_> {
                 continue;
             }
             let shown = match (file.reads, file.whole_only) {
-                (false, Some(reason)) => Hunks::Note(format!("({reason}: s and u take it whole)")),
+                (false, Some(reason)) => Hunks::Whole(reason),
                 _ => match hunks.get(&(section, file.path.clone())) {
                     Some(hunks) => hunks.clone(),
                     None => Hunks::Note("reading…".into()),
@@ -150,7 +150,7 @@ impl Shown<'_> {
         if files.len() > MAX_FILES {
             out.part(
                 format!("… and {} more files not shown", files.len() - MAX_FILES).as_bytes(),
-                Some(Highlight::GitCount),
+                Some(Highlight::GitDetail),
             );
             out.end_line();
             built.rows.push(Row::More(section));
@@ -167,7 +167,7 @@ fn head_lines(out: &mut Out, rows: &mut Vec<Row>, head: &Head) {
             push_name(&mut name, branch);
             out.part(&name, Some(Highlight::GitBranchLocal));
         }
-        None => out.part(b"(detached)", Some(Highlight::GitCount)),
+        None => out.part(b"(detached)", Some(Highlight::GitDetail)),
     }
     match &head.commit {
         Some((id, subject)) => {
@@ -179,7 +179,7 @@ fn head_lines(out: &mut Out, rows: &mut Vec<Row>, head: &Head) {
             out.part(&words, None);
         }
         None if head.branch.oid.is_none() => {
-            out.part(b" (no commits yet)", Some(Highlight::GitCount));
+            out.part(b" (no commits yet)", Some(Highlight::GitDetail));
         }
         None => {}
     }
@@ -193,7 +193,7 @@ fn head_lines(out: &mut Out, rows: &mut Vec<Row>, head: &Head) {
         if let Some((ahead, behind)) = head.branch.ahead_behind {
             out.part(
                 format!("  ahead {ahead}, behind {behind}").as_bytes(),
-                Some(Highlight::GitCount),
+                Some(Highlight::GitDetail),
             );
         }
         out.end_line();
@@ -214,9 +214,9 @@ fn file_line(out: &mut Out, file: &File) {
     match file.counts {
         Some(Some((added, removed))) => out.part(
             format!("  +{added} -{removed}").as_bytes(),
-            Some(Highlight::GitCount),
+            Some(Highlight::GitDetail),
         ),
-        Some(None) => out.part(b"  binary", Some(Highlight::GitCount)),
+        Some(None) => out.part(b"  binary", Some(Highlight::GitDetail)),
         None => {}
     }
     out.end_line();
@@ -225,29 +225,30 @@ fn file_line(out: &mut Out, file: &File) {
 fn file_hunks(
     out: &mut Out,
     built: &mut Built,
-    outline: &mut Vec<GitHead>,
+    outline: &mut Vec<GitHeading>,
     section: Section,
     file: usize,
     hunks: &Hunks,
 ) {
-    let detail = |out: &mut Out, rows: &mut Vec<Row>, text: &str| {
+    let detail = |out: &mut Out, rows: &mut Vec<Row>, text: &str, whole: bool| {
         out.part(b"    ", None);
-        out.part(text.as_bytes(), Some(Highlight::GitCount));
+        out.part(text.as_bytes(), Some(Highlight::GitDetail));
         out.end_line();
-        rows.push(Row::Detail { section, file });
+        rows.push(Row::Detail {
+            section,
+            file,
+            whole,
+        });
     };
+    let whole = |why: &str| format!("({why}: s and u take it whole)");
     let patch = match hunks {
-        Hunks::Note(note) => return detail(out, &mut built.rows, note),
+        Hunks::Note(note) => return detail(out, &mut built.rows, note, false),
+        Hunks::Whole(why) => return detail(out, &mut built.rows, &whole(why), true),
         Hunks::Patch(patch) => Arc::clone(patch),
     };
     if patch.hunks.is_empty() {
         let why = patch.whole_only.unwrap_or("no change in its lines");
-        detail(
-            out,
-            &mut built.rows,
-            &format!("({why}: s and u take it whole)"),
-        );
-        return;
+        return detail(out, &mut built.rows, &whole(why), true);
     }
     let start = out.len;
     let mut headers = Vec::with_capacity(patch.hunks.len());
@@ -257,7 +258,7 @@ fn file_hunks(
             left_out += 1 + hunk.lines.len();
             continue;
         }
-        outline.push(GitHead {
+        outline.push(GitHeading {
             line: built.rows.len(),
             depth: 2,
         });
@@ -273,7 +274,7 @@ fn file_hunks(
             let face = match line.first() {
                 Some(b'+') => Some(Highlight::DiffAdded),
                 Some(b'-') => Some(Highlight::DiffRemoved),
-                Some(b'\\') => Some(Highlight::GitCount),
+                Some(b'\\') => Some(Highlight::GitDetail),
                 _ => None,
             };
             out.part(trim_break(line), face);
@@ -287,14 +288,20 @@ fn file_hunks(
         }
     }
     if left_out > 0 {
+        let more = format!("… {left_out} more lines not shown");
+        detail(out, &mut built.rows, &more, false);
+    }
+    if patch.cut {
         detail(
             out,
             &mut built.rows,
-            &format!("… {left_out} more lines not shown"),
+            "… git wrote more than oso reads",
+            false,
         );
     }
-    if patch.cut {
-        detail(out, &mut built.rows, "… git wrote more than oso reads");
+    // Hunks shown that stage only with their file, as a new file's, say why under them.
+    if let Some(why) = patch.whole_only.filter(|_| !patch.cut) {
+        detail(out, &mut built.rows, &whole(why), true);
     }
     built.hunk_rows.insert((section, file), headers);
     built.patches.insert((section, file), patch);

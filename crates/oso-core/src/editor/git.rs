@@ -9,8 +9,9 @@
 //!   listed by `C-x b` and killed by `C-x k`.
 //! - Its text comes whole, with its display map, and goes in at O(1), as a file's load does.
 //! - What a line names (a section, a file, a hunk) is the host's: the editor keeps only the
-//!   outline, the line and depth of each heading, so that motion between sections works in the
-//!   editor, and a command sends the lines it means.
+//!   outline, the line and depth of each heading, which the commands that move between headings
+//!   read, and a command sends the lines it means.
+//! - A status is named as given, told apart from another buffer of that name by `<2>`, `<3>`…
 
 use super::Editor;
 use crate::buffer::{Buffer, BufferId, Mode};
@@ -32,7 +33,7 @@ pub struct GitLines {
 /// A heading of a status buffer's outline: a section's, a file's or a hunk's, at `line`, with
 /// its depth, 0 for a section.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct GitHead {
+pub struct GitHeading {
     pub line: usize,
     pub depth: u8,
 }
@@ -73,7 +74,7 @@ pub enum GitRequest {
 #[derive(Debug)]
 struct Status {
     project: ProjectId,
-    outline: Vec<GitHead>,
+    outline: Vec<GitHeading>,
 }
 
 /// The status buffers and what commands asked for them.
@@ -88,7 +89,7 @@ pub(super) struct Statuses {
 pub struct GitShown {
     /// The highlights, built with the text, covering it whole.
     pub highlights: Highlights,
-    pub outline: Vec<GitHead>,
+    pub outline: Vec<GitHeading>,
     /// The line a window's cursor goes to unless `lines` says.
     pub line: usize,
     /// The line each window's cursor goes to.
@@ -109,7 +110,14 @@ impl Editor {
     /// Adds an empty status buffer for `project`, named `name`, shown in no window yet, which
     /// does not wrap.
     pub fn add_git_status(&mut self, project: ProjectId, name: impl Into<String>) -> BufferId {
-        let id = self.add_internal_buffer(name, Mode::GitStatus);
+        let name = name.into();
+        let mut unique = name.clone();
+        let mut n = 1;
+        while self.buffer_named(&unique).is_some() {
+            n += 1;
+            unique = format!("{name}<{n}>");
+        }
+        let id = self.add_internal_buffer(unique, Mode::GitStatus);
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.set_wraps(false);
         }
@@ -144,7 +152,7 @@ impl Editor {
     }
 
     /// The headings of the status buffer `buffer`, in order: empty for any other buffer.
-    pub fn git_outline(&self, buffer: BufferId) -> &[GitHead] {
+    pub fn git_outline(&self, buffer: BufferId) -> &[GitHeading] {
         self.git_record(buffer)
             .map_or(&[], |status| status.outline.as_slice())
     }
@@ -153,18 +161,7 @@ impl Editor {
     /// status buffer `id`, so that the host can tell what each is on before it puts in a new
     /// text.
     pub fn git_points(&self, id: BufferId) -> Vec<(WindowId, usize)> {
-        let Some(buffer) = self.buffer(id) else {
-            return Vec::new();
-        };
-        let text = buffer.text();
-        self.windows
-            .iter()
-            .filter(|window| window.buffer() == id)
-            .map(|window| {
-                let cursor = window.selections.primary().cursor;
-                (window.id(), text.offset_to_point(cursor).row)
-            })
-            .collect()
+        self.cursor_rows(id)
     }
 
     /// Puts in the whole text of the status buffer `id`, built off the UI thread, with its
@@ -190,8 +187,9 @@ impl Editor {
         let Some(buffer) = self.buffer_mut(id).filter(|buffer| is_git_status(buffer)) else {
             return Some(highlights);
         };
-        buffer.apply_load(text);
+        // Taken first, as the load would drop them here, on the UI thread.
         let old = buffer.take_generated_highlights();
+        buffer.apply_load(text);
         let refused = if buffer.text().len() == highlights.len() {
             buffer.set_generated_highlights(highlights).or(old)
         } else {

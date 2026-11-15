@@ -20,5 +20,5 @@ pub(crate) mod stage;
 pub(crate) mod status;
 pub(crate) mod work;
 
-pub(crate) use layout::{Built, Section, View};
+pub(crate) use layout::{Built, View};
 pub(crate) use work::{Report, Request, Worker};

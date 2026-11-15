@@ -62,7 +62,8 @@ often, so it must rebuild within 2 s.
   what the worker, the jobs and the start thread find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
   a trusted project's root, and git only through `oso_platform::process`. Its runner,
-  `review/git.rs`, is shared with the worktree jobs. `review/view.rs`
+  `review/git.rs`, is shared with the worktree jobs and the git status (`vcs`), as are its
+  `TrustedRoot` and secret-name check. `review/view.rs`
   lays out a review buffer's whole text on `oso-review-view`, one thread per review, and
   `review/count.rs` counts the review menu's scopes on `oso-review-count`. A review buffer's
   keys are listed in `commands::review::KEYS`, which `?` reads, and bound by

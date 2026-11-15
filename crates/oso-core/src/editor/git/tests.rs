@@ -2,7 +2,7 @@
 //!
 //! Must not depend on: the host's threads, files or processes.
 
-use super::{GitHead, GitLines, GitRequest, GitShown};
+use super::{GitHeading, GitLines, GitRequest, GitShown};
 use crate::buffer::Mode;
 use crate::editor::Editor;
 use crate::load::decode_all;
@@ -17,7 +17,10 @@ fn shown(line: usize, lines: Vec<(crate::window::WindowId, usize)>) -> GitShown 
     highlights.replace(10..14, [(4, Some(Highlight::GitBranchLocal))]);
     GitShown {
         highlights,
-        outline: vec![GitHead { line: 2, depth: 0 }, GitHead { line: 3, depth: 1 }],
+        outline: vec![
+            GitHeading { line: 2, depth: 0 },
+            GitHeading { line: 3, depth: 1 },
+        ],
         line,
         lines,
     }
@@ -48,7 +51,10 @@ fn a_status_goes_in_with_point_on_its_line() {
     assert_eq!(editor.git_points(id), vec![(editor.window().id(), 3)]);
     assert_eq!(
         editor.git_outline(id),
-        [GitHead { line: 2, depth: 0 }, GitHead { line: 3, depth: 1 }]
+        [
+            GitHeading { line: 2, depth: 0 },
+            GitHeading { line: 3, depth: 1 }
+        ]
     );
     assert_eq!(editor.git_status_of(id), Some(ProjectId(0)));
     assert_eq!(editor.git_status_buffer(ProjectId(0)), Some(id));
@@ -128,4 +134,33 @@ fn requests_go_to_the_host_in_order() {
         ]
     );
     assert!(editor.take_git_requests().is_empty());
+}
+
+#[test]
+fn the_highlights_a_new_text_replaces_go_back_to_the_host() {
+    let mut editor = Editor::default();
+    let id = editor.add_git_status(ProjectId(0), "*git: oso*");
+    assert!(
+        editor
+            .set_git_text(id, text(), shown(0, Vec::new()))
+            .is_none()
+    );
+    // The ones before come back, for the host to free off the UI thread.
+    let given = editor.set_git_text(id, text(), shown(0, Vec::new()));
+    assert_eq!(given.map(|given| given.len()), Some(TEXT.len()));
+    let buffer = editor.buffer(id).unwrap();
+    assert_eq!(
+        buffer.highlights().and_then(|h| h.at(11)),
+        Some(Highlight::GitBranchLocal)
+    );
+}
+
+#[test]
+fn two_statuses_of_one_name_are_told_apart() {
+    let mut editor = Editor::default();
+    let first = editor.add_git_status(ProjectId(0), "*git: oso*");
+    let second = editor.add_git_status(ProjectId(1), "*git: oso*");
+    assert_eq!(editor.buffer(first).unwrap().name(), "*git: oso*");
+    assert_eq!(editor.buffer(second).unwrap().name(), "*git: oso*<2>");
+    assert_eq!(editor.buffer_named("*git: oso*<2>"), Some(second));
 }

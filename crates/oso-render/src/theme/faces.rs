@@ -100,7 +100,7 @@ pub(super) const FACES: [Face; 93] = [
     Face::GitBranchLocal,
     Face::GitBranchRemote,
     Face::GitHash,
-    Face::GitCount,
+    Face::GitDetail,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -203,7 +203,7 @@ pub(super) const fn index(face: Face) -> usize {
         Face::GitBranchLocal => 89,
         Face::GitBranchRemote => 90,
         Face::GitHash => 91,
-        Face::GitCount => 92,
+        Face::GitDetail => 92,
     }
 }
 
@@ -322,7 +322,7 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         Face::GitSectionHeading => (SynHeading, BgMain),
         Face::GitBranchLocal => (Terminal(12), BgMain),
         Face::GitBranchRemote => (Terminal(10), BgMain),
-        Face::GitHash | Face::GitCount => (FgPrompt, BgMain),
+        Face::GitHash | Face::GitDetail => (FgPrompt, BgMain),
     }
 }
 
