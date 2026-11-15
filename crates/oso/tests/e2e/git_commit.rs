@@ -95,7 +95,9 @@ fn a_failing_hook_keeps_the_message_and_no_verify_commits_past_it() {
     let mut app = trusted_status(&scratch, &file);
     rows_until(&mut app, |rows| has(rows, "M  a.txt  +2 -2"));
     stage_all(&mut app);
-    app.send_keys(&format!("c c {}", typing("Fix")));
+    app.send_keys("c c");
+    wait_buffer(&mut app, "*commit: proj-git*");
+    app.send_keys(&typing("Fix"));
     app.send_keys("C-c C-c");
     wait_echo(
         &mut app,

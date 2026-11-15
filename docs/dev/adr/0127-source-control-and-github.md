@@ -632,15 +632,16 @@ request.
   share: a status killed while git runs leaves the run going. It runs `git -c
   core.commentChar=# commit --cleanup=strip --file=-` with the message on standard input and
   the switches as flags; amending adds `--amend`, extending `--amend --no-edit`, rewording
-  `--amend --only --allow-empty`. The repository's own hooks run (`Git::with_own_hooks`): no
-  `core.hooksPath` of oso's, and none of the reads' variables (`GIT_OPTIONAL_LOCKS`,
+  `--amend --only --allow-empty`. The repository's own hooks run (`Git::with_own_hooks`), with
+  the allowlist and `XDG_CONFIG_HOME` as every run has: no `core.hooksPath` of oso's, and none of the reads' variables (`GIT_OPTIONAL_LOCKS`,
   `GIT_NO_LAZY_FETCH`, `GIT_NO_REPLACE_OBJECTS`, `GIT_LITERAL_PATHSPECS`), which the git a
   hook runs would take; `GIT_TERMINAL_PROMPT=0`, `GIT_EDITOR=:` and the ceiling stay. A
   `[git] pass_env` name that starts with `GIT_` is refused: git's own variables are oso's.
 - **No time limit, and a stop:** git runs in a process group of its own (`Child::signal_group`
   in `oso-platform`, approved). `C-g` in the status or the log, or `k` in the log, sends the
-  group `SIGTERM`, then `SIGKILL` after 5 s; on Windows git alone ends. A process the hook left
-  running once git was waited for is not followed, as its group's ID may be another's by then.
+  group `SIGTERM`, then `SIGKILL` after 5 s; on Windows git alone ends. Revoking the project's
+  trust stops it the same way, on the run's thread itself. A process the hook left running once
+  git was waited for is not followed, as its group's ID may be another's by then.
 - **The log:** `*git log: NAME*` is an internal buffer in `GitLog` mode, listed by `C-x b` and
   killed by `C-x k` as a status, and withheld from the agent channel (Q5): a hook may print
   anything. `$` in a status shows it. Each run adds its command line, what git and its hooks
@@ -648,16 +649,18 @@ request.
   line a carriage return rewrote taken out), and how it ended with its time; it keeps the last
   4 MiB in whole lines. The echo area says `git commit… 12 s` each second unless something was
   said since.
-- **How it ends:** a commit that went in kills its message buffer, keeps the message in the
-  ring, says `Committed: SUBJECT`, and reads the status. One that failed keeps the message
+- **How it ends:** a commit that went in kills its message buffer, whose windows show the status
+  again, as magit's do, keeps the message in the ring, says `Committed: SUBJECT`, and reads the
+  status; `C-c C-k` goes back to the status too. One that failed keeps the message
   buffer and says `commit failed (hook pre-commit): $ shows the output`, naming each hook of
   `pre-commit`, `prepare-commit-msg` and `commit-msg` that is in the directory `git rev-parse
-  --git-path hooks` gives (`core.hooksPath` respected) and that may run, but those `-n` leaves
+  --git-path hooks` gives (`core.hooksPath` respected) with an execute bit, but those `-n` leaves
   out, joined with "or"; with none, `commit failed: $ shows the output`. A stopped one says so.
   Either reads the status, as a hook may have changed files.
 - **Writes to the index (Q2):** `s`, `u`, `S` and `U` run with no time limit too, in a group of
   their own and still with no hook, so that none is cut short part way; `C-g` in the status
-  stops one with `SIGTERM`, on which git takes its lock away.
+  stops one with `SIGTERM`, on which git takes its lock away (on Windows git ends at once, and
+  its lock may stay). One is refused while a commit runs or waits for its message.
 - **Agents (Q5, Q6):** a commit's message has keys of its own, so the channel cannot show it, and
   while it is in front the channel's `Change` commands are refused ("a commit's message is the
   person's to write; ask the person"); `text` reads it. The log is unreadable to it.
@@ -665,10 +668,17 @@ request.
   offers `w`; quitting when idle waits for git too; `oso-restart` asks "git runs in …; restart
   anyway?". As oso ends, each run's group gets `SIGTERM`, and nothing waits for it.
 - **Deviations:** (1) `k` stops the run anywhere in the log, which has no entries to stand on
-  yet. (2) The ADR's "C-c C-f asks the session to fix it" waits for step 6a (Q4).
+  yet. (2) The ADR's "C-c C-f asks the session to fix it" waits for step 6a (Q4). (3) A write
+  to the index is not a run that quitting or a restart names, and a commit started while one
+  goes may meet its lock and fail. (4) A restart carries a commit's message as a plain buffer,
+  in no mode, as it carries no status buffer (step 1a's (3)); `C-x g` and `c` start again.
+  (5) A failure names each hook that may have made it, joined with "or", where the ADR names
+  one. (6) The ring keeps committed messages as well as cancelled ones, as magit's does.
+  (7) The menu's switches start off each time it opens, which comes to the ADR's "reset after
+  each commit".
 - **Library items** (approved): `Mode::{GitCommit, GitLog}`; `editor::{CommitKind,
   CommitSwitches, MAX_GIT_LOG}`; `GitRequest::{Commit, CommitFinish, CommitCancel, CommitRing,
-  ShowLog, Stop}`; `Editor::{append_git_log, set_git_running, git_running, echo_unless_news}`;
+  ShowLog, Stop}`; `Editor::{append_git_log, set_git_running, git_runs, echo_unless_news}`;
   `Highlight::GitCommitOverlong` and its face in `oso-render`; `process::Signal` and
   `Child::{terminate, signal_group}` in `oso-platform`. The configuration gains `[git]
   pass_env`.

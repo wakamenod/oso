@@ -45,7 +45,7 @@ pub struct Settings {
     /// `[spaces]` (ADR 0136).
     pub spaces: super::spaces::Spaces,
     /// `[git]` (ADR 0127, step 1b).
-    pub git: super::terminal::Git,
+    pub git: super::git::GitSettings,
 }
 
 /// `[sessions]`: how a hosted session's `claude` starts (ADR 0121).

@@ -1,6 +1,6 @@
 //! `[terminal]`: the shell a terminal starts, whether as a login shell, the environment names
-//! it is given, and how much scrollback it keeps (ADR 0120, Q11 and Q18). And `[git]`, whose
-//! `pass_env` names what git's hooks are given, as `[terminal] env` does (ADR 0127, step 1b).
+//! it is given, and how much scrollback it keeps (ADR 0120, Q11 and Q18). Its list of names is
+//! read for `[git] pass_env` too (ADR 0127, step 1b).
 //!
 //! Must not depend on: `app`, `dispatch` or the file system; nothing is looked at on disk
 //! here. Whether the shell exists is found when a terminal starts, off the UI thread.
@@ -44,29 +44,6 @@ pub struct Terminal {
     pub env: Option<Vec<String>>,
     /// `scrollback`: the lines a terminal keeps above its screen.
     pub scrollback: Option<usize>,
-}
-
-/// `[git]`.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Git {
-    /// `pass_env`: names of variables passed on from oso's own environment to a run of git
-    /// whose hooks run, beside the process module's allowlist and the SSH agent's and GnuPG's.
-    pub pass_env: Option<Vec<String>>,
-}
-
-/// `[git]`.
-pub(super) fn git(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Git {
-    let mut git = Git::default();
-    let Some(entries) = table(value, "[git]", found) else {
-        return git;
-    };
-    for (name, value) in entries {
-        match name.get_ref().as_ref() {
-            "pass_env" => git.pass_env = env(value, "[git] pass_env", git_refused, found),
-            other => unknown(found, name.span().start, other, "[git]"),
-        }
-    }
-    git
 }
 
 /// `[terminal]`.
@@ -115,7 +92,7 @@ fn shell(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<PathBuf> {
 
 /// `[terminal] env` or `[git] pass_env`, called `label`: a list of names, each refused that
 /// `refused` refuses. The rest are kept.
-fn env(
+pub(super) fn env(
     value: &Spanned<DeValue<'_>>,
     label: &str,
     refused: fn(&str) -> Option<&'static str>,
@@ -170,28 +147,21 @@ fn terminal_refused(name: &str) -> Option<&'static str> {
     }
 }
 
-/// Why `name` cannot be passed on to git's hooks, if it cannot: as [`refused`] says, and git's
-/// own variables are oso's to set, as one could send git to another repository.
-fn git_refused(name: &str) -> Option<&'static str> {
-    if name.starts_with("GIT_") {
-        Some("git's own variables are oso's to set")
-    } else {
-        refused(name)
-    }
-}
-
 /// Why `name` cannot be passed on, if it cannot: the process module refuses an empty name, one
-/// holding `=` or NUL, `PATH` (its own) and the loader's `LD_*` and `DYLD_*` (ADR 0120, step 2).
-fn refused(name: &str) -> Option<&'static str> {
+/// holding `=` or NUL, `PATH` (its own) and the loader's `LD_*` and `DYLD_*` (ADR 0120, step 2),
+/// ignoring case on Windows, as it does.
+pub(super) fn refused(name: &str) -> Option<&'static str> {
+    let upper = name.to_ascii_uppercase();
+    let own = if cfg!(windows) { upper.as_str() } else { name };
     if name.is_empty() {
         Some("an empty name")
     } else if name.len() > MAX_ENV_NAME {
         Some("a name of at most 256 bytes")
     } else if name.contains(['=', '\0']) || name.chars().any(char::is_control) {
         Some("a name holds no =, NUL or control character")
-    } else if name == "PATH" {
+    } else if own == "PATH" {
         Some("PATH is oso's own, filtered")
-    } else if name.starts_with("LD_") || name.starts_with("DYLD_") {
+    } else if own.starts_with("LD_") || own.starts_with("DYLD_") {
         Some("the loader's variables are never passed on")
     } else {
         None

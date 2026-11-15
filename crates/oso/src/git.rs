@@ -2,8 +2,8 @@
 //! arguments and environment and every read bounded (`run`); object ids (`id`); the root of a
 //! trusted project, the only place git starts from (`trust`); names as git writes them and
 //! whether one may hold secrets (`path`); the empty directory git is told holds the hooks
-//! (`hooks`); and runs with no time limit, which the person stops (`long`). A review (ADR 0122), the worktree jobs (ADR 0121) and a git status (ADR 0127)
-//! use it.
+//! (`hooks`); and runs with no time limit, which the person stops (`long`). A review (ADR
+//! 0122), the worktree jobs (ADR 0121), and a git status and its commits (ADR 0127) use it.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread, nor on what uses it; this
 //! runs on the threads that run git, and waits for git.

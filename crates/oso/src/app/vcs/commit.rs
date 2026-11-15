@@ -7,8 +7,9 @@
 //! - A commit's message is a buffer of the person's, `*commit: NAME*`, in `GitCommit` mode,
 //!   highlighted here as it changes. The agent channel reads it, but its keys are the
 //!   person's and the channel changes nothing in it (Q6).
-//! - A commit with nothing staged, an amend before the first commit, and an empty message are
-//!   refused before git runs, so that a hook is never blamed for them.
+//! - What git would refuse anyway is refused before it runs, so that a hook is never blamed for
+//!   it: nothing staged, an amend before the first commit, an empty message, a second message
+//!   for the repository, and a run while another goes.
 //! - The ring keeps the last 20 messages committed or cancelled, for `M-p` and `M-n`.
 
 use std::sync::Arc;
@@ -16,6 +17,7 @@ use std::sync::Arc;
 use oso_core::buffer::{Buffer, BufferId, Mode, Replacement};
 use oso_core::editor::{CommitKind, CommitSwitches, GitRequest};
 use oso_core::project::ProjectId;
+use oso_core::window::WindowId;
 
 use super::super::App;
 use super::runs::{Pending, RUNNING, Repo, Running};
@@ -26,6 +28,9 @@ use crate::vcs::Built;
 use crate::vcs::commit::{self, Ring, Staged};
 use crate::vcs::layout::Section;
 use crate::vcs::run::RunRequest;
+
+/// Why a message's text is not taken.
+const TOO_LONG: &str = "The message is longer than git is given: 1 MiB";
 
 /// The repositories git runs in, the messages being written, and the ring.
 #[derive(Default)]
@@ -93,8 +98,7 @@ impl App {
                 .message("A commit's message is open here: C-c C-c commits, C-c C-k drops it");
         }
         let index = self.git_repo(project, &root);
-        let repo = &self.gits.commits.repos[index];
-        if repo.run.is_some() || repo.reading.is_some() {
+        if self.commit_runs(project) {
             return self.editor.message(RUNNING);
         }
         if kind != CommitKind::New && built.branch.oid.is_none() {
@@ -134,13 +138,14 @@ impl App {
             .map(|open| Arc::clone(&open.built))
             .unwrap_or_default();
         let branch = (built.branch.head.as_deref()).map(String::from_utf8_lossy);
-        let staged: Vec<Staged<'_>> = (built.files(Section::Staged).iter())
+        let files = built.files(Section::Staged);
+        let staged: Vec<Staged<'_>> = (files.iter().take(commit::MAX_LISTED))
             .map(|file| Staged {
                 letter: char::from(file.letters[0]),
                 path: &file.path,
             })
             .collect();
-        let text = commit::template(message, branch.as_deref(), &staged, kind);
+        let text = commit::template(message, branch.as_deref(), &staged, files.len(), kind);
         let name = self.unique_name(&format!("*commit: {}*", self.project_name(project)));
         let mut buffer = Buffer::from_text(name, &text);
         buffer.set_mode(Mode::GitCommit);
@@ -166,14 +171,9 @@ impl App {
                 .editor
                 .message("This message's commit is gone: C-x k drops it");
         };
-        let Some(text) = (self.editor.buffer(buffer)).map(|shown| shown.text().to_string()) else {
-            return;
+        let Some(text) = self.message_text(buffer) else {
+            return self.editor.message(TOO_LONG);
         };
-        if text.len() > commit::MAX_MESSAGE {
-            return self
-                .editor
-                .message("The message is longer than git is given: 1 MiB");
-        }
         let message = commit::message_of(&text);
         if message.is_empty() {
             return self
@@ -208,11 +208,11 @@ impl App {
                 .editor
                 .message("Its commit runs: C-g in the status or the log stops it");
         }
-        if let Some(text) = (self.editor.buffer(buffer)).map(|shown| shown.text().to_string()) {
+        // A text longer than a message is not kept.
+        if let Some(text) = self.message_text(buffer) {
             self.gits.commits.ring.keep(commit::message_of(&text));
         }
-        self.gits.commits.drafts.remove(at);
-        self.editor.kill_buffer(buffer);
+        self.drop_draft(buffer);
         self.editor
             .message("Commit cancelled; M-p in the next message brings it back");
         self.request_redraw();
@@ -235,8 +235,8 @@ impl App {
             let which = if older { "older" } else { "newer" };
             return self.editor.message(format!("No {which} message kept"));
         };
-        let Some(text) = (self.editor.buffer(buffer)).map(|shown| shown.text().to_string()) else {
-            return;
+        let Some(text) = self.message_text(buffer) else {
+            return self.editor.message(TOO_LONG);
         };
         let end = commit::message_end(&text);
         let mut put = kept.trim_end().to_owned();
@@ -260,8 +260,7 @@ impl App {
     /// the echo area says.
     pub(super) fn commit_done(&mut self, run: &Running) -> String {
         if let Some(draft) = run.draft {
-            self.gits.commits.drafts.retain(|kept| kept.buffer != draft);
-            self.editor.kill_buffer(draft);
+            self.drop_draft(draft);
         }
         match &run.message {
             Some(message) => {
@@ -313,6 +312,33 @@ impl App {
             }
             self.gits.commits.drafts[at].lit = Some(revision);
         }
+    }
+
+    /// Forgets the message buffer `buffer` and kills it, each window that showed it showing its
+    /// repository's status again, as magit goes back to the status.
+    fn drop_draft(&mut self, buffer: BufferId) {
+        let project = (self.draft_index(buffer)).map(|at| self.gits.commits.drafts[at].project);
+        self.gits
+            .commits
+            .drafts
+            .retain(|draft| draft.buffer != buffer);
+        if let Some(status) = project.and_then(|project| self.editor.git_status_buffer(project)) {
+            let showing: Vec<WindowId> = (self.editor.windows())
+                .filter(|window| window.buffer() == buffer)
+                .map(|window| window.id())
+                .collect();
+            for window in showing {
+                self.editor.show_in(window, status);
+            }
+        }
+        self.editor.kill_buffer(buffer);
+    }
+
+    /// The text of `buffer`, unless it is gone or longer than git is given a message: its length
+    /// is looked at before anything is copied.
+    fn message_text(&self, buffer: BufferId) -> Option<String> {
+        let shown = self.editor.buffer(buffer)?;
+        (shown.text().len() <= commit::MAX_MESSAGE).then(|| shown.text().to_string())
     }
 
     fn draft_index(&self, buffer: BufferId) -> Option<usize> {

@@ -56,17 +56,17 @@ fn the_first_text_names_the_staged_files_escaped_on_one_line_each() {
             path: b"bad\nname",
         },
     ];
-    let text = template("", Some("main"), &staged, CommitKind::New);
+    let text = template("", Some("main"), &staged, 2, CommitKind::New);
     assert!(text.starts_with("\n\n# "), "{text:?}");
     assert!(text.contains("# On branch main\n"));
     assert!(text.contains("#   M  src/a.rs\n"));
     assert!(text.contains("#   A  bad\\nname\n"), "{text:?}");
     // Every line after the message is a `#` line, so none of it is committed.
     assert_eq!(message_of(&text), "");
-    let amend = template("Subject\n\nBody\n", None, &staged, CommitKind::Amend);
+    let amend = template("Subject\n\nBody\n", None, &staged, 2, CommitKind::Amend);
     assert!(amend.starts_with("Subject\n\nBody\n\n# "));
     assert_eq!(message_of(&amend), "Subject\n\nBody\n");
-    let reword = template("Subject\n", Some("main"), &staged, CommitKind::Reword);
+    let reword = template("Subject\n", Some("main"), &staged, 2, CommitKind::Reword);
     assert!(!reword.contains("src/a.rs"));
 }
 
@@ -81,7 +81,16 @@ fn many_staged_files_are_named_up_to_the_limit() {
             path: path.as_bytes(),
         })
         .collect();
-    let text = template("", None, &staged, CommitKind::New);
+    let text = template("", None, &staged, staged.len(), CommitKind::New);
+    assert!(text.contains("#   … and 5 more\n"));
+    // What the caller left out is counted too.
+    let text = template(
+        "",
+        None,
+        &staged[..super::MAX_LISTED],
+        staged.len(),
+        CommitKind::New,
+    );
     assert!(text.contains("#   … and 5 more\n"));
     assert!(!text.contains(&format!("  f{}\n", super::MAX_LISTED)));
 }
@@ -210,4 +219,17 @@ proptest! {
         prop_assert_eq!(highlights(&text).len(), text.len());
         prop_assert!(!message_of(&text).lines().any(|line| line.starts_with('#')));
     }
+}
+
+#[test]
+fn a_line_rewritten_over_many_pieces_keeps_only_its_last_part() {
+    let mut partial = Vec::new();
+    for n in 0..1000 {
+        assert_eq!(log_lines(format!("{n}%\r").as_bytes(), &mut partial), "");
+        assert!(partial.len() < 16, "{}", partial.len());
+    }
+    assert_eq!(log_lines(b"done\n", &mut partial), "done\n");
+    // A carriage return last in a piece may begin a CRLF.
+    assert_eq!(log_lines(b"a\r", &mut partial), "");
+    assert_eq!(log_lines(b"\nb\n", &mut partial), "a\nb\n");
 }

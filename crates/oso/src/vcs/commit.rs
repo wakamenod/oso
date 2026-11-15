@@ -4,12 +4,13 @@
 //! log shows it.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; these are plain functions,
-//! tested without git.
+//! tested without git, but for the hooks a failure names, which are looked for on disk on the
+//! run thread.
 //!
 //! - The commit runs `git -c core.commentChar=# commit --cleanup=strip --file=-` with the
 //!   message on standard input, so that `#` lines are left out whatever the person's
 //!   configuration says, and the switches as flags. Extending runs `--amend --no-edit`, and
-//!   rewording `--amend --only`, which leaves what is staged out.
+//!   rewording `--amend --only --allow-empty`, which leaves what is staged out.
 //! - A file's name in the `#` lines comes from git, so it is shown escaped, on one line: a line
 //!   break in it could not end a `#` line and add one of the message's.
 
@@ -27,8 +28,9 @@ pub(crate) const SUMMARY: usize = 50;
 pub(crate) const BODY: usize = 72;
 /// The most staged files the `#` lines name.
 pub(crate) const MAX_LISTED: usize = 100;
-/// The most bytes of a message that is highlighted; a longer one is shown plain.
-pub(crate) const MAX_HIGHLIGHTED: usize = 256 * 1024;
+/// The most bytes of a message that is highlighted, each time it changes; a longer one is
+/// shown plain. Far past any message, so a key in one costs some microseconds.
+pub(crate) const MAX_HIGHLIGHTED: usize = 64 * 1024;
 /// The most bytes a message may have: git is not given more.
 pub(crate) const MAX_MESSAGE: usize = 1024 * 1024;
 
@@ -85,12 +87,13 @@ pub(crate) struct Staged<'a> {
 }
 
 /// The message buffer's first text: `message`, which amending and rewording start from, then
-/// the `#` lines, naming the branch and up to [`MAX_LISTED`] of the `staged` files (`more`
-/// files past those), and the keys. Rewording names no file, as what is staged stays out.
+/// the `#` lines, naming the branch and up to [`MAX_LISTED`] of the `staged` files, of
+/// `count` in all, and the keys. Rewording names no file, as what is staged stays out.
 pub(crate) fn template(
     message: &str,
     branch: Option<&str>,
     staged: &[Staged<'_>],
+    count: usize,
     kind: CommitKind,
 ) -> String {
     let mut text = message.trim_end().to_owned();
@@ -107,7 +110,7 @@ pub(crate) fn template(
         text.push_str("# Rewording: what is staged stays out.\n");
         return text;
     }
-    if staged.is_empty() {
+    if count == 0 {
         text.push_str("# Nothing is staged.\n");
         return text;
     }
@@ -116,8 +119,9 @@ pub(crate) fn template(
         let path = row_text(&String::from_utf8_lossy(file.path));
         text.push_str(&format!("#   {}  {path}\n", file.letter));
     }
-    if staged.len() > MAX_LISTED {
-        let more = staged.len() - MAX_LISTED;
+    let listed = staged.len().min(MAX_LISTED);
+    if count > listed {
+        let more = count - listed;
         text.push_str(&format!("#   … and {more} more\n"));
     }
     text
@@ -230,7 +234,7 @@ impl Ring {
 }
 
 /// The hooks in `hooks`, the repository's hooks directory, that a commit runs and that may
-/// have made it fail: each that is there and that this account may run, but those
+/// have made it fail: each that is there with an execute bit, as git runs it, but those
 /// `--no-verify` left out.
 pub(crate) fn hooks_present(hooks: &Path, no_verify: bool) -> Vec<&'static str> {
     HOOKS
@@ -241,16 +245,10 @@ pub(crate) fn hooks_present(hooks: &Path, no_verify: bool) -> Vec<&'static str> 
         .collect()
 }
 
-#[cfg(unix)]
+/// Whether git would run the hook at `path`: a file with an execute bit, as the process
+/// module judges an executable.
 fn runnable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path)
-        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
-}
-
-#[cfg(not(unix))]
-fn runnable(path: &Path) -> bool {
-    std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
+    oso_platform::process::Executable::absolute(path).is_ok()
 }
 
 /// What the echo area says of a commit that failed, naming the hooks that may have made it.
@@ -268,23 +266,42 @@ pub(crate) fn failed(hooks: &[&str]) -> String {
 /// git's output as a log shows it, line by line: escape sequences, such as colours, and
 /// control characters but tabs taken out, a line rewritten after a carriage return keeping only
 /// what came last, and bytes that are not UTF-8 replaced. A line not ended yet waits in
-/// `partial`, at most [`MAX_GIT_LOG`] bytes of it, for the next piece or the end.
+/// `partial` for the next piece or the end: what follows its last carriage return, and at most
+/// [`MAX_GIT_LOG`] bytes of that. Each piece costs what it holds, never what waits.
 pub(crate) fn log_lines(piece: &[u8], partial: &mut Vec<u8>) -> String {
-    partial.extend_from_slice(piece);
-    let Some(last) = partial.iter().rposition(|&byte| byte == b'\n') else {
-        if partial.len() > MAX_GIT_LOG {
-            let cut = partial.len() - MAX_GIT_LOG;
-            partial.drain(..cut);
-        }
+    // `partial` never holds a line break, so only the piece is looked through for one.
+    let Some(last) = piece.iter().rposition(|&byte| byte == b'\n') else {
+        keep_partial(partial, piece);
         return String::new();
     };
-    let whole: Vec<u8> = partial.drain(..=last).collect();
+    partial.extend_from_slice(&piece[..=last]);
+    let whole = std::mem::take(partial);
+    keep_partial(partial, &piece[last + 1..]);
     let mut out = String::new();
     for line in whole.split_inclusive(|&byte| byte == b'\n') {
         out.push_str(&clean_line(line));
         out.push('\n');
     }
     out
+}
+
+/// Adds `bytes`, of a line not ended, to `partial`: what a carriage return in them rewrote goes,
+/// but a last one, which may begin `\r\n`; past twice [`MAX_GIT_LOG`], the start goes too.
+fn keep_partial(partial: &mut Vec<u8>, bytes: &[u8]) {
+    // The one byte before may be a carriage return that the last piece ended with.
+    let start = partial.len().saturating_sub(1);
+    partial.extend_from_slice(bytes);
+    let before_last = partial.len().saturating_sub(1).max(start);
+    if let Some(at) = partial[start..before_last]
+        .iter()
+        .rposition(|&b| b == b'\r')
+    {
+        partial.drain(..=start + at);
+    }
+    if partial.len() > 2 * MAX_GIT_LOG {
+        let cut = partial.len() - MAX_GIT_LOG;
+        partial.drain(..cut);
+    }
 }
 
 /// The rest of a run's output, its last line not ended, as [`log_lines`] shows it.

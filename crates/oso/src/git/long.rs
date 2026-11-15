@@ -3,14 +3,18 @@
 //! person's act, and they stop it: `C-g` sends `SIGTERM`, then `SIGKILL` after [`GRACE`].
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs on the threads that
-//! run git, and waits for git.
+//! run git, and waits for git, but for [`Ender::end`], which the UI thread calls and which
+//! waits for nothing.
 //!
 //! - git starts in a process group of its own, so that stopping it stops a hook and what the
 //!   hook started too; on Windows git alone (ADR 0127, as built, Q6). A process the group's
 //!   leader left running once it was waited for is not followed: its group's ID may be
 //!   another's by then.
 //! - Its standard output and error are read as one, in pieces, on threads of their own,
-//!   `oso-git-read`, as a terminal would show them; the caller bounds what it keeps.
+//!   `oso-git-read`, as a terminal would show them; the caller bounds what it keeps. At most
+//!   [`PIECES`] pieces wait, so a hook that writes faster than they are taken waits on its
+//!   pipe. Once git has gone, what the pipes still hold is read for at most [`DRAIN`], and at
+//!   most [`MAX_TAIL`] bytes of it kept: a process the hook left may hold them open.
 //! - The child is shared with an [`Ender`], so that quitting oso ends the group at once from
 //!   the UI thread, which sends a signal and waits for nothing.
 //! - A [`Long`] dropped while git runs ends it as a stop would, on a thread of its own,
@@ -20,7 +24,7 @@ use std::ffi::OsStr;
 use std::io::{self, Read};
 use std::process::ExitStatus;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -31,8 +35,12 @@ use super::run::{Git, GitError, MAX_STDERR, Output, write_away};
 
 /// How long a stopped run has between `SIGTERM` and `SIGKILL`.
 pub(crate) const GRACE: Duration = Duration::from_secs(5);
-/// How long a run that has exited is given to have its last output read.
-const DRAIN: Duration = Duration::from_millis(50);
+/// How long a run that has exited is given, in all, to have its last output read.
+const DRAIN: Duration = Duration::from_millis(200);
+/// The most bytes of that last output kept: its end.
+const MAX_TAIL: usize = 4 * 1024 * 1024;
+/// The most pieces of output that wait to be taken.
+const PIECES: usize = 64;
 /// How often a run whose output has ended, or that is stopping, is looked at.
 const POLL: Duration = Duration::from_millis(20);
 /// The most bytes one piece of output holds.
@@ -107,7 +115,7 @@ impl Git {
             end_now(&mut child);
             return Err(e);
         }
-        let (sent, pieces) = mpsc::channel();
+        let (sent, pieces) = mpsc::sync_channel(PIECES);
         let started = reader(stdout, sent.clone()).and_then(|()| reader(stderr, sent));
         if let Err(e) = started {
             end_now(&mut child);
@@ -176,9 +184,10 @@ impl Long {
             self.killed = true;
             let _ = locked(&self.child).signal_group(Signal::Kill);
         }
+        let mut got = None;
         if self.open > 0 {
             match self.pieces.recv_timeout(wait) {
-                Ok(Piece::Out(piece)) => return Ok(Next::Out(piece)),
+                Ok(Piece::Out(piece)) => got = Some(piece),
                 Ok(Piece::Closed) => self.open -= 1,
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => self.open = 0,
@@ -186,18 +195,33 @@ impl Long {
         } else {
             thread::sleep(wait.min(POLL));
         }
+        // Looked at after each piece too, so that what goes on writing after git has gone holds
+        // up its end no longer than the drain.
         let status = locked(&self.child).try_wait().map_err(GitError::Io)?;
         let Some(status) = status else {
-            return Ok(Next::Quiet);
+            return Ok(got.map_or(Next::Quiet, Next::Out));
         };
-        // What the readers still hold, until they end or stay quiet: a process git started may
-        // keep the pipes open after git has gone.
+        self.tail.extend(got.into_iter().flatten());
+        // What the readers still hold, until they end or the time is up: a process git started
+        // may keep the pipes open after git has gone, and write on.
+        let deadline = Instant::now() + DRAIN;
         while self.open > 0 {
-            match self.pieces.recv_timeout(DRAIN) {
-                Ok(Piece::Out(piece)) => self.tail.extend_from_slice(&piece),
+            let left = deadline.saturating_duration_since(Instant::now());
+            match self.pieces.recv_timeout(left) {
+                Ok(Piece::Out(piece)) => {
+                    self.tail.extend_from_slice(&piece);
+                    if self.tail.len() > 2 * MAX_TAIL {
+                        let cut = self.tail.len() - MAX_TAIL;
+                        self.tail.drain(..cut);
+                    }
+                }
                 Ok(Piece::Closed) => self.open -= 1,
                 Err(_) => break,
             }
+        }
+        if self.tail.len() > MAX_TAIL {
+            let cut = self.tail.len() - MAX_TAIL;
+            self.tail.drain(..cut);
         }
         self.exited = Some(status);
         self.next(Duration::ZERO)
@@ -267,7 +291,7 @@ fn locked(child: &Mutex<Child>) -> MutexGuard<'_, Child> {
 }
 
 /// Reads `stream` in pieces on a thread of its own, sending each, then that it closed.
-fn reader(mut stream: impl Read + Send + 'static, sent: Sender<Piece>) -> io::Result<()> {
+fn reader(mut stream: impl Read + Send + 'static, sent: SyncSender<Piece>) -> io::Result<()> {
     thread::Builder::new()
         .name("oso-git-read".into())
         .spawn(move || {

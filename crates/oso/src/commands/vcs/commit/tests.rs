@@ -182,5 +182,5 @@ fn quitting_names_git_running_and_quit_when_idle_counts_it() {
     assert!(result.is_ok());
     assert!(editor.quit_when_idle());
     editor.set_git_running(log, false);
-    assert_eq!(editor.git_running().count(), 0);
+    assert_eq!(editor.git_runs().count(), 0);
 }

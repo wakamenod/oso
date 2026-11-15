@@ -42,7 +42,7 @@ fn until_end(got: &mpsc::Receiver<RunReport>) -> (RunEnd, String, bool) {
     let mut began = false;
     loop {
         match got.recv_timeout(Duration::from_secs(30)).expect("a report") {
-            RunReport::Began { line, .. } => {
+            RunReport::Began { line } => {
                 began = true;
                 output.push_str(&line);
             }
@@ -191,4 +191,75 @@ fn a_root_no_longer_trusted_runs_nothing() {
     assert!(matches!(end, RunEnd::Refused(_)), "{end:?}");
     assert!(!began && output.is_empty());
     assert_eq!(subject(&repo), "first");
+}
+
+#[test]
+fn a_flood_is_sent_as_its_end_with_what_was_left_out() {
+    let mut waiting = super::Waiting::default();
+    assert_eq!(waiting.take(), None);
+    let line = format!("{}\n", "y".repeat(99));
+    for _ in 0..(3 * super::MAX_FLUSH / line.len()) {
+        waiting.push(&line);
+    }
+    let sent = waiting.take().unwrap();
+    let (said, rest) = sent.split_once('\n').unwrap();
+    assert!(
+        said.starts_with("[… ") && said.ends_with(" bytes left out]"),
+        "{said}"
+    );
+    assert!(rest.len() <= super::MAX_FLUSH);
+    assert!(rest.ends_with(&line) && rest.starts_with('y'));
+    waiting.push("last\n");
+    assert_eq!(waiting.take().as_deref(), Some("last\n"));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_root_revoked_while_a_hook_runs_stops_it() {
+    let repo = repo("run-revoke-mid");
+    let marker = repo.dir.join("hook-went-on");
+    let script = format!("#!/bin/sh\nsleep 30\ntouch '{}'\n", marker.display());
+    hook(&repo, "pre-commit", &script);
+    std::fs::write(repo.root.join("a.txt"), "two\n").unwrap();
+    repo.git(&["add", "a.txt"]);
+    let root = TrustedRoot::for_tests(repo.root.clone());
+    let (sent, got) = mpsc::channel();
+    let runner = Runner::start(root.clone(), Some(repo.dir.join("state")), move |report| {
+        sent.send(report).is_ok()
+    })
+    .unwrap();
+    runner.ask(commit("Change a\n", CommitSwitches::default()));
+    let Ok(RunReport::Began { .. }) = got.recv_timeout(Duration::from_secs(30)) else {
+        panic!("the run begins");
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    let revoked = std::time::Instant::now();
+    root.revoke();
+    let (end, _, _) = until_end(&got);
+    assert_eq!(end, RunEnd::Stopped);
+    assert!(revoked.elapsed() < crate::git::GRACE);
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!marker.exists());
+    assert_eq!(subject(&repo), "first");
+}
+
+#[cfg(unix)]
+#[test]
+fn the_runner_ends_its_run_as_oso_ends() {
+    let repo = repo("run-end");
+    let marker = repo.dir.join("hook-went-on");
+    let script = format!("#!/bin/sh\nsleep 30\ntouch '{}'\n", marker.display());
+    hook(&repo, "pre-commit", &script);
+    std::fs::write(repo.root.join("a.txt"), "two\n").unwrap();
+    repo.git(&["add", "a.txt"]);
+    let (runner, got) = runner(&repo);
+    runner.ask(commit("Change a\n", CommitSwitches::default()));
+    let Ok(RunReport::Began { .. }) = got.recv_timeout(Duration::from_secs(30)) else {
+        panic!("the run begins");
+    };
+    runner.end();
+    let (end, _, _) = until_end(&got);
+    assert!(matches!(end, RunEnd::Failed(_)), "{end:?}");
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(!marker.exists());
 }

@@ -58,7 +58,7 @@ impl Configuration {
     }
 
     /// `[git]` in force, for the next run of git with hooks (ADR 0127, step 1b).
-    pub(super) fn git(&self) -> &crate::config::Git {
+    pub(super) fn git(&self) -> &crate::config::GitSettings {
         &self.in_force.git
     }
 

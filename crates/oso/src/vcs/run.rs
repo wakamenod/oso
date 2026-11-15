@@ -5,14 +5,15 @@
 //! takes reports out, and supplies the wake-up.
 //!
 //! - It starts only from a [`TrustedRoot`], looks at the root before each request, and finds
-//!   git as the status's thread does: the repository's top must be the root.
+//!   git as the status's thread does: the repository's top must be the root. A run stops once
+//!   the root is revoked, as once the person stops it.
 //! - A commit runs the repository's own hooks, with the environment `git`'s runner gives a
 //!   hook and the names of `[git] pass_env`, in a process group of its own, so that a stop
 //!   ends what a hook started too. No `GIT_LITERAL_PATHSPECS`: a hook's own git takes its
 //!   paths as patterns.
 //! - What git writes streams out as lines a log shows ([`commit::log_lines`]), sent at most
-//!   every [`FLUSH`], and never more than the log keeps at once. The time since it began is
-//!   sent each second.
+//!   every [`FLUSH`], at most [`MAX_FLUSH`] bytes at once, with a line that says how many were
+//!   left out before them. The time since it began is sent each second.
 //! - A failure names the hooks that may have made it, from the hooks directory git says it
 //!   uses (`core.hooksPath` respected).
 //! - One request at a time; the UI refuses a second run while one is under way (ADR 0127,
@@ -20,13 +21,13 @@
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use oso_core::editor::{CommitKind, CommitSwitches, MAX_GIT_LOG};
+use oso_core::editor::{CommitKind, CommitSwitches};
 
 use super::commit;
 use super::work::{find, hooks_dir};
@@ -34,6 +35,9 @@ use crate::git::{Ender, Git, MAX_SHORT, Next, TrustedRoot, os_path, trim_line};
 
 /// How often what a run wrote is sent on.
 pub(crate) const FLUSH: Duration = Duration::from_millis(100);
+/// The most bytes sent on at once: a log shows the end of a flood, and says how much of it
+/// was left out, so that a hook that writes fast costs the UI thread little.
+pub(crate) const MAX_FLUSH: usize = 256 * 1024;
 
 /// What the thread is asked to do.
 pub(crate) enum RunRequest {
@@ -65,8 +69,8 @@ pub(crate) enum RunEnd {
 pub(crate) enum RunReport {
     /// `HEAD`'s message, or why it could not be read.
     Message(Result<String, String>),
-    /// A run began: the command line the log shows, and what ends it from elsewhere.
-    Began { line: String, ender: Ender },
+    /// A run began: the command line the log shows.
+    Began { line: String },
     /// What it wrote, as the log shows it.
     Output(String),
     /// Whole seconds since it began.
@@ -91,6 +95,17 @@ impl std::fmt::Debug for RunReport {
 pub(crate) struct Runner {
     requests: Sender<RunRequest>,
     stop: Arc<AtomicBool>,
+    /// What ends the run under way, from the moment git starts: quitting reaches it before any
+    /// report has.
+    ender: Arc<Mutex<Option<Ender>>>,
+}
+
+/// What a run looks at as it goes: the stop the person asks for, the root's revocation, and
+/// where its ender is put.
+struct Watch<'a> {
+    stop: &'a AtomicBool,
+    root: &'a TrustedRoot,
+    ender: &'a Mutex<Option<Ender>>,
 }
 
 impl Runner {
@@ -104,11 +119,31 @@ impl Runner {
     ) -> std::io::Result<Runner> {
         let (requests, queue) = mpsc::channel();
         let stop = Arc::new(AtomicBool::new(false));
-        let flag = Arc::clone(&stop);
+        let ender = Arc::new(Mutex::new(None));
+        let (flag, slot) = (Arc::clone(&stop), Arc::clone(&ender));
         thread::Builder::new()
             .name("oso-vcs-run".into())
-            .spawn(move || serve(&queue, send, &root, state.as_deref(), &flag))?;
-        Ok(Runner { requests, stop })
+            .spawn(move || {
+                let watch = Watch {
+                    stop: &flag,
+                    root: &root,
+                    ender: &slot,
+                };
+                serve(&queue, send, &watch, state.as_deref());
+            })?;
+        Ok(Runner {
+            requests,
+            stop,
+            ender,
+        })
+    }
+
+    /// Sends the run under way's group `SIGTERM` at once, waiting for nothing: as oso ends.
+    pub(crate) fn end(&self) {
+        let ender = self.ender.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(ender) = ender.as_ref() {
+            ender.end();
+        }
     }
 
     /// Asks the thread for `request`; `false` if it has ended.
@@ -132,10 +167,10 @@ impl Drop for Runner {
 fn serve(
     queue: &Receiver<RunRequest>,
     mut send: impl FnMut(RunReport) -> bool,
-    root: &TrustedRoot,
+    watch: &Watch<'_>,
     state: Option<&Path>,
-    stop: &AtomicBool,
 ) {
+    let root = watch.root;
     let mut git = None;
     while let Ok(request) = queue.recv() {
         let found = root.check().and_then(|()| match &git {
@@ -166,7 +201,8 @@ fn serve(
                     switches,
                     message,
                 };
-                let end = run.run(stop, &mut send);
+                let end = run.run(watch, &mut send);
+                *watch.ender.lock().unwrap_or_else(PoisonError::into_inner) = None;
                 vec![RunReport::Ended(end)]
             }
         };
@@ -204,8 +240,9 @@ struct Commit {
 }
 
 impl Commit {
-    /// Runs it to its end or a stop, sending what it writes; `false` from `send` ends it.
-    fn run(self, stop: &AtomicBool, send: &mut impl FnMut(RunReport) -> bool) -> RunEnd {
+    /// Runs it to its end, a stop or the root's revocation, sending what it writes; `false`
+    /// from `send` ends it.
+    fn run(self, watch: &Watch<'_>, send: &mut impl FnMut(RunReport) -> bool) -> RunEnd {
         let words = commit::args(self.kind, self.switches);
         let args: Vec<&OsStr> = words.iter().map(OsStr::new).collect();
         let input = self.message.filter(|_| commit::takes_message(self.kind));
@@ -213,33 +250,31 @@ impl Commit {
             Ok(long) => long,
             Err(e) => return RunEnd::Refused(e.to_string()),
         };
+        *watch.ender.lock().unwrap_or_else(PoisonError::into_inner) = Some(long.ender());
         let line = format!("$ git {}\n", words.join(" "));
-        if !send(RunReport::Began {
-            line,
-            ender: long.ender(),
-        }) {
+        if !send(RunReport::Began { line }) {
             return RunEnd::Stopped;
         }
         let began = Instant::now();
         let mut flushed = Instant::now();
         let mut seconds = 0;
-        let (mut partial, mut pending) = (Vec::new(), String::new());
+        let (mut partial, mut pending) = (Vec::new(), Waiting::default());
         let status = loop {
-            if stop.load(Ordering::SeqCst) {
+            // A project no longer trusted runs nothing more, whatever the UI thread does.
+            if watch.stop.load(Ordering::SeqCst) || watch.root.revoked() {
                 long.stop();
             }
             match long.next(FLUSH) {
-                Ok(Next::Out(piece)) => {
-                    pending.push_str(&commit::log_lines(&piece, &mut partial));
-                    keep_tail(&mut pending);
-                }
+                Ok(Next::Out(piece)) => pending.push(&commit::log_lines(&piece, &mut partial)),
                 Ok(Next::Quiet) => {}
                 Ok(Next::Ended(status)) => break Ok(status),
                 Err(e) => break Err(e.to_string()),
             }
-            if flushed.elapsed() >= FLUSH && !pending.is_empty() {
+            if flushed.elapsed() >= FLUSH
+                && let Some(text) = pending.take()
+            {
                 flushed = Instant::now();
-                if !send(RunReport::Output(std::mem::take(&mut pending))) {
+                if !send(RunReport::Output(text)) {
                     long.stop();
                 }
             }
@@ -251,9 +286,9 @@ impl Commit {
                 }
             }
         };
-        pending.push_str(&commit::log_rest(&mut partial));
-        if !pending.is_empty() {
-            send(RunReport::Output(pending));
+        pending.push(&commit::log_rest(&mut partial));
+        if let Some(text) = pending.take() {
+            send(RunReport::Output(text));
         }
         match status {
             _ if long.stopped() => RunEnd::Stopped,
@@ -269,14 +304,47 @@ impl Commit {
     }
 }
 
-/// Keeps the end of `text`, at most what a log keeps, from a line's start.
-fn keep_tail(text: &mut String) {
-    if text.len() <= MAX_GIT_LOG {
-        return;
+/// What a run wrote that waits to be sent on, and how many bytes were left out before it.
+#[derive(Default)]
+struct Waiting {
+    text: String,
+    left_out: usize,
+}
+
+impl Waiting {
+    /// Adds whole `lines`; past twice [`MAX_FLUSH`], only the last of them stay.
+    fn push(&mut self, lines: &str) {
+        self.text.push_str(lines);
+        if self.text.len() > 2 * MAX_FLUSH {
+            self.left_out += keep_tail(&mut self.text, MAX_FLUSH);
+        }
     }
-    let from = text.ceil_char_boundary(text.len() - MAX_GIT_LOG);
+
+    /// What to send: at most [`MAX_FLUSH`] bytes, after a line that says how many were left
+    /// out, if any; `None` with nothing to say.
+    fn take(&mut self) -> Option<String> {
+        self.left_out += keep_tail(&mut self.text, MAX_FLUSH);
+        if self.text.is_empty() && self.left_out == 0 {
+            return None;
+        }
+        let mut out = match std::mem::take(&mut self.left_out) {
+            0 => String::new(),
+            n => format!("[… {n} bytes left out]\n"),
+        };
+        out.push_str(&std::mem::take(&mut self.text));
+        Some(out)
+    }
+}
+
+/// Keeps the end of `text`, at most `keep` bytes from a line's start, and says how many went.
+fn keep_tail(text: &mut String, keep: usize) -> usize {
+    if text.len() <= keep {
+        return 0;
+    }
+    let from = text.ceil_char_boundary(text.len() - keep);
     let from = text[from..].find('\n').map_or(from, |at| from + at + 1);
     text.drain(..from);
+    from
 }
 
 /// The hooks directory git uses for this repository, `core.hooksPath` respected.

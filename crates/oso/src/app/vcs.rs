@@ -255,6 +255,10 @@ impl App {
     /// Asks the status's thread to read, lay out, or run `ops`; while no window shows it, a
     /// read waits until one does.
     fn git_ask(&mut self, index: usize, ask: Ask) {
+        // A write to the index while a commit runs would race it for the index's lock (Q8).
+        if matches!(ask, Ask::Stage(..)) && self.commit_runs(self.gits.open[index].project) {
+            return self.editor.message(runs::RUNNING);
+        }
         let open = &mut self.gits.open[index];
         if open.revoked || !self.editor.project_trusted(open.project) {
             return self.editor.message(RESTRICTED);

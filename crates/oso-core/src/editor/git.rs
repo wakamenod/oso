@@ -327,7 +327,7 @@ impl Editor {
     }
 
     /// The logs of the repositories git runs in now, still there, in the order the runs began.
-    pub fn git_running(&self) -> impl Iterator<Item = BufferId> + '_ {
+    pub fn git_runs(&self) -> impl Iterator<Item = BufferId> + '_ {
         (self.git.running.iter().copied()).filter(|id| self.buffer(*id).is_some())
     }
 

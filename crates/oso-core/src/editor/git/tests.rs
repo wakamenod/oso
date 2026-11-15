@@ -208,13 +208,13 @@ fn the_logs_git_runs_in_are_listed_while_they_are_there() {
     editor.set_git_running(first, true);
     editor.set_git_running(second, true);
     editor.set_git_running(first, true);
-    assert_eq!(editor.git_running().collect::<Vec<_>>(), [second, first]);
+    assert_eq!(editor.git_runs().collect::<Vec<_>>(), [second, first]);
     editor.set_git_running(second, false);
-    assert_eq!(editor.git_running().collect::<Vec<_>>(), [first]);
+    assert_eq!(editor.git_runs().collect::<Vec<_>>(), [first]);
     // A log is killed as a status is, and one gone is not listed.
     editor.kill_buffer(first);
     assert!(editor.buffer(first).is_none());
-    assert_eq!(editor.git_running().count(), 0);
+    assert_eq!(editor.git_runs().count(), 0);
 }
 
 #[test]

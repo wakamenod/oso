@@ -179,3 +179,25 @@ fn hooks_run_only_in_a_run_that_lets_them() {
     assert!(!status.success());
     assert!(out.contains("the hook ran"), "{out}");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_process_left_holding_the_pipes_holds_up_the_end_only_a_moment() {
+    let repo = Repo::new("long-left");
+    // It writes on after git has gone, every 10 ms, for 30 s.
+    let words = alias(
+        "leave",
+        "(i=0; while [ $i -lt 3000 ]; do echo x; i=$((i+1)); sleep 0.01; done) & echo gone",
+    );
+    let mut long = git(&repo).start_long(&os(&words), &[], None).unwrap();
+    let started = Instant::now();
+    let (out, status) = all_of(&mut long);
+    assert!(status.success());
+    assert!(out.starts_with("gone\n"), "{out}");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
+    );
+    long.stop();
+}

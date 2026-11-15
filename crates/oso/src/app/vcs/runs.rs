@@ -24,7 +24,7 @@ use super::super::{App, UserEvent};
 use super::Ask;
 use crate::commands::review::{MAX_NAME, one_line};
 use crate::commands::vcs::RESTRICTED;
-use crate::git::{Ender, TrustedRoot};
+use crate::git::TrustedRoot;
 use crate::vcs::commit;
 use crate::vcs::run::{RunEnd, RunReport, RunRequest, Runner};
 
@@ -69,7 +69,6 @@ pub(super) struct Running {
     started: Instant,
     /// What the echo area last said of it.
     echoed: String,
-    ender: Option<Ender>,
     /// The message it commits, for the ring once it is in, and the buffer that holds it.
     pub(super) message: Option<String>,
     pub(super) draft: Option<BufferId>,
@@ -116,7 +115,6 @@ impl App {
             kind,
             started: Instant::now(),
             echoed,
-            ender: None,
             message,
             draft,
         });
@@ -185,21 +183,23 @@ impl App {
                     .clear_echo_saying("Reading the last commit's message…");
                 match read {
                     Ok(text) => self.open_draft(project, pending.kind, pending.switches, &text),
+                    // Echoed, not logged: git's words may quote the repository.
                     Err(why) => self
                         .editor
-                        .message(format!("git: {}", one_line(&why, MAX_SAID))),
+                        .echo(format!("git: {}", one_line(&why, MAX_SAID))),
                 }
             }
-            RunReport::Began { line, ender } => {
-                if let Some(run) = self.gits.commits.repos[index].run.as_mut() {
-                    run.ender = Some(ender);
-                }
+            RunReport::Began { line } => {
                 let log = self.git_log(index);
                 self.editor.append_git_log(log, &line);
             }
             RunReport::Output(text) => {
                 let log = self.git_log(index);
                 self.editor.append_git_log(log, &text);
+                // Only a log on screen needs a frame for it.
+                if !self.editor.windows().any(|window| window.buffer() == log) {
+                    return;
+                }
             }
             RunReport::Elapsed(seconds) => {
                 if let Some(run) = self.gits.commits.repos[index].run.as_mut() {
@@ -222,7 +222,7 @@ impl App {
         let Some(run) = run else {
             if let RunEnd::Refused(why) = end {
                 self.editor
-                    .message(format!("git: {}", one_line(&why, MAX_SAID)));
+                    .echo(format!("git: {}", one_line(&why, MAX_SAID)));
             }
             return;
         };
@@ -236,7 +236,9 @@ impl App {
         };
         self.editor
             .append_git_log(log, &format!("[{said} after {seconds} s]\n\n"));
-        self.editor.message(one_line(&ended, MAX_SAID));
+        // Echoed, not logged: a summary is the person's text (ADR 0028), and git's words may
+        // quote the repository.
+        self.editor.echo(one_line(&ended, MAX_SAID));
         // What git did, or a hook changed, is read: the person asked for the run.
         if let Some(status) = (self.gits.open.iter()).position(|open| open.project == project) {
             self.git_ask(status, Ask::Read);
@@ -246,11 +248,12 @@ impl App {
     /// After commands and events: forgets logs that went, notes a run's message buffer that
     /// went, and stops the runs of projects no longer trusted.
     pub(super) fn sync_runs(&mut self, gone: &[BufferId]) {
-        for repo in &mut self.gits.commits.repos {
-            if repo
+        for index in 0..self.gits.commits.repos.len() {
+            let repo = &mut self.gits.commits.repos[index];
+            let log_gone = repo
                 .log
-                .is_some_and(|log| self.editor.buffer(log).is_none())
-            {
+                .is_some_and(|log| self.editor.buffer(log).is_none());
+            if log_gone {
                 repo.log = None;
             }
             if let Some(run) = repo.run.as_mut()
@@ -258,12 +261,20 @@ impl App {
             {
                 run.draft = None;
             }
-            if !repo.root.revoked() && !self.editor.project_trusted(repo.project) {
+            if !self.editor.project_trusted(repo.project) {
+                // The status's revocation may have come first: the run stops all the same, on
+                // its thread too, and still reports how it ended.
                 repo.root.revoke();
-                // The run stops, and still reports how it ended.
-                if let Some(runner) = &repo.runner {
+                if repo.run.is_some()
+                    && let Some(runner) = &repo.runner
+                {
                     runner.stop();
                 }
+            }
+            // A log killed while git runs comes back, so that quitting still names the run.
+            if log_gone && self.gits.commits.repos[index].run.is_some() {
+                let log = self.git_log(index);
+                self.editor.set_git_running(log, true);
             }
         }
     }
@@ -271,8 +282,8 @@ impl App {
     /// As oso ends: each run's group is sent `SIGTERM`, with no wait (ADR 0127, Q7).
     pub(in crate::app) fn end_git_runs(&self) {
         for repo in &self.gits.commits.repos {
-            if let Some(ender) = repo.run.as_ref().and_then(|run| run.ender.as_ref()) {
-                ender.end();
+            if let Some(runner) = &repo.runner {
+                runner.end();
             }
         }
     }
@@ -298,6 +309,14 @@ impl App {
             reading: None,
         });
         self.gits.commits.repos.len() - 1
+    }
+
+    /// Whether a commit runs, or waits for its message, in `project`'s repository.
+    pub(super) fn commit_runs(&self, project: ProjectId) -> bool {
+        (self.repo_of(project)).is_some_and(|index| {
+            let repo = &self.gits.commits.repos[index];
+            repo.run.is_some() || repo.reading.is_some()
+        })
     }
 
     pub(super) fn repo_of(&self, project: ProjectId) -> Option<usize> {

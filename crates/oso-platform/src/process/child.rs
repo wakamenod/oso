@@ -48,9 +48,9 @@ impl Child {
         self.process.kill()
     }
 
-    /// Asks the process to end (`SIGTERM` on Unix), so that it can clean up first, as git
-    /// takes its lock files away. Windows has no such signal: there it ends at once. Does
-    /// nothing once it has been waited for.
+    /// Asks the process to end (`SIGTERM` on Unix), so that it can clean up first, as taking
+    /// away its lock files. Windows has no such signal: there it ends at once. Does nothing
+    /// once it has been waited for.
     pub fn terminate(&mut self) -> io::Result<()> {
         self.process.signal(Signal::Terminate, false)
     }
@@ -60,7 +60,8 @@ impl Child {
     /// unless that moved to a group of its own. Refused for one that leads no group. Windows
     /// has no group here: the process alone ends at once. Does nothing once the process has
     /// been waited for, as its group's ID may be another's by then, so what it left running
-    /// is not reached.
+    /// is not reached. A group that holds only the ended child, not yet waited for, may say
+    /// so as an error (`ESRCH`, or `EPERM` on macOS): nothing of it runs.
     pub fn signal_group(&mut self, signal: Signal) -> io::Result<()> {
         self.process.signal(signal, true)
     }

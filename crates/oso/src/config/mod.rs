@@ -20,6 +20,7 @@
 mod agent_rules;
 mod checked;
 mod defaults;
+mod git;
 mod in_force;
 mod indentation;
 mod keys;
@@ -46,6 +47,7 @@ use crate::bindings;
 
 pub use agent_rules::RulesReport;
 pub use checked::read_checked;
+pub use git::GitSettings;
 pub use in_force::{AgentStarts, InForce, JUMP_TIMEOUT, Look};
 pub use indentation::MODES;
 pub use outcome::{group_writes_note, outcome};
@@ -56,7 +58,7 @@ pub use settings::Settings;
 pub use source::FILE_NAME;
 pub use source::Source;
 pub use spaces::Spaces;
-pub use terminal::{Git, Terminal};
+pub use terminal::Terminal;
 pub use trust::{Record, TRUST_FILE_NAME, TrustFile};
 pub use watch::{Reader, Report};
 
@@ -226,7 +228,7 @@ fn apply(
             "sessions" => settings.sessions = settings::sessions(value, found),
             "terminal" => settings.terminal = terminal::terminal(value, found),
             "spaces" => settings.spaces = spaces::spaces(value, found),
-            "git" => settings.git = terminal::git(value, found),
+            "git" => settings.git = git::git(value, found),
             other => found.at(
                 name.span().start,
                 format_args!("unknown table [{}], skipped", TableName(other)),
