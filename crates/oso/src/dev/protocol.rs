@@ -112,6 +112,9 @@ pub enum UiOp {
     /// Take the keyboard's focus, or lose it, as the window system would say: a display with
     /// no window manager, such as Xvfb, may never give it (ADR 0121's seen sessions).
     Focus(bool),
+    /// Gain the focus as the window system's event says it, with all that follows it: files
+    /// and the configuration looked at again, and the binary (ADR 0133, step 4).
+    WindowFocus,
 }
 
 /// Where `wheel` puts the pointer: a place on the surface, in physical pixels, or the middle
@@ -226,6 +229,7 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
                 .and_then(Value::as_bool)
                 .ok_or_else(|| bad(&id, "focus needs a boolean \"focused\"".into()))?,
         ),
+        "window-focus" => UiOp::WindowFocus,
         "export-state" => UiOp::Restart(Op::ExportState {
             library: carry::terminals::library(params).map_err(|m| bad(&id, m))?,
         }),
@@ -742,6 +746,10 @@ mod tests {
         }
         assert!(focus(r#"{"focused": 1}"#).is_err());
         assert!(focus("{}").is_err());
+        assert_eq!(
+            parse(r#"{"method": "window-focus"}"#).unwrap().method,
+            Method::Ui(UiOp::WindowFocus)
+        );
     }
 
     #[test]

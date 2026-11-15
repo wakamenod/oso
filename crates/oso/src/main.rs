@@ -107,6 +107,9 @@ fn main() {
     let trust_file = config::TrustFile::start(config_source.trust_file());
     // The binary's path now, before an install can replace it.
     let restart = carry::going::Start::this_binary(restart_args, read_config);
+    // And its identity, which a file put in its place is told from (ADR 0133, step 4).
+    let own_binary =
+        (restart.binary.as_deref()).and_then(|path| carry::notice::Identity::of(path).ok());
     let emergency = Emergency::new(emergency_directory);
     emergency.install_hook();
     app::run(started, |waker| {
@@ -125,7 +128,7 @@ fn main() {
             theme_read,
         );
         app.set_configuration(&config_source, config_reader);
-        app.set_restart(restart, taking_over);
+        app.set_restart(restart, own_binary, taking_over);
         app.set_trust_file(trust_file);
         #[cfg(feature = "dev")]
         app.set_dev(dev);

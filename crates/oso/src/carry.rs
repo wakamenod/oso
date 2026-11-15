@@ -3,12 +3,14 @@
 //! ADR 0055, ADR 0059, ADR 0090). Two transports carry it: `oso dev`'s control socket, with its
 //! supervisor between the instances (`dev`), and the socket pair `oso-restart` shares with the
 //! instance it starts ([`pair`], [`going`], [`coming`], ADR 0133). Both ask the app the same
-//! [`Op`]s, so the order and the state are one.
+//! [`Op`]s, so the order and the state are one. The binary `oso-restart` starts is here too:
+//! its checks ([`binary`]) and the notice that the file changed ([`notice`]).
 //!
 //! Must not depend on: `app`, `dev` or winit. The state's own modules are plain functions of
-//! the editor state, and the caller opens the files; [`binary`] looks at the file system. [`pieces`] starts threads, to copy and build the
-//! texts off the UI thread, and [`going`] and [`coming`] run each instance's side of
-//! `oso-restart` on threads of their own, over the pair; `going` starts the new instance.
+//! the editor state, and the caller opens the files; [`binary`] looks at the file system.
+//! [`pieces`] starts threads, to copy and build the texts off the UI thread, and [`going`] and
+//! [`coming`] run each instance's side of `oso-restart` on threads of their own, over the
+//! pair; `going` starts the new instance. [`notice`]'s thread looks at the binary again.
 //!
 //! A buffer without edits is handed over by its path, and the new instance reads
 //! it from disk and judges it like any file it opens. The text of a modified
@@ -57,6 +59,7 @@ pub mod pair;
 pub mod pieces;
 use internal::{behind_internal, handed_over};
 mod look;
+pub mod notice;
 mod restore;
 pub mod terminals;
 pub use allowed::{exit_allowed, generation, import_allowed};
