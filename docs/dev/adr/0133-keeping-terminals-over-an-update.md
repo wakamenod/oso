@@ -231,7 +231,9 @@ each), the new public items and the guarded edits through the coordinator.
   screen; its other screen and a sequence it had not finished do not. While the snapshot is off,
   a terminal whose entry says `snapshot` is not restored and ends failed, so the decoder reads
   nothing that came over the pair (T-parse), and no terminal keeps the 2 MiB of an unfinished
-  sequence that only the snapshot carries.
+  sequence that only the snapshot carries. The snapshot is on since oso's fourth patch to the
+  library (ADR 0120, step 11 as built): a terminal now travels as the snapshot between instances
+  of the same library build, and as escape sequences to a different build.
 - **Where it lives.** The state, its texts, the terminals' entries, the descriptors and the
   requests (`Op`) moved from `dev/handoff` to `crates/oso/src/carry/`, on a layer of its own
   under `dev`, so `oso dev`'s supervisor and the pair ask the app the same requests and the app

@@ -1503,12 +1503,17 @@ public items.
   master); `oso-term` gains `Terminal::{library, export, resume, resumes, release, adopt, attach,
   abandon}` with `Adopt`, `Encoding`, `Exported` and `NotExported`. All of it is behind the `dev`
   features.
-- **The snapshot is off until a patch to the library.** Until oso's third patch to
-  libghostty-vt lands ([ADR 0133](0133-keeping-terminals-over-an-update.md)'s prerequisite),
-  every terminal travels as the formatter's escape sequences, whatever the library
-  (`SNAPSHOTS` in `terminal/thread/handoff.rs`). The screen in use and its scrollback come
-  across, and a full-screen program's screen is redrawn from them; its other screen and a
-  sequence it had not finished do not. The snapshot's code stays, for the patch and its tests.
+- **The snapshot is on.** oso's third and fourth patches to libghostty-vt
+  ([ADR 0133](0133-keeping-terminals-over-an-update.md)'s prerequisite) let a restored terminal
+  reflow as a live one does — the third gives a restored page a live page's capacity and caps a
+  snapshot's size, the fourth degrades a reflow that cannot fit a cell's managed memory instead
+  of crashing — so a terminal carried between instances of the same library build travels as the
+  library's snapshot (`SNAPSHOTS` in `engine/ghostty/carry.rs`), which keeps a screen not in use
+  and a sequence its program had not finished. One carried to a different library build travels
+  as the formatter's escape sequences, from which the screen in use and its scrollback come
+  across and a full-screen program's screen is redrawn; its other screen and an unfinished
+  sequence do not. The snapshot ran clean under the fuzz target below, ReleaseFast and
+  ReleaseSafe, an hour each on the Mac mini and on Linux.
 - **The decoder's fuzz target** is `terminal::fuzz::restore` in oso-term: a terminal fed by
   the grammar is written as the snapshot, restored at its size or another, then fed, drawn on
   and sometimes written again. `OSO_TERM_FUZZ_DAMAGE` damages the records first, with their
@@ -1520,8 +1525,7 @@ public items.
   mode, the target, the host and Zig's version. It is reused only through plain directories and
   files, and only when its sha256 matches the one recorded beside it; the tarballs, the patches
   and the packages are checked each time.
-- **Not done:** the floating terminal's position and the token carry once steps 9 and 10 exist;
-  the snapshot's return, with the library patch and its fuzz runs on macOS and Linux.
+- **Not done:** the floating terminal's position and the token carry once steps 9 and 10 exist.
 
 Changes to accepted ADRs, each staying as written:
 

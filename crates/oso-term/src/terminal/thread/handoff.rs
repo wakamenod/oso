@@ -92,8 +92,8 @@ impl Running<'_> {
         library: &str,
         budget: &std::sync::atomic::AtomicUsize,
     ) -> Result<Exported, NotExported> {
-        // The library's snapshot is off until a patch to the library (ADR 0120, step 11 as
-        // built): every terminal travels as escape sequences.
+        // A terminal carried to an instance of the same library travels as its snapshot; one
+        // carried to a different library travels as escape sequences (ADR 0120, step 11 as built).
         let written = if carry::SNAPSHOTS && library == carry::library() {
             Written::Snapshot
         } else {
@@ -199,8 +199,8 @@ pub(in crate::terminal) fn adopt(adopt: Adopt, hold_limit: Duration, channels: C
             ..
         } = adopt;
         let written = match encoding {
-            // Until the snapshot is on, its decoder reads nothing another instance sent
-            // (ADR 0133, T-parse): such a terminal is not restored.
+            // A build with the snapshot off restores none: its decoder reads nothing another
+            // instance sent (ADR 0133, T-parse), and such a terminal is not restored.
             Encoding::Snapshot if !carry::SNAPSHOTS => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
