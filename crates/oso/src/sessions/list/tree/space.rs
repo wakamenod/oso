@@ -46,15 +46,21 @@ impl List {
         if folded {
             return;
         }
-        // Its orchestrator first, as the session the person talks to (ADR 0136, step 3).
-        for entry in orchestrator {
+        // Its orchestrator first, as the session the person talks to (ADR 0136, step 3), then
+        // the earlier ones that are still there, renamed (step 5).
+        let current = |entry: &&Entry| entry.name == space.name;
+        let (now_row, earlier): (Vec<&Entry>, Vec<&Entry>) =
+            orchestrator.iter().copied().partition(current);
+        for (entry, tag) in (now_row.into_iter().map(|e| (e, "orchestrator")))
+            .chain(earlier.into_iter().map(|e| (e, "earlier")))
+        {
             let row = Row {
                 entry,
                 indent: INDENT[1],
                 spin: self.spin,
                 waiting: 0,
                 place: false,
-                tag: Some("orchestrator"),
+                tag: Some(tag),
             };
             row.render(out, width, now);
         }

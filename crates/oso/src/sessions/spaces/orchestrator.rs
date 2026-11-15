@@ -45,6 +45,56 @@ the repositories yourself except to review and merge.
 - Never approve a session's permission prompt, push, or remove a worktree that is not merged; \
 tell the person what needs them.";
 
+/// The most of the space's sessions a successor's first prompt lists.
+pub const MAX_BRIEF_SESSIONS: usize = 40;
+
+/// The name a replaced orchestrator of space `space` keeps, with `earlier` orchestrators
+/// before it (ADR 0136, step 5).
+pub fn earlier_name(space: &str, earlier: usize) -> String {
+    format!("{space}-was-{}", earlier + 1)
+}
+
+/// The first prompt of the orchestrator that takes over space `space` from session `old_name`
+/// (id `old_id`), with `old`'s transcript where it was found and the space's `sessions` by
+/// name, state and directory, at most [`MAX_BRIEF_SESSIONS`] of them (ADR 0136, step 5).
+pub fn takeover_brief(
+    space: &str,
+    (old_name, old_id): (&str, &str),
+    transcript: Option<&Path>,
+    sessions: &[(String, String, PathBuf)],
+) -> String {
+    let mut text = format!(
+        "You take over as the orchestrator of space {} from session {} (id {}). Read \
+         handoff.md in this directory first.",
+        plain(space),
+        plain(old_name),
+        plain(old_id)
+    );
+    if let Some(transcript) = transcript {
+        let shown = plain(&transcript.display().to_string());
+        text.push_str(&format!(" Its transcript is at {shown}."));
+    }
+    if !sessions.is_empty() {
+        text.push_str("\n\nThe space's sessions now:");
+        for (name, state, directory) in sessions.iter().take(MAX_BRIEF_SESSIONS) {
+            let directory = plain(&directory.display().to_string());
+            text.push_str(&format!(
+                "\n- {}: {}, in {directory}",
+                plain(name),
+                plain(state)
+            ));
+        }
+        if let Some(more) = sessions
+            .len()
+            .checked_sub(MAX_BRIEF_SESSIONS)
+            .filter(|&n| n > 0)
+        {
+            text.push_str(&format!("\n- and {more} more: space_status lists them all"));
+        }
+    }
+    text
+}
+
 /// One repository of the space as the header gives it: its name, path and trust.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Repository<'a> {

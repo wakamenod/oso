@@ -1650,6 +1650,7 @@ pub oso_core::editor::SpaceRequest::New(alloc::string::String)
 pub oso_core::editor::SpaceRequest::RemoveRepo(alloc::string::String)
 pub oso_core::editor::SpaceRequest::Rename(alloc::string::String)
 pub oso_core::editor::SpaceRequest::Reopen(alloc::string::String)
+pub oso_core::editor::SpaceRequest::ReplaceOrchestrator
 pub oso_core::editor::SpaceRequest::StartOrchestrator
 pub oso_core::editor::SpaceRequest::StartOrchestrator::remake_directory: bool
 pub oso_core::editor::SpaceRequest::UseRepo(alloc::string::String)

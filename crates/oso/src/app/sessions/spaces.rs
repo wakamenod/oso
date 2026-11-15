@@ -5,6 +5,7 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
+mod handover;
 mod members;
 mod orchestrator;
 
@@ -56,6 +57,10 @@ pub(in crate::app) struct SpaceWork {
     /// What the question the host asked last offers, which `y` does (`SpaceRequest::Confirmed`):
     /// dropped when another is asked or it is answered otherwise.
     pub(in crate::app) offer: Option<orchestrator::Offer>,
+    /// A replacement of an orchestrator asked about, which `y` does (step 5).
+    pub(in crate::app) replace_asked: Option<handover::Asked>,
+    /// The orchestrators being stopped for a successor, by key: what starts once each ended.
+    pub(in crate::app) replacing: HashMap<crate::sessions::worker::SessionKey, handover::Successor>,
     /// The open spaces' trusted repositories as last seen, to tell one trusted since; none
     /// while the trust list is unread.
     pub(in crate::app) trusted_seen: Option<Vec<(SpaceId, PathBuf)>>,
@@ -94,6 +99,7 @@ impl App {
                 self.start_orchestrator(remake_directory);
             }
             SpaceRequest::Confirmed => self.space_confirmed(),
+            SpaceRequest::ReplaceOrchestrator => self.replace_orchestrator(),
         }
         self.sessions_touched();
         self.request_redraw();
@@ -290,7 +296,7 @@ impl App {
                     self.show_listing(path);
                 }
                 if start {
-                    self.launch_orchestrator(at);
+                    self.launch_orchestrator(at, None);
                 }
             }
             Err(why) => self.editor.message(printable(&why)),

@@ -8,8 +8,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use super::{
-    MAX_INSTRUCTIONS, Repository, TEXT, check_before_start, header, instructions_section,
-    read_instructions, still_there,
+    MAX_BRIEF_SESSIONS, MAX_INSTRUCTIONS, Repository, TEXT, check_before_start, earlier_name,
+    header, instructions_section, read_instructions, still_there, takeover_brief,
 };
 use crate::sessions::spaces::dir::{self, Refusal};
 use crate::sessions::spaces::{Member, SpaceId, Stored};
@@ -219,4 +219,47 @@ fn a_repository_put_in_anothers_place_is_left_out() {
         gone,
         [moved, scratch.0.join("new"), kept, PathBuf::from("/")]
     );
+}
+
+#[test]
+fn a_successor_is_told_whom_it_takes_over_from_and_the_spaces_sessions_at_most_forty() {
+    assert_eq!(earlier_name("fix-login", 0), "fix-login-was-1");
+    assert_eq!(earlier_name("fix-login", 2), "fix-login-was-3");
+    let brief = takeover_brief(
+        "fix-login",
+        ("fix-login-was-1", "abc"),
+        Some(Path::new("/c/projects/x/abc.jsonl")),
+        &[(
+            "api-fix".into(),
+            "idle".into(),
+            PathBuf::from("/r/.claude/worktrees/a"),
+        )],
+    );
+    assert!(
+        brief.starts_with(
+            "You take over as the orchestrator of space fix-login from session fix-login-was-1 \
+         (id abc). Read handoff.md in this directory first. Its transcript is at \
+         /c/projects/x/abc.jsonl."
+        ),
+        "{brief}"
+    );
+    assert!(
+        brief.ends_with("\n- api-fix: idle, in /r/.claude/worktrees/a"),
+        "{brief}"
+    );
+    // No transcript found: no line for it. Past forty sessions, a count.
+    let many: Vec<(String, String, PathBuf)> = (0..45)
+        .map(|n| (format!("s{n}\u{202e}"), "idle".into(), PathBuf::from("/r")))
+        .collect();
+    let brief = takeover_brief("fix", ("fix-was-1", "abc"), None, &many);
+    assert!(!brief.contains("transcript"), "{brief}");
+    assert_eq!(
+        brief.lines().filter(|l| l.starts_with("- s")).count(),
+        MAX_BRIEF_SESSIONS
+    );
+    assert!(
+        brief.ends_with("- and 5 more: space_status lists them all"),
+        "{brief}"
+    );
+    assert!(!brief.contains('\u{202e}'), "names are cleaned");
 }

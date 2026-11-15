@@ -132,6 +132,13 @@ pub enum SpaceJob {
         id: super::spaces::SpaceId,
         state: PathBuf,
     },
+    /// Whether space `id`'s `handoff` file is there, and where session `from`'s transcript is,
+    /// for its orchestrator's replacement (ADR 0136, step 5).
+    Handover {
+        id: super::spaces::SpaceId,
+        handoff: PathBuf,
+        from: super::identity::SessionId,
+    },
 }
 
 /// What the worker tells the app.
@@ -191,6 +198,13 @@ pub enum Out {
     InstructionsReady {
         id: super::spaces::SpaceId,
         file: Result<PathBuf, String>,
+    },
+    /// What a replacement of space `id`'s orchestrator looked at: whether its handoff file is
+    /// a file there, and the old orchestrator's transcript, if found.
+    HandoverLooked {
+        id: super::spaces::SpaceId,
+        handoff: bool,
+        transcript: Option<PathBuf>,
     },
     /// This local rule was the slowest of [`DROP_AFTER`] late looks in a row, so it is no
     /// longer used until the rules load again.

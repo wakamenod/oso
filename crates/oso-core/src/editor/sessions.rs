@@ -156,6 +156,9 @@ pub enum SpaceRequest {
     AddRepo(String),
     /// Take out the repository of this name (`space-remove-repo`).
     RemoveRepo(String),
+    /// Replace the space in front's orchestrator by a new one, which takes over from it
+    /// (`space-orchestrator-replace`).
+    ReplaceOrchestrator,
     /// Use the repository of this name of the space in front for the project commands run
     /// from its orchestrator's buffer (`space-use-repo`).
     UseRepo(String),

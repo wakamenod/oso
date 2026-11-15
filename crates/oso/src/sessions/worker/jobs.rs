@@ -59,6 +59,7 @@ pub(super) fn looks_at_the_disk(job: &SpaceJob) -> bool {
         SpaceJob::MakeDirectory { .. }
             | SpaceJob::CheckRepository { .. }
             | SpaceJob::Instructions { .. }
+            | SpaceJob::Handover { .. }
     )
 }
 
@@ -100,6 +101,18 @@ pub(super) fn space_job(job: SpaceJob) -> Vec<Out> {
         SpaceJob::Instructions { id, state } => {
             let file = probe::instructions_file(&state, id.as_str());
             Out::InstructionsReady { id, file }
+        }
+        SpaceJob::Handover { id, handoff, from } => {
+            let file = std::fs::symlink_metadata(&handoff).is_ok_and(|meta| meta.is_file());
+            let config = crate::sessions::worktree::transcript::config_dir();
+            let transcript = config.and_then(|config| {
+                crate::sessions::worktree::transcript::find(&config, from.as_str())
+            });
+            Out::HandoverLooked {
+                id,
+                handoff: file,
+                transcript,
+            }
         }
     };
     vec![out]

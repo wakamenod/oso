@@ -767,6 +767,31 @@ worker's brief names them in its header (Q5); `session-worktree` asks for none (
   a new start's does.
   The echo area says what is given and what is left out.
 
+## Step 5, as built
+
+The author answered on 2026-11-15, through the coordinator, (a) for each of Q1–Q6: the
+successor starts only once the old orchestrator ended, so that two never run under the space's
+name (Q1); with no `handoff.md`, the person is asked first (Q2); the old one's buffer stays,
+stopped, listed as an earlier orchestrator (Q3); the successor's first prompt names the old one,
+its transcript and the space's sessions, at most 40 (Q4); there is no model option (Q5);
+oso-core gains `SpaceRequest::ReplaceOrchestrator` (Q6).
+
+- **`space-orchestrator-replace`** (`Person`, menu `O`) refuses while the orchestrator works or
+  needs input, or with none. A probe thread looks whether `handoff.md` is a file in the space's
+  directory and where the old orchestrator's transcript is, with the bounded search the worktree
+  hand-off uses; with no `handoff.md`, a `y` to the question (`space-confirm`) goes on, after the
+  checks are made again.
+- **The old orchestrator** is renamed `<name>-was-<n>` in oso's record, `n` the count of earlier
+  ones and one, and hung up as `session-stop` does. Its id goes to the space's earlier ones when
+  the successor starts. From then on it is a former orchestrator (step 4a): its space's sessions
+  only, no repository; a resume starts it under its new name, with the directory's checks alone.
+- **The successor** starts as `o` starts one, under the space's name, once the old one ended
+  (or at once if it did not run), with a first prompt: "You take over as the orchestrator of space
+  NAME from session OLD (id ID). Read handoff.md in this directory first. Its transcript is at
+  PATH.", then the space's sessions by name, state and directory.
+- **The pane** lists the earlier orchestrators still there under the orchestrator's row, tagged
+  `earlier`; `RET` shows a stopped one's buffer, as on any session row.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it. They apply once this ADR is
