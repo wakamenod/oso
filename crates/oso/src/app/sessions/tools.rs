@@ -32,7 +32,6 @@ use crate::review::TrustedRoot;
 use crate::sessions::hosted::Hosted;
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
-use crate::sessions::spaces::SpaceId;
 use crate::sessions::tools::{self as rules, Asks, Guard, Tool};
 use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::jobs::{Report, Trust};
@@ -145,12 +144,11 @@ pub(in crate::app) struct Caller {
     runs: bool,
     /// How it started, for whether it may start sessions without asking (ADR 0135).
     origin: Origin,
-    /// Its issue space, where it is in one, and whether it is that space's orchestrator, which
-    /// is scoped to the space (ADR 0136, step 4).
-    space: Option<(SpaceId, bool)>,
+    /// Its issue space and its part there, where it is in one (ADR 0136, step 4).
+    space: Option<space::InSpace>,
     /// The trust of the space's repository an orchestrator's call names: it acts there, as
     /// from that repository's main checkout.
-    member: Option<TrustedRoot>,
+    acting_at: Option<TrustedRoot>,
 }
 
 impl Caller {
@@ -165,15 +163,18 @@ impl Caller {
             runs: session.runs(),
             origin: session.origin,
             space: None,
-            member: None,
+            acting_at: None,
         }
     }
 
-    /// Whether it is its space's orchestrator.
+    /// Whether it is its space's orchestrator, which reaches the space's repositories.
     fn orchestrator(&self) -> bool {
-        self.space
-            .as_ref()
-            .is_some_and(|(_, orchestrator)| *orchestrator)
+        (self.space.as_ref()).is_some_and(|space| space.role == space::Role::Orchestrator)
+    }
+
+    /// Whether it sees its space's sessions only: an orchestrator, current or not.
+    fn scoped(&self) -> bool {
+        (self.space.as_ref()).is_some_and(|space| space.role != space::Role::Worker)
     }
 }
 
@@ -325,8 +326,8 @@ impl App {
     /// looked up now so that the person's later trust or distrust counts, else the one the
     /// session started with (a worktree just made, which no buffer opened).
     fn caller_root(&self, caller: &Caller) -> Option<crate::review::TrustedRoot> {
-        if let Some(member) = &caller.member {
-            return Some(member.clone());
+        if let Some(at) = &caller.acting_at {
+            return Some(at.clone());
         }
         match self.open_caller_root(caller) {
             Some(now) => now,
@@ -352,8 +353,8 @@ impl App {
     /// among them: never by the trust the session began with, which the person may have taken
     /// back since (ADR 0135).
     fn caller_trusted_now(&self, caller: &Caller) -> bool {
-        if let Some(member) = &caller.member {
-            return self.member_trusted_now(member);
+        if let Some(at) = &caller.acting_at {
+            return self.still_trusted(at);
         }
         self.open_caller_root(caller)
             .flatten()

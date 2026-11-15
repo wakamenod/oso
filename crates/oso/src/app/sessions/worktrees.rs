@@ -281,7 +281,7 @@ impl App {
             name: session.runs().then(|| session.name.clone()),
             id: session.id.as_str().to_owned(),
             directory: session.directory.clone(),
-            space: None,
+            space: self.orchestrated_space(&session.id),
         });
         let parent = session.map(|s| s.id.clone());
         let place = slug::slug(&branch)
@@ -410,22 +410,7 @@ impl App {
         // The worktree is held by the space of the session that asked for it, when its
         // repository is one of that space's, else by the space it joins (ADR 0136): its
         // session then joins the same.
-        let now = crate::sessions::spaces::stored::now_ms();
-        let asker = (brief.parent.as_ref())
-            .and_then(|id| self.hosting.table.iter().find(|session| session.id == *id))
-            .and_then(|session| self.space_of_session(session));
-        let spaces = self.watch.spaces_mut();
-        let theirs = asker.filter(|&at| {
-            spaces
-                .get(at)
-                .is_some_and(|space| space.stored.has_member(&created.main))
-        });
-        match theirs {
-            Some(at) => spaces.hold_worktree(at, &created.path, now),
-            None => {
-                spaces.join(&created.path, Some(&created.main), now);
-            }
-        }
+        self.hold_made_worktree(brief.parent.as_ref(), &created.path, &created.main);
         self.begin_session(Begin {
             origin: crate::sessions::identity::Origin::Person,
             name: None,

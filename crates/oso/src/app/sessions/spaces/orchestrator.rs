@@ -12,7 +12,6 @@
 use std::path::{Path, PathBuf};
 
 use oso_core::minibuffer::PromptId;
-use oso_core::project::RootIdentity;
 
 use crate::app::App;
 use crate::app::sessions::hosting::Begin;
@@ -111,12 +110,12 @@ impl App {
         }
     }
 
-    /// Hosted session `key` started as an orchestrator: it belongs to its space, which
-    /// records it, the one before kept as an earlier one. One a space's orchestrator started
-    /// belongs to that space, its worktree held there (ADR 0136, step 4).
-    pub(in crate::app) fn orchestrator_started(&mut self, key: SessionKey) {
+    /// Hosted session `key` just started: as an orchestrator, it belongs to its space, which
+    /// records it, the one before kept as an earlier one; started by one, it is a worker of
+    /// that space (ADR 0136, step 4).
+    pub(in crate::app) fn space_session_started(&mut self, key: SessionKey) {
         let Some(space) = self.hosting.spaces.starting.remove(&key) else {
-            return self.worker_started(key);
+            return self.worker_joined(key);
         };
         let Some(session) = self.hosting.table.get_mut(key) else {
             return;
@@ -127,39 +126,6 @@ impl App {
         let spaces = self.watch.spaces_mut();
         if let Some(at) = spaces.find(&space) {
             spaces.set_orchestrator(at, session_id, now_ms());
-        }
-        self.sessions_touched();
-    }
-
-    /// Hosted session `key`, just started: when its parent is a space's orchestrator, it
-    /// joins that space, and its worktree is held there.
-    fn worker_started(&mut self, key: SessionKey) {
-        let Some(session) = self.hosting.table.get(key) else {
-            return;
-        };
-        let Some(parent) = session.parent.clone() else {
-            return;
-        };
-        let directory = session.directory.clone();
-        let spaces = self.watch.spaces();
-        let Some(at) = (0..spaces.iter().count()).find(|&at| {
-            spaces
-                .stored(at)
-                .is_some_and(|s| !s.archived && s.orchestrator.as_ref() == Some(&parent))
-        }) else {
-            return;
-        };
-        let Some(stored) = spaces.stored(at) else {
-            return;
-        };
-        let id = stored.id.clone();
-        let in_worktree = !stored.has_member(&directory);
-        if let Some(session) = self.hosting.table.get_mut(key) {
-            session.space = Some(id);
-        }
-        self.hosting.unsaved = true;
-        if in_worktree {
-            (self.watch.spaces_mut()).hold_worktree(at, &directory, now_ms());
         }
         self.sessions_touched();
     }
@@ -251,18 +217,6 @@ impl App {
             prompt,
             instructions,
         })
-    }
-
-    /// Whether oso trusts `member`: its path and identity are both recorded, so one made again
-    /// at a trusted path is not. One with no identity kept is not, where the system has them.
-    fn trusts(&self, member: &Member) -> bool {
-        let root = RootIdentity {
-            path: member.root.clone(),
-            identity: member.identity,
-        };
-        self.editor
-            .trust_list()
-            .is_some_and(|list| list.trusts(&root))
     }
 
     /// The key of space `at`'s orchestrator while it runs.
@@ -397,58 +351,5 @@ impl App {
                 .map(|member| (space.stored.id.clone(), member.root.clone()))
         });
         Some(members.collect())
-    }
-
-    /// `space-use-repo`: the space in front's repository `name` for the project commands run
-    /// from its orchestrator's buffer.
-    pub(in crate::app) fn use_repository(&mut self, name: &str) {
-        let Some(at) = self.watch.spaces().current() else {
-            return self.editor.message("No space in front".to_owned());
-        };
-        let Some(root) = self.watch.spaces().member_named(name) else {
-            return (self.editor).message(format!(
-                "The space has no repository {}",
-                super::printable(name)
-            ));
-        };
-        let Some(id) = self.watch.spaces().stored(at).map(|s| s.id.clone()) else {
-            return;
-        };
-        self.hosting.spaces.used.insert(id, root);
-        (self.editor).message(format!(
-            "The orchestrator's commands use {}",
-            super::printable(name)
-        ));
-    }
-
-    /// The repository the project commands use from `buffer` when it is a space's
-    /// orchestrator's: the space's one trusted repository, else the one `space-use-repo`
-    /// chose while it is still a trusted one; `None` for another buffer.
-    pub(in crate::app) fn orchestrator_repository(
-        &self,
-        buffer: oso_core::buffer::BufferId,
-    ) -> Option<Result<PathBuf, String>> {
-        let session = self.hosting.table.by_buffer(buffer)?;
-        let spaces = self.watch.spaces();
-        let stored = spaces
-            .iter()
-            .map(|space| &space.stored)
-            .find(|stored| stored.orchestrator.as_ref() == Some(&session.id))?;
-        let trusted: Vec<&Member> = (stored.members.iter())
-            .filter(|member| self.trusts(member))
-            .collect();
-        let chosen = self.hosting.spaces.used.get(&stored.id);
-        Some(match (trusted.as_slice(), chosen) {
-            ([], _) => Err("No repository of the space is trusted: trust-project first".to_owned()),
-            ([one], _) => Ok(one.root.clone()),
-            (several, Some(chosen)) if several.iter().any(|m| same(&m.root, chosen)) => {
-                Ok(chosen.clone())
-            }
-            _ => Err(
-                "The space has several trusted repositories: choose one with space-use-repo \
-                 (C-x a S u)"
-                    .to_owned(),
-            ),
-        })
     }
 }

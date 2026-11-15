@@ -19,6 +19,8 @@ use std::time::{Duration, Instant};
 
 use oso_core::command::Reach;
 
+pub mod repo;
+
 use super::identity::Origin;
 use super::identity::SessionId;
 
@@ -380,8 +382,6 @@ pub fn start_question(
         quoted(directory)
     )
 }
-
-pub mod repo;
 
 #[cfg(test)]
 mod tests;

@@ -425,3 +425,34 @@ fn names_are_never_a_device_and_titles_hold_no_invisible_characters() {
         "cut at a character's end"
     );
 }
+
+#[test]
+fn an_orchestrator_is_its_spaces_closed_or_not() {
+    let mut spaces = recalled(0);
+    let at = add(&mut spaces, "/src/api");
+    let who = crate::sessions::identity::SessionId::parse("00000000-0000-4000-8000-000000000001")
+        .unwrap();
+    assert_eq!(spaces.orchestrated_by(&who), None);
+    spaces.set_orchestrator(at, who.clone(), 2);
+    assert_eq!(spaces.orchestrated_by(&who), Some(at));
+    spaces.archive(&mut editor(), at, 3).unwrap();
+    assert_eq!(spaces.orchestrated_by(&who), Some(at), "kept while closed");
+}
+
+#[test]
+fn a_made_worktree_is_held_by_the_askers_space_when_its_repository_is_one_of_its() {
+    let mut spaces = recalled(2);
+    let api = add(&mut spaces, "/src/api");
+    let web = add(&mut spaces, "/src/web");
+    let path = Path::new("/src/api/.claude/worktrees/fix");
+    // Asked from the web space, whose repository it is not: it joins the api space.
+    spaces.hold_made_worktree(Some(web), path, Path::new("/src/api"), 2);
+    assert_eq!(spaces.holding(path), Some(api));
+    // Asked from a space holding the repository: held there.
+    let both = add(&mut spaces, "/src/web2");
+    spaces
+        .add_member(both, Member::at(Path::new("/src/api")), 3)
+        .unwrap();
+    spaces.hold_made_worktree(Some(both), path, Path::new("/src/api"), 4);
+    assert_eq!(spaces.holding(path), Some(both));
+}

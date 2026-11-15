@@ -131,6 +131,11 @@ impl Stored {
         }
     }
 
+    /// Its repository at `root`, by ADR 0114's comparison.
+    pub fn member(&self, root: &Path) -> Option<&Member> {
+        self.members.iter().find(|member| same(&member.root, root))
+    }
+
     /// Whether `root` is one of its repositories.
     pub fn has_member(&self, root: &Path) -> bool {
         self.members.iter().any(|member| same(&member.root, root))

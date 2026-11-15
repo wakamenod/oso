@@ -51,6 +51,12 @@ impl App {
         if caller.runs_in.starts_with(&path) {
             return pending.answer(Err("that worktree is your own session's".into()));
         }
+        // An orchestrator's removal would stop no session of another space (Q7).
+        if self.others_in(caller, &path) {
+            return pending.answer(Err(
+                "a session outside your space is in that worktree".into()
+            ));
+        }
         // What the UI holds is looked at first, and the job looks at the rest.
         if let Some(check) = checks::held_refusal(&self.held_at(&path)) {
             return pending.answer(Err(format!("kept: {}", check.why())));

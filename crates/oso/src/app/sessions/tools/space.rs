@@ -3,27 +3,69 @@
 //! it now, by path and identity; any other caller keeps its repository's scope.
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here touches the disk.
+//!
+//! - The orchestrator is the session its space records, while it runs in the space's own
+//!   directory: a record agents can write names no other session one. A closed space's
+//!   orchestrator, an earlier one, and one elsewhere still see only the space's sessions, and
+//!   reach no repository.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::super::super::App;
 use super::Caller;
 use crate::review::TrustedRoot;
 use crate::sessions::hosted::Hosted;
+use crate::sessions::spaces::SpaceId;
+use crate::sessions::spaces::stored::same;
 use crate::sessions::tools::repo::{self, Named};
 
+/// A caller's space, and its part there.
+#[derive(Clone, Debug)]
+pub(in crate::app) struct InSpace {
+    pub(super) id: SpaceId,
+    pub(super) role: Role,
+}
+
+/// A session's part in its space.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::app) enum Role {
+    /// The space's orchestrator, in the space's directory, the space open.
+    Orchestrator,
+    /// An orchestrator no more, or not here: one of a closed space, an earlier one, or one not
+    /// in the space's directory. It sees the space's sessions only, and reaches no repository.
+    Former,
+    /// Any other session of the space, which keeps its repository's scope (Q6).
+    Worker,
+}
+
 impl App {
-    /// The caller hosted session `session` is, with its space.
+    /// The caller hosted session `session` is, with its space and its part there.
     pub(super) fn caller_of(&self, session: &Hosted) -> Caller {
         let mut caller = Caller::of(session);
         let spaces = self.watch.spaces();
-        caller.space = self
-            .space_of_session(session)
-            .and_then(|at| spaces.stored(at))
-            .map(|stored| {
-                let orchestrator =
-                    !stored.archived && stored.orchestrator.as_ref() == Some(&session.id);
-                (stored.id.clone(), orchestrator)
+        let current = spaces.orchestrated_by(&session.id).map(|at| {
+            let stored = spaces.stored(at);
+            let here = stored.and_then(|s| s.directory.as_deref());
+            let open = stored.is_some_and(|s| !s.archived);
+            let role = if open && here.is_some_and(|dir| same(dir, &session.directory)) {
+                Role::Orchestrator
+            } else {
+                Role::Former
+            };
+            (at, role)
+        });
+        let earlier = || {
+            (0..spaces.iter().count())
+                .find(|&at| (spaces.stored(at)).is_some_and(|s| s.earlier.contains(&session.id)))
+                .map(|at| (at, Role::Former))
+        };
+        let worker = || self.space_of_session(session).map(|at| (at, Role::Worker));
+        caller.space = current
+            .or_else(earlier)
+            .or_else(worker)
+            .and_then(|(at, role)| {
+                let id = spaces.stored(at)?.id.clone();
+                Some(InSpace { id, role })
             });
         caller
     }
@@ -58,14 +100,19 @@ impl App {
         repo: Option<&str>,
     ) -> Result<Caller, String> {
         let members = self.caller_members(&caller);
-        let own = caller.root.as_deref();
-        match repo::named(caller.orchestrator(), repo, &members, own)? {
+        let named = if caller.orchestrator() {
+            repo::for_orchestrator(repo, &members)?
+        } else {
+            repo::for_other(repo, &members, caller.root.as_deref())?
+        };
+        match named {
             Named::Own => Ok(caller),
             Named::Member(root) => self.at_member(caller, root),
         }
     }
 
-    /// An orchestrator's call on `path` acts in the space's repository that holds it.
+    /// An orchestrator's call on the worktree at `path` acts in the space's repository git
+    /// listed it under, else the one whose root holds it.
     ///
     /// # Errors
     ///
@@ -75,78 +122,101 @@ impl App {
             return Ok(caller);
         }
         let members = self.caller_members(&caller);
-        let root = repo::holding(&members, path)
-            .ok_or("that path is in no repository of your space")?
-            .to_path_buf();
+        let listed = (self.listed_repository_of(path))
+            .filter(|root| members.iter().any(|(_, member)| same(member, root)));
+        let root = listed
+            .or_else(|| repo::holding(&members, path).map(Path::to_path_buf))
+            .ok_or("that path is in no repository of your space")?;
         self.at_member(caller, &root)
     }
 
     /// `caller`, an orchestrator, acting at its space's repository `root`, which oso must
     /// trust now by path and identity.
     fn at_member(&self, mut caller: Caller, root: &Path) -> Result<Caller, String> {
-        let identity = self.space_member_identity(&caller, root);
-        let trusted = (self.editor.trust_list())
-            .and_then(|list| TrustedRoot::of_member(list, root, identity))
+        let spaces = self.watch.spaces();
+        let member = (caller.space.as_ref())
+            .and_then(|space| spaces.stored(spaces.find(&space.id)?))
+            .and_then(|stored| stored.member(root));
+        let trusted = member
+            .and_then(|member| self.member_trust(member))
             .ok_or_else(|| {
                 format!(
                     "{} is not trusted in oso; the person trusts it with trust-project",
-                    rules_quoted(root)
+                    quoted_path(root)
                 )
             })?;
-        caller.directory = root.to_path_buf();
-        caller.root = Some(root.to_path_buf());
-        caller.member = Some(trusted);
+        caller.directory = trusted.path().to_path_buf();
+        caller.root = Some(trusted.path().to_path_buf());
+        caller.acting_at = Some(trusted);
         Ok(caller)
     }
 
-    /// Whether the space repository `member` is still trusted, by path and identity.
-    pub(super) fn member_trusted_now(&self, member: &TrustedRoot) -> bool {
-        !member.revoked()
+    /// The name of the space `caller` orchestrates, for its workers' briefs.
+    pub(super) fn space_orchestrated_by(&self, caller: &Caller) -> Option<String> {
+        caller
+            .orchestrator()
+            .then(|| self.orchestrated_space(&caller.id))
+            .flatten()
+    }
+
+    /// Whether `root` is still trusted, by path and identity, and not taken back.
+    pub(super) fn still_trusted(&self, root: &TrustedRoot) -> bool {
+        !root.revoked()
             && (self.editor.trust_list()).is_some_and(|list| {
-                TrustedRoot::of_member(list, member.path(), member.identity()).is_some()
+                TrustedRoot::of_member(list, root.path(), root.identity()).is_some()
             })
     }
 
     /// The repositories of `caller`'s space by name and root; none outside a space.
-    fn caller_members(&self, caller: &Caller) -> Vec<(String, std::path::PathBuf)> {
+    fn caller_members(&self, caller: &Caller) -> Vec<(String, PathBuf)> {
         let spaces = self.watch.spaces();
-        let at = (caller.space.as_ref()).and_then(|(id, _)| spaces.find(id));
+        let at = (caller.space.as_ref()).and_then(|space| spaces.find(&space.id));
         at.map(|at| spaces.member_names(at)).unwrap_or_default()
     }
 
-    /// The identity the caller's space recorded for its repository `root`.
-    fn space_member_identity(&self, caller: &Caller, root: &Path) -> Option<(u64, u64)> {
-        let spaces = self.watch.spaces();
-        let at = spaces.find(&caller.space.as_ref()?.0)?;
-        let stored = spaces.stored(at)?;
-        let member = stored.members.iter().find(|member| member.root == root)?;
-        member.identity
-    }
-
-    /// The name of the space `caller` orchestrates, for its workers' briefs.
-    pub(super) fn orchestrated_space(&self, caller: &Caller) -> Option<String> {
-        let (id, true) = caller.space.as_ref()? else {
-            return None;
-        };
-        let spaces = self.watch.spaces();
-        let at = spaces.find(id)?;
-        spaces.get(at).map(|space| space.name().to_owned())
-    }
-
-    /// Whether `caller` may see `session`: an orchestrator only its space's sessions (Q7),
-    /// any other caller every one.
+    /// Whether `caller` may see `session`: an orchestrator, current or not, only its space's
+    /// sessions (Q7); any other caller every one.
     pub(super) fn caller_sees(&self, caller: Option<&Caller>, session: &Hosted) -> bool {
-        let Some((space, true)) = caller.and_then(|caller| caller.space.as_ref()) else {
-            return true;
+        match caller.and_then(|caller| caller.scoped().then_some(caller.space.as_ref()?)) {
+            Some(space) => self.session_in_space(session, &space.id),
+            None => true,
+        }
+    }
+
+    /// The sessions in the worktree at `path`, as `worktree_list` names them, of space `id`
+    /// only: any other is counted, not named (Q7).
+    pub(super) fn space_sessions_in(&self, path: &Path, id: &SpaceId) -> Vec<String> {
+        let mut named = self.sessions_in_where(path, |s| self.session_in_space(s, id));
+        let table = self.hosting.table.all();
+        let others = (table.iter())
+            .filter(|s| s.directory.starts_with(path) && !self.session_in_space(s, id))
+            .count();
+        if others > 0 {
+            named.push(format!("{others} outside your space"));
+        }
+        named
+    }
+
+    /// Whether a session outside `caller`'s space, for an orchestrator, is in `path`.
+    pub(super) fn others_in(&self, caller: &Caller, path: &Path) -> bool {
+        let Some(space) = caller.space.as_ref().filter(|_| caller.scoped()) else {
+            return false;
         };
+        let table = self.hosting.table.all();
+        (table.iter())
+            .any(|s| s.directory.starts_with(path) && !self.session_in_space(s, &space.id))
+    }
+
+    /// Whether `session` is one of space `id`'s.
+    pub(super) fn session_in_space(&self, session: &Hosted, id: &SpaceId) -> bool {
         let spaces = self.watch.spaces();
         self.space_of_session(session)
             .and_then(|at| spaces.stored(at))
-            .is_some_and(|stored| &stored.id == space)
+            .is_some_and(|stored| &stored.id == id)
     }
 }
 
 /// A path as the agent is told it.
-fn rules_quoted(path: &Path) -> String {
+fn quoted_path(path: &Path) -> String {
     crate::sessions::tools::quoted(&path.display().to_string())
 }

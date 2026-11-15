@@ -5,6 +5,7 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
+mod members;
 mod orchestrator;
 
 use std::collections::{HashMap, HashSet};

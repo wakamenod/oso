@@ -74,8 +74,10 @@ pub(crate) const MAX_BLOB: u64 = 8 * 1024 * 1024;
 const STACK: usize = 16 * 1024 * 1024;
 
 /// The root of a project that is trusted to run git, with its device and inode as the project
-/// was found. Only [`TrustedRoot::of`] makes one. Its clones share one revocation: once one is
-/// revoked, so are all.
+/// was found. [`TrustedRoot::of`] makes one from a trusted project, and
+/// [`TrustedRoot::of_member`] one from an issue space's repository the trust list holds by path
+/// and identity; the latter is made fresh for each use and never revoked, so its users ask the
+/// trust list again. Its clones share one revocation: once one is revoked, so are all.
 #[derive(Clone, Debug)]
 pub(crate) struct TrustedRoot {
     path: PathBuf,

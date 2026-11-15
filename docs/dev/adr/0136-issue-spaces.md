@@ -264,6 +264,7 @@ space's orchestrator and its workers.
 | `space-new` | `Person` | `C-x a O` | asks for a name and title, then the repositories (completing known projects, at least one), makes the space and its directory and enters it; `space-orchestrator-start` starts its orchestrator |
 | `space-add-repo` | `Person` | menu `a` | adds a repository; offers to paste `/add-dir PATH` into the orchestrator's input, not submitted, as ADR 0121's `session-send` |
 | `space-remove-repo` | `Person` | menu `r` | refuses while a session of the space runs in it; its worktrees stay |
+| `space-use-repo` | `Person` | menu `u` | the repository the project commands use from the orchestrator's buffer, when several are trusted (step 4a) |
 | `space-orchestrator-start` | `Person` | menu `o` | in a space with no live orchestrator |
 | `space-orchestrator-replace` | `Person` | menu `O` | as above |
 | `space-instructions` | `Person` | menu `i` | edits the space's instructions |
@@ -708,7 +709,25 @@ space's sessions (Q7); `space_status` is a `Look` tool (Q8); oso-core gains
   orchestrator by the space's name.
 - **`space-use-repo`** (`Person`, menu `u`): the orchestrator's buffer uses the space's one
   trusted repository for `session-worktree`, `worktree-list` and `worktree-remove`, else the one
-  chosen here, which must still be trusted.
+  chosen here, which must be trusted then and still. As for a repository's row in
+  `*Sessions*`, a buffer of it must be open. A connection that is no hosted session, with the
+  orchestrator's buffer selected, lists that repository's worktrees as "the selected window's
+  project".
+- **Who is the orchestrator:** the session its space records, while it runs in the space's
+  own directory and the space is open. The record is in oso's state directory, which agents can
+  write, so a session elsewhere is never made one by it. A closed space's orchestrator, an
+  earlier one, and one not in the directory still see only the space's sessions, and name no
+  repository.
+- **Trust:** a repository's trust comes from the trust list by its path and the identity the
+  space kept (`TrustedRoot::of_member`), with no open buffer. Such a root is made for each call
+  and never revoked, so a start asks the trust list again at the person's `y`, and a start at a
+  repository the orchestrator names goes through the job that checks its root on the disk, as
+  a start in another directory does.
+- **Worktrees:** `worktree_remove` from an orchestrator acts in the repository git listed the
+  path under, else the one whose root holds it, and refuses while a session of another space
+  is in it. `worktree_list` names only the space's sessions in each worktree, and counts the
+  others. A worktree made for a tool's call is held as the person's would be: by the asking
+  session's space when its repository is one of the space's.
 
 ## Changes to accepted ADRs
 

@@ -534,7 +534,7 @@ impl App {
             if added.is_none() {
                 return;
             }
-            self.orchestrator_started(key);
+            self.space_session_started(key);
             self.prune_sessions();
         }
         if let Some(tree) = &ready.baseline {

@@ -38,6 +38,8 @@ pub(in crate::app) struct Listing {
     expected: Option<usize>,
     /// Each row with what the UI held of it when it came, so that the reply costs little.
     rows: Vec<ListedRow>,
+    /// The space an orchestrator's listing names the sessions of; others it only counts.
+    scope: Option<crate::sessions::spaces::SpaceId>,
 }
 
 #[derive(Debug)]
@@ -132,23 +134,21 @@ impl App {
     pub(super) fn space_status(&self, caller: Option<&Caller>) -> Reply {
         let caller = caller.ok_or("space_status is only for a session oso started")?;
         let spaces = self.watch.spaces();
-        let at = (caller.space.as_ref())
-            .and_then(|(id, _)| spaces.find(id))
+        let space = caller
+            .space
+            .as_ref()
+            .ok_or("your session is in no issue space")?;
+        let at = spaces
+            .find(&space.id)
             .ok_or("your session is in no issue space")?;
         let stored = spaces
             .stored(at)
             .ok_or("your session is in no issue space")?;
-        let list = self.editor.trust_list();
         let repositories: Vec<Value> = spaces
             .member_names(at)
             .iter()
             .map(|(name, root)| {
-                let identity = (stored.members.iter())
-                    .find(|member| &member.root == root)
-                    .and_then(|member| member.identity);
-                let trusted = list.is_some_and(|list| {
-                    crate::review::TrustedRoot::of_member(list, root, identity).is_some()
-                });
+                let trusted = stored.member(root).is_some_and(|m| self.trusts(m));
                 json!({ "name": name, "path": shown(root), "trusted": trusted })
             })
             .collect();
@@ -156,11 +156,12 @@ impl App {
         let orchestrator = (stored.orchestrator.as_ref())
             .map(|id| table.iter().find(|s| &s.id == id).map(|s| s.name.clone()));
         let now = (Instant::now(), now_ms());
-        let sessions: Vec<Value> = (table.iter())
-            .filter(|s| self.space_of_session(s) == Some(at))
+        let mut theirs = (table.iter()).filter(|s| self.session_in_space(s, &space.id));
+        let sessions: Vec<Value> = (theirs.by_ref())
             .take(PAGE)
             .map(|session| self.session_json(session, Some(&caller.id), now))
             .collect();
+        let more = theirs.next().is_some();
         let instructions = self.hosting.state_directory().map(|state| {
             let file =
                 crate::sessions::spaces::probe::instructions_path(&state, stored.id.as_str());
@@ -175,6 +176,7 @@ impl App {
             "repositories": repositories,
             "instructions_file": instructions,
             "sessions": sessions,
+            "more_sessions": more,
         }))
     }
 
@@ -220,6 +222,10 @@ impl App {
     /// `worktree_list`: the linked worktrees of the caller's repository, or of the selected
     /// window's project for another agent, gathered from a listing job.
     pub(super) fn tool_worktree_list(&mut self, pending: Pending, caller: Option<Caller>) {
+        let scope = (caller.as_ref())
+            .filter(|caller| caller.scoped())
+            .and_then(|caller| caller.space.as_ref())
+            .map(|space| space.id.clone());
         let (lister, trust) = match &caller {
             Some(caller) => (
                 Lister::Session(caller.id.clone()),
@@ -264,6 +270,7 @@ impl App {
                 started: now,
                 expected: None,
                 rows: Vec::new(),
+                scope,
             }),
         );
     }
@@ -277,7 +284,11 @@ impl App {
             } => return listing.pending.answer(Err(why)),
             Report::Row { looked, .. } => {
                 let path = &looked.listed.path;
-                let (held, sessions) = (self.held_at(path), self.sessions_in(path));
+                let held = self.held_at(path);
+                let sessions = match &listing.scope {
+                    Some(space) => self.space_sessions_in(path, space),
+                    None => self.sessions_in(path),
+                };
                 listing.rows.push(ListedRow {
                     looked: *looked,
                     held,
