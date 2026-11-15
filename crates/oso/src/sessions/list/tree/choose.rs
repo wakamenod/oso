@@ -74,6 +74,7 @@ pub fn space_rows(
             name: space.name.to_owned(),
             projects,
             directory: space.directory.map(Path::to_path_buf),
+            orchestrator: None,
         });
     }
     rows

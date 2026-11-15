@@ -359,6 +359,7 @@ mod tests {
         "space-new",
         "space-directory",
         "space-orchestrator-start",
+        "space-orchestrator-replace",
         "space-remove-repo",
         "space-rename",
         "space-use-repo",

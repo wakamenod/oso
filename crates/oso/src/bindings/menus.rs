@@ -254,7 +254,10 @@ const SPACE: BuiltInMenu = BuiltInMenu {
         ),
         (
             "Orchestrator",
-            &[exit("o", "space-orchestrator-start", "start")],
+            &[
+                exit("o", "space-orchestrator-start", "start"),
+                exit("O", "space-orchestrator-replace", "replace"),
+            ],
         ),
         (
             "Open",

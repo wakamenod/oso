@@ -57,12 +57,12 @@ const AFTER_TYPING: Duration = Duration::from_millis(1200);
 /// One run of the fake: its process id, the directory it ran in, and its arguments.
 pub(super) struct Run {
     pid: String,
-    cwd: PathBuf,
+    pub(super) cwd: PathBuf,
     pub(super) args: Vec<String>,
 }
 
 /// Each run of the fake in `flow` so far.
-fn runs(flow: &Flow) -> Vec<Run> {
+pub(super) fn runs(flow: &Flow) -> Vec<Run> {
     fs::read_dir(flow.scratch.path())
         .unwrap()
         .filter_map(Result::ok)

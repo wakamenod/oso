@@ -170,6 +170,12 @@ impl App {
                 member,
             } => self.repository_checked(check, &path, member),
             Out::InstructionsReady { id, file } => self.instructions_ready(&id, file),
+            Out::HandoverLooked {
+                id,
+                from,
+                handoff,
+                transcript,
+            } => self.handover_looked(&id, &from, (handoff, transcript)),
             Out::SpaceIds(fresh) => {
                 if self.watch.spaces_mut().give_ids(fresh) {
                     self.sessions_touched();

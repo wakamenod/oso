@@ -313,7 +313,7 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
 }
 
 /// The list's text, as the dev state gives it.
-fn list(state: &Value) -> String {
+pub(super) fn list(state: &Value) -> String {
     state["sessions"]["list"]
         .as_str()
         .unwrap_or_default()

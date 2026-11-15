@@ -21,7 +21,10 @@ use super::worktrees::{Flow, asks};
 
 /// A space of the flow's repository and an untrusted `other` one, made with `C-x a O`, and its
 /// orchestrator started with `o`: the instance, the orchestrator's bridge and `other`.
-fn orchestrated(flow: &Flow, spaces: &PrivateRoot) -> (crate::harness::App, Bridge, PathBuf) {
+pub(super) fn orchestrated(
+    flow: &Flow,
+    spaces: &PrivateRoot,
+) -> (crate::harness::App, Bridge, PathBuf) {
     let other = flow.scratch.path().join("other");
     fs::create_dir(&other).unwrap();
     flow.git(&other, &["init", "-q", "-b", "main"]);

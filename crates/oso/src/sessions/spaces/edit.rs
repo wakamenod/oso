@@ -235,6 +235,22 @@ impl Spaces {
 
     /// Notes the orchestrator `id` of space `at`, the one before it kept as an earlier one,
     /// at most [`MAX_EARLIER`](super::stored::MAX_EARLIER) of them.
+    /// Space `at`'s orchestrator replaced: kept as an earlier one, and no session is its
+    /// orchestrator until its successor starts (ADR 0136, step 5).
+    pub fn retire_orchestrator(&mut self, at: usize, now: u64) {
+        let Some(space) = self.spaces.get_mut(at) else {
+            return;
+        };
+        let stored = &mut space.stored;
+        if let Some(before) = stored.orchestrator.take() {
+            stored.earlier.push(before);
+            let over = (stored.earlier.len()).saturating_sub(super::stored::MAX_EARLIER);
+            stored.earlier.drain(..over);
+            stored.changed = now;
+            self.unsaved = true;
+        }
+    }
+
     pub fn set_orchestrator(
         &mut self,
         at: usize,
