@@ -294,3 +294,95 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
     });
     flow.exit_with(0);
 }
+
+/// The list's text, as the dev state gives it.
+fn list(state: &Value) -> String {
+    state["sessions"]["list"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// The line of the list that starts with `start`, indent and all.
+fn line_starting(state: &Value, start: &str) -> Option<usize> {
+    list(state).lines().position(|row| row.starts_with(start))
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
+    let flow = Flow::new("spaces-pane", "");
+    let other = flow.scratch.path().join("other");
+    fs::create_dir(&other).unwrap();
+    flow.git(&other, &["init", "-q", "-b", "main"]);
+    let (mut app, _) = flow.start();
+
+    // A space of two repositories, with a session in the first.
+    app.send_keys("C-x a O");
+    answer(&mut app, "New space for issue:", "Fix login");
+    app.wait_for("the space", |state| space(state, "fix-login").is_some());
+    app.send_keys("C-x a S");
+    app.send_keys("a");
+    answer(&mut app, "Add repository:", other.to_str().unwrap());
+    app.wait_for("its second repository", |state| {
+        space(state, "fix-login")
+            .is_some_and(|s| s["members"].as_array().is_some_and(|m| m.len() == 2))
+    });
+    app.send_keys("C-x a c");
+    let state = app.wait_for("space, repositories, worktree and session", |state| {
+        line_starting(state, "▾ fix-login").is_some()
+            && line_starting(state, "  ▾ repo").is_some()
+            && line_starting(state, "  ▾ other").is_some()
+            && list(state)
+                .lines()
+                .any(|row| row.starts_with("    ") && row.contains("main  primary"))
+            && list(state)
+                .lines()
+                .any(|row| row.starts_with("      ") && row.contains("repo"))
+    });
+    assert!(
+        line_starting(&state, "  ▾ repo") < line_starting(&state, "  ▾ other"),
+        "{}",
+        list(&state)
+    );
+
+    // Another space in front: the first, quiet, is folded, and RET on its row enters it.
+    app.send_keys("C-x a O");
+    answer(&mut app, "New space for issue:", "Second");
+    let state = app.wait_for("the first folded", |state| {
+        state["sessions"]["space"] == "second" && line_starting(state, "▸ fix-login").is_some()
+    });
+    app.send_keys("C-x a s");
+    app.wait_for("the list selected", |state| {
+        state["buffer"]["name"] == "*Sessions*"
+    });
+    let row = line_starting(&state, "▸ fix-login").unwrap();
+    super::sessions_tree::point_at(&mut app, row);
+    app.send_keys("RET");
+    app.wait_for("the first space entered", |state| {
+        state["sessions"]["space"] == "fix-login"
+    });
+
+    // `a` in the list reads a repository for the space in front.
+    app.send_keys("C-x a s");
+    app.wait_for("the list selected", |state| {
+        state["buffer"]["name"] == "*Sessions*"
+    });
+    app.send_keys("a");
+    app.wait_for("the repository prompt", |state| {
+        super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with("Add repository:"))
+    });
+    app.send_keys("C-g");
+
+    // A closed space goes in `Archived spaces`.
+    app.send_keys(&format!("C-x a j {} RET", keys("second")));
+    app.wait_for("the second space", |state| {
+        state["sessions"]["space"] == "second"
+    });
+    app.send_keys("C-x a S");
+    app.send_keys("c");
+    app.wait_for("the closed space listed", |state| {
+        line_starting(state, "▸ Archived spaces (1)").is_some()
+    });
+    flow.exit_with(0);
+}

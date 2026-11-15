@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use oso_core::buffer::Mode;
 
 use crate::app::App;
-use crate::sessions::list::{Group, Key, Line, Tree, Worktree};
+use crate::sessions::list::{Group, Key, Line, Project, Tree, Worktree};
 use crate::sessions::worker::SessionKey;
 
 /// What a row with no place says.
@@ -100,17 +100,18 @@ fn place_of(
     external: impl Fn(&Key) -> Option<PathBuf>,
 ) -> Option<RowPlace> {
     match line {
-        Line::Project(root) => {
-            let main = tree
-                .project(root)
-                .and_then(|project| project.worktrees.iter().find(|w| w.primary));
-            Some(RowPlace {
-                directory: main.map_or_else(|| root.clone(), |main| main.path.clone()),
-                repo: Some(root.clone()),
-                base: Base::Head,
-                session: None,
-            })
+        // A space's row stands for its first repository, as a space of one shows it.
+        Line::Space(id) => {
+            let space = tree.spaces.iter().find(|space| space.id == *id)?;
+            let project = space.projects.first()?;
+            Some(repository(project))
         }
+        Line::Repository(id, root) => {
+            let space = tree.spaces.iter().find(|space| space.id == *id)?;
+            let project = space.projects.iter().find(|p| p.root == *root)?;
+            Some(repository(project))
+        }
+        Line::ClosedSpace(_) => None,
         Line::Worktree(path) => {
             let (project, worktree) = tree.holding(path)?;
             Some(in_worktree(project.root.clone(), worktree, None))
@@ -137,6 +138,17 @@ fn place_of(
             session: None,
         }),
         Line::Header(_) => None,
+    }
+}
+
+/// The place of `project`'s row: its main checkout, as the space shows it, else its root.
+fn repository(project: &Project) -> RowPlace {
+    let main = project.worktrees.iter().find(|w| w.primary);
+    RowPlace {
+        directory: main.map_or_else(|| project.root.clone(), |main| main.path.clone()),
+        repo: Some(project.root.clone()),
+        base: Base::Head,
+        session: None,
     }
 }
 

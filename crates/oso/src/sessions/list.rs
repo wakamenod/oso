@@ -109,9 +109,11 @@ pub enum Group {
     Other,
     /// Those of them in this directory.
     OtherDir(PathBuf),
-    /// A project's worktrees with no session and no change for a week.
+    /// A repository's worktrees with no session and no change for a week.
     Quiet(PathBuf),
     Archived,
+    /// The closed spaces (ADR 0136).
+    ArchivedSpaces,
 }
 
 /// What a line of the list shows.
@@ -119,18 +121,24 @@ pub enum Group {
 pub enum Line {
     Header(Group),
     Session(Key),
-    /// A project of the tree, by its root.
-    Project(PathBuf),
+    /// An open space of the tree (ADR 0136).
+    Space(crate::sessions::spaces::SpaceId),
+    /// A repository of a space of several, by the space and the repository's root.
+    Repository(crate::sessions::spaces::SpaceId, PathBuf),
     /// A worktree of the tree, by its directory.
     Worktree(PathBuf),
+    /// A closed space, in `Archived spaces`.
+    ClosedSpace(crate::sessions::spaces::SpaceId),
 }
 
-/// What `TAB` folds: a group, a session's nested sessions, a project or a worktree.
+/// What `TAB` folds: a group, a session's nested sessions, a space, a repository of a space,
+/// or a worktree.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Fold {
     Group(Group),
     Nested(Key),
-    Project(PathBuf),
+    Space(crate::sessions::spaces::SpaceId),
+    Repository(crate::sessions::spaces::SpaceId, PathBuf),
     Worktree(PathBuf),
 }
 
@@ -198,14 +206,16 @@ impl List {
         };
     }
 
-    /// `TAB` on `line`: folds or opens its group, project or worktree, or the session's nested
-    /// sessions.
+    /// `TAB` on `line`: folds or opens its group, space, repository or worktree, or the
+    /// session's nested sessions. A closed space's row folds nothing.
     pub fn fold(&mut self, line: &Line) {
         let fold = match line {
             Line::Header(group) => Fold::Group(group.clone()),
             Line::Session(key) => Fold::Nested(*key),
-            Line::Project(root) => Fold::Project(root.clone()),
+            Line::Space(id) => Fold::Space(id.clone()),
+            Line::Repository(id, root) => Fold::Repository(id.clone(), root.clone()),
             Line::Worktree(path) => Fold::Worktree(path.clone()),
+            Line::ClosedSpace(_) => return,
         };
         if !self.toggled.remove(&fold) {
             self.toggled.insert(fold);
@@ -215,7 +225,13 @@ impl List {
     fn folded(&self, fold: &Fold) -> bool {
         let default = matches!(
             fold,
-            Fold::Group(Group::Archived | Group::Other | Group::OtherDir(_) | Group::Quiet(_))
+            Fold::Group(
+                Group::Archived
+                    | Group::ArchivedSpaces
+                    | Group::Other
+                    | Group::OtherDir(_)
+                    | Group::Quiet(_)
+            )
         );
         self.folded_as(fold, default)
     }
@@ -407,6 +423,7 @@ fn group_name(group: &Group) -> &str {
         Group::Quiet(_) => "quiet",
         Group::OtherDir(_) => "",
         Group::Archived => "Archived",
+        Group::ArchivedSpaces => "Archived spaces",
     }
 }
 
@@ -570,7 +587,7 @@ use cells::{cells, pad};
 pub use cells::{cut, cut_middle, unmarked};
 
 mod tree;
-pub use tree::{Project, Tree, Worktree};
+pub use tree::{ClosedSpace, Project, SpaceInput, SpaceRows, Tree, Worktree, space_rows};
 
 #[cfg(test)]
 mod tests;

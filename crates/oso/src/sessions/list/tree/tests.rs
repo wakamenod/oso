@@ -62,7 +62,7 @@ fn tree() -> Tree {
         ..worktree("/w/oso", "main", None)
     };
     Tree {
-        projects: vec![Project {
+        spaces: Tree::of_projects(vec![Project {
             root: PathBuf::from("/w/oso"),
             name: "oso".to_owned(),
             worktrees: vec![
@@ -71,9 +71,11 @@ fn tree() -> Tree {
                 worktree("/w/oso/.claude/worktrees/pane", "feature/pane", Some(1)),
                 worktree("/w/oso/.claude/worktrees/stale", "stale", Some(30)),
             ],
-        }],
+        }])
+        .spaces,
         front: Some(PathBuf::from("/w/oso/.claude/worktrees/pane")),
         wall: Some(wall()),
+        ..Default::default()
     }
 }
 
@@ -140,7 +142,7 @@ fn every_other_external_session_goes_in_other_projects_folded_by_directory() {
     assert_eq!(text[other + 2].trim_end(), "  ▸ scripts (1)");
     list.fold(&Line::Header(Group::OtherDir(PathBuf::from("/x/blog"))));
     let text = shown(&list, &entries, 44);
-    assert!(text[other + 2].starts_with("    ○ a"), "{text:?}");
+    assert!(text[other + 2].starts_with("      ○ a"), "{text:?}");
 }
 
 #[test]
@@ -203,7 +205,7 @@ fn a_worktree_with_no_running_session_of_osos_is_folded_with_its_count() {
 #[test]
 fn a_project_folds_and_names_from_git_are_cleaned() {
     let mut tree = tree();
-    tree.projects[0].worktrees[2].branch = Some("evil\u{202E}\nbranch".to_owned());
+    tree.spaces[0].projects[0].worktrees[2].branch = Some("evil\u{202E}\nbranch".to_owned());
     let mut list = List::default();
     list.set_tree(tree);
     let text = shown(&list, &[], 60);
@@ -211,7 +213,8 @@ fn a_project_folds_and_names_from_git_are_cleaned() {
         text.iter().any(|row| row.contains("evil branch")),
         "{text:?}"
     );
-    list.fold(&Line::Project(PathBuf::from("/w/oso")));
+    let space = list.tree().spaces[0].id.clone();
+    list.fold(&Line::Space(space));
     let text = shown(&list, &[], 60);
     assert_eq!(text.len(), 1);
     assert!(text[0].starts_with("▸ oso"));
@@ -226,13 +229,15 @@ fn twenty_worktrees_forty_sessions_and_three_hundred_folded_externals_render_in_
     worktrees[0].primary = true;
     worktrees[0].path = PathBuf::from("/w/oso");
     let tree = Tree {
-        projects: vec![Project {
+        spaces: Tree::of_projects(vec![Project {
             root: PathBuf::from("/w/oso"),
             name: "oso".to_owned(),
             worktrees,
-        }],
+        }])
+        .spaces,
         front: None,
         wall: Some(wall()),
+        ..Default::default()
     };
     let mut entries: Vec<Entry> = (0..40)
         .map(|n| {
@@ -307,4 +312,169 @@ fn a_session_started_without_asking_is_marked_under_its_worktree() {
     assert!(row.contains("pane-c3  unasked"), "{text:?}");
     let other = text.iter().find(|row| row.contains("oso-bb")).unwrap();
     assert!(!other.contains("unasked"), "{text:?}");
+}
+
+/// A main checkout at `root`.
+fn main_at(root: &str) -> Worktree {
+    Worktree {
+        primary: true,
+        ..worktree(root, "main", None)
+    }
+}
+
+/// A space of the tree called `name` with the repositories `projects`.
+fn space(n: u8, name: &str, projects: Vec<Project>) -> super::SpaceRows {
+    super::SpaceRows {
+        id: crate::sessions::spaces::SpaceId::from_random([n; 16]),
+        name: name.to_owned(),
+        projects,
+    }
+}
+
+fn project(root: &str, worktrees: Vec<Worktree>) -> Project {
+    Project {
+        root: PathBuf::from(root),
+        name: PathBuf::from(root)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned(),
+        worktrees,
+    }
+}
+
+#[test]
+fn a_space_of_several_repositories_shows_each_with_its_worktrees_a_level_deeper() {
+    let tree = Tree {
+        spaces: vec![space(
+            1,
+            "fix-login",
+            vec![
+                project(
+                    "/w/back",
+                    vec![
+                        main_at("/w/back"),
+                        worktree("/w/back/wt/api", "fix/api", Some(1)),
+                    ],
+                ),
+                project(
+                    "/w/front",
+                    vec![worktree("/w/front/wt/msg", "msg", Some(1))],
+                ),
+            ],
+        )],
+        wall: Some(wall()),
+        ..Tree::default()
+    };
+    let mut list = List::default();
+    list.set_tree(tree);
+    let mut entry = session(1, "api", State::Working, "/w/back/wt/api");
+    entry.space = "fix-login".to_owned();
+    let rendered = list.render(&[entry], 44, Instant::now());
+    let text: Vec<&str> = rendered.text.lines().map(str::trim_end).collect();
+    assert!(text[0].starts_with("▾ fix-login"), "{text:?}");
+    assert!(text[1].starts_with("  ▾ back"), "{text:?}");
+    assert!(text[2].starts_with("    · main  primary"), "{text:?}");
+    assert!(text[3].starts_with("    ▶ api  fix/api"), "{text:?}");
+    assert!(text[4].starts_with("      ▶ api"), "{text:?}");
+    assert!(text[5].starts_with("  ▾ front"), "{text:?}");
+    assert!(text[6].starts_with("    · msg"), "{text:?}");
+    assert!(matches!(rendered.lines[0], Line::Space(_)));
+    assert!(matches!(rendered.lines[1], Line::Repository(..)));
+    // A repository folds in its space alone.
+    list.fold(&rendered.lines[1].clone());
+    let text = shown(&list, &[], 44);
+    assert!(
+        text[1].starts_with("  ▸ back") && text[2].starts_with("  ▾ front"),
+        "{text:?}"
+    );
+}
+
+#[test]
+fn another_space_in_front_folds_the_quiet_ones_and_closed_spaces_go_last() {
+    let busy_dir = "/w/b/wt/x";
+    let mut tree = Tree {
+        spaces: vec![
+            space(1, "front", vec![project("/w/a", vec![main_at("/w/a")])]),
+            space(2, "quiet", vec![project("/w/q", vec![main_at("/w/q")])]),
+            space(
+                3,
+                "busy",
+                vec![project("/w/b", vec![worktree(busy_dir, "x", Some(1))])],
+            ),
+        ],
+        closed: vec![super::ClosedSpace {
+            id: crate::sessions::spaces::SpaceId::from_random([9; 16]),
+            name: "old".to_owned(),
+            title: "An old issue".to_owned(),
+        }],
+        wall: Some(wall()),
+        ..Tree::default()
+    };
+    tree.front_space = Some(tree.spaces[0].id.clone());
+    let mut list = List::default();
+    list.set_tree(tree);
+    let mut busy = session(1, "x", ASK, busy_dir);
+    busy.space = "busy".to_owned();
+    let text = shown(&list, &[busy], 44);
+    let at = |start: &str| text.iter().position(|row| row.starts_with(start));
+    assert!(at("▾ front").is_some(), "{text:?}");
+    assert!(at("▸ quiet").is_some(), "{text:?}");
+    assert!(at("▾ busy").is_some(), "{text:?}");
+    let closed = at("▸ Archived spaces (1)").unwrap_or_else(|| panic!("{text:?}"));
+    assert_eq!(closed, text.len() - 1);
+    list.fold(&Line::Header(Group::ArchivedSpaces));
+    let text = shown(&list, &[], 44);
+    assert!(
+        text.last().unwrap().starts_with("  ■ old  An old issue"),
+        "{text:?}"
+    );
+}
+
+#[test]
+fn ten_spaces_of_three_repositories_and_three_hundred_externals_render_in_budget() {
+    let t = Instant::now();
+    let spaces: Vec<super::SpaceRows> = (0..10u8)
+        .map(|s| {
+            let projects = (0..3)
+                .map(|r| {
+                    let root = format!("/w/s{s}/r{r}");
+                    let mut worktrees = vec![main_at(&root)];
+                    worktrees
+                        .extend((0..4).map(|w| worktree(&format!("{root}/wt/{w}"), "b", Some(w))));
+                    project(&root, worktrees)
+                })
+                .collect();
+            space(s, &format!("space-{s}"), projects)
+        })
+        .collect();
+    let tree = Tree {
+        spaces,
+        wall: Some(wall()),
+        ..Tree::default()
+    };
+    let mut entries: Vec<Entry> = (0..40)
+        .map(|n| {
+            let mut entry = session(
+                n,
+                &format!("s{n}"),
+                State::Working,
+                &format!("/w/s{}/r{}/wt/{}", n % 10, n % 3, n % 4),
+            );
+            entry.space = format!("space-{}", n % 10);
+            entry
+        })
+        .collect();
+    entries.extend((0..300).map(|n| external(10_000 + n, "x", &format!("/x/p{}", n % 30), None)));
+    let mut list = List::default();
+    list.set_tree(tree);
+    let mut best = Duration::MAX;
+    for _ in 0..10 {
+        let start = Instant::now();
+        let rendered = list.render(&entries, 44, t);
+        best = best.min(start.elapsed());
+        assert!(rendered.lines.len() > 100);
+    }
+    // A debug build is several times slower; the budget is a release build's (ADR 0131).
+    assert!(cfg!(debug_assertions) || best.as_micros() < 500, "{best:?}");
 }

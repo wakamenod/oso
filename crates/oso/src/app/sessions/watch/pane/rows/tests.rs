@@ -15,7 +15,7 @@ fn tree() -> Tree {
         ..Worktree::default()
     };
     Tree {
-        projects: vec![Project {
+        spaces: Tree::of_projects(vec![Project {
             root: PathBuf::from("/p/oso"),
             name: "oso".to_owned(),
             worktrees: vec![
@@ -23,7 +23,8 @@ fn tree() -> Tree {
                 worktree("/p/oso/.claude/worktrees/api", Some("api-fix"), false),
                 worktree("/p/oso/.claude/worktrees/bare", None, false),
             ],
-        }],
+        }])
+        .spaces,
         ..Tree::default()
     }
 }
@@ -50,7 +51,7 @@ fn at(directory: &str, base: Base, session: Option<u64>) -> Option<RowPlace> {
 #[test]
 fn a_project_is_its_main_checkout_from_head() {
     assert_eq!(
-        place(&Line::Project(PathBuf::from("/p/oso"))),
+        place(&Line::Space(tree().spaces[0].id.clone())),
         at("/p/oso", Base::Head, None)
     );
 }

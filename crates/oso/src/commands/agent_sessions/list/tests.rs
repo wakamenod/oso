@@ -121,7 +121,7 @@ fn stops(editor: &mut Editor, name: &str) -> Vec<usize> {
 }
 
 #[test]
-fn headings_are_projects_worktrees_and_groups_in_the_tree() {
+fn headings_are_spaces_worktrees_and_groups_in_the_tree() {
     let tree = "\
 ▾ oso                    ▶ 1
   ▶ main  primary         now
@@ -133,7 +133,7 @@ fn headings_are_projects_worktrees_and_groups_in_the_tree() {
   · old                   9d
 ▾ Other projects           1
   ▾ elsewhere (1)
-    ○ far                 1h
+      ○ far               1h
 ▾ Archived 1
     ■ gone  oso           2d
 ";
@@ -198,4 +198,21 @@ fn wider_and_narrower_ask_for_4_columns_a_step() {
     let mut elsewhere = editor("text");
     let refused = run(&mut elsewhere, "sessions-wider", Args::NONE).0;
     assert_eq!(refused, Err("Not in *Sessions*".to_owned()));
+}
+
+#[test]
+fn in_a_space_of_several_repositories_their_rows_and_worktrees_are_headings() {
+    let tree = "\
+▾ fix-login              ⚠ 1
+  ▾ backend
+    ▶ fix  fix/api        now
+      ▶ fix-api           now
+  ▾ frontend
+    ⚠ msg                 now
+      ⚠ msg               now
+        waits for you
+▸ oso                    ▶ 3
+";
+    let mut editor = showing(tree);
+    assert_eq!(stops(&mut editor, "sessions-next-heading"), [1, 2, 4, 5, 8]);
 }

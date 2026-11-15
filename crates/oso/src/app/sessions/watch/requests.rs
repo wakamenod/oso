@@ -236,8 +236,28 @@ impl App {
                     "worktree-remove removes a worktree whose work is done, from a buffer in it or *Worktrees*",
                 );
             }
-            // A project's row folds on `RET` too, as its worktrees are what it holds.
-            Line::Project(_) | Line::Worktree(_) => {
+            // A space's row enters it on `RET` (ADR 0136, step 2, Q2); a closed one's reopens it
+            // (Q3).
+            Line::Space(id) if action == RowAction::Show => {
+                if let Some(at) = self.watch.spaces.find(&id) {
+                    self.enter_space(at);
+                }
+                return;
+            }
+            Line::ClosedSpace(id) if action == RowAction::Show => {
+                let name = self
+                    .watch
+                    .spaces
+                    .find(&id)
+                    .and_then(|at| Some(self.watch.spaces.get(at)?.name().to_owned()));
+                if let Some(name) = name {
+                    self.space_request(oso_core::editor::SpaceRequest::Reopen(name));
+                }
+                return;
+            }
+            Line::ClosedSpace(_) => return,
+            // A repository's row folds on `RET` too, as its worktrees are what it holds.
+            Line::Space(_) | Line::Repository(..) | Line::Worktree(_) => {
                 if matches!(action, RowAction::Fold | RowAction::Show) {
                     self.watch.list.fold(&row);
                 }

@@ -19,7 +19,7 @@ use std::time::SystemTime;
 use oso_core::project::ProjectId;
 
 use crate::app::App;
-use crate::sessions::list::{Project, Tree, Worktree};
+use crate::sessions::list::{ClosedSpace, SpaceInput, SpaceRows, Tree, Worktree, space_rows};
 use crate::sessions::worker::Job;
 
 /// What the app keeps of the tree's projects.
@@ -57,19 +57,25 @@ impl App {
         } else {
             HashMap::new()
         };
-        let projects = roots
-            .iter()
-            .map(|root| {
-                let held = held.get(root).unwrap_or(&none);
-                self.ask_tree_listing(root, held, &trusted);
-                Project {
-                    root: root.clone(),
-                    name: crate::sessions::spaces::stored::last_component(root),
-                    worktrees: self.worktrees_of(root, held),
-                }
+        let mut all: HashMap<PathBuf, Vec<Worktree>> = HashMap::new();
+        for root in &roots {
+            let held = held.get(root).unwrap_or(&none);
+            self.ask_tree_listing(root, held, &trusted);
+            all.insert(root.clone(), self.worktrees_of(root, held));
+        }
+        self.watch_projects(&roots);
+        let spaces = self.tree_spaces(&all);
+        let closed = (self.watch.spaces.iter())
+            .filter(|space| !space.is_open())
+            .map(|space| ClosedSpace {
+                id: space.id().clone(),
+                name: space.name().to_owned(),
+                title: space.stored.title.clone(),
             })
             .collect();
-        self.watch_projects(&roots);
+        let front_space = (self.watch.spaces.current())
+            .and_then(|at| self.watch.spaces.get(at))
+            .map(|space| space.id().clone());
         // The worktree of the session the space in front showed last.
         let front = self
             .watch
@@ -79,10 +85,38 @@ impl App {
             .and_then(|buffer| self.hosting.table().by_buffer(buffer))
             .map(|session| super::place(session).to_path_buf());
         Tree {
-            projects,
+            spaces,
+            closed,
+            front_space,
             front,
             wall: Some(SystemTime::now()),
         }
+    }
+
+    /// Each open space's repositories with the worktrees it shows of `all`, each repository's
+    /// worktrees, as `space_rows` chooses them (ADR 0136, step 2).
+    fn tree_spaces(&self, all: &HashMap<PathBuf, Vec<Worktree>>) -> Vec<SpaceRows> {
+        // Where each space's running sessions run, by the space's place in the list.
+        let mut running: HashMap<usize, HashSet<PathBuf>> = HashMap::new();
+        for session in self.hosting.table().iter().filter(|s| s.runs()) {
+            if let Some(at) = self.space_of_session(session) {
+                let place = super::place(session).to_path_buf();
+                running.entry(at).or_default().insert(place);
+            }
+        }
+        let inputs: Vec<SpaceInput<'_>> = (self.watch.spaces.iter().enumerate())
+            .filter(|(_, space)| space.is_open())
+            .map(|(at, space)| SpaceInput {
+                id: space.id(),
+                name: space.name(),
+                members: (space.stored.members.iter())
+                    .map(|member| member.root.as_path())
+                    .collect(),
+                held: &space.stored.worktrees,
+                running: running.remove(&at).unwrap_or_default(),
+            })
+            .collect();
+        space_rows(&inputs, all)
     }
 
     /// `root`'s worktrees: as listed, else its main checkout and `held`, the worktrees spaces
