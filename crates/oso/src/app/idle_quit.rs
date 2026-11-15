@@ -2,7 +2,9 @@
 //! busy (`quit-when-idle`, or `w` to `C-x C-c`'s question), the host waits until none has
 //! been for [`HOLD`], with no prompt open, then exits as a confirmed `C-x C-c` would. Which
 //! terminals are busy is the editor's: a hosted session with a turn under way or a question
-//! open, or a shell waiting for a job (`Editor::set_busy`).
+//! open, or another terminal's shell waiting for a job (`Buffer::is_busy`). A hosted session that is starting,
+//! or whose terminal printed within the hold, holds it too: its state is read from its screen,
+//! which is untrusted text.
 //!
 //! Must not depend on: the renderer or the window. [`IdleClock`] is told the time, so it is
 //! tested with no clock.
@@ -11,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use super::App;
 use super::shell::Loop;
+use crate::sessions::hosted::Run;
 
 /// How long every terminal stays idle before the exit, so that the moment between two jobs
 /// of a line, or a turn's state that flickers, ends nothing.
@@ -34,6 +37,13 @@ impl IdleClock {
         now.duration_since(since) >= HOLD
     }
 
+    /// Starts the hold again: a hosted session printed, so its turn may not be over.
+    pub(super) fn restart(&mut self) {
+        if self.since.is_some() {
+            self.since = Some(Instant::now());
+        }
+    }
+
     /// When the event loop wakes to look again, if it waits.
     pub(super) fn next_wake(&self) -> Option<Instant> {
         self.since.map(|since| since + HOLD)
@@ -44,11 +54,14 @@ impl App {
     /// Before the loop waits: exits if an exit waits for the terminals and they have been
     /// idle long enough.
     pub(super) fn quit_if_idle(&mut self, event_loop: &Loop<'_>) {
-        if !self.editor.quit_when_idle() || self.is_leaving(event_loop) {
+        // While `oso-restart` moves the terminals, their snapshots stop: none is idle then.
+        if !self.editor.quit_when_idle() || self.is_leaving(event_loop) || self.restart_holds() {
             self.idle_quit.since = None;
             return;
         }
-        let idle = self.editor.busy_terminals().next().is_none();
+        // A session that is still starting has said nothing of a turn yet.
+        let starting = (self.hosting.table().iter()).any(|session| session.run == Run::Starting);
+        let idle = !starting && self.editor.busy_terminals().next().is_none();
         if !self.idle_quit.due(idle, Instant::now()) {
             return;
         }

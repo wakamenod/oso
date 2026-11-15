@@ -95,8 +95,9 @@ pub enum Kind {
     Draft,
 }
 
-/// A question's third answer, on `w`: the command it runs, confirmed, as `y`'s, and what it
-/// does, after its key.
+/// A question's third answer: the command it runs, confirmed, as `y`'s, and what it does,
+/// after its key. Its key is always `w` ([`KEYS`]), which the question keymap binds to
+/// `answer-third`; a question has one third answer at most.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Third {
     pub command: &'static str,

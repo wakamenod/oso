@@ -85,12 +85,10 @@ impl App {
             // looks again, so that this one takes one only.
             again = true;
             hosted.grid.apply(&snapshot);
-            // The buffer's verdict is the one record of a password prompt. A program that
-            // ended reads none, whatever its last snapshot saw.
-            let ends = ends(&snapshot);
-            let echo_off = snapshot.echo_off && !ends;
-            reported.push((id, echo_off, snapshot.foreground_job && !ends));
-            if echo_off != self.editor.buffer(id).is_some_and(reads_a_password) {
+            let buffer = self.editor.buffer(id);
+            let (echo_off, job) = flags(&snapshot, buffer);
+            reported.push((id, echo_off, job));
+            if echo_off != buffer.is_some_and(reads_a_password) {
                 hosted.note_stale = true;
                 secret.push((id, echo_off));
             }
@@ -135,7 +133,7 @@ impl App {
             self.editor.set_echo_off(*id, *echo_off);
         }
         for (id, echo_off, job) in reported {
-            self.note_job(id, job);
+            self.note_work(id, job);
             self.dispatcher
                 .terminal_reported(&mut self.editor, id, echo_off);
         }
@@ -154,16 +152,24 @@ impl App {
         again
     }
 
-    /// A shell's job is what makes its terminal busy; a hosted session's state does, from the
-    /// sessions' worker (ADR 0133).
-    fn note_job(&mut self, id: BufferId, job: bool) {
-        if !self.editor.buffer(id).is_some_and(Buffer::hosts_session) {
-            self.editor.set_busy(id, job);
+    /// Notes what a snapshot says of the work in terminal `id`: its job, and for a hosted
+    /// session's (`None`), output, which holds an exit that waits for the terminals as long
+    /// as a turn might still be under way, whatever its screen reads as (ADR 0133).
+    fn note_work(&mut self, id: BufferId, job: Option<bool>) {
+        match job {
+            Some(job) => self.editor.set_terminal_job(id, job),
+            None => self.idle_quit.restart(),
         }
     }
 }
 
-/// Whether `snapshot` is its terminal's last: it reports the end.
-fn ends(snapshot: &oso_term::Snapshot) -> bool {
-    (snapshot.events.iter()).any(|event| matches!(event, Event::Ended(_)))
+/// What `snapshot` says of the terminal in `buffer`: whether its program reads a password,
+/// as the buffer's verdict is the one record of one (ADR 0120, Q17), and for a terminal that
+/// hosts no session whether a job runs (ADR 0133); `None` for a session's, whose output is
+/// noted instead. A program that ended does neither, whatever its last snapshot saw.
+fn flags(snapshot: &oso_term::Snapshot, buffer: Option<&Buffer>) -> (bool, Option<bool>) {
+    let ends = (snapshot.events.iter()).any(|event| matches!(event, Event::Ended(_)));
+    let job =
+        (!buffer.is_some_and(Buffer::hosts_session)).then_some(snapshot.foreground_job && !ends);
+    (snapshot.echo_off && !ends, job)
 }

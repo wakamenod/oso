@@ -297,7 +297,7 @@ impl Dispatcher {
             .prompt()
             .is_some_and(|prompt| prompt.kind().is_question())
         {
-            editor.prompt_says("Answer y or n");
+            editor.prompt_says(crate::commands::answer_hint(editor));
             return Effects {
                 redraw: true,
                 ..Effects::default()
@@ -524,7 +524,7 @@ impl Dispatcher {
                     .prompt()
                     .is_some_and(|prompt| prompt.kind().is_question())
                 {
-                    editor.prompt_says("Answer y or n");
+                    editor.prompt_says(crate::commands::answer_hint(editor));
                 } else {
                     let keys = masked(keys, reads_passphrase(editor));
                     editor.echo(format!("{keys} is undefined"));
@@ -605,6 +605,8 @@ mod file_tests;
 mod grid_tests;
 #[cfg(test)]
 mod held_tests;
+#[cfg(test)]
+mod idle_exit_tests;
 #[cfg(test)]
 mod ime_tests;
 #[cfg(test)]

@@ -54,12 +54,21 @@ impl Editor {
         }
     }
 
-    /// Notes whether work is under way in the terminal buffer `id`: a job its shell waits for,
-    /// or a hosted session's turn, which an exit names and "quit when idle" waits for
-    /// (ADR 0133). Nothing happens to a buffer that is not a running terminal's.
-    pub fn set_busy(&mut self, id: BufferId, busy: bool) {
+    /// Notes whether a job runs in the foreground of the terminal buffer `id`'s PTY, which
+    /// makes a terminal that hosts no session busy (ADR 0133). Nothing happens to a buffer that
+    /// is not a terminal's.
+    pub fn set_terminal_job(&mut self, id: BufferId, job: bool) {
         if let Some(buffer) = self.buffer_mut(id).filter(|buffer| buffer.is_terminal()) {
-            buffer.set_busy(busy);
+            buffer.set_job(job);
+        }
+    }
+
+    /// Notes whether the session hosted in the terminal buffer `id` has a turn under way or
+    /// asks a question, which makes it busy (ADR 0133). Nothing happens to a buffer that is
+    /// not a terminal's.
+    pub fn set_session_turn(&mut self, id: BufferId, turn: bool) {
+        if let Some(buffer) = self.buffer_mut(id).filter(|buffer| buffer.is_terminal()) {
+            buffer.set_turn(turn);
         }
     }
 
@@ -149,6 +158,31 @@ mod tests {
         let buffer = editor.buffer(first).unwrap();
         assert_eq!(buffer.mode(), Mode::Terminal);
         assert_eq!(buffer.read_only(), Some(ReadOnly::Terminal));
+    }
+
+    #[test]
+    fn a_session_is_busy_by_its_turn_and_another_terminal_by_its_job() {
+        let mut editor = Editor::default();
+        let shell = editor.add_terminal_buffer("*terminal*");
+        let session = editor.add_terminal_buffer("*claude*");
+        editor.set_hosts_session(session, true);
+        for id in [shell, session] {
+            editor.set_terminal_job(id, true);
+        }
+        // Nothing runs yet, so nothing is busy.
+        assert_eq!(editor.busy_terminals().count(), 0);
+        editor.set_running(shell, true);
+        editor.set_running(session, true);
+        // A session's job is its own program's business; its turn decides.
+        assert_eq!(editor.busy_terminals().collect::<Vec<_>>(), [shell]);
+        editor.set_session_turn(session, true);
+        editor.set_session_turn(shell, true);
+        editor.set_terminal_job(shell, false);
+        assert_eq!(editor.busy_terminals().collect::<Vec<_>>(), [session]);
+        // An end forgets both.
+        editor.set_running(session, false);
+        editor.set_running(session, true);
+        assert_eq!(editor.busy_terminals().count(), 0);
     }
 
     #[test]

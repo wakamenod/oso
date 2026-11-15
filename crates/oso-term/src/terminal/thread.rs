@@ -2,7 +2,7 @@
 //! in it, and then reads at most 64 KiB at a time, parses for at most 4 ms (and at most 1 MiB)
 //! before it looks at the UI's requests again, encodes and writes what is queued, judges each
 //! effect, looks at the PTY's flags for a password prompt around input and output (Q17), and
-//! sends a snapshot when the last one was taken and no synchronized update holds it back. When
+//! at the same looks whether a job holds its foreground (ADR 0133), and sends a snapshot when the last one was taken and no synchronized update holds it back. When
 //! the PTY ends it reaps the child and sends the end.
 //!
 //! Must not depend on: the UI thread's state; it shares only the channels and `Shared`.
@@ -113,6 +113,14 @@ enum Slice {
     Ended,
 }
 
+/// Whether the last look saw a job in the terminal's foreground, and what the last snapshot
+/// said of it.
+#[derive(Default)]
+struct Job {
+    seen: bool,
+    said: bool,
+}
+
 /// A running terminal, on its thread.
 struct Running<'a> {
     master: Master,
@@ -140,8 +148,8 @@ struct Running<'a> {
     inputs: Inputs,
     /// What the thread knows of a password prompt.
     echo: EchoWatch,
-    /// Whether the last look saw a job in the foreground, and what the last snapshot said.
-    job: (bool, bool),
+    /// What the thread knows of a job in the foreground (ADR 0133).
+    job: Job,
     /// Output was read since the flags were last looked at.
     fed: bool,
     /// Output, input or a request reached the engine since it last built a snapshot: a wake
@@ -229,7 +237,7 @@ impl<'a> Running<'a> {
             hold_limit,
             inputs: Inputs::new(),
             echo: EchoWatch::default(),
-            job: (false, false),
+            job: Job::default(),
             fed: false,
             touched: true,
             detached: false,
@@ -480,8 +488,8 @@ impl<'a> Running<'a> {
         }
         self.next.echo_off = self.echo.echo_off();
         self.echo.published();
-        self.next.foreground_job = self.job.0;
-        self.job.1 = self.job.0;
+        self.next.foreground_job = self.job.seen;
+        self.job.said = self.job.seen;
         // A prompt said once that has ended since is said to be over in the next snapshot.
         self.changed |= self.echo.changed();
         let size = self.next.size;
@@ -522,9 +530,9 @@ impl<'a> Running<'a> {
         // A job in the foreground, for a quit that waits (ADR 0133). A failed look says none.
         // The child's id, also of a terminal adopted over a restart, which holds no `Child`.
         let child = self.channels.shared.pid.load(Ordering::Acquire);
-        let group = self.master.foreground_group().ok().flatten();
-        self.job.0 = child != 0 && group.is_some_and(|group| group != child);
-        self.changed |= self.job.0 != self.job.1;
+        self.job.seen = child != 0
+            && (self.master.foreground_group().ok().flatten()).is_some_and(|group| group != child);
+        self.changed |= self.job.seen != self.job.said;
     }
 
     /// The child's exit status, if it exits within `REAP_FOR`. One that outlives its

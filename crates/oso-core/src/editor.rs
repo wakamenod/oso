@@ -223,7 +223,7 @@ pub struct Editor {
     /// Saves the host has yet to start.
     save_jobs: Vec<SaveJob>,
     /// What the last refused exit put at risk, until it is answered or a save changes that.
-    exit_attempt: Option<Vec<BufferId>>,
+    exit_attempt: Option<Vec<(BufferId, ContentId)>>,
     /// The person asked to exit once no terminal is busy (ADR 0133).
     quit_when_idle: bool,
     /// What an input method is composing, shown at the selected window's primary

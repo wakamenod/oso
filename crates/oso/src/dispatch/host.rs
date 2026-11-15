@@ -26,12 +26,24 @@ impl Dispatcher {
     }
 
     /// Runs `save-buffers-kill-terminal` confirmed, as `y` to its question would, for an exit
-    /// that waited until no terminal was busy: it exits, unless more is at risk than the
-    /// person agreed to lose, when it asks again. `None` while a prompt is open or input is
-    /// held (`!`, an undo), when it runs nothing and the host tries again later.
+    /// that waited until no terminal was busy, and it exits. If more is at risk than the person
+    /// agreed to lose, it asks nothing, as no question opens from a background event
+    /// (ADR 0072): the wait stops, and the echo area says why. `None` while a prompt is open
+    /// or input is held (`!`, an undo), when it runs nothing and the host tries again later.
     pub fn exit_when_idle(&mut self, editor: &mut Editor) -> Option<Effects> {
         if editor.prompt().is_some() || holds_input(editor) {
             return None;
+        }
+        if let Err(refused) = editor.confirm_exit(true) {
+            // The next `C-x C-c` asks about all of it again.
+            editor.reset_exit_guard();
+            editor.echo(format!(
+                "Not quit, as more is at risk now: {refused}; C-x C-c asks"
+            ));
+            return Some(Effects {
+                redraw: true,
+                ..Effects::default()
+            });
         }
         let Some(id) = self.registry.lookup("save-buffers-kill-terminal") else {
             log::error!("no save-buffers-kill-terminal to exit with");

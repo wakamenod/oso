@@ -29,7 +29,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "quit-when-idle",
-        doc: "Exit oso once no session has a turn under way and no terminal runs a job.\n\nYou go on working meanwhile. Once every terminal has been idle for 2 seconds, oso exits as `C-x C-c` would, and asks instead if more is at risk by then than you agreed to lose. `C-g` cancels, and so does `C-x C-c`, which asks again. A shell started with no job control, as `sh -c` is, shows no job.",
+        doc: "Exit oso once no session has a turn under way and no terminal runs a job.\n\nYou go on working meanwhile. Once every terminal has been idle for 2 seconds, oso exits as `C-x C-c` would, and if more is at risk by then than you agreed to lose, it stops and says so instead. `C-x C-c` cancels, as it asks again and only `w` waits again, and so does `C-g` where oso has the keys: a terminal sends it to its program. A shell started with no job control, as `sh -c` is, shows no job, and a job in the background is not waited for.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: quit_when_idle,
@@ -66,6 +66,8 @@ fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     // With nothing else to do, it cancels an exit that waits for the terminals (ADR 0133).
     if quit == Quit::Nothing && ctx.editor.quit_when_idle() {
         ctx.editor.set_quit_when_idle(false);
+        // What the person agreed to lose for that exit is asked about again next time.
+        ctx.editor.reset_exit_guard();
         ctx.editor.echo("Quit when idle cancelled");
         ctx.request_redraw();
         return Ok(());
@@ -113,7 +115,8 @@ fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandE
     }
     let work = !turns.is_empty() || !jobs.is_empty();
     let more = if work { " more" } else { "" };
-    match ctx.editor.running_terminals().count() - turns.len() - jobs.len() {
+    let others = ctx.editor.running_terminals().count();
+    match others.saturating_sub(turns.len() + jobs.len()) {
         0 => {}
         1 if work => lost.push("1 more terminal ends".to_owned()),
         1 => lost.push("1 terminal runs a program".to_owned()),
@@ -158,6 +161,11 @@ fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandE
 }
 
 fn quit_when_idle(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    // From `M-x`, nothing was agreed to: the exit asks about unsaved text once idle. As `w` to
+    // `C-x C-c`'s question, what that question named was.
+    if !ctx.confirmed() {
+        ctx.editor.reset_exit_guard();
+    }
     ctx.editor.set_quit_when_idle(true);
     let (turns, jobs) = busy(ctx.editor);
     let count = |n: usize, one: &str, many: &str| match n {
@@ -173,10 +181,10 @@ fn quit_when_idle(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     .flatten()
     .collect();
     ctx.editor.echo(if under_way.is_empty() {
-        "Quitting when idle; C-g cancels".to_owned()
+        "Quitting when idle; C-x C-c n cancels".to_owned()
     } else {
         format!(
-            "Quitting when idle: {} under way; C-g cancels",
+            "Quitting when idle: {} under way; C-x C-c n cancels",
             under_way.join(" and ")
         )
     });
@@ -331,8 +339,8 @@ mod tests {
         for id in [session, job, idle] {
             editor.set_running(id, true);
         }
-        editor.set_busy(session, true);
-        editor.set_busy(job, true);
+        editor.set_session_turn(session, true);
+        editor.set_terminal_job(job, true);
         (editor, [session, job, idle])
     }
 
@@ -363,10 +371,10 @@ mod tests {
         assert!(editor.quit_when_idle());
         assert_eq!(
             echo(&editor),
-            "Quitting when idle: 1 turn and 1 job under way; C-g cancels"
+            "Quitting when idle: 1 turn and 1 job under way; C-x C-c n cancels"
         );
         // A job that ends leaves the turn to wait for.
-        editor.set_busy(job, false);
+        editor.set_terminal_job(job, false);
         assert_eq!(editor.busy_terminals().count(), 1);
     }
 
@@ -393,7 +401,7 @@ mod tests {
         for _ in 0..5 {
             let id = editor.add_terminal_buffer("*terminal*");
             editor.set_running(id, true);
-            editor.set_busy(id, true);
+            editor.set_terminal_job(id, true);
         }
         run(&mut editor, "save-buffers-kill-terminal", Args::NONE)
             .0

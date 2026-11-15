@@ -204,7 +204,7 @@ impl App {
             .and_then(|session| session.buffer);
         if let Some(buffer) = buffer {
             let busy = matches!(change.state, State::Working | State::NeedsInput(_));
-            self.editor.set_busy(buffer, busy);
+            self.editor.set_session_turn(buffer, busy);
         }
         if change.turn_ended {
             self.look_for_changes(key);

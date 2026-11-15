@@ -48,6 +48,7 @@ mod worktrees;
 
 #[cfg(test)]
 pub(crate) use messages::kept_messages;
+pub(crate) use minibuffer::answer_hint;
 use oso_core::command::{Command, CommandError, Ctx, Registry};
 use oso_core::motion::{TOO_MUCH, WalkBudget};
 

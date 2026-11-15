@@ -1841,11 +1841,12 @@ pub fn oso_core::editor::Editor::busy_terminals(&self) -> impl core::iter::trait
 pub fn oso_core::editor::Editor::request_terminal(&mut self, oso_core::editor::TerminalRequest)
 pub fn oso_core::editor::Editor::running_terminals(&self) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::buffer::BufferId> + '_
 pub fn oso_core::editor::Editor::set_agent_reads(&mut self, oso_core::buffer::BufferId, bool)
-pub fn oso_core::editor::Editor::set_busy(&mut self, oso_core::buffer::BufferId, bool)
 pub fn oso_core::editor::Editor::set_echo_off(&mut self, oso_core::buffer::BufferId, bool)
 pub fn oso_core::editor::Editor::set_hosts_session(&mut self, oso_core::buffer::BufferId, bool)
 pub fn oso_core::editor::Editor::set_mode_note(&mut self, oso_core::buffer::BufferId, alloc::string::String)
 pub fn oso_core::editor::Editor::set_running(&mut self, oso_core::buffer::BufferId, bool)
+pub fn oso_core::editor::Editor::set_session_turn(&mut self, oso_core::buffer::BufferId, bool)
+pub fn oso_core::editor::Editor::set_terminal_job(&mut self, oso_core::buffer::BufferId, bool)
 pub fn oso_core::editor::Editor::take_terminal_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::TerminalRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::agent_channel(&self) -> oso_core::editor::AgentChannel

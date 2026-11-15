@@ -406,17 +406,18 @@ impl Editor {
     pub fn confirm_exit(&mut self, confirmed: bool) -> Result<(), ExitRefused> {
         let modified = self.buffers().filter(|(_, b)| b.is_modified()).count();
         let saving = self.buffers().filter(|(_, b)| b.is_saving()).count();
-        // The person agreed to lose these buffers, and no other: a buffer modified since the
-        // question asks again, even if another's save landed meanwhile.
-        let at_risk: Vec<BufferId> = self
+        // The person agreed to lose these buffers as they were, and no other: a buffer modified
+        // or edited since the question asks again, even if another's save landed meanwhile, as
+        // an exit that waits for the terminals lets the person go on working (ADR 0133).
+        let at_risk: Vec<(BufferId, ContentId)> = self
             .buffers()
             .filter(|(_, b)| b.is_modified() || b.is_saving())
-            .map(|(id, _)| id)
+            .map(|(id, b)| (id, b.content_id()))
             .collect();
         let agreed = self
             .exit_attempt
             .as_ref()
-            .is_some_and(|asked| at_risk.iter().all(|id| asked.contains(id)));
+            .is_some_and(|asked| at_risk.iter().all(|risk| asked.contains(risk)));
         if at_risk.is_empty() || (confirmed && agreed) {
             return Ok(());
         }

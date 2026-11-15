@@ -125,6 +125,11 @@ impl App {
         holds
     }
 
+    /// Whether a restart is under way here, or this instance still takes over.
+    pub(super) fn restart_holds(&self) -> bool {
+        self.restart.under_way || self.restart.taking_over
+    }
+
     /// Starts the agent channel if it was asked for while a restart held it off.
     fn start_the_channel_held_off(&mut self) {
         match self.restart.channel_wanted.take() {

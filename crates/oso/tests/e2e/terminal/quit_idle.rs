@@ -1,6 +1,7 @@
 //! Quitting when idle (ADR 0133, step 5): `C-x C-c` with a job running in a shell names it and
 //! offers to wait; `w` leaves the instance running until the job has ended and everything has
-//! been idle for a while, and then it exits by itself; `C-g` stops the wait.
+//! been idle for a while, and then it exits by itself; `C-x C-c n` stops the wait, from the
+//! terminal, which sends `C-g` to its program.
 //!
 //! Must not depend on: the app's internals; this drives a real instance over its socket.
 
@@ -64,16 +65,19 @@ fn w_exits_once_the_job_has_ended() {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn c_g_stops_the_wait() {
+fn another_exit_answered_n_stops_the_wait() {
     let (_scratch, mut app) = start("quit-when-idle-cancelled");
     exit_during_a_job(&mut app);
-    app.send_keys("w C-g");
-    app.wait_for("the cancel said", |state| {
-        state["echo"].as_str() == Some("Quit when idle cancelled")
+    app.send_keys("w");
+    app.wait_for("the wait said", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.ends_with("C-x C-c n cancels"))
     });
+    app.send_keys("C-x C-c n");
     // The job's 3 s and the hold's 2 s, and more.
     assert!(
         still_running(&mut app, Duration::from_secs(7)),
-        "it exited after C-g"
+        "it exited after C-x C-c n"
     );
 }

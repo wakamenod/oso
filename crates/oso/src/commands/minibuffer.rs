@@ -99,11 +99,21 @@ fn answer_no(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     answer(ctx, false)
 }
 
+/// What a key that answers nothing says of the open question: its keys (ADR 0133).
+pub(crate) fn answer_hint(editor: &oso_core::editor::Editor) -> &'static str {
+    let third = editor.prompt().map(oso_core::minibuffer::Prompt::kind);
+    if let Some(oso_core::minibuffer::Kind::Question { third: Some(_), .. }) = third {
+        "Answer y, n or w"
+    } else {
+        "Answer y or n"
+    }
+}
+
 fn answer_third(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     // A question of two answers stays open and says what answers it.
     ctx.editor
         .answer_question_third()
-        .map_err(|_| CommandError::new("Answer y or n"))?;
+        .map_err(|_| CommandError::new(answer_hint(ctx.editor)))?;
     ctx.request_redraw();
     Ok(())
 }
