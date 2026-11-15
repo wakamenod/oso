@@ -171,8 +171,8 @@ space's orchestrator and its workers.
 
 ### The orchestrator
 
-- **One a space, at most.** `space-new` starts it; a space of one repository made by migration
-  gets one with `space-orchestrator-start`.
+- **One a space, at most.** `space-orchestrator-start` (`o` in the space menu) starts it, in
+  every space: `space-new` only makes the space (the author's choice, 2026-11-15).
 - **Its command line** is ADR 0121's, in the space's directory, plus:
   - `--add-dir PATH` for each member repository whose project oso trusts (Q8), from the space's
     record, each checked again (still a directory, same device and inode) and passed as its own
@@ -261,7 +261,7 @@ space's orchestrator and its workers.
 
 | Command | Reach | Key | What it does |
 |---|---|---|---|
-| `space-new` | `Person` | `C-x a O` | asks for a name and title, then the repositories (completing known projects, at least one), makes the space and its directory, enters it and starts the orchestrator |
+| `space-new` | `Person` | `C-x a O` | asks for a name and title, then the repositories (completing known projects, at least one), makes the space and its directory and enters it; `space-orchestrator-start` starts its orchestrator |
 | `space-add-repo` | `Person` | menu `a` | adds a repository; offers to paste `/add-dir PATH` into the orchestrator's input, not submitted, as ADR 0121's `session-send` |
 | `space-remove-repo` | `Person` | menu `r` | refuses while a session of the space runs in it; its worktrees stay |
 | `space-orchestrator-start` | `Person` | menu `o` | in a space with no live orchestrator |
@@ -625,6 +625,60 @@ needs input (Q4).
     person's to say on a repository's row.
 - **The orchestrator's row** under a space's waits for step 3, which starts the orchestrator.
 
+## Step 3, as built
+
+The author answered on 2026-11-15, through the coordinator, (a) for each but Q5: the
+orchestrator starts with no first prompt, the fixed text saying to read `handoff.md` first if
+it is there (Q1); the space's instructions go in the opening text, at most 16 KiB, said to be a
+file agents in oso can edit too (Q2); the move of oso's own coordinator follows this step
+(Q3); a command that needs a project, from the orchestrator's buffer, says to use a
+repository's row until step 4 (Q4). Q5 (b): a repository trusted later joins `--add-dir` at the
+next start or resume, and oso also offers to paste `/add-dir PATH` into the running
+orchestrator, as for a repository added while it runs.
+
+- **The CLI,** 2.1.325, defines `--add-dir <directories...>`, a variadic option: one
+  `--add-dir=PATH` a repository takes exactly one value each, and repeated ones add up. Started
+  in a terminal with three of them and read through its local `/permissions` Workspace tab
+  (no prompt sent), it listed all three beside its working directory. `/status` lists none.
+- **`space-orchestrator-start`** (`Person`, menu `o`) shows the orchestrator when it runs; else
+  starts it, the space's directory made first when it has none, or made again at its place
+  with a prefix argument when it is gone (refused if anything is there). oso-core gains
+  `SpaceRequest::StartOrchestrator { remake_directory }`.
+- **Trust** is decided as oso trusts a project, by path and identity (`TrustList::trusts`,
+  made public in oso-core with the author's approval, 2026-11-15): a repository made again at
+  a trusted path, or one whose identity was never kept, gets no `--add-dir` and no offer.
+- **Just before the spawn,** on the session's start thread, `orchestrator::check_before_start`
+  runs ADR 0136's directory checks again, on the path as written and on its real path, and
+  refuses a root with any directory above either that a group or other users can write, sticky
+  or not, or that cannot be looked at. A trusted repository put in another's place, with no
+  identity kept, or that is the root or holds the home directory is left out of `--add-dir`,
+  and said, in the echo area and to the orchestrator. The instructions are read there: in
+  their private directory, the person's own file, no link, one name.
+- **Every start in a space's directory** passes these checks: a fork there, and a resume of
+  an earlier orchestrator, get the checks with no `--add-dir` and no prompt.
+- **Its command line** puts each `--add-dir=` before `--name`, and its text and header in
+  `--append-system-prompt`; a resume makes both again from the space as it is
+  (`orchestrator_start_for`). The text is checked at build time to stay within 4 KiB.
+- **The record:** the space keeps its orchestrator's session id, the one before it in
+  `earlier`; the session belongs to the space from its start.
+- **The pane** lists the orchestrator right under its space's row with a dim `orchestrator`,
+  placed by its space's directory; `RET` on the space's row shows it. Its row is two cells in
+  from the space's, so `M-n` stops at it.
+- **Offers** (Q5): a question with `space-confirm` as its `y`; what it would paste is kept
+  beside it, dropped when another is asked or the question closes otherwise, and pasted on `y`
+  as the person's bracketed paste, never submitted. oso-core gains `SpaceRequest::Confirmed`.
+  The repository must be trusted to be offered, and one the orchestrator was given at its
+  start, or pasted since, is not offered again; nothing is offered on the first read of the
+  trust list, as when oso starts or restarts. `space-confirm` runs only as a question's `y`,
+  and checks again that the session is still the space's running orchestrator and the
+  repository still one of the space's that oso trusts.
+- **The title** is given to the orchestrator as the space's title, kept in a record agents in
+  oso can write too, as the instructions are.
+- **The space commands' looks at the disk** (a directory, a repository, the instructions'
+  directory) run on a thread of their own each, not on the sessions worker.
+- **`space-new` only makes the space** (the author's choice, 2026-11-15): its orchestrator
+  starts with `o`, `space-orchestrator-start`, as in a space made from repositories.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it. They apply once this ADR is
@@ -643,8 +697,8 @@ accepted and the step that builds each is merged.
 - ADR 0121, "Projects, light", the overview: the pane at the current space's row (as ADR 0132
   already has it).
 - [ADR 0128](0128-orchestration-and-automations.md), "`orchestrate` (`Person`, `C-x a O`) … in a
-  new worktree on branch `orch/<slug>`": `space-new` on `C-x a O` starts the orchestrator in the
-  space's directory; `workers_start` names a repository; `merge_branches` takes a target worktree
+  new worktree on branch `orch/<slug>`": `space-new` on `C-x a O` makes the space and
+  `space-orchestrator-start` starts its orchestrator in the space's directory; `workers_start` names a repository; `merge_branches` takes a target worktree
   of the space.
 - [ADR 0131](0131-an-orca-style-sessions-pane.md), "**A project** is a repository that has a space
   in this oso": the pane's top level is the space; repositories are rows under it.

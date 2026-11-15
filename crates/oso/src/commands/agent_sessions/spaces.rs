@@ -116,6 +116,24 @@ They are kept in oso's state directory, never in the space's own directory or a 
         state: None,
     },
     Command {
+        name: "space-orchestrator-start",
+        doc: "Start the orchestrator of the space in front, in the space's own directory: the session you talk to about the issue, which works through sessions in worktrees of the space's repositories.
+
+It is told the space's repositories, title and instructions, and given each trusted repository as a working directory. With a prefix argument, a space directory that is gone is made again, empty, at its place.",
+        args: ArgSpec::Count,
+        reach: Reach::Person,
+        run: space_orchestrator_start,
+        state: None,
+    },
+    Command {
+        name: "space-confirm",
+        doc: "Do what the space question just answered with y offers: paste `/add-dir` into the space's orchestrator, not sent.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: space_confirm,
+        state: None,
+    },
+    Command {
         name: "space-directory",
         doc: "List the directory of the space in front, where its orchestrator works, making it first if it has none.",
         args: ArgSpec::None,
@@ -172,6 +190,18 @@ fn space_rename(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn space_instructions(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     ask(ctx, SpaceRequest::Instructions)
+}
+
+fn space_orchestrator_start(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    let remake_directory = args.raw().is_some();
+    ask(ctx, SpaceRequest::StartOrchestrator { remake_directory })
+}
+
+fn space_confirm(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    if !ctx.confirmed() {
+        return Err(CommandError::new("The space's question answers this"));
+    }
+    ask(ctx, SpaceRequest::Confirmed)
 }
 
 fn space_directory(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

@@ -1644,12 +1644,15 @@ impl core::marker::StructuralPartialEq for oso_core::editor::Shift
 pub enum oso_core::editor::SpaceRequest
 pub oso_core::editor::SpaceRequest::AddRepo(alloc::string::String)
 pub oso_core::editor::SpaceRequest::Close
+pub oso_core::editor::SpaceRequest::Confirmed
 pub oso_core::editor::SpaceRequest::Directory
 pub oso_core::editor::SpaceRequest::Instructions
 pub oso_core::editor::SpaceRequest::New(alloc::string::String)
 pub oso_core::editor::SpaceRequest::RemoveRepo(alloc::string::String)
 pub oso_core::editor::SpaceRequest::Rename(alloc::string::String)
 pub oso_core::editor::SpaceRequest::Reopen(alloc::string::String)
+pub oso_core::editor::SpaceRequest::StartOrchestrator
+pub oso_core::editor::SpaceRequest::StartOrchestrator::remake_directory: bool
 impl core::clone::Clone for oso_core::editor::SpaceRequest
 pub fn oso_core::editor::SpaceRequest::clone(&self) -> oso_core::editor::SpaceRequest
 impl core::cmp::Eq for oso_core::editor::SpaceRequest
@@ -4249,6 +4252,7 @@ pub fn oso_core::project::TrustList::apply(&self, &oso_core::project::TrustChang
 pub fn oso_core::project::TrustList::format(&self) -> alloc::string::String
 pub fn oso_core::project::TrustList::parse(&str) -> (Self, usize)
 pub fn oso_core::project::TrustList::paths(&self) -> impl core::iter::traits::iterator::Iterator<Item = &std::path::Path>
+pub fn oso_core::project::TrustList::trusts(&self, &oso_core::project::RootIdentity) -> bool
 impl core::clone::Clone for oso_core::project::TrustList
 pub fn oso_core::project::TrustList::clone(&self) -> oso_core::project::TrustList
 impl core::cmp::Eq for oso_core::project::TrustList

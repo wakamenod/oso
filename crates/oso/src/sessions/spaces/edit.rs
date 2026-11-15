@@ -233,6 +233,41 @@ impl Spaces {
             .collect()
     }
 
+    /// Notes the orchestrator `id` of space `at`, the one before it kept as an earlier one,
+    /// at most [`MAX_EARLIER`](super::stored::MAX_EARLIER) of them.
+    pub fn set_orchestrator(
+        &mut self,
+        at: usize,
+        id: crate::sessions::identity::SessionId,
+        now: u64,
+    ) {
+        let Some(space) = self.spaces.get_mut(at) else {
+            return;
+        };
+        let stored = &mut space.stored;
+        if stored.orchestrator.as_ref() == Some(&id) {
+            return;
+        }
+        if let Some(before) = stored.orchestrator.replace(id) {
+            stored.earlier.push(before);
+            let over = stored
+                .earlier
+                .len()
+                .saturating_sub(super::stored::MAX_EARLIER);
+            stored.earlier.drain(..over);
+        }
+        stored.changed = now;
+        self.unsaved = true;
+    }
+
+    /// Space `at`'s repositories by their names in it, as [`Self::member_candidates`] lists the
+    /// space in front's.
+    pub fn member_names(&self, at: usize) -> Vec<(String, PathBuf)> {
+        self.spaces
+            .get(at)
+            .map_or_else(Vec::new, |space| names_of(&space.stored))
+    }
+
     /// The candidates of `space-remove-repo`: the repositories of the space in front, by
     /// name, two of one name told apart with `<2>` as buffers are, with their roots.
     pub fn member_candidates(&self) -> Arc<[Candidate]> {
@@ -256,21 +291,8 @@ impl Spaces {
     /// The space in front's repositories by their names in it: each root's last component,
     /// cleaned, `<2>` and on after the first of a name.
     fn front_member_names(&self) -> Vec<(String, PathBuf)> {
-        let Some(space) = self.current.and_then(|at| self.spaces.get(at)) else {
-            return Vec::new();
-        };
-        let mut named: Vec<(String, PathBuf)> = Vec::new();
-        for member in &space.stored.members {
-            let base = crate::sessions::recap::clean(&member.name());
-            let mut name = base.clone();
-            let mut n = 2;
-            while named.iter().any(|(taken, _)| *taken == name) {
-                name = format!("{base}<{n}>");
-                n += 1;
-            }
-            named.push((name, member.root.clone()));
-        }
-        named
+        self.current
+            .map_or_else(Vec::new, |at| self.member_names(at))
     }
 
     /// Every open space's repositories, each once, in the spaces' order.
@@ -286,6 +308,23 @@ impl Spaces {
         }
         roots
     }
+}
+
+/// `stored`'s repositories by their names in it: each root's last component, cleaned, `<2>`
+/// and on after the first of a name.
+fn names_of(stored: &Stored) -> Vec<(String, PathBuf)> {
+    let mut named: Vec<(String, PathBuf)> = Vec::new();
+    for member in &stored.members {
+        let base = crate::sessions::recap::clean(&member.name());
+        let mut name = base.clone();
+        let mut n = 2;
+        while named.iter().any(|(taken, _)| *taken == name) {
+            name = format!("{base}<{n}>");
+            n += 1;
+        }
+        named.push((name, member.root.clone()));
+    }
+    named
 }
 
 /// Which of a space's running sessions closing it stops, as `(key, name, state)`: all of

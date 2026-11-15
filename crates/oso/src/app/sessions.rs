@@ -108,6 +108,8 @@ impl App {
         // stop still asked.
         self.drop_unasked_stop();
         self.forget_unanswered_space();
+        self.notice_trust();
+        self.forget_unanswered_offer();
         self.sync_seen();
         // What the person asked shows at once; the worker's changes wait for the loop, so
         // that many make the views once.

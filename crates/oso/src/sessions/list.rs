@@ -251,6 +251,7 @@ impl List {
                     spin: self.spin,
                     waiting,
                     place: true,
+                    tag: None,
                 };
                 row.render(&mut out, width, now);
                 if self.folded(&Fold::Nested(parent.key)) {
@@ -263,6 +264,7 @@ impl List {
                         spin: self.spin,
                         waiting: 0,
                         place: true,
+                        tag: None,
                     };
                     row.render(&mut out, width, now);
                 }
@@ -437,6 +439,8 @@ struct Row<'e> {
     waiting: usize,
     /// Whether it shows its place: not under its worktree in the tree.
     place: bool,
+    /// What it shows after its name in the tree instead: `orchestrator` (ADR 0136, step 3).
+    tag: Option<&'static str>,
 }
 
 impl Row<'_> {
@@ -458,7 +462,9 @@ impl Row<'_> {
         let left = room.saturating_sub(cells(&name) + 2);
         let mut place = None;
         // Under its worktree in the tree, only the mark of a start without asking.
-        let shown: Option<std::borrow::Cow<'_, str>> = if self.place {
+        let shown: Option<std::borrow::Cow<'_, str>> = if let Some(tag) = self.tag {
+            Some(tag.into())
+        } else if self.place {
             Some(self.place().into())
         } else {
             entry.unasked.then_some(UNASKED.into())

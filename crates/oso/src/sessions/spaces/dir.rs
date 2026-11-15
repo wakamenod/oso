@@ -144,10 +144,6 @@ pub fn make(
 /// # Errors
 ///
 /// A [`Refusal`].
-#[cfg_attr(
-    any(not(test), not(unix)),
-    expect(dead_code, reason = "the orchestrator's start checks it in step 3")
-)]
 pub fn check(path: &Path, made: Option<(u64, u64)>, members: &[Member]) -> Result<(), Refusal> {
     let meta = match fs::symlink_metadata(path) {
         Ok(meta) => meta,
@@ -188,7 +184,7 @@ const READ_ABOVE: [&str; 3] = ["CLAUDE.md", "CLAUDE.local.md", ".claude"];
 /// Refuses a space's directory at `path` when it, or a directory above it, is a repository,
 /// when a directory above it holds what Claude Code reads and another user owns, or when it
 /// is inside one of `members`, by their real paths where they exist.
-fn usable(path: &Path, members: &[Member]) -> Result<(), Refusal> {
+pub(super) fn usable(path: &Path, members: &[Member]) -> Result<(), Refusal> {
     for (depth, dir) in path.ancestors().enumerate() {
         if present(&dir.join(".git"))?.is_some() {
             return Err(Refusal::Repository(dir.to_owned()));

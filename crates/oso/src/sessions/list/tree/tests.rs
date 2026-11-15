@@ -336,6 +336,7 @@ fn space(n: u8, name: &str, projects: Vec<Project>) -> super::SpaceRows {
         id: crate::sessions::spaces::SpaceId::from_random([n; 16]),
         name: name.to_owned(),
         projects,
+        directory: None,
     }
 }
 

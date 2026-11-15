@@ -125,7 +125,7 @@ impl TrustList {
 
     /// Whether `root` is trusted: its path and its identity are both recorded, so a directory
     /// made again at the same path is not.
-    pub(crate) fn trusts(&self, root: &RootIdentity) -> bool {
+    pub fn trusts(&self, root: &RootIdentity) -> bool {
         self.roots.contains(root)
     }
 

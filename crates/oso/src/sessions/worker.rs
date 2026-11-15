@@ -117,6 +117,9 @@ pub enum SpaceJob {
         name: String,
         members: Vec<super::spaces::Member>,
         taken: Vec<String>,
+        /// Made under `name` alone, as a directory gone from its recorded place is made again
+        /// there (`C-u space-orchestrator-start`).
+        exact: bool,
     },
     /// Whether `path` is a repository's main checkout (`space-add-repo`, `space-new`).
     CheckRepository {
@@ -206,10 +209,11 @@ pub struct Worker {
 impl Worker {
     /// Starts the thread with the bundled rules; it calls `out` with what it finds. `None`, said
     /// in the log, if the thread cannot start.
-    pub fn start(out: impl Fn(Out) + Send + 'static) -> Option<Self> {
+    pub fn start(out: impl Fn(Out) + Send + Sync + 'static) -> Option<Self> {
         let (jobs, receiver) = mpsc::channel();
         let screens = Slot::default();
         let slot = Arc::clone(&screens);
+        let out: Arc<dyn Fn(Out) + Send + Sync> = Arc::new(out);
         let spawned = thread::Builder::new()
             .name("oso-sessions".into())
             .spawn(move || run(&receiver, &slot, &out));
@@ -242,7 +246,7 @@ impl Worker {
 
 /// The thread: waits for jobs, and for the next time a session is due, until the worker is
 /// dropped. A panic in one job is logged and the thread goes on, its sessions as they were.
-fn run(jobs: &Receiver<Job>, screens: &Slot, out: &dyn Fn(Out)) {
+fn run(jobs: &Receiver<Job>, screens: &Slot, out: &Arc<dyn Fn(Out) + Send + Sync>) {
     let mut core = Core::new(Arc::new(RuleSet::bundled()));
     loop {
         let job = match core.due() {
@@ -272,15 +276,34 @@ fn run(jobs: &Receiver<Job>, screens: &Slot, out: &dyn Fn(Out)) {
             {
                 match job {
                     Job::Screens => take_screens(&mut core, screens, now),
+                    Job::Space(probe) if jobs::looks_at_the_disk(&probe) => {
+                        probe_apart(probe, out);
+                    }
                     job => found.extend(core.handle(job, now)),
                 }
             }
             found.extend(core.tick(now));
         }));
-        found.into_iter().for_each(out);
+        found.into_iter().for_each(|found| out(found));
         if done.is_err() {
             log::error!("the sessions worker failed a job");
         }
+    }
+}
+
+/// Does what a space command asked to look up on the disk on a thread of its own, so that a
+/// path on a mount that does not answer never holds the judging of screens (ADR 0136, step 3).
+fn probe_apart(probe: SpaceJob, out: &Arc<dyn Fn(Out) + Send + Sync>) {
+    let out = Arc::clone(out);
+    let spawned = thread::Builder::new()
+        .name("oso-space-probe".into())
+        .spawn(move || {
+            jobs::space_job(probe)
+                .into_iter()
+                .for_each(|found| out(found))
+        });
+    if let Err(e) = spawned {
+        log::warn!("a space's look at the disk cannot start: {e}");
     }
 }
 
