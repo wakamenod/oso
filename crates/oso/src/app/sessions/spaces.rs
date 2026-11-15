@@ -55,6 +55,8 @@ pub(in crate::app) struct SpaceWork {
     /// What the question the host asked last offers, which `y` does (`SpaceRequest::Confirmed`):
     /// dropped when another is asked or it is answered otherwise.
     pub(in crate::app) offer: Option<orchestrator::Offer>,
+    /// The trusted roots as the spaces last saw them, to tell one trusted since.
+    pub(in crate::app) trusted_seen: Option<Vec<PathBuf>>,
 }
 
 impl SpaceWork {

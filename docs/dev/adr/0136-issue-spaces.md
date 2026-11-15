@@ -171,8 +171,8 @@ space's orchestrator and its workers.
 
 ### The orchestrator
 
-- **One a space, at most.** `space-new` starts it; a space of one repository made by migration
-  gets one with `space-orchestrator-start`.
+- **One a space, at most.** `space-orchestrator-start` (`o` in the space menu) starts it, in
+  every space: `space-new` only makes the space (the author's choice, 2026-11-15).
 - **Its command line** is ADR 0121's, in the space's directory, plus:
   - `--add-dir PATH` for each member repository whose project oso trusts (Q8), from the space's
     record, each checked again (still a directory, same device and inode) and passed as its own
@@ -261,7 +261,7 @@ space's orchestrator and its workers.
 
 | Command | Reach | Key | What it does |
 |---|---|---|---|
-| `space-new` | `Person` | `C-x a O` | asks for a name and title, then the repositories (completing known projects, at least one), makes the space and its directory, enters it and starts the orchestrator |
+| `space-new` | `Person` | `C-x a O` | asks for a name and title, then the repositories (completing known projects, at least one), makes the space and its directory and enters it; `space-orchestrator-start` starts its orchestrator |
 | `space-add-repo` | `Person` | menu `a` | adds a repository; offers to paste `/add-dir PATH` into the orchestrator's input, not submitted, as ADR 0121's `session-send` |
 | `space-remove-repo` | `Person` | menu `r` | refuses while a session of the space runs in it; its worktrees stay |
 | `space-orchestrator-start` | `Person` | menu `o` | in a space with no live orchestrator |
@@ -662,7 +662,8 @@ orchestrator, as for a repository added while it runs.
   The repository must be trusted to be offered.
 - **The space commands' looks at the disk** (a directory, a repository, the instructions'
   directory) run on a thread of their own each, not on the sessions worker.
-- **Not yet:** `space-new` does not start the orchestrator by itself; `o` does.
+- **`space-new` only makes the space** (the author's choice, 2026-11-15): its orchestrator
+  starts with `o`, `space-orchestrator-start`, as in a space made from repositories.
 
 ## Changes to accepted ADRs
 
@@ -682,8 +683,8 @@ accepted and the step that builds each is merged.
 - ADR 0121, "Projects, light", the overview: the pane at the current space's row (as ADR 0132
   already has it).
 - [ADR 0128](0128-orchestration-and-automations.md), "`orchestrate` (`Person`, `C-x a O`) … in a
-  new worktree on branch `orch/<slug>`": `space-new` on `C-x a O` starts the orchestrator in the
-  space's directory; `workers_start` names a repository; `merge_branches` takes a target worktree
+  new worktree on branch `orch/<slug>`": `space-new` on `C-x a O` makes the space and
+  `space-orchestrator-start` starts its orchestrator in the space's directory; `workers_start` names a repository; `merge_branches` takes a target worktree
   of the space.
 - [ADR 0131](0131-an-orca-style-sessions-pane.md), "**A project** is a repository that has a space
   in this oso": the pane's top level is the space; repositories are rows under it.

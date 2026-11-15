@@ -134,15 +134,10 @@ impl App {
             return;
         };
         if let Some(record) = look.record {
-            let before: Vec<std::path::PathBuf> = (self.editor.trust_list())
-                .map(|list| list.paths().map(std::path::Path::to_path_buf).collect())
-                .unwrap_or_default();
             self.editor.set_trust_list(match record {
                 Record::Read(list) => Some(list),
                 Record::Refused => None,
             });
-            // A space's repository trusted now is offered to its orchestrator (ADR 0136).
-            self.offer_newly_trusted(&before);
         }
         for said in look.said {
             self.editor.message(said);

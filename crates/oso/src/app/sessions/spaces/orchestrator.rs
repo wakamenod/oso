@@ -265,9 +265,20 @@ impl App {
         }
     }
 
-    /// The trusted roots changed from `before`: each repository of a space that became
-    /// trusted is offered to the space's running orchestrator (Q5).
-    pub(in crate::app) fn offer_newly_trusted(&mut self, before: &[PathBuf]) {
+    /// After an event: the trusted roots, compared with those the spaces saw last; a
+    /// repository of a space trusted since is offered to the space's running orchestrator
+    /// (Q5). `trust-project` changes the editor's list at once, before its record is written.
+    pub(in crate::app) fn notice_trust(&mut self) {
+        let now: Vec<PathBuf> = (self.editor.trust_list())
+            .map(|list| list.paths().map(Path::to_path_buf).collect())
+            .unwrap_or_default();
+        let before = self.hosting.spaces.trusted_seen.replace(now.clone());
+        if let Some(before) = before.filter(|before| *before != now) {
+            self.offer_newly_trusted(&before);
+        }
+    }
+
+    fn offer_newly_trusted(&mut self, before: &[PathBuf]) {
         let now: Vec<PathBuf> = self
             .editor
             .trust_list()
