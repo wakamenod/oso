@@ -77,6 +77,9 @@ pub(in crate::app) struct Watch {
     aging: bool,
     /// Each hosted session's space's name.
     placed: HashMap<SessionKey, String>,
+    /// The spaces sessions joined in this instance only, while the `spaces` file could not be
+    /// read (ADR 0136): their records keep the spaces they name.
+    joined: HashMap<SessionKey, crate::sessions::spaces::SpaceId>,
     /// Who messaged each session, and which can take a paste (step 5).
     sending: sending::Sending,
     /// How many notices asked for attention, for end-to-end flows: the Dock cannot be seen.
@@ -335,11 +338,13 @@ impl App {
             })
             .collect();
         let mut externals = Vec::new();
+        // Each session's space by its directory, from one look at the spaces' places.
+        let places = self.watch.spaces.places();
         for external in live.iter().filter(|external| !ours(external)) {
             let space = external
                 .directory
                 .as_deref()
-                .and_then(|dir| self.watch.spaces.of_path(dir))
+                .and_then(|dir| places.of(dir))
                 .and_then(|at| self.watch.spaces.get(at))
                 .map_or_else(
                     || external.directory_name(),

@@ -2,8 +2,8 @@
 //! on the UI thread. `session-worktree` lists the project's branches, opens `*Brief*`, and on
 //! `C-c C-c` makes the worktree and starts its session. `worktree-list` fills `*Worktrees*` row
 //! by row. `worktree-remove` checks first, asks, and removes only a worktree nothing would be
-//! lost from. Every git and `gh` call is a job on the `oso-sessions-git` threads. A worktree
-//! session's space opens, nested under its repository's, as its session starts.
+//! lost from. Every git and `gh` call is a job on the `oso-sessions-git` threads. A made
+//! worktree is held by the issue space that made it, where its session joins (ADR 0136).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 //!
@@ -399,9 +399,9 @@ impl App {
         let now = crate::sessions::spaces::stored::now_ms();
         let asker = (brief.parent.as_ref())
             .and_then(|id| self.hosting.table.iter().find(|session| session.id == *id))
-            .and_then(|session| session.space.clone());
+            .and_then(|session| self.space_of_session(session));
         let spaces = self.watch.spaces_mut();
-        let theirs = asker.and_then(|id| spaces.find(&id)).filter(|&at| {
+        let theirs = asker.filter(|&at| {
             spaces
                 .get(at)
                 .is_some_and(|space| space.stored.has_member(&created.main))

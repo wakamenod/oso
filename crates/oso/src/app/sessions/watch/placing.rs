@@ -5,13 +5,14 @@
 //! Must not depend on: how a frame is drawn, key presses, or the worker's thread.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use oso_core::buffer::BufferId;
 use oso_core::editor::Editor;
 
 use super::place;
 use crate::app::App;
+use crate::sessions::hosted::Hosted;
 use crate::sessions::worker::{Job, SessionKey};
 
 /// How many ids for new spaces one ask brings.
@@ -26,17 +27,21 @@ impl App {
             return;
         }
         let now = crate::sessions::spaces::stored::now_ms();
+        let keeps = self.watch.spaces.keeps_joins();
         let mut joined = false;
+        // The repository git listed each one's place under is looked up only when no space
+        // holds the place already.
         let unplaced: Vec<(SessionKey, PathBuf, Option<PathBuf>)> = self
             .hosting
             .table()
             .iter()
-            .filter(|session| {
-                (session.space.as_ref()).is_none_or(|id| self.watch.spaces.find(id).is_none())
-            })
+            .filter(|session| self.space_of_session(session).is_none())
             .map(|session| {
                 let place = place(session);
-                let repo = self.listed_repository_of(place).map(Path::to_path_buf);
+                let repo = match self.watch.spaces.holding(place) {
+                    Some(_) => None,
+                    None => self.listed_repository_of(place),
+                };
                 (session.key, place.to_path_buf(), repo)
             })
             .collect();
@@ -44,9 +49,13 @@ impl App {
             let Some(at) = self.watch.spaces.join(&place, repo.as_deref(), now) else {
                 continue;
             };
-            let id = self.watch.spaces.get(at).map(|space| space.id().clone());
-            if let Some(session) = self.hosting.table.get_mut(key) {
-                session.space = id;
+            let Some(id) = self.watch.spaces.get(at).map(|space| space.id().clone()) else {
+                continue;
+            };
+            if !keeps {
+                self.watch.joined.insert(key, id);
+            } else if let Some(session) = self.hosting.table.get_mut(key) {
+                session.space = Some(id);
                 joined = true;
             }
         }
@@ -59,8 +68,7 @@ impl App {
             let first = shown
                 .and_then(|buffer| self.hosting.table().by_buffer(buffer))
                 .or_else(|| self.hosting.table().iter().next())
-                .and_then(|session| session.space.as_ref())
-                .and_then(|id| self.watch.spaces.find(id));
+                .and_then(|session| self.space_of_session(session));
             if let Some(at) = first {
                 self.watch.spaces.adopt(at);
             }
@@ -76,8 +84,7 @@ impl App {
             .table()
             .iter()
             .map(|session| {
-                let name = (session.space.as_ref())
-                    .and_then(|id| self.watch.spaces.find(id))
+                let name = (self.space_of_session(session))
                     .and_then(|at| self.watch.spaces.get(at))
                     .map_or_else(String::new, |space| space.name().to_owned());
                 (session.key, name)
@@ -85,11 +92,30 @@ impl App {
             .collect();
         self.watch.placed = placed;
     }
+
+    /// The space hosted session `session` is in: the one its record names, else the one it
+    /// joined in this instance only.
+    pub(in crate::app) fn space_of_session(&self, session: &Hosted) -> Option<usize> {
+        let spaces = &self.watch.spaces;
+        (session.space.as_ref())
+            .and_then(|id| spaces.find(id))
+            .or_else(|| {
+                self.watch
+                    .joined
+                    .get(&session.key)
+                    .and_then(|id| spaces.find(id))
+            })
+    }
 }
 
-/// The buffer of the frame's selected window in the tree, not the side window's.
+/// The buffer of the frame's selected window, else of the tree's first when the side window is
+/// selected.
 fn tree_buffer_of(editor: &Editor) -> Option<BufferId> {
     let side = editor.side_window();
+    let selected = editor.window();
+    if Some(selected.id()) != side {
+        return Some(selected.buffer());
+    }
     editor
         .windows()
         .find(|window| Some(window.id()) != side)

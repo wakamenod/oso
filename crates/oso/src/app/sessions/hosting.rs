@@ -8,7 +8,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use oso_core::buffer::{BufferId, Mode};
 use oso_core::minibuffer::PromptId;
@@ -160,11 +159,7 @@ struct Baseline {
 
 /// Now, in ms since the epoch, for a session's last change.
 pub(in crate::app) fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| {
-            u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
-        })
+    crate::sessions::spaces::stored::now_ms()
 }
 
 /// A session's name from its directory's.
@@ -197,9 +192,11 @@ impl App {
         remembered: Vec<crate::sessions::record::Remembered>,
         spaces: Vec<crate::sessions::spaces::Stored>,
         migrated: bool,
+        readable: bool,
         fresh: Vec<crate::sessions::spaces::SpaceId>,
     ) {
         self.watch.spaces_mut().recall(spaces, fresh, migrated);
+        self.watch.spaces_mut().set_readable(readable);
         let back = self.hosting.table.recall(remembered);
         // Spaces made from the sessions are kept at once, with the sessions' spaces, so that
         // they are made once.

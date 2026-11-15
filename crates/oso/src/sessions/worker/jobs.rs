@@ -24,20 +24,29 @@ use crate::sessions::state::{Target, Tracker};
 /// How many ids for new spaces come with the recalled sessions.
 const FRESH_SPACE_IDS: usize = 8;
 
-/// The sessions an earlier oso remembered in `directory`, and the spaces kept with them, or
-/// made from them once when no spaces were kept (ADR 0136).
-fn recall(directory: &Path) -> Out {
-    let mut sessions = crate::sessions::record::read(directory);
-    let kept = spaces::record::read(directory);
-    let migrated = kept.is_none();
-    let spaces = kept.unwrap_or_else(|| {
-        let mut ids = || space_ids(1).pop();
-        spaces::migrate::from_sessions(&mut sessions, &mut ids, spaces::stored::now_ms())
-    });
+/// The sessions an earlier oso remembered in `directory`, oso's state directory, and the
+/// spaces kept with them, or made from them once when no spaces were kept (ADR 0136). With no
+/// state directory, nothing: the spaces are then this instance's alone.
+fn recall(directory: Option<&Path>) -> Out {
+    use spaces::record::Kept;
+    let mut sessions = directory
+        .map(crate::sessions::record::read)
+        .unwrap_or_default();
+    let kept = directory.map_or(Kept::Read(Vec::new()), spaces::record::read);
+    let (migrated, readable) = (kept == Kept::Missing, kept != Kept::Refused);
+    let spaces = match kept {
+        Kept::Read(spaces) => spaces,
+        Kept::Refused => Vec::new(),
+        Kept::Missing => {
+            let mut ids = || space_ids(1).pop();
+            spaces::migrate::from_sessions(&mut sessions, &mut ids, spaces::stored::now_ms())
+        }
+    };
     Out::Recalled {
         sessions,
         spaces,
         migrated,
+        readable,
         fresh: space_ids(FRESH_SPACE_IDS),
     }
 }
@@ -248,7 +257,7 @@ impl Core {
                 self.poll.watch(watched);
                 return Vec::new();
             }
-            Job::Recall(directory) => return vec![recall(&directory)],
+            Job::Recall(directory) => return vec![recall(directory.as_deref())],
             Job::RememberSpaces {
                 directory,
                 spaces,

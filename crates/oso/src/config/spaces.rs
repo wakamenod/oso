@@ -39,7 +39,22 @@ pub(super) fn spaces(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Spaces 
     for (name, value) in entries {
         match name.get_ref().as_ref() {
             "root" => {
-                spaces.root = user_path(value, "[spaces] root", "a directory's", MAX_ROOT, found);
+                let label = "[spaces] root";
+                let root = user_path(value, label, "a directory's", MAX_ROOT, found);
+                // A `..` would be refused when the directory is made; it is said here instead.
+                let up = |root: &String| {
+                    std::path::Path::new(root)
+                        .components()
+                        .any(|part| part == std::path::Component::ParentDir)
+                };
+                spaces.root = match root {
+                    Some(root) if up(&root) => {
+                        let at = value.span().start;
+                        found.at(at, format_args!("{label} takes a path with no `..`"));
+                        None
+                    }
+                    root => root,
+                };
             }
             other => unknown(found, name.span().start, other, "[spaces]"),
         }

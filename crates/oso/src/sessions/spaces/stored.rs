@@ -172,7 +172,7 @@ pub fn slug(raw: &str) -> String {
     }
 }
 
-/// `base`, or `base-2`, `base-3` and on, the first that `taken` does not hold, within
+/// `base`, a slug, or `base-2`, `base-3` and on, the first that `taken` does not hold, within
 /// [`MAX_NAME`] bytes.
 pub fn unique(base: &str, taken: &dyn Fn(&str) -> bool) -> String {
     if !taken(base) {
@@ -181,7 +181,10 @@ pub fn unique(base: &str, taken: &dyn Fn(&str) -> bool) -> String {
     (2u32..)
         .map(|n| {
             let suffix = format!("-{n}");
-            let keep = MAX_NAME.saturating_sub(suffix.len()).min(base.len());
+            let mut keep = MAX_NAME.saturating_sub(suffix.len()).min(base.len());
+            while !base.is_char_boundary(keep) {
+                keep -= 1;
+            }
             format!("{}{suffix}", base[..keep].trim_end_matches('-'))
         })
         .find(|name| !taken(name))

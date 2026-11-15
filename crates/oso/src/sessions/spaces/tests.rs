@@ -228,13 +228,19 @@ fn a_worktree_joins_the_space_of_its_repository_and_is_held_there() {
         spaces.join(elsewhere, Some(Path::new("/src/oso")), 2),
         Some(repo)
     );
-    // Inside the repository, as oso makes them, with no listing yet.
-    let inside = Path::new("/src/oso/.claude/worktrees/x");
+    // Inside the repository, with no listing: its space, but not held, as it may be a
+    // directory of the repository or another repository in it.
+    let inside = Path::new("/src/oso/vendor/lib");
     assert_eq!(spaces.join(inside, None, 3), Some(repo));
     let held = &spaces.get(repo).unwrap().stored.worktrees;
-    assert_eq!(held, &[PathBuf::from("/wt/fix"), PathBuf::from(inside)]);
-    assert_eq!(spaces.holding(inside), Some(repo));
-    assert_eq!(spaces.of_path(&inside.join("src/main.rs")), Some(repo));
+    assert_eq!(held, &[PathBuf::from("/wt/fix")]);
+    assert_eq!(spaces.holding(elsewhere), Some(repo));
+    assert_eq!(spaces.of_path(&elsewhere.join("src/main.rs")), Some(repo));
+    assert_eq!(
+        spaces.of_path(&inside.join("a.rs")),
+        Some(repo),
+        "by its repository"
+    );
     assert_eq!(spaces.of_path(Path::new("/tmp")), None);
 }
 
@@ -313,4 +319,94 @@ fn space_switch_lists_open_spaces_with_their_title_or_repositories() {
         None,
         "an archived space takes none, and no id is left for a new one"
     );
+}
+
+#[test]
+fn many_paths_find_the_deepest_place_and_the_space_in_front_on_a_tie() {
+    let mut editor = editor();
+    let mut spaces = recalled(0);
+    let a = add(&mut spaces, "/src/oso");
+    let b = add(&mut spaces, "/src/oso");
+    spaces.hold_worktree(b, Path::new("/src/oso/.claude/worktrees/x"), 1);
+    spaces.adopt(a);
+    let places = spaces.places();
+    assert_eq!(
+        places.of(Path::new("/src/oso/.claude/worktrees/x/a.rs")),
+        Some(b)
+    );
+    assert_eq!(
+        places.of(Path::new("/src/oso/src/a.rs")),
+        Some(a),
+        "in front"
+    );
+    assert_eq!(places.of(Path::new("/tmp")), None);
+    spaces.enter(&mut editor, b).unwrap();
+    assert_eq!(
+        spaces.of_path(Path::new("/src/oso/src/a.rs")),
+        Some(b),
+        "now in front"
+    );
+}
+
+#[test]
+fn spaces_of_one_name_from_two_instances_are_told_apart() {
+    let mut spaces = recalled(0);
+    let one = Stored::of_repository(id(1), "oso".into(), Member::at(Path::new("/a/oso")), 1);
+    let two = Stored::of_repository(id(2), "oso".into(), Member::at(Path::new("/b/oso")), 1);
+    spaces.recall(vec![one, two], Vec::new(), false);
+    let names: Vec<&str> = spaces.iter().map(super::Space::name).collect();
+    assert_eq!(names, ["oso", "oso-2"]);
+    assert!(spaces.take_unsaved().is_some(), "the new name is kept");
+}
+
+#[test]
+fn space_switch_lists_the_space_in_front_last() {
+    let mut editor = editor();
+    let mut spaces = recalled(0);
+    let a = add(&mut spaces, "/src/a");
+    let b = add(&mut spaces, "/src/b");
+    spaces.adopt(b);
+    let order = |spaces: &Spaces| -> Vec<String> {
+        spaces
+            .candidates()
+            .iter()
+            .map(|c| c.text().to_owned())
+            .collect()
+    };
+    assert_eq!(order(&spaces), ["a", "b"]);
+    spaces.enter(&mut editor, a).unwrap();
+    assert_eq!(order(&spaces), ["b", "a"]);
+}
+
+#[test]
+fn the_spaces_of_300_other_programs_sessions_are_found_well_within_the_budget() {
+    let mut spaces = recalled(0);
+    for n in 0..10 {
+        let at = add(&mut spaces, &format!("/w/repo-{n}"));
+        for w in 0..20 {
+            let path = PathBuf::from(format!("/w/repo-{n}/.claude/worktrees/wt-{w}"));
+            spaces.hold_worktree(at, &path, 1);
+        }
+    }
+    let dirs: Vec<PathBuf> = (0..300)
+        .map(|n| {
+            PathBuf::from(format!(
+                "/w/repo-{}/.claude/worktrees/wt-{}/src/deep/dir",
+                n % 10,
+                n % 256
+            ))
+        })
+        .collect();
+    let mut best = std::time::Duration::MAX;
+    for _ in 0..10 {
+        let start = std::time::Instant::now();
+        let places = spaces.places();
+        let found = dirs.iter().filter(|dir| places.of(dir).is_some()).count();
+        best = best.min(start.elapsed());
+        assert_eq!(found, 300);
+    }
+    // A debug build is several times slower; the budget is a release build's: ADR 0131's
+    // 0.5 ms is for a whole change of the model, of which this may take 0.2 ms (about 0.11 ms
+    // on the reference Mac; a scan of every place for each session took tens of times more).
+    assert!(cfg!(debug_assertions) || best.as_micros() < 200, "{best:?}");
 }

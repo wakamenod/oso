@@ -42,6 +42,7 @@ fn a_bad_root_is_said_and_the_default_stays() {
             "takes a path of at most 1024 bytes",
         ),
         ("3", "takes a directory's path, not a number"),
+        ("\"~/a/../spaces\"", "takes a path with no `..`"),
     ] {
         let loaded = f.parse(&format!("[spaces]\nroot = {value}\n"));
         let messages = messages(&loaded);
@@ -61,5 +62,6 @@ fn a_root_under_home_needs_a_home() {
         Some(PathBuf::from("/h/spaces"))
     );
     assert_eq!(expand("~/spaces", None), None);
+    assert_eq!(expand("~/spaces", Some(Path::new("relative"))), None);
     assert_eq!(expand("/w/s", None), Some(PathBuf::from("/w/s")));
 }

@@ -12,15 +12,18 @@
 //! (ADR 0114's check, [`linked_worktree`]). Only paths oso remembered, and the directories
 //! above them, are looked at; nothing a repository wrote is followed first.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use oso_core::project::MAX_GIT_FILE;
 
 use super::dir::identity;
 use super::stored::{Member, SpaceId, Stored, last_component, same, slug, unique};
 use crate::project::linked_worktree;
 use crate::sessions::record::Remembered;
 
-/// How many directories above a worktree are looked at for its repository.
+/// How many directories above a worktree are looked at for the repository it names.
 const MAX_UP: usize = 64;
 
 /// The spaces of `sessions`' repositories, each with an id from `ids`, as of `now`; each
@@ -32,9 +35,18 @@ pub fn from_sessions(
     now: u64,
 ) -> Vec<Stored> {
     let places: Vec<PathBuf> = sessions.iter().map(|s| place(s).to_owned()).collect();
+    let mut repositories: HashMap<PathBuf, PathBuf> = HashMap::new();
     let mut spaces: Vec<Stored> = Vec::new();
     for session in sessions.iter_mut() {
-        let repo = repository_of(place(session), &places);
+        let at_place = place(session);
+        let repo = match repositories.get(at_place) {
+            Some(repo) => repo.clone(),
+            None => {
+                let repo = repository_of(at_place, &places);
+                repositories.insert(at_place.to_owned(), repo.clone());
+                repo
+            }
+        };
         let at = match spaces.iter().position(|space| space.has_member(&repo)) {
             Some(at) => at,
             None => {
@@ -67,27 +79,45 @@ fn place(session: &Remembered) -> &Path {
 }
 
 /// The repository whose main checkout `place` is, or whose worktree it is, among the
-/// directories above it and the other `places`; else `place` itself.
+/// directories above it and the other `places`; else `place` itself. A worktree's `.git` is
+/// read once, for the repository its words name, and that one alone is then checked.
 fn repository_of(place: &Path, places: &[PathBuf]) -> PathBuf {
     let git = fs::symlink_metadata(place.join(".git"));
     if !git.is_ok_and(|meta| meta.is_file()) {
         return place.to_owned();
     }
-    let holds_repository =
-        |dir: &Path| fs::symlink_metadata(dir.join(".git")).is_ok_and(|meta| meta.is_dir());
+    let Some(claim) = read_git_file(&place.join(".git"))
+        .and_then(|bytes| oso_core::project::worktree_claim(place, &bytes))
+    else {
+        return place.to_owned();
+    };
+    // Another user's repository is none of the person's.
+    let holds_repository = |dir: &Path| {
+        fs::symlink_metadata(dir.join(".git"))
+            .is_ok_and(|meta| meta.is_dir() && crate::project::ours(&meta))
+    };
     let above = place
         .ancestors()
         .skip(1)
         .take(MAX_UP)
-        .find(|dir| holds_repository(dir) && linked_worktree(dir, place).is_some());
-    if let Some(main) = above {
-        return main.to_owned();
+        .find(|dir| same(dir, &claim));
+    let named = above
+        .map(Path::to_path_buf)
+        .or_else(|| places.iter().find(|main| same(main, &claim)).cloned());
+    match named {
+        Some(main) if holds_repository(&main) && linked_worktree(&main, place).is_some() => main,
+        _ => place.to_owned(),
     }
-    places
-        .iter()
-        .find(|main| !same(main, place) && linked_worktree(main, place).is_some())
-        .cloned()
-        .unwrap_or_else(|| place.to_owned())
+}
+
+/// At most [`MAX_GIT_FILE`] bytes and one more of the `.git` file at `path`, which is no
+/// link: more is refused by the claim's reader.
+fn read_git_file(path: &Path) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+    let (file, _) = oso_platform::file_meta::open_for_reading(path).ok()??;
+    let mut bytes = Vec::new();
+    file.take(MAX_GIT_FILE + 1).read_to_end(&mut bytes).ok()?;
+    Some(bytes)
 }
 
 #[cfg(all(test, unix))]

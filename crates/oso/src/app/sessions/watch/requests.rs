@@ -131,10 +131,7 @@ impl App {
                 "Session {name} has no terminal yet: session-resume brings it back"
             ));
         };
-        let space = session
-            .space
-            .as_ref()
-            .and_then(|id| self.watch.spaces.find(id));
+        let space = self.space_of_session(session);
         if let Some(at) = space
             && self.watch.spaces.current() != Some(at)
         {

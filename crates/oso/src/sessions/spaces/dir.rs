@@ -10,7 +10,11 @@
 //! - The space's directory is mode `0700`, the person's own, not a link, as
 //!   [`PrivateDir`] has it, with the device and inode it had when it was made: one moved away,
 //!   or another put in its place, is refused, as Claude Code keys its memory by the path.
-//! - Neither holds `.git`, and neither is inside one of the space's repositories.
+//! - No directory from the space's own up holds `.git`, and none above it holds a
+//!   `CLAUDE.md`, `CLAUDE.local.md` or `.claude` another user owns: Claude Code reads
+//!   `CLAUDE.md` from every directory above where it starts. The directory is inside none of
+//!   the space's repositories, as their real paths say.
+//! - A space's directory is made new: one already at its place is not taken over.
 
 #![cfg_attr(
     not(test),
@@ -42,6 +46,10 @@ pub enum Refusal {
     Repository(PathBuf),
     /// It is inside one of the space's repositories.
     InsideRepository(PathBuf),
+    /// Something is already at its place.
+    Exists(PathBuf),
+    /// Another user's file that Claude Code would read is in a directory above it.
+    Planted(PathBuf),
     /// It is not private, or could not be looked at: the system's words.
     Refused(PathBuf, io::Error),
 }
@@ -73,6 +81,16 @@ impl fmt::Display for Refusal {
                 "space directory refused: {} is inside a repository of the space",
                 path.display()
             ),
+            Self::Exists(path) => write!(
+                f,
+                "space directory refused: {} exists already",
+                path.display()
+            ),
+            Self::Planted(path) => write!(
+                f,
+                "space directory refused: another user owns {}, which Claude Code would read",
+                path.display()
+            ),
             Self::Refused(path, e) => {
                 write!(f, "space directory refused: {}: {e}", path.display())
             }
@@ -97,13 +115,18 @@ pub fn make(
     members: &[Member],
 ) -> Result<(PathBuf, Option<(u64, u64)>), Refusal> {
     let path = place(root, name);
-    usable(root, &path, members)?;
+    usable(&path, members)?;
     if root.exists() {
         unshared(root)?;
     }
+    match fs::symlink_metadata(&path) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        _ => return Err(Refusal::Exists(path)),
+    }
     let made = PrivateDir::open(&path).map_err(|e| Refusal::Refused(path.clone(), e))?;
     let meta = fs::symlink_metadata(made.path()).map_err(|e| Refusal::Refused(path.clone(), e))?;
-    usable(root, &path, members)?;
+    unshared(root)?;
+    usable(&path, members)?;
     Ok((path, identity(&meta)))
 }
 
@@ -121,7 +144,9 @@ pub fn check(path: &Path, made: Option<(u64, u64)>, members: &[Member]) -> Resul
         }
         Err(e) => return Err(Refusal::Refused(path.to_owned(), e)),
     };
-    if !meta.is_dir() || (made.is_some() && identity(&meta) != made) {
+    // Where the system has identities, one must have been kept when it was made.
+    let unknown = made.is_none() && identity(&meta).is_some();
+    if !meta.is_dir() || unknown || identity(&meta) != made {
         return Err(Refusal::Replaced(path.to_owned()));
     }
     let root = path.parent().unwrap_or(path);
@@ -131,7 +156,7 @@ pub fn check(path: &Path, made: Option<(u64, u64)>, members: &[Member]) -> Resul
         Ok(None) => return Err(Refusal::Missing(path.to_owned())),
         Err(e) => return Err(Refusal::Refused(path.to_owned(), e)),
     }
-    usable(root, path, members)
+    usable(path, members)
 }
 
 /// Refuses a `root` that someone else can change, or the way to it.
@@ -144,17 +169,47 @@ fn unshared(root: &Path) -> Result<(), Refusal> {
     }
 }
 
-/// Refuses a root or a directory that is a repository or inside one of `members`.
-fn usable(root: &Path, path: &Path, members: &[Member]) -> Result<(), Refusal> {
-    for dir in [root, path] {
-        if fs::symlink_metadata(dir.join(".git")).is_ok() {
+/// The files above a space's directory another user must not own: what Claude Code reads
+/// from every directory above where it starts.
+const READ_ABOVE: [&str; 3] = ["CLAUDE.md", "CLAUDE.local.md", ".claude"];
+
+/// Refuses a space's directory at `path` when it, or a directory above it, is a repository,
+/// when a directory above it holds what Claude Code reads and another user owns, or when it
+/// is inside one of `members`, by their real paths where they exist.
+fn usable(path: &Path, members: &[Member]) -> Result<(), Refusal> {
+    for (depth, dir) in path.ancestors().enumerate() {
+        if present(&dir.join(".git"))?.is_some() {
             return Err(Refusal::Repository(dir.to_owned()));
         }
+        if depth == 0 {
+            continue;
+        }
+        for name in READ_ABOVE {
+            let file = dir.join(name);
+            if present(&file)?.is_some_and(|meta| !crate::project::ours(&meta)) {
+                return Err(Refusal::Planted(file));
+            }
+        }
     }
-    if members.iter().any(|member| path.starts_with(&member.root)) {
+    let real = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_owned());
+    let here = real(path);
+    if members
+        .iter()
+        .any(|member| here.starts_with(real(&member.root)))
+    {
         return Err(Refusal::InsideRepository(path.to_owned()));
     }
     Ok(())
+}
+
+/// What is at `path`, not following a link: `None` when nothing is, and a refusal when it
+/// cannot be looked at, which is not taken as nothing.
+fn present(path: &Path) -> Result<Option<fs::Metadata>, Refusal> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) => Ok(Some(meta)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(Refusal::Refused(path.to_owned(), e)),
+    }
 }
 
 /// A directory's device and inode, where the system has them.

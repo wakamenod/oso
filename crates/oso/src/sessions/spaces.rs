@@ -17,8 +17,9 @@ pub mod migrate;
 pub mod record;
 pub mod stored;
 
-use std::collections::HashSet;
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use oso_core::buffer::BufferId;
@@ -73,6 +74,24 @@ impl Space {
     }
 }
 
+/// The open spaces' places by path, from [`Spaces::places`]: keyed by their text as their
+/// components spell it, as hashing a path by its components costs several times more.
+#[derive(Debug)]
+pub struct Places {
+    roots: HashMap<OsString, usize>,
+}
+
+impl Places {
+    /// The space of the deepest worktree or repository above `path`, or at it: the one in
+    /// front where two spaces have it.
+    pub fn of(&self, path: &Path) -> Option<usize> {
+        let spelled: PathBuf = path.components().collect();
+        spelled
+            .ancestors()
+            .find_map(|dir| self.roots.get(dir.as_os_str()).copied())
+    }
+}
+
 /// The editor has a prompt open, so the frame's tree stays.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Refused;
@@ -104,14 +123,22 @@ pub struct Spaces {
     known: HashSet<SpaceId>,
     /// A space changed since the file was last written.
     unsaved: bool,
+    /// The `spaces` file could not be read: a session joins a space in this instance only.
+    unreadable: bool,
 }
 
 impl Spaces {
     /// Takes the spaces the file held, or were made from the sessions (`migrated`, which are
     /// then kept at once), and `fresh` ids. A space already here stays as it is.
     pub fn recall(&mut self, stored: Vec<Stored>, fresh: Vec<SpaceId>, migrated: bool) {
-        for space in stored {
+        for mut space in stored {
             if self.known.insert(space.id.clone()) {
+                // Two instances that made a space of one name each keep both: the later gets
+                // another name, so that every space can be named.
+                if self.named(&space.name).is_some() {
+                    space.name = unique(&space.name, &|name| self.named(name).is_some());
+                    self.unsaved = true;
+                }
                 self.spaces.push(Space::new(space));
             }
         }
@@ -121,15 +148,32 @@ impl Spaces {
         self.unsaved |= migrated;
     }
 
+    /// Notes whether the `spaces` file could be read.
+    pub fn set_readable(&mut self, readable: bool) {
+        self.unreadable = !readable;
+    }
+
+    /// Whether a session's space may be kept in its record: not while the `spaces` file could
+    /// not be read, as the spaces made meanwhile would not be kept with it.
+    pub fn keeps_joins(&self) -> bool {
+        !self.unreadable
+    }
+
     /// Whether the spaces have been recalled, so that sessions may join them.
     pub fn recalled(&self) -> bool {
         self.recalled
     }
 
-    /// Takes ids the worker read.
-    pub fn give_ids(&mut self, fresh: Vec<SpaceId>) {
-        self.fresh.extend(fresh);
-        self.asked = false;
+    /// Takes ids the worker read, and says whether any came. None coming means none can be
+    /// read: no more are asked for, so that the worker and this thread do not ask each other
+    /// round and round.
+    pub fn give_ids(&mut self, fresh: Vec<SpaceId>) -> bool {
+        let came = !fresh.is_empty();
+        if came {
+            self.fresh.extend(fresh);
+            self.asked = false;
+        }
+        came
     }
 
     /// Whether to ask the worker for more ids, once: then it is taken as asked.
@@ -178,8 +222,8 @@ impl Spaces {
             .position(|space| space.stored.name == name)
     }
 
-    /// The open space that holds the worktree at `path`, or has it as a repository's main
-    /// checkout: the one in front first, then the one entered last.
+    /// The open space that holds the worktree at `path`, which one space does at most; else
+    /// the open space with it as a repository's main checkout, as [`Self::with_member`] picks.
     pub fn holding(&self, path: &Path) -> Option<usize> {
         self.open()
             .find(|&at| self.spaces[at].stored.holds_worktree(path))
@@ -193,27 +237,40 @@ impl Spaces {
             .max_by_key(|&at| (self.current == Some(at), self.spaces[at].stamp))
     }
 
-    /// The open space `path` is in, for a session of another program: the one holding the
-    /// deepest of its worktrees and repositories above `path`, the one in front on a tie.
+    /// The open spaces' worktrees and repositories by their paths, to find the space of many
+    /// paths at once, as the sessions of other programs need: one pass over the spaces, then
+    /// a lookup per directory above each path.
+    pub fn places(&self) -> Places {
+        let mut roots: HashMap<OsString, usize> = HashMap::new();
+        for at in self.open() {
+            let stored = &self.spaces[at].stored;
+            let members = stored.members.iter().map(|member| member.root.as_path());
+            for root in stored.worktrees.iter().map(PathBuf::as_path).chain(members) {
+                let front = self.current == Some(at);
+                let spelled: PathBuf = root.components().collect();
+                roots
+                    .entry(spelled.into_os_string())
+                    .and_modify(|kept| {
+                        if front {
+                            *kept = at;
+                        }
+                    })
+                    .or_insert(at);
+            }
+        }
+        Places { roots }
+    }
+
+    /// The open space `path` is in, as [`Places::of`] finds it.
+    #[cfg(test)]
     pub fn of_path(&self, path: &Path) -> Option<usize> {
-        self.open()
-            .filter_map(|at| {
-                let stored = &self.spaces[at].stored;
-                let roots = stored.worktrees.iter();
-                let depth = (roots.chain(stored.members.iter().map(|member| &member.root)))
-                    .filter(|root| path.starts_with(root))
-                    .map(|root| root.components().count())
-                    .max()?;
-                Some((at, depth))
-            })
-            .max_by_key(|&(at, depth)| (depth, self.current == Some(at)))
-            .map(|(at, _)| at)
+        self.places().of(path)
     }
 
     /// The space a session that runs at `place` and names no space joins, by the rule in this
-    /// module's words. `repo` is the repository `place` is a worktree of, where git listed it;
-    /// else the deepest repository of an open space above `place`, else `place` itself, is
-    /// taken. A worktree joined this way is recorded in the space. `None` until the spaces are
+    /// module's words. `repo` is the repository `place` is a worktree of, where git listed it,
+    /// and the worktree is then held by the space; else the deepest repository of an open space
+    /// above `place`, else `place` itself, is taken. `None` until the spaces are
     /// recalled, or while no id is at hand for a new space.
     pub fn join(&mut self, place: &Path, repo: Option<&Path>, now: u64) -> Option<usize> {
         if !self.recalled {
@@ -230,9 +287,13 @@ impl Spaces {
                 .max_by_key(|root| root.components().count())
                 .map(Path::to_path_buf)
         };
-        let repo = repo.map(Path::to_path_buf).or_else(above);
+        // Only a place git listed is held as a worktree: one found by the path alone may be a
+        // directory of the repository, or another repository inside it.
         let worktree = repo.is_some();
-        let repo = repo.unwrap_or_else(|| place.to_path_buf());
+        let repo = repo
+            .map(Path::to_path_buf)
+            .or_else(above)
+            .unwrap_or_else(|| place.to_path_buf());
         let at = match self.with_member(&repo) {
             Some(at) => at,
             None => self.make(Member::at(&repo), now)?,
@@ -244,8 +305,11 @@ impl Spaces {
     }
 
     /// A new open space of repository `member`, named after it, as of `now`. `None` while no
-    /// id is at hand.
+    /// id is at hand, or with as many spaces as the file keeps.
     pub fn make(&mut self, member: Member, now: u64) -> Option<usize> {
+        if self.spaces.len() >= record::MAX_SPACES {
+            return None;
+        }
         let id = self.fresh.pop()?;
         let name = unique(&slug(&member.name()), &|name| self.named(name).is_some());
         self.known.insert(id.clone());
@@ -414,20 +478,28 @@ impl Spaces {
         Ok(Zoom::Out)
     }
 
-    /// The candidates of `space-switch`: each open space's name, with its title, else its
-    /// repositories' names, as the annotation.
+    /// The candidates of `space-switch`: each open space's name, the one in front last, with
+    /// its title, else its repositories' names, as the annotation.
     pub fn candidates(&self) -> Arc<[Candidate]> {
+        let front = self
+            .current
+            .and_then(|at| self.spaces.get(at))
+            .map(Space::id);
         let mut order: Vec<&Space> = self.spaces.iter().filter(|s| s.is_open()).collect();
-        order.sort_by(|a, b| a.stored.name.cmp(&b.stored.name));
+        order.sort_by(|a, b| {
+            let last = |space: &Space| Some(space.id()) == front;
+            (last(a), &a.stored.name).cmp(&(last(b), &b.stored.name))
+        });
         order
             .into_iter()
             .map(|space| {
                 let stored = &space.stored;
+                // Directory names are any text: cleaned as the list's untrusted fields are.
                 let about = if stored.title.is_empty() {
                     let names: Vec<String> = stored.members.iter().map(Member::name).collect();
-                    names.join(", ")
+                    crate::sessions::recap::clean(&names.join(", "))
                 } else {
-                    stored.title.clone()
+                    crate::sessions::recap::clean(&stored.title)
                 };
                 Candidate::new(stored.name.as_str(), "", about)
             })

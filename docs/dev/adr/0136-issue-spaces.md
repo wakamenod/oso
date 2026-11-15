@@ -484,10 +484,18 @@ unchanged (P3 (a)); `space-new` completes over known repositories (P4 (a), for 1
   fewer than 4 are left, as random bytes are never read on the UI thread. A session that would
   make a space while none is at hand joins one when they come.
 - **No session joins a space before the `spaces` file is read,** so that none is made twice.
+  With no state directory, the spaces start empty and are this instance's alone. A `spaces`
+  file that may not be read is not replaced, and sessions then join spaces in this instance
+  only, so that the spaces their records name are not lost.
+- **A member's device and inode** are kept by the migration; a repository that came with a
+  session's join gets them at its first use, on a worker, as the directory does.
 - **A place's repository, for the join:** the repository git listed it as a worktree of
-  (the pane's listing); else the deepest repository of an open space above it, as oso's own
-  worktrees are inside theirs; else the place itself. A worktree elsewhere, before its
-  repository is listed, becomes a space of its own.
+  (the pane's listing); else the deepest repository of an open space above it; else the place
+  itself. A space holds a worktree only when git listed it, oso made it, or the migration
+  checked it: a place under a repository found by its path alone may be a directory of it or
+  another repository inside it, and is not recorded. A worktree elsewhere, before its
+  repository is listed, becomes a space of its own. A space's worktrees are never taken as
+  proof that a place belongs to a repository or is trusted.
 - **The migration** looks at the remembered places only, and the directories above them: a
   place whose `.git` is a file goes with a repository above it, or another remembered place,
   that records it back (ADR 0114's check). Migrated spaces are written at once, so the
@@ -504,6 +512,14 @@ unchanged (P3 (a)); `space-new` completes over known repositories (P4 (a), for 1
   names, as the annotation.
 - **Waiting for 1b:** `Configuration::spaces_root`, `config::paths::expand` and the directory
   module are built and tested but not yet called, under `expect(dead_code)`.
+- **Two instances:** of a space both keep, the one changed last is written, so a stale
+  instance does not bring back what another took out; two spaces of one name, made by two
+  instances at once, are told apart with `-2` when read. A space too large for the file is
+  left out and the rest kept.
+- **The directory checks** also refuse a `.git` in any directory above the space's, a
+  `CLAUDE.md`, `CLAUDE.local.md` or `.claude` another user owns above it, a place inside a
+  repository of the space by real paths, and a directory already at the space's place, which
+  is never taken over. `[spaces] root` refuses `..`.
 - **A shared state directory:** a build before this step that writes `sessions` drops the
   `space` field; such a session joins its space again by the rule.
 

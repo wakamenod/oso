@@ -36,9 +36,7 @@ pub(super) fn worker(waker: &Waker, state: Option<&std::path::Path>) -> Option<W
             .unwrap_or_else(PoisonError::into_inner)
             .send(UserEvent::Sessions(out));
     })?;
-    if let Some(state) = state {
-        worker.send(Job::Recall(state.to_path_buf()));
-    }
+    worker.send(Job::Recall(state.map(std::path::Path::to_path_buf)));
     Some(worker)
 }
 
@@ -154,16 +152,18 @@ impl App {
             )),
             Out::WorktreesMoved(roots) => self.worktrees_moved(&roots),
             Out::SpaceIds(fresh) => {
-                self.watch.spaces_mut().give_ids(fresh);
-                self.sessions_touched();
+                if self.watch.spaces_mut().give_ids(fresh) {
+                    self.sessions_touched();
+                }
             }
             Out::Recalled {
                 sessions,
                 spaces,
                 migrated,
+                readable,
                 fresh,
             } => {
-                self.sessions_recalled(sessions, spaces, migrated, fresh);
+                self.sessions_recalled(sessions, spaces, migrated, readable, fresh);
                 self.sessions_touched();
                 // Once oso knows its own, the others it may adopt.
                 self.hosting.adopting.recalled = true;

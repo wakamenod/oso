@@ -34,14 +34,26 @@ pub const MAX_SPACES: usize = 256;
 /// The longest path kept, in bytes.
 const MAX_PATH: usize = 4096;
 
-/// What the file in `state_dir` holds: `None` when there is no file, so that the spaces are
-/// made from the sessions once; nothing, logged, when it may not be read.
-pub fn read(state_dir: &Path) -> Option<Vec<Stored>> {
+/// What the `spaces` file gave.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Kept {
+    /// There is none, so the spaces are made from the sessions, once.
+    Missing,
+    /// What it held.
+    Read(Vec<Stored>),
+    /// It may not be read, which is logged: it is not replaced, and the sessions' spaces stay
+    /// as their record names them.
+    Refused,
+}
+
+/// What the file in `state_dir` holds.
+pub fn read(state_dir: &Path) -> Kept {
     match read_checked(state_dir) {
-        Ok(spaces) => spaces,
+        Ok(Some(spaces)) => Kept::Read(spaces),
+        Ok(None) => Kept::Missing,
         Err(e) => {
             log::warn!("not reading the spaces: {e}");
-            Some(Vec::new())
+            Kept::Refused
         }
     }
 }
@@ -211,22 +223,32 @@ fn line(space: &Stored) -> Option<String> {
 }
 
 /// Writes `spaces` in `state_dir`, which is made private if it is missing, with the spaces
-/// already there whose ids are not in `known`: another instance's. At most [`MAX_SPACES`] and
-/// [`MAX_BYTES`] in all, ours first, so that the file can always be read back. A file there
-/// that may not be read is not replaced.
+/// already there whose ids are not in `known`: another instance's. Of a space both have, the
+/// one changed last is kept, so that a stale instance does not bring back what another took
+/// out. At most [`MAX_SPACES`], ours first, and [`MAX_BYTES`] in all, a space too large to fit
+/// left out, so that the file can always be read back. A file there that may not be read is
+/// not replaced.
 pub fn write(state_dir: &Path, spaces: &[Stored], known: &HashSet<SpaceId>) -> io::Result<()> {
     let theirs = read_checked(state_dir)?.unwrap_or_default();
     let directory = PrivateDir::open(state_dir)?;
+    let newer = |ours: &Stored| {
+        theirs
+            .iter()
+            .find(|space| space.id == ours.id && space.changed > ours.changed)
+            .unwrap_or(ours)
+            .clone()
+    };
     let kept = theirs
-        .into_iter()
+        .iter()
         .filter(|space| !known.contains(&space.id))
-        .filter(|space| spaces.iter().all(|ours| ours.id != space.id));
-    let all: Vec<Stored> = spaces.iter().cloned().chain(kept).collect();
+        .filter(|space| spaces.iter().all(|ours| ours.id != space.id))
+        .cloned();
+    let all: Vec<Stored> = spaces.iter().map(newer).chain(kept).collect();
     let mut text = String::new();
     let most = usize::try_from(MAX_BYTES).unwrap_or(usize::MAX);
     for line in all.iter().filter_map(line).take(MAX_SPACES) {
         if text.len() + line.len() + 1 > most {
-            break;
+            continue;
         }
         text.push_str(&line);
         text.push('\n');

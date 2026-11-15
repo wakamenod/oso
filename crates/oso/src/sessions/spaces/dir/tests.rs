@@ -109,3 +109,40 @@ fn a_repository_or_a_place_inside_one_of_the_spaces_is_refused() {
         Err(Refusal::Repository(_))
     ));
 }
+
+#[test]
+fn a_directory_already_there_is_not_taken_over() {
+    let scratch = Scratch::new("exists");
+    let root = scratch.0.join("spaces");
+    let (_, _) = make(&root, "x", &[]).unwrap();
+    let refused = make(&root, "x", &[]).unwrap_err();
+    assert!(matches!(refused, Refusal::Exists(_)), "{refused}");
+}
+
+#[test]
+fn a_repository_anywhere_above_or_a_kept_identity_missing_is_refused() {
+    let scratch = Scratch::new("above");
+    let repo = scratch.0.join("repo");
+    fs::create_dir_all(repo.join(".git")).unwrap();
+    let root = repo.join("deep/spaces");
+    let refused = make(&root, "x", &[]).unwrap_err();
+    assert!(matches!(refused, Refusal::Repository(_)), "{refused}");
+    assert!(!root.exists(), "nothing made");
+    let root = scratch.0.join("spaces");
+    let (path, _) = make(&root, "y", &[]).unwrap();
+    assert!(matches!(check(&path, None, &[]), Err(Refusal::Replaced(_))));
+}
+
+#[test]
+fn a_root_that_links_into_a_repository_of_the_space_is_refused() {
+    let scratch = Scratch::new("link");
+    let member = scratch.0.join("backend");
+    fs::create_dir_all(member.join("spaces")).unwrap();
+    let link = scratch.0.join("spaces");
+    std::os::unix::fs::symlink(member.join("spaces"), &link).unwrap();
+    let refused = make(&link, "x", &[Member::at(&member)]).unwrap_err();
+    assert!(
+        matches!(refused, Refusal::InsideRepository(_) | Refusal::Refused(..)),
+        "{refused}"
+    );
+}

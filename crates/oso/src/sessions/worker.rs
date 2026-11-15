@@ -79,8 +79,9 @@ pub enum Job {
     /// With each look, `stat` these projects' `worktrees` directories, by `(root, directory)`
     /// (ADR 0131).
     Watch(Vec<(PathBuf, PathBuf)>),
-    /// Read the sessions an earlier oso remembered in this state directory (ADR 0121).
-    Recall(PathBuf),
+    /// Read the sessions an earlier oso remembered in this state directory (ADR 0121), and the
+    /// spaces (ADR 0136); with none, the spaces start empty.
+    Recall(Option<PathBuf>),
     /// Remember these sessions in this state directory, keeping those of another instance:
     /// the ids not in `known`.
     Remember {
@@ -133,6 +134,9 @@ pub enum Out {
         sessions: Vec<super::record::Remembered>,
         spaces: Vec<super::spaces::Stored>,
         migrated: bool,
+        /// Whether the `spaces` file could be read, or was missing: if not, sessions are placed
+        /// in this instance only, and keep the spaces their record names.
+        readable: bool,
         fresh: Vec<super::spaces::SpaceId>,
     },
     /// Ids for new spaces, as asked.

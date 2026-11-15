@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use proptest::prelude::*;
 
-use super::{FILE, MAX_SPACES, line, parse, parse_line, read, write};
+use super::{FILE, Kept, MAX_SPACES, line, parse, parse_line, read, write};
 use crate::sessions::identity::SessionId;
 use crate::sessions::spaces::{Member, SpaceId, Stored};
 
@@ -52,6 +52,14 @@ fn space(n: u8) -> Stored {
     )
 }
 
+/// What the file holds, which must have been read.
+fn held(scratch: &Scratch) -> Vec<Stored> {
+    match read(&scratch.oso()) {
+        Kept::Read(spaces) => spaces,
+        other => panic!("not read: {other:?}"),
+    }
+}
+
 fn known(ids: &[u8]) -> HashSet<SpaceId> {
     ids.iter().map(|n| id(*n)).collect()
 }
@@ -61,7 +69,7 @@ fn what_is_written_is_read_back_and_no_file_is_none() {
     let scratch = Scratch::new("round");
     assert_eq!(
         read(&scratch.oso()),
-        None,
+        Kept::Missing,
         "no file: made from the sessions"
     );
     let mut full = space(1);
@@ -79,11 +87,11 @@ fn what_is_written_is_read_back_and_no_file_is_none() {
     full.worktrees = vec![PathBuf::from("/src/oso/.claude/worktrees/x")];
     let spaces = [full, space(2)];
     write(&scratch.oso(), &spaces, &known(&[1, 2])).unwrap();
-    assert_eq!(read(&scratch.oso()), Some(spaces.to_vec()));
+    assert_eq!(read(&scratch.oso()), Kept::Read(spaces.to_vec()));
     write(&scratch.oso(), &[], &known(&[1, 2])).unwrap();
     assert_eq!(
         read(&scratch.oso()),
-        Some(Vec::new()),
+        Kept::Read(Vec::new()),
         "an empty file is kept spaces"
     );
 }
@@ -101,11 +109,11 @@ fn another_instances_spaces_are_kept_and_ours_replace_theirs() {
         &known(&[2, 3]),
     )
     .unwrap();
-    let back = read(&scratch.oso()).unwrap();
+    let back = held(&scratch);
     assert_eq!(back, [changed, space(3), space(1)]);
     // A space this instance knew and no longer has goes.
     write(&scratch.oso(), &[space(3)], &known(&[1, 2, 3])).unwrap();
-    assert_eq!(read(&scratch.oso()).unwrap(), [space(3)]);
+    assert_eq!(held(&scratch), [space(3)]);
 }
 
 #[test]
@@ -145,7 +153,7 @@ fn a_bad_line_is_left_out_and_the_rest_read() {
     let dir = oso_platform::privacy::PrivateDir::open(scratch.oso()).unwrap();
     let text = format!("{}\n{good}\n", bad.join("\n"));
     std::fs::write(dir.path().join(FILE), text).unwrap();
-    let back = read(&scratch.oso()).unwrap();
+    let back = held(&scratch);
     assert_eq!(back.len(), 1);
 }
 
@@ -165,7 +173,7 @@ fn at_most_the_cap_is_written() {
         })
         .collect();
     write(&scratch.oso(), &many, &HashSet::new()).unwrap();
-    assert_eq!(read(&scratch.oso()).unwrap().len(), MAX_SPACES);
+    assert_eq!(held(&scratch).len(), MAX_SPACES);
 }
 
 #[test]
@@ -176,7 +184,7 @@ fn a_file_that_may_not_be_read_is_not_replaced() {
     std::fs::write(&file, "x".repeat(300 * 1024)).unwrap();
     assert_eq!(
         read(&scratch.oso()),
-        Some(Vec::new()),
+        Kept::Refused,
         "refused, and not made again"
     );
     assert!(write(&scratch.oso(), &[space(1)], &known(&[1])).is_err());
@@ -248,4 +256,33 @@ proptest! {
     fn made_lines_are_refused_or_read_back_the_same(lines in prop::collection::vec(made_line(), 0..8)) {
         check_parsed(lines.join("\n").as_bytes())?;
     }
+}
+
+#[test]
+fn of_a_space_both_instances_have_the_one_changed_last_is_kept() {
+    let scratch = Scratch::new("newer");
+    let mut theirs = space(1);
+    theirs.changed += 10;
+    theirs.title = "theirs".into();
+    write(&scratch.oso(), &[theirs.clone()], &known(&[1])).unwrap();
+    // A stale copy does not bring back what the other changed.
+    write(&scratch.oso(), &[space(1)], &known(&[1])).unwrap();
+    assert_eq!(held(&scratch), [theirs.clone()]);
+    let mut ours = theirs;
+    ours.changed += 1;
+    ours.title = "ours".into();
+    write(&scratch.oso(), &[ours.clone()], &known(&[1])).unwrap();
+    assert_eq!(held(&scratch), [ours]);
+}
+
+#[test]
+fn a_space_too_large_for_the_file_is_left_out_and_the_rest_kept() {
+    let scratch = Scratch::new("large");
+    let mut large = space(1);
+    let long = format!("/{}", "w".repeat(4000));
+    large.worktrees = (0..100)
+        .map(|n| PathBuf::from(format!("{long}{n}")))
+        .collect();
+    write(&scratch.oso(), &[large, space(2)], &known(&[1, 2])).unwrap();
+    assert_eq!(held(&scratch), [space(2)]);
 }

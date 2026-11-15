@@ -32,7 +32,7 @@ impl Watch {
         &self.spaces
     }
 
-    /// The spaces, to add a worktree's or close one.
+    /// The spaces, to hold a worktree in one or forget it.
     pub(in crate::app) fn spaces_mut(&mut self) -> &mut Spaces {
         &mut self.spaces
     }
