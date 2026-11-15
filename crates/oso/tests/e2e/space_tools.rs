@@ -16,8 +16,8 @@ use std::path::PathBuf;
 use serde_json::{Value, json};
 
 use super::session_tools::{Bridge, FAKE, answer, run_in};
-use super::spaces::{PrivateRoot, answer as reply_with, space};
-use super::worktrees::{Flow, asks, keys};
+use super::spaces::{PrivateRoot, answer as reply_with, space, trust_restricted};
+use super::worktrees::{Flow, asks};
 
 /// A space of the flow's repository and an untrusted `other` one, made with `C-x a O`, and its
 /// orchestrator started with `o`: the instance, the orchestrator's bridge and `other`.
@@ -110,8 +110,7 @@ fn an_orchestrator_works_through_the_repositories_of_its_space() {
 
     // The other repository trusted now; its `/add-dir` offer is answered `n`.
     app.open_file(&other.join("notes.md"));
-    app.wait_until_ready();
-    app.send_keys(&format!("M-x {} RET y", keys("trust-project")));
+    trust_restricted(&mut app, "other");
     app.wait_for("the offer", |state| {
         asks(state).is_some_and(|prompt| prompt.starts_with("Paste /add-dir"))
     });
