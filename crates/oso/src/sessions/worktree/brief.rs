@@ -31,6 +31,8 @@ pub struct Header<'a> {
     pub branch: &'a str,
     /// What the branch started from.
     pub base: &'a str,
+    /// The issue space whose orchestrator starts it (ADR 0136, step 4).
+    pub space: Option<&'a str>,
 }
 
 /// What the starting session leaves behind; every field may be empty.
@@ -225,6 +227,10 @@ pub fn compose(
         clean(header.branch),
         clean(header.base),
     );
+    if let Some(space) = header.space {
+        head.pop();
+        head.push_str(&format!(", in space {}.", clean(space)));
+    }
     if let Some(name) = handoff.and_then(|handoff| handoff.name) {
         let name = clean(name);
         head.push_str(&format!(

@@ -97,6 +97,29 @@ impl TrustedRoot {
         })
     }
 
+    /// The root of a repository at `path` with `identity`, an issue space's member that no
+    /// open buffer may show, if `list` trusts it by both (ADR 0136, step 4).
+    pub(crate) fn of_member(
+        list: &oso_core::project::TrustList,
+        path: &Path,
+        identity: Option<(u64, u64)>,
+    ) -> Option<TrustedRoot> {
+        let root = oso_core::project::RootIdentity {
+            path: path.to_owned(),
+            identity,
+        };
+        list.trusts(&root).then(|| TrustedRoot {
+            path: root.path,
+            identity,
+            revoked: Arc::default(),
+        })
+    }
+
+    /// The device and inode it was trusted with, where the system has them.
+    pub(crate) fn identity(&self) -> Option<(u64, u64)> {
+        self.identity
+    }
+
     #[cfg(test)]
     pub(crate) fn for_tests(path: PathBuf) -> TrustedRoot {
         let identity = side::identity_of(&path);

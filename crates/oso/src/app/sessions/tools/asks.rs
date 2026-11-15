@@ -285,7 +285,9 @@ impl App {
                     from: Some(Handover {
                         name: caller.runs.then(|| caller.name.clone()),
                         id: caller.id.as_str().to_owned(),
-                        directory: caller.directory.clone(),
+                        // Where it runs: its own uncommitted files, not the repository's it names.
+                        directory: caller.runs_in.clone(),
+                        space: self.orchestrated_space(&caller),
                     }),
                 };
                 let plan = Plan::Worktree {

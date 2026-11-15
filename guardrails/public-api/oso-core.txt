@@ -1652,6 +1652,7 @@ pub oso_core::editor::SpaceRequest::Rename(alloc::string::String)
 pub oso_core::editor::SpaceRequest::Reopen(alloc::string::String)
 pub oso_core::editor::SpaceRequest::StartOrchestrator
 pub oso_core::editor::SpaceRequest::StartOrchestrator::remake_directory: bool
+pub oso_core::editor::SpaceRequest::UseRepo(alloc::string::String)
 impl core::clone::Clone for oso_core::editor::SpaceRequest
 pub fn oso_core::editor::SpaceRequest::clone(&self) -> oso_core::editor::SpaceRequest
 impl core::cmp::Eq for oso_core::editor::SpaceRequest

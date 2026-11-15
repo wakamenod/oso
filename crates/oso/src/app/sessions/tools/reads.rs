@@ -58,7 +58,8 @@ impl App {
     }
 
     /// `session_list`: every hosted session for a session's agent (the author's choice), only
-    /// the selected window's project's for another, from `offset`.
+    /// its space's for a space's orchestrator (ADR 0136, Q7), only the selected window's
+    /// project's for another, from `offset`.
     pub(super) fn session_list(&self, caller: Option<&Caller>, offset: usize) -> Reply {
         let within = match caller {
             Some(_) => None,
@@ -76,6 +77,7 @@ impl App {
                     .as_deref()
                     .is_none_or(|root| s.directory.starts_with(root))
             })
+            .filter(|s| self.caller_sees(caller, s))
             .skip(offset);
         let sessions: Vec<Value> = seen
             .by_ref()
@@ -101,6 +103,7 @@ impl App {
             within
                 .as_deref()
                 .is_none_or(|root| s.directory.starts_with(root))
+                && self.caller_sees(caller, s)
         };
         let by_id = all.iter().filter(seen).find(|s| s.id.as_str() == session);
         let found = match by_id {
@@ -121,6 +124,58 @@ impl App {
         // A review keyed to a session comes with ADR 0122's later steps.
         state["review"] = Value::Null;
         Ok(state)
+    }
+
+    /// `space_status`: the caller's issue space, its repositories with their trust, where its
+    /// instructions are kept, and its sessions as `session_list` gives them (ADR 0136, step 4).
+    /// The instructions are named by their path: the UI thread reads no file.
+    pub(super) fn space_status(&self, caller: Option<&Caller>) -> Reply {
+        let caller = caller.ok_or("space_status is only for a session oso started")?;
+        let spaces = self.watch.spaces();
+        let at = (caller.space.as_ref())
+            .and_then(|(id, _)| spaces.find(id))
+            .ok_or("your session is in no issue space")?;
+        let stored = spaces
+            .stored(at)
+            .ok_or("your session is in no issue space")?;
+        let list = self.editor.trust_list();
+        let repositories: Vec<Value> = spaces
+            .member_names(at)
+            .iter()
+            .map(|(name, root)| {
+                let identity = (stored.members.iter())
+                    .find(|member| &member.root == root)
+                    .and_then(|member| member.identity);
+                let trusted = list.is_some_and(|list| {
+                    crate::review::TrustedRoot::of_member(list, root, identity).is_some()
+                });
+                json!({ "name": name, "path": shown(root), "trusted": trusted })
+            })
+            .collect();
+        let table = self.hosting.table.all();
+        let orchestrator = (stored.orchestrator.as_ref())
+            .map(|id| table.iter().find(|s| &s.id == id).map(|s| s.name.clone()));
+        let now = (Instant::now(), now_ms());
+        let sessions: Vec<Value> = (table.iter())
+            .filter(|s| self.space_of_session(s) == Some(at))
+            .take(PAGE)
+            .map(|session| self.session_json(session, Some(&caller.id), now))
+            .collect();
+        let instructions = self.hosting.state_directory().map(|state| {
+            let file =
+                crate::sessions::spaces::probe::instructions_path(&state, stored.id.as_str());
+            shown(&file)
+        });
+        Ok(json!({
+            "space": stored.name,
+            "title": stored.title,
+            // The workers' address: SendMessage (to: this name).
+            "orchestrator": orchestrator.map(|name| name.unwrap_or_else(|| stored.name.clone())),
+            "you_orchestrate": caller.orchestrator(),
+            "repositories": repositories,
+            "instructions_file": instructions,
+            "sessions": sessions,
+        }))
     }
 
     /// A reply for a session, as `session_list` and `session_state` give it, with its state as

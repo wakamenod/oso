@@ -148,20 +148,15 @@ impl App {
                     .to_owned()
             });
         }
-        // A space's orchestrator runs in no repository: which is the person's to say, on a
-        // repository's row (ADR 0136, step 3; step 4 reads one).
+        // A space's orchestrator runs in no repository: its space's one trusted repository,
+        // else the one `space-use-repo` chose (ADR 0136, step 4).
         let buffer = self.editor.window().buffer();
-        let orchestrator = self.hosting.table.by_buffer(buffer).is_some_and(|session| {
-            self.watch
-                .spaces()
-                .iter()
-                .any(|space| space.stored.orchestrator.as_ref() == Some(&session.id))
-        });
-        if orchestrator {
-            return Err(
-                "The orchestrator is in no repository: use a repository's row in *Sessions*"
-                    .to_owned(),
-            );
+        if let Some(root) = self.orchestrator_repository(buffer) {
+            let root = root?;
+            return self.trusted_project_of(&root).ok_or_else(|| {
+                "Worktree sessions need a trusted buffer of that repository: open one of its files"
+                    .to_owned()
+            });
         }
         let project = self.editor.current().1.project();
         project
@@ -286,6 +281,7 @@ impl App {
             name: session.runs().then(|| session.name.clone()),
             id: session.id.as_str().to_owned(),
             directory: session.directory.clone(),
+            space: None,
         });
         let parent = session.map(|s| s.id.clone());
         let place = slug::slug(&branch)

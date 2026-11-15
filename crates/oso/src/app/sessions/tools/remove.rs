@@ -48,7 +48,7 @@ impl App {
             Ok(trust) => trust,
             Err(why) => return pending.answer(Err(why)),
         };
-        if caller.directory.starts_with(&path) {
+        if caller.runs_in.starts_with(&path) {
             return pending.answer(Err("that worktree is your own session's".into()));
         }
         // What the UI holds is looked at first, and the job looks at the rest.

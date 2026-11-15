@@ -679,6 +679,37 @@ orchestrator, as for a repository added while it runs.
 - **`space-new` only makes the space** (the author's choice, 2026-11-15): its orchestrator
   starts with `o`, `space-orchestrator-start`, as in a space made from repositories.
 
+## Step 4a, as built
+
+The author answered on 2026-11-15, through the coordinator, (a) for each of Q1–Q9: step 4 is
+split, `with_dirs` coming in 4b (Q1); `space_status` names the instructions' file by its path,
+as the UI thread reads no file (Q2); an orchestrator's `worktree_list` needs `repo` (Q3); its
+`session_start` starts at the repository's main checkout when no directory is given (Q4); any
+other session may name only its own repository (Q5); with several trusted repositories, the
+orchestrator's buffer uses the one `space-use-repo` chose (Q6); an orchestrator sees only its
+space's sessions (Q7); `space_status` is a `Look` tool (Q8); oso-core gains
+`SpaceRequest::UseRepo(String)` for `space-use-repo` (Q9).
+
+- **`repo`** on `worktree_list`, `start_worktree_session` and `session_start`, at most 255
+  bytes: a repository of the space by the name `space_status` gives it. An orchestrator must give
+  it; a name that is none refuses with the space's names, and one oso does not trust, by path
+  and identity, refuses with `trust-project`. The call then acts as from that repository's main
+  checkout: its jobs run under the repository's trust, a new branch starts at its `HEAD`, and an
+  unasked start (ADR 0135) needs it trusted now. The hand-off facts stay the orchestrator's own.
+  `worktree_remove` from an orchestrator acts in the repository of the space that holds the
+  path. The rule is `sessions::tools::repo`, a plain function with tests.
+- **`space_status`** (`Look`, no question, hosted sessions only): the space's name and title,
+  the orchestrator's name, whether the caller is it, each repository's name, path and trust, the
+  instructions' file, and the space's sessions as `session_list` gives them.
+- **Scope:** `session_list` and `session_state` from an orchestrator hold its space's sessions
+  only; any other session keeps ADR 0121's scope.
+- **A worker** an orchestrator starts belongs to the space from its start, its worktree held
+  there, and its brief's header ends "…, in space NAME."; its report-back line already names the
+  orchestrator by the space's name.
+- **`space-use-repo`** (`Person`, menu `u`): the orchestrator's buffer uses the space's one
+  trusted repository for `session-worktree`, `worktree-list` and `worktree-remove`, else the one
+  chosen here, which must still be trusted.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it. They apply once this ADR is

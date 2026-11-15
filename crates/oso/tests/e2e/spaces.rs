@@ -174,7 +174,7 @@ fn remembered_sessions_become_spaces_of_one_repository_that_a_restart_keeps() {
 }
 
 /// The space of this name in the dev state, if there is one.
-fn space<'a>(state: &'a Value, name: &str) -> Option<&'a Value> {
+pub(super) fn space<'a>(state: &'a Value, name: &str) -> Option<&'a Value> {
     state["sessions"]["spaces"]
         .as_array()?
         .iter()
@@ -187,7 +187,7 @@ fn echo(state: &Value) -> String {
 }
 
 /// Answers the prompt now open with `text`, once it says `label`.
-fn answer(app: &mut crate::harness::App, label: &str, text: &str) {
+pub(super) fn answer(app: &mut crate::harness::App, label: &str, text: &str) {
     app.wait_for(label, |state| {
         super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with(label))
     });
@@ -492,10 +492,10 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
 
 /// A directory for a space's root whose whole way is private and inside no repository: the
 /// first of the temporary, runtime and home directories that is; removed when dropped.
-struct PrivateRoot(PathBuf);
+pub(super) struct PrivateRoot(pub(super) PathBuf);
 
 impl PrivateRoot {
-    fn new(test: &str) -> Self {
+    pub(super) fn new(test: &str) -> Self {
         let candidates = [
             Some(std::env::temp_dir()),
             std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from),
