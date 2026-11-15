@@ -46,6 +46,8 @@ pub struct Settings {
     pub spaces: super::spaces::Spaces,
     /// `[lsp]`, and the table of language servers it leads to (ADR 0138).
     pub lsp: super::lsp::Lsp,
+    /// `[git]` (ADR 0127, step 1b).
+    pub git: super::git::GitSettings,
 }
 
 /// `[sessions]`: how a hosted session's `claude` starts (ADR 0121).

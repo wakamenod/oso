@@ -571,7 +571,9 @@ impl Editor {
 /// directory's listing (ADR 0134) or a git status (ADR 0127), as Emacs's dired and magit
 /// buffers are.
 fn kept_as_users(buffer: &Buffer) -> bool {
-    super::listings::is_listing(buffer) || super::git::is_git_status(buffer)
+    super::listings::is_listing(buffer)
+        || super::git::is_git_status(buffer)
+        || super::git::is_git_log(buffer)
 }
 
 #[cfg(test)]

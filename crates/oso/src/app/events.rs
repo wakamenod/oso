@@ -113,6 +113,7 @@ impl App {
             UserEvent::Review(event) => self.review_reported(event),
             UserEvent::Git(event) => self.git_reported(event),
             UserEvent::Servers => self.servers_reported(),
+            UserEvent::GitRun(event) => self.git_run_reported(event),
             UserEvent::Terminal(buffer) => self.terminal_ready(buffer),
             UserEvent::TerminalStarted(started) => self.terminal_started(*started),
             UserEvent::Carry(event) => self.carry_event(event),

@@ -72,6 +72,11 @@ impl Configuration {
         &self.in_force.terminal
     }
 
+    /// `[git]` in force, for the next run of git with hooks (ADR 0127, step 1b).
+    pub(super) fn git(&self) -> &crate::config::GitSettings {
+        &self.in_force.git
+    }
+
     /// The configuration's default theme in force: the one remembered with the theme shown
     /// last, until a look applies the file's.
     pub(super) fn default_theme(&self) -> &str {

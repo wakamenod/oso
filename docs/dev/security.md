@@ -200,6 +200,17 @@ network features.
   Untracked files are listed through a copy of the index, so the person's index is never
   written, and a file whose name may hold secrets, or a work tree file with more than one
   name, is listed and never read.
+- A commit ([ADR 0127](adr/0127-source-control-and-github.md), step 1b) runs the repository's
+  own hooks, only in a trusted project and only as the person's act: every command of it is
+  `Person`, and while a commit's message is in front the agent channel's `Change` commands are
+  refused. A hook gets the process module's allowlist, `XDG_CONFIG_HOME`, the SSH agent's and
+  GnuPG's variables, and the names `[git] pass_env` lists, which take no `GIT_*` name, with
+  `GIT_TERMINAL_PROMPT=0` and `GIT_EDITOR=:`. It has no time limit; git runs in a process group
+  of its own, which `C-g` ends, as revoking the project's trust does, and which oso's exit sends
+  `SIGTERM`. A git status's writes to the index have no time limit either, still with no hook,
+  and `C-g` stops them. What git and its hooks write goes to
+  `*git log: NAME*`, escape sequences and control characters taken out, and that buffer is
+  withheld from the agent channel. File names in a message's `#` lines are escaped on one line.
 - Passphrase and credential prompts never enter minibuffer history, the kill
   ring or keyboard macros.
 

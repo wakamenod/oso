@@ -12,6 +12,11 @@
 //!   outline, the line and depth of each heading, which the commands that move between headings
 //!   read, and a command sends the lines it means.
 //! - A status is named as given, told apart from another buffer of that name by `<2>`, `<3>`…
+//! - A commit's message is the person's to write, in a buffer of [`Mode::GitCommit`]; what the
+//!   commit menu's head asks for comes to the host with the switches that were on (step 1b).
+//! - What git's long runs wrote is a log of [`Mode::GitLog`], which the host adds to at its
+//!   end and which keeps the last [`MAX_GIT_LOG`] bytes, in whole lines. The host notes while
+//!   git runs, so that quitting names it.
 
 use super::Editor;
 use crate::buffer::{Buffer, BufferId, Mode};
@@ -36,6 +41,33 @@ pub struct GitLines {
 pub struct GitHeading {
     pub line: usize,
     pub depth: u8,
+}
+
+/// The most bytes a log of git's runs keeps (ADR 0127): older lines go first.
+pub const MAX_GIT_LOG: usize = 4 * 1024 * 1024;
+
+/// Which commit a head of the commit menu makes (ADR 0127, step 1b).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommitKind {
+    /// A new commit of what is staged (`c`).
+    New,
+    /// `HEAD` made again with what is staged, its message edited (`a`).
+    Amend,
+    /// `HEAD` made again with what is staged, its message kept (`e`).
+    Extend,
+    /// `HEAD`'s message alone, edited (`w`).
+    Reword,
+}
+
+/// The commit menu's switches that were on as its head ran.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CommitSwitches {
+    /// `--no-verify`: the `pre-commit` and `commit-msg` hooks do not run.
+    pub no_verify: bool,
+    /// `--signoff`.
+    pub signoff: bool,
+    /// `--allow-empty`.
+    pub allow_empty: bool,
 }
 
 /// What a command asks of the host for git (ADR 0127).
@@ -68,6 +100,24 @@ pub enum GitRequest {
         line: usize,
         column: usize,
     },
+    /// Make the commit `kind` in the repository of the status `buffer`, with `switches` (the
+    /// commit menu's heads).
+    Commit {
+        buffer: BufferId,
+        kind: CommitKind,
+        switches: CommitSwitches,
+    },
+    /// Commit with the message `buffer` holds (`C-c C-c`).
+    CommitFinish { buffer: BufferId },
+    /// Drop the commit's message `buffer`, keeping its text for `M-p` (`C-c C-k`).
+    CommitCancel { buffer: BufferId },
+    /// Put an older (`M-p`) or a newer (`M-n`) message of those kept in `buffer`, a commit's
+    /// message.
+    CommitRing { buffer: BufferId, older: bool },
+    /// Show the log of git's runs in the repository of `buffer`, a status (`$`).
+    ShowLog { buffer: BufferId },
+    /// Stop what git runs in the repository of `buffer`, a status or its log (`C-g`, `k`).
+    Stop { buffer: BufferId },
 }
 
 /// A status buffer's record.
@@ -82,6 +132,8 @@ struct Status {
 pub(super) struct Statuses {
     records: Vec<(BufferId, Status)>,
     requests: Vec<GitRequest>,
+    /// The logs of the repositories git runs in now.
+    running: Vec<BufferId>,
 }
 
 /// What [`Editor::set_git_text`] puts in beside the text.
@@ -228,6 +280,57 @@ impl Editor {
         refused
     }
 
+    /// Adds `text` at the end of the log of git's runs `id`, an internal buffer of
+    /// [`Mode::GitLog`], taking out the oldest lines past [`MAX_GIT_LOG`] bytes. Cursors at the
+    /// end stay at the end. Nothing happens to another buffer.
+    pub fn append_git_log(&mut self, id: BufferId, text: &str) {
+        let Some(buffer) = self.buffer(id) else {
+            return;
+        };
+        if !is_git_log(buffer) || text.is_empty() {
+            return;
+        }
+        let rope = buffer.text();
+        let len = rope.len();
+        // A text past the whole keeps its last lines alone.
+        let text = if text.len() > MAX_GIT_LOG {
+            let from = text.ceil_char_boundary(text.len() - MAX_GIT_LOG);
+            let from = text[from..].find('\n').map_or(from, |at| from + at + 1);
+            &text[from..]
+        } else {
+            text
+        };
+        let over = (len + text.len()).saturating_sub(MAX_GIT_LOG);
+        let oldest = if over == 0 {
+            0
+        } else if over >= len {
+            len
+        } else {
+            let row = rope.offset_to_point(over).row;
+            let start = rope.line_start(row);
+            if start == over {
+                start
+            } else {
+                rope.line_start(row + 1).max(over)
+            }
+        };
+        self.trim_and_append(id, oldest, text);
+    }
+
+    /// Notes whether git runs in the repository whose log is `log` (ADR 0127): `C-x C-c` names
+    /// it, and quitting when idle waits for it.
+    pub fn set_git_running(&mut self, log: BufferId, running: bool) {
+        self.git.running.retain(|id| *id != log);
+        if running {
+            self.git.running.push(log);
+        }
+    }
+
+    /// The logs of the repositories git runs in now, still there, in the order the runs began.
+    pub fn git_runs(&self) -> impl Iterator<Item = BufferId> + '_ {
+        (self.git.running.iter().copied()).filter(|id| self.buffer(*id).is_some())
+    }
+
     /// Drops the record of the status buffer `id`, as its buffer goes.
     pub(super) fn forget_git_status(&mut self, id: BufferId) {
         self.git.records.retain(|(of, _)| *of != id);
@@ -243,6 +346,11 @@ impl Editor {
 /// Whether `buffer` is a status buffer.
 pub(super) fn is_git_status(buffer: &Buffer) -> bool {
     buffer.is_internal() && buffer.mode() == Mode::GitStatus
+}
+
+/// Whether `buffer` is a log of git's runs, which `C-x b` lists and `C-x k` kills as a status.
+pub(super) fn is_git_log(buffer: &Buffer) -> bool {
+    buffer.is_internal() && buffer.mode() == Mode::GitLog
 }
 
 #[cfg(test)]

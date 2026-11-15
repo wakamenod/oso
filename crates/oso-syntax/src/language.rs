@@ -35,6 +35,8 @@ impl Language {
             | Mode::Terminal
             | Mode::Directory
             | Mode::GitStatus
+            | Mode::GitCommit
+            | Mode::GitLog
             | Mode::Sessions => None,
         }
     }

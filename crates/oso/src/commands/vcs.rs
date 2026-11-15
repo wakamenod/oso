@@ -1,6 +1,6 @@
 //! Source control's commands (ADR 0127), step 1a: a repository's status buffer, as magit's,
 //! moving between its sections, showing a file's hunks, and staging and unstaging by section,
-//! file and hunk.
+//! file and hunk. Committing and the log of git's runs are [`commit`]'s (step 1b).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host, which runs git on the status's thread. What a line names is the host's: a
@@ -13,6 +13,8 @@ use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{Editor, GitHeading, GitLines, GitRequest};
 use oso_core::project::ProjectId;
 use oso_core::selection::Selection;
+
+pub mod commit;
 
 /// Why a restricted project gets no status (ADR 0127, "Restricted projects").
 pub(crate) const RESTRICTED: &str =
@@ -144,6 +146,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("u", "git-unstage"),
     ("S", "git-stage-all"),
     ("U", "git-unstage-all"),
+    ("$", "git-show-log"),
     ("RET", "git-visit"),
     ("g", "git-refresh"),
     ("n", "git-next-section"),
@@ -439,12 +442,14 @@ fn status_keys(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     Ok(())
 }
 
+/// The menus a git status's keys open, as `(keys, menu)`.
+pub const MENUS: &[(&str, &str)] = &[("c", "commit")];
+
 /// What `*Git keys*` says: each key, and its command's name and summary.
 fn keys_text() -> String {
     let mut text = String::from("Keys in a git status\n\n");
     for (keys, name) in KEYS {
-        let summary = COMMANDS
-            .iter()
+        let summary = (COMMANDS.iter().chain(commit::COMMANDS))
             .find(|command| command.name == *name)
             .and_then(|command| command.doc.lines().next());
         // `q` is the buffers' own `quit-window`.
@@ -453,6 +458,9 @@ fn keys_text() -> String {
             (_, summary) => summary.unwrap_or_default(),
         };
         text.push_str(&format!("{keys:<6}{name:<24}{summary}\n"));
+    }
+    for (keys, menu) in MENUS {
+        text.push_str(&format!("{keys:<6}{menu} menu\n"));
     }
     text.push_str("\nC-x g shows the status from any buffer of the project; C-x k kills it.\n");
     text

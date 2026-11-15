@@ -32,7 +32,10 @@ pub(crate) fn lay_out(
     view: &View,
 ) -> Laid {
     let mut out = Out::default();
-    let mut built = Built::default();
+    let mut built = Built {
+        branch: head.branch.clone(),
+        ..Built::default()
+    };
     let mut outline = Vec::new();
     head_lines(&mut out, &mut built.rows, head);
     for note in notes {

@@ -164,3 +164,66 @@ fn two_statuses_of_one_name_are_told_apart() {
     assert_eq!(editor.buffer(second).unwrap().name(), "*git: oso*<2>");
     assert_eq!(editor.buffer_named("*git: oso*<2>"), Some(second));
 }
+
+#[test]
+fn a_log_grows_at_its_end_and_keeps_its_last_whole_lines() {
+    let mut editor = Editor::default();
+    let log = editor.add_internal_buffer("*git log: oso*", Mode::GitLog);
+    editor.show(log);
+    editor.append_git_log(log, "$ git one\n");
+    editor.append_git_log(log, "out\n");
+    let text = |editor: &Editor| editor.buffer(log).unwrap().text().to_string();
+    assert_eq!(text(&editor), "$ git one\nout\n");
+    // Point at the end stays at the end, as a process buffer's.
+    let end = editor.buffer(log).unwrap().text().len();
+    editor.current_mut().0.selections = crate::selection::SelectionSet::new(end);
+    editor.append_git_log(log, "more\n");
+    assert_eq!(
+        editor.window().selections.primary().cursor,
+        text(&editor).len()
+    );
+    // Past the limit the oldest lines go, whole.
+    let line = format!("{}\n", "x".repeat(1023));
+    let many = line.repeat(super::MAX_GIT_LOG / 1024);
+    editor.append_git_log(log, &many);
+    let kept = text(&editor);
+    assert!(kept.len() <= super::MAX_GIT_LOG);
+    assert!(kept.starts_with('x') && kept.ends_with('\n'));
+    // A piece larger than the whole keeps its own last lines.
+    editor.append_git_log(log, &format!("{many}last\n"));
+    let kept = text(&editor);
+    assert!(kept.len() <= super::MAX_GIT_LOG);
+    assert!(kept.ends_with("last\n"));
+    // Another buffer takes nothing.
+    let other = editor.add_internal_buffer("*other*", Mode::Fundamental);
+    editor.append_git_log(other, "x\n");
+    assert_eq!(editor.buffer(other).unwrap().text().len(), 0);
+}
+
+#[test]
+fn the_logs_git_runs_in_are_listed_while_they_are_there() {
+    let mut editor = Editor::default();
+    let first = editor.add_internal_buffer("*git log: a*", Mode::GitLog);
+    let second = editor.add_internal_buffer("*git log: b*", Mode::GitLog);
+    editor.set_git_running(first, true);
+    editor.set_git_running(second, true);
+    editor.set_git_running(first, true);
+    assert_eq!(editor.git_runs().collect::<Vec<_>>(), [second, first]);
+    editor.set_git_running(second, false);
+    assert_eq!(editor.git_runs().collect::<Vec<_>>(), [first]);
+    // A log is killed as a status is, and one gone is not listed.
+    editor.kill_buffer(first);
+    assert!(editor.buffer(first).is_none());
+    assert_eq!(editor.git_runs().count(), 0);
+}
+
+#[test]
+fn a_progress_line_never_covers_news() {
+    let mut editor = Editor::default();
+    editor.echo_unless_news("", "git commit… 1 s");
+    editor.echo_unless_news("git commit… 1 s", "git commit… 2 s");
+    assert_eq!(editor.echo_text(), "git commit… 2 s");
+    editor.echo("Saved");
+    editor.echo_unless_news("git commit… 2 s", "git commit… 3 s");
+    assert_eq!(editor.echo_text(), "Saved");
+}

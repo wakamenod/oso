@@ -182,6 +182,8 @@ pub enum Face {
     GitHash,
     /// What a git status says quietly, dim: counts, notes and marks.
     GitDetail,
+    /// What a commit's message holds past its line's length, in the warning's colour.
+    GitCommitOverlong,
     /// A terminal's colour 0, black (ADR 0120): one colour, its foreground, which a cell takes
     /// for its text or its background. A theme gives the 16 colours that suit it.
     TerminalColor0,
@@ -258,6 +260,7 @@ impl Face {
             Highlight::GitBranchRemote => Self::GitBranchRemote,
             Highlight::GitHash => Self::GitHash,
             Highlight::GitDetail => Self::GitDetail,
+            Highlight::GitCommitOverlong => Self::GitCommitOverlong,
         }
     }
 

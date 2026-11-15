@@ -58,6 +58,8 @@ pub oso_core::buffer::Mode::CopyList
 pub oso_core::buffer::Mode::CopyView
 pub oso_core::buffer::Mode::Directory
 pub oso_core::buffer::Mode::Fundamental
+pub oso_core::buffer::Mode::GitCommit
+pub oso_core::buffer::Mode::GitLog
 pub oso_core::buffer::Mode::GitStatus
 pub oso_core::buffer::Mode::Markdown
 pub oso_core::buffer::Mode::Review
@@ -1241,6 +1243,20 @@ impl core::fmt::Debug for oso_core::editor::Chose
 pub fn oso_core::editor::Chose::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::Chose
 impl core::marker::StructuralPartialEq for oso_core::editor::Chose
+pub enum oso_core::editor::CommitKind
+pub oso_core::editor::CommitKind::Amend
+pub oso_core::editor::CommitKind::Extend
+pub oso_core::editor::CommitKind::New
+pub oso_core::editor::CommitKind::Reword
+impl core::clone::Clone for oso_core::editor::CommitKind
+pub fn oso_core::editor::CommitKind::clone(&self) -> oso_core::editor::CommitKind
+impl core::cmp::Eq for oso_core::editor::CommitKind
+impl core::cmp::PartialEq for oso_core::editor::CommitKind
+pub fn oso_core::editor::CommitKind::eq(&self, &oso_core::editor::CommitKind) -> bool
+impl core::fmt::Debug for oso_core::editor::CommitKind
+pub fn oso_core::editor::CommitKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::CommitKind
+impl core::marker::StructuralPartialEq for oso_core::editor::CommitKind
 pub enum oso_core::editor::Count
 pub oso_core::editor::Count::Failed
 pub oso_core::editor::Count::Files(usize)
@@ -1295,8 +1311,21 @@ impl core::fmt::Debug for oso_core::editor::DraftFor
 pub fn oso_core::editor::DraftFor::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::DraftFor
 pub enum oso_core::editor::GitRequest
+pub oso_core::editor::GitRequest::Commit
+pub oso_core::editor::GitRequest::Commit::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Commit::kind: oso_core::editor::CommitKind
+pub oso_core::editor::GitRequest::Commit::switches: oso_core::editor::CommitSwitches
+pub oso_core::editor::GitRequest::CommitCancel
+pub oso_core::editor::GitRequest::CommitCancel::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::CommitFinish
+pub oso_core::editor::GitRequest::CommitFinish::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::CommitRing
+pub oso_core::editor::GitRequest::CommitRing::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::CommitRing::older: bool
 pub oso_core::editor::GitRequest::Refresh
 pub oso_core::editor::GitRequest::Refresh::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::ShowLog
+pub oso_core::editor::GitRequest::ShowLog::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Stage
 pub oso_core::editor::GitRequest::Stage::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Stage::lines: alloc::vec::Vec<oso_core::editor::GitLines>
@@ -1304,6 +1333,8 @@ pub oso_core::editor::GitRequest::StageAll
 pub oso_core::editor::GitRequest::StageAll::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Status
 pub oso_core::editor::GitRequest::Status::project: oso_core::project::ProjectId
+pub oso_core::editor::GitRequest::Stop
+pub oso_core::editor::GitRequest::Stop::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Toggle
 pub oso_core::editor::GitRequest::Toggle::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Toggle::line: usize
@@ -1904,6 +1935,21 @@ impl oso_core::editor::ClipboardWrite
 pub fn oso_core::editor::ClipboardWrite::text(&self) -> alloc::string::String
 impl core::fmt::Debug for oso_core::editor::ClipboardWrite
 pub fn oso_core::editor::ClipboardWrite::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::CommitSwitches
+pub oso_core::editor::CommitSwitches::allow_empty: bool
+pub oso_core::editor::CommitSwitches::no_verify: bool
+pub oso_core::editor::CommitSwitches::signoff: bool
+impl core::clone::Clone for oso_core::editor::CommitSwitches
+pub fn oso_core::editor::CommitSwitches::clone(&self) -> oso_core::editor::CommitSwitches
+impl core::cmp::Eq for oso_core::editor::CommitSwitches
+impl core::cmp::PartialEq for oso_core::editor::CommitSwitches
+pub fn oso_core::editor::CommitSwitches::eq(&self, &oso_core::editor::CommitSwitches) -> bool
+impl core::default::Default for oso_core::editor::CommitSwitches
+pub fn oso_core::editor::CommitSwitches::default() -> oso_core::editor::CommitSwitches
+impl core::fmt::Debug for oso_core::editor::CommitSwitches
+pub fn oso_core::editor::CommitSwitches::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::CommitSwitches
+impl core::marker::StructuralPartialEq for oso_core::editor::CommitSwitches
 pub struct oso_core::editor::CompletionStyle
 pub oso_core::editor::CompletionStyle::given_order: bool
 pub oso_core::editor::CompletionStyle::preview: bool
@@ -1945,12 +1991,15 @@ pub fn oso_core::editor::Editor::windows(&self) -> impl core::iter::traits::exac
 pub fn oso_core::editor::Editor::with_buffer(oso_core::buffer::Buffer) -> Self
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_git_status(&mut self, oso_core::project::ProjectId, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::Editor::append_git_log(&mut self, oso_core::buffer::BufferId, &str)
 pub fn oso_core::editor::Editor::git_outline(&self, oso_core::buffer::BufferId) -> &[oso_core::editor::GitHeading]
 pub fn oso_core::editor::Editor::git_points(&self, oso_core::buffer::BufferId) -> alloc::vec::Vec<(oso_core::window::WindowId, usize)>
+pub fn oso_core::editor::Editor::git_runs(&self) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::buffer::BufferId> + '_
 pub fn oso_core::editor::Editor::git_status_buffer(&self, oso_core::project::ProjectId) -> core::option::Option<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::git_status_of(&self, oso_core::buffer::BufferId) -> core::option::Option<oso_core::project::ProjectId>
 pub fn oso_core::editor::Editor::git_statuses(&self) -> impl core::iter::traits::iterator::Iterator<Item = (oso_core::buffer::BufferId, oso_core::project::ProjectId)>
 pub fn oso_core::editor::Editor::request_git(&mut self, oso_core::editor::GitRequest)
+pub fn oso_core::editor::Editor::set_git_running(&mut self, oso_core::buffer::BufferId, bool)
 pub fn oso_core::editor::Editor::set_git_text(&mut self, oso_core::buffer::BufferId, oso_core::load::LoadSnapshot, oso_core::editor::GitShown) -> core::option::Option<oso_core::syntax::Highlights>
 pub fn oso_core::editor::Editor::take_git_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::GitRequest>
 impl oso_core::editor::Editor
@@ -2065,6 +2114,7 @@ pub fn oso_core::editor::Editor::begin_command(&mut self)
 pub fn oso_core::editor::Editor::clear_echo(&mut self)
 pub fn oso_core::editor::Editor::clear_echo_saying(&mut self, &str)
 pub fn oso_core::editor::Editor::echo(&mut self, impl core::convert::Into<alloc::string::String>)
+pub fn oso_core::editor::Editor::echo_unless_news(&mut self, &str, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::echo_withheld(&self) -> bool
 pub fn oso_core::editor::Editor::end_command(&mut self)
 pub fn oso_core::editor::Editor::keys_withheld(&self) -> bool
@@ -2948,6 +2998,7 @@ pub fn oso_core::editor::WindowTree::buffers(&self) -> impl core::iter::traits::
 pub fn oso_core::editor::WindowTree::tiling(&self) -> oso_core::frame::Tiling
 impl core::fmt::Debug for oso_core::editor::WindowTree
 pub fn oso_core::editor::WindowTree::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const oso_core::editor::MAX_GIT_LOG: usize
 pub const oso_core::editor::MAX_MACRO_EVENTS: usize
 pub const oso_core::editor::MAX_MACRO_TEXT: usize
 pub const oso_core::editor::SCRATCH: &str
@@ -5150,6 +5201,7 @@ pub oso_core::syntax::Highlight::DiredSymlink
 pub oso_core::syntax::Highlight::Function
 pub oso_core::syntax::Highlight::GitBranchLocal
 pub oso_core::syntax::Highlight::GitBranchRemote
+pub oso_core::syntax::Highlight::GitCommitOverlong
 pub oso_core::syntax::Highlight::GitDetail
 pub oso_core::syntax::Highlight::GitHash
 pub oso_core::syntax::Highlight::GitSectionHeading

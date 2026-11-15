@@ -92,7 +92,9 @@ pub use copies::RecoveryAction;
 pub use crossing::Crossing;
 pub use cursors::{CursorError, Toward};
 pub use files::Looked;
-pub use git::{GitHeading, GitLines, GitRequest, GitShown};
+pub use git::{
+    CommitKind, CommitSwitches, GitHeading, GitLines, GitRequest, GitShown, MAX_GIT_LOG,
+};
 pub use gutter::Gutter;
 pub use indent::{IndentError, Shift};
 pub use isearch::{Isearch, MatchCells};
@@ -538,20 +540,18 @@ impl Editor {
     /// Applies `edits` to the buffer `id` as one step, and moves the cursors of
     /// every window showing it. All of it happens, or none of it does.
     ///
-    /// `edits` are usually one per cursor, in any order. They are applied in
-    /// descending offset order, so all their ranges are offsets in the text as
-    /// it is now. Ranges that overlap, and insertions at one offset, become
-    /// their union, replaced by their texts joined in offset order; ranges that
-    /// only touch stay apart. Empty edits do nothing.
+    /// `edits` are usually one per cursor, in any order. They are applied in descending offset
+    /// order, so all their ranges are offsets in the text as it is now. Ranges that overlap,
+    /// and insertions at one offset, become their union, replaced by their texts joined in
+    /// offset order; ranges that only touch stay apart. Empty edits do nothing.
     ///
-    /// In the selected window, a cursor at the start of an edit or inside its
-    /// replaced text ends after the new text, so a command that inserts at each
-    /// cursor need not move them, though it may move them afterward. In other
-    /// windows such a cursor stays before the new text, as an Emacs marker.
-    /// Cursors are then clipped to a display cluster, since a combining mark can
-    /// move the boundaries: to its start, or to its end for a selected cursor
-    /// just after new text that joined what follows, so typed text stays before
-    /// the cursor. Cursors that met merge.
+    /// In the selected window, a cursor at the start of an edit or inside its replaced text
+    /// ends after the new text, so a command that inserts at each cursor need not move them,
+    /// though it may move them afterward. In other windows such a cursor stays before the new
+    /// text, as an Emacs marker. Cursors are then clipped to a display cluster, since a
+    /// combining mark can move the boundaries: to its start, or to its end for a selected
+    /// cursor just after new text that joined what follows, so typed text stays before the
+    /// cursor. Cursors that met merge.
     ///
     /// # Errors
     ///

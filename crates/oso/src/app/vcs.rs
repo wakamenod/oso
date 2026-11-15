@@ -31,6 +31,11 @@ use crate::vcs::layout::{Laid, Row};
 use crate::vcs::stage::{self, Target};
 use crate::vcs::{Built, Report, Request, View, Worker};
 
+mod commit;
+mod runs;
+
+pub(crate) use runs::RunEvent;
+
 /// The most characters of a failure the echo area shows.
 const MAX_MESSAGE: usize = 200;
 
@@ -61,6 +66,8 @@ pub(super) struct GitStatuses {
     /// The buffer the selected window showed at the last look, which a key typed since was
     /// typed in.
     selected: Option<BufferId>,
+    /// The repositories git runs in, and the commits' messages (step 1b).
+    commits: commit::Commits,
 }
 
 /// A status buffer as the app knows it.
@@ -106,6 +113,7 @@ impl App {
         for request in self.editor.take_git_requests() {
             self.git_request(request);
         }
+        self.sync_commits();
         let agent = agent || self.gits.by_agent;
         // A key is the person's in a status when the status was selected as it was typed.
         let typed_in = self.gits.selected.replace(self.editor.window().buffer());
@@ -162,6 +170,7 @@ impl App {
                 line,
                 column,
             } => self.visit_git_line(buffer, line, column),
+            other => self.git_commit_request(other),
         }
     }
 
@@ -246,6 +255,10 @@ impl App {
     /// Asks the status's thread to read, lay out, or run `ops`; while no window shows it, a
     /// read waits until one does.
     fn git_ask(&mut self, index: usize, ask: Ask) {
+        // A write to the index while a commit runs would race it for the index's lock (Q8).
+        if matches!(ask, Ask::Stage(..)) && self.commit_runs(self.gits.open[index].project) {
+            return self.editor.message(runs::RUNNING);
+        }
         let open = &mut self.gits.open[index];
         if open.revoked || !self.editor.project_trusted(open.project) {
             return self.editor.message(RESTRICTED);

@@ -228,6 +228,15 @@ impl Editor {
         }
     }
 
+    /// Echoes `text` if the echo area is empty or still says `before`, so that a line that says
+    /// how far something has come never covers news: a long run's time (ADR 0127).
+    pub fn echo_unless_news(&mut self, before: &str, text: impl Into<String>) {
+        let quiet = self.echo.as_ref().is_none_or(|echo| echo.text == before);
+        if quiet && self.keys_in_progress.is_empty() && self.prompts.is_empty() {
+            self.echo(text);
+        }
+    }
+
     /// Empties the echo area if it still says `text`, for what said it was only until something
     /// ended, as anything said since is news.
     pub fn clear_echo_saying(&mut self, text: &str) {
@@ -488,14 +497,25 @@ impl Editor {
             }
             Keep::Bytes(_) => 0,
         };
+        self.trim_and_append(id, oldest, line);
+    }
+
+    /// Takes the internal buffer `id`'s text before `oldest` out, and adds `text` at its end, as
+    /// one edit with no undo. Cursors at the end stay at the end, and the view follows the
+    /// selected window's.
+    pub(super) fn trim_and_append(&mut self, id: BufferId, oldest: usize, text: &str) {
+        let Some(buffer) = self.buffer(id) else {
+            return;
+        };
+        let end = buffer.text().len();
         let edits = [
             Replacement {
-                range: 0..oldest,
+                range: 0..oldest.min(end),
                 text: "",
             },
             Replacement {
                 range: end..end,
-                text: line,
+                text,
             },
         ];
         let Some(staged) = buffer.stage_internal(&edits) else {

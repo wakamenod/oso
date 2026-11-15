@@ -20,6 +20,7 @@
 mod agent_rules;
 mod checked;
 mod defaults;
+mod git;
 mod in_force;
 mod indentation;
 mod keys;
@@ -47,6 +48,7 @@ use crate::bindings;
 
 pub use agent_rules::RulesReport;
 pub use checked::read_checked;
+pub use git::GitSettings;
 pub use in_force::{AgentStarts, InForce, JUMP_TIMEOUT, Look};
 pub use indentation::MODES;
 pub use lsp::{Entry as LspEntry, Lsp, StartWhen};
@@ -229,6 +231,7 @@ fn apply(
             "terminal" => settings.terminal = terminal::terminal(value, found),
             "spaces" => settings.spaces = spaces::spaces(value, found),
             "lsp" => settings.lsp = lsp::lsp(value, found),
+            "git" => settings.git = git::git(value, found),
             other => found.at(
                 name.span().start,
                 format_args!("unknown table [{}], skipped", TableName(other)),

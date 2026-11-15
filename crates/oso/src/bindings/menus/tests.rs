@@ -35,10 +35,18 @@ fn every_head_of_the_tables_is_there_with_the_default_commands() {
             let keys: KeySequence = want.keys.parse().unwrap();
             assert_eq!(head.keys, keys);
             assert_eq!(head.label, want.label);
-            let HeadAction::Command(id) = head.action else {
-                panic!("{} is not a command head", want.keys);
-            };
-            assert_eq!(registry.get(id).unwrap().name, want.command);
+            match &head.action {
+                HeadAction::Command(id) => {
+                    assert!(!want.switch, "{} flips a switch", want.keys);
+                    assert_eq!(registry.get(*id).unwrap().name, want.command);
+                }
+                // The commit menu's arguments (ADR 0127, step 1b).
+                HeadAction::Switch(name) => {
+                    assert!(want.switch, "{} runs a command", want.keys);
+                    assert_eq!(name, want.command);
+                }
+                _ => panic!("{} is neither a command's head nor a switch", want.keys),
+            }
             assert_eq!(head.stay == Some(Stay::Stay), want.stay);
             assert_eq!(head.count, want.count);
         }
@@ -49,13 +57,18 @@ fn every_head_of_the_tables_is_there_with_the_default_commands() {
 fn their_ids_follow_the_tables_whatever_the_registry_has() {
     let full = built_in_menus(&commands::registry());
     // A registry without their commands, as some tests bring, keeps the menus and their ids,
-    // with no heads.
+    // with no command's heads; switches need no command.
     let empty = built_in_menus(&Registry::new());
     for (index, menu) in BUILT_IN.iter().enumerate() {
         let id = full.lookup(menu.name).unwrap();
         assert_eq!(empty.lookup(menu.name), Some(id));
         assert_eq!(full.iter().nth(index).map(|(id, _)| id), Some(id));
-        assert!(built_in(&empty, menu.name).heads().is_empty());
+        let heads = built_in(&empty, menu.name).heads();
+        assert!(
+            heads
+                .iter()
+                .all(|head| matches!(head.action, HeadAction::Switch(_)))
+        );
     }
 }
 

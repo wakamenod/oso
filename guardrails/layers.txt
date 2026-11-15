@@ -72,15 +72,16 @@ sessions
 # `terminal` hosts the terminals: their keys, shells and kept grids (ADR 0120).
 commands dev grep keys loader terminal text
 # `carry` is the state a restart carries and its transports, shared by `oso dev`'s and
-# `oso-restart`'s (ADR 0120, step 11; ADR 0133). `vcs` is source control's git status (ADR 0127).
+# `oso-restart`'s (ADR 0120, step 11; ADR 0133). `vcs` is source control: a repository's git
+# status, staging, and committing with its log (ADR 0127).
 carry vcs
 # `walk` lists a project's files (ADR 0114), beside `project`, which finds them, and
 # `review`, which runs git and diffs for a review (ADR 0122). `dired` builds the directory
 # editor's listings, which `lister`'s threads run (ADR 0134).
 channel dired project review walk
-# `git` is what every run of git shares: the runner, object ids, the trusted root, git's
-# names and the empty hooks directory (ADR 0127, as built), for `review`, `sessions`, `vcs`
-# and `app`.
+# `git` is what every run of git shares: the runner, the runs with no time limit, object ids,
+# the trusted root, git's names and the empty hooks directory (ADR 0127, as built), for
+# `review`, `sessions`, `vcs` and `app`.
 git
 
 [oso-syntax]

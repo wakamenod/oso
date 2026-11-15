@@ -39,6 +39,12 @@ pub enum Mode {
     Directory,
     /// A repository's status, as magit's status buffer shows it (ADR 0127).
     GitStatus,
+    /// A commit's message being written, `*commit: NAME*`, as magit's `git-commit-mode`
+    /// (ADR 0127, step 1b).
+    GitCommit,
+    /// What git's long runs in a repository wrote, `*git log: NAME*`, as magit's process
+    /// buffer.
+    GitLog,
 }
 
 impl Mode {
@@ -82,6 +88,8 @@ impl Mode {
             Self::Terminal => "Terminal",
             Self::Directory => "Dired",
             Self::GitStatus => "Git",
+            Self::GitCommit => "Git Commit",
+            Self::GitLog => "Git Log",
         }
     }
 
@@ -92,7 +100,7 @@ impl Mode {
 
     /// The rules its lines are indented by (ADR 0115), or none for the emergency copies' and
     /// the worktrees' buffers and the sessions' list, whose text is not the person's to indent,
-    /// and for a terminal, which has none. A brief is prose.
+    /// and for a terminal, which has none. A brief and a commit's message are prose.
     #[expect(
         clippy::type_complexity,
         reason = "the rules' own signature, which naming would make a public item of its own"
@@ -102,7 +110,7 @@ impl Mode {
             Self::Rust => Some(indent::rust),
             Self::Toml => Some(indent::toml),
             Self::Markdown => Some(indent::markdown),
-            Self::Fundamental | Self::Brief => Some(indent::fundamental),
+            Self::Fundamental | Self::Brief | Self::GitCommit => Some(indent::fundamental),
             Self::CopyList
             | Self::CopyView
             | Self::Worktrees
@@ -110,6 +118,7 @@ impl Mode {
             | Self::Terminal
             | Self::Directory
             | Self::GitStatus
+            | Self::GitLog
             | Self::Sessions => None,
         }
     }
