@@ -410,3 +410,80 @@ fn the_spaces_of_300_other_programs_sessions_are_found_well_within_the_budget() 
     // on the reference Mac; a scan of every place for each session took tens of times more).
     assert!(cfg!(debug_assertions) || best.as_micros() < 200, "{best:?}");
 }
+
+#[test]
+fn names_are_never_a_device_and_titles_hold_no_invisible_characters() {
+    use super::stored::{clean_title, slug};
+    assert_eq!(slug("CON"), "con-space");
+    assert_eq!(slug("com1"), "com1-space");
+    assert_eq!(slug("console"), "console");
+    assert_eq!(slug("../.."), "space");
+    assert_eq!(clean_title("a\u{202E}b\u{2066}c\td"), "abc d");
+    assert_eq!(
+        clean_title(&"é".repeat(150)).len(),
+        200,
+        "cut at a character's end"
+    );
+}
+
+#[test]
+fn an_orchestrator_is_its_spaces_closed_or_not() {
+    let mut spaces = recalled(0);
+    let at = add(&mut spaces, "/src/api");
+    let who = crate::sessions::identity::SessionId::parse("00000000-0000-4000-8000-000000000001")
+        .unwrap();
+    assert_eq!(spaces.orchestrated_by(&who), None);
+    spaces.set_orchestrator(at, who.clone(), 2);
+    assert_eq!(spaces.orchestrated_by(&who), Some(at));
+    spaces.archive(&mut editor(), at, 3).unwrap();
+    assert_eq!(spaces.orchestrated_by(&who), Some(at), "kept while closed");
+}
+
+#[test]
+fn a_made_worktree_is_held_by_the_askers_space_when_its_repository_is_one_of_its() {
+    let mut spaces = recalled(2);
+    let api = add(&mut spaces, "/src/api");
+    let web = add(&mut spaces, "/src/web");
+    let path = Path::new("/src/api/.claude/worktrees/fix");
+    // Asked from the web space, whose repository it is not: it joins the api space.
+    spaces.hold_made_worktree(Some(web), path, Path::new("/src/api"), 2);
+    assert_eq!(spaces.holding(path), Some(api));
+    // Asked from a space holding the repository: held there.
+    let both = add(&mut spaces, "/src/web2");
+    spaces
+        .add_member(both, Member::at(Path::new("/src/api")), 3)
+        .unwrap();
+    spaces.hold_made_worktree(Some(both), path, Path::new("/src/api"), 4);
+    assert_eq!(spaces.holding(path), Some(both));
+}
+
+#[test]
+fn only_a_session_in_the_directory_oso_makes_for_the_space_is_its_orchestrator() {
+    let root = Path::new("/home/u/spaces");
+    let mut stored = Stored::of_repository(id(1), "fix".into(), Member::at(Path::new("/r")), 1);
+    let place = root.join("fix");
+    // No directory yet, or one not made by oso: no orchestrator.
+    assert!(!stored.orchestrated_from(root, &place));
+    stored.directory = Some(place.clone());
+    stored.directory_identity = Some((1, 2));
+    assert!(stored.orchestrated_from(root, &place));
+    // A session elsewhere, as a worker naming itself in a forged record, is none.
+    assert!(!stored.orchestrated_from(root, Path::new("/r/.claude/worktrees/x")));
+    // A directory the record names elsewhere than oso makes it is none either.
+    stored.directory = Some(PathBuf::from("/r/.claude/worktrees/x"));
+    assert!(!stored.orchestrated_from(root, Path::new("/r/.claude/worktrees/x")));
+    stored.directory = Some(place.clone());
+    if cfg!(unix) {
+        stored.directory_identity = None;
+        assert!(
+            !stored.orchestrated_from(root, &place),
+            "made by oso, with its identity"
+        );
+        stored.directory_identity = Some((1, 2));
+    }
+    stored.archived = true;
+    assert!(
+        !stored.orchestrated_from(root, &place),
+        "a closed space has none"
+    );
+}

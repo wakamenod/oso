@@ -29,7 +29,7 @@
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
-pub use unix::{CleanupGuard, ControlDir, ControlListener, ControlStream};
+pub use unix::{CleanupGuard, ControlDir, ControlListener, ControlStream, INHERITED_FD};
 
 #[cfg(not(unix))]
 mod unsupported;

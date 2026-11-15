@@ -76,6 +76,8 @@ through `oso mcp`.
 | `C-x a @` | `session-mention` | Insert a session's name as `@NAME`. |
 | `C-x a f` | `session-follow-message` | Show the session that sent this one its newest message. |
 | `C-x a j` | `space-switch` | Switch to another space. |
+| `C-x a O` | `space-new` | Make a space for an issue, of the selected buffer's repository. |
+| `C-x a S` | the space menu | Add or remove a repository, instructions, directory, rename, close, reopen. |
 | `C-x a z` | `space-zoom` | Show the selected window alone, and back. |
 | `C-x a e` | `session-explain` | Explain why this session has the state it shows. |
 
@@ -111,8 +113,11 @@ option. It starts the agent channel, which its tools need.
 
 `*Sessions*` shows in a window 44 columns wide at the frame's left while you have sessions;
 a frame with no room for that narrows it, down to 24 columns. It is a
-tree: each project, its worktrees (the main checkout first, then the newest), and the sessions
-in each, one line each: a mark, a name, and how long since it last changed state (`now` under
+tree: each space, its repositories, the worktrees the space uses of each (the main checkout
+first, then the newest), and the sessions in each, one line each. A space of one repository
+lists its worktrees right under its own row. While another space is in front, a space is
+folded unless one of its sessions works or needs you; closed spaces wait in a folded
+`Archived spaces` group. Each line has a mark, a name, and how long since it last changed state (`now` under
 a minute). A worktree's mark is its most urgent session's. Worktrees made with git outside oso
 show too, and those untouched for a week wait in a folded `quiet` row. `s` groups the
 sessions by state instead. A session that needs you takes a second line with the question it
@@ -130,10 +135,11 @@ In `*Sessions*`:
 
 | Key | What it does |
 |---|---|
-| `RET` | Show the session on this row. On a worktree, show its session, or go to its space, or find a file in it when it has neither. On a project or a group, fold it. |
+| `RET` | Show the session on this row. On a space, go to it; on a closed one, open it again. On a worktree, show its session, or go to its space, or find a file in it when it has neither. On a repository or a group, fold it. |
 | `n`, `p` | Next and previous row. |
-| `M-n`, `M-p` | Next and previous project, worktree or group. |
-| `TAB` | Fold or unfold a project, a worktree or a group. |
+| `M-n`, `M-p` | Next and previous space, repository, worktree or group. |
+| `TAB` | Fold or unfold a space, a repository, a worktree or a group. |
+| `a` | Add a repository to the space in front. |
 | `c` | Start a session in this row's worktree: a project's main checkout, the worktree, or the session's worktree. |
 | `w` | Start a session in a new worktree of this row's project. From a worktree, the new branch starts at its branch; from a session, it is also that session's child. |
 | `/` | Switch to a session by name, as `C-x a b`. |
@@ -164,6 +170,37 @@ session started in a repository joins the space in front when that space has the
 else the space you were in last that has it, else a new space of that repository. Each
 repository you used before spaces came becomes a space of its own. The modeline names the
 space.
+
+`C-x a O` makes a space for an issue: type its title, and the space is named after it, with the
+selected buffer's repository; with none, it asks for one. Each space gets a directory of its
+own, `~/spaces/<name>` (set `[spaces] root` in `config.toml` to put them elsewhere), where its
+orchestrator will work. oso makes it readable by you alone, and refuses a root that other users
+can write.
+
+`C-x a S` (`C-c S` in a session) opens the space menu for the space in front:
+
+| Key | Command | What it does |
+|---|---|---|
+| `a` | `space-add-repo` | Add a repository, by completion or its path; it must be a main checkout. |
+| `r` | `space-remove-repo` | Take a repository out; refused while a session of the space runs in it. |
+| `u` | `space-use-repo` | Choose the repository that `session-worktree`, `worktree-list` and `worktree-remove` use from the orchestrator's buffer, when the space has several trusted ones. |
+| `i` | `space-instructions` | Edit the goal the space's orchestrator is given. |
+| `d` | `space-directory` | List the space's directory. |
+| `n` | `space-rename` | Give the space a new title, and a name made from it. |
+| `c` | `space-close` | Archive the space; refused while one of its sessions works or needs input. |
+| `R` | `space-reopen` | Open a closed space again. |
+| `o` | `space-orchestrator-start` | Start the space's orchestrator, the session you talk to about the issue, in the space's directory, with each trusted repository as a working directory. `C-u` makes a space directory that is gone again at its place. |
+
+The orchestrator is told the space's repositories, its title and its instructions, and to
+keep a `handoff.md` in its directory for whoever takes over. Its row is right under its
+space's, and `RET` on the space's row shows it. A repository added to the space, or trusted,
+while it runs is offered to it: `y` pastes `/add-dir PATH` into its prompt, not sent. In
+Claude Code, `/permissions` and its Workspace tab list the directories it was given.
+
+The orchestrator works through sessions: its tools name a repository of the space with
+`repo`, and it sees the space's sessions only. A worker it starts belongs to the space, and
+its brief says to report to the orchestrator by the space's name. `space_status` gives any
+session of the space the space, its repositories with their trust, and its sessions.
 
 ### Send work to a session
 
@@ -261,6 +298,7 @@ tools besides oso's editing ones:
 | `start_worktree_session` | Start a session in a new worktree, with a brief. Asks you first. |
 | `worktree_list` | List the repository's worktrees, as `M-x worktree-list` does. |
 | `worktree_remove` | Remove a finished worktree, under the same rules as `M-x worktree-remove`. |
+| `space_status` | Read the session's issue space: its repositories, their trust, the orchestrator's name, its sessions. |
 
 A tool that starts a session asks you in oso first. The question names the session that asks
 and what would start. `y` allows it, `n` or `C-g` refuses it, and `?` shows the whole brief. A refusal

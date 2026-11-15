@@ -117,7 +117,8 @@ fn there_are_no_statics() {
     let mut problems = Vec::new();
     for path in workspace.rust_files() {
         let at = workspace.relative_path(&path);
-        for line in statics::forbidden_lines(&tokenize(&read(&path))) {
+        let src = read(&path);
+        for line in statics::forbidden_lines(&tokenize(&src)) {
             problems.push(format!(
                 "{at}:{line}: a `static` is global state (ADR 0038, ADR 0042); keep state \
                  host-owned, and use a `const` for data"

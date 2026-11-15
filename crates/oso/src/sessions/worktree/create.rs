@@ -45,6 +45,8 @@ pub struct Handover {
     pub id: String,
     /// The directory it runs in.
     pub directory: PathBuf,
+    /// The issue space it orchestrates, if it is a space's orchestrator (ADR 0136, step 4).
+    pub space: Option<String>,
 }
 
 /// What to make.
@@ -133,6 +135,7 @@ pub(super) fn create_with(
         path: &path,
         branch: &branch.name,
         base: shown_base,
+        space: order.from.as_ref().and_then(|from| from.space.as_deref()),
     };
     let facts = order.from.as_ref().map(|from| Facts::gather(repo, from));
     let handoff = facts.as_ref().map(Facts::handoff);

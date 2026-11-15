@@ -269,7 +269,9 @@ restricted project the state is not used.
   debounce. "A tool that writes finished" is not given; ADR 0122's own watching covers it.
 - **Sessions:** a session started in a trusted project takes its baseline on the worker before
   `claude` spawns, waiting at most 2 s, after which it spawns and the baseline follows. The review an
-  agent's tools act on is its session's, named by the bridge.
+  agent's tools act on is its session's, named by the bridge. (Changed by ADR 0136, "Step 4a, as
+  built": a session whose trusted root was put in another's place since oso found it does not
+  start; the person trusts the directory there again with `trust-project`.)
 
 ### Seeing what needs you (Q6, Q7, Q9, Q10, Q11, Q12)
 

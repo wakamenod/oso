@@ -1,6 +1,6 @@
-//! Restarts under `oso dev`, on the UI thread: exporting the state and the texts it
-//! carries, and taking over from the instance that exported one (ADR 0047, ADR 0055,
-//! ADR 0090).
+//! Restarts on the UI thread, `oso dev`'s and `oso-restart`'s: exporting the state and the
+//! texts it carries, and taking over from the instance that exported one (ADR 0047, ADR 0055,
+//! ADR 0090, ADR 0133).
 //!
 //! Must not depend on: sockets or threads. The handoff's carry jobs copy and build the
 //! texts off this thread, and this only clones ropes and installs what they built.
@@ -14,21 +14,21 @@ use oso_core::sum_tree::Bias;
 use serde_json::{Value, json};
 
 use super::App;
-use crate::dev;
-use crate::dev::handoff::{self, carry};
+use crate::carry::{self, pieces};
+use crate::carry::{Op, Passed, Reply};
 
-/// What a restart under `oso dev` keeps on the UI thread.
+/// What a restart keeps on the UI thread.
 #[derive(Default)]
 pub(super) struct Handover {
     /// Positions handed over from the previous instance, each window's, until their files
     /// have loaded (ADR 0112).
-    pub(super) restore: Vec<handoff::Restore>,
+    pub(super) restore: Vec<carry::Restore>,
     /// How many states this instance has exported, which names the latest.
     pub(super) exports: u64,
     /// The texts the latest export carries, for `export-text`.
-    pub(super) exported: Option<carry::Exported>,
+    pub(super) exported: Option<pieces::Exported>,
     /// The texts `import-text` has brought for the import that follows.
-    staging: carry::Staging,
+    staging: pieces::Staging,
     /// The reply to an import that waits for its carried buffers to be judged.
     import: Option<ImportReply>,
     /// Terminals going to the next instance (ADR 0120, step 11).
@@ -42,15 +42,26 @@ pub(super) struct Handover {
 
 /// An import's reply, held until every carried buffer has a verdict.
 struct ImportReply {
-    reply: mpsc::Sender<dev::Reply>,
+    reply: mpsc::Sender<Reply>,
     result: Value,
     judging: Vec<BufferId>,
 }
 
 impl App {
+    /// The OS window's place and size, if there is a window.
+    pub(super) fn frame(&self) -> Option<carry::Frame> {
+        let window = &self.view.as_ref()?.window;
+        let (width, height) = window.inner_size();
+        Some(carry::Frame {
+            position: window.outer_position(),
+            width,
+            height,
+        })
+    }
+
     /// `export-state`: the state, with an O(1) snapshot of each text it carries kept for
     /// `export-text`, replacing the one before.
-    pub(super) fn export_state(&mut self) -> dev::Reply {
+    pub(super) fn export_state(&mut self) -> Reply {
         self.resume_terminals();
         let (state, exported) = self.export_texts(None)?;
         self.keep_export(exported);
@@ -62,8 +73,8 @@ impl App {
     pub(super) fn export_texts(
         &self,
         terminals: Option<(&[BufferId], usize)>,
-    ) -> Result<(Value, carry::Exported), String> {
-        handoff::export(
+    ) -> Result<(Value, pieces::Exported), String> {
+        carry::export(
             &self.editor,
             self.dispatcher.pending(),
             self.frame(),
@@ -74,42 +85,66 @@ impl App {
     }
 
     /// Keeps `exported` for `export-text`, as the latest export, dropping the one before.
-    pub(super) fn keep_export(&mut self, exported: carry::Exported) {
+    pub(super) fn keep_export(&mut self, exported: pieces::Exported) {
         self.handover.exports = exported.number();
-        carry::drop_later(self.handover.exported.replace(exported));
+        pieces::drop_later(self.handover.exported.replace(exported));
     }
 
     /// The methods of a restart but `exit`: their reply, if it is ready now.
     pub(super) fn answer_restart(
         &mut self,
-        op: dev::UiOp,
-        reply: mpsc::Sender<dev::Reply>,
-        passed: dev::Passed,
-    ) -> Option<(mpsc::Sender<dev::Reply>, dev::Reply)> {
+        op: Op,
+        reply: mpsc::Sender<Reply>,
+        passed: Passed,
+    ) -> Option<(mpsc::Sender<Reply>, Reply)> {
         let result = match op {
-            dev::UiOp::ExportState { terminals: None } => self.export_state(),
-            dev::UiOp::ExportState {
-                terminals: Some(library),
+            Op::ExportState { library: None } => self.export_state(),
+            Op::ExportState {
+                library: Some(library),
             } => return self.export_with_terminals(&library, passed.parent, reply),
-            op @ (dev::UiOp::ExportText { .. } | dev::UiOp::ImportText(_)) => {
+            op @ (Op::ExportText { .. } | Op::ImportText(_)) => {
                 return self.carry_text(op, reply, passed.parent);
             }
-            dev::UiOp::HandOverTerminals { generation } => {
-                self.hand_over_terminals(generation, &passed)
-            }
-            dev::UiOp::ImportTerminals { count } => self.import_terminals(count, passed),
-            dev::UiOp::CheckHandover { terminals } => self.check_handover(terminals, passed.parent),
-            dev::UiOp::ImportState(state) => {
+            Op::HandOverTerminals { generation } => self.hand_over_terminals(generation, &passed),
+            Op::ImportTerminals { count } => self.import_terminals(count, passed),
+            #[cfg(feature = "dev")]
+            Op::CheckHandover { terminals } => self.check_handover(terminals, passed.parent),
+            Op::ImportState(state) => {
                 return self.answer_import(*state, reply, passed.parent);
             }
-            _ => Err("not a method of a restart".into()),
         };
         Some((reply, result))
     }
 
+    /// The exit of a restart, checked here on the UI thread, and nothing runs after it, so no
+    /// edit can come between the check and the exit: if the generation is still `generation`,
+    /// terminals handed over go now, as the next instance has their masters (ADR 0120, step 11;
+    /// ADR 0133). Without a generation, `oso dev`'s plain `exit`.
+    pub(super) fn exit_for_restart(
+        &mut self,
+        event_loop: &super::shell::Loop<'_>,
+        generation: Option<u64>,
+    ) -> Reply {
+        let allowed = carry::exit_allowed(&self.editor, generation).and_then(|()| {
+            if generation.is_some() {
+                self.exit_with_terminals()
+            } else {
+                Ok(())
+            }
+        });
+        if allowed.is_err() {
+            // That restart is over, and its snapshot need hold no text.
+            self.forget_export();
+        }
+        allowed.map(|()| {
+            self.leave(event_loop, true);
+            json!({ "exiting": true })
+        })
+    }
+
     /// `check-handover`: with `terminals`, whether the running terminals can go too, which
     /// only the parent may ask; without, a running terminal holds the restart.
-    pub(super) fn check_handover(&self, terminals: bool, parent: bool) -> dev::Reply {
+    pub(super) fn check_handover(&self, terminals: bool, parent: bool) -> Reply {
         if terminals && !parent {
             return Err(super::terminals::carry::NOT_PARENT.into());
         }
@@ -118,7 +153,7 @@ impl App {
                 "cannot hand over: the terminals carried here wait for their masters".into(),
             );
         }
-        let answer = handoff::check(&self.editor, terminals)?;
+        let answer = carry::check(&self.editor, terminals)?;
         if terminals {
             let running: Vec<BufferId> = self.editor.running_terminals().collect();
             self.terminals_may_go(&running)?;
@@ -138,7 +173,7 @@ impl App {
 
     /// Forgets the snapshot of the latest export, as the restart it was for is over.
     pub(super) fn forget_export(&mut self) {
-        carry::drop_later(self.handover.exported.take());
+        pieces::drop_later(self.handover.exported.take());
     }
 
     /// Forgets a snapshot `export-text` may no longer read, and pieces staged for an import
@@ -159,13 +194,13 @@ impl App {
     /// copies or builds the piece, and replies. Returns the reply if there is one now.
     pub(super) fn carry_text(
         &mut self,
-        op: dev::UiOp,
-        reply: mpsc::Sender<dev::Reply>,
+        op: Op,
+        reply: mpsc::Sender<Reply>,
         parent: bool,
-    ) -> Option<(mpsc::Sender<dev::Reply>, dev::Reply)> {
+    ) -> Option<(mpsc::Sender<Reply>, Reply)> {
         self.touch_carried();
         match op {
-            dev::UiOp::ExportText {
+            Op::ExportText {
                 export,
                 item,
                 offset,
@@ -186,11 +221,7 @@ impl App {
                     Err(message) => return Some((reply, Err(message))),
                 }
             }
-            dev::UiOp::ImportText(piece) => {
-                self.handover
-                    .staging
-                    .spawn(piece, handoff::MAX_ITEMS, reply)
-            }
+            Op::ImportText(piece) => self.handover.staging.spawn(piece, carry::MAX_ITEMS, reply),
             _ => return Some((reply, Err("not a method that carries text".into()))),
         }
         None
@@ -202,10 +233,10 @@ impl App {
     /// supervisor close this instance while nothing has changed since.
     pub(super) fn answer_import(
         &mut self,
-        state: handoff::State,
-        reply: mpsc::Sender<dev::Reply>,
+        state: carry::State,
+        reply: mpsc::Sender<Reply>,
         parent: bool,
-    ) -> Option<(mpsc::Sender<dev::Reply>, dev::Reply)> {
+    ) -> Option<(mpsc::Sender<Reply>, Reply)> {
         if !parent && !state.terminals.is_empty() {
             let refused = super::terminals::carry::NOT_PARENT.to_owned();
             return Some((reply, Err(refused)));
@@ -221,7 +252,7 @@ impl App {
         };
         let result = json!({
             "buffers": self.editor.buffers().count(),
-            "generation": handoff::generation(&self.editor),
+            "generation": carry::generation(&self.editor),
         });
         self.handover.import = Some(ImportReply {
             reply,
@@ -258,9 +289,9 @@ impl App {
         clippy::too_many_lines,
         reason = "one pass over the state's buffers, a few lines for each kind of entry: files, terminals and listings"
     )]
-    fn import_state(&mut self, mut state: handoff::State) -> Result<Vec<BufferId>, String> {
+    fn import_state(&mut self, mut state: carry::State) -> Result<Vec<BufferId>, String> {
         let texts = self.handover.staging.take(state.export, &state.items);
-        handoff::import_allowed(&self.editor)?;
+        carry::import_allowed(&self.editor)?;
         let mut texts: Vec<_> = texts?.into_iter().map(Some).collect();
         let mut take = |item: usize| texts[item].take().ok_or("an item is claimed twice");
         // What could fail is worked out before anything changes.
@@ -356,7 +387,7 @@ impl App {
     /// stood for one, by its place in `named`, show its buffer (ADR 0120, step 11).
     fn place_terminals(
         &mut self,
-        terminals: Vec<handoff::terminals::TerminalState>,
+        terminals: Vec<carry::terminals::TerminalState>,
         texts: Vec<Rope>,
         stand_for: &[(usize, usize)],
         named: &mut [BufferId],
@@ -390,7 +421,7 @@ impl App {
     /// Lays the frame out as the state's windows were, each showing its buffer of `named` with
     /// its positions, in a window of the state's size and place, and feeds back its pending
     /// keys (ADR 0112).
-    fn take_view(&mut self, named: &[BufferId], state: handoff::State) {
+    fn take_view(&mut self, named: &[BufferId], state: carry::State) {
         // The size first, so that positions are restored against it. A system that applies
         // it at once says what it came to, with no `Resized`. Most apply it later, so the
         // view takes the size asked for now, and a `Resized` event corrects this if the
@@ -439,7 +470,7 @@ impl App {
     /// shown and restored where it is, none selected but the last, so that taking many costs
     /// one layout each. A layout this editor cannot take, or one of more windows than its frame
     /// can show, leaves one window, the state's first (ADR 0112).
-    fn take_windows(&mut self, named: &[BufferId], windows: handoff::Windows) {
+    fn take_windows(&mut self, named: &[BufferId], windows: carry::Windows) {
         let first = self.editor.tiled().0.id();
         let room = room_for_windows(self.editor.frame().size());
         let ids = match windows.layout {
@@ -459,7 +490,7 @@ impl App {
                 .editor
                 .window_by_id(*id)
                 .map(|window| (window.selections.clone(), window.scroll()));
-            self.handover.restore.push(handoff::Restore {
+            self.handover.restore.push(carry::Restore {
                 window: *id,
                 buffer,
                 selections: entry.selections,
@@ -487,7 +518,8 @@ impl App {
     }
 
     /// `dev-message`: what `oso dev` has to say, in the echo area and `*Messages*`.
-    pub(super) fn dev_message(&mut self, text: String) -> dev::Reply {
+    #[cfg(feature = "dev")]
+    pub(super) fn dev_message(&mut self, text: String) -> Reply {
         self.editor.message(text);
         self.request_redraw();
         Ok(Value::Null)

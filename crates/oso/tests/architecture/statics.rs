@@ -7,6 +7,9 @@
 //!
 //! Must not depend on: the file system or the other checks; it sees only
 //! tokens.
+//!
+//! No file is let off: the gate ADR 0133 let off went once each child got only the descriptors
+//! it is given (ADR 0137).
 
 use crate::lexer::{Tok, Token, skip_group, test_item_lines};
 

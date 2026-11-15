@@ -1,5 +1,6 @@
-//! What `oso dev` carries of a buffer with unsaved text to the instance that replaces this
-//! one (ADR 0090): the text, and what a save needs to know of the file beside it.
+//! What a restart (`oso dev`, `oso-restart`) carries of a buffer with unsaved text to the
+//! instance that replaces this one (ADR 0090): the text, and what a save needs to know of the
+//! file beside it.
 //!
 //! Must not depend on: file I/O or the control socket; the host moves these facts.
 

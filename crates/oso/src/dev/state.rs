@@ -28,7 +28,7 @@ use oso_core::keymap::display_keys;
 use oso_core::minibuffer::MAX_ENTRY_BYTES;
 use oso_core::motion;
 use oso_core::rope::Rope;
-use oso_core::selection::{Goal, Selection};
+use oso_core::selection::Selection;
 use oso_core::sum_tree::Bias;
 use oso_core::window::{Screen, Window, WindowId};
 use serde_json::{Value, json};
@@ -81,7 +81,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
     let mut state = json!({
         "buffer": buffer_state(window.buffer(), buffer, shows_secret),
         "window": { "rows": size.rows, "columns": columns(editor, window) },
-        "visual_aids": super::handoff::aids_state(editor.visual_aids()),
+        "visual_aids": crate::carry::aids_state(editor.visual_aids()),
         "text": text,
         "buffers": editor
             .buffers()
@@ -495,7 +495,7 @@ fn selection_state(selection: &Selection, display: &DisplaySnapshot) -> Value {
         "cursor": selection.cursor,
         "row": point.row,
         "column": point.column,
-        "goal": goal_state(selection.goal),
+        "goal": crate::carry::goal_state(selection.goal),
         "mark": mark_state(selection.mark, display),
     })
 }
@@ -506,15 +506,6 @@ fn mark_state(mark: Option<usize>, display: &DisplaySnapshot) -> Value {
         let point = display.offset_to_display_point(mark);
         json!({ "offset": mark, "row": point.row, "column": point.column })
     })
-}
-
-/// A vertical motion's goal, as `get-state` and the state handoff write it.
-pub(super) fn goal_state(goal: Option<Goal>) -> Value {
-    match goal {
-        None => Value::Null,
-        Some(Goal::Column(column)) => json!({ "column": column }),
-        Some(Goal::LineEnd) => json!("line-end"),
-    }
 }
 
 /// The view rows the tiled window shows, as a frame draws them (ADR 0104): from the top's

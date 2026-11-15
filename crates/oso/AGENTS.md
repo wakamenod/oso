@@ -16,10 +16,17 @@ often, so it must rebuild within 2 s.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
   the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`, `configuration`,
   `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps`, `reviews`, `dired` and `terminals` do the work, `control`
-  answers the dev socket, and `handover` exports and imports the state of an `oso dev` restart;
-  its terminals go in `terminals/carry.rs` (the instance going) and `terminals/adopt.rs` (the
-  one coming), and their masters pass through the dev socket in `dev/fds.rs` (ADR 0120,
-  step 11).
+  answers the dev socket, and `handover` exports and imports the state of a restart, `oso dev`'s
+  or `oso-restart`'s; its terminals go in `terminals/carry.rs` (the instance going) and
+  `terminals/adopt.rs` (the one coming) (ADR 0120, step 11). `restart` starts `oso-restart`
+  and answers its threads, and says when a new binary is in place (ADR 0133).
+- `src/carry.rs` and `src/carry/` are the state a restart carries and both its transports'
+  shared parts: the state's format, its texts in pieces, the terminals' entries, the
+  descriptors (`fds`) and the requests (`op`). `oso dev`'s supervisor asks them over the dev
+  socket; `oso-restart`'s thread (`going`) plays the supervisor over a socket pair with the
+  instance it starts (`pair`), whose own thread (`coming`) answers, after the binary's check
+  (`binary`). `notice`'s thread looks at the binary again on focus. A dev build's
+  `OSO_DEV_RESTART_FAIL` stops such a restart short, for end-to-end flows.
 - `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies
   (ADR 0062), and recovering them (ADR 0064). Their writer sits above `saver`, and nothing
   there may hold text in a message or a log. A path in a `.meta` is never used to touch a file.
@@ -73,7 +80,8 @@ often, so it must rebuild within 2 s.
 - Keep logic that can be tested without a window in `oso-core`. This crate
   translates events and wires things together.
 - Dev-only code (the control socket, `oso ctl`, `oso dev`, timings) stays
-  behind the `dev` feature; `just release-safety` checks it.
+  behind the `dev` feature; `just release-safety` checks it, the dev socket's restart methods
+  among it, though `carry` ships for `oso-restart`.
 - `src/channel/` is the agent channel and `oso mcp` (ADR 0085), in every
   build. It has no dev method, and runs only commands whose reach is `Look`
   or `Change`. `src/app/agent.rs` answers it on the UI thread, and

@@ -1,9 +1,10 @@
-//! The terminals a state carries over `oso dev`'s restart (ADR 0120, step 11): what each
+//! The terminals a state carries over a restart (ADR 0120, step 11; ADR 0133): what each
 //! entry says beside its item, which holds the terminal's state in base64, and reading them
 //! back, checking everything before anything changes. The masters do not travel in the state:
-//! the supervisor carries them with `SCM_RIGHTS`, in the order of the entries.
+//! they go with `SCM_RIGHTS`, through `oso dev`'s supervisor or over `oso-restart`'s pair,
+//! in the order of the entries.
 //!
-//! Must not depend on: `app`, `server`, sockets or the terminals themselves; these are plain
+//! Must not depend on: `app`, `dev`, sockets or the terminals themselves; these are plain
 //! functions of what the app hands them.
 
 use std::path::PathBuf;
@@ -248,12 +249,16 @@ pub(super) fn parse_follows(state: &Map<String, Value>) -> Result<Vec<u32>, Stri
 }
 
 /// `check-handover`'s `terminals`: whether terminals go too.
+/// A dev method's parameter: only the dev socket names it.
+#[cfg(feature = "dev")]
 pub fn asked(params: &Map<String, Value>) -> Result<bool, String> {
     switch(params, "terminals")
 }
 
 /// `export-state`'s `terminals`: the name of the terminal library the new instance reads,
 /// if terminals go too.
+/// A dev method's parameter: only the dev socket names it.
+#[cfg(feature = "dev")]
 pub fn library(params: &Map<String, Value>) -> Result<Option<String>, String> {
     match params.get("terminals") {
         None | Some(Value::Null) => Ok(None),
@@ -265,6 +270,8 @@ pub fn library(params: &Map<String, Value>) -> Result<Option<String>, String> {
 }
 
 /// `import-terminals`' `count`, or `None` for `"abandon": true`.
+/// A dev method's parameter: only the dev socket names it.
+#[cfg(feature = "dev")]
 pub fn count(params: &Map<String, Value>) -> Result<Option<usize>, String> {
     if switch(params, "abandon")? {
         return Ok(None);
@@ -285,8 +292,8 @@ mod tests {
     use serde_json::json;
 
     use super::{SessionState, TerminalState, entry, parse};
-    use crate::dev::handoff::format::Items;
-    use crate::dev::handoff::tests::absolute;
+    use crate::carry::format::Items;
+    use crate::carry::tests::absolute;
 
     fn terminal(session: bool) -> TerminalState {
         TerminalState {

@@ -112,10 +112,12 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
 
     // A dialog, with the session shown: needs input, with the dialog's question as its recap.
     print(&flow, PERMISSION);
-    let state = app.wait_for("needs input", |state| {
+    // The state is read as the dev state is asked, the modeline's marks when the views are
+    // made after it: both are waited for.
+    let state = app.wait_for("needs input, and the modeline's mark", |state| {
         state_of(state, "proj").is_some_and(|s| s.starts_with("needs input (permission)"))
+            && modeline(state).contains("⚠ 1")
     });
-    assert!(modeline(&state).contains("⚠ 1"), "{}", modeline(&state));
     let recap = sessions(&state)["sessions"][0]["recap"].as_str().unwrap();
     assert!(!recap.is_empty());
     // The list says it under the row, as the person has something to do.
@@ -242,6 +244,7 @@ fn another_programs_session_in_the_registry_is_listed() {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .unwrap();
     let now = SystemTime::now()

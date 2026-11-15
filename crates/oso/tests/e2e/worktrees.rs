@@ -15,11 +15,11 @@ use std::fs;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ExitStatus};
+use std::process::ExitStatus;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
+use oso_platform::process::{Child, Executable, Sink, Source, Spawn, spawn};
 use serde_json::{Value, json};
 
 use super::config::set_mode;
@@ -183,6 +183,7 @@ impl Flow {
             own_process_group: false,
             set: &set,
             terminal: None,
+            pass_fd: None,
         })
         .and_then(Child::wait_with_output)
         .expect("cannot run git");
@@ -219,7 +220,7 @@ impl Flow {
     }
 
     /// Waits for the fake's `count`th run, and returns the runs.
-    fn wait_for_runs(&self, count: usize) -> Vec<Run> {
+    pub(super) fn wait_for_runs(&self, count: usize) -> Vec<Run> {
         let deadline = Instant::now() + DEADLINE;
         loop {
             let runs = self.runs();
@@ -544,6 +545,7 @@ fn run_hook(command: &str, input: &str) -> (ExitStatus, String) {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .expect("cannot start the hook");
     // Dropped after the write, which closes it.

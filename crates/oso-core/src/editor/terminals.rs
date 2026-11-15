@@ -1,4 +1,5 @@
-//! Terminals' buffers and what commands ask of the host about terminals (ADR 0120).
+//! Terminals' buffers and what commands ask of the host about terminals (ADR 0120), and the
+//! restart that carries them to the binary installed in place (ADR 0133).
 //!
 //! Must not depend on: the host's terminals, threads or I/O. The tip crate maps a terminal
 //! buffer's id to its terminal; a command asks, and the host takes the request after the
@@ -9,7 +10,7 @@ use crate::key::KeyPress;
 
 use super::Editor;
 
-/// What a command asks of the host about the selected terminal.
+/// What a command asks of the host about the selected terminal, or about every terminal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TerminalRequest {
     /// `terminal`: switch to the last terminal still running, or start one; with `new`,
@@ -25,6 +26,9 @@ pub enum TerminalRequest {
     QuoteNext,
     /// Switch the selected terminal between semi-char and char mode (`C-c C-k`).
     ToggleCharMode,
+    /// `oso-restart`: move this instance, its terminals and sessions with it, to the binary
+    /// installed in its place (ADR 0133).
+    Restart,
 }
 
 impl Editor {

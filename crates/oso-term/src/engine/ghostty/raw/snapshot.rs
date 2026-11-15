@@ -1,4 +1,4 @@
-//! Carrying a terminal over `oso dev`'s restart (ADR 0120, step 11), over libghostty-vt's
+//! Carrying a terminal over a restart (ADR 0120, step 11; ADR 0133), over libghostty-vt's
 //! C API: the library's snapshot, which the next instance restores exactly (both screens,
 //! every mode, a sequence the program had not finished), or, for a restart across a change of
 //! the library, whose snapshot format may differ, the escape sequences its formatter writes to

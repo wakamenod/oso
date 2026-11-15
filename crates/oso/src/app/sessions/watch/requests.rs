@@ -13,6 +13,7 @@ use oso_core::editor::{Editor, RowAction, SessionRequest};
 
 use crate::app::App;
 use crate::sessions::list::{Key, Line};
+use crate::sessions::spaces::SpaceId;
 use crate::sessions::spaces::{Refused, Zoom};
 use crate::sessions::state::State;
 use crate::sessions::worker::{Job, SessionKey};
@@ -118,7 +119,7 @@ impl App {
 
     /// Shows session `key` (Q2): in its space, switched to first, in the window that shows it
     /// there, else in the tree's selected window, which is then selected.
-    pub(super) fn show_session(&mut self, key: SessionKey) {
+    pub(in crate::app) fn show_session(&mut self, key: SessionKey) {
         let Some(session) = self.hosting.table().get(key) else {
             return;
         };
@@ -161,7 +162,7 @@ impl App {
     }
 
     /// Switches to space `at`, keeping the file buffer shown last in the space left.
-    fn enter_space(&mut self, at: usize) {
+    pub(in crate::app) fn enter_space(&mut self, at: usize) {
         let shown = tree_buffer(&mut self.editor);
         let is_session = self.hosting.table().by_buffer(shown).is_some();
         if let Some(from) = self.watch.spaces.current() {
@@ -180,18 +181,32 @@ impl App {
     /// `RET` on the row of the worktree at `path` (ADR 0131, step 2b): the session there, in
     /// the space that holds it (ADR 0136, step 1a); else that space's tree with its window
     /// selected; else `find-file`'s prompt in it.
-    fn enter_worktree(&mut self, path: &Path) {
+    fn enter_worktree(&mut self, space: &SpaceId, path: &Path) {
+        // The row's space, where a worktree two spaces show is entered (ADR 0136, step 2).
+        let row_space = self.watch.spaces.find(space);
         let there = self
             .hosting
             .table()
             .iter()
             .filter(|session| !session.archived && session.buffer.is_some())
+            .filter(|session| row_space.is_none() || self.space_of_session(session) == row_space)
             .find(|session| oso_core::project::same_place(super::place(session), path))
             .map(|session| session.key);
         if let Some(key) = there {
             return self.show_session(key);
         }
-        match self.watch.spaces.holding(path) {
+        // A space that holds the worktree, or has it as a repository's main checkout: the row's
+        // first. One it does not is no place to enter: a file is found in it instead.
+        let holds = |at: usize| {
+            self.watch
+                .spaces
+                .stored(at)
+                .is_some_and(|stored| stored.holds_worktree(path) || stored.has_member(path))
+        };
+        let target = row_space
+            .filter(|&at| holds(at))
+            .or_else(|| self.watch.spaces.holding(path));
+        match target {
             Some(at) => {
                 if self.watch.spaces.current() != Some(at) {
                     self.enter_space(at);
@@ -230,14 +245,41 @@ impl App {
                 return self.watch.list.fold(&Line::Session(key));
             }
             Line::Header(_) => return,
-            Line::Worktree(path) if action == RowAction::Show => return self.enter_worktree(&path),
-            Line::Worktree(_) if action == RowAction::Stop => {
+            Line::Worktree(id, path) if action == RowAction::Show => {
+                return self.enter_worktree(&id, &path);
+            }
+            Line::Worktree(..) if action == RowAction::Stop => {
                 return self.editor.message(
                     "worktree-remove removes a worktree whose work is done, from a buffer in it or *Worktrees*",
                 );
             }
-            // A project's row folds on `RET` too, as its worktrees are what it holds.
-            Line::Project(_) | Line::Worktree(_) => {
+            // A space's row enters it on `RET` (ADR 0136, step 2, Q2); a closed one's reopens it
+            // (Q3).
+            // Its orchestrator when it has one (ADR 0136, step 3), else the space entered.
+            Line::Space(id) if action == RowAction::Show => {
+                let Some(at) = self.watch.spaces.find(&id) else {
+                    return;
+                };
+                match self.orchestrator_of(at) {
+                    Some(key) => self.show_session(key),
+                    None => self.enter_space(at),
+                }
+                return;
+            }
+            Line::ClosedSpace(id) if action == RowAction::Show => {
+                let name = self
+                    .watch
+                    .spaces
+                    .find(&id)
+                    .and_then(|at| Some(self.watch.spaces.get(at)?.name().to_owned()));
+                if let Some(name) = name {
+                    self.space_request(oso_core::editor::SpaceRequest::Reopen(name));
+                }
+                return;
+            }
+            Line::ClosedSpace(_) => return,
+            // A repository's row folds on `RET` too, as its worktrees are what it holds.
+            Line::Space(_) | Line::Repository(..) | Line::Worktree(..) => {
                 if matches!(action, RowAction::Fold | RowAction::Show) {
                     self.watch.list.fold(&row);
                 }

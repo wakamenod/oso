@@ -171,8 +171,8 @@ space's orchestrator and its workers.
 
 ### The orchestrator
 
-- **One a space, at most.** `space-new` starts it; a space of one repository made by migration
-  gets one with `space-orchestrator-start`.
+- **One a space, at most.** `space-orchestrator-start` (`o` in the space menu) starts it, in
+  every space: `space-new` only makes the space (the author's choice, 2026-11-15).
 - **Its command line** is ADR 0121's, in the space's directory, plus:
   - `--add-dir PATH` for each member repository whose project oso trusts (Q8), from the space's
     record, each checked again (still a directory, same device and inode) and passed as its own
@@ -261,15 +261,16 @@ space's orchestrator and its workers.
 
 | Command | Reach | Key | What it does |
 |---|---|---|---|
-| `space-new` | `Person` | `C-x a O` | asks for a name and title, then the repositories (completing known projects, at least one), makes the space and its directory, enters it and starts the orchestrator |
+| `space-new` | `Person` | `C-x a O` | asks for a name and title, then the repositories (completing known projects, at least one), makes the space and its directory and enters it; `space-orchestrator-start` starts its orchestrator |
 | `space-add-repo` | `Person` | menu `a` | adds a repository; offers to paste `/add-dir PATH` into the orchestrator's input, not submitted, as ADR 0121's `session-send` |
 | `space-remove-repo` | `Person` | menu `r` | refuses while a session of the space runs in it; its worktrees stay |
+| `space-use-repo` | `Person` | menu `u` | the repository the project commands use from the orchestrator's buffer, when several are trusted (step 4a) |
 | `space-orchestrator-start` | `Person` | menu `o` | in a space with no live orchestrator |
 | `space-orchestrator-replace` | `Person` | menu `O` | as above |
 | `space-instructions` | `Person` | menu `i` | edits the space's instructions |
-| `space-directory` | `Look` | menu `d` | the space's directory in a listing |
+| `space-directory` | `Person` | menu `d` | the space's directory in a listing, made first if it has none; `Person` as `dired` is, since the listing comes in front of the person's keys after the command |
 | `space-close`, `space-reopen` | `Person` | menu `c`, `R` | as above |
-| `space-rename` | `Change` | menu `n` | the space's name and title; the orchestrator keeps its name until its next start |
+| `space-rename` | `Person` | menu `n` | the space's name and title; the orchestrator keeps its name until its next start; `Person`, as the title is given to the orchestrator as the person's words |
 | `space-switch` | as now | `C-x a j` | lists open spaces, the one in front last |
 
 - **`C-x a S` opens the space menu** (ADR 0117), with the keys in the table.
@@ -523,6 +524,217 @@ unchanged (P3 (a)); `space-new` completes over known repositories (P4 (a), for 1
 - **A shared state directory:** a build before this step that writes `sessions` drops the
   `space` field; such a session joins its space again by the rule.
 
+## Step 1b, as built
+
+The author approved the plan on 2026-11-15, through the coordinator: `SessionRequest::Spaces`
+and `SpaceRequest` in oso-core; `space-new` reads the title only, the repository from the
+selected buffer, else from `space-add-repo`'s prompt (P1 (a)); no issue reference yet (P2 (a));
+a directory name taken on the disk gives `-2` and on, and the space takes that name (P3 (a));
+closing the space in front enters the open space entered last, else none (P4 (a)); invisible
+characters are dropped from a typed title and a line holding one is refused when read (P5 (a)).
+
+- **The commands** are in `commands/agent_sessions/spaces.rs`, the host's side in
+  `app/sessions/spaces.rs`, the changes to the spaces in `sessions/spaces/edit.rs`, and what
+  is looked up on the disk in `sessions/spaces/probe.rs`, on the sessions worker.
+- **`space-new` and `space-add-repo`** look at a repository on the worker before it is taken:
+  a main checkout, its `.git` a directory the person or root owns, by its real path, with its
+  device and inode. A worktree is refused with a word on its repository. The selected
+  buffer's repository is its project's root, or for a worktree the repository git listed it
+  under, else the deepest repository of a space above it.
+- **The directory** is made right after the space, with each member's device and inode looked
+  at in the same job. A refusal leaves the space without one and is said; `space-directory`
+  tries again.
+- **`space-add-repo`'s prompt takes any text** (`listed_takes_input`), so a repository oso does
+  not know yet is given by its path; its list holds the open spaces' repositories, the hosted
+  sessions' project roots and the buffers' projects that are no listed worktree, leaving out a
+  path with a control or invisible character.
+- **A space's name** is never a device's on Windows (`con`, `nul`, `aux`, `prn`, `com1`–`9`,
+  `lpt1`–`9` get `-space`).
+- **Instructions** are `space-instructions/<id>.md` in oso's state directory, made private on
+  the worker and visited as a file; step 3 reads them.
+- **Keys:** `C-x a O` and session mode's `C-c O` run `space-new`; `C-x a S` opens the built-in
+  `space` menu. Its `o` and `O` are kept for steps 3 and 5.
+- **oso-core's `editor` re-exports `sessions` with a glob,** as it does `reviews`: the module's
+  public items are the ones it named, and the file stays within its size.
+- **Every space command is `Person`** (the reviews; the author chose it on 2026-11-15, and the
+  commands table above says so): `space-directory` makes a directory and puts a listing in
+  front of the person's keys after the command, as `dired` does, and `space-rename` writes the
+  title the orchestrator is given as the person's words. The table first had `Look` and
+  `Change` for them.
+- **The space prompts' lists are made when the sessions or the spaces change,** not with each
+  change of a session's state, and the listed worktrees are looked up through one set a make.
+- **A taken directory name costs one look,** and the directory is made new with `mkdir`, never
+  taken over; the repository check refuses the root and a directory holding the home
+  directory, which `--add-dir` would open whole; an instructions file that is a link or has a
+  second name is refused; a member's kept device and inode are never replaced.
+- **A title `space-new` waits with** is dropped once no prompt is open, so a `C-g` on
+  `space-add-repo`'s prompt does not carry it to a later one. `space-rename` while the
+  directory is made keeps the new name. Closing the last open space leaves its tree to the
+  frame and rebuilds it when it is entered again.
+- **Closing a space** goes by the state the list shows (a session whose screen was not judged
+  yet is idle), through `sessions_to_stop`, a plain function with tests.
+- **Repositories of one name** in a space are told apart with `<2>`.
+- **The worker's space jobs** are one enum, `SpaceJob`, matched whole; a repository check is
+  named by a `RepoCheck` count. The host runs `space-add-repo` with
+  `Dispatcher::run_from_host` (`dispatch/host.rs`). Session mode has `C-c S` for the menu.
+
+## Step 2, as built
+
+The author answered on 2026-11-15, through the coordinator, (a) for each: a space of one
+repository shows its worktrees right under its row (Q1); `RET` on a space's row enters it
+(Q2); closed spaces go in a folded `Archived spaces (N)` group, where `RET` opens one again
+(Q3); while another space is in front, a space is folded unless one of its sessions works or
+needs input (Q4).
+
+- **The tree's model** is `Tree { spaces, closed, front_space, front, wall }`, each open space
+  a `SpaceRows` of its repositories. Which worktrees each shows is `space_rows`
+  (`sessions/list/tree/choose.rs`), a plain function with tests, given each space's
+  repositories, the worktrees it holds and where its running sessions run. The space level is
+  drawn in `sessions/list/tree/space.rs`.
+- **Rows:** `Line::Space`, `Line::Repository` (by space and root, so that one repository
+  folds in one space and not another), `Line::ClosedSpace`; `Fold::Space` and
+  `Fold::Repository`. The indents are 0 for a space, 2 for a repository or a one-repository
+  space's worktree, 4 for a worktree of a space of several, then the sessions two in from
+  their worktree; `Other projects`' sessions moved to 6, under their directory at 2.
+- **`M-n` and `M-p`** stop at a fold's row and at a row two cells in from the nearest fold row
+  above it, by the text, which every layout of the tree keeps: a session is never two cells in
+  from a fold row. ADR 0131's rule (a worktree's row at 2 under a project's at 0) is this
+  rule's case of one repository.
+- **A session in a main checkout two spaces show** is placed under its own space's.
+- **With no space in front,** none is folded.
+- **`a` in the list adds a repository to the space in front,** not the row's: a row-aware
+  action needs a new `RowAction` in oso-core, which was not asked for. `RET` on a space's row
+  puts it in front first.
+- **The pane's cost:** a release test renders 10 spaces of 3 repositories with 4 worktrees
+  each, 40 sessions and 300 external ones under ADR 0131's 0.5 ms. The tree is made again
+  with each change of the model and each second's ages, never with a spinner's frame.
+- **After the review:**
+  - a worktree's row, its fold and a quiet row are a space's (`Line::Worktree(space, path)`),
+    as a main checkout two spaces show is a row of each, and `RET` on one enters the row's
+    space; the front's mark shows in the space in front only;
+  - a space shows the main checkout while a session of it is there, running or stopped, so a
+    session does not move to another space when it stops;
+  - a worktree a closed space holds shows in no open space, and a closed space's sessions
+    wait with the archived ones; a worktree is held only by a space that still has its
+    repository;
+  - a session is placed by its space's id, which each entry carries;
+  - a space the person folds or opens stays so, whatever its default comes to;
+  - another program's session neither unfolds a space nor colours its roll-up, as its
+    worktree's row has it;
+  - `c` and `w` on a row put the row's space in front first, so the new session joins it; on
+    the row of a space of several repositories they say the row has no place, as which is the
+    person's to say on a repository's row.
+- **The orchestrator's row** under a space's waits for step 3, which starts the orchestrator.
+
+## Step 3, as built
+
+The author answered on 2026-11-15, through the coordinator, (a) for each but Q5: the
+orchestrator starts with no first prompt, the fixed text saying to read `handoff.md` first if
+it is there (Q1); the space's instructions go in the opening text, at most 16 KiB, said to be a
+file agents in oso can edit too (Q2); the move of oso's own coordinator follows this step
+(Q3); a command that needs a project, from the orchestrator's buffer, says to use a
+repository's row until step 4 (Q4). Q5 (b): a repository trusted later joins `--add-dir` at the
+next start or resume, and oso also offers to paste `/add-dir PATH` into the running
+orchestrator, as for a repository added while it runs.
+
+- **The CLI,** 2.1.325, defines `--add-dir <directories...>`, a variadic option: one
+  `--add-dir=PATH` a repository takes exactly one value each, and repeated ones add up. Started
+  in a terminal with three of them and read through its local `/permissions` Workspace tab
+  (no prompt sent), it listed all three beside its working directory. `/status` lists none.
+- **`space-orchestrator-start`** (`Person`, menu `o`) shows the orchestrator when it runs; else
+  starts it, the space's directory made first when it has none, or made again at its place
+  with a prefix argument when it is gone (refused if anything is there). oso-core gains
+  `SpaceRequest::StartOrchestrator { remake_directory }`.
+- **Trust** is decided as oso trusts a project, by path and identity (`TrustList::trusts`,
+  made public in oso-core with the author's approval, 2026-11-15): a repository made again at
+  a trusted path, or one whose identity was never kept, gets no `--add-dir` and no offer.
+- **Just before the spawn,** on the session's start thread, `orchestrator::check_before_start`
+  runs ADR 0136's directory checks again, on the path as written and on its real path, and
+  refuses a root with any directory above either that a group or other users can write, sticky
+  or not, or that cannot be looked at. A trusted repository put in another's place, with no
+  identity kept, or that is the root or holds the home directory is left out of `--add-dir`,
+  and said, in the echo area and to the orchestrator. The instructions are read there: in
+  their private directory, the person's own file, no link, one name.
+- **Every start in a space's directory** passes these checks: a fork there, and a resume of
+  an earlier orchestrator, get the checks with no `--add-dir` and no prompt.
+- **Its command line** puts each `--add-dir=` before `--name`, and its text and header in
+  `--append-system-prompt`; a resume makes both again from the space as it is
+  (`orchestrator_start_for`). The text is checked at build time to stay within 4 KiB.
+- **The record:** the space keeps its orchestrator's session id, the one before it in
+  `earlier`; the session belongs to the space from its start.
+- **The pane** lists the orchestrator right under its space's row with a dim `orchestrator`,
+  placed by its space's directory; `RET` on the space's row shows it. Its row is two cells in
+  from the space's, so `M-n` stops at it.
+- **Offers** (Q5): a question with `space-confirm` as its `y`; what it would paste is kept
+  beside it, dropped when another is asked or the question closes otherwise, and pasted on `y`
+  as the person's bracketed paste, never submitted. oso-core gains `SpaceRequest::Confirmed`.
+  The repository must be trusted to be offered, and one the orchestrator was given at its
+  start, or pasted since, is not offered again; nothing is offered on the first read of the
+  trust list, as when oso starts or restarts. `space-confirm` runs only as a question's `y`,
+  and checks again that the session is still the space's running orchestrator and the
+  repository still one of the space's that oso trusts.
+- **The title** is given to the orchestrator as the space's title, kept in a record agents in
+  oso can write too, as the instructions are.
+- **The space commands' looks at the disk** (a directory, a repository, the instructions'
+  directory) run on a thread of their own each, not on the sessions worker.
+- **`space-new` only makes the space** (the author's choice, 2026-11-15): its orchestrator
+  starts with `o`, `space-orchestrator-start`, as in a space made from repositories.
+
+## Step 4a, as built
+
+The author answered on 2026-11-15, through the coordinator, (a) for each of Q1–Q9: step 4 is
+split, `with_dirs` coming in 4b (Q1); `space_status` names the instructions' file by its path,
+as the UI thread reads no file (Q2); an orchestrator's `worktree_list` needs `repo` (Q3); its
+`session_start` starts at the repository's main checkout when no directory is given (Q4); any
+other session may name only its own repository (Q5); with several trusted repositories, the
+orchestrator's buffer uses the one `space-use-repo` chose (Q6); an orchestrator sees only its
+space's sessions (Q7); `space_status` is a `Look` tool (Q8); oso-core gains
+`SpaceRequest::UseRepo(String)` for `space-use-repo` (Q9).
+
+- **`repo`** on `worktree_list`, `start_worktree_session` and `session_start`, at most 255
+  bytes: a repository of the space by the name `space_status` gives it. An orchestrator must give
+  it; a name that is none refuses with the space's names, and one oso does not trust, by path
+  and identity, refuses with `trust-project`. The call then acts as from that repository's main
+  checkout: its jobs run under the repository's trust, a new branch starts at its `HEAD`, and an
+  unasked start (ADR 0135) needs it trusted now. The hand-off facts stay the orchestrator's own.
+  `worktree_remove` from an orchestrator acts in the repository of the space that holds the
+  path. The rule is `sessions::tools::repo`, a plain function with tests.
+- **`space_status`** (`Look`, no question, hosted sessions only): the space's name and title,
+  the orchestrator's name, whether the caller is it, each repository's name, path and trust, the
+  instructions' file, and the space's sessions as `session_list` gives them.
+- **Scope:** `session_list` and `session_state` from an orchestrator hold its space's sessions
+  only; any other session keeps ADR 0121's scope.
+- **A worker** an orchestrator starts belongs to the space from its start, its worktree held
+  there, and its brief's header ends "…, in space NAME."; its report-back line already names the
+  orchestrator by the space's name.
+- **`space-use-repo`** (`Person`, menu `u`): the orchestrator's buffer uses the space's one
+  trusted repository for `session-worktree`, `worktree-list` and `worktree-remove`, else the one
+  chosen here, which must be trusted then and still. As for a repository's row in
+  `*Sessions*`, a buffer of it must be open. A connection that is no hosted session, with the
+  orchestrator's buffer selected, lists that repository's worktrees as "the selected window's
+  project".
+- **Who is the orchestrator:** the session its space records, while the space is open and the
+  session runs in the directory oso makes for the space's name under `[spaces] root`, kept with
+  the identity oso made it with. The record is in oso's state directory, which agents can
+  write, so it makes no session elsewhere one. A closed space's orchestrator, an earlier one,
+  and one elsewhere still see only the space's sessions, start no session, and name no
+  repository. What a forged record can still change, the repositories of a real orchestrator,
+  stays within the repositories oso trusts by path and identity.
+- **Every start in a space's directory** passes its checks, the person's own starts too.
+- **Every session start** (the author's choice, 2026-11-15, a change to ADR 0121): the start
+  thread refuses a trusted root put in another's place since oso found it, and says to trust the
+  directory there again with `trust-project`. It started before, with no review baseline.
+- **Trust:** a repository's trust comes from the trust list by its path and the identity the
+  space kept (`TrustedRoot::of_member`), with no open buffer. Such a root is made for each call
+  and never revoked, so a start asks the trust list again at the person's `y`, and a start at a
+  repository the orchestrator names goes through the job that checks its root on the disk, as
+  a start in another directory does.
+- **Worktrees:** `worktree_remove` from an orchestrator acts in the repository git listed the
+  path under, else the one whose root holds it, and refuses while a session of another space
+  is in it. `worktree_list` names only the space's sessions in each worktree, and counts the
+  others. A worktree made for a tool's call is held as the person's would be: by the asking
+  session's space when its repository is one of the space's.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it. They apply once this ADR is
@@ -541,8 +753,8 @@ accepted and the step that builds each is merged.
 - ADR 0121, "Projects, light", the overview: the pane at the current space's row (as ADR 0132
   already has it).
 - [ADR 0128](0128-orchestration-and-automations.md), "`orchestrate` (`Person`, `C-x a O`) … in a
-  new worktree on branch `orch/<slug>`": `space-new` on `C-x a O` starts the orchestrator in the
-  space's directory; `workers_start` names a repository; `merge_branches` takes a target worktree
+  new worktree on branch `orch/<slug>`": `space-new` on `C-x a O` makes the space and
+  `space-orchestrator-start` starts its orchestrator in the space's directory; `workers_start` names a repository; `merge_branches` takes a target worktree
   of the space.
 - [ADR 0131](0131-an-orca-style-sessions-pane.md), "**A project** is a repository that has a space
   in this oso": the pane's top level is the space; repositories are rows under it.
@@ -551,6 +763,10 @@ accepted and the step that builds each is merged.
   asks for one of the space's repositories.
 - [ADR 0135](0135-agents-start-sessions-without-asking.md), "Trusted only": for an orchestrator,
   the target repository must be a trusted member of its space.
+- ADR 0121, "a session started in a trusted project takes its baseline … after which it
+  spawns": a session whose trusted root was put in another's place since oso found it does not
+  start, and the echo area says to trust the directory there again with `trust-project` (the
+  author's choice, 2026-11-15, step 4a).
 
 ## Consequences
 

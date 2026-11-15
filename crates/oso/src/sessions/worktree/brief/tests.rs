@@ -15,10 +15,22 @@ fn header() -> Header<'static> {
         path: Path::new("/repo/.claude/worktrees/feat-x"),
         branch: "feat/x",
         base: "main",
+        space: None,
     }
 }
 
 const HEAD: &str = "You are in a git worktree of /repo at /repo/.claude/worktrees/feat-x, on branch feat/x from main.";
+
+#[test]
+fn a_worker_of_a_space_is_told_its_space() {
+    let header = Header {
+        space: Some("fix-login"),
+        ..header()
+    };
+    let text = compose(&header, None, "Go").unwrap();
+    let head = HEAD.trim_end_matches('.');
+    assert_eq!(text, format!("{head}, in space fix-login.\n\nGo"));
+}
 
 #[test]
 fn without_a_handoff() {

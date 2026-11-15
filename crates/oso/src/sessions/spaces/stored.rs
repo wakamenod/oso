@@ -1,6 +1,6 @@
 //! What oso keeps of an issue space (ADR 0136): its id, name, title, issue, member
-//! repositories, directory, orchestrators and worktrees. Plain data; the `spaces` file
-//! (`record`) reads and writes it.
+//! repositories, directory, orchestrators and worktrees, which the `spaces` file (`record`)
+//! reads and writes; and how a name and a title are made from what the person typed.
 //!
 //! Must not depend on: threads, the UI or `app`; the caller reads the random bytes, off the UI
 //! thread, and gives them here.
@@ -131,6 +131,26 @@ impl Stored {
         }
     }
 
+    /// Whether a session running in `runs_in` is this space's orchestrator in its own right,
+    /// with `root` the `[spaces] root` now: the space is open, its directory is the one oso
+    /// makes for its name under the root, kept with the identity oso made it with where the
+    /// system has identities, and the session runs there. The record is one agents can write,
+    /// so it alone makes no session elsewhere an orchestrator (ADR 0136, step 4a).
+    pub fn orchestrated_from(&self, root: &Path, runs_in: &Path) -> bool {
+        let made = self.directory_identity.is_some() || !cfg!(unix);
+        let directory = self.directory.as_deref();
+        !self.archived
+            && made
+            && directory.is_some_and(|dir| {
+                same(dir, &super::dir::place(root, &self.name)) && same(dir, runs_in)
+            })
+    }
+
+    /// Its repository at `root`, by ADR 0114's comparison.
+    pub fn member(&self, root: &Path) -> Option<&Member> {
+        self.members.iter().find(|member| same(&member.root, root))
+    }
+
     /// Whether `root` is one of its repositories.
     pub fn has_member(&self, root: &Path) -> bool {
         self.members.iter().any(|member| same(&member.root, root))
@@ -167,9 +187,45 @@ pub fn slug(raw: &str) -> String {
     }
     if name.is_empty() {
         FALLBACK.to_owned()
+    } else if is_device_name(&name) {
+        // A directory of this name would be a device on Windows.
+        format!("{name}-{FALLBACK}")
     } else {
         name
     }
+}
+
+/// Whether `name`, lower-case, names a device on Windows, as `con` and `com1` do.
+fn is_device_name(name: &str) -> bool {
+    let numbered = |prefix: &str| {
+        name.strip_prefix(prefix)
+            .is_some_and(|n| n.len() == 1 && n.as_bytes()[0].is_ascii_digit())
+    };
+    matches!(name, "con" | "prn" | "aux" | "nul") || numbered("com") || numbered("lpt")
+}
+
+/// `raw`, the person's words for an issue, as a title: control and invisible characters
+/// dropped, as they could make a row read otherwise than it is, runs of white space made one,
+/// trimmed, and cut to [`MAX_TITLE`] bytes (ADR 0136, step 1b).
+pub fn clean_title(raw: &str) -> String {
+    let words: Vec<String> = raw
+        .split(|c: char| c.is_whitespace() || c.is_control())
+        .map(|word| word.chars().filter(|&c| is_plain(c)).collect::<String>())
+        .filter(|word| !word.is_empty())
+        .collect();
+    let mut title = words.join(" ");
+    let mut end = title.len().min(MAX_TITLE);
+    while !title.is_char_boundary(end) {
+        end -= 1;
+    }
+    title.truncate(end);
+    title.trim_end().to_owned()
+}
+
+/// Whether `c` may stand in a title or an issue reference: no control character, and nothing
+/// drawn as a boxed code point (oso-core's `is_invisible`).
+pub fn is_plain(c: char) -> bool {
+    !c.is_control() && !oso_core::display_map::cell::is_invisible(c)
 }
 
 /// `base`, a slug, or `base-2`, `base-3` and on, the first that `taken` does not hold, within

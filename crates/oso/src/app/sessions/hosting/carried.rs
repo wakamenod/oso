@@ -1,14 +1,14 @@
-//! Hosted sessions carried over `oso dev`'s restart (ADR 0120, step 11, ADR 0121): what the
+//! Hosted sessions carried over a restart (ADR 0120, step 11, ADR 0121, ADR 0133): what the
 //! state says of the session a terminal runs, and hosting it again in the new instance with
 //! its id, name, space, parent and baseline, running a `claude` that is not this instance's
-//! child, whose start time its bridge's proof checks. Dev builds only.
+//! child, whose start time its bridge's proof checks.
 //!
 //! Must not depend on: sockets, or the terminal's screen.
 
 use oso_core::buffer::BufferId;
 
 use crate::app::App;
-use crate::dev::handoff::terminals::{SessionState, TerminalState};
+use crate::carry::terminals::{SessionState, TerminalState};
 use crate::sessions::hosted::Run;
 use crate::sessions::identity::{Origin, SessionId};
 use crate::sessions::record::Remembered;

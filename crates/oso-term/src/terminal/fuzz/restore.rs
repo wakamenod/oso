@@ -15,8 +15,6 @@
 //! `restore_long` takes `long`'s settings but `_INPUT` and `_SCRIPT`; `restore_smoke` runs a
 //! few dozen in `just test` when the `dev` feature is on.
 
-#![cfg(feature = "dev")]
-
 use std::env;
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};

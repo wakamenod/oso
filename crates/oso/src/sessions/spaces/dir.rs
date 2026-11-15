@@ -16,14 +16,6 @@
 //!   the space's repositories, as their real paths say.
 //! - A space's directory is made new: one already at its place is not taken over.
 
-#![cfg_attr(
-    any(not(test), not(unix)),
-    expect(
-        dead_code,
-        reason = "space-new makes and checks directories in step 1b"
-    )
-)]
-
 use std::fmt;
 use std::fs;
 use std::io;
@@ -118,13 +110,29 @@ pub fn make(
     usable(&path, members)?;
     if root.exists() {
         unshared(root)?;
+    } else {
+        PrivateDir::open(root).map_err(|e| Refusal::Refused(root.to_owned(), e))?;
     }
-    match fs::symlink_metadata(&path) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        _ => return Err(Refusal::Exists(path)),
+    // Made new, never taken over: something put at its place meanwhile is refused.
+    #[cfg(unix)]
+    let made = {
+        let mut builder = fs::DirBuilder::new();
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder.create(&path)
+    };
+    #[cfg(not(unix))]
+    let made = fs::DirBuilder::new().create(&path);
+    match made {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return Err(Refusal::Exists(path)),
+        Err(e) => return Err(Refusal::Refused(path, e)),
     }
-    let made = PrivateDir::open(&path).map_err(|e| Refusal::Refused(path.clone(), e))?;
-    let meta = fs::symlink_metadata(made.path()).map_err(|e| Refusal::Refused(path.clone(), e))?;
+    match PrivateDir::existing(&path) {
+        Ok(Some(_)) => {}
+        Ok(None) => return Err(Refusal::Missing(path)),
+        Err(e) => return Err(Refusal::Refused(path, e)),
+    }
+    let meta = fs::symlink_metadata(&path).map_err(|e| Refusal::Refused(path.clone(), e))?;
     unshared(root)?;
     usable(&path, members)?;
     Ok((path, identity(&meta)))
@@ -176,7 +184,7 @@ const READ_ABOVE: [&str; 3] = ["CLAUDE.md", "CLAUDE.local.md", ".claude"];
 /// Refuses a space's directory at `path` when it, or a directory above it, is a repository,
 /// when a directory above it holds what Claude Code reads and another user owns, or when it
 /// is inside one of `members`, by their real paths where they exist.
-fn usable(path: &Path, members: &[Member]) -> Result<(), Refusal> {
+pub(super) fn usable(path: &Path, members: &[Member]) -> Result<(), Refusal> {
     for (depth, dir) in path.ancestors().enumerate() {
         if present(&dir.join(".git"))?.is_some() {
             return Err(Refusal::Repository(dir.to_owned()));

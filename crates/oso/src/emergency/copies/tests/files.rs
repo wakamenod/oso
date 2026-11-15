@@ -113,6 +113,7 @@ fn chmod(args: &[&std::ffi::OsStr]) {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .unwrap();
     assert!(child.wait().unwrap().success());

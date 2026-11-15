@@ -13,9 +13,14 @@ use oso_core::menu::{Definition, Head, HeadAction, Note, Notes, Open, Stay};
 use oso_core::menu::{Describe, Menus};
 
 /// The keys bound to built-in menus in the default global keymap, as `(keys, menu)`: the
-/// toggles (ADR 0117, Q25) and the review menu (ADR 0122); the rest are reached with
+/// toggles (ADR 0117, Q25), the review menu (ADR 0122) and the space menu (ADR 0136); the rest
+/// are reached with
 /// `M-x open-menu` or a key in `config.toml`.
-pub const MENU_KEYS: &[(&str, &str)] = &[("C-c t", "toggles"), ("C-x v r", "review")];
+pub const MENU_KEYS: &[(&str, &str)] = &[
+    ("C-c t", "toggles"),
+    ("C-x v r", "review"),
+    ("C-x a S", "space"),
+];
 
 /// One head of a built-in menu: its keys, command, label, whether it stays, and a fixed count.
 struct BuiltInHead {
@@ -224,8 +229,46 @@ const REVIEW: BuiltInMenu = BuiltInMenu {
     describe: Some(crate::commands::review::review_menu),
 };
 
+/// Issue spaces (ADR 0136, step 1b): the space in front's repositories, instructions,
+/// directory and name, and closing and reopening. `o` and `O` are kept for the orchestrator's
+/// start and replacement (steps 3 and 5).
+const SPACE: BuiltInMenu = BuiltInMenu {
+    name: "space",
+    title: "Space",
+    groups: &[
+        (
+            "Repositories",
+            &[
+                exit("a", "space-add-repo", "add\u{2026}"),
+                exit("r", "space-remove-repo", "remove\u{2026}"),
+                exit("u", "space-use-repo", "use for commands\u{2026}"),
+            ],
+        ),
+        (
+            "Space",
+            &[
+                exit("i", "space-instructions", "instructions"),
+                exit("d", "space-directory", "directory"),
+                exit("n", "space-rename", "rename\u{2026}"),
+            ],
+        ),
+        (
+            "Orchestrator",
+            &[exit("o", "space-orchestrator-start", "start")],
+        ),
+        (
+            "Open",
+            &[
+                exit("c", "space-close", "close"),
+                exit("R", "space-reopen", "reopen\u{2026}"),
+            ],
+        ),
+    ],
+    describe: None,
+};
+
 /// The built-in menus, in the order their ids are given.
-const BUILT_IN: [&BuiltInMenu; 5] = [&TOGGLES, &WINDOWS, &JUMPS, &SEARCH, &REVIEW];
+const BUILT_IN: [&BuiltInMenu; 6] = [&TOGGLES, &WINDOWS, &JUMPS, &SEARCH, &REVIEW, &SPACE];
 
 /// The built-in menus over the commands in `registry`. A head whose command `registry` lacks is
 /// left out, as in tests that bring their own commands; with the default commands every head is

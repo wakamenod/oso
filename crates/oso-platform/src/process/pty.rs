@@ -36,7 +36,6 @@ use other as imp;
 use unix as imp;
 
 use std::io;
-use std::process::Command;
 use std::time::Duration;
 
 /// The size of a terminal.
@@ -120,9 +119,10 @@ impl Master {
     }
 }
 
-/// Handing a master to the instance that replaces this one under `oso dev` (ADR 0120, step
-/// 11): the supervisor carries it over the control socket.
-#[cfg(all(feature = "dev", unix))]
+/// Handing a master to the instance that replaces this one: under `oso dev` the supervisor
+/// carries it over the control socket (ADR 0120, step 11), and over `oso-restart` the instance
+/// going sends it over the socket pair it shares with the one coming (ADR 0133).
+#[cfg(unix)]
 impl Master {
     /// Another descriptor for this terminal's master, close-on-exec, to send to the next
     /// instance. Reads and writes through either are the same terminal's.
@@ -170,8 +170,37 @@ pub struct Ready {
     pub woken: bool,
 }
 
-/// Makes `slave` the standard streams and the controlling terminal of the
-/// child `command` starts.
-pub(super) fn run_in(slave: &Slave, command: &mut Command) -> io::Result<()> {
-    imp::run_in(&slave.0, command)
+/// What [`super::spawn`] makes the child's standard streams and controlling terminal from.
+#[cfg(unix)]
+impl Slave {
+    /// Makes the slave the standard streams and controlling terminal of the child `command`
+    /// starts, by a fork (ADR 0137).
+    #[cfg(target_os = "macos")]
+    pub(in crate::process) fn run_in(
+        &self,
+        command: &mut std::process::Command,
+        signals: &'static [libc::c_int],
+    ) -> io::Result<()> {
+        unix::run_in(&self.0, command, signals)
+    }
+
+    /// The session whose controlling terminal this is.
+    #[cfg(target_os = "linux")]
+    pub(in crate::process) fn session(&self) -> io::Result<libc::pid_t> {
+        self.0.session()
+    }
+
+    /// The slave's path, which the child opens as its controlling terminal on Linux.
+    #[cfg(target_os = "linux")]
+    pub(in crate::process) fn name(&self) -> &std::ffi::CStr {
+        &self.0.name
+    }
+}
+
+#[cfg(not(unix))]
+impl Slave {
+    /// No slave exists here.
+    pub(in crate::process) fn never(&self) -> ! {
+        self.0.never()
+    }
 }

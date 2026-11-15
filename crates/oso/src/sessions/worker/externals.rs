@@ -326,11 +326,13 @@ mod tests {
             place: None,
             repo: None,
         };
-        let now = Instant::now();
+        // Far enough ahead that 300 s back is always an `Instant`, even on a
+        // machine that started less than 300 s ago.
+        let now = Instant::now() + Duration::from_secs(3_600);
         let wall = UNIX_EPOCH + Duration::from_secs(1_000);
         assert_eq!(
             external(Some(700)).since(now, wall),
-            now.checked_sub(Duration::from_secs(300))
+            Some(now - Duration::from_secs(300))
         );
         assert_eq!(external(Some(2_000)).since(now, wall), Some(now));
         assert_eq!(external(None).since(now, SystemTime::now()), None);

@@ -62,7 +62,7 @@ pub(crate) fn point_at(app: &mut App, target: usize) {
 }
 
 /// A process that runs for a minute, for a registry entry to name.
-fn sleeper() -> std::process::Child {
+fn sleeper() -> oso_platform::process::Child {
     spawn(&Spawn {
         executable: &Executable::absolute("/bin/sleep").unwrap(),
         args: &["60".into()],
@@ -75,6 +75,7 @@ fn sleeper() -> std::process::Child {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .unwrap()
 }

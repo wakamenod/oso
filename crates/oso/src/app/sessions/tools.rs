@@ -28,6 +28,7 @@ use super::super::App;
 use crate::channel::protocol::sessions::Call;
 use crate::channel::{Connection, Reply};
 use crate::config::AgentStarts;
+use crate::review::TrustedRoot;
 use crate::sessions::hosted::Hosted;
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
@@ -39,6 +40,7 @@ use crate::sessions::worktree::porcelain::printable;
 mod asks;
 mod reads;
 mod remove;
+mod space;
 mod starting;
 
 pub(in crate::app) use asks::Question;
@@ -134,11 +136,19 @@ pub(in crate::app) struct Caller {
     key: SessionKey,
     id: SessionId,
     name: String,
+    /// Where its calls act: where it runs, or for an orchestrator the repository it names.
     directory: PathBuf,
+    /// Where it runs.
+    runs_in: PathBuf,
     root: Option<PathBuf>,
     runs: bool,
     /// How it started, for whether it may start sessions without asking (ADR 0135).
     origin: Origin,
+    /// Its issue space and its part there, where it is in one (ADR 0136, step 4).
+    space: Option<space::InSpace>,
+    /// The trust of the space's repository an orchestrator's call names: it acts there, as
+    /// from that repository's main checkout.
+    acting_at: Option<TrustedRoot>,
 }
 
 impl Caller {
@@ -148,10 +158,23 @@ impl Caller {
             id: session.id.clone(),
             name: session.name.clone(),
             directory: session.directory.clone(),
+            runs_in: session.directory.clone(),
             root: session.root.clone(),
             runs: session.runs(),
             origin: session.origin,
+            space: None,
+            acting_at: None,
         }
+    }
+
+    /// Whether it is its space's orchestrator, which reaches the space's repositories.
+    fn orchestrator(&self) -> bool {
+        (self.space.as_ref()).is_some_and(|space| space.role == space::Role::Orchestrator)
+    }
+
+    /// Whether it sees its space's sessions only: an orchestrator, current or not.
+    fn scoped(&self) -> bool {
+        (self.space.as_ref()).is_some_and(|space| space.role != space::Role::Worker)
     }
 }
 
@@ -168,7 +191,7 @@ impl App {
             let _ = reply.send(Err("no such session tool".into()));
             return;
         };
-        let caller = self.hosting.table.by_connection(connection).map(Caller::of);
+        let caller = (self.hosting.table.by_connection(connection)).map(|s| self.caller_of(s));
         let pending = Pending {
             connection,
             reply,
@@ -190,6 +213,11 @@ impl App {
                 .map_or_else(|| "an agent".to_owned(), |c| printable(&c.name, 40));
             self.agent_log(&format!("{}: from {who}", tool.name));
         }
+        self.carry_tool(pending, tool, call, caller);
+    }
+
+    /// Carries out `call` of `tool` from `caller`, admitted to the channel.
+    fn carry_tool(&mut self, pending: Pending, tool: Tool, call: Call, caller: Option<Caller>) {
         match (call, caller) {
             (Call::List { offset }, caller) => {
                 let listed = self.session_list(caller.as_ref(), offset);
@@ -199,9 +227,19 @@ impl App {
                 let state = self.session_state(caller.as_ref(), &session);
                 pending.answer(state);
             }
-            (Call::WorktreeList, caller) => self.tool_worktree_list(pending, caller),
+            (Call::WorktreeList { repo }, caller) => match self.scoped(caller, repo.as_deref()) {
+                Ok(caller) => self.tool_worktree_list(pending, caller),
+                Err(why) => pending.answer(Err(why)),
+            },
             (Call::WorktreeRemove { path }, Some(caller)) => {
-                self.tool_worktree_remove(pending, &tool, &caller, path);
+                match self.scoped_to_path(caller, &path) {
+                    Ok(caller) => self.tool_worktree_remove(pending, &tool, &caller, path),
+                    Err(why) => pending.answer(Err(why)),
+                }
+            }
+            (Call::SpaceStatus, caller) => {
+                let status = self.space_status(caller.as_ref());
+                pending.answer(status);
             }
             (
                 Call::StartWorktree {
@@ -209,9 +247,14 @@ impl App {
                     base,
                     brief,
                     name,
+                    repo,
                 },
                 Some(caller),
             ) => {
+                let caller = match self.scoped_caller(caller, repo.as_deref()) {
+                    Ok(caller) => caller,
+                    Err(why) => return pending.answer(Err(why)),
+                };
                 let call = asks::WorktreeCall {
                     branch,
                     base,
@@ -225,9 +268,14 @@ impl App {
                     directory,
                     name,
                     brief,
+                    repo,
                 },
                 Some(caller),
             ) => {
+                let caller = match self.scoped_caller(caller, repo.as_deref()) {
+                    Ok(caller) => caller,
+                    Err(why) => return pending.answer(Err(why)),
+                };
                 let call = asks::StartCall {
                     directory,
                     name,
@@ -278,6 +326,9 @@ impl App {
     /// looked up now so that the person's later trust or distrust counts, else the one the
     /// session started with (a worktree just made, which no buffer opened).
     fn caller_root(&self, caller: &Caller) -> Option<crate::review::TrustedRoot> {
+        if let Some(at) = &caller.acting_at {
+            return Some(at.clone());
+        }
         match self.open_caller_root(caller) {
             Some(now) => now,
             None => self.hosting.trusts.get(&caller.key).cloned(),
@@ -302,6 +353,9 @@ impl App {
     /// among them: never by the trust the session began with, which the person may have taken
     /// back since (ADR 0135).
     fn caller_trusted_now(&self, caller: &Caller) -> bool {
+        if let Some(at) = &caller.acting_at {
+            return self.still_trusted(at);
+        }
         self.open_caller_root(caller)
             .flatten()
             .is_some_and(|root| !root.revoked())

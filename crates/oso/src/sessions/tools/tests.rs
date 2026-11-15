@@ -31,6 +31,8 @@ fn the_tools_and_their_reach() {
             ("session_list", Reach::Look, Asks::No, false, true),
             ("session_state", Reach::Look, Asks::No, false, true),
             ("worktree_list", Reach::Look, Asks::No, false, true),
+            // Only a hosted session has a space (ADR 0136, step 4).
+            ("space_status", Reach::Look, Asks::No, false, false),
             ("worktree_remove", Reach::Change, Asks::No, true, false),
             // They start without asking only as ADR 0135 lets them; nothing else does.
             (

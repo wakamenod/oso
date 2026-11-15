@@ -13,7 +13,10 @@
 //! repository.
 
 pub mod dir;
+pub mod edit;
 pub mod migrate;
+pub mod orchestrator;
+pub mod probe;
 pub mod record;
 pub mod stored;
 
@@ -28,6 +31,8 @@ use oso_core::editor::{Editor, WindowTree};
 
 pub use stored::{Member, SpaceId, Stored};
 use stored::{same, slug, unique};
+
+use super::identity::SessionId;
 
 /// Fewer fresh ids than this asks the worker for more.
 const FEW_IDS: usize = 4;
@@ -317,6 +322,26 @@ impl Spaces {
             .push(Space::new(Stored::of_repository(id, name, member, now)));
         self.unsaved = true;
         Some(self.spaces.len() - 1)
+    }
+
+    /// The space whose orchestrator is session `id`, closed or not: a closed space's
+    /// orchestrator keeps its space's scope, so that a resume of it reaches no more than it did
+    /// (ADR 0136, step 4a).
+    pub fn orchestrated_by(&self, id: &SessionId) -> Option<usize> {
+        (self.spaces.iter()).position(|space| space.stored.orchestrator.as_ref() == Some(id))
+    }
+
+    /// Holds the worktree at `path` of repository `main`, just made: in space `asker`, the
+    /// asking session's, when `main` is one of its repositories, else in the space it joins.
+    pub fn hold_made_worktree(&mut self, asker: Option<usize>, path: &Path, main: &Path, now: u64) {
+        let theirs = asker
+            .filter(|&at| (self.spaces.get(at)).is_some_and(|space| space.stored.has_member(main)));
+        match theirs {
+            Some(at) => self.hold_worktree(at, path, now),
+            None => {
+                self.join(path, Some(main), now);
+            }
+        }
     }
 
     /// Records the worktree at `path` in space `at`, and in no other.

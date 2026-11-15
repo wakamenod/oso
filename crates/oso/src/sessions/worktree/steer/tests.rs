@@ -212,6 +212,7 @@ fn quoted_text_reaches_the_shell_as_it_is() {
             own_process_group: false,
             set: &[],
             terminal: None,
+            pass_fd: None,
         })
         .unwrap();
         let output = child.wait_with_output().unwrap();

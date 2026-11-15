@@ -1,4 +1,4 @@
-//! A terminal over `oso dev`'s restart (ADR 0120, step 11), with `/bin/sh` in a real PTY: an
+//! A terminal over a restart (ADR 0120, step 11; ADR 0133), with `/bin/sh` in a real PTY: an
 //! export stops reading and the next terminal reads what came meanwhile, nothing twice; a
 //! full-screen program's screen comes across; a resume reads again; a state too large,
 //! an abandoned or a wrong master end as they should; a release hangs nothing up.
@@ -163,6 +163,21 @@ fn a_state_too_large_is_refused_and_the_terminal_reads_on() {
     seen.terminal.send(b"\r".to_vec()).expect("queued");
     seen.until(|s| s.shows("two"));
     seen.terminal.hang_up();
+}
+
+#[test]
+fn a_state_said_to_be_a_snapshot_is_not_restored_while_snapshots_are_off() {
+    let mut old = Seen::start(sh("printf 'one\\n'; read x"));
+    old.until(|s| s.shows("one"));
+    let mut exported = export(&mut old, &Terminal::library(), BUDGET).expect("exported");
+    // Escape sequences, said to be a snapshot: the decoder must not read them (ADR 0133).
+    exported.encoding = Encoding::Snapshot;
+    let mut new = adopt(&exported);
+    new.until(|s| s.end().is_some());
+    assert!(matches!(new.end(), Some(End::Failed(_))), "{:?}", new.end());
+    old.terminal.resume();
+    old.terminal.hang_up();
+    old.until(|s| s.end().is_some());
 }
 
 #[test]

@@ -332,6 +332,10 @@ impl Jobs {
             move |root, repo, send| {
                 let result = prepare::prepare(repo, &what).map(|prepared| {
                     let trusted = match &prepared {
+                        // The root itself keeps the identity its check just held.
+                        Prepared::Directory(directory) if directory == root.path() => {
+                            Some(root.clone())
+                        }
                         Prepared::Directory(directory) => {
                             Some(root.for_worktree(directory.clone()))
                         }

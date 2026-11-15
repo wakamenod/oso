@@ -34,6 +34,7 @@ mod prefix;
 mod projects;
 mod recovery;
 mod replace;
+mod restart;
 pub(crate) mod review;
 mod save;
 mod scroll;
@@ -103,6 +104,7 @@ const TABLES: &[&[Command]] = &[
     projects::COMMANDS,
     recovery::COMMANDS,
     replace::COMMANDS,
+    restart::COMMANDS,
     review::COMMANDS,
     review::COMMENT_COMMANDS,
     save::COMMANDS,
@@ -112,6 +114,7 @@ const TABLES: &[&[Command]] = &[
     agent_sessions::LIST_COMMANDS,
     agent_sessions::MODE_COMMANDS,
     agent_sessions::SEND_COMMANDS,
+    agent_sessions::SPACE_COMMANDS,
     terminal::COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
@@ -255,6 +258,8 @@ mod tests {
         "previous-history-element",
         "project-find-file",
         "project-search",
+        // Moving every terminal and session to another binary (ADR 0133).
+        "oso-restart",
         // Emergency copies.
         "emergency-copies-back",
         "emergency-copies-refresh",
@@ -342,6 +347,19 @@ mod tests {
         "sessions-show",
         "space-switch",
         "space-zoom",
+        // Issue spaces, whose repositories agents reach and whose sessions closing stops (ADR
+        // 0136).
+        "space-add-repo",
+        "space-close",
+        "space-confirm",
+        "space-instructions",
+        "space-new",
+        "space-directory",
+        "space-orchestrator-start",
+        "space-remove-repo",
+        "space-rename",
+        "space-use-repo",
+        "space-reopen",
         // Worktree sessions, which run git, gh and a session (ADR 0121).
         "brief-cancel",
         "brief-send",

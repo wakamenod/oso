@@ -22,8 +22,8 @@ use crate::sessions::start::{self, Kind, Order, Ready, Report};
 use crate::sessions::worker::{Job, SessionKey};
 
 mod adopt;
+mod begin;
 mod bridge;
-#[cfg(feature = "dev")]
 mod carried;
 mod fork;
 mod terminal;
@@ -31,6 +31,7 @@ mod terminal;
 use fork::ForkFrom;
 
 pub(in crate::app) use adopt::Adopting;
+pub(in crate::app) use begin::Begin;
 
 /// What the app keeps of its hosted sessions.
 #[derive(Debug, Default)]
@@ -50,6 +51,8 @@ pub(in crate::app) struct Hosting {
     fork_offered: Vec<(PromptId, ForkFrom)>,
     /// What `session-adopt` lists, and the adoptions being started.
     pub(in crate::app) adopting: Adopting,
+    /// What the space commands wait for (ADR 0136).
+    pub(in crate::app) spaces: super::spaces::SpaceWork,
     /// The internal `*Session explain*` buffer, once there is one. Kept by its id, never found
     /// by its name, which anyone may give a buffer of their own.
     pub(in crate::app) explain: Option<BufferId>,
@@ -67,40 +70,6 @@ pub(in crate::app) struct Hosting {
     pub(in crate::app) trusts: HashMap<SessionKey, TrustedRoot>,
     /// The agents' session tools (ADR 0121 step 6).
     pub(in crate::app) tools: super::tools::Tools,
-}
-
-/// What a new session starts with. Its default is the person's start, by a key.
-#[derive(Debug, Clone)]
-pub(in crate::app) struct Begin {
-    /// Its name's base, else its directory's name.
-    pub name: Option<String>,
-    /// Its directory, else the selected buffer's project root, else its file's directory, else
-    /// the directory oso started in.
-    pub directory: Option<PathBuf>,
-    /// Its first prompt (ADR 0121 step 4).
-    pub brief: Option<String>,
-    /// The session that started it.
-    pub parent: Option<SessionId>,
-    /// How it starts: by the person, unless an agent's tool starts it (ADR 0135).
-    pub origin: Origin,
-    /// Whether to ask first when another live session runs in its directory.
-    pub check_shared: bool,
-    /// The trust of its directory, when it is no open project's: a worktree just made.
-    pub trusted: Option<TrustedRoot>,
-}
-
-impl Default for Begin {
-    fn default() -> Self {
-        Self {
-            name: None,
-            directory: None,
-            brief: None,
-            parent: None,
-            origin: Origin::Person,
-            check_shared: false,
-            trusted: None,
-        }
-    }
 }
 
 impl Hosting {
@@ -135,6 +104,7 @@ impl Hosting {
             unsaved: false,
             fork_offered: Vec::new(),
             adopting: Adopting::default(),
+            spaces: super::spaces::SpaceWork::default(),
             explain: None,
             parents: HashMap::new(),
             origins: HashMap::new(),
@@ -232,11 +202,11 @@ impl App {
             });
         }
         if let Some((spaces, known)) = self.watch.spaces_mut().take_unsaved() {
-            worker.send(Job::RememberSpaces {
+            worker.send(Job::Space(crate::sessions::worker::SpaceJob::Remember {
                 directory: directory.clone(),
                 spaces,
                 known,
-            });
+            }));
         }
     }
 
@@ -310,6 +280,8 @@ impl App {
         if let Some(trusted) = &trusted {
             self.hosting.trusts.insert(key, trusted.clone());
         }
+        // A start in a space's directory passes its checks (ADR 0136).
+        let space = begin.space.or_else(|| self.space_checks(&directory));
         self.order_session(Order {
             token: key,
             kind: Kind::New,
@@ -323,6 +295,7 @@ impl App {
             brief: begin.brief,
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: begin.check_shared,
+            space,
         });
         Some(key)
     }
@@ -332,7 +305,10 @@ impl App {
     /// the selected buffer's project root or directory, else the directory oso started in.
     fn session_directory_here(&mut self) -> Option<PathBuf> {
         match self.sessions_row_place() {
-            Some(Ok(place)) => Some(place.directory),
+            Some(Ok(place)) => {
+                self.enter_row_space(&place);
+                Some(place.directory)
+            }
             Some(Err(why)) => {
                 self.editor.message(why);
                 None
@@ -407,6 +383,12 @@ impl App {
             session.directory.clone(),
             session.root.clone(),
         );
+        // An orchestrator's command line is made again from its space as it is now: the CLI
+        // keeps neither its `--add-dir`s nor its prompt (ADR 0136, step 3).
+        let space = match self.orchestrator_start_for(key) {
+            Ok(space) => space,
+            Err(why) => return self.editor.message(why),
+        };
         self.turn_agent_channel_on_for_a_session();
         if let Some(session) = self.hosting.table.get_mut(key) {
             session.run = Run::Starting;
@@ -426,6 +408,7 @@ impl App {
             brief: None,
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: false,
+            space,
         });
     }
 
@@ -553,10 +536,15 @@ impl App {
             if added.is_none() {
                 return;
             }
+            self.space_session_started(key);
             self.prune_sessions();
         }
         if let Some(tree) = &ready.baseline {
             self.session_baseline_to_review(key, tree);
+        }
+        // An orchestrator's repository left out, or its instructions not read (ADR 0136).
+        for note in &ready.notes {
+            self.editor.message(super::spaces::printable(note));
         }
         if let Some(session) = self.hosting.table.get_mut(key) {
             if ready.baseline.is_some() {

@@ -49,6 +49,7 @@ pub use checked::read_checked;
 pub use in_force::{AgentStarts, InForce, JUMP_TIMEOUT, Look};
 pub use indentation::MODES;
 pub use outcome::{group_writes_note, outcome};
+pub use paths::expand;
 pub use problems::Problem;
 pub use settings::Settings;
 #[cfg(test)]

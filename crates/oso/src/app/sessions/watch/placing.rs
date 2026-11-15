@@ -13,7 +13,7 @@ use oso_core::editor::Editor;
 use super::place;
 use crate::app::App;
 use crate::sessions::hosted::Hosted;
-use crate::sessions::worker::{Job, SessionKey};
+use crate::sessions::worker::{Job, SessionKey, SpaceJob};
 
 /// How many ids for new spaces one ask brings.
 const IDS_ASKED: usize = 8;
@@ -76,7 +76,7 @@ impl App {
         if self.watch.spaces.wants_ids()
             && let Some(worker) = &self.sessions
         {
-            worker.send(Job::SpaceIds(IDS_ASKED));
+            worker.send(Job::Space(SpaceJob::Ids(IDS_ASKED)));
         }
         // Each session's space's name, worked out once a change of the table.
         let placed: HashMap<SessionKey, String> = self

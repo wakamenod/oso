@@ -1,6 +1,6 @@
 # 0133. Keeping terminals and sessions over an update of the installed oso
 
-- Status: Accepted
+- Status: Accepted, amended by 0137
 - Date: 2026-11-15
 
 ## Context
@@ -156,8 +156,19 @@ team identity when the running one has one (Q3). Everything step 11 and ADR 0090
 - [ADR 0120](0120-the-terminal.md), "A release build has no handoff, and its terminals end with
   it": a release build carries its terminals over `oso-restart`. They still end with a quit or
   a crash.
+- [ADR 0120](0120-the-terminal.md), step 11 as built, "All of it is behind the `dev`
+  features": the descriptors' passing, a PTY master from a descriptor and `oso-term`'s handoff
+  API are in every build, and `oso-term` has no `dev` feature (step 2, as built). The dev
+  socket's methods stay dev-only.
 - [ADR 0090](0090-oso-dev-carries-unsaved-text.md): the unsaved text it carries under `oso dev`
   is carried over `oso-restart` too, with the same limits.
+- [ADR 0047](0047-process-spawning-and-restart-handoff.md), "Inheriting the whole environment"
+  rejected: `oso-restart` gives its own binary every variable of its own that `process` lets a
+  child have by name, all but `PATH` and the loader's, so that the new instance and the shells
+  it starts see what this one did. Every other spawn keeps the allowlist.
+- [ADR 0042](0042-statics-snapshots-and-render-errors.md), no statics: one `static` is allowed,
+  the gate in `oso-platform`'s `privacy::inheritance`, a lock that holds no data (step 2, as
+  built).
 
 ## Consequences
 
@@ -170,7 +181,8 @@ team identity when the running one has one (Q3). Everything step 11 and ADR 0090
 - The steps: first the library patch and the fuzzing that T-parse asks for (its first pull
   request turns the snapshot back on under `oso dev`), then the socket-pair transport and
   `oso-restart`, then the binary checks, then the notice on focus, then the quit (Q5). The
-  release handoff lands only after the first.
+  release handoff was to land only after the first; the author chose on 2026-11-15 to ship it
+  before the snapshot turns on (see "Step 2, as built").
 
 ## Alternatives considered
 
@@ -207,3 +219,140 @@ team identity when the running one has one (Q3). Everything step 11 and ADR 0090
 - **Restarting by itself once every session is idle (Q2 (b)):** no command to remember, but an
   update would then start a program without the person asking, which T-exec makes the person's
   call.
+
+## Step 2, as built
+
+Built on 2026-11-15. The author approved the plan, its questions (the recommended option for
+each), the new public items and the guarded edits through the coordinator.
+
+- **Before the snapshot (the author's choice, 2026-11-15).** The release handoff ships while
+  every terminal still travels as the formatter's escape sequences (ADR 0120, step 11 as built):
+  the screen in use and its scrollback come across, and a full-screen program redraws its
+  screen; its other screen and a sequence it had not finished do not. While the snapshot is off,
+  a terminal whose entry says `snapshot` is not restored and ends failed, so the decoder reads
+  nothing that came over the pair (T-parse), and no terminal keeps the 2 MiB of an unfinished
+  sequence that only the snapshot carries.
+- **Where it lives.** The state, its texts, the terminals' entries, the descriptors and the
+  requests (`Op`) moved from `dev/handoff` to `crates/oso/src/carry/`, on a layer of its own
+  under `dev`, so `oso dev`'s supervisor and the pair ask the app the same requests and the app
+  answers both with one implementation. `oso-term`'s `dev` feature is gone: the handoff API is in
+  every build. Descriptor passing and a PTY master from a descriptor left `oso-platform`'s `dev`
+  feature too.
+- **The command.** `oso-restart` (`Person`, no key) asks the host through
+  `TerminalRequest::Restart`. The host refuses as `check-handover` with terminals does (a buffer
+  that may hold secrets shown, a password prompt, a terminal starting, more than 64, text or a
+  restart under way), then stops the agent channel and starts the `oso-restart` thread.
+- **The binary, until step 3.** The path is the running binary's, resolved when the instance
+  started: Linux names a replaced binary `… (deleted)` from then on. On the thread, before
+  anything else, the file and every directory above it must be writable by no one but the person
+  and root, by `privacy::who_can_change` (ADR 0108's checks, by mode and owner), and the file
+  must be an executable one that runs as the person, not setuid or setgid; otherwise the command
+  says why and runs nothing. The team identity on macOS is
+  step 3's.
+- **The start.** The child is started through `oso_platform::process`, with `--take-over`, and
+  `--no-config` if this instance read none (a dev build passes its own options too). Its
+  standard input is closed and its output goes where this instance's goes. It runs in a process
+  group of its own. It gets this instance's variables by name, all but `PATH` (the module's own)
+  and the loader's. `Spawn::pass_fd` makes its end of the pair the child's descriptor 3 and marks
+  every other one close-on-exec in the child (`process::pass_in`); the spawn forks, on the
+  thread. A free descriptor 3 is held here meanwhile, so that the standard library's pipe that
+  reports a failed start cannot be the one the child's end replaces.
+- **The new instance** takes descriptor 3 first of all, while it has one thread:
+  `ControlStream::inherited` marks it close-on-exec and checks that it is a Unix domain socket
+  that this process inherited. Its other end must be its parent's: otherwise `--take-over` exits
+  with status 2 and opens nothing. Once its window is up, its `oso-carried` thread speaks first.
+- **The order** (`carry::going`, tested with fakes):
+  1. The new instance says `hello`, with the state versions it reads and its terminal library,
+     within 10 s; one that does not, or that cannot read this state's version, is killed and
+     reaped.
+  2. The UI thread exports the state with its terminals; each text goes as `stage-piece` lines,
+     then `take-state`, answered once the new instance's files are judged. Each answer is due
+     within 10 s; a failure until then kills the new instance, and this one reads its terminals
+     again, turns the agent channel back on if it was on, and says why.
+  3. The UI thread hands over a second descriptor of each master; they go with `take-masters`,
+     and the new instance answers that it holds them, within 5 s.
+  4. The UI thread exits if its generation is still the export's, letting the terminals go with
+     nothing hung up; otherwise, and after a failure since the import, the new instance is told
+     to `stay` out of it. It gives up the terminals it took, whose screens stay, and closes if it
+     was not changed since its import.
+  5. The new instance attaches the masters only once the pair has ended and its parent is no
+     longer the instance before (looked for every 50 ms, for 10 s; otherwise they are given up).
+     So one instance reads each PTY at a time.
+- **Two orders, one state.** `dev/restart.rs` (the supervisor's) and `carry::going` (the
+  instance going's) are two orders over the same state, the same requests and one piece relay
+  (`carry::pieces::relay`); a change to one is a change to the other. The app answers both as
+  it answers the parent: `Passed::parent` means the asker may have terminals, which over the
+  pair, and for the instance's own restart thread, it may.
+- **The agent channel** is held off in both instances while the restart is under way: a start
+  asked for meanwhile, by the person or by a session that starts or comes back, happens once
+  the restart is over. The instance going turns it back on if it was on and it stays.
+- **The exit** is waited for with no time limit once asked: the new instance is told to stay
+  only once the instance going has refused, so the two never both close.
+- **The pair** carries one JSON object a line, at most the dev socket's line, descriptors only
+  with `take-masters`. Its names are its own: `just release-safety` now also checks that no
+  release binary holds the names of `export-text`, `import-state`, `hand-over-terminals` or
+  `import-terminals`, nor of the dev build's hook `OSO_DEV_RESTART_FAIL`. A reason from the
+  other end is cut to 200 characters with no control
+  character before it is said.
+- **Descriptors and children.** macOS makes a socket pair, and takes descriptors from a message,
+  close-on-exec only a moment later. A gate in `oso-platform`'s `privacy::inheritance`, a lock
+  that holds no data, is held shared by every spawn and alone around those two moments, so none
+  of oso's children starts inside one. It is the one `static` the architecture test allows (an
+  exception to ADR 0042). A read that takes descriptors on macOS waits for its bytes first, then
+  reads without waiting inside the gate.
+- **Bridges** follow as under `oso dev`: the new instance writes `<pid>-follows`, which the
+  bridge reads in every build now.
+- **New public items:** `oso-platform`'s `ControlStream::{pair, inherited}`, `AsFd` for
+  `ControlStream`, `control::INHERITED_FD`, `process::PassedFd`, `Spawn::pass_fd` and
+  `process::may_pass`, which the restart's filter of its variables reads;
+  `oso-core`'s `TerminalRequest::Restart`; `oso-term`'s handoff API leaves the `dev` feature.
+- **Tests.** The order's failures (`carry::going`), the new instance's side (`carry::coming`),
+  the pair's lines, the binary's checks, a passed descriptor and a refused snapshot have unit
+  tests. End-to-end flows (`tests/e2e/terminal/oso_restart.rs`): a shell goes on, the same
+  process; a password prompt holds the restart; a new instance that ends before it speaks, and
+  an exit refused once the new one holds everything, leave the terminal here, reading again
+  (a dev build's `OSO_DEV_RESTART_FAIL` stops the restart at those points).
+- **Not done:** the macOS team identity, and access lists on the binary's way, in step 3; the
+  notice on focus (step 4, done; see below); quitting when idle (step 5); the snapshot's return (ADR 0120, step
+  11's library patches); starting the new instance with `posix_spawn` rather than a fork, with
+  the terminals' starts. `oso-restart` run in an instance `oso dev` supervises starts a child the
+  supervisor does not know of; `oso dev`'s own restart is the one to use there.
+
+## Step 4, as built
+
+Built on 2026-11-15. The author approved the plan and its questions through the coordinator,
+with two changes: the notice is given in every build, `oso dev`'s included, and it says no more
+than was checked (below).
+
+- **The identity.** `main` takes the identity of the binary's path next to the path itself,
+  before the event loop (the path `oso-restart` starts): its device and inode, modification
+  time and length. A thread of its own, `oso-binary` (`carry::notice`), started with the app,
+  tells later files at that path from it. An install that renames a new file over the old one,
+  or writes the old one again, changes it.
+- **On focus.** Each time the window gains focus, the UI thread asks the thread for a look and
+  waits for nothing; a look asked for while one waits is that one. The thread stats the path
+  and, for an identity it has not checked yet, runs `oso-restart`'s own checks on the file
+  (`binary::check`). It reports a file that is not the one this instance started from.
+- **Said once.** The echo area says "The file oso started from has changed: M-x oso-restart
+  would start it, with terminals and sessions", or that `oso-restart` would refuse it and why,
+  once per identity. Until step 3 checks the signature, nothing tells a new oso from another
+  file the person's own processes put there, so it does not say that a new oso is installed;
+  step 3 may. Nothing is said while a restart is under way, or in a new instance until it has
+  taken over: a later focus says it. A path with no file says nothing. oso never restarts by
+  itself (Q2).
+- **The notice does not bind the restart.** `oso-restart` checks and starts the file at the
+  path when it runs, which may have changed again since it was said.
+- **Where it runs.** On Unix, where `oso-restart` runs. Under `oso dev` the binary changes with
+  each build, and the notice says so too, though `oso dev`'s own restart is the one to use
+  there.
+- **The limit (for step 3).** The path is the one resolved at start (Q3). An install that puts
+  the new binary in another directory and moves a link to it, as a package manager that keeps
+  one directory per version does, leaves the old file in place: neither the notice nor
+  `oso-restart` sees the new binary.
+- **Driving it.** The dev socket's `window-focus` is the window's focus event with all that
+  follows it, the binary's look among it; `focus` still sets only whether the window has the
+  keys.
+- **Tests.** The thread finds a file renamed over the binary on each look, with why
+  `oso-restart` would refuse one it cannot run or others can change, says nothing of the file
+  at start or of a missing one, and ends with its looker; the notice says each identity once
+  (`carry::notice`).

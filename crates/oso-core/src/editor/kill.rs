@@ -88,7 +88,7 @@ impl Editor {
     }
 
     /// Puts entries another instance's ring held in front of what this one holds, given the
-    /// newest first, as `oso dev` carries them (ADR 0090). They hold no secret and nothing
+    /// newest first, as a restart carries them (ADR 0090). They hold no secret and nothing
     /// from the clipboard, as those are never carried. The bounds of the ring apply.
     pub fn carry_kills(&mut self, newest_first: Vec<Vec<Piece>>) {
         for pieces in newest_first.into_iter().rev() {

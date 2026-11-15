@@ -725,7 +725,10 @@ The UI thread never blocks on I/O or parsing:
   ([ADR 0135](adr/0135-agents-start-sessions-without-asking.md)):
   `sessions::tools::starts_without_asking` decides where the question would open, and
   `app/sessions/tools/starting.rs` runs the plan. A job's reports for a tool's call are taken
-  by token before the person's own worktree commands see them.
+  by token before the person's own worktree commands see them. In an issue space
+  ([ADR 0136](adr/0136-issue-spaces.md) step 4), `sessions::tools::repo` says which repository
+  a call's `repo` names, and `app/sessions/tools/space.rs` gives a caller its part in its space
+  and scopes an orchestrator's calls to the space's sessions and repositories.
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.
@@ -837,6 +840,24 @@ changed asks before going over it, and replaces it only if it is still what that
 [ADR 0059](adr/0059-safe-save-and-the-exit-guard.md) and
 [ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md).
 
+### Restarting the installed oso
+
+`oso-restart`, the person's command, moves a release build's terminals, sessions and unsaved
+text to the binary installed in its place
+([ADR 0133](adr/0133-keeping-terminals-over-an-update.md)). The state, its texts, its terminals
+and the requests live in `carry/`, shared with `oso dev`'s restart. The instance going checks
+its own binary, by the path it had at start, owner and mode up to the root, and starts it with
+one end of a socket pair as its descriptor 3. Its `oso-restart` thread plays the supervisor,
+asking its own UI thread the requests the dev socket brings and the new instance over the pair;
+the new instance's `oso-carried` thread answers. The masters go over the pair and are read only
+once the instance going has gone. No socket listens, none of the dev methods ship, and the agent
+channel is off while the restart is under way.
+
+When the window gains focus, a thread of `carry::notice` looks at the binary's path off the UI
+thread. Once the file there is not the one this instance started from (device, inode,
+modification time or length), the echo area says once that it changed and that `oso-restart`
+would start it, or why it would refuse it. oso never restarts by itself.
+
 ## Security architecture (summary)
 
 - Projects open in **restricted mode** until trusted with `M-x trust-project`.
@@ -889,6 +910,8 @@ Full details are in [`security.md`](security.md).
     Only the instance's parent gets terminals. A hosted session keeps its id, space and
     baseline, and its bridge finds the new instance through the `<pid>-follows` record
     beside its socket.
+  - The same state and order carry the installed oso over `oso-restart`; see "Restarting the
+    installed oso" above.
 - **Control socket:** agents can send keys, run commands, read state and take
   screenshots ([ADR 0016](adr/0016-dev-control-socket.md)). The protocol is
   JSON Lines, and `oso ctl` is the client
@@ -985,7 +1008,7 @@ Full details are in [`security.md`](security.md).
   tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
 
 Hot reload and the control socket are behind cargo features (`dev` in each
-crate, enabled through `oso/dev`) that release builds never enable. The agent channel is not:
+crate that has dev-only code, enabled through `oso/dev`) that release builds never enable. The agent channel is not:
 it ships, off by default. CI checks
 this with `just release-safety`
 ([ADR 0032](adr/0032-control-socket-transport.md)).

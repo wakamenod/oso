@@ -77,7 +77,11 @@ impl App {
                     }),
                 );
             }
-            Plan::Start(begin) => match self.begin_session(begin) {
+            // A space's repository, unless its trust was taken back since the question.
+            Plan::Start(_, Some(root)) if !self.still_trusted(&root) => {
+                pending.answer(Err("the repository is no longer trusted".into()));
+            }
+            Plan::Start(begin, _) => match self.begin_session(begin) {
                 Some(key) => {
                     self.hosting.tools.starts.insert(key, pending);
                     if let Some(said) = said {
@@ -111,6 +115,9 @@ impl App {
                     printable(&shown(&created.path), 200),
                     printable(&created.branch, 80)
                 ));
+                // Held as the person's worktree would be (ADR 0136).
+                let asker = Some(&creating.parent);
+                self.hold_made_worktree(asker, &created.path, &created.main);
                 let key = self.begin_session(Begin {
                     name: creating.name,
                     directory: Some(created.path),
@@ -119,6 +126,7 @@ impl App {
                     origin: creating.origin,
                     check_shared: false,
                     trusted: Some(trusted),
+                    space: None,
                 });
                 match key {
                     Some(key) => {

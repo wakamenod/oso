@@ -136,11 +136,20 @@ impl App {
     /// The hosted sessions in `path`, each as `name (state)`: `starting` or `running` while
     /// its live state is not known.
     pub(in crate::app) fn sessions_in(&self, path: &Path) -> Vec<String> {
+        self.sessions_in_where(path, |_| true)
+    }
+
+    /// As [`App::sessions_in`], only those `keep` takes.
+    pub(in crate::app) fn sessions_in_where(
+        &self,
+        path: &Path,
+        keep: impl Fn(&crate::sessions::hosted::Hosted) -> bool,
+    ) -> Vec<String> {
         self.hosting
             .table
             .all()
             .iter()
-            .filter(|session| session.directory.starts_with(path))
+            .filter(|session| session.directory.starts_with(path) && keep(session))
             .map(|session| {
                 let state = hosted_state(session, &self.watch)
                     .map_or_else(|| session.run.label().to_owned(), |s| s.to_string());

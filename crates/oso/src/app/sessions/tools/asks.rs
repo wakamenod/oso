@@ -56,7 +56,9 @@ pub(super) enum Plan {
         parent: SessionId,
         origin: Origin,
     },
-    Start(Begin),
+    /// A session to start, and for an orchestrator's call the space's repository whose trust
+    /// is asked again before it starts.
+    Start(Begin, Option<crate::review::TrustedRoot>),
 }
 
 impl Plan {
@@ -64,7 +66,7 @@ impl Plan {
     fn started_as(&mut self, now: Origin) {
         match self {
             Self::Worktree { origin, .. } => *origin = now,
-            Self::Start(begin) => begin.origin = now,
+            Self::Start(begin, _) => begin.origin = now,
         }
     }
 }
@@ -169,12 +171,17 @@ impl App {
             name,
             brief,
         } = call;
+        // An orchestrator no more starts nothing: the space's directory is no repository.
+        if caller.scoped() && caller.acting_at.is_none() {
+            return pending.answer(Err("your session reaches no repository of its space".into()));
+        }
         let directory = directory.unwrap_or_else(|| caller.directory.clone());
         // Kept by the path's parts, so that `/r/` and `/r` are one target.
         let key: PathBuf = directory.components().collect();
         let target = shown(&key);
-        if directory != caller.directory {
-            // Another directory than the caller's own is looked at by git first.
+        // Another directory than the caller's own is looked at by git first, and so is a space's
+        // repository an orchestrator names, whose root's identity the job checks on the disk.
+        if directory != caller.runs_in || caller.acting_at.is_some() {
             let then = Then::Start { brief, name };
             let prepare = Prepare::Directory(directory);
             return self.tool_prepare(pending, tool, caller, target, (then, prepare));
@@ -191,6 +198,7 @@ impl App {
             origin: Origin::Answered,
             check_shared: false,
             trusted: self.caller_root(caller),
+            space: None,
         };
         // Without asking only in a project an open buffer has trusted now: the trust the session
         // began with may have been taken back since (ADR 0135, Q4).
@@ -284,7 +292,9 @@ impl App {
                     from: Some(Handover {
                         name: caller.runs.then(|| caller.name.clone()),
                         id: caller.id.as_str().to_owned(),
-                        directory: caller.directory.clone(),
+                        // Where it runs: its own uncommitted files, not the repository's it names.
+                        directory: caller.runs_in.clone(),
+                        space: self.space_orchestrated_by(&caller),
                     }),
                 };
                 let plan = Plan::Worktree {
@@ -306,6 +316,7 @@ impl App {
                     origin: Origin::Answered,
                     check_shared: false,
                     trusted,
+                    space: None,
                 };
                 // Its job, as a worktree's, looked at trust against the record as it is now.
                 let now = (target, begin.trusted.is_some());
@@ -354,7 +365,7 @@ impl App {
             caller,
             (target, trusted),
             words,
-            Plan::Start(begin),
+            Plan::Start(begin, caller.acting_at.clone()),
         );
     }
 

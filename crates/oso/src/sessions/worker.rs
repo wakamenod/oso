@@ -1,7 +1,9 @@
 //! The `oso-sessions` thread (ADR 0121): it holds the rules in force and each hosted session's
 //! tracker, judges a session's screen when it changed, and tells the UI thread only of changes.
-//! It also reads and explains a saved screen for `session-explain-file`, and reads and writes
-//! the record of the sessions oso remembers.
+//! It also reads and explains a saved screen for `session-explain-file`, reads and writes the
+//! record of the sessions oso remembers, and for the issue spaces (ADR 0136) the `spaces` file,
+//! their ids, their directories, whether a path is a repository, and their instructions'
+//! directory.
 //!
 //! Must not depend on: `app` or `dispatch`; the app sends jobs and carries out what
 //! comes back through the function it gives.
@@ -89,15 +91,47 @@ pub enum Job {
         sessions: Vec<super::record::Remembered>,
         known: std::collections::HashSet<super::identity::SessionId>,
     },
+    /// What the spaces ask (ADR 0136).
+    Space(SpaceJob),
+}
+
+/// What the issue spaces ask of the worker (ADR 0136): to be kept, ids for new ones, and what
+/// the space commands look up on the disk.
+#[derive(Debug)]
+pub enum SpaceJob {
     /// Keep these spaces in this state directory, keeping those of another instance: the ids
-    /// not in `known` (ADR 0136).
-    RememberSpaces {
+    /// not in `known`.
+    Remember {
         directory: PathBuf,
         spaces: Vec<super::spaces::Stored>,
         known: std::collections::HashSet<super::spaces::SpaceId>,
     },
     /// Read this many ids for new spaces.
-    SpaceIds(usize),
+    Ids(usize),
+    /// Make the directory of space `id`, called `name`, under `root`, for its `members`,
+    /// under the next free name if that one is taken, here or by a name in `taken` (step
+    /// 1b); and look at the members' devices and inodes.
+    MakeDirectory {
+        id: super::spaces::SpaceId,
+        root: PathBuf,
+        name: String,
+        members: Vec<super::spaces::Member>,
+        taken: Vec<String>,
+        /// Made under `name` alone, as a directory gone from its recorded place is made again
+        /// there (`C-u space-orchestrator-start`).
+        exact: bool,
+    },
+    /// Whether `path` is a repository's main checkout (`space-add-repo`, `space-new`).
+    CheckRepository {
+        check: super::spaces::probe::RepoCheck,
+        path: PathBuf,
+    },
+    /// The file of space `id`'s instructions in the state directory `state`, its directory
+    /// made private (`space-instructions`).
+    Instructions {
+        id: super::spaces::SpaceId,
+        state: PathBuf,
+    },
 }
 
 /// What the worker tells the app.
@@ -141,6 +175,23 @@ pub enum Out {
     },
     /// Ids for new spaces, as asked.
     SpaceIds(Vec<super::spaces::SpaceId>),
+    /// Space `id`'s directory was made, or why not, and its members' devices and inodes.
+    SpaceDirMade {
+        id: super::spaces::SpaceId,
+        made: Result<super::spaces::probe::Made, String>,
+        identities: Vec<(PathBuf, Option<(u64, u64)>)>,
+    },
+    /// What `path` was found to be, for the check `check`.
+    RepositoryChecked {
+        check: super::spaces::probe::RepoCheck,
+        path: PathBuf,
+        member: Result<super::spaces::Member, String>,
+    },
+    /// Space `id`'s instructions' file, or why its directory may not be used.
+    InstructionsReady {
+        id: super::spaces::SpaceId,
+        file: Result<PathBuf, String>,
+    },
     /// This local rule was the slowest of [`DROP_AFTER`] late looks in a row, so it is no
     /// longer used until the rules load again.
     Dropped(String),
@@ -158,10 +209,11 @@ pub struct Worker {
 impl Worker {
     /// Starts the thread with the bundled rules; it calls `out` with what it finds. `None`, said
     /// in the log, if the thread cannot start.
-    pub fn start(out: impl Fn(Out) + Send + 'static) -> Option<Self> {
+    pub fn start(out: impl Fn(Out) + Send + Sync + 'static) -> Option<Self> {
         let (jobs, receiver) = mpsc::channel();
         let screens = Slot::default();
         let slot = Arc::clone(&screens);
+        let out: Arc<dyn Fn(Out) + Send + Sync> = Arc::new(out);
         let spawned = thread::Builder::new()
             .name("oso-sessions".into())
             .spawn(move || run(&receiver, &slot, &out));
@@ -194,7 +246,7 @@ impl Worker {
 
 /// The thread: waits for jobs, and for the next time a session is due, until the worker is
 /// dropped. A panic in one job is logged and the thread goes on, its sessions as they were.
-fn run(jobs: &Receiver<Job>, screens: &Slot, out: &dyn Fn(Out)) {
+fn run(jobs: &Receiver<Job>, screens: &Slot, out: &Arc<dyn Fn(Out) + Send + Sync>) {
     let mut core = Core::new(Arc::new(RuleSet::bundled()));
     loop {
         let job = match core.due() {
@@ -224,15 +276,34 @@ fn run(jobs: &Receiver<Job>, screens: &Slot, out: &dyn Fn(Out)) {
             {
                 match job {
                     Job::Screens => take_screens(&mut core, screens, now),
+                    Job::Space(probe) if jobs::looks_at_the_disk(&probe) => {
+                        probe_apart(probe, out);
+                    }
                     job => found.extend(core.handle(job, now)),
                 }
             }
             found.extend(core.tick(now));
         }));
-        found.into_iter().for_each(out);
+        found.into_iter().for_each(|found| out(found));
         if done.is_err() {
             log::error!("the sessions worker failed a job");
         }
+    }
+}
+
+/// Does what a space command asked to look up on the disk on a thread of its own, so that a
+/// path on a mount that does not answer never holds the judging of screens (ADR 0136, step 3).
+fn probe_apart(probe: SpaceJob, out: &Arc<dyn Fn(Out) + Send + Sync>) {
+    let out = Arc::clone(out);
+    let spawned = thread::Builder::new()
+        .name("oso-space-probe".into())
+        .spawn(move || {
+            jobs::space_job(probe)
+                .into_iter()
+                .for_each(|found| out(found))
+        });
+    if let Err(e) = spawned {
+        log::warn!("a space's look at the disk cannot start: {e}");
     }
 }
 
