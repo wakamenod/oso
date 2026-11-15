@@ -125,6 +125,7 @@ pub fn start_without_a_window_system(cwd: &Path) -> (ExitStatus, String) {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .expect("cannot start the instance");
     let mut stderr = child.stderr.take().expect("stderr is piped");
@@ -225,6 +226,55 @@ impl App {
         app
     }
 
+    /// The instance that `old` started with `oso-restart` (ADR 0133): the one whose socket
+    /// appears in the control directory beside those in `before`, which `sockets` listed
+    /// before the restart. It is not the harness's child, so its exit status is not known.
+    pub fn started_by_a_restart(before: &[u32]) -> Self {
+        let started = Instant::now();
+        let (dir, pid, stream) = loop {
+            assert!(
+                started.elapsed() < TIMEOUT,
+                "no new instance listened within {TIMEOUT:?}"
+            );
+            if let Ok(dir) = ControlDir::open_existing() {
+                let new = sockets().into_iter().find(|pid| !before.contains(pid));
+                if let Some(pid) = new
+                    && let Ok((_, stream)) = dir.connect(Socket::Dev, Some(pid))
+                {
+                    break (dir, pid, stream);
+                }
+            }
+            thread::sleep(POLL);
+        };
+        stream
+            .set_read_timeout(Some(TIMEOUT))
+            .expect("cannot set a timeout");
+        stream
+            .set_write_timeout(Some(TIMEOUT))
+            .expect("cannot set a timeout");
+        let reader = BufReader::new(stream.try_clone().expect("cannot use the socket"));
+        let mut app = Self {
+            reader,
+            writer: stream,
+            next_id: 1,
+            surface_seen: false,
+            dir,
+            process: Process {
+                child: None,
+                pid,
+                log: Arc::new(Mutex::new(Vec::new())),
+                log_reader: None,
+            },
+        };
+        assert_eq!(app.call("version", None)["pid"], pid);
+        app
+    }
+
+    /// Whether the instance has exited, for one the harness did not start too.
+    pub fn exited(&mut self) -> bool {
+        self.process.exited()
+    }
+
     /// Turns the visual aids off, for a flow that reads pixels: the current line's band would
     /// fill the cursor's row (ADR 0097). Each says so in the echo area.
     pub fn visual_aids_off(&mut self) {
@@ -236,7 +286,7 @@ impl App {
 
     /// The instance's process ID.
     pub fn pid(&self) -> u32 {
-        self.process.child.id()
+        self.process.pid
     }
 
     /// Asks this instance, and only it, to quit as another app or the Dock does: `terminate`, a
@@ -428,7 +478,7 @@ impl App {
     pub fn wait_for(&mut self, what: &str, done: impl Fn(&Value) -> bool) -> Value {
         let started = Instant::now();
         loop {
-            if let Ok(Some(status)) = self.process.child.try_wait() {
+            if let Some(Ok(Some(status))) = self.process.child.as_mut().map(Child::try_wait) {
                 panic!("the instance exited with {status} while waiting for {what}");
             }
             let state = self.state();
@@ -464,7 +514,7 @@ impl App {
         }
         let started = Instant::now();
         loop {
-            if let Ok(Some(status)) = self.process.child.try_wait() {
+            if let Some(Ok(Some(status))) = self.process.child.as_mut().map(Child::try_wait) {
                 panic!("the instance exited with {status} while waiting for its window");
             }
             let last = match self.try_call("get-state", None) {
@@ -501,8 +551,12 @@ impl App {
     pub fn wait_for_exit(&mut self) -> ExitStatus {
         let started = Instant::now();
         loop {
-            let status = self.process.child.try_wait();
-            if let Some(status) = status.expect("cannot look at the instance") {
+            let child = self
+                .process
+                .child
+                .as_mut()
+                .expect("an instance the harness started");
+            if let Some(status) = child.try_wait().expect("cannot look at the instance") {
                 return status;
             }
             assert!(
@@ -534,6 +588,7 @@ impl App {
             own_process_group: false,
             set: &[],
             terminal: None,
+            pass_fd: None,
         })
         .expect("cannot start oso ctl");
         let mut output = String::new();
@@ -579,6 +634,7 @@ impl App {
             own_process_group: false,
             set: &set,
             terminal: None,
+            pass_fd: None,
         })
         .expect("cannot start oso mcp")
     }
@@ -627,9 +683,7 @@ impl Drop for App {
     fn drop(&mut self) {
         let _ = writeln!(self.writer, r#"{{"method":"exit"}}"#);
         let started = Instant::now();
-        while started.elapsed() < EXIT_TIMEOUT
-            && !matches!(self.process.child.try_wait(), Ok(Some(_)))
-        {
+        while started.elapsed() < EXIT_TIMEOUT && !self.process.exited() {
             thread::sleep(POLL);
         }
     }
@@ -640,9 +694,11 @@ pub fn emergency_dir(cwd: &Path) -> PathBuf {
     cwd.join("state").join("emergency")
 }
 
-/// The process of an instance and its log, whether or not it has been reached.
+/// The process of an instance and its log, whether or not it has been reached. One that
+/// another instance started with `oso-restart` is not the harness's child (ADR 0133).
 struct Process {
-    child: Child,
+    child: Option<Child>,
+    pid: u32,
     log: Arc<Mutex<Vec<u8>>>,
     log_reader: Option<JoinHandle<()>>,
 }
@@ -662,6 +718,7 @@ impl Process {
             own_process_group: false,
             set,
             terminal: None,
+            pass_fd: None,
         })
         .expect("cannot start the instance");
         let log = Arc::new(Mutex::new(Vec::new()));
@@ -671,22 +728,28 @@ impl Process {
             thread::spawn(move || keep_log(stderr, &log))
         };
         Self {
-            child,
+            pid: child.id(),
+            child: Some(child),
             log,
             log_reader: Some(log_reader),
+        }
+    }
+
+    /// Whether it has exited.
+    fn exited(&mut self) -> bool {
+        match &mut self.child {
+            Some(child) => matches!(child.try_wait(), Ok(Some(_))),
+            None => !process_exists(self.pid),
         }
     }
 
     /// Connects to the instance's socket, and panics if it exits or never
     /// listens.
     fn connect(&mut self) -> (ControlDir, ControlStream) {
-        let pid = self.child.id();
+        let pid = self.pid;
         let started = Instant::now();
         loop {
-            let status = self.child.try_wait().expect("cannot look at the instance");
-            if let Some(status) = status {
-                panic!("the instance exited with {status} before listening");
-            }
+            assert!(!self.exited(), "the instance {pid} exited before listening");
             assert!(
                 started.elapsed() < TIMEOUT,
                 "the instance did not listen within {TIMEOUT:?}"
@@ -707,9 +770,13 @@ impl Drop for Process {
     /// the log of a failed test. `cargo test` hides that of a passing one.
     fn drop(&mut self) {
         // Does nothing if it has exited.
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        let pid = self.child.id();
+        if let Some(child) = &mut self.child {
+            let _ = child.kill();
+            let _ = child.wait();
+        } else if process_exists(self.pid) {
+            kill(self.pid);
+        }
+        let pid = self.pid;
         if let Ok(dir) = ControlDir::open_existing() {
             remove_files_of(pid, dir.path());
         }
@@ -846,6 +913,7 @@ fn run_osascript(script: &str) -> Result<(), String> {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .and_then(Child::wait_with_output)
     .expect("cannot run osascript");
@@ -854,6 +922,44 @@ fn run_osascript(script: &str) -> Result<(), String> {
     }
     let said = String::from_utf8_lossy(&output.stderr);
     Err(format!("{}: {}", output.status, said.trim()))
+}
+
+/// The instances whose dev sockets are in the control directory, by process ID.
+pub fn sockets() -> Vec<u32> {
+    let Ok(dir) = ControlDir::open_existing() else {
+        return Vec::new();
+    };
+    let Ok(entries) = fs::read_dir(dir.path()) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            name.strip_suffix(".sock")?.parse().ok()
+        })
+        .collect()
+}
+
+/// Kills the process `pid`, which the harness did not start.
+fn kill(pid: u32) {
+    let kill = Executable::from_path("kill", None).expect("kill is on PATH");
+    let args = ["-9".into(), pid.to_string().into()];
+    let _ = spawn(&Spawn {
+        executable: &kill,
+        args: &args,
+        cwd: None,
+        project: None,
+        inherit: &[],
+        stdin: Source::Closed,
+        stdout: Sink::Null,
+        stderr: Sink::Null,
+        own_process_group: false,
+        set: &[],
+        terminal: None,
+        pass_fd: None,
+    })
+    .and_then(|mut child| child.wait());
 }
 
 /// Whether a process with this ID exists, as `ps` sees it.
@@ -872,6 +978,7 @@ pub fn process_exists(pid: u32) -> bool {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .and_then(|mut child| child.wait())
     .expect("cannot run ps");

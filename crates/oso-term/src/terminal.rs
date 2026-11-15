@@ -6,9 +6,7 @@
 //!
 //! Must not depend on: anything the UI draws with; the thread's work is in `thread`.
 
-#[cfg(feature = "dev")]
 mod handoff;
-#[cfg(feature = "dev")]
 pub use handoff::{Adopt, Encoding, Exported, NotExported};
 #[cfg(unix)]
 mod thread;
@@ -70,8 +68,7 @@ enum Request {
     Palette(Palette),
     Recycle(Snapshot),
     HangUp,
-    /// `oso dev`'s restart (ADR 0120, step 11): see `handoff`.
-    #[cfg(feature = "dev")]
+    /// a restart (ADR 0120, step 11; ADR 0133): see `handoff`.
     Handoff(handoff::Request),
 }
 
@@ -111,7 +108,6 @@ struct Shared {
     /// the thread reaps it, or leaves it to a reaper.
     pid: AtomicU32,
     /// How many times the thread read again after an export (ADR 0120, step 11).
-    #[cfg(feature = "dev")]
     resumes: std::sync::atomic::AtomicU64,
 }
 

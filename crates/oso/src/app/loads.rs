@@ -101,7 +101,6 @@ impl App {
     /// starts judging the path, which reads nothing of the file (ADR 0090). Until then it
     /// counts as a file not judged yet. `None`, and nothing added, if the thread cannot
     /// start.
-    #[cfg(feature = "dev")]
     pub(super) fn visit_carried(
         &mut self,
         path: PathBuf,
@@ -174,7 +173,6 @@ impl App {
         {
             let redraw = self.apply_load(index, update);
             self.forget_killed();
-            #[cfg(feature = "dev")]
             self.reply_to_import();
             // Not in `apply_load`, as `poll_loads` runs on the frame path. A buffer still
             // loading is not at risk, so nothing is lost by waiting for this event.
@@ -193,7 +191,6 @@ impl App {
                 self.apply_load(index, update);
             }
         }
-        #[cfg(feature = "dev")]
         self.reply_to_import();
     }
 
@@ -272,7 +269,6 @@ impl App {
                 old_end.is_some_and(|end| reaches_offset(&self.editor, id, end))
             }
             // The buffer holds carried text, and only its verdict was missing.
-            #[cfg(feature = "dev")]
             LoadUpdate::Judged => {
                 self.loads.swap_remove(index);
                 shown
@@ -312,9 +308,7 @@ impl App {
         if no_baseline {
             self.cannot_be_saved(id);
         }
-        #[cfg(feature = "dev")]
-        let redraw = self.try_restore_positions() || redraw;
-        redraw
+        self.try_restore_positions() || redraw
     }
 
     /// Says that `id` cannot be saved, as where its file leads could not be told.

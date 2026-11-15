@@ -1665,6 +1665,7 @@ pub oso_core::editor::TerminalRequest::Paste
 pub oso_core::editor::TerminalRequest::Paste::text: alloc::string::String
 pub oso_core::editor::TerminalRequest::PasteLines
 pub oso_core::editor::TerminalRequest::QuoteNext
+pub oso_core::editor::TerminalRequest::Restart
 pub oso_core::editor::TerminalRequest::ToggleCharMode
 impl core::clone::Clone for oso_core::editor::TerminalRequest
 pub fn oso_core::editor::TerminalRequest::clone(&self) -> oso_core::editor::TerminalRequest

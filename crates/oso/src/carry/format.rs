@@ -18,9 +18,11 @@ use oso_core::kill;
 use oso_core::minibuffer::{HISTORY_LENGTH, MAX_ENTRY_BYTES};
 use serde_json::{Map, Value, json};
 
-use super::carry::MAX_CARRIED;
 use super::layout::{Windows, parse_windows};
+use super::pieces::MAX_CARRIED;
 use super::{Frame, STATE_VERSION};
+#[cfg(feature = "dev")]
+pub(crate) use selections::goal_state;
 pub(super) use selections::parse_selections;
 pub use selections::selections_state;
 

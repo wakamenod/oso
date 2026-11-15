@@ -7,8 +7,8 @@ use std::collections::{HashSet, VecDeque};
 use super::{HISTORY_LENGTH, MAX_ENTRY_BYTES};
 
 /// The answers given to each history, newest first, in memory only: never written to
-/// disk (ADR 0013, ADR 0051). Only `oso dev` carries them to the instance that replaces
-/// this one (ADR 0090).
+/// disk (ADR 0013, ADR 0051). Only a restart (`oso dev`, `oso-restart`) carries them to the
+/// instance that replaces this one (ADR 0090).
 #[derive(Default)]
 pub(crate) struct Histories {
     pub(crate) lists: Vec<(String, VecDeque<String>)>,

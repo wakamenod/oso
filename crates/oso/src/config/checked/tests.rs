@@ -85,6 +85,7 @@ fn a_pipe_or_a_link_to_one_is_refused_without_waiting() {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .and_then(|mut child| child.wait())
     .expect("cannot run mkfifo");

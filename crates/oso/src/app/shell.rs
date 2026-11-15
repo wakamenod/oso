@@ -187,13 +187,11 @@ impl Window {
 
     /// Where the window's frame is on the screen, if the system says. For the restart
     /// handoff.
-    #[cfg(feature = "dev")]
     pub(super) fn outer_position(&self) -> Option<(i32, i32)> {
         let position = self.window.outer_position().ok()?;
         Some((position.x, position.y))
     }
 
-    #[cfg(feature = "dev")]
     pub(super) fn set_outer_position(&self, x: i32, y: i32) {
         self.window.set_outer_position(PhysicalPosition::new(x, y));
     }
@@ -201,7 +199,6 @@ impl Window {
     /// Asks for a drawable area of `width` x `height`. The size it came to if the system
     /// applied it at once, as Wayland does, sending no `Resized` for it; `None` if a
     /// `Resized` will say later.
-    #[cfg(feature = "dev")]
     pub(super) fn request_inner_size(&self, width: u32, height: u32) -> Option<(u32, u32)> {
         let size = self
             .window

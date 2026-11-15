@@ -345,6 +345,7 @@ impl Gh {
             own_process_group: false,
             set: &set,
             terminal: None,
+            pass_fd: None,
         })
         .map_err(|e| format!("cannot run gh: {e}"))?;
         let out = rgit::collect(child, None, |stdout| rgit::read_at_most(stdout, MAX_GH))

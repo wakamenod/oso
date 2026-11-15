@@ -7,6 +7,7 @@
 
 mod app;
 mod bindings;
+mod carry;
 mod channel;
 mod commands;
 mod config;
@@ -68,20 +69,16 @@ fn main() {
     {
         refuse_dev_tool();
     }
-    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    #[cfg(feature = "dev")]
-    let (args, emergency_directory) = dev::take_emergency_dir(args);
-    #[cfg(not(feature = "dev"))]
-    let emergency_directory = None;
-    #[cfg(feature = "dev")]
-    let (args, clipboard) = dev::take_clipboard_option(args);
-    // A release build always uses the system's (ADR 0074).
-    #[cfg(not(feature = "dev"))]
-    let clipboard = oso_platform::clipboard::Source::System;
-    #[cfg(feature = "dev")]
-    let (args, config_file) = dev::take_config_file(args);
-    #[cfg(not(feature = "dev"))]
-    let config_file = None;
+    let Options {
+        args,
+        emergency_directory,
+        clipboard,
+        config_file,
+        restart_args,
+    } = options(std::env::args_os().skip(1).collect());
+    // The new instance of an `oso-restart` takes its end of the pair here, while this process
+    // has one thread, so that no child can inherit it (ADR 0133).
+    let (args, taking_over) = take_over(args);
     let (file, read_config) = match parse_args(args) {
         Ok(Invocation::Help) => exit_with_usage(None),
         Ok(Invocation::Open { file, config }) => (file, config),
@@ -108,6 +105,8 @@ fn main() {
     let theme_read = app::ThemeRead::start(theme_directory.clone());
     let config_reader = config::Reader::start(&config_source);
     let trust_file = config::TrustFile::start(config_source.trust_file());
+    // The binary's path now, before an install can replace it.
+    let restart = carry::going::Start::this_binary(restart_args, read_config);
     let emergency = Emergency::new(emergency_directory);
     emergency.install_hook();
     app::run(started, |waker| {
@@ -126,6 +125,7 @@ fn main() {
             theme_read,
         );
         app.set_configuration(&config_source, config_reader);
+        app.set_restart(restart, taking_over);
         app.set_trust_file(trust_file);
         #[cfg(feature = "dev")]
         app.set_dev(dev);
@@ -137,6 +137,76 @@ fn main() {
         }
         app
     });
+}
+
+/// What the command line says before `oso`'s own options: a dev build's options, and those
+/// options again for the instance an `oso-restart` starts.
+struct Options {
+    args: Vec<OsString>,
+    emergency_directory: Option<PathBuf>,
+    clipboard: oso_platform::clipboard::Source,
+    config_file: Option<PathBuf>,
+    restart_args: Vec<OsString>,
+}
+
+/// Takes a dev build's options from the front of `args`.
+#[cfg(feature = "dev")]
+fn options(args: Vec<OsString>) -> Options {
+    let (args, emergency_directory) = dev::take_emergency_dir(args);
+    let (args, clipboard) = dev::take_clipboard_option(args);
+    let (args, config_file) = dev::take_config_file(args);
+    let restart_args = dev::restart_args(
+        emergency_directory.as_deref(),
+        clipboard,
+        config_file.as_deref(),
+    );
+    Options {
+        args,
+        emergency_directory,
+        clipboard,
+        config_file,
+        restart_args,
+    }
+}
+
+/// A release build has no dev options, and always uses the system's clipboard (ADR 0074).
+#[cfg(not(feature = "dev"))]
+fn options(args: Vec<OsString>) -> Options {
+    Options {
+        args,
+        emergency_directory: None,
+        clipboard: oso_platform::clipboard::Source::System,
+        config_file: None,
+        restart_args: Vec::new(),
+    }
+}
+
+/// Takes `--take-over` from the front of `args`, and with it the pair this process inherited
+/// from the instance that started it with `oso-restart`, whose id is the second value: it
+/// must be this process's parent (ADR 0133). Without a pair from the parent, exits with an
+/// error, having opened nothing.
+#[expect(
+    clippy::disallowed_macros,
+    reason = "a command-line error, printed before logging starts"
+)]
+fn take_over(mut args: Vec<OsString>) -> (Vec<OsString>, Option<carry::coming::Inherited>) {
+    if args
+        .first()
+        .is_none_or(|arg| arg != carry::going::TAKE_OVER)
+    {
+        return (args, None);
+    }
+    args.remove(0);
+    match carry::coming::inherited_pair() {
+        Ok(taken) => (args, Some(taken)),
+        Err(why) => {
+            eprintln!(
+                "oso: {} needs the pair from a running oso: {why}",
+                carry::going::TAKE_OVER
+            );
+            std::process::exit(2);
+        }
+    }
 }
 
 /// Exits with an error: `oso ctl` and `oso dev` need a dev build.

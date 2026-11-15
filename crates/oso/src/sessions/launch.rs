@@ -202,6 +202,7 @@ mod tests {
             own_process_group: false,
             set: &set,
             terminal: None,
+            pass_fd: None,
         })
         .unwrap();
         child.wait().unwrap().success()

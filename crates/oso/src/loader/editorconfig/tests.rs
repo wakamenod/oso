@@ -401,6 +401,7 @@ fn a_fifo_is_not_waited_on() {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .and_then(|mut child| child.wait())
     .expect("cannot run mkfifo");

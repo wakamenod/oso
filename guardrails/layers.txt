@@ -70,6 +70,9 @@ sessions
 # `grep` searches a project's files over `walk`'s walk (ADR 0114).
 # `terminal` hosts the terminals: their keys, shells and kept grids (ADR 0120).
 commands dev grep keys loader terminal text
+# `carry` is the state a restart carries and its transports, shared by `oso dev`'s and
+# `oso-restart`'s (ADR 0120, step 11; ADR 0133).
+carry
 # `walk` lists a project's files (ADR 0114), beside `project`, which finds them, and
 # `review`, which runs git and diffs for a review (ADR 0122). `dired` builds the directory
 # editor's listings, which `lister`'s threads run (ADR 0134).

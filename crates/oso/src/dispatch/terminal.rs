@@ -162,7 +162,7 @@ impl Dispatcher {
     /// Binds what commands asked of the selected terminal to it, at once: `C-q` and `C-c C-k`
     /// change how the very next key is read, from the same batch of the dev socket or a
     /// macro's replay, and keys or a paste go to the terminal the command ran in, whatever is
-    /// selected when the host acts. Starting a terminal stays for the host.
+    /// selected when the host acts. Starting a terminal, and a restart, stay for the host.
     pub(super) fn take_key_requests(&mut self, editor: &mut Editor) {
         let requests = editor.take_terminal_requests();
         if requests.is_empty() {
@@ -182,7 +182,9 @@ impl Dispatcher {
                 TerminalRequest::PasteLines => {
                     self.send_to_program(editor, selected, ToProgram::PasteLines);
                 }
-                TerminalRequest::Open { .. } => editor.request_terminal(request),
+                TerminalRequest::Open { .. } | TerminalRequest::Restart => {
+                    editor.request_terminal(request);
+                }
             }
         }
     }

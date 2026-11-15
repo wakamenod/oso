@@ -84,7 +84,6 @@ pub enum LoadUpdate {
     Failed(LoadError),
     /// The path has been judged, and nothing is read: the buffer holds text carried from
     /// another instance (ADR 0090). Nothing more follows.
-    #[cfg(feature = "dev")]
     Judged,
 }
 
@@ -102,7 +101,6 @@ impl std::fmt::Debug for LoadUpdate {
                 .field("changed", &reloaded.is_changed())
                 .finish_non_exhaustive(),
             Self::Failed(e) => f.debug_tuple("Failed").field(e).finish(),
-            #[cfg(feature = "dev")]
             Self::Judged => f.write_str("Judged"),
         }
     }
@@ -266,7 +264,6 @@ where
 /// does, and reads nothing, so the text stays the one carried. It records no baseline, as
 /// the buffer brought its own, and never fails: a path it cannot tell counts as secret, and
 /// so does one whose thread panicked. `wake` is as for [`spawn`].
-#[cfg(feature = "dev")]
 pub fn spawn_judging<W>(buffer: BufferId, path: PathBuf, wake: W) -> io::Result<LoadHandle>
 where
     W: Fn(BufferId) -> bool + Send + 'static,

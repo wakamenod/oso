@@ -7,7 +7,15 @@ use oso_core::selection::{Goal, MARK_RING_SIZE, MarkActive, MarkRing, Selection,
 use serde_json::{Map, Value, json};
 
 use super::{MAX_SELECTIONS, array, size, sizes};
-use crate::dev::state::goal_state;
+
+/// A vertical motion's goal, as `get-state` and the state a restart carries write it.
+pub(crate) fn goal_state(goal: Option<Goal>) -> Value {
+    match goal {
+        None => Value::Null,
+        Some(Goal::Column(column)) => json!({ "column": column }),
+        Some(Goal::LineEnd) => json!("line-end"),
+    }
+}
 
 /// A window's selections, marks and whether the region shows, and its mark ring.
 pub fn selections_state(selections: &SelectionSet) -> Value {
@@ -27,7 +35,7 @@ pub fn selections_state(selections: &SelectionSet) -> Value {
     })
 }
 
-pub(in crate::dev::handoff) fn parse_selections(
+pub(in crate::carry) fn parse_selections(
     window: &Map<String, Value>,
 ) -> Result<SelectionSet, String> {
     let selections = array(window, "selections")?;

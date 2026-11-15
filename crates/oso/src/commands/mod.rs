@@ -34,6 +34,7 @@ mod prefix;
 mod projects;
 mod recovery;
 mod replace;
+mod restart;
 pub(crate) mod review;
 mod save;
 mod scroll;
@@ -103,6 +104,7 @@ const TABLES: &[&[Command]] = &[
     projects::COMMANDS,
     recovery::COMMANDS,
     replace::COMMANDS,
+    restart::COMMANDS,
     review::COMMANDS,
     review::COMMENT_COMMANDS,
     save::COMMANDS,
@@ -256,6 +258,8 @@ mod tests {
         "previous-history-element",
         "project-find-file",
         "project-search",
+        // Moving every terminal and session to another binary (ADR 0133).
+        "oso-restart",
         // Emergency copies.
         "emergency-copies-back",
         "emergency-copies-refresh",

@@ -27,7 +27,6 @@ mod events;
 mod files;
 mod flash;
 mod greps;
-#[cfg(feature = "dev")]
 mod handover;
 mod ime;
 mod input;
@@ -37,6 +36,7 @@ mod log_gate;
 mod migemo;
 mod projects;
 mod reloads;
+mod restart;
 mod reviews;
 mod saves;
 mod searches;
@@ -146,9 +146,10 @@ pub enum UserEvent {
     Terminal(oso_core::buffer::BufferId),
     /// A terminal's start thread found the shell and started it, or could not.
     TerminalStarted(Box<crate::terminal::hosted::Started>),
-    /// A thread of `oso dev`'s restart of terminals found something (ADR 0120, step 11).
-    #[cfg(feature = "dev")]
+    /// A thread of a restart of terminals found something (ADR 0120, step 11).
     Carry(terminals::carry::CarryEvent),
+    /// A thread of `oso-restart` asks (ADR 0133).
+    Restart(crate::carry::Asked),
 }
 
 /// Top-level application state.
@@ -273,10 +274,11 @@ pub struct App {
     /// Questions a control socket request opened, which keys from the window do not answer.
     #[cfg(feature = "dev")]
     remote_questions: Vec<oso_core::minibuffer::PromptId>,
-    /// What a restart under `oso dev` keeps: positions still to restore, the latest export,
-    /// and what an import has brought so far.
-    #[cfg(feature = "dev")]
+    /// What a restart keeps, under `oso dev` or `oso-restart`: positions still to restore, the
+    /// latest export, and what an import has brought so far.
     handover: handover::Handover,
+    /// `oso-restart`: what it starts, and the restart under way (ADR 0133).
+    restart: restart::Restart,
 }
 
 /// A theme shown, by its index among the renderer's, and the configuration's default theme
@@ -405,8 +407,8 @@ impl App {
             timings: dev::Timings::new(started),
             #[cfg(feature = "dev")]
             remote_questions: Vec::new(),
-            #[cfg(feature = "dev")]
             handover: handover::Handover::default(),
+            restart: restart::Restart::default(),
         }
     }
 

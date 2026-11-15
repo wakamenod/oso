@@ -1,5 +1,5 @@
 //! The parts of libghostty-vt's `snapshot.h`, `formatter.h` and `io.h` that oso-term uses to
-//! carry a terminal over `oso dev`'s restart (ADR 0120, step 11), as the release pinned in
+//! carry a terminal over a restart (ADR 0120, step 11; ADR 0133), as the release pinned in
 //! `ghostty-vt.lock` declares them: the snapshot's encoder and decoder, the formatter's escape
 //! sequences for a restart across a library change, the writer they write through, and
 //! `ghostty_free`. `manifest_tests` checks the enumerators and the writer against the
@@ -7,12 +7,6 @@
 //! `raw::snapshot` check what they restore.
 //!
 //! Must not depend on: anything in oso; only `raw` calls these.
-
-// Only `oso dev`'s restart calls these; other builds check them against the manifest only.
-#![cfg_attr(
-    not(feature = "dev"),
-    allow(dead_code, reason = "only the dev restart calls these")
-)]
 
 use std::ffi::{c_int, c_void};
 

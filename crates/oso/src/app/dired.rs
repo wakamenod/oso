@@ -207,10 +207,9 @@ impl App {
     /// A listing the previous instance held, made again here and listed, unshown: the windows
     /// that showed it show it as they take their place, with point on the line it was on
     /// (ADR 0134).
-    #[cfg(feature = "dev")]
     pub(super) fn listing_handed_over(
         &mut self,
-        entry: crate::dev::handoff::ListingEntry,
+        entry: crate::carry::ListingEntry,
         added: &mut Vec<BufferId>,
     ) -> BufferId {
         let options = Options {

@@ -115,15 +115,32 @@ fn files_stay_within_the_size_limit() {
 fn there_are_no_statics() {
     let workspace = Workspace::current();
     let mut problems = Vec::new();
+    let mut gate_seen = false;
     for path in workspace.rust_files() {
         let at = workspace.relative_path(&path);
-        for line in statics::forbidden_lines(&tokenize(&read(&path))) {
+        let src = read(&path);
+        if at == statics::GATE {
+            gate_seen = true;
+            let lines = statics::forbidden_lines(&tokenize(&src));
+            if lines.len() != 1
+                || src.matches("static ").count() != 1
+                || !src.contains(statics::GATE_STATIC)
+            {
+                problems.push(format!(
+                    "{at}: may hold only `{}` (ADR 0133)",
+                    statics::GATE_STATIC
+                ));
+            }
+            continue;
+        }
+        for line in statics::forbidden_lines(&tokenize(&src)) {
             problems.push(format!(
                 "{at}:{line}: a `static` is global state (ADR 0038, ADR 0042); keep state \
                  host-owned, and use a `const` for data"
             ));
         }
     }
+    assert!(gate_seen, "the walk did not see {}", statics::GATE);
     assert_none(&problems);
 }
 

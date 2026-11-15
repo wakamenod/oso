@@ -4,7 +4,8 @@
 //! person's (ADR 0108).
 //!
 //! Must not depend on: `control`, `process` or `text`. `control` uses the checks here, so
-//! that the two kinds of private directory cannot drift apart.
+//! that the two kinds of private directory cannot drift apart. Both take the gate in
+//! `inheritance`, which keeps a descriptor not yet close-on-exec out of a child (ADR 0133).
 
 // The checks serve the Unix backend, and are tested everywhere.
 #![cfg_attr(not(unix), allow(dead_code, reason = "used only by the Unix backend"))]
@@ -22,6 +23,7 @@ use other as backend;
 mod unix;
 #[cfg(unix)]
 use unix as backend;
+pub(crate) mod inheritance;
 
 #[cfg(unix)]
 pub(crate) use unix::{euid, itself_problem, list_problem};

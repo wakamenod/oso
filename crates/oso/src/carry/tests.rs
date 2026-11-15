@@ -6,7 +6,7 @@ use super::{
     Frame, MAX_BUFFERS, MAX_FRAME_SIDE, MAX_SELECTIONS, Restore, STATE_VERSION, check,
     exit_allowed, export_value as export, generation, import_allowed, parse,
 };
-use crate::dev::protocol::EXIT_REFUSED;
+use crate::carry::EXIT_REFUSED;
 use oso_core::buffer::{Buffer, FileStamp, Replacement};
 use oso_core::display_map::TabWidth;
 use oso_core::editor::{Editor, SCRATCH};

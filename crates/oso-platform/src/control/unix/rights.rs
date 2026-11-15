@@ -1,6 +1,7 @@
-//! File descriptors passed over a control connection with `SCM_RIGHTS`, for `oso dev`'s
-//! restart: its supervisor carries each terminal's PTY from the instance it replaces to the
-//! new one (ADR 0120, step 11). Dev builds only.
+//! File descriptors passed over a control connection with `SCM_RIGHTS`, for a restart that
+//! carries terminals: `oso dev`'s supervisor carries each terminal's PTY from the instance it
+//! replaces to the new one (ADR 0120, step 11), and `oso-restart` sends them over the pair the
+//! two instances share (ADR 0133).
 //!
 //! Must not depend on: `text`, the protocol spoken over the socket, or what the descriptors
 //! are; the caller judges them.
@@ -10,7 +11,9 @@
 //! - A read takes at most [`ControlStream::MAX_FDS`] in all. One that would bring more, or
 //!   whose control data the system cut short, closes every descriptor it brought and fails.
 //! - Each descriptor received is close-on-exec: at once on Linux (`MSG_CMSG_CLOEXEC`), right
-//!   after the read on macOS, which has no such flag.
+//!   after the read on macOS, which has no such flag. There the read waits for the bytes
+//!   first, then reads and marks them inside `privacy::inheritance`'s gate, so no child
+//!   started meanwhile through `process` can inherit one.
 
 use std::io::{self, Write};
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
@@ -30,11 +33,12 @@ const SEND_FLAGS: libc::c_int = libc::MSG_NOSIGNAL;
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 const SEND_FLAGS: libc::c_int = 0;
 
-/// Flags for `recvmsg`: descriptors close-on-exec from the start where the system can.
+/// Flags for `recvmsg`: descriptors close-on-exec from the start where the system can, and
+/// elsewhere no wait, as the read happens only once bytes are there.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const RECEIVE_FLAGS: libc::c_int = libc::MSG_CMSG_CLOEXEC;
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
-const RECEIVE_FLAGS: libc::c_int = 0;
+const RECEIVE_FLAGS: libc::c_int = libc::MSG_DONTWAIT;
 
 impl ControlStream {
     /// The most descriptors one message carries, and one read takes.
@@ -131,23 +135,36 @@ impl ControlStream {
         msg.msg_iovlen = 1;
         msg.msg_control = control.as_mut_ptr().cast();
         msg.msg_controllen = size_of_val(&control) as _;
-        let read = loop {
+        let (read, received) = loop {
+            // Where the read cannot make them close-on-exec, it waits for the bytes first, then
+            // reads and marks what came while no child of this process can start.
+            #[cfg(not(any(target_os = "linux", target_os = "android")))]
+            self.wait_readable()?;
+            #[cfg(not(any(target_os = "linux", target_os = "android")))]
+            let alone = crate::privacy::inheritance::making();
             // SAFETY: `msg` points at `iov`, over `buf`, and at `control`, which outlive the
             // call and hold the lengths the header says; the socket is kept open by `self`.
             let n = unsafe { libc::recvmsg(self.0.as_raw_fd(), &raw mut msg, RECEIVE_FLAGS) };
             if let Ok(n) = usize::try_from(n) {
-                break n;
+                let received = received(&msg);
+                #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                {
+                    for fd in &received {
+                        close_on_exec(fd)?;
+                    }
+                    drop(alone);
+                }
+                break (n, received);
             }
             let error = io::Error::last_os_error();
-            if error.kind() != io::ErrorKind::Interrupted {
-                return Err(error);
+            match error.kind() {
+                io::ErrorKind::Interrupted => {}
+                // Another handle read the bytes first: wait again.
+                #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                io::ErrorKind::WouldBlock => {}
+                _ => return Err(error),
             }
         };
-        let received = received(&msg);
-        #[cfg(not(any(target_os = "linux", target_os = "android")))]
-        for fd in &received {
-            close_on_exec(fd)?;
-        }
         if msg.msg_flags & libc::MSG_CTRUNC != 0 || fds.len() + received.len() > Self::MAX_FDS {
             // Dropping them closes them.
             return Err(io::Error::new(
@@ -174,11 +191,16 @@ fn received(msg: &libc::msghdr) -> Vec<OwnedFd> {
             // SAFETY: `header` is a valid header; this only computes where its data starts.
             let data = unsafe { libc::CMSG_DATA(header) };
             let offset = data as usize - header as usize;
-            let count = (head.cmsg_len as usize).saturating_sub(offset) / FD_SIZE;
+            // A header the system cut short may still claim its whole length: count only what
+            // lies inside the control data it returned.
+            let returned =
+                (msg.msg_control as usize + control_len(msg)).saturating_sub(data as usize);
+            let claimed = (head.cmsg_len as usize).saturating_sub(offset);
+            let count = claimed.min(returned) / FD_SIZE;
             for at in 0..count {
                 let from = data.wrapping_add(at * FD_SIZE).cast::<RawFd>();
-                // SAFETY: the header's length says `count` descriptors follow `data`, inside
-                // the control data the system wrote.
+                // SAFETY: `count` descriptors follow `data`, by the header's length and inside
+                // the control data the system returned.
                 let raw = unsafe { from.read_unaligned() };
                 // SAFETY: the system has just installed `raw` in this process for this read,
                 // and nothing else owns it.
@@ -189,6 +211,63 @@ fn received(msg: &libc::msghdr) -> Vec<OwnedFd> {
         header = unsafe { libc::CMSG_NXTHDR(msg, header) };
     }
     fds
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+impl ControlStream {
+    /// Waits until a read would not wait, for at most the read timeout set on the
+    /// connection, as a read would. Fails with `WouldBlock` when that time has gone by.
+    fn wait_readable(&self) -> io::Result<()> {
+        let deadline = self
+            .0
+            .read_timeout()?
+            .map(|limit| std::time::Instant::now() + limit);
+        let mut fds = [libc::pollfd {
+            fd: self.0.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        }];
+        loop {
+            // Whole milliseconds, rounded up, so that the wait never ends before the deadline.
+            let timeout = match deadline {
+                None => -1,
+                Some(deadline) => {
+                    let left = deadline.saturating_duration_since(std::time::Instant::now());
+                    if left.is_zero() {
+                        return Err(io::Error::from(io::ErrorKind::WouldBlock));
+                    }
+                    let millis = left.as_micros().div_ceil(1000);
+                    libc::c_int::try_from(millis).unwrap_or(libc::c_int::MAX)
+                }
+            };
+            // SAFETY: `fds` is one `pollfd` that outlives the call, and its length is one; the
+            // socket is kept open by `self`.
+            let ready = unsafe { libc::poll(fds.as_mut_ptr(), 1, timeout) };
+            if ready > 0 {
+                return Ok(());
+            }
+            if ready < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::Interrupted {
+                    return Err(error);
+                }
+            }
+        }
+    }
+}
+
+/// The length of the control data `recvmsg` returned in `msg`: a `size_t` on Linux, a
+/// `socklen_t` elsewhere.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn control_len(msg: &libc::msghdr) -> usize {
+    msg.msg_controllen
+}
+
+/// The length of the control data `recvmsg` returned in `msg`: a `size_t` on Linux, a
+/// `socklen_t` elsewhere.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn control_len(msg: &libc::msghdr) -> usize {
+    msg.msg_controllen as usize
 }
 
 /// Marks `fd` close-on-exec, where the read could not.

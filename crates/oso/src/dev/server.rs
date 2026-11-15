@@ -23,6 +23,7 @@ use super::DEV_BUILD_MARKER;
 use super::fds::Receiving;
 use super::fds::{Fd, Passing};
 use super::protocol::{self, MAX_LINE, Method, Reply, UiOp};
+pub use crate::carry::Passed;
 use crate::channel::wire::{bounded, read_line_within};
 
 /// The most clients connected at once.
@@ -53,19 +54,6 @@ pub struct UiRequest {
     pub reply: mpsc::Sender<Reply>,
     /// What `oso dev`'s restart of terminals passes besides the line (ADR 0120, step 11).
     pub passed: Passed,
-}
-
-/// The descriptors a request brought and those its reply takes, and who asked.
-#[derive(Debug, Default)]
-pub struct Passed {
-    /// What came with the request: only `import-terminals` takes them, and the rest close
-    /// when the request is dropped.
-    pub brought: Vec<Fd>,
-    /// What goes with the reply, which the UI thread puts.
-    pub passing: Passing,
-    /// Whether the client is this instance's parent: `oso dev`'s supervisor, or the harness
-    /// that started it. Only it may ask for terminals.
-    pub parent: bool,
 }
 
 /// Starts the accept loop on a background thread. `send` hands a request to
@@ -324,14 +312,14 @@ mod tests {
             | UiOp::Wheel { .. }
             | UiOp::Mouse { .. }
             | UiOp::Focus(_)
-            | UiOp::ExportText { .. }
-            | UiOp::ImportText(_)
-            | UiOp::HandOverTerminals { .. }
-            | UiOp::ImportTerminals { .. }
+            | UiOp::Restart(crate::carry::Op::ExportText { .. })
+            | UiOp::Restart(crate::carry::Op::ImportText(_))
+            | UiOp::Restart(crate::carry::Op::HandOverTerminals { .. })
+            | UiOp::Restart(crate::carry::Op::ImportTerminals { .. })
             | UiOp::DevMessage(_) => Err("not in this fake".to_owned()),
-            UiOp::CheckHandover { .. }
-            | UiOp::ExportState { .. }
-            | UiOp::ImportState(_)
+            UiOp::Restart(crate::carry::Op::CheckHandover { .. })
+            | UiOp::Restart(crate::carry::Op::ExportState { .. })
+            | UiOp::Restart(crate::carry::Op::ImportState(_))
             | UiOp::Exit { .. } => Ok(json!({})),
             UiOp::Screenshot => return true,
         };

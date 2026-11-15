@@ -22,7 +22,8 @@ use oso_core::rope::Rope;
 use oso_core::sum_tree::Bias;
 use serde_json::json;
 
-use super::super::protocol::{MAX_LINE, Reply, escaped_len};
+use super::Reply;
+use crate::channel::wire::{MAX_LINE, escaped_len};
 
 /// The most text one restart carries, the kill ring included.
 pub const MAX_CARRIED: usize = 64 * 1024 * 1024;
@@ -117,12 +118,12 @@ impl PieceJob {
     /// sender is dropped, which the client sees as an error.
     pub fn spawn(self, reply: mpsc::Sender<Reply>) {
         let spawned = thread::Builder::new()
-            .name("oso-export-text".into())
+            .name("oso-carry-out".into())
             .spawn(move || {
                 let _ = reply.send(self.run());
             });
         if let Err(e) = spawned {
-            log::warn!("cannot start the export-text thread: {e}");
+            log::warn!("cannot start the thread that copies a piece: {e}");
         }
     }
 
@@ -168,6 +169,42 @@ fn piece_at(parts: &[Rope], offset: usize) -> Result<String, String> {
     Ok(text)
 }
 
+/// Moves each item `state` names from the instance going to the one coming, a piece at a time,
+/// so that only one piece is held at once (ADR 0090): `fetch` asks the instance going for the
+/// piece of an item at an offset, `{"text", "end"}`, and `stage` gives the new instance
+/// `{"export", "item", "offset", "text"}`. Both restarts' orders use it. A state with no items
+/// names none.
+pub fn relay(
+    state: &serde_json::Value,
+    mut fetch: impl FnMut(u64, usize, usize) -> Result<serde_json::Value, String>,
+    mut stage: impl FnMut(serde_json::Value) -> Result<(), String>,
+) -> Result<(), String> {
+    let Some(items) = state["items"].as_array() else {
+        return Ok(());
+    };
+    let export = state["export"].as_u64().ok_or("the export has no number")?;
+    for (item, len) in items.iter().enumerate() {
+        let len = len.as_u64().ok_or("an item has no length")?;
+        let mut offset = 0;
+        while offset < len {
+            let at = usize::try_from(offset).map_err(|_| "an item is too long")?;
+            let mut piece = fetch(export, item, at)?;
+            let end = piece["end"]
+                .as_u64()
+                .filter(|&end| end > offset && end <= len)
+                .ok_or("a piece does not move on")?;
+            stage(json!({
+                "export": export,
+                "item": item,
+                "offset": offset,
+                "text": piece["text"].take(),
+            }))?;
+            offset = end;
+        }
+    }
+    Ok(())
+}
+
 /// A piece `import-text` brings. Its `Debug` gives no text, as that could reach a log.
 #[derive(Clone, PartialEq, Eq)]
 pub struct CarriedPiece {
@@ -209,12 +246,12 @@ impl Staging {
     pub fn spawn(&self, piece: CarriedPiece, max_items: usize, reply: mpsc::Sender<Reply>) {
         let staging = self.clone();
         let spawned = thread::Builder::new()
-            .name("oso-import-text".into())
+            .name("oso-carry-in".into())
             .spawn(move || {
                 let _ = reply.send(staging.stage(piece, max_items));
             });
         if let Err(e) = spawned {
-            log::warn!("cannot start the import-text thread: {e}");
+            log::warn!("cannot start the thread that builds a piece: {e}");
         }
     }
 
@@ -331,7 +368,7 @@ fn missing() -> String {
 #[cfg(test)]
 mod tests {
     use super::{CarriedPiece, Exported, Item, PIECE, PIECE_LINE, Staging, piece_at};
-    use crate::dev::protocol::escaped_len;
+    use crate::channel::wire::escaped_len;
     use oso_core::rope::Rope;
 
     fn piece(export: u64, item: usize, offset: usize, text: &str) -> CarriedPiece {
