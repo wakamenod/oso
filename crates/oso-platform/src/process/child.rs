@@ -50,10 +50,11 @@ impl Child {
 
     /// Closes the standard input, reads the standard output and error to their ends at the same
     /// time, so that a child that fills one while the other is read never stalls, and waits.
+    /// With both piped, the standard error is read on a thread of its own.
     pub fn wait_with_output(mut self) -> io::Result<Output> {
         drop(self.stdin.take());
         let (stdout, stderr) = (self.stdout.take(), self.stderr.take());
-        let (stdout, stderr) = std::thread::scope(|scope| {
+        let read = std::thread::scope(|scope| {
             let stderr = stderr
                 .map(|stderr| {
                     std::thread::Builder::new()
@@ -69,8 +70,10 @@ impl Child {
                 None => Ok(Vec::new()),
             };
             Ok::<_, io::Error>((stdout?, stderr?))
-        })?;
+        });
+        // Waited for even when a read failed, so that no child is left unreaped.
         let status = self.wait()?;
+        let (stdout, stderr) = read?;
         Ok(Output {
             status,
             stdout,

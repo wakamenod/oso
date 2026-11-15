@@ -19,7 +19,8 @@
 //! - A caller can pass one descriptor, which the child finds as its descriptor 3
 //!   ([`PassedFd`]): `oso-restart`'s end of the pair for the instance it starts (ADR 0133).
 //! - On Unix a child gets only its standard streams and the descriptor passed, whatever else
-//!   this process holds, and is started with `posix_spawn`, never a fork (`unix`, ADR 0137).
+//!   this process holds, and is started with `posix_spawn`, never a fork, but a terminal's
+//!   child on macOS (`unix`, ADR 0137).
 //!   Windows starts it through the standard library's `Command` (`other`).
 //!
 //! In every build since the terminal ships (ADR 0120).
@@ -417,6 +418,26 @@ fn is_executable(path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
 }
 
+/// The standard library's `Command` for `request`, with exactly the variables of `environment`,
+/// the last of a name winning: where oso does not start a child by hand, Windows, and a
+/// terminal's child on macOS (ADR 0137).
+#[cfg(any(not(unix), target_os = "macos"))]
+fn command(request: &Spawn<'_>, environment: &[(OsString, OsString)]) -> std::process::Command {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "this module is the one place allowed to spawn (ADR 0010)"
+    )]
+    let mut command = std::process::Command::new(request.executable.path());
+    command
+        .args(request.args)
+        .env_clear()
+        .envs(environment.iter().map(|(name, value)| (name, value)));
+    if let Some(cwd) = request.cwd {
+        command.current_dir(cwd);
+    }
+    command
+}
+
 /// Starting a child where oso does not start it by hand: Windows, through the standard
 /// library's `Command` (ADR 0137). There is no terminal (ConPTY is later, ADR 0120) and no
 /// descriptor to pass, so no value of either reaches it.
@@ -424,7 +445,7 @@ fn is_executable(path: &Path) -> bool {
 mod other {
     use std::ffi::OsString;
     use std::io;
-    use std::process::{Command, ExitStatus};
+    use std::process::ExitStatus;
 
     use super::{Child, Spawn};
 
@@ -444,22 +465,11 @@ mod other {
         if let Some(passed) = request.pass_fd {
             match passed.never {}
         }
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "this module is the one place allowed to spawn (ADR 0010)"
-        )]
-        let mut command = Command::new(request.executable.path());
-        command
-            .args(request.args)
-            .env_clear()
-            .envs(environment.iter().map(|(name, value)| (name, value)))
+        let mut child = super::command(request, environment)
             .stdin(request.stdin)
             .stdout(request.stdout)
-            .stderr(request.stderr);
-        if let Some(cwd) = request.cwd {
-            command.current_dir(cwd);
-        }
-        let mut child = command.spawn()?;
+            .stderr(request.stderr)
+            .spawn()?;
         Ok(Child {
             stdin: child.stdin.take(),
             stdout: child.stdout.take(),

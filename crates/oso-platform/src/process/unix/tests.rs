@@ -288,3 +288,37 @@ fn a_program_that_asks_for_no_terminal_still_has_the_slave_as_its_controlling_on
         child.wait().unwrap();
     }
 }
+
+#[test]
+fn a_low_descriptor_passed_is_not_overwritten_by_a_stream_set_up_before_it() {
+    // This process's standard error, at 2, passed while the child's standard error is a pipe:
+    // were it placed after the pipe's `dup2` to 2, the child's 3 would be the pipe too.
+    let sh = sh();
+    let script = "if [ /dev/fd/3 -ef /dev/fd/2 ]; then echo same; else echo apart; fi";
+    let args = ["-c".into(), script.into()];
+    let stderr = io::stderr();
+    let child = spawn(&Spawn {
+        stdout: Sink::Piped,
+        stderr: Sink::Piped,
+        pass_fd: Some(PassedFd::new(stderr.as_fd())),
+        ..request(&sh, &args)
+    })
+    .unwrap();
+    let (text, status) = output_of(child);
+    assert!(status.success());
+    assert_eq!(text, "apart\n");
+}
+
+#[test]
+fn a_child_waited_for_elsewhere_is_never_signalled() {
+    let sh = sh();
+    let args = ["-c".into(), "exit 0".into()];
+    let mut child = spawn(&request(&sh, &args)).unwrap();
+    let pid = libc::pid_t::try_from(child.id()).unwrap();
+    let mut status = 0;
+    // SAFETY: `waitpid` writes one `c_int` into `status`, which lives across the call.
+    assert_eq!(unsafe { libc::waitpid(pid, &raw mut status, 0) }, pid);
+    let error = child.wait().unwrap_err();
+    assert_eq!(error.raw_os_error(), Some(libc::ECHILD));
+    child.kill().unwrap();
+}

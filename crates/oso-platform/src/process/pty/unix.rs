@@ -1,4 +1,5 @@
-//! Pseudo-terminals on macOS and Linux, over `libc`.
+//! Pseudo-terminals on macOS and Linux, over `libc`, and on macOS the child-side hook that a
+//! terminal's forked child runs (`run_in`, ADR 0120, ADR 0137).
 //!
 //! Must not depend on: `control` or `text`.
 //!
@@ -28,18 +29,9 @@ pub(super) struct Master(pub(super) File);
 
 #[derive(Debug)]
 pub(super) struct Slave {
-    /// Held open on Linux too, where the child opens the slave again by its name, so that the
-    /// terminal does not end before it has.
-    #[cfg_attr(
-        all(not(target_os = "macos"), not(test)),
-        expect(
-            dead_code,
-            reason = "held open, not read, where the child opens the name"
-        )
-    )]
     pub(super) fd: OwnedFd,
     /// Its path, which the child opens again on Linux to make it its controlling terminal.
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     pub(super) name: std::ffi::CString,
 }
 
@@ -115,7 +107,7 @@ pub(super) fn open(size: Size) -> io::Result<(Master, Slave)> {
     master.resize(size)?;
     let slave = Slave {
         fd: slave.into(),
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
         name,
     };
     Ok((master, slave))
@@ -186,6 +178,19 @@ fn set_non_blocking(file: &File) -> io::Result<()> {
         Ok(())
     } else {
         Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Slave {
+    pub(super) fn session(&self) -> io::Result<libc::pid_t> {
+        // SAFETY: `tcgetsid` takes a descriptor, which `self` keeps open, and nothing else.
+        let session = unsafe { libc::tcgetsid(self.fd.as_raw_fd()) };
+        if session < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(session)
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 //! Starting a child on macOS and Linux with `posix_spawn`, by hand (ADR 0137): this process
-//! never forks, and the child gets only the descriptors it is given.
+//! does not fork, but for a terminal's child on macOS, and the child gets only the descriptors
+//! it is given.
 //!
 //! Must not depend on: `control` or `text`, or what the child runs; [`super`] has checked the
 //! request and built its environment.
@@ -25,7 +26,6 @@
 use std::collections::BTreeMap;
 use std::ffi::{CStr, CString, OsStr, OsString};
 use std::io;
-use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::process::ExitStatusExt;
@@ -34,26 +34,16 @@ use std::process::ExitStatus;
 use super::{Child, Sink, Source, Spawn};
 use crate::privacy::inheritance::INHERITED_FD;
 
+mod objects;
 #[cfg(test)]
 mod tests;
 
-#[cfg(all(target_os = "linux", not(target_env = "gnu")))]
-compile_error!("oso on Linux needs glibc 2.34 or later to start processes (ADR 0137)");
+use objects::{Actions, Attributes, done};
 
-// In libSystem since macOS 10.15, which every macOS process links; `libc` binds neither.
-#[cfg(target_os = "macos")]
-unsafe extern "C" {
-    /// Keeps the open descriptor `fd` in the child despite `POSIX_SPAWN_CLOEXEC_DEFAULT`.
-    fn posix_spawn_file_actions_addinherit_np(
-        actions: *mut libc::posix_spawn_file_actions_t,
-        fd: libc::c_int,
-    ) -> libc::c_int;
-    /// Changes the child's directory to `path`, which it copies.
-    fn posix_spawn_file_actions_addchdir_np(
-        actions: *mut libc::posix_spawn_file_actions_t,
-        path: *const libc::c_char,
-    ) -> libc::c_int;
-}
+#[cfg(not(any(target_os = "macos", all(target_os = "linux", target_env = "gnu"))))]
+compile_error!(
+    "oso starts processes on macOS, and on Linux with glibc 2.34 or later, only (ADR 0137)"
+);
 
 /// Signals a child in a terminal gets back at their default action, whatever oso was started
 /// with: `nohup` and a shell's background jobs ignore some, and a terminal's shell must still
@@ -81,6 +71,9 @@ pub(super) struct Process {
     pid: libc::pid_t,
     /// How it ended, once waited for: from then on its ID may be another process's.
     status: Option<ExitStatus>,
+    /// Waited for by something else, which the system said as `ECHILD`: its ID may be another
+    /// process's too, and how it ended is not known.
+    gone: bool,
 }
 
 /// Starts the child `request` asks for, with exactly the variables of `environment`, the last
@@ -103,10 +96,11 @@ pub(super) fn start(
         .collect::<BTreeMap<_, _>>()
         .into_iter()
         .map(|(name, value)| {
-            let mut pair = name.as_bytes().to_vec();
+            let mut pair = Vec::with_capacity(name.len() + 1 + value.len());
+            pair.extend_from_slice(name.as_bytes());
             pair.push(b'=');
             pair.extend_from_slice(value.as_bytes());
-            c_string(OsStr::from_bytes(&pair))
+            CString::new(pair).map_err(|_| holds_nul())
         })
         .collect::<io::Result<Vec<_>>>()?;
     let cwd = request
@@ -118,11 +112,19 @@ pub(super) fn start(
     let attributes = attributes(request)?;
     let pid = spawn(&program, &args, &variables, &mut actions, &attributes)?;
     drop(theirs);
+    #[cfg(target_os = "linux")]
+    if let Some(slave) = request.terminal {
+        controls(slave, pid)?;
+    }
     Ok(Child {
         stdin: ours.stdin.map(Into::into),
         stdout: ours.stdout.map(Into::into),
         stderr: ours.stderr.map(Into::into),
-        process: Process { pid, status: None },
+        process: Process {
+            pid,
+            status: None,
+            gone: false,
+        },
     })
 }
 
@@ -136,7 +138,7 @@ fn file_actions(
     let mut theirs = Vec::new();
     let mut ours = Ours::default();
     if let Some(terminal) = request.terminal {
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
         in_terminal(&mut actions, terminal)?;
         #[cfg(target_os = "macos")]
         let _ = terminal;
@@ -159,7 +161,7 @@ fn file_actions(
     if let Some(cwd) = cwd {
         actions.chdir(cwd)?;
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     actions.close_from(first_closed)?;
     #[cfg(target_os = "macos")]
     let _ = first_closed;
@@ -176,7 +178,7 @@ fn attributes(request: &Spawn<'_>) -> io::Result<Attributes> {
         flags |= libc::POSIX_SPAWN_CLOEXEC_DEFAULT;
     }
     if request.terminal.is_some() {
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "linux")]
         {
             flags |= libc::POSIX_SPAWN_SETSID;
         }
@@ -234,13 +236,34 @@ fn spawn(
 
 /// Makes `slave` the child's standard streams, and, as `POSIX_SPAWN_SETSID` runs before the
 /// file actions, its controlling terminal: the open has no `O_NOCTTY`.
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 fn in_terminal(actions: &mut Actions, slave: &super::pty::Slave) -> io::Result<()> {
     actions.open(libc::STDIN_FILENO, slave.name(), libc::O_RDWR)?;
     for target in [libc::STDOUT_FILENO, libc::STDERR_FILENO] {
         actions.dup2(libc::STDIN_FILENO, target)?;
     }
     Ok(())
+}
+
+/// Fails, and ends and reaps the child `pid`, unless the terminal `slave` is its session's
+/// controlling terminal: an open of the slave that did not make it so, as when another session
+/// holds it, starts a child that no Ctrl-C or hang-up would reach. `posix_spawn` returns once
+/// the child has run its file actions and `exec`, so this needs no waiting.
+#[cfg(target_os = "linux")]
+fn controls(slave: &super::pty::Slave, pid: libc::pid_t) -> io::Result<()> {
+    if slave.session().ok() == Some(pid) {
+        return Ok(());
+    }
+    let mut child = Process {
+        pid,
+        status: None,
+        gone: false,
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    Err(io::Error::other(
+        "the terminal did not become the child's controlling terminal",
+    ))
 }
 
 /// Starts a child in a terminal on macOS by a fork, through the standard library, whose hook
@@ -251,18 +274,7 @@ fn forked_in_terminal(
     slave: &super::pty::Slave,
     environment: &[(OsString, OsString)],
 ) -> io::Result<Child> {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "this module is the one place allowed to spawn (ADR 0010, ADR 0137)"
-    )]
-    let mut command = std::process::Command::new(request.executable.path());
-    command
-        .args(request.args)
-        .env_clear()
-        .envs(environment.iter().map(|(name, value)| (name, value)));
-    if let Some(cwd) = request.cwd {
-        command.current_dir(cwd);
-    }
+    let mut command = super::command(request, environment);
     slave.run_in(&mut command, &TERMINAL_SIGNALS)?;
     // The standard library's `Child` holds no pipe here, and dropping it neither waits nor
     // kills: the process is waited for by its ID from now on.
@@ -275,6 +287,7 @@ fn forked_in_terminal(
             pid: libc::pid_t::try_from(pid)
                 .map_err(|_| io::Error::other("a process ID out of range"))?,
             status: None,
+            gone: false,
         },
     })
 }
@@ -375,174 +388,14 @@ fn above_targets(fd: BorrowedFd<'_>, theirs: &mut Vec<OwnedFd>) -> io::Result<Ra
 
 /// `string` as the system takes it, refused if it holds NUL.
 fn c_string(string: &OsStr) -> io::Result<CString> {
-    CString::new(string.as_bytes()).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "a program, argument, variable or directory holds NUL",
-        )
-    })
+    CString::new(string.as_bytes()).map_err(|_| holds_nul())
 }
 
-/// `Ok` if `error`, as the spawn functions return it, is none.
-fn done(error: libc::c_int) -> io::Result<()> {
-    if error == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::from_raw_os_error(error))
-    }
-}
-
-/// A spawn's file actions, destroyed when dropped. Boxed, so that they never move once set up.
-struct Actions(Box<MaybeUninit<libc::posix_spawn_file_actions_t>>);
-
-impl Actions {
-    fn new() -> io::Result<Self> {
-        let mut actions = Box::new(MaybeUninit::uninit());
-        // SAFETY: `init` sets up the object it is given, which the box holds.
-        done(unsafe { libc::posix_spawn_file_actions_init(actions.as_mut_ptr()) })?;
-        Ok(Self(actions))
-    }
-
-    fn as_mut_ptr(&mut self) -> *mut libc::posix_spawn_file_actions_t {
-        self.0.as_mut_ptr()
-    }
-
-    /// The child's `to` becomes a copy of `from`, without close-on-exec.
-    fn dup2(&mut self, from: RawFd, to: RawFd) -> io::Result<()> {
-        // SAFETY: the actions were set up by `new`; this takes two numbers.
-        done(unsafe { libc::posix_spawn_file_actions_adddup2(self.as_mut_ptr(), from, to) })
-    }
-
-    /// The child's `to` becomes `path` opened with `flags`.
-    fn open(&mut self, to: RawFd, path: &CStr, flags: libc::c_int) -> io::Result<()> {
-        // SAFETY: the actions were set up by `new`; `path` is NUL-terminated, and the call
-        // copies it.
-        done(unsafe {
-            libc::posix_spawn_file_actions_addopen(self.as_mut_ptr(), to, path.as_ptr(), flags, 0)
-        })
-    }
-
-    /// The child keeps this process's `fd`, as it is.
-    fn inherit(&mut self, fd: RawFd) -> io::Result<()> {
-        #[cfg(target_os = "macos")]
-        {
-            // SAFETY: the actions were set up by `new`; this takes a number.
-            done(unsafe { posix_spawn_file_actions_addinherit_np(self.as_mut_ptr(), fd) })
-        }
-        // Linux closes only what `close_from` names, from 3 up.
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = fd;
-            Ok(())
-        }
-    }
-
-    /// The child runs in `dir`.
-    fn chdir(&mut self, dir: &CStr) -> io::Result<()> {
-        #[cfg(target_os = "macos")]
-        // SAFETY: the actions were set up by `new`; `dir` is NUL-terminated, and the call
-        // copies it.
-        let error =
-            unsafe { posix_spawn_file_actions_addchdir_np(self.as_mut_ptr(), dir.as_ptr()) };
-        #[cfg(not(target_os = "macos"))]
-        // SAFETY: as above.
-        let error =
-            unsafe { libc::posix_spawn_file_actions_addchdir_np(self.as_mut_ptr(), dir.as_ptr()) };
-        done(error)
-    }
-
-    /// The child closes every descriptor from `first` up.
-    #[cfg(not(target_os = "macos"))]
-    fn close_from(&mut self, first: RawFd) -> io::Result<()> {
-        // SAFETY: the actions were set up by `new`; this takes a number.
-        done(unsafe { libc::posix_spawn_file_actions_addclosefrom_np(self.as_mut_ptr(), first) })
-    }
-}
-
-impl Drop for Actions {
-    fn drop(&mut self) {
-        // SAFETY: the actions were set up by `new`, and are destroyed only here.
-        unsafe {
-            libc::posix_spawn_file_actions_destroy(self.as_mut_ptr());
-        }
-    }
-}
-
-/// A spawn's attributes, destroyed when dropped. Boxed, so that they never move once set up.
-struct Attributes(Box<MaybeUninit<libc::posix_spawnattr_t>>);
-
-impl Attributes {
-    fn new() -> io::Result<Self> {
-        let mut attributes = Box::new(MaybeUninit::uninit());
-        // SAFETY: `init` sets up the object it is given, which the box holds.
-        done(unsafe { libc::posix_spawnattr_init(attributes.as_mut_ptr()) })?;
-        Ok(Self(attributes))
-    }
-
-    fn as_ptr(&self) -> *const libc::posix_spawnattr_t {
-        self.0.as_ptr()
-    }
-
-    fn as_mut_ptr(&mut self) -> *mut libc::posix_spawnattr_t {
-        self.0.as_mut_ptr()
-    }
-
-    fn flags(&mut self, flags: libc::c_int) -> io::Result<()> {
-        let flags = libc::c_short::try_from(flags)
-            .map_err(|_| io::Error::other("the spawn's flags do not fit"))?;
-        // SAFETY: the attributes were set up by `new`; this takes a number.
-        done(unsafe { libc::posix_spawnattr_setflags(self.as_mut_ptr(), flags) })
-    }
-
-    /// With `POSIX_SPAWN_SETSIGMASK`: the child blocks no signal, whatever the spawning thread
-    /// blocks.
-    fn no_signal_blocked(&mut self) -> io::Result<()> {
-        let none = signal_set(&[])?;
-        // SAFETY: the attributes were set up by `new`; `none` is a set `signal_set` filled,
-        // which the call copies.
-        done(unsafe { libc::posix_spawnattr_setsigmask(self.as_mut_ptr(), &raw const none) })
-    }
-
-    /// With `POSIX_SPAWN_SETSIGDEF`: `signals` are at their default action in the child.
-    fn default_signals(&mut self, signals: &[libc::c_int]) -> io::Result<()> {
-        let set = signal_set(signals)?;
-        // SAFETY: the attributes were set up by `new`; `set` is a set `signal_set` filled,
-        // which the call copies.
-        done(unsafe { libc::posix_spawnattr_setsigdefault(self.as_mut_ptr(), &raw const set) })
-    }
-
-    /// With `POSIX_SPAWN_SETPGROUP`: the child's process group, its own if 0.
-    fn process_group(&mut self, group: libc::pid_t) -> io::Result<()> {
-        // SAFETY: the attributes were set up by `new`; this takes a number.
-        done(unsafe { libc::posix_spawnattr_setpgroup(self.as_mut_ptr(), group) })
-    }
-}
-
-impl Drop for Attributes {
-    fn drop(&mut self) {
-        // SAFETY: the attributes were set up by `new`, and are destroyed only here.
-        unsafe {
-            libc::posix_spawnattr_destroy(self.as_mut_ptr());
-        }
-    }
-}
-
-/// The set of `signals`.
-fn signal_set(signals: &[libc::c_int]) -> io::Result<libc::sigset_t> {
-    let mut set = MaybeUninit::<libc::sigset_t>::uninit();
-    // SAFETY: `sigemptyset` fills the set it is given, which `set` has room for, before
-    // `sigaddset` reads and changes it.
-    let filled = unsafe {
-        libc::sigemptyset(set.as_mut_ptr()) == 0
-            && signals
-                .iter()
-                .all(|&signal| libc::sigaddset(set.as_mut_ptr(), signal) == 0)
-    };
-    if !filled {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: `sigemptyset` succeeded, so it filled the set.
-    Ok(unsafe { set.assume_init() })
+fn holds_nul() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "a program, argument, variable or directory holds NUL",
+    )
 }
 
 impl Process {
@@ -563,11 +416,12 @@ impl Process {
     }
 
     pub(super) fn kill(&mut self) -> io::Result<()> {
-        if self.status.is_some() {
+        if self.status.is_some() || self.gone {
             return Ok(());
         }
         // SAFETY: `kill` takes and returns plain numbers, and `pid` is this child's, which has
-        // not been waited for, so no other process can have it.
+        // not been waited for, here or, as `ECHILD` would have said, elsewhere, so no other
+        // process can have it.
         if unsafe { libc::kill(self.pid, libc::SIGKILL) } == 0 {
             Ok(())
         } else {
@@ -593,6 +447,9 @@ impl Process {
                 return Ok(None);
             }
             let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::ECHILD) {
+                self.gone = true;
+            }
             if error.kind() != io::ErrorKind::Interrupted {
                 return Err(error);
             }

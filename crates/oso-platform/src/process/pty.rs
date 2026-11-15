@@ -184,8 +184,14 @@ impl Slave {
         unix::run_in(&self.0, command, signals)
     }
 
+    /// The session whose controlling terminal this is.
+    #[cfg(target_os = "linux")]
+    pub(in crate::process) fn session(&self) -> io::Result<libc::pid_t> {
+        self.0.session()
+    }
+
     /// The slave's path, which the child opens as its controlling terminal on Linux.
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     pub(in crate::process) fn name(&self) -> &std::ffi::CStr {
         &self.0.name
     }

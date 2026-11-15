@@ -48,8 +48,9 @@ approved all the recommended options (2026-11-15).
   descriptor), after the file actions that place them. This needs glibc 2.34 or later (Ubuntu
   22.04, Debian 12, RHEL 9 and later), bound directly through `libc`, with no fallback. musl has
   no such call and is not supported: the build stops with an error that says so.
-- **The streams:** `Sink::Inherit` keeps this process's own, a closed input and `Sink::Null`
-  open `/dev/null` in the child, and a pipe's end is placed with `dup2`. The ends this process
+- **The streams:** `Sink::Inherit` keeps this process's own, as `exec` would: on macOS one that
+  is close-on-exec, or not open, is left out. A closed input and `Sink::Null` open `/dev/null`
+  in the child, and a pipe's end is placed with `dup2`. The ends this process
   keeps become the standard library's `ChildStdin`, `ChildStdout` and `ChildStderr`.
 - **A passed descriptor** (`Spawn::pass_fd`) is placed at 3 with `dup2`. A source below 4 is
   first copied above 3, close-on-exec, so that no file action overwrites a later one's source.
@@ -70,7 +71,9 @@ later, reaches no child. Whatever made it, and on whatever thread, it needs no l
 - **Linux:** `POSIX_SPAWN_SETSID`, which glibc runs before the file actions, and the slave
   opened by its name at 0 without `O_NOCTTY`, which a session leader with no terminal takes as
   its controlling one. `dup2` then copies it to 1 and 2. The `Slave` keeps its own descriptor
-  open until the caller drops it, as before.
+  open until the caller drops it, as before. As the old hook failed when `TIOCSCTTY` did, the
+  spawn checks `tcgetsid` on the slave once `posix_spawn` returns (after the child's `exec`),
+  and ends, reaps and fails a child whose session the terminal does not belong to.
 - **macOS forks, as before.** XNU runs the file actions before `POSIX_SPAWN_SETSID`, and only
   the session leader's own `TIOCSCTTY` gives a session a controlling terminal: opening a
   terminal never does. So `posix_spawn` cannot start a child with one. A stress test of 8
@@ -91,7 +94,8 @@ of the standard library's pipe types, `id`, `wait` (it closes the standard input
 `try_wait`, `kill` and `wait_with_output` (it reads both outputs at once, one on a scoped thread
 of its own). It reports `std::process::ExitStatus` and `Output`. On Unix it waits with `waitpid`
 by the child's ID and keeps the status. `kill` does nothing once the child has been waited for,
-as its ID may be another process's by then. As with the standard library's, dropping it neither
+as its ID may be another process's by then, nor once `waitpid` has said `ECHILD`, which means
+something else waited for it. As with the standard library's, dropping it neither
 waits nor kills. On Windows it wraps the standard library's.
 
 ### The gate goes
@@ -103,9 +107,12 @@ own, and marks what came close-on-exec right after. The architecture test lets n
 
 ### Unsafe code and checks
 
-- In `process/unix.rs`, each libc call has its own block with a `// SAFETY:` comment: the file
-  actions' and attributes' set-up, additions and destruction (the objects are boxed, so they
-  never move), the signal sets, `posix_spawn`, `F_DUPFD_CLOEXEC`, `waitpid` and `kill`.
+- In `process/unix.rs` and `process/unix/objects.rs`, which holds the file actions and
+  attributes as values that destroy themselves, each libc call has its own block with a
+  `// SAFETY:` comment: their set-up, additions and destruction (the objects are boxed, so they
+  never move), the signal sets, `F_GETFD` before an inherit, `posix_spawn`, `F_DUPFD_CLOEXEC`,
+  `waitpid`, `kill`, and `tcgetsid` on Linux. The standard library's `Command` is built in one
+  place, `process::command`, for Windows and for the macOS terminal's child.
   `posix_spawn_file_actions_addinherit_np` and `posix_spawn_file_actions_addchdir_np` are
   declared in a local `extern` block on macOS, as `libc` binds neither (libSystem has had both
   since macOS 10.15).
@@ -120,25 +127,35 @@ own, and marks what came close-on-exec right after. The architecture test lets n
     descriptors from 0 to 63, and one made without close-on-exec at 200 or above. They see only
     0–2, plus 3 for the passed one.
   - `sleep` in a terminal is its terminal's foreground group as soon as the spawn returns.
+  - A passed descriptor at 2, with the standard error piped, is still the child's 3. The test
+    fails if a source below 4 is not first copied above.
   - Also tested: the directory and the variables (the last of a name wins), a NUL refused, a
-    program removed after it was found failing to start, waiting and killing, and both full
-    pipes read at once.
+    program removed after it was found failing to start, waiting and killing, a child waited
+    for elsewhere never signalled, and both full pipes read at once.
+  - The leak test is the reverse of the one it replaces: before, a plain child was expected to
+    see a descriptor left open on exec.
 
 ## Changes to accepted ADRs
 
-- **ADR 0120, step 2 as built.** "A `Spawn` gains `terminal: Option<&Pty>`, and a `pre_exec`
-  hook calls `setsid` and `TIOCSCTTY`" and "The child-side hook (`pre_exec`, which makes the
-  standard library fork) …" now hold on macOS only. Linux starts a terminal's child with
-  `posix_spawn`, as above. The spawn still runs on the terminal's thread: it reads the file
-  system to build `PATH`. "`posix_spawn` for terminals … would need an ADR": this is that ADR,
-  for Linux; macOS cannot. "The child's exit status is the standard library's `Child::wait`" is
-  now `process::Child::wait`. "One `unsafe` `pre_exec`" is the macOS hook alone.
+- **ADR 0120, Decision.** "A `Spawn` gains `terminal: Option<&Pty>`, and a `pre_exec` hook
+  calls `setsid` and `TIOCSCTTY`" now holds on macOS only. Linux starts a terminal's child with
+  `posix_spawn`, as above. "The spawn runs on the terminal's thread, never the UI thread, since
+  `fork` of a large process takes milliseconds" still holds, now because the spawn reads the
+  file system to build `PATH`. "The child's exit status is the standard library's
+  `Child::wait`" is now `process::Child::wait`.
+- **ADR 0120, step 2 as built.** "The child-side hook (`pre_exec`, which makes the standard
+  library fork) …" now holds on macOS only, without the `close_range` branch. "The architecture
+  test allows silencing them in `process.rs` and in `process/pty/unix.rs` … only": it also
+  allows `process/unix.rs`, the start by hand. "As a spawn with a terminal forks the whole
+  process" holds on macOS only. "`posix_spawn` for terminals … would need an ADR": this is that
+  ADR, for Linux; macOS cannot. "One `unsafe` `pre_exec`" is the macOS hook alone.
 - **ADR 0133, step 2 as built.** "`Spawn::pass_fd` makes its end of the pair the child's
   descriptor 3 and marks every other one close-on-exec in the child (`process::pass_in`); the
   spawn forks … A free descriptor 3 is held here meanwhile": the end is placed by a file action
   of `posix_spawn`, nothing else reaches the child, nothing forks and nothing holds descriptor 3.
-  "Descriptors and children": the gate is removed, as above, and with it the exception to ADR
-  0042. Under "Not done", "starting the new instance with `posix_spawn` rather than a fork, with
+  "Descriptors and children": the gate is removed, as above. With it goes ADR 0133's change
+  to ADR 0042, the one `static` it let the architecture test allow: no file may declare one
+  now. Under "Not done", "starting the new instance with `posix_spawn` rather than a fork, with
   the terminals' starts" is done, but for terminals on macOS.
 
 ## Consequences
@@ -162,8 +179,8 @@ own, and marks what came close-on-exec right after. The architecture test lets n
   `spawn` unchanged. That makes two child types and two paths to keep in step.
 - **Linux: look up `addclosefrom_np` at run time, falling back to the fork.** It would keep
   older glibc and musl, at the cost of a second path that CI would barely test.
-- **Linux: reopen the slave through `/proc/self/fd`,** which stays on the same `devpts`
-  instance, instead of by name. Not now: oso already opens the slave by name.
+- **Linux: reopen the slave by the descriptor oso holds** (a handle-relative reopen) instead of
+  by name. Not now: oso already opens the slave by name.
 - **macOS terminals without a fork:** a trampoline, either oso's own binary in a hidden first
   mode or a small helper binary next to it, that runs `TIOCSCTTY` and then `exec`. It needs no
   fork, but costs an extra `exec` of a large binary, or a new binary to build, ship and trust,
