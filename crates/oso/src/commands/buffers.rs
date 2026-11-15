@@ -60,6 +60,14 @@ pub const COMMANDS: &[Command] = &[
         run: next_buffer,
         state: None,
     },
+    Command {
+        name: "quit-window",
+        doc: "Leave the buffer in this window, showing the one shown before it.\n\nThe buffer stays; `C-x b` goes back to it. A directory listing binds it to `q`.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: quit_window,
+        state: None,
+    },
 ];
 
 fn switch_to_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -138,6 +146,22 @@ fn next_buffer(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 fn walk(ctx: &mut Ctx<'_>, count: isize) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
     ctx.editor.walk_buffers(count).map_err(CommandError::new)?;
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn quit_window(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    let here = ctx.editor.window().buffer();
+    let Some(back) = ctx
+        .editor
+        .buffers_by_recency()
+        .into_iter()
+        .find(|id| *id != here)
+    else {
+        return Ok(());
+    };
+    ctx.editor.show(back);
     ctx.request_redraw();
     Ok(())
 }

@@ -290,3 +290,110 @@ fn makes_nothing_by_what_is_not_one_name() {
     }
     assert_eq!(fs::read_dir(scratch.0.join("a")).unwrap().count(), 0);
 }
+
+/// Every entry `list_with_metadata` gives, by name.
+fn listed(directory: &Directory) -> Vec<super::EntryMeta> {
+    let mut found = Vec::new();
+    directory
+        .list_with_metadata(&mut |entry| {
+            found.push(entry.unwrap());
+            true
+        })
+        .unwrap();
+    found.sort_by(|a, b| a.name.cmp(&b.name));
+    found
+}
+
+#[test]
+fn a_listing_says_what_each_entry_is_without_following_it() {
+    let scratch = Scratch::new("meta");
+    fs::write(scratch.0.join("file"), b"12345").unwrap();
+    fs::create_dir(scratch.0.join("dir")).unwrap();
+    symlink("file", scratch.0.join("link")).unwrap();
+    symlink("nowhere", scratch.0.join("broken")).unwrap();
+    fifo(&scratch.0.join("pipe"));
+    let directory = Directory::open(&scratch.0).unwrap();
+    let found = listed(&directory);
+    let names: Vec<_> = found
+        .iter()
+        .map(|entry| entry.name.to_str().unwrap())
+        .collect();
+    assert_eq!(names, ["broken", "dir", "file", "link", "pipe"]);
+    let kinds: Vec<_> = found.iter().map(|entry| entry.kind).collect();
+    assert_eq!(
+        kinds,
+        [
+            EntryKind::Link,
+            EntryKind::Directory,
+            EntryKind::File,
+            EntryKind::Link,
+            EntryKind::Other
+        ]
+    );
+    let file = &found[2];
+    let on_disk = fs::symlink_metadata(scratch.0.join("file")).unwrap();
+    assert_eq!(file.len, 5);
+    assert_eq!(file.mode, on_disk.mode());
+    assert_eq!(file.owner, Some((on_disk.uid(), on_disk.gid())));
+    assert!(!file.others);
+    assert_eq!(file.modified, on_disk.modified().ok());
+    // A link's own size is its target's length, as `lstat` says.
+    assert_eq!(found[3].len, 4);
+    assert_eq!(found[3].mode & 0o170_000, 0o120_000);
+    assert_eq!(found[4].mode & 0o170_000, 0o010_000);
+}
+
+#[test]
+fn a_listing_stops_when_asked() {
+    let scratch = Scratch::new("meta-stop");
+    for name in ["a", "b", "c"] {
+        fs::write(scratch.0.join(name), b"").unwrap();
+    }
+    let directory = Directory::open(&scratch.0).unwrap();
+    let mut seen = 0;
+    directory
+        .list_with_metadata(&mut |_| {
+            seen += 1;
+            false
+        })
+        .unwrap();
+    assert_eq!(seen, 1);
+    // It lists from the start each time.
+    assert_eq!(listed(&directory).len(), 3);
+}
+
+#[test]
+fn a_listing_reads_a_large_directory_whole() {
+    let scratch = Scratch::new("meta-many");
+    for index in 0..3000 {
+        fs::write(
+            scratch
+                .0
+                .join(format!("file-with-a-longish-name-{index:05}")),
+            b"",
+        )
+        .unwrap();
+    }
+    let directory = Directory::open(&scratch.0).unwrap();
+    let found = listed(&directory);
+    assert_eq!(found.len(), 3000);
+    assert!(found.iter().all(|entry| entry.kind == EntryKind::File));
+}
+
+#[test]
+fn a_target_kind_follows_the_link() {
+    let scratch = Scratch::new("target");
+    fs::create_dir(scratch.0.join("dir")).unwrap();
+    symlink("dir", scratch.0.join("to-dir")).unwrap();
+    symlink("nowhere", scratch.0.join("broken")).unwrap();
+    let directory = Directory::open(&scratch.0).unwrap();
+    assert_eq!(
+        directory.target_kind(name("to-dir")).unwrap(),
+        EntryKind::Directory
+    );
+    assert_eq!(
+        directory.target_kind(name("broken")).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    assert!(directory.target_kind(name("../dir")).is_err());
+}

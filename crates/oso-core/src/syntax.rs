@@ -82,4 +82,19 @@ pub enum Highlight {
     SessionQuiet,
     /// The name of the worktree whose space is in front.
     SessionFront,
+    /// A directory listing's header line, its path (ADR 0134). Only the host's listings give
+    /// these seven; no parser does.
+    DiredHeader,
+    /// A directory's name, or a link's that leads to one.
+    DiredDirectory,
+    /// A link's name.
+    DiredSymlink,
+    /// The name of a link that leads nowhere.
+    DiredBrokenSymlink,
+    /// The name of a file someone may run.
+    DiredExecutable,
+    /// The name of a pipe, a socket or a device.
+    DiredSpecial,
+    /// The mode, owner, size and time of a row, said quietly.
+    DiredDetails,
 }

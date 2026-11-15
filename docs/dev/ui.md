@@ -402,6 +402,28 @@ project and how long ago the baseline was taken. Only a trusted project runs git
 - In a restricted project the commands and the menu's heads say "Reviewing runs git, which this
   project is not trusted to run: M-x trust-project".
 
+## Directory listings
+
+`C-x d` reads a directory and `C-x C-j` lists the one of the buffer's file, with point on the
+file, in a listing buffer named after the directory, `crates/`, as Emacs's dired shows it
+([ADR 0134](adr/0134-a-directory-editor.md)). Listing runs nothing and opens no file.
+
+- The first line is the directory, the home directory as `~`. Each row is the mode as `ls -l`
+  writes it, the owner and group only when someone else owns a row, the size as `ls -h` (`-` for
+  a directory), the time as `ls` and the name, a link's target after `->`; directories first,
+  then by name or, with `s`, newest first. Backups ending in `~` are left out. `(` shows names
+  only. The modeline says `Dired by name` or `Dired by date`.
+- Names are in faces by kind: directories, links, broken links, files someone may run, and pipes,
+  sockets and devices; the details are dim. A line break in a name shows as `\n`.
+- A large directory shows what it has read every 50 ms, under `reading… N entries so far`; one
+  that cannot be read says why.
+- `n`/`p` (and `SPC`) go by rows to the name, `RET` (or `f`) opens a file or lists a directory in
+  the same buffer, `o` does it in another window, `^` lists the directory above with point on
+  the one left, `g` lists it again, `w` copies the names at the cursors (`0 w` their absolute
+  paths), `q` shows the buffer before. `C-x k` kills a listing, and `C-x b` goes back to one.
+- A shown listing is listed again within a second of its directory changing, each window's
+  point on the name it was on.
+
 ## Echo area
 
 - A single line at the bottom of the frame shows messages such as "Saved"
@@ -851,6 +873,7 @@ a switch made with its command stands until that setting changes in the file
   claude = "/usr/local/bin/claude"   # absolute; else the login shell finds it on PATH
   env = ["HTTPS_PROXY", "NODE_EXTRA_CA_CERTS"]
   steer_worktrees = true             # sessions oso starts are steered to C-x a w
+  pane_width = 44                    # *Sessions*' pane, 24 to 80 columns
   ```
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and
@@ -878,7 +901,13 @@ a switch made with its command stands until that setting changes in the file
   Dock bounce: repeated until oso is focused for needs input and failed, once otherwise. On
   Linux and Windows, the window's urgency hint. Several due within 2 s are one line ("3
   sessions need input"). A notification names the session and its state, never screen text.
-- `*Sessions*` lists every session in a side window, 32 columns wide at the frame's left, shown
+- `*Sessions*` lists every session in a side window at the frame's left, 44 columns wide unless
+  `[sessions] pane_width` (24 to 80) says otherwise, and narrower, down to 24, where the frame
+  has no room for that beside the tree's narrowest window; below 24 it takes no cells. `<` and
+  `>` in it make it 4 columns narrower or wider, times the count, within 24 to 80, for this
+  oso: never written to the configuration, and back to `pane_width` after an `oso dev`
+  restart; a changed `pane_width` replaces it. Under 36 columns a row drops its age before its
+  name is cut below 12 cells. It is shown
   by itself while oso has a session that is not archived. Each session takes one line: its
   state's mark (⚠ needs input, ✗ failed, ▶ working, ◆ ready for review, ● done, ○ idle,
   ■ stopped), its name, cut in the middle when long so that its end shows, its space and

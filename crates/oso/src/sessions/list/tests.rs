@@ -348,3 +348,55 @@ fn a_session_started_without_asking_says_so_after_its_place() {
     let mine = rows.iter().find(|row| row.contains("mine")).unwrap();
     assert!(!mine.contains("unasked"), "{rows:?}");
 }
+
+#[test]
+fn under_36_columns_the_age_gives_way_before_the_name_is_cut_below_12_cells() {
+    use super::shown_age;
+    // Wide enough: always the age.
+    assert_eq!(
+        shown_age("3m".into(), 36, 4, "a-long-session-name-here"),
+        "3m"
+    );
+    // At 30: `  ▶ ` and ` 3m` leave 23 cells, room for 12.
+    assert_eq!(
+        shown_age("3m".into(), 30, 4, "a-long-session-name-here"),
+        "3m"
+    );
+    // At 24 with a deep indent, 24 - 8 - 3 = 13 cells: still 12.
+    assert_eq!(
+        shown_age("3m".into(), 24, 8, "a-long-session-name-here"),
+        "3m"
+    );
+    // At 24 behind a nested session's indent and a long age, under 12: it goes.
+    assert_eq!(
+        shown_age("12h".into(), 24, 10, "a-long-session-name-here"),
+        ""
+    );
+    // A short name keeps the age while it fits whole.
+    assert_eq!(shown_age("12h".into(), 24, 10, "api"), "12h");
+}
+
+#[test]
+fn a_narrow_row_drops_its_age_and_keeps_its_name() {
+    let t = Instant::now();
+    let later = t + std::time::Duration::from_secs(120);
+    let session = entry(1, "chore-survey-review-lifecycle-hook", State::Idle, t);
+    let list = List::by_state();
+    let row = |width: usize| {
+        let text = list
+            .render(std::slice::from_ref(&session), width, later)
+            .text;
+        text.lines()
+            .find(|row| row.contains("chore"))
+            .unwrap()
+            .to_owned()
+    };
+    // 24 columns leave a top row's name 19 cells: its age stays.
+    assert!(row(24).ends_with(" 2m"), "{:?}", row(24));
+    // Narrower than the frame lets the pane be, to show the rule: the name keeps 12 cells.
+    let narrow = row(16);
+    assert!(!narrow.ends_with("2m"), "{narrow:?}");
+    assert!(cells(&narrow) <= 16, "{narrow:?}");
+    assert!(cells(narrow.trim_end()) - cells("○ ") >= 12, "{narrow:?}");
+    assert!(row(44).ends_with(" 2m"));
+}

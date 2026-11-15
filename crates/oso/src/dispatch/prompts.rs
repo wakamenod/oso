@@ -245,6 +245,7 @@ impl Dispatcher {
             Some(
                 spec @ (ArgSpec::Mark { .. }
                 | ArgSpec::File { .. }
+                | ArgSpec::Directory { .. }
                 | ArgSpec::ProjectFile { .. }
                 | ArgSpec::ProjectSearch { .. }),
             ) => {

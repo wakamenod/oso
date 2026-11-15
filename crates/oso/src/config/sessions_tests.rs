@@ -166,3 +166,32 @@ fn agents_start_without_asking_and_its_limit() {
     assert_eq!(messages(&loaded).len(), 1);
     assert!(!loaded.settings.sessions.agents_start_without_asking);
 }
+
+#[test]
+fn pane_width_takes_24_to_80_columns_and_says_any_other() {
+    let f = Fixture::new();
+    assert_eq!(f.parse("[sessions]\n").settings.sessions.pane_width, None);
+    for columns in [24, 44, 80] {
+        let loaded = f.parse(&format!("[sessions]\npane_width = {columns}\n"));
+        assert_eq!(messages(&loaded), Vec::<String>::new());
+        assert_eq!(loaded.settings.sessions.pane_width, Some(columns));
+    }
+    for (value, said) in [
+        ("23", "not 23"),
+        ("81", "not 81"),
+        ("-4", "not -4"),
+        ("99999999999999999999", "not 9"),
+        ("44.5", "not a number"),
+        ("\"44\"", "not a string"),
+    ] {
+        let loaded = f.parse(&format!("[sessions]\npane_width = {value}\n"));
+        let said_all = messages_of(&loaded);
+        assert!(
+            said_all
+                .contains("[sessions] pane_width takes a whole number of columns from 24 to 80"),
+            "{value}: {said_all}"
+        );
+        assert!(said_all.contains(said), "{value}: {said_all}");
+        assert_eq!(loaded.settings.sessions.pane_width, None, "{value}");
+    }
+}

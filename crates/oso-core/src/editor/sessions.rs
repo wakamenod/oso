@@ -129,6 +129,9 @@ pub enum SessionRequest {
     OnBuffer(BufferId, RowAction),
     /// Group `*Sessions*` by state, or by space.
     Regroup,
+    /// Make `*Sessions*`' pane this many columns wider, narrower if negative, for this oso
+    /// instance (`sessions-wider`, `sessions-narrower`, ADR 0131).
+    PaneWidth(isize),
     /// Render `*Sessions*` again, with its ages as of now.
     Refresh,
     /// Paste `parts` into a session as the person's bracketed paste, not submitted

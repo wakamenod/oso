@@ -45,13 +45,31 @@ fn it_takes_the_left_columns_and_a_divider_outside_the_tree() {
 }
 
 #[test]
+fn a_narrower_frame_narrows_it_down_to_24_columns() {
+    let (mut editor, list) = editor(50);
+    let first = selected(&editor);
+    let side = editor.show_side_window(list, 44);
+    let tree_least = 50 - 1 - editor.regions(side).unwrap().text.columns;
+    let regions = *editor.regions(side).unwrap();
+    assert!(regions.text.columns < 44, "{regions:?}");
+    assert!(regions.text.columns >= 24, "{regions:?}");
+    assert_eq!(editor.regions(first).unwrap().text.columns, tree_least);
+    // Wide enough again: as wide as asked.
+    editor.set_frame_size(FrameSize {
+        rows: 24,
+        columns: 120,
+    });
+    assert_eq!(editor.regions(side).unwrap().text.columns, 44);
+}
+
+#[test]
 fn a_narrow_frame_gives_it_no_cells_and_never_selects_it() {
-    let (mut editor, list) = editor(40);
+    let (mut editor, list) = editor(30);
     let first = selected(&editor);
     let side = editor.show_side_window(list, 32);
     let regions = *editor.regions(side).unwrap();
     assert_eq!(regions.text.columns + regions.modeline.columns, 0);
-    assert_eq!(editor.regions(first).unwrap().text.columns, 40);
+    assert_eq!(editor.regions(first).unwrap().text.columns, 30);
     editor.select_window(side);
     assert_eq!(selected(&editor), first);
 }

@@ -14,6 +14,7 @@ mod buffers;
 mod complete;
 mod config;
 mod cursors;
+mod dired;
 mod editorconfig;
 mod files;
 mod handover;

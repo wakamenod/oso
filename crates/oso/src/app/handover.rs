@@ -254,6 +254,10 @@ impl App {
     /// every other file has begun to load. Refused without changing anything if this
     /// instance has opened something already or has been edited, or if a text has not all
     /// arrived, and left clean if a file cannot begin to load or be judged.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one pass over the state's buffers, a few lines for each kind of entry: files, terminals and listings"
+    )]
     fn import_state(&mut self, mut state: handoff::State) -> Result<Vec<BufferId>, String> {
         let texts = self.handover.staging.take(state.export, &state.items);
         handoff::import_allowed(&self.editor)?;
@@ -295,6 +299,10 @@ impl App {
         let mut stand_for = Vec::new();
         for (entry, carried) in std::mem::take(&mut state.buffers).into_iter().zip(carried) {
             let (opened_by_agent, wraps) = (entry.opened_by_agent, entry.wraps);
+            if let Some(listing) = entry.listing {
+                named.push(self.listing_handed_over(listing, &mut added));
+                continue;
+            }
             // A carried terminal's window, once its buffer is made below.
             if let Some(terminal) = entry.terminal {
                 stand_for.push((named.len(), terminal));

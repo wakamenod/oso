@@ -217,6 +217,7 @@ fn many_requests_use_at_most_four_threads_and_all_are_answered() {
         .into_iter()
         .map(|answer| match answer {
             Answer::Listed { generation, .. } | Answer::Looked { generation, .. } => generation,
+            Answer::Dired(answer) => answer.generation,
         })
         .collect();
     generations.sort_unstable();
@@ -273,7 +274,7 @@ fn a_busy_directory_holds_up_only_its_own_requests() {
     queue.push(list_of("/fine", 3));
     assert_eq!(queue.next(), Some(list_of("/fine", 3)), "past the busy one");
     assert_eq!(queue.next(), None, "the busy directory's next waits");
-    queue.done(Path::new("/hung"));
+    queue.done((Path::new("/hung"), true));
     assert_eq!(
         queue.next(),
         Some(Request::Look(PathBuf::from("/hung"), Vec::new(), 2))

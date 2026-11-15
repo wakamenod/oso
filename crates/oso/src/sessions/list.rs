@@ -33,6 +33,26 @@ pub use crate::commands::agent_sessions::ROW_MARKS as MARKS;
 /// The fewest cells a place is shown in after a name; with less room it is left out.
 const PLACE_FROM: usize = 6;
 
+/// Below this width, a row's age gives way to its name (ADR 0131, Q7).
+const AGE_GIVES_WAY_BELOW: usize = 36;
+
+/// The cells of a name that keep its row's age, in a pane under [`AGE_GIVES_WAY_BELOW`].
+const NAME_KEPT: usize = 12;
+
+/// What a row `width` wide shows of `age` after `head` cells: all of it, unless the pane is
+/// under 36 columns and it would cut `name` below 12 cells, or below its length if shorter.
+pub(super) fn shown_age(age: String, width: usize, head: usize, name: &str) -> String {
+    if width >= AGE_GIVES_WAY_BELOW {
+        return age;
+    }
+    let room = width.saturating_sub(head + cells(&age) + 1);
+    if room >= cells(name).min(NAME_KEPT) {
+        age
+    } else {
+        String::new()
+    }
+}
+
 /// How far a nested session is indented under its parent.
 const NESTED: &str = "  ";
 
@@ -431,13 +451,13 @@ impl Row<'_> {
         let entry = self.entry;
         let line = Line::Session(entry.key);
         let external = matches!(entry.key, Key::External(_));
-        let age = age(entry.since, now);
         let spinning = !external && entry.state == State::Working && self.spin.is_some();
         let mark = match self.spin.filter(|_| spinning) {
             Some(frame) => SPINNER[frame],
             None => mark(entry.state),
         };
         let head = format!("{}{mark} ", self.indent);
+        let age = shown_age(age(entry.since, now), width, cells(&head), &entry.name);
         // The name first, then its place where there is room, then the age at the right edge.
         let room = width.saturating_sub(cells(&head) + cells(&age) + 1);
         let name = cut_middle(&entry.name, room);

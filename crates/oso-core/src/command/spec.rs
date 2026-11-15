@@ -118,6 +118,13 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
     },
+    /// A directory's path, read as [`ArgSpec::File`] reads a path, in a prompt that lists only
+    /// directories and links and gives a directory on `RET`, as `C-u` reads a project's
+    /// (ADR 0114, ADR 0134). The command reads the path with [`Ctx::answer`](super::Ctx::answer).
+    Directory {
+        prompt: &'static str,
+        history: &'static str,
+    },
     /// A file of the current buffer's project, read in a prompt that completes over the
     /// project's files as paths from its root, listed as they are walked, and kept in the
     /// history named `history`, one for each project (ADR 0114). Its label names the project,
