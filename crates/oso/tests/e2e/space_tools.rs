@@ -101,7 +101,10 @@ fn an_orchestrator_works_through_the_repositories_of_its_space() {
     outside["with_dirs"] = json!([flow.scratch.path().display().to_string()]);
     let (said, error) = bridge.tool("start_worktree_session", outside);
     assert!(
-        error && said.to_string().contains("no repository of your space"),
+        error
+            && said
+                .to_string()
+                .contains("neither a repository of your space"),
         "{said}"
     );
 
