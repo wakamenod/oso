@@ -460,7 +460,7 @@ mod handed {
 /// process reaches the child, even a descriptor made without close-on-exec.
 mod passed {
     use std::io::Read;
-    use std::os::fd::{AsFd, AsRawFd};
+    use std::os::fd::{AsFd, AsRawFd, FromRawFd};
 
     use super::sh;
     use crate::process::{PassedFd, Sink, Source, Spawn, spawn};
@@ -499,14 +499,17 @@ mod passed {
 
     #[test]
     fn a_descriptor_without_close_on_exec_does_not_reach_the_child() {
-        let (_reader, leak) = std::io::pipe().unwrap();
-        let fd = leak.as_raw_fd();
-        // SAFETY: `F_SETFD` sets the flags of `fd`, which `leak` keeps open, and touches no
-        // memory.
-        assert_eq!(unsafe { libc::fcntl(fd, libc::F_SETFD, 0) }, 0);
-        let script = format!(
-            "if {{ true >&{fd}; }} 2>/dev/null; then echo leaked; else echo closed; fi >&3"
-        );
+        let (_reader, pipe) = std::io::pipe().unwrap();
+        // A copy without close-on-exec, high: at 3 it would be the child's passed descriptor,
+        // and a shell keeps its own copies at 10 and up while it redirects, so the check asks
+        // whether the number is open without a redirection of its own.
+        // SAFETY: `F_DUPFD` copies a descriptor `pipe` keeps open to a free number from 200 up,
+        // without close-on-exec, and touches no memory.
+        let fd = unsafe { libc::fcntl(pipe.as_raw_fd(), libc::F_DUPFD, 200) };
+        assert!(fd >= 200, "{}", std::io::Error::last_os_error());
+        // SAFETY: `fd` was just made by the call above, and nothing else owns it.
+        let _leak = unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) };
+        let script = format!("if [ -e /dev/fd/{fd} ]; then echo leaked; else echo closed; fi >&3");
         assert_eq!(run(&script), "closed\n");
     }
 
