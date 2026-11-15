@@ -1539,6 +1539,7 @@ pub fn oso_core::editor::SendTo::fmt(&self, &mut core::fmt::Formatter<'_>) -> co
 impl core::marker::StructuralPartialEq for oso_core::editor::SendTo
 pub enum oso_core::editor::SessionRequest
 pub oso_core::editor::SessionRequest::Adopt(alloc::string::String)
+pub oso_core::editor::SessionRequest::AgentStarts(bool)
 pub oso_core::editor::SessionRequest::CancelBrief(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Explain(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::ExplainFile(std::path::PathBuf)

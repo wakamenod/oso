@@ -10,7 +10,7 @@ use oso_core::buffer::BufferId;
 use crate::app::App;
 use crate::dev::handoff::terminals::{SessionState, TerminalState};
 use crate::sessions::hosted::Run;
-use crate::sessions::identity::SessionId;
+use crate::sessions::identity::{Origin, SessionId};
 use crate::sessions::record::Remembered;
 
 impl App {
@@ -27,6 +27,7 @@ impl App {
             directory: session.directory.clone(),
             root: session.root.clone(),
             parent: session.parent.as_ref().map(|p| p.as_str().to_owned()),
+            origin: Some(session.origin.name().to_owned()),
             baseline: session.baseline.clone(),
             pinned: session.pinned,
             changed: session.changed,
@@ -62,6 +63,7 @@ impl App {
                     name: session.name.clone(),
                     directory: session.directory.clone(),
                     root: session.root.clone(),
+                    origin: Origin::read(session.origin.as_deref(), parent.is_some()),
                     parent,
                     pinned: session.pinned,
                     archived: false,

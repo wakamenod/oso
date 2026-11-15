@@ -327,14 +327,16 @@ impl Core {
         match self.sessions.get(&key).and_then(|s| s.evidence.as_ref()) {
             Some(evidence) => {
                 let verdict = evaluate(&self.rules, evidence);
-                Out::Explained(explain::text(
-                    "the session's screen",
-                    &self.rules,
-                    evidence,
-                    &verdict,
-                ))
+                let what = "the session's screen";
+                Out::Explained(
+                    Some(key),
+                    explain::text(what, &self.rules, evidence, &verdict),
+                )
             }
-            None => Out::Unexplained("Nothing of that session's screen was looked at yet".into()),
+            None => Out::Unexplained(
+                Some(key),
+                "Nothing of that session's screen was looked at yet".into(),
+            ),
         }
     }
 
@@ -344,9 +346,12 @@ impl Core {
                 let shown = path.display().to_string();
                 let evidence = Evidence::from_text(&text);
                 let verdict = evaluate(&self.rules, &evidence);
-                Out::Explained(explain::text(&shown, &self.rules, &evidence, &verdict))
+                Out::Explained(
+                    None,
+                    explain::text(&shown, &self.rules, &evidence, &verdict),
+                )
             }
-            Err(why) => Out::Unexplained(format!("Cannot explain that screen file: {why}")),
+            Err(why) => Out::Unexplained(None, format!("Cannot explain that screen file: {why}")),
         }
     }
 }

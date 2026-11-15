@@ -4,6 +4,8 @@
 //! free, and takes its answer from the window only, after a quiet moment, as every question an
 //! agent causes does. On the person's `y` the worktree is made and the session starts, as the
 //! person's act; on `n` or `C-g` the same call from the same session is refused for a minute.
+//! When the person's configuration lets the caller start sessions without asking, no question
+//! opens and `starting` runs the plan at once (ADR 0135).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -17,11 +19,11 @@ use oso_core::minibuffer::PromptId;
 use super::super::super::App;
 use super::super::hosting::Begin;
 use super::{Caller, Job, Pending, shown};
+use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
 use crate::sessions::tools::{self as rules, Branch, Tool};
 use crate::sessions::worktree::create::{Handover, Order};
 use crate::sessions::worktree::jobs::{Report, Trust};
-use crate::sessions::worktree::porcelain::printable;
 use crate::sessions::worktree::prepare::{Prepare, Prepared};
 
 /// The name of the buffer `?` shows.
@@ -40,21 +42,36 @@ pub(in crate::app) struct Question {
     label: String,
     /// What `?` shows.
     details: String,
-    plan: Plan,
+    pub(super) plan: Plan,
     asked: Option<PromptId>,
 }
 
 /// What the person's `y` runs.
 #[derive(Debug)]
-enum Plan {
+pub(super) enum Plan {
     Worktree {
         trust: Trust,
         order: Order,
         name: Option<String>,
         parent: SessionId,
+        origin: Origin,
     },
     Start(Begin),
 }
+
+impl Plan {
+    /// Starts what it runs as `origin` says: on the person's `y`, or without asking.
+    fn started_as(&mut self, now: Origin) {
+        match self {
+            Self::Worktree { origin, .. } => *origin = now,
+            Self::Start(begin) => begin.origin = now,
+        }
+    }
+}
+
+/// What a call's question says, what `?` shows, and what the echo area says of a start
+/// without asking.
+struct Words(String, String, String);
 
 /// A call whose job looks before the person is asked.
 #[derive(Debug)]
@@ -101,8 +118,11 @@ pub(in crate::app) struct StartCall {
 #[derive(Debug)]
 pub(in crate::app) struct Creating {
     pub(super) pending: Pending,
-    name: Option<String>,
-    parent: SessionId,
+    pub(super) name: Option<String>,
+    pub(super) parent: SessionId,
+    pub(super) origin: Origin,
+    /// What the echo area says once its session starts, for a start without asking.
+    pub(super) said: Option<String>,
 }
 
 impl App {
@@ -168,10 +188,14 @@ impl App {
             directory: Some(caller.directory.clone()),
             brief,
             parent: Some(caller.id.clone()),
+            origin: Origin::Answered,
             check_shared: false,
             trusted: self.caller_root(caller),
         };
-        self.queue_start_question(pending, caller, target, begin);
+        // Without asking only in a project an open buffer has trusted now: the trust the session
+        // began with may have been taken back since (ADR 0135, Q4).
+        let trusted = self.caller_trusted_now(caller);
+        self.queue_start_question(pending, caller, (target, trusted), begin);
     }
 
     /// Admits `pending`'s call on `target`, and starts the job that looks at what `prepare`
@@ -245,13 +269,10 @@ impl App {
                 }
                 let target = branch.clone();
                 let from = start.as_ref().map(|(_, name)| name.as_str());
-                let label = rules::worktree_question(
-                    &caller.name,
-                    &shown(&place),
-                    &branch,
-                    from.map_or(Branch::Existing, |from| Branch::New { from }),
-                    rules::lines(&brief),
-                );
+                let start = from.map_or(Branch::Existing, |from| Branch::New { from });
+                let (place, lines) = (shown(&place), rules::lines(&brief));
+                let label = rules::worktree_question(&caller.name, &place, &branch, start, lines);
+                let said = rules::worktree_started(&caller.name, &place, &branch, start, lines);
                 let details = details(&caller.name, &label, &brief);
                 // The job that makes it resolves the start again, as the question named it: the
                 // base given, else the caller's `HEAD`.
@@ -271,8 +292,10 @@ impl App {
                     order,
                     name,
                     parent: caller.id.clone(),
+                    origin: Origin::Answered,
                 };
-                self.queue_question(pending, &caller, target, (label, details), plan);
+                let words = Words(label, details, said);
+                self.ask_or_start(pending, &caller, (target, true), words, plan);
             }
             (Prepared::Directory(directory), Then::Start { brief, name }) => {
                 let begin = Begin {
@@ -280,10 +303,13 @@ impl App {
                     directory: Some(directory),
                     brief,
                     parent: Some(caller.id.clone()),
+                    origin: Origin::Answered,
                     check_shared: false,
                     trusted,
                 };
-                self.queue_start_question(pending, &caller, target, begin);
+                // Its job, as a worktree's, looked at trust against the record as it is now.
+                let now = (target, begin.trusted.is_some());
+                self.queue_start_question(pending, &caller, now, begin);
             }
             _ => pending.answer(Err("the call's check found something else".into())),
         }
@@ -293,7 +319,7 @@ impl App {
         &mut self,
         pending: Pending,
         caller: &Caller,
-        target: String,
+        (target, trusted): (String, bool),
         begin: Begin,
     ) {
         let mut begin = begin;
@@ -313,6 +339,7 @@ impl App {
             shared,
         );
         let details = details(&caller.name, &label, brief.unwrap_or("(no brief)"));
+        let said = rules::start_started(&caller.name, &shown(&directory), brief.map(rules::lines));
         // The new session's first prompt starts with oso's line, never with the agent's text,
         // so that no brief is read as a command of Claude Code's own (`/`, `!`, `#`).
         begin.brief = begin.brief.map(|brief| {
@@ -321,28 +348,44 @@ impl App {
                 rules::quoted(&caller.name)
             )
         });
-        self.queue_question(
+        let words = Words(label, details, said);
+        self.ask_or_start(
             pending,
             caller,
-            target,
-            (label, details),
+            (target, trusted),
+            words,
             Plan::Start(begin),
         );
     }
 
-    fn queue_question(
+    /// Starts `plan`, `caller`'s call on `target`, at once when the person's configuration lets
+    /// it start without asking (ADR 0135), else asks the person; `trusted` when the project it
+    /// starts in is trusted now.
+    fn ask_or_start(
         &mut self,
-        pending: Pending,
+        mut pending: Pending,
         caller: &Caller,
-        target: String,
-        (label, details): (String, String),
-        plan: Plan,
+        (target, trusted): (String, bool),
+        words: Words,
+        mut plan: Plan,
     ) {
-        if self.hosting.tools.question.is_some() {
-            return pending.answer(Err(
-                "a question an agent caused waits for the person; try again".into(),
-            ));
+        let Words(label, details, said) = words;
+        if self.starts_without_asking(caller, pending.tool, trusted) {
+            plan.started_as(Origin::Unasked);
+            pending.unasked = true;
+            self.agent_log(&format!("{}: starting without asking", pending.tool));
+            return self.carry_out(pending, plan, Some(said));
         }
+        if self.agent_question_waits() {
+            return pending.answer(Err(super::QUESTION_WAITS.into()));
+        }
+        // A `y` here lets the new session start sessions without asking in turn (Q3): the
+        // question says when the one asking began without the person.
+        let label = if caller.origin.by_the_person() {
+            label
+        } else {
+            format!("{label} It started without asking itself.")
+        };
         self.hosting.tools.question = Some(super::Question {
             pending,
             caller: caller.id.clone(),
@@ -396,7 +439,7 @@ impl App {
                 self.hide_question_details();
                 if self.editor.take_agent_allowed() {
                     self.agent_log(&format!("{}: allowed", question.pending.tool));
-                    self.carry_out(question);
+                    self.carry_out(question.pending, question.plan, None);
                 } else {
                     let tool = question.pending.tool;
                     self.hosting.tools.guard.refused(
@@ -425,95 +468,6 @@ impl App {
         self.hide_question_details();
         if let Some(id) = question.asked {
             self.orphan_agent_question(id);
-        }
-    }
-
-    /// The person's `y`: what the question named runs, as the person's act.
-    fn carry_out(&mut self, question: Question) {
-        let pending = question.pending;
-        match question.plan {
-            Plan::Worktree {
-                trust,
-                order,
-                name,
-                parent,
-            } => {
-                let token = self.worktree_token();
-                let branch = printable(&order.branch, 80);
-                // The record of trusted projects as it is at the person's `y`.
-                let trust = Trust {
-                    trusted: self.trusted_list(),
-                    ..trust
-                };
-                self.worktree_jobs().create(token, trust, order);
-                self.editor
-                    .message(format!("Making the worktree for {branch}…"));
-                self.hosting.tools.jobs.insert(
-                    token,
-                    Job::Creating(Creating {
-                        pending,
-                        name,
-                        parent,
-                    }),
-                );
-            }
-            Plan::Start(begin) => match self.begin_session(begin) {
-                Some(key) => {
-                    self.hosting.tools.starts.insert(key, pending);
-                }
-                None => pending.answer(Err("the session did not start".into())),
-            },
-        }
-    }
-
-    /// A worktree job made, or did not make, the worktree the person allowed.
-    pub(super) fn tool_creating(&mut self, token: u64, creating: Creating, report: Report) {
-        if matches!(report, Report::Created { .. }) {
-            // The echo area says how it went.
-            self.request_redraw();
-        }
-        match report {
-            Report::Step { .. } => {
-                self.hosting
-                    .tools
-                    .jobs
-                    .insert(token, Job::Creating(creating));
-            }
-            Report::Created {
-                result: Ok((created, trusted)),
-                ..
-            } => {
-                self.editor.message(format!(
-                    "Worktree {} made on {}",
-                    printable(&shown(&created.path), 200),
-                    printable(&created.branch, 80)
-                ));
-                let key = self.begin_session(Begin {
-                    name: creating.name,
-                    directory: Some(created.path),
-                    brief: Some(created.prompt),
-                    parent: Some(creating.parent),
-                    check_shared: false,
-                    trusted: Some(trusted),
-                });
-                match key {
-                    Some(key) => {
-                        self.hosting.tools.starts.insert(key, creating.pending);
-                    }
-                    None => creating.pending.answer(Err(
-                        "the worktree was made; its session did not start".into(),
-                    )),
-                }
-            }
-            Report::Created {
-                result: Err(why), ..
-            } => {
-                self.editor.message(why.clone());
-                creating.pending.answer(Err(why));
-            }
-            _ => creating
-                .pending
-                .answer(Err("making the worktree ended unexpectedly".into())),
         }
     }
 

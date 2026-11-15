@@ -108,11 +108,13 @@ pub enum Out {
     /// A session's screen shows a message from the session of this name that the last look
     /// did not (ADR 0121, step 5): cleaned and cut, the screen's text.
     Message(SessionKey, String),
-    /// The explanation of a saved screen, for `*Session explain*`.
-    Explained(String),
-    /// A saved screen could not be read, and why, for the echo area. It names no path: what
-    /// the person typed stays theirs, and the agent channel reads the echo area.
-    Unexplained(String),
+    /// The explanation of a saved screen, for `*Session explain*`: of session `key`'s last
+    /// look, or of a file for `None`.
+    Explained(Option<SessionKey>, String),
+    /// A saved screen could not be read, and why, for the echo area, of session `key`'s or a
+    /// file's. It names no path: what the person typed stays theirs, and the agent channel reads
+    /// the echo area.
+    Unexplained(Option<SessionKey>, String),
     /// The rules took longer than their budget on [`SLOW_AFTER`] looks in a row at a screen,
     /// this rule the longest: said once for each set of rules.
     Slow(String),

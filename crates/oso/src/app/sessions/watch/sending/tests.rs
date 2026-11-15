@@ -21,6 +21,7 @@ fn entry(key: Key, name: &str, state: State, archived: bool) -> Entry {
         recap: String::new(),
         pinned: false,
         archived,
+        unasked: false,
         parent: None,
         dir: None,
         repo: None,

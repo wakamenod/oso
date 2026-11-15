@@ -4,7 +4,8 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here touches the disk or
 //! starts a process: git runs on the worktree jobs, and a session starts on its start thread,
-//! only after the person's `y`.
+//! only after the person's `y`, or without asking as the person's configuration lets a session
+//! they started (ADR 0135).
 //!
 //! - A connection proven to be a hosted session's bridge calls as that session. Any other
 //!   connection may only read, within the selected window's project (the author's choice).
@@ -26,7 +27,9 @@ use serde_json::json;
 use super::super::App;
 use crate::channel::protocol::sessions::Call;
 use crate::channel::{Connection, Reply};
+use crate::config::AgentStarts;
 use crate::sessions::hosted::Hosted;
+use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
 use crate::sessions::tools::{self as rules, Asks, Guard, Tool};
 use crate::sessions::worker::SessionKey;
@@ -36,9 +39,13 @@ use crate::sessions::worktree::porcelain::printable;
 mod asks;
 mod reads;
 mod remove;
+mod starting;
 
 pub(in crate::app) use asks::Question;
 use reads::Listing;
+
+/// What a call that would ask is told while another agent's question waits.
+const QUESTION_WAITS: &str = "a question an agent caused waits for the person; try again";
 
 /// What the app keeps of the agents' session tools.
 #[derive(Debug, Default)]
@@ -56,6 +63,11 @@ pub(in crate::app) struct Tools {
     details: Option<BufferId>,
     /// The one agent listing that runs, by its job's token, and what stops it.
     listing: Option<(u64, Arc<AtomicBool>)>,
+    /// Whether sessions the person started may start sessions without asking, and how many
+    /// each, as `config.toml` said at oso's start (ADR 0135).
+    pub(in crate::app) agent_starts: AgentStarts,
+    /// `agent-starts-ask` since: every start asks, until `agent-starts-allow` or oso restarts.
+    pub(in crate::app) agent_starts_held: bool,
 }
 
 /// A call whose reply waits.
@@ -64,6 +76,21 @@ pub(in crate::app) struct Pending {
     connection: Connection,
     reply: Sender<Reply>,
     tool: &'static str,
+    /// It starts without asking (ADR 0135), which its reply says.
+    unasked: bool,
+}
+
+impl Tools {
+    /// How many worktrees are being made for sessions `parent` starts without asking.
+    fn unasked_worktrees_being_made(&self, parent: &SessionId) -> usize {
+        self.jobs
+            .values()
+            .filter(|job| {
+                matches!(job, Job::Creating(creating)
+                    if creating.origin == Origin::Unasked && &creating.parent == parent)
+            })
+            .count()
+    }
 }
 
 impl Pending {
@@ -110,6 +137,8 @@ pub(in crate::app) struct Caller {
     directory: PathBuf,
     root: Option<PathBuf>,
     runs: bool,
+    /// How it started, for whether it may start sessions without asking (ADR 0135).
+    origin: Origin,
 }
 
 impl Caller {
@@ -121,6 +150,7 @@ impl Caller {
             directory: session.directory.clone(),
             root: session.root.clone(),
             runs: session.runs(),
+            origin: session.origin,
         }
     }
 }
@@ -143,6 +173,7 @@ impl App {
             connection,
             reply,
             tool: tool.name,
+            unasked: false,
         };
         if caller.is_none() && !tool.outside {
             return pending.answer(Err(format!(
@@ -210,10 +241,14 @@ impl App {
 
     /// Counts a call of `tool` on `target` from `caller` toward the loop guard, or says why
     /// it is refused: past the guard, within a minute of the person's `n` to the same call, or,
-    /// for a tool that asks, while another agent's question waits.
+    /// for a tool that asks, while another agent's question waits. A start that may go ahead
+    /// without asking is not held back by another's question here; it is if it asks after all.
     fn admit_tool(&mut self, tool: &Tool, caller: &Caller, target: &str) -> Result<(), String> {
-        if tool.asks == Asks::Each && (self.hosting.tools.question.is_some() || self.agent_asks()) {
-            return Err("a question an agent caused waits for the person; try again".into());
+        let may_go_unasked = tool.asks == Asks::UnlessAllowed
+            && self.agent_starts_allowed()
+            && caller.origin.by_the_person();
+        if tool.asks != Asks::No && !may_go_unasked && self.agent_question_waits() {
+            return Err(QUESTION_WAITS.into());
         }
         if tool.asks == Asks::No
             && let Some(why) = self.agent_waits()
@@ -243,7 +278,16 @@ impl App {
     /// looked up now so that the person's later trust or distrust counts, else the one the
     /// session started with (a worktree just made, which no buffer opened).
     fn caller_root(&self, caller: &Caller) -> Option<crate::review::TrustedRoot> {
-        let open = caller.root.as_deref().and_then(|root| {
+        match self.open_caller_root(caller) {
+            Some(now) => now,
+            None => self.hosting.trusts.get(&caller.key).cloned(),
+        }
+    }
+
+    /// The trust of the caller's project as an open buffer of it has it now: `None` when no
+    /// buffer has it open, `Some(None)` when it is not trusted.
+    fn open_caller_root(&self, caller: &Caller) -> Option<Option<crate::review::TrustedRoot>> {
+        caller.root.as_deref().and_then(|root| {
             let id = self
                 .editor
                 .buffers()
@@ -251,11 +295,16 @@ impl App {
                 .find(|&id| self.editor.project(id).is_some_and(|p| p.root() == root))?;
             // An open project that is not trusted is not trusted, whatever the session began with.
             Some(crate::review::TrustedRoot::of(&self.editor, id))
-        });
-        match open {
-            Some(now) => now,
-            None => self.hosting.trusts.get(&caller.key).cloned(),
-        }
+        })
+    }
+
+    /// Whether the caller's project is trusted now, by an open buffer of it, the session's own
+    /// among them: never by the trust the session began with, which the person may have taken
+    /// back since (ADR 0135).
+    fn caller_trusted_now(&self, caller: &Caller) -> bool {
+        self.open_caller_root(caller)
+            .flatten()
+            .is_some_and(|root| !root.revoked())
     }
 
     /// The person's input reached the terminal of the session `buffer` holds: its agent may
@@ -323,6 +372,37 @@ impl App {
         None
     }
 
+    /// Whether another agent's question waits for the person, or one of this tool's.
+    fn agent_question_waits(&self) -> bool {
+        self.hosting.tools.question.is_some() || self.agent_asks()
+    }
+
+    /// Whether the configuration and the commands let sessions the person started start
+    /// sessions without asking now (ADR 0135).
+    fn agent_starts_allowed(&self) -> bool {
+        let tools = &self.hosting.tools;
+        tools.agent_starts.on && !tools.agent_starts_held
+    }
+
+    /// `agent-starts-ask` when `held`, `agent-starts-allow` when not: whether sessions the person
+    /// started may start sessions without asking, as the configuration said at oso's start
+    /// (ADR 0135).
+    pub(in crate::app) fn hold_agent_starts(&mut self, held: bool) {
+        let tools = &mut self.hosting.tools;
+        tools.agent_starts_held = held;
+        let said = match (held, tools.agent_starts.on) {
+            (true, _) => "Sessions started by agents ask you first, until oso restarts",
+            (false, true) => {
+                "Sessions started by agents start without asking again, as the configuration says"
+            }
+            (false, false) => {
+                "Sessions started by agents ask you first: the configuration does not set \
+                 [sessions] agents_start_without_asking"
+            }
+        };
+        self.editor.message(said);
+    }
+
     /// The session `key` that a tool's call asked for started, or did not.
     pub(in crate::app) fn session_tool_started(
         &mut self,
@@ -334,9 +414,16 @@ impl App {
         };
         let session = self.hosting.table.get(key);
         let reply = match (started, session) {
+            (Ok(()), Some(session)) if pending.unasked => Ok(json!({
+                "session": { "id": session.id.as_str(), "name": session.name },
+                "directory": session.directory.display().to_string(),
+                "asked": false,
+                "note": "started without asking, as the person's config.toml allows",
+            })),
             (Ok(()), Some(session)) => Ok(json!({
                 "session": { "id": session.id.as_str(), "name": session.name },
                 "directory": session.directory.display().to_string(),
+                "asked": true,
             })),
             (Ok(()), None) => Err("the session started, and ended at once".into()),
             (Err(why), _) => Err(format!("the session did not start: {why}")),

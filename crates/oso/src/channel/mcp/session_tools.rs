@@ -74,7 +74,7 @@ pub(super) fn acting() -> Vec<Value> {
         ),
         tool(
             "start_worktree_session",
-            "Start a new agent session in a new worktree of your session's repository, on a branch, with a brief as its first prompt. The person is asked first; the call returns once they answer and the session starts. The brief gets the hand-off facts and a line saying to report back to you. Use this, never EnterWorktree or git worktree add.",
+            "Start a new agent session in a new worktree of your session's repository, on a branch, with a brief as its first prompt. The person is asked first, unless their configuration lets your session start sessions without asking; the call returns once the session starts, and its `asked` says which happened. The brief gets the hand-off facts and a line saying to report back to you. Use this, never EnterWorktree or git worktree add.",
             json!({
                 "branch": { "type": "string", "description": "The branch: an existing local one, or a new one." },
                 "base": { "type": "string", "description": "Where a new branch starts; the commit your session is on if not given." },
@@ -87,7 +87,7 @@ pub(super) fn acting() -> Vec<Value> {
         ),
         tool(
             "session_start",
-            "Start a new agent session in your session's repository, or one of its linked worktrees, with an optional brief as its first prompt. The person is asked first; the call returns once they answer and the session starts.",
+            "Start a new agent session in your session's repository, or one of its linked worktrees, with an optional brief as its first prompt. The person is asked first, unless their configuration lets your session start sessions without asking; the call returns once the session starts, and its `asked` says which happened.",
             json!({
                 "directory": { "type": "string", "description": "An absolute path: the repository's root or a linked worktree's; your session's if not given." },
                 "name": { "type": "string" },

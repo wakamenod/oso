@@ -231,6 +231,8 @@ mod tests {
         // Who may drive the editor.
         "agent-channel-allow",
         "agent-channel-start",
+        "agent-starts-ask",
+        "agent-starts-allow",
         "agent-question-details",
         "agent-channel-stop",
         // Answering a prompt, choosing what it answers, and running a command by name
