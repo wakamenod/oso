@@ -76,7 +76,6 @@ impl Configuration {
     }
 
     /// `[spaces] root` in force, as written (ADR 0136): where a new space's directory goes.
-    #[expect(dead_code, reason = "space-new makes directories under it in step 1b")]
     pub(super) fn spaces_root(&self) -> &str {
         self.in_force.spaces.root()
     }

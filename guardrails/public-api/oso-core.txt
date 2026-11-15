@@ -1607,6 +1607,7 @@ pub oso_core::editor::SessionRequest::Send::to: oso_core::editor::SendTo
 pub oso_core::editor::SessionRequest::SendBrief(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::ShowList
 pub oso_core::editor::SessionRequest::Space(alloc::string::String)
+pub oso_core::editor::SessionRequest::Spaces(oso_core::editor::SpaceRequest)
 pub oso_core::editor::SessionRequest::Start
 pub oso_core::editor::SessionRequest::Start::directory: core::option::Option<std::path::PathBuf>
 pub oso_core::editor::SessionRequest::Start::name: core::option::Option<alloc::string::String>
@@ -1639,6 +1640,23 @@ impl core::fmt::Debug for oso_core::editor::Shift
 pub fn oso_core::editor::Shift::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::Shift
 impl core::marker::StructuralPartialEq for oso_core::editor::Shift
+pub enum oso_core::editor::SpaceRequest
+pub oso_core::editor::SpaceRequest::AddRepo(alloc::string::String)
+pub oso_core::editor::SpaceRequest::Close
+pub oso_core::editor::SpaceRequest::Directory
+pub oso_core::editor::SpaceRequest::Instructions
+pub oso_core::editor::SpaceRequest::New(alloc::string::String)
+pub oso_core::editor::SpaceRequest::RemoveRepo(alloc::string::String)
+pub oso_core::editor::SpaceRequest::Rename(alloc::string::String)
+pub oso_core::editor::SpaceRequest::Reopen(alloc::string::String)
+impl core::clone::Clone for oso_core::editor::SpaceRequest
+pub fn oso_core::editor::SpaceRequest::clone(&self) -> oso_core::editor::SpaceRequest
+impl core::cmp::Eq for oso_core::editor::SpaceRequest
+impl core::cmp::PartialEq for oso_core::editor::SpaceRequest
+pub fn oso_core::editor::SpaceRequest::eq(&self, &oso_core::editor::SpaceRequest) -> bool
+impl core::fmt::Debug for oso_core::editor::SpaceRequest
+pub fn oso_core::editor::SpaceRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::SpaceRequest
 pub enum oso_core::editor::TerminalRequest
 pub oso_core::editor::TerminalRequest::Keys(alloc::vec::Vec<oso_core::key::KeyPress>)
 pub oso_core::editor::TerminalRequest::Open

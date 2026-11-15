@@ -49,6 +49,8 @@ pub(in crate::app) struct Hosting {
     fork_offered: Vec<(PromptId, ForkFrom)>,
     /// What `session-adopt` lists, and the adoptions being started.
     pub(in crate::app) adopting: Adopting,
+    /// What the space commands wait for (ADR 0136).
+    pub(in crate::app) spaces: super::spaces::SpaceWork,
     /// The internal `*Session explain*` buffer, once there is one. Kept by its id, never found
     /// by its name, which anyone may give a buffer of their own.
     pub(in crate::app) explain: Option<BufferId>,
@@ -134,6 +136,7 @@ impl Hosting {
             unsaved: false,
             fork_offered: Vec::new(),
             adopting: Adopting::default(),
+            spaces: super::spaces::SpaceWork::default(),
             explain: None,
             parents: HashMap::new(),
             origins: HashMap::new(),
@@ -231,11 +234,11 @@ impl App {
             });
         }
         if let Some((spaces, known)) = self.watch.spaces_mut().take_unsaved() {
-            worker.send(Job::RememberSpaces {
+            worker.send(Job::Space(crate::sessions::worker::SpaceJob::Remember {
                 directory: directory.clone(),
                 spaces,
                 known,
-            });
+            }));
         }
     }
 

@@ -76,7 +76,7 @@ fn the_default_keys_open_their_built_in_menus() {
     assert_eq!(
         bound.len(),
         MENU_KEYS.len(),
-        "only the toggles and the review menu have a key"
+        "only the toggles, the review and the space menus have a key"
     );
 }
 

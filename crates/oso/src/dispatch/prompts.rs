@@ -277,6 +277,7 @@ impl Dispatcher {
                 let items = editor.listed_candidates(list);
                 let style = CompletionStyle {
                     given_order: crate::commands::agent_sessions::listed_in_given_order(list),
+                    takes_input: crate::commands::agent_sessions::listed_takes_input(list),
                     ..CompletionStyle::default()
                 };
                 editor.open_completion_as(prompt, history, items, style)
