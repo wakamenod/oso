@@ -25,12 +25,11 @@
 use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::Child;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use oso_platform::control::ControlDir;
-use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
+use oso_platform::process::{Child, Executable, Sink, Source, Spawn, spawn};
 use serde_json::{Value, json};
 
 use super::build_errors;

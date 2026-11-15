@@ -12,7 +12,6 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 #[cfg(unix)]
-use std::process::Child;
 #[cfg(unix)]
 use std::time::Duration;
 
@@ -130,13 +129,13 @@ impl Start {
 #[cfg(unix)]
 pub struct NewInstance {
     pair: Pair,
-    child: Child,
+    child: oso_platform::process::Child,
 }
 
 #[cfg(unix)]
 impl NewInstance {
     /// Checks the binary, makes the pair and starts the new instance with its end as its
-    /// descriptor 3. Forks this process, so never on the UI thread.
+    /// descriptor 3. Reads the file system, so never on the UI thread.
     pub fn start(start: &Start) -> Result<Self, String> {
         use std::os::fd::AsFd;
 

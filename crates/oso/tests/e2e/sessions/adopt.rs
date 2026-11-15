@@ -99,7 +99,7 @@ fn run_directory(flow: &Flow, id: &str) -> String {
 
 /// A process that stands for `claude` running conversation `id` in another program, in `cwd`,
 /// named `name`, with its registry entry.
-fn run_elsewhere(flow: &Flow, id: &str, cwd: &Path, name: &str) -> std::process::Child {
+fn run_elsewhere(flow: &Flow, id: &str, cwd: &Path, name: &str) -> oso_platform::process::Child {
     let other = spawn(&Spawn {
         executable: &Executable::absolute("/bin/sleep").unwrap(),
         args: &["60".into()],

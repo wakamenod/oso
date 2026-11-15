@@ -4,7 +4,6 @@
 //! Must not depend on: `control` or `text`.
 
 use std::io;
-use std::process::Command;
 use std::time::Duration;
 
 use super::{Ready, Size};
@@ -81,6 +80,8 @@ impl Waker {
     }
 }
 
-pub(super) fn run_in(slave: &Slave, _command: &mut Command) -> io::Result<()> {
-    match slave.0 {}
+impl Slave {
+    pub(super) fn never(&self) -> ! {
+        match self.0 {}
+    }
 }

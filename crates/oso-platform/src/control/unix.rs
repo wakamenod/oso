@@ -441,13 +441,11 @@ impl ControlStream {
 
     /// A connected pair that no socket file names, both ends close-on-exec: what
     /// `oso-restart` shares with the instance it starts, which inherits one end as
-    /// [`INHERITED_FD`] (ADR 0133), and what tests connect. Made while no child of this
-    /// process can start, as macOS marks the ends close-on-exec only a moment later.
+    /// [`INHERITED_FD`] (ADR 0133), and what tests connect. macOS marks the ends close-on-exec
+    /// only a moment later, which no child of oso's sees: each gets only the descriptors it is
+    /// given (ADR 0137).
     pub fn pair() -> io::Result<(Self, Self)> {
-        let (a, b) = {
-            let _alone = crate::privacy::inheritance::making();
-            UnixStream::pair()?
-        };
+        let (a, b) = UnixStream::pair()?;
         Ok((Self::verified(a)?, Self::verified(b)?))
     }
 
