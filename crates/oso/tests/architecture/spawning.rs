@@ -8,12 +8,13 @@
 
 use crate::lexer::{Token, tokenize};
 
-/// The files that may silence the ban: the process module, its terminals'
-/// child-side hook (ADR 0120), the benchmark harness (ADR 0046), and oso-term's
-/// build script, which runs Zig (ADR 0120); the last two never ship. Adding one
-/// needs an ADR.
-pub const ALLOWED: [&str; 4] = [
+/// The files that may silence the ban: the process module, its start by hand on
+/// Unix (ADR 0137), its terminals' child-side hook on macOS (ADR 0120, ADR 0137),
+/// the benchmark harness (ADR 0046), and oso-term's build script, which runs Zig
+/// (ADR 0120); the last two never ship. Adding one needs an ADR.
+pub const ALLOWED: [&str; 5] = [
     "crates/oso-platform/src/process.rs",
+    "crates/oso-platform/src/process/unix.rs",
     "crates/oso-platform/src/process/pty/unix.rs",
     "crates/oso/examples/perf/process.rs",
     "crates/oso-term/build.rs",

@@ -11,9 +11,8 @@
 //! - A read takes at most [`ControlStream::MAX_FDS`] in all. One that would bring more, or
 //!   whose control data the system cut short, closes every descriptor it brought and fails.
 //! - Each descriptor received is close-on-exec: at once on Linux (`MSG_CMSG_CLOEXEC`), right
-//!   after the read on macOS, which has no such flag. There the read waits for the bytes
-//!   first, then reads and marks them inside `privacy::inheritance`'s gate, so no child
-//!   started meanwhile through `process` can inherit one.
+//!   after the read on macOS, which has no such flag. No child of oso's sees one meanwhile, as
+//!   each gets only the descriptors it is given (ADR 0137).
 
 use std::io::{self, Write};
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
@@ -33,12 +32,11 @@ const SEND_FLAGS: libc::c_int = libc::MSG_NOSIGNAL;
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 const SEND_FLAGS: libc::c_int = 0;
 
-/// Flags for `recvmsg`: descriptors close-on-exec from the start where the system can, and
-/// elsewhere no wait, as the read happens only once bytes are there.
+/// Flags for `recvmsg`: descriptors close-on-exec from the start where the system can.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 const RECEIVE_FLAGS: libc::c_int = libc::MSG_CMSG_CLOEXEC;
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
-const RECEIVE_FLAGS: libc::c_int = libc::MSG_DONTWAIT;
+const RECEIVE_FLAGS: libc::c_int = 0;
 
 impl ControlStream {
     /// The most descriptors one message carries, and one read takes.
@@ -136,32 +134,20 @@ impl ControlStream {
         msg.msg_control = control.as_mut_ptr().cast();
         msg.msg_controllen = size_of_val(&control) as _;
         let (read, received) = loop {
-            // Where the read cannot make them close-on-exec, it waits for the bytes first, then
-            // reads and marks what came while no child of this process can start.
-            #[cfg(not(any(target_os = "linux", target_os = "android")))]
-            self.wait_readable()?;
-            #[cfg(not(any(target_os = "linux", target_os = "android")))]
-            let alone = crate::privacy::inheritance::making();
             // SAFETY: `msg` points at `iov`, over `buf`, and at `control`, which outlive the
             // call and hold the lengths the header says; the socket is kept open by `self`.
             let n = unsafe { libc::recvmsg(self.0.as_raw_fd(), &raw mut msg, RECEIVE_FLAGS) };
             if let Ok(n) = usize::try_from(n) {
                 let received = received(&msg);
                 #[cfg(not(any(target_os = "linux", target_os = "android")))]
-                {
-                    for fd in &received {
-                        close_on_exec(fd)?;
-                    }
-                    drop(alone);
+                for fd in &received {
+                    close_on_exec(fd)?;
                 }
                 break (n, received);
             }
             let error = io::Error::last_os_error();
             match error.kind() {
                 io::ErrorKind::Interrupted => {}
-                // Another handle read the bytes first: wait again.
-                #[cfg(not(any(target_os = "linux", target_os = "android")))]
-                io::ErrorKind::WouldBlock => {}
                 _ => return Err(error),
             }
         };
@@ -211,49 +197,6 @@ fn received(msg: &libc::msghdr) -> Vec<OwnedFd> {
         header = unsafe { libc::CMSG_NXTHDR(msg, header) };
     }
     fds
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
-impl ControlStream {
-    /// Waits until a read would not wait, for at most the read timeout set on the
-    /// connection, as a read would. Fails with `WouldBlock` when that time has gone by.
-    fn wait_readable(&self) -> io::Result<()> {
-        let deadline = self
-            .0
-            .read_timeout()?
-            .map(|limit| std::time::Instant::now() + limit);
-        let mut fds = [libc::pollfd {
-            fd: self.0.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        }];
-        loop {
-            // Whole milliseconds, rounded up, so that the wait never ends before the deadline.
-            let timeout = match deadline {
-                None => -1,
-                Some(deadline) => {
-                    let left = deadline.saturating_duration_since(std::time::Instant::now());
-                    if left.is_zero() {
-                        return Err(io::Error::from(io::ErrorKind::WouldBlock));
-                    }
-                    let millis = left.as_micros().div_ceil(1000);
-                    libc::c_int::try_from(millis).unwrap_or(libc::c_int::MAX)
-                }
-            };
-            // SAFETY: `fds` is one `pollfd` that outlives the call, and its length is one; the
-            // socket is kept open by `self`.
-            let ready = unsafe { libc::poll(fds.as_mut_ptr(), 1, timeout) };
-            if ready > 0 {
-                return Ok(());
-            }
-            if ready < 0 {
-                let error = io::Error::last_os_error();
-                if error.kind() != io::ErrorKind::Interrupted {
-                    return Err(error);
-                }
-            }
-        }
-    }
 }
 
 /// The length of the control data `recvmsg` returned in `msg`: a `size_t` on Linux, a

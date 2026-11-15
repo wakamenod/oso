@@ -1,6 +1,6 @@
 # 0133. Keeping terminals and sessions over an update of the installed oso
 
-- Status: Accepted
+- Status: Accepted, amended by 0137
 - Date: 2026-11-15
 
 ## Context
@@ -313,8 +313,46 @@ each), the new public items and the guarded edits through the coordinator.
   an exit refused once the new one holds everything, leave the terminal here, reading again
   (a dev build's `OSO_DEV_RESTART_FAIL` stops the restart at those points).
 - **Not done:** the macOS team identity, and access lists on the binary's way, in step 3; the
-  notice on focus (step 4); quitting when idle (step 5); the snapshot's return (ADR 0120, step
+  notice on focus (step 4, done; see below); quitting when idle (step 5); the snapshot's return (ADR 0120, step
   11's library patches); starting the new instance with `posix_spawn` rather than a fork, with
   the terminals' starts. `oso-restart` run in an instance `oso dev` supervises starts a child the
   supervisor does not know of; `oso dev`'s own restart is the one to use there.
 
+## Step 4, as built
+
+Built on 2026-11-15. The author approved the plan and its questions through the coordinator,
+with two changes: the notice is given in every build, `oso dev`'s included, and it says no more
+than was checked (below).
+
+- **The identity.** `main` takes the identity of the binary's path next to the path itself,
+  before the event loop (the path `oso-restart` starts): its device and inode, modification
+  time and length. A thread of its own, `oso-binary` (`carry::notice`), started with the app,
+  tells later files at that path from it. An install that renames a new file over the old one,
+  or writes the old one again, changes it.
+- **On focus.** Each time the window gains focus, the UI thread asks the thread for a look and
+  waits for nothing; a look asked for while one waits is that one. The thread stats the path
+  and, for an identity it has not checked yet, runs `oso-restart`'s own checks on the file
+  (`binary::check`). It reports a file that is not the one this instance started from.
+- **Said once.** The echo area says "The file oso started from has changed: M-x oso-restart
+  would start it, with terminals and sessions", or that `oso-restart` would refuse it and why,
+  once per identity. Until step 3 checks the signature, nothing tells a new oso from another
+  file the person's own processes put there, so it does not say that a new oso is installed;
+  step 3 may. Nothing is said while a restart is under way, or in a new instance until it has
+  taken over: a later focus says it. A path with no file says nothing. oso never restarts by
+  itself (Q2).
+- **The notice does not bind the restart.** `oso-restart` checks and starts the file at the
+  path when it runs, which may have changed again since it was said.
+- **Where it runs.** On Unix, where `oso-restart` runs. Under `oso dev` the binary changes with
+  each build, and the notice says so too, though `oso dev`'s own restart is the one to use
+  there.
+- **The limit (for step 3).** The path is the one resolved at start (Q3). An install that puts
+  the new binary in another directory and moves a link to it, as a package manager that keeps
+  one directory per version does, leaves the old file in place: neither the notice nor
+  `oso-restart` sees the new binary.
+- **Driving it.** The dev socket's `window-focus` is the window's focus event with all that
+  follows it, the binary's look among it; `focus` still sets only whether the window has the
+  keys.
+- **Tests.** The thread finds a file renamed over the binary on each look, with why
+  `oso-restart` would refuse one it cannot run or others can change, says nothing of the file
+  at start or of a missing one, and ends with its looker; the notice says each identity once
+  (`carry::notice`).

@@ -1,4 +1,5 @@
-//! Pseudo-terminals on macOS and Linux, over `libc`.
+//! Pseudo-terminals on macOS and Linux, over `libc`, and on macOS the child-side hook that a
+//! terminal's forked child runs (`run_in`, ADR 0120, ADR 0137).
 //!
 //! Must not depend on: `control` or `text`.
 //!
@@ -13,7 +14,9 @@ use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::OpenOptionsExt;
+#[cfg(target_os = "macos")]
 use std::os::unix::process::CommandExt;
+#[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,7 +28,26 @@ use super::{Ready, Size};
 pub(super) struct Master(pub(super) File);
 
 #[derive(Debug)]
-pub(super) struct Slave(pub(super) OwnedFd);
+pub(super) struct Slave {
+    /// Held open on Linux too, where the child opens the slave again by its name, so that the
+    /// terminal does not end before it has.
+    #[cfg_attr(
+        all(target_os = "linux", not(test)),
+        expect(
+            dead_code,
+            reason = "held open, not read, where the child opens the name"
+        )
+    )]
+    pub(super) fd: OwnedFd,
+    /// Its path, which the child opens again on Linux to make it its controlling terminal.
+    #[cfg(target_os = "linux")]
+    pub(super) name: std::ffi::CString,
+    /// A close-on-exec copy of the master, which alone tells another process the slave's
+    /// session on Linux: there `TIOCGSID` on a slave fails unless it is the caller's own
+    /// controlling terminal.
+    #[cfg(target_os = "linux")]
+    master: OwnedFd,
+}
 
 #[derive(Debug, Clone)]
 pub(super) struct Waker(pub(super) Arc<Wake>);
@@ -48,8 +70,6 @@ pub(super) struct Wake {
 /// `TIOCSCTTY`, as `ioctl` takes it: macOS gives it as a narrower type.
 #[cfg(target_os = "macos")]
 const SET_CONTROLLING_TERMINAL: libc::c_ulong = libc::TIOCSCTTY as libc::c_ulong;
-#[cfg(not(target_os = "macos"))]
-const SET_CONTROLLING_TERMINAL: libc::Ioctl = libc::TIOCSCTTY;
 
 /// `TIOCSIG`, as `ioctl` takes it. Only macOS sends `SIGHUP` with it: Linux's
 /// accepts only `SIGINT`, `SIGQUIT` and `SIGTSTP`.
@@ -64,24 +84,8 @@ unsafe extern "C" {
     fn notify_is_valid_token(token: libc::c_int) -> bool;
 }
 
-/// Signals a child gets back at their default action, whatever oso was started
-/// with: `nohup` and a shell's background jobs ignore some, and a terminal's
-/// shell must still end on a hang-up and stop on Ctrl-Z.
-const DEFAULT_SIGNALS: [libc::c_int; 10] = [
-    libc::SIGHUP,
-    libc::SIGINT,
-    libc::SIGQUIT,
-    libc::SIGTERM,
-    libc::SIGTSTP,
-    libc::SIGTTIN,
-    libc::SIGTTOU,
-    libc::SIGCHLD,
-    libc::SIGALRM,
-    libc::SIGPIPE,
-];
-
-/// The most descriptors the child marks close-on-exec one by one, where the
-/// system cannot mark them all at once.
+/// The most descriptors the child marks close-on-exec one by one.
+#[cfg(target_os = "macos")]
 const MAX_MARKED: libc::c_int = 1 << 20;
 
 /// XNU's `EREDRIVEOPEN`, "open again": an open of `/dev/ptmx` that races others can return it
@@ -115,7 +119,14 @@ pub(super) fn open(size: Size) -> io::Result<(Master, Slave)> {
     let master = Master(File::from(master));
     set_non_blocking(&master.0)?;
     master.resize(size)?;
-    Ok((master, Slave(slave.into())))
+    let slave = Slave {
+        fd: slave.into(),
+        #[cfg(target_os = "linux")]
+        name,
+        #[cfg(target_os = "linux")]
+        master: master.try_clone_fd()?,
+    };
+    Ok((master, slave))
 }
 
 /// A new master, close-on-exec. On macOS an open of `/dev/ptmx` that races others may fail
@@ -183,6 +194,20 @@ fn set_non_blocking(file: &File) -> io::Result<()> {
         Ok(())
     } else {
         Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Slave {
+    /// The session whose controlling terminal the slave is, asked of the master.
+    pub(super) fn session(&self) -> io::Result<libc::pid_t> {
+        // SAFETY: `tcgetsid` takes a descriptor, which `self` keeps open, and nothing else.
+        let session = unsafe { libc::tcgetsid(self.master.as_raw_fd()) };
+        if session < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(session)
+        }
     }
 }
 
@@ -400,97 +425,73 @@ pub(super) fn group_to_signal(group: u32, own: libc::pid_t) -> Option<libc::pid_
         .filter(|&group| group > 1 && group != own)
 }
 
-pub(super) fn run_in(slave: &Slave, command: &mut Command) -> io::Result<()> {
+/// Makes `slave` the standard streams and the controlling terminal of the child `command`
+/// starts, with `signals` at their default action, on macOS (ADR 0137): only a child's own
+/// `TIOCSCTTY` gives its session a controlling terminal there, which `posix_spawn` cannot
+/// ask for, so this child alone is started by a fork.
+#[cfg(target_os = "macos")]
+pub(in crate::process) fn run_in(
+    slave: &Slave,
+    command: &mut Command,
+    signals: &'static [libc::c_int],
+) -> io::Result<()> {
     // A fork while another thread sets libnotify up for the first time kills the child in
     // libSystem's after-fork handler, before `exec`, and the terminal ends with no output.
     // Asking libnotify anything first waits for that set-up and leaves it done.
-    #[cfg(target_os = "macos")]
     // SAFETY: `notify_is_valid_token` takes a plain number and reads only libnotify's own
     // state, which it sets up on its first call, behind its own lock.
     unsafe {
         notify_is_valid_token(0);
     }
     // Each is a new close-on-exec copy, which the spawn puts at 0, 1 and 2.
-    let stream = || slave.0.try_clone().map(Stdio::from);
+    let stream = || slave.fd.try_clone().map(Stdio::from);
     command.stdin(stream()?).stdout(stream()?).stderr(stream()?);
     let last = open_limit();
     #[expect(
         clippy::disallowed_methods,
-        reason = "the terminal's child-side hook, in the process module (ADR 0120)"
+        reason = "the terminal's child-side hook on macOS, in the process module (ADR 0120, ADR 0137)"
     )]
     // SAFETY: the hook runs in the child between `fork` and `exec`, where only
-    // async-signal-safe functions may be called. It calls only `setsid`, `ioctl`,
-    // `signal`, `sigemptyset`, `sigprocmask`, and `syscall` (`close_range`) and `fcntl`
-    // through `mark_close_on_exec`,
-    // which are, on a `sigset_t` on its own stack that `sigemptyset` fills before
-    // `sigprocmask` reads it. It allocates nothing
-    // (an OS error is a number), and takes no lock. By then the standard library has
-    // made the slave the child's descriptors 0, 1 and 2, as it sets up the standard
-    // streams before it runs hooks. Marking the rest close-on-exec, rather than
-    // closing them, keeps the standard library's own pipe that reports a failed
-    // `exec`, which is close-on-exec already.
+    // async-signal-safe functions may be called. It calls only `setsid`, `ioctl`, `signal`,
+    // `sigemptyset`, `sigprocmask` and `fcntl`, which are, on a `sigset_t` on its own stack
+    // that `sigemptyset` fills before `sigprocmask` reads it, and reads `signals`, which is
+    // static. It allocates nothing (an OS error is a number), and takes no lock. By then the
+    // standard library has made the slave the child's descriptors 0, 1 and 2, as it sets up
+    // the standard streams before it runs hooks. Marking the rest close-on-exec, rather than
+    // closing them, keeps the standard library's own pipe that reports a failed `exec`, which
+    // is close-on-exec already.
     unsafe {
         command.pre_exec(move || {
             if libc::setsid() < 0 || libc::ioctl(0, SET_CONTROLLING_TERMINAL, 0) < 0 {
                 return Err(io::Error::last_os_error());
             }
-            for signal in DEFAULT_SIGNALS {
+            for &signal in signals {
                 libc::signal(signal, libc::SIG_DFL);
             }
-            // The child starts with the spawning thread's signal mask, which may
-            // block what the shell must receive.
+            // The child starts with the spawning thread's signal mask, which may block what
+            // the shell must receive.
             let mut none = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
             libc::sigemptyset(none.as_mut_ptr());
             libc::sigprocmask(libc::SIG_SETMASK, none.as_ptr(), std::ptr::null_mut());
-            // A descriptor another thread made without close-on-exec, and was about
-            // to mark, must not reach a shell that outlives it.
-            mark_close_on_exec(3, last);
+            // A descriptor another thread made without close-on-exec, or was about to mark,
+            // must not reach a shell that outlives it.
+            for fd in 3..last {
+                libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+            }
             Ok(())
         });
     }
     Ok(())
 }
 
-/// Marks every descriptor from `first` up to `last` close-on-exec, in a child between `fork`
-/// and `exec`: async-signal-safe, it allocates nothing and takes no lock.
-pub(in crate::process) fn mark_close_on_exec(first: libc::c_int, last: libc::c_int) {
-    #[cfg(target_os = "linux")]
-    {
-        let Ok(from) = libc::c_uint::try_from(first) else {
-            return;
-        };
-        // SAFETY: `close_range` with `CLOSE_RANGE_CLOEXEC` sets flags on descriptor numbers and
-        // touches no memory.
-        let marked = unsafe {
-            libc::syscall(
-                libc::SYS_close_range,
-                from,
-                libc::c_uint::MAX,
-                libc::CLOSE_RANGE_CLOEXEC,
-            )
-        } == 0;
-        if marked {
-            return;
-        }
-    }
-    for fd in first..last {
-        // SAFETY: `F_SETFD` sets the flags of a descriptor number and touches no memory; a
-        // number with nothing open fails harmlessly.
-        unsafe {
-            libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
-        }
-    }
-}
-
-/// One past the highest descriptor this process may open, at most
-/// [`MAX_MARKED`].
-pub(in crate::process) fn open_limit() -> libc::c_int {
+/// One past the highest descriptor this process may open, at most [`MAX_MARKED`].
+#[cfg(target_os = "macos")]
+fn open_limit() -> libc::c_int {
     let mut limit = libc::rlimit {
         rlim_cur: 0,
         rlim_max: 0,
     };
-    // SAFETY: `getrlimit` fills the `rlimit` it is given, which lives across the
-    // call.
+    // SAFETY: `getrlimit` fills the `rlimit` it is given, which lives across the call.
     if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit) } != 0 {
         return MAX_MARKED;
     }
@@ -499,21 +500,15 @@ pub(in crate::process) fn open_limit() -> libc::c_int {
         .min(max_files_per_process())
 }
 
-/// Where the system sets no limit of its own beside the soft one.
-#[cfg(not(target_os = "macos"))]
-fn max_files_per_process() -> libc::c_int {
-    MAX_MARKED
-}
-
-/// The most descriptors macOS lets one process open, whatever its soft limit
-/// says, or [`MAX_MARKED`] if it cannot tell.
+/// The most descriptors macOS lets one process open, whatever its soft limit says, or
+/// [`MAX_MARKED`] if it cannot tell.
 #[cfg(target_os = "macos")]
 fn max_files_per_process() -> libc::c_int {
     let mut value: libc::c_int = 0;
     let mut size = std::mem::size_of::<libc::c_int>();
-    // SAFETY: `sysctlbyname` reads the NUL-terminated name, writes at most `size`
-    // bytes into `value`, which has room for them, sets `size` to what it wrote, and
-    // is given no new value.
+    // SAFETY: `sysctlbyname` reads the NUL-terminated name, writes at most `size` bytes into
+    // `value`, which has room for them, sets `size` to what it wrote, and is given no new
+    // value.
     let done = unsafe {
         libc::sysctlbyname(
             c"kern.maxfilesperproc".as_ptr(),
