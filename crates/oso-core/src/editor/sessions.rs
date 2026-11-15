@@ -166,6 +166,11 @@ pub enum SpaceRequest {
     Instructions,
     /// Show the space's own directory (`space-directory`).
     Directory,
+    /// Start the space's orchestrator in its directory, made again first where it has gone
+    /// when `remake_directory` (`space-orchestrator-start`, ADR 0136 step 3).
+    StartOrchestrator { remake_directory: bool },
+    /// The person answered `y` to the space question the host asked last (`space-confirm`).
+    Confirmed,
 }
 
 /// Which session a send goes to (ADR 0121).

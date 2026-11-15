@@ -24,6 +24,8 @@ pub struct SpaceInput<'a> {
     pub held: &'a [PathBuf],
     /// Where its sessions are, running or stopped, archived ones aside.
     pub sessions: HashSet<PathBuf>,
+    /// Its own directory.
+    pub directory: Option<&'a Path>,
 }
 
 /// The rows of the open `spaces`, each repository's worktrees taken from `listed`; `closed`
@@ -71,6 +73,7 @@ pub fn space_rows(
             id: space.id.clone(),
             name: space.name.to_owned(),
             projects,
+            directory: space.directory.map(Path::to_path_buf),
         });
     }
     rows

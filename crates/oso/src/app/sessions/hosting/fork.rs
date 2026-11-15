@@ -76,6 +76,7 @@ impl App {
             brief: None,
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: false,
+            space: None,
         });
     }
 

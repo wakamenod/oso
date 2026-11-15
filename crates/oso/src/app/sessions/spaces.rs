@@ -5,6 +5,8 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
+mod orchestrator;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -46,6 +48,13 @@ pub(in crate::app) struct SpaceWork {
     title: Option<String>,
     /// The spaces whose directory is shown once it is made.
     show_directory: HashSet<SpaceId>,
+    /// The spaces whose orchestrator starts once their directory is made (step 3).
+    pub(in crate::app) start_after: HashSet<SpaceId>,
+    /// The sessions being got ready as an orchestrator, by key: their space.
+    pub(in crate::app) starting: HashMap<crate::sessions::worker::SessionKey, SpaceId>,
+    /// What the question the host asked last offers, which `y` does (`SpaceRequest::Confirmed`):
+    /// dropped when another is asked or it is answered otherwise.
+    pub(in crate::app) offer: Option<orchestrator::Offer>,
 }
 
 impl SpaceWork {
@@ -68,6 +77,10 @@ impl App {
             SpaceRequest::Rename(title) => self.rename_space(&title),
             SpaceRequest::Instructions => self.space_instructions(),
             SpaceRequest::Directory => self.space_directory(),
+            SpaceRequest::StartOrchestrator { remake_directory } => {
+                self.start_orchestrator(remake_directory);
+            }
+            SpaceRequest::Confirmed => self.space_confirmed(),
         }
         self.sessions_touched();
         self.request_redraw();
@@ -172,10 +185,14 @@ impl App {
                     return;
                 };
                 let shown = printable(&path.display().to_string());
+                let root = member.root.clone();
                 match spaces.add_member(at, member, now) {
-                    Ok(()) => self
-                        .editor
-                        .message(format!("Added {shown} to space {}", self.space_name(at))),
+                    Ok(()) => {
+                        self.editor
+                            .message(format!("Added {shown} to space {}", self.space_name(at)));
+                        // A running orchestrator was not given it: offered (ADR 0136, Q5).
+                        self.offer_add_dir(at, &root);
+                    }
                     Err(NotAdded::Already) => self
                         .editor
                         .message(format!("The space has {shown} already")),
@@ -191,7 +208,7 @@ impl App {
 
     /// Asks the worker to make space `at`'s directory under `[spaces] root`, showing it after
     /// when `show`.
-    fn make_space_directory(&mut self, at: usize, show: bool) {
+    pub(in crate::app) fn make_space_directory(&mut self, at: usize, show: bool) {
         let Some(stored) = self.watch.spaces().stored(at) else {
             return;
         };
@@ -222,6 +239,7 @@ impl App {
                 name,
                 members,
                 taken,
+                exact: false,
             }));
         }
     }
@@ -235,6 +253,7 @@ impl App {
         identities: Vec<(PathBuf, Option<(u64, u64)>)>,
     ) {
         let show = self.hosting.spaces.show_directory.remove(id);
+        let start = self.hosting.spaces.start_after.remove(id);
         let spaces = self.watch.spaces_mut();
         let Some(at) = spaces.find(id) else {
             return;
@@ -252,6 +271,9 @@ impl App {
                 spaces.set_directory(at, path.clone(), identity, &name, &asked, now_ms());
                 if show {
                     self.show_listing(path);
+                }
+                if start {
+                    self.launch_orchestrator(at);
                 }
             }
             Err(why) => self.editor.message(printable(&why)),
@@ -526,6 +548,6 @@ fn spelled(path: &Path) -> PathBuf {
 
 /// `text` as the echo area may show it, whole: no control or invisible character, as such a
 /// one in a directory's name could make the line read otherwise than it is.
-fn printable(text: &str) -> String {
+pub(in crate::app) fn printable(text: &str) -> String {
     text.chars().filter(|&c| is_plain(c)).collect()
 }

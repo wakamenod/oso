@@ -148,6 +148,21 @@ impl App {
                     .to_owned()
             });
         }
+        // A space's orchestrator runs in no repository: which is the person's to say, on a
+        // repository's row (ADR 0136, step 3; step 4 reads one).
+        let buffer = self.editor.window().buffer();
+        let orchestrator = self.hosting.table.by_buffer(buffer).is_some_and(|session| {
+            self.watch
+                .spaces()
+                .iter()
+                .any(|space| space.stored.orchestrator.as_ref() == Some(&session.id))
+        });
+        if orchestrator {
+            return Err(
+                "The orchestrator is in no repository: use a repository's row in *Sessions*"
+                    .to_owned(),
+            );
+        }
         let project = self.editor.current().1.project();
         project
             .filter(|&id| self.editor.project_trusted(id))
@@ -423,6 +438,7 @@ impl App {
             parent: brief.parent,
             check_shared: false,
             trusted: Some(trusted),
+            space: None,
         });
     }
 

@@ -119,6 +119,7 @@ impl App {
                     origin: creating.origin,
                     check_shared: false,
                     trusted: Some(trusted),
+                    space: None,
                 });
                 match key {
                     Some(key) => {

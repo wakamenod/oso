@@ -60,6 +60,8 @@ pub struct Line<'a> {
     /// `--settings`, the JSON of a session's own settings: the hook that steers Claude away
     /// from its worktree tools (ADR 0121, Q15), when the person turns it on.
     pub settings: Option<&'a str>,
+    /// `--add-dir`, one for each: an orchestrator's trusted repositories (ADR 0136, step 3).
+    pub add_dirs: &'a [std::path::PathBuf],
 }
 
 /// Why a command line cannot be built.
@@ -113,6 +115,12 @@ pub fn arguments(line: &Line<'_>) -> Result<Vec<OsString>, LineError> {
         }
     }
     let config = mcp_config(line.oso, line.oso_pid, line.start.id())?;
+    // One `--add-dir=` each: the option takes any number of values, and so takes exactly one.
+    for dir in line.add_dirs {
+        let mut arg = OsString::from("--add-dir=");
+        arg.push(dir);
+        args.push(arg);
+    }
     args.push(format!("--name={}", line.name).into());
     args.push(format!("--mcp-config={config}").into());
     if let Some(settings) = line.settings {
@@ -149,6 +157,7 @@ mod tests {
             system_prompt: None,
             brief: None,
             settings: None,
+            add_dirs: &[],
         }
     }
 
@@ -265,5 +274,35 @@ mod tests {
         use std::os::unix::ffi::OsStrExt;
         let path = Path::new(std::ffi::OsStr::from_bytes(b"/opt/\xff/oso"));
         assert!(super::mcp_config(path, 1, &id(1)).is_err());
+    }
+
+    #[test]
+    fn an_orchestrator_is_given_each_repository_as_one_add_dir() {
+        let id = id(4);
+        let dirs = [
+            std::path::PathBuf::from("/src/back"),
+            std::path::PathBuf::from("/src/front"),
+        ];
+        let line = Line {
+            start: Start::New { id: &id },
+            name: "fix-login",
+            oso: Path::new("/bin/oso"),
+            oso_pid: 1,
+            system_prompt: Some("You are the orchestrator"),
+            brief: None,
+            settings: None,
+            add_dirs: &dirs,
+        };
+        let args = arguments(&line).unwrap();
+        let at = |text: &str| {
+            args.iter()
+                .position(|a| a.as_os_str() == std::ffi::OsStr::new(text))
+                .unwrap()
+        };
+        let (back, front) = (at("--add-dir=/src/back"), at("--add-dir=/src/front"));
+        assert!(back < front && front < at("--name=fix-login"));
+        assert!(args.contains(&OsString::from(
+            "--append-system-prompt=You are the orchestrator"
+        )));
     }
 }

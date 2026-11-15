@@ -38,8 +38,8 @@ pub struct Made {
 }
 
 /// Makes the directory of a space called `name` under `root`, for `members`: under `name`,
-/// else the first of `name-2`, `name-3` and on that nothing is at, and that `taken`, the
-/// other spaces' names, does not name (ADR 0136, step 1b, P3).
+/// else, unless `exact`, the first of `name-2`, `name-3` and on that nothing is at, and that
+/// `taken`, the other spaces' names, does not name (ADR 0136, step 1b, P3).
 ///
 /// # Errors
 ///
@@ -49,9 +49,11 @@ pub fn make_directory(
     name: &str,
     members: &[Member],
     taken: &dyn Fn(&str) -> bool,
+    exact: bool,
 ) -> Result<Made, String> {
     let mut tried: Vec<String> = Vec::new();
-    for _ in 0..TRIES {
+    let tries = if exact { 1 } else { TRIES };
+    for _ in 0..tries {
         let next = unique(name, &|candidate| {
             taken(candidate) || tried.iter().any(|t| t == candidate)
         });
@@ -72,6 +74,12 @@ pub fn make_directory(
             Err(Refusal::Exists(_)) => tried.push(next),
             Err(why) => return Err(why.to_string()),
         }
+    }
+    if exact {
+        return Err(format!(
+            "space directory refused: {} is there already",
+            dir::place(root, name).display()
+        ));
     }
     Err(format!(
         "space directory refused: {TRIES} names under {} are taken",
@@ -124,6 +132,12 @@ pub fn main_checkout(path: &Path) -> Result<Member, String> {
         )),
         _ => Err(format!("{shown} is no repository's main checkout")),
     }
+}
+
+/// Where the instructions of the space with id `id` are, in `state`, oso's state directory,
+/// made or not.
+pub fn instructions_path(state: &Path, id: &str) -> PathBuf {
+    state.join(INSTRUCTIONS).join(format!("{id}.md"))
 }
 
 /// The file of the instructions of the space with id `id`, in `state`, oso's state directory,

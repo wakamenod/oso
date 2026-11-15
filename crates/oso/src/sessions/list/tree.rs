@@ -77,6 +77,8 @@ pub struct SpaceRows {
     pub id: SpaceId,
     pub name: String,
     pub projects: Vec<Project>,
+    /// Its own directory, where its orchestrator runs (ADR 0136, step 3).
+    pub directory: Option<PathBuf>,
 }
 
 /// A closed space, listed in `Archived spaces`.
@@ -104,6 +106,8 @@ pub struct Tree {
 enum Place<'e> {
     /// Under worktree `.2` of repository `.1` of space `.0`.
     Worktree(usize, usize, usize),
+    /// Space `.0`'s orchestrator, in the space's own directory.
+    Orchestrator(usize),
     /// In `Other projects`, under this directory.
     Other(&'e Path),
     Archived,
@@ -117,6 +121,7 @@ impl List {
     pub(super) fn render_tree(&self, entries: &[Entry], width: usize, now: Instant) -> Rendered {
         let mut out = Rendered::default();
         let spaces = &self.tree.spaces;
+        let mut orchestrators: Vec<Vec<&Entry>> = vec![Vec::new(); spaces.len()];
         let mut placed: Vec<Placed<'_>> = spaces
             .iter()
             .map(|space| {
@@ -133,6 +138,7 @@ impl List {
         for entry in entries {
             match place(&worktrees, &self.tree, entry) {
                 Place::Worktree(s, p, w) => placed[s][p][w].push(entry),
+                Place::Orchestrator(s) => orchestrators[s].push(entry),
                 Place::Other(dir) => {
                     let at = *other_at
                         .entry(dir.as_os_str().as_encoded_bytes())
@@ -145,8 +151,8 @@ impl List {
                 Place::Archived => archived.push(entry),
             }
         }
-        for (space, placed) in spaces.iter().zip(&placed) {
-            self.space(&mut out, space, placed, width, now);
+        for ((space, placed), orchestrator) in spaces.iter().zip(&placed).zip(&orchestrators) {
+            self.space(&mut out, (space, orchestrator), placed, width, now);
         }
         self.other(&mut out, &mut other, width, now);
         self.archived(&mut out, &archived, width, now);
@@ -273,6 +279,7 @@ impl List {
             spin: self.spin,
             waiting,
             place: false,
+            tag: None,
         };
         row.render(out, width, now);
     }
@@ -357,6 +364,7 @@ impl List {
                 spin: None,
                 waiting: 0,
                 place: true,
+                tag: None,
             };
             row.render(out, width, now);
         }
@@ -424,6 +432,17 @@ fn place<'e>(
     let Some(dir) = entry.dir.as_deref() else {
         return Place::Other(entry.repo.as_deref().unwrap_or(Path::new("")));
     };
+    // A session of a space in the space's own directory: its orchestrator.
+    let own_directory = tree.spaces.iter().position(|space| {
+        entry.space_id.as_ref() == Some(&space.id)
+            && space
+                .directory
+                .as_deref()
+                .is_some_and(|own| dir.starts_with(own))
+    });
+    if let Some(s) = own_directory {
+        return Place::Orchestrator(s);
+    }
     let bytes = dir.as_os_str().as_encoded_bytes();
     let mut holding = worktrees.iter().filter(|(.., path)| holds(path, bytes));
     let Some(&(s, p, w, deepest)) = holding.next() else {
@@ -496,6 +515,7 @@ impl Tree {
                 id: SpaceId::from_random([u8::try_from(n).unwrap_or(u8::MAX); 16]),
                 name: project.name.clone(),
                 projects: vec![project],
+                directory: None,
             })
             .collect();
         Self {

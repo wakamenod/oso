@@ -144,10 +144,6 @@ pub fn make(
 /// # Errors
 ///
 /// A [`Refusal`].
-#[cfg_attr(
-    any(not(test), not(unix)),
-    expect(dead_code, reason = "the orchestrator's start checks it in step 3")
-)]
 pub fn check(path: &Path, made: Option<(u64, u64)>, members: &[Member]) -> Result<(), Refusal> {
     let meta = match fs::symlink_metadata(path) {
         Ok(meta) => meta,

@@ -114,6 +114,7 @@ impl App {
                     .collect(),
                 held: &space.stored.worktrees,
                 sessions: sessions.remove(&at).unwrap_or_default(),
+                directory: space.stored.directory.as_deref(),
             };
             if space.is_open() {
                 open.push(input);

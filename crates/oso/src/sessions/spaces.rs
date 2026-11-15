@@ -15,6 +15,7 @@
 pub mod dir;
 pub mod edit;
 pub mod migrate;
+pub mod orchestrator;
 pub mod probe;
 pub mod record;
 pub mod stored;

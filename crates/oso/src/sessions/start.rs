@@ -79,6 +79,24 @@ pub struct Order {
     pub steer_worktrees: bool,
     /// Whether to ask first when another live session runs in the directory.
     pub check_shared: bool,
+    /// An issue space's orchestrator: what it starts with and what its directory must pass
+    /// (ADR 0136, step 3).
+    pub space: Option<SpaceStart>,
+}
+
+/// What an orchestrator starts with, looked at again just before it starts (ADR 0136, step 3).
+#[derive(Debug, Clone)]
+pub struct SpaceStart {
+    /// The space directory's identity when oso made it.
+    pub made: Option<(u64, u64)>,
+    /// Every repository of the space, which the directory must be inside none of.
+    pub members: Vec<crate::sessions::spaces::Member>,
+    /// The trusted ones, given with `--add-dir` while each is still the one recorded.
+    pub trusted: Vec<crate::sessions::spaces::Member>,
+    /// The fixed text and the space's header, for `--append-system-prompt`.
+    pub prompt: String,
+    /// The space's instructions, read here and added to the prompt.
+    pub instructions: Option<PathBuf>,
 }
 
 /// The terminal a session runs in, as the app gives it.
@@ -110,6 +128,8 @@ pub struct Ready {
     pub project: Option<PathBuf>,
     /// Its baseline's tree id, if it was taken in time.
     pub baseline: Option<String>,
+    /// What the echo area says of the start beside it: an orchestrator's repository left out.
+    pub notes: Vec<String>,
 }
 
 /// What the thread found.
@@ -174,7 +194,11 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
         Ok(found) => found,
         Err(e) => return refuse(format!("The session did not start: no shell is found: {e}")),
     };
-    let launch = match launch_of(&order, &id, &found.executable) {
+    let (extra, notes) = match space_extra(order.space.as_ref(), &order.directory) {
+        Ok(found) => found,
+        Err(why) => return refuse(why),
+    };
+    let launch = match launch_of(&order, &id, &found.executable, &extra) {
         Ok(launch) => launch,
         Err(why) => return refuse(why),
     };
@@ -216,6 +240,7 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
         directory,
         project,
         baseline: in_time.flatten(),
+        notes,
     }));
     if let Some(Some(tree)) = late.and_then(|b| b.wait(BASELINE_GIVE_UP)) {
         send(Report::Baseline { token, tree });
@@ -278,8 +303,63 @@ fn set(shell_path: &Path, id: &SessionId) -> Vec<(String, OsString)> {
     set
 }
 
+/// What an orchestrator's command line takes beyond any session's.
+#[derive(Debug, Default)]
+struct Extra {
+    add_dirs: Vec<PathBuf>,
+    system_prompt: Option<String>,
+}
+
+/// An orchestrator's directory checked again, just before it starts, and its `--add-dir`s and
+/// prompt, with what the echo area says of a repository left out (ADR 0136, step 3). Nothing
+/// for another session.
+fn space_extra(
+    space: Option<&SpaceStart>,
+    directory: &Path,
+) -> Result<(Extra, Vec<String>), String> {
+    use crate::sessions::spaces::orchestrator;
+    let Some(space) = space else {
+        return Ok((Extra::default(), Vec::new()));
+    };
+    orchestrator::check_before_start(directory, space.made, &space.members)
+        .map_err(|why| format!("The orchestrator did not start: {why}"))?;
+    let (kept, gone) = orchestrator::still_there(&space.trusted);
+    let mut notes: Vec<String> = gone
+        .iter()
+        .map(|root| {
+            format!(
+                "{} is not the repository the space recorded: left out",
+                root.display()
+            )
+        })
+        .collect();
+    let instructions = match space
+        .instructions
+        .as_deref()
+        .map(orchestrator::read_instructions)
+    {
+        Some(Ok(text)) => text,
+        Some(Err(why)) => {
+            notes.push(format!("The space's instructions were not read: {why}"));
+            String::new()
+        }
+        None => String::new(),
+    };
+    let prompt = space.prompt.clone() + &orchestrator::instructions_section(&instructions);
+    let extra = Extra {
+        add_dirs: kept.into_iter().map(|member| member.root).collect(),
+        system_prompt: Some(prompt),
+    };
+    Ok((extra, notes))
+}
+
 /// The program and arguments that start the session `id` as `order` says, in `shell`.
-fn launch_of(order: &Order, id: &SessionId, shell: &Executable) -> Result<Launch, String> {
+fn launch_of(
+    order: &Order,
+    id: &SessionId,
+    shell: &Executable,
+    extra: &Extra,
+) -> Result<Launch, String> {
     let claude = match &order.claude {
         Some(path) => Some(
             Executable::absolute(path)
@@ -306,9 +386,10 @@ fn launch_of(order: &Order, id: &SessionId, shell: &Executable) -> Result<Launch
         name: &order.name,
         oso: &oso,
         oso_pid: std::process::id(),
-        system_prompt: None,
+        system_prompt: extra.system_prompt.as_deref(),
         brief: order.brief.as_deref(),
         settings: settings.as_deref(),
+        add_dirs: &extra.add_dirs,
     };
     let args = command::arguments(&line).map_err(|e| format!("The session did not start: {e}"))?;
     launch::launch(shell, claude.as_ref(), args, order.project.as_deref())

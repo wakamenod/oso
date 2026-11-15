@@ -219,7 +219,7 @@ impl Flow {
     }
 
     /// Waits for the fake's `count`th run, and returns the runs.
-    fn wait_for_runs(&self, count: usize) -> Vec<Run> {
+    pub(super) fn wait_for_runs(&self, count: usize) -> Vec<Run> {
         let deadline = Instant::now() + DEADLINE;
         loop {
             let runs = self.runs();
