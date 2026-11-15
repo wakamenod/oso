@@ -75,8 +75,11 @@ fn at_point(app: &mut App) -> String {
 }
 
 fn started(scratch: &Scratch, file: &Path) -> App {
+    // The configuration in a directory of its own: the agent never saves into it, and the
+    // project is beside it.
     set_mode(scratch.path(), 0o700);
-    let config = scratch.write("config.toml", b"");
+    let config = scratch.write("conf/config.toml", b"");
+    set_mode(&scratch.path().join("conf"), 0o700);
     set_mode(&config, 0o644);
     let mut app = App::start_with_config(Some(file), scratch.path(), &config);
     app.wait_until_ready();
@@ -207,17 +210,19 @@ fn an_agents_save_only_marks_the_status_stale_until_the_persons_key() {
     let file = project(&scratch);
     let mut app = trusted_status(&scratch, &file);
     rows_until(&mut app, |rows| has(rows, "M  a.txt  +2 -2"));
-    // The file beside the status, which stays selected.
+    // The file beside the status, which the person leaves selected.
     app.send_keys(&format!("C-x 3 C-x o C-x b {} RET C-x o", typing("a.txt")));
     assert_eq!(app.state()["buffer"]["name"], "*git: proj-git*");
     let mut agent = let_in(&mut app);
+    // An agent cannot select a buffer with keys of its own, so it starts beside the status.
     agent.run("other-window", None, "look").unwrap();
     assert_eq!(app.state()["buffer"]["name"], "a.txt");
     insert(&mut agent, "x");
     let saved = agent.run("save-buffer", None, "change").unwrap();
     assert!(saved.get("waiting").is_none(), "{saved}");
     app.wait_for("the save", |state| state["buffer"]["modified"] == false);
-    agent.run("other-window", None, "look").unwrap();
+    // The person goes to the status, which is no key in it yet.
+    app.send_keys("C-x o");
     let state = app.wait_for("the stale mark", |state| {
         state["modeline"]
             .as_str()

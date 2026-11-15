@@ -58,6 +58,9 @@ pub(super) struct GitStatuses {
     generation: u64,
     /// The event being handled is the agent channel's, so what changes is the agent's doing.
     pub(super) by_agent: bool,
+    /// The buffer the selected window showed at the last look, which a key typed since was
+    /// typed in.
+    selected: Option<BufferId>,
 }
 
 /// A status buffer as the app knows it.
@@ -104,7 +107,8 @@ impl App {
             self.git_request(request);
         }
         let agent = agent || self.gits.by_agent;
-        let selected = self.editor.window().buffer();
+        // A key is the person's in a status when the status was selected as it was typed.
+        let typed_in = self.gits.selected.replace(self.editor.window().buffer());
         for index in 0..self.gits.open.len() {
             let buffer = self.gits.open[index].buffer;
             let shown = self
@@ -117,7 +121,7 @@ impl App {
                 shown,
                 stale: open.stale,
                 agent_stale: open.agent_stale,
-                keyed: key && selected == buffer,
+                keyed: key && typed_in == Some(buffer),
                 agent,
             };
             open.shown = shown;
