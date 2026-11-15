@@ -426,6 +426,10 @@ item notes when it must be settled.
   history, the kill ring and macros.
 - A conflict-resolution view (smerge-style) for the source-control buffer, and replying to or
   resolving pull request review threads ([ADR 0127](adr/0127-source-control-and-github.md)).
+- Check on the current Claude Code CLI before ADR 0136 step 3: that `--add-dir` may be repeated
+  before a positional brief, that auto memory outside a git repository is keyed by the start
+  directory, and that its workspace trust question is asked once for a space's directory
+  ([ADR 0136](adr/0136-issue-spaces.md)).
 - Check on the current Claude Code CLI before ADR 0128 step 1: that a `SendMessage` wakes an idle
   session, how long an MCP tool call may block, and how its agent teams place teammates
   ([ADR 0128](adr/0128-orchestration-and-automations.md)).

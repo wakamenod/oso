@@ -1,6 +1,6 @@
 # 0131. An Orca-style sessions pane
 
-- Status: Accepted, amended by 0132
+- Status: Accepted, amended by 0132 and 0136
 - Date: 2026-11-14
 
 ## Context
