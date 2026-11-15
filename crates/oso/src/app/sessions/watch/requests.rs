@@ -195,7 +195,18 @@ impl App {
         if let Some(key) = there {
             return self.show_session(key);
         }
-        match row_space.or_else(|| self.watch.spaces.holding(path)) {
+        // A space that holds the worktree, or has it as a repository's main checkout: the row's
+        // first. One it does not is no place to enter: a file is found in it instead.
+        let holds = |at: usize| {
+            self.watch
+                .spaces
+                .stored(at)
+                .is_some_and(|stored| stored.holds_worktree(path) || stored.has_member(path))
+        };
+        let target = row_space
+            .filter(|&at| holds(at))
+            .or_else(|| self.watch.spaces.holding(path));
+        match target {
             Some(at) => {
                 if self.watch.spaces.current() != Some(at) {
                     self.enter_space(at);
