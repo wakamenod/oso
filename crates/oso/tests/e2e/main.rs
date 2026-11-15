@@ -41,6 +41,7 @@ mod secure;
 mod session_tools;
 mod sessions;
 mod sessions_tree;
+mod space_tools;
 mod spaces;
 mod terminal;
 mod undo;

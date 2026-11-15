@@ -74,8 +74,10 @@ pub(crate) const MAX_BLOB: u64 = 8 * 1024 * 1024;
 const STACK: usize = 16 * 1024 * 1024;
 
 /// The root of a project that is trusted to run git, with its device and inode as the project
-/// was found. Only [`TrustedRoot::of`] makes one. Its clones share one revocation: once one is
-/// revoked, so are all.
+/// was found. [`TrustedRoot::of`] makes one from a trusted project, and
+/// [`TrustedRoot::of_member`] one from an issue space's repository the trust list holds by path
+/// and identity; the latter is made fresh for each use and never revoked, so its users ask the
+/// trust list again. Its clones share one revocation: once one is revoked, so are all.
 #[derive(Clone, Debug)]
 pub(crate) struct TrustedRoot {
     path: PathBuf,
@@ -95,6 +97,29 @@ impl TrustedRoot {
             identity: project.identity(),
             revoked: Arc::default(),
         })
+    }
+
+    /// The root of a repository at `path` with `identity`, an issue space's member that no
+    /// open buffer may show, if `list` trusts it by both (ADR 0136, step 4).
+    pub(crate) fn of_member(
+        list: &oso_core::project::TrustList,
+        path: &Path,
+        identity: Option<(u64, u64)>,
+    ) -> Option<TrustedRoot> {
+        let root = oso_core::project::RootIdentity {
+            path: path.to_owned(),
+            identity,
+        };
+        list.trusts(&root).then(|| TrustedRoot {
+            path: root.path,
+            identity,
+            revoked: Arc::default(),
+        })
+    }
+
+    /// The device and inode it was trusted with, where the system has them.
+    pub(crate) fn identity(&self) -> Option<(u64, u64)> {
+        self.identity
     }
 
     #[cfg(test)]
@@ -148,6 +173,12 @@ impl TrustedRoot {
 
     pub(crate) fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Whether another directory is now at the root's path than the one trusted. It looks at
+    /// the disk, so it belongs off the UI thread.
+    pub(crate) fn replaced(&self) -> bool {
+        !self.still_there()
     }
 
     /// Whether the root is still the directory that was trusted, by its device and inode where

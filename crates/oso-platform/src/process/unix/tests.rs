@@ -322,3 +322,59 @@ fn a_child_waited_for_elsewhere_is_never_signalled() {
     assert_eq!(error.raw_os_error(), Some(libc::ECHILD));
     child.kill().unwrap();
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_terminal_child_that_ended_before_the_check_keeps_its_status() {
+    // Linux takes the terminal from a session as its leader exits: a short child may have
+    // ended by the time the spawn asks the terminal for its session, which then has none.
+    let sh = sh();
+    let args = ["-c".into(), "read line; exit 3".into()];
+    let (master, slave) = pty::open(SIZE).unwrap();
+    let mut child = spawn(&Spawn {
+        stdout: Sink::Inherit,
+        stderr: Sink::Inherit,
+        terminal: Some(&slave),
+        ..request(&sh, &args)
+    })
+    .unwrap();
+    master.write(b"\n").unwrap();
+    let pid = libc::pid_t::try_from(child.id()).unwrap();
+    let stat = format!("/proc/{pid}/stat");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    // A zombie, not yet waited for: `Z` follows the program's name in parentheses.
+    while !std::fs::read_to_string(&stat)
+        .unwrap()
+        .rsplit_once(')')
+        .is_some_and(|(_, rest)| rest.trim_start().starts_with('Z'))
+    {
+        assert!(Instant::now() < deadline, "the child did not end");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(
+        slave.session().unwrap_err().raw_os_error(),
+        Some(libc::ENOTTY)
+    );
+    super::controls(&slave, pid).unwrap();
+    assert_eq!(child.wait().unwrap().code(), Some(3));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_terminal_that_is_another_sessions_fails_the_start() {
+    let sh = sh();
+    let args = ["-c".into(), "read line".into()];
+    let (master, slave) = pty::open(SIZE).unwrap();
+    let request = Spawn {
+        stdout: Sink::Inherit,
+        stderr: Sink::Inherit,
+        terminal: Some(&slave),
+        ..request(&sh, &args)
+    };
+    let mut first = spawn(&request).unwrap();
+    let error = spawn(&request).unwrap_err();
+    let holder = format!("its session is {}", first.id());
+    assert!(error.to_string().contains(&holder), "{error}");
+    master.write(b"\n").unwrap();
+    assert!(first.wait().unwrap().success());
+}

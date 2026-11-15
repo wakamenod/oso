@@ -73,6 +73,20 @@ It is refused while a session of the space runs in it. Its worktrees stay.",
         state: None,
     },
     Command {
+        name: "space-use-repo",
+        doc: "Choose the repository of the space in front that commands needing a project use from its orchestrator's buffer, read with completion.
+
+The orchestrator runs in the space's own directory, in no repository: with one trusted repository the space needs no choice; with several, `session-worktree`, `worktree-list` and `worktree-remove` there use the one chosen here, which must be trusted. A buffer of that repository must be open, as for its row in `*Sessions*`.",
+        args: ArgSpec::Listed {
+            list: MEMBERS_LIST,
+            prompt: "Use repository:",
+            history: "space-member",
+        },
+        reach: Reach::Person,
+        run: space_use_repo,
+        state: None,
+    },
+    Command {
         name: "space-close",
         doc: "Archive the space in front.
 
@@ -172,6 +186,11 @@ fn space_add_repo(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 fn space_remove_repo(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let name = answer(ctx, "No repository")?;
     ask(ctx, SpaceRequest::RemoveRepo(name))
+}
+
+fn space_use_repo(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let name = answer(ctx, "No repository")?;
+    ask(ctx, SpaceRequest::UseRepo(name))
 }
 
 fn space_close(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

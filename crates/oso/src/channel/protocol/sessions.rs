@@ -6,11 +6,14 @@
 //!
 //! - `session_list`: `{"offset": 0}` lists the sessions from the first.
 //! - `session_state`: `{"session": "ID or name"}`.
-//! - `worktree_list`: the linked worktrees of the caller's repository.
+//! - `worktree_list`: `{"repo": "api"}`, the linked worktrees of the caller's repository, or of
+//!   the space's member `repo` for a space's orchestrator (ADR 0136, step 4).
 //! - `worktree_remove`: `{"path": "/abs/repo/.claude/worktrees/x"}`.
-//! - `start_worktree_session`: `{"branch": "x", "base": "main", "brief": "…", "name": "x"}`;
-//!   `base` and `name` are optional.
-//! - `session_start`: `{"directory": "/abs/repo", "name": "x", "brief": "…"}`, each optional.
+//! - `start_worktree_session`: `{"branch": "x", "base": "main", "brief": "…", "name": "x",
+//!   "repo": "api"}`; `base`, `name` and `repo` are optional.
+//! - `session_start`: `{"directory": "/abs/repo", "name": "x", "brief": "…", "repo": "api"}`,
+//!   each optional.
+//! - `space_status`: the caller's space, its repositories and its sessions.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -20,13 +23,14 @@ use serde_json::{Map, Value};
 use super::{MAX_PATH, only, short};
 
 /// The methods of this module, as the tools that call them are named.
-pub const METHODS: [&str; 6] = [
+pub const METHODS: [&str; 7] = [
     "session_list",
     "session_state",
     "worktree_list",
     "worktree_remove",
     "start_worktree_session",
     "session_start",
+    "space_status",
 ];
 
 /// The longest brief a session takes, in bytes, as the person's `*Brief*` (ADR 0121).
@@ -50,7 +54,9 @@ pub enum Call {
     State {
         session: String,
     },
-    WorktreeList,
+    WorktreeList {
+        repo: Option<String>,
+    },
     WorktreeRemove {
         path: PathBuf,
     },
@@ -59,12 +65,15 @@ pub enum Call {
         base: Option<String>,
         brief: String,
         name: Option<String>,
+        repo: Option<String>,
     },
     Start {
         directory: Option<PathBuf>,
         name: Option<String>,
         brief: Option<String>,
+        repo: Option<String>,
     },
+    SpaceStatus,
 }
 
 /// How long the server holds a call's reply for the UI.
@@ -85,18 +94,19 @@ impl Call {
         match self {
             Self::List { .. } => "session_list",
             Self::State { .. } => "session_state",
-            Self::WorktreeList => "worktree_list",
+            Self::WorktreeList { .. } => "worktree_list",
             Self::WorktreeRemove { .. } => "worktree_remove",
             Self::StartWorktree { .. } => "start_worktree_session",
             Self::Start { .. } => "session_start",
+            Self::SpaceStatus => "space_status",
         }
     }
 
     /// How long the server holds its reply.
     pub fn hold(&self) -> Hold {
         match self {
-            Self::List { .. } | Self::State { .. } => Hold::Usual,
-            Self::WorktreeList | Self::WorktreeRemove { .. } => Hold::Job(JOB_REPLY_WITHIN),
+            Self::List { .. } | Self::State { .. } | Self::SpaceStatus => Hold::Usual,
+            Self::WorktreeList { .. } | Self::WorktreeRemove { .. } => Hold::Job(JOB_REPLY_WITHIN),
             Self::StartWorktree { .. } | Self::Start { .. } => Hold::Person,
         }
     }
@@ -127,13 +137,16 @@ pub fn parse(method: &str, params: &Map<String, Value>) -> Option<Result<Call, S
         "session_state" => only(params, method, &["session"])
             .and_then(|()| text(params, method, "session", MAX_NAME))
             .map(|session| Call::State { session }),
-        "worktree_list" => only(params, method, &[]).map(|()| Call::WorktreeList),
+        "worktree_list" => only(params, method, &["repo"])
+            .and_then(|()| optional(params, method, "repo", MAX_NAME))
+            .map(|repo| Call::WorktreeList { repo }),
         "worktree_remove" => only(params, method, &["path"])
             .and_then(|()| path(params, method, "path"))
             .and_then(|path| path.ok_or_else(|| format!("{method} needs a \"path\"")))
             .map(|path| Call::WorktreeRemove { path }),
         "start_worktree_session" => parse_start_worktree(params),
         "session_start" => parse_start(params),
+        "space_status" => only(params, method, &[]).map(|()| Call::SpaceStatus),
         _ => return None,
     })
 }
@@ -152,22 +165,24 @@ fn parse_list(params: &Map<String, Value>) -> Result<Call, String> {
 
 fn parse_start_worktree(params: &Map<String, Value>) -> Result<Call, String> {
     let method = "start_worktree_session";
-    only(params, method, &["branch", "base", "brief", "name"])?;
+    only(params, method, &["branch", "base", "brief", "name", "repo"])?;
     Ok(Call::StartWorktree {
         branch: text(params, method, "branch", MAX_NAME)?,
         base: optional(params, method, "base", MAX_NAME)?,
         brief: brief(params, method)?.ok_or("start_worktree_session needs a \"brief\"")?,
         name: optional(params, method, "name", MAX_NAME)?,
+        repo: optional(params, method, "repo", MAX_NAME)?,
     })
 }
 
 fn parse_start(params: &Map<String, Value>) -> Result<Call, String> {
     let method = "session_start";
-    only(params, method, &["directory", "name", "brief"])?;
+    only(params, method, &["directory", "name", "brief", "repo"])?;
     Ok(Call::Start {
         directory: path(params, method, "directory")?,
         name: optional(params, method, "name", MAX_NAME)?,
         brief: brief(params, method)?,
+        repo: optional(params, method, "repo", MAX_NAME)?,
     })
 }
 
@@ -256,11 +271,39 @@ mod tests {
                 json!({ "branch": "x", "brief": "do it" }),
             ),
             call("session_start", json!({})),
+            call("space_status", json!({})),
         ];
         for (call, method) in calls.into_iter().zip(METHODS) {
             assert_eq!(call.unwrap().name(), method);
         }
         assert!(parse("state", &Map::new()).is_none());
+    }
+
+    #[test]
+    fn a_repository_of_a_space_is_named_by_repo() {
+        let repo = |call: Call| match call {
+            Call::WorktreeList { repo }
+            | Call::StartWorktree { repo, .. }
+            | Call::Start { repo, .. } => repo,
+            _ => None,
+        };
+        let named = |method: &str, mut value: Value| {
+            value["repo"] = json!("api");
+            repo(call(method, value).unwrap())
+        };
+        assert_eq!(named("worktree_list", json!({})).as_deref(), Some("api"));
+        let start = json!({ "branch": "x", "brief": "b" });
+        assert_eq!(
+            named("start_worktree_session", start).as_deref(),
+            Some("api")
+        );
+        assert_eq!(named("session_start", json!({})).as_deref(), Some("api"));
+        assert_eq!(repo(call("session_start", json!({})).unwrap()), None);
+        assert!(call("worktree_list", json!({ "repo": "" })).is_err());
+        let long = "r".repeat(MAX_NAME + 1);
+        assert!(call("worktree_list", json!({ "repo": long })).is_err());
+        assert!(call("space_status", json!({ "repo": "api" })).is_err());
+        assert_eq!(call("space_status", json!({})).unwrap().hold(), Hold::Usual);
     }
 
     #[test]

@@ -5,6 +5,7 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
+mod members;
 mod orchestrator;
 
 use std::collections::{HashMap, HashSet};
@@ -60,6 +61,9 @@ pub(in crate::app) struct SpaceWork {
     pub(in crate::app) trusted_seen: Option<Vec<(SpaceId, PathBuf)>>,
     /// The repositories each space's orchestrator was given, at its start or pasted since.
     pub(in crate::app) given: HashMap<SpaceId, Vec<PathBuf>>,
+    /// The repository `space-use-repo` chose for project commands from each space's
+    /// orchestrator's buffer (ADR 0136, step 4).
+    pub(in crate::app) used: HashMap<SpaceId, PathBuf>,
 }
 
 impl SpaceWork {
@@ -77,6 +81,7 @@ impl App {
             SpaceRequest::New(title) => self.new_space(title),
             SpaceRequest::AddRepo(text) => self.add_repository(&text),
             SpaceRequest::RemoveRepo(name) => self.remove_repository(&name),
+            SpaceRequest::UseRepo(name) => self.use_repository(&name),
             SpaceRequest::Close => self.close_space(),
             SpaceRequest::Reopen(name) => self.reopen_space(&name),
             SpaceRequest::Rename(title) => self.rename_space(&title),
@@ -207,6 +212,12 @@ impl App {
         }
         self.sessions_touched();
         self.request_redraw();
+    }
+
+    /// `[spaces] root` as it is now, its `~/` expanded; `None` with no home directory for it.
+    pub(in crate::app) fn spaces_root_now(&self) -> Option<PathBuf> {
+        let home = oso_platform::privacy::home();
+        crate::config::expand(self.configuration.spaces_root(), home.as_deref())
     }
 
     /// Asks the worker to make space `at`'s directory under `[spaces] root`, showing it after
