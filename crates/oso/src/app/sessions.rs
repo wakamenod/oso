@@ -13,6 +13,7 @@ use oso_core::editor::{Editor, SessionRequest};
 
 mod feed;
 mod hosting;
+mod spaces;
 mod tools;
 mod watch;
 mod worktrees;
@@ -47,6 +48,10 @@ impl App {
         for request in self.editor.take_session_requests() {
             let job = match request {
                 SessionRequest::ExplainFile(path) => Job::ExplainFile(path),
+                SessionRequest::Spaces(request) => {
+                    self.space_request(request);
+                    continue;
+                }
                 SessionRequest::Start { name, directory } => {
                     self.start_session(name, directory);
                     continue;
@@ -102,6 +107,7 @@ impl App {
         // After the requests, so that a `session-stop` that a question's yes ran finds its
         // stop still asked.
         self.drop_unasked_stop();
+        self.forget_unanswered_space();
         self.sync_seen();
         // What the person asked shows at once; the worker's changes wait for the loop, so
         // that many make the views once.
@@ -151,6 +157,17 @@ impl App {
                 crate::sessions::worker::DROP_AFTER
             )),
             Out::WorktreesMoved(roots) => self.worktrees_moved(&roots),
+            Out::SpaceDirMade {
+                id,
+                made,
+                identities,
+            } => self.space_directory_made(&id, made, identities),
+            Out::RepositoryChecked {
+                check,
+                path,
+                member,
+            } => self.repository_checked(check, &path, member),
+            Out::InstructionsReady { id, file } => self.instructions_ready(&id, file),
             Out::SpaceIds(fresh) => {
                 if self.watch.spaces_mut().give_ids(fresh) {
                     self.sessions_touched();

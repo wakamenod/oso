@@ -248,6 +248,9 @@ impl App {
         self.watch.made = Some(now);
         if std::mem::take(&mut self.watch.touched) {
             self.place_sessions();
+            // The space prompts' lists change with the sessions and the spaces only, not with
+            // a session's state (ADR 0136, step 1b).
+            self.space_lists();
             self.forget_gone_sessions();
             self.poll_externals();
         }
@@ -439,6 +442,11 @@ impl App {
             .collect();
         entries.extend(self.watch.externals.iter().cloned());
         entries
+    }
+
+    /// Session `session`'s state as the list shows it.
+    pub(in crate::app) fn shown_state(&self, session: &Hosted) -> State {
+        self.state_of(session, Instant::now()).0
     }
 
     /// Session `session`'s state and since when: as the worker told it, while that agrees

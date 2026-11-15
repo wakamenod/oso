@@ -17,11 +17,15 @@
 mod list;
 mod mode;
 mod send;
+mod spaces;
 
 pub use list::COMMANDS as LIST_COMMANDS;
 pub use list::ROW_MARKS;
 pub use mode::{COMMANDS as MODE_COMMANDS, SESSION_HELP};
 pub use send::{COMMANDS as SEND_COMMANDS, MAX_SEND_BYTES, MENTION_LIST, SEND_LIST, too_large};
+pub use spaces::{
+    ARCHIVED_LIST, COMMANDS as SPACE_COMMANDS, MEMBERS_LIST, REPOSITORIES_LIST, listed_takes_input,
+};
 
 use std::path::PathBuf;
 
@@ -154,7 +158,7 @@ Each session is its buffer's name, with its state, space, branch and recap after
     },
     Command {
         name: "space-switch",
-        doc: "Switch to a space, read with completion: a project and its sessions, with its own windows.
+        doc: "Switch to a space, read with completion: the workplace of an issue, with its repositories, sessions and its own windows.
 
 The windows of the space left are kept for when it is shown again. A space shown the first time shows its last file and its last session side by side.",
         args: ArgSpec::Listed {

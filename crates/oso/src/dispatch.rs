@@ -33,6 +33,7 @@ mod clipboard;
 mod extended;
 mod held;
 mod hold_all;
+mod host;
 pub use hold_all::{Cancelled, holds_input};
 mod jump;
 mod keymaps;

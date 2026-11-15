@@ -238,7 +238,12 @@ fn check_parsed(bytes: &[u8]) -> Result<(), TestCaseError> {
     prop_assert!(spaces.len() <= MAX_SPACES);
     for space in &spaces {
         prop_assert!(space.name.len() <= crate::sessions::spaces::stored::MAX_NAME);
-        prop_assert!(!space.title.chars().any(char::is_control));
+        prop_assert!(
+            space
+                .title
+                .chars()
+                .all(crate::sessions::spaces::stored::is_plain)
+        );
         let written = line(space).expect("a parsed space is written");
         let back = parse_line(written.as_bytes());
         prop_assert_eq!(back.as_ref(), Some(space));

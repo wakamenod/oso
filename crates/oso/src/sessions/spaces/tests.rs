@@ -410,3 +410,18 @@ fn the_spaces_of_300_other_programs_sessions_are_found_well_within_the_budget() 
     // on the reference Mac; a scan of every place for each session took tens of times more).
     assert!(cfg!(debug_assertions) || best.as_micros() < 200, "{best:?}");
 }
+
+#[test]
+fn names_are_never_a_device_and_titles_hold_no_invisible_characters() {
+    use super::stored::{clean_title, slug};
+    assert_eq!(slug("CON"), "con-space");
+    assert_eq!(slug("com1"), "com1-space");
+    assert_eq!(slug("console"), "console");
+    assert_eq!(slug("../.."), "space");
+    assert_eq!(clean_title("a\u{202E}b\u{2066}c\td"), "abc d");
+    assert_eq!(
+        clean_title(&"é".repeat(150)).len(),
+        200,
+        "cut at a character's end"
+    );
+}

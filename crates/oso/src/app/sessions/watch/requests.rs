@@ -161,7 +161,7 @@ impl App {
     }
 
     /// Switches to space `at`, keeping the file buffer shown last in the space left.
-    fn enter_space(&mut self, at: usize) {
+    pub(in crate::app) fn enter_space(&mut self, at: usize) {
         let shown = tree_buffer(&mut self.editor);
         let is_session = self.hosting.table().by_buffer(shown).is_some();
         if let Some(from) = self.watch.spaces.current() {

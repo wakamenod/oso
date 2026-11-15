@@ -112,6 +112,7 @@ const TABLES: &[&[Command]] = &[
     agent_sessions::LIST_COMMANDS,
     agent_sessions::MODE_COMMANDS,
     agent_sessions::SEND_COMMANDS,
+    agent_sessions::SPACE_COMMANDS,
     terminal::COMMANDS,
     theme::COMMANDS,
     view::COMMANDS,
@@ -342,6 +343,16 @@ mod tests {
         "sessions-show",
         "space-switch",
         "space-zoom",
+        // Issue spaces, whose repositories agents reach and whose sessions closing stops (ADR
+        // 0136).
+        "space-add-repo",
+        "space-close",
+        "space-instructions",
+        "space-new",
+        "space-directory",
+        "space-remove-repo",
+        "space-rename",
+        "space-reopen",
         // Worktree sessions, which run git, gh and a session (ADR 0121).
         "brief-cancel",
         "brief-send",

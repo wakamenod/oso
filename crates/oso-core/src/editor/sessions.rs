@@ -141,6 +141,31 @@ pub enum SessionRequest {
     /// Show the session that sent the newest message to the session whose terminal is this
     /// buffer (`session-follow-message`).
     FollowMessage(BufferId),
+    /// Act on the issue spaces (ADR 0136).
+    Spaces(SpaceRequest),
+}
+
+/// What a command asks of the host about issue spaces (ADR 0136). Each acts on the space in
+/// front, but for a new one and one reopened.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SpaceRequest {
+    /// Make a space for the issue with this title, of the selected buffer's repository, and
+    /// enter it (`space-new`).
+    New(String),
+    /// Add this repository, a path or a listed one's text (`space-add-repo`).
+    AddRepo(String),
+    /// Take out the repository of this name (`space-remove-repo`).
+    RemoveRepo(String),
+    /// Archive the space (`space-close`).
+    Close,
+    /// Open the archived space of this name again, and enter it (`space-reopen`).
+    Reopen(String),
+    /// Give the space this title, and a name made from it (`space-rename`).
+    Rename(String),
+    /// Edit the space's instructions (`space-instructions`).
+    Instructions,
+    /// Show the space's own directory (`space-directory`).
+    Directory,
 }
 
 /// Which session a send goes to (ADR 0121).
