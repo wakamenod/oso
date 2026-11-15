@@ -10,7 +10,7 @@
 //! region and band (ADR 0072, ADR 0097). The editor's cells and status already say all this.
 
 use oso_core::buffer::{BufferId, Mode};
-use oso_core::editor::{Editor, Gutter, JumpCells, MatchCells, ReviewCells, Status};
+use oso_core::editor::{Editor, Gutter, JumpCells, MatchCells, ReviewCells, ServerFace, Status};
 use oso_core::frame::{CellRect, WindowRegions};
 use oso_core::window::{Screen, WindowId};
 use oso_render::{
@@ -139,6 +139,15 @@ fn modeline_spans(status: &Status) -> [Span<'_>; MODELINE_SPANS] {
         span(&status.project[..], face),
         // Dim, as `Agent` is: what the trust record says, never a name (ADR 0114).
         span(status.restricted, Face::Prompt),
+        // The language server's state (ADR 0138).
+        span(
+            &status.lsp[..],
+            match status.lsp_face {
+                ServerFace::Dim => Face::Prompt,
+                ServerFace::Plain => face,
+                ServerFace::Warning => Face::Warning,
+            },
+        ),
         // Dim too: what an agent's open or save left for the person (ADR 0118).
         span(&status.waits[..], Face::Prompt),
         span(&status.state[..], face),
@@ -146,7 +155,7 @@ fn modeline_spans(status: &Status) -> [Span<'_>; MODELINE_SPANS] {
 }
 
 /// How many spans a modeline is drawn in.
-const MODELINE_SPANS: usize = 9;
+const MODELINE_SPANS: usize = 10;
 
 fn modeline_face(status: &Status) -> Face {
     if status.selected {

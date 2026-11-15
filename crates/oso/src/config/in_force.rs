@@ -116,6 +116,8 @@ pub struct InForce {
     pub terminal: super::Terminal,
     /// `[spaces]`: it applies to the next space made (ADR 0136).
     pub spaces: super::Spaces,
+    /// `[lsp]` and the servers' table: it applies to the next server started (ADR 0138).
+    pub lsp: super::Lsp,
 }
 
 impl InForce {
@@ -143,6 +145,7 @@ impl InForce {
             sessions: super::settings::Sessions::default(),
             terminal: super::Terminal::default(),
             spaces: super::Spaces::default(),
+            lsp: super::Lsp::default(),
         }
     }
 
@@ -181,6 +184,7 @@ impl InForce {
             sessions: settings.sessions.clone(),
             terminal: settings.terminal.clone(),
             spaces: settings.spaces.clone(),
+            lsp: settings.lsp.clone(),
         }
     }
 
@@ -314,6 +318,7 @@ mod tests {
                 sessions: crate::config::settings::Sessions::default(),
                 terminal: crate::config::Terminal::default(),
                 spaces: crate::config::Spaces::default(),
+                lsp: crate::config::Lsp::default(),
             }
         );
         assert_eq!(InForce::of(&Settings::default(), THEMES), compiled);
@@ -369,6 +374,7 @@ mod tests {
                 sessions: crate::config::settings::Sessions::default(),
                 terminal: crate::config::Terminal::default(),
                 spaces: crate::config::Spaces::default(),
+                lsp: crate::config::Lsp::default(),
             }
         );
     }

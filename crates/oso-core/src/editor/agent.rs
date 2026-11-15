@@ -138,7 +138,7 @@ impl Editor {
             .chars()
             .map(|c| if c == '\n' { ' ' } else { c })
             .collect();
-        self.add_row(id, &row, MAX_AGENT_LOG);
+        self.add_row(id, &row, super::messages::Keep::Rows(MAX_AGENT_LOG));
     }
 
     /// The buffer `*Agent*`, once something was logged there.

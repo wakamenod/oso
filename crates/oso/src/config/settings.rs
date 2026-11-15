@@ -44,6 +44,8 @@ pub struct Settings {
     pub terminal: super::Terminal,
     /// `[spaces]` (ADR 0136).
     pub spaces: super::spaces::Spaces,
+    /// `[lsp]`, and the table of language servers it leads to (ADR 0138).
+    pub lsp: super::lsp::Lsp,
 }
 
 /// `[sessions]`: how a hosted session's `claude` starts (ADR 0121).
@@ -279,7 +281,7 @@ pub(super) fn sessions(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Sessi
     for (name, value) in entries {
         match name.get_ref().as_ref() {
             "claude" => sessions.claude = claude_path(value, found),
-            "env" => sessions.env = env_names(value, found),
+            "env" => sessions.env = env_names(value, "[sessions]", found),
             "steer_worktrees" => {
                 if let Some(on) = switch(value, "[sessions]", "steer_worktrees", found) {
                     sessions.steer_worktrees = on;
@@ -405,15 +407,19 @@ fn claude_path(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<std::p
     None
 }
 
-/// `[sessions] env`: at most [`MAX_ENV_NAMES`] variables' names, each one oso may pass on:
+/// `env` of `table`, as `[sessions] env`: at most [`MAX_ENV_NAMES`] variables' names, each one oso may pass on:
 /// not empty, with no `=` or NUL, and not `PATH`, `LD_*` or `DYLD_*`. A name refused is said
 /// and left out; the others stay.
-fn env_names(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Vec<String> {
+pub(super) fn env_names(
+    value: &Spanned<DeValue<'_>>,
+    table: &str,
+    found: &mut Found,
+) -> Vec<String> {
     let DeValue::Array(names) = value.get_ref() else {
         found.at(
             value.span().start,
             format_args!(
-                "[sessions] env takes a list of variables' names, such as [\"HTTPS_PROXY\"], not {}",
+                "{table} env takes a list of variables' names, such as [\"HTTPS_PROXY\"], not {}",
                 type_name(value.get_ref())
             ),
         );
@@ -422,7 +428,7 @@ fn env_names(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Vec<String> {
     if names.len() > MAX_ENV_NAMES {
         found.at(
             value.span().start,
-            format_args!("[sessions] env takes at most {MAX_ENV_NAMES} names"),
+            format_args!("{table} env takes at most {MAX_ENV_NAMES} names"),
         );
         return Vec::new();
     }
@@ -431,10 +437,7 @@ fn env_names(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Vec<String> {
         let DeValue::String(text) = name.get_ref() else {
             found.at(
                 name.span().start,
-                format_args!(
-                    "[sessions] env takes names, not {}",
-                    type_name(name.get_ref())
-                ),
+                format_args!("{table} env takes names, not {}", type_name(name.get_ref())),
             );
             continue;
         };
@@ -449,7 +452,7 @@ fn env_names(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Vec<String> {
             found.at(
                 name.span().start,
                 format_args!(
-                    "[sessions] env cannot pass {}: oso sets PATH itself, and never passes the loader's variables",
+                    "{table} env cannot pass {}: oso sets PATH itself, and never passes the loader's variables",
                     quoted(&cut(text.as_ref()))
                 ),
             );

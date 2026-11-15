@@ -83,6 +83,15 @@ pub fn row_text(text: &str) -> String {
     log_text(text)
 }
 
+/// How much of an internal buffer's rows [`Editor::add_row`] keeps.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Keep {
+    /// At most this many rows.
+    Rows(usize),
+    /// At most this many bytes, whole rows.
+    Bytes(usize),
+}
+
 impl Editor {
     /// Adds a message, for the echo area and `*Messages*`, and writes it to the
     /// log. Save completion and recovery offers arrive outside commands, so it
@@ -95,6 +104,17 @@ impl Editor {
     /// command says can depend on the text. So does the agent channel's around a buffer
     /// withheld from it, and the channel does not read that echo.
     pub fn message(&mut self, text: impl Into<String>) {
+        self.say(text.into(), true);
+    }
+
+    /// As [`Editor::message`], with no log line: for text that comes from outside oso, such as
+    /// a language server's, which may quote what it read and must not reach the log
+    /// (ADR 0138).
+    pub fn message_unlogged(&mut self, text: impl Into<String>) {
+        self.say(text.into(), false);
+    }
+
+    fn say(&mut self, text: String, logged: bool) {
         if let Some(left_secret) = self.command_left_secret {
             if left_secret {
                 return;
@@ -104,9 +124,11 @@ impl Editor {
                 return;
             }
         }
-        let text = capped(text.into());
+        let text = capped(text);
         let shown = capped(log_text(&text));
-        log::info!("{shown}");
+        if logged {
+            log::info!("{shown}");
+        }
         self.put_echo(Echo {
             text,
             goes_with_the_window: false,
@@ -426,22 +448,46 @@ impl Editor {
     /// message is one row. Cursors at the end stay at the end, and the view follows the
     /// selected window's.
     fn add_to_messages_buffer(&mut self, shown: &str) {
-        self.add_row(self.messages_buffer, shown, MAX_MESSAGES);
+        self.add_row(self.messages_buffer, shown, Keep::Rows(MAX_MESSAGES));
     }
 
     /// Adds `row`, which has no line break, to the internal buffer `id`, and takes the oldest
-    /// row out once it holds `max`. Cursors at the end stay at the end, and the view follows
-    /// the selected window's.
-    pub(super) fn add_row(&mut self, id: BufferId, row: &str, max: usize) {
-        let shown = row;
+    /// rows out past what `keep` says. Cursors at the end stay at the end, and the view
+    /// follows the selected window's.
+    pub(super) fn add_row(&mut self, id: BufferId, row: &str, keep: Keep) {
+        self.add_rows(id, &format!("{row}\n"), keep);
+    }
+
+    /// Adds `rows`, whole rows each ending in a line break, to the internal buffer `id` in
+    /// one edit, as [`Editor::add_row`] adds one. With [`Keep::Bytes`], rows more than it
+    /// keeps leave only their last whole rows, and the buffer's go.
+    pub(super) fn add_rows(&mut self, id: BufferId, rows: &str, keep: Keep) {
         let Some(buffer) = self.buffer(id) else {
             return;
         };
-        let end = buffer.text().len();
-        // The last line is the empty one after the newest row.
-        let full = buffer.text().line_count() > max;
-        let oldest = if full { buffer.text().line_start(1) } else { 0 };
-        let line = format!("{shown}\n");
+        let line = match keep {
+            Keep::Bytes(max) if rows.len() > max => {
+                let from = rows.len() - max;
+                let start = rows[from..]
+                    .find('\n')
+                    .map_or(rows.len(), |at| from + at + 1);
+                &rows[start..]
+            }
+            _ => rows,
+        };
+        let text = buffer.text();
+        let end = text.len();
+        let oldest = match keep {
+            // The last line is the empty one after the newest row.
+            Keep::Rows(max) if text.line_count() > max => text.line_start(1),
+            Keep::Rows(_) => 0,
+            Keep::Bytes(max) if end + line.len() > max => {
+                // Whole rows go, up to the one the bound falls in.
+                let cut = (end + line.len() - max).min(end);
+                text.line_start(text.offset_to_point(cut).row + 1).min(end)
+            }
+            Keep::Bytes(_) => 0,
+        };
         let edits = [
             Replacement {
                 range: 0..oldest,
@@ -449,7 +495,7 @@ impl Editor {
             },
             Replacement {
                 range: end..end,
-                text: &line,
+                text: line,
             },
         ];
         let Some(staged) = buffer.stage_internal(&edits) else {

@@ -41,6 +41,7 @@ mod names;
 mod naming;
 mod recovery;
 mod reload;
+mod server;
 pub(crate) use reload::Noticed;
 mod sliced;
 mod splice;
@@ -59,6 +60,7 @@ pub(crate) use edit::{Rewrap, StagedEdit};
 pub(crate) use edited::{EditedLines, Tracking, join_touching};
 pub use mode::Mode;
 pub(crate) use names::{base as file_base, distinct as distinct_names};
+pub use server::ServerMark;
 pub(crate) use sliced::{Budget, FOLLOW_WORK, PIECE, SPLICE_WORK};
 use splice::normalized;
 pub(crate) use starts::Waits;
@@ -214,6 +216,8 @@ pub struct Buffer {
     opened_by_agent: bool,
     /// What an agent's open or save would have started, waiting for the person (ADR 0118).
     waits: Waits,
+    /// What the modeline says of the language server that follows it (ADR 0138).
+    server: Option<ServerMark>,
     /// A terminal's buffer, which holds no text of its own (ADR 0120).
     terminal: bool,
     /// A program runs in its terminal, as the host says.
@@ -289,6 +293,7 @@ impl Buffer {
             withheld_from_agents: false,
             opened_by_agent: false,
             waits: Waits::default(),
+            server: None,
             terminal: false,
             running: false,
             job: false,

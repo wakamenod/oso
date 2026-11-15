@@ -144,6 +144,7 @@ impl App {
         for said in look.said {
             self.editor.message(said);
         }
+        self.servers_follow_trust();
         self.starting.ask();
         self.settle_opens();
         self.request_redraw();

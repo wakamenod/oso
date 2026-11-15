@@ -19,7 +19,7 @@ use std::fmt::Write;
 
 use super::Editor;
 use super::messages::CUT;
-use crate::buffer::{Buffer, Mode, Verdict};
+use crate::buffer::{Buffer, Mode, ServerMark, Verdict};
 use crate::decode::{FileInfo, LineEnding};
 use crate::display_map::text_clusters;
 use crate::frame::CellRect;
@@ -56,6 +56,18 @@ const NOTE_CELLS: usize = 40;
 /// Says that the buffer's project is not trusted to run its code (ADR 0114).
 const RESTRICTED: &str = "restricted  ";
 
+/// How the modeline draws its `lsp` segment (ADR 0138).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ServerFace {
+    /// Dim, as `restricted`: the server starts.
+    #[default]
+    Dim,
+    /// As the rest of the modeline: it runs.
+    Plain,
+    /// In the warning face: it stopped.
+    Warning,
+}
+
 /// The text of the modeline and the echo area. Comparing two says whether a frame
 /// would differ there.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -79,6 +91,10 @@ pub struct Status {
     /// `restricted` while that project is not trusted, which the host draws dim, or nothing
     /// (ADR 0114). It comes from the record of trusted projects alone, never from a name.
     pub restricted: &'static str,
+    /// `lsp`, `lsp 34%` or `lsp!`, after the project, while a language server follows the
+    /// buffer, or nothing (ADR 0138), drawn as [`Self::lsp_face`] says.
+    pub lsp: String,
+    pub lsp_face: ServerFace,
     /// `waits: server` while what an agent's open or save would have started waits for the
     /// person, which the host draws dim, or nothing (ADR 0118). It comes from the buffer's marks
     /// alone.
@@ -101,13 +117,14 @@ impl Status {
     /// The modeline as one string.
     pub fn modeline(&self) -> String {
         format!(
-            "{}{}{}{}{}{}{}{}",
+            "{}{}{}{}{}{}{}{}{}",
             self.agent,
             self.sessions,
             self.warnings,
             self.name,
             self.project,
             self.restricted,
+            self.lsp,
             self.waits,
             self.state
         )
@@ -121,6 +138,29 @@ impl Status {
         } else {
             ""
         }
+    }
+}
+
+/// `lsp  `, `lsp 34%  ` or `lsp!  ` for the server that follows the buffer, or nothing, and
+/// how it is drawn (ADR 0138).
+fn push_server(out: &mut String, mark: Option<ServerMark>) -> ServerFace {
+    out.clear();
+    let Some(mark) = mark else {
+        return ServerFace::Dim;
+    };
+    match mark {
+        ServerMark::Starting => out.push_str("lsp"),
+        ServerMark::Ready | ServerMark::Working(None) => out.push_str("lsp"),
+        ServerMark::Working(Some(percent)) => {
+            let _ = write!(out, "lsp {percent}%");
+        }
+        ServerMark::Stopped => out.push_str("lsp!"),
+    }
+    out.push_str(GAP);
+    match mark {
+        ServerMark::Starting => ServerFace::Dim,
+        ServerMark::Ready | ServerMark::Working(_) => ServerFace::Plain,
+        ServerMark::Stopped => ServerFace::Warning,
     }
 }
 
@@ -326,6 +366,7 @@ impl Editor {
             }
         }
 
+        status.lsp_face = push_server(&mut status.lsp, buffer.server());
         status.waits.clear();
         push_waits(&mut status.waits, buffer);
         let marker = marker(buffer);
@@ -338,6 +379,7 @@ impl Editor {
             + GAP.len()
             + text_cells(&status.project)
             + status.restricted.len()
+            + status.lsp.len()
             + status.waits.len()
             + status.state.len();
         let columns = regions.modeline.columns;

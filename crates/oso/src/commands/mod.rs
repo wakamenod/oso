@@ -23,6 +23,7 @@ mod indent;
 mod isearch;
 mod jump;
 mod kill;
+mod lsp;
 mod macros;
 mod mark;
 mod menus;
@@ -94,6 +95,7 @@ const TABLES: &[&[Command]] = &[
     isearch::COMMANDS,
     jump::COMMANDS,
     kill::COMMANDS,
+    lsp::COMMANDS,
     macros::COMMANDS,
     mark::COMMANDS,
     menus::COMMANDS,
@@ -400,6 +402,9 @@ mod tests {
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).
         "load-theme",
+        "lsp-restart",
+        "lsp-shutdown",
+        "lsp-start",
         "toggle-theme",
         // The person's yes to the agent's question about saving.
         "save-buffer-the-agent-opened",

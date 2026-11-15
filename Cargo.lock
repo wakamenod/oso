@@ -1398,6 +1398,7 @@ dependencies = [
  "log",
  "miniz_oxide",
  "oso-core",
+ "oso-lsp",
  "oso-platform",
  "oso-render",
  "oso-syntax",
@@ -1427,6 +1428,7 @@ name = "oso-lsp"
 version = "0.1.0"
 dependencies = [
  "oso-core",
+ "oso-platform",
  "proptest",
  "serde_json",
 ]

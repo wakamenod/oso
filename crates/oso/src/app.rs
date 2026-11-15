@@ -41,6 +41,7 @@ mod restart;
 mod reviews;
 mod saves;
 mod searches;
+mod servers;
 mod sessions;
 mod slices;
 mod starts;
@@ -147,6 +148,8 @@ pub enum UserEvent {
     Review(reviews::ReviewEvent),
     /// A git status buffer's thread reported (ADR 0127).
     Git(vcs::GitEvent),
+    /// A language server's thread reported (ADR 0138).
+    Servers,
     /// A terminal's thread has a snapshot ready (ADR 0120).
     Terminal(oso_core::buffer::BufferId),
     /// A terminal's start thread found the shell and started it, or could not.
@@ -278,6 +281,8 @@ pub struct App {
     flash: flash::Flash,
     /// The terminals, by their buffers, and what they share (ADR 0120).
     terminals: terminals::Host,
+    /// The language servers running (ADR 0138).
+    servers: servers::Servers,
     /// When a jump reading its string shows its labels (ADR 0116).
     jump_timer: jumps::JumpTimer,
     #[cfg(feature = "dev")]
@@ -423,6 +428,7 @@ impl App {
             starting: starts::Starting::new(),
             flash: flash::Flash::default(),
             terminals: terminals::Host::new(),
+            servers: servers::Servers::default(),
             jump_timer: jumps::JumpTimer::default(),
             #[cfg(feature = "dev")]
             dev: None,

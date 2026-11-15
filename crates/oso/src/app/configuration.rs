@@ -52,6 +52,11 @@ impl Configuration {
         }
     }
 
+    /// `[lsp]` in force, for the next server started (ADR 0138).
+    pub(super) fn lsp(&self) -> &crate::config::Lsp {
+        &self.in_force.lsp
+    }
+
     /// `[terminal]` in force, for the next terminal started (ADR 0120).
     pub(super) fn terminal(&self) -> &crate::config::Terminal {
         &self.in_force.terminal
@@ -262,6 +267,7 @@ impl App {
         self.set_pane_width(self.configuration.in_force.sessions.pane_width);
         let dictionary = self.configuration.in_force.migemo_dictionary.clone();
         self.set_migemo_dictionary(dictionary.as_deref());
+        self.servers_follow_configuration();
         self.request_redraw();
         if changes.start_channel {
             let name = self.configuration.name.clone();
