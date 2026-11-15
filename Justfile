@@ -179,6 +179,8 @@ snapshots-pending:
 snapshots:
     INSTA_UPDATE=always INSTA_FORCE_PASS=0 cargo test --locked -p oso grid_tests
 
+# prune-target repeats the builds of check, lint and test: keep it in step.
+
 # Run check, lint, fmt-check, and test in sequence (equivalent to CI)
 ci: check lint fmt-check test
 
@@ -741,3 +743,206 @@ adrs filter="":
 # Remove all build artifacts
 clean:
     cargo clean
+
+# Removes debug objects no binary names, and units and incremental caches no `just ci` build
+# uses that nothing touched for --days days (default 3), such as those of a Cargo.lock before
+# the last merge, and other targets' directories untouched as long. It first runs the `just ci`
+# builds. Removing something still in use costs only a rebuild.
+
+# Remove stale build outputs from this worktree's target/ only (ADR 0139); --dry-run lists them; needs jq and perl
+[positional-arguments]
+prune-target *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dry=0
+    days=3
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --dry-run) dry=1 ;;
+            --days) shift; days=${1:-} ;;
+            *) echo "usage: just prune-target [--dry-run] [--days N]" >&2; exit 2 ;;
+        esac
+        shift
+    done
+    [[ $days =~ ^[0-9]+$ ]] || { echo "error: --days takes a whole number" >&2; exit 2; }
+    target="$(pwd -P)/target"
+    debug="$target/debug"
+    # A target directory set elsewhere, such as one shared between worktrees, holds builds
+    # this worktree does not know about.
+    meta=$(cargo metadata --locked --no-deps --format-version 1 \
+        | jq -r '.target_directory + "\t" + (.build_directory // .target_directory)')
+    if [ "$meta" != "$target"$'\t'"$target" ]; then
+        echo "error: cargo builds in ${meta%%$'\t'*}, not $target, so nothing was removed" >&2
+        exit 1
+    fi
+    for dir in "$target" "$debug" "$debug"/{.fingerprint,build,deps,examples,incremental}; do
+        if [ -L "$dir" ]; then
+            echo "error: ${dir#"$target"/} is a symbolic link, so nothing was removed" >&2
+            exit 1
+        fi
+    done
+    [ -d "$debug" ] || { echo "nothing to prune"; exit 0; }
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    : > "$tmp/remove"
+    mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }
+
+
+    # The units the `just ci` builds use: keep these in step with check, lint, test, e2e and
+    # clippy-windows. A failed build would leave the list short, so a failure stops here.
+    : > "$tmp/paths"
+    : > "$tmp/own"
+    units() {
+        cargo "$@" > "$tmp/run.json" \
+            || { echo "error: a just ci build failed, so nothing was removed" >&2; exit 1; }
+        jq -r 'select(.reason == "compiler-artifact" or .reason == "build-script-executed")
+            | (.filenames[]?, .executable // empty, .out_dir // empty)' "$tmp/run.json" >> "$tmp/paths"
+        # Each unit of oso's own crates, by crate name and hash. A binary or example built
+        # for tests is named only by its copy without the hash, which every build refreshes
+        # and the next one may take over, so it is matched to its unit now.
+        jq -r 'select(.reason == "compiler-artifact" and (.package_id | startswith("path+")))
+            | (.target.name | gsub("-"; "_")) + "\t" + .filenames[0]' "$tmp/run.json" \
+            | while IFS=$'\t' read -r crate path; do
+                if [[ ${path#"$debug"/} =~ -([0-9a-f]{16})(/|\.|$) ]]; then
+                    printf '%s\t%s\n' "$crate" "${BASH_REMATCH[1]}"
+                    continue
+                fi
+                for unit in "${path%/*}/${path##*/}"-* "${path%/*}/deps/${path##*/}"-*; do
+                    if [[ ${unit##*/} =~ ^.+-[0-9a-f]{16}$ ]] && [ -f "$unit" ] && cmp -s "$path" "$unit"; then
+                        printf '%s\t%s\n' "$crate" "${unit##*-}"
+                    fi
+                done
+            done >> "$tmp/own"
+    }
+    units check -q --locked --workspace --message-format=json
+    units check -q --locked --workspace --all-targets --all-features --message-format=json
+    units clippy -q --locked --workspace --all-targets --message-format=json -- -D warnings
+    units clippy -q --locked --workspace --all-targets --all-features --message-format=json -- -D warnings
+    units test -q --locked --workspace --no-run --message-format=json
+    units test -q --locked --workspace --all-features --no-run --message-format=json
+    # And the builds of `just e2e` and, once it has run here, `just clippy-windows`.
+    units test -q --locked -p oso --features dev --test e2e --no-run --message-format=json
+    if [ -d "$target/x86_64-pc-windows-msvc" ]; then
+        stubs=$(just c-stubs)
+        (
+            export CC_x86_64_pc_windows_msvc="$stubs/cc" AR_x86_64_pc_windows_msvc="$stubs/ar"
+            units clippy -q --locked --workspace --all-targets --all-features \
+                --target x86_64-pc-windows-msvc --message-format=json -- -D warnings
+        ) || exit 1
+    fi
+    { { grep -oE -- '-[0-9a-f]{16}(/|\.|$)' "$tmp/paths" || true; } | cut -c2-17; cut -f2 "$tmp/own"; } \
+        | sort -u > "$tmp/live"
+    # When cargo last started each of these units, which is when its incremental cache's
+    # newest session started.
+    sort -u "$tmp/own" | while IFS=$'\t' read -r crate hash; do
+        for stamp in "$debug/.fingerprint"/*-"$hash"/invoked.timestamp; do
+            if [ -f "$stamp" ]; then printf '%s\t%s\n' "$crate" "$(mtime "$stamp")"; fi
+        done
+    done > "$tmp/started"
+
+    # Everything below holds cargo's lock on target/debug, so no build in this worktree runs
+    # while outputs are chosen and removed. A build already running is waited for.
+    cat > "$tmp/locked.sh" <<'LOCKED'
+    set -euo pipefail
+    mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }
+    # Touched within $days days. A look that fails counts as touched.
+    recent() { local found; found=$(find "$1" -mtime "-$days" -print -quit 2>/dev/null) || return 0; [ -n "$found" ]; }
+
+    # 1. Objects a test binary's debug map no longer names (macOS, split-debuginfo unpacked).
+    # Each relink names new ones and leaves the old. Objects of the last hour may belong to a
+    # link still running.
+    if [ "$(uname)" = Darwin ]; then
+        for dir in "$debug/deps" "$debug/examples"; do
+            [ -d "$dir" ] || continue
+            find "$dir" -maxdepth 1 -type f -name '*.rcgu.o' -mmin +60 > "$tmp/objects"
+            sed -E 's|^(.*/[^/.]+)\.[^/]*$|\1|' "$tmp/objects" | sort -u | while IFS= read -r exe; do
+                if [ -e "$exe" ]; then
+                    nm -ap "$exe" 2>/dev/null | awk '$5 == "OSO" { sub(/.* OSO /, ""); n = split($0, p, "/"); print p[n] }' \
+                        | sort -u > "$tmp/named" || true
+                    # A binary nm cannot read keeps all its objects.
+                    [ -s "$tmp/named" ] || continue
+                else
+                    : > "$tmp/named"
+                fi
+                { grep -F -- "$exe." "$tmp/objects" || true; } | awk -v named="$tmp/named" '
+                    BEGIN { while ((getline o < named) > 0) kept[o] = 1 }
+                    { n = split($0, p, "/"); if (!(p[n] in kept)) print }'
+            done >> "$tmp/remove"
+        done
+    fi
+    objects=$(wc -l < "$tmp/remove" | tr -d ' ')
+
+    # 2. Units no just ci build uses and nothing touched for $days days, such as those of a
+    # Cargo.lock before the last merge.
+    : > "$tmp/stale"
+    for fingerprint in "$debug/.fingerprint"/*; do
+        unit=${fingerprint##*/}
+        hash=${unit##*-}
+        [[ $hash =~ ^[0-9a-f]{16}$ ]] || continue
+        grep -qxF -- "$hash" "$tmp/live" && continue
+        recent "$fingerprint" && continue
+        printf '%s\n' "$hash" >> "$tmp/stale"
+        printf '%s\n' "$fingerprint" >> "$tmp/remove"
+        if [ -e "$debug/build/$unit" ]; then printf '%s\n' "$debug/build/$unit" >> "$tmp/remove"; fi
+    done
+    stale=$(wc -l < "$tmp/stale" | tr -d ' ')
+    for dir in "$debug/deps" "$debug/examples"; do
+        [ -d "$dir" ] || continue
+        find "$dir" -mindepth 1 -maxdepth 1 | awk -v stale="$tmp/stale" '
+            BEGIN { while ((getline h < stale) > 0) gone[h] = 1 }
+            { n = split($0, p, "/"); name = p[n]; sub(/\..*/, "", name)
+              if (match(name, /-[0-9a-f]+$/) && RLENGTH == 17 && (substr(name, RSTART + 1) in gone)) print }'
+    done >> "$tmp/remove"
+
+    # 3. Incremental caches whose newest session no unit above started, untouched for $days
+    # days. A session is named after the microsecond it started, in base 36.
+    for cache in "$debug/incremental"/*; do
+        [ -d "$cache" ] || continue
+        name=${cache##*/}
+        newest=$(for session in "$cache"/s-*; do
+            case $session in *.lock) ;; *) session=${session##*/}; session=${session#s-}; echo "${session%%-*}" ;; esac
+        done | awk '{ n = 0; for (i = 1; i <= length($0); i++) n = n * 36 + index("0123456789abcdefghijklmnopqrstuvwxyz", substr($0, i, 1)) - 1
+                      if (n > max) max = n } END { printf "%.0f", max / 1e6 }')
+        printf '%s\t%s\t%s\n' "${name%-*}" "$newest" "$cache"
+    done | awk -F '\t' -v started="$tmp/started" '
+        BEGIN { while ((getline line < started) > 0) { split(line, f, "\t"); at[f[1]] = at[f[1]] " " f[2] } }
+        { n = split(at[$1], t, " "); used = 0
+          for (i = 1; i <= n; i++) if (t[i] - $2 <= 5 && $2 - t[i] <= 5) used = 1
+          if (!used) print $3 }' > "$tmp/caches-old"
+    while IFS= read -r cache; do
+        recent "$cache" || printf '%s\n' "$cache" >> "$tmp/remove"
+    done < "$tmp/caches-old"
+
+    # 4. The directories of clippy-windows, public-api and public-api-macos, untouched for
+    # $days days.
+    for dir in x86_64-pc-windows-msvc {{api_target}} {{api_macos_target}}; do
+        dir="$target/$dir"
+        [ -d "$dir" ] && [ ! -L "$dir" ] || continue
+        recent "$dir" || printf '%s\n' "$dir" >> "$tmp/remove"
+    done
+
+    sort -u "$tmp/remove" -o "$tmp/remove"
+    if awk -v t="$target/" 'index($0, t) != 1 || index($0, "/../") { bad = 1 } END { exit !bad }' "$tmp/remove"; then
+        echo "error: a path outside $target was listed, so nothing was removed" >&2
+        exit 1
+    fi
+    # Each directory that holds a listed path must be where its name says, with no link on
+    # the way.
+    sed 's|/[^/]*$||' "$tmp/remove" | sort -u | while IFS= read -r dir; do
+        if [ "$(cd -P -- "$dir" && pwd -P)" != "$dir" ]; then
+            echo "error: $dir leads outside $target, so nothing was removed" >&2
+            exit 1
+        fi
+    done
+    if [ ! -s "$tmp/remove" ]; then echo "nothing to prune"; exit 0; fi
+    kib=$(tr '\n' '\0' < "$tmp/remove" | xargs -0 du -sk | awk '{ s += $1 } END { print s + 0 }')
+    awk -v n="${#target}" '!/\.rcgu\.o$/ { print "target" substr($0, n + 1) }' "$tmp/remove"
+    echo "$objects unreferenced objects, $stale stale units, about $((kib / 1024)) MiB in all"
+    if [ "$dry" = 1 ]; then echo "dry run: nothing removed"; exit 0; fi
+    tr '\n' '\0' < "$tmp/remove" | xargs -0 rm -rf --
+    echo "removed"
+    LOCKED
+    export target debug tmp days dry
+    perl -MFcntl=:flock -e 'BEGIN { $^F = 255 } open(my $lock, ">>", shift) or die "lock: $!\n";
+        flock($lock, LOCK_EX) or die "lock: $!\n"; exec @ARGV or die "exec: $!\n"' \
+        "$debug/.cargo-lock" bash "$tmp/locked.sh"

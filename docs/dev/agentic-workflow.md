@@ -133,6 +133,12 @@ plan → implement in a worktree → tests → verify in the app
 
 Small chores may go directly to `main`.
 
+A worktree's `target/` keeps the outputs of every `Cargo.lock` it has built. After merging
+`main`, `just prune-target` removes the ones no `just ci` build uses that nothing touched for
+3 days (`--dry-run` lists them, `--days 0` takes everything unused). Dev builds keep line tables only. Set `CARGO_PROFILE_DEV_DEBUG=true` for a build
+whose variables a debugger should show
+([ADR 0139](adr/0139-line-tables-and-pruning-build-outputs.md)).
+
 ## Human gates
 
 The author reviews only these, and everything else passes on agent review:
