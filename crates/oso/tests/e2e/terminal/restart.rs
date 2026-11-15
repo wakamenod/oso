@@ -1,7 +1,7 @@
 //! Terminals over `oso dev`'s restart (ADR 0120, step 11), driven as the supervisor drives
 //! two instances: the shell goes on in the new instance with its process, its screen and
-//! scrollback; what it printed meanwhile shows once; a full-screen program's screen comes
-//! across redrawn; an exit refused leaves the terminals with the old instance, reading again;
+//! scrollback; what it printed meanwhile shows once; both screens of a full-screen program
+//! come across; an exit refused leaves the terminals with the old instance, reading again;
 //! and a password prompt holds the restart.
 //!
 //! Must not depend on: the app's internals; this drives real instances over their sockets.
@@ -104,7 +104,7 @@ fn a_shell_goes_on_in_the_new_instance_with_its_screen_and_what_it_printed_meanw
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn a_full_screen_program_comes_across_redrawn() {
+fn both_screens_of_a_full_screen_program_come_across() {
     let (scratch, mut old) = start("terminal-restart-screens");
     open_terminal(&mut old);
     type_line(&mut old, "echo on-the-shell-screen");
@@ -121,13 +121,17 @@ fn a_full_screen_program_comes_across_redrawn() {
     new.wait_for("the alternate screen", |state| {
         rows(state).iter().any(|row| row.starts_with("full-screen"))
     });
-    // The program ends its screen, and the same shell reads on.
     new.send_keys("RET");
-    new.wait_for("the shell again", |state| {
-        !rows(state).iter().any(|row| row.starts_with("full-screen"))
+    let state = new.wait_for("the shell's screen", |state| {
+        rows(state)
+            .iter()
+            .any(|row| row.contains("on-the-shell-screen"))
     });
-    type_line(&mut new, "echo after-the-full-screen");
-    wait_for_row(&mut new, "after-the-full-screen");
+    assert!(
+        !rows(&state)
+            .iter()
+            .any(|row| row.starts_with("full-screen"))
+    );
 }
 
 #[test]
