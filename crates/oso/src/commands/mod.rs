@@ -349,7 +349,9 @@ mod tests {
         "space-close",
         "space-instructions",
         "space-new",
+        "space-directory",
         "space-remove-repo",
+        "space-rename",
         "space-reopen",
         // Worktree sessions, which run git, gh and a session (ADR 0121).
         "brief-cancel",

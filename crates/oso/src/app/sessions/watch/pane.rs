@@ -138,6 +138,18 @@ impl App {
         trusted
     }
 
+    /// Every linked worktree git listed, as its components spell it.
+    pub(in crate::app) fn listed_worktrees(&self) -> HashSet<PathBuf> {
+        let same = oso_core::project::same_place;
+        let mut worktrees = HashSet::new();
+        for (root, listed) in &self.watch.view.pane.listed {
+            for worktree in listed.iter().filter(|w| !same(root, &w.path)) {
+                worktrees.insert(worktree.path.components().collect());
+            }
+        }
+        worktrees
+    }
+
     /// The repository git listed `place` as a linked worktree of, if it did.
     pub(in crate::app) fn listed_repository_of(&self, place: &Path) -> Option<PathBuf> {
         let same = oso_core::project::same_place;

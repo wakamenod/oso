@@ -94,7 +94,7 @@ fn parse_line(line: &[u8]) -> Option<Stored> {
     let object = value.as_object()?;
     let text = |key: &str, most: usize| match object.get(key) {
         None => Some(String::new()),
-        Some(Value::String(text)) if text.len() <= most && is_plain(text) => Some(text.clone()),
+        Some(Value::String(text)) if text.len() <= most && all_plain(text) => Some(text.clone()),
         Some(_) => None,
     };
     let name = match object.get("name") {
@@ -176,7 +176,7 @@ fn path(text: &str) -> Option<PathBuf> {
 
 /// Whether `text` has no control or invisible character, so that a title or an issue never
 /// moves a row or reads otherwise than it is (ADR 0136, step 1b, P5).
-fn is_plain(text: &str) -> bool {
+fn all_plain(text: &str) -> bool {
     text.chars().all(super::stored::is_plain)
 }
 

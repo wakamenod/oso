@@ -110,13 +110,24 @@ pub fn make(
     usable(&path, members)?;
     if root.exists() {
         unshared(root)?;
+    } else {
+        PrivateDir::open(root).map_err(|e| Refusal::Refused(root.to_owned(), e))?;
     }
-    match fs::symlink_metadata(&path) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        _ => return Err(Refusal::Exists(path)),
+    // Made new, never taken over: something put at its place meanwhile is refused.
+    let mut builder = fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    match builder.create(&path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return Err(Refusal::Exists(path)),
+        Err(e) => return Err(Refusal::Refused(path, e)),
     }
-    let made = PrivateDir::open(&path).map_err(|e| Refusal::Refused(path.clone(), e))?;
-    let meta = fs::symlink_metadata(made.path()).map_err(|e| Refusal::Refused(path.clone(), e))?;
+    match PrivateDir::existing(&path) {
+        Ok(Some(_)) => {}
+        Ok(None) => return Err(Refusal::Missing(path)),
+        Err(e) => return Err(Refusal::Refused(path, e)),
+    }
+    let meta = fs::symlink_metadata(&path).map_err(|e| Refusal::Refused(path.clone(), e))?;
     unshared(root)?;
     usable(&path, members)?;
     Ok((path, identity(&meta)))

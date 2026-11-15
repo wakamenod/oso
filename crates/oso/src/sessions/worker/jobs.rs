@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use oso_platform::file_meta::open_for_reading;
 
-use super::{DROP_AFTER, EVALUATE_EVERY, Job, Out, SLOW_AFTER, SessionKey};
+use super::{DROP_AFTER, EVALUATE_EVERY, Job, Out, SLOW_AFTER, SessionKey, SpaceJob};
 use crate::sessions::engine::{Fallback, evaluate, evaluate_within};
 use crate::sessions::explain;
 use crate::sessions::messages::{Seen, senders};
@@ -51,18 +51,17 @@ fn recall(directory: Option<&Path>) -> Out {
     }
 }
 
-/// What the spaces asked of the worker (ADR 0136): to be kept, ids for new ones, and what the
-/// space commands look up on the disk.
-fn spaces_job(job: Job) -> Vec<Out> {
+/// What the spaces asked of the worker (ADR 0136).
+fn space_job(job: SpaceJob) -> Vec<Out> {
     use spaces::probe;
     let out = match job {
-        Job::RememberSpaces {
+        SpaceJob::Remember {
             directory,
             spaces,
             known,
         } => return keep_spaces(&directory, &spaces, &known),
-        Job::SpaceIds(count) => Out::SpaceIds(space_ids(count)),
-        Job::MakeSpaceDir {
+        SpaceJob::Ids(count) => Out::SpaceIds(space_ids(count)),
+        SpaceJob::MakeDirectory {
             id,
             root,
             name,
@@ -78,15 +77,18 @@ fn spaces_job(job: Job) -> Vec<Out> {
                 identities,
             }
         }
-        Job::CheckRepository { id, path } => {
+        SpaceJob::CheckRepository { check, path } => {
             let member = probe::main_checkout(&path);
-            Out::RepositoryChecked { id, path, member }
+            Out::RepositoryChecked {
+                check,
+                path,
+                member,
+            }
         }
-        Job::Instructions { id, state } => {
+        SpaceJob::Instructions { id, state } => {
             let file = probe::instructions_file(&state, id.as_str());
             Out::InstructionsReady { id, file }
         }
-        _ => return Vec::new(),
     };
     vec![out]
 }
@@ -298,11 +300,7 @@ impl Core {
                 return Vec::new();
             }
             Job::Recall(directory) => return vec![recall(directory.as_deref())],
-            Job::RememberSpaces { .. }
-            | Job::SpaceIds(_)
-            | Job::MakeSpaceDir { .. }
-            | Job::CheckRepository { .. }
-            | Job::Instructions { .. } => return spaces_job(job),
+            Job::Space(job) => return space_job(job),
             Job::Remember {
                 directory,
                 sessions,

@@ -1,6 +1,6 @@
 //! What oso keeps of an issue space (ADR 0136): its id, name, title, issue, member
-//! repositories, directory, orchestrators and worktrees. Plain data; the `spaces` file
-//! (`record`) reads and writes it.
+//! repositories, directory, orchestrators and worktrees, which the `spaces` file (`record`)
+//! reads and writes; and how a name and a title are made from what the person typed.
 //!
 //! Must not depend on: threads, the UI or `app`; the caller reads the random bytes, off the UI
 //! thread, and gives them here.

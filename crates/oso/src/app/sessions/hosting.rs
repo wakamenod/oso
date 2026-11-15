@@ -235,11 +235,11 @@ impl App {
             });
         }
         if let Some((spaces, known)) = self.watch.spaces_mut().take_unsaved() {
-            worker.send(Job::RememberSpaces {
+            worker.send(Job::Space(crate::sessions::worker::SpaceJob::Remember {
                 directory: directory.clone(),
                 spaces,
                 known,
-            });
+            }));
         }
     }
 

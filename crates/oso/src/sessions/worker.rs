@@ -1,7 +1,9 @@
 //! The `oso-sessions` thread (ADR 0121): it holds the rules in force and each hosted session's
 //! tracker, judges a session's screen when it changed, and tells the UI thread only of changes.
-//! It also reads and explains a saved screen for `session-explain-file`, and reads and writes
-//! the record of the sessions oso remembers.
+//! It also reads and explains a saved screen for `session-explain-file`, reads and writes the
+//! record of the sessions oso remembers, and for the issue spaces (ADR 0136) the `spaces` file,
+//! their ids, their directories, whether a path is a repository, and their instructions'
+//! directory.
 //!
 //! Must not depend on: `app` or `dispatch`; the app sends jobs and carries out what
 //! comes back through the function it gives.
@@ -89,28 +91,36 @@ pub enum Job {
         sessions: Vec<super::record::Remembered>,
         known: std::collections::HashSet<super::identity::SessionId>,
     },
+    /// What the spaces ask (ADR 0136).
+    Space(SpaceJob),
+}
+
+/// What the issue spaces ask of the worker (ADR 0136): to be kept, ids for new ones, and what
+/// the space commands look up on the disk.
+#[derive(Debug)]
+pub enum SpaceJob {
     /// Keep these spaces in this state directory, keeping those of another instance: the ids
-    /// not in `known` (ADR 0136).
-    RememberSpaces {
+    /// not in `known`.
+    Remember {
         directory: PathBuf,
         spaces: Vec<super::spaces::Stored>,
         known: std::collections::HashSet<super::spaces::SpaceId>,
     },
     /// Read this many ids for new spaces.
-    SpaceIds(usize),
+    Ids(usize),
     /// Make the directory of space `id`, called `name`, under `root`, for its `members`,
-    /// under the next free name if that one is taken, here or by a name in `taken` (ADR 0136,
-    /// step 1b); and look at the members' devices and inodes.
-    MakeSpaceDir {
+    /// under the next free name if that one is taken, here or by a name in `taken` (step
+    /// 1b); and look at the members' devices and inodes.
+    MakeDirectory {
         id: super::spaces::SpaceId,
         root: PathBuf,
         name: String,
         members: Vec<super::spaces::Member>,
         taken: Vec<String>,
     },
-    /// Whether `path` is a repository's main checkout, for space `id` (`space-add-repo`).
+    /// Whether `path` is a repository's main checkout (`space-add-repo`, `space-new`).
     CheckRepository {
-        id: super::spaces::SpaceId,
+        check: super::spaces::probe::RepoCheck,
         path: PathBuf,
     },
     /// The file of space `id`'s instructions in the state directory `state`, its directory
@@ -168,9 +178,9 @@ pub enum Out {
         made: Result<super::spaces::probe::Made, String>,
         identities: Vec<(PathBuf, Option<(u64, u64)>)>,
     },
-    /// What `path` was found to be, for space `id`.
+    /// What `path` was found to be, for the check `check`.
     RepositoryChecked {
-        id: super::spaces::SpaceId,
+        check: super::spaces::probe::RepoCheck,
         path: PathBuf,
         member: Result<super::spaces::Member, String>,
     },

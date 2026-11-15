@@ -12,15 +12,15 @@ use std::sync::Arc;
 use oso_core::complete::Candidate;
 use oso_core::editor::{ListingRequest, SpaceRequest};
 
-use super::worktrees::hosted_state;
 use crate::app::App;
 use crate::commands::agent_sessions::{ARCHIVED_LIST, MEMBERS_LIST, REPOSITORIES_LIST};
-use crate::sessions::spaces::edit::{MOST_MEMBERS, NotAdded};
+use crate::sessions::spaces::edit::{NotAdded, sessions_to_stop};
 use crate::sessions::spaces::probe::Made;
+use crate::sessions::spaces::probe::RepoCheck;
+use crate::sessions::spaces::stored::MAX_MEMBERS;
 use crate::sessions::spaces::stored::{is_plain, now_ms};
 use crate::sessions::spaces::{Member, SpaceId};
-use crate::sessions::state::State;
-use crate::sessions::worker::Job;
+use crate::sessions::worker::{Job, SpaceJob};
 
 /// What the echo area says while a prompt keeps the frame's tree.
 const PROMPT_OPEN: &str = "Close the prompt first";
@@ -37,10 +37,10 @@ enum Pending {
 /// What the space commands wait for.
 #[derive(Debug, Default)]
 pub(in crate::app) struct SpaceWork {
-    /// The repositories being looked at, by a token of this instance's.
-    pending: HashMap<SpaceId, Pending>,
-    /// The tokens made so far.
-    tokens: u64,
+    /// The repositories being looked at.
+    pending: HashMap<RepoCheck, Pending>,
+    /// The checks asked for so far.
+    checks: u64,
     /// A title `space-new` read with no repository to start from: the next `space-add-repo`
     /// answer makes its space.
     title: Option<String>,
@@ -49,11 +49,10 @@ pub(in crate::app) struct SpaceWork {
 }
 
 impl SpaceWork {
-    /// A token for a repository being looked at, which names no space: 32 hex digits, as an
-    /// id has, from a count, so that none is read off the system's random bytes here.
-    fn token(&mut self) -> SpaceId {
-        self.tokens += 1;
-        SpaceId::parse(&format!("{:032x}", self.tokens)).unwrap_or_else(|| unreachable!())
+    /// The next look at a repository.
+    fn check(&mut self) -> RepoCheck {
+        self.checks += 1;
+        RepoCheck(self.checks)
     }
 }
 
@@ -82,16 +81,18 @@ impl App {
         }
         match self.selected_repository() {
             Some(repo) => {
-                let token = self.hosting.spaces.token();
+                let token = self.hosting.spaces.check();
                 self.hosting
                     .spaces
                     .pending
-                    .insert(token.clone(), Pending::New { title });
+                    .insert(token, Pending::New { title });
                 self.check_repository(token, repo);
             }
             None => {
                 self.hosting.spaces.title = Some(title);
-                let effects = self.dispatcher.read_for(&mut self.editor, "space-add-repo");
+                let effects = self
+                    .dispatcher
+                    .run_from_host(&mut self.editor, "space-add-repo");
                 if effects.redraw {
                     self.request_redraw();
                 }
@@ -115,15 +116,17 @@ impl App {
                 None => return self.editor.message("No space in front".to_owned()),
             },
         };
-        let token = self.hosting.spaces.token();
-        self.hosting.spaces.pending.insert(token.clone(), pending);
+        let token = self.hosting.spaces.check();
+        self.hosting.spaces.pending.insert(token, pending);
         self.check_repository(token, path);
     }
 
     /// Asks the worker whether `path` is a repository's main checkout, for `token`.
-    fn check_repository(&mut self, token: SpaceId, path: PathBuf) {
+    fn check_repository(&mut self, token: RepoCheck, path: PathBuf) {
         match &self.sessions {
-            Some(worker) => worker.send(Job::CheckRepository { id: token, path }),
+            Some(worker) => {
+                worker.send(Job::Space(SpaceJob::CheckRepository { check: token, path }))
+            }
             None => {
                 self.hosting.spaces.pending.remove(&token);
                 self.editor
@@ -135,16 +138,16 @@ impl App {
     /// The worker looked at `path` for `token`.
     pub(in crate::app) fn repository_checked(
         &mut self,
-        token: &SpaceId,
+        token: RepoCheck,
         path: &Path,
         member: Result<Member, String>,
     ) {
-        let Some(pending) = self.hosting.spaces.pending.remove(token) else {
+        let Some(pending) = self.hosting.spaces.pending.remove(&token) else {
             return;
         };
         let member = match member {
             Ok(member) => member,
-            Err(why) => return self.editor.message(why),
+            Err(why) => return self.editor.message(printable(&why)),
         };
         let now = now_ms();
         match pending {
@@ -178,7 +181,7 @@ impl App {
                         .message(format!("The space has {shown} already")),
                     Err(NotAdded::Full) => self
                         .editor
-                        .message(format!("A space holds at most {MOST_MEMBERS} repositories")),
+                        .message(format!("A space holds at most {MAX_MEMBERS} repositories")),
                 }
             }
         }
@@ -213,13 +216,13 @@ impl App {
             self.hosting.spaces.show_directory.insert(id.clone());
         }
         if let Some(worker) = &self.sessions {
-            worker.send(Job::MakeSpaceDir {
+            worker.send(Job::Space(SpaceJob::MakeDirectory {
                 id,
                 root,
                 name,
                 members,
                 taken,
-            });
+            }));
         }
     }
 
@@ -244,13 +247,14 @@ impl App {
                 path,
                 identity,
                 name,
+                asked,
             }) => {
-                spaces.set_directory(at, path.clone(), identity, &name, now_ms());
+                spaces.set_directory(at, path.clone(), identity, &name, &asked, now_ms());
                 if show {
                     self.show_listing(path);
                 }
             }
-            Err(why) => self.editor.message(why),
+            Err(why) => self.editor.message(printable(&why)),
         }
         self.sessions_touched();
         self.request_redraw();
@@ -289,21 +293,23 @@ impl App {
         let Some(at) = self.watch.spaces().current() else {
             return self.editor.message("No space in front".to_owned());
         };
-        let mut idle = Vec::new();
-        for session in self.hosting.table().iter() {
-            if !session.runs() || self.space_of_session(session) != Some(at) {
-                continue;
+        let sessions: Vec<_> = self
+            .hosting
+            .table()
+            .iter()
+            .filter(|session| session.runs() && self.space_of_session(session) == Some(at))
+            // The state the list shows: a session whose screen was not judged yet is idle.
+            .map(|session| (session.key, session.name.clone(), self.shown_state(session)))
+            .collect();
+        let idle = match sessions_to_stop(sessions) {
+            Ok(idle) => idle,
+            Err(who) => {
+                return self.editor.message(format!(
+                    "Session {} is working or needs input; the space stays open",
+                    printable(&who)
+                ));
             }
-            match hosted_state(session, &self.watch) {
-                Some(State::Idle | State::Done | State::ReadyForReview) => idle.push(session.key),
-                _ => {
-                    let who = printable(&session.name);
-                    return self.editor.message(format!(
-                        "Session {who} is working or needs input; the space stays open"
-                    ));
-                }
-            }
-        }
+        };
         let name = self.space_name(at);
         if self
             .watch
@@ -349,7 +355,9 @@ impl App {
             return self.editor.message("No space in front".to_owned());
         };
         match (&self.sessions, self.hosting.state_directory()) {
-            (Some(worker), Some(state)) => worker.send(Job::Instructions { id, state }),
+            (Some(worker), Some(state)) => {
+                worker.send(Job::Space(SpaceJob::Instructions { id, state }));
+            }
             _ => self
                 .editor
                 .message("Instructions need oso's state directory".to_owned()),
@@ -366,12 +374,12 @@ impl App {
             return;
         }
         match file {
+            // Through the editor's visits, so that a buffer of it already open is shown.
             Ok(file) => {
-                if let Some(buffer) = self.visit(file, oso_core::load::UNASKED) {
-                    self.editor.show(buffer);
-                }
+                self.editor.request_visit(file, oso_core::load::UNASKED);
+                self.serve_files();
             }
-            Err(why) => self.editor.message(why),
+            Err(why) => self.editor.message(printable(&why)),
         }
         self.request_redraw();
     }
@@ -447,6 +455,14 @@ impl App {
             .map_or_else(String::new, |space| space.name().to_owned())
     }
 
+    /// After the space requests of an event: a title `space-new` waited with is dropped once
+    /// no prompt is open, as `space-add-repo`'s was closed without an answer.
+    pub(in crate::app) fn forget_unanswered_space(&mut self) {
+        if self.hosting.spaces.title.is_some() && self.editor.prompt().is_none() {
+            self.hosting.spaces.title = None;
+        }
+    }
+
     /// Gives the space prompts their lists: the repositories oso knows, the space in front's,
     /// and the closed spaces.
     pub(in crate::app) fn space_lists(&mut self) {
@@ -462,19 +478,30 @@ impl App {
     /// The repositories oso knows, by path, with their names: the open spaces', the
     /// remembered sessions', and the projects of buffers that are no worktree git listed. A
     /// path with a control or invisible character is left out, as a candidate's text is the
-    /// answer and is shown as it is.
+    /// answer and is shown as it is. Each root is looked at once, and the listed worktrees
+    /// through one index of them.
     fn known_repositories(&self) -> Arc<[Candidate]> {
-        let mut roots: Vec<PathBuf> = self.watch.spaces().members();
-        let sessions = self.hosting.table().iter();
-        let places = sessions.filter_map(|session| session.root.clone());
-        let projects = self
+        let listed = self.listed_worktrees();
+        let worktree = |root: &Path| listed.contains(&spelled(root));
+        let mut seen: HashSet<PathBuf> = HashSet::new();
+        let mut roots: Vec<PathBuf> = Vec::new();
+        for root in self.watch.spaces().members() {
+            if seen.insert(spelled(&root)) {
+                roots.push(root);
+            }
+        }
+        let projects: HashSet<_> = self
             .editor
             .buffers()
             .filter_map(|(_, buffer)| buffer.project())
+            .collect();
+        let project_roots = projects
+            .into_iter()
             .filter_map(|id| self.editor.project(id))
             .map(|project| project.root().to_path_buf());
-        for root in places.chain(projects) {
-            if self.listed_repository_of(&root).is_none() && !roots.contains(&root) {
+        let session_roots = self.hosting.table().iter().filter_map(|s| s.root.clone());
+        for root in session_roots.chain(project_roots) {
+            if !worktree(&root) && seen.insert(spelled(&root)) {
                 roots.push(root);
             }
         }
@@ -492,7 +519,13 @@ impl App {
     }
 }
 
-/// `text` as the echo area may show it: cleaned as the list's untrusted fields are.
+/// `path` as its components spell it, for comparing paths through a set.
+fn spelled(path: &Path) -> PathBuf {
+    path.components().collect()
+}
+
+/// `text` as the echo area may show it, whole: no control or invisible character, as such a
+/// one in a directory's name could make the line read otherwise than it is.
 fn printable(text: &str) -> String {
-    crate::sessions::recap::clean(text)
+    text.chars().filter(|&c| is_plain(c)).collect()
 }

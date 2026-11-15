@@ -547,8 +547,6 @@ characters are dropped from a typed title and a line holding one is refused when
   not know yet is given by its path; its list holds the open spaces' repositories, the hosted
   sessions' project roots and the buffers' projects that are no listed worktree, leaving out a
   path with a control or invisible character.
-- **The dispatcher gains `read_for`,** which opens a command's prompt from the host, as
-  `find_file_in` does; `space-new` with no repository opens `space-add-repo`'s with it.
 - **A space's name** is never a device's on Windows (`con`, `nul`, `aux`, `prn`, `com1`–`9`,
   `lpt1`–`9` get `-space`).
 - **Instructions** are `space-instructions/<id>.md` in oso's state directory, made private on
@@ -557,6 +555,26 @@ characters are dropped from a typed title and a line holding one is refused when
   `space` menu. Its `o` and `O` are kept for steps 3 and 5.
 - **oso-core's `editor` re-exports `sessions` with a glob,** as it does `reviews`: the module's
   public items are the ones it named, and the file stays within its size.
+- **Every space command is `Person`** (the reviews, 2026-11-15; the author's OK is asked on
+  the pull request): `space-directory` makes a directory and puts a listing in front of the
+  person's keys after the command, as `dired` does, and `space-rename` writes the title the
+  orchestrator is given as the person's words. The commands table said `Look` and `Change`.
+- **The space prompts' lists are made when the sessions or the spaces change,** not with each
+  change of a session's state, and the listed worktrees are looked up through one set a make.
+- **A taken directory name costs one look,** and the directory is made new with `mkdir`, never
+  taken over; the repository check refuses the root and a directory holding the home
+  directory, which `--add-dir` would open whole; an instructions file that is a link or has a
+  second name is refused; a member's kept device and inode are never replaced.
+- **A title `space-new` waits with** is dropped once no prompt is open, so a `C-g` on
+  `space-add-repo`'s prompt does not carry it to a later one. `space-rename` while the
+  directory is made keeps the new name. Closing the last open space leaves its tree to the
+  frame and rebuilds it when it is entered again.
+- **Closing a space** goes by the state the list shows (a session whose screen was not judged
+  yet is idle), through `sessions_to_stop`, a plain function with tests.
+- **Repositories of one name** in a space are told apart with `<2>`.
+- **The worker's space jobs** are one enum, `SpaceJob`, matched whole; a repository check is
+  named by a `RepoCheck` count. The host runs `space-add-repo` with
+  `Dispatcher::run_from_host` (`dispatch/host.rs`). Session mode has `C-c S` for the menu.
 
 ## Changes to accepted ADRs
 

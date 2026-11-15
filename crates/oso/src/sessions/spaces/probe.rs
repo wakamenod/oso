@@ -20,6 +20,11 @@ const TRIES: usize = 32;
 /// directory, never in a space's own.
 const INSTRUCTIONS: &str = "space-instructions";
 
+/// A look at whether a path is a repository, by a count of this instance's, so that its answer
+/// finds what asked for it (`space-new`, `space-add-repo`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct RepoCheck(pub u64);
+
 /// A space's directory made.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Made {
@@ -28,6 +33,8 @@ pub struct Made {
     /// The name it was made under: the space's, or one with `-2` and on when that was taken
     /// on the disk.
     pub name: String,
+    /// The name it was asked for under, so that a space renamed meanwhile keeps its new name.
+    pub asked: String,
 }
 
 /// Makes the directory of a space called `name` under `root`, for `members`: under `name`,
@@ -48,12 +55,18 @@ pub fn make_directory(
         let next = unique(name, &|candidate| {
             taken(candidate) || tried.iter().any(|t| t == candidate)
         });
+        // A name taken on the disk is passed over with one look, before the checks.
+        if fs::symlink_metadata(dir::place(root, &next)).is_ok() {
+            tried.push(next);
+            continue;
+        }
         match dir::make(root, &next, members) {
             Ok((path, identity)) => {
                 return Ok(Made {
                     path,
                     identity,
                     name: next,
+                    asked: name.to_owned(),
                 });
             }
             Err(Refusal::Exists(_)) => tried.push(next),
@@ -93,6 +106,14 @@ pub fn main_checkout(path: &Path) -> Result<Member, String> {
     if !meta.is_dir() {
         return Err(format!("{shown} is no directory"));
     }
+    // The home directory, one above it, and the root are no project's (ADR 0114): a space's
+    // orchestrator would reach all of them through `--add-dir`.
+    let home = oso_platform::privacy::home().and_then(|home| fs::canonicalize(home).ok());
+    if real.parent().is_none() || home.is_some_and(|home| home.starts_with(&real)) {
+        return Err(format!(
+            "{shown} holds the home directory; add a repository inside it"
+        ));
+    }
     match fs::symlink_metadata(real.join(".git")) {
         Ok(git) if git.is_dir() && crate::project::ours(&git) => Ok(Member {
             identity: dir::identity(&meta),
@@ -113,7 +134,14 @@ pub fn main_checkout(path: &Path) -> Result<Member, String> {
 /// Why the directory may not be used, for the echo area.
 pub fn instructions_file(state: &Path, id: &str) -> Result<PathBuf, String> {
     let directory = PrivateDir::open(state.join(INSTRUCTIONS)).map_err(|e| e.to_string())?;
-    Ok(directory.path().join(format!("{id}.md")))
+    let file = directory.path().join(format!("{id}.md"));
+    // A link or a second name would show and save another file's text as the instructions.
+    match fs::symlink_metadata(&file) {
+        Ok(meta) if !meta.is_file() || !oso_platform::privacy::has_one_name(&meta) => {
+            Err(format!("{} is not a plain file of its own", file.display()))
+        }
+        _ => Ok(file),
+    }
 }
 
 #[cfg(all(test, unix))]

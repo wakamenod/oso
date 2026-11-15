@@ -82,6 +82,12 @@ fn repositories_are_added_once_up_to_the_most_and_taken_out() {
     assert!(!spaces.remove_member(at, Path::new("/r3"), 3));
     spaces.set_identity(at, Path::new("/r0"), Some((1, 2)));
     assert_eq!(spaces.stored(at).unwrap().members[0].identity, Some((1, 2)));
+    spaces.set_identity(at, Path::new("/r0"), Some((9, 9)));
+    assert_eq!(
+        spaces.stored(at).unwrap().members[0].identity,
+        Some((1, 2)),
+        "a kept identity is never replaced"
+    );
 }
 
 #[test]
@@ -93,13 +99,20 @@ fn a_directory_made_under_another_name_gives_the_space_that_name() {
     let b = spaces
         .new_space("notes", Member::at(Path::new("/b")), 1)
         .unwrap();
-    spaces.set_directory(a, PathBuf::from("/s/oso-2"), Some((3, 4)), "oso-2", 2);
+    spaces.set_directory(
+        a,
+        PathBuf::from("/s/oso-2"),
+        Some((3, 4)),
+        "oso-2",
+        "oso",
+        2,
+    );
     let stored = spaces.stored(a).unwrap();
     assert_eq!(stored.name, "oso-2");
     assert_eq!(stored.directory.as_deref(), Some(Path::new("/s/oso-2")));
     assert_eq!(stored.directory_identity, Some((3, 4)));
     // A name another space has is not taken.
-    spaces.set_directory(b, PathBuf::from("/s/oso-2x"), None, "oso-2", 3);
+    spaces.set_directory(b, PathBuf::from("/s/oso-2x"), None, "oso-2", "notes", 3);
     assert_eq!(spaces.stored(b).unwrap().name, "notes");
 }
 
@@ -203,4 +216,50 @@ fn the_space_in_fronts_repositories_are_listed_by_name() {
         spaces.members(),
         [PathBuf::from("/src/back"), PathBuf::from("/src/front")]
     );
+}
+
+#[test]
+fn a_space_renamed_while_its_directory_was_made_keeps_its_new_name() {
+    let mut spaces = recalled(1);
+    let at = spaces
+        .new_space("oso", Member::at(Path::new("/a")), 1)
+        .unwrap();
+    spaces.rename(at, "Other", 2);
+    spaces.set_directory(at, PathBuf::from("/s/oso-2"), None, "oso-2", "oso", 3);
+    assert_eq!(spaces.stored(at).unwrap().name, "other");
+}
+
+#[test]
+fn closing_stops_the_idle_sessions_unless_one_works_or_needs_input() {
+    use super::sessions_to_stop;
+    use crate::sessions::state::State;
+    let idle = vec![
+        (1, "a".to_owned(), State::Idle),
+        (2, "b".to_owned(), State::Done),
+    ];
+    assert_eq!(sessions_to_stop(idle), Ok(vec![1, 2]));
+    let busy = vec![
+        (1, "a".to_owned(), State::Idle),
+        (2, "b".to_owned(), State::Working),
+    ];
+    assert_eq!(sessions_to_stop(busy), Err("b".to_owned()));
+}
+
+#[test]
+fn two_repositories_of_one_name_are_told_apart() {
+    let mut spaces = recalled(1);
+    let at = spaces
+        .new_space("x", Member::at(Path::new("/a/app")), 1)
+        .unwrap();
+    spaces
+        .add_member(at, Member::at(Path::new("/b/app")), 1)
+        .unwrap();
+    spaces.adopt(at);
+    let names: Vec<String> = spaces
+        .member_candidates()
+        .iter()
+        .map(|c| c.text().to_owned())
+        .collect();
+    assert_eq!(names, ["app", "app<2>"]);
+    assert_eq!(spaces.member_named("app<2>"), Some(PathBuf::from("/b/app")));
 }

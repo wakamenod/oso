@@ -90,3 +90,26 @@ fn instructions_are_kept_in_a_private_directory_of_the_state_directory() {
         & 0o777;
     assert_eq!(mode, 0o700);
 }
+
+#[test]
+fn the_root_and_a_home_holding_directory_are_no_repository() {
+    assert!(
+        main_checkout(std::path::Path::new("/"))
+            .unwrap_err()
+            .contains("home")
+    );
+    if let Some(home) = oso_platform::privacy::home().filter(|home| home.join(".git").is_dir()) {
+        assert!(main_checkout(&home).is_err());
+    }
+}
+
+#[test]
+fn an_instructions_file_that_is_a_link_is_refused() {
+    let scratch = Scratch::new("link");
+    let state = scratch.0.join("oso");
+    let file = instructions_file(&state, "abc").unwrap();
+    let elsewhere = scratch.0.join("elsewhere.md");
+    fs::write(&elsewhere, "x").unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &file).unwrap();
+    assert!(instructions_file(&state, "abc").is_err());
+}

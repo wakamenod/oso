@@ -6,10 +6,10 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host.
 //!
-//! What widens or ends what agents reach, or stops sessions, is `Person`: a space's
-//! repositories become an orchestrator's `--add-dir` (step 3), and closing a space stops its
-//! idle sessions. Renaming changes words only (`Change`); showing the directory reads it
-//! (`Look`).
+//! Every one is `Person`: a space's repositories become an orchestrator's `--add-dir` (step 3),
+//! its title and name are the person's words that orchestrator is given, closing a space stops
+//! its idle sessions, and showing its directory makes it and puts a listing in front of the
+//! person's keys after the command, where the agent channel's guards no longer see it.
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{SessionRequest, SpaceRequest};
@@ -101,7 +101,7 @@ It is refused while a session of the space is working or needs input. Its idle s
             prompt: "Space title:",
             history: "space-title",
         },
-        reach: Reach::Change,
+        reach: Reach::Person,
         run: space_rename,
         state: None,
     },
@@ -119,7 +119,7 @@ They are kept in oso's state directory, never in the space's own directory or a 
         name: "space-directory",
         doc: "List the directory of the space in front, where its orchestrator works, making it first if it has none.",
         args: ArgSpec::None,
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: space_directory,
         state: None,
     },

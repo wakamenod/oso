@@ -1,8 +1,10 @@
-//! Issue spaces, step 1a (ADR 0136): the sessions an earlier oso remembered, in two
+//! Issue spaces (ADR 0136). Step 1a: the sessions an earlier oso remembered, in two
 //! repositories and a worktree of one, become two spaces of one repository each, the worktree
 //! held by its repository's, with nothing started and no space directory made; the `spaces`
 //! file keeps them, so that the next start reads the same spaces and makes none again; and
-//! `space-switch` goes from one to the other.
+//! `space-switch` goes from one to the other. Step 1b: `space-new` makes a space and its
+//! private directory, the space menu adds a repository by its path, renames, closes (stopping
+//! an idle session) and reopens, a shared root is refused, and a restart keeps it all.
 //!
 //! Must not depend on: the app's internals, or what the spaces' own tests cover: the join
 //! rule, the file's format and the directory checks.
@@ -189,6 +191,31 @@ fn answer(app: &mut crate::harness::App, label: &str, text: &str) {
     app.send_keys(&format!("{} RET", keys(text)));
 }
 
+/// Enters the first space, starts a session there, and closes the space once the session is
+/// idle: the session is stopped and the space archived.
+fn close_with_its_idle_session(app: &mut crate::harness::App) {
+    // A session of the first space, idle, is stopped when the space closes.
+    app.send_keys(&format!("C-x a j {} RET", keys("fix-login-error")));
+    app.wait_for("the first space", |state| {
+        state["sessions"]["space"] == "fix-login-error"
+    });
+    app.send_keys("C-x a c");
+    app.wait_for("its session", |state| {
+        state["sessions"]["sessions"].as_array().is_some_and(|s| {
+            s.iter()
+                .any(|s| s["space"] == "fix-login-error" && s["state"] == "idle")
+        })
+    });
+    app.send_keys("C-x a S");
+    app.send_keys("c");
+    app.wait_for("the session stopped and the space closed", |state| {
+        space(state, "fix-login-error").is_some_and(|s| s["archived"] == true)
+            && state["sessions"]["sessions"]
+                .as_array()
+                .is_some_and(|s| s.iter().all(|s| s["state"] == "stopped"))
+    });
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn the_space_commands_make_change_close_and_reopen_a_space() {
@@ -255,26 +282,7 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
         space(state, "third-title").is_some()
     });
 
-    // A session of the first space, idle, is stopped when the space closes.
-    app.send_keys(&format!("C-x a j {} RET", keys("fix-login-error")));
-    app.wait_for("the first space", |state| {
-        state["sessions"]["space"] == "fix-login-error"
-    });
-    app.send_keys("C-x a c");
-    app.wait_for("its session", |state| {
-        state["sessions"]["sessions"].as_array().is_some_and(|s| {
-            s.iter()
-                .any(|s| s["space"] == "fix-login-error" && s["state"] == "idle")
-        })
-    });
-    app.send_keys("C-x a S");
-    app.send_keys("c");
-    app.wait_for("the session stopped and the space closed", |state| {
-        space(state, "fix-login-error").is_some_and(|s| s["archived"] == true)
-            && state["sessions"]["sessions"]
-                .as_array()
-                .is_some_and(|s| s.iter().all(|s| s["state"] == "stopped"))
-    });
+    close_with_its_idle_session(&mut app);
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 

@@ -177,20 +177,6 @@ impl Dispatcher {
         redraw()
     }
 
-    /// Opens the prompt of the command `name`, as its keys would, from the host: `space-new`
-    /// with no repository to start from reads one with `space-add-repo`'s (ADR 0136, step 1b).
-    /// Nothing opens while a prompt is selected.
-    pub fn read_for(&mut self, editor: &mut Editor, name: &str) -> Effects {
-        let Some(id) = self.registry.lookup(name) else {
-            return Effects::default();
-        };
-        if refused_in_a_prompt(editor).is_some() {
-            return redraw();
-        }
-        self.run_or_read(editor, id, Args::NONE, Invocation::default())
-            .0
-    }
-
     /// Takes the directory read for `reading`, and opens its text prompt, which runs the
     /// command with both.
     pub(super) fn open_text_after(

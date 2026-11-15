@@ -107,6 +107,7 @@ impl App {
         // After the requests, so that a `session-stop` that a question's yes ran finds its
         // stop still asked.
         self.drop_unasked_stop();
+        self.forget_unanswered_space();
         self.sync_seen();
         // What the person asked shows at once; the worker's changes wait for the loop, so
         // that many make the views once.
@@ -161,9 +162,11 @@ impl App {
                 made,
                 identities,
             } => self.space_directory_made(&id, made, identities),
-            Out::RepositoryChecked { id, path, member } => {
-                self.repository_checked(&id, &path, member);
-            }
+            Out::RepositoryChecked {
+                check,
+                path,
+                member,
+            } => self.repository_checked(check, &path, member),
             Out::InstructionsReady { id, file } => self.instructions_ready(&id, file),
             Out::SpaceIds(fresh) => {
                 if self.watch.spaces_mut().give_ids(fresh) {

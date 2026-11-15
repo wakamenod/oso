@@ -55,7 +55,7 @@ pub const SESSION: &[(&str, &str)] = &[
 ];
 
 /// Session mode's menu keys (ADR 0117, ADR 0132): the review menu, as `C-x v r` elsewhere.
-pub const SESSION_MENUS: &[(&str, &str)] = &[("C-c V", "review")];
+pub const SESSION_MENUS: &[(&str, &str)] = &[("C-c V", "review"), ("C-c S", "space")];
 
 /// The keys of `*Sessions*`, above the global ones in it.
 pub const LIST: &[(&str, &str)] = &[

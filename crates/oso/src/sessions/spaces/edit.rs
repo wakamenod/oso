@@ -10,8 +10,9 @@ use std::sync::Arc;
 use oso_core::complete::Candidate;
 use oso_core::editor::Editor;
 
-use super::stored::{self, MAX_MEMBERS, Member, Stored, clean_title, same, slug, unique};
+use super::stored::{MAX_MEMBERS, Member, Stored, clean_title, same, slug, unique};
 use super::{Refused, Space, Spaces, record};
+use crate::sessions::state::State;
 
 /// Why a repository was not added to a space.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,7 +85,9 @@ impl Spaces {
         removed
     }
 
-    /// Notes the device and inode of repository `root` of space `at`, looked at on a worker.
+    /// Notes the device and inode of repository `root` of space `at`, looked at on a worker,
+    /// when none is kept: one kept is never replaced, so that a repository put in another's
+    /// place is told apart when it is checked.
     pub fn set_identity(&mut self, at: usize, root: &Path, identity: Option<(u64, u64)>) {
         let Some(space) = self.spaces.get_mut(at) else {
             return;
@@ -94,20 +97,22 @@ impl Spaces {
             .members
             .iter_mut()
             .find(|m| same(&m.root, root));
-        if let Some(member) = found.filter(|member| member.identity != identity) {
+        if let Some(member) = found.filter(|member| member.identity.is_none()) {
             member.identity = identity;
             self.unsaved = true;
         }
     }
 
     /// Notes the directory made for space `at`, and the name it was made under, which the
-    /// space then takes when no other space has it (ADR 0136, step 1b, P3).
+    /// space then takes when no other space has it and it was not renamed since it was asked
+    /// for under `asked` (ADR 0136, step 1b, P3).
     pub fn set_directory(
         &mut self,
         at: usize,
         path: PathBuf,
         identity: Option<(u64, u64)>,
         name: &str,
+        asked: &str,
         now: u64,
     ) {
         let taken = self
@@ -121,7 +126,7 @@ impl Spaces {
         let stored = &mut space.stored;
         stored.directory = Some(path);
         stored.directory_identity = identity;
-        if !taken && slug(name) == name {
+        if !taken && slug(name) == name && stored.name == asked {
             stored.name = name.to_owned();
         }
         stored.changed = now;
@@ -164,8 +169,11 @@ impl Spaces {
             match next {
                 Some(to) => self.enter(editor, to)?,
                 None => {
+                    // The frame keeps the tree, which is no space's now: entered again, the
+                    // space shows its last buffers.
                     self.current = None;
                     self.zoom = self.spaces[at].zoom.take();
+                    self.spaces[at].entered = false;
                 }
             }
         }
@@ -226,41 +234,52 @@ impl Spaces {
     }
 
     /// The candidates of `space-remove-repo`: the repositories of the space in front, by
-    /// name, with their roots.
+    /// name, two of one name told apart with `<2>` as buffers are, with their roots.
     pub fn member_candidates(&self) -> Arc<[Candidate]> {
-        let Some(space) = self.current.and_then(|at| self.spaces.get(at)) else {
-            return Arc::from([]);
-        };
-        space
-            .stored
-            .members
-            .iter()
-            .map(|member| {
-                let name = crate::sessions::recap::clean(&member.name());
-                let root = crate::sessions::recap::clean(&member.root.display().to_string());
-                Candidate::new(name.as_str(), "", root)
+        self.front_member_names()
+            .into_iter()
+            .map(|(name, root)| {
+                let shown = crate::sessions::recap::clean(&root.display().to_string());
+                Candidate::new(name.as_str(), "", shown)
             })
             .collect()
     }
 
     /// The repository of the space in front named `name`, as `space-remove-repo` lists it.
     pub fn member_named(&self, name: &str) -> Option<PathBuf> {
-        let space = self.current.and_then(|at| self.spaces.get(at))?;
-        let named = |member: &&Member| crate::sessions::recap::clean(&member.name()) == name;
-        space
-            .stored
-            .members
-            .iter()
-            .find(named)
-            .map(|member| member.root.clone())
+        self.front_member_names()
+            .into_iter()
+            .find(|(named, _)| named == name)
+            .map(|(_, root)| root)
+    }
+
+    /// The space in front's repositories by their names in it: each root's last component,
+    /// cleaned, `<2>` and on after the first of a name.
+    fn front_member_names(&self) -> Vec<(String, PathBuf)> {
+        let Some(space) = self.current.and_then(|at| self.spaces.get(at)) else {
+            return Vec::new();
+        };
+        let mut named: Vec<(String, PathBuf)> = Vec::new();
+        for member in &space.stored.members {
+            let base = crate::sessions::recap::clean(&member.name());
+            let mut name = base.clone();
+            let mut n = 2;
+            while named.iter().any(|(taken, _)| *taken == name) {
+                name = format!("{base}<{n}>");
+                n += 1;
+            }
+            named.push((name, member.root.clone()));
+        }
+        named
     }
 
     /// Every open space's repositories, each once, in the spaces' order.
     pub fn members(&self) -> Vec<PathBuf> {
+        let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
         let mut roots: Vec<PathBuf> = Vec::new();
         for space in self.spaces.iter().filter(|space| space.is_open()) {
             for member in &space.stored.members {
-                if !roots.iter().any(|root| same(root, &member.root)) {
+                if seen.insert(member.root.components().collect()) {
                     roots.push(member.root.clone());
                 }
             }
@@ -269,8 +288,23 @@ impl Spaces {
     }
 }
 
-/// `stored`'s limit on repositories, for what is said when a space is full.
-pub const MOST_MEMBERS: usize = stored::MAX_MEMBERS;
+/// Which of a space's running sessions closing it stops, as `(key, name, state)`: all of
+/// them when each is idle, done or ready for review; else the name of the first that works or
+/// needs input, and none is stopped.
+///
+/// # Errors
+///
+/// The name of a session that keeps the space open.
+pub fn sessions_to_stop<K>(sessions: Vec<(K, String, State)>) -> Result<Vec<K>, String> {
+    let mut idle = Vec::with_capacity(sessions.len());
+    for (key, name, state) in sessions {
+        match state {
+            State::Idle | State::Done | State::ReadyForReview => idle.push(key),
+            _ => return Err(name),
+        }
+    }
+    Ok(idle)
+}
 
 #[cfg(test)]
 mod tests;

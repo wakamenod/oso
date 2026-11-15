@@ -173,7 +173,7 @@ own, `~/spaces/<name>` (set `[spaces] root` in `config.toml` to put them elsewhe
 orchestrator will work. oso makes it readable by you alone, and refuses a root that other users
 can write.
 
-`C-x a S` opens the space menu for the space in front:
+`C-x a S` (`C-c S` in a session) opens the space menu for the space in front:
 
 | Key | Command | What it does |
 |---|---|---|
