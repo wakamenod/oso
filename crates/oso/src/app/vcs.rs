@@ -8,6 +8,9 @@
 //!
 //! - A status is read when its buffer becomes shown, on `g`, after each staging, and when a
 //!   file of its repository is saved while it is shown; nothing runs while it is not shown.
+//! - What an agent does runs no git (ADR 0085, ADR 0118): a save it asked for, or a status its
+//!   command left shown, only marks the status stale in its modeline, and the person's next `g`
+//!   or key in it reads it again.
 //! - Restricted projects get no status buffer, and one whose project is no longer trusted runs
 //!   nothing more.
 //! - A new text keeps each window's point on what it was on (the same hunk's line, hunk, file
@@ -53,6 +56,8 @@ pub(super) struct GitStatuses {
     open: Vec<Open>,
     serial: u64,
     generation: u64,
+    /// The event being handled is the agent channel's, so what changes is the agent's doing.
+    pub(super) by_agent: bool,
 }
 
 /// A status buffer as the app knows it.
@@ -73,6 +78,8 @@ struct Open {
     shown: bool,
     /// A read was asked while no window showed it.
     stale: bool,
+    /// What an agent did made it stale: the person's next key in it reads it.
+    agent_stale: bool,
     /// The newest text, held while the editor's text must not change.
     waiting: Option<Box<Laid>>,
     revoked: bool,
@@ -81,8 +88,9 @@ struct Open {
 impl App {
     /// After commands and after each event: takes back the trust of projects no longer
     /// trusted, forgets killed buffers, carries out what git commands asked, reads a status
-    /// that became shown, and puts in a text that waited.
-    pub(super) fn sync_git(&mut self) {
+    /// that became shown, and puts in a text that waited. `key` after the commands of a key, and
+    /// `agent` when what changed since the last look is the agent channel's doing.
+    pub(super) fn sync_git(&mut self, key: bool, agent: bool) {
         self.revoke_untrusted_git();
         let gone: Vec<usize> = (self.gits.open.iter().enumerate())
             .filter(|(_, open)| self.editor.git_status_of(open.buffer).is_none())
@@ -95,6 +103,8 @@ impl App {
         for request in self.editor.take_git_requests() {
             self.git_request(request);
         }
+        let agent = agent || self.gits.by_agent;
+        let selected = self.editor.window().buffer();
         for index in 0..self.gits.open.len() {
             let buffer = self.gits.open[index].buffer;
             let shown = self
@@ -102,10 +112,19 @@ impl App {
                 .windows()
                 .any(|window| window.buffer() == buffer);
             let open = &mut self.gits.open[index];
-            let read = shown && (!open.shown || open.stale);
+            let seen = Seen {
+                was_shown: open.shown,
+                shown,
+                stale: open.stale,
+                agent_stale: open.agent_stale,
+                keyed: key && selected == buffer,
+                agent,
+            };
             open.shown = shown;
-            if read {
-                self.git_ask(index, Ask::Read);
+            match seen.decide() {
+                Decision::Read => self.git_ask(index, Ask::Read),
+                Decision::Stale => self.mark_git_stale(index),
+                Decision::Nothing => {}
             }
         }
         self.put_in_waiting_git();
@@ -187,6 +206,7 @@ impl App {
             shown_generation: 0,
             shown: true,
             stale: false,
+            agent_stale: false,
             waiting: None,
             revoked: false,
         });
@@ -229,6 +249,10 @@ impl App {
         if matches!(ask, Ask::Read) && !open.shown {
             open.stale = true;
             return;
+        }
+        if open.agent_stale && matches!(ask, Ask::Read | Ask::Stage(..)) {
+            open.agent_stale = false;
+            self.editor.set_mode_note(open.buffer, String::new());
         }
         self.gits.generation += 1;
         let generation = self.gits.generation;
@@ -412,17 +436,76 @@ impl App {
         self.freer.free((old, old_text, refused));
     }
 
-    /// A save of `buffer` ended: the status of its repository is read again if it is shown.
-    pub(super) fn git_saved(&mut self, buffer: BufferId) {
+    /// A save of `buffer` ended: the status of its repository is read again if it is shown, or,
+    /// for a save the agent asked for, marked stale.
+    pub(super) fn git_saved(&mut self, buffer: BufferId, for_agent: bool) {
         let Some(path) = self.editor.buffer(buffer).and_then(|b| b.path()) else {
             return;
         };
         let path = path.to_path_buf();
         for index in 0..self.gits.open.len() {
             let open = &self.gits.open[index];
-            if !open.revoked && path.starts_with(open.root.path()) {
+            if open.revoked || !path.starts_with(open.root.path()) {
+                continue;
+            }
+            if for_agent {
+                self.mark_git_stale(index);
+            } else {
                 self.git_ask(index, Ask::Read);
             }
+        }
+    }
+}
+
+impl App {
+    /// Marks the status at `index` stale, as what an agent did may have changed it, and says so
+    /// in its modeline; nothing runs.
+    fn mark_git_stale(&mut self, index: usize) {
+        let open = &mut self.gits.open[index];
+        if !open.agent_stale {
+            open.agent_stale = true;
+            let note = "stale: g reads it again".to_owned();
+            self.editor.set_mode_note(open.buffer, note);
+        }
+    }
+}
+
+/// What a look at a status found, to decide whether it is read.
+#[derive(Clone, Copy, Debug)]
+struct Seen {
+    was_shown: bool,
+    shown: bool,
+    /// A read was asked while it was not shown.
+    stale: bool,
+    /// What an agent did made it stale.
+    agent_stale: bool,
+    /// A key of the person's ran in it.
+    keyed: bool,
+    /// What changed is the agent's doing.
+    agent: bool,
+}
+
+/// What a look at a status leads to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Decision {
+    Read,
+    Stale,
+    Nothing,
+}
+
+impl Seen {
+    /// A status the person made shown, or one that waited to be shown, is read; one the agent
+    /// made shown is only marked stale; one an agent made stale is read on the person's key.
+    fn decide(self) -> Decision {
+        if !self.shown {
+            return Decision::Nothing;
+        }
+        let became = !self.was_shown || self.stale;
+        match (became, self.agent) {
+            (true, false) => Decision::Read,
+            (true, true) => Decision::Stale,
+            (false, false) if self.agent_stale && self.keyed => Decision::Read,
+            _ => Decision::Nothing,
         }
     }
 }
@@ -464,3 +547,6 @@ fn first_line(built: &Built) -> usize {
         .position(|row| matches!(row, Row::Heading(_)))
         .unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests;

@@ -457,7 +457,9 @@ to run: M-x trust-project".
   shows. `g` reads it again, `q` shows the buffer before, `?` lists the keys. `C-x k` kills a
   status, and `C-x b` goes back to one.
 - It is read again when it becomes shown, on `g`, after each staging, and when a file of the
-  repository is saved while it shows, each window's point kept on what it was on.
+  repository is saved while it shows, each window's point kept on what it was on. What an agent
+  does reads nothing: its save, or a status its command left shown, says `stale: g reads it
+  again` in the modeline until the person's next key in it.
 
 ## Echo area
 

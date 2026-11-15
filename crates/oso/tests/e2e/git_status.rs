@@ -1,13 +1,15 @@
 //! A git status in a running instance (ADR 0127, step 1a): refused in a restricted project,
 //! then `C-x g` in a trusted one lists its untracked and unstaged files; `n` and `TAB` show a
 //! file's hunks; `s` stages one hunk alone, `U` unstages it, `s` on a section stages its
-//! files; `RET` visits a hunk's line; `q` goes back.
+//! files; `RET` visits a hunk's line; `q` goes back. And an agent's save in the repository
+//! runs no git: the status is only marked stale until the person's next key in it.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The layout, the
 //! staging and the keys have their own tests.
 
 use std::path::{Path, PathBuf};
 
+use super::agent::{insert, let_in};
 use super::config::set_mode;
 use super::harness::{App, Scratch};
 use super::review::{git, rows};
@@ -196,4 +198,42 @@ fn a_status_stages_a_hunk_alone_unstages_it_and_stages_a_section() {
     // `q` goes back to the file.
     app.send_keys("q");
     assert_eq!(app.state()["buffer"]["name"], "a.txt");
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_agents_save_only_marks_the_status_stale_until_the_persons_key() {
+    let scratch = Scratch::new("git-status-agent");
+    let file = project(&scratch);
+    let mut app = trusted_status(&scratch, &file);
+    rows_until(&mut app, |rows| has(rows, "M  a.txt  +2 -2"));
+    // The file beside the status, which stays selected.
+    app.send_keys(&format!("C-x 3 C-x o C-x b {} RET C-x o", typing("a.txt")));
+    assert_eq!(app.state()["buffer"]["name"], "*git: proj-git*");
+    let mut agent = let_in(&mut app);
+    agent.run("other-window", None, "look").unwrap();
+    assert_eq!(app.state()["buffer"]["name"], "a.txt");
+    insert(&mut agent, "x");
+    let saved = agent.run("save-buffer", None, "change").unwrap();
+    assert!(saved.get("waiting").is_none(), "{saved}");
+    app.wait_for("the save", |state| state["buffer"]["modified"] == false);
+    agent.run("other-window", None, "look").unwrap();
+    let state = app.wait_for("the stale mark", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("stale: g reads it again"))
+    });
+    assert_eq!(state["buffer"]["name"], "*git: proj-git*");
+    // No git ran: the status still shows the file as it was before the agent's save.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(has(&rows(&mut app, 40), "M  a.txt  +2 -2"));
+    // The person's next key in it reads it, and the mark goes.
+    app.send_keys("n");
+    let shown = rows_until(&mut app, |rows| has(rows, "M  a.txt  +3 -3"));
+    assert!(has(&shown, "M  a.txt  +3 -3"), "{shown:?}");
+    let modeline = app.state()["modeline"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    assert!(!modeline.contains("stale"), "{modeline}");
 }

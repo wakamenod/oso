@@ -80,12 +80,13 @@ impl App {
     pub(super) fn save_ended(&mut self, event_loop: &Loop<'_>, report: SaveReport) {
         let failed = report.failed();
         let (buffer, confirmed) = (report.buffer(), report.reached_the_disk());
+        let for_agent = self.agent_saving(buffer);
         self.agent_save_ended(&report);
         saver::apply(&mut self.editor, report);
         self.look_again_after_save(buffer);
         // A shown git status of the file's repository is read again (ADR 0127).
         if confirmed {
-            self.git_saved(buffer);
+            self.git_saved(buffer, for_agent);
         }
         // The save may have been of the configuration file, which is read again at once.
         self.look_at_configuration_again();

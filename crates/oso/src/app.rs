@@ -496,7 +496,7 @@ impl App {
         self.start_searches();
         self.start_reverts();
         self.sync_reviews();
-        self.sync_git();
+        self.sync_git(true, false);
         self.answer_about_copies();
         self.remember_theme();
         if effects.redraw {

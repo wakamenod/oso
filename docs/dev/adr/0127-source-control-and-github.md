@@ -548,7 +548,10 @@ agent, after ADR 0122's step 12. The plan's questions were answered (a) each:
   section's heading. A first text puts it on the first section's heading.
 - **Refresh:** when the buffer becomes shown, on `g`, after each staging, and when a save of a
   file under the repository's root reaches the disk while it shows; a read asked while it is not
-  shown waits until it is.
+  shown waits until it is. What an agent does runs no git (the author's choice, 2026-11-15, in
+  line with ADR 0118): a save the agent asked for, or a status its command left shown, only marks
+  the status stale, `stale: g reads it again` in its modeline, and the person's next `g` or key
+  in it reads it.
 - **Names and open files:** a status is named `*git: NAME*`, told apart from another buffer of
   that name by `<2>`. Files no longer listed are forgotten as open, and no more patches are read
   once those kept reach what a status shows.
