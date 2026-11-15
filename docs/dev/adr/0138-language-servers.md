@@ -9,7 +9,7 @@ The roadmap's M4 holds "Language servers: diagnostics, go to definition, complet
 that ADR 0118's rule comes first, "with the first program that opening or saving starts"
 ([roadmap](../roadmap.md)). This ADR proposes how oso talks to language servers, with the
 questions for the author under [Questions](#questions), each with the recommended option first.
-Nothing here is built yet.
+What has been built is under [As built](#as-built).
 
 What is fixed already:
 
@@ -342,9 +342,11 @@ Every bound lives in `oso-lsp`'s `limits`:
 
 | What | Bound |
 |---|---|
-| A header | 32 lines, 1 KiB a line, 4 KiB in all; `Content-Length` once, ASCII digits |
+| A header | 32 lines, 1 KiB a line, 4 KiB in all; `Content-Length` once, ASCII digits, at most 256 MiB |
 | A message | 16 MiB |
 | JSON nesting | 128 (`serde_json`'s default) |
+| JSON values in a message | 1,000,000, counted before it is parsed |
+| A URI | 16 KiB, checked before it is decoded |
 | A completion answer | 5000 items, the rest dropped |
 | A label, a detail, a diagnostic's message | 1 KiB, 4 KiB, 8 KiB |
 | Hover or documentation text | 64 KiB |
@@ -360,7 +362,10 @@ Every bound lives in `oso-lsp`'s `limits`:
 | Messages from the server | 10,000, or 256 MiB, in any 10 s |
 
 - **A message over 16 MiB is read through in 64 KiB pieces and dropped unparsed.** The framing
-  stays in step. If it was an answer, its request fails, and `*LSP*` says so.
+  stays in step. If it was an answer, its request fails, and `*LSP*` says so. So is a message
+  of more than 1,000,000 JSON values, which parsed would take hundreds of MiB.
+- **A `Content-Length` over 256 MiB is a broken header,** as no message that long can keep
+  within the flood bound: so one endless message cannot hide from it.
 - **A broken header, a message that is not JSON-RPC, a flood past the last row, or a writer queue
   past 64 MiB stops the server,** and counts as a crash. Sync cannot drop a message, so a full
   queue can only end the server.
@@ -927,3 +932,73 @@ gains `amended by 0138`.
   format, a guard test listing the `Program` kinds (`app/starts.rs`), and the
   end-to-end flow `starts.rs`: an agent's open waits for the person's key, an agent's save for
   the person's `C-x C-s`, and a restricted project holds nothing.
+
+### Step 2: `oso-lsp` without spawning
+
+- **The crate `oso-lsp`** depends on `oso-core` and `serde_json` only; the edges to
+  `oso-platform` and from the tip crate come with step 3, when something spawns. Its modules
+  are `framing`, `json`, `uri`, `position` and `limits` (`guardrails/layers.txt`, `[oso-lsp]`),
+  and its public API has a snapshot (`guardrails/public-api/oso-lsp.txt`, through the
+  `Justfile`'s `api_crates`, as the author approved).
+- **`limits`** holds every bound of the table, each with the step that enforces it, those of
+  later steps included. Three were added with the author on 2026-11-16, from this step's
+  security review: a declared `Content-Length` of at most 256 MiB, 1,000,000 JSON values,
+  and 16 KiB for a URI. It has two of its own: the size of a read and of the pieces an
+  oversized message is read through in (64 KiB), and at most 19 digits in a
+  `Content-Length`. `serde_json`'s nesting limit of 128 lets arrays and objects nest 127 deep.
+- **`framing::Reader`** reads a header of CRLF lines only: a bare LF, a CR inside a line, or
+  a byte that is not visible ASCII, a space or a tab breaks it. Header names are read without
+  case, and headers other than `Content-Length` are counted and ignored. A body grows only as
+  its bytes come. It returns `Frame::Message`, `Frame::Dropped` for a message over 16 MiB,
+  `None` at a clean end, or `FrameError::{Broken, Truncated, Io}`. A frame's `Debug` shows its
+  length, never its bytes. `encode` writes a message.
+- **`json::parse`** counts values first, one plus each `[`, `{` and `,` outside strings, an
+  upper bound on what parsing makes, and gives `JsonError::TooManyValues` past the bound: the
+  message is dropped, and the server is not stopped. `JsonError::NotJson` says where a message
+  stopped being JSON, never what it held, and does stop it. A string is cut at a character
+  boundary, an array to a count, and `uinteger` and `integer` are read in the protocol's ranges
+  (0 to 2³¹ − 1, and `i32`).
+- **`uri`** also refuses a query or fragment, a bad `%` escape, a control written as it is,
+  and segments that are empty, `.` or `..`, or hold `/` or NUL once decoded. On Windows it
+  also refuses `\`, `:` (a stream), the characters Windows forbids, a trailing dot or
+  space, and the devices' names (`NUL`, `COM1`, `LPT¹` and the rest, with any extension), and
+  reads `\\?\C:\` paths as `C:\`. A trailing `/` names nothing more. Paths are written with
+  every byte but RFC 3986's unreserved ones as `%XX`.
+- **`position`** converts in O(log n) through the rope's counts. `Encoding::chosen` reads the
+  server's `positionEncoding`: UTF-16 when it says nothing, and `None` for one oso did not
+  offer. A range that ends before it starts is read the other way round.
+- **Lines are oso's.** `\n` and `\r\n` end a line, and a lone `\r` does not, where the protocol
+  counts one too. A buffer that holds a lone `\r` is not opened with its server, as with the
+  8 MiB limit.
+- **`oso-core`** gains `TextSummary::utf16` and `Rope::offset_to_utf16` and
+  `Rope::utf16_to_offset`, O(log n), in `rope/utf16.rs`. A chunk's line breaks, characters
+  and 4-byte characters are now counted in one pass over its bytes (`rope/count.rs`), with
+  8-bit counters that run on vector lanes. On the reference Mac, `text_perf` builds a rope
+  of 100 MB of source-like text in 15.5 ms, from 24 ms before, appends it in 64 KB pieces
+  in 25 ms, from 33 ms, and types with 1000 cursors as before (p50 2.1 ms).
+- **The fake server** is the example `fake-server`, `examples/fake_server/`. It reads with
+  `framing`, and builds its replies by hand, framed by `framing::encode`. A JSON script names,
+  for each method and optionally its nth message, its replies, errors, notifications,
+  requests to the client, raw bytes, oversized messages, floods, hangs, pauses, standard error
+  and exit. `test = true` runs its script's unit tests in `just ci`. Nothing spawns it yet:
+  step 3's end-to-end flows do. Its own copy of a document's text, for step 4's property
+  tests, comes with step 4.
+- **Tests:** each bound at it and past it; round trips through reads of every size; positions
+  against a naive scan in both encodings, over texts that cross the rope's chunks; URIs
+  against a check of the path they read as that does not share the module's rules; and a
+  proptest `fuzz` target in each module's tests, with a `PROPTEST_CASES` note for a long run.
+  There is no cargo-fuzz harness, which would need `libfuzzer-sys`.
+- **Left for later steps, from this step's reviews:**
+  - Step 3: a message dropped for its size carries no id, so its request fails when its wait
+    ends, unless step 3 reads an id from its first piece. A server that chooses an encoding
+    oso did not offer is stopped, as a crash.
+  - Step 4: an edit that splits a `\r\n`, or leaves a lone `\r`, in an open document would put
+    the server's copy out of step: oso and the server would count that line differently from
+    there. Each batch is checked against the rope after it, O(splices), and such a batch is
+    sent as the whole text, or the document is closed. The same holds for a document that grows
+    past 8 MiB. Step 4's property tests put `\r` among their characters.
+  - Steps 4 and 8: `uri`'s rules are rules of text. A path that the system maps to another
+    computer (macOS's `/net` automount, a mapped drive on Windows), a device file on Unix, or a
+    Windows 8.3 short name such as `ENV~1` passes them. What opens a path from a server goes
+    through the loader's checks of a regular file, and whether it may hold secrets is judged
+    from the file opened.

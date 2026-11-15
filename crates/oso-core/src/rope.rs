@@ -26,7 +26,9 @@ use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete};
 use crate::sum_tree::{Bias, Cursor, Dimension, Item, SumTree, Summary};
 
 mod compare;
+mod count;
 mod lines;
+mod utf16;
 
 pub use lines::Lines;
 
@@ -69,23 +71,24 @@ pub struct TextSummary {
     pub lines: usize,
     /// Bytes after the last line break, or all bytes if there is none.
     pub last_line_bytes: usize,
+    /// Length in UTF-16 code units, for language servers' positions (ADR 0138).
+    pub utf16: usize,
 }
 
 impl TextSummary {
     /// Summarizes `text`.
     pub fn from_text(text: &str) -> Self {
-        // `\r\n` contains exactly one `\n`, and a lone `\r` is no break, so
-        // counting `\n` counts line breaks.
-        let lines = text.bytes().filter(|&byte| byte == b'\n').count();
+        let counts = count::counts(text);
         let last_line_bytes = match text.rfind('\n') {
             Some(index) => text.len() - index - 1,
             None => text.len(),
         };
         Self {
             bytes: text.len(),
-            chars: text.chars().count(),
-            lines,
+            chars: counts.chars,
+            lines: counts.lines,
             last_line_bytes,
+            utf16: counts.chars + counts.four_byte_chars,
         }
     }
 }
@@ -94,6 +97,7 @@ impl Summary for TextSummary {
     fn add_summary(&mut self, other: &Self) {
         self.bytes += other.bytes;
         self.chars += other.chars;
+        self.utf16 += other.utf16;
         if other.lines > 0 {
             self.lines += other.lines;
             self.last_line_bytes = other.last_line_bytes;

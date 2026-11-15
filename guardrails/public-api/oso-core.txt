@@ -4749,6 +4749,9 @@ pub fn oso_core::rope::Rope::push_str(&mut self, &str) -> oso_core::rope::RopeEd
 pub fn oso_core::rope::Rope::replace(&mut self, core::ops::range::Range<usize>, &str) -> oso_core::rope::RopeEdit
 pub fn oso_core::rope::Rope::slice(&self, core::ops::range::Range<usize>) -> oso_core::rope::Rope
 pub fn oso_core::rope::Rope::summary(&self) -> &oso_core::rope::TextSummary
+impl oso_core::rope::Rope
+pub fn oso_core::rope::Rope::offset_to_utf16(&self, usize) -> usize
+pub fn oso_core::rope::Rope::utf16_to_offset(&self, usize) -> usize
 impl core::clone::Clone for oso_core::rope::Rope
 pub fn oso_core::rope::Rope::clone(&self) -> oso_core::rope::Rope
 impl core::convert::From<&str> for oso_core::rope::Rope
@@ -4779,6 +4782,7 @@ pub oso_core::rope::TextSummary::bytes: usize
 pub oso_core::rope::TextSummary::chars: usize
 pub oso_core::rope::TextSummary::last_line_bytes: usize
 pub oso_core::rope::TextSummary::lines: usize
+pub oso_core::rope::TextSummary::utf16: usize
 impl oso_core::rope::TextSummary
 pub fn oso_core::rope::TextSummary::from_text(&str) -> Self
 impl core::clone::Clone for oso_core::rope::TextSummary

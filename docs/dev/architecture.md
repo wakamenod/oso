@@ -41,6 +41,10 @@ crates/
 │                   escape-sequence policy, a thread per terminal and its
 │                   snapshots; the key encoder and search from steps 4 and 5;
 │                   only the tip crate uses it (ADR 0120)
+├── oso-lsp/        the language server client: framing, bounded JSON,
+│                   `file:` URIs, positions and every bound; a fake server
+│                   for tests as an example; only the tip crate will use it
+│                   (ADR 0138)
 └── oso-platform/   OS abstractions: the text-system trait and its
                     shaping/rasterizing backends, the window layer,
                     clipboard, filesystem and paths (the home
@@ -74,7 +78,9 @@ those two depends on another workspace crate. Only `oso-render` uses wgpu, only
 builds from the release `crates/oso-term/ghostty-vt.lock` pins, with oso's patch in
 `crates/oso-term/patches/` applied and checked: run `just ghostty-vt` once to
 fetch and check its tarballs, with Zig 0.17, minisign and `patch` installed. All of its `unsafe` is in
-`engine/ghostty`'s `ffi` and `raw`. These rules, and the allowed layers of
+`engine/ghostty`'s `ffi` and `raw`. `oso-lsp` depends on `oso-core` (and on `oso-platform` once
+it spawns servers), and only the tip crate is to use it
+([ADR 0138](adr/0138-language-servers.md)). These rules, and the allowed layers of
 modules inside each crate, are listed in
 [`guardrails/layers.txt`](../../guardrails/layers.txt) and enforced by
 `crates/oso/tests/architecture`

@@ -1,0 +1,156 @@
+pub mod oso_lsp
+pub mod oso_lsp::framing
+pub enum oso_lsp::framing::Broken
+pub oso_lsp::framing::Broken::BadLength
+pub oso_lsp::framing::Broken::BadLine
+pub oso_lsp::framing::Broken::LengthTwice
+pub oso_lsp::framing::Broken::LineTooLong
+pub oso_lsp::framing::Broken::NoLength
+pub oso_lsp::framing::Broken::NoName
+pub oso_lsp::framing::Broken::TooLong
+pub oso_lsp::framing::Broken::TooManyLines
+impl core::clone::Clone for oso_lsp::framing::Broken
+pub fn oso_lsp::framing::Broken::clone(&self) -> oso_lsp::framing::Broken
+impl core::cmp::Eq for oso_lsp::framing::Broken
+impl core::cmp::PartialEq for oso_lsp::framing::Broken
+pub fn oso_lsp::framing::Broken::eq(&self, &oso_lsp::framing::Broken) -> bool
+impl core::convert::From<oso_lsp::framing::Broken> for oso_lsp::framing::FrameError
+pub fn oso_lsp::framing::FrameError::from(oso_lsp::framing::Broken) -> Self
+impl core::fmt::Debug for oso_lsp::framing::Broken
+pub fn oso_lsp::framing::Broken::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_lsp::framing::Broken
+pub fn oso_lsp::framing::Broken::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_lsp::framing::Broken
+impl core::marker::StructuralPartialEq for oso_lsp::framing::Broken
+pub enum oso_lsp::framing::Frame
+pub oso_lsp::framing::Frame::Dropped
+pub oso_lsp::framing::Frame::Dropped::len: u64
+pub oso_lsp::framing::Frame::Message(alloc::vec::Vec<u8>)
+impl core::clone::Clone for oso_lsp::framing::Frame
+pub fn oso_lsp::framing::Frame::clone(&self) -> oso_lsp::framing::Frame
+impl core::cmp::Eq for oso_lsp::framing::Frame
+impl core::cmp::PartialEq for oso_lsp::framing::Frame
+pub fn oso_lsp::framing::Frame::eq(&self, &oso_lsp::framing::Frame) -> bool
+impl core::fmt::Debug for oso_lsp::framing::Frame
+pub fn oso_lsp::framing::Frame::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_lsp::framing::Frame
+pub enum oso_lsp::framing::FrameError
+pub oso_lsp::framing::FrameError::Broken(oso_lsp::framing::Broken)
+pub oso_lsp::framing::FrameError::Io(core::io::error::ErrorKind)
+pub oso_lsp::framing::FrameError::Truncated
+impl core::cmp::Eq for oso_lsp::framing::FrameError
+impl core::cmp::PartialEq for oso_lsp::framing::FrameError
+pub fn oso_lsp::framing::FrameError::eq(&self, &oso_lsp::framing::FrameError) -> bool
+impl core::convert::From<oso_lsp::framing::Broken> for oso_lsp::framing::FrameError
+pub fn oso_lsp::framing::FrameError::from(oso_lsp::framing::Broken) -> Self
+impl core::fmt::Debug for oso_lsp::framing::FrameError
+pub fn oso_lsp::framing::FrameError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_lsp::framing::FrameError
+pub fn oso_lsp::framing::FrameError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_lsp::framing::FrameError
+pub struct oso_lsp::framing::Reader<R>
+impl<R: std::io::Read> oso_lsp::framing::Reader<R>
+pub fn oso_lsp::framing::Reader<R>::new(R) -> Self
+pub fn oso_lsp::framing::Reader<R>::next_frame(&mut self) -> core::result::Result<core::option::Option<oso_lsp::framing::Frame>, oso_lsp::framing::FrameError>
+pub fn oso_lsp::framing::encode(&[u8]) -> alloc::vec::Vec<u8>
+pub mod oso_lsp::json
+pub enum oso_lsp::json::JsonError
+pub oso_lsp::json::JsonError::NotJson
+pub oso_lsp::json::JsonError::NotJson::column: usize
+pub oso_lsp::json::JsonError::NotJson::line: usize
+pub oso_lsp::json::JsonError::TooManyValues
+impl core::clone::Clone for oso_lsp::json::JsonError
+pub fn oso_lsp::json::JsonError::clone(&self) -> oso_lsp::json::JsonError
+impl core::cmp::Eq for oso_lsp::json::JsonError
+impl core::cmp::PartialEq for oso_lsp::json::JsonError
+pub fn oso_lsp::json::JsonError::eq(&self, &oso_lsp::json::JsonError) -> bool
+impl core::fmt::Debug for oso_lsp::json::JsonError
+pub fn oso_lsp::json::JsonError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_lsp::json::JsonError
+pub fn oso_lsp::json::JsonError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_lsp::json::JsonError
+impl core::marker::StructuralPartialEq for oso_lsp::json::JsonError
+pub fn oso_lsp::json::array(&serde_json::value::Value, usize) -> core::option::Option<&[serde_json::value::Value]>
+pub fn oso_lsp::json::integer(&serde_json::value::Value) -> core::option::Option<i32>
+pub fn oso_lsp::json::integer_in(&serde_json::value::Value, core::ops::range::RangeInclusive<i64>) -> core::option::Option<i64>
+pub fn oso_lsp::json::parse(&[u8]) -> core::result::Result<serde_json::value::Value, oso_lsp::json::JsonError>
+pub fn oso_lsp::json::string(&serde_json::value::Value, usize) -> core::option::Option<&str>
+pub fn oso_lsp::json::uinteger(&serde_json::value::Value) -> core::option::Option<u32>
+pub mod oso_lsp::limits
+pub const oso_lsp::limits::ADDITIONAL_EDITS_BYTES_MAX: usize
+pub const oso_lsp::limits::ADDITIONAL_EDITS_MAX: usize
+pub const oso_lsp::limits::COMPLETION_ITEMS_MAX: usize
+pub const oso_lsp::limits::COMPLETION_WAIT: core::time::Duration
+pub const oso_lsp::limits::CONTENT_LENGTH_DIGITS_MAX: usize
+pub const oso_lsp::limits::DECLARED_BYTES_MAX: u64
+pub const oso_lsp::limits::DEFINITION_WAIT: core::time::Duration
+pub const oso_lsp::limits::DETAIL_BYTES_MAX: usize
+pub const oso_lsp::limits::DIAGNOSED_DOCUMENTS_MAX: usize
+pub const oso_lsp::limits::DIAGNOSTICS_MAX: usize
+pub const oso_lsp::limits::DIAGNOSTIC_MESSAGE_BYTES_MAX: usize
+pub const oso_lsp::limits::DOCUMENT_BYTES_MAX: usize
+pub const oso_lsp::limits::FLOOD_BYTES_MAX: usize
+pub const oso_lsp::limits::FLOOD_MESSAGES_MAX: usize
+pub const oso_lsp::limits::FLOOD_WINDOW: core::time::Duration
+pub const oso_lsp::limits::HEADER_BYTES_MAX: usize
+pub const oso_lsp::limits::HEADER_LINES_MAX: usize
+pub const oso_lsp::limits::HEADER_LINE_BYTES_MAX: usize
+pub const oso_lsp::limits::HOVER_BYTES_MAX: usize
+pub const oso_lsp::limits::INITIALIZE_WAIT: core::time::Duration
+pub const oso_lsp::limits::JSON_DEPTH_LIMIT: usize
+pub const oso_lsp::limits::JSON_VALUES_MAX: usize
+pub const oso_lsp::limits::KEPT_VERSIONS_MAX: usize
+pub const oso_lsp::limits::LABEL_BYTES_MAX: usize
+pub const oso_lsp::limits::LOCATIONS_MAX: usize
+pub const oso_lsp::limits::MESSAGE_BYTES_MAX: usize
+pub const oso_lsp::limits::READ_PIECE: usize
+pub const oso_lsp::limits::REPORT_INTERVAL: core::time::Duration
+pub const oso_lsp::limits::SHOW_MESSAGE_INTERVAL: core::time::Duration
+pub const oso_lsp::limits::SHUTDOWN_WAIT: core::time::Duration
+pub const oso_lsp::limits::STDERR_KEPT_BYTES: usize
+pub const oso_lsp::limits::URI_BYTES_MAX: usize
+pub const oso_lsp::limits::WRITER_QUEUE_BYTES_MAX: usize
+pub mod oso_lsp::position
+pub enum oso_lsp::position::Encoding
+pub oso_lsp::position::Encoding::Utf16
+pub oso_lsp::position::Encoding::Utf8
+impl oso_lsp::position::Encoding
+pub const oso_lsp::position::Encoding::OFFERED: [&str; 2]
+pub fn oso_lsp::position::Encoding::chosen(core::option::Option<&str>) -> core::option::Option<Self>
+impl core::clone::Clone for oso_lsp::position::Encoding
+pub fn oso_lsp::position::Encoding::clone(&self) -> oso_lsp::position::Encoding
+impl core::cmp::Eq for oso_lsp::position::Encoding
+impl core::cmp::PartialEq for oso_lsp::position::Encoding
+pub fn oso_lsp::position::Encoding::eq(&self, &oso_lsp::position::Encoding) -> bool
+impl core::fmt::Debug for oso_lsp::position::Encoding
+pub fn oso_lsp::position::Encoding::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_lsp::position::Encoding
+impl core::marker::StructuralPartialEq for oso_lsp::position::Encoding
+pub struct oso_lsp::position::Position
+pub oso_lsp::position::Position::character: u32
+pub oso_lsp::position::Position::line: u32
+impl oso_lsp::position::Position
+pub const fn oso_lsp::position::Position::new(u32, u32) -> Self
+impl core::clone::Clone for oso_lsp::position::Position
+pub fn oso_lsp::position::Position::clone(&self) -> oso_lsp::position::Position
+impl core::cmp::Eq for oso_lsp::position::Position
+impl core::cmp::Ord for oso_lsp::position::Position
+pub fn oso_lsp::position::Position::cmp(&self, &oso_lsp::position::Position) -> core::cmp::Ordering
+impl core::cmp::PartialEq for oso_lsp::position::Position
+pub fn oso_lsp::position::Position::eq(&self, &oso_lsp::position::Position) -> bool
+impl core::cmp::PartialOrd for oso_lsp::position::Position
+pub fn oso_lsp::position::Position::partial_cmp(&self, &oso_lsp::position::Position) -> core::option::Option<core::cmp::Ordering>
+impl core::default::Default for oso_lsp::position::Position
+pub fn oso_lsp::position::Position::default() -> oso_lsp::position::Position
+impl core::fmt::Debug for oso_lsp::position::Position
+pub fn oso_lsp::position::Position::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_lsp::position::Position
+pub fn oso_lsp::position::Position::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_lsp::position::Position
+impl core::marker::StructuralPartialEq for oso_lsp::position::Position
+pub fn oso_lsp::position::from_offset(&oso_core::rope::Rope, usize, oso_lsp::position::Encoding) -> oso_lsp::position::Position
+pub fn oso_lsp::position::to_offset(&oso_core::rope::Rope, oso_lsp::position::Position, oso_lsp::position::Encoding) -> usize
+pub fn oso_lsp::position::to_range(&oso_core::rope::Rope, oso_lsp::position::Position, oso_lsp::position::Position, oso_lsp::position::Encoding) -> core::ops::range::Range<usize>
+pub mod oso_lsp::uri
+pub fn oso_lsp::uri::from_path(&std::path::Path) -> core::option::Option<alloc::string::String>
+pub fn oso_lsp::uri::to_path(&str) -> core::option::Option<std::path::PathBuf>
