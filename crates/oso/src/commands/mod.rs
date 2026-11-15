@@ -15,6 +15,7 @@ mod complete;
 mod cursors;
 #[cfg(feature = "dev")]
 mod dev_tools;
+pub(crate) mod dired;
 mod edit;
 pub use edit::MAX_CROSSINGS;
 mod files;
@@ -81,6 +82,7 @@ const TABLES: &[&[Command]] = &[
     cursors::COMMANDS,
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
+    dired::COMMANDS,
     edit::COMMANDS,
     files::COMMANDS,
     indent::COMMANDS,
@@ -282,7 +284,15 @@ mod tests {
         // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
         "consult-mark",
         // Opening and writing files by a path the person typed (ADR 0087); the channel has
-        // its own `open`.
+        // its own `open`. `dired` reads its directory in the same prompt, and the listing's
+        // commands that open a file, show a buffer or write the clipboard do so in the host,
+        // after the command, where the channel's guards no longer see it (ADR 0134).
+        "dired",
+        "dired-copy-filename-as-kill",
+        "dired-find-file",
+        "dired-find-file-other-window",
+        "dired-jump",
+        "quit-window",
         "find-file",
         "open-large-file",
         "open-menu",

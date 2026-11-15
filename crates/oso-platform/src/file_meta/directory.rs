@@ -1,6 +1,7 @@
 //! A directory opened to list it and to open what it holds relative to itself, following no
-//! link on the way, as a project's walk needs (ADR 0114), and to make a directory or a new file
-//! in it the same way, as a worktree session's copies need (ADR 0121).
+//! link on the way, as a project's walk needs (ADR 0114), to make a directory or a new file
+//! in it the same way, as a worktree session's copies need (ADR 0121), and to list it with
+//! what each entry is, as the directory editor shows it (ADR 0134).
 //!
 //! Must not depend on: `control`, `privacy`, `process` or `text`.
 //!
@@ -13,6 +14,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs::{File, Metadata};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 /// What an entry of a directory is, without following it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,6 +31,25 @@ pub enum EntryKind {
 pub struct Entry {
     pub name: OsString,
     pub kind: EntryKind,
+}
+
+/// One entry of a directory with what a listing shows of it, read without following it
+/// (ADR 0134).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EntryMeta {
+    pub name: OsString,
+    pub kind: EntryKind,
+    /// The mode as `ls -l` reads it, its type bits with its permissions, on Unix; 0 elsewhere.
+    pub mode: u32,
+    /// Its size in bytes: for a link, its target's length in bytes, as `lstat` says.
+    pub len: u64,
+    pub modified: Option<SystemTime>,
+    /// Its owner's and group's ids, on Unix.
+    pub owner: Option<(u32, u32)>,
+    /// Someone other than this user owns it. Always false where owners are not read.
+    pub others: bool,
+    /// Its attribute bits on Windows (`FILE_ATTRIBUTE_*`); 0 elsewhere.
+    pub attributes: u32,
 }
 
 /// An open directory. See the module.
@@ -125,6 +146,34 @@ impl Directory {
     /// If it cannot be read. An entry that cannot be looked at is an error of its own.
     pub fn entries(&self) -> io::Result<Entries> {
         backend::entries(&self.inner)
+    }
+
+    /// Its entries with what a listing shows of each, `.` and `..` left out, read without
+    /// following any of them, handed to `each` as they are read, until it says `false`. On
+    /// macOS they come in batches from `getattrlistbulk`, elsewhere on Unix one `fstatat` an
+    /// entry, and on Windows with the names. An entry that cannot be looked at is handed as an
+    /// error, and the listing goes on. It touches the disk, so it belongs off the UI thread.
+    ///
+    /// # Errors
+    ///
+    /// If it cannot be read at all, or reading it fails part way.
+    pub fn list_with_metadata(
+        &self,
+        each: &mut dyn FnMut(io::Result<EntryMeta>) -> bool,
+    ) -> io::Result<()> {
+        backend::list_with_metadata(&self.inner, each)
+    }
+
+    /// What is where the entry `name` leads, following it if it is a link, as a listing says
+    /// whether a link leads to a directory. It touches the disk, and may wait for another file
+    /// system, so it belongs off the UI thread.
+    ///
+    /// # Errors
+    ///
+    /// If `name` is not one entry's name, or it cannot be followed, with `NotFound` if nothing
+    /// is where it leads.
+    pub fn target_kind(&self, name: &OsStr) -> io::Result<EntryKind> {
+        backend::target_kind(&self.inner, name)
     }
 
     /// What the entry `name` is, not following it. It touches the disk, so it belongs off the

@@ -36,6 +36,14 @@ impl Buffer {
         }
     }
 
+    /// Judges a directory listing as its directory's place says (ADR 0134). Its whole text is
+    /// replaced with each listing, with no undo, so a listing that moves to another directory
+    /// takes that one's verdict, stricter or not.
+    pub(crate) fn set_listing_verdict(&mut self, verdict: Verdict) {
+        self.verdict = verdict;
+        self.recheck_highlighting();
+    }
+
     /// Whether the editor keeps this buffer for itself. It is not the user's work:
     /// it is not handed over, saved or counted at an exit.
     pub fn is_internal(&self) -> bool {

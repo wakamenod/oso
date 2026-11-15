@@ -402,6 +402,28 @@ project and how long ago the baseline was taken. Only a trusted project runs git
 - In a restricted project the commands and the menu's heads say "Reviewing runs git, which this
   project is not trusted to run: M-x trust-project".
 
+## Directory listings
+
+`C-x d` reads a directory and `C-x C-j` lists the one of the buffer's file, with point on the
+file, in a listing buffer named after the directory, `crates/`, as Emacs's dired shows it
+([ADR 0134](adr/0134-a-directory-editor.md)). Listing runs nothing and opens no file.
+
+- The first line is the directory, the home directory as `~`. Each row is the mode as `ls -l`
+  writes it, the owner and group only when someone else owns a row, the size as `ls -h` (`-` for
+  a directory), the time as `ls` and the name, a link's target after `->`; directories first,
+  then by name or, with `s`, newest first. Backups ending in `~` are left out. `(` shows names
+  only. The modeline says `Dired by name` or `Dired by date`.
+- Names are in faces by kind: directories, links, broken links, files someone may run, and pipes,
+  sockets and devices; the details are dim. A line break in a name shows as `\n`.
+- A large directory shows what it has read every 50 ms, under `reading… N entries so far`; one
+  that cannot be read says why.
+- `n`/`p` (and `SPC`) go by rows to the name, `RET` (or `f`) opens a file or lists a directory in
+  the same buffer, `o` does it in another window, `^` lists the directory above with point on
+  the one left, `g` lists it again, `w` copies the names at the cursors (`0 w` their absolute
+  paths), `q` shows the buffer before. `C-x k` kills a listing, and `C-x b` goes back to one.
+- A shown listing is listed again within a second of its directory changing, each window's
+  point on the name it was on.
+
 ## Echo area
 
 - A single line at the bottom of the frame shows messages such as "Saved"

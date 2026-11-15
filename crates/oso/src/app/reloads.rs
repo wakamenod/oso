@@ -80,6 +80,15 @@ struct Running {
 impl App {
     /// The watcher saw something new.
     pub(super) fn watch_reported(&mut self) {
+        // The directory editor's shown listings (ADR 0134).
+        if let Some(seen) = self
+            .disk
+            .watcher
+            .as_ref()
+            .and_then(Watcher::take_directories)
+        {
+            self.listing_stamps_seen(seen);
+        }
         let Some((generation, mut seen)) = self.disk.watcher.as_ref().and_then(Watcher::take)
         else {
             return;
@@ -126,6 +135,11 @@ impl App {
     pub(super) fn check_disk(&mut self) {
         if std::mem::take(&mut self.disk.files_changed) {
             self.sync_watched_files();
+        }
+        if let Some(directories) = self.listings_to_watch()
+            && let Some(watcher) = &self.disk.watcher
+        {
+            watcher.watch_directories(directories);
         }
         let fresh = std::mem::take(&mut self.disk.fresh);
         let disk = &self.disk;
