@@ -34,7 +34,8 @@ escape-sequence policy, and a thread per terminal that owns its PTY, its child a
   ReleaseSafe, an hour each, on the Mac mini, and on Linux) before it lands. `build.rs` never
   downloads; `just ghostty-vt` fetches and checks the tarballs.
 - `build.rs` keeps the archive Zig built in the profile directory (`ghostty-vt-cache/<key>`,
-  `build/archive_cache.rs`), as cargo runs it once per feature set. The key is the sha256 of
+  `build/archive_cache.rs`), as cargo runs it once for each set of features in the crate's
+  dependency tree: `oso-platform`'s `dev` makes a second one. The key is the sha256 of
   the lock, `build.rs`, the optimize mode, the target, the host and Zig's version: change any
   of them, or what decides Zig's arguments, only in those. The archive is reused only through
   plain directories and files and when its recorded sha256 matches; every other check runs
@@ -46,7 +47,7 @@ escape-sequence policy, and a thread per terminal that owns its PTY, its child a
   a thread stops reading and writes the terminal's state (`terminal/thread/handoff.rs`, `engine/ghostty/carry.rs`),
   and a terminal is adopted from it with its master attached later. The state is escape
   sequences for now: oso's third patch gives a restored page a live page's capacity and caps a
-  snapshot's size, but `SNAPSHOTS` in `terminal/thread/handoff.rs` stays off until a later patch
+  snapshot's size, but `SNAPSHOTS` in `engine/ghostty/carry.rs` stays off until a later patch
   closes the remaining cases where a restored terminal reflows differently from a live one; only
   then may it turn the library's snapshot on, after `terminal::fuzz::restore` runs clean (a
   restored terminal stopping on nothing a live terminal fed the same input does not) with and

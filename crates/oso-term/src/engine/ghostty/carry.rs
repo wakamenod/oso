@@ -10,6 +10,13 @@ use super::Ghostty;
 use super::raw::Vt;
 pub(crate) use super::raw::snapshot::{Encoding, NotEncoded};
 
+/// Whether a terminal exported for the same library is written as the library's snapshot. Off
+/// until oso's patches to the library let a restored terminal reflow as a live one does
+/// (ADR 0120, step 11 as built; ADR 0133): until then every terminal travels as escape
+/// sequences, a state said to be a snapshot is not restored, and no terminal keeps a sequence
+/// its program has not finished, which only the snapshot carries.
+pub(crate) const SNAPSHOTS: bool = false;
+
 /// The lock file the library was built from: its version, oso's patches and their hashes.
 const LOCK: &[u8] = include_bytes!("../../../ghostty-vt.lock");
 

@@ -29,6 +29,8 @@ mod other;
 mod tests;
 #[cfg(unix)]
 mod unix;
+#[cfg(unix)]
+pub(super) use unix::{mark_close_on_exec, open_limit};
 
 #[cfg(not(unix))]
 use other as imp;
@@ -175,11 +177,4 @@ pub struct Ready {
 /// child `command` starts.
 pub(super) fn run_in(slave: &Slave, command: &mut Command) -> io::Result<()> {
     imp::run_in(&slave.0, command)
-}
-
-/// Gives the child `command` starts `fd` as its descriptor 3, and every other descriptor of
-/// this process close-on-exec, as a terminal's child gets them (ADR 0133).
-#[cfg(unix)]
-pub(super) fn pass_in(fd: std::os::fd::BorrowedFd<'_>, command: &mut Command) -> io::Result<()> {
-    unix::pass_in(fd, command)
 }

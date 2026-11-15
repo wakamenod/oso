@@ -40,6 +40,12 @@ impl App {
 
     /// Starts the channel on a thread of its own, as it checks and binds in the file system.
     pub(in crate::app) fn start_agent_channel(&mut self) {
+        // Nothing an agent sees or does may reach a restart under way (ADR 0133, T-agent).
+        if self.restart_holds_the_channel(crate::app::restart::Wanted::Person) {
+            self.editor
+                .message("The agent channel starts once the restart is over");
+            return;
+        }
         self.agent.stop_when_started = false;
         if self.agent.channel.is_some() || self.agent.starting {
             // Asked for by the person or the configuration: no refused session start turns

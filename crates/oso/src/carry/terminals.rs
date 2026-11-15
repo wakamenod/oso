@@ -1,9 +1,10 @@
-//! The terminals a state carries over `oso dev`'s restart (ADR 0120, step 11): what each
+//! The terminals a state carries over a restart (ADR 0120, step 11; ADR 0133): what each
 //! entry says beside its item, which holds the terminal's state in base64, and reading them
 //! back, checking everything before anything changes. The masters do not travel in the state:
-//! the supervisor carries them with `SCM_RIGHTS`, in the order of the entries.
+//! they go with `SCM_RIGHTS`, through `oso dev`'s supervisor or over `oso-restart`'s pair,
+//! in the order of the entries.
 //!
-//! Must not depend on: `app`, `server`, sockets or the terminals themselves; these are plain
+//! Must not depend on: `app`, `dev`, sockets or the terminals themselves; these are plain
 //! functions of what the app hands them.
 
 use std::path::PathBuf;

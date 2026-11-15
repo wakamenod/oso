@@ -29,9 +29,6 @@ use crate::snapshot::Snapshot;
 use crate::terminal::Request;
 use crate::terminal::handoff::{Adopt, Encoding, Exported, NotExported, Request as Asked};
 
-/// Whether a terminal exported for the same library is written as the library's snapshot.
-const SNAPSHOTS: bool = false;
-
 /// How often input waiting to be written is tried again while the thread reads nothing.
 const WRITE_AGAIN: Duration = Duration::from_millis(10);
 
@@ -97,7 +94,7 @@ impl Running<'_> {
     ) -> Result<Exported, NotExported> {
         // The library's snapshot is off until a patch to the library (ADR 0120, step 11 as
         // built): every terminal travels as escape sequences.
-        let written = if SNAPSHOTS && library == carry::library() {
+        let written = if carry::SNAPSHOTS && library == carry::library() {
             Written::Snapshot
         } else {
             Written::Escapes
@@ -204,7 +201,7 @@ pub(in crate::terminal) fn adopt(adopt: Adopt, hold_limit: Duration, channels: C
         let written = match encoding {
             // Until the snapshot is on, its decoder reads nothing another instance sent
             // (ADR 0133, T-parse): such a terminal is not restored.
-            Encoding::Snapshot if !SNAPSHOTS => {
+            Encoding::Snapshot if !carry::SNAPSHOTS => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "this build restores no snapshot",

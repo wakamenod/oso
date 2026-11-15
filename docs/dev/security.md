@@ -645,7 +645,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   cargo's message and span, never its rendered text with escape sequences.
 - Dev builds trust the same user: any process running as the same user can
   run any command through the socket. Release builds contain none of this, only the agent
-  channel above, with its own socket and fewer methods.
+  channel above, with its own socket and fewer methods, and the state handoff for the person's
+  `oso-restart`, over a socket pair with its own child and none of the dev methods
+  ([ADR 0133](adr/0133-keeping-terminals-over-an-update.md)).
   This is reviewed when commands that spawn processes arrive (M3 onward)
   ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). A sandboxed
   client of the same user is trusted too, so giving it the socket gives it what

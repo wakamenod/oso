@@ -15,6 +15,9 @@
 //! time, between the export and the import, and only one piece is held here at once
 //! (ADR 0090). Why a restart waits goes to the old instance's echo area.
 //!
+//! `carry::going` is the same order for `oso-restart`, run by the instance going itself over a
+//! socket pair (ADR 0133): a change to one is a change to the other.
+//!
 //! Running terminals go too (ADR 0120, step 11). After the import, the old instance hands
 //! the supervisor a descriptor for each PTY's master, and the `exit` that follows lets the
 //! terminals go there; only once it has gone do the masters reach the new instance. So one
@@ -381,30 +384,17 @@ fn give_up_terminals<I: Instance>(mut new: I, reason: String, terminals: usize) 
     give_up(new, reason)
 }
 
-/// Moves each item `state` names from `old` to `new`, a piece at a time. A state with no
-/// items names none.
+/// Moves each item `state` names from `old` to `new`, a piece at a time, as `oso-restart`
+/// moves them over its pair (`carry::pieces::relay`).
 fn carry<I: Instance>(old: &mut I, new: &mut I, state: &Value) -> Result<(), String> {
-    let Some(items) = state["items"].as_array() else {
-        return Ok(());
-    };
-    let export = state["export"].clone();
-    for (item, len) in items.iter().enumerate() {
-        let len = len.as_u64().ok_or("an item has no length")?;
-        let mut offset = 0;
-        while offset < len {
+    crate::carry::pieces::relay(
+        state,
+        |export, item, offset| {
             let at = json!({ "export": export, "item": item, "offset": offset });
-            let mut piece = old.call("export-text", Some(at.clone()))?;
-            let end = piece["end"]
-                .as_u64()
-                .filter(|&end| end > offset && end <= len)
-                .ok_or("a piece does not move on")?;
-            let mut params = at;
-            params["text"] = piece["text"].take();
-            new.call("import-text", Some(params))?;
-            offset = end;
-        }
-    }
-    Ok(())
+            old.call("export-text", Some(at))
+        },
+        |piece| new.call("import-text", Some(piece)).map(drop),
+    )
 }
 
 /// Says `text` in `instance`'s echo area and `*Messages*`, cut to what it takes. An

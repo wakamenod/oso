@@ -17,7 +17,7 @@ use crate::channel::wire::short;
 pub use crate::channel::wire::{BadRequest, MAX_LINE, failure, request, response_result, success};
 
 use crate::carry::pieces::CarriedPiece;
-use crate::carry::{self as handoff, State};
+use crate::carry::{self, Op};
 
 /// The protocol version reported by `version`. Bump it on incompatible
 /// changes.
@@ -76,28 +76,10 @@ pub enum UiOp {
     RunCommand { name: String, arg: Option<isize> },
     /// Show a buffer in the selected window.
     ShowBuffer(u64),
-    /// Report the generation, or why this instance's text would not survive a
-    /// restart; with `terminals`, a running terminal holds nothing (ADR 0120, step 11).
-    CheckHandover { terminals: bool },
-    /// Report what a new instance needs to take over; with `terminals`, the name of the
-    /// terminal library the new instance reads, its terminals too.
-    ExportState { terminals: Option<String> },
-    /// Give the masters of the terminals the latest export carries, if the generation is
-    /// still this one; the `exit` that follows lets them go (ADR 0120, step 11).
-    HandOverTerminals { generation: u64 },
-    /// Take the masters of the terminals the import carried, in their order; `None` gives
-    /// them up, as the instance before kept them.
-    ImportTerminals { count: Option<usize> },
-    /// Take over from the instance that exported this state.
-    ImportState(Box<State>),
-    /// Give the piece of an item of the latest export from `offset` (ADR 0090).
-    ExportText {
-        export: u64,
-        item: usize,
-        offset: usize,
-    },
-    /// Stage a piece of an item for the import that follows.
-    ImportText(CarriedPiece),
+    /// A request of a restart, as `oso-restart`'s pair asks it too (ADR 0120, step 11; ADR
+    /// 0133): `check-handover`, `export-state`, `hand-over-terminals`, `import-terminals`,
+    /// `import-state`, `export-text` and `import-text`.
+    Restart(Op),
     /// Say this in the echo area and `*Messages*`: what `oso dev` has to tell, such as
     /// build errors.
     DevMessage(String),
@@ -229,9 +211,9 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
             rows: parse_size(params, "get-text", "rows").map_err(|m| bad(&id, m))?,
         },
         "show-buffer" => UiOp::ShowBuffer(parse_buffer(params).map_err(|m| bad(&id, m))?),
-        "check-handover" => UiOp::CheckHandover {
-            terminals: handoff::terminals::asked(params).map_err(|m| bad(&id, m))?,
-        },
+        "check-handover" => UiOp::Restart(Op::CheckHandover {
+            terminals: carry::terminals::asked(params).map_err(|m| bad(&id, m))?,
+        }),
         "dev-panic" => UiOp::Panic,
         "dev-end-unasked" => UiOp::EndUnasked,
         "ime" => UiOp::Ime(parse_ime(params).map_err(|m| bad(&id, m))?),
@@ -244,15 +226,15 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
                 .and_then(Value::as_bool)
                 .ok_or_else(|| bad(&id, "focus needs a boolean \"focused\"".into()))?,
         ),
-        "export-state" => UiOp::ExportState {
-            terminals: handoff::terminals::library(params).map_err(|m| bad(&id, m))?,
-        },
-        "hand-over-terminals" => UiOp::HandOverTerminals {
+        "export-state" => UiOp::Restart(Op::ExportState {
+            library: carry::terminals::library(params).map_err(|m| bad(&id, m))?,
+        }),
+        "hand-over-terminals" => UiOp::Restart(Op::HandOverTerminals {
             generation: parse_u64(params, method, "generation").map_err(|m| bad(&id, m))?,
-        },
-        "import-terminals" => UiOp::ImportTerminals {
-            count: handoff::terminals::count(params).map_err(|m| bad(&id, m))?,
-        },
+        }),
+        "import-terminals" => UiOp::Restart(Op::ImportTerminals {
+            count: carry::terminals::count(params).map_err(|m| bad(&id, m))?,
+        }),
         "export-text" | "import-text" | "dev-message" => {
             parse_for_oso_dev(method, params).map_err(|m| bad(&id, m))?
         }
@@ -260,7 +242,9 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
             let state = params
                 .get("state")
                 .ok_or_else(|| bad(&id, "import-state needs a parameter \"state\"".into()))?;
-            UiOp::ImportState(Box::new(handoff::parse(state).map_err(|m| bad(&id, m))?))
+            UiOp::Restart(Op::ImportState(Box::new(
+                carry::parse(state).map_err(|m| bad(&id, m))?,
+            )))
         }
         "exit" => UiOp::Exit {
             generation: parse_generation(&parts.rest, params).map_err(|m| bad(&id, m))?,
@@ -291,11 +275,11 @@ fn parse_for_oso_dev(method: &str, params: &Map<String, Value>) -> Result<UiOp, 
 
 /// The parameters of `export-text`.
 fn parse_export_text(params: &Map<String, Value>) -> Result<UiOp, String> {
-    Ok(UiOp::ExportText {
+    Ok(UiOp::Restart(Op::ExportText {
         export: parse_u64(params, "export-text", "export")?,
         item: parse_size(params, "export-text", "item")?,
         offset: parse_size(params, "export-text", "offset")?,
-    })
+    }))
 }
 
 /// The parameters of `import-text`.
@@ -303,12 +287,12 @@ fn parse_import_text(params: &Map<String, Value>) -> Result<UiOp, String> {
     let Some(Value::String(text)) = params.get("text") else {
         return Err("import-text needs a string parameter \"text\"".into());
     };
-    Ok(UiOp::ImportText(CarriedPiece {
+    Ok(UiOp::Restart(Op::ImportText(CarriedPiece {
         export: parse_u64(params, "import-text", "export")?,
         item: parse_size(params, "import-text", "item")?,
         offset: parse_size(params, "import-text", "offset")?,
         text: text.clone(),
-    }))
+    })))
 }
 
 /// A non-negative integer parameter `name` of `method`.
@@ -980,28 +964,30 @@ mod tests {
 
     #[test]
     fn parses_the_handoff_methods() {
+        use crate::carry::Op;
+        let restart = |op| Method::Ui(UiOp::Restart(op));
         assert_eq!(
             parsed(r#"{"method": "export-state"}"#).method,
-            Method::Ui(UiOp::ExportState { terminals: None })
+            restart(Op::ExportState { library: None })
         );
         assert_eq!(
             parsed(r#"{"method": "export-state", "params": {"terminals": {"library": "x"}}}"#)
                 .method,
-            Method::Ui(UiOp::ExportState {
-                terminals: Some("x".into())
+            restart(Op::ExportState {
+                library: Some("x".into())
             })
         );
         assert_eq!(
             parsed(r#"{"method": "hand-over-terminals", "params": {"generation": 9}}"#).method,
-            Method::Ui(UiOp::HandOverTerminals { generation: 9 })
+            restart(Op::HandOverTerminals { generation: 9 })
         );
         assert_eq!(
             parsed(r#"{"method": "import-terminals", "params": {"count": 2}}"#).method,
-            Method::Ui(UiOp::ImportTerminals { count: Some(2) })
+            restart(Op::ImportTerminals { count: Some(2) })
         );
         assert_eq!(
             parsed(r#"{"method": "import-terminals", "params": {"abandon": true}}"#).method,
-            Method::Ui(UiOp::ImportTerminals { count: None })
+            restart(Op::ImportTerminals { count: None })
         );
         for bad in [
             r#"{"method": "import-terminals", "params": {"count": 65}}"#,
@@ -1034,7 +1020,7 @@ mod tests {
         let line = request(1, "import-state", Some(json!({ "state": state })));
         assert!(matches!(
             parsed(&line).method,
-            Method::Ui(UiOp::ImportState(_))
+            Method::Ui(UiOp::Restart(Op::ImportState(_)))
         ));
         assert!(
             error(r#"{"method": "import-state", "params": {}}"#)
@@ -1049,11 +1035,11 @@ mod tests {
         );
         assert_eq!(
             parsed(r#"{"method": "check-handover"}"#).method,
-            Method::Ui(UiOp::CheckHandover { terminals: false })
+            restart(Op::CheckHandover { terminals: false })
         );
         assert_eq!(
             parsed(r#"{"method": "check-handover", "params": {"terminals": true}}"#).method,
-            Method::Ui(UiOp::CheckHandover { terminals: true })
+            restart(Op::CheckHandover { terminals: true })
         );
     }
 
@@ -1067,13 +1053,13 @@ mod tests {
                 r#"{"export": 2, "item": 1, "offset": 5}"#
             ))
             .method,
-            Method::Ui(UiOp::ExportText {
+            Method::Ui(UiOp::Restart(crate::carry::Op::ExportText {
                 export: 2,
                 item: 1,
                 offset: 5
-            })
+            }))
         );
-        let Method::Ui(UiOp::ImportText(piece)) = parsed(&line(
+        let Method::Ui(UiOp::Restart(crate::carry::Op::ImportText(piece))) = parsed(&line(
             "import-text",
             r#"{"export": 2, "item": 0, "offset": 0, "text": "é\n"}"#,
         ))

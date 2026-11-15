@@ -10,7 +10,7 @@
 use std::ffi::{CStr, OsStr};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
@@ -420,7 +420,8 @@ pub(super) fn run_in(slave: &Slave, command: &mut Command) -> io::Result<()> {
     )]
     // SAFETY: the hook runs in the child between `fork` and `exec`, where only
     // async-signal-safe functions may be called. It calls only `setsid`, `ioctl`,
-    // `signal`, `sigemptyset`, `sigprocmask`, `syscall` (`close_range`) and `fcntl`,
+    // `signal`, `sigemptyset`, `sigprocmask`, and `syscall` (`close_range`) and `fcntl`
+    // through `mark_close_on_exec`,
     // which are, on a `sigset_t` on its own stack that `sigemptyset` fills before
     // `sigprocmask` reads it. It allocates nothing
     // (an OS error is a number), and takes no lock. By then the standard library has
@@ -443,85 +444,47 @@ pub(super) fn run_in(slave: &Slave, command: &mut Command) -> io::Result<()> {
             libc::sigprocmask(libc::SIG_SETMASK, none.as_ptr(), std::ptr::null_mut());
             // A descriptor another thread made without close-on-exec, and was about
             // to mark, must not reach a shell that outlives it.
-            #[cfg(target_os = "linux")]
-            let marked = libc::syscall(
-                libc::SYS_close_range,
-                3,
-                libc::c_uint::MAX,
-                libc::CLOSE_RANGE_CLOEXEC,
-            ) == 0;
-            #[cfg(not(target_os = "linux"))]
-            let marked = false;
-            if !marked {
-                for fd in 3..last {
-                    libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
-                }
-            }
+            mark_close_on_exec(3, last);
             Ok(())
         });
     }
     Ok(())
 }
 
-/// The descriptor the child gets `fd` as (ADR 0133).
-const PASSED: libc::c_int = 3;
-
-pub(super) fn pass_in(fd: BorrowedFd<'_>, command: &mut Command) -> io::Result<()> {
-    let from = fd.as_raw_fd();
-    // The standard library's pipe that reports a failed `exec` must not be the descriptor the
-    // child puts `fd` at, or the child would close it. It takes the lowest free number, so
-    // descriptor 3 must be open here already: it is, in any process with a window.
-    // SAFETY: `F_GETFD` reads the flags of a descriptor number and touches no memory.
-    if from != PASSED && unsafe { libc::fcntl(PASSED, libc::F_GETFD) } < 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "descriptor 3 is free, so the child could not be told a failed start",
-        ));
-    }
-    let last = open_limit();
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the passed descriptor's child-side hook, in the process module (ADR 0133)"
-    )]
-    // SAFETY: the hook runs in the child between `fork` and `exec`, where only
-    // async-signal-safe functions may be called. It calls only `dup2`, `fcntl` and `syscall`
-    // (`close_range`), which are. It allocates nothing (an OS error is a number) and takes no
-    // lock. `dup2` makes a copy without close-on-exec, and the descriptor already there is the
-    // one copy that keeps it; marking the rest close-on-exec, rather than closing them, keeps
-    // the standard library's pipe that reports a failed `exec`, which is close-on-exec already.
-    unsafe {
-        command.pre_exec(move || {
-            let placed = if from == PASSED {
-                libc::fcntl(PASSED, libc::F_SETFD, 0)
-            } else {
-                libc::dup2(from, PASSED)
-            };
-            if placed < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            #[cfg(target_os = "linux")]
-            let marked = libc::syscall(
+/// Marks every descriptor from `first` up to `last` close-on-exec, in a child between `fork`
+/// and `exec`: async-signal-safe, it allocates nothing and takes no lock.
+pub(in crate::process) fn mark_close_on_exec(first: libc::c_int, last: libc::c_int) {
+    #[cfg(target_os = "linux")]
+    {
+        let Ok(from) = libc::c_uint::try_from(first) else {
+            return;
+        };
+        // SAFETY: `close_range` with `CLOSE_RANGE_CLOEXEC` sets flags on descriptor numbers and
+        // touches no memory.
+        let marked = unsafe {
+            libc::syscall(
                 libc::SYS_close_range,
-                PASSED + 1,
+                from,
                 libc::c_uint::MAX,
                 libc::CLOSE_RANGE_CLOEXEC,
-            ) == 0;
-            #[cfg(not(target_os = "linux"))]
-            let marked = false;
-            if !marked {
-                for fd in PASSED + 1..last {
-                    libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
-                }
-            }
-            Ok(())
-        });
+            )
+        } == 0;
+        if marked {
+            return;
+        }
     }
-    Ok(())
+    for fd in first..last {
+        // SAFETY: `F_SETFD` sets the flags of a descriptor number and touches no memory; a
+        // number with nothing open fails harmlessly.
+        unsafe {
+            libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+        }
+    }
 }
 
 /// One past the highest descriptor this process may open, at most
 /// [`MAX_MARKED`].
-fn open_limit() -> libc::c_int {
+pub(in crate::process) fn open_limit() -> libc::c_int {
     let mut limit = libc::rlimit {
         rlim_cur: 0,
         rlim_max: 0,

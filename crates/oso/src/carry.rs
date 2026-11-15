@@ -5,10 +5,10 @@
 //! instance it starts ([`pair`], [`going`], [`coming`], ADR 0133). Both ask the app the same
 //! [`Op`]s, so the order and the state are one.
 //!
-//! Must not depend on: `app`, `server` or winit; these are plain functions of the editor
-//! state, and the caller opens the files. [`pieces`] starts threads, to copy and build the
-//! texts off the UI thread, and [`going`] and [`coming`] run each instance's side of a release
-//! restart on threads of their own, over the pair.
+//! Must not depend on: `app`, `dev` or winit. The state's own modules are plain functions of
+//! the editor state, and the caller opens the files; [`binary`] looks at the file system. [`pieces`] starts threads, to copy and build the
+//! texts off the UI thread, and [`going`] and [`coming`] run each instance's side of
+//! `oso-restart` on threads of their own, over the pair; `going` starts the new instance.
 //!
 //! A buffer without edits is handed over by its path, and the new instance reads
 //! it from disk and judges it like any file it opens. The text of a modified
@@ -409,7 +409,7 @@ fn kills_state(editor: &Editor, mut room: usize, items: &mut Vec<Item>) -> Vec<V
         let pieces = entry.pieces().len();
         if len > room || pieces > pieces_left {
             log::info!(
-                "oso dev: kills older than the {} carried do not fit in a restart",
+                "restart: kills older than the {} carried do not fit in a restart",
                 kills.len()
             );
             break;

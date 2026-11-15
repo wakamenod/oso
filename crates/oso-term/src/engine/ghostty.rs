@@ -79,8 +79,10 @@ impl Ghostty {
 
     /// The engine over `vt`, sized to `size`.
     fn around(mut vt: Vt, size: Size) -> Ghostty {
-        // So that a restart can carry a sequence the program has not finished.
-        vt.track_continuation();
+        // So that a restart's snapshot can carry a sequence the program has not finished.
+        if carry::SNAPSHOTS {
+            vt.track_continuation();
+        }
         let (width, height) = cell_pixels(size);
         vt.resize(size.columns, size.rows, width, height);
         Ghostty {

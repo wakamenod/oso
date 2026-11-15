@@ -169,6 +169,42 @@ fn piece_at(parts: &[Rope], offset: usize) -> Result<String, String> {
     Ok(text)
 }
 
+/// Moves each item `state` names from the instance going to the one coming, a piece at a time,
+/// so that only one piece is held at once (ADR 0090): `fetch` asks the instance going for the
+/// piece of an item at an offset, `{"text", "end"}`, and `stage` gives the new instance
+/// `{"export", "item", "offset", "text"}`. Both restarts' orders use it. A state with no items
+/// names none.
+pub fn relay(
+    state: &serde_json::Value,
+    mut fetch: impl FnMut(u64, usize, usize) -> Result<serde_json::Value, String>,
+    mut stage: impl FnMut(serde_json::Value) -> Result<(), String>,
+) -> Result<(), String> {
+    let Some(items) = state["items"].as_array() else {
+        return Ok(());
+    };
+    let export = state["export"].as_u64().ok_or("the export has no number")?;
+    for (item, len) in items.iter().enumerate() {
+        let len = len.as_u64().ok_or("an item has no length")?;
+        let mut offset = 0;
+        while offset < len {
+            let at = usize::try_from(offset).map_err(|_| "an item is too long")?;
+            let mut piece = fetch(export, item, at)?;
+            let end = piece["end"]
+                .as_u64()
+                .filter(|&end| end > offset && end <= len)
+                .ok_or("a piece does not move on")?;
+            stage(json!({
+                "export": export,
+                "item": item,
+                "offset": offset,
+                "text": piece["text"].take(),
+            }))?;
+            offset = end;
+        }
+    }
+    Ok(())
+}
+
 /// A piece `import-text` brings. Its `Debug` gives no text, as that could reach a log.
 #[derive(Clone, PartialEq, Eq)]
 pub struct CarriedPiece {

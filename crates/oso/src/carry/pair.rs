@@ -65,9 +65,9 @@ impl Pair {
     pub fn new(stream: ControlStream) -> io::Result<Self> {
         let writer = stream.try_clone()?;
         #[cfg(unix)]
-        let reader = BufReader::new(Receiving::new(stream));
+        let reader = BufReader::with_capacity(MAX_LINE, Receiving::new(stream));
         #[cfg(not(unix))]
-        let reader = BufReader::new(stream);
+        let reader = BufReader::with_capacity(MAX_LINE, stream);
         Ok(Self { reader, writer })
     }
 

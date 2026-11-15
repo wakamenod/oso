@@ -7,11 +7,9 @@
 //! Must not depend on: sockets or processes; the restart's threads hold the pair and the
 //! child.
 
-use oso_platform::control::ControlStream;
-
 use super::shell::Loop;
 use super::{App, UserEvent};
-use crate::carry::{self, Asked, Op, Passed};
+use crate::carry::{self, Asked, Passed};
 
 /// What a restart keeps on the UI thread.
 #[derive(Default)]
@@ -22,9 +20,22 @@ pub(super) struct Restart {
     under_way: bool,
     /// The agent channel was on when it began, so it comes back if the restart stops short.
     channel_was_on: bool,
-    /// In a new instance: the pair from the instance before, and that instance's id, until
-    /// the window is up.
-    coming: Option<(ControlStream, u32)>,
+    /// In a new instance: the pair from the instance before, until the window is up.
+    coming: Option<carry::coming::Inherited>,
+    /// In a new instance: the pair is being read.
+    taking_over: bool,
+    /// Who asked for the agent channel while a restart held it off: it starts once the
+    /// restart is over (ADR 0133, T-agent).
+    channel_wanted: Option<Wanted>,
+}
+
+/// Who asked for the agent channel while a restart held it off.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Wanted {
+    /// The person, or the configuration.
+    Person,
+    /// A hosted session that started or came back.
+    Session,
 }
 
 impl App {
@@ -33,7 +44,7 @@ impl App {
     pub fn set_restart(
         &mut self,
         start: carry::going::Start,
-        taking_over: Option<(ControlStream, u32)>,
+        taking_over: Option<carry::coming::Inherited>,
     ) {
         self.restart.start = Some(start);
         self.restart.coming = taking_over;
@@ -43,33 +54,43 @@ impl App {
     /// the pair.
     pub(super) fn sync_restart(&mut self) {
         if self.view.is_some()
-            && let Some((pair, parent)) = self.restart.coming.take()
+            && let Some(inherited) = self.restart.coming.take()
         {
-            self.read_the_pair(pair, parent);
+            self.read_the_pair(inherited);
         }
     }
 
-    fn read_the_pair(&mut self, pair: ControlStream, parent: u32) {
+    fn read_the_pair(&mut self, inherited: carry::coming::Inherited) {
         // A new instance that ends before it speaks, for an end-to-end flow.
         #[cfg(feature = "dev")]
         if dev_fails_at("hello") {
             std::process::exit(3);
         }
-        let pair = match carry::pair::Pair::new(pair) {
-            Ok(pair) => pair,
-            Err(e) => {
-                log::warn!("oso-restart: cannot read the pair: {e}");
-                return;
-            }
-        };
         let waker = self.waker.clone();
-        let spawned = std::thread::Builder::new()
-            .name("oso-carried".into())
-            .spawn(move || {
-                carry::coming::serve(pair, parent, |asked| waker.send(UserEvent::Restart(asked)));
-            });
-        if let Err(e) = spawned {
-            log::warn!("oso-restart: cannot start the thread that reads the pair: {e}");
+        match carry::coming::spawn(inherited, move |asked| {
+            waker.send(UserEvent::Restart(asked))
+        }) {
+            Ok(()) => self.restart.taking_over = true,
+            Err(e) => log::warn!("oso-restart: cannot read the pair: {e}"),
+        }
+    }
+
+    /// Whether a restart holds the agent channel off: while one is under way here, or this
+    /// instance still takes over. `wanted` is who asked, for when it is over.
+    pub(super) fn restart_holds_the_channel(&mut self, wanted: Wanted) -> bool {
+        let holds = self.restart.under_way || self.restart.taking_over;
+        if holds && self.restart.channel_wanted != Some(Wanted::Person) {
+            self.restart.channel_wanted = Some(wanted);
+        }
+        holds
+    }
+
+    /// Starts the agent channel if it was asked for while a restart held it off.
+    fn start_the_channel_held_off(&mut self) {
+        match self.restart.channel_wanted.take() {
+            Some(Wanted::Person) => self.start_agent_channel(),
+            Some(Wanted::Session) => self.turn_agent_channel_on_for_a_session(),
+            None => {}
         }
     }
 
@@ -118,22 +139,20 @@ impl App {
             Asked::Exit { generation, reply } => {
                 // An exit refused at the last moment, for an end-to-end flow.
                 #[cfg(feature = "dev")]
-                let refused = dev_fails_at("exit");
-                #[cfg(not(feature = "dev"))]
-                let refused = false;
-                let allowed = if refused {
-                    Err(carry::EXIT_REFUSED.to_owned())
-                } else {
-                    carry::exit_allowed(&self.editor, Some(generation))
-                        .and_then(|()| self.exit_with_terminals())
-                };
-                if allowed.is_ok() {
-                    self.leave(event_loop, true);
+                if dev_fails_at("exit") {
+                    let _ = reply.send(Err(carry::EXIT_REFUSED.to_owned()));
+                    return;
                 }
-                let _ = reply.send(allowed.map(|()| serde_json::json!({ "exiting": true })));
+                let _ = reply.send(self.exit_for_restart(event_loop, Some(generation)));
             }
             Asked::Stays(why) => self.restart_stays(why),
-            Asked::Left { generation } => self.left_by_the_one_before(event_loop, generation),
+            Asked::PreviousStays { generation } => {
+                self.left_by_the_one_before(event_loop, generation);
+            }
+            Asked::Over => {
+                self.restart.taking_over = false;
+                self.start_the_channel_held_off();
+            }
         }
         self.request_redraw();
     }
@@ -147,6 +166,7 @@ impl App {
         if std::mem::take(&mut self.restart.channel_was_on) {
             self.start_agent_channel();
         }
+        self.start_the_channel_held_off();
         self.editor
             .message(format!("oso-restart: {why}; everything stays here"));
     }
@@ -158,10 +178,7 @@ impl App {
             parent: true,
             ..Passed::default()
         };
-        let (reply, _) = std::sync::mpsc::channel();
-        if let Some((_, Err(why))) =
-            self.answer_restart(Op::ImportTerminals { count: None }, reply, passed)
-        {
+        if let Err(why) = self.import_terminals(None, passed) {
             log::debug!("oso-restart: the carried terminals were not given up: {why}");
         }
         if generation.is_some() && carry::exit_allowed(&self.editor, generation).is_ok() {

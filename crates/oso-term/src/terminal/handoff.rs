@@ -2,7 +2,7 @@
 //! instance going stops reading each PTY and writes its terminal's state; the one coming
 //! restores an engine from that state and reads the PTY once its master arrives. So at any
 //! time one instance reads each PTY, and what the program writes meanwhile waits in the
-//! kernel. Dev builds only.
+//! kernel.
 //!
 //! Must not depend on: the control socket or how the state and the master travel; the host
 //! carries them.

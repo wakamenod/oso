@@ -506,7 +506,7 @@ impl ControlStream {
 }
 
 /// The descriptor a child started by `oso-restart` holds its end of the pair at (ADR 0133).
-pub const INHERITED_FD: RawFd = 3;
+pub const INHERITED_FD: RawFd = crate::privacy::inheritance::INHERITED_FD;
 
 impl AsFd for ControlStream {
     fn as_fd(&self) -> BorrowedFd<'_> {

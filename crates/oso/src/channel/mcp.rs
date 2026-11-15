@@ -344,7 +344,7 @@ impl Target {
     /// the agent what it found last. What goes wrong is said in full on stderr, and to the
     /// agent in fixed words.
     ///
-    /// An instance `--pid` named that has gone may have been replaced by `oso dev`'s restart:
+    /// An instance `--pid` named that has gone may have been replaced by a restart (`oso dev`, `oso-restart`):
     /// `follows` names the one that took over from it, if one did (ADR 0120, step 11), and
     /// the bridge goes on with that one.
     fn connect<S>(

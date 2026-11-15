@@ -1,10 +1,10 @@
-//! Terminals coming over `oso dev`'s restart, in the new instance (ADR 0120, step 11): the
+//! Terminals coming over a restart, in the new instance (ADR 0120, step 11; ADR 0133): the
 //! import makes each carried terminal's buffer, or takes the one its session came back in,
-//! and a thread restores its engine from its state; `import-terminals` then brings the
+//! and a thread restores its engine from its state; the masters come later,
 //! masters, once the instance before has gone, and each terminal reads where that one
 //! stopped. A hosted session keeps its id, name, space, parent and baseline, and the agent
 //! channel is on for its bridge (ADR 0121, Q20). Masters that never come leave the terminals
-//! ended, their last screen kept. Dev builds only.
+//! ended, their last screen kept.
 //!
 //! Must not depend on: sockets; the server passes the descriptors. Nothing here reads a
 //! terminal's text: its state goes from the items to its thread as bytes.
@@ -128,7 +128,7 @@ impl App {
                 waker.send(UserEvent::Carry(CarryEvent::Adopted(buffer, adopted)));
             });
         if spawned.is_err() {
-            log::warn!("oso dev: no thread to restore a carried terminal");
+            log::warn!("restart: no thread to restore a carried terminal");
         }
     }
 
@@ -232,7 +232,7 @@ impl App {
             .since
             .is_some_and(|since| since.elapsed() >= MASTERS_TIME)
         {
-            log::warn!("oso dev: the carried terminals' masters did not come");
+            log::warn!("restart: the carried terminals' masters did not come");
             self.abandon_terminals();
         }
     }

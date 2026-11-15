@@ -312,14 +312,14 @@ mod tests {
             | UiOp::Wheel { .. }
             | UiOp::Mouse { .. }
             | UiOp::Focus(_)
-            | UiOp::ExportText { .. }
-            | UiOp::ImportText(_)
-            | UiOp::HandOverTerminals { .. }
-            | UiOp::ImportTerminals { .. }
+            | UiOp::Restart(crate::carry::Op::ExportText { .. })
+            | UiOp::Restart(crate::carry::Op::ImportText(_))
+            | UiOp::Restart(crate::carry::Op::HandOverTerminals { .. })
+            | UiOp::Restart(crate::carry::Op::ImportTerminals { .. })
             | UiOp::DevMessage(_) => Err("not in this fake".to_owned()),
-            UiOp::CheckHandover { .. }
-            | UiOp::ExportState { .. }
-            | UiOp::ImportState(_)
+            UiOp::Restart(crate::carry::Op::CheckHandover { .. })
+            | UiOp::Restart(crate::carry::Op::ExportState { .. })
+            | UiOp::Restart(crate::carry::Op::ImportState(_))
             | UiOp::Exit { .. } => Ok(json!({})),
             UiOp::Screenshot => return true,
         };

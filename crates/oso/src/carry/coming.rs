@@ -42,9 +42,9 @@ const GONE_LOOK: Duration = Duration::from_millis(50);
 /// How long the UI thread may take to answer.
 const UI_TIME: Duration = Duration::from_secs(30);
 
-/// Reads the pair from the instance going, `parent`, and asks the UI thread through `post`,
-/// which returns false once the UI thread is gone. Returns once the restart is over.
-pub fn serve(mut pair: Pair, parent: u32, post: impl Fn(Asked) -> bool) {
+/// Reads the pair from the instance going, `parent`, and asks the UI thread through `post`.
+/// Returns once the restart is over.
+fn serve(mut pair: Pair, parent: u32, post: impl Fn(Asked) -> bool) {
     let hello = json!({
         "pid": std::process::id(),
         "state_versions": [OLDEST_STATE, STATE_VERSION],
@@ -145,7 +145,7 @@ impl<P: Fn(Asked) -> bool> Coming<P> {
     /// closes unless it was changed since the import.
     fn left(&mut self) {
         drop(std::mem::take(&mut self.masters));
-        let _ = (self.post)(Asked::Left {
+        let _ = (self.post)(Asked::PreviousStays {
             generation: self.generation,
         });
     }
@@ -203,16 +203,40 @@ fn piece(fields: &Map<String, Value>) -> Result<CarriedPiece, String> {
     })
 }
 
-/// The pair this process inherited as its descriptor 3, and its parent's id, which must be
-/// the process at the pair's other end: the instance that started it with `oso-restart`.
-pub fn inherited_pair() -> Result<(oso_platform::control::ControlStream, u32), String> {
+/// The pair this process inherited from the instance that started it with `oso-restart`, and
+/// that instance's id, its parent's.
+pub struct Inherited {
+    pair: oso_platform::control::ControlStream,
+    parent: u32,
+}
+
+/// The pair this process inherited as its descriptor 3, whose other end must be its parent:
+/// the instance that started it with `oso-restart`. Call it while this process has one thread.
+pub fn inherited_pair() -> Result<Inherited, String> {
     let pair = oso_platform::control::ControlStream::inherited().map_err(|e| e.to_string())?;
     let parent = parent_id();
     let peer = pair.peer().process.map(|process| process.pid());
     if peer != Some(parent) {
         return Err("its other end is not this process's parent".into());
     }
-    Ok((pair, parent))
+    Ok(Inherited { pair, parent })
+}
+
+/// Starts the thread that reads `inherited` and asks the UI thread through `post`, which
+/// returns false once the UI thread is gone. It asks [`Asked::Over`] last.
+pub fn spawn(
+    inherited: Inherited,
+    post: impl Fn(Asked) -> bool + Send + 'static,
+) -> std::io::Result<()> {
+    let pair = Pair::new(inherited.pair)?;
+    let parent = inherited.parent;
+    std::thread::Builder::new()
+        .name("oso-carried".into())
+        .spawn(move || {
+            serve(pair, parent, &post);
+            let _ = post(Asked::Over);
+        })
+        .map(drop)
 }
 
 /// This process's parent now.

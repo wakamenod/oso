@@ -32,7 +32,7 @@ impl Ui {
                     self.asked.borrow_mut().push(name);
                     let _ = reply.send(Ok(json!({ "generation": 4 })));
                 }
-                Asked::Left { generation } => {
+                Asked::PreviousStays { generation } => {
                     self.asked.borrow_mut().push(format!("left {generation:?}"));
                 }
                 other => self.asked.borrow_mut().push(format!("{other:?}")),

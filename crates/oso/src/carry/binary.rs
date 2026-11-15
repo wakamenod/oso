@@ -1,6 +1,7 @@
 //! The binary `oso-restart` starts (ADR 0133, Q3): the file this instance came from, as its
 //! path read when it started, once that file and every directory above it can be changed by no
-//! one but the person and root, as the configuration is checked (ADR 0108). On macOS, the
+//! one but the person and root, as the configuration is checked (ADR 0108), that is an
+//! executable file and runs as the person, not as its owner or group. On macOS, the
 //! signature's team identity is compared in a later step; until then, the path and these
 //! checks are all.
 //!
@@ -30,31 +31,28 @@ pub fn check(path: Option<&Path>) -> Result<Executable, String> {
     let path = path.ok_or("this instance does not know the binary it came from")?;
     let shown = path.display();
     let who = who_can_change(path).map_err(|e| format!("cannot look at {shown}: {e}"))?;
-    if !who.metadata.is_file() {
-        return Err(format!("{shown} is not a file"));
-    }
     if who.file != Writers::Nobody {
         return Err(format!("someone else can change {shown}"));
     }
     if who.way != Writers::Nobody {
         return Err(format!("someone else can change a directory above {shown}"));
     }
-    if !runnable(&who.metadata) {
-        return Err(format!("{shown} is not executable"));
+    if sets_its_user(&who.metadata) {
+        return Err(format!("{shown} runs as its owner or group, not as you"));
     }
     Executable::absolute(path).map_err(|e| format!("cannot run {shown}: {e}"))
 }
 
-/// Whether the owner may run the file `metadata` describes.
+/// Whether the file `metadata` describes runs as its owner or its group (setuid, setgid).
 #[cfg(unix)]
-fn runnable(metadata: &std::fs::Metadata) -> bool {
+fn sets_its_user(metadata: &std::fs::Metadata) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    metadata.permissions().mode() & 0o100 != 0
+    metadata.permissions().mode() & 0o6000 != 0
 }
 
-/// Windows has no restart yet (no terminals, no pair).
+/// Windows has no such bits.
 #[cfg(not(unix))]
-fn runnable(_metadata: &std::fs::Metadata) -> bool {
+fn sets_its_user(_metadata: &std::fs::Metadata) -> bool {
     false
 }
 
@@ -101,14 +99,28 @@ mod tests {
     }
 
     #[test]
-    fn a_file_that_cannot_run_is_missing_or_is_a_directory_is_refused() {
+    fn a_file_that_cannot_run_is_missing_is_a_directory_or_is_setuid_is_refused() {
         let dir = scratch("plain");
         let file = dir.join("oso");
         fs::write(&file, b"text").unwrap();
         fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(check(Some(&file)).unwrap_err().contains("not executable"));
+        assert!(
+            check(Some(&file))
+                .unwrap_err()
+                .contains("not an executable file")
+        );
         assert!(check(Some(&dir.join("missing"))).is_err());
-        assert!(check(Some(&dir)).unwrap_err().contains("not a file"));
+        assert!(
+            check(Some(&dir))
+                .unwrap_err()
+                .contains("not an executable file")
+        );
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o4755)).unwrap();
+        assert!(
+            check(Some(&file))
+                .unwrap_err()
+                .contains("runs as its owner")
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 }

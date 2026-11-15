@@ -162,6 +162,10 @@ team identity when the running one has one (Q3). Everything step 11 and ADR 0090
   socket's methods stay dev-only.
 - [ADR 0090](0090-oso-dev-carries-unsaved-text.md): the unsaved text it carries under `oso dev`
   is carried over `oso-restart` too, with the same limits.
+- [ADR 0047](0047-process-spawning-and-restart-handoff.md), "Inheriting the whole environment"
+  rejected: `oso-restart` gives its own binary every variable of its own that `process` lets a
+  child have by name, all but `PATH` and the loader's, so that the new instance and the shells
+  it starts see what this one did. Every other spawn keeps the allowlist.
 - [ADR 0042](0042-statics-snapshots-and-render-errors.md), no statics: one `static` is allowed,
   the gate in `oso-platform`'s `privacy::inheritance`, a lock that holds no data (step 2, as
   built).
@@ -226,7 +230,8 @@ each), the new public items and the guarded edits through the coordinator.
   the screen in use and its scrollback come across, and a full-screen program redraws its
   screen; its other screen and a sequence it had not finished do not. While the snapshot is off,
   a terminal whose entry says `snapshot` is not restored and ends failed, so the decoder reads
-  nothing that came over the pair (T-parse).
+  nothing that came over the pair (T-parse), and no terminal keeps the 2 MiB of an unfinished
+  sequence that only the snapshot carries.
 - **Where it lives.** The state, its texts, the terminals' entries, the descriptors and the
   requests (`Op`) moved from `dev/handoff` to `crates/oso/src/carry/`, on a layer of its own
   under `dev`, so `oso dev`'s supervisor and the pair ask the app the same requests and the app
@@ -240,15 +245,18 @@ each), the new public items and the guarded edits through the coordinator.
 - **The binary, until step 3.** The path is the running binary's, resolved when the instance
   started: Linux names a replaced binary `… (deleted)` from then on. On the thread, before
   anything else, the file and every directory above it must be writable by no one but the person
-  and root, by `privacy::who_can_change` (ADR 0108's checks), and the file must be a regular,
-  executable one; otherwise the command says why and runs nothing. The team identity on macOS is
+  and root, by `privacy::who_can_change` (ADR 0108's checks, by mode and owner), and the file
+  must be an executable one that runs as the person, not setuid or setgid; otherwise the command
+  says why and runs nothing. The team identity on macOS is
   step 3's.
 - **The start.** The child is started through `oso_platform::process`, with `--take-over`, and
   `--no-config` if this instance read none (a dev build passes its own options too). Its
   standard input is closed and its output goes where this instance's goes. It runs in a process
   group of its own. It gets this instance's variables by name, all but `PATH` (the module's own)
   and the loader's. `Spawn::pass_fd` makes its end of the pair the child's descriptor 3 and marks
-  every other one close-on-exec in the child; the spawn forks, on the thread.
+  every other one close-on-exec in the child (`process::pass_in`); the spawn forks, on the
+  thread. A free descriptor 3 is held here meanwhile, so that the standard library's pipe that
+  reports a failed start cannot be the one the child's end replaces.
 - **The new instance** takes descriptor 3 first of all, while it has one thread:
   `ControlStream::inherited` marks it close-on-exec and checks that it is a Unix domain socket
   that this process inherited. Its other end must be its parent's: otherwise `--take-over` exits
@@ -270,6 +278,16 @@ each), the new public items and the guarded edits through the coordinator.
   5. The new instance attaches the masters only once the pair has ended and its parent is no
      longer the instance before (looked for every 50 ms, for 10 s; otherwise they are given up).
      So one instance reads each PTY at a time.
+- **Two orders, one state.** `dev/restart.rs` (the supervisor's) and `carry::going` (the
+  instance going's) are two orders over the same state, the same requests and one piece relay
+  (`carry::pieces::relay`); a change to one is a change to the other. The app answers both as
+  it answers the parent: `Passed::parent` means the asker may have terminals, which over the
+  pair, and for the instance's own restart thread, it may.
+- **The agent channel** is held off in both instances while the restart is under way: a start
+  asked for meanwhile, by the person or by a session that starts or comes back, happens once
+  the restart is over. The instance going turns it back on if it was on and it stays.
+- **The exit** is waited for with no time limit once asked: the new instance is told to stay
+  only once the instance going has refused, so the two never both close.
 - **The pair** carries one JSON object a line, at most the dev socket's line, descriptors only
   with `take-masters`. Its names are its own: `just release-safety` now also checks that no
   release binary holds the names of `export-text`, `import-state`, `hand-over-terminals` or
@@ -292,6 +310,9 @@ each), the new public items and the guarded edits through the coordinator.
   process; a password prompt holds the restart; a new instance that ends before it speaks, and
   an exit refused once the new one holds everything, leave the terminal here, reading again
   (a dev build's `OSO_DEV_RESTART_FAIL` stops the restart at those points).
-- **Not done:** the macOS team identity (step 3), the notice on focus (step 4), quitting when
-  idle (step 5), and the snapshot's return (ADR 0120, step 11's library patches).
+- **Not done:** the macOS team identity, and access lists on the binary's way, in step 3; the
+  notice on focus (step 4); quitting when idle (step 5); the snapshot's return (ADR 0120, step
+  11's library patches); starting the new instance with `posix_spawn` rather than a fork, with
+  the terminals' starts. `oso-restart` run in an instance `oso dev` supervises starts a child the
+  supervisor does not know of; `oso dev`'s own restart is the one to use there.
 

@@ -234,7 +234,9 @@ impl fmt::Debug for Spawn<'_> {
     }
 }
 
-/// Starts a process.
+/// Starts a process. It may wait while another thread makes a descriptor that is not yet
+/// close-on-exec, and a spawn with a terminal or a passed descriptor forks, so it never runs on
+/// the UI thread.
 pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
     check(request)?;
     let current = env::current_dir().ok();
@@ -294,15 +296,64 @@ pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
         pty::run_in(terminal, &mut command)?;
     }
     #[cfg(unix)]
-    if let Some(passed) = request.pass_fd {
-        pty::pass_in(passed.fd, &mut command)?;
-    }
+    let _held = match request.pass_fd {
+        Some(passed) => pass_in(passed.fd, &mut command)?,
+        None => None,
+    };
     #[cfg(not(unix))]
     if let Some(passed) = request.pass_fd {
         match passed.never {}
     }
     let _starting = crate::privacy::inheritance::spawning();
     command.spawn()
+}
+
+/// Gives the child `command` starts `fd` as its descriptor 3, and marks every other descriptor
+/// of this process close-on-exec in the child, as a terminal's child gets them (ADR 0133).
+/// Returns what holds descriptor 3 here until the spawn is over, if it was free.
+#[cfg(unix)]
+fn pass_in(fd: std::os::fd::BorrowedFd<'_>, command: &mut Command) -> io::Result<Option<fs::File>> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::process::CommandExt;
+
+    const PASSED: libc::c_int = crate::privacy::inheritance::INHERITED_FD;
+    let from = fd.as_raw_fd();
+    // The standard library's pipe that reports a failed `exec` must not be the descriptor the
+    // child puts `fd` at, or the child would close it. It takes the lowest free number, so a
+    // free descriptor 3 is held, until the spawn is over, by a file of nothing.
+    // SAFETY: `F_GETFD` reads the flags of a descriptor number and touches no memory.
+    let held = if from != PASSED && unsafe { libc::fcntl(PASSED, libc::F_GETFD) } < 0 {
+        Some(fs::File::open("/dev/null")?)
+    } else {
+        None
+    };
+    let last = pty::open_limit();
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the passed descriptor's child-side hook, in the process module (ADR 0133)"
+    )]
+    // SAFETY: the hook runs in the child between `fork` and `exec`, where only
+    // async-signal-safe functions may be called. It calls only `dup2` and `fcntl`, and
+    // `syscall` (`close_range`) and `fcntl` through `pty::mark_close_on_exec`, which are. It
+    // allocates nothing (an OS error is a number) and takes no lock. `dup2` makes a copy without
+    // close-on-exec, and the descriptor already there is the one copy that keeps it; marking the
+    // rest close-on-exec, rather than closing them, keeps the standard library's pipe that
+    // reports a failed `exec`, which is close-on-exec already.
+    unsafe {
+        command.pre_exec(move || {
+            let placed = if from == PASSED {
+                libc::fcntl(PASSED, libc::F_SETFD, 0)
+            } else {
+                libc::dup2(from, PASSED)
+            };
+            if placed < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            pty::mark_close_on_exec(PASSED + 1, last);
+            Ok(())
+        });
+    }
+    Ok(held)
 }
 
 /// Refuses what [`Spawn`] says it refuses.

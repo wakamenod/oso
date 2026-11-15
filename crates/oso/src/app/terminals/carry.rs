@@ -1,10 +1,10 @@
-//! Terminals going over `oso dev`'s restart, in the instance being replaced (ADR 0120, step
-//! 11): `export-state` asks each running terminal's thread to stop reading and write its state,
-//! a thread puts each state in base64 for the items, `hand-over-terminals` gives the
-//! supervisor a second descriptor for each master, and the `exit` that follows lets the
+//! Terminals going over a restart, `oso dev`'s or `oso-restart`'s, in the instance being
+//! replaced (ADR 0120, step 11; ADR 0133): the export asks each running terminal's thread to stop reading and write its state,
+//! a thread puts each state in base64 for the items, the hand-over gives a second descriptor
+//! for each master, to `oso dev`'s supervisor or over `oso-restart`'s pair, and the `exit` that follows lets the
 //! terminals go, nothing hung up. A restart that does not come to that has every terminal
 //! read again: an exit refused, no request for a while, or a hand-over not followed by its
-//! exit. Dev builds only.
+//! exit.
 //!
 //! Must not depend on: sockets; the server passes the descriptors. Nothing here reads a
 //! terminal's text: its state goes from its thread to the items as bytes.

@@ -1,4 +1,4 @@
-//! Terminals going over `oso dev`'s restart, once exported (ADR 0120, step 11): the
+//! Terminals going over a restart, once exported (ADR 0120, step 11; ADR 0133): the
 //! hand-over of their masters, the exit that lets them go, and their reading again when the
 //! restart does not come to that.
 //!
@@ -215,7 +215,7 @@ impl App {
                 None => now.duration_since(e.touched) >= QUIET_TIME,
             });
         if over {
-            log::info!("oso dev: the restart went quiet, so the terminals read again");
+            log::info!("restart: the restart went quiet, so the terminals read again");
             self.resume_terminals();
         }
     }

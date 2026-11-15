@@ -35,7 +35,6 @@ use app::App;
 #[cfg(feature = "dev")]
 use app::UserEvent;
 use emergency::Emergency;
-use oso_platform::control::ControlStream;
 
 const USAGE: &str = "usage: oso [--no-config] [FILE]";
 
@@ -190,7 +189,7 @@ fn options(args: Vec<OsString>) -> Options {
     clippy::disallowed_macros,
     reason = "a command-line error, printed before logging starts"
 )]
-fn take_over(mut args: Vec<OsString>) -> (Vec<OsString>, Option<(ControlStream, u32)>) {
+fn take_over(mut args: Vec<OsString>) -> (Vec<OsString>, Option<carry::coming::Inherited>) {
     if args
         .first()
         .is_none_or(|arg| arg != carry::going::TAKE_OVER)

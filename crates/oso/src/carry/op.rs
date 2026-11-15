@@ -22,7 +22,7 @@ pub enum Op {
     CheckHandover { terminals: bool },
     /// Report what a new instance needs to take over; with `terminals`, the name of the
     /// terminal library the new instance reads, its terminals too.
-    ExportState { terminals: Option<String> },
+    ExportState { library: Option<String> },
     /// Give the masters of the terminals the latest export carries, if the generation is still
     /// this one; the exit that follows lets them go.
     HandOverTerminals { generation: u64 },
@@ -75,5 +75,7 @@ pub enum Asked {
     Stays(String),
     /// In the new instance: the one before stays after all. The terminals it carried are given
     /// up, and it closes if nothing changed since the import, whose generation this is.
-    Left { generation: Option<u64> },
+    PreviousStays { generation: Option<u64> },
+    /// In the new instance: the pair has ended, and the restart is over here.
+    Over,
 }

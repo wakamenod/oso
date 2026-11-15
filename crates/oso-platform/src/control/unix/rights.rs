@@ -191,11 +191,16 @@ fn received(msg: &libc::msghdr) -> Vec<OwnedFd> {
             // SAFETY: `header` is a valid header; this only computes where its data starts.
             let data = unsafe { libc::CMSG_DATA(header) };
             let offset = data as usize - header as usize;
-            let count = (head.cmsg_len as usize).saturating_sub(offset) / FD_SIZE;
+            // A header the system cut short may still claim its whole length: count only what
+            // lies inside the control data it returned.
+            let returned = (msg.msg_control as usize + msg.msg_controllen as usize)
+                .saturating_sub(data as usize);
+            let claimed = (head.cmsg_len as usize).saturating_sub(offset);
+            let count = claimed.min(returned) / FD_SIZE;
             for at in 0..count {
                 let from = data.wrapping_add(at * FD_SIZE).cast::<RawFd>();
-                // SAFETY: the header's length says `count` descriptors follow `data`, inside
-                // the control data the system wrote.
+                // SAFETY: `count` descriptors follow `data`, by the header's length and inside
+                // the control data the system returned.
                 let raw = unsafe { from.read_unaligned() };
                 // SAFETY: the system has just installed `raw` in this process for this read,
                 // and nothing else owns it.
@@ -213,29 +218,38 @@ impl ControlStream {
     /// Waits until a read would not wait, for at most the read timeout set on the
     /// connection, as a read would. Fails with `WouldBlock` when that time has gone by.
     fn wait_readable(&self) -> io::Result<()> {
-        let timeout = match self.0.read_timeout()? {
-            None => -1,
-            Some(limit) => {
-                libc::c_int::try_from(limit.as_millis().max(1)).unwrap_or(libc::c_int::MAX)
-            }
-        };
+        let deadline = self
+            .0
+            .read_timeout()?
+            .map(|limit| std::time::Instant::now() + limit);
         let mut fds = [libc::pollfd {
             fd: self.0.as_raw_fd(),
             events: libc::POLLIN,
             revents: 0,
         }];
         loop {
+            // Whole milliseconds, rounded up, so that the wait never ends before the deadline.
+            let timeout = match deadline {
+                None => -1,
+                Some(deadline) => {
+                    let left = deadline.saturating_duration_since(std::time::Instant::now());
+                    if left.is_zero() {
+                        return Err(io::Error::from(io::ErrorKind::WouldBlock));
+                    }
+                    let millis = left.as_micros().div_ceil(1000);
+                    libc::c_int::try_from(millis).unwrap_or(libc::c_int::MAX)
+                }
+            };
             // SAFETY: `fds` is one `pollfd` that outlives the call, and its length is one; the
             // socket is kept open by `self`.
             let ready = unsafe { libc::poll(fds.as_mut_ptr(), 1, timeout) };
-            match ready {
-                0 => return Err(io::Error::from(io::ErrorKind::WouldBlock)),
-                n if n > 0 => return Ok(()),
-                _ => {
-                    let error = io::Error::last_os_error();
-                    if error.kind() != io::ErrorKind::Interrupted {
-                        return Err(error);
-                    }
+            if ready > 0 {
+                return Ok(());
+            }
+            if ready < 0 {
+                let error = io::Error::last_os_error();
+                if error.kind() != io::ErrorKind::Interrupted {
+                    return Err(error);
                 }
             }
         }

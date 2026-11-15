@@ -72,7 +72,8 @@ pub(super) fn parse_follows(text: &str) -> Vec<u32> {
 }
 
 /// The name of the file, beside an instance's socket, that lists the instances it took over
-/// from in `oso dev`'s restart, which a dev build writes and this reads.
+/// from in a restart, `oso dev`'s or `oso-restart`'s: the new instance writes it, and a bridge
+/// reads it.
 pub const FOLLOWS: &str = "follows";
 
 /// The most names in the control directory looked at for a follower.

@@ -16,7 +16,6 @@ use oso_core::minibuffer::PromptId;
 use super::App;
 use super::draw::with_frame;
 use super::shell::Loop;
-use crate::carry as handoff;
 use crate::dev;
 use oso_platform::window::{Held, ImeEvent, Mouse, MouseAction, Position, Wheel};
 
@@ -125,10 +124,7 @@ impl App {
             dev::UiOp::Exit { generation } => self.answer_exit(event_loop, generation),
             // The rest are a restart's: exporting and importing the state, its texts and its
             // terminals, and whether it may go.
-            op => match carry_op(op) {
-                Ok(op) => return self.answer_restart(op, reply, passed),
-                Err(_) => Err("not a method of a restart".into()),
-            },
+            dev::UiOp::Restart(op) => return self.answer_restart(op, reply, passed),
         };
         Some((reply, result))
     }
@@ -138,21 +134,7 @@ impl App {
     /// generation, terminals handed over go now: the next instance has their masters
     /// (ADR 0120, step 11).
     fn answer_exit(&mut self, event_loop: &Loop<'_>, generation: Option<u64>) -> dev::Reply {
-        let allowed = handoff::exit_allowed(&self.editor, generation).and_then(|()| {
-            if generation.is_some() {
-                self.exit_with_terminals()
-            } else {
-                Ok(())
-            }
-        });
-        if allowed.is_err() {
-            // That restart is over, and its snapshot need hold no text.
-            self.forget_export();
-        }
-        allowed.map(|()| {
-            self.leave(event_loop, true);
-            json!({ "exiting": true })
-        })
+        self.exit_for_restart(event_loop, generation)
     }
 
     /// Remembers the questions a request opened, and the prompts that complete, those newer
@@ -423,31 +405,6 @@ fn opened_questions(editor: &Editor, newest: Option<PromptId>) -> Vec<PromptId> 
         })
         .map(|prompt| prompt.id())
         .collect()
-}
-
-/// The request of a restart `op` is, as `oso-restart`'s threads ask it too (ADR 0133), or
-/// `op` itself if it is none.
-fn carry_op(op: dev::UiOp) -> Result<crate::carry::Op, dev::UiOp> {
-    use crate::carry::Op;
-    use dev::UiOp;
-    Ok(match op {
-        UiOp::CheckHandover { terminals } => Op::CheckHandover { terminals },
-        UiOp::ExportState { terminals } => Op::ExportState { terminals },
-        UiOp::HandOverTerminals { generation } => Op::HandOverTerminals { generation },
-        UiOp::ImportTerminals { count } => Op::ImportTerminals { count },
-        UiOp::ImportState(state) => Op::ImportState(state),
-        UiOp::ExportText {
-            export,
-            item,
-            offset,
-        } => Op::ExportText {
-            export,
-            item,
-            offset,
-        },
-        UiOp::ImportText(piece) => Op::ImportText(piece),
-        other => return Err(other),
-    })
 }
 
 #[cfg(test)]
