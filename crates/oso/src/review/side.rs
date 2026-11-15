@@ -163,13 +163,13 @@ pub(crate) fn identity_of(path: &Path) -> Option<(u64, u64)> {
 
 /// `bytes` as a name: on Unix any bytes, elsewhere UTF-8, as git writes paths there.
 #[cfg(unix)]
-fn os(bytes: &[u8]) -> io::Result<&OsStr> {
+pub(crate) fn os(bytes: &[u8]) -> io::Result<&OsStr> {
     use std::os::unix::ffi::OsStrExt;
     Ok(OsStr::from_bytes(bytes))
 }
 
 #[cfg(not(unix))]
-fn os(bytes: &[u8]) -> io::Result<&OsStr> {
+pub(crate) fn os(bytes: &[u8]) -> io::Result<&OsStr> {
     std::str::from_utf8(bytes)
         .map(OsStr::new)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "a path that is not UTF-8"))

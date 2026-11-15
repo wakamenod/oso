@@ -112,6 +112,7 @@ impl Offer {
             | Mode::Review
             | Mode::Terminal
             | Mode::Directory
+            | Mode::GitStatus
             | Mode::Sessions => None,
             Mode::CopyList => {
                 let index = line.checked_sub(HEADER_ROWS)?;

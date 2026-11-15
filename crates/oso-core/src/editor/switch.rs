@@ -223,7 +223,7 @@ impl Editor {
         let agent = self.runs_for_agent();
         for id in shown_before.chain(rest) {
             let kept = self.buffer(id).is_some_and(|buffer| {
-                let users = !buffer.is_internal() || super::listings::is_listing(buffer);
+                let users = !buffer.is_internal() || kept_as_users(buffer);
                 users && !(agent && buffer.is_terminal())
             });
             if kept && !ring.contains(&id) {
@@ -268,7 +268,7 @@ impl Editor {
     /// reads, `*Messages*`, the list of emergency copies and `*Agent*` (ADR 0088).
     fn listed(&self, id: BufferId, buffer: &Buffer) -> bool {
         !buffer.is_internal()
-            || super::listings::is_listing(buffer)
+            || kept_as_users(buffer)
             || id == self.messages_buffer
             || Some(id) == self.copies_buffer
             || Some(id) == self.agent_log_buffer()
@@ -399,7 +399,7 @@ impl Editor {
     pub fn kill_by_person(&mut self, id: BufferId, anyway: bool) -> Result<(), KillRefused> {
         let buffer = self.buffer(id).ok_or(KillRefused::Gone)?;
         // A directory's listing is killed as a person's buffer is, as dired's are (ADR 0134).
-        if buffer.is_internal() && !super::listings::is_listing(buffer) {
+        if buffer.is_internal() && !kept_as_users(buffer) {
             return Err(KillRefused::Internal);
         }
         if buffer.is_saving() {
@@ -432,7 +432,7 @@ impl Editor {
     pub fn kill_buffer(&mut self, id: BufferId) {
         if self
             .buffer(id)
-            .is_some_and(|buffer| buffer.is_internal() && !super::listings::is_listing(buffer))
+            .is_some_and(|buffer| buffer.is_internal() && !kept_as_users(buffer))
         {
             return;
         }
@@ -457,6 +457,7 @@ impl Editor {
             return;
         }
         self.forget_listing(id);
+        self.forget_git_status(id);
         let shown = self.windows.iter().any(|window| window.buffer() == id);
         if shown {
             self.isearch_abandon();
@@ -562,6 +563,13 @@ impl Editor {
             self.buffers[index].1.set_name(name);
         }
     }
+}
+
+/// Whether `buffer`, though internal, is listed and killed as a person's buffer is: a
+/// directory's listing (ADR 0134) or a git status (ADR 0127), as Emacs's dired and magit
+/// buffers are.
+fn kept_as_users(buffer: &Buffer) -> bool {
+    super::listings::is_listing(buffer) || super::git::is_git_status(buffer)
 }
 
 #[cfg(test)]

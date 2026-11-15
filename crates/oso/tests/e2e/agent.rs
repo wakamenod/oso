@@ -769,7 +769,7 @@ fn buffers(app: &mut App) -> Option<usize> {
 }
 
 /// Inserts `text` for the agent.
-fn insert(agent: &mut Agent, text: &str) {
+pub(super) fn insert(agent: &mut Agent, text: &str) {
     let params = json!({ "name": "insert", "arg": text, "reach": "change" });
     let inserted = agent.call("run", Some(params));
     assert!(inserted.is_ok(), "{inserted:?}");

@@ -351,6 +351,12 @@ impl Editor {
     /// listing `id`, so that the host can tell which name each is on before it puts in a new
     /// text.
     pub fn listing_points(&self, id: BufferId) -> Vec<(WindowId, usize)> {
+        self.cursor_rows(id)
+    }
+
+    /// Each window's id and the buffer line its primary cursor is on, for the windows that show
+    /// `id`.
+    pub(super) fn cursor_rows(&self, id: BufferId) -> Vec<(WindowId, usize)> {
         let Some(buffer) = self.buffer(id) else {
             return Vec::new();
         };
@@ -453,10 +459,11 @@ impl Editor {
         let Some(buffer) = self.buffer_mut(id).filter(|buffer| is_listing(buffer)) else {
             return Some(highlights);
         };
+        // Taken first, as the load would drop them here, on the UI thread.
+        let old = buffer.take_generated_highlights();
         buffer.apply_load(text);
         buffer.set_listing_verdict(verdict);
         buffer.set_mode_note(record.note());
-        let old = buffer.take_generated_highlights();
         let refused = if buffer.text().len() == highlights.len() {
             buffer.set_generated_highlights(highlights).or(old)
         } else {

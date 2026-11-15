@@ -19,7 +19,7 @@ use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 
 /// Runs git in `root` with `args`, which must succeed, kept from the person's configuration
 /// and hooks: git looks for hooks only in an empty directory beside `root`.
-fn git(root: &Path, args: &[&str]) {
+pub(super) fn git(root: &Path, args: &[&str]) {
     let git = Executable::from_path("git", None).expect("git is on PATH");
     let hooks = root.with_file_name("hooks");
     std::fs::create_dir_all(&hooks).expect("cannot make the hooks directory");
@@ -54,7 +54,7 @@ fn git(root: &Path, args: &[&str]) {
 }
 
 /// The current buffer's first `rows` rows.
-fn rows(app: &mut App, rows: usize) -> Vec<String> {
+pub(super) fn rows(app: &mut App, rows: usize) -> Vec<String> {
     let text = app.call("get-text", Some(json!({ "start_row": 0, "rows": rows })));
     text["rows"]
         .as_array()

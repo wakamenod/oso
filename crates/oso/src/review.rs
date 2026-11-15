@@ -31,6 +31,9 @@
 //! - The thread's stack is [`STACK`]: Myers' diff recurses, and needs up to half a MiB at the
 //!   line limit.
 //! - Nothing here logs a file's text; `Debug` of a reading gives its path and kind.
+//! - Its runner (`git`), [`TrustedRoot`] and its secret-name check are shared with the worktree
+//!   jobs (ADR 0121) and the git status (`vcs`, ADR 0127), until a module of their own holds
+//!   them.
 
 mod batch;
 pub(crate) mod count;
@@ -62,11 +65,12 @@ use oso_core::editor::Editor;
 use oso_core::project::ProjectId;
 use oso_core::review::{Carried, Carry, Shape};
 
-pub(crate) use id::Id;
+pub(crate) use id::{Id, trim_line};
 pub(crate) use list::Entry;
 #[cfg(test)]
 pub(crate) use list::Status;
 pub(crate) use scope::Scope;
+pub(crate) use side::{may_hold_secrets, os as os_path};
 
 /// The largest side read: a blob or a work tree file past it shows its size only.
 pub(crate) const MAX_BLOB: u64 = 8 * 1024 * 1024;

@@ -267,3 +267,18 @@ fn quit_stops_a_running_operation_once() {
     assert!(editor.take_operation_stop());
     assert!(!editor.take_operation_stop());
 }
+
+#[test]
+fn the_highlights_a_new_listing_replaces_go_back_to_the_host() {
+    let mut editor = Editor::default();
+    let id = editor.add_listing(PathBuf::from("/tmp/d"));
+    let text = || decode_all(TEXT.as_bytes(), Default::default());
+    assert!(
+        editor
+            .set_listing_text(id, text(), shown("/tmp/d", 1, Vec::new()))
+            .is_none()
+    );
+    // The ones before come back, for the host to free off the UI thread.
+    let given = editor.set_listing_text(id, text(), shown("/tmp/d", 1, Vec::new()));
+    assert_eq!(given.map(|given| given.len()), Some(TEXT.len()));
+}

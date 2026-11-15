@@ -47,10 +47,15 @@ impl App {
     /// agent channel's (ADR 0069, ADR 0085).
     pub(super) fn after_event(&mut self, event_loop: &Loop<'_>) {
         self.sync_ime_after_event(event_loop);
+        // What the person's events changed is looked at before the agent channel's turn, so
+        // that what the channel changes is told apart (ADR 0127).
+        self.sync_git(false, false);
         self.sync_agent();
         self.sync_restart();
         self.sync_sessions();
         self.sync_reviews();
+        self.sync_git(false, true);
+        self.gits.by_agent = false;
         self.sync_terminals();
         // Once for all the changes the event made to the sessions (ADR 0121).
         self.save_sessions();
@@ -94,7 +99,10 @@ impl App {
             UserEvent::Trust => self.trust_reported(),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
-            UserEvent::Agent(request) => self.handle_agent(event_loop, request),
+            UserEvent::Agent(request) => {
+                self.gits.by_agent = true;
+                self.handle_agent(event_loop, request);
+            }
             UserEvent::AgentStarted(started) => self.agent_started(started),
             UserEvent::Sessions(out) => self.sessions_reported(out),
             UserEvent::SessionStart(report) => self.session_start_reported(report),
@@ -102,6 +110,7 @@ impl App {
             UserEvent::SessionChanges(key, changed) => self.session_changes(key, changed),
             UserEvent::Worktree(report) => self.worktree_reported(event_loop, *report),
             UserEvent::Review(event) => self.review_reported(event),
+            UserEvent::Git(event) => self.git_reported(event),
             UserEvent::Terminal(buffer) => self.terminal_ready(buffer),
             UserEvent::TerminalStarted(started) => self.terminal_started(*started),
             UserEvent::Carry(event) => self.carry_event(event),

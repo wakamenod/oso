@@ -58,6 +58,7 @@ pub oso_core::buffer::Mode::CopyList
 pub oso_core::buffer::Mode::CopyView
 pub oso_core::buffer::Mode::Directory
 pub oso_core::buffer::Mode::Fundamental
+pub oso_core::buffer::Mode::GitStatus
 pub oso_core::buffer::Mode::Markdown
 pub oso_core::buffer::Mode::Review
 pub oso_core::buffer::Mode::Rust
@@ -1276,6 +1277,36 @@ pub fn oso_core::editor::DraftFor::eq(&self, &oso_core::editor::DraftFor) -> boo
 impl core::fmt::Debug for oso_core::editor::DraftFor
 pub fn oso_core::editor::DraftFor::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::DraftFor
+pub enum oso_core::editor::GitRequest
+pub oso_core::editor::GitRequest::Refresh
+pub oso_core::editor::GitRequest::Refresh::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Stage
+pub oso_core::editor::GitRequest::Stage::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Stage::lines: alloc::vec::Vec<oso_core::editor::GitLines>
+pub oso_core::editor::GitRequest::StageAll
+pub oso_core::editor::GitRequest::StageAll::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Status
+pub oso_core::editor::GitRequest::Status::project: oso_core::project::ProjectId
+pub oso_core::editor::GitRequest::Toggle
+pub oso_core::editor::GitRequest::Toggle::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Toggle::line: usize
+pub oso_core::editor::GitRequest::Unstage
+pub oso_core::editor::GitRequest::Unstage::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Unstage::lines: alloc::vec::Vec<oso_core::editor::GitLines>
+pub oso_core::editor::GitRequest::UnstageAll
+pub oso_core::editor::GitRequest::UnstageAll::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Visit
+pub oso_core::editor::GitRequest::Visit::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Visit::column: usize
+pub oso_core::editor::GitRequest::Visit::line: usize
+impl core::clone::Clone for oso_core::editor::GitRequest
+pub fn oso_core::editor::GitRequest::clone(&self) -> oso_core::editor::GitRequest
+impl core::cmp::Eq for oso_core::editor::GitRequest
+impl core::cmp::PartialEq for oso_core::editor::GitRequest
+pub fn oso_core::editor::GitRequest::eq(&self, &oso_core::editor::GitRequest) -> bool
+impl core::fmt::Debug for oso_core::editor::GitRequest
+pub fn oso_core::editor::GitRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::GitRequest
 pub enum oso_core::editor::IndentError
 pub oso_core::editor::IndentError::Edit(oso_core::buffer::EditError)
 pub oso_core::editor::IndentError::NoMark
@@ -1868,6 +1899,16 @@ pub fn oso_core::editor::Editor::window_by_id(&self, oso_core::window::WindowId)
 pub fn oso_core::editor::Editor::windows(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::window::Window>
 pub fn oso_core::editor::Editor::with_buffer(oso_core::buffer::Buffer) -> Self
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::add_git_status(&mut self, oso_core::project::ProjectId, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::Editor::git_outline(&self, oso_core::buffer::BufferId) -> &[oso_core::editor::GitHeading]
+pub fn oso_core::editor::Editor::git_points(&self, oso_core::buffer::BufferId) -> alloc::vec::Vec<(oso_core::window::WindowId, usize)>
+pub fn oso_core::editor::Editor::git_status_buffer(&self, oso_core::project::ProjectId) -> core::option::Option<oso_core::buffer::BufferId>
+pub fn oso_core::editor::Editor::git_status_of(&self, oso_core::buffer::BufferId) -> core::option::Option<oso_core::project::ProjectId>
+pub fn oso_core::editor::Editor::git_statuses(&self) -> impl core::iter::traits::iterator::Iterator<Item = (oso_core::buffer::BufferId, oso_core::project::ProjectId)>
+pub fn oso_core::editor::Editor::request_git(&mut self, oso_core::editor::GitRequest)
+pub fn oso_core::editor::Editor::set_git_text(&mut self, oso_core::buffer::BufferId, oso_core::load::LoadSnapshot, oso_core::editor::GitShown) -> core::option::Option<oso_core::syntax::Highlights>
+pub fn oso_core::editor::Editor::take_git_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::GitRequest>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_internal_buffer(&mut self, impl core::convert::Into<alloc::string::String>, oso_core::buffer::Mode) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::copies_back(&mut self)
 pub fn oso_core::editor::Editor::cursor_line(&self) -> usize
@@ -2377,6 +2418,38 @@ impl core::fmt::Display for oso_core::editor::ExitRefused
 pub fn oso_core::editor::ExitRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::ExitRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::ExitRefused
+pub struct oso_core::editor::GitHeading
+pub oso_core::editor::GitHeading::depth: u8
+pub oso_core::editor::GitHeading::line: usize
+impl core::clone::Clone for oso_core::editor::GitHeading
+pub fn oso_core::editor::GitHeading::clone(&self) -> oso_core::editor::GitHeading
+impl core::cmp::Eq for oso_core::editor::GitHeading
+impl core::cmp::PartialEq for oso_core::editor::GitHeading
+pub fn oso_core::editor::GitHeading::eq(&self, &oso_core::editor::GitHeading) -> bool
+impl core::fmt::Debug for oso_core::editor::GitHeading
+pub fn oso_core::editor::GitHeading::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::GitHeading
+impl core::marker::StructuralPartialEq for oso_core::editor::GitHeading
+pub struct oso_core::editor::GitLines
+pub oso_core::editor::GitLines::first: usize
+pub oso_core::editor::GitLines::last: usize
+pub oso_core::editor::GitLines::region: bool
+impl core::clone::Clone for oso_core::editor::GitLines
+pub fn oso_core::editor::GitLines::clone(&self) -> oso_core::editor::GitLines
+impl core::cmp::Eq for oso_core::editor::GitLines
+impl core::cmp::PartialEq for oso_core::editor::GitLines
+pub fn oso_core::editor::GitLines::eq(&self, &oso_core::editor::GitLines) -> bool
+impl core::fmt::Debug for oso_core::editor::GitLines
+pub fn oso_core::editor::GitLines::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::GitLines
+impl core::marker::StructuralPartialEq for oso_core::editor::GitLines
+pub struct oso_core::editor::GitShown
+pub oso_core::editor::GitShown::highlights: oso_core::syntax::Highlights
+pub oso_core::editor::GitShown::line: usize
+pub oso_core::editor::GitShown::lines: alloc::vec::Vec<(oso_core::window::WindowId, usize)>
+pub oso_core::editor::GitShown::outline: alloc::vec::Vec<oso_core::editor::GitHeading>
+impl core::fmt::Debug for oso_core::editor::GitShown
+pub fn oso_core::editor::GitShown::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::Gutter
 impl oso_core::editor::Gutter
 pub fn oso_core::editor::Gutter::rows(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&str, bool)>
@@ -5022,6 +5095,11 @@ pub oso_core::syntax::Highlight::DiredMarked
 pub oso_core::syntax::Highlight::DiredSpecial
 pub oso_core::syntax::Highlight::DiredSymlink
 pub oso_core::syntax::Highlight::Function
+pub oso_core::syntax::Highlight::GitBranchLocal
+pub oso_core::syntax::Highlight::GitBranchRemote
+pub oso_core::syntax::Highlight::GitDetail
+pub oso_core::syntax::Highlight::GitHash
+pub oso_core::syntax::Highlight::GitSectionHeading
 pub oso_core::syntax::Highlight::Heading
 pub oso_core::syntax::Highlight::Keyword
 pub oso_core::syntax::Highlight::Link

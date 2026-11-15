@@ -114,7 +114,9 @@ impl App {
             order: sort,
             marked: built.marked,
         };
-        let old_text = (self.editor.buffer(answer.buffer)).map(|shown| shown.text().clone());
+        // Kept, at O(1), so that what the listing replaces is freed off the UI thread.
+        let old_text = (self.editor.buffer(answer.buffer))
+            .map(|shown| (shown.text().clone(), shown.display()));
         let refused = self.editor.set_listing_text(
             answer.buffer,
             built.text,

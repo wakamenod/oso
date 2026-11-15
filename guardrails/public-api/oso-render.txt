@@ -93,6 +93,11 @@ pub oso_render::Face::Field
 pub oso_render::Face::Flash
 pub oso_render::Face::Float
 pub oso_render::Face::FloatBorder
+pub oso_render::Face::GitBranchLocal
+pub oso_render::Face::GitBranchRemote
+pub oso_render::Face::GitDetail
+pub oso_render::Face::GitHash
+pub oso_render::Face::GitSectionHeading
 pub oso_render::Face::JumpLabel
 pub oso_render::Face::JumpLabelNext
 pub oso_render::Face::Key

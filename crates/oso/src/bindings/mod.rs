@@ -35,6 +35,7 @@ mod session;
 mod session_help;
 mod terminal;
 mod theme;
+mod vcs;
 mod view;
 mod windows;
 mod worktrees;
@@ -74,6 +75,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     scroll::BINDINGS,
     session::BINDINGS,
     theme::BINDINGS,
+    vcs::BINDINGS,
     view::BINDINGS,
     windows::BINDINGS,
 ];
@@ -211,6 +213,12 @@ pub fn review_keymap(registry: &Registry) -> Keymap {
 /// registry without its commands, as in tests that bring their own.
 pub fn dired_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, &dired::LISTING.concat()).unwrap_or_default()
+}
+
+/// A git status's own keymap, above the global one in it (ADR 0127). Empty for a registry
+/// without its commands, as in tests that bring their own.
+pub fn git_status_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, vcs::STATUS).unwrap_or_default()
 }
 
 /// `*Sessions*`'s own keymap, above the global one in it (ADR 0121). Empty for a registry
