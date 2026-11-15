@@ -28,10 +28,10 @@ use std::ffi::OsStr;
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
 
-use super::git::{Git, GitError, MAX_SHORT, MAX_STDERR, Output, for_git, read_at_most};
-use super::id::{Id, trim_line};
 use super::index::Scratch;
 use super::list::{self, Listing};
+use crate::git::{Git, GitError, MAX_SHORT, MAX_STDERR, Output, for_git, read_at_most};
+use crate::git::{Id, trim_line};
 
 /// The most bytes of `git diff --raw` output read.
 pub(crate) const MAX_LIST_BYTES: usize = 32 * 1024 * 1024;

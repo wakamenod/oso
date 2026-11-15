@@ -5,7 +5,7 @@
 //! Must not depend on: `app`, `dispatch` or the UI thread; this runs on a worktree
 //! job's thread and waits for git.
 //!
-//! - Every git run is [`review::git`](crate::review)'s: oso's own arguments and environment,
+//! - Every git run is [`git`](crate::git)'s runner's: oso's own arguments and environment,
 //!   no hook and no file system monitor of the repository's (the author's choice, ADR 0121
 //!   step 4), `GIT_TERMINAL_PROMPT=0`, output bounded, killed after 10 s. Nothing here fetches.
 //! - A linked worktree is run in only once its claim and the main repository's record of it
@@ -23,8 +23,8 @@ use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 use serde_json::Value;
 
 use super::porcelain::{self, Listed};
+use crate::git::{self as rgit, Git, GitError, MAX_SHORT};
 use crate::project::linked_worktree;
-use crate::review::git::{self as rgit, Git, GitError, MAX_SHORT};
 
 /// The most bytes of a listing read: worktrees, branches, refs, paths.
 pub const MAX_LISTING: usize = 4 * 1024 * 1024;

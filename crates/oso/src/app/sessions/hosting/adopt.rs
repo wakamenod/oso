@@ -18,7 +18,7 @@ use super::fork::ForkFrom;
 use super::{Baseline, base_name};
 use crate::app::{App, UserEvent};
 use crate::commands::agent_sessions::{ADOPT_LIST, is_adopt_prompt};
-use crate::review::TrustedRoot;
+use crate::git::TrustedRoot;
 use crate::sessions::adopt::{self, Found, Offered, Order as ListOrder, RegistryNames};
 use crate::sessions::identity::cleaned;
 use crate::sessions::registry::{is_plain_directory, shown_directory};

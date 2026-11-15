@@ -18,9 +18,10 @@ use oso_core::project::ProjectId;
 
 use super::{App, UserEvent};
 use crate::commands::review::{MAX_NAME, RESTRICTED, one_line};
+use crate::git::{Id, TrustedRoot};
 use crate::review::count::Counted;
 use crate::review::view::{Tell, Text, View};
-use crate::review::{Asked, Content, Id, Reading, Report, Request, Reviewer, Scope, TrustedRoot};
+use crate::review::{Asked, Content, Reading, Report, Request, Reviewer, Scope};
 pub(in crate::app) use state::Reviews;
 use state::{Baseliner, Reopen, Running};
 

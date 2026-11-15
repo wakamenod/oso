@@ -28,7 +28,7 @@ use super::super::App;
 use crate::channel::protocol::sessions::Call;
 use crate::channel::{Connection, Reply};
 use crate::config::AgentStarts;
-use crate::review::TrustedRoot;
+use crate::git::TrustedRoot;
 use crate::sessions::hosted::Hosted;
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
@@ -329,7 +329,7 @@ impl App {
     /// The trusted root of `caller`'s project: an open project's whose root is the session's,
     /// looked up now so that the person's later trust or distrust counts, else the one the
     /// session started with (a worktree just made, which no buffer opened).
-    fn caller_root(&self, caller: &Caller) -> Option<crate::review::TrustedRoot> {
+    fn caller_root(&self, caller: &Caller) -> Option<crate::git::TrustedRoot> {
         if let Some(at) = &caller.acting_at {
             return Some(at.clone());
         }
@@ -341,7 +341,7 @@ impl App {
 
     /// The trust of the caller's project as an open buffer of it has it now: `None` when no
     /// buffer has it open, `Some(None)` when it is not trusted.
-    fn open_caller_root(&self, caller: &Caller) -> Option<Option<crate::review::TrustedRoot>> {
+    fn open_caller_root(&self, caller: &Caller) -> Option<Option<crate::git::TrustedRoot>> {
         caller.root.as_deref().and_then(|root| {
             let id = self
                 .editor
@@ -349,7 +349,7 @@ impl App {
                 .filter_map(|(_, buffer)| buffer.project())
                 .find(|&id| self.editor.project(id).is_some_and(|p| p.root() == root))?;
             // An open project that is not trusted is not trusted, whatever the session began with.
-            Some(crate::review::TrustedRoot::of(&self.editor, id))
+            Some(crate::git::TrustedRoot::of(&self.editor, id))
         })
     }
 

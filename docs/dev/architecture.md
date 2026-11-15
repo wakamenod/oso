@@ -614,7 +614,7 @@ The UI thread never blocks on I/O or parsing:
   ([ADR 0134](adr/0134-a-directory-editor.md)).
 - A git status is read on a thread of its own per status buffer, `oso-vcs`
   (`crates/oso/src/vcs.rs`, glue in `app/vcs.rs`), only for a trusted project's root, through
-  `review`'s git runner: `git status --porcelain=v2 -z`, `git diff --numstat -z` and an open
+  the shared git runner (`crate::git`): `git status --porcelain=v2 -z`, `git diff --numstat -z` and an open
   file's patch, each bounded, then laid out there into a rope with its display map, highlights,
   outline and a table of what each line is about. The UI swaps it in at O(1)
   (`Editor::set_git_text`), each window's point kept on its hunk, file or section. Staging runs
@@ -711,7 +711,7 @@ The UI thread never blocks on I/O or parsing:
   - The jobs list branches, make a worktree (`create.rs`: brief and hand-off facts, `git
     worktree add`, `.worktreeinclude`'s copies), list worktrees row by row (`checks::look`,
     rendered by `list.rs`), and check and remove one (`checks.rs`, `merged.rs`).
-  - Every git run is ADR 0122's runner (`review::git`); `gh` runs through its bounded
+  - Every git run is the shared runner (`crate::git`, ADR 0127 as built); `gh` runs through its bounded
     collector.
   - Each job takes the project's trust when it is asked for (`jobs::Trust`), checks it again
     before it runs, and refuses a repository whose main checkout is not trusted too. What

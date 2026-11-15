@@ -2,8 +2,8 @@
 //! reads a file: from the work tree's top a directory at a time, following no link, regular
 //! files only, waiting for nothing.
 //!
-//! Must not depend on: `app`, `dispatch`, `git` or `batch`; this reads the file system on the
-//! review's thread.
+//! Must not depend on: `app`, `dispatch`, `batch` or anything that runs git; this reads the
+//! file system on the review's thread, naming paths as the shared git module does.
 //!
 //! - A link is never followed: its side is its target's text, as git stores a link.
 //! - A file with more than one name, as a hard link gives one, is not read: another of its
@@ -16,16 +16,16 @@
 //! - Unlike project search's preview, the top is the trusted root itself (checked when the
 //!   repository is found), so it is not judged again for the home directory.
 
-use std::ffi::OsStr;
 use std::fs::{File, Metadata};
 use std::io::{self, Read};
 use std::path::Path;
 
-use oso_core::buffer::{Buffer, FileStamp};
+use oso_core::buffer::FileStamp;
 use oso_platform::file_meta::{Directory, EntryKind};
 use oso_platform::privacy::has_one_name;
 
 use super::MAX_BLOB;
+use crate::git::{identity, os_path};
 
 /// The most directories a path may go down.
 const MAX_DEPTH: usize = 128;
@@ -62,7 +62,7 @@ pub(crate) fn find(top: &Directory, path: &[u8]) -> io::Result<Found> {
     let mut below: Option<Directory> = None;
     for directory in directories {
         let here = below.as_ref().unwrap_or(top);
-        match here.open_directory(os(directory)?) {
+        match here.open_directory(os_path(directory)?) {
             Ok(Some(next)) => below = Some(next),
             Ok(None) => return Ok(Found::Nothing),
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Found::Nothing),
@@ -70,7 +70,7 @@ pub(crate) fn find(top: &Directory, path: &[u8]) -> io::Result<Found> {
         }
     }
     let here = below.as_ref().unwrap_or(top);
-    let name = os(name)?;
+    let name = os_path(name)?;
     let kind = match here.kind_of(name) {
         Ok(kind) => kind,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Found::Nothing),
@@ -115,15 +115,6 @@ pub(crate) fn is_binary(bytes: &[u8]) -> bool {
     bytes[..bytes.len().min(BINARY_PROBE)].contains(&0)
 }
 
-/// Whether the file at `path` under `top`, the trusted root, may hold secrets, by its name
-/// (ADR 0044).
-pub(crate) fn may_hold_secrets(top: &Path, path: &[u8]) -> bool {
-    let Ok(path) = os(path) else {
-        return true;
-    };
-    Buffer::name_may_hold_secrets(&top.join(path))
-}
-
 fn stamp(metadata: &Metadata) -> FileStamp {
     FileStamp {
         modified: metadata.modified().unwrap_or(std::time::UNIX_EPOCH),
@@ -142,37 +133,6 @@ fn mode(metadata: &Metadata) -> u32 {
 #[cfg(not(unix))]
 fn mode(_: &Metadata) -> u32 {
     0
-}
-
-#[cfg(unix)]
-fn identity(metadata: &Metadata) -> Option<(u64, u64)> {
-    use std::os::unix::fs::MetadataExt;
-    Some((metadata.dev(), metadata.ino()))
-}
-
-#[cfg(not(unix))]
-fn identity(_: &Metadata) -> Option<(u64, u64)> {
-    None
-}
-
-/// The device and inode of what is at `path`, not following a link, where the system has
-/// them.
-pub(crate) fn identity_of(path: &Path) -> Option<(u64, u64)> {
-    identity(&std::fs::symlink_metadata(path).ok()?)
-}
-
-/// `bytes` as a name: on Unix any bytes, elsewhere UTF-8, as git writes paths there.
-#[cfg(unix)]
-pub(crate) fn os(bytes: &[u8]) -> io::Result<&OsStr> {
-    use std::os::unix::ffi::OsStrExt;
-    Ok(OsStr::from_bytes(bytes))
-}
-
-#[cfg(not(unix))]
-pub(crate) fn os(bytes: &[u8]) -> io::Result<&OsStr> {
-    std::str::from_utf8(bytes)
-        .map(OsStr::new)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "a path that is not UTF-8"))
 }
 
 /// A link's target as git stores it: its bytes, with `/` between names.

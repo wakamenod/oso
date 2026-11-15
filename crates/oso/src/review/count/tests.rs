@@ -12,8 +12,9 @@ use oso_core::editor::{Count, Editor, ScopeKind};
 use oso_core::project::{Found, ProjectId, RootIdentity};
 
 use super::{Counted, Counter, Counting, Job};
+use crate::git::TrustedRoot;
+use crate::review::Scope;
 use crate::review::tests::Repo;
-use crate::review::{Scope, TrustedRoot};
 
 /// A project's id, as the editor gives one for a file found in it.
 fn project() -> ProjectId {

@@ -18,13 +18,13 @@ use oso_platform::file_meta::Directory;
 
 use super::batch::{Batch, Blob};
 use super::diff;
-use super::git::{Git, GitError, MAX_SHORT};
-use super::id::Id;
-use super::id::trim_line;
 use super::index::Scratch;
 use super::read::{self, Context, Kept};
 use super::scope::{self, Scope, ScopeError};
 use super::{Asked, Report, Request};
+use crate::git::Id;
+use crate::git::trim_line;
+use crate::git::{Git, GitError, MAX_SHORT};
 
 /// How long one request may spend reading and diffing files.
 pub(crate) const REQUEST_BUDGET: Duration = Duration::from_secs(5);
@@ -139,7 +139,7 @@ impl Reader {
             let args: Vec<&OsStr> = args.iter().map(OsStr::new).collect();
             let out = git.run(&args, &[], MAX_SHORT).ok()?;
             let name = std::str::from_utf8(trim_line(&out)).ok()?.to_owned();
-            super::git::check_revision(&name).ok()?;
+            crate::git::check_revision(&name).ok()?;
             Some(name)
         };
         // No `--end-of-options`, which `rev-parse` would print back: the one argument is fixed.

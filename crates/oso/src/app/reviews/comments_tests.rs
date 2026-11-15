@@ -10,7 +10,8 @@ use oso_core::review::{
 };
 
 use super::{behind_after_apply, read_in_view, unlisted};
-use crate::review::{Content, Entry, Id, Reading, Status};
+use crate::git::Id;
+use crate::review::{Content, Entry, Reading, Status};
 
 const FILE: &[u8] = b"a.rs";
 

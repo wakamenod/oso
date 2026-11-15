@@ -12,7 +12,8 @@ use oso_core::buffer::BufferId;
 use oso_core::project::ProjectId;
 
 use crate::app::{App, UserEvent};
-use crate::review::{self, Reviewer, TrustedRoot};
+use crate::git::TrustedRoot;
+use crate::review::{self, Reviewer};
 use crate::sessions::attention::Seen as Where;
 use crate::sessions::state::State;
 use crate::sessions::worker::{Job, SessionKey};

@@ -10,7 +10,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use super::{Report, Request, State, Worker};
-use crate::review::TrustedRoot;
+use crate::git::TrustedRoot;
 use crate::review::tests::Repo;
 use crate::vcs::layout::{Laid, Row, Section, View};
 use crate::vcs::stage::{self, Op, Target};

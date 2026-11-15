@@ -15,8 +15,9 @@ use oso_core::project::ProjectId;
 use super::super::{App, UserEvent, Waker};
 use super::{RESTRICTED, ReviewEvent, state};
 use crate::commands::review::review_project;
+use crate::git::TrustedRoot;
+use crate::review::Scope;
 use crate::review::count::{Counted, Counter, Counting, Job};
-use crate::review::{Scope, TrustedRoot};
 
 impl App {
     /// Starts the menu's counts as the review menu opens, and stops them as it closes.

@@ -62,15 +62,15 @@ often, so it must rebuild within 2 s.
   `oso-session-adopt-list` thread (`adopt`). `app/sessions.rs` and `app/sessions/` carry out
   what the worker, the jobs and the start thread find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
-  a trusted project's root, and git only through `oso_platform::process`. Its runner,
-  `review/git.rs`, is shared with the worktree jobs and the git status (`vcs`), as are its
-  `TrustedRoot` and secret-name check. `review/view.rs`
+  a trusted project's root, and git only through `oso_platform::process`. Its runner, its
+  `TrustedRoot` and its secret-name check are `src/git.rs`'s (ADR 0127, as built), shared with
+  the worktree jobs and the git status (`vcs`). `review/view.rs`
   lays out a review buffer's whole text on `oso-review-view`, one thread per review, and
   `review/count.rs` counts the review menu's scopes on `oso-review-count`. A review buffer's
   keys are listed in `commands::review::KEYS`, which `?` reads, and bound by
   `bindings/review.rs`.
 - `src/vcs.rs` and `src/vcs/` are source control's git status (ADR 0127): one thread per status
-  buffer, `oso-vcs` (`work`), which runs git through `review`'s runner for a trusted root only,
+  buffer, `oso-vcs` (`work`), which runs git through `git`'s runner for a trusted root only,
   reads porcelain v2 and patches as untrusted bytes (`status`, `patch`), lays out the text with
   its outline and the table of what each line is about (`layout`), and turns the lines commands
   name into staging (`stage`). Its keys are listed in `commands::vcs::KEYS` and bound by

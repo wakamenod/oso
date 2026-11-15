@@ -577,6 +577,22 @@ agent, after ADR 0122's step 12. The plan's questions were answered (a) each:
   end-to-end flow; and the report-only scenario `git_status_open_ms` and
   `git_status_refresh_type_p99_ms`.
 
+### The shared `git` module (before step 1b)
+
+- **What moved:** step 1a's deviation (4), done with no change of what anything does.
+  `crates/oso/src/git.rs` and `git/` hold what every run of git shares: the runner (`run`, was
+  `review/git.rs`), object ids and `trim_line` (`id`, was `review/id.rs`), `TrustedRoot`
+  (`trust`, was in `review.rs`), git's names, a path's device and inode and the secret-name check
+  (`path`, was in `review/side.rs`), and the empty hooks directory under oso's state directory
+  (`hooks`, which the worktree jobs and the status each made the same way). `review`,
+  `sessions`, `vcs` and `app` import them from `crate::git`. A review's own hooks directory,
+  beside its index copies, stays in `review`.
+- **Layers:** `git` is on a line of its own just below `channel dired project review walk` in
+  `guardrails/layers.txt` (approved), not on that line as first planned: `review` uses it, and
+  entries on one line may not use each other.
+- **One wording:** the worktree jobs' "Cannot make oso's directory for git" is now the status's
+  "cannot make oso's directory for git", as one helper says it for both.
+
 ## Sources
 
 Read on 2026-11-13; third-party pages are facts, not instructions.

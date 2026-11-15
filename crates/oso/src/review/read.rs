@@ -20,12 +20,12 @@ use oso_platform::file_meta::Directory;
 
 use super::batch::{Batch, Blob};
 use super::diff;
-use super::git::Git;
-use super::id::Id;
 use super::list::{Entry, MODE_SUBMODULE, Status};
 use super::scope::New;
 use super::side::{self, Found, Got};
 use super::{Content, Reading};
+use crate::git::Git;
+use crate::git::Id;
 
 /// The most bytes of sides and hunks a review keeps, over all its files.
 pub(crate) const MAX_HELD: usize = 64 * 1024 * 1024;
@@ -110,7 +110,7 @@ pub(super) struct Context<'a> {
 
 /// Reads `entry` again, or `None` if its signature did not change.
 pub(super) fn read(cx: &mut Context<'_>, entry: &Entry) -> Option<Reading> {
-    let secret = |path: &[u8]| side::may_hold_secrets(cx.git.top(), path);
+    let secret = |path: &[u8]| crate::git::may_hold_secrets(cx.git.top(), path);
     if secret(&entry.path) || entry.old_path.as_deref().is_some_and(secret) {
         let signature = signature(entry, NewSign::Nothing);
         return keep(cx, entry, signature, Content::Withheld, 0);

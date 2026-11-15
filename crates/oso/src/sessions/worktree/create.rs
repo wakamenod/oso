@@ -29,9 +29,9 @@ use super::merged;
 use super::porcelain;
 use super::slug::{self, PARENT};
 use super::transcript;
+use crate::git::Git;
+use crate::git::{MAX_SHORT, check_revision};
 use crate::project::ours;
-use crate::review::git::Git;
-use crate::review::git::{MAX_SHORT, check_revision};
 
 /// The most lines of the starting session's uncommitted changes the brief names.
 const MAX_UNCOMMITTED: usize = 200;

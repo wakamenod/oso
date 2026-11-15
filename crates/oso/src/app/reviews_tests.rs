@@ -13,9 +13,11 @@ use oso_core::project::ProjectId;
 use super::state::{Baseliner, Reopen, Reviews, Running};
 use super::{same_scope, scope_label, scope_of};
 use crate::commands::review::{MAX_NAME, one_line};
+use crate::git::Id;
+use crate::git::TrustedRoot;
+use crate::review::Reviewer;
+use crate::review::Scope;
 use crate::review::view::{self, View};
-use crate::review::{Id, Scope};
-use crate::review::{Reviewer, TrustedRoot};
 
 fn id(digit: u8) -> Id {
     Id::parse(&[digit; 40]).unwrap()

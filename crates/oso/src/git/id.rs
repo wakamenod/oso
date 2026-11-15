@@ -1,6 +1,6 @@
 //! Object ids as git writes them, and the line breaks after its short answers (ADR 0122).
 //!
-//! Must not depend on: `git`, `batch` or anything that runs git; this reads bytes.
+//! Must not depend on: `run` or anything that runs git; this reads bytes.
 
 use std::ffi::OsStr;
 

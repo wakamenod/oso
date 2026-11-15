@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use crate::review::TrustedRoot;
+use crate::git::TrustedRoot;
 use crate::sessions::identity::{Origin, SessionId};
 
 /// What a new session starts with. Its default is the person's start, by a key.

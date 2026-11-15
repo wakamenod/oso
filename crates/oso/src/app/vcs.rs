@@ -26,7 +26,7 @@ use oso_core::project::ProjectId;
 use super::{App, UserEvent};
 use crate::commands::review::{MAX_NAME, one_line};
 use crate::commands::vcs::RESTRICTED;
-use crate::review::{TrustedRoot, os_path};
+use crate::git::{TrustedRoot, os_path};
 use crate::vcs::layout::{Laid, Row};
 use crate::vcs::stage::{self, Target};
 use crate::vcs::{Built, Report, Request, View, Worker};

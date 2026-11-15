@@ -3,7 +3,7 @@
 //! one whose work is done, with the answers to the questions those ask.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
-//! and asks the host, whose worktree jobs run `git` and `gh` on a pool of their own, beside the
+//! and asks the host, whose worktree jobs run git and `gh` on a pool of their own, beside the
 //! sessions worker. Each needs a person at the keyboard: they run processes. No hook of the
 //! repository runs, `git worktree add` included.
 

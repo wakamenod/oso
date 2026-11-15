@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use super::super::jobs::{Asked, Jobs, MAIN_UNTRUSTED, Report, Snapshot, Trust};
 use super::{Scratch, order};
-use crate::review::TrustedRoot;
+use crate::git::TrustedRoot;
 
 /// Jobs keeping their state under the scratch directory, and their reports.
 fn jobs(s: &Scratch) -> (Jobs, mpsc::Receiver<Report>) {

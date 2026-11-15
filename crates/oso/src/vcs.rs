@@ -5,7 +5,7 @@
 //! and takes reports out, and supplies the wake-up.
 //!
 //! - Each status buffer has its own thread, `oso-vcs` ([`work`]), which runs git only for a
-//!   trusted project's root, through `review`'s runner and `oso-platform::process`, and lays
+//!   trusted project's root, through `git`'s runner and `oso-platform::process`, and lays
 //!   out the whole text there ([`layout`]), for the UI to put in at O(1).
 //! - What git writes is untrusted: [`status`] and [`patch`] read it as bytes, bounded, and
 //!   skip what does not parse.

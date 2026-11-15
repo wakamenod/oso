@@ -14,7 +14,7 @@ use super::facts::RepoFacts;
 use super::git::{Gh, MAX_LISTING, Repo, run, said};
 use super::merged::{self, Local, Merged};
 use super::porcelain::{self, Listed, Status};
-use crate::review::git::Git;
+use crate::git::Git;
 
 /// The most names of ignored files and directories kept, for the removal's question.
 pub const MAX_IGNORED: usize = 1_000;
