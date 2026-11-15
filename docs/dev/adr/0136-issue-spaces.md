@@ -735,6 +735,38 @@ space's sessions (Q7); `space_status` is a `Look` tool (Q8); oso-core gains
   others. A worktree made for a tool's call is held as the person's would be: by the asking
   session's space when its repository is one of the space's.
 
+## Step 4b, as built
+
+The author answered on 2026-11-15, through the coordinator, (a) for each of Q1–Q7: the
+directories are kept in the session's record and checked again at every resume (Q1); only a
+space's orchestrator passes `with_dirs` (Q2), each a trusted repository's main checkout or one of
+its linked worktrees itself (Q3); the question and `?` list each one, quoted (Q4), and the
+worker's brief names them in its header (Q5); `session-worktree` asks for none (Q6).
+
+- **`with_dirs`** on `start_worktree_session` and `session_start`: at most 8 absolute paths, a
+  path named twice taken once. From any session but a space's orchestrator it refuses. Each must
+  be a repository of the space's root, or a worktree the space holds inside one
+  (`Stored::read_root`), and oso must trust that repository by path and identity. A worktree git
+  lists but the space does not hold is refused: git's records are files agents can write (the
+  author's choice, Q7 (a), 2026-11-15).
+- **The job before the question** checks each in its own repository: the root still the
+  directory trusted, and the path that root or one of its linked worktrees, no link; it gives
+  each back with its identity.
+- **The question** ends "It also reads N more directories: "A", "B"."; the echo area says the
+  same for a start without asking. The worker's brief header adds "You can also read: A, B
+  (added to your working directories)."; a `session_start`'s brief has the line before oso's own.
+- **At the person's `y`,** and again once a worktree is made, a directory whose repository oso no
+  longer trusts is left out, and said.
+- **The start** passes each as its own `--add-dir=PATH`. Its start thread checks each again with
+  git, as the job did, under its repository's trust, and leaves out, and says, one that no longer
+  passes.
+- **The record** keeps their paths under `reads` in the session's line, at most 8. The record is
+  one agents can write, so a resume takes nothing in it as checked: it gives them again only to
+  a session started by its open space's orchestrator, current or earlier, each a trusted
+  repository's root or a worktree the space holds, and its start thread checks each with git as
+  a new start's does.
+  The echo area says what is given and what is left out.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it. They apply once this ADR is

@@ -151,7 +151,9 @@ impl App {
             .position(|space| space.stored.orchestrator.as_ref() == Some(&id));
         match at {
             Some(at) => self.orchestrator_start(at).map(Some),
-            None => Ok(self.space_checks(&directory)),
+            None => Ok(self
+                .space_checks(&directory)
+                .or_else(|| self.reads_again(key))),
         }
     }
 
@@ -163,6 +165,8 @@ impl App {
             (space.stored.directory.as_deref()).is_some_and(|its| same(its, directory))
         })?;
         Some(SpaceStart {
+            in_space_directory: true,
+            reads: Vec::new(),
             made: space.stored.directory_identity,
             members: space.stored.members.clone(),
             trusted: Vec::new(),
@@ -211,6 +215,8 @@ impl App {
             crate::sessions::spaces::probe::instructions_path(&state, stored.id.as_str())
         });
         Ok(SpaceStart {
+            in_space_directory: true,
+            reads: Vec::new(),
             made: stored.directory_identity,
             members: stored.members.clone(),
             trusted: trusted_members,

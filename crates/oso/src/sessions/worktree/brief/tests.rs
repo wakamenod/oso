@@ -16,6 +16,7 @@ fn header() -> Header<'static> {
         branch: "feat/x",
         base: "main",
         space: None,
+        reads: &[],
     }
 }
 
@@ -30,6 +31,25 @@ fn a_worker_of_a_space_is_told_its_space() {
     let text = compose(&header, None, "Go").unwrap();
     let head = HEAD.trim_end_matches('.');
     assert_eq!(text, format!("{head}, in space fix-login.\n\nGo"));
+}
+
+#[test]
+fn a_worker_is_told_the_directories_it_also_reads() {
+    let reads = [
+        PathBuf::from("/web"),
+        PathBuf::from("/web/.claude/worktrees/fix"),
+    ];
+    let header = Header {
+        reads: &reads,
+        ..header()
+    };
+    let text = compose(&header, None, "Go").unwrap();
+    assert!(
+        text.starts_with(&format!(
+            "{HEAD}\nYou can also read: /web, /web/.claude/worktrees/fix (added to your working directories).\n\nGo"
+        )),
+        "{text}"
+    );
 }
 
 #[test]

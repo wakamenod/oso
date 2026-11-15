@@ -282,6 +282,7 @@ impl App {
             id: session.id.as_str().to_owned(),
             directory: session.directory.clone(),
             space: self.orchestrated_space(&session.id),
+            reads: Vec::new(),
         });
         let parent = session.map(|s| s.id.clone());
         let place = slug::slug(&branch)

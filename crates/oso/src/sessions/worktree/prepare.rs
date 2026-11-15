@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use super::create::{Resolved, head_of, resolve};
 use super::git::Repo;
 use super::porcelain::printable;
+use crate::sessions::spaces::Member;
 
 /// What to look at.
 #[derive(Clone, Debug)]
@@ -62,6 +63,30 @@ pub fn prepare(repo: &Repo, prepare: &Prepare) -> Result<Prepared, String> {
             }
         }
     }
+}
+
+/// `dir`, a directory a new session also reads (ADR 0136, step 4b), when it is `repo`'s main
+/// checkout or one of its linked worktrees itself, no link: with its identity, which its start
+/// checks again.
+///
+/// # Errors
+///
+/// Why not, in words for the agent.
+pub fn readable(repo: &Repo, dir: &Path) -> Result<Member, String> {
+    let shown = printable(&dir.display().to_string(), 200);
+    if dir != repo.main() && repo.in_worktree(dir).is_none() {
+        return Err(format!(
+            "{shown} is neither a repository's root nor one of its linked worktrees"
+        ));
+    }
+    let meta = std::fs::symlink_metadata(dir).map_err(|e| format!("{shown}: {e}"))?;
+    if !meta.is_dir() {
+        return Err(format!("{shown} is no directory"));
+    }
+    Ok(Member {
+        root: dir.to_path_buf(),
+        identity: crate::sessions::spaces::dir::identity(&meta),
+    })
 }
 
 fn worktree(

@@ -146,6 +146,23 @@ impl Stored {
             })
     }
 
+    /// The root of its repository a session may also read `dir` of (ADR 0136, step 4b): `dir`
+    /// is that repository's root, or a worktree this space holds inside it. A worktree git
+    /// lists but the space does not hold is not taken: git's records are files agents can
+    /// write.
+    pub fn read_root(&self, dir: &Path) -> Option<&Path> {
+        if let Some(member) = self.member(dir) {
+            return Some(&member.root);
+        }
+        if !self.holds_worktree(dir) {
+            return None;
+        }
+        (self.members.iter())
+            .map(|member| member.root.as_path())
+            .filter(|root| dir.starts_with(root))
+            .max_by_key(|root| root.components().count())
+    }
+
     /// Its repository at `root`, by ADR 0114's comparison.
     pub fn member(&self, root: &Path) -> Option<&Member> {
         self.members.iter().find(|member| same(&member.root, root))

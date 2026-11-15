@@ -187,6 +187,20 @@ fn echo(state: &Value) -> String {
 }
 
 /// Answers the prompt now open with `text`, once it says `label`.
+/// Trusts the project of the buffer just opened, `name`, once the projects thread found it
+/// restricted: before that, `trust-project` would answer "Not in a project" and the `y` would
+/// go in as text.
+pub(super) fn trust_restricted(app: &mut crate::harness::App, name: &str) {
+    app.wait_until_ready();
+    let shown = format!("  {name}  restricted  ");
+    app.wait_for("the buffer's project", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains(&shown))
+    });
+    app.send_keys(&format!("M-x {} RET y", keys("trust-project")));
+}
+
 pub(super) fn answer(app: &mut crate::harness::App, label: &str, text: &str) {
     app.wait_for(label, |state| {
         super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with(label))
@@ -458,8 +472,7 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
 
     // The other repository trusted now: its `/add-dir` is offered, not pasted unasked.
     app.open_file(&other.join("notes.md"));
-    app.wait_until_ready();
-    app.send_keys(&format!("M-x {} RET y", keys("trust-project")));
+    trust_restricted(&mut app, "other");
     app.wait_for("the offer", |state| {
         super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with("Paste /add-dir"))
     });

@@ -248,11 +248,12 @@ impl App {
                     brief,
                     name,
                     repo,
+                    with_dirs,
                 },
                 Some(caller),
             ) => {
-                let caller = match self.scoped_caller(caller, repo.as_deref()) {
-                    Ok(caller) => caller,
+                let (caller, with) = match self.scoped_with(caller, repo.as_deref(), &with_dirs) {
+                    Ok(scoped) => scoped,
                     Err(why) => return pending.answer(Err(why)),
                 };
                 let call = asks::WorktreeCall {
@@ -260,6 +261,7 @@ impl App {
                     base,
                     brief,
                     name,
+                    with,
                 };
                 self.tool_start_worktree(pending, &tool, &caller, call);
             }
@@ -269,17 +271,19 @@ impl App {
                     name,
                     brief,
                     repo,
+                    with_dirs,
                 },
                 Some(caller),
             ) => {
-                let caller = match self.scoped_caller(caller, repo.as_deref()) {
-                    Ok(caller) => caller,
+                let (caller, with) = match self.scoped_with(caller, repo.as_deref(), &with_dirs) {
+                    Ok(scoped) => scoped,
                     Err(why) => return pending.answer(Err(why)),
                 };
                 let call = asks::StartCall {
                     directory,
                     name,
                     brief,
+                    with,
                 };
                 self.tool_session_start(pending, &tool, &caller, call);
             }

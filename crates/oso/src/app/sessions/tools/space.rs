@@ -14,11 +14,11 @@ use std::path::{Path, PathBuf};
 
 use super::super::super::App;
 use super::Caller;
-use crate::review::TrustedRoot;
 use crate::sessions::hosted::Hosted;
 use crate::sessions::spaces::SpaceId;
 use crate::sessions::spaces::stored::same;
 use crate::sessions::tools::repo::{self, Named};
+use crate::sessions::worktree::jobs::Trust;
 
 /// A caller's space, and its part there.
 #[derive(Clone, Debug)]
@@ -113,6 +113,45 @@ impl App {
         }
     }
 
+    /// As [`App::scoped_caller`], with the directories `with_dirs` names, each with the trust
+    /// of the space's repository it is of, for the job to check (ADR 0136, step 4b): only an
+    /// orchestrator names any, and each must be a trusted repository's root or a worktree the
+    /// space holds (`Stored::read_root`).
+    ///
+    /// # Errors
+    ///
+    /// Why the call is refused, for the agent.
+    pub(super) fn scoped_with(
+        &self,
+        caller: Caller,
+        repo: Option<&str>,
+        with_dirs: &[PathBuf],
+    ) -> Result<(Caller, Vec<(Trust, PathBuf)>), String> {
+        if !with_dirs.is_empty() && !caller.orchestrator() {
+            return Err("only a space's orchestrator names \"with_dirs\"".to_owned());
+        }
+        let spaces = self.watch.spaces();
+        let stored =
+            (caller.space.as_ref()).and_then(|space| spaces.stored(spaces.find(&space.id)?));
+        let mut with = Vec::with_capacity(with_dirs.len());
+        for dir in with_dirs {
+            // A repository's root, or a worktree the space holds: never one git alone lists.
+            let root = (stored.and_then(|stored| stored.read_root(dir)))
+                .map(Path::to_path_buf)
+                .ok_or_else(|| {
+                    format!(
+                        "{} is neither a repository of your space nor a worktree it holds",
+                        quoted_path(dir)
+                    )
+                })?;
+            let acting = self.at_member(caller.clone(), &root)?;
+            let root = acting.acting_at.ok_or("that repository is not trusted")?;
+            let trusted = self.trusted_list();
+            with.push((Trust { root, trusted }, dir.clone()));
+        }
+        Ok((self.scoped_caller(caller, repo)?, with))
+    }
+
     /// An orchestrator's call on the worktree at `path` acts in the space's repository git
     /// listed it under, else the one whose root holds it.
     ///
@@ -159,14 +198,6 @@ impl App {
             .orchestrator()
             .then(|| self.orchestrated_space(&caller.id))
             .flatten()
-    }
-
-    /// Whether `root` is still trusted, by path and identity, and not taken back.
-    pub(super) fn still_trusted(&self, root: &TrustedRoot) -> bool {
-        !root.revoked()
-            && (self.editor.trust_list()).is_some_and(|list| {
-                TrustedRoot::of_member(list, root.path(), root.identity()).is_some()
-            })
     }
 
     /// The repositories of `caller`'s space by name and root; none outside a space.

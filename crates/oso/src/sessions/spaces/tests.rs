@@ -487,3 +487,19 @@ fn only_a_session_in_the_directory_oso_makes_for_the_space_is_its_orchestrator()
         "a closed space has none"
     );
 }
+
+#[test]
+fn a_session_reads_a_repositorys_root_or_a_worktree_the_space_holds_only() {
+    let mut stored = Stored::of_repository(id(1), "fix".into(), Member::at(Path::new("/r")), 1);
+    let held = Path::new("/r/.claude/worktrees/a");
+    let unheld = Path::new("/r/.claude/worktrees/b");
+    stored.worktrees.push(held.to_path_buf());
+    assert_eq!(stored.read_root(Path::new("/r")), Some(Path::new("/r")));
+    assert_eq!(stored.read_root(held), Some(Path::new("/r")));
+    // One git may list, but the space does not hold, is not read.
+    assert_eq!(stored.read_root(unheld), None);
+    assert_eq!(stored.read_root(Path::new("/r/src")), None);
+    // A held one outside every repository's root names none.
+    stored.worktrees.push(PathBuf::from("/elsewhere/c"));
+    assert_eq!(stored.read_root(Path::new("/elsewhere/c")), None);
+}

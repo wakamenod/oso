@@ -10,9 +10,12 @@
 //!   the space's member `repo` for a space's orchestrator (ADR 0136, step 4).
 //! - `worktree_remove`: `{"path": "/abs/repo/.claude/worktrees/x"}`.
 //! - `start_worktree_session`: `{"branch": "x", "base": "main", "brief": "…", "name": "x",
-//!   "repo": "api"}`; `base`, `name` and `repo` are optional.
-//! - `session_start`: `{"directory": "/abs/repo", "name": "x", "brief": "…", "repo": "api"}`,
-//!   each optional.
+//!   "repo": "api", "with_dirs": ["/abs/web"]}`; `base`, `name`, `repo` and `with_dirs` are
+//!   optional.
+//! - `session_start`: `{"directory": "/abs/repo", "name": "x", "brief": "…", "repo": "api",
+//!   "with_dirs": ["/abs/web"]}`, each optional.
+//! - `with_dirs`: at most [`MAX_WITH_DIRS`] absolute paths the new session also reads (ADR
+//!   0136, step 4b).
 //! - `space_status`: the caller's space, its repositories and its sessions.
 
 use std::path::PathBuf;
@@ -37,6 +40,8 @@ pub const METHODS: [&str; 7] = [
 pub const MAX_BRIEF: usize = 64 * 1024;
 /// The longest branch, base or session name taken, in bytes.
 pub const MAX_NAME: usize = 255;
+/// The most directories a call's `with_dirs` names.
+pub const MAX_WITH_DIRS: usize = 8;
 
 /// How long the app lets a worktree listing or a removal run before it replies with what it
 /// has: their jobs run git, and `gh` for a listing, each call bounded, and may wait for a
@@ -66,12 +71,14 @@ pub enum Call {
         brief: String,
         name: Option<String>,
         repo: Option<String>,
+        with_dirs: Vec<PathBuf>,
     },
     Start {
         directory: Option<PathBuf>,
         name: Option<String>,
         brief: Option<String>,
         repo: Option<String>,
+        with_dirs: Vec<PathBuf>,
     },
     SpaceStatus,
 }
@@ -165,25 +172,69 @@ fn parse_list(params: &Map<String, Value>) -> Result<Call, String> {
 
 fn parse_start_worktree(params: &Map<String, Value>) -> Result<Call, String> {
     let method = "start_worktree_session";
-    only(params, method, &["branch", "base", "brief", "name", "repo"])?;
+    only(
+        params,
+        method,
+        &["branch", "base", "brief", "name", "repo", "with_dirs"],
+    )?;
     Ok(Call::StartWorktree {
         branch: text(params, method, "branch", MAX_NAME)?,
         base: optional(params, method, "base", MAX_NAME)?,
         brief: brief(params, method)?.ok_or("start_worktree_session needs a \"brief\"")?,
         name: optional(params, method, "name", MAX_NAME)?,
         repo: optional(params, method, "repo", MAX_NAME)?,
+        with_dirs: with_dirs(params, method)?,
     })
 }
 
 fn parse_start(params: &Map<String, Value>) -> Result<Call, String> {
     let method = "session_start";
-    only(params, method, &["directory", "name", "brief", "repo"])?;
+    only(
+        params,
+        method,
+        &["directory", "name", "brief", "repo", "with_dirs"],
+    )?;
     Ok(Call::Start {
         directory: path(params, method, "directory")?,
         name: optional(params, method, "name", MAX_NAME)?,
         brief: brief(params, method)?,
         repo: optional(params, method, "repo", MAX_NAME)?,
+        with_dirs: with_dirs(params, method)?,
     })
+}
+
+/// `with_dirs` of `method`: at most [`MAX_WITH_DIRS`] absolute paths, none twice; none when
+/// not given.
+fn with_dirs(params: &Map<String, Value>, method: &str) -> Result<Vec<PathBuf>, String> {
+    let items = match params.get("with_dirs") {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::Array(items)) => items,
+        Some(_) => return Err(format!("{method}'s \"with_dirs\" must be a list of paths")),
+    };
+    if items.len() > MAX_WITH_DIRS {
+        return Err(format!(
+            "{method}'s \"with_dirs\" names at most {MAX_WITH_DIRS} directories"
+        ));
+    }
+    let mut dirs: Vec<PathBuf> = Vec::with_capacity(items.len());
+    for item in items {
+        let text = match item {
+            Value::String(text) if !text.is_empty() && text.len() <= MAX_PATH => text,
+            _ => {
+                return Err(format!(
+                    "{method}'s \"with_dirs\" holds a path that is no path"
+                ));
+            }
+        };
+        let dir = PathBuf::from(text);
+        if !dir.is_absolute() {
+            return Err(format!("{method}'s \"with_dirs\" paths must be absolute"));
+        }
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    }
+    Ok(dirs)
 }
 
 /// The string `name` of `method`, of at most `max` bytes and not empty.
@@ -304,6 +355,33 @@ mod tests {
         assert!(call("worktree_list", json!({ "repo": long })).is_err());
         assert!(call("space_status", json!({ "repo": "api" })).is_err());
         assert_eq!(call("space_status", json!({})).unwrap().hold(), Hold::Usual);
+    }
+
+    #[test]
+    fn with_dirs_names_at_most_eight_absolute_directories() {
+        let dirs = |call: Call| match call {
+            Call::StartWorktree { with_dirs, .. } | Call::Start { with_dirs, .. } => with_dirs,
+            _ => Vec::new(),
+        };
+        let abs = |name: &str| std::env::temp_dir().join(name).display().to_string();
+        let start = |with: Value| call("session_start", json!({ "with_dirs": with }));
+        assert_eq!(
+            dirs(call("session_start", json!({})).unwrap()),
+            Vec::<std::path::PathBuf>::new()
+        );
+        let two = dirs(start(json!([abs("a"), abs("b"), abs("a")])).unwrap());
+        assert_eq!(two.len(), 2, "a path named twice is one");
+        let worktree = json!({ "branch": "x", "brief": "b", "with_dirs": [abs("a")] });
+        assert_eq!(
+            dirs(call("start_worktree_session", worktree).unwrap()).len(),
+            1
+        );
+        let nine: Vec<String> = (0..9).map(|n| abs(&n.to_string())).collect();
+        assert!(start(json!(nine)).is_err());
+        assert!(start(json!(["relative"])).is_err());
+        assert!(start(json!([""])).is_err());
+        assert!(start(json!("not a list")).is_err());
+        assert!(start(json!([1])).is_err());
     }
 
     #[test]
