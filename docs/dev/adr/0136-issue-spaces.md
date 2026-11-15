@@ -713,11 +713,15 @@ space's sessions (Q7); `space_status` is a `Look` tool (Q8); oso-core gains
   `*Sessions*`, a buffer of it must be open. A connection that is no hosted session, with the
   orchestrator's buffer selected, lists that repository's worktrees as "the selected window's
   project".
-- **Who is the orchestrator:** the session its space records, while it runs in the space's
-  own directory and the space is open. The record is in oso's state directory, which agents can
-  write, so a session elsewhere is never made one by it. A closed space's orchestrator, an
-  earlier one, and one not in the directory still see only the space's sessions, and name no
-  repository.
+- **Who is the orchestrator:** the session its space records, while the space is open and the
+  session runs in the directory oso makes for the space's name under `[spaces] root`, kept with
+  the identity oso made it with. The record is in oso's state directory, which agents can
+  write, so it makes no session elsewhere one. A closed space's orchestrator, an earlier one,
+  and one elsewhere still see only the space's sessions, start no session, and name no
+  repository. What a forged record can still change, the repositories of a real orchestrator,
+  stays within the repositories oso trusts by path and identity.
+- **Every start in a space's directory** passes its checks, the person's own starts too, and
+  any session's start thread refuses a trusted root put in another's place since it was found.
 - **Trust:** a repository's trust comes from the trust list by its path and the identity the
   space kept (`TrustedRoot::of_member`), with no open buffer. Such a root is made for each call
   and never revoked, so a start asks the trust list again at the person's `y`, and a start at a

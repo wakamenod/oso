@@ -214,6 +214,12 @@ impl App {
         self.request_redraw();
     }
 
+    /// `[spaces] root` as it is now, its `~/` expanded; `None` with no home directory for it.
+    pub(in crate::app) fn spaces_root_now(&self) -> Option<PathBuf> {
+        let home = oso_platform::privacy::home();
+        crate::config::expand(self.configuration.spaces_root(), home.as_deref())
+    }
+
     /// Asks the worker to make space `at`'s directory under `[spaces] root`, showing it after
     /// when `show`.
     pub(in crate::app) fn make_space_directory(&mut self, at: usize, show: bool) {

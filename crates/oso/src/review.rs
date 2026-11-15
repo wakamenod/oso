@@ -175,6 +175,12 @@ impl TrustedRoot {
         &self.path
     }
 
+    /// Whether another directory is now at the root's path than the one trusted. It looks at
+    /// the disk, so it belongs off the UI thread.
+    pub(crate) fn replaced(&self) -> bool {
+        !self.still_there()
+    }
+
     /// Whether the root is still the directory that was trusted, by its device and inode where
     /// the system has them, not following a link.
     fn still_there(&self) -> bool {

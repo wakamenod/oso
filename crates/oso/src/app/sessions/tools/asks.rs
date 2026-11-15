@@ -171,6 +171,10 @@ impl App {
             name,
             brief,
         } = call;
+        // An orchestrator no more starts nothing: the space's directory is no repository.
+        if caller.scoped() && caller.acting_at.is_none() {
+            return pending.answer(Err("your session reaches no repository of its space".into()));
+        }
         let directory = directory.unwrap_or_else(|| caller.directory.clone());
         // Kept by the path's parts, so that `/r/` and `/r` are one target.
         let key: PathBuf = directory.components().collect();

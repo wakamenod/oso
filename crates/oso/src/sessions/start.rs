@@ -202,6 +202,9 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
         Ok(launch) => launch,
         Err(why) => return refuse(why),
     };
+    if let Err(why) = root_kept(&order) {
+        return refuse(why);
+    }
     // The baseline before `claude` runs, so that the review shows what the session changed.
     let baseline = order
         .trusted
@@ -360,6 +363,19 @@ fn space_extra(
         system_prompt: (!prompt.is_empty()).then_some(prompt),
     };
     Ok((extra, notes))
+}
+
+/// Refuses a session whose trusted root was put in another's place since it was found: none
+/// starts there.
+fn root_kept(order: &Order) -> Result<(), String> {
+    if order.trusted.as_ref().is_some_and(TrustedRoot::replaced) {
+        return Err(
+            "The session did not start: its project's root is no longer the directory \
+                    that was trusted"
+                .to_owned(),
+        );
+    }
+    Ok(())
 }
 
 /// The program and arguments that start the session `id` as `order` says, in `shell`.

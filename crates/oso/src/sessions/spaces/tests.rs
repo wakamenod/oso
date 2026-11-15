@@ -456,3 +456,34 @@ fn a_made_worktree_is_held_by_the_askers_space_when_its_repository_is_one_of_its
     spaces.hold_made_worktree(Some(both), path, Path::new("/src/api"), 4);
     assert_eq!(spaces.holding(path), Some(both));
 }
+
+#[test]
+fn only_a_session_in_the_directory_oso_makes_for_the_space_is_its_orchestrator() {
+    let root = Path::new("/home/u/spaces");
+    let mut stored = Stored::of_repository(id(1), "fix".into(), Member::at(Path::new("/r")), 1);
+    let place = root.join("fix");
+    // No directory yet, or one not made by oso: no orchestrator.
+    assert!(!stored.orchestrated_from(root, &place));
+    stored.directory = Some(place.clone());
+    stored.directory_identity = Some((1, 2));
+    assert!(stored.orchestrated_from(root, &place));
+    // A session elsewhere, as a worker naming itself in a forged record, is none.
+    assert!(!stored.orchestrated_from(root, Path::new("/r/.claude/worktrees/x")));
+    // A directory the record names elsewhere than oso makes it is none either.
+    stored.directory = Some(PathBuf::from("/r/.claude/worktrees/x"));
+    assert!(!stored.orchestrated_from(root, Path::new("/r/.claude/worktrees/x")));
+    stored.directory = Some(place.clone());
+    if cfg!(unix) {
+        stored.directory_identity = None;
+        assert!(
+            !stored.orchestrated_from(root, &place),
+            "made by oso, with its identity"
+        );
+        stored.directory_identity = Some((1, 2));
+    }
+    stored.archived = true;
+    assert!(
+        !stored.orchestrated_from(root, &place),
+        "a closed space has none"
+    );
+}

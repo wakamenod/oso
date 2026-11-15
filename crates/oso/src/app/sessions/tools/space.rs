@@ -4,10 +4,11 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here touches the disk.
 //!
-//! - The orchestrator is the session its space records, while it runs in the space's own
-//!   directory: a record agents can write names no other session one. A closed space's
-//!   orchestrator, an earlier one, and one elsewhere still see only the space's sessions, and
-//!   reach no repository.
+//! - The orchestrator is the session its space records, while it runs in the directory oso
+//!   makes for the space under `[spaces] root` (`Stored::orchestrated_from`): the record is one
+//!   agents can write, so it makes no session elsewhere one. A closed space's orchestrator, an
+//!   earlier one, and one elsewhere still see only the space's sessions, start nothing, and
+//!   reach no repository of the space.
 
 use std::path::{Path, PathBuf};
 
@@ -43,14 +44,15 @@ impl App {
     pub(super) fn caller_of(&self, session: &Hosted) -> Caller {
         let mut caller = Caller::of(session);
         let spaces = self.watch.spaces();
+        let root = self.spaces_root_now();
         let current = spaces.orchestrated_by(&session.id).map(|at| {
-            let stored = spaces.stored(at);
-            let here = stored.and_then(|s| s.directory.as_deref());
-            let open = stored.is_some_and(|s| !s.archived);
-            let role = if open && here.is_some_and(|dir| same(dir, &session.directory)) {
-                Role::Orchestrator
-            } else {
-                Role::Former
+            let here = |stored: &crate::sessions::spaces::Stored| {
+                (root.as_deref())
+                    .is_some_and(|root| stored.orchestrated_from(root, &session.directory))
+            };
+            let role = match spaces.stored(at) {
+                Some(stored) if here(stored) => Role::Orchestrator,
+                _ => Role::Former,
             };
             (at, role)
         });
@@ -189,7 +191,7 @@ impl App {
         let mut named = self.sessions_in_where(path, |s| self.session_in_space(s, id));
         let table = self.hosting.table.all();
         let others = (table.iter())
-            .filter(|s| s.directory.starts_with(path) && !self.session_in_space(s, id))
+            .filter(|s| in_place(&s.directory, path) && !self.session_in_space(s, id))
             .count();
         if others > 0 {
             named.push(format!("{others} outside your space"));
@@ -203,8 +205,7 @@ impl App {
             return false;
         };
         let table = self.hosting.table.all();
-        (table.iter())
-            .any(|s| s.directory.starts_with(path) && !self.session_in_space(s, &space.id))
+        (table.iter()).any(|s| in_place(&s.directory, path) && !self.session_in_space(s, &space.id))
     }
 
     /// Whether `session` is one of space `id`'s.
@@ -214,6 +215,11 @@ impl App {
             .and_then(|at| spaces.stored(at))
             .is_some_and(|stored| &stored.id == id)
     }
+}
+
+/// Whether `place` is `path` or inside it, by ADR 0114's comparison of each part.
+fn in_place(place: &Path, path: &Path) -> bool {
+    place.ancestors().any(|above| same(above, path))
 }
 
 /// A path as the agent is told it.

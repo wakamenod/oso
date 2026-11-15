@@ -358,7 +358,7 @@ impl App {
         let rows: Vec<Value> = listing
             .rows
             .iter()
-            .map(|row| worktree_row_json(row, cut))
+            .map(|row| worktree_row_json(row, cut, listing.scope.is_some()))
             .collect();
         json!({
             "worktrees": rows,
@@ -376,7 +376,7 @@ impl App {
     }
 }
 
-fn worktree_row_json(row: &ListedRow, cut: bool) -> Value {
+fn worktree_row_json(row: &ListedRow, cut: bool, scoped: bool) -> Value {
     let looked = &row.looked;
     let path: &Path = &looked.listed.path;
     let (merged, how) = match (&looked.merged, &looked.gh_pending) {
@@ -397,6 +397,10 @@ fn worktree_row_json(row: &ListedRow, cut: bool) -> Value {
         "other_sessions": looked.external,
         "unsaved_buffers": row.held.unsaved,
         "removable": removable.is_ok(),
-        "kept_because": removable.err().map(|check| check.why()),
+        // An orchestrator's listing names no session outside its space (Q7).
+        "kept_because": removable.err().map(|check| match check {
+            checks::Check::Busy(_) if scoped => "a session in it is busy".to_owned(),
+            check => check.why(),
+        }),
     })
 }

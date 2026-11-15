@@ -3,7 +3,7 @@
 //! space and its repositories with their trust; `session_list` holds the space's sessions
 //! only; `start_worktree_session` needs `repo`, refuses a repository oso does not trust, and
 //! with a trusted one asks the person and starts a worker in a worktree of it, told its space,
-//! which then belongs to the space.
+//! which then belongs to the space. `session_start` and `worktree_list` name the repository too.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: which repository
 //! `repo` names and the scope have their own tests.
@@ -73,6 +73,14 @@ fn an_orchestrator_works_through_the_repositories_of_its_space() {
     assert!(error && said.to_string().contains("\\\"repo\\\""), "{said}");
     let (said, error) = bridge.tool("start_worktree_session", start(Some("other")));
     assert!(error && said.to_string().contains("not trusted"), "{said}");
+    // A session at a repository's main checkout is asked about after git looked at it; `n`.
+    let id = bridge.call("session_start", json!({ "repo": "repo" }));
+    let question = answer(&mut app, "n");
+    assert!(question.contains("repo"), "{question}");
+    let (said, error) = bridge.result(id);
+    assert!(error, "{said}");
+    let (listed, error) = bridge.tool("worktree_list", json!({ "repo": "repo" }));
+    assert!(!error, "{listed}");
 
     // A trusted one: the person is asked, and a worker starts in a worktree of it.
     let id = bridge.call("start_worktree_session", start(Some("repo")));
