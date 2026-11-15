@@ -245,16 +245,25 @@ fn in_terminal(actions: &mut Actions, slave: &super::pty::Slave) -> io::Result<(
     Ok(())
 }
 
-/// Fails, and ends and reaps the child `pid`, unless the terminal `slave` is its session's
-/// controlling terminal: an open of the slave that did not make it so, as when another session
-/// holds it, starts a child that no Ctrl-C or hang-up would reach. `posix_spawn` returns once
-/// the child has run its file actions and `exec`, so this needs no waiting.
+/// Fails, and ends and reaps the child `pid`, if the terminal `slave` is another session's
+/// controlling terminal: the open of the slave then did not make it the child's, and no Ctrl-C
+/// or hang-up would reach the child. A terminal of no session passes. Linux takes the terminal
+/// from a session as its leader exits, so a child that has already ended, as a short one may
+/// have by now, leaves it so, whereas an open that failed to take it leaves it another
+/// session's. `posix_spawn` returns once the child has run its file actions and `exec`, so this
+/// needs no waiting.
 #[cfg(target_os = "linux")]
 fn controls(slave: &super::pty::Slave, pid: libc::pid_t) -> io::Result<()> {
-    let session = slave.session();
-    if session.as_ref().ok() == Some(&pid) {
-        return Ok(());
-    }
+    let refused = match slave.session() {
+        Ok(session) if session == pid => return Ok(()),
+        Err(error) if error.raw_os_error() == Some(libc::ENOTTY) => return Ok(()),
+        Ok(other) => format!(
+            "the terminal did not become the child's controlling terminal: its session is {other}"
+        ),
+        Err(error) => {
+            format!("the terminal did not become the child's controlling terminal: {error}")
+        }
+    };
     let mut child = Process {
         pid,
         status: None,
@@ -262,14 +271,7 @@ fn controls(slave: &super::pty::Slave, pid: libc::pid_t) -> io::Result<()> {
     };
     let _ = child.kill();
     let _ = child.wait();
-    Err(io::Error::other(match session {
-        Ok(other) => format!(
-            "the terminal did not become the child's controlling terminal: its session is {other}"
-        ),
-        Err(error) => {
-            format!("the terminal did not become the child's controlling terminal: {error}")
-        }
-    }))
+    Err(io::Error::other(refused))
 }
 
 /// Starts a child in a terminal on macOS by a fork, through the standard library, whose hook
