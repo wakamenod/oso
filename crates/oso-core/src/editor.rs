@@ -50,6 +50,7 @@ mod indent;
 mod isearch;
 mod jump;
 mod kill;
+mod listings;
 mod macros;
 mod marks;
 mod messages;
@@ -92,6 +93,7 @@ pub use indent::{IndentError, Shift};
 pub use isearch::{Isearch, MatchCells};
 pub use jump::{Chose, JumpActionError, JumpCells, LabelCells};
 pub use kill::{ClipboardWrite, YankError};
+pub use listings::{Listing, ListingOrder, ListingRequest, ListingShown, RowMark};
 pub use macros::{MAX_MACRO_EVENTS, MAX_MACRO_TEXT, MacroError, MacroEvent};
 pub use messages::row_text;
 pub use pairs::NoPair;
@@ -302,6 +304,7 @@ pub struct Editor {
     /// Keyboard macros: the recording, the last one and a replay (ADR 0113).
     macros: macros::Macros,
     reviews: reviews::Reviews,
+    listings: listings::Listings,
 }
 
 impl Default for Editor {
@@ -398,6 +401,7 @@ impl Editor {
             replacing: replace::Replacing::default(),
             macros: macros::Macros::default(),
             reviews: reviews::Reviews::default(),
+            listings: listings::Listings::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(FIRST_WINDOW, id));

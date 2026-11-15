@@ -403,6 +403,198 @@ The author answered every question on 2026-11-15, through the coordinator: (a) f
   are `Person`, listings inside `.ssh`, `.gnupg` and `.aws` withheld (Q9); listings come back
   after a restart, marks dropped (Q10).
 
+## Step 1a, as built
+
+The listing, without marks or operations. The author approved the plan on 2026-11-15, with the
+public items below and three more they chose the same day: a local time offset, group names and a
+directory prompt (all (a)).
+
+- **The buffer:** `oso_core::buffer::Mode::Directory`, an internal read-only buffer that does not
+  wrap, made by `Editor::add_listing` and filled by `Editor::set_listing_text`, which swaps in the
+  text the lister built (O(1), as a load) with a `Listing` record (directory, header lines, name
+  column, rows, details, the modeline's note) and the highlights, renames the buffer, judges it
+  and puts each window's cursor on the line the host found by name. Unlike other internal
+  buffers, `C-x b`, `C-x <left>` and `C-x k` reach a listing. Its modeline says `Dired by name` or
+  `Dired by date`, and no encoding. Commands ask the host through `ListingRequest`
+  (`Editor::request_listing`, `take_listing_requests`); the row table (name, whether `RET`
+  enters it) stays in the tip crate's `app/dired.rs`, never read back from the text.
+- **Judging:** a listing is judged by its directory's words the moment it is made, so its
+  placeholder (`listing…`) shows nothing of a secret directory, and again by the real place the
+  lister found (`canonicalize` on the worker) with each listing. A listing inside `.ssh`,
+  `.gnupg` or `.aws` is `SecretName`, withheld from the socket and the agent channel.
+- **Listing:** a new request kind on `lister.rs`'s threads, kept per buffer (a newer request for
+  the buffer replaces one waiting; a closing prompt no longer drops them). `crate::dired`, a new
+  module on the tip crate's lowest layer, reads with `Directory::list_with_metadata` (macOS
+  `getattrlistbulk` in 128 KiB batches, its reply read back from a byte slice with every field
+  bounds-checked; Linux `readdir` and `fstatat`; Windows `read_dir`), `read_link` for links and
+  `target_kind` once whole, sorts and builds the text with `oso_core::load::Builder` and the
+  highlights in one pass. While a large directory is read it sends what it has every 50 ms with a
+  `reading… N entries so far` line. Owner and group names come from `file_meta::user_name` and
+  `group_name`, cached per listing; a name that is not printable ASCII shows as its id, so every
+  byte before a row's name is ASCII. Dates use `file_meta::utc_offset_at` (Unix `localtime_r`;
+  Windows UTC for now), asked once per hour of time. A directory that cannot be opened shows as a
+  listing that says why.
+- **Rows:** as the Decision says. Directories show `-` for their size. Names with a line break or
+  a carriage return show `\n` and `\r`; invalid bytes go in as bytes, so the display shows them as
+  `\xNN` and the highlights follow the decoded text.
+- **Refresh:** the watcher (`loader::Watcher`) also `stat`s each shown listing's directory
+  (`watch_directories`, `take_directories`). The lister reads the directory's stamp just before it
+  lists, and a look that differs from the stamp of the listing shown lists it again, also when the
+  watcher saw the change while the listing was being read.
+- **Keys:** as the Decision, with `SPC` for `n`, and digits and `-` as a prefix argument, as dired
+  binds them, so that `0 w` works.
+- **Restart:** `oso dev`'s handoff carries each listing as a buffer entry with no path and a
+  `listing` object (directory, details, order, line), and the new instance lists it again.
+- **Faces:** seven `Highlight` variants and `oso_render::pane::Face`s. Names take a theme's
+  terminal colours as `ls --color` does (directories blue, links cyan, broken links red, files
+  someone may run green, pipes, sockets and devices yellow), since a theme with few syntax
+  colours, as `dusk`, draws its function and heading colours as its text; the header takes the
+  heading colour and the details the prompt's dim one. The theme's face map moved
+  to a private child file, `oso-render/src/theme/faces.rs`, as the new faces took `theme.rs` past
+  600 lines.
+- **Perf:** a report-only flow, `bench/dired.rs`, with `dired_first_rows_ms`, `dired_list_ms` and
+  `dired_relist_type_p99_ms`; no thresholds yet. `compare.rs` needed no change, as a metric with
+  no threshold never fails.
+- **Tests:** unit tests for rows, order, the build, reading scratch directories, the bulk parser,
+  the editor's listings, the commands, the handoff; `tests/e2e/dired.rs` for moving, opening, the
+  watcher, `s` and `(`, a `.ssh` listing and a restart.
+
+### Changes from the Decision
+
+The author agreed to each on 2026-11-15, through the coordinator.
+
+- **`g` runs `dired-revert`, a `Look` command,** not `revert-buffer`, which is `Person` as it can
+  drop unsaved edits.
+- **`C-x d` (`dired`) is `Person`,** as `find-file` is: it reads its directory in a prompt
+  (`ArgSpec::Directory`, a new argument spec that opens the directory prompt `C-u C-x p f` uses,
+  where `RET` gives the directory). `dired-jump` and the listing's own commands are `Look`.
+- **A restart carries the line at point,** not the name: the handoff sees only the editor, and the
+  directory is listed again at once, so the line lands on the same name unless the directory
+  changed.
+- **A buffer with no file lists the directory oso started in** for `C-x C-j`; a terminal's own
+  directory is a later step.
+- **`quit-window` shows the buffer shown before,** the most recent other one, and keeps the listing.
+  It is a buffer command (`commands/buffers.rs`), bound to `q` in a listing.
+- **The listing's keys are listed in `commands::dired::KEYS`,** beside the commands, and bound by
+  `bindings/dired.rs`, as a review's are.
+- **Reach:** the commands whose request the host carries out after the command, where the agent
+  channel's guards no longer see it, are `Person`: `dired-jump`, `dired-find-file`,
+  `dired-find-file-other-window` (they open a file or show a buffer), `dired-copy-filename-as-kill`
+  (it writes the clipboard) and `quit-window`. Moving, refreshing, sorting and hiding details
+  stay `Look`.
+- **Partial listings** show the first 500 rows in order of what has been read, under the
+  `reading…` line, and come only for a listing of a directory the buffer did not show whole: a
+  refresh replaces the whole listing at once. A listing no longer wanted stops reading. A
+  listing with links is handed over before its links are followed, then again once they are; a
+  link whose target's words name a UNC or device path, or a place mounted from the network when
+  looked at (`/net`, `/Network`), or another volume (`/Volumes` on macOS), is not followed (the
+  author's choice).
+- **Judging:** a directory whose real place cannot be found, or whose real place is not the
+  directory opened by device and inode, counts as one that may hold secrets. No line of such a
+  listing is carried over a restart.
+- **One cursor a window over a refresh:** a new listing of the same directory puts each window's
+  point on the name its primary cursor was on, as one cursor; other cursors go, and a window that
+  will come back to the listing comes back to the line asked for. The author kept this as a limit
+  (2026-11-15) rather than change `listing_points`.
+- **Left for step 1b,** which needs them (the author's choice): `..`'s metadata and typed Windows
+  attributes from `oso_platform::file_meta::Directory`, in place of the tip crate's own; listing
+  names from oso-core's `names::distinct`, as files' are; a typed order on the `Listing` record;
+  one helper in oso-core for where a row's name starts; the stamp of the directory opened, by its
+  descriptor, for 1b's identity check.
+- **Rows:** a backslash in a name shows as `\\`, so that no name reads as one with a line break;
+  a link's target shows at most 1 KiB. `w` refuses a name that is not UTF-8 or holds a line
+  break. The 100,000-entry limit counts every entry read, backups and unreadable ones too.
+
+## Step 1b, as built
+
+The author split step 1b in two on 2026-11-15: 1b-1, marks and what step 1a left for it, then
+1b-2, the operations. The author answered 1b's questions the same day, (a) for each: a file whose
+buffer has unsaved edits is neither deleted nor moved away, and the operation names the buffer;
+no operation goes into another file system, and it names the mount; copying a directory onto one
+of the same name asks with the overwrite question, then merges into it, as `cp -R`; `C-g` stops
+an operation after the file in hand and says how far it got.
+
+### Step 1b-1: marks
+
+- **Keys:** `m` marks the row at point and moves down, `u` unmarks and moves down, `DEL` moves up
+  and unmarks, each with a count for that many rows, or the rows a shown region covers, which
+  point stays at. `U` unmarks every row and `t` toggles every mark. They are `Look`: marks open,
+  show and write nothing.
+- **Shown:** a mark is a `*` in a row's first column, in `dired.mark`'s face (the warning's
+  colour), and a marked row's name takes `dired.marked`'s. The modeline says how many rows are
+  marked, `Dired by name  3 marked`. `.` and `..` are never marked.
+- **Kept:** the app keeps the names marked for each listing, and every new listing of the same
+  directory, as a refresh, marks the rows of those names; one of another directory starts with
+  none, and a restart carries none.
+- **Cost:** `m`, `u` and `DEL` change one character a row in place and its faces
+  (`Editor::set_listing_marks`, O(log n) a row), which moves no cursor. `U` and `t` have the
+  lister's thread build the listing again with the new marks, `t` working out the names to mark
+  there once every entry is read, so no pass over the rows runs on the UI thread.
+- **What step 1a left:**
+  - `oso_platform::file_meta::Directory::dots` gives `.` and `..` from the directory's own
+    descriptor, and `EntryMeta::mode_text` writes the mode column (`ls -l` on Unix, PowerShell's
+    `Mode` on Windows), so the tip crate holds no mode bits or Windows attributes of its own.
+  - oso-core names listings, as files are named: `crates/`, and `crates/<oso>` and
+    `crates/<zed>` side by side, named again as one goes. `ListingShown` gives no name.
+  - The listing's order is typed, `ListingOrder` (`Name`, `Date`), on its record, which also
+    counts the rows marked; the modeline's note comes from them.
+  - `Listing::name_start` is where a row's name starts, which the editor, the commands and the
+    host share.
+  - The stamp of the directory opened, by its descriptor, goes with step 1b-2's identity check.
+
+### Step 1b-2: the operations
+
+- **Keys:** `C` copies, `R` renames or moves, `D` deletes and `+` makes a directory with its
+  parents. Each acts on the marked rows, or with none on the row at point, the rows a shown
+  region covers, or for `D` the next rows of a count. All are `Person`, as are the commands the
+  questions run on `y` (`dired-do-delete-confirmed`, `dired-do-overwrite-confirmed`).
+- **Where to:** `C` and `R` read a path in `C-x C-f`'s prompt (`ArgSpec::Target`), starting at
+  the directory of the next tiled window, in `C-x o`'s order, that shows a listing, or with `C-u`
+  this listing's (`Editor::listing_target`). An existing directory takes the rows by their names;
+  one row alone may take a new name. With rows marked, the prompt says how many
+  (`Copy 3 marked rows to:`), so marks set by anyone are seen before they go.
+- **The `oso-files` thread** runs one operation at a time (`dired/ops.rs`,
+  `dired/ops/worker.rs`). It opens the listed directory again and checks it is the one listed by
+  device and inode (read from the descriptor it was listed from), reaches each source from it by
+  name following no link, and stops at the first error. Past 500 ms the echo area says how far
+  it got, at most every 100 ms. `C-g` with nothing else to do (`Quit::Operation`) stops it after
+  the entry in hand, and the message says how many were done. Every listing of a directory it
+  changed is listed again.
+- **The platform's calls** (`file_meta::Directory`): `rename_to` (`renameatx_np` with
+  `RENAME_EXCL` on macOS, `renameat2` with `RENAME_NOREPLACE` on Linux, unless replacing),
+  `remove`, `remove_tree` (from each directory's descriptor, following no link, at most
+  `MAX_DEPTH` deep, stopping at another device), `copy_file_to` (a clone with `fclonefileat` on
+  macOS, else `fcopyfile` with data, mode, times and extended attributes; `std`'s copy with mode
+  and times elsewhere; written to disk before a move removes its source), `copy_link_to`,
+  `make_directory` (with the source's mode, less the umask) and `identity`.
+- **Writing over:** what is at the targets is found first, and nothing is written; one question
+  names how many and the first three, a directory with `/` and the words that directories merge,
+  their files of the same names written over, and its `y` writes over exactly those targets, a
+  different set found then asking again. A file written over is copied beside it under a name of
+  its own, then renamed over it. A directory is never written over a file or a file over a
+  directory; a directory copied onto one of its name merges into it, and one moved onto one is
+  refused. A question that would open over another prompt is not asked: keys typed for that one
+  would answer it. A question closed without its `y` is forgotten.
+- **What was listed:** each row is acted on as the kind it was listed as; one that turned from a
+  file into a directory, or back, stops the operation. A directory is never copied or moved into
+  itself, by the real places of both.
+- **Deleting** asks first, `Delete 2 files (old/, a.txt) and all the directories hold?`, and
+  deletes for good. A move across file systems copies, then removes only what it copied, each
+  directory once empty, and nothing if an entry could not be copied (a pipe, a socket, a device).
+- **The author's answers:** a file whose buffer has unsaved edits is neither deleted nor moved
+  away (the message names the buffer, before the question and again after its `y`, by the words
+  of its path and by its file's real place); a tree is
+  never gone into across file systems (the error names where); a buffer visiting a moved file
+  follows it (`Editor::file_moved`) to the file's real place, keeping its edits, judged again by
+  its new name and never less secret; a buffer visiting through a moved link stays.
+- **Names in questions, messages and errors** are escaped as `*Messages*`' rows are
+  (`row_text`), so no name passes for another. What an operation in a listing that may hold
+  secrets says goes to the echo area only, not the log or `*Messages*`.
+- **Windows:** operations are path-based, as other editors do (the author's choice); a
+  handle-relative version is a later step. A link or a junction is listed as a link, never gone
+  into, and removed as the link it is. Links are not copied there yet. A directory has no
+  identity there yet, so one replaced since it was listed is not noticed.
+
 ## Consequences
 
 - The author gets a daily directory editor in two pull requests, with the rest listed.

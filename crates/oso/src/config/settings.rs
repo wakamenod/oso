@@ -61,7 +61,25 @@ pub struct Sessions {
     pub pane_width: Option<usize>,
     /// `[sessions.notify]`: which states ask for the person's attention (ADR 0121, step 3).
     pub notify: crate::sessions::attention::Toggles,
+    /// `agents_start_without_asking`: a session the person started may start sessions with no
+    /// question, in a trusted project (ADR 0135). Off unless set; applies from oso's start.
+    pub agents_start_without_asking: bool,
+    /// `agents_start_limit`: how many live sessions one caller may have started without asking,
+    /// 1 to [`MAX_AGENTS_START_LIMIT`]; [`AGENTS_START_LIMIT`] unless set (ADR 0135).
+    pub agents_start_limit: Option<u8>,
 }
+
+impl Sessions {
+    /// How many live sessions one caller may have started without asking.
+    pub fn agents_start_limit(&self) -> u8 {
+        self.agents_start_limit.unwrap_or(AGENTS_START_LIMIT)
+    }
+}
+
+/// `[sessions] agents_start_limit` unless set (ADR 0135).
+pub const AGENTS_START_LIMIT: u8 = 4;
+/// The most `[sessions] agents_start_limit` takes.
+pub const MAX_AGENTS_START_LIMIT: u8 = 8;
 
 /// The most names `[sessions] env` takes.
 pub(super) const MAX_ENV_NAMES: usize = 64;
@@ -308,34 +326,59 @@ pub(super) fn sessions(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Sessi
             }
             "pane_width" => sessions.pane_width = pane_width(value, found),
             "notify" => notify(value, &mut sessions.notify, found),
+            "agents_start_without_asking" => {
+                let key = "agents_start_without_asking";
+                if let Some(on) = switch(value, "[sessions]", key, found) {
+                    sessions.agents_start_without_asking = on;
+                }
+            }
+            "agents_start_limit" => sessions.agents_start_limit = agents_start_limit(value, found),
             other => unknown(found, name.span().start, other, "[sessions]"),
         }
     }
     sessions
 }
 
+/// `[sessions] agents_start_limit`: a whole number from 1 to [`MAX_AGENTS_START_LIMIT`].
+fn agents_start_limit(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<u8> {
+    let takes =
+        format!("[sessions] agents_start_limit takes a number from 1 to {MAX_AGENTS_START_LIMIT}");
+    whole_in(value, found, 1..=MAX_AGENTS_START_LIMIT, &takes)
+}
+
 /// `[sessions] pane_width`: a whole number of columns within [`width::WIDTHS`].
 fn pane_width(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<usize> {
+    let takes = format!(
+        "[sessions] pane_width takes a whole number of columns from {} to {}",
+        width::WIDTHS.start(),
+        width::WIDTHS.end()
+    );
+    whole_in(value, found, width::WIDTHS, &takes)
+}
+
+/// A whole number within `range`; any other value is refused with `takes` and what it was.
+fn whole_in<T>(
+    value: &Spanned<DeValue<'_>>,
+    found: &mut Found,
+    range: std::ops::RangeInclusive<T>,
+    takes: &str,
+) -> Option<T>
+where
+    T: TryFrom<i64> + PartialOrd,
+{
     let refuse = |found: &mut Found, what: &dyn std::fmt::Display| {
-        found.at(
-            value.span().start,
-            format_args!(
-                "[sessions] pane_width takes a whole number of columns from {} to {}, not {what}",
-                width::WIDTHS.start(),
-                width::WIDTHS.end()
-            ),
-        );
+        found.at(value.span().start, format_args!("{takes}, not {what}"));
         None
     };
     let DeValue::Integer(n) = value.get_ref() else {
         return refuse(found, &type_name(value.get_ref()));
     };
-    let columns = i64::from_str_radix(n.as_str(), n.radix())
+    let number = i64::from_str_radix(n.as_str(), n.radix())
         .ok()
-        .and_then(|n| usize::try_from(n).ok())
-        .filter(|columns| width::WIDTHS.contains(columns));
-    match columns {
-        Some(columns) => Some(columns),
+        .and_then(|n| T::try_from(n).ok())
+        .filter(|number| range.contains(number));
+    match number {
+        Some(number) => Some(number),
         None => refuse(found, &cut(n)),
     }
 }

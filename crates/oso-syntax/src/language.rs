@@ -33,6 +33,7 @@ impl Language {
             | Mode::Worktrees
             | Mode::Review
             | Mode::Terminal
+            | Mode::Directory
             | Mode::Sessions => None,
         }
     }

@@ -20,6 +20,7 @@ use crate::process;
 use crate::report::{Gpu, Report, max, median, percentile};
 
 mod compose;
+mod dired;
 mod edits;
 mod finding;
 mod review;
@@ -153,6 +154,7 @@ pub fn run_all(exe: &Path, scale: &Scale) -> Result<Report, String> {
     key_latency(exe, &mixed, scale, &mut report)?;
     windows::windows(exe, &mixed, &dir, scale, &mut report)?;
     finding::finding(exe, scale.key_runs, scale.keys, &mut report)?;
+    dired::dired(exe, scale.key_runs, scale.keys, &mut report)?;
     syntax::highlighted_typing(exe, scale.key_runs, scale.keys, &mut report)?;
     syntax::indented_returns(exe, scale.key_runs, scale.keys, &mut report)?;
     review::review(exe, scale.key_runs, scale.keys, &mut report)?;

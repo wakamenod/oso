@@ -1,5 +1,5 @@
-//! Turning the agent channel on and off, letting a connection in, and allowing what an agent's
-//! session tool asks (ADR 0085, ADR 0121). Each is `Person`: only someone at the keyboard
+//! Turning the agent channel on and off, letting a connection in, allowing what an agent's
+//! session tool asks, and whether agents' session starts ask (ADR 0085, ADR 0121, ADR 0135). Each is `Person`: only someone at the keyboard
 //! decides who may drive the editor, and what an agent may start.
 //!
 //! Must not depend on: the channel's socket or threads, or `bindings`; a command asks the
@@ -41,7 +41,38 @@ pub const COMMANDS: &[Command] = &[
         run: question_details,
         state: None,
     },
+    Command {
+        name: "agent-starts-ask",
+        doc: "Make every session an agent starts ask you first, until oso restarts.\n\nWith `[sessions] agents_start_without_asking` in `config.toml`, a session you started may start sessions without asking; this takes that back for now. `agent-starts-allow` gives it again.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: agent_starts_ask,
+        state: None,
+    },
+    Command {
+        name: "agent-starts-allow",
+        doc: "Let sessions you started start sessions without asking again, as `config.toml` says, after `agent-starts-ask`.\n\nIt changes nothing unless `[sessions] agents_start_without_asking` was set when oso started.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: agent_starts_allow,
+        state: None,
+    },
 ];
+
+fn agent_starts_ask(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    agent_starts(ctx, false)
+}
+
+fn agent_starts_allow(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    agent_starts(ctx, true)
+}
+
+fn agent_starts(ctx: &mut Ctx<'_>, allow: bool) -> Result<(), CommandError> {
+    ctx.editor
+        .request_session(oso_core::editor::SessionRequest::AgentStarts(allow));
+    ctx.request_redraw();
+    Ok(())
+}
 
 fn question_details(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     if !ctx
@@ -119,6 +150,20 @@ mod tests {
             [SessionRequest::QuestionDetails]
         );
         assert!(editor.prompt().is_some(), "the question stays open");
+    }
+
+    #[test]
+    fn agent_starts_ask_and_allow_ask_the_host() {
+        let mut editor = editor("");
+        assert_eq!(run(&mut editor, "agent-starts-ask", Args::NONE).0, Ok(()));
+        assert_eq!(run(&mut editor, "agent-starts-allow", Args::NONE).0, Ok(()));
+        assert_eq!(
+            editor.take_session_requests(),
+            [
+                SessionRequest::AgentStarts(false),
+                SessionRequest::AgentStarts(true)
+            ]
+        );
     }
 
     #[test]

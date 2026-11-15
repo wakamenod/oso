@@ -12,6 +12,7 @@ mod commands;
 mod config;
 #[cfg(feature = "dev")]
 mod dev;
+mod dired;
 mod dispatch;
 mod emergency;
 mod grep;

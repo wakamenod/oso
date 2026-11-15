@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use oso_core::buffer::{BufferId, Mode};
@@ -16,6 +17,7 @@ use oso_core::project::ProjectId;
 use super::super::{App, UserEvent};
 use crate::review::TrustedRoot;
 use crate::sessions::hosted::{New, Run, Table};
+use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
 use crate::sessions::start::{self, Kind, Order, Ready, Report};
 use crate::sessions::worker::{Job, SessionKey};
@@ -54,6 +56,9 @@ pub(in crate::app) struct Hosting {
     pub(in crate::app) explain: Option<BufferId>,
     /// The sessions being started by another session's hand-off, by key: their parent.
     parents: HashMap<SessionKey, SessionId>,
+    /// How sessions being started by an agent's tool start, with the brief of one that starts
+    /// without asking (ADR 0135).
+    origins: HashMap<SessionKey, (Origin, Option<Arc<str>>)>,
     /// A start the person was asked about, as another session runs in its directory.
     shared: Option<Begin>,
     /// Worktree sessions: briefs, the jobs, `*Worktrees*` and a removal (ADR 0121 step 4).
@@ -65,8 +70,8 @@ pub(in crate::app) struct Hosting {
     pub(in crate::app) tools: super::tools::Tools,
 }
 
-/// What a new session starts with.
-#[derive(Debug, Clone, Default)]
+/// What a new session starts with. Its default is the person's start, by a key.
+#[derive(Debug, Clone)]
 pub(in crate::app) struct Begin {
     /// Its name's base, else its directory's name.
     pub name: Option<String>,
@@ -77,13 +82,40 @@ pub(in crate::app) struct Begin {
     pub brief: Option<String>,
     /// The session that started it.
     pub parent: Option<SessionId>,
+    /// How it starts: by the person, unless an agent's tool starts it (ADR 0135).
+    pub origin: Origin,
     /// Whether to ask first when another live session runs in its directory.
     pub check_shared: bool,
     /// The trust of its directory, when it is no open project's: a worktree just made.
     pub trusted: Option<TrustedRoot>,
 }
 
+impl Default for Begin {
+    fn default() -> Self {
+        Self {
+            name: None,
+            directory: None,
+            brief: None,
+            parent: None,
+            origin: Origin::Person,
+            check_shared: false,
+            trusted: None,
+        }
+    }
+}
+
 impl Hosting {
+    /// How many sessions `parent` started without asking that are being got ready, before the
+    /// table has them (ADR 0135).
+    pub(in crate::app) fn readying_unasked(&self, parent: &SessionId) -> usize {
+        self.origins
+            .iter()
+            .filter(|(key, (origin, _))| {
+                *origin == Origin::Unasked && self.parents.get(key) == Some(parent)
+            })
+            .count()
+    }
+
     /// The hosted sessions.
     pub(in crate::app) fn table(&self) -> &Table {
         &self.table
@@ -106,6 +138,7 @@ impl Hosting {
             adopting: Adopting::default(),
             explain: None,
             parents: HashMap::new(),
+            origins: HashMap::new(),
             shared: None,
             worktrees: super::worktrees::Worktrees::default(),
             trusts: HashMap::new(),
@@ -231,6 +264,12 @@ impl App {
         let (key, name) = self.hosting.table.reserve(&directory, &base);
         if let Some(parent) = begin.parent.clone() {
             self.hosting.parents.insert(key, parent);
+        }
+        if begin.origin != Origin::Person {
+            // Empty for a start without asking that had no brief.
+            let brief = (begin.origin == Origin::Unasked)
+                .then(|| Arc::from(begin.brief.as_deref().unwrap_or_default()));
+            self.hosting.origins.insert(key, (begin.origin, brief));
         }
         if begin.check_shared {
             self.hosting.shared = Some(begin.clone());
@@ -404,6 +443,7 @@ impl App {
                 self.take_adoption(token);
                 self.session_not_started(token);
                 self.hosting.parents.remove(&token);
+                self.hosting.origins.remove(&token);
                 self.session_tool_started(token, Err(why.clone()));
                 self.editor.message(why);
             }
@@ -427,6 +467,7 @@ impl App {
                 self.session_tool_started(token, Err("another session runs there".into()));
                 self.session_not_started(token);
                 self.hosting.parents.remove(&token);
+                self.hosting.origins.remove(&token);
                 if let Some(begin) = self.hosting.shared.take() {
                     self.ask_shared(begin);
                 }
@@ -483,12 +524,17 @@ impl App {
         let key = ready.token;
         let new = self.hosting.table.get(key).is_none();
         if new {
+            // Only an agent's tool puts an origin here; a start of the person's has none.
+            let (origin, unasked_brief) =
+                (self.hosting.origins.remove(&key)).unwrap_or((Origin::Person, None));
             let added = self.hosting.table.add(
                 key,
                 New {
                     id: ready.id.clone(),
                     root: ready.project.clone(),
                     parent: self.hosting.parents.remove(&key),
+                    origin,
+                    unasked_brief,
                     changed: now_ms(),
                 },
             );

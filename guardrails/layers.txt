@@ -71,8 +71,9 @@ sessions
 # `terminal` hosts the terminals: their keys, shells and kept grids (ADR 0120).
 commands dev grep keys loader terminal text
 # `walk` lists a project's files (ADR 0114), beside `project`, which finds them, and
-# `review`, which runs git and diffs for a review (ADR 0122).
-channel project review walk
+# `review`, which runs git and diffs for a review (ADR 0122). `dired` builds the directory
+# editor's listings, which `lister`'s threads run (ADR 0134).
+channel dired project review walk
 
 [oso-syntax]
 crate

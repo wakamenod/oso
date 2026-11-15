@@ -9,6 +9,10 @@
 //! a file, and needs no dependency and no watch on a directory. The thread wakes the UI only
 //! when what it saw differs from its last report, so an idle editor stays idle. A look that
 //! blocks, as on a mount that went away, holds up only this thread. It never opens a file.
+//!
+//! It also looks at the directories of the directory editor's shown listings (ADR 0134), one
+//! `stat` each, and reports their stamps apart: a directory's time changes as entries come and
+//! go in it.
 
 use std::fs::Metadata;
 use std::io;
@@ -17,7 +21,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::Duration;
 
-use oso_core::buffer::{BufferId, DiskState};
+use oso_core::buffer::{BufferId, DiskState, FileStamp};
 
 use super::stamp_of;
 
@@ -55,6 +59,11 @@ struct State {
     stop: bool,
     /// The latest report the UI has not taken.
     report: Option<(u64, Vec<(BufferId, DiskState)>)>,
+    /// The listings' directories to look at, by buffer.
+    directories: Arc<[(BufferId, PathBuf)]>,
+    /// The latest look at them the UI has not taken: each one's stamp, or `None` if it could
+    /// not be looked at.
+    directory_report: Option<Vec<(BufferId, Option<FileStamp>)>>,
 }
 
 impl Default for State {
@@ -66,6 +75,8 @@ impl Default for State {
             generation: 0,
             stop: false,
             report: None,
+            directories: Arc::new([]),
+            directory_report: None,
         }
     }
 }
@@ -107,6 +118,22 @@ impl Watcher {
         }
     }
 
+    /// Looks at these listings' directories from now on, and at once if they changed.
+    pub fn watch_directories(&self, directories: Vec<(BufferId, PathBuf)>) {
+        let mut state = self.shared.state();
+        if *state.directories != *directories {
+            state.directories = directories.into();
+            state.poked = true;
+            self.shared.wake.notify_one();
+        }
+    }
+
+    /// What the last look saw of the listings' directories, if it differs from the report
+    /// taken before.
+    pub fn take_directories(&self) -> Option<Vec<(BufferId, Option<FileStamp>)>> {
+        self.shared.state().directory_report.take()
+    }
+
     /// Looks at once, and reports what it finds even if it was reported before, as the UI
     /// forgot it, or a save of a buffer has ended. Returns the generation that look's report
     /// carries: a report of an older one was looked at before this call.
@@ -134,11 +161,12 @@ impl Drop for Watcher {
 
 fn run(shared: &Shared, wake: &dyn Fn() -> bool) {
     let mut last: Vec<(BufferId, DiskState)> = Vec::new();
+    let mut last_directories: Vec<(BufferId, Option<FileStamp>)> = Vec::new();
     loop {
         let files = {
             let mut state = shared.state();
             while !state.stop && !state.poked {
-                if state.files.is_empty() {
+                if state.files.is_empty() && state.directories.is_empty() {
                     // Nothing to look at until the UI says.
                     state = shared
                         .wake
@@ -161,20 +189,42 @@ fn run(shared: &Shared, wake: &dyn Fn() -> bool) {
             state.poked = false;
             if std::mem::take(&mut state.forget) {
                 last.clear();
+                last_directories.clear();
             }
-            (state.generation, Arc::clone(&state.files))
+            (
+                state.generation,
+                Arc::clone(&state.files),
+                Arc::clone(&state.directories),
+            )
         };
-        let (generation, files) = files;
+        let (generation, files, directories) = files;
         let seen: Vec<(BufferId, DiskState)> = files
             .iter()
             .map(|(buffer, path)| (*buffer, state_of(std::fs::metadata(path))))
             .collect();
-        if seen == last {
-            continue;
+        let seen_directories: Vec<(BufferId, Option<FileStamp>)> = directories
+            .iter()
+            .map(|(buffer, path)| {
+                let stamp = std::fs::metadata(path)
+                    .ok()
+                    .and_then(|metadata| stamp_of(&metadata).ok());
+                (*buffer, stamp)
+            })
+            .collect();
+        let mut woke = false;
+        if seen_directories != last_directories {
+            last_directories.clone_from(&seen_directories);
+            woke |= shared
+                .state()
+                .directory_report
+                .replace(seen_directories)
+                .is_none();
         }
-        last.clone_from(&seen);
-        let was_empty = shared.state().report.replace((generation, seen)).is_none();
-        if was_empty && !wake() {
+        if seen != last {
+            last.clone_from(&seen);
+            woke |= shared.state().report.replace((generation, seen)).is_none();
+        }
+        if woke && !wake() {
             return;
         }
     }

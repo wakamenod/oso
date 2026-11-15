@@ -175,6 +175,7 @@ impl Editor {
             | Mode::Worktrees
             | Mode::Review
             | Mode::Terminal
+            | Mode::Directory
             | Mode::Sessions => {}
             Mode::CopyList => self.leave_internal(),
             Mode::CopyView => {

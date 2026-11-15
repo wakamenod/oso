@@ -34,6 +34,8 @@ pub enum Quit {
     Replace,
     /// It left the selected window its primary cursor alone (ADR 0091).
     Cursors,
+    /// It asked the running file operation to stop after the file in hand (ADR 0134).
+    Operation,
     /// Nothing was in progress.
     Nothing,
 }
@@ -528,6 +530,9 @@ impl Editor {
         }
         if self.quit_cursors() {
             return Quit::Cursors;
+        }
+        if self.stop_operation() {
+            return Quit::Operation;
         }
         Quit::Nothing
     }

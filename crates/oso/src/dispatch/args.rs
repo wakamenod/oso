@@ -87,9 +87,8 @@ pub fn map(
         )),
         // A path read with completion opens or writes a file the person typed (ADR 0087), and
         // a project's files are listed only in a prompt (ADR 0114).
-        (ArgSpec::File { .. } | ArgSpec::ProjectFile { .. }, _) => Err(format!(
-            "{name} reads a path, which only its prompt takes, from keys"
-        )),
+        (ArgSpec::File { .. } | ArgSpec::Directory { .. }, _) => Err(reads_a_path(name)),
+        (ArgSpec::Target { .. } | ArgSpec::ProjectFile { .. }, _) => Err(reads_a_path(name)),
         // A search's rows are shown only in its prompt, which the channel never sees (ADR 0114).
         (ArgSpec::ProjectSearch { .. }, _) => Err(format!(
             "{name} searches in its prompt, which only keys open"
@@ -116,6 +115,11 @@ pub fn map(
             Err(format!("{name} takes text or nothing, not a count"))
         }
     }
+}
+
+/// Why the command `name`, which reads a path in its prompt, takes none from keys.
+fn reads_a_path(name: &str) -> String {
+    format!("{name} reads a path, which only its prompt takes, from keys")
 }
 
 #[cfg(test)]

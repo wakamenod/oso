@@ -21,6 +21,7 @@ mod configuration;
 #[cfg(feature = "dev")]
 mod control;
 mod copies;
+mod dired;
 mod draw;
 mod events;
 mod files;
@@ -103,6 +104,8 @@ pub enum UserEvent {
     CompletionFailed,
     /// The lister answered a prompt that reads a path (ADR 0087).
     Listed,
+    /// The file operations' thread told how one goes (ADR 0134).
+    FileOps,
     /// The thread that finds projects answered (ADR 0114).
     Projects,
     /// A thread read the EditorConfig of a file `C-x C-w` named (ADR 0115).
@@ -220,8 +223,11 @@ pub struct App {
     /// making them resolves every theme's colours.
     themes: Vec<(&'static str, &'static str)>,
     remembered_theme: ShownTheme,
-    /// The threads that list directories for a prompt that reads a path (ADR 0087).
+    /// The threads that list directories for a prompt that reads a path (ADR 0087), and for
+    /// the directory editor (ADR 0134).
     lister: crate::lister::Lister,
+    /// The directory editor's listings (ADR 0134).
+    dired: dired::Listings,
     /// The thread that finds each file's project (ADR 0114).
     projects: crate::project::Detector,
     /// The home directory, after which no EditorConfig is read (ADR 0115).
@@ -379,6 +385,7 @@ impl App {
             themes,
             remembered_theme,
             lister,
+            dired: dired::Listings::default(),
             projects,
             walker,
             quiet_walk: walks::Quiet::default(),
@@ -468,6 +475,8 @@ impl App {
             self.freer.free(freed);
         }
         self.serve_files();
+        self.serve_listings();
+        self.stop_operation_if_asked();
         self.forget_listings();
         self.start_walks();
         self.start_project_search();

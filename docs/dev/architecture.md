@@ -324,7 +324,8 @@ A panicking command is caught at the command boundary
   minor mode layer of digits while a prefix argument is typed, another while the layer of
   `C-x TAB` is open, whose arrows shift the region until another key closes it
   ([ADR 0115](adr/0115-indentation.md)), a major mode layer in the buffers that show emergency
-  copies, in a prompt, in a Markdown buffer (`M-RET`) and in a terminal, whose keymap holds session
+  copies, in a prompt, in a Markdown buffer (`M-RET`), in a directory listing
+  ([ADR 0134](adr/0134-a-directory-editor.md)) and in a terminal, whose keymap holds session
   mode's keys too in a terminal that hosts an agent session ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)), with the user's
   `[keys.session]` as a minor mode layer above it there, and a layer for the user's keys, which
   the configuration file fills ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
@@ -487,7 +488,7 @@ loop. Render errors are logged and are never fatal.
 | Buffer kind | Backing | Examples |
 |---|---|---|
 | File | rope loaded from disk | source files, notes |
-| Generated | rope produced by a mode, read-only by default | git status, directory listings, compile output, help |
+| Generated | rope produced by a mode, read-only by default | git status, directory listings ([ADR 0134](adr/0134-a-directory-editor.md)), compile output, help |
 | Internal | rope the editor keeps for itself, not the user's work | `*Messages*`, `*Emergency Copies*` and a copy being looked at |
 | Terminal | `oso-term` cell grid, owned by the terminal's thread | shells, project terminals, the floating terminal, compile output |
 
@@ -595,6 +596,21 @@ The UI thread never blocks on I/O or parsing:
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- The directory editor's listings are read on the same threads, a request kept per listing
+  buffer (`crates/oso/src/dired.rs`, glue in `app/dired.rs`): each entry's metadata from the
+  descriptor, following no link (`getattrlistbulk` on macOS, `fstatat` on Linux, the
+  names' own metadata on Windows), sorted, and
+  built there into a rope with its display map, highlights and a table of what each row names,
+  a partial one every 50 ms while a large directory is read. The UI swaps it in at O(1)
+  (`Editor::set_listing_text`), each window's point kept on its name. The watcher looks at the
+  directories of shown listings once a second, and a stamp that differs from the one read
+  before the listing lists it again
+  ([ADR 0134](adr/0134-a-directory-editor.md)).
+- The directory editor's file operations run on `oso-files` (`crates/oso/src/dired/ops.rs`,
+  glue in `app/dired/ops.rs`), one at a time: copying, moving, deleting and making directories
+  from the listed directory's descriptor, after the questions the UI asked. It reports how far
+  it got and how it ended (`UserEvent::FileOps`), and `C-g` stops it between two entries
+  ([ADR 0134](adr/0134-a-directory-editor.md)).
 - A prompt's list past 5000 candidates is built and matched on a thread of its own
   (`app/completions.rs`), from a job `oso_core::complete` makes over `Arc` snapshots, superseded
   by the next through a generation. The rows shown stay and the count says `…` until the result
@@ -702,8 +718,12 @@ The UI thread never blocks on I/O or parsing:
   rules are `sessions::tools` (reach, the loop guard, refusals, the questions' wording), and
   `app/sessions/tools/` carries a call out with the hosted table, the start thread and the
   worktree jobs. A call that asks is looked at first by a job (`worktree::prepare`), then its
-  question waits for the person as the connection's own does; a job's reports for a tool's call
-  are taken by token before the person's own worktree commands see them.
+  question waits for the person as the connection's own does, unless the person's
+  configuration lets the caller start sessions without asking
+  ([ADR 0135](adr/0135-agents-start-sessions-without-asking.md)):
+  `sessions::tools::starts_without_asking` decides where the question would open, and
+  `app/sessions/tools/starting.rs` runs the plan. A job's reports for a tool's call are taken
+  by token before the person's own worktree commands see them.
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.

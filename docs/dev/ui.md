@@ -402,6 +402,37 @@ project and how long ago the baseline was taken. Only a trusted project runs git
 - In a restricted project the commands and the menu's heads say "Reviewing runs git, which this
   project is not trusted to run: M-x trust-project".
 
+## Directory listings
+
+`C-x d` reads a directory and `C-x C-j` lists the one of the buffer's file, with point on the
+file, in a listing buffer named after the directory, `crates/`, as Emacs's dired shows it
+([ADR 0134](adr/0134-a-directory-editor.md)). Listing runs nothing and opens no file.
+
+- The first line is the directory, the home directory as `~`. Each row is the mode as `ls -l`
+  writes it, the owner and group only when someone else owns a row, the size as `ls -h` (`-` for
+  a directory), the time as `ls` and the name, a link's target after `->`; directories first,
+  then by name or, with `s`, newest first. Backups ending in `~` are left out. `(` shows names
+  only. The modeline says `Dired by name` or `Dired by date`.
+- Names are in faces by kind: directories, links, broken links, files someone may run, and pipes,
+  sockets and devices; the details are dim. A line break in a name shows as `\n`.
+- A large directory shows what it has read every 50 ms, under `reading… N entries so far`; one
+  that cannot be read says why.
+- `n`/`p` (and `SPC`) go by rows to the name, `RET` (or `f`) opens a file or lists a directory in
+  the same buffer, `o` does it in another window, `^` lists the directory above with point on
+  the one left, `g` lists it again, `w` copies the names at the cursors (`0 w` their absolute
+  paths), `q` shows the buffer before. `C-x k` kills a listing, and `C-x b` goes back to one.
+- A shown listing is listed again within a second of its directory changing, each window's
+  point on the name it was on.
+- `m` marks the row at point and moves down, `u` unmarks and moves down, `DEL` moves up and
+  unmarks, each with a count, or over the rows a shown region covers; `U` unmarks every row and
+  `t` toggles every mark. A mark is a `*` before the row, in the warning's colour with the row's
+  name, and the modeline counts them: `Dired by name  3 marked`. Marks stay over a refresh.
+- `C` copies and `R` moves the marked rows, or the row at point, to a path read from the
+  directory of the next window's listing (`C-u`: this one's). `D` deletes them after a question
+  that names them, and `+` makes a directory with its parents. Before writing over anything, a
+  question names what is there. Past half a second the echo area counts what is done, and `C-g`
+  stops after the file in hand.
+
 ## Echo area
 
 - A single line at the bottom of the frame shows messages such as "Saved"
@@ -938,6 +969,14 @@ a switch made with its command stands until that setting changes in the file
   recap are searched too, so `&needs` finds those that need input. `C-x a n` shows the session
   that has needed input longest, `C-x a d` the one done longest, `C-x a e` explains the shown
   session's state in `*Session explain*`.
+- With `[sessions] agents_start_without_asking`, a session the person started starts sessions with
+  no question in a trusted project, up to `agents_start_limit` each
+  ([ADR 0135](adr/0135-agents-start-sessions-without-asking.md)). Once its start is under way, the
+  echo area says `Agent: session "repo" is starting a session in a new worktree … without asking
+  (brief: 1 line; C-x a e explains)`, the row's place ends in `· unasked` (alone under its worktree in the tree), and
+  `*Session explain*` starts with who started it and ends with its brief, or says that the brief
+  is not kept across a restart. `agent-starts-ask` and `agent-starts-allow` turn the question back on and off
+  until oso restarts.
 - A space is a project with its sessions, and keeps its own windows. `C-x a j` (`space-switch`)
   switches to another; showing a session of another space switches to it first. A space
   entered for the first time shows its last file and its last session side by side.

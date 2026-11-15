@@ -31,6 +31,7 @@ fn session(key: u64, name: &str, state: State, dir: &str) -> Entry {
         recap: String::new(),
         pinned: false,
         archived: false,
+        unasked: false,
         parent: None,
         dir: Some(PathBuf::from(dir)),
         repo: None,
@@ -292,4 +293,18 @@ fn archived_sessions_take_a_sessions_indent_under_their_group() {
         .position(|row| row.starts_with("▾ Archived"))
         .unwrap();
     assert!(rows[at + 1].starts_with("    ■ gone"), "{rows:#?}");
+}
+
+#[test]
+fn a_session_started_without_asking_is_marked_under_its_worktree() {
+    let mut list = List::default();
+    list.set_tree(tree());
+    let mut unasked = session(2, "pane-c3", State::Idle, "/w/oso/.claude/worktrees/pane");
+    unasked.unasked = true;
+    let entries = [session(1, "oso-bb", State::Working, "/w/oso"), unasked];
+    let text = shown(&list, &entries, 44);
+    let row = text.iter().find(|row| row.contains("pane-c3")).unwrap();
+    assert!(row.contains("pane-c3  unasked"), "{text:?}");
+    let other = text.iter().find(|row| row.contains("oso-bb")).unwrap();
+    assert!(!other.contains("unasked"), "{text:?}");
 }

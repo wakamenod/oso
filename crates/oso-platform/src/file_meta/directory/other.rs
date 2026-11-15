@@ -8,7 +8,12 @@ use std::fs::{File, FileType, Metadata};
 use std::io;
 use std::path::{Path, PathBuf};
 
-use super::{Entry, EntryKind, MAX_LINK_BYTES, is_one_name, not_one_name};
+use super::{Entry, EntryKind, EntryMeta, MAX_LINK_BYTES, is_one_name, not_one_name};
+
+#[path = "ops_other.rs"]
+mod ops;
+
+pub(super) use ops::{copy_file_to, copy_link_to, identity, make_directory, remove, rename_to};
 
 /// An open directory: its path.
 pub(super) type Inner = PathBuf;
@@ -90,6 +95,61 @@ pub(super) fn read_link(inner: &Inner, name: &OsStr) -> io::Result<PathBuf> {
 
 pub(super) fn metadata(inner: &Inner) -> io::Result<Metadata> {
     std::fs::symlink_metadata(inner)
+}
+
+pub(super) fn list_with_metadata(
+    inner: &Inner,
+    each: &mut dyn FnMut(io::Result<EntryMeta>) -> bool,
+) -> io::Result<()> {
+    for entry in std::fs::read_dir(inner)? {
+        let entry = entry?;
+        // On Windows the listing carries each entry's metadata, so this asks nothing more.
+        let looked = entry.metadata().map(|metadata| EntryMeta {
+            name: entry.file_name(),
+            kind: kind_of_type(metadata.file_type()),
+            mode: 0,
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+            owner: None,
+            others: false,
+            attributes: attributes(&metadata),
+        });
+        if !each(looked) {
+            break;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn attributes(metadata: &Metadata) -> u32 {
+    std::os::windows::fs::MetadataExt::file_attributes(metadata)
+}
+
+#[cfg(not(windows))]
+fn attributes(_: &Metadata) -> u32 {
+    0
+}
+
+pub(super) fn dots(inner: &Inner) -> [io::Result<EntryMeta>; 2] {
+    [(".", inner.clone()), ("..", inner.join(".."))].map(|(name, path)| {
+        std::fs::metadata(path).map(|metadata| EntryMeta {
+            name: name.into(),
+            kind: kind_of_type(metadata.file_type()),
+            mode: 0,
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+            owner: None,
+            others: false,
+            attributes: attributes(&metadata),
+        })
+    })
+}
+
+pub(super) fn target_kind(inner: &Inner, name: &OsStr) -> io::Result<EntryKind> {
+    Ok(kind_of_type(
+        std::fs::metadata(joined(inner, name)?)?.file_type(),
+    ))
 }
 
 pub(super) fn entries(inner: &Inner) -> io::Result<Entries> {

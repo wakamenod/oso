@@ -12,7 +12,15 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 
-use super::{Entry, EntryKind, MAX_LINK_BYTES, is_one_name, not_one_name};
+use super::{Entry, EntryKind, EntryMeta, MAX_LINK_BYTES, is_one_name, not_one_name};
+
+#[cfg(target_os = "macos")]
+#[path = "bulk.rs"]
+mod bulk;
+#[path = "ops_unix.rs"]
+mod ops;
+
+pub(super) use ops::{copy_file_to, copy_link_to, identity, make_directory, remove, rename_to};
 
 #[cfg(not(any(
     target_os = "macos",
@@ -215,6 +223,95 @@ pub(super) fn read_link(inner: &Inner, name: &OsStr) -> io::Result<PathBuf> {
 
 pub(super) fn metadata(inner: &Inner) -> io::Result<Metadata> {
     inner.metadata()
+}
+
+/// The effective user's id.
+fn this_user() -> u32 {
+    // SAFETY: `geteuid` has no preconditions, cannot fail and touches no memory.
+    unsafe { libc::geteuid() }
+}
+
+/// A time as `stat` gives it, in seconds and nanoseconds since the epoch.
+fn time_of(seconds: i64, nanos: i64) -> Option<std::time::SystemTime> {
+    let nanos = u32::try_from(nanos)
+        .ok()
+        .filter(|nanos| *nanos < 1_000_000_000)?;
+    let epoch = std::time::UNIX_EPOCH;
+    match u64::try_from(seconds) {
+        Ok(after) => epoch.checked_add(std::time::Duration::new(after, nanos)),
+        Err(_) => epoch
+            .checked_sub(std::time::Duration::from_secs(seconds.unsigned_abs()))?
+            .checked_add(std::time::Duration::new(0, nanos)),
+    }
+}
+
+/// What a listing shows of `name`, from what `fstatat` gave.
+#[cfg_attr(
+    target_os = "linux",
+    expect(
+        clippy::useless_conversion,
+        reason = "`mode_t` is `u32` on Linux and narrower elsewhere"
+    )
+)]
+fn meta_of(name: OsString, stat: &libc::stat, user: u32) -> EntryMeta {
+    EntryMeta {
+        name,
+        kind: kind_of_mode(stat.st_mode),
+        mode: u32::from(stat.st_mode),
+        len: u64::try_from(stat.st_size).unwrap_or(0),
+        modified: time_of(stat.st_mtime, stat.st_mtime_nsec),
+        owner: Some((stat.st_uid, stat.st_gid)),
+        others: stat.st_uid != user,
+        attributes: 0,
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn list_with_metadata(
+    inner: &Inner,
+    each: &mut dyn FnMut(io::Result<EntryMeta>) -> bool,
+) -> io::Result<()> {
+    bulk::list(inner.as_raw_fd(), this_user(), each)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(super) fn list_with_metadata(
+    inner: &Inner,
+    each: &mut dyn FnMut(io::Result<EntryMeta>) -> bool,
+) -> io::Result<()> {
+    let fd = inner.as_raw_fd();
+    let user = this_user();
+    for entry in entries(inner)? {
+        let entry = entry?;
+        let looked = c_name(&entry.name)
+            .and_then(|name| stat_at(fd, &name))
+            .map(|stat| meta_of(entry.name, &stat, user));
+        if !each(looked) {
+            break;
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn dots(inner: &Inner) -> [io::Result<EntryMeta>; 2] {
+    let fd = inner.as_raw_fd();
+    let user = this_user();
+    [(c".", "."), (c"..", "..")]
+        .map(|(c_name, name)| stat_at(fd, c_name).map(|stat| meta_of(name.into(), &stat, user)))
+}
+
+pub(super) fn target_kind(inner: &Inner, name: &OsStr) -> io::Result<EntryKind> {
+    let name = c_name(name)?;
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: `inner`'s descriptor is open for the call, `name` is NUL-terminated and outlives
+    // it, and `stat` is written whole on success, which is the only case it is read.
+    let done = unsafe { libc::fstatat(inner.as_raw_fd(), name.as_ptr(), stat.as_mut_ptr(), 0) };
+    if done != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `fstatat` succeeded, so it filled `stat`.
+    let stat = unsafe { stat.assume_init() };
+    Ok(kind_of_mode(stat.st_mode))
 }
 
 /// The entries of the directory `inner`, read from a copy of its descriptor, from its start. A

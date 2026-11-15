@@ -198,7 +198,7 @@ impl App {
                 handed_over: self.configuration.take_handed_over(),
                 group_writes: outcome.group_writes,
             };
-            if let Some(later) = self.apply_settings(&settings, look) {
+            for later in self.apply_settings(&settings, look) {
                 outcome.say_later(later);
             }
         }
@@ -212,9 +212,9 @@ impl App {
     }
 
     /// Carries out what `settings` come to on this `look`, against those in force
-    /// (`InForce::changes`). Returns what to say of a change that applies only at the next
-    /// start.
-    fn apply_settings(&mut self, settings: &Settings, look: Look) -> Option<String> {
+    /// (`InForce::changes`). Returns what to say of changes that apply only at the next start,
+    /// and of agents' starts without asking at this one.
+    fn apply_settings(&mut self, settings: &Settings, look: Look) -> Vec<String> {
         let configuration = &mut self.configuration;
         let now = InForce::of(settings, &configuration.names);
         let changes = now.changes(
@@ -276,7 +276,21 @@ impl App {
             let name = self.configuration.name.clone();
             self.start_agent_channel_as_configured(&name);
         }
-        changes.later
+        let mut said: Vec<String> = changes.later.into_iter().collect();
+        // Only at oso's start, so that a session that writes the file gains nothing now
+        // (ADR 0135).
+        if let Some(starts) = changes.agent_starts {
+            self.hosting.tools.agent_starts = starts;
+            if starts.on {
+                said.push(format!(
+                    "Sessions started by agents start without asking, as {} says \
+                     (agent-starts-ask stops it)",
+                    self.configuration.name
+                ));
+            }
+        }
+        said.extend(changes.agent_starts_later);
+        said
     }
 
     /// Puts in the user's keys, and drops those they replace on the freeing thread: a large

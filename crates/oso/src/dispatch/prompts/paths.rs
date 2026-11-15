@@ -24,7 +24,13 @@ impl Dispatcher {
         match spec {
             ArgSpec::Mark { prompt } => self.read_mark(editor, id, prefix, prompt),
             ArgSpec::File { prompt, history } => {
-                self.read_file(editor, id, prefix, prompt, history)
+                self.read_file(editor, id, prefix, prompt, history, false)
+            }
+            ArgSpec::Directory { prompt, history } => {
+                self.read_file(editor, id, prefix, prompt, history, true)
+            }
+            ArgSpec::Target { prompt, history } => {
+                self.read_target(editor, id, prefix, prompt, history)
             }
             ArgSpec::ProjectFile { history } => {
                 self.read_project(editor, id, prefix, ProjectPrompt::Files { history })
@@ -42,9 +48,31 @@ impl Dispatcher {
         }
     }
 
-    /// Opens the prompt that reads a path for the command `id`, starting at the shown buffer's
-    /// directory, or the one oso started in, unless a prompt is selected (ADR 0087).
+    /// Opens the prompt that reads a path for the command `id`, or a directory's if `directory`,
+    /// starting at the shown buffer's directory, or the one oso started in, unless a prompt is
+    /// selected (ADR 0087, ADR 0134).
     fn read_file(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+        prompt: &'static str,
+        history: &'static str,
+        directory: bool,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        if let Some(refused) = refused_in_a_prompt(editor) {
+            return refused;
+        }
+        if let Some(prompt) = open_path_prompt(editor, prompt, history, directory, None) {
+            self.reading.push(Reading::run(id, prefix, prompt));
+        }
+        (redraw(), Ok(()))
+    }
+
+    /// Opens the prompt that reads where a listing's rows go for the command `id`: a path, as
+    /// `C-x C-f` reads one, starting at the directory of the next window's listing, or with
+    /// `C-u` this one's (ADR 0134). The prefix argument goes on to the command.
+    fn read_target(
         &mut self,
         editor: &mut Editor,
         id: CommandId,
@@ -55,7 +83,16 @@ impl Dispatcher {
         if let Some(refused) = refused_in_a_prompt(editor) {
             return refused;
         }
-        if let Some(prompt) = open_path_prompt(editor, prompt, history, false, None) {
+        let this_one = matches!(prefix, Some(Prefix::Universal(_)));
+        let start = editor.listing_target(this_one);
+        // The marked rows are what goes, so the prompt says how many, whoever marked them.
+        let marked = (editor.listing(editor.window().buffer())).map_or(0, |record| record.marked);
+        let label = match (marked, prompt.strip_suffix(" to:")) {
+            (0, _) | (_, None) => prompt.to_owned(),
+            (1, Some(verb)) => format!("{verb} the marked row to:"),
+            (count, Some(verb)) => format!("{verb} {count} marked rows to:"),
+        };
+        if let Some(prompt) = open_path_prompt(editor, &label, history, false, start.as_deref()) {
             self.reading.push(Reading::run(id, prefix, prompt));
         }
         (redraw(), Ok(()))
@@ -259,7 +296,7 @@ fn redraw() -> Effects {
 /// could not open, which the prompt beneath says.
 fn open_path_prompt(
     editor: &mut Editor,
-    label: &'static str,
+    label: &str,
     history: &'static str,
     directory: bool,
     start_in: Option<&std::path::Path>,
@@ -267,12 +304,19 @@ fn open_path_prompt(
     let start = editor.start_directory().to_path_buf();
     let start_in = match start_in {
         Some(dir) => dir.to_path_buf(),
-        None => editor
-            .current()
-            .1
-            .path()
-            .and_then(std::path::Path::parent)
-            .map_or(start, std::path::Path::to_path_buf),
+        // A listing's directory is the one it lists (ADR 0134).
+        None => {
+            let (window, buffer) = editor.current();
+            let listed = editor
+                .listing(window.buffer())
+                .map(|listing| listing.directory.clone());
+            buffer
+                .path()
+                .and_then(std::path::Path::parent)
+                .map(std::path::Path::to_path_buf)
+                .or(listed)
+                .unwrap_or(start)
+        }
     };
     let initial = oso_core::complete::typed_form(&start_in, true, editor.home());
     let opened = if directory {

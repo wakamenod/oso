@@ -7,10 +7,12 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use oso_core::buffer::BufferId;
 
 use super::bridge::{self, Candidate};
+use super::identity::Origin;
 use super::identity::{SessionId, unique_name};
 use super::record::Remembered;
 use super::state::Exit;
@@ -53,6 +55,11 @@ pub struct Hosted {
     pub root: Option<PathBuf>,
     /// The session that started it, if any.
     pub parent: Option<SessionId>,
+    /// How it started (ADR 0135).
+    pub origin: Origin,
+    /// The brief of a session an agent started without asking, for `session-explain`; kept
+    /// in memory only, never in the record (ADR 0135, as built).
+    pub unasked_brief: Option<Arc<str>>,
     /// Its terminal buffer, once it has one.
     pub buffer: Option<BufferId>,
     pub run: Run,
@@ -82,6 +89,7 @@ impl Hosted {
             directory: self.directory.clone(),
             root: self.root.clone(),
             parent: self.parent.clone(),
+            origin: self.origin,
             pinned: self.pinned,
             archived: self.archived,
             changed: self.changed,
@@ -113,6 +121,9 @@ pub struct New {
     pub id: SessionId,
     pub root: Option<PathBuf>,
     pub parent: Option<SessionId>,
+    pub origin: Origin,
+    /// The brief, kept only for a session started without asking.
+    pub unasked_brief: Option<Arc<str>>,
     pub changed: u64,
 }
 
@@ -157,6 +168,8 @@ impl Table {
             directory,
             root: new.root,
             parent: new.parent,
+            origin: new.origin,
+            unasked_brief: new.unasked_brief,
             buffer: None,
             run: Run::Starting,
             baseline: None,
@@ -192,6 +205,8 @@ impl Table {
                 directory: session.directory,
                 root: session.root,
                 parent: session.parent,
+                origin: session.origin,
+                unasked_brief: None,
                 buffer: None,
                 run: Run::Stopped,
                 baseline: session.baseline,
@@ -400,6 +415,7 @@ mod tests {
 
     use super::{New, Run, Table, exit_of};
     use crate::channel::Connection;
+    use crate::sessions::identity::Origin;
     use crate::sessions::identity::SessionId;
     use crate::sessions::record::Remembered;
     use crate::sessions::state::Exit;
@@ -409,6 +425,8 @@ mod tests {
             id: SessionId::from_random([n; 16]),
             root: None,
             parent: None,
+            origin: Origin::Person,
+            unasked_brief: None,
             changed: 1,
         }
     }
@@ -425,6 +443,7 @@ mod tests {
             directory: PathBuf::from("/p"),
             root: None,
             parent: None,
+            origin: Origin::Person,
             pinned: false,
             archived,
             changed: 5,

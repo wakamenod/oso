@@ -5,8 +5,9 @@
 //! Must not depend on: threads, the UI or `app`; the sessions worker reads and writes it, never
 //! the UI thread.
 //!
-//! - It holds each session's id, name, directory, project root, parent, pin and archive marks,
-//!   when it last changed and its baseline. No screen text and no transcript text.
+//! - It holds each session's id, name, directory, project root, parent, how it started (ADR
+//!   0135), pin and archive marks, when it last changed and its baseline. No screen text, no
+//!   transcript text and no brief.
 //! - It is read only if the directory is private and the file a regular one of this user's
 //!   with one name, at most [`MAX_BYTES`] and [`MAX_SESSIONS`] sessions. A line that does not
 //!   hold a whole, valid session is left out, and only how many were is logged.
@@ -23,7 +24,7 @@ use oso_platform::file_meta;
 use oso_platform::privacy::{PrivateDir, has_one_name, is_this_users};
 use serde_json::{Map, Value, json};
 
-use super::identity::{SessionId, clean_name};
+use super::identity::{Origin, SessionId, clean_name};
 
 /// The file's name in its directory.
 const FILE: &str = "sessions";
@@ -48,6 +49,8 @@ pub struct Remembered {
     pub root: Option<PathBuf>,
     /// The session that started it.
     pub parent: Option<SessionId>,
+    /// How it started.
+    pub origin: Origin,
     pub pinned: bool,
     /// Archived: not brought back at start.
     pub archived: bool,
@@ -157,6 +160,7 @@ fn parse_line(line: &[u8]) -> Option<Remembered> {
         Some(parent) => Some(SessionId::parse(parent)?),
         None => None,
     };
+    let origin = Origin::read(optional("origin")?, parent.is_some());
     let baseline = match optional("baseline")? {
         Some(tree) if is_tree_id(tree) => Some(tree.to_owned()),
         Some(_) => return None,
@@ -168,6 +172,7 @@ fn parse_line(line: &[u8]) -> Option<Remembered> {
         directory: path(text("directory")?)?,
         root,
         parent,
+        origin,
         pinned: flag("pinned")?,
         archived: flag("archived")?,
         changed: object.get("changed")?.as_u64()?,
@@ -196,6 +201,7 @@ fn line(session: &Remembered) -> Option<String> {
     if let Some(parent) = &session.parent {
         object.insert("parent".into(), json!(parent.as_str()));
     }
+    object.insert("origin".into(), json!(session.origin.name()));
     object.insert("pinned".into(), json!(session.pinned));
     object.insert("archived".into(), json!(session.archived));
     object.insert("changed".into(), json!(session.changed));
@@ -253,7 +259,8 @@ mod tests {
     use std::collections::HashSet;
     use std::path::PathBuf;
 
-    use super::{FILE, MAX_SESSIONS, Remembered, read, write};
+    use super::{FILE, MAX_SESSIONS, Remembered, parse_line, read, write};
+    use crate::sessions::identity::Origin;
     use crate::sessions::identity::SessionId;
 
     struct Scratch(PathBuf);
@@ -292,6 +299,7 @@ mod tests {
             directory: PathBuf::from("/work/oso"),
             root: Some(PathBuf::from("/work")),
             parent: None,
+            origin: Origin::Person,
             pinned: false,
             archived: false,
             changed: 1_794_512_815_000,
@@ -309,11 +317,13 @@ mod tests {
         assert!(read(&scratch.oso()).is_empty(), "nothing yet");
         let mut full = session(1);
         full.parent = Some(id(9));
+        full.origin = Origin::Unasked;
         full.pinned = true;
         full.archived = true;
         full.baseline = Some("a".repeat(40));
         let mut bare = session(2);
         bare.root = None;
+        bare.origin = Origin::Answered;
         bare.baseline = Some("0".repeat(64));
         let sessions = [full, bare];
         write(&scratch.oso(), &sessions, &known(&[1, 2])).unwrap();
@@ -324,6 +334,37 @@ mod tests {
             let meta = std::fs::metadata(scratch.oso().join(FILE)).unwrap();
             assert_eq!(meta.permissions().mode() & 0o777, 0o600);
         }
+    }
+
+    #[test]
+    fn an_old_line_is_the_person_s_unless_a_session_started_it_and_an_unknown_one_is_neither() {
+        let line = |more: &str| {
+            format!(
+                r#"{{"id":"{}","name":"oso-1","directory":"/work/oso","pinned":false,"archived":false,"changed":1{more}}}"#,
+                id(1).as_str()
+            )
+        };
+        let origin = |text: &str| parse_line(text.as_bytes()).map(|session| session.origin);
+        let parent = format!(r#","parent":"{}""#, id(2).as_str());
+        assert_eq!(origin(&line("")), Some(Origin::Person));
+        assert_eq!(origin(&line(&parent)), Some(Origin::Unknown));
+        assert_eq!(origin(&line(r#","origin":"person""#)), Some(Origin::Person));
+        assert_eq!(
+            origin(&line(r#","origin":"answered""#)),
+            Some(Origin::Answered)
+        );
+        assert_eq!(
+            origin(&line(r#","origin":"unasked""#)),
+            Some(Origin::Unasked)
+        );
+        assert_eq!(origin(&line(r#","origin":"later""#)), Some(Origin::Unknown));
+        assert_eq!(origin(&line(r#","origin":3"#)), None, "not a string");
+        assert!(
+            super::line(&session(1))
+                .unwrap()
+                .contains(r#""origin":"person""#),
+            "written for every session"
+        );
     }
 
     #[test]

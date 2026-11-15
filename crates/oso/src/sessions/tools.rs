@@ -5,8 +5,10 @@
 //! Must not depend on: `app`, `dispatch`, threads or the disk; the app carries a
 //! call out and asks these rules first.
 //!
-//! - A tool that asks starts nothing until the person's `y`, from the window. No tool types
-//!   into a terminal, answers a session's dialog, or reads what a terminal withholds.
+//! - A tool that asks starts nothing until the person's `y`, from the window, unless the
+//!   person's configuration lets a session they started start sessions without asking, within
+//!   [`starts_without_asking`]'s rules (ADR 0135). No tool types into a terminal, answers a
+//!   session's dialog, or reads what a terminal withholds.
 //! - The loop guard and the refusals are kept by session, never by connection: a session that
 //!   connects again keeps both.
 //! - Names, branches and paths in a question are the agent's or a repository's text: each is
@@ -17,6 +19,7 @@ use std::time::{Duration, Instant};
 
 use oso_core::command::Reach;
 
+use super::identity::Origin;
 use super::identity::SessionId;
 
 /// Whether a tool asks the person before it acts.
@@ -26,6 +29,9 @@ pub enum Asks {
     No,
     /// Each call asks, as an `Agent:` question; `n` or `C-g` refuses it.
     Each,
+    /// As [`Asks::Each`], unless the person's configuration lets the caller start sessions
+    /// without asking, within [`starts_without_asking`]'s rules (ADR 0135).
+    UnlessAllowed,
 }
 
 /// A session tool.
@@ -44,7 +50,7 @@ pub struct Tool {
 impl Tool {
     /// Whether it counts toward the loop guard: every tool that asks or changes.
     pub const fn counted(&self) -> bool {
-        matches!(self.reach, Reach::Change) || matches!(self.asks, Asks::Each)
+        matches!(self.reach, Reach::Change) || !matches!(self.asks, Asks::No)
     }
 
     /// The MCP hint that it only reads: it neither changes nor asks.
@@ -81,14 +87,14 @@ pub const TOOLS: [Tool; 6] = [
     Tool {
         name: "start_worktree_session",
         reach: Reach::Change,
-        asks: Asks::Each,
+        asks: Asks::UnlessAllowed,
         destructive: false,
         outside: false,
     },
     Tool {
         name: "session_start",
         reach: Reach::Change,
-        asks: Asks::Each,
+        asks: Asks::UnlessAllowed,
         destructive: false,
         outside: false,
     },
@@ -267,15 +273,85 @@ pub fn worktree_question(
     start: Branch<'_>,
     brief_lines: usize,
 ) -> String {
+    format!(
+        "let session {} start {}{}?",
+        quoted(caller),
+        in_worktree(place, branch, start),
+        brief_part(brief_lines)
+    )
+}
+
+/// What the echo area says of a `start_worktree_session` that started with no question
+/// (ADR 0135).
+pub fn worktree_started(
+    caller: &str,
+    place: &str,
+    branch: &str,
+    start: Branch<'_>,
+    brief_lines: usize,
+) -> String {
+    format!(
+        "session {} is starting {}, without asking ({}; C-x a e explains)",
+        quoted(caller),
+        in_worktree(place, branch, start),
+        brief_said(Some(brief_lines))
+    )
+}
+
+/// "a session in a new worktree … on … branch …".
+fn in_worktree(place: &str, branch: &str, start: Branch<'_>) -> String {
     let on = match start {
         Branch::Existing => format!("on existing branch {}", quoted(branch)),
         Branch::New { from } => format!("on new branch {} from {}", quoted(branch), quoted(from)),
     };
+    format!("a session in a new worktree {} {on}", quoted(place))
+}
+
+/// "brief: N lines", or "no brief".
+fn brief_said(lines: Option<usize>) -> String {
+    match lines {
+        Some(1) => "brief: 1 line".to_owned(),
+        Some(lines) => format!("brief: {lines} lines"),
+        None => "no brief".to_owned(),
+    }
+}
+
+/// What a start without asking needs (ADR 0135).
+#[derive(Clone, Copy, Debug)]
+pub struct Unasked {
+    /// The tool is one the setting covers: [`Asks::UnlessAllowed`].
+    pub tool: Asks,
+    /// `[sessions] agents_start_without_asking` at oso's start, and no `agent-starts-ask` since.
+    pub allowed: bool,
+    /// How the calling session started.
+    pub caller: Origin,
+    /// The project the session would start in is trusted, its directory's repository the
+    /// caller's.
+    pub trusted: bool,
+    /// The caller's live sessions that started without asking, and those starting.
+    pub live_unasked: usize,
+    /// `[sessions] agents_start_limit`.
+    pub limit: u8,
+}
+
+/// Whether a call that would ask starts without asking: only as the person's configuration
+/// allows, from a session the person started, so that it reaches one level, in a trusted
+/// project, and below the caller's limit; else it asks as before (ADR 0135).
+pub fn starts_without_asking(unasked: Unasked) -> bool {
+    unasked.tool == Asks::UnlessAllowed
+        && unasked.allowed
+        && unasked.caller.by_the_person()
+        && unasked.trusted
+        && unasked.live_unasked < usize::from(unasked.limit)
+}
+
+/// What the echo area says of a `session_start` that started with no question (ADR 0135).
+pub fn start_started(caller: &str, directory: &str, brief_lines: Option<usize>) -> String {
     format!(
-        "let session {} start a session in a new worktree {} {on}{}?",
+        "session {} is starting a session in {}, without asking ({}; C-x a e explains)",
         quoted(caller),
-        quoted(place),
-        brief_part(brief_lines)
+        quoted(directory),
+        brief_said(brief_lines)
     )
 }
 
