@@ -592,7 +592,8 @@ an operation after the file in hand and says how far it got.
   secrets says goes to the echo area only, not the log or `*Messages*`.
 - **Windows:** operations are path-based, as other editors do (the author's choice); a
   handle-relative version is a later step. A link or a junction is listed as a link, never gone
-  into, and removed as the link it is. Links are not copied there yet.
+  into, and removed as the link it is. Links are not copied there yet. A directory has no
+  identity there yet, so one replaced since it was listed is not noticed.
 
 ## Consequences
 

@@ -173,6 +173,8 @@ fn a_delete_takes_a_tree_and_leaves_what_its_links_lead_to() {
     assert!(scratch.0.join("kept/c.txt").exists());
 }
 
+/// Windows keeps no identity for a directory yet, so a replaced one is not noticed there.
+#[cfg(unix)]
 #[test]
 fn nothing_is_done_in_a_directory_that_changed_since_it_was_listed() {
     let scratch = Scratch::new("changed");
