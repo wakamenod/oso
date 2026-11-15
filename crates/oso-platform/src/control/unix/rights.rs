@@ -193,8 +193,8 @@ fn received(msg: &libc::msghdr) -> Vec<OwnedFd> {
             let offset = data as usize - header as usize;
             // A header the system cut short may still claim its whole length: count only what
             // lies inside the control data it returned.
-            let returned = (msg.msg_control as usize + msg.msg_controllen as usize)
-                .saturating_sub(data as usize);
+            let returned =
+                (msg.msg_control as usize + control_len(msg)).saturating_sub(data as usize);
             let claimed = (head.cmsg_len as usize).saturating_sub(offset);
             let count = claimed.min(returned) / FD_SIZE;
             for at in 0..count {
@@ -254,6 +254,20 @@ impl ControlStream {
             }
         }
     }
+}
+
+/// The length of the control data `recvmsg` returned in `msg`: a `size_t` on Linux, a
+/// `socklen_t` elsewhere.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn control_len(msg: &libc::msghdr) -> usize {
+    msg.msg_controllen
+}
+
+/// The length of the control data `recvmsg` returned in `msg`: a `size_t` on Linux, a
+/// `socklen_t` elsewhere.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn control_len(msg: &libc::msghdr) -> usize {
+    msg.msg_controllen as usize
 }
 
 /// Marks `fd` close-on-exec, where the read could not.

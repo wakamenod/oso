@@ -21,16 +21,24 @@ fn start_failing_at(test: &str, point: &str) -> (Scratch, App) {
     (scratch, app)
 }
 
-/// The shell's process id, as `echo pid=$$` printed it.
+/// The shell's process id, as `echo pid=$$` printed it: on a row of its own, or after a prompt,
+/// as a shell that reads lines (dash) prints what typed-ahead input printed.
 fn shell_pid(app: &mut App) -> String {
     type_line(app, "echo pid=$$");
     let state = app.wait_for("the shell's pid", |state| {
-        rows(state).iter().any(|row| row.starts_with("pid="))
+        rows(state).iter().any(|row| printed_pid(row).is_some())
     });
     rows(&state)
-        .into_iter()
-        .find_map(|row| row.strip_prefix("pid=").map(str::to_owned))
+        .iter()
+        .find_map(|row| printed_pid(row))
         .expect("a pid")
+}
+
+/// The pid `row` shows `echo pid=$$` printed, not the command typed.
+fn printed_pid(row: &str) -> Option<String> {
+    let printed = row.rsplit("$ ").next().unwrap_or(row);
+    let pid = printed.strip_prefix("pid=")?;
+    (!pid.is_empty() && pid.chars().all(|c| c.is_ascii_digit())).then(|| pid.to_owned())
 }
 
 /// Runs `oso-restart` in `app`, and returns the sockets there were before.
