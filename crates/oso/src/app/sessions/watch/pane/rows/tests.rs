@@ -45,31 +45,41 @@ fn at(directory: &str, base: Base, session: Option<u64>) -> Option<RowPlace> {
         repo: Some(PathBuf::from("/p/oso")),
         base,
         session,
+        space: None,
     })
+}
+
+/// As [`at`], on a row of the tree's one space.
+fn in_space(directory: &str, base: Base) -> Option<RowPlace> {
+    at(directory, base, None).map(|place| RowPlace {
+        space: Some(space()),
+        ..place
+    })
+}
+
+fn space() -> crate::sessions::spaces::SpaceId {
+    tree().spaces[0].id.clone()
 }
 
 #[test]
 fn a_project_is_its_main_checkout_from_head() {
-    assert_eq!(
-        place(&Line::Space(tree().spaces[0].id.clone())),
-        at("/p/oso", Base::Head, None)
-    );
+    assert_eq!(place(&Line::Space(space())), in_space("/p/oso", Base::Head));
 }
 
 #[test]
 fn a_worktree_is_itself_from_its_branch_or_head_when_detached() {
     let api = "/p/oso/.claude/worktrees/api";
-    let place_api = place(&Line::Worktree(PathBuf::from(api)));
-    assert_eq!(place_api, at(api, Base::Branch("api-fix".into()), None));
+    let place_api = place(&Line::Worktree(space(), PathBuf::from(api)));
+    assert_eq!(place_api, in_space(api, Base::Branch("api-fix".into())));
     assert_eq!(place_api.as_ref().unwrap().base(), Some("api-fix"));
     let bare = "/p/oso/.claude/worktrees/bare";
-    let detached = place(&Line::Worktree(PathBuf::from(bare))).unwrap();
+    let detached = place(&Line::Worktree(space(), PathBuf::from(bare))).unwrap();
     assert!(detached.detached());
     assert_eq!(detached.base(), None);
     // The main checkout is not taken for a worktree inside it.
     assert_eq!(
-        place(&Line::Worktree(PathBuf::from("/p/oso"))),
-        at("/p/oso", Base::Branch("main".into()), None)
+        place(&Line::Worktree(space(), PathBuf::from("/p/oso"))),
+        in_space("/p/oso", Base::Branch("main".into()))
     );
 }
 

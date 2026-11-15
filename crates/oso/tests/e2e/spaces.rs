@@ -4,7 +4,10 @@
 //! file keeps them, so that the next start reads the same spaces and makes none again; and
 //! `space-switch` goes from one to the other. Step 1b: `space-new` makes a space and its
 //! private directory, the space menu adds a repository by its path, renames, closes (stopping
-//! an idle session) and reopens, a shared root is refused, and a restart keeps it all.
+//! an idle session) and reopens, a shared root is refused, and a restart keeps it all. Step 2:
+//! the pane shows a space, its two repositories, their worktrees and its session; a quiet
+//! space folds while another is in front, `RET` on its row enters it, `a` reads a repository,
+//! and a closed space goes in `Archived spaces`.
 //!
 //! Must not depend on: the app's internals, or what the spaces' own tests cover: the join
 //! rule, the file's format and the directory checks.

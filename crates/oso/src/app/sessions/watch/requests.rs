@@ -13,6 +13,7 @@ use oso_core::editor::{Editor, RowAction, SessionRequest};
 
 use crate::app::App;
 use crate::sessions::list::{Key, Line};
+use crate::sessions::spaces::SpaceId;
 use crate::sessions::spaces::{Refused, Zoom};
 use crate::sessions::state::State;
 use crate::sessions::worker::{Job, SessionKey};
@@ -180,18 +181,21 @@ impl App {
     /// `RET` on the row of the worktree at `path` (ADR 0131, step 2b): the session there, in
     /// the space that holds it (ADR 0136, step 1a); else that space's tree with its window
     /// selected; else `find-file`'s prompt in it.
-    fn enter_worktree(&mut self, path: &Path) {
+    fn enter_worktree(&mut self, space: &SpaceId, path: &Path) {
+        // The row's space, where a worktree two spaces show is entered (ADR 0136, step 2).
+        let row_space = self.watch.spaces.find(space);
         let there = self
             .hosting
             .table()
             .iter()
             .filter(|session| !session.archived && session.buffer.is_some())
+            .filter(|session| row_space.is_none() || self.space_of_session(session) == row_space)
             .find(|session| oso_core::project::same_place(super::place(session), path))
             .map(|session| session.key);
         if let Some(key) = there {
             return self.show_session(key);
         }
-        match self.watch.spaces.holding(path) {
+        match row_space.or_else(|| self.watch.spaces.holding(path)) {
             Some(at) => {
                 if self.watch.spaces.current() != Some(at) {
                     self.enter_space(at);
@@ -230,8 +234,10 @@ impl App {
                 return self.watch.list.fold(&Line::Session(key));
             }
             Line::Header(_) => return,
-            Line::Worktree(path) if action == RowAction::Show => return self.enter_worktree(&path),
-            Line::Worktree(_) if action == RowAction::Stop => {
+            Line::Worktree(id, path) if action == RowAction::Show => {
+                return self.enter_worktree(&id, &path);
+            }
+            Line::Worktree(..) if action == RowAction::Stop => {
                 return self.editor.message(
                     "worktree-remove removes a worktree whose work is done, from a buffer in it or *Worktrees*",
                 );
@@ -257,7 +263,7 @@ impl App {
             }
             Line::ClosedSpace(_) => return,
             // A repository's row folds on `RET` too, as its worktrees are what it holds.
-            Line::Space(_) | Line::Repository(..) | Line::Worktree(_) => {
+            Line::Space(_) | Line::Repository(..) | Line::Worktree(..) => {
                 if matches!(action, RowAction::Fold | RowAction::Show) {
                     self.watch.list.fold(&row);
                 }

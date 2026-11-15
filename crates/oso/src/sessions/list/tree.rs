@@ -4,8 +4,10 @@
 //! worktrees right under its own row. An external session in a worktree of the tree is listed
 //! under it, quiet; every other one goes in `Other projects`, by the repository or directory it
 //! runs in. A worktree with no session and no change for a week goes in its repository's quiet
-//! row; closed spaces go in `Archived spaces`. Rows never move when a state changes: urgency
-//! shows in the marks, and the roll-ups of a worktree, a repository and a space.
+//! row; closed spaces go in `Archived spaces`, their sessions with the archived ones. A
+//! worktree's row never moves when a state changes, though a space unfolds when one of its
+//! sessions comes to work or need input (ADR 0136, Q4): urgency shows in the marks, and the
+//! roll-ups of a worktree, a repository and a space.
 //!
 //! Must not depend on: `app`, `dispatch` or `config`; plain data in, text out, as the list.
 
@@ -129,7 +131,7 @@ impl List {
         let mut archived = Vec::new();
         let worktrees = by_depth(spaces);
         for entry in entries {
-            match place(&worktrees, spaces, entry) {
+            match place(&worktrees, &self.tree, entry) {
                 Place::Worktree(s, p, w) => placed[s][p][w].push(entry),
                 Place::Other(dir) => {
                     let at = *other_at
@@ -157,20 +159,21 @@ impl List {
     fn worktree(
         &self,
         out: &mut Rendered,
-        (worktree, depth): (&Worktree, usize),
+        (space, worktree, depth): (&SpaceRows, &Worktree, usize),
         sessions: &[&Entry],
         width: usize,
         now: Instant,
     ) {
         let indent = INDENT[depth];
-        let line = Line::Worktree(worktree.path.clone());
+        let line = Line::Worktree(space.id.clone(), worktree.path.clone());
         let hosted: Vec<&Entry> = sessions
             .iter()
             .copied()
             .filter(|e| matches!(e.key, Key::Hosted(_)))
             .collect();
         let running = hosted.iter().any(|e| e.state != State::Stopped);
-        let folded = self.folded_as(&Fold::Worktree(worktree.path.clone()), !running);
+        let fold = Fold::Worktree(space.id.clone(), worktree.path.clone());
+        let folded = self.folded_as(&fold, !running);
         let roll = worst(sessions);
         // It spins while its roll-up is a working session of oso's (Q13).
         let spin = self.spin.filter(|_| {
@@ -202,7 +205,8 @@ impl List {
         let name = cut_middle(&name, room);
         let mut text = format!("{head}{name}");
         let mut spans = vec![(indent.len()..head.len() - 1, mark_face)];
-        let front = self.tree.front.as_deref() == Some(worktree.path.as_path());
+        let front = self.tree.front_space.as_ref() == Some(&space.id)
+            && self.tree.front.as_deref() == Some(worktree.path.as_path());
         if front {
             spans.push((head.len()..text.len(), Highlight::SessionFront));
         }
@@ -379,23 +383,42 @@ fn heading(
     width: usize,
     line: Line,
 ) {
+    named_heading(out, (head, name, None), right, width, line);
+}
+
+/// A heading row as [`heading`] draws it, its name in `name_face` if given: the space in
+/// front's.
+fn named_heading(
+    out: &mut Rendered,
+    (head, name, name_face): (&str, &str, Option<Highlight>),
+    right: Option<(String, Highlight)>,
+    width: usize,
+    line: Line,
+) {
     let (right, right_face) = right.unwrap_or((String::new(), Highlight::SessionQuiet));
     let room = width.saturating_sub(cells(head) + cells(&right) + 1);
     let text = format!("{head}{}", cut_middle(super::unmarked(name), room));
+    let name_end = text.len();
     let text = pad(&text, width.saturating_sub(cells(&right))) + &right;
-    let spans = [(text.len() - right.len()..text.len(), right_face)];
+    let mut spans = vec![(text.len() - right.len()..text.len(), right_face)];
+    if let Some(face) = name_face {
+        spans.insert(0, (head.len()..name_end, face));
+    }
     out.push_drawn(&cut(&text, width), line, &spans);
 }
 
-/// Where `entry` goes: under the deepest worktree of the tree that holds its directory, of its
-/// own space where two spaces show one, else in `Other projects` by its repository, else by its
-/// directory. `worktrees` are the tree's, by space, repository and worktree, the deepest first.
+/// Where `entry` goes: with the archived sessions when it or its space is; under the deepest
+/// worktree of the tree that holds its directory, of its own space where two spaces show one;
+/// else in `Other projects` by its repository, else by its directory. `worktrees` are the
+/// tree's, by space, repository and worktree, the deepest first.
 fn place<'e>(
     worktrees: &[(usize, usize, usize, &[u8])],
-    spaces: &[SpaceRows],
+    tree: &Tree,
     entry: &'e Entry,
 ) -> Place<'e> {
-    if entry.archived {
+    let closed = |id: &SpaceId| tree.closed.iter().any(|space| space.id == *id);
+    // A closed space's sessions wait with the archived ones (ADR 0136, step 2).
+    if entry.archived || entry.space_id.as_ref().is_some_and(closed) {
         return Place::Archived;
     }
     let Some(dir) = entry.dir.as_deref() else {
@@ -407,13 +430,14 @@ fn place<'e>(
         return Place::Other(entry.repo.as_deref().unwrap_or(dir));
     };
     // A main checkout two spaces show: the session's own space's.
-    if spaces[s].name == entry.space {
+    let own = |s: usize| entry.space_id.as_ref() == Some(&tree.spaces[s].id);
+    if own(s) {
         return Place::Worktree(s, p, w);
     }
-    let own = holding
+    let found = holding
         .take_while(|(.., path)| path.len() == deepest.len())
-        .find(|(other, ..)| spaces[*other].name == entry.space);
-    match own {
+        .find(|(other, ..)| own(*other));
+    match found {
         Some(&(s, p, w, _)) => Place::Worktree(s, p, w),
         None => Place::Worktree(s, p, w),
     }
@@ -446,6 +470,15 @@ impl Tree {
                 let project = &self.spaces[s].projects[p];
                 (project, &project.worktrees[w])
             })
+    }
+
+    /// The worktree at `path` as space `id` shows it, with its repository.
+    pub fn holding_in(&self, id: &SpaceId, path: &Path) -> Option<(&Project, &Worktree)> {
+        let space = self.spaces.iter().find(|space| space.id == *id)?;
+        space.projects.iter().find_map(|project| {
+            let worktree = project.worktrees.iter().find(|w| w.path == path)?;
+            Some((project, worktree))
+        })
     }
 
     /// Every repository of every space, in their order.

@@ -335,7 +335,10 @@ impl App {
     /// the selected buffer's project root or directory, else the directory oso started in.
     fn session_directory_here(&mut self) -> Option<PathBuf> {
         match self.sessions_row_place() {
-            Some(Ok(place)) => Some(place.directory),
+            Some(Ok(place)) => {
+                self.enter_row_space(&place);
+                Some(place.directory)
+            }
             Some(Err(why)) => {
                 self.editor.message(why);
                 None

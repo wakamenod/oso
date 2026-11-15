@@ -1,7 +1,9 @@
 //! Which worktrees each space of the tree shows (ADR 0136, step 2): those it holds; the main
-//! checkout while a session of the space runs there; and in the first space that has the
-//! repository, the main checkout and every worktree no space holds. So a worktree shows in one
-//! space only, but for a main checkout a session of another space runs in.
+//! checkout while a session of the space is there, running or stopped; and in the first space
+//! that has the repository, the main checkout and every worktree no space holds. A worktree is
+//! held only by a space, open or closed, that still has its repository, so one a closed space
+//! holds shows in no open one. So a worktree shows in one space only, but for a main checkout a
+//! session of another space is in.
 //!
 //! Must not depend on: `app`, `dispatch` or `config`; plain data in, rows out.
 
@@ -20,24 +22,27 @@ pub struct SpaceInput<'a> {
     pub members: Vec<&'a Path>,
     /// The worktrees it holds.
     pub held: &'a [PathBuf],
-    /// Where its running sessions run.
-    pub running: HashSet<PathBuf>,
+    /// Where its sessions are, running or stopped, archived ones aside.
+    pub sessions: HashSet<PathBuf>,
 }
 
-/// The rows of `spaces`, each repository's worktrees taken from `listed`.
+/// The rows of the open `spaces`, each repository's worktrees taken from `listed`; `closed`
+/// spaces' worktrees show in none of them.
 pub fn space_rows(
     spaces: &[SpaceInput<'_>],
+    closed: &[SpaceInput<'_>],
     listed: &HashMap<PathBuf, Vec<Worktree>>,
 ) -> Vec<SpaceRows> {
     let held: HashSet<PathBuf> = spaces
         .iter()
-        .flat_map(|space| space.held.iter().map(|path| spelled(path)))
+        .chain(closed)
+        .flat_map(|space| still_held(space, listed))
         .collect();
     let mut first: HashSet<PathBuf> = HashSet::new();
     let mut rows = Vec::with_capacity(spaces.len());
     for space in spaces {
-        let own: HashSet<PathBuf> = space.held.iter().map(|path| spelled(path)).collect();
-        let running: HashSet<PathBuf> = space.running.iter().map(|path| spelled(path)).collect();
+        let own: HashSet<PathBuf> = still_held(space, listed).collect();
+        let used: HashSet<PathBuf> = space.sessions.iter().map(|path| spelled(path)).collect();
         let projects = space
             .members
             .iter()
@@ -46,7 +51,7 @@ pub fn space_rows(
                 let shows = |worktree: &Worktree| {
                     let path = spelled(&worktree.path);
                     if worktree.primary {
-                        is_first || running.contains(&path)
+                        is_first || used.contains(&path)
                     } else {
                         own.contains(&path) || (is_first && !held.contains(&path))
                     }
@@ -69,6 +74,18 @@ pub fn space_rows(
         });
     }
     rows
+}
+
+/// The worktrees `space` holds that a repository it still has lists, as spelled.
+fn still_held<'a>(
+    space: &'a SpaceInput<'_>,
+    listed: &'a HashMap<PathBuf, Vec<Worktree>>,
+) -> impl Iterator<Item = PathBuf> + 'a {
+    let holds: HashSet<PathBuf> = space.held.iter().map(|path| spelled(path)).collect();
+    (space.members.iter())
+        .flat_map(move |root| listed.get(*root).into_iter().flatten())
+        .map(|worktree| spelled(&worktree.path))
+        .filter(move |path| holds.contains(path))
 }
 
 /// `path` as its components spell it, for comparing paths through a set.

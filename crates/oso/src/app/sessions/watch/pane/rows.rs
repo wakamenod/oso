@@ -1,7 +1,8 @@
 //! The row at point in `*Sessions*` as a place (ADR 0131, step 2b): where `claude` starts from
-//! it, the repository `session-worktree` makes a worktree of, the base that worktree starts at
-//! and the session it is a child of. `C-x a c` and `C-x a w` there take it as `c` and `w` do
-//! (the author, 2026-11-15).
+//! it, the repository `session-worktree` makes a worktree of, the base that worktree starts at,
+//! the session it is a child of, and the space it is in (ADR 0136, step 2), from a space's,
+//! repository's, worktree's or session's row. `C-x a c` and `C-x a w` there take it as `c` and
+//! `w` do (the author, 2026-11-15).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -11,6 +12,7 @@ use oso_core::buffer::Mode;
 
 use crate::app::App;
 use crate::sessions::list::{Group, Key, Line, Project, Tree, Worktree};
+use crate::sessions::spaces::SpaceId;
 use crate::sessions::worker::SessionKey;
 
 /// What a row with no place says.
@@ -39,6 +41,8 @@ pub(in crate::app) struct RowPlace {
     pub base: Base,
     /// The hosted session on the row: the parent of a worktree session made from it.
     pub session: Option<SessionKey>,
+    /// The space the row is in, which a session started from it joins (ADR 0136, step 2).
+    pub space: Option<SpaceId>,
 }
 
 impl RowPlace {
@@ -71,6 +75,18 @@ impl App {
         Some(self.row_place(self.editor.cursor_line()).ok_or(NO_PLACE))
     }
 
+    /// Puts the space of the row `place` in front, so that a session or worktree started from
+    /// it joins that space, not the one in front before (ADR 0136, step 2).
+    pub(in crate::app) fn enter_row_space(&mut self, place: &RowPlace) {
+        let at = place
+            .space
+            .as_ref()
+            .and_then(|id| self.watch.spaces.find(id));
+        if let Some(at) = at.filter(|&at| self.watch.spaces.current() != Some(at)) {
+            self.enter_space(at);
+        }
+    }
+
     /// The place of line `line` of `*Sessions*`.
     pub(in crate::app) fn row_place(&self, line: usize) -> Option<RowPlace> {
         let hosted = |key: SessionKey| Some(self.hosting.table().get(key)?.directory.clone());
@@ -100,21 +116,25 @@ fn place_of(
     external: impl Fn(&Key) -> Option<PathBuf>,
 ) -> Option<RowPlace> {
     match line {
-        // A space's row stands for its first repository, as a space of one shows it.
-        Line::Space(id) => {
-            let space = tree.spaces.iter().find(|space| space.id == *id)?;
-            let project = space.projects.first()?;
-            Some(repository(project))
-        }
+        // A space of one repository's row stands for it; one of several's for none, as which
+        // is the person's to say on a repository's row.
+        Line::Space(id) => match tree.spaces.iter().find(|space| space.id == *id)? {
+            space if space.projects.len() == 1 => Some(repository(id, &space.projects[0])),
+            _ => None,
+        },
         Line::Repository(id, root) => {
             let space = tree.spaces.iter().find(|space| space.id == *id)?;
             let project = space.projects.iter().find(|p| p.root == *root)?;
-            Some(repository(project))
+            Some(repository(id, project))
         }
         Line::ClosedSpace(_) => None,
-        Line::Worktree(path) => {
-            let (project, worktree) = tree.holding(path)?;
-            Some(in_worktree(project.root.clone(), worktree, None))
+        Line::Worktree(id, path) => {
+            let (project, worktree) = tree.holding_in(id, path)?;
+            let place = in_worktree(project.root.clone(), worktree, None);
+            Some(RowPlace {
+                space: Some(id.clone()),
+                ..place
+            })
         }
         Line::Session(key) => {
             let (dir, session) = match key {
@@ -128,6 +148,7 @@ fn place_of(
                     repo: None,
                     base: Base::Head,
                     session,
+                    space: None,
                 },
             })
         }
@@ -136,19 +157,22 @@ fn place_of(
             repo: None,
             base: Base::Head,
             session: None,
+            space: None,
         }),
         Line::Header(_) => None,
     }
 }
 
-/// The place of `project`'s row: its main checkout, as the space shows it, else its root.
-fn repository(project: &Project) -> RowPlace {
+/// The place of `project`'s row in space `id`: its main checkout, as the space shows it, else
+/// its root.
+fn repository(id: &SpaceId, project: &Project) -> RowPlace {
     let main = project.worktrees.iter().find(|w| w.primary);
     RowPlace {
         directory: main.map_or_else(|| project.root.clone(), |main| main.path.clone()),
         repo: Some(project.root.clone()),
         base: Base::Head,
         session: None,
+        space: Some(id.clone()),
     }
 }
 
@@ -163,6 +187,7 @@ fn in_worktree(repo: PathBuf, worktree: &Worktree, session: Option<SessionKey>) 
         repo: Some(repo),
         base,
         session,
+        space: None,
     }
 }
 

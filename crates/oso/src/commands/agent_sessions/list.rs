@@ -20,12 +20,12 @@ use oso_core::selection::SelectionSet;
 pub const ROW_MARKS: &str = "▾▸⚠✗▶◆●○■·⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
 /// What `?` says in `*Sessions*` (ADR 0131): the marks, then the keys.
-pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  M-n/M-p worktrees  TAB fold  c new  w worktree  a add repo  / switch  s group  </> width  k stop  e explain";
+pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  M-n/M-p headings  TAB fold  c new  w worktree  a add repo  / switch  s group  </> width  k stop  e explain";
 
 /// How many columns `<` and `>` take from or give to the pane, once each (ADR 0131).
 pub const PANE_STEP: isize = 4;
 
-/// The folds' marks, which begin a project's, a group's and a quiet row's line.
+/// The folds' marks, which begin a space's, a repository's, a group's and a quiet row's line.
 const FOLDS: [char; 2] = ['▾', '▸'];
 
 /// The commands of `*Sessions*`.
@@ -272,7 +272,7 @@ fn previous_heading(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 enum Stop {
     /// At any row: a session's first line, a worktree's, a project's or a group's.
     Row,
-    /// At a project's, a worktree's or a group's row (ADR 0131).
+    /// At a space's, a repository's, a worktree's or a group's row (ADR 0131, ADR 0136).
     Heading,
 }
 

@@ -25,6 +25,7 @@ fn session(key: u64, name: &str, state: State, dir: &str) -> Entry {
         key: Key::Hosted(key),
         name: name.to_owned(),
         space: String::new(),
+        space_id: None,
         branch: None,
         state,
         since: Instant::now(),
@@ -73,6 +74,7 @@ fn tree() -> Tree {
             ],
         }])
         .spaces,
+        front_space: Some(crate::sessions::spaces::SpaceId::from_random([0; 16])),
         front: Some(PathBuf::from("/w/oso/.claude/worktrees/pane")),
         wall: Some(wall()),
         ..Default::default()
@@ -189,7 +191,13 @@ fn a_worktree_with_no_running_session_of_osos_is_folded_with_its_count() {
     let at = rendered
         .lines
         .iter()
-        .position(|line| *line == Line::Worktree(PathBuf::from("/w/oso/.claude/worktrees/pane")))
+        .position(|line| {
+            *line
+                == Line::Worktree(
+                    list.tree().spaces[0].id.clone(),
+                    PathBuf::from("/w/oso/.claude/worktrees/pane"),
+                )
+        })
         .unwrap();
     let row = rendered.text.lines().nth(at).unwrap();
     assert!(row.contains("(2)"), "{row}");
@@ -366,10 +374,11 @@ fn a_space_of_several_repositories_shows_each_with_its_worktrees_a_level_deeper(
         wall: Some(wall()),
         ..Tree::default()
     };
+    let id = tree.spaces[0].id.clone();
     let mut list = List::default();
     list.set_tree(tree);
     let mut entry = session(1, "api", State::Working, "/w/back/wt/api");
-    entry.space = "fix-login".to_owned();
+    entry.space_id = Some(id);
     let rendered = list.render(&[entry], 44, Instant::now());
     let text: Vec<&str> = rendered.text.lines().map(str::trim_end).collect();
     assert!(text[0].starts_with("▾ fix-login"), "{text:?}");
@@ -412,10 +421,11 @@ fn another_space_in_front_folds_the_quiet_ones_and_closed_spaces_go_last() {
         ..Tree::default()
     };
     tree.front_space = Some(tree.spaces[0].id.clone());
+    let id = tree.spaces[2].id.clone();
     let mut list = List::default();
     list.set_tree(tree);
     let mut busy = session(1, "x", ASK, busy_dir);
-    busy.space = "busy".to_owned();
+    busy.space_id = Some(id);
     let text = shown(&list, &[busy], 44);
     let at = |start: &str| text.iter().position(|row| row.starts_with(start));
     assert!(at("▾ front").is_some(), "{text:?}");
@@ -477,4 +487,101 @@ fn ten_spaces_of_three_repositories_and_three_hundred_externals_render_in_budget
     }
     // A debug build is several times slower; the budget is a release build's (ADR 0131).
     assert!(cfg!(debug_assertions) || best.as_micros() < 500, "{best:?}");
+}
+
+#[test]
+fn a_space_folded_by_the_person_stays_folded_whatever_its_default_comes_to() {
+    let tree = Tree {
+        spaces: vec![
+            space(1, "front", vec![project("/w/a", vec![main_at("/w/a")])]),
+            space(
+                2,
+                "other",
+                vec![project("/w/o", vec![worktree("/w/o/wt/x", "x", Some(1))])],
+            ),
+        ],
+        front_space: Some(crate::sessions::spaces::SpaceId::from_random([1; 16])),
+        wall: Some(wall()),
+        ..Tree::default()
+    };
+    let other = tree.spaces[1].id.clone();
+    let mut list = List::default();
+    list.set_tree(tree);
+    assert!(
+        shown(&list, &[], 44)
+            .iter()
+            .any(|row| row.starts_with("▸ other"))
+    );
+    // Opened by the person: it stays open when a session of it starts working, and after.
+    list.fold(&Line::Space(other.clone()));
+    let mut working = session(1, "x", State::Working, "/w/o/wt/x");
+    working.space_id = Some(other.clone());
+    for entries in [vec![], vec![working.clone()], vec![]] {
+        let text = shown(&list, &entries, 44);
+        assert!(
+            text.iter().any(|row| row.starts_with("▾ other")),
+            "{text:?}"
+        );
+    }
+    // Folded by the person while it works: it stays folded.
+    let _ = shown(&list, &[working.clone()], 44);
+    list.fold(&Line::Space(other));
+    let text = shown(&list, &[working], 44);
+    assert!(
+        text.iter().any(|row| row.starts_with("▸ other")),
+        "{text:?}"
+    );
+}
+
+#[test]
+fn a_session_in_a_main_checkout_two_spaces_show_goes_under_its_own() {
+    let tree = Tree {
+        spaces: vec![
+            space(1, "first", vec![project("/w/oso", vec![main_at("/w/oso")])]),
+            space(
+                2,
+                "second",
+                vec![project("/w/oso", vec![main_at("/w/oso")])],
+            ),
+        ],
+        wall: Some(wall()),
+        ..Tree::default()
+    };
+    let second = tree.spaces[1].id.clone();
+    let mut list = List::default();
+    list.set_tree(tree);
+    let mut entry = session(1, "mine", State::Idle, "/w/oso");
+    entry.space_id = Some(second);
+    let text = shown(&list, &[entry], 44);
+    let at = |start: &str| text.iter().position(|row| row.starts_with(start)).unwrap();
+    assert!(at("    ○ mine") > at("▾ second"), "{text:?}");
+    assert_eq!(text.iter().filter(|row| row.contains("mine")).count(), 1);
+}
+
+#[test]
+fn a_closed_spaces_sessions_wait_with_the_archived_ones() {
+    let gone = crate::sessions::spaces::SpaceId::from_random([9; 16]);
+    let tree = Tree {
+        spaces: vec![space(
+            1,
+            "open",
+            vec![project("/w/a", vec![main_at("/w/a")])],
+        )],
+        closed: vec![super::ClosedSpace {
+            id: gone.clone(),
+            name: "gone".to_owned(),
+            title: String::new(),
+        }],
+        wall: Some(wall()),
+        ..Tree::default()
+    };
+    let mut list = List::default();
+    list.set_tree(tree);
+    let mut entry = session(1, "left", State::Stopped, "/w/a");
+    entry.space_id = Some(gone);
+    let text = shown(&list, &[entry], 44);
+    assert!(
+        text.iter().any(|row| row.starts_with("▸ Archived 1")),
+        "{text:?}"
+    );
 }

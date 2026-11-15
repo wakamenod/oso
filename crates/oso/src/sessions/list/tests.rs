@@ -19,6 +19,7 @@ fn entry(key: u64, name: &str, state: State, since: Instant) -> Entry {
         key: Key::Hosted(key),
         name: name.to_owned(),
         space: "oso".to_owned(),
+        space_id: None,
         branch: Some("main".to_owned()),
         state,
         since,

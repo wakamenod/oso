@@ -7,17 +7,18 @@ use std::time::Instant;
 
 use oso_core::syntax::Highlight;
 
-use super::super::{Entry, Fold, Group, Line, List, Rendered, face, mark, rank};
+use super::super::{Entry, Fold, Group, Key, Line, List, Rendered, face, mark, rank};
 use super::{
-    INDENT, Project, QUIET_AFTER, SpaceRows, Worktree, cells, cut, cut_middle, heading, pad, worst,
+    INDENT, Project, QUIET_AFTER, SpaceRows, Worktree, cells, cut, cut_middle, heading,
+    named_heading, pad, worst,
 };
 use crate::sessions::recap::clean;
 use crate::sessions::state::State;
 
 impl List {
     /// A space's row, then what it holds unless it is folded: by default, while another space
-    /// is in front and none of its sessions works or needs input (ADR 0136, step 2, Q4). A space of one
-    /// repository shows that repository's worktrees right under its row (Q1).
+    /// is in front and none of its sessions works or needs input (ADR 0136, step 2, Q4). A
+    /// space of one repository shows that repository's worktrees right under its row (Q1).
     pub(super) fn space(
         &self,
         out: &mut Rendered,
@@ -28,25 +29,24 @@ impl List {
     ) {
         let all: Vec<&Entry> = placed.iter().flatten().flatten().copied().collect();
         let front = self.tree.front_space.as_ref() == Some(&space.id);
-        let busy = all
-            .iter()
-            .any(|e| matches!(e.state, State::Working | State::NeedsInput(_)));
+        // Only oso's own sessions unfold a space: another program's are listed, quiet.
+        let busy = all.iter().any(|e| {
+            matches!(e.key, Key::Hosted(_))
+                && matches!(e.state, State::Working | State::NeedsInput(_))
+        });
         // With no space in front, none is folded.
         let quiet = self.tree.front_space.is_some() && !front && !busy;
-        let folded = self.folded_as(&Fold::Space(space.id.clone()), quiet);
+        let folded = self.space_folded(&space.id, quiet);
         let head = format!("{} ", if folded { '▸' } else { '▾' });
         let name = clean(&space.name);
         let line = Line::Space(space.id.clone());
-        if front {
-            front_heading(out, (&head, &name), roll(&all), width, line);
-        } else {
-            heading(out, (&head, &name), roll(&all), width, line);
-        }
+        let face = front.then_some(Highlight::SessionFront);
+        named_heading(out, (&head, &name, face), roll(&all), width, line);
         if folded {
             return;
         }
         if let [only] = space.projects.as_slice() {
-            return self.body(out, only, &placed[0], 1, width, now);
+            return self.body(out, (space, only), &placed[0], 1, width, now);
         }
         for (project, placed) in space.projects.iter().zip(placed) {
             self.repository(out, space, project, placed, width, now);
@@ -70,7 +70,7 @@ impl List {
         let line = Line::Repository(space.id.clone(), project.root.clone());
         heading(out, (&head, &clean(&project.name)), roll(&all), width, line);
         if !folded {
-            self.body(out, project, placed, 2, width, now);
+            self.body(out, (space, project), placed, 2, width, now);
         }
     }
 
@@ -79,7 +79,7 @@ impl List {
     fn body(
         &self,
         out: &mut Rendered,
-        project: &Project,
+        (space, project): (&SpaceRows, &Project),
         placed: &[Vec<&Entry>],
         depth: usize,
         width: usize,
@@ -104,19 +104,25 @@ impl List {
                     .is_some_and(|(active, since)| active < since)
         });
         for w in shown {
-            self.worktree(out, (&project.worktrees[w], depth), &placed[w], width, now);
+            self.worktree(
+                out,
+                (space, &project.worktrees[w], depth),
+                &placed[w],
+                width,
+                now,
+            );
         }
         if quiet.is_empty() {
             return;
         }
-        let group = Group::Quiet(project.root.clone());
+        let group = Group::Quiet(space.id.clone(), project.root.clone());
         let folded = self.folded(&Fold::Group(group.clone()));
         let head = format!("{}{} ", INDENT[depth], if folded { '▸' } else { '▾' });
         let name = format!("{} quiet", quiet.len());
         heading(out, (&head, &name), None, width, Line::Header(group));
         if !folded {
             for w in quiet {
-                self.worktree(out, (&project.worktrees[w], depth), &[], width, now);
+                self.worktree(out, (space, &project.worktrees[w], depth), &[], width, now);
             }
         }
     }
@@ -170,27 +176,12 @@ fn roll(sessions: &[&Entry]) -> Option<(String, Highlight)> {
             .iter()
             .filter(|e| rank(e.state) == rank(top.state))
             .count();
-        (format!("{} {n}", mark(top.state)), face(top.state))
+        // Another program's session is listed quiet, as its worktree's row has it.
+        let shown = if matches!(top.key, Key::Hosted(_)) {
+            face(top.state)
+        } else {
+            Highlight::SessionQuiet
+        };
+        (format!("{} {n}", mark(top.state)), shown)
     })
-}
-
-/// A heading row as `heading` draws it, with its name in the face of the space in front.
-fn front_heading(
-    out: &mut Rendered,
-    (head, name): (&str, &str),
-    right: Option<(String, Highlight)>,
-    width: usize,
-    line: Line,
-) {
-    let (right, right_face) = right.unwrap_or((String::new(), Highlight::SessionQuiet));
-    let room = width.saturating_sub(cells(head) + cells(&right) + 1);
-    let named = cut_middle(super::super::unmarked(name), room);
-    let text = format!("{head}{named}");
-    let name_end = text.len();
-    let text = pad(&text, width.saturating_sub(cells(&right))) + &right;
-    let spans = [
-        (head.len()..name_end, Highlight::SessionFront),
-        (text.len() - right.len()..text.len(), right_face),
-    ];
-    out.push_drawn(&cut(&text, width), line, &spans);
 }

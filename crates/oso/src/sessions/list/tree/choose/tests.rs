@@ -56,17 +56,17 @@ fn each_worktree_shows_in_one_space_and_the_main_checkout_where_it_is_used() {
             name: "fix-login",
             members: vec![Path::new("/b"), Path::new("/f")],
             held: &a_held,
-            running: HashSet::new(),
+            sessions: HashSet::new(),
         },
         SpaceInput {
             id: &b,
             name: "oso",
             members: vec![Path::new("/b")],
             held: &[],
-            running: HashSet::from([PathBuf::from("/b")]),
+            sessions: HashSet::from([PathBuf::from("/b")]),
         },
     ];
-    let rows = space_rows(&spaces, &listed);
+    let rows = space_rows(&spaces, &[], &listed);
     assert_eq!(
         shown(&rows, 0),
         [
@@ -81,13 +81,58 @@ fn each_worktree_shows_in_one_space_and_the_main_checkout_where_it_is_used() {
         "the main checkout where a session of the space runs, nothing another holds"
     );
     let idle = [SpaceInput {
-        running: HashSet::new(),
+        sessions: HashSet::new(),
         ..spaces.into_iter().nth(1).unwrap()
     }];
-    let rows = space_rows(&idle, &listed);
+    let rows = space_rows(&idle, &[], &listed);
     assert_eq!(
         rows[0].projects[0].worktrees.len(),
         3,
         "alone, it is the first"
     );
+}
+
+#[test]
+fn a_closed_spaces_worktree_and_one_of_a_repository_taken_out_show_where_they_should() {
+    let listed: HashMap<PathBuf, Vec<Worktree>> = HashMap::from([(
+        PathBuf::from("/b"),
+        vec![
+            worktree("/b", true),
+            worktree("/b/wt/old", false),
+            worktree("/b/wt/moved", false),
+        ],
+    )]);
+    let (open, gone, taken) = (
+        SpaceId::from_random([1; 16]),
+        SpaceId::from_random([2; 16]),
+        SpaceId::from_random([3; 16]),
+    );
+    let gone_held = [PathBuf::from("/b/wt/old")];
+    let taken_held = [PathBuf::from("/b/wt/moved")];
+    let spaces = [
+        SpaceInput {
+            id: &open,
+            name: "open",
+            members: vec![Path::new("/b")],
+            held: &[],
+            sessions: HashSet::new(),
+        },
+        // Its repository was taken out: what it held is no one's.
+        SpaceInput {
+            id: &taken,
+            name: "taken",
+            members: vec![],
+            held: &taken_held,
+            sessions: HashSet::new(),
+        },
+    ];
+    let closed = [SpaceInput {
+        id: &gone,
+        name: "gone",
+        members: vec![Path::new("/b")],
+        held: &gone_held,
+        sessions: HashSet::new(),
+    }];
+    let rows = space_rows(&spaces, &closed, &listed);
+    assert_eq!(shown(&rows, 0), [vec!["/b", "/b/wt/moved"]]);
 }

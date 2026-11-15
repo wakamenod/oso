@@ -605,7 +605,25 @@ needs input (Q4).
   action needs a new `RowAction` in oso-core, which was not asked for. `RET` on a space's row
   puts it in front first.
 - **The pane's cost:** a release test renders 10 spaces of 3 repositories with 4 worktrees
-  each, 40 sessions and 300 external ones under ADR 0131's 0.5 ms.
+  each, 40 sessions and 300 external ones under ADR 0131's 0.5 ms. The tree is made again
+  with each change of the model and each second's ages, never with a spinner's frame.
+- **After the review:**
+  - a worktree's row, its fold and a quiet row are a space's (`Line::Worktree(space, path)`),
+    as a main checkout two spaces show is a row of each, and `RET` on one enters the row's
+    space; the front's mark shows in the space in front only;
+  - a space shows the main checkout while a session of it is there, running or stopped, so a
+    session does not move to another space when it stops;
+  - a worktree a closed space holds shows in no open space, and a closed space's sessions
+    wait with the archived ones; a worktree is held only by a space that still has its
+    repository;
+  - a session is placed by its space's id, which each entry carries;
+  - a space the person folds or opens stays so, whatever its default comes to;
+  - another program's session neither unfolds a space nor colours its roll-up, as its
+    worktree's row has it;
+  - `c` and `w` on a row put the row's space in front first, so the new session joins it; on
+    the row of a space of several repositories they say the row has no place, as which is the
+    person's to say on a repository's row.
+- **The orchestrator's row** under a space's waits for step 3, which starts the orchestrator.
 
 ## Changes to accepted ADRs
 

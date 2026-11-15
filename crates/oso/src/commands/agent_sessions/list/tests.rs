@@ -211,8 +211,15 @@ fn in_a_space_of_several_repositories_their_rows_and_worktrees_are_headings() {
     ⚠ msg                 now
       ⚠ msg               now
         waits for you
+    ▾ 2 quiet
+    · old                 9d
 ▸ oso                    ▶ 3
+▸ Archived spaces (1)
+  ■ gone  An old issue
 ";
     let mut editor = showing(tree);
-    assert_eq!(stops(&mut editor, "sessions-next-heading"), [1, 2, 4, 5, 8]);
+    assert_eq!(
+        stops(&mut editor, "sessions-next-heading"),
+        [1, 2, 4, 5, 8, 9, 10, 11, 12]
+    );
 }

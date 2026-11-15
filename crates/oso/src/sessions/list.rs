@@ -69,8 +69,10 @@ pub enum Key {
 pub struct Entry {
     pub key: Key,
     pub name: String,
-    /// Its space's name: `repo`, or `repo/slug` for a worktree.
+    /// Its space's name, as rows and completions show it.
     pub space: String,
+    /// Its space, which places it in the tree (ADR 0136).
+    pub space_id: Option<crate::sessions::spaces::SpaceId>,
     /// Its branch, in a trusted project only.
     pub branch: Option<String>,
     pub state: State,
@@ -100,48 +102,6 @@ pub enum Grouping {
     State,
 }
 
-/// A group of the list.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Group {
-    /// Sessions in one state, by its rank in the taxonomy.
-    State(u8),
-    /// External sessions in no project of the tree.
-    Other,
-    /// Those of them in this directory.
-    OtherDir(PathBuf),
-    /// A repository's worktrees with no session and no change for a week.
-    Quiet(PathBuf),
-    Archived,
-    /// The closed spaces (ADR 0136).
-    ArchivedSpaces,
-}
-
-/// What a line of the list shows.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Line {
-    Header(Group),
-    Session(Key),
-    /// An open space of the tree (ADR 0136).
-    Space(crate::sessions::spaces::SpaceId),
-    /// A repository of a space of several, by the space and the repository's root.
-    Repository(crate::sessions::spaces::SpaceId, PathBuf),
-    /// A worktree of the tree, by its directory.
-    Worktree(PathBuf),
-    /// A closed space, in `Archived spaces`.
-    ClosedSpace(crate::sessions::spaces::SpaceId),
-}
-
-/// What `TAB` folds: a group, a session's nested sessions, a space, a repository of a space,
-/// or a worktree.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-enum Fold {
-    Group(Group),
-    Nested(Key),
-    Space(crate::sessions::spaces::SpaceId),
-    Repository(crate::sessions::spaces::SpaceId, PathBuf),
-    Worktree(PathBuf),
-}
-
 /// The list, rendered: its text and, for each line, what it shows.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Rendered {
@@ -159,6 +119,11 @@ pub struct List {
     grouping: Grouping,
     /// Folds toggled from their default: the archived group starts folded, the rest open.
     toggled: HashSet<Fold>,
+    /// Spaces the person folded or opened, kept so whatever their default comes to: it moves
+    /// with the space in front and its sessions' states (ADR 0136, step 2, Q4).
+    chosen: HashMap<crate::sessions::spaces::SpaceId, bool>,
+    /// Whether each space was folded when the tree was last made, which `TAB` turns over.
+    shown: std::cell::RefCell<HashMap<crate::sessions::spaces::SpaceId, bool>>,
     /// The spinner's frame, while working marks spin.
     spin: Option<usize>,
     /// What the tree shows besides sessions.
@@ -212,9 +177,13 @@ impl List {
         let fold = match line {
             Line::Header(group) => Fold::Group(group.clone()),
             Line::Session(key) => Fold::Nested(*key),
-            Line::Space(id) => Fold::Space(id.clone()),
+            Line::Space(id) => {
+                let folded = self.shown.borrow().get(id).copied().unwrap_or(false);
+                self.chosen.insert(id.clone(), !folded);
+                return;
+            }
             Line::Repository(id, root) => Fold::Repository(id.clone(), root.clone()),
-            Line::Worktree(path) => Fold::Worktree(path.clone()),
+            Line::Worktree(id, path) => Fold::Worktree(id.clone(), path.clone()),
             Line::ClosedSpace(_) => return,
         };
         if !self.toggled.remove(&fold) {
@@ -230,10 +199,17 @@ impl List {
                     | Group::ArchivedSpaces
                     | Group::Other
                     | Group::OtherDir(_)
-                    | Group::Quiet(_)
+                    | Group::Quiet(..)
             )
         );
         self.folded_as(fold, default)
+    }
+
+    /// Whether space `id` is folded: as the person chose, else `default`. Noted for `TAB`.
+    fn space_folded(&self, id: &crate::sessions::spaces::SpaceId, default: bool) -> bool {
+        let folded = self.chosen.get(id).copied().unwrap_or(default);
+        self.shown.borrow_mut().insert(id.clone(), folded);
+        folded
     }
 
     /// Whether `fold` is folded, when it is `default` until the person toggles it.
@@ -420,7 +396,7 @@ fn group_name(group: &Group) -> &str {
         Group::State(5) => "Idle",
         Group::State(_) => "Stopped",
         Group::Other => "Other projects",
-        Group::Quiet(_) => "quiet",
+        Group::Quiet(..) => "quiet",
         Group::OtherDir(_) => "",
         Group::Archived => "Archived",
         Group::ArchivedSpaces => "Archived spaces",
@@ -586,7 +562,11 @@ mod cells;
 use cells::{cells, pad};
 pub use cells::{cut, cut_middle, unmarked};
 
+mod lines;
 mod tree;
+
+use lines::Fold;
+pub use lines::{Group, Line};
 pub use tree::{ClosedSpace, Project, SpaceInput, SpaceRows, Tree, Worktree, space_rows};
 
 #[cfg(test)]

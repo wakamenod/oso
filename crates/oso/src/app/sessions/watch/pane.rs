@@ -1,8 +1,8 @@
-//! The tree's projects in the app (ADR 0131, step 2): each repository of an open space, in the
-//! order of the spaces and then their repositories (ADR 0136, step 1a), and its worktrees as
-//! git last listed them in a trusted project, or else the worktrees the spaces hold in it. A listing is a job on the
-//! `oso-sessions-git` threads, asked when a project first shows, on `g`, and when the sessions
-//! worker sees the project's `worktrees` directory change.
+//! The tree's spaces in the app (ADR 0136, step 2): each open space, its repositories, and the
+//! worktrees `space_rows` chooses for it of each repository's, as git last listed them in a
+//! trusted project, or else the worktrees the spaces hold in it; and the closed spaces. A
+//! listing is a job on the `oso-sessions-git` threads, asked when a project first shows, on
+//! `g`, and when the sessions worker sees the project's `worktrees` directory change.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 //!
@@ -96,27 +96,32 @@ impl App {
     /// Each open space's repositories with the worktrees it shows of `all`, each repository's
     /// worktrees, as `space_rows` chooses them (ADR 0136, step 2).
     fn tree_spaces(&self, all: &HashMap<PathBuf, Vec<Worktree>>) -> Vec<SpaceRows> {
-        // Where each space's running sessions run, by the space's place in the list.
-        let mut running: HashMap<usize, HashSet<PathBuf>> = HashMap::new();
-        for session in self.hosting.table().iter().filter(|s| s.runs()) {
+        // Where each space's sessions are, running or stopped, by the space's place.
+        let mut sessions: HashMap<usize, HashSet<PathBuf>> = HashMap::new();
+        for session in self.hosting.table().iter().filter(|s| !s.archived) {
             if let Some(at) = self.space_of_session(session) {
                 let place = super::place(session).to_path_buf();
-                running.entry(at).or_default().insert(place);
+                sessions.entry(at).or_default().insert(place);
             }
         }
-        let inputs: Vec<SpaceInput<'_>> = (self.watch.spaces.iter().enumerate())
-            .filter(|(_, space)| space.is_open())
-            .map(|(at, space)| SpaceInput {
+        let (mut open, mut closed) = (Vec::new(), Vec::new());
+        for (at, space) in self.watch.spaces.iter().enumerate() {
+            let input = SpaceInput {
                 id: space.id(),
                 name: space.name(),
                 members: (space.stored.members.iter())
                     .map(|member| member.root.as_path())
                     .collect(),
                 held: &space.stored.worktrees,
-                running: running.remove(&at).unwrap_or_default(),
-            })
-            .collect();
-        space_rows(&inputs, all)
+                sessions: sessions.remove(&at).unwrap_or_default(),
+            };
+            if space.is_open() {
+                open.push(input);
+            } else {
+                closed.push(input);
+            }
+        }
+        space_rows(&open, &closed, all)
     }
 
     /// `root`'s worktrees: as listed, else its main checkout and `held`, the worktrees spaces
