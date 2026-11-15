@@ -496,6 +496,11 @@ The author agreed to each on 2026-11-15, through the coordinator.
   point on the name its primary cursor was on, as one cursor; other cursors go, and a window that
   will come back to the listing comes back to the line asked for. The author kept this as a limit
   (2026-11-15) rather than change `listing_points`.
+- **Left for step 1b,** which needs them (the author's choice): `..`'s metadata and typed Windows
+  attributes from `oso_platform::file_meta::Directory`, in place of the tip crate's own; listing
+  names from oso-core's `names::distinct`, as files' are; a typed order on the `Listing` record;
+  one helper in oso-core for where a row's name starts; the stamp of the directory opened, by its
+  descriptor, for 1b's identity check.
 - **Rows:** a backslash in a name shows as `\\`, so that no name reads as one with a line break;
   a link's target shows at most 1 KiB. `w` refuses a name that is not UTF-8 or holds a line
   break. The 100,000-entry limit counts every entry read, backups and unreadable ones too.
