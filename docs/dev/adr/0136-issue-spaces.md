@@ -267,9 +267,9 @@ space's orchestrator and its workers.
 | `space-orchestrator-start` | `Person` | menu `o` | in a space with no live orchestrator |
 | `space-orchestrator-replace` | `Person` | menu `O` | as above |
 | `space-instructions` | `Person` | menu `i` | edits the space's instructions |
-| `space-directory` | `Look` | menu `d` | the space's directory in a listing |
+| `space-directory` | `Person` | menu `d` | the space's directory in a listing, made first if it has none; `Person` as `dired` is, since the listing comes in front of the person's keys after the command |
 | `space-close`, `space-reopen` | `Person` | menu `c`, `R` | as above |
-| `space-rename` | `Change` | menu `n` | the space's name and title; the orchestrator keeps its name until its next start |
+| `space-rename` | `Person` | menu `n` | the space's name and title; the orchestrator keeps its name until its next start; `Person`, as the title is given to the orchestrator as the person's words |
 | `space-switch` | as now | `C-x a j` | lists open spaces, the one in front last |
 
 - **`C-x a S` opens the space menu** (ADR 0117), with the keys in the table.
@@ -555,10 +555,11 @@ characters are dropped from a typed title and a line holding one is refused when
   `space` menu. Its `o` and `O` are kept for steps 3 and 5.
 - **oso-core's `editor` re-exports `sessions` with a glob,** as it does `reviews`: the module's
   public items are the ones it named, and the file stays within its size.
-- **Every space command is `Person`** (the reviews, 2026-11-15; the author's OK is asked on
-  the pull request): `space-directory` makes a directory and puts a listing in front of the
-  person's keys after the command, as `dired` does, and `space-rename` writes the title the
-  orchestrator is given as the person's words. The commands table said `Look` and `Change`.
+- **Every space command is `Person`** (the reviews; the author chose it on 2026-11-15, and the
+  commands table above says so): `space-directory` makes a directory and puts a listing in
+  front of the person's keys after the command, as `dired` does, and `space-rename` writes the
+  title the orchestrator is given as the person's words. The table first had `Look` and
+  `Change` for them.
 - **The space prompts' lists are made when the sessions or the spaces change,** not with each
   change of a session's state, and the listed worktrees are looked up through one set a make.
 - **A taken directory name costs one look,** and the directory is made new with `mkdir`, never
