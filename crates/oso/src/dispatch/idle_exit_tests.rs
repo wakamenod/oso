@@ -117,3 +117,27 @@ fn w_answers_only_a_question_that_has_a_third_answer() {
     assert!(editor.prompt().is_some());
     assert!(!editor.quit_when_idle());
 }
+
+#[test]
+fn an_exit_once_idle_stops_for_a_comment_not_sent() {
+    use crate::commands::review::tests::{comment_in, in_project, with_review};
+    let (mut editor, project) = in_project(true);
+    let review = with_review(&mut editor, project);
+    comment_in(&mut editor, review);
+    let mut dispatcher = Dispatcher::new();
+    let shell = editor.add_terminal_buffer("*terminal*");
+    editor.set_running(shell, true);
+    editor.set_terminal_job(shell, true);
+    send(&mut dispatcher, &mut editor, QUIT);
+    assert!(question(&editor).is_some_and(|q| q.starts_with("1 comment of yours will be lost")));
+    send(&mut dispatcher, &mut editor, "w");
+    assert!(editor.quit_when_idle());
+    editor.set_terminal_job(shell, false);
+    let effects = dispatcher.exit_when_idle(&mut editor).unwrap();
+    assert!(!effects.exit);
+    assert!(editor.prompt().is_none());
+    assert_eq!(
+        echo(&editor),
+        "Not quit: 1 comment of yours not sent; C-x C-c asks"
+    );
+}

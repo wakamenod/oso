@@ -389,8 +389,9 @@ to its program), and the busy state kept as a session's turn and a terminal's jo
   state comes from its screen, which is untrusted text, so its output holds the exit too.
 - **What the person agreed to.** The exit's guard records each buffer at risk with its content,
   not its id alone, so a buffer edited after the question is at risk anew. `w` keeps what the
-  question named; `M-x quit-when-idle` and a cancelled wait agree to nothing. If more is at
-  risk once idle than was agreed to, nothing is asked, as no question opens from a background
+  question named; `M-x quit-when-idle` and a cancelled wait agree to nothing. Review comments
+  not sent yet are counted, not told apart, so any of them stops an idle exit. If more is at
+  risk once idle than was agreed to, or a comment is not sent, nothing is asked, as no question opens from a background
   event (ADR 0072): the wait stops, and the echo area says what is at risk and that `C-x C-c`
   asks.
 - **Limits.** A child that runs its programs with no job control, as `sh -c` does, shows no

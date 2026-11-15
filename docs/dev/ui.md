@@ -103,7 +103,7 @@ are rounded.
   every terminal has been idle for 2 seconds; the echo area says what it waits for, and that
   `C-x C-c n` cancels, which works from a terminal too. `C-g` cancels where oso has the keys;
   a terminal sends it to its program (ADR 0120). If more is at risk once idle than the
-  question named, nothing is asked: the wait stops and the echo area says why
+  question named, or a review comment is not sent, nothing is asked: the wait stops and the echo area says why
   ([ADR 0133](adr/0133-keeping-terminals-over-an-update.md), step 5).
 - **A passphrase** shows one `*` per character, keeps no undo and enters no history.
 - `C-g` does one thing at a time: a pending prefix, then the region, then the innermost
