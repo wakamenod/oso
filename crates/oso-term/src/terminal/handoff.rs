@@ -1,4 +1,4 @@
-//! A terminal over `oso dev`'s restart (ADR 0120, step 11), as the host asks for it. The
+//! A terminal over a restart (ADR 0120, step 11; ADR 0133), as the host asks for it. The
 //! instance going stops reading each PTY and writes its terminal's state; the one coming
 //! restores an engine from that state and reads the PTY once its master arrives. So at any
 //! time one instance reads each PTY, and what the program writes meanwhile waits in the

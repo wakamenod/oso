@@ -16,8 +16,8 @@ use oso_core::minibuffer::PromptId;
 use super::App;
 use super::draw::with_frame;
 use super::shell::Loop;
+use crate::carry as handoff;
 use crate::dev;
-use crate::dev::handoff;
 use oso_platform::window::{Held, ImeEvent, Mouse, MouseAction, Position, Wheel};
 
 impl App {
@@ -125,7 +125,10 @@ impl App {
             dev::UiOp::Exit { generation } => self.answer_exit(event_loop, generation),
             // The rest are a restart's: exporting and importing the state, its texts and its
             // terminals, and whether it may go.
-            op => return self.answer_restart(op, reply, passed),
+            op => match carry_op(op) {
+                Ok(op) => return self.answer_restart(op, reply, passed),
+                Err(_) => Err("not a method of a restart".into()),
+            },
         };
         Some((reply, result))
     }
@@ -404,17 +407,6 @@ impl App {
             }
         }
     }
-
-    /// The OS window's place and size, if there is a window.
-    pub(super) fn frame(&self) -> Option<handoff::Frame> {
-        let window = &self.view.as_ref()?.window;
-        let (width, height) = window.inner_size();
-        Some(handoff::Frame {
-            position: window.outer_position(),
-            width,
-            height,
-        })
-    }
 }
 
 /// The open questions, and prompts that complete, newer than `newest`, which every prompt open
@@ -431,6 +423,31 @@ fn opened_questions(editor: &Editor, newest: Option<PromptId>) -> Vec<PromptId> 
         })
         .map(|prompt| prompt.id())
         .collect()
+}
+
+/// The request of a restart `op` is, as `oso-restart`'s threads ask it too (ADR 0133), or
+/// `op` itself if it is none.
+fn carry_op(op: dev::UiOp) -> Result<crate::carry::Op, dev::UiOp> {
+    use crate::carry::Op;
+    use dev::UiOp;
+    Ok(match op {
+        UiOp::CheckHandover { terminals } => Op::CheckHandover { terminals },
+        UiOp::ExportState { terminals } => Op::ExportState { terminals },
+        UiOp::HandOverTerminals { generation } => Op::HandOverTerminals { generation },
+        UiOp::ImportTerminals { count } => Op::ImportTerminals { count },
+        UiOp::ImportState(state) => Op::ImportState(state),
+        UiOp::ExportText {
+            export,
+            item,
+            offset,
+        } => Op::ExportText {
+            export,
+            item,
+            offset,
+        },
+        UiOp::ImportText(piece) => Op::ImportText(piece),
+        other => return Err(other),
+    })
 }
 
 #[cfg(test)]

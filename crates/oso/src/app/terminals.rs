@@ -16,11 +16,8 @@ use crate::dispatch::TerminalSend;
 use crate::terminal::colors;
 use crate::terminal::hosted::{self, Terminals};
 
-#[cfg(feature = "dev")]
 mod adopt;
-#[cfg(feature = "dev")]
 pub(super) use adopt::Coming;
-#[cfg(feature = "dev")]
 pub(crate) mod carry;
 #[cfg(feature = "dev")]
 mod dev_state;
@@ -70,11 +67,13 @@ impl App {
     /// terminals of buffers that are gone, and keeps each one's size, focus and modeline.
     pub(super) fn sync_terminals(&mut self) {
         // What commands asked is bound to the terminal it was asked in first; only starting
-        // one is left in the editor.
+        // one, and a restart, are left in the editor.
         let sends = self.dispatcher.take_terminal_sends(&mut self.editor);
         for request in self.editor.take_terminal_requests() {
-            if let TerminalRequest::Open { new } = request {
-                self.open_terminal(new);
+            match request {
+                TerminalRequest::Open { new } => self.open_terminal(new),
+                TerminalRequest::Restart => self.begin_restart(),
+                _ => {}
             }
         }
         for (buffer, send) in sends {
@@ -348,28 +347,21 @@ pub(crate) fn reads_a_password(buffer: &Buffer) -> bool {
 }
 
 impl App {
-    /// Before the event loop waits: what `oso dev`'s restart of terminals waits for, which
-    /// goes on or gives up once its moment came (ADR 0120, step 11).
+    /// Before the event loop waits: what a restart of terminals waits for, which goes on or
+    /// gives up once its moment came (ADR 0120, step 11; ADR 0133).
     pub(super) fn handover_due(&mut self) {
-        #[cfg(feature = "dev")]
-        {
-            self.carried_terminals_due();
-            self.coming_terminals_due();
-        }
+        self.carried_terminals_due();
+        self.coming_terminals_due();
     }
 
-    /// When the event loop wakes for `oso dev`'s restart of terminals.
+    /// When the event loop wakes for a restart of terminals.
     pub(super) fn handover_deadline(&self) -> Option<Instant> {
-        #[cfg(feature = "dev")]
-        let deadline = [
+        [
             self.carried_terminals_deadline(),
             self.coming_terminals_deadline(),
         ]
         .into_iter()
         .flatten()
-        .min();
-        #[cfg(not(feature = "dev"))]
-        let deadline = None;
-        deadline
+        .min()
     }
 }

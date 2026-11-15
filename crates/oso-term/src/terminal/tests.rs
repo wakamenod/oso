@@ -7,7 +7,6 @@
 
 #![cfg(unix)]
 
-#[cfg(feature = "dev")]
 mod handoff;
 mod input;
 

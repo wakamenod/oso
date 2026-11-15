@@ -125,6 +125,7 @@ pub fn start_without_a_window_system(cwd: &Path) -> (ExitStatus, String) {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .expect("cannot start the instance");
     let mut stderr = child.stderr.take().expect("stderr is piped");
@@ -534,6 +535,7 @@ impl App {
             own_process_group: false,
             set: &[],
             terminal: None,
+            pass_fd: None,
         })
         .expect("cannot start oso ctl");
         let mut output = String::new();
@@ -579,6 +581,7 @@ impl App {
             own_process_group: false,
             set: &set,
             terminal: None,
+            pass_fd: None,
         })
         .expect("cannot start oso mcp")
     }
@@ -662,6 +665,7 @@ impl Process {
             own_process_group: false,
             set,
             terminal: None,
+            pass_fd: None,
         })
         .expect("cannot start the instance");
         let log = Arc::new(Mutex::new(Vec::new()));
@@ -846,6 +850,7 @@ fn run_osascript(script: &str) -> Result<(), String> {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .and_then(Child::wait_with_output)
     .expect("cannot run osascript");
@@ -872,6 +877,7 @@ pub fn process_exists(pid: u32) -> bool {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .and_then(|mut child| child.wait())
     .expect("cannot run ps");

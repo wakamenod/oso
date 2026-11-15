@@ -1,16 +1,14 @@
-//! The record an `oso dev` instance leaves beside its socket of the instances it took over
-//! from (ADR 0120, step 11), and finding in it the instance that replaced one a bridge's
-//! `--pid` named. Only a dev build writes or reads it.
+//! The record an instance leaves in the control directory of the instances it took over from,
+//! over `oso dev`'s restart (ADR 0120, step 11) or `oso-restart` (ADR 0133), and finding in it
+//! the instance that replaced one a bridge's `--pid` named.
 //!
 //! Must not depend on: the protocol; the connection is checked as any other.
 
-#[cfg(feature = "dev")]
 use oso_platform::control::ControlDir;
 
-/// The instance that took over from `pid` in `oso dev`'s restart, as the record each one
-/// leaves beside its socket says: the newest of those that list it (ADR 0120, step 11). Only
-/// a dev build looks; the connection is then checked as any other.
-#[cfg(feature = "dev")]
+/// The instance that took over from `pid` in a restart, as the record each one leaves beside
+/// its socket says: the newest of those that list it (ADR 0120, step 11). The connection is
+/// then checked as any other.
 pub(super) fn follower(pid: u32) -> Option<u32> {
     let dir = ControlDir::open_existing().ok()?;
     let suffix = format!("-{FOLLOWS}");
@@ -38,14 +36,31 @@ pub(super) fn follower(pid: u32) -> Option<u32> {
         .map(|(_, follower)| follower)
 }
 
+/// Writes `<pid>-follows` on a thread of its own: `pids`, the instances this one took over
+/// from, for a session's bridge pinned to one of them (ADR 0120, step 11; ADR 0133). It goes
+/// with this instance's files when its socket is cleaned up.
+pub fn write_follows(pids: &[u32]) {
+    let text = follows_text(pids);
+    let spawned = std::thread::Builder::new()
+        .name("oso-follows".into())
+        .spawn(move || {
+            let written =
+                ControlDir::open().and_then(|dir| dir.write_private_file(FOLLOWS, text.as_bytes()));
+            if let Err(e) = written {
+                log::warn!("the instances this one follows were not written: {e}");
+            }
+        });
+    if let Err(e) = spawned {
+        log::warn!("cannot start the follows thread: {e}");
+    }
+}
+
 /// The record of the instances `pids` an instance took over from, one id a line, newest last.
-#[cfg(feature = "dev")]
 pub fn follows_text(pids: &[u32]) -> String {
     pids.iter().map(|pid| format!("{pid}\n")).collect()
 }
 
 /// The instances a record names, each once, in its order.
-#[cfg(feature = "dev")]
 pub(super) fn parse_follows(text: &str) -> Vec<u32> {
     let mut pids: Vec<u32> = Vec::new();
     for pid in text.lines().filter_map(|line| line.trim().parse().ok()) {
@@ -56,16 +71,9 @@ pub(super) fn parse_follows(text: &str) -> Vec<u32> {
     pids
 }
 
-#[cfg(not(feature = "dev"))]
-pub(super) fn follower(_pid: u32) -> Option<u32> {
-    None
-}
-
 /// The name of the file, beside an instance's socket, that lists the instances it took over
 /// from in `oso dev`'s restart, which a dev build writes and this reads.
-#[cfg(feature = "dev")]
 pub const FOLLOWS: &str = "follows";
 
 /// The most names in the control directory looked at for a follower.
-#[cfg(feature = "dev")]
 const MAX_LOOKED: usize = 1024;

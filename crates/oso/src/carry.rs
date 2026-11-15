@@ -1,16 +1,20 @@
-//! The state one instance hands to the next on a restart, and whether it may
-//! hand over and go: `export-state`, `import-state`, `check-handover` and the
-//! guard on `exit` (ADR 0023, ADR 0047, ADR 0055, ADR 0059, ADR 0090).
+//! The state one instance hands to the next on a restart, and whether it may hand over and
+//! go: the export, the import, the check and the guard on the exit (ADR 0023, ADR 0047,
+//! ADR 0055, ADR 0059, ADR 0090). Two transports carry it: `oso dev`'s control socket, with its
+//! supervisor between the instances (`dev`), and the socket pair `oso-restart` shares with the
+//! instance it starts ([`pair`], [`going`], [`coming`], ADR 0133). Both ask the app the same
+//! [`Op`]s, so the order and the state are one.
 //!
-//! Must not depend on: `app`, `server`, winit or sockets; these are plain
-//! functions of the editor state, and the caller opens the files. Only [`carry`]
-//! starts threads, to copy and build the texts off the UI thread.
+//! Must not depend on: `app`, `server` or winit; these are plain functions of the editor
+//! state, and the caller opens the files. [`pieces`] starts threads, to copy and build the
+//! texts off the UI thread, and [`going`] and [`coming`] run each instance's side of a release
+//! restart on threads of their own, over the pair.
 //!
 //! A buffer without edits is handed over by its path, and the new instance reads
 //! it from disk and judges it like any file it opens. The text of a modified
 //! buffer, the kill ring and the histories are carried as items, which the state
-//! names by length only: `export-text` and `import-text` move them in pieces
-//! ([`carry`]), so the state still fits in a line (ADR 0032). The text of a buffer
+//! names by length only: they move in pieces ([`pieces`]), so the state still fits in a line
+//! (ADR 0032). The text of a buffer
 //! that may hold secrets is never carried (ADR 0044), and such a buffer with
 //! edits holds the restart, named and quoting nothing (ADR 0051, ADR 0055). Nor
 //! is any position in such a file, so a window showing one starts over from the
@@ -37,22 +41,30 @@ use oso_core::selection::SelectionSet;
 use oso_core::window::{Scroll, Window};
 use serde_json::{Value, json};
 
-use super::protocol::{MAX_LINE, Reply};
+use crate::channel::wire::MAX_LINE;
 
 mod allowed;
 mod base64;
-pub mod carry;
+pub mod binary;
+pub mod coming;
+pub mod fds;
 mod format;
+pub mod going;
 mod internal;
 mod layout;
+mod op;
+pub mod pair;
+pub mod pieces;
 use internal::{behind_internal, handed_over};
 mod look;
 mod restore;
 pub mod terminals;
 pub use allowed::{exit_allowed, generation, import_allowed};
 
-use carry::{Exported, Item, MAX_CARRIED};
+use pieces::{Exported, Item, MAX_CARRIED};
 
+#[cfg(feature = "dev")]
+pub(crate) use format::goal_state;
 pub use format::{ListingEntry, MAX_ITEMS, State, parse};
 #[cfg(test)]
 use format::{MAX_BUFFERS, MAX_FRAME_SIDE, MAX_SELECTIONS};
@@ -60,7 +72,14 @@ use format::{MAX_HISTORIES, MAX_HISTORY_NAME, MAX_KILL_PIECES, facts_state, sele
 use layout::MAX_WINDOWS;
 pub use layout::Windows;
 pub(crate) use look::aids_state;
+pub use op::{Asked, Op, Passed};
 pub use restore::Restore;
+
+/// What the app answers an [`Op`] with: a JSON result or why not.
+pub type Reply = Result<Value, String>;
+
+/// Why an exit was refused, which names nothing the instance holds.
+pub const EXIT_REFUSED: &str = "exit refused";
 
 /// The version of the state format. Bump it on any change that the previous
 /// reader would get wrong, and keep reading the one before.

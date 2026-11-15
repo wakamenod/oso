@@ -14,12 +14,10 @@ use oso_platform::window::{MouseAction, MouseButton, Position, Wheel};
 use serde_json::{Map, Value};
 
 use crate::channel::wire::short;
-pub use crate::channel::wire::{
-    BadRequest, MAX_LINE, escaped_len, failure, request, response_result, success,
-};
+pub use crate::channel::wire::{BadRequest, MAX_LINE, failure, request, response_result, success};
 
-use super::handoff::carry::CarriedPiece;
-use super::handoff::{self, State};
+use crate::carry::pieces::CarriedPiece;
+use crate::carry::{self as handoff, State};
 
 /// The protocol version reported by `version`. Bump it on incompatible
 /// changes.
@@ -46,13 +44,13 @@ const MAX_COMMAND_ARG: isize = oso_core::command::MAX_REMOTE_COUNT;
 /// How the message of an `exit` refused for its generation starts, which tells
 /// a refusal, after which the instance surely runs on, from a request that went
 /// unanswered, after which it may yet exit.
-pub const EXIT_REFUSED: &str = "exit refused";
+pub use crate::carry::EXIT_REFUSED;
 
 /// The longest message `dev-message` takes.
 pub const MAX_DEV_MESSAGE: usize = 1024;
 
 /// The UI's answer to a request: a JSON result or an error message.
-pub type Reply = Result<Value, String>;
+pub use crate::carry::Reply;
 
 /// A method and its parsed parameters.
 #[derive(Debug, Clone, PartialEq)]
@@ -1016,7 +1014,7 @@ mod tests {
             assert!(!error(bad).1.is_empty(), "{bad}");
         }
         let state = json!({
-            "version": crate::dev::handoff::STATE_VERSION,
+            "version": crate::carry::STATE_VERSION,
             "buffers": [{ "id": 0, "path": null }],
             "windows": [{
                 "buffer": 0,
@@ -1116,7 +1114,7 @@ mod tests {
         let text = "a\"\\\u{1}\n\u{85}\u{202e}é\u{e0041}😀";
         let line = success(&json!(1), json!({ "text": text }));
         let quoted = line.len() - r#"{"id":1,"result":{"text":""}}"#.len();
-        assert!(quoted <= super::escaped_len(text), "{line}");
+        assert!(quoted <= crate::channel::wire::escaped_len(text), "{line}");
     }
 
     #[test]

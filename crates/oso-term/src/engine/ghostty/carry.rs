@@ -1,4 +1,4 @@
-//! Carrying a libghostty-vt terminal over `oso dev`'s restart (ADR 0120, step 11): the bytes
+//! Carrying a libghostty-vt terminal over a restart (ADR 0120, step 11; ADR 0133): the bytes
 //! that restore it in the next instance, and the engine restored from them. Safe code over
 //! `raw`.
 //!

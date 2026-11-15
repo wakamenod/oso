@@ -120,9 +120,10 @@ impl Master {
     }
 }
 
-/// Handing a master to the instance that replaces this one under `oso dev` (ADR 0120, step
-/// 11): the supervisor carries it over the control socket.
-#[cfg(all(feature = "dev", unix))]
+/// Handing a master to the instance that replaces this one: under `oso dev` the supervisor
+/// carries it over the control socket (ADR 0120, step 11), and over `oso-restart` the instance
+/// going sends it over the socket pair it shares with the one coming (ADR 0133).
+#[cfg(unix)]
 impl Master {
     /// Another descriptor for this terminal's master, close-on-exec, to send to the next
     /// instance. Reads and writes through either are the same terminal's.
@@ -174,4 +175,11 @@ pub struct Ready {
 /// child `command` starts.
 pub(super) fn run_in(slave: &Slave, command: &mut Command) -> io::Result<()> {
     imp::run_in(&slave.0, command)
+}
+
+/// Gives the child `command` starts `fd` as its descriptor 3, and every other descriptor of
+/// this process close-on-exec, as a terminal's child gets them (ADR 0133).
+#[cfg(unix)]
+pub(super) fn pass_in(fd: std::os::fd::BorrowedFd<'_>, command: &mut Command) -> io::Result<()> {
+    unix::pass_in(fd, command)
 }

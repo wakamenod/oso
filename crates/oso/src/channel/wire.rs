@@ -172,7 +172,6 @@ fn is_unsafe(c: char) -> bool {
 
 /// At most the bytes `text` takes as a JSON string in a line of this protocol, its quotes
 /// left out: a request or a response that carries it, escapes and all, is no longer.
-#[cfg(feature = "dev")]
 pub fn escaped_len(text: &str) -> usize {
     text.chars()
         .map(|c| match c {

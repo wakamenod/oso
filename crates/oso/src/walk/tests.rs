@@ -265,6 +265,7 @@ fn an_ignore_file_that_is_a_pipe_does_not_hold_the_walk() {
             own_process_group: false,
             set: &[],
             terminal: None,
+            pass_fd: None,
         })
         .and_then(|mut child| child.wait())
         .expect("cannot run mkfifo");

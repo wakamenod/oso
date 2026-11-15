@@ -8,7 +8,6 @@
 //! Must not depend on: the UI thread's state; it shares only the channels and `Shared`.
 
 mod echo;
-#[cfg(feature = "dev")]
 mod handoff;
 mod hold;
 mod inputs;
@@ -34,7 +33,6 @@ use crate::limits;
 use crate::policy;
 use crate::snapshot::{Row, Snapshot};
 use echo::EchoWatch;
-#[cfg(feature = "dev")]
 pub(super) use handoff::adopt;
 pub(super) use hold::Hold;
 pub(super) use inputs::Inputs;
@@ -149,9 +147,8 @@ struct Running<'a> {
     touched: bool,
     /// The requests ended: the handle is gone.
     detached: bool,
-    /// `oso dev`'s restart: whether the thread stopped reading for it, and since when, and
+    /// a restart: whether the thread stopped reading for it, and since when, and
     /// what else it keeps for it (ADR 0120, step 11).
-    #[cfg(feature = "dev")]
     handoff: handoff::Handoff,
 }
 
@@ -186,6 +183,7 @@ impl<'a> Running<'a> {
             stderr: Sink::Inherit,
             own_process_group: false,
             terminal: Some(&slave),
+            pass_fd: None,
         })?;
         // The master sees the terminal's end only once no slave is open here.
         drop(slave);
@@ -232,7 +230,6 @@ impl<'a> Running<'a> {
             fed: false,
             touched: true,
             detached: false,
-            #[cfg(feature = "dev")]
             handoff: handoff::Handoff::default(),
         }
     }
@@ -244,7 +241,6 @@ impl<'a> Running<'a> {
             if self.released() {
                 return End::Closed;
             }
-            #[cfg(feature = "dev")]
             if self.handoff.paused() && !self.pause() {
                 continue;
             }
@@ -330,7 +326,6 @@ impl<'a> Running<'a> {
             }
         }
         // What a restart carries is the terminal as it was when it stopped reading.
-        #[cfg(feature = "dev")]
         if self.handoff.paused() {
             return;
         }
@@ -365,7 +360,6 @@ impl<'a> Running<'a> {
             Request::HangUp => {
                 let _ = self.master.hang_up();
             }
-            #[cfg(feature = "dev")]
             Request::Handoff(request) => return self.serve_handoff(request),
         }
         false
@@ -373,11 +367,7 @@ impl<'a> Running<'a> {
 
     /// Whether the thread let the terminal go to the next instance, untouched.
     fn released(&self) -> bool {
-        #[cfg(feature = "dev")]
-        let released = self.handoff.released();
-        #[cfg(not(feature = "dev"))]
-        let released = false;
-        released
+        self.handoff.released()
     }
 
     /// Encodes one input and queues its bytes, correcting what the handle held of the queue

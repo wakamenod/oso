@@ -46,6 +46,7 @@ fn git(root: &Path, args: &[&str]) {
         own_process_group: false,
         set: &set,
         terminal: None,
+        pass_fd: None,
     })
     .and_then(|mut child| child.wait())
     .expect("cannot run git");

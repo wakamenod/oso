@@ -32,8 +32,7 @@ use oso_platform::control::{ControlDir, ControlStream, Socket};
 
 mod follows;
 use follows::follower;
-#[cfg(feature = "dev")]
-pub use follows::{FOLLOWS, follows_text};
+pub use follows::write_follows;
 use serde_json::{Map, Value, json};
 
 use super::protocol::PROTOCOL_VERSION;

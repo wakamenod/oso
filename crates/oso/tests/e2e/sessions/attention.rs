@@ -242,6 +242,7 @@ fn another_programs_session_in_the_registry_is_listed() {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .unwrap();
     let now = SystemTime::now()

@@ -18,9 +18,9 @@ use oso_term::{Exported, NotExported};
 use serde_json::{Value, json};
 
 use crate::app::{App, UserEvent};
-use crate::dev;
-use crate::dev::handoff::carry::{self, Item, MAX_CARRIED};
-use crate::dev::handoff::terminals::{self, MAX_TERMINALS, TerminalState};
+use crate::carry::Reply;
+use crate::carry::pieces::{self, Item, MAX_CARRIED};
+use crate::carry::terminals::{self, MAX_TERMINALS, TerminalState};
 
 mod release;
 
@@ -44,7 +44,7 @@ pub(in crate::app) struct Going {
 
 /// An export whose reply waits for its terminals.
 struct Exporting {
-    reply: mpsc::Sender<dev::Reply>,
+    reply: mpsc::Sender<Reply>,
     /// The running terminals it carries, in the state's order.
     carried: Vec<BufferId>,
     /// The bytes the texts leave for the terminals' states, in base64, before kills.
@@ -69,7 +69,7 @@ struct Outgoing {
 /// A carried terminal: its buffer, its master, and how often it had read again by then.
 struct Carried {
     buffer: BufferId,
-    master: crate::dev::fds::Fd,
+    master: crate::carry::fds::Fd,
     resumes: u64,
 }
 
@@ -90,8 +90,8 @@ impl App {
         &mut self,
         library: &str,
         parent: bool,
-        reply: mpsc::Sender<dev::Reply>,
-    ) -> Option<(mpsc::Sender<dev::Reply>, dev::Reply)> {
+        reply: mpsc::Sender<Reply>,
+    ) -> Option<(mpsc::Sender<Reply>, Reply)> {
         if !parent {
             return Some((reply, Err(NOT_PARENT.into())));
         }
@@ -104,7 +104,7 @@ impl App {
         // state itself is made again once the terminals' states are in.
         let state = match self.export_texts(Some((&carried, MAX_CARRIED))) {
             Ok((state, texts)) => {
-                carry::drop_later(texts);
+                pieces::drop_later(texts);
                 state
             }
             Err(why) => return Some((reply, Err(why))),
@@ -335,7 +335,7 @@ impl App {
             });
         }
         if let Some(why) = failed {
-            carry::drop_later((texts, carried));
+            pieces::drop_later((texts, carried));
             return self.export_given_up(exporting, items, why);
         }
         let lengths: Vec<Value> = items.iter().map(|item| json!(item.len())).collect();
@@ -346,8 +346,8 @@ impl App {
         // The masters' instance, and those before it, for a bridge that looks for its oso.
         state["pid"] = json!(std::process::id());
         state["follows"] = json!(self.handover.follows);
-        if let Err(why) = crate::dev::handoff::fits(&state) {
-            carry::drop_later(texts);
+        if let Err(why) = crate::carry::fits(&state) {
+            pieces::drop_later(texts);
             return self.export_given_up(exporting, items, why);
         }
         let export = texts.number();
@@ -384,7 +384,7 @@ impl App {
     fn export_given_up(&mut self, exporting: Exporting, items: Vec<Item>, why: String) {
         let _ = exporting.reply.send(Err(why));
         self.resume_carried(&exporting.carried);
-        carry::drop_later((exporting, items));
+        pieces::drop_later((exporting, items));
     }
 
     fn export_failed(&mut self, why: String) {
@@ -392,7 +392,7 @@ impl App {
             let _ = exporting.reply.send(Err(why));
             self.resume_carried(&exporting.carried);
             // States of up to 64 MiB are freed off this thread.
-            carry::drop_later(exporting);
+            pieces::drop_later(exporting);
         }
         self.resume_terminals();
     }

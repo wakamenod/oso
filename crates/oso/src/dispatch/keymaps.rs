@@ -343,7 +343,6 @@ impl Dispatcher {
 /// What the dispatcher is reading now: a prefix key, a prefix argument, or text as typed.
 impl Dispatcher {
     /// The keys of the pending prefix, empty if none is pending.
-    #[cfg(any(test, feature = "dev"))]
     pub fn pending(&self) -> &[oso_core::key::KeyPress] {
         self.resolver.pending()
     }

@@ -14,8 +14,8 @@ use oso_core::sum_tree::Bias;
 use serde_json::{Value, json};
 
 use super::App;
-use crate::dev;
-use crate::dev::handoff::{self, carry};
+use crate::carry::{self as handoff, pieces as carry};
+use crate::carry::{Op, Passed, Reply};
 
 /// What a restart under `oso dev` keeps on the UI thread.
 #[derive(Default)]
@@ -42,15 +42,26 @@ pub(super) struct Handover {
 
 /// An import's reply, held until every carried buffer has a verdict.
 struct ImportReply {
-    reply: mpsc::Sender<dev::Reply>,
+    reply: mpsc::Sender<Reply>,
     result: Value,
     judging: Vec<BufferId>,
 }
 
 impl App {
+    /// The OS window's place and size, if there is a window.
+    pub(super) fn frame(&self) -> Option<handoff::Frame> {
+        let window = &self.view.as_ref()?.window;
+        let (width, height) = window.inner_size();
+        Some(handoff::Frame {
+            position: window.outer_position(),
+            width,
+            height,
+        })
+    }
+
     /// `export-state`: the state, with an O(1) snapshot of each text it carries kept for
     /// `export-text`, replacing the one before.
-    pub(super) fn export_state(&mut self) -> dev::Reply {
+    pub(super) fn export_state(&mut self) -> Reply {
         self.resume_terminals();
         let (state, exported) = self.export_texts(None)?;
         self.keep_export(exported);
@@ -82,34 +93,32 @@ impl App {
     /// The methods of a restart but `exit`: their reply, if it is ready now.
     pub(super) fn answer_restart(
         &mut self,
-        op: dev::UiOp,
-        reply: mpsc::Sender<dev::Reply>,
-        passed: dev::Passed,
-    ) -> Option<(mpsc::Sender<dev::Reply>, dev::Reply)> {
+        op: Op,
+        reply: mpsc::Sender<Reply>,
+        passed: Passed,
+    ) -> Option<(mpsc::Sender<Reply>, Reply)> {
         let result = match op {
-            dev::UiOp::ExportState { terminals: None } => self.export_state(),
-            dev::UiOp::ExportState {
+            Op::ExportState { terminals: None } => self.export_state(),
+            Op::ExportState {
                 terminals: Some(library),
             } => return self.export_with_terminals(&library, passed.parent, reply),
-            op @ (dev::UiOp::ExportText { .. } | dev::UiOp::ImportText(_)) => {
+            op @ (Op::ExportText { .. } | Op::ImportText(_)) => {
                 return self.carry_text(op, reply, passed.parent);
             }
-            dev::UiOp::HandOverTerminals { generation } => {
-                self.hand_over_terminals(generation, &passed)
-            }
-            dev::UiOp::ImportTerminals { count } => self.import_terminals(count, passed),
-            dev::UiOp::CheckHandover { terminals } => self.check_handover(terminals, passed.parent),
-            dev::UiOp::ImportState(state) => {
+            Op::HandOverTerminals { generation } => self.hand_over_terminals(generation, &passed),
+            Op::ImportTerminals { count } => self.import_terminals(count, passed),
+            #[cfg(feature = "dev")]
+            Op::CheckHandover { terminals } => self.check_handover(terminals, passed.parent),
+            Op::ImportState(state) => {
                 return self.answer_import(*state, reply, passed.parent);
             }
-            _ => Err("not a method of a restart".into()),
         };
         Some((reply, result))
     }
 
     /// `check-handover`: with `terminals`, whether the running terminals can go too, which
     /// only the parent may ask; without, a running terminal holds the restart.
-    pub(super) fn check_handover(&self, terminals: bool, parent: bool) -> dev::Reply {
+    pub(super) fn check_handover(&self, terminals: bool, parent: bool) -> Reply {
         if terminals && !parent {
             return Err(super::terminals::carry::NOT_PARENT.into());
         }
@@ -159,13 +168,13 @@ impl App {
     /// copies or builds the piece, and replies. Returns the reply if there is one now.
     pub(super) fn carry_text(
         &mut self,
-        op: dev::UiOp,
-        reply: mpsc::Sender<dev::Reply>,
+        op: Op,
+        reply: mpsc::Sender<Reply>,
         parent: bool,
-    ) -> Option<(mpsc::Sender<dev::Reply>, dev::Reply)> {
+    ) -> Option<(mpsc::Sender<Reply>, Reply)> {
         self.touch_carried();
         match op {
-            dev::UiOp::ExportText {
+            Op::ExportText {
                 export,
                 item,
                 offset,
@@ -186,11 +195,10 @@ impl App {
                     Err(message) => return Some((reply, Err(message))),
                 }
             }
-            dev::UiOp::ImportText(piece) => {
-                self.handover
-                    .staging
-                    .spawn(piece, handoff::MAX_ITEMS, reply)
-            }
+            Op::ImportText(piece) => self
+                .handover
+                .staging
+                .spawn(piece, handoff::MAX_ITEMS, reply),
             _ => return Some((reply, Err("not a method that carries text".into()))),
         }
         None
@@ -203,9 +211,9 @@ impl App {
     pub(super) fn answer_import(
         &mut self,
         state: handoff::State,
-        reply: mpsc::Sender<dev::Reply>,
+        reply: mpsc::Sender<Reply>,
         parent: bool,
-    ) -> Option<(mpsc::Sender<dev::Reply>, dev::Reply)> {
+    ) -> Option<(mpsc::Sender<Reply>, Reply)> {
         if !parent && !state.terminals.is_empty() {
             let refused = super::terminals::carry::NOT_PARENT.to_owned();
             return Some((reply, Err(refused)));
@@ -487,7 +495,8 @@ impl App {
     }
 
     /// `dev-message`: what `oso dev` has to say, in the echo area and `*Messages*`.
-    pub(super) fn dev_message(&mut self, text: String) -> dev::Reply {
+    #[cfg(feature = "dev")]
+    pub(super) fn dev_message(&mut self, text: String) -> Reply {
         self.editor.message(text);
         self.request_redraw();
         Ok(Value::Null)

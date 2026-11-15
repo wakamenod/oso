@@ -9,7 +9,6 @@
 mod build_errors;
 pub mod ctl;
 pub mod fds;
-pub mod handoff;
 mod png;
 mod protocol;
 mod restart;
@@ -29,7 +28,7 @@ use oso_platform::control::{CleanupGuard, ControlDir, Socket};
 use oso_render::Capture;
 use serde_json::json;
 
-pub use protocol::{ClipboardOp, EXIT_REFUSED, ImeReport, Reply, UiOp, WheelAt};
+pub use protocol::{ClipboardOp, ImeReport, Reply, UiOp, WheelAt};
 pub use server::{Passed, UiRequest};
 pub use state::{
     ImeFacts, get_state, get_text, ime_state, screenshot_allowed, show_buffer, wheel_reply,
@@ -39,6 +38,26 @@ pub use timing::{FrameSpans, HandledKey, ReviewText, SecretWatch, Timings};
 /// The option that sends emergency copies elsewhere, so that the end-to-end flows can
 /// read them, and never touch the real ones. Only a dev build knows it.
 const EMERGENCY_DIR_OPTION: &str = "--emergency-dir";
+
+/// The dev options this instance took, for the instance an `oso-restart` starts, in the order
+/// they are taken (ADR 0133).
+pub fn restart_args(
+    emergency: Option<&std::path::Path>,
+    clipboard: Source,
+    config: Option<&std::path::Path>,
+) -> Vec<OsString> {
+    let mut args = Vec::new();
+    if let Some(dir) = emergency {
+        args.extend([EMERGENCY_DIR_OPTION.into(), dir.as_os_str().to_owned()]);
+    }
+    if clipboard == Source::Memory {
+        args.extend([CLIPBOARD_OPTION.into(), "memory".into()]);
+    }
+    if let Some(file) = config {
+        args.extend([CONFIG_OPTION.into(), file.as_os_str().to_owned()]);
+    }
+    args
+}
 
 /// Takes `--emergency-dir DIR` from the front of `args`, if it is there, and returns the
 /// rest with the directory. On its own the option stays, and is an unknown option.
@@ -154,28 +173,6 @@ impl DevState {
         // an error.
         if let Err(e) = spawned {
             log::warn!("cannot start the screenshot thread: {e}");
-        }
-    }
-}
-
-impl DevState {
-    /// Writes `<pid>-follows` on a thread of its own: the instances this one took over from,
-    /// one id a line, newest last, for a session's bridge pinned to one of them (ADR 0120,
-    /// step 11). It goes with the socket when this instance exits.
-    pub fn write_follows(&self, pids: &[u32]) {
-        let dir = self.dir.clone();
-        let text = crate::channel::mcp::follows_text(pids);
-        let spawned = thread::Builder::new()
-            .name("oso-follows".into())
-            .spawn(move || {
-                if let Err(e) =
-                    dir.write_private_file(crate::channel::mcp::FOLLOWS, text.as_bytes())
-                {
-                    log::warn!("oso dev: the instances this one follows were not written: {e}");
-                }
-            });
-        if let Err(e) = spawned {
-            log::warn!("cannot start the follows thread: {e}");
         }
     }
 }

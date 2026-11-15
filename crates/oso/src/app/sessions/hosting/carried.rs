@@ -8,7 +8,7 @@
 use oso_core::buffer::BufferId;
 
 use crate::app::App;
-use crate::dev::handoff::terminals::{SessionState, TerminalState};
+use crate::carry::terminals::{SessionState, TerminalState};
 use crate::sessions::hosted::Run;
 use crate::sessions::identity::{Origin, SessionId};
 use crate::sessions::record::Remembered;

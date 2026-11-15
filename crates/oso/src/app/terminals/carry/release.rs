@@ -11,8 +11,8 @@ use serde_json::json;
 
 use super::{EXIT_TIME, EXPORT_TIME, NOT_PARENT, QUIET_TIME};
 use crate::app::App;
-use crate::dev;
-use crate::dev::handoff::carry;
+use crate::carry::pieces;
+use crate::carry::{Passed, Reply};
 
 impl App {
     /// Whether `item` of export `export` holds a terminal's state, which only the parent may
@@ -36,13 +36,13 @@ impl App {
     pub(in crate::app) fn hand_over_terminals(
         &mut self,
         generation: u64,
-        passed: &dev::Passed,
-    ) -> dev::Reply {
+        passed: &Passed,
+    ) -> Reply {
         if !passed.parent {
             return Err(NOT_PARENT.into());
         }
         // A refusal ends that restart: the terminals read again at once.
-        let allowed = dev::handoff::exit_allowed(&self.editor, Some(generation))
+        let allowed = crate::carry::exit_allowed(&self.editor, Some(generation))
             .and_then(|()| self.carried_unchanged())
             .and_then(|()| {
                 let carried: Vec<BufferId> = self.editor.running_terminals().collect();
@@ -63,7 +63,7 @@ impl App {
         let fds = exported
             .terminals
             .iter()
-            .map(|t| dev::fds::try_clone(&t.master))
+            .map(|t| crate::carry::fds::try_clone(&t.master))
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("cannot hand over the terminals: {e}"))?;
         let count = fds.len();
@@ -88,7 +88,7 @@ impl App {
         if changed {
             return Err(format!(
                 "{}: a terminal has read again or ended since the export",
-                dev::EXIT_REFUSED
+                crate::carry::EXIT_REFUSED
             ));
         }
         Ok(())
@@ -106,7 +106,7 @@ impl App {
                 self.resume_terminals();
                 return Err(format!(
                     "{}: the terminals were exported but not handed over",
-                    dev::EXIT_REFUSED
+                    crate::carry::EXIT_REFUSED
                 ));
             }
             None => Vec::new(),
@@ -123,7 +123,7 @@ impl App {
             self.resume_terminals();
             return Err(format!(
                 "{}: {name} runs and was not handed over",
-                dev::EXIT_REFUSED
+                crate::carry::EXIT_REFUSED
             ));
         }
         let password = handed.iter().copied().find(|&buffer| {
@@ -136,7 +136,7 @@ impl App {
             self.resume_terminals();
             return Err(format!(
                 "{}: {name}'s program reads a password",
-                dev::EXIT_REFUSED
+                crate::carry::EXIT_REFUSED
             ));
         }
         if let Err(why) = self.carried_unchanged() {
@@ -166,7 +166,7 @@ impl App {
                 .reply
                 .send(Err("the export was overtaken by another".into()));
             self.resume_carried(&exporting.carried);
-            carry::drop_later(exporting);
+            pieces::drop_later(exporting);
         }
         let Some(exported) = self.handover.going.exported.take() else {
             return;

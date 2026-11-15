@@ -9,13 +9,14 @@
 )]
 
 mod peer;
-// Passing descriptors, for `oso dev`'s restart of terminals (ADR 0120, step 11).
-#[cfg(feature = "dev")]
+// Passing descriptors, for the restart of terminals: `oso dev`'s (ADR 0120, step 11) and
+// `oso-restart`'s (ADR 0133).
 mod rights;
 
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, OpenOptions, Permissions};
 use std::io::{self, Read, Write};
+use std::os::fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -438,11 +439,78 @@ impl ControlStream {
         self.0.set_write_timeout(timeout)
     }
 
-    /// A connected pair, for tests.
-    #[doc(hidden)]
+    /// A connected pair that no socket file names, both ends close-on-exec: what
+    /// `oso-restart` shares with the instance it starts, which inherits one end as
+    /// [`INHERITED_FD`] (ADR 0133), and what tests connect. Made while no child of this
+    /// process can start, as macOS marks the ends close-on-exec only a moment later.
     pub fn pair() -> io::Result<(Self, Self)> {
-        let (a, b) = UnixStream::pair()?;
+        let (a, b) = {
+            let _alone = crate::privacy::inheritance::making();
+            UnixStream::pair()?
+        };
         Ok((Self::verified(a)?, Self::verified(b)?))
+    }
+
+    /// The end of a pair this process inherited as [`INHERITED_FD`] from the instance that
+    /// started it with `oso-restart` (ADR 0133), now close-on-exec. Call it first thing, while
+    /// this process has one thread, so that no child can inherit the descriptor before it is
+    /// marked. Taken once: a second call fails, as the descriptor is close-on-exec by then.
+    ///
+    /// # Errors
+    ///
+    /// If it was taken before, if nothing is open there, if what is open is not a Unix domain
+    /// socket, or if its peer runs as another user. The caller judges the peer itself.
+    pub fn inherited() -> io::Result<Self> {
+        // SAFETY: `F_GETFD` reads the flags of a descriptor number and touches no memory; it
+        // fails with `EBADF` if nothing is open there.
+        let flags = unsafe { libc::fcntl(INHERITED_FD, libc::F_GETFD) };
+        if flags < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // An inherited descriptor is not close-on-exec, as no exec would have kept it; one that
+        // is was taken already, or is not one this process inherited.
+        if flags & libc::FD_CLOEXEC != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "the descriptor was not inherited, or was taken already",
+            ));
+        }
+        // SAFETY: `F_SETFD` sets the flags of a descriptor number, open as the call above
+        // showed, and touches no memory.
+        if unsafe { libc::fcntl(INHERITED_FD, libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // SAFETY: `fstat` writes one `stat` into the buffer, which is that large and outlives
+        // the call; the descriptor is open, as the call above showed.
+        if unsafe { libc::fstat(INHERITED_FD, stat.as_mut_ptr()) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `fstat` succeeded, so it filled the whole `stat`.
+        let stat = unsafe { stat.assume_init() };
+        if stat.st_mode & libc::S_IFMT != libc::S_IFSOCK {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the inherited descriptor is not a socket",
+            ));
+        }
+        // SAFETY: the descriptor is open and a socket, as checked above, and nothing else in
+        // this process owns it: it was inherited, and was not close-on-exec until just now,
+        // which a second call sees and refuses.
+        let fd = unsafe { OwnedFd::from_raw_fd(INHERITED_FD) };
+        let stream = UnixStream::from(fd);
+        // Only a Unix domain socket has a Unix address.
+        stream.local_addr()?;
+        Self::verified(stream)
+    }
+}
+
+/// The descriptor a child started by `oso-restart` holds its end of the pair at (ADR 0133).
+pub const INHERITED_FD: RawFd = 3;
+
+impl AsFd for ControlStream {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.as_fd()
     }
 }
 

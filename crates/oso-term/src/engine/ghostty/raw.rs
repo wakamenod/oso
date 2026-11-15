@@ -13,7 +13,6 @@
 
 mod callbacks;
 mod mouse;
-#[cfg(feature = "dev")]
 pub(super) mod snapshot;
 
 use std::ffi::{c_int, c_void};

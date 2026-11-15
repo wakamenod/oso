@@ -215,8 +215,10 @@ release-safety:
     dev_crates="miniz_oxide"
     # Dev method names too: with serde_json shipping, they show that no dev method got into
     # the agent channel (ADR 0085). `oso dev`'s supervisor has a marker of its own, as
-    # spawning ships (ADR 0120).
+    # spawning ships (ADR 0120). The restart's dev methods stay out though its code ships for
+    # `oso-restart`, whose pair has names of its own (ADR 0133).
     markers="oso-dev-control-socket oso-dev-supervisor send-keys export-state"
+    markers="$markers export-text import-state hand-over-terminals import-terminals"
     # On macOS, the window layer's dev-only Carbon import, for the dev socket's secure input
     # check (ADR 0070, ADR 0073).
     if [ "$(uname -s)" = Darwin ]; then markers="$markers IsSecureEventInputEnabled"; fi

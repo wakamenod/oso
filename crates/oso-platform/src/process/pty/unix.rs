@@ -10,7 +10,7 @@
 use std::ffi::{CStr, OsStr};
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
@@ -186,7 +186,6 @@ fn set_non_blocking(file: &File) -> io::Result<()> {
     }
 }
 
-#[cfg(feature = "dev")]
 impl Master {
     pub(super) fn try_clone_fd(&self) -> io::Result<OwnedFd> {
         // `try_clone` duplicates with `F_DUPFD_CLOEXEC`.
@@ -455,6 +454,62 @@ pub(super) fn run_in(slave: &Slave, command: &mut Command) -> io::Result<()> {
             let marked = false;
             if !marked {
                 for fd in 3..last {
+                    libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+                }
+            }
+            Ok(())
+        });
+    }
+    Ok(())
+}
+
+/// The descriptor the child gets `fd` as (ADR 0133).
+const PASSED: libc::c_int = 3;
+
+pub(super) fn pass_in(fd: BorrowedFd<'_>, command: &mut Command) -> io::Result<()> {
+    let from = fd.as_raw_fd();
+    // The standard library's pipe that reports a failed `exec` must not be the descriptor the
+    // child puts `fd` at, or the child would close it. It takes the lowest free number, so
+    // descriptor 3 must be open here already: it is, in any process with a window.
+    // SAFETY: `F_GETFD` reads the flags of a descriptor number and touches no memory.
+    if from != PASSED && unsafe { libc::fcntl(PASSED, libc::F_GETFD) } < 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "descriptor 3 is free, so the child could not be told a failed start",
+        ));
+    }
+    let last = open_limit();
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the passed descriptor's child-side hook, in the process module (ADR 0133)"
+    )]
+    // SAFETY: the hook runs in the child between `fork` and `exec`, where only
+    // async-signal-safe functions may be called. It calls only `dup2`, `fcntl` and `syscall`
+    // (`close_range`), which are. It allocates nothing (an OS error is a number) and takes no
+    // lock. `dup2` makes a copy without close-on-exec, and the descriptor already there is the
+    // one copy that keeps it; marking the rest close-on-exec, rather than closing them, keeps
+    // the standard library's pipe that reports a failed `exec`, which is close-on-exec already.
+    unsafe {
+        command.pre_exec(move || {
+            let placed = if from == PASSED {
+                libc::fcntl(PASSED, libc::F_SETFD, 0)
+            } else {
+                libc::dup2(from, PASSED)
+            };
+            if placed < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            #[cfg(target_os = "linux")]
+            let marked = libc::syscall(
+                libc::SYS_close_range,
+                PASSED + 1,
+                libc::c_uint::MAX,
+                libc::CLOSE_RANGE_CLOEXEC,
+            ) == 0;
+            #[cfg(not(target_os = "linux"))]
+            let marked = false;
+            if !marked {
+                for fd in PASSED + 1..last {
                     libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
                 }
             }

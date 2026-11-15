@@ -20,8 +20,8 @@ use serde_json::{Value, json};
 
 use super::carry::{CarryEvent, NOT_PARENT};
 use crate::app::{App, UserEvent};
-use crate::dev;
-use crate::dev::handoff::terminals::{self, TerminalState};
+use crate::carry::terminals::{self, TerminalState};
+use crate::carry::{Passed, Reply};
 
 /// How long carried terminals wait for their masters after the import.
 const MASTERS_TIME: Duration = Duration::from_secs(30);
@@ -30,7 +30,7 @@ const MASTERS_TIME: Duration = Duration::from_secs(30);
 #[derive(Default)]
 pub(in crate::app) struct Coming {
     /// Each carried terminal's buffer, in the state's order, and its master once it came.
-    terminals: Vec<(BufferId, Option<crate::dev::fds::Fd>)>,
+    terminals: Vec<(BufferId, Option<crate::carry::fds::Fd>)>,
     since: Option<Instant>,
 }
 
@@ -155,8 +155,8 @@ impl App {
     pub(in crate::app) fn import_terminals(
         &mut self,
         count: Option<usize>,
-        passed: dev::Passed,
-    ) -> dev::Reply {
+        passed: Passed,
+    ) -> Reply {
         if !passed.parent {
             return Err(NOT_PARENT.into());
         }
@@ -250,8 +250,6 @@ impl App {
     /// Writes the record of the instances this one took over from, for a session's bridge
     /// pinned to one of them (ADR 0121; the author's choice).
     fn write_follows(&self) {
-        if let Some(dev) = &self.dev {
-            dev.write_follows(&self.handover.follows);
-        }
+        crate::channel::mcp::write_follows(&self.handover.follows);
     }
 }

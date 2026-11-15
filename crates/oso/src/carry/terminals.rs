@@ -248,12 +248,16 @@ pub(super) fn parse_follows(state: &Map<String, Value>) -> Result<Vec<u32>, Stri
 }
 
 /// `check-handover`'s `terminals`: whether terminals go too.
+/// A dev method's parameter: only the dev socket names it.
+#[cfg(feature = "dev")]
 pub fn asked(params: &Map<String, Value>) -> Result<bool, String> {
     switch(params, "terminals")
 }
 
 /// `export-state`'s `terminals`: the name of the terminal library the new instance reads,
 /// if terminals go too.
+/// A dev method's parameter: only the dev socket names it.
+#[cfg(feature = "dev")]
 pub fn library(params: &Map<String, Value>) -> Result<Option<String>, String> {
     match params.get("terminals") {
         None | Some(Value::Null) => Ok(None),
@@ -265,6 +269,8 @@ pub fn library(params: &Map<String, Value>) -> Result<Option<String>, String> {
 }
 
 /// `import-terminals`' `count`, or `None` for `"abandon": true`.
+/// A dev method's parameter: only the dev socket names it.
+#[cfg(feature = "dev")]
 pub fn count(params: &Map<String, Value>) -> Result<Option<usize>, String> {
     if switch(params, "abandon")? {
         return Ok(None);
@@ -285,8 +291,8 @@ mod tests {
     use serde_json::json;
 
     use super::{SessionState, TerminalState, entry, parse};
-    use crate::dev::handoff::format::Items;
-    use crate::dev::handoff::tests::absolute;
+    use crate::carry::format::Items;
+    use crate::carry::tests::absolute;
 
     fn terminal(session: bool) -> TerminalState {
         TerminalState {

@@ -22,7 +22,8 @@ use oso_core::rope::Rope;
 use oso_core::sum_tree::Bias;
 use serde_json::json;
 
-use super::super::protocol::{MAX_LINE, Reply, escaped_len};
+use super::Reply;
+use crate::channel::wire::{MAX_LINE, escaped_len};
 
 /// The most text one restart carries, the kill ring included.
 pub const MAX_CARRIED: usize = 64 * 1024 * 1024;
@@ -117,12 +118,12 @@ impl PieceJob {
     /// sender is dropped, which the client sees as an error.
     pub fn spawn(self, reply: mpsc::Sender<Reply>) {
         let spawned = thread::Builder::new()
-            .name("oso-export-text".into())
+            .name("oso-carry-out".into())
             .spawn(move || {
                 let _ = reply.send(self.run());
             });
         if let Err(e) = spawned {
-            log::warn!("cannot start the export-text thread: {e}");
+            log::warn!("cannot start the thread that copies a piece: {e}");
         }
     }
 
@@ -209,12 +210,12 @@ impl Staging {
     pub fn spawn(&self, piece: CarriedPiece, max_items: usize, reply: mpsc::Sender<Reply>) {
         let staging = self.clone();
         let spawned = thread::Builder::new()
-            .name("oso-import-text".into())
+            .name("oso-carry-in".into())
             .spawn(move || {
                 let _ = reply.send(staging.stage(piece, max_items));
             });
         if let Err(e) = spawned {
-            log::warn!("cannot start the import-text thread: {e}");
+            log::warn!("cannot start the thread that builds a piece: {e}");
         }
     }
 
@@ -331,7 +332,7 @@ fn missing() -> String {
 #[cfg(test)]
 mod tests {
     use super::{CarriedPiece, Exported, Item, PIECE, PIECE_LINE, Staging, piece_at};
-    use crate::dev::protocol::escaped_len;
+    use crate::channel::wire::escaped_len;
     use oso_core::rope::Rope;
 
     fn piece(export: u64, item: usize, offset: usize, text: &str) -> CarriedPiece {

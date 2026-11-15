@@ -1,4 +1,4 @@
-//! A terminal's thread over `oso dev`'s restart (ADR 0120, step 11). Exporting stops reading
+//! A terminal's thread over a restart (ADR 0120, step 11; ADR 0133). Exporting stops reading
 //! the PTY at a chunk's end, writes the engine's state and hands back a second descriptor for
 //! the master; until a resume or a release the thread still writes input and serves the UI,
 //! but reads nothing and applies no resize, so the state stays the terminal's; it reads the
@@ -202,6 +202,14 @@ pub(in crate::terminal) fn adopt(adopt: Adopt, hold_limit: Duration, channels: C
             ..
         } = adopt;
         let written = match encoding {
+            // Until the snapshot is on, its decoder reads nothing another instance sent
+            // (ADR 0133, T-parse): such a terminal is not restored.
+            Encoding::Snapshot if !SNAPSHOTS => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "this build restores no snapshot",
+                ));
+            }
             Encoding::Snapshot => Written::Snapshot,
             Encoding::Escapes => Written::Escapes,
         };

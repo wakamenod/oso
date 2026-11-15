@@ -33,7 +33,6 @@ pub(super) struct Configuration {
     applied: bool,
     /// A dev restart's handoff set the theme and the aids before any look applied settings: the
     /// next takes the file's as those in force without applying them (ADR 0108).
-    #[cfg(feature = "dev")]
     handed_over: bool,
 }
 
@@ -49,7 +48,6 @@ impl Configuration {
             in_force: InForce::compiled(&names),
             names,
             applied: false,
-            #[cfg(feature = "dev")]
             handed_over: false,
         }
     }
@@ -97,7 +95,6 @@ impl Configuration {
     }
 
     /// A dev restart's handoff set the theme and the aids: they win over the file's.
-    #[cfg(feature = "dev")]
     pub(super) fn hand_over(&mut self) {
         if !self.applied {
             self.handed_over = true;
@@ -105,19 +102,8 @@ impl Configuration {
     }
 
     /// Whether a handoff set the theme and the aids before a look applied settings, once.
-    #[cfg(feature = "dev")]
     fn take_handed_over(&mut self) -> bool {
         std::mem::take(&mut self.handed_over)
-    }
-
-    /// Only a dev build takes a handoff.
-    #[cfg(not(feature = "dev"))]
-    #[expect(
-        clippy::unused_self,
-        reason = "the dev build's takes the handoff's mark"
-    )]
-    fn take_handed_over(&mut self) -> bool {
-        false
     }
 
     /// Where the theme called `name` is among the built-in ones.

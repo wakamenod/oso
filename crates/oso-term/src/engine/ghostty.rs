@@ -6,7 +6,6 @@
 //!
 //! Must not depend on: the policy or the thread. This file is safe code over `raw`.
 
-#[cfg(feature = "dev")]
 pub(crate) mod carry;
 mod ffi;
 mod keys;
@@ -80,8 +79,7 @@ impl Ghostty {
 
     /// The engine over `vt`, sized to `size`.
     fn around(mut vt: Vt, size: Size) -> Ghostty {
-        // So that `oso dev`'s restart can carry a sequence the program has not finished.
-        #[cfg(feature = "dev")]
+        // So that a restart can carry a sequence the program has not finished.
         vt.track_continuation();
         let (width, height) = cell_pixels(size);
         vt.resize(size.columns, size.rows, width, height);

@@ -39,7 +39,7 @@ impl App {
     }
 
     /// Starts the channel on a thread of its own, as it checks and binds in the file system.
-    pub(super) fn start_agent_channel(&mut self) {
+    pub(in crate::app) fn start_agent_channel(&mut self) {
         self.agent.stop_when_started = false;
         if self.agent.channel.is_some() || self.agent.starting {
             // Asked for by the person or the configuration: no refused session start turns
@@ -106,7 +106,12 @@ impl App {
         }
     }
 
-    pub(super) fn stop_agent_channel(&mut self) {
+    /// Whether the channel is on, or starting.
+    pub(in crate::app) fn agent_channel_on(&self) -> bool {
+        self.agent.channel.is_some() || self.agent.starting
+    }
+
+    pub(in crate::app) fn stop_agent_channel(&mut self) {
         self.agent.on_for_sessions = false;
         if self.agent.starting {
             self.agent.stop_when_started = true;

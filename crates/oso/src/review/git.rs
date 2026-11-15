@@ -223,6 +223,7 @@ impl Git {
             own_process_group: false,
             set: &variables,
             terminal: None,
+            pass_fd: None,
         })
         .map_err(GitError::Spawn)
     }

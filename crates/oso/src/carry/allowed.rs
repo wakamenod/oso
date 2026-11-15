@@ -8,7 +8,7 @@ use std::hash::{Hash, Hasher};
 
 use oso_core::editor::{Editor, SCRATCH};
 
-use super::super::protocol::EXIT_REFUSED;
+use super::EXIT_REFUSED;
 use super::{SECRET_SHOWN, shows_judged_secret, under_way};
 
 /// Names what an instance holds that a file does not: which buffers exist, the

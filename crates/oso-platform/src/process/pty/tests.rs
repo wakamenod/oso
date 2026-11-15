@@ -40,6 +40,7 @@ fn request<'a>(
         own_process_group: false,
         set,
         terminal,
+        pass_fd: None,
     }
 }
 
@@ -398,7 +399,6 @@ fn the_account_shell_is_an_absolute_path_if_any() {
     }
 }
 
-#[cfg(feature = "dev")]
 mod handed {
     use std::io::Write;
     use std::os::fd::AsRawFd;
@@ -453,5 +453,70 @@ mod handed {
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
         let (_master, slave) = open(SIZE).unwrap();
         assert!(Master::from_fd(slave.0.0).is_err(), "a slave is no master");
+    }
+}
+
+/// A descriptor passed to a child (ADR 0133): it is the child's 3, and nothing else of this
+/// process reaches the child, even a descriptor made without close-on-exec.
+mod passed {
+    use std::io::Read;
+    use std::os::fd::{AsFd, AsRawFd};
+
+    use super::sh;
+    use crate::process::{PassedFd, Sink, Source, Spawn, spawn};
+
+    /// What `script` writes to its descriptor 3, given the writing end of a pipe there.
+    fn run(script: &str) -> String {
+        let (mut reader, writer) = std::io::pipe().unwrap();
+        let sh = sh();
+        let args = ["-c".into(), script.into()];
+        let mut child = spawn(&Spawn {
+            executable: &sh,
+            args: &args,
+            cwd: None,
+            project: None,
+            inherit: &[],
+            stdin: Source::Closed,
+            stdout: Sink::Null,
+            stderr: Sink::Null,
+            own_process_group: false,
+            set: &[],
+            terminal: None,
+            pass_fd: Some(PassedFd::new(writer.as_fd())),
+        })
+        .unwrap();
+        drop(writer);
+        let mut out = String::new();
+        reader.read_to_string(&mut out).unwrap();
+        assert!(child.wait().unwrap().success());
+        out
+    }
+
+    #[test]
+    fn the_child_writes_to_its_descriptor_3() {
+        assert_eq!(run("echo passed >&3"), "passed\n");
+    }
+
+    #[test]
+    fn a_descriptor_without_close_on_exec_does_not_reach_the_child() {
+        let (_reader, leak) = std::io::pipe().unwrap();
+        let fd = leak.as_raw_fd();
+        // SAFETY: `F_SETFD` sets the flags of `fd`, which `leak` keeps open, and touches no
+        // memory.
+        assert_eq!(unsafe { libc::fcntl(fd, libc::F_SETFD, 0) }, 0);
+        let script = format!(
+            "if {{ true >&{fd}; }} 2>/dev/null; then echo leaked; else echo closed; fi >&3"
+        );
+        assert_eq!(run(&script), "closed\n");
+    }
+
+    #[test]
+    fn a_terminal_child_gets_no_passed_descriptor() {
+        let (_reader, writer) = std::io::pipe().unwrap();
+        let (_master, slave) = super::open(super::SIZE).unwrap();
+        let sh = sh();
+        let mut request = super::request(&sh, &[], &[], Some(&slave));
+        request.pass_fd = Some(PassedFd::new(writer.as_fd()));
+        assert!(spawn(&request).is_err());
     }
 }
