@@ -439,7 +439,12 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     no prompt history.
   - Screenshots, the dev socket's restart handoff, timings and hot reload stay dev-only. A
     release build's handoff runs only from the person's `oso-restart`, over a socket pair with
-    its child ([ADR 0133](adr/0133-keeping-terminals-over-an-update.md)).
+    its child ([ADR 0133](adr/0133-keeping-terminals-over-an-update.md)). It starts only the
+    binary the instance came from, by the path it had at start, once no one but the person and
+    root can change it or a directory above it; the agent channel stops before it. The new
+    instance takes its end of the pair only from its parent, reads the terminals' masters only
+    once that instance has gone, and restores no library snapshot until the snapshot is on, so
+    its decoder reads nothing from the pair.
   - An agent it lets in reads any file oso can read, except files that may hold secrets, and
     edits the files oso has open. Any save of a buffer the person did not visit asks the person.
     `C-x C-f`, `C-x C-w`, `C-x p f`, `M-s r` and `kill-buffer` are the person's only. The channel switches buffers by
@@ -616,7 +621,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   stdin unless the caller pipes it (a review's `git cat-file --batch`), and every spawn is logged. It ships in every build since the terminal
   needs it ([ADR 0120](adr/0120-the-terminal.md)); a child in a terminal gets the
   terminal's slave as its streams and controlling terminal, in a session of its own, and
-  neither end of a terminal reaches any other child. `oso dev` builds offline,
+  neither end of a terminal reaches any other child. One descriptor may be passed, as the
+  child's descriptor 3 (`oso-restart`'s pair), with every other one close-on-exec in the
+  child, and no spawn starts while a descriptor oso just made or received is not yet
+  close-on-exec ([ADR 0133](adr/0133-keeping-terminals-over-an-update.md)). `oso dev` builds offline,
   so a changed lock file fetches nothing by itself
   ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
 - The state handoff never carries a secret buffer's content, and no position in one
@@ -624,14 +632,15 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md))
   ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)). It carries the
   unsaved text of other buffers, and kills that came from neither a secret buffer nor
-  the clipboard, in pieces through the socket and memory only, never a file. A buffer
+  the clipboard, in pieces through the dev socket or `oso-restart`'s pair and memory only,
+  never a file. A buffer
   that may hold secrets with unsaved edits holds the restart, and the refusal names it
   without quoting it ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md),
   [ADR 0090](adr/0090-oso-dev-carries-unsaved-text.md)). The new instance judges each
   carried path again and withholds the buffer until then. Minibuffer histories are carried
   too; they never hold an answer given around a secret buffer or a passphrase. The
   fingerprints of secret kills are not carried, so a secret copied to the clipboard before a
-  restart yanks back as ordinary text after it, under `oso dev` only, unless the clipboard
+  restart yanks back as ordinary text after it, under `oso dev` or `oso-restart`, unless the clipboard
   kept the concealed mark. Build errors reach the editor as
   cargo's message and span, never its rendered text with escape sequences.
 - Dev builds trust the same user: any process running as the same user can

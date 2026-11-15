@@ -889,6 +889,14 @@ Full details are in [`security.md`](security.md).
     Only the instance's parent gets terminals. A hosted session keeps its id, space and
     baseline, and its bridge finds the new instance through the `<pid>-follows` record
     beside its socket.
+  - The state, its texts, its terminals and the requests live in `carry/`, which
+    `oso-restart` uses too, in release builds
+    ([ADR 0133](adr/0133-keeping-terminals-over-an-update.md)): the instance going starts its own
+    binary, checked by owner and mode up to the root, with one end of a socket pair as its
+    descriptor 3. Its `oso-restart` thread plays the supervisor, asking its own UI thread the
+    requests the dev socket brings and the new instance over the pair; the new instance's
+    `oso-carried` thread answers. The masters go over the pair and are read only once the
+    instance going has gone. No socket listens, and none of the dev methods ship.
 - **Control socket:** agents can send keys, run commands, read state and take
   screenshots ([ADR 0016](adr/0016-dev-control-socket.md)). The protocol is
   JSON Lines, and `oso ctl` is the client
