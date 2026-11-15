@@ -606,6 +606,11 @@ The UI thread never blocks on I/O or parsing:
   directories of shown listings once a second, and a stamp that differs from the one read
   before the listing lists it again
   ([ADR 0134](adr/0134-a-directory-editor.md)).
+- The directory editor's file operations run on `oso-files` (`crates/oso/src/dired/ops.rs`,
+  glue in `app/dired/ops.rs`), one at a time: copying, moving, deleting and making directories
+  from the listed directory's descriptor, after the questions the UI asked. It reports how far
+  it got and how it ended (`UserEvent::FileOps`), and `C-g` stops it between two entries
+  ([ADR 0134](adr/0134-a-directory-editor.md)).
 - A prompt's list past 5000 candidates is built and matched on a thread of its own
   (`app/completions.rs`), from a job `oso_core::complete` makes over `Arc` snapshots, superseded
   by the next through a generation. The rows shown stay and the count says `…` until the result

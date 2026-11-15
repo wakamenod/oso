@@ -413,3 +413,151 @@ fn the_dots_are_read_from_the_directory() {
     assert_eq!(above.mode, on_disk.mode());
     assert!(here.mode_text().starts_with('d'));
 }
+
+#[test]
+fn a_rename_refuses_what_is_there_unless_it_replaces_it() {
+    let scratch = Scratch::new("rename");
+    fs::write(scratch.0.join("a"), b"one").unwrap();
+    fs::write(scratch.0.join("b"), b"two").unwrap();
+    fs::create_dir(scratch.0.join("sub")).unwrap();
+    let directory = Directory::open(&scratch.0).unwrap();
+    let sub = directory.open_directory(name("sub")).unwrap().unwrap();
+    let refused = directory.rename_to(name("a"), &directory, name("b"), false);
+    assert_eq!(refused.unwrap_err().kind(), ErrorKind::AlreadyExists);
+    directory
+        .rename_to(name("a"), &sub, name("moved"), false)
+        .unwrap();
+    assert_eq!(fs::read(scratch.0.join("sub/moved")).unwrap(), b"one");
+    directory
+        .rename_to(name("b"), &sub, name("moved"), true)
+        .unwrap();
+    assert_eq!(fs::read(scratch.0.join("sub/moved")).unwrap(), b"two");
+    assert!(
+        directory
+            .rename_to(name("../x"), &sub, name("y"), false)
+            .is_err()
+    );
+}
+
+#[test]
+fn a_tree_is_removed_without_following_its_links() {
+    let scratch = Scratch::new("tree");
+    let outside = scratch.0.join("outside");
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("kept"), b"").unwrap();
+    let tree = scratch.0.join("tree");
+    fs::create_dir_all(tree.join("a/b")).unwrap();
+    fs::write(tree.join("a/b/file"), b"").unwrap();
+    symlink(&outside, tree.join("a/link")).unwrap();
+    let directory = Directory::open(&scratch.0).unwrap();
+    let mut removed = 0;
+    directory
+        .remove_tree(name("tree"), &|| false, &mut || removed += 1)
+        .unwrap();
+    assert!(!tree.exists());
+    assert!(outside.join("kept").exists(), "a link's target stays");
+    assert_eq!(removed, 5);
+    // A link itself is removed, not what it leads to.
+    symlink(&outside, scratch.0.join("alone")).unwrap();
+    directory.remove(name("alone")).unwrap();
+    assert!(outside.exists());
+}
+
+#[test]
+fn a_tree_removal_stops_when_asked() {
+    let scratch = Scratch::new("tree-stop");
+    fs::create_dir(scratch.0.join("tree")).unwrap();
+    fs::write(scratch.0.join("tree/a"), b"").unwrap();
+    let directory = Directory::open(&scratch.0).unwrap();
+    let stopped = directory.remove_tree(name("tree"), &|| true, &mut || {});
+    assert_eq!(stopped.unwrap_err().kind(), ErrorKind::Interrupted);
+    assert!(scratch.0.join("tree/a").exists());
+}
+
+#[test]
+fn a_copy_keeps_the_mode_and_time_and_replaces_only_when_asked() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new("copy");
+    let source = scratch.0.join("source");
+    fs::write(&source, b"text").unwrap();
+    fs::set_permissions(&source, fs::Permissions::from_mode(0o640)).unwrap();
+    let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000);
+    fs::File::options()
+        .write(true)
+        .open(&source)
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+    fs::create_dir(scratch.0.join("to")).unwrap();
+    fs::write(scratch.0.join("to/there"), b"old").unwrap();
+    let directory = Directory::open(&scratch.0).unwrap();
+    let to = directory.open_directory(name("to")).unwrap().unwrap();
+    directory
+        .copy_file_to(name("source"), &to, name("copy"), false)
+        .unwrap();
+    let copy = fs::metadata(scratch.0.join("to/copy")).unwrap();
+    assert_eq!(fs::read(scratch.0.join("to/copy")).unwrap(), b"text");
+    assert_eq!(copy.mode() & 0o777, 0o640);
+    assert_eq!(copy.modified().unwrap(), old);
+    let refused = directory.copy_file_to(name("source"), &to, name("there"), false);
+    assert_eq!(refused.unwrap_err().kind(), ErrorKind::AlreadyExists);
+    assert_eq!(fs::read(scratch.0.join("to/there")).unwrap(), b"old");
+    directory
+        .copy_file_to(name("source"), &to, name("there"), true)
+        .unwrap();
+    assert_eq!(fs::read(scratch.0.join("to/there")).unwrap(), b"text");
+    // No file of its own is left beside it.
+    assert_eq!(fs::read_dir(scratch.0.join("to")).unwrap().count(), 2);
+}
+
+#[test]
+fn a_link_is_copied_as_a_link_and_never_followed_as_a_file() {
+    let scratch = Scratch::new("copy-link");
+    symlink("somewhere/else", scratch.0.join("link")).unwrap();
+    fs::write(scratch.0.join("target"), b"secret").unwrap();
+    symlink("target", scratch.0.join("to-target")).unwrap();
+    let directory = Directory::open(&scratch.0).unwrap();
+    directory
+        .copy_link_to(name("link"), &directory, name("copy"), false)
+        .unwrap();
+    assert_eq!(
+        fs::read_link(scratch.0.join("copy")).unwrap(),
+        PathBuf::from("somewhere/else")
+    );
+    // A link given as a file is refused, not read through.
+    assert!(
+        directory
+            .copy_file_to(name("to-target"), &directory, name("x"), false)
+            .is_err()
+    );
+    assert!(!scratch.0.join("x").exists());
+}
+
+#[test]
+fn a_directory_is_made_with_a_mode_or_the_one_there_is_opened() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new("mkdir");
+    let directory = Directory::open(&scratch.0).unwrap();
+    let made = directory.make_directory(name("private"), 0o700).unwrap();
+    assert!(made.is_some());
+    let mode = fs::metadata(scratch.0.join("private"))
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o700);
+    assert!(
+        directory
+            .make_directory(name("private"), 0o755)
+            .unwrap()
+            .is_some()
+    );
+    symlink("private", scratch.0.join("link")).unwrap();
+    assert!(
+        directory
+            .make_directory(name("link"), 0o755)
+            .unwrap()
+            .is_none()
+    );
+    let (device, _) = directory.identity().unwrap().unwrap();
+    assert_eq!(device, fs::metadata(&scratch.0).unwrap().dev());
+}

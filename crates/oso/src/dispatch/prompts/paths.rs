@@ -29,6 +29,9 @@ impl Dispatcher {
             ArgSpec::Directory { prompt, history } => {
                 self.read_file(editor, id, prefix, prompt, history, true)
             }
+            ArgSpec::Target { prompt, history } => {
+                self.read_target(editor, id, prefix, prompt, history)
+            }
             ArgSpec::ProjectFile { history } => {
                 self.read_project(editor, id, prefix, ProjectPrompt::Files { history })
             }
@@ -61,6 +64,28 @@ impl Dispatcher {
             return refused;
         }
         if let Some(prompt) = open_path_prompt(editor, prompt, history, directory, None) {
+            self.reading.push(Reading::run(id, prefix, prompt));
+        }
+        (redraw(), Ok(()))
+    }
+
+    /// Opens the prompt that reads where a listing's rows go for the command `id`: a path, as
+    /// `C-x C-f` reads one, starting at the directory of the next window's listing, or with
+    /// `C-u` this one's (ADR 0134). The prefix argument goes on to the command.
+    fn read_target(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+        prompt: &'static str,
+        history: &'static str,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        if let Some(refused) = refused_in_a_prompt(editor) {
+            return refused;
+        }
+        let this_one = matches!(prefix, Some(Prefix::Universal(_)));
+        let start = editor.listing_target(this_one);
+        if let Some(prompt) = open_path_prompt(editor, prompt, history, false, start.as_deref()) {
             self.reading.push(Reading::run(id, prefix, prompt));
         }
         (redraw(), Ok(()))

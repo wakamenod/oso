@@ -13,4 +13,5 @@ pub const BINDINGS: &[(&str, &str)] = &[("C-x d", "dired"), ("C-x C-j", "dired-j
 pub const LISTING: &[&[(&str, &str)]] = &[
     crate::commands::dired::KEYS,
     crate::commands::dired::MARK_KEYS,
+    crate::commands::dired::OPERATION_KEYS,
 ];

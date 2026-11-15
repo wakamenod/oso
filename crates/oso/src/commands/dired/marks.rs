@@ -66,7 +66,7 @@ pub const KEYS: &[(&str, &str)] = &[
 
 /// The lines a mark command means: those the region covers while it is shown, else `count`
 /// rows from each cursor's, down, or up for a negative count. Whether the region gave them.
-fn marked_lines(ctx: &Ctx<'_>, count: isize) -> (Vec<usize>, bool) {
+pub(super) fn marked_lines(ctx: &Ctx<'_>, count: isize) -> (Vec<usize>, bool) {
     let (window, buffer) = ctx.editor.current();
     let text = buffer.text();
     let mut lines = Vec::new();

@@ -208,3 +208,46 @@ fn u_and_t_ask_the_host() {
         ]
     );
 }
+
+#[test]
+fn d_asks_the_host_for_the_rows_and_the_answers_confirm() {
+    let (mut editor, id) = listed();
+    let _ = run(
+        &mut editor,
+        "dired-do-delete",
+        Args::with_prefix(Some(oso_core::command::Prefix::Number(2))),
+    );
+    let _ = run(&mut editor, "dired-do-delete-confirmed", Args::NONE);
+    let _ = run(&mut editor, "dired-do-overwrite-confirmed", Args::NONE);
+    assert_eq!(
+        editor.take_listing_requests(),
+        [
+            ListingRequest::Delete {
+                buffer: id,
+                lines: vec![3, 4]
+            },
+            ListingRequest::DeleteConfirmed,
+            ListingRequest::OverwriteConfirmed,
+        ]
+    );
+}
+
+#[test]
+fn the_operations_are_the_persons() {
+    let registry = crate::commands::registry();
+    for name in [
+        "dired-do-copy",
+        "dired-do-rename",
+        "dired-do-delete",
+        "dired-create-directory",
+        "dired-do-delete-confirmed",
+        "dired-do-overwrite-confirmed",
+    ] {
+        let id = registry.lookup(name).unwrap();
+        assert_eq!(
+            registry.get(id).unwrap().reach,
+            oso_core::command::Reach::Person,
+            "{name}"
+        );
+    }
+}

@@ -542,6 +542,46 @@ an operation after the file in hand and says how far it got.
     host share.
   - The stamp of the directory opened, by its descriptor, goes with step 1b-2's identity check.
 
+### Step 1b-2: the operations
+
+- **Keys:** `C` copies, `R` renames or moves, `D` deletes and `+` makes a directory with its
+  parents. Each acts on the marked rows, or with none on the row at point, the rows a shown
+  region covers, or for `D` the next rows of a count. All are `Person`, as are the commands the
+  questions run on `y` (`dired-do-delete-confirmed`, `dired-do-overwrite-confirmed`).
+- **Where to:** `C` and `R` read a path in `C-x C-f`'s prompt (`ArgSpec::Target`), starting at
+  the directory of the next tiled window, in `C-x o`'s order, that shows a listing, or with `C-u`
+  this listing's (`Editor::listing_target`). An existing directory takes the rows by their names;
+  one row alone may take a new name.
+- **The `oso-files` thread** runs one operation at a time (`dired/ops.rs`,
+  `dired/ops/worker.rs`). It opens the listed directory again and checks it is the one listed by
+  device and inode (read from the descriptor it was listed from), reaches each source from it by
+  name following no link, and stops at the first error. Past 500 ms the echo area says how far
+  it got, at most every 100 ms. `C-g` with nothing else to do (`Quit::Operation`) stops it after
+  the entry in hand, and the message says how many were done. Every listing of a directory it
+  changed is listed again.
+- **The platform's calls** (`file_meta::Directory`): `rename_to` (`renameatx_np` with
+  `RENAME_EXCL` on macOS, `renameat2` with `RENAME_NOREPLACE` on Linux, unless replacing),
+  `remove`, `remove_tree` (from each directory's descriptor, following no link, at most
+  `MAX_DEPTH` deep, stopping at another device), `copy_file_to` (a clone with `fclonefileat` on
+  macOS, else `fcopyfile` with data, mode, times and extended attributes; `std`'s copy with mode
+  and times elsewhere; written to disk before a move removes its source), `copy_link_to`,
+  `make_directory` (with the source's mode, less the umask) and `identity`.
+- **Writing over:** what is at the targets is found first, and nothing is written; one question
+  names how many and the first three, and its `y` writes over exactly those, a different set
+  found then asking again. A file written over is copied beside it under a name of its own, then
+  renamed over it. A directory is never written over a file or a file over a directory; a
+  directory copied onto one of its name merges into it, and one moved onto one is refused.
+- **Deleting** asks first, `Delete 2 files (old/, a.txt) and all the directories hold?`, and
+  deletes for good. A move across file systems copies, then deletes the source the same way.
+- **The author's answers:** a file whose buffer has unsaved edits is neither deleted nor moved
+  away (the message names the buffer, before the question and again after its `y`); a tree is
+  never gone into across file systems (the error names where); a buffer visiting a moved file
+  follows it (`Editor::file_moved`), keeping its edits, judged again by its new name and never
+  less secret.
+- **Names in questions and messages** show control, bidirectional and invisible characters as
+  escapes, so no name passes for another.
+- **Windows:** renames, removals and copies go by path, and links are not copied yet.
+
 ## Consequences
 
 - The author gets a daily directory editor in two pull requests, with the rest listed.

@@ -44,6 +44,12 @@ impl Buffer {
         self.recheck_highlighting();
     }
 
+    /// Counts a file moved to a name that may hold secrets as such (ADR 0134).
+    pub(crate) fn judge_moved_secret(&mut self) {
+        self.verdict = Verdict::SecretName;
+        self.recheck_highlighting();
+    }
+
     /// Whether the editor keeps this buffer for itself. It is not the user's work:
     /// it is not handed over, saved or counted at an exit.
     pub fn is_internal(&self) -> bool {

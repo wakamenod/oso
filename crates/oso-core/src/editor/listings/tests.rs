@@ -217,3 +217,53 @@ fn a_name_starts_at_its_column_or_at_a_short_lines_end() {
     assert_eq!(record.name_start(&text, 3), TEXT.find("notes").unwrap());
     assert_eq!(record.name_start(&text, 99), TEXT.len());
 }
+
+#[test]
+fn the_target_is_the_next_windows_listing_or_this_one() {
+    let mut editor = Editor::default();
+    editor.set_view_size(crate::window::ViewSize::new(40, 120));
+    let here = editor.add_listing(PathBuf::from("/a"));
+    editor.show(here);
+    assert_eq!(editor.listing_target(false), Some(PathBuf::from("/a")));
+    editor
+        .split_window(crate::frame::Way::Across, false)
+        .unwrap();
+    let there = editor.add_listing(PathBuf::from("/b"));
+    editor.other_window(1);
+    editor.show(there);
+    editor.other_window(1);
+    assert_eq!(editor.window().buffer(), here);
+    assert_eq!(editor.listing_target(false), Some(PathBuf::from("/b")));
+    assert_eq!(editor.listing_target(true), Some(PathBuf::from("/a")));
+}
+
+#[test]
+fn a_moved_file_keeps_its_edits_and_becomes_no_less_secret() {
+    let mut editor = Editor::default();
+    let mut buffer = crate::buffer::Buffer::visiting(PathBuf::from("/w/notes.md"));
+    buffer.apply_load(decode_all(b"text", Default::default()));
+    buffer.judge_secret(Some(&[PathBuf::from("/w/notes.md")]));
+    let id = editor.add_buffer(buffer);
+    editor.file_moved(&PathBuf::from("/w"), &PathBuf::from("/x/w"));
+    assert_eq!(
+        editor.buffer(id).unwrap().path(),
+        Some(PathBuf::from("/x/w/notes.md").as_path())
+    );
+    editor.file_moved(&PathBuf::from("/x/w/notes.md"), &PathBuf::from("/x/.env"));
+    let buffer = editor.buffer(id).unwrap();
+    assert_eq!(buffer.name(), ".env");
+    assert!(buffer.is_secret());
+    editor.file_moved(&PathBuf::from("/x/.env"), &PathBuf::from("/x/plain.md"));
+    assert!(editor.buffer(id).unwrap().is_secret(), "never less secret");
+}
+
+#[test]
+fn quit_stops_a_running_operation_once() {
+    let mut editor = Editor::default();
+    assert_eq!(editor.quit(), crate::editor::Quit::Nothing);
+    editor.set_operation_running(true);
+    assert_eq!(editor.quit(), crate::editor::Quit::Operation);
+    assert_eq!(editor.quit(), crate::editor::Quit::Nothing);
+    assert!(editor.take_operation_stop());
+    assert!(!editor.take_operation_stop());
+}
