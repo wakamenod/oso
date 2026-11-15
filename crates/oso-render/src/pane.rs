@@ -168,6 +168,10 @@ pub enum Face {
     DiredSpecial,
     /// A row's mode, owner, size and time, dim.
     DiredDetails,
+    /// A row's mark, `*`.
+    DiredMark,
+    /// The name of a marked row.
+    DiredMarked,
     /// A terminal's colour 0, black (ADR 0120): one colour, its foreground, which a cell takes
     /// for its text or its background. A theme gives the 16 colours that suit it.
     TerminalColor0,
@@ -237,6 +241,8 @@ impl Face {
             Highlight::DiredExecutable => Self::DiredExecutable,
             Highlight::DiredSpecial => Self::DiredSpecial,
             Highlight::DiredDetails => Self::DiredDetails,
+            Highlight::DiredMark => Self::DiredMark,
+            Highlight::DiredMarked => Self::DiredMarked,
         }
     }
 

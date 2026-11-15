@@ -16,7 +16,7 @@ use super::tests::{absolute, visiting, with};
 fn a_listing_is_handed_over_to_be_listed_again() {
     let directory = absolute("/p/src");
     let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
-    let id = editor.add_listing("src/", PathBuf::from(&directory));
+    let id = editor.add_listing(PathBuf::from(&directory));
     editor.show(id);
     let state = export(&editor, &[], None, None).unwrap();
     let parsed = parse(&state).unwrap();

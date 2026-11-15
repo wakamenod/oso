@@ -7,7 +7,9 @@ use std::time::{Duration, SystemTime};
 use oso_core::syntax::Highlight;
 use oso_platform::file_meta::EntryKind;
 
-use super::{Entry, Leads, build};
+use std::collections::HashSet;
+
+use super::{Entry, Leads, Shape, build};
 
 /// 2026-11-15 09:12:00 UTC.
 fn at() -> SystemTime {
@@ -19,6 +21,7 @@ fn entry(name: &[u8], kind: EntryKind, mode: u32, len: u64) -> Entry {
         name: unsafe_free_name(name),
         kind,
         mode,
+        mode_text: super::super::rows::mode_text(mode),
         len,
         modified: Some(at()),
         ..Entry::default()
@@ -57,7 +60,14 @@ fn entries() -> Vec<Entry> {
 
 fn shown(details: bool, entries: &[Entry]) -> (String, super::Shown) {
     let refs: Vec<&Entry> = entries.iter().collect();
-    let shown = build(b"~/crates/", &[], &refs, details, at(), &mut |_| 0);
+    let marked = HashSet::new();
+    let shape = Shape {
+        header: b"~/crates/",
+        notes: &[],
+        details,
+        marked: &marked,
+    };
+    let shown = build(&shape, &refs, at(), &mut |_| 0);
     (shown.text.text().to_string(), shown)
 }
 
@@ -171,7 +181,14 @@ fn notes_go_under_the_header() {
     let notes = vec!["reading… 3 entries so far".to_owned()];
     let entries = entries();
     let refs: Vec<&Entry> = entries.iter().collect();
-    let shown = build(b"/tmp/", &notes, &refs, true, at(), &mut |_| 0);
+    let marked = HashSet::new();
+    let shape = Shape {
+        header: b"/tmp/",
+        notes: &notes,
+        details: true,
+        marked: &marked,
+    };
+    let shown = build(&shape, &refs, at(), &mut |_| 0);
     assert_eq!(shown.header_lines, 2);
     let text = shown.text.text().to_string();
     assert_eq!(text.lines().nth(1).unwrap(), "  reading… 3 entries so far");
@@ -183,13 +200,13 @@ fn notes_go_under_the_header() {
 #[test]
 fn windows_rows_show_their_attributes() {
     let mut directory = entry(b"oso", EntryKind::Directory, 0, 0);
-    directory.attributes = 0x10;
+    directory.mode_text = "d----".to_owned();
     let mut link = entry(b"latest", EntryKind::Link, 0, 0);
-    link.attributes = 0x420;
+    link.mode_text = "la---".to_owned();
     link.target = Some("oso".into());
     link.leads = Leads::Directory;
     let mut file = entry(b"AGENTS.md", EntryKind::File, 0, 4096);
-    file.attributes = 0x20;
+    file.mode_text = "-a---".to_owned();
     let rows = [directory, link, file];
     let (text, shown) = shown(true, &rows);
     let lines: Vec<&str> = text.lines().skip(1).collect();
@@ -200,4 +217,29 @@ fn windows_rows_show_their_attributes() {
     let face_at = |needle: &str| shown.highlights.at(text.find(needle).unwrap());
     assert_eq!(face_at("latest"), Some(Highlight::DiredSymlink));
     assert_eq!(face_at("oso\n"), Some(Highlight::DiredDirectory));
+}
+
+#[test]
+fn a_marked_row_shows_its_mark_and_its_name_in_the_marked_face() {
+    let rows = entries();
+    let refs: Vec<&Entry> = rows.iter().collect();
+    let marked: HashSet<std::ffi::OsString> = ["run.sh".into(), ".".into()].into_iter().collect();
+    let shape = Shape {
+        header: b"/tmp/",
+        notes: &[],
+        details: false,
+        marked: &marked,
+    };
+    let shown = build(&shape, &refs, at(), &mut |_| 0);
+    let text = shown.text.text().to_string();
+    assert!(text.contains("\n* run.sh\n"), "{text}");
+    // `.` is never marked.
+    assert!(text.contains("\n  .\n"), "{text}");
+    assert_eq!(shown.marked, 1);
+    let at = text.find("* run").unwrap();
+    assert_eq!(shown.highlights.at(at), Some(Highlight::DiredMark));
+    assert_eq!(shown.highlights.at(at + 2), Some(Highlight::DiredMarked));
+    let row = &shown.rows[5];
+    assert_eq!(row.face, Some(Highlight::DiredExecutable));
+    assert_eq!(row.name_len, "run.sh".len());
 }

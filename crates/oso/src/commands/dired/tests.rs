@@ -16,7 +16,7 @@ const TEXT: &str = "  ~/d/:\n  drwx  .\n  drwx  ..\n  -rw-  a.md\n  -rw-  b.md\n
 /// An editor showing a listing of `/tmp/d` with four rows, point on `a.md`.
 fn listed() -> (Editor, oso_core::buffer::BufferId) {
     let mut editor = editor("");
-    let id = editor.add_listing("d/", PathBuf::from("/tmp/d"));
+    let id = editor.add_listing(PathBuf::from("/tmp/d"));
     editor.show(id);
     let shown = ListingShown {
         record: Listing {
@@ -25,10 +25,10 @@ fn listed() -> (Editor, oso_core::buffer::BufferId) {
             name_column: 8,
             rows: 4,
             details: true,
-            note: "by name".to_owned(),
+            order: oso_core::editor::ListingOrder::Name,
+            marked: 0,
         },
         highlights: Highlights::new(TEXT.len()),
-        name: "d/".to_owned(),
         resolved: Some(vec![PathBuf::from("/tmp/d")]),
         line: 3,
         lines: Vec::new(),
@@ -140,4 +140,71 @@ fn quit_window_shows_the_buffer_before() {
     let _ = run(&mut editor, "quit-window", Args::NONE);
     assert_ne!(editor.window().buffer(), id);
     assert!(editor.buffer(id).is_some());
+}
+
+#[test]
+fn m_marks_the_row_and_moves_down_and_del_moves_up_and_unmarks() {
+    let (mut editor, id) = listed();
+    let _ = run(&mut editor, "dired-mark", Args::NONE);
+    assert_eq!(cursor(&editor), TEXT.find("b.md").unwrap());
+    let _ = run(&mut editor, "dired-unmark-backward", Args::NONE);
+    assert_eq!(cursor(&editor), TEXT.find("a.md").unwrap());
+    let _ = run(
+        &mut editor,
+        "dired-mark",
+        Args::with_prefix(Some(oso_core::command::Prefix::Number(2))),
+    );
+    assert_eq!(
+        editor.take_listing_requests(),
+        [
+            ListingRequest::Mark {
+                buffer: id,
+                lines: vec![3],
+                on: true
+            },
+            ListingRequest::Mark {
+                buffer: id,
+                lines: vec![3],
+                on: false
+            },
+            ListingRequest::Mark {
+                buffer: id,
+                lines: vec![3, 4],
+                on: true
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_shown_region_marks_the_rows_it_covers_and_point_stays() {
+    let (mut editor, id) = listed();
+    let _ = run(&mut editor, "set-mark-command", Args::NONE);
+    let _ = run(&mut editor, "dired-next-line", Args::NONE);
+    let at = cursor(&editor);
+    let _ = run(&mut editor, "dired-mark", Args::NONE);
+    assert_eq!(cursor(&editor), at);
+    let requests = editor.take_listing_requests();
+    assert_eq!(
+        requests.last(),
+        Some(&ListingRequest::Mark {
+            buffer: id,
+            lines: vec![3, 4],
+            on: true
+        })
+    );
+}
+
+#[test]
+fn u_and_t_ask_the_host() {
+    let (mut editor, id) = listed();
+    let _ = run(&mut editor, "dired-unmark-all-marks", Args::NONE);
+    let _ = run(&mut editor, "dired-toggle-marks", Args::NONE);
+    assert_eq!(
+        editor.take_listing_requests(),
+        [
+            ListingRequest::UnmarkAll { buffer: id },
+            ListingRequest::ToggleMarks { buffer: id }
+        ]
+    );
 }

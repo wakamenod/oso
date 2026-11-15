@@ -97,4 +97,8 @@ pub enum Highlight {
     DiredSpecial,
     /// The mode, owner, size and time of a row, said quietly.
     DiredDetails,
+    /// A row's mark, `*`.
+    DiredMark,
+    /// The name of a marked row.
+    DiredMarked,
 }

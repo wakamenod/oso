@@ -397,3 +397,19 @@ fn a_target_kind_follows_the_link() {
     );
     assert!(directory.target_kind(name("../dir")).is_err());
 }
+
+#[test]
+fn the_dots_are_read_from_the_directory() {
+    let scratch = Scratch::new("dots");
+    fs::create_dir(scratch.0.join("inner")).unwrap();
+    let directory = Directory::open(&scratch.0.join("inner")).unwrap();
+    let [here, above] = directory.dots();
+    let (here, above) = (here.unwrap(), above.unwrap());
+    assert_eq!(here.name, ".");
+    assert_eq!(above.name, "..");
+    assert_eq!(here.kind, EntryKind::Directory);
+    assert_eq!(above.kind, EntryKind::Directory);
+    let on_disk = fs::metadata(&scratch.0).unwrap();
+    assert_eq!(above.mode, on_disk.mode());
+    assert!(here.mode_text().starts_with('d'));
+}

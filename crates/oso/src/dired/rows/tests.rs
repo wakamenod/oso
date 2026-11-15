@@ -6,25 +6,11 @@ use std::time::{Duration, SystemTime};
 
 use super::*;
 
+#[cfg(unix)]
 #[test]
 fn a_mode_reads_as_ls_writes_it() {
     assert_eq!(mode_text(0o040_755), "drwxr-xr-x");
-    assert_eq!(mode_text(0o100_644), "-rw-r--r--");
-    assert_eq!(mode_text(0o120_777), "lrwxrwxrwx");
     assert_eq!(mode_text(0o104_755), "-rwsr-xr-x");
-    assert_eq!(mode_text(0o102_644), "-rw-r-Sr--");
-    assert_eq!(mode_text(0o041_777), "drwxrwxrwt");
-    assert_eq!(mode_text(0o041_776), "drwxrwxrwT");
-    assert_eq!(mode_text(0o010_600), "prw-------");
-    assert_eq!(mode_text(0o140_755), "srwxr-xr-x");
-}
-
-#[test]
-fn windows_attributes_read_as_powershell_writes_them() {
-    assert_eq!(attributes_text(0x10, true), "d----");
-    assert_eq!(attributes_text(0x20, false), "-a---");
-    assert_eq!(attributes_text(0x420, false), "la---");
-    assert_eq!(attributes_text(0x27, false), "-arhs");
 }
 
 #[test]

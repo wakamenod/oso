@@ -7,7 +7,7 @@ use super::palettes::Name;
 use crate::pane::Face;
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-pub(super) const FACES: [Face; 86] = [
+pub(super) const FACES: [Face; 88] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -94,6 +94,8 @@ pub(super) const FACES: [Face; 86] = [
     Face::DiredExecutable,
     Face::DiredSpecial,
     Face::DiredDetails,
+    Face::DiredMark,
+    Face::DiredMarked,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -190,6 +192,8 @@ pub(super) const fn index(face: Face) -> usize {
         Face::DiredExecutable => 83,
         Face::DiredSpecial => 84,
         Face::DiredDetails => 85,
+        Face::DiredMark => 86,
+        Face::DiredMarked => 87,
     }
 }
 
@@ -301,6 +305,8 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         Face::DiredExecutable => (Terminal(10), BgMain),
         Face::DiredSpecial => (Terminal(11), BgMain),
         Face::DiredDetails => (FgPrompt, BgMain),
+        // A mark and a marked name in the warning's colour, as dired's marks stand out.
+        Face::DiredMark | Face::DiredMarked => (Warning, BgMain),
     }
 }
 

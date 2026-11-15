@@ -502,7 +502,9 @@ pub(crate) mod tests {
             | Face::DiredSpecial
             | Face::DiredBrokenSymlink
             | Face::DiredExecutable
-            | Face::DiredDetails => &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)],
+            | Face::DiredDetails
+            | Face::DiredMark
+            | Face::DiredMarked => &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)],
             // A terminal's colours are read on the text's background, as highlighted text is,
             // but its blacks, greys and whites, which programs draw on one another (ADR 0120).
             Face::TerminalColor1

@@ -195,6 +195,7 @@ pub struct oso_platform::file_meta::Directory
 impl oso_platform::file_meta::Directory
 pub fn oso_platform::file_meta::Directory::create_directory(&self, &std::ffi::os_str::OsStr) -> std::io::error::Result<core::option::Option<Self>>
 pub fn oso_platform::file_meta::Directory::create_file(&self, &std::ffi::os_str::OsStr, u32) -> std::io::error::Result<std::fs::File>
+pub fn oso_platform::file_meta::Directory::dots(&self) -> [std::io::error::Result<oso_platform::file_meta::EntryMeta>; 2]
 pub fn oso_platform::file_meta::Directory::entries(&self) -> std::io::error::Result<oso_platform::file_meta::Entries>
 pub fn oso_platform::file_meta::Directory::kind_of(&self, &std::ffi::os_str::OsStr) -> std::io::error::Result<oso_platform::file_meta::EntryKind>
 pub fn oso_platform::file_meta::Directory::list_with_metadata(&self, &mut dyn core::ops::function::FnMut(std::io::error::Result<oso_platform::file_meta::EntryMeta>) -> bool) -> std::io::error::Result<()>
@@ -228,6 +229,8 @@ pub oso_platform::file_meta::EntryMeta::modified: core::option::Option<std::time
 pub oso_platform::file_meta::EntryMeta::name: std::ffi::os_str::OsString
 pub oso_platform::file_meta::EntryMeta::others: bool
 pub oso_platform::file_meta::EntryMeta::owner: core::option::Option<(u32, u32)>
+impl oso_platform::file_meta::EntryMeta
+pub fn oso_platform::file_meta::EntryMeta::mode_text(&self) -> alloc::string::String
 impl core::clone::Clone for oso_platform::file_meta::EntryMeta
 pub fn oso_platform::file_meta::EntryMeta::clone(&self) -> oso_platform::file_meta::EntryMeta
 impl core::cmp::Eq for oso_platform::file_meta::EntryMeta

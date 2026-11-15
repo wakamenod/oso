@@ -13,6 +13,7 @@ mod order;
 mod read;
 pub(crate) mod rows;
 
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -26,33 +27,8 @@ pub(crate) use read::list;
 /// The most entries a listing keeps; past them it says it is cut (ADR 0134).
 pub(crate) const MAX_ENTRIES: usize = 100_000;
 
-/// How a listing orders its rows, directories first in each.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Sort {
-    /// By name, ignoring ASCII case, then by bytes.
-    #[default]
-    Name,
-    /// By modification time, newest first, then by name.
-    Time,
-}
-
-impl Sort {
-    /// What the modeline says of it, as dired's `Dired by name`.
-    pub(crate) fn note(self) -> &'static str {
-        match self {
-            Self::Name => "by name",
-            Self::Time => "by date",
-        }
-    }
-
-    /// The other order, as `s` toggles them.
-    pub(crate) fn toggled(self) -> Self {
-        match self {
-            Self::Name => Self::Time,
-            Self::Time => Self::Name,
-        }
-    }
-}
+/// How a listing orders its rows, directories first in each: oso-core's, as its record keeps it.
+pub(crate) use oso_core::editor::ListingOrder as Sort;
 
 /// What a listing shows: its order and whether its rows show their details.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,6 +60,11 @@ pub(crate) struct Request {
     /// Whether to send partial listings while a large directory is read: not when the buffer
     /// shows a whole listing of it already, which a partial one would cut short.
     pub(crate) partials: bool,
+    /// The names marked, which the rows show marked.
+    pub(crate) marked: Arc<HashSet<OsString>>,
+    /// Whether to mark every other row in their place, as `t` does, once the whole listing is
+    /// read: the names marked then come back with it.
+    pub(crate) invert: bool,
 }
 
 /// A row of a listing: what its line names.
@@ -95,6 +76,10 @@ pub(crate) struct Row {
     pub(crate) enters: bool,
     /// When it was last modified, by which a listing by date is ordered.
     pub(crate) modified: Option<std::time::SystemTime>,
+    /// The face of its name while it is not marked.
+    pub(crate) face: Option<oso_core::syntax::Highlight>,
+    /// The bytes its name takes in the text, as it is shown.
+    pub(crate) name_len: usize,
 }
 
 /// The index in `rows`, a listing's ordered by `sort`, of the row named as `row` is, found by
@@ -138,6 +123,10 @@ pub(crate) struct Built {
     pub(crate) resolved: Option<Vec<PathBuf>>,
     /// Whether every entry is in; a listing still reading shows those read so far.
     pub(crate) done: bool,
+    /// How many of its rows are marked.
+    pub(crate) marked: usize,
+    /// The names marked in place of the request's, when it asked to invert them.
+    pub(crate) marked_names: Option<Arc<HashSet<OsString>>>,
     /// What the directory's metadata said just before it was read, which the lister sets, so
     /// that a change the watcher sees later is one since the listing.
     pub(crate) stamp: Option<oso_core::buffer::FileStamp>,

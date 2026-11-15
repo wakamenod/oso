@@ -56,7 +56,7 @@ pub(super) fn compare<K: Keyed>(a: &K, b: &K, sort: Sort) -> Ordering {
     let within = match sort {
         Sort::Name => by_name(a, b),
         // Newest first, and an unknown time last.
-        Sort::Time => b.modified().cmp(&a.modified()).then_with(|| by_name(a, b)),
+        Sort::Date => b.modified().cmp(&a.modified()).then_with(|| by_name(a, b)),
     };
     groups.then(within)
 }
@@ -122,7 +122,7 @@ mod tests {
             entry("mid", EntryKind::File, 100),
         ];
         entries[3].modified = None;
-        sort(&mut entries, Sort::Time);
+        sort(&mut entries, Sort::Date);
         assert_eq!(names(&entries), ["dir", "new", "old", "mid"]);
     }
 }

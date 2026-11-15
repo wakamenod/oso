@@ -207,3 +207,55 @@ fn a_listing_comes_back_after_a_restart_listed_again() {
     );
     new.wait_for("point where it was", |state| state["cursor"]["row"] == row);
 }
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn marks_show_stay_over_a_refresh_and_toggle() {
+    let scratch = Scratch::new("dired-marks");
+    let notes = scratch.write("notes.md", b"agenda\n");
+    scratch.write("plan.md", b"budget\n");
+    let name = format!("{}/", scratch.path().file_name().unwrap().to_string_lossy());
+    let mut app = App::start(Some(&notes), scratch.path());
+    app.wait_until_ready();
+    app.send_keys("C-x C-j");
+    listed(&mut app, &name, "plan.md");
+    let shown = rows(&mut app);
+    go_to_row(&mut app, row_of(&shown, "notes.md"));
+    app.send_keys("m");
+    app.wait_for("one marked", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("1 marked"))
+    });
+    let marked = |app: &mut App, name: &str| {
+        rows(app)
+            .iter()
+            .any(|row| row.starts_with('*') && row.ends_with(&format!("  {name}")))
+    };
+    assert!(marked(&mut app, "notes.md"));
+    // A new file has the directory listed again, and the mark stays.
+    scratch.write("fresh.md", b"new\n");
+    listed(&mut app, &name, "fresh.md");
+    assert!(marked(&mut app, "notes.md"));
+    // `t` marks every other row, and `.` and `..` never.
+    app.send_keys("t");
+    app.wait_for("two marked", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("2 marked"))
+    });
+    assert!(marked(&mut app, "plan.md") && marked(&mut app, "fresh.md"));
+    assert!(!marked(&mut app, "notes.md"));
+    assert!(
+        !rows(&mut app)
+            .iter()
+            .any(|row| row.starts_with('*') && row.ends_with("  ."))
+    );
+    app.send_keys("U");
+    app.wait_for("none marked", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.ends_with("Dired by name"))
+    });
+    assert!(!rows(&mut app).iter().any(|row| row.starts_with('*')));
+}

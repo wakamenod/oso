@@ -37,7 +37,7 @@ fn state(editor: &Editor, id: BufferId, listing: &Listing) -> Value {
         "listing": {
             "directory": directory,
             "details": listing.details,
-            "by_date": listing.note == crate::dired::Sort::Time.note(),
+            "by_date": listing.order == oso_core::editor::ListingOrder::Date,
             "line": line,
         },
     })

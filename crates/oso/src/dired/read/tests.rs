@@ -36,6 +36,8 @@ fn request(directory: PathBuf, sort: Sort) -> Request {
         },
         home: None,
         partials: true,
+        marked: std::sync::Arc::default(),
+        invert: false,
     }
 }
 
@@ -163,6 +165,8 @@ fn rows_are_found_by_what_they_are_ordered_by() {
         name: name.into(),
         enters,
         modified: None,
+        face: None,
+        name_len: name.len(),
     };
     let rows = vec![
         row(".", true),
@@ -179,4 +183,22 @@ fn rows_are_found_by_what_they_are_ordered_by() {
     assert_eq!(position(&rows, Sort::Name, &row("b.md", true)), Some(5));
     assert_eq!(position(&rows, Sort::Name, &row("gone", false)), None);
     assert_eq!(position_of_name(&rows, "zeta".as_ref()), Some(3));
+}
+
+#[test]
+fn an_inverted_listing_marks_every_other_row_and_says_which() {
+    let scratch = Scratch::new("invert");
+    for name in ["a", "b", "c"] {
+        fs::write(scratch.0.join(name), b"").unwrap();
+    }
+    let mut asked = request(scratch.0.clone(), Sort::Name);
+    asked.marked = std::sync::Arc::new(["b".into()].into_iter().collect());
+    asked.invert = true;
+    let answers = answers(&asked);
+    let built = answers.last().unwrap().built.as_ref().unwrap();
+    let names = built.marked_names.as_ref().unwrap();
+    let mut names: Vec<_> = names.iter().map(|name| name.to_str().unwrap()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["a", "c"]);
+    assert_eq!(built.marked, 2);
 }
