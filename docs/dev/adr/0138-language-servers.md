@@ -1,6 +1,6 @@
 # 0138. Language servers
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-15
 
 ## Context
@@ -95,16 +95,28 @@ Two packages are common, and Emacs users have strong habits around them:
 | A crash | starts again if it ran 3 s or more (`eglot-autoreconnect`) | asks to restart |
 | Its log | an events buffer with every message in full | `*lsp-log*` and an io log |
 
-**oso follows Eglot (Q1).** Eglot does little of its own and feeds what the editor already has:
-Flymake, xref, `completion-at-point` and ElDoc. oso has the same shape: a layer for
-diagnostics, the jump commands, the completion matcher and floats. lsp-mode's downloads are
-network code oso does not have, and its sideline and peek windows are more UI than the roadmap
-asks for. oso differs from Eglot in four places:
+### The author's set-up
+
+The author's Emacs is built on Eglot:
+
+- `eglot-ensure` for each mode with a server;
+- Corfu with `corfu-auto`, `corfu-auto-prefix` 3 and `corfu-cycle`;
+- `consult-xref` when there are several definitions;
+- `xref-history-storage` set to a history for each window;
+- in buffers with a server, `M-,` is `xref-go-back`, over `previous-buffer` there only, and `C-M-,`
+  is `xref-go-forward`;
+- Flycheck's next and previous error on `C-M-n` and `C-M-p`;
+- `eglot-help-at-point` on `C-c C-d`, and `eglot-code-actions` on `C-c C-r`.
+
+**oso follows the author's set-up (Q1).** Eglot does little of its own and feeds what the editor
+already has: Flymake or Flycheck, xref, `completion-at-point` and ElDoc. oso has the same shape: a
+layer for diagnostics, the jump commands, the completion matcher and floats. lsp-mode's downloads
+are network code oso does not have, and its sideline and peek windows are more UI than the
+roadmap asks for. oso differs from Eglot in three places:
 
 - A server starts only in a trusted project, and ADR 0118's holds apply.
 - Every message has a bound.
 - The log has method names and sizes, never contents.
-- Completion in the buffer shows like Corfu, not in the minibuffer.
 
 Other editors, for contrast: some start the server a language's settings name as soon as a file
 opens, with no trust step, and some download servers. VS Code asks for Workspace Trust, and
@@ -112,58 +124,107 @@ leaves extensions to decide what runs in restricted mode.
 
 ## Decision
 
-Proposed. Each part names the question it answers.
+The author chose on 2026-11-15, through the coordinator:
+
+- Q1: the author's own set-up, which is built on Eglot;
+- Q2 and Q3: a built-in table of servers, so that no configuration is needed, with
+  `[lsp.servers.<name>]` only to override it;
+- Q15, Q17, Q20 and Q23: the keys and behaviour of that set-up;
+- (a) on every other question.
+
+Code actions and rename come in later steps. The author approved the crate `oso-lsp` and its
+edges, and the change to `rust-toolchain.toml` in step 12. The text names the question each part
+answers, and the steps are under [Steps](#steps).
 
 ### Which servers (Q2)
 
-- **rust-analyzer is the one built-in entry,** for Rust buffers. oso is developed in oso from M4,
-  and rust-analyzer is the server that matters there.
-- **Any other server that speaks LSP 3.17 over standard input and output can be added in the
-  configuration,** for a mode oso knows: Rust, Markdown or TOML (for example `taplo lsp stdio`
-  or `marksman server`). A mode oso does not know cannot get a server until it has a `Mode`.
-- **The built-in entry is found on `PATH`, then in `$CARGO_HOME/bin` or `~/.cargo/bin`.** An app
-  started from the Finder gets a short `PATH`, and rustup puts its proxy in Cargo's directory.
-  Neither is under the project. The configuration can name an absolute path instead, or turn
-  the entry off.
-- With the built-in entry, a program that runs for a trusted project is one that the person's
-  configuration or oso's own defaults name, never the project. See
-  [Changes to accepted ADRs](#changes-to-accepted-adrs).
+**A built-in table says which server each mode gets, how it is found and what it is told, as
+`eglot-server-programs` does.** No configuration is needed:
 
-### Configuration (Q3)
+| Modes | Server | Found | Settings oso sends |
+|---|---|---|---|
+| Rust | `rust-analyzer` | `PATH`, then `$CARGO_HOME/bin` or `~/.cargo/bin` | `cargo.targetDir = true` |
+| Go | `gopls` | `PATH`, then `$GOBIN`, the first `$GOPATH` entry's `bin`, or `~/go/bin` | `usePlaceholders`, `gofumpt`, `staticcheck` and `completeUnimported` true; `matcher = "CaseSensitive"` |
+| TypeScript, TSX, JavaScript, JSX | `typescript-language-server --stdio`, or `tsc --lsp --stdio` | see below | none |
+| LaTeX | `texlab` | `PATH` | none |
+| Swift | `sourcekit-lsp` | `PATH` | none |
+| TOML | `taplo lsp stdio` | `PATH` | none |
+| Markdown | `marksman server` | `PATH` | none |
+
+- **The settings go as `initializationOptions`** and answer `workspace/configuration` under the
+  server's section (`rust-analyzer`, `gopls`).
+- **`cargo.targetDir = true`** makes rust-analyzer's `cargo check` build in `target/rust-analyzer`,
+  so it never waits on the build lock of `just ci` or `oso dev`. The cost is a second target
+  directory.
+- **gopls's `usePlaceholders` only matters once completion has snippets,** which oso does not
+  claim (Q22), and `gofumpt` only once oso formats Go. They are set now so that nothing changes
+  when those come.
+- **The directories after `PATH` are found from oso's own environment and home, never from the
+  project.** An app started from the Finder gets a short `PATH`. rustup puts its proxy in Cargo's
+  directory, and `go install` puts gopls in Go's.
+- **TypeScript and JavaScript take the first of:**
+  1. the project's `node_modules/.bin/typescript-language-server --stdio`, when the project's
+     `node_modules/typescript/lib/tsserver.js` exists (TypeScript before its native compiler);
+  2. the project's `node_modules/.bin/tsc --lsp --stdio` (the native compiler's own server);
+  3. `tsc --lsp --stdio` on `PATH`.
+
+  `node_modules` is the one at the project's root.
+- **A server that is not installed is said once per project:** `gopls is not installed (looked on
+  PATH and in ~/go/bin)` in the echo area and `*Messages*`. It is not looked for again in that
+  project until `lsp-restart`, or a change to its override.
+- **New modes:** Go, TypeScript, TSX, JavaScript (with JSX), LaTeX and Swift, chosen by the file's
+  name as the others are, so that they can have a server. They have no highlighting until their
+  grammars come.
+
+### A server inside the project
+
+- **A project's own server, such as one in `node_modules`, runs only in a trusted project,** as
+  every server does. Trust is the gate: the person accepted running the project's code, and this
+  is the project's code.
+- **Looking for it reads only the metadata of fixed names under the root** (`node_modules/.bin/…`,
+  `node_modules/typescript/lib/tsserver.js`), on the server's thread, after the trust check. It
+  reads no file's contents and no setting of the project.
+- **The program must stay inside the root:** `node_modules/.bin`'s entries are links, so the link
+  is followed, and where it leads must be a regular file under the root, owned by this user, that
+  no one else can change. Otherwise the next choice is tried, and `*LSP*` says why.
+- **It is run by its absolute path** (`Executable::absolute`). A script's `#!/usr/bin/env node`
+  finds `node` on the child's `PATH`, which leaves the project out as always.
+
+### Overrides (Q3)
 
 ```toml
 [lsp]
-start = "trusted"                  # "trusted" (the default) or "manual" (Q4)
+start = "trusted"                  # "trusted" (the default) or "manual"
 
-[lsp.servers.rust-analyzer]        # the built-in entry; this changes it
-modes = ["rust"]
-command = ["rust-analyzer"]        # a name on PATH, or an absolute path, then arguments
+[lsp.servers.rust-analyzer]        # changes the built-in entry; every key is optional
+command = ["/opt/rust-analyzer/bin/rust-analyzer"]   # a name on PATH, or an absolute path
 env = ["CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN"]   # more names from oso's environment
 
-[lsp.servers.rust-analyzer.options] # sent as initializationOptions, and as the answer
-cargo.targetDir = true              # to workspace/configuration under "rust-analyzer"
+[lsp.servers.rust-analyzer.options] # merged key by key over the built-in settings
+check.command = "clippy"
 
-[lsp.servers.taplo]                # a server of the person's own
+[lsp.servers.gopls]
+enabled = false                    # turns a built-in entry off
+
+[lsp.servers.my-server]            # a server of the person's own
 modes = ["toml"]
-command = ["taplo", "lsp", "stdio"]
+command = ["my-server", "--stdio"]
 ```
 
-- `enabled = false` turns an entry off. A mode has at most one server. When two entries name a
-  mode, the first in the file wins and the second is reported.
+- **The table needs no configuration.** An override changes only the keys it names.
+- `modes` moves a built-in entry, or names a new entry's. A mode has at most one server: an entry
+  of the person's wins over a built-in one, and of two of the person's, the first in the file
+  wins and the second is reported.
 - `env` takes names only, refused as `process::may_pass` refuses them. Values come from oso's own
   environment, as `[sessions] env` does ([ADR 0121](0121-agent-sessions-and-spaces.md)).
 - `options` is turned from TOML into JSON on the `oso-config` thread. The file's bounds already
   apply: 256 KiB, and TOML's nesting limit.
-- **The built-in rust-analyzer entry sets `cargo.targetDir = true`,** so its `cargo check` builds
-  in `target/rust-analyzer` and never waits on the build lock of `just ci` or `oso dev`. The
-  disk cost is a second target directory.
-- A change to an entry applies to servers started after it. `lsp-restart` applies it to a
-  running one.
+- A change applies to servers started after it. `lsp-restart` applies it to a running one.
 
 ### When a server starts (Q4, Q5)
 
-- **In a trusted project, the person's first visit to a buffer of a configured mode starts that
-  mode's server for the project's root,** as `eglot-ensure` does. The start happens once the
+- **In a trusted project, the person's first visit to a buffer of a mode with a server starts
+  that mode's server for the project's root,** as `eglot-ensure` does. The start happens once the
   buffer has loaded and its project is known. A buffer in no project gets no server, as it
   cannot be trusted.
 - **What an agent's open starts waits for the person,** by ADR 0118: the buffer's mark says
@@ -343,11 +404,11 @@ Every bound lives in `oso-lsp`'s `limits`:
     when stopped. Then the counts that are not zero, as Flymake shows them: `E2 W5`, in the
     severities' faces.
 - **The message at point (Q14):** when the cursor stays 300 ms on a diagnostic, the echo area shows
-  its first line, and `+2` when more cover that place. This is what Flymake does with ElDoc. A
+  its first line, and `+2` when more cover that place, as Flymake and Flycheck do with ElDoc. A
   message the person put there stays until it times out, as usual.
-- **Keys (Q15):** `M-g n` and `M-g p` (`lsp-next-diagnostic`, `lsp-previous-diagnostic`) move to the
-  next and previous diagnostic, as Emacs's `next-error` keys. They wrap, and say `Wrapped`, as
-  isearch does. `M-g d` (`lsp-diagnostics`) lists the project's diagnostics in the centred float
+- **Keys (Q15):** `C-M-n` and `C-M-p` (`lsp-next-diagnostic`, `lsp-previous-diagnostic`) move to
+  the next and previous diagnostic, as the author's Flycheck keys do. They wrap, and say
+  `Wrapped`, as isearch does. `M-g d` (`lsp-diagnostics`) lists the project's diagnostics in the centred float
   with a preview, as `consult-flymake` does. The buffer's own come first, then the project's by
   file.
 - **Hints (Q16):** a hint gets no underline and no count. It shows at point. A range tagged
@@ -361,9 +422,9 @@ Every bound lives in `oso-lsp`'s `limits`:
   answer says `No definition found`.
 - **A history of places in each window, `oso-core`'s `window::places`:** each jump from `M-.`,
   `M-?` or the float pushes the place it left: the buffer and the primary cursor's offset, which
-  follows edits. It holds 64 places. `M-*` (`lsp-go-back`) goes back to the last one, and
-  `C-M-*` (`lsp-go-forward`) undoes a `M-*`, as Emacs 29's `xref-go-back` and
-  `xref-go-forward`. A killed buffer's places go. The jump also pushes the place onto the
+  follows edits. It holds 64 places. `M-,` (`lsp-go-back`) goes back to the last one, and
+  `C-M-,` (`lsp-go-forward`) undoes a `M-,`, as Emacs 29's `xref-go-back` and `xref-go-forward`
+  with `xref-history-storage` set to a window's history. A killed buffer's places go. The jump also pushes the place onto the
   cursor's mark ring, as avy's jumps do, so `C-.` finds it.
 - **The jump ends with one cursor at the target,** as other jumps do. It works with several
   cursors, from the primary.
@@ -381,13 +442,14 @@ Every bound lives in `oso-lsp`'s `limits`:
 - **Matching is oso's own matcher** (ADR 0076), on the item's `filterText` or label, keeping the
   server's order (`sortText`), as vertico keeps a list's. When the answer says it is incomplete,
   typing asks again.
-- **When it opens (Q20):** after 200 ms with no key, once two identifier characters are typed, or
-  at once after one of the server's trigger characters (`.` and `::` for rust-analyzer), as
-  `corfu-auto` does. `C-M-i` (`completion-at-point`) opens it at any time. `M-TAB` is left out:
+- **When it opens (Q20):** after 200 ms with no key, once three identifier characters are typed,
+  or at once after one of the server's trigger characters (`.` and `::` for rust-analyzer), as
+  `corfu-auto` with `corfu-auto-prefix` 3 does. `C-M-i` (`completion-at-point`) opens it at any time. `M-TAB` is left out:
   Meta is Command, and Command-Tab is macOS's application switcher. It does not open during an input method's
   composition, in a prompt, or in a buffer that may hold secrets.
 - **Keys while it is open** (a keymap above the buffer's, as `corfu-map`):
-  - `C-n` and `C-p` (and the arrows) move the selection;
+  - `C-n` and `C-p` (and the arrows) move the selection, and wrap from the last row to the first
+    and back, as `corfu-cycle`;
   - `TAB` inserts the selected item;
   - `RET` inserts it only after the selection was moved; otherwise it closes the popup and
     runs `RET`'s command, so an automatic popup never takes a newline;
@@ -408,11 +470,35 @@ Every bound lives in `oso-lsp`'s `limits`:
 
 ### Hover (Q23)
 
-- **`C-h .` (`lsp-describe-at-point`)** shows the hover text in a float at point, up to 20 rows and
+- **`C-c C-d` (`lsp-describe-at-point`), as the author's `eglot-help-at-point`, and `C-h .`,
+  which nothing binds,** show the hover text in a float at point, up to 20 rows and
   80 columns. It closes on the next key, and `C-v` and `M-v` scroll it. Markdown is highlighted
   with oso's Markdown grammar, Rust code in it with Rust's (ADR 0111). This is cheap, as both
   exist.
 - Nothing opens by itself on idle. The echo area at point belongs to diagnostics (Q14).
+
+### Keys in buffers a server follows (Q15, Q17, Q20, Q23)
+
+- **A minor mode layer, `lsp`, is on in each buffer a server follows,** above the buffer's major
+  mode, as Eglot's minor mode map is ([architecture](../architecture.md), Keymaps). It binds:
+
+  | Key | Command |
+  |---|---|
+  | `M-.` | `lsp-find-definition` |
+  | `M-?` | `lsp-find-references` |
+  | `M-,` | `lsp-go-back` |
+  | `C-M-,` | `lsp-go-forward` |
+  | `C-M-n`, `C-M-p` | `lsp-next-diagnostic`, `lsp-previous-diagnostic` |
+  | `M-g d` | `lsp-diagnostics` |
+  | `C-M-i` | `completion-at-point` |
+  | `C-c C-d`, `C-h .` | `lsp-describe-at-point` |
+
+- **`M-,` is `lsp-go-back` only there.** In every other buffer it stays `previous-buffer`
+  ([ADR 0088](0088-switching-and-killing-buffers.md)), as the author's set-up binds it in buffers
+  with a server only. `M-/` stays `next-buffer` everywhere.
+- The layer goes when the server stops following the buffer, so a buffer whose server stopped
+  has `M-,` as `previous-buffer` again. A crashed server that starts again keeps it on.
+- `C-c C-r` is left free for code actions (a later step).
 
 ### What agents may do (Q24)
 
@@ -420,9 +506,9 @@ Every bound lives in `oso-lsp`'s `limits`:
 |---|---|---|
 | `lsp-start`, `lsp-restart` | `Person` | spawns a process |
 | `lsp-shutdown` | `Person` | manages the person's processes |
-| `M-.`, `M-?`, `M-*`, `C-M-*` | `Look` | moves and opens; asks a running server about a buffer it knows |
-| `M-g n`, `M-g p` | `Look` | moves |
-| `M-g d`, `C-M-i`, `C-h .` | `Person` | an interactive float for the keyboard |
+| `M-.`, `M-?`, `M-,`, `C-M-,` | `Look` | moves and opens; asks a running server about a buffer it knows |
+| `C-M-n`, `C-M-p` | `Look` | moves |
+| `M-g d`, `C-M-i`, `C-c C-d`, `C-h .` | `Person` | an interactive float for the keyboard |
 | `diagnostics` tool on `oso mcp` | read, like `text` | reads the reports oso holds |
 
 - **A definition the agent asks for opens as the channel's `open` does:** a target whose name
@@ -457,7 +543,9 @@ Every bound lives in `oso-lsp`'s `limits`:
 - **Built and unit-tested in CI, as the rest is (Tier 2).** The author does not use Windows yet.
 - **Only an `.exe` starts a server.** A `.bat` or `.cmd`, which npm makes for many servers, is
   refused and says why: the standard library runs those through `cmd.exe`, whose quoting has let
-  arguments run commands before (CVE-2024-24576).
+  arguments run commands before (CVE-2024-24576). So npm's TypeScript servers do not start on
+  Windows yet: running their script with `node.exe` directly can come when the author uses
+  Windows.
 - **Without process groups,** stopping a server kills the server alone. A `cargo check` under it
   runs to its end. A job object comes when the author uses Windows.
 - URIs carry the drive letter (`file:///C:/…`), compared without case, with `%3A` read as `:`.
@@ -484,8 +572,8 @@ Every bound lives in `oso-lsp`'s `limits`:
 ### oso's own repository (Q26)
 
 - **`rust-toolchain.toml` gains the `rust-analyzer` component,** so rustup's proxy runs the pinned
-  toolchain's server, whose proc-macro server matches the compiler. This file defines the checks,
-  so the change needs the author's approval, in its own step.
+  toolchain's server, whose proc-macro server matches the compiler. This file defines the checks;
+  the author approved the change, in step 12.
 
 ### Steps
 
@@ -497,38 +585,52 @@ Each step is one pull request. No step spawns anything before step 1 has merged.
    entry, the guard test, and its end-to-end flows. A dev-only stand-in kind holds and lets go
    until step 3 gives the real ones a server.
 2. **`oso-lsp` without spawning:** the crate, `framing`, `json`, `uri`, `position` and `limits`,
-   with unit, property and fuzz tests for each bound, and `TextSummary::utf16` if Q11 is (a).
-   Also a fake server for tests: an example binary of `oso-lsp` that never ships. It answers
-   from a script and can misbehave on cue. The crate edge, `layers.txt` and `Cargo.toml` need the
-   author's approval.
-3. **A server's life:** `[lsp]` in the configuration, finding the program, the trust check on
-   its thread, the spawn in its own group, `initialize` to `exit`, restarts after crashes, quit,
-   untrust, `*LSP*`, the modeline's `lsp` state, and `lsp-start`, `lsp-restart` and
-   `lsp-shutdown`. `oso-platform::process` gains a way to signal a child's group. End-to-end
-   flows run against the fake server.
+   with unit, property and fuzz tests for each bound, and `TextSummary::utf16`. Also a fake
+   server for tests: an example binary of `oso-lsp` that never ships. It answers from a script
+   and can misbehave on cue. The crate, its edges and the `[workspace]` line of `layers.txt` are
+   approved through this ADR; `Cargo.toml` gains the crate.
+3. **A server's life, with the table's rust-analyzer entry:** the table and `[lsp]` overrides in
+   the configuration, finding the program, the trust check on its thread, the spawn in its own
+   group, `initialize` to `exit`, restarts after crashes, quit, untrust, `*LSP*`, the modeline's
+   `lsp` state, and `lsp-start`, `lsp-restart` and `lsp-shutdown`. `oso-platform::process` gains
+   a way to signal a child's group. End-to-end flows run against the fake server.
 4. **Document sync:** open, change, close and save, with many cursors, sliced undo, reload,
    `C-x C-w`, the size limit and secrets. ADR 0118's holds then apply to the real kinds. Property
    tests check that the fake server's copy of the text equals the buffer's after random batches.
-5. **Diagnostics, model and keys:** `oso_core::diagnostic`, reports mapped forward, the counts in
-   the modeline, the message at point, `M-g n` and `M-g p`, and `M-g d` with its preview.
-6. **Diagnostics, drawing:** the wavy underline and dim `Unnecessary` ranges in `oso-render`, the
+5. **The rest of the table:** the modes for Go, TypeScript, TSX, JavaScript, LaTeX and Swift;
+   gopls with its settings; the TypeScript choices with the checks on a program inside the
+   project; texlab, sourcekit-lsp, taplo and marksman; and the message for a server that is not
+   installed.
+6. **Diagnostics, model and keys:** `oso_core::diagnostic`, reports mapped forward, the counts in
+   the modeline, the message at point, the `lsp` minor mode layer, `C-M-n` and `C-M-p`, and
+   `M-g d` with its preview.
+7. **Diagnostics, drawing:** the wavy underline and dim `Unnecessary` ranges in `oso-render`, the
    faces in the three themes with their contrast check, and the sign column. Text-grid snapshots
    cover both.
-7. **Definition and references:** `window::places`, `M-.`, `M-?`, `M-*`, `C-M-*`, the float
-   with a preview, files outside the project joining the server, and the channel's rules.
-8. **Completion in the buffer:** the popup, its keys, matching, the automatic trigger,
+8. **Definition and references:** `window::places`, `M-.`, `M-?`, `M-,` and `C-M-,` in the `lsp`
+   layer, the float with a preview, files outside the project joining the server, and the
+   channel's rules.
+9. **Completion in the buffer:** the popup, its keys and cycling, matching, the automatic trigger,
    `resolve` and `additionalTextEdits`, and many cursors.
-9. **Hover:** `C-h .`.
-10. **Agents:** the `diagnostics` tool, `state`'s fields, the tool descriptions, and ADR 0121's
+10. **Hover:** `C-c C-d` and `C-h .`.
+11. **Agents:** the `diagnostics` tool, `state`'s fields, the tool descriptions, and ADR 0121's
     `@diagnostics`.
-11. **The `just perf` metrics,** and `rust-toolchain.toml`'s component if Q26 is (a).
+12. **The `just perf` metrics,** and the `rust-analyzer` component in `rust-toolchain.toml`.
 
-Steps 5 and 6 can run beside 7 to 9 once step 4 has merged. Windows builds and tests in CI in
-each step.
+Steps 5, 6 and 7, and 8 to 10, can run beside each other once step 4 has merged. Windows builds
+and tests in CI in each step.
+
+Later, after these, each with its own decisions put to the author first:
+
+13. **Code actions on `C-c C-r`,** as the author's `eglot-code-actions`: a server's edits applied
+    only after the person picks an action, so `workspace/applyEdit` gets an answer other than
+    `applied: false` only then.
+14. **Rename,** as `eglot-rename`: the new name read in a prompt, and the edits across files
+    shown before they apply.
 
 ## Questions
 
-Each lists the recommended option first.
+Put to the author on 2026-11-15, the recommended option first. The answer follows each.
 
 ### The model
 
@@ -538,6 +640,8 @@ Each lists the recommended option first.
    (b) lsp-mode with lsp-ui and Company: more features, such as the sideline, peek and
    breadcrumbs, but much more UI.
    (c) Your own set-up. Say what you use, and oso follows its behaviour where it differs.
+   **Answer:** (c), the author's set-up, built on Eglot ([The author's set-up](#the-authors-set-
+   up)).
 
 ### Servers, configuration and lifetime
 
@@ -546,6 +650,9 @@ Each lists the recommended option first.
    come from the configuration.
    (b) Also taplo for TOML and marksman for Markdown, built in, used when found.
    (c) None. The configuration names every server, as ADR 0114 says today.
+   **Answer:** a built-in table, so that no configuration is needed: rust-analyzer, gopls,
+   TypeScript and JavaScript, texlab, sourcekit-lsp, taplo and marksman
+   ([Which servers](#which-servers-q2)).
 3. **The configuration's shape.**
    (a) `[lsp.servers.<name>]` with `modes`, `command`, `env` and `options` (sent as
    `initializationOptions` and as answers to `workspace/configuration`), and `[lsp] start`. The
@@ -554,16 +661,20 @@ Each lists the recommended option first.
    and `oso dev`, and wait on its lock.
    (c) Only `command` per mode under `[modes.<mode>]`, with no options. Simpler, but
    rust-analyzer's settings could not be changed.
+   **Answer:** the table is the source, with rust-analyzer's `cargo.targetDir = true` and gopls's
+   settings; `[lsp.servers.<name>]` only overrides it ([Overrides](#overrides-q3)).
 4. **When a server starts.**
    (a) By itself, in a trusted project, at the person's first visit of a buffer of a configured
    mode, as `eglot-ensure` does. An agent's open waits (ADR 0118).
    (b) Only by `lsp-start` (as `M-x eglot`), and then for the rest of the session in that project.
    (c) As (a), and the first start of each server for each project asks once (`Start
    rust-analyzer for oso? (y or n)`). One more question, after trust already asked.
+   **Answer:** (a).
 5. **Trusting a project.**
    (a) Starts the servers for its buffers the person visited, at once. Buffers the agent opened
    keep their marks.
    (b) Starts nothing. The person's next command in such a buffer starts its server.
+   **Answer:** (a).
 6. **Lifetime and crashes.**
    (a) A server stays up until untrust, `lsp-shutdown` or quit. After a crash it starts again
    after 1 s, 5 s and 30 s, and stays down after three crashes in 3 minutes, saying so. Close to
@@ -571,13 +682,16 @@ Each lists the recommended option first.
    (b) As (a), but a server also stops 5 minutes after its last buffer is killed.
    (c) No automatic restart, as lsp-mode asks first: the modeline says `lsp!` and `lsp-restart`
    starts it.
+   **Answer:** (a).
 7. **oso's own restarts.**
    (a) Carry no server. The new instance starts them again, and rust-analyzer indexes again.
    (b) Carry the server's pipes as descriptors, as terminals are carried. Nothing to index again,
    but the protocol's state must be carried too, and a version mismatch would desynchronize.
+   **Answer:** (a).
 8. **Files a jump reaches outside any project,** such as the standard library's sources.
    (a) Join the server that gave the jump, as `eglot-extend-to-xref`, so `M-.` keeps working there.
    (b) Get no server, as Eglot's default. `M-.` stops working in those files.
+   **Answer:** (a).
 
 ### The protocol
 
@@ -585,23 +699,27 @@ Each lists the recommended option first.
    (a) A new crate, `oso-lsp`, beside `oso-term`, used only by the tip crate. It keeps the tip
    crate's build fast and the protocol testable alone.
    (b) Modules in the tip crate. No new crate, but more code there to rebuild.
+   **Answer:** (a).
 10. **Dependencies.**
     (a) None new: oso's own framing, and `serde_json` through `Value`, already in the tree.
     (b) `lsp-types`: every type of the protocol, but `serde`'s derive macros and `url` or
     `fluent-uri` with it, for the small part oso uses.
     (c) `lsp-server`, rust-analyzer's own crate: framing and threads, made for servers, with
     `crossbeam-channel`.
+    **Answer:** (a).
 11. **Positions.**
     (a) UTF-8 when the server offers it, otherwise UTF-16 through a new UTF-16 count in the
     rope's summary, O(log n) on any line.
     (b) UTF-8 only. A server without it, as many JavaScript and Python servers are, is refused.
     (c) UTF-16 by scanning the line, with no change to the rope. Lines over 64 KiB would then be
     too slow with many cursors, so such documents would not be sent.
+    **Answer:** (a).
 12. **A message that breaks a bound.**
     (a) A message over 16 MiB is read through and dropped, and its request fails. A broken header,
     a flood or a full writer queue stops the server, and counts as a crash.
     (b) Any broken bound stops the server. Stricter, but a big answer from a healthy server, such
     as diagnostics for a generated file, would restart it.
+    **Answer:** (a).
 
 ### Diagnostics
 
@@ -612,19 +730,23 @@ Each lists the recommended option first.
     the preedit's underline.
     (c) As (a), with the sign column only while the buffer has diagnostics. Saves a column, but
     the text moves when the first report comes and when the last fix clears it.
+    **Answer:** (a).
 14. **The message at point.**
     (a) In the echo area after the cursor stays 300 ms on a diagnostic, as Flymake with ElDoc.
     (b) Only on a key (`C-h .` shows the diagnostics with the hover).
     (c) At the end of the line, as Emacs 30's `flymake-show-diagnostics-at-end-of-line` and lsp-ui's
     sideline. Always visible, but it covers text on long lines.
+    **Answer:** (a).
 15. **Keys.**
     (a) `M-g n` and `M-g p` for next and previous, as `next-error`, and `M-g d` for the list with a
     preview, as `consult-flymake`.
     (b) `M-n` and `M-p` in buffers a server follows, as many Flymake set-ups bind, with the list on
     `M-g d`.
+    **Answer:** `C-M-n` and `C-M-p`, the author's Flycheck keys, with the list on `M-g d`.
 16. **Hints and unused code.**
     (a) A hint is not underlined or counted, and shows at point. An `Unnecessary` range is dim.
     (b) Hints are drawn and counted as information is.
+    **Answer:** (a).
 
 ### Definition
 
@@ -635,9 +757,12 @@ Each lists the recommended option first.
     (b) As (a), with one history for the frame, as Emacs's default `xref-history-storage`.
     (c) No history of its own: the mark ring only, through `C-.`. Less to build, but it cannot go
     back across buffers.
+    **Answer:** a history for each window, with `M-,` back and `C-M-,` forward in buffers a server
+    follows; `M-,` stays `previous-buffer` elsewhere.
 18. **References.**
     (a) `M-?` in step 7, in the same float as several definitions. It costs one more request.
     (b) Later, after the roadmap's three.
+    **Answer:** (a).
 
 ### Completion
 
@@ -645,21 +770,26 @@ Each lists the recommended option first.
     (a) A popup at point, as Corfu, up to 10 rows, filtered by oso's matcher.
     (b) In the centred float, as `consult-completion-in-region` with vertico. One float for all
     completion, but far from the cursor, and typing goes into the prompt, not the buffer.
+    **Answer:** (a).
 20. **When it opens.**
     (a) By itself after two identifier characters and 200 ms with no key, or at once after a
     trigger character (`.`, `::`), as `corfu-auto`; and on `C-M-i`.
     (b) Only on `C-M-i`, as Corfu's default.
     (c) As (b), and `TAB` completes when the line is already indented, as
     `tab-always-indent 'complete`.
+    **Answer:** (a), after three identifier characters rather than two, with cycling, as the
+    author's Corfu.
 21. **With several cursors.**
     (a) The item goes in at every cursor whose word before it is the primary's, and the extra edits
     apply once.
     (b) Completion works with one cursor only, and says so.
+    **Answer:** (a).
 22. **Snippets and extra edits.**
     (a) No snippets: plain text. `additionalTextEdits` (rust-analyzer's added `use` lines) apply in
     the same undo step, and the echo area names a changed line outside the view.
     (b) Snippets with tab stops, as yasnippet. More to build, and the keys must be decided.
     (c) Neither: insert the label only. An imported name then needs its `use` written by hand.
+    **Answer:** (a).
 
 ### Hover
 
@@ -668,6 +798,7 @@ Each lists the recommended option first.
     (b) As (a), and the signature of the call at point shows in the echo area on idle, as ElDoc
     does. A request at each pause, and it competes with diagnostics' messages there.
     (c) No hover in M4.
+    **Answer:** (a), on `C-c C-d`, the author's key, and on `C-h .` too.
 
 ### Agents, Windows and oso's repository
 
@@ -677,46 +808,63 @@ Each lists the recommended option first.
     and `state` gains each buffer's server state and counts.
     (b) As (a), without the `diagnostics` tool. The agent runs `cargo check` itself.
     (c) As (a), plus a `definition` tool that answers a path and line without opening anything.
+    **Answer:** (a).
 25. **Windows.**
     (a) Built and unit-tested in CI. Only `.exe` servers start. Stopping kills the server alone,
     without a job object, until the author uses Windows.
     (b) Job objects now, so a stop also ends what the server started.
+    **Answer:** (a).
 26. **oso's own `rust-toolchain.toml`.**
     (a) Add the `rust-analyzer` component, so rustup runs the pinned toolchain's server. It is a
     file that defines the checks, so the author approves it in step 11.
     (b) Leave it. rustup falls back to another toolchain's server, whose proc-macro server may
     not match the compiler.
+    **Answer:** (a), approved, in step 12.
 
 ## Changes to accepted ADRs
 
-Only if the author accepts Q2 (a) or (b). The ADR's status then gains `amended by 0138`.
+Each passage stays in its ADR as written; what holds now follows it. The status of each ADR named
+gains `amended by 0138`.
 
-- [ADR 0114](0114-projects-trust-finding-files-and-searching-a-project.md), "A program that runs
-  for a trusted project is one the person's configuration names": or one of oso's built-in
-  server entries, which the configuration can change or turn off. It is still never one the
-  project names.
+- [ADR 0114](0114-projects-trust-finding-files-and-searching-a-project.md), "Trust never makes oso
+  read a project's settings. A program that runs for a trusted project is one the person's
+  configuration names": or one that oso's built-in table of servers names, which the
+  configuration can change or turn off. In a trusted project, the table may choose a server the
+  project holds, such as `node_modules/.bin/typescript-language-server`: oso looks only at the
+  metadata of fixed names under the root, never at a file's contents or the project's settings,
+  and runs the program only from inside the root. The project still never names a program.
+- [ADR 0088](0088-switching-and-killing-buffers.md), "`previous-buffer` on `M-,`": in a buffer a
+  language server follows, `M-,` is `lsp-go-back`, through the `lsp` minor mode layer. Everywhere
+  else it is still `previous-buffer`.
 
 ## Consequences
 
-- oso gets diagnostics, definitions, references, completion and hover for Rust from M4, and for
-  any mode it knows from a server the configuration names.
+- oso gets diagnostics, definitions, references, completion and hover for Rust, Go, TypeScript
+  and JavaScript, LaTeX, Swift, TOML and Markdown, with no configuration, for each server that
+  is installed.
 - A language server runs only for a trusted project and is started only by the person. A broken
   or hostile server can slow only its own threads, and never blocks the UI thread, edits a
   buffer by itself, opens a file by itself, or makes oso reach another computer.
-- oso gains a crate, and `oso-core` gains `diagnostic`, `window::places`, ADR 0118's enum and
-  completion at point. The renderer gains a wavy underline and three faces in each theme.
-- The gutter gains a column in buffers a server follows.
+- oso gains a crate, and `oso-core` gains `diagnostic`, `window::places`, ADR 0118's enum,
+  completion at point and six modes with no highlighting yet. The renderer gains a wavy underline and three faces in each theme.
+- The gutter gains a column in buffers a server follows, and `M-,` means another thing there.
+- In a trusted project with `node_modules`, the TypeScript server oso runs is the project's own.
 - rust-analyzer indexes again after each restart of oso.
 - The server runs with the person's full rights until OS sandboxing comes, after M4.
-- Follow-up, not in this ADR: format on save (its own `Program` kind under ADR 0118), rename and
-  code actions, signature help, semantic highlighting, inlay hints, pull diagnostics, and a
-  server for a mode oso does not know yet.
+- Later steps: code actions and rename (steps 13 and 14). Follow-up, not in this ADR: format on
+  save (its own `Program` kind under ADR 0118, which gopls's `gofumpt` then serves), signature
+  help, semantic highlighting, inlay hints, pull diagnostics, highlighting for the new modes, and
+  TypeScript servers on Windows.
 
 ## Alternatives considered
 
 - **Starting servers in every project, as some editors do:** opening a repository would run its build
   scripts. ADR 0009 forbids it.
 - **Downloading servers, as lsp-mode can:** oso has no network code.
+- **Requiring the configuration to name every server (Q2 (c)):** safest to read, but the author
+  wants servers to work with no configuration, as Eglot's defaults do.
+- **TypeScript only from `PATH`, never the project's:** the project's server matches its
+  TypeScript version, which the author's set-up relies on; trust already covers running it.
 - **Running the client in the tip crate's existing workers, such as the syntax worker:** a server
   can stall, and the syntax worker's slices must not wait on a pipe.
 - **One thread per server, with non-blocking pipes:** the process module hands out the standard
