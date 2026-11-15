@@ -12,6 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use oso_core::minibuffer::PromptId;
+use oso_core::project::RootIdentity;
 
 use crate::app::App;
 use crate::app::sessions::hosting::Begin;
@@ -27,6 +28,9 @@ pub(in crate::app) struct Offer {
     /// The question it was asked with.
     prompt: PromptId,
     session: SessionKey,
+    /// The space and the repository it offers.
+    space: SpaceId,
+    root: PathBuf,
     text: String,
 }
 
@@ -127,39 +131,69 @@ impl App {
     }
 
     /// What hosted session `key` starts with again, when it is a space's orchestrator: its
-    /// space as it is now, as Claude Code keeps neither its `--add-dir`s nor its prompt.
+    /// space as it is now, as Claude Code keeps neither its `--add-dir`s nor its prompt. Another
+    /// session in a space's directory gets the directory's checks alone.
     ///
     /// # Errors
     ///
     /// Why the orchestrator cannot start, for the echo area.
     pub(in crate::app) fn orchestrator_start_for(
-        &self,
+        &mut self,
         key: SessionKey,
     ) -> Result<Option<SpaceStart>, String> {
         let Some(session) = self.hosting.table().get(key) else {
             return Ok(None);
         };
+        let (id, directory) = (session.id.clone(), session.directory.clone());
         let spaces = self.watch.spaces();
         let at = spaces
             .iter()
-            .position(|space| space.stored.orchestrator.as_ref() == Some(&session.id));
-        at.map(|at| self.orchestrator_start(at)).transpose()
+            .position(|space| space.stored.orchestrator.as_ref() == Some(&id));
+        match at {
+            Some(at) => self.orchestrator_start(at).map(Some),
+            None => Ok(self.space_checks(&directory)),
+        }
+    }
+
+    /// The checks a session starting in `directory` passes when it is a space's directory,
+    /// with no `--add-dir` and no prompt (ADR 0136: before every start there).
+    pub(in crate::app) fn space_checks(&self, directory: &Path) -> Option<SpaceStart> {
+        let spaces = self.watch.spaces();
+        let space = spaces.iter().find(|space| {
+            (space.stored.directory.as_deref()).is_some_and(|its| same(its, directory))
+        })?;
+        Some(SpaceStart {
+            made: space.stored.directory_identity,
+            members: space.stored.members.clone(),
+            trusted: Vec::new(),
+            prompt: String::new(),
+            instructions: None,
+        })
+    }
+
+    /// What space `at`'s orchestrator starts with, the repositories it is given kept so that
+    /// none is offered to it again.
+    fn orchestrator_start(&mut self, at: usize) -> Result<SpaceStart, String> {
+        let start = self.orchestrator_start_of(at)?;
+        if let Some(stored) = self.watch.spaces().stored(at) {
+            let given = start.trusted.iter().map(|member| member.root.clone());
+            (self.hosting.spaces.given).insert(stored.id.clone(), given.collect());
+        }
+        Ok(start)
     }
 
     /// What space `at`'s orchestrator starts with: the fixed text, the space's header, its
-    /// trusted repositories and its instructions' file.
-    fn orchestrator_start(&self, at: usize) -> Result<SpaceStart, String> {
+    /// repositories trusted by path and identity, as oso trusts a project, and its
+    /// instructions' file.
+    fn orchestrator_start_of(&self, at: usize) -> Result<SpaceStart, String> {
         let stored = self.watch.spaces().stored(at).ok_or("No such space")?;
         if stored.directory.is_none() {
             return Err("The space has no directory yet: space-directory makes it".to_owned());
         }
         let named = self.watch.spaces().member_names(at);
-        let trusted_paths: Vec<PathBuf> = self
-            .editor
-            .trust_list()
-            .map(|list| list.paths().map(Path::to_path_buf).collect())
-            .unwrap_or_default();
-        let trusted = |root: &Path| trusted_paths.iter().any(|path| same(path, root));
+        let trusted = |root: &Path| {
+            (stored.members.iter()).any(|member| same(&member.root, root) && self.trusts(member))
+        };
         let repositories: Vec<Repository<'_>> = named
             .iter()
             .map(|(name, root)| Repository {
@@ -169,7 +203,7 @@ impl App {
             })
             .collect();
         let trusted_members: Vec<Member> = (stored.members.iter())
-            .filter(|member| trusted(&member.root))
+            .filter(|member| self.trusts(member))
             .cloned()
             .collect();
         let prompt = format!("{TEXT}{}", header(stored, &repositories));
@@ -183,6 +217,18 @@ impl App {
             prompt,
             instructions,
         })
+    }
+
+    /// Whether oso trusts `member`: its path and identity are both recorded, so one made again
+    /// at a trusted path is not. One with no identity kept is not, where the system has them.
+    fn trusts(&self, member: &Member) -> bool {
+        let root = RootIdentity {
+            path: member.root.clone(),
+            identity: member.identity,
+        };
+        self.editor
+            .trust_list()
+            .is_some_and(|list| list.trusts(&root))
     }
 
     /// The key of space `at`'s orchestrator while it runs.
@@ -206,25 +252,24 @@ impl App {
     }
 
     /// Offers to paste `/add-dir root` into space `at`'s running orchestrator, which was not
-    /// given `root`: a repository added, or trusted, since it started (Q5).
-    pub(in crate::app) fn offer_add_dir(&mut self, at: usize, root: &Path) {
+    /// given `root`: a trusted repository added, or trusted, since it started (Q5). Whether
+    /// it asked.
+    fn offer_add_dir(&mut self, at: usize, root: &Path) -> bool {
         let Some(key) = self.live_orchestrator(at) else {
-            return;
+            return false;
         };
-        // A repository oso does not trust is given no `--add-dir`, so it is offered none.
-        let trusted = (self.editor.trust_list())
-            .is_some_and(|list| list.paths().any(|path| same(path, root)));
-        if !trusted {
-            return;
+        let Some(stored) = self.watch.spaces().stored(at) else {
+            return false;
+        };
+        let space = stored.id.clone();
+        let given = self.hosting.spaces.given.get(&space);
+        if given.is_some_and(|given| given.iter().any(|was| same(was, root))) {
+            return false;
         }
         let Some(text) = root.to_str().map(|root| format!("/add-dir {root}")) else {
-            return;
+            return false;
         };
-        let name = self
-            .watch
-            .spaces()
-            .get(at)
-            .map_or_else(String::new, |space| space.name().to_owned());
+        let name = self.space_name(at);
         let question = format!(
             "Paste {} into orchestrator {name}'s prompt, not sent? (y or n)",
             super::printable(&text)
@@ -236,22 +281,42 @@ impl App {
                 self.hosting.spaces.offer = Some(Offer {
                     prompt,
                     session: key,
+                    space,
+                    root: root.to_owned(),
                     text,
                 });
             }
             Err(e) => self.editor.message(e.to_string()),
         }
+        true
     }
 
-    /// `y` to the space question asked last: its offer. One whose question closed otherwise
-    /// was dropped after that event, and one asked anew replaced it, so a `y` does only the
-    /// question it answered; with nothing kept, it does nothing.
+    /// `y` to the space question asked last: its offer, if it still holds: the session is
+    /// still the space's running orchestrator, and the repository still one of the space's
+    /// that oso trusts. One whose question closed otherwise was dropped after that event, and
+    /// one asked anew replaced it, so a `y` does only the question it answered; with nothing
+    /// kept, it does nothing.
     pub(in crate::app) fn space_confirmed(&mut self) {
         let Some(offer) = self.hosting.spaces.offer.take() else {
             return;
         };
-        if let Err(why) = self.send_to_session(offer.session, offer.text) {
-            self.editor.message(why);
+        let at = self.watch.spaces().find(&offer.space);
+        let holds = at.is_some_and(|at| {
+            self.live_orchestrator(at) == Some(offer.session)
+                && self.trusted_members().is_some_and(|members| {
+                    (members.iter()).any(|(id, root)| *id == offer.space && same(root, &offer.root))
+                })
+        });
+        if !holds {
+            return self
+                .editor
+                .message("Not pasted: the space or its orchestrator changed meanwhile".to_owned());
+        }
+        match self.send_to_session(offer.session, offer.text) {
+            Ok(()) => (self.hosting.spaces.given.entry(offer.space))
+                .or_default()
+                .push(offer.root),
+            Err(why) => self.editor.message(why),
         }
     }
 
@@ -265,40 +330,38 @@ impl App {
         }
     }
 
-    /// After an event: the trusted roots, compared with those the spaces saw last; a
-    /// repository of a space trusted since is offered to the space's running orchestrator
-    /// (Q5). `trust-project` changes the editor's list at once, before its record is written.
+    /// After an event: the repositories of open spaces that oso trusts, compared with those
+    /// seen last; one trusted or added since is offered to its space's running orchestrator
+    /// (Q5). Nothing is offered when the trust list was not read before, as when oso starts:
+    /// every root would look new.
     pub(in crate::app) fn notice_trust(&mut self) {
-        let now: Vec<PathBuf> = (self.editor.trust_list())
-            .map(|list| list.paths().map(Path::to_path_buf).collect())
-            .unwrap_or_default();
-        let before = self.hosting.spaces.trusted_seen.replace(now.clone());
-        if let Some(before) = before.filter(|before| *before != now) {
-            self.offer_newly_trusted(&before);
-        }
-    }
-
-    fn offer_newly_trusted(&mut self, before: &[PathBuf]) {
-        let now: Vec<PathBuf> = self
-            .editor
-            .trust_list()
-            .map(|list| list.paths().map(Path::to_path_buf).collect())
-            .unwrap_or_default();
-        let new: Vec<PathBuf> = now
-            .into_iter()
-            .filter(|path| !before.iter().any(|was| same(was, path)))
-            .collect();
-        for root in new {
-            let at = (0..self.watch.spaces().iter().count()).find(|&at| {
-                self.watch
-                    .spaces()
-                    .stored(at)
-                    .is_some_and(|s| !s.archived && s.has_member(&root))
-            });
-            if let Some(at) = at {
-                self.offer_add_dir(at, &root);
+        let now = self.trusted_members();
+        let before = std::mem::replace(&mut self.hosting.spaces.trusted_seen, now.clone());
+        let (Some(before), Some(now)) = (before, now) else {
+            return;
+        };
+        for (space, root) in now {
+            let seen = (before.iter()).any(|(id, was)| *id == space && same(was, &root));
+            if seen {
+                continue;
+            }
+            let at = self.watch.spaces().find(&space);
+            if at.is_some_and(|at| self.offer_add_dir(at, &root)) {
                 return;
             }
         }
+    }
+
+    /// Each open space's repositories that oso trusts; none while the trust list is unread.
+    fn trusted_members(&self) -> Option<Vec<(SpaceId, PathBuf)>> {
+        self.editor.trust_list()?;
+        let spaces = self.watch.spaces();
+        let open = spaces.iter().filter(|space| !space.stored.archived);
+        let members = open.flat_map(|space| {
+            (space.stored.members.iter())
+                .filter(|member| self.trusts(member))
+                .map(|member| (space.stored.id.clone(), member.root.clone()))
+        });
+        Some(members.collect())
     }
 }

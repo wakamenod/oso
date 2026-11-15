@@ -4230,6 +4230,7 @@ pub fn oso_core::project::TrustList::apply(&self, &oso_core::project::TrustChang
 pub fn oso_core::project::TrustList::format(&self) -> alloc::string::String
 pub fn oso_core::project::TrustList::parse(&str) -> (Self, usize)
 pub fn oso_core::project::TrustList::paths(&self) -> impl core::iter::traits::iterator::Iterator<Item = &std::path::Path>
+pub fn oso_core::project::TrustList::trusts(&self, &oso_core::project::RootIdentity) -> bool
 impl core::clone::Clone for oso_core::project::TrustList
 pub fn oso_core::project::TrustList::clone(&self) -> oso_core::project::TrustList
 impl core::cmp::Eq for oso_core::project::TrustList

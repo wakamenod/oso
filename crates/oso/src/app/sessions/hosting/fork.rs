@@ -61,6 +61,8 @@ impl App {
             name: base,
         } = from;
         let (key, name) = self.hosting.table.reserve(&directory, &base);
+        // A fork in a space's directory passes its checks (ADR 0136).
+        let space = self.space_checks(&directory);
         self.turn_agent_channel_on_for_a_session();
         let terminal = self.session_terminal(key, &name, None);
         self.order_session(Order {
@@ -76,7 +78,7 @@ impl App {
             brief: None,
             steer_worktrees: self.configuration.steer_worktrees(),
             check_shared: false,
-            space: None,
+            space,
         });
     }
 

@@ -198,6 +198,9 @@ fn space_orchestrator_start(ctx: &mut Ctx<'_>, args: Args) -> Result<(), Command
 }
 
 fn space_confirm(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    if !ctx.confirmed() {
+        return Err(CommandError::new("The space's question answers this"));
+    }
     ask(ctx, SpaceRequest::Confirmed)
 }
 

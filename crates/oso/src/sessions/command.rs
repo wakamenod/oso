@@ -246,6 +246,7 @@ mod tests {
             "--mcp-config=",
             "--append-system-prompt=",
             "--settings=",
+            "--add-dir=",
         ];
         for start in [
             Start::New { id: &new },
@@ -258,6 +259,8 @@ mod tests {
             let mut l = line(start);
             l.system_prompt = Some("p");
             l.settings = Some("{}");
+            let dirs = [std::path::PathBuf::from("/src/back")];
+            l.add_dirs = &dirs;
             let args = strings(&arguments(&l).unwrap());
             for arg in &args {
                 assert!(

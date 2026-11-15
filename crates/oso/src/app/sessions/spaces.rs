@@ -55,8 +55,11 @@ pub(in crate::app) struct SpaceWork {
     /// What the question the host asked last offers, which `y` does (`SpaceRequest::Confirmed`):
     /// dropped when another is asked or it is answered otherwise.
     pub(in crate::app) offer: Option<orchestrator::Offer>,
-    /// The trusted roots as the spaces last saw them, to tell one trusted since.
-    pub(in crate::app) trusted_seen: Option<Vec<PathBuf>>,
+    /// The open spaces' trusted repositories as last seen, to tell one trusted since; none
+    /// while the trust list is unread.
+    pub(in crate::app) trusted_seen: Option<Vec<(SpaceId, PathBuf)>>,
+    /// The repositories each space's orchestrator was given, at its start or pasted since.
+    pub(in crate::app) given: HashMap<SpaceId, Vec<PathBuf>>,
 }
 
 impl SpaceWork {
@@ -187,14 +190,12 @@ impl App {
                     return;
                 };
                 let shown = printable(&path.display().to_string());
-                let root = member.root.clone();
                 match spaces.add_member(at, member, now) {
-                    Ok(()) => {
-                        self.editor
-                            .message(format!("Added {shown} to space {}", self.space_name(at)));
-                        // A running orchestrator was not given it: offered (ADR 0136, Q5).
-                        self.offer_add_dir(at, &root);
-                    }
+                    // A running orchestrator not given it is offered it once trusted, after
+                    // this event (ADR 0136, Q5).
+                    Ok(()) => self
+                        .editor
+                        .message(format!("Added {shown} to space {}", self.space_name(at))),
                     Err(NotAdded::Already) => self
                         .editor
                         .message(format!("The space has {shown} already")),

@@ -116,8 +116,7 @@ pub fn main_checkout(path: &Path) -> Result<Member, String> {
     }
     // The home directory, one above it, and the root are no project's (ADR 0114): a space's
     // orchestrator would reach all of them through `--add-dir`.
-    let home = oso_platform::privacy::home().and_then(|home| fs::canonicalize(home).ok());
-    if real.parent().is_none() || home.is_some_and(|home| home.starts_with(&real)) {
+    if holds_home(&real) {
         return Err(format!(
             "{shown} holds the home directory; add a repository inside it"
         ));
@@ -132,6 +131,17 @@ pub fn main_checkout(path: &Path) -> Result<Member, String> {
         )),
         _ => Err(format!("{shown} is no repository's main checkout")),
     }
+}
+
+/// Whether the directory at `path`, by its real path, is the root or holds the home directory,
+/// which are no project's (ADR 0114): a space's orchestrator would reach all of them through
+/// `--add-dir`. One whose real path is unknown is taken as holding it.
+pub fn holds_home(path: &Path) -> bool {
+    let Ok(real) = fs::canonicalize(path) else {
+        return true;
+    };
+    let home = oso_platform::privacy::home().and_then(|home| fs::canonicalize(home).ok());
+    real.parent().is_none() || home.is_some_and(|home| home.starts_with(&real))
 }
 
 /// Where the instructions of the space with id `id` are, in `state`, oso's state directory,

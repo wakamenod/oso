@@ -54,14 +54,14 @@ pub struct Repository<'a> {
     pub trusted: bool,
 }
 
-/// The space's header: its name, title and repositories. The title is text a person wrote, and
-/// says so.
+/// The space's header: its name, title and repositories. The title is kept in a record agents in
+/// oso can write too, and says so.
 pub fn header(space: &Stored, repositories: &[Repository<'_>]) -> String {
     let mut out = String::new();
     out.push_str(&format!("\n\n# This space: {}\n", space.name));
     if !space.title.is_empty() {
         out.push_str(&format!(
-            "\nThe issue, in the person's words: {}\n",
+            "\nThe issue, as the space's title gives it (a record agents in oso can edit too): {}\n",
             plain(&space.title)
         ));
     }
@@ -97,7 +97,7 @@ pub fn instructions_section(instructions: &str) -> String {
 }
 
 /// `text` with no control or invisible character, on one line.
-fn plain(text: &str) -> String {
+pub fn plain(text: &str) -> String {
     text.chars()
         .map(|c| if c.is_control() { ' ' } else { c })
         .filter(|&c| c == ' ' || is_plain(c))
@@ -118,13 +118,21 @@ fn cut(text: &str, most: usize) -> &str {
     &text[..end]
 }
 
-/// The space's instructions at `file`, read as the `sessions` record is: a regular file of its
-/// own, no link, at most [`MAX_INSTRUCTIONS`] bytes taken; none when it is missing.
+/// The space's instructions at `file`, read as the `sessions` record is: in a private directory
+/// of the person's, a regular file of its own that is theirs and not every user's to write, no
+/// link, at most [`MAX_INSTRUCTIONS`] bytes taken; none when it is missing.
 ///
 /// # Errors
 ///
 /// Why the file is not read, for the echo area.
 pub fn read_instructions(file: &Path) -> Result<String, String> {
+    if let Some(directory) = file.parent() {
+        match oso_platform::privacy::PrivateDir::existing(directory) {
+            Ok(Some(_)) => {}
+            Ok(None) => return Ok(String::new()),
+            Err(e) => return Err(format!("{}: {e}", directory.display())),
+        }
+    }
     let opened = match oso_platform::file_meta::open_regular_here(file) {
         Ok(Some(opened)) => opened,
         Ok(None) => return Err(format!("{} is not a plain file", file.display())),
@@ -134,6 +142,11 @@ pub fn read_instructions(file: &Path) -> Result<String, String> {
     let (file_handle, meta) = opened;
     if !oso_platform::privacy::has_one_name(&meta) {
         return Err(format!("{} has more than one name", file.display()));
+    }
+    if !oso_platform::privacy::is_this_users(&meta)
+        || oso_platform::privacy::others_can_write(&meta)
+    {
+        return Err(format!("{} is not yours alone", file.display()));
     }
     let mut bytes = Vec::new();
     let most = u64::try_from(MAX_INSTRUCTIONS).unwrap_or(u64::MAX);
@@ -145,20 +158,25 @@ pub fn read_instructions(file: &Path) -> Result<String, String> {
 }
 
 /// Checks the space's directory `path`, made with identity `made`, for a space of `members`,
-/// just before its orchestrator starts: [`dir::check`], and every directory from the root up
-/// writable by no group and no other user, sticky or not.
+/// just before its orchestrator starts: [`dir::check`], on the path as written and on its real
+/// path, and every directory above either writable by no group and no other user, sticky or
+/// not. Claude Code starts in the real directory and reads what is above that.
 ///
 /// # Errors
 ///
-/// A [`Refusal`].
+/// A [`Refusal`]; a directory that cannot be looked at is refused too.
 pub fn check_before_start(
     path: &Path,
     made: Option<(u64, u64)>,
     members: &[Member],
 ) -> Result<(), Refusal> {
     dir::check(path, made, members)?;
-    for above in path.ancestors().skip(1) {
-        if shared(above) {
+    let real = fs::canonicalize(path).map_err(|e| Refusal::Refused(path.to_owned(), e))?;
+    if real != path {
+        dir::usable(&real, members)?;
+    }
+    for above in path.ancestors().skip(1).chain(real.ancestors().skip(1)) {
+        if shared(above)? {
             return Err(Refusal::Shared(above.to_owned()));
         }
     }
@@ -166,23 +184,25 @@ pub fn check_before_start(
 }
 
 /// Whether a group or other users can write the directory at `path`, by its mode, sticky or
-/// not. Windows has no modes, and says no.
-fn shared(path: &Path) -> bool {
+/// not, a link followed: the way as written may pass through links, whose own mode says
+/// nothing. Windows has no modes, and says no.
+fn shared(path: &Path) -> Result<bool, Refusal> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::symlink_metadata(path).is_ok_and(|meta| meta.permissions().mode() & 0o022 != 0)
+        let meta = fs::metadata(path).map_err(|e| Refusal::Refused(path.to_owned(), e))?;
+        Ok(meta.permissions().mode() & 0o022 != 0)
     }
     #[cfg(not(unix))]
     {
         let _ = path;
-        false
+        Ok(false)
     }
 }
 
 /// The repositories of `members` whose root is still the one recorded: one put in another's
-/// place is left out, with its root, for the echo area. A member with no identity kept gets the
-/// one found now.
+/// place, one with no identity kept where the system has identities, and one that is the root
+/// or holds the home directory are left out, with their roots, for the echo area.
 pub fn still_there(members: &[Member]) -> (Vec<Member>, Vec<PathBuf>) {
     let mut kept = Vec::new();
     let mut gone = Vec::new();
@@ -191,13 +211,15 @@ pub fn still_there(members: &[Member]) -> (Vec<Member>, Vec<PathBuf>) {
             .ok()
             .filter(fs::Metadata::is_dir)
             .and_then(|meta| dir::identity(&meta));
-        match (member.identity, now) {
-            (Some(was), Some(now)) if was != now => gone.push(member.root.clone()),
-            (_, None) if cfg!(unix) => gone.push(member.root.clone()),
-            (_, now) => kept.push(Member {
-                root: member.root.clone(),
-                identity: member.identity.or(now),
-            }),
+        let same = match (member.identity, now) {
+            (Some(was), Some(now)) => was == now,
+            (None, None) => !cfg!(unix),
+            _ => false,
+        };
+        if same && !super::probe::holds_home(&member.root) {
+            kept.push(member.clone());
+        } else {
+            gone.push(member.root.clone());
         }
     }
     (kept, gone)

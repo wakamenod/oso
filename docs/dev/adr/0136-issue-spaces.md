@@ -644,10 +644,18 @@ orchestrator, as for a repository added while it runs.
   starts it, the space's directory made first when it has none, or made again at its place
   with a prefix argument when it is gone (refused if anything is there). oso-core gains
   `SpaceRequest::StartOrchestrator { remake_directory }`.
+- **Trust** is decided as oso trusts a project, by path and identity (`TrustList::trusts`,
+  made public in oso-core with the author's approval, 2026-11-15): a repository made again at
+  a trusted path, or one whose identity was never kept, gets no `--add-dir` and no offer.
 - **Just before the spawn,** on the session's start thread, `orchestrator::check_before_start`
-  runs ADR 0136's directory checks again and refuses a root with any directory on the way that
-  a group or other users can write, sticky or not; a trusted repository put in another's place
-  is left out of `--add-dir`, and said; the instructions are read there, no link, one name.
+  runs ADR 0136's directory checks again, on the path as written and on its real path, and
+  refuses a root with any directory above either that a group or other users can write, sticky
+  or not, or that cannot be looked at. A trusted repository put in another's place, with no
+  identity kept, or that is the root or holds the home directory is left out of `--add-dir`,
+  and said, in the echo area and to the orchestrator. The instructions are read there: in
+  their private directory, the person's own file, no link, one name.
+- **Every start in a space's directory** passes these checks: a fork there, and a resume of
+  an earlier orchestrator, get the checks with no `--add-dir` and no prompt.
 - **Its command line** puts each `--add-dir=` before `--name`, and its text and header in
   `--append-system-prompt`; a resume makes both again from the space as it is
   (`orchestrator_start_for`). The text is checked at build time to stay within 4 KiB.
@@ -659,7 +667,13 @@ orchestrator, as for a repository added while it runs.
 - **Offers** (Q5): a question with `space-confirm` as its `y`; what it would paste is kept
   beside it, dropped when another is asked or the question closes otherwise, and pasted on `y`
   as the person's bracketed paste, never submitted. oso-core gains `SpaceRequest::Confirmed`.
-  The repository must be trusted to be offered.
+  The repository must be trusted to be offered, and one the orchestrator was given at its
+  start, or pasted since, is not offered again; nothing is offered on the first read of the
+  trust list, as when oso starts or restarts. `space-confirm` runs only as a question's `y`,
+  and checks again that the session is still the space's running orchestrator and the
+  repository still one of the space's that oso trusts.
+- **The title** is given to the orchestrator as the space's title, kept in a record agents in
+  oso can write too, as the instructions are.
 - **The space commands' looks at the disk** (a directory, a repository, the instructions'
   directory) run on a thread of their own each, not on the sessions worker.
 - **`space-new` only makes the space** (the author's choice, 2026-11-15): its orchestrator

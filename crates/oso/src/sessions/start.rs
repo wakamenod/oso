@@ -345,10 +345,19 @@ fn space_extra(
         }
         None => String::new(),
     };
-    let prompt = space.prompt.clone() + &orchestrator::instructions_section(&instructions);
+    let mut prompt = space.prompt.clone();
+    if !gone.is_empty() {
+        let roots: Vec<String> = gone.iter().map(|root| root.display().to_string()).collect();
+        prompt.push_str(&format!(
+            "\nNot added after all, as each is no longer the directory the space recorded: {}\n",
+            orchestrator::plain(&roots.join(", "))
+        ));
+    }
+    prompt.push_str(&orchestrator::instructions_section(&instructions));
+    // A session in the space's directory that is not its orchestrator gets the checks alone.
     let extra = Extra {
         add_dirs: kept.into_iter().map(|member| member.root).collect(),
-        system_prompt: Some(prompt),
+        system_prompt: (!prompt.is_empty()).then_some(prompt),
     };
     Ok((extra, notes))
 }
