@@ -402,7 +402,11 @@ fn run_named<'a>(
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories() {
-    let flow = Flow::new("spaces-orchestrator", "");
+    // The orchestrator's directory must have a private way, and the scratch is in the system's
+    // temporary directory, shared on Linux: the spaces' root is in a private one instead.
+    let spaces = PrivateRoot::new("spaces-orchestrator");
+    let config = format!("\n[spaces]\nroot = \"{}\"\n", spaces.0.display());
+    let flow = Flow::new("spaces-orchestrator", &config);
     let other = flow.scratch.path().join("other");
     fs::create_dir(&other).unwrap();
     flow.git(&other, &["init", "-q", "-b", "main"]);
@@ -426,7 +430,7 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
     app.send_keys("o");
     let runs = flow.wait_for_runs(1);
     let (cwd, args) = run_named(&runs, "fix-login").expect("the orchestrator's run");
-    let directory = fs::canonicalize(flow.home.join("spaces/fix-login")).unwrap();
+    let directory = fs::canonicalize(spaces.0.join("fix-login")).unwrap();
     assert_eq!(PathBuf::from(cwd), directory);
     let repo = fs::canonicalize(&flow.repo).unwrap();
     let other_real = fs::canonicalize(&other).unwrap();
@@ -484,4 +488,39 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
         "{args:?}"
     );
     flow.exit_with(0);
+}
+
+/// A directory for a space's root whose whole way is private and inside no repository: the
+/// first of the temporary, runtime and home directories that is; removed when dropped.
+struct PrivateRoot(PathBuf);
+
+impl PrivateRoot {
+    fn new(test: &str) -> Self {
+        let candidates = [
+            Some(std::env::temp_dir()),
+            std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from),
+            std::env::var_os("HOME").map(PathBuf::from),
+        ];
+        let base = (candidates.into_iter().flatten())
+            .filter_map(|dir| fs::canonicalize(dir).ok())
+            .find(|dir| {
+                dir.ancestors().all(|above| {
+                    let private = fs::metadata(above)
+                        .is_ok_and(|meta| meta.permissions().mode() & 0o022 == 0);
+                    private && !above.join(".git").exists()
+                })
+            })
+            .expect("no private directory outside a repository");
+        let path = base.join(format!("oso-e2e-{}-{test}", std::process::id()));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        Self(path)
+    }
+}
+
+impl Drop for PrivateRoot {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
 }

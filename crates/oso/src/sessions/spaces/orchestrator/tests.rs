@@ -17,16 +17,51 @@ use crate::sessions::spaces::{Member, SpaceId, Stored};
 struct Scratch(PathBuf);
 
 impl Scratch {
+    /// A private directory whose whole way is private too, outside every repository, as the
+    /// start's check wants: the system's temporary directory is shared on Linux, so the first
+    /// of it, the runtime directory and the home directory that is private all the way.
     fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
+        let base = private_base().expect("no private directory outside a repository");
+        Self::at(base.join(format!(
             "oso-orchestrator-{name}-{}-{:?}",
             std::process::id(),
             std::time::SystemTime::now()
-        ));
+        )))
+    }
+
+    /// One in the system's temporary directory, as `/tmp` is.
+    fn in_temp(name: &str) -> Self {
+        let temp = Path::new("/tmp").canonicalize().unwrap();
+        Self::at(temp.join(format!("oso-orchestrator-{name}-{}", std::process::id())))
+    }
+
+    fn at(dir: PathBuf) -> Self {
+        let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
         Self(dir.canonicalize().unwrap())
     }
+}
+
+/// The first of the temporary, runtime and home directories that no group or other user can
+/// write, nor any directory above it, and that is inside no repository.
+fn private_base() -> Option<PathBuf> {
+    let candidates = [
+        Some(std::env::temp_dir()),
+        std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from),
+        std::env::var_os("HOME").map(PathBuf::from),
+    ];
+    candidates
+        .into_iter()
+        .flatten()
+        .filter_map(|dir| dir.canonicalize().ok())
+        .find(|dir| {
+            dir.ancestors().all(|above| {
+                let private =
+                    fs::metadata(above).is_ok_and(|meta| meta.permissions().mode() & 0o022 == 0);
+                private && !above.join(".git").exists()
+            })
+        })
 }
 
 impl Drop for Scratch {
@@ -100,6 +135,14 @@ fn instructions_with_a_second_name_others_can_write_or_in_a_shared_directory_are
     let refused = read_instructions(&file);
     fs::set_permissions(&scratch.0, fs::Permissions::from_mode(0o700)).unwrap();
     assert!(refused.is_err(), "a directory others can write");
+}
+
+#[test]
+fn a_space_directory_under_tmp_is_refused_as_tmp_is_shared() {
+    let scratch = Scratch::in_temp("tmp");
+    let (path, identity) = dir::make(&scratch.0.join("spaces"), "x", &[]).unwrap();
+    let refused = check_before_start(&path, identity, &[]);
+    assert!(matches!(refused, Err(Refusal::Shared(_))), "{refused:?}");
 }
 
 #[test]
