@@ -360,6 +360,7 @@ pub oso_term::Snapshot::cursor: oso_term::Cursor
 pub oso_term::Snapshot::dropped_events: u32
 pub oso_term::Snapshot::echo_off: bool
 pub oso_term::Snapshot::events: alloc::vec::Vec<oso_term::Event>
+pub oso_term::Snapshot::foreground_job: bool
 pub oso_term::Snapshot::history: usize
 pub oso_term::Snapshot::modes: oso_term::Modes
 pub oso_term::Snapshot::rows: alloc::vec::Vec<oso_term::Row>

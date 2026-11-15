@@ -68,8 +68,8 @@ pub(crate) fn completion_layout(
         field: rect(0, 0),
         field_room: rect(0, 0),
         message: rect(start + left - message_columns, message_columns),
-        keys: [rect(0, 0); 2],
-        verbs: [rect(0, 0); 2],
+        keys: [rect(0, 0); 3],
+        verbs: [rect(0, 0); 3],
         count: rect(0, count),
     }
 }

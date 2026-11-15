@@ -51,6 +51,7 @@ fn adopt(exported: &Exported) -> Seen {
         events: Vec::new(),
         echo_off: false,
         echo_said: Vec::new(),
+        job: false,
         cursor: crate::snapshot::Cursor::default(),
         size: (0, 0),
         scrolled: 0,

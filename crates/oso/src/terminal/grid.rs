@@ -466,6 +466,7 @@ mod tests {
             },
             modes: Modes::default(),
             echo_off: false,
+            foreground_job: false,
             history: 0,
             scrolled: 0,
             events: Vec::new(),

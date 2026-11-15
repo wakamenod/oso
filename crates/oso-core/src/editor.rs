@@ -222,9 +222,10 @@ pub struct Editor {
     preedit_withheld: bool,
     /// Saves the host has yet to start.
     save_jobs: Vec<SaveJob>,
-    /// The buffers the last refused exit put at risk, until a question about it is answered
-    /// or a save changes what is at risk.
-    exit_attempt: Option<Vec<BufferId>>,
+    /// What the last refused exit put at risk, until it is answered or a save changes that.
+    exit_attempt: Option<Vec<(BufferId, ContentId)>>,
+    /// The person asked to exit once no terminal is busy (ADR 0133).
+    quit_when_idle: bool,
     /// What an input method is composing, shown at the selected window's primary
     /// cursor and in no buffer (ADR 0069).
     preedit: Option<Preedit>,
@@ -358,6 +359,7 @@ impl Editor {
             preedit_withheld: false,
             save_jobs: Vec::new(),
             exit_attempt: None,
+            quit_when_idle: false,
             preedit: None,
             prompts: Vec::new(),
             histories: Histories::default(),

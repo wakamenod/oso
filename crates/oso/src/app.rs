@@ -28,6 +28,7 @@ mod files;
 mod flash;
 mod greps;
 mod handover;
+mod idle_quit;
 mod ime;
 mod input;
 mod jumps;
@@ -181,6 +182,8 @@ pub struct App {
     freer: Freer,
     /// An exit waiting for running saves, once this instance has agreed to go.
     leaving: Leaving,
+    /// Since when no terminal is busy, while an exit waits for that (ADR 0133).
+    idle_quit: idle_quit::IdleClock,
     /// What the panic hook and the end of the event loop write (ADR 0062).
     emergency: Emergency,
     /// The emergency copies on offer (ADR 0064).
@@ -364,6 +367,7 @@ impl App {
             configuration,
             freer: Freer::start(),
             leaving: Leaving::with_cell(emergency.agreement_cell()),
+            idle_quit: idle_quit::IdleClock::default(),
             offer: emergency.offer(),
             emergency,
             answering: None,
