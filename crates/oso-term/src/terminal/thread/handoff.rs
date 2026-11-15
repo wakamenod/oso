@@ -210,15 +210,16 @@ pub(in crate::terminal) fn adopt(adopt: Adopt, hold_limit: Duration, channels: C
             .ok_or_else(|| io::Error::other("the terminal could not be restored"))?;
         drop(state);
         engine.set_palette(&palette);
+        // The child's id is set before the first snapshot is sent, so a watcher that sees the
+        // snapshot already sees the pid (the host asks for it as soon as the buffer appears).
+        let shared = channels.shared;
+        shared.pid.store(pid.unwrap_or(0), Ordering::Release);
         let mut first = Snapshot::new(size);
         engine.snapshot(&mut first, &mut Vec::new());
         channels.shared.in_flight.store(true, Ordering::Release);
         if channels.snapshots.send(first).is_ok() {
             (channels.wake)();
         }
-        // The child's id from the start, as the instance before had it.
-        let shared = channels.shared;
-        shared.pid.store(pid.unwrap_or(0), Ordering::Release);
         let Some((master, kept)) = wait_for_master(channels)? else {
             shared.pid.store(0, Ordering::Release);
             return Ok(Some(End::Closed));
