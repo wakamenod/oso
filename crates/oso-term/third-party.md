@@ -17,6 +17,10 @@ does their work by hand, the way ADR 0111 does for the grammars' C.
   copies never abort; its lines say so where they change the code. The changed files stay
   under the library's MIT licence, whose text in `licenses/` is unchanged. `build.rs` checks
   the patch and each file it changes against the lock.
+- **oso's patch:** `patches/0003-snapshot-restore.patch` changes one file
+  (`src/terminal/snapshot/history.zig`) so that a restored history page is pooled like a live
+  one; its lines say so where they change the code. The file stays under the library's MIT
+  licence, and `build.rs` checks the patch and the file against the lock.
 - **At a bump:** read the new report and the diff of each linked package, update the lock and
   this table, and copy any licence text that changed into `licenses/`. Drop the patch if the
   new release makes it needless, or rebase it and update its hashes. Then fuzz again with

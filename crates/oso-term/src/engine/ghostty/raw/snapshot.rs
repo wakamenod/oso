@@ -195,6 +195,12 @@ impl Vt {
         let (columns, rows) = size;
         match encoding {
             Encoding::Snapshot => {
+                // A snapshot larger than this terminal's size and scrollback could hold is
+                // refused before it is decoded: a damaged header cannot then drive the Zig
+                // decoder into unbounded work (ADR 0120, step 11; ADR 0133's size cap).
+                if bytes.len() > snapshot_cap(columns, rows, scrollback_lines) {
+                    return None;
+                }
                 Vt::make(columns, rows, scrollback_lines, xtversion, |terminal| {
                     decode(bytes, terminal)
                 })
@@ -206,6 +212,24 @@ impl Vt {
             }
         }
     }
+}
+
+/// The most bytes a snapshot of a `columns` x `rows` terminal keeping `scrollback` lines may
+/// take: every cell of the active screen and the scrollback at a generous ceiling per cell
+/// (cell, style, link and grapheme share), the longest unfinished sequence, and a fixed
+/// overhead. A legitimate snapshot stays well under it; a damaged one claiming far more is
+/// refused.
+fn snapshot_cap(columns: u16, rows: u16, scrollback: usize) -> usize {
+    /// A ceiling on a cell's encoded bytes, well above what any cell takes.
+    const PER_CELL: usize = 64;
+    /// Fixed overhead: the envelope, the records' headers, modes, palette and the like.
+    const OVERHEAD: usize = 1 << 16;
+    let lines = (rows as usize).saturating_add(scrollback.min(limits::SCROLLBACK_MAX));
+    let cells = lines.saturating_mul(columns as usize);
+    cells
+        .saturating_mul(PER_CELL)
+        .saturating_add(limits::CONTINUATION_MAX)
+        .saturating_add(OVERHEAD)
 }
 
 /// Decodes the snapshot `bytes` into `terminal`, a terminal the caller then owns.
@@ -261,4 +285,39 @@ fn decode(bytes: &[u8], terminal: &mut ffi::Terminal) -> ffi::GResult {
     // SAFETY: made above and freed once, here; a decoded terminal stays the caller's.
     unsafe { ffi::ghostty_snapshot_decoder_free(decoder) };
     done
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Encoding, Vt, snapshot_cap};
+    use crate::engine::ghostty::tests::XTVERSION;
+    use crate::limits;
+
+    #[test]
+    fn the_cap_covers_a_real_snapshot_and_refuses_an_oversized_one() {
+        // A real snapshot of a small terminal restores; a blob larger than the cap does not,
+        // so a damaged header cannot drive the decoder into unbounded work.
+        let mut vt = Vt::new(80, 24, 100, XTVERSION).expect("a terminal");
+        vt.write(b"\x1b[1;32mhello\x1b[0m\r\nworld");
+        let budget = std::sync::atomic::AtomicUsize::new(usize::MAX / 2);
+        let bytes = vt.encode(Encoding::Snapshot, &budget).expect("a snapshot");
+        let cap = snapshot_cap(80, 24, 100);
+        assert!(
+            bytes.len() <= cap,
+            "a real snapshot fits: {} <= {cap}",
+            bytes.len()
+        );
+        assert!(Vt::restore(Encoding::Snapshot, &bytes, (80, 24), 100, XTVERSION).is_some());
+
+        let huge = vec![0u8; cap + 1];
+        assert!(Vt::restore(Encoding::Snapshot, &huge, (80, 24), 100, XTVERSION).is_none());
+    }
+
+    #[test]
+    fn the_cap_scales_with_size_and_scrollback_and_never_overflows() {
+        assert!(snapshot_cap(1, 1, 0) >= limits::CONTINUATION_MAX);
+        assert!(snapshot_cap(1000, 500, limits::SCROLLBACK_MAX) > snapshot_cap(80, 24, 100));
+        // A size and scrollback at their ceilings do not overflow the cap.
+        let _ = snapshot_cap(u16::MAX, u16::MAX, usize::MAX);
+    }
 }

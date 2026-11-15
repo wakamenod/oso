@@ -1,0 +1,21 @@
+oso's change to libghostty-vt 1.0.1 (MIT, like the library), applied by build.rs after
+0001 and checked against ghostty-vt.lock: a restored history page is pooled like a live one,
+so a later resize splits it into native-sized pages instead of keeping an over-capacity page.
+Drop or rebase it at every bump.
+
+diff -ruN a/src/terminal/snapshot/history.zig b/src/terminal/snapshot/history.zig
+--- a/src/terminal/snapshot/history.zig
++++ b/src/terminal/snapshot/history.zig
+@@ -248,8 +248,11 @@
+     // the destination PageList to allocate the final backing memory once.
+     var decoder: page.Decoder = undefined;
+     try decoder.init(source, record_header);
++    // oso patch: pool the restored page like a live one (fillPooled), so a later resize
++    // splits it into native-sized pages instead of keeping an over-capacity page whose cell
++    // count can pass the u16 style/link id space when the terminal is widened.
+     var allocation = try terminal_screen.pages.allocatePage(
+-        decoder.capacity(),
++        TerminalPageList.fillPooled(decoder.capacity()),
+     );
+     defer allocation.deinit();
+     try decoder.decode(allocation.page(), alloc);
