@@ -95,6 +95,11 @@ are rounded.
   `DEL` and `RET` do not, unlike in Emacs, and any other key says `Answer y or n`. A held
   key answers once. `C-x C-c` and the close button ask before exiting with unsaved work, and
   `C-x C-s` asks before saving over a file that changed on disk.
+- **A third answer**, `w`, comes after `n` on the few questions that have one, and the label
+  ends `(y, n or w)`: `C-x C-c` with a session's turn under way or a job running in a shell
+  names them, up to three each, and offers `[y] exit  [n] stay  [w] wait`. `w` exits once
+  every terminal has been idle for 2 seconds; the echo area says what it waits for, and `C-g`
+  cancels ([ADR 0133](adr/0133-keeping-terminals-over-an-update.md), step 5).
 - **A passphrase** shows one `*` per character, keeps no undo and enters no history.
 - `C-g` does one thing at a time: a pending prefix, then the region, then the innermost
   prompt.

@@ -16,6 +16,8 @@ use crate::minibuffer::{
 };
 use crate::window::{ViewSize, Window};
 
+mod third;
+
 /// What one `C-g` did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Quit {
@@ -63,8 +65,8 @@ impl Editor {
         let depth = self.prompts.len() + 1;
         let from_agent = self.runs_for_agent();
         let mut label = label.into();
-        if kind.is_question() {
-            label.push_str(minibuffer::QUESTION_END);
+        if let Kind::Question { third, .. } = kind {
+            label.push_str(minibuffer::question_end(third.is_some()));
         }
         if from_agent {
             label.insert_str(0, super::agent::AGENT_LABEL);
@@ -131,7 +133,8 @@ impl Editor {
         yes: &'static str,
         verbs: [&'static str; 2],
     ) -> Result<PromptId, PromptError> {
-        self.open_prompt(question, Kind::Question { yes, verbs })
+        let third = None;
+        self.open_prompt(question, Kind::Question { yes, verbs, third })
     }
 
     /// The open prompts, the outermost first.

@@ -837,6 +837,13 @@ changed asks before going over it, and replaces it only if it is still what that
 [ADR 0059](adr/0059-safe-save-and-the-exit-guard.md) and
 [ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md).
 
+The exit's question also names the work under way in terminals, which the host marks on each
+terminal buffer (`Editor::set_busy`): a hosted session's turn, or a question it asks, from the
+sessions' worker, and a shell's job, which `oso-term` reads from the PTY's foreground process
+group when it looks at its flags. `w` (`quit-when-idle`) leaves a flag on the editor; the host
+exits as a confirmed `C-x C-c` once no terminal has been busy for 2 s with no prompt open
+(`app/idle_quit.rs`, [ADR 0133](adr/0133-keeping-terminals-over-an-update.md), step 5).
+
 ### Restarting the installed oso
 
 `oso-restart`, the person's command, moves a release build's terminals, sessions and unsaved

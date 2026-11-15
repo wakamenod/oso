@@ -54,6 +54,22 @@ impl Editor {
         }
     }
 
+    /// Notes whether work is under way in the terminal buffer `id`: a job its shell waits for,
+    /// or a hosted session's turn, which an exit names and "quit when idle" waits for
+    /// (ADR 0133). Nothing happens to a buffer that is not a running terminal's.
+    pub fn set_busy(&mut self, id: BufferId, busy: bool) {
+        if let Some(buffer) = self.buffer_mut(id).filter(|buffer| buffer.is_terminal()) {
+            buffer.set_busy(busy);
+        }
+    }
+
+    /// The terminal buffers work is under way in, in the order they were made.
+    pub fn busy_terminals(&self) -> impl Iterator<Item = BufferId> + '_ {
+        self.buffers()
+            .filter(|(_, buffer)| buffer.is_terminal() && buffer.is_busy())
+            .map(|(id, _)| id)
+    }
+
     /// The terminal buffers a program runs in, in the order they were made.
     pub fn running_terminals(&self) -> impl Iterator<Item = BufferId> + '_ {
         self.buffers()

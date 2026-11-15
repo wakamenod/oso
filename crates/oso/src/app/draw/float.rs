@@ -45,8 +45,8 @@ pub(super) struct Parts<'a> {
     /// For a project's search, each row shown: how much of it is its path and line, and where
     /// it matches (ADR 0114).
     search_rows: Option<Vec<(usize, Vec<Range<usize>>)>>,
-    /// A question's key chips, ` y ` and ` n `.
-    chips: [(CellRect, Face); 2],
+    /// A question's key chips, ` y ` and ` n `, and ` w ` for a third answer (empty without).
+    chips: [(CellRect, Face); 3],
 }
 
 impl<'a> Parts<'a> {
@@ -211,22 +211,29 @@ impl<'a> Parts<'a> {
 
     /// A question's keys and their verbs, each at the column `minibuffer::layout` gives it,
     /// from the first key's: spaces up to it, then what it shows. Empty for a prompt.
-    fn keys(&self) -> [Span<'a>; 12] {
+    fn keys(&self) -> [Span<'a>; 18] {
         let mut spans = std::array::from_fn(|_| Span {
             text: "",
             face: Face::Float,
         });
-        let Kind::Question { verbs, .. } = self.kind else {
+        let Kind::Question { verbs, third, .. } = self.kind else {
             return spans;
         };
-        let [y, n] = self.layout.keys;
-        let [yes, no] = self.layout.verbs;
+        let [y, n, w] = self.layout.keys;
+        let [yes, no, other] = self.layout.verbs;
         let mut at = y.column;
+        // A key the question does not have takes no cells, and is skipped.
         let parts = [
             (y, ["", minibuffer::KEYS[0]], Face::Key),
             (yes, [" ", verbs[0]], Face::Prompt),
             (n, ["", minibuffer::KEYS[1]], Face::Key),
             (no, [" ", verbs[1]], Face::Prompt),
+            (w, ["", minibuffer::KEYS[2]], Face::Key),
+            (
+                other,
+                [" ", third.map_or("", |third| third.verb)],
+                Face::Prompt,
+            ),
         ];
         for (index, (cells, texts, face)) in parts.into_iter().enumerate() {
             if cells.columns == 0 {
@@ -262,7 +269,7 @@ fn blank<'a>() -> Span<'a> {
 pub(super) struct Spans<'a> {
     label: Vec<[Span<'a>; 2]>,
     message: [Span<'a>; 4],
-    keys: [Span<'a>; 12],
+    keys: [Span<'a>; 18],
     candidates: Vec<Vec<Span<'a>>>,
     count: [Span<'a>; 2],
     /// The column between the candidates and a preview.
@@ -379,7 +386,7 @@ pub(super) fn panes<'a>(
             PaneContent::Lines(&lines.label),
         ));
     }
-    let [y, _] = layout.keys;
+    let [y, ..] = layout.keys;
     if parts.kind.is_question() && y.columns > 0 {
         let end = inner.column + inner.columns;
         let region = CellRect {

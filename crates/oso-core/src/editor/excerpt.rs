@@ -153,6 +153,7 @@ mod tests {
         let question = Kind::Question {
             yes: "exit",
             verbs: ["exit", "stay"],
+            third: None,
         };
         editor.open_prompt("Exit? ", question).unwrap();
         none(&editor, "a question over an ordinary buffer");

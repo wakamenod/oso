@@ -140,6 +140,8 @@ struct Running<'a> {
     inputs: Inputs,
     /// What the thread knows of a password prompt.
     echo: EchoWatch,
+    /// Whether the last look saw a job in the foreground, and what the last snapshot said.
+    job: (bool, bool),
     /// Output was read since the flags were last looked at.
     fed: bool,
     /// Output, input or a request reached the engine since it last built a snapshot: a wake
@@ -227,6 +229,7 @@ impl<'a> Running<'a> {
             hold_limit,
             inputs: Inputs::new(),
             echo: EchoWatch::default(),
+            job: (false, false),
             fed: false,
             touched: true,
             detached: false,
@@ -477,6 +480,8 @@ impl<'a> Running<'a> {
         }
         self.next.echo_off = self.echo.echo_off();
         self.echo.published();
+        self.next.foreground_job = self.job.0;
+        self.job.1 = self.job.0;
         // A prompt said once that has ended since is said to be over in the next snapshot.
         self.changed |= self.echo.changed();
         let size = self.next.size;
@@ -503,6 +508,7 @@ impl<'a> Running<'a> {
         );
         self.engine.snapshot(&mut self.next, &mut self.spare);
         self.next.echo_off = self.echo.echo_off();
+        self.next.foreground_job = false;
         let size = self.next.size;
         std::mem::replace(&mut self.next, Snapshot::new(size))
     }
@@ -513,6 +519,12 @@ impl<'a> Running<'a> {
         let off = self.master.reads_secret().unwrap_or(true);
         self.echo.saw(off, Instant::now());
         self.changed |= self.echo.changed();
+        // A job in the foreground, for a quit that waits (ADR 0133). A failed look says none.
+        // The child's id, also of a terminal adopted over a restart, which holds no `Child`.
+        let child = self.channels.shared.pid.load(Ordering::Acquire);
+        let group = self.master.foreground_group().ok().flatten();
+        self.job.0 = child != 0 && group.is_some_and(|group| group != child);
+        self.changed |= self.job.0 != self.job.1;
     }
 
     /// The child's exit status, if it exits within `REAP_FOR`. One that outlives its

@@ -150,6 +150,7 @@ impl App {
         self.ask_for_a_frame_if_status_changed();
         self.draw_flash_if_due();
         self.show_jump_labels_if_due();
+        self.quit_if_idle(event_loop);
         // Last, once every deadline is known.
         self.set_wake(event_loop);
         self.note_logging();
@@ -251,6 +252,7 @@ impl App {
             self.hidden_terminals_deadline(),
             self.sessions_deadline(),
             self.handover_deadline(),
+            self.idle_quit.next_wake(),
         ];
         match earliest(deadlines) {
             Some(deadline) => event_loop.wake_at(deadline),

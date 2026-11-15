@@ -243,6 +243,7 @@ mod tests {
         // Answering a prompt, choosing what it answers, and running a command by name
         // (ADR 0076).
         "answer-no",
+        "answer-third",
         "answer-yes",
         "execute-extended-command",
         "exit-minibuffer",
@@ -322,6 +323,7 @@ mod tests {
         // Exiting, and leaving what the person is doing.
         "keyboard-quit",
         "save-buffers-kill-terminal",
+        "quit-when-idle",
         // A hosted session's saved screen, which an agent must not read (ADR 0121).
         "session-explain-file",
         // A hosted session's `claude`, a process the person starts (ADR 0121).

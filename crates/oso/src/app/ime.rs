@@ -449,6 +449,7 @@ mod tests {
         let question = Kind::Question {
             yes: "exit",
             verbs: ["exit", "stay"],
+            third: None,
         };
         assert!(!japanese_names(Some((1, question)), Some(1), false));
     }

@@ -197,6 +197,15 @@ impl App {
             },
         );
         self.attend(key, change.state);
+        // An exit that waits for the terminals waits for a turn under way, or a question the
+        // session asks (ADR 0133).
+        let buffer = (self.hosting.table().iter())
+            .find(|session| session.key == key)
+            .and_then(|session| session.buffer);
+        if let Some(buffer) = buffer {
+            let busy = matches!(change.state, State::Working | State::NeedsInput(_));
+            self.editor.set_busy(buffer, busy);
+        }
         if change.turn_ended {
             self.look_for_changes(key);
         }

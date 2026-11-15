@@ -428,4 +428,15 @@ impl Editor {
     pub fn reset_exit_guard(&mut self) {
         self.exit_attempt = None;
     }
+
+    /// Asks to exit once no terminal is busy, or no longer (ADR 0133). The host waits for it,
+    /// and exits as a confirmed `C-x C-c` would.
+    pub fn set_quit_when_idle(&mut self, waiting: bool) {
+        self.quit_when_idle = waiting;
+    }
+
+    /// Whether an exit waits for every terminal to be idle.
+    pub fn quit_when_idle(&self) -> bool {
+        self.quit_when_idle
+    }
 }

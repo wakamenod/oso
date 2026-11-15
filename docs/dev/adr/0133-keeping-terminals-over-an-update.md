@@ -313,7 +313,7 @@ each), the new public items and the guarded edits through the coordinator.
   an exit refused once the new one holds everything, leave the terminal here, reading again
   (a dev build's `OSO_DEV_RESTART_FAIL` stops the restart at those points).
 - **Not done:** the macOS team identity, and access lists on the binary's way, in step 3; the
-  notice on focus (step 4, done; see below); quitting when idle (step 5); the snapshot's return (ADR 0120, step
+  notice on focus (step 4, done; see below); quitting when idle (step 5, done; see below); the snapshot's return (ADR 0120, step
   11's library patches); starting the new instance with `posix_spawn` rather than a fork, with
   the terminals' starts. `oso-restart` run in an instance `oso dev` supervises starts a child the
   supervisor does not know of; `oso dev`'s own restart is the one to use there.
@@ -356,3 +356,38 @@ than was checked (below).
   `oso-restart` would refuse one it cannot run or others can change, says nothing of the file
   at start or of a missing one, and ends with its looker; the notice says each identity once
   (`carry::notice`).
+
+## Step 5, as built
+
+Built on 2026-11-15. The author approved the plan and its questions (the recommended option
+for each) and the new public items through the coordinator.
+
+- **What is busy.** A terminal is busy while a hosted session in it has a turn under way or
+  asks a question (working, or needs input), or while its shell waits for a job: the PTY's
+  foreground process group is not the shell's own. `oso-term`'s thread reads the group where it
+  reads the flags for a password prompt, after input and output and a short while after, and
+  says it in the snapshot (`Snapshot::foreground_job`); a hosted session's state comes from the
+  sessions' worker. The host marks the terminal's buffer (`Editor::set_busy`), so the command
+  stays a function of the editor state. A shell at its prompt is not busy, and nor is a child
+  that runs its programs with no job control, as `sh -c` does: its jobs share its group.
+- **The question.** `C-x C-c` names the sessions with a turn under way and the terminals with a
+  job, up to three of each and then how many more, says how many other terminals end, and
+  keeps the question about unsaved text and unsent comments. With work under way it has a
+  third answer: `y` exits, as before, `n` stays, and `w` waits. A question's third answer is
+  `minibuffer::Third` on `Kind::Question`, on the key `w` (`answer-third`); a question without
+  one says `Answer y or n` to `w`.
+- **Waiting.** `w` runs `quit-when-idle` (`Person`, also from `M-x`), which leaves a flag on
+  the editor and says what it waits for. Before the event loop waits, the host looks: once no
+  terminal has been busy for 2 s straight, with no prompt open and no input held, it runs
+  `save-buffers-kill-terminal` confirmed, which exits, or asks again if more is at risk than
+  the person agreed to lose. A gap between two jobs or a session's state that flickers ends
+  nothing. `C-g` with nothing else to cancel stops the wait, and so does `C-x C-c`, which asks
+  again. The echo area alone says it waits.
+- **New public items:** `oso-term`'s `Snapshot::foreground_job`; `oso-core`'s
+  `Buffer::is_busy`, `Editor::{set_busy, busy_terminals, set_quit_when_idle, quit_when_idle,
+  ask_with_third, answer_question_third}`, `minibuffer::Third` and `Kind::Question`'s `third`;
+  `minibuffer::KEYS` and `PromptLayout`'s `keys` and `verbs` hold three.
+- **Tests.** A job in the foreground and a shell at its prompt (`oso-term`); the third key's
+  place and the question's label (`oso-core`); the question's text, `w`, `C-g` and a second
+  `C-x C-c` (`commands::session`); `C-x C-c w` by keys, the exit once idle, and a buffer
+  modified meanwhile asking again (`dispatch`); the 2 s hold (`app::idle_quit`).

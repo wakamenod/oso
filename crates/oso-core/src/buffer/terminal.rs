@@ -43,6 +43,17 @@ impl Buffer {
 
     pub(crate) fn set_running(&mut self, running: bool) {
         self.running = running;
+        self.busy &= running;
+    }
+
+    /// Whether work is under way in its terminal, as the host last said: a job the shell
+    /// waits for, or a hosted session's turn (ADR 0133). Never while nothing runs.
+    pub fn is_busy(&self) -> bool {
+        self.busy
+    }
+
+    pub(crate) fn set_busy(&mut self, busy: bool) {
+        self.busy = busy && self.running;
     }
 
     pub(crate) fn set_mode_note(&mut self, note: String) {

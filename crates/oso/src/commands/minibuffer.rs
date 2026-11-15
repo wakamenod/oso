@@ -53,6 +53,14 @@ pub const COMMANDS: &[Command] = &[
         run: answer_no,
         state: None,
     },
+    Command {
+        name: "answer-third",
+        doc: "Give the question asked its third answer, where it has one.\n\nThe question names it after `y` and `n`, such as `w` to wait when an exit would end work under way. What it asked about runs, as for yes.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: answer_third,
+        state: None,
+    },
 ];
 
 fn exit_minibuffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -89,6 +97,15 @@ fn answer_yes(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn answer_no(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     answer(ctx, false)
+}
+
+fn answer_third(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    // A question of two answers stays open and says what answers it.
+    ctx.editor
+        .answer_question_third()
+        .map_err(|_| CommandError::new("Answer y or n"))?;
+    ctx.request_redraw();
+    Ok(())
 }
 
 fn answer(ctx: &mut Ctx<'_>, yes: bool) -> Result<(), CommandError> {

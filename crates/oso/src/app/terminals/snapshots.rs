@@ -6,7 +6,7 @@
 
 use std::time::Instant;
 
-use oso_core::buffer::BufferId;
+use oso_core::buffer::{Buffer, BufferId};
 use oso_term::Event;
 
 use super::super::App;
@@ -87,12 +87,9 @@ impl App {
             hosted.grid.apply(&snapshot);
             // The buffer's verdict is the one record of a password prompt. A program that
             // ended reads none, whatever its last snapshot saw.
-            let ends = snapshot
-                .events
-                .iter()
-                .any(|event| matches!(event, Event::Ended(_)));
+            let ends = ends(&snapshot);
             let echo_off = snapshot.echo_off && !ends;
-            reported.push((id, echo_off));
+            reported.push((id, echo_off, snapshot.foreground_job && !ends));
             if echo_off != self.editor.buffer(id).is_some_and(reads_a_password) {
                 hosted.note_stale = true;
                 secret.push((id, echo_off));
@@ -137,7 +134,8 @@ impl App {
         for (id, echo_off) in &secret {
             self.editor.set_echo_off(*id, *echo_off);
         }
-        for (id, echo_off) in reported {
+        for (id, echo_off, job) in reported {
+            self.note_job(id, job);
             self.dispatcher
                 .terminal_reported(&mut self.editor, id, echo_off);
         }
@@ -155,4 +153,17 @@ impl App {
         }
         again
     }
+
+    /// A shell's job is what makes its terminal busy; a hosted session's state does, from the
+    /// sessions' worker (ADR 0133).
+    fn note_job(&mut self, id: BufferId, job: bool) {
+        if !self.editor.buffer(id).is_some_and(Buffer::hosts_session) {
+            self.editor.set_busy(id, job);
+        }
+    }
+}
+
+/// Whether `snapshot` is its terminal's last: it reports the end.
+fn ends(snapshot: &oso_term::Snapshot) -> bool {
+    (snapshot.events.iter()).any(|event| matches!(event, Event::Ended(_)))
 }

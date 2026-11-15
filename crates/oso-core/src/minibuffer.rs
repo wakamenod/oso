@@ -58,8 +58,9 @@ const MIN_INPUT_COLUMNS: usize = 8;
 /// What a question's keys say when it names nothing else.
 pub const VERBS: [&str; 2] = ["yes", "no"];
 
-/// What a key's chip shows: the key, with a cell on each side.
-pub const KEYS: [&str; 2] = [" y ", " n "];
+/// What a key's chip shows: the key, with a cell on each side. `w` is the third answer, which
+/// only some questions have (ADR 0133).
+pub const KEYS: [&str; 3] = [" y ", " n ", " w "];
 
 /// The cells between one key's verb and the next key.
 pub const KEY_GAP: usize = 2;
@@ -82,14 +83,24 @@ pub enum Kind {
     Complete { history: &'static str },
     /// A question answered by `y` or `n`. `yes` names the command `y` runs, confirmed,
     /// which checks again what was true when it was asked. `n` runs nothing. `verbs` say
-    /// what `y` and `n` do, after their keys (ADR 0075).
+    /// what `y` and `n` do, after their keys (ADR 0075). `third`, if any, is what `w` does
+    /// (ADR 0133).
     Question {
         yes: &'static str,
         verbs: [&'static str; 2],
+        third: Option<Third>,
     },
     /// A review comment's draft (ADR 0122): any text, over several rows that wrap, in no
     /// history. `RET` breaks a line; its own key keeps it.
     Draft,
+}
+
+/// A question's third answer, on `w`: the command it runs, confirmed, as `y`'s, and what it
+/// does, after its key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Third {
+    pub command: &'static str,
+    pub verb: &'static str,
 }
 
 impl Kind {
@@ -301,11 +312,12 @@ pub struct PromptLayout {
     /// Where a message goes: at the end of the answer's row, or at the start of a question's
     /// keys. Empty with none.
     pub message: CellRect,
-    /// A question's keys, `y` and `n`, on chips of [`KEYS`]'s cells, at the end of its last
-    /// row, which the label never takes. Cut only at the edge of a float narrower than both.
-    pub keys: [CellRect; 2],
+    /// A question's keys, `y`, `n` and `w` if it has a third answer, on chips of [`KEYS`]'s
+    /// cells, at the end of its last row, which the label never takes. Cut only at the edge of
+    /// a float narrower than them. A key the question does not have is empty.
+    pub keys: [CellRect; 3],
     /// Each key's verb after it, a cell on: empty where the row is too narrow for them.
-    pub verbs: [CellRect; 2],
+    pub verbs: [CellRect; 3],
     /// A list's count, such as `3/57`, at the end of the answer's row. Empty with no list
     /// (ADR 0076).
     pub count: CellRect,
@@ -314,8 +326,8 @@ pub struct PromptLayout {
 /// The cells of a row the label may take where it shares the row with the answer: all of
 /// it less the keys for a question, and what leaves room for an answer otherwise.
 fn label_width(kind: Kind, inner_columns: usize) -> usize {
-    if kind.is_question() {
-        inner_columns.saturating_sub(keys_cells(None) + 1)
+    if let Kind::Question { third, .. } = kind {
+        inner_columns.saturating_sub(keys_cells(None, third.is_some()) + 1)
     } else {
         inner_columns
             .saturating_sub(INPUT_COLUMNS)
@@ -323,11 +335,16 @@ fn label_width(kind: Kind, inner_columns: usize) -> usize {
     }
 }
 
-/// The cells a question's keys take, with `verbs` after them or none.
-fn keys_cells(verbs: Option<[&str; 2]>) -> usize {
-    // Where the `n` key or its verb ends, from column 0.
-    let [[_, (n, n_cells)], [_, (no, no_cells)]] = keys_at(0, verbs);
-    (n + n_cells).max(no + no_cells)
+/// The cells a question's keys take, with `verbs` after them or none, and a third answer's
+/// or not.
+fn keys_cells(verbs: Option<[&str; 3]>, third: bool) -> usize {
+    // Where the last key or its verb ends, from column 0.
+    let [keys, verbs] = keys_at(0, verbs, third);
+    keys.iter()
+        .chain(&verbs)
+        .map(|(column, cells)| column + cells)
+        .max()
+        .unwrap_or(0)
 }
 
 /// The cells a field on the last row of `regions`' inner cells may reach into: the padding
@@ -344,13 +361,22 @@ fn field_room(regions: &FloatRegions) -> CellRect {
     }
 }
 
-/// The columns and widths of a question's two keys from column `at`, and of `verbs` after
-/// them, or none.
-fn keys_at(at: usize, verbs: Option<[&str; 2]>) -> [[(usize, usize); 2]; 2] {
-    let [y, n] = KEYS.map(cells_of);
-    let [yes, no] = verbs.map_or([0, 0], |verbs| verbs.map(|verb| cells_of(verb) + 1));
-    let second = at + y + yes + if verbs.is_some() { KEY_GAP } else { 1 };
-    [[(at, y), (second, n)], [(at + y, yes), (second + n, no)]]
+/// The columns and widths of a question's keys from column `at`, and of `verbs` after them,
+/// or none: `y` and `n`, and `w` if it has a `third` answer, else a third of no cells.
+fn keys_at(at: usize, verbs: Option<[&str; 3]>, third: bool) -> [[(usize, usize); 3]; 2] {
+    let [y, n, w] = KEYS.map(cells_of);
+    let [yes, no, other] = verbs.map_or([0; 3], |verbs| verbs.map(|verb| cells_of(verb) + 1));
+    let gap = if verbs.is_some() { KEY_GAP } else { 1 };
+    let second = at + y + yes + gap;
+    let (last, w, other) = if third {
+        (second + n + no + gap, w, other)
+    } else {
+        (second + n + no, 0, 0)
+    };
+    [
+        [(at, y), (second, n), (last, w)],
+        [(at + y, yes), (second + n, no), (last + w, other)],
+    ]
 }
 
 /// A prompt's label cut into rows, and the float that holds them.
@@ -423,7 +449,9 @@ fn place_label(frame: &FrameLayout, body: &str, kind: Kind) -> Label {
 /// did.
 pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str>) -> PromptLayout {
     let body = match kind {
-        Kind::Question { .. } => label.strip_suffix(QUESTION_END).unwrap_or(label),
+        Kind::Question { third, .. } => label
+            .strip_suffix(question_end(third.is_some()))
+            .unwrap_or(label),
         _ => label,
     };
     let Label {
@@ -459,12 +487,16 @@ pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str
     };
     let message_cells =
         |room: usize| message.map_or(0, |message| (cells_of(message) + 3).min(room));
-    if let Kind::Question { verbs, .. } = kind {
+    if let Kind::Question { verbs, third, .. } = kind {
+        let [yes, no] = verbs;
+        let verbs = [yes, no, third.map_or("", |third| third.verb)];
+        let third = third.is_some();
         // The verbs go before the keys do, and the keys stay whole while the row holds them.
-        let verbs = Some(verbs).filter(|verbs| !one_row && keys_cells(Some(*verbs)) <= left);
+        let verbs = Some(verbs).filter(|verbs| !one_row && keys_cells(Some(*verbs), third) <= left);
         let [keys, verbs] = keys_at(
-            start.max(inner.columns.saturating_sub(keys_cells(verbs))),
+            start.max(inner.columns.saturating_sub(keys_cells(verbs, third))),
             verbs,
+            third,
         );
         let message_columns = message_cells(keys[0].0.saturating_sub(start + 1));
         return PromptLayout {
@@ -495,14 +527,26 @@ pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str
             field_room(&regions)
         },
         message: rect(inner.columns - message_columns, message_columns),
-        keys: [rect(0, 0); 2],
-        verbs: [rect(0, 0); 2],
+        keys: [rect(0, 0); 3],
+        verbs: [rect(0, 0); 3],
         count: rect(0, 0),
     }
 }
 
 /// What ends a question's label: what the keys that answer it are.
 pub const QUESTION_END: &str = " (y or n)";
+
+/// What ends the label of a question with a third answer.
+pub(crate) const QUESTION_END_THIRD: &str = " (y, n or w)";
+
+/// What ends a question's label, with a third answer or not.
+pub(crate) fn question_end(third: bool) -> &'static str {
+    if third {
+        QUESTION_END_THIRD
+    } else {
+        QUESTION_END
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -552,6 +596,7 @@ mod tests {
     const QUESTION: Kind = Kind::Question {
         yes: "x",
         verbs: ["exit", "stay"],
+        third: None,
     };
 
     #[test]
@@ -628,8 +673,8 @@ mod tests {
         let layout = layout(&frame(40), "Exit? (y or n)", QUESTION, None);
         let inner = layout.regions.inner;
         let end = inner.column + inner.columns;
-        let [y, n] = layout.keys;
-        let [yes, no] = layout.verbs;
+        let [y, n, _] = layout.keys;
+        let [yes, no, _] = layout.verbs;
         assert_eq!(y.row, inner.row + 2);
         assert_eq!(
             (y.columns, yes.columns, n.columns, no.columns),
@@ -641,6 +686,42 @@ mod tests {
         let asked = super::layout(&frame(40), "Exit?", QUESTION, Some("Answer y or n"));
         assert_eq!(asked.message.column, inner.column);
         assert!(asked.message.column + asked.message.columns < asked.keys[0].column);
+    }
+
+    #[test]
+    fn a_third_answer_takes_its_key_and_verb_after_n() {
+        let third = Kind::Question {
+            yes: "x",
+            verbs: ["exit", "stay"],
+            third: Some(Third {
+                command: "w",
+                verb: "wait",
+            }),
+        };
+        let label = format!("Exit?{QUESTION_END_THIRD}");
+        let layout = layout(&frame(40), &label, third, None);
+        let inner = layout.regions.inner;
+        let [y, n, w] = layout.keys;
+        let [_, no, wait] = layout.verbs;
+        assert_eq!(layout.label[0], 0..5, "the keys stand for `(y, n or w)`");
+        assert_eq!((y.row, n.row, w.row), (y.row, y.row, y.row));
+        assert_eq!(w.column, no.column + no.columns + KEY_GAP);
+        assert_eq!((w.columns, wait.columns), (3, 5));
+        assert_eq!(wait.column + wait.columns, inner.column + inner.columns);
+        // Without one, the third key and verb take nothing.
+        let two = super::layout(&frame(40), "Exit? (y or n)", QUESTION, None);
+        assert_eq!((two.keys[2].columns, two.verbs[2].columns), (0, 0));
+        // Where the verbs do not fit, the three keys still do.
+        let small = frame_layout(
+            FrameSize {
+                rows: 30,
+                columns: 24,
+            },
+            0,
+        );
+        let narrow = super::layout(&small, &label, third, None);
+        assert_eq!(narrow.verbs.map(|verb| verb.columns), [0; 3]);
+        assert_eq!(narrow.keys.map(|key| key.columns), [3; 3]);
     }
 
     #[test]
@@ -660,8 +741,8 @@ mod tests {
                 for rect in all {
                     assert!(rect.column + rect.columns <= end, "{rows}x{columns}");
                 }
-                let [y, n] = layout.keys;
-                if inner.rows > 0 && inner.columns >= keys_cells(None) {
+                let [y, n, _] = layout.keys;
+                if inner.rows > 0 && inner.columns >= keys_cells(None, false) {
                     assert_eq!((y.columns, n.columns), (3, 3), "{rows}x{columns}");
                     let label = layout.label_cells;
                     if label.row + label.rows > y.row {
@@ -690,9 +771,9 @@ mod tests {
                     let frame = frame_layout(FrameSize { rows, columns }, 0);
                     let layout = layout(&frame, &label, QUESTION, Some("Answer y or n"));
                     let inner = layout.regions.inner;
-                    let [y, n] = layout.keys;
+                    let [y, n, _] = layout.keys;
                     let at = format!("{rows}x{columns} {name:?}");
-                    if inner.rows > 0 && inner.columns >= keys_cells(None) {
+                    if inner.rows > 0 && inner.columns >= keys_cells(None, false) {
                         assert_eq!((y.columns, n.columns), (3, 3), "{at}");
                     }
                     for other in [layout.label_cells, layout.message] {
@@ -753,7 +834,7 @@ mod tests {
             0,
         );
         let layout = layout(&frame, "\u{202e}", QUESTION, None);
-        let [y, n] = layout.keys;
+        let [y, n, _] = layout.keys;
         assert_eq!((y.columns, n.columns), (3, 3));
         assert!(layout.label_cells.column + layout.label_cells.columns < y.column);
     }
