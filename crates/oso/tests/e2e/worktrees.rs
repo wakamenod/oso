@@ -139,6 +139,20 @@ impl Flow {
         (app, readme)
     }
 
+    /// Starts another instance in the repository, trusted already by an earlier one, with
+    /// `README.md` shown.
+    pub(super) fn start_again(&self) -> App {
+        let mut app = App::start_with_config_and_env(
+            &self.repo,
+            &self.config,
+            &[("HOME", self.home.as_os_str())],
+        );
+        app.wait_until_ready();
+        app.open_file(&self.repo.join("README.md"));
+        app.wait_until_ready();
+        app
+    }
+
     /// Runs git in `dir` with `args`, which must succeed, with a fixed identity and kept from
     /// the person's configuration and hooks. Returns what it printed.
     pub(super) fn git(&self, dir: &Path, args: &[&str]) -> String {
@@ -352,6 +366,20 @@ fn a_brief_makes_a_worktree_with_the_included_files_and_starts_its_session() {
         "{:?}",
         buffer_names(&state)
     );
+    // The worktree is held by the repository's space, not a space of its own (ADR 0136).
+    let held = place.display().to_string();
+    let state = app.wait_for("the worktree in the repository's space", |state| {
+        state["sessions"]["spaces"]
+            .as_array()
+            .is_some_and(|spaces| {
+                spaces.len() == 1
+                    && spaces[0]["name"] == "repo"
+                    && spaces[0]["worktrees"]
+                        .as_array()
+                        .is_some_and(|w| w.contains(&json!(held)))
+            })
+    });
+    assert_eq!(state["sessions"]["space"], "repo", "{}", state["sessions"]);
     flow.exit_with(0);
 }
 

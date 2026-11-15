@@ -77,6 +77,12 @@ impl Configuration {
         self.in_force.sessions.steer_worktrees
     }
 
+    /// `[spaces] root` in force, as written (ADR 0136): where a new space's directory goes.
+    #[expect(dead_code, reason = "space-new makes directories under it in step 1b")]
+    pub(super) fn spaces_root(&self) -> &str {
+        self.in_force.spaces.root()
+    }
+
     /// `[sessions] env` in force: the variables a hosted session takes from oso's environment.
     pub(super) fn session_env(&self) -> &[String] {
         &self.in_force.sessions.env

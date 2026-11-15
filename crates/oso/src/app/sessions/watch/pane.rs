@@ -1,6 +1,6 @@
-//! The tree's projects in the app (ADR 0131, step 2): each repository with a space in this oso,
-//! in the order its first space was added, and its worktrees as git last listed them in a
-//! trusted project, or else the directories of its spaces. A listing is a job on the
+//! The tree's projects in the app (ADR 0131, step 2): each repository of an open space, in the
+//! order of the spaces and then their repositories (ADR 0136, step 1a), and its worktrees as
+//! git last listed them in a trusted project, or else the worktrees the spaces hold in it. A listing is a job on the
 //! `oso-sessions-git` threads, asked when a project first shows, on `g`, and when the sessions
 //! worker sees the project's `worktrees` directory change.
 //!
@@ -35,35 +35,49 @@ pub(super) struct Pane {
 
 impl App {
     /// What the tree shows besides sessions, as of now: its projects, the worktree in front and
-    /// the wall-clock time. Asks for each trusted project's listing that is missing.
+    /// the wall-clock time. Asks for each trusted project's listing that is missing. The held
+    /// worktrees and the trusted projects of buffers are gathered once a call, as it runs with
+    /// each frame of the spinner.
     pub(super) fn sessions_tree(&mut self) -> Tree {
         let mut roots: Vec<PathBuf> = Vec::new();
-        for space in self.watch.spaces.iter() {
-            let root = space.repo.as_ref().unwrap_or(&space.root);
-            if !roots.contains(root) {
-                roots.push(root.clone());
+        for space in self.watch.spaces.iter().filter(|space| space.is_open()) {
+            for member in &space.stored.members {
+                if !roots.contains(&member.root) {
+                    roots.push(member.root.clone());
+                }
             }
         }
+        let held = self.held_worktrees();
+        let none: Vec<PathBuf> = Vec::new();
+        let unlisted = roots
+            .iter()
+            .any(|root| !self.watch.view.pane.listed.contains_key(root));
+        let trusted = if unlisted {
+            self.trusted_projects()
+        } else {
+            HashMap::new()
+        };
         let projects = roots
             .iter()
             .map(|root| {
-                self.ask_tree_listing(root);
+                let held = held.get(root).unwrap_or(&none);
+                self.ask_tree_listing(root, held, &trusted);
                 Project {
                     root: root.clone(),
-                    name: root
-                        .file_name()
-                        .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
-                    worktrees: self.worktrees_of(root),
+                    name: crate::sessions::spaces::stored::last_component(root),
+                    worktrees: self.worktrees_of(root, held),
                 }
             })
             .collect();
         self.watch_projects(&roots);
+        // The worktree of the session the space in front showed last.
         let front = self
             .watch
             .spaces
             .current()
-            .and_then(|at| self.watch.spaces.get(at))
-            .map(|space| space.root.clone());
+            .and_then(|at| self.watch.spaces.get(at)?.last_session)
+            .and_then(|buffer| self.hosting.table().by_buffer(buffer))
+            .map(|session| super::place(session).to_path_buf());
         Tree {
             projects,
             front,
@@ -71,8 +85,9 @@ impl App {
         }
     }
 
-    /// `root`'s worktrees: as listed, else its main checkout and its spaces' directories.
-    fn worktrees_of(&self, root: &Path) -> Vec<Worktree> {
+    /// `root`'s worktrees: as listed, else its main checkout and `held`, the worktrees spaces
+    /// hold in it.
+    fn worktrees_of(&self, root: &Path, held: &[PathBuf]) -> Vec<Worktree> {
         if let Some(listed) = self.watch.view.pane.listed.get(root) {
             return listed.clone();
         }
@@ -81,25 +96,78 @@ impl App {
             primary: true,
             ..Worktree::default()
         };
-        let linked = self
-            .watch
-            .spaces
-            .iter()
-            .filter(|space| space.repo.as_deref() == Some(root))
-            .map(|space| Worktree {
-                path: space.root.clone(),
-                ..Worktree::default()
-            });
+        let linked = held.iter().map(|path| Worktree {
+            path: path.clone(),
+            ..Worktree::default()
+        });
         std::iter::once(main).chain(linked).collect()
     }
 
-    /// Asks for `root`'s listing if it is trusted and neither listed nor asked for.
-    fn ask_tree_listing(&mut self, root: &Path) {
+    /// The worktrees open spaces hold inside each of their repositories, as oso makes them, by
+    /// the repository's root: one pass over the spaces.
+    fn held_worktrees(&self) -> HashMap<PathBuf, Vec<PathBuf>> {
+        let mut held: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+        let mut seen: HashSet<(&Path, &Path)> = HashSet::new();
+        for space in self.watch.spaces.iter().filter(|space| space.is_open()) {
+            for member in &space.stored.members {
+                let root = member.root.as_path();
+                for path in &space.stored.worktrees {
+                    if path.starts_with(root) && path != root && seen.insert((root, path)) {
+                        held.entry(root.to_owned()).or_default().push(path.clone());
+                    }
+                }
+            }
+        }
+        held
+    }
+
+    /// The trusted projects buffers are in, by their roots: one pass over the buffers.
+    fn trusted_projects(&self) -> HashMap<PathBuf, ProjectId> {
+        let mut trusted = HashMap::new();
+        for id in self
+            .editor
+            .buffers()
+            .filter_map(|(_, buffer)| buffer.project())
+        {
+            if self.editor.project_trusted(id)
+                && let Some(project) = self.editor.project(id)
+            {
+                trusted.entry(project.root().to_owned()).or_insert(id);
+            }
+        }
+        trusted
+    }
+
+    /// The repository git listed `place` as a linked worktree of, if it did.
+    pub(in crate::app) fn listed_repository_of(&self, place: &Path) -> Option<PathBuf> {
+        let same = oso_core::project::same_place;
+        self.watch
+            .view
+            .pane
+            .listed
+            .iter()
+            .find(|(root, worktrees)| {
+                !same(root, place) && worktrees.iter().any(|w| same(&w.path, place))
+            })
+            .map(|(root, _)| root.clone())
+    }
+
+    /// Asks for `root`'s listing if it is trusted, through a buffer of it or of one of `held`,
+    /// by `trusted`, and neither listed nor asked for.
+    fn ask_tree_listing(
+        &mut self,
+        root: &Path,
+        held: &[PathBuf],
+        trusted: &HashMap<PathBuf, ProjectId>,
+    ) {
         let pane = &self.watch.view.pane;
         if pane.listed.contains_key(root) || pane.asked.contains(root) {
             return;
         }
-        let Some(trust) = self.trusted_project(root) else {
+        let project = std::iter::once(root)
+            .chain(held.iter().map(PathBuf::as_path))
+            .find_map(|path| trusted.get(path).copied());
+        let Some(trust) = project.and_then(|project| self.trust_for(project).ok()) else {
             return;
         };
         self.watch.view.pane.asked.insert(root.to_owned());
@@ -113,24 +181,15 @@ impl App {
             .and_then(|project| self.trust_for(project).ok())
     }
 
-    /// A trusted project of a buffer in the repository at `root` or in one of its worktrees
-    /// with a space.
+    /// A trusted project of a buffer in the repository at `root` or in one of the worktrees
+    /// spaces hold in it.
     pub(in crate::app) fn trusted_project_of(&self, root: &Path) -> Option<ProjectId> {
-        let inside = |path: &Path| {
-            path == root
-                || self
-                    .watch
-                    .spaces
-                    .iter()
-                    .any(|space| space.repo.as_deref() == Some(root) && space.root == path)
-        };
-        self.editor
-            .buffers()
-            .filter_map(|(_, buffer)| buffer.project())
-            .find(|&id| {
-                self.editor.project_trusted(id)
-                    && self.editor.project(id).is_some_and(|p| inside(p.root()))
-            })
+        let held = self.held_worktrees();
+        let held = held.get(root).map_or(&[][..], Vec::as_slice);
+        let trusted = self.trusted_projects();
+        std::iter::once(root)
+            .chain(held.iter().map(PathBuf::as_path))
+            .find_map(|path| trusted.get(path).copied())
     }
 
     /// Tells the worker which projects' `worktrees` directories to watch, when that changed.
@@ -150,7 +209,7 @@ impl App {
     }
 
     /// A listing for the tree came: it shows from the next drawing. A failed one leaves the
-    /// project's spaces' directories, and is said in the log only.
+    /// worktrees spaces hold, and is said in the log only.
     pub(in crate::app) fn tree_listed(
         &mut self,
         root: PathBuf,

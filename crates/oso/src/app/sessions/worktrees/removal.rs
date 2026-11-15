@@ -1,13 +1,14 @@
 //! `worktree-remove` (ADR 0121): the worktree to remove, its checks on a job, the question
 //! that names what git ignores there, and the removal, never with `--force`, which keeps the
 //! branch. The person's `y` runs every check again, in the job that removes it; once they hold,
-//! the worktree's idle sessions are stopped and its space closed before git removes it.
+//! the worktree's idle sessions are stopped before git removes it, and once it has, the space
+//! that held it forgets it (ADR 0136).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
 use std::path::{Path, PathBuf};
 
-use oso_core::project::{ProjectId, same_place};
+use oso_core::project::ProjectId;
 
 use super::super::super::App;
 use super::{QUESTION_NAMES, Removing, hosted_state};
@@ -168,31 +169,14 @@ impl App {
                 .message(format!("Worktree {shown} kept: {}", check.why()));
         }
         self.stop_idle_sessions_in(path);
-        self.close_worktree_space(path);
         go.proceed();
     }
 
-    /// Closes the space of the worktree at `path`, entering its repository's first if it is
-    /// the one in the frame (ADR 0121). With a prompt open, the frame's tree cannot change, so
-    /// the space stays until oso starts again, and the removal goes on.
-    pub(in crate::app) fn close_worktree_space(&mut self, path: &Path) {
-        let spaces = self.watch.spaces();
-        let at = spaces.find(path).or_else(|| {
-            spaces
-                .of_path(path)
-                .filter(|&at| spaces.get(at).is_some_and(|s| same_place(&s.root, path)))
-        });
-        let Some(at) = at else {
-            return;
-        };
-        if self
-            .watch
-            .spaces_mut()
-            .remove(&mut self.editor, at)
-            .is_err()
-        {
-            log::debug!("a removed worktree's space stays while a prompt is open");
-        }
+    /// Forgets the worktree at `path`, which git removed, in the space that held it (ADR
+    /// 0136): the space stays, with its tree.
+    pub(in crate::app) fn forget_removed_worktree(&mut self, path: &Path) {
+        let now = crate::sessions::spaces::stored::now_ms();
+        self.watch.spaces_mut().forget_worktree(path, now);
         self.request_redraw();
     }
 
@@ -239,6 +223,7 @@ impl App {
         let shown = printable(&path.display().to_string(), 200);
         match result {
             Ok(_) => {
+                self.forget_removed_worktree(path);
                 self.editor
                     .message(format!("Removed worktree {shown}; its branch is kept"));
                 let listing = self.hosting.worktrees.list.as_ref().map(|l| l.buffer);

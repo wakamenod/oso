@@ -79,8 +79,9 @@ pub enum Job {
     /// With each look, `stat` these projects' `worktrees` directories, by `(root, directory)`
     /// (ADR 0131).
     Watch(Vec<(PathBuf, PathBuf)>),
-    /// Read the sessions an earlier oso remembered in this state directory (ADR 0121).
-    Recall(PathBuf),
+    /// Read the sessions an earlier oso remembered in this state directory (ADR 0121), and the
+    /// spaces (ADR 0136); with none, the spaces start empty.
+    Recall(Option<PathBuf>),
     /// Remember these sessions in this state directory, keeping those of another instance:
     /// the ids not in `known`.
     Remember {
@@ -88,6 +89,15 @@ pub enum Job {
         sessions: Vec<super::record::Remembered>,
         known: std::collections::HashSet<super::identity::SessionId>,
     },
+    /// Keep these spaces in this state directory, keeping those of another instance: the ids
+    /// not in `known` (ADR 0136).
+    RememberSpaces {
+        directory: PathBuf,
+        spaces: Vec<super::spaces::Stored>,
+        known: std::collections::HashSet<super::spaces::SpaceId>,
+    },
+    /// Read this many ids for new spaces.
+    SpaceIds(usize),
 }
 
 /// What the worker tells the app.
@@ -118,8 +128,19 @@ pub enum Out {
     /// The rules took longer than their budget on [`SLOW_AFTER`] looks in a row at a screen,
     /// this rule the longest: said once for each set of rules.
     Slow(String),
-    /// The sessions an earlier oso remembered, as read.
-    Recalled(Vec<super::record::Remembered>),
+    /// The sessions an earlier oso remembered, as read, and the spaces kept with them, or made
+    /// from them when no spaces were kept (`migrated`), with ids for new spaces (ADR 0136).
+    Recalled {
+        sessions: Vec<super::record::Remembered>,
+        spaces: Vec<super::spaces::Stored>,
+        migrated: bool,
+        /// Whether the `spaces` file could be read, or was missing: if not, sessions are placed
+        /// in this instance only, and keep the spaces their record names.
+        readable: bool,
+        fresh: Vec<super::spaces::SpaceId>,
+    },
+    /// Ids for new spaces, as asked.
+    SpaceIds(Vec<super::spaces::SpaceId>),
     /// This local rule was the slowest of [`DROP_AFTER`] late looks in a row, so it is no
     /// longer used until the rules load again.
     Dropped(String),

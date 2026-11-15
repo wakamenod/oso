@@ -2,8 +2,8 @@
 //! on the UI thread. `session-worktree` lists the project's branches, opens `*Brief*`, and on
 //! `C-c C-c` makes the worktree and starts its session. `worktree-list` fills `*Worktrees*` row
 //! by row. `worktree-remove` checks first, asks, and removes only a worktree nothing would be
-//! lost from. Every git and `gh` call is a job on the `oso-sessions-git` threads. A worktree
-//! session's space opens, nested under its repository's, as its session starts.
+//! lost from. Every git and `gh` call is a job on the `oso-sessions-git` threads. A made
+//! worktree is held by the issue space that made it, where its session joins (ADR 0136).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 //!
@@ -393,11 +393,25 @@ impl App {
             printable(&created.path.display().to_string(), 200),
             printable(&created.branch, 80),
         ));
-        // Its space, nested under the repository's (ADR 0121, Q8), among step 3's: the one
-        // `*Sessions*` and `space-switch` show, which places the session by its root.
+        // The worktree is held by the space of the session that asked for it, when its
+        // repository is one of that space's, else by the space it joins (ADR 0136): its
+        // session then joins the same.
+        let now = crate::sessions::spaces::stored::now_ms();
+        let asker = (brief.parent.as_ref())
+            .and_then(|id| self.hosting.table.iter().find(|session| session.id == *id))
+            .and_then(|session| self.space_of_session(session));
         let spaces = self.watch.spaces_mut();
-        spaces.add(&created.main, None);
-        spaces.add(&created.path, Some(&created.main));
+        let theirs = asker.filter(|&at| {
+            spaces
+                .get(at)
+                .is_some_and(|space| space.stored.has_member(&created.main))
+        });
+        match theirs {
+            Some(at) => spaces.hold_worktree(at, &created.path, now),
+            None => {
+                spaces.join(&created.path, Some(&created.main), now);
+            }
+        }
         self.begin_session(Begin {
             origin: crate::sessions::identity::Origin::Person,
             name: None,
@@ -462,11 +476,11 @@ impl App {
         }
     }
 
-    /// The name of the space of the worktree at `path`, if it has one.
+    /// The name of the space that holds the worktree at `path`, if one does.
     fn space_of(&self, path: &Path) -> Option<String> {
         let spaces = self.watch.spaces();
-        let at = spaces.find(path)?;
-        spaces.get(at).map(|space| space.name.clone())
+        let at = spaces.holding(path)?;
+        spaces.get(at).map(|space| space.name().to_owned())
     }
 }
 

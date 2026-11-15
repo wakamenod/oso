@@ -131,7 +131,7 @@ impl App {
                 "Session {name} has no terminal yet: session-resume brings it back"
             ));
         };
-        let space = self.watch.spaces.of_path(super::place(session));
+        let space = self.space_of_session(session);
         if let Some(at) = space
             && self.watch.spaces.current() != Some(at)
         {
@@ -155,8 +155,8 @@ impl App {
                 }
             }
         }
-        if let Some(space) = space.and_then(|at| self.watch.spaces.get_mut(at)) {
-            space.last_session = Some(buffer);
+        if let Some(at) = space {
+            self.watch.spaces.showed(at, Some(buffer), None);
         }
     }
 
@@ -164,28 +164,34 @@ impl App {
     fn enter_space(&mut self, at: usize) {
         let shown = tree_buffer(&mut self.editor);
         let is_session = self.hosting.table().by_buffer(shown).is_some();
-        if let Some(from) = self.watch.spaces.current()
-            && let Some(space) = self.watch.spaces.get_mut(from)
-        {
-            if is_session {
-                space.last_session = Some(shown);
+        if let Some(from) = self.watch.spaces.current() {
+            let (session, file) = if is_session {
+                (Some(shown), None)
             } else {
-                space.last_file = Some(shown);
-            }
+                (None, Some(shown))
+            };
+            self.watch.spaces.showed(from, session, file);
         }
         if self.watch.spaces.enter(&mut self.editor, at) == Err(Refused) {
             self.editor.message(PROMPT_OPEN);
         }
     }
 
-    /// `RET` on the row of the worktree at `path` (ADR 0131, step 2b): its space, entered,
-    /// with the tree's window selected; else `find-file`'s prompt in it.
+    /// `RET` on the row of the worktree at `path` (ADR 0131, step 2b): the session there, in
+    /// the space that holds it (ADR 0136, step 1a); else that space's tree with its window
+    /// selected; else `find-file`'s prompt in it.
     fn enter_worktree(&mut self, path: &Path) {
-        let spaces = &self.watch.spaces;
-        let space = spaces
-            .of_path(path)
-            .filter(|&at| spaces.get(at).is_some_and(|space| space.root == path));
-        match space {
+        let there = self
+            .hosting
+            .table()
+            .iter()
+            .filter(|session| !session.archived && session.buffer.is_some())
+            .find(|session| oso_core::project::same_place(super::place(session), path))
+            .map(|session| session.key);
+        if let Some(key) = there {
+            return self.show_session(key);
+        }
+        match self.watch.spaces.holding(path) {
             Some(at) => {
                 if self.watch.spaces.current() != Some(at) {
                     self.enter_space(at);

@@ -18,7 +18,66 @@ use crate::sessions::messages::{Seen, senders};
 use crate::sessions::recap::recap;
 use crate::sessions::rules::{BUDGET, Deadline, RuleSet, Source};
 use crate::sessions::screen::Evidence;
+use crate::sessions::spaces;
 use crate::sessions::state::{Target, Tracker};
+
+/// How many ids for new spaces come with the recalled sessions.
+const FRESH_SPACE_IDS: usize = 8;
+
+/// The sessions an earlier oso remembered in `directory`, oso's state directory, and the
+/// spaces kept with them, or made from them once when no spaces were kept (ADR 0136). With no
+/// state directory, nothing: the spaces are then this instance's alone.
+fn recall(directory: Option<&Path>) -> Out {
+    use spaces::record::Kept;
+    let mut sessions = directory
+        .map(crate::sessions::record::read)
+        .unwrap_or_default();
+    let kept = directory.map_or(Kept::Read(Vec::new()), spaces::record::read);
+    let (migrated, readable) = (kept == Kept::Missing, kept != Kept::Refused);
+    let spaces = match kept {
+        Kept::Read(spaces) => spaces,
+        Kept::Refused => Vec::new(),
+        Kept::Missing => {
+            let mut ids = || space_ids(1).pop();
+            spaces::migrate::from_sessions(&mut sessions, &mut ids, spaces::stored::now_ms())
+        }
+    };
+    Out::Recalled {
+        sessions,
+        spaces,
+        migrated,
+        readable,
+        fresh: space_ids(FRESH_SPACE_IDS),
+    }
+}
+
+/// Keeps `spaces` in `directory`, with another instance's: those not in `known`.
+fn keep_spaces(
+    directory: &Path,
+    spaces: &[spaces::Stored],
+    known: &HashSet<spaces::SpaceId>,
+) -> Vec<Out> {
+    if let Err(e) = spaces::record::write(directory, spaces, known) {
+        log::warn!("could not keep the spaces: {e}");
+    }
+    Vec::new()
+}
+
+/// `count` ids for new spaces, from the system's random bytes; fewer if they cannot be read,
+/// which is logged.
+fn space_ids(count: usize) -> Vec<spaces::SpaceId> {
+    let mut ids = Vec::with_capacity(count);
+    for _ in 0..count {
+        match crate::sessions::identity::random_bytes() {
+            Ok(bytes) => ids.push(spaces::SpaceId::from_random(bytes)),
+            Err(e) => {
+                log::warn!("no random bytes for a space's id: {e}");
+                break;
+            }
+        }
+    }
+    ids
+}
 
 /// The largest saved screen `session-explain-file` reads.
 pub const MAX_EXPLAIN_BYTES: u64 = 256 * 1024;
@@ -198,9 +257,15 @@ impl Core {
                 self.poll.watch(watched);
                 return Vec::new();
             }
-            Job::Recall(directory) => {
-                return vec![Out::Recalled(super::super::record::read(&directory))];
+            Job::Recall(directory) => return vec![recall(directory.as_deref())],
+            Job::RememberSpaces {
+                directory,
+                spaces,
+                known,
+            } => {
+                return keep_spaces(&directory, &spaces, &known);
             }
+            Job::SpaceIds(count) => return vec![Out::SpaceIds(space_ids(count))],
             Job::Remember {
                 directory,
                 sessions,

@@ -15,6 +15,7 @@ use super::bridge::{self, Candidate};
 use super::identity::Origin;
 use super::identity::{SessionId, unique_name};
 use super::record::Remembered;
+use super::spaces::SpaceId;
 use super::state::Exit;
 use super::worker::SessionKey;
 use crate::channel::Connection;
@@ -65,6 +66,8 @@ pub struct Hosted {
     pub run: Run,
     /// Its baseline's tree id (ADR 0122), once taken.
     pub baseline: Option<String>,
+    /// The issue space it belongs to, once it joined one (ADR 0136).
+    pub space: Option<SpaceId>,
     pub pinned: bool,
     /// Archived with `C-x k`: not brought back at start, until step 3's list restores it.
     pub archived: bool,
@@ -94,6 +97,7 @@ impl Hosted {
             archived: self.archived,
             changed: self.changed,
             baseline: self.baseline.clone(),
+            space: self.space.clone(),
         }
     }
 
@@ -173,6 +177,7 @@ impl Table {
             buffer: None,
             run: Run::Starting,
             baseline: None,
+            space: None,
             pinned: false,
             archived: false,
             changed: new.changed,
@@ -190,6 +195,12 @@ impl Table {
         let mut back = Vec::new();
         for session in remembered {
             if self.known.contains(&session.id) {
+                // One carried over a restart before the record was read: its space is the
+                // record's.
+                let held = self.sessions.iter_mut().find(|held| held.id == session.id);
+                if let Some(held) = held.filter(|held| held.space.is_none()) {
+                    held.space = session.space;
+                }
                 continue;
             }
             self.next_key += 1;
@@ -210,6 +221,7 @@ impl Table {
                 buffer: None,
                 run: Run::Stopped,
                 baseline: session.baseline,
+                space: session.space,
                 pinned: session.pinned,
                 archived: session.archived,
                 changed: session.changed,
@@ -448,6 +460,7 @@ mod tests {
             archived,
             changed: 5,
             baseline: None,
+            space: None,
         }
     }
 
