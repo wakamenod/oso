@@ -206,12 +206,11 @@ mod tests {
             .and_then(|f| f.refused)
             .unwrap();
         assert!(why.contains("someone else can change"), "{why}");
-        // The thread ends with its looker, and lets go of what it posts through.
+        // The thread ends with its looker, and lets go of what it posts through, once the looks
+        // asked for before have posted.
         drop(looker);
-        assert_eq!(
-            found.recv_timeout(WAIT),
-            Err(RecvTimeoutError::Disconnected)
-        );
+        let end = std::iter::from_fn(|| Some(found.recv_timeout(WAIT))).find_map(Result::err);
+        assert_eq!(end, Some(RecvTimeoutError::Disconnected));
         fs::remove_dir_all(dir).unwrap();
     }
 
