@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 mod mouse;
+mod oso_restart;
 pub(crate) mod restart;
 
 use super::agent::let_in;

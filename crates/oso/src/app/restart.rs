@@ -50,6 +50,11 @@ impl App {
     }
 
     fn read_the_pair(&mut self, pair: ControlStream, parent: u32) {
+        // A new instance that ends before it speaks, for an end-to-end flow.
+        #[cfg(feature = "dev")]
+        if dev_fails_at("hello") {
+            std::process::exit(3);
+        }
         let pair = match carry::pair::Pair::new(pair) {
             Ok(pair) => pair,
             Err(e) => {
@@ -111,8 +116,17 @@ impl App {
                 }
             }
             Asked::Exit { generation, reply } => {
-                let allowed = carry::exit_allowed(&self.editor, Some(generation))
-                    .and_then(|()| self.exit_with_terminals());
+                // An exit refused at the last moment, for an end-to-end flow.
+                #[cfg(feature = "dev")]
+                let refused = dev_fails_at("exit");
+                #[cfg(not(feature = "dev"))]
+                let refused = false;
+                let allowed = if refused {
+                    Err(carry::EXIT_REFUSED.to_owned())
+                } else {
+                    carry::exit_allowed(&self.editor, Some(generation))
+                        .and_then(|()| self.exit_with_terminals())
+                };
                 if allowed.is_ok() {
                     self.leave(event_loop, true);
                 }
@@ -158,4 +172,12 @@ impl App {
             );
         }
     }
+}
+
+/// Whether a dev build's end-to-end flow asks the restart to stop short at `point`
+/// (`OSO_DEV_RESTART_FAIL`): `hello`, the new instance ends before it speaks, or `exit`, the
+/// instance going refuses to exit once the new one holds everything.
+#[cfg(feature = "dev")]
+fn dev_fails_at(point: &str) -> bool {
+    std::env::var("OSO_DEV_RESTART_FAIL").is_ok_and(|asked| asked == point)
 }
