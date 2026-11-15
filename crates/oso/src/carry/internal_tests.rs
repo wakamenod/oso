@@ -123,10 +123,12 @@ fn a_secret_behind_messages_is_handed_over_unshown_with_no_position() {
         "it can still be reached"
     );
     assert_eq!(parsed.window().selections, SelectionSet::default());
-    let shown = crate::dev::get_state(&editor, &[], None);
-    assert_eq!(shown["buffer"]["name"], "*Messages*");
-    assert_eq!(shown["cursor"]["offset"], 0, "*Messages* is empty");
-    assert_eq!(shown["windows"][0]["selections"][0]["cursor"], 0);
+    assert_eq!(editor.current().1.name(), "*Messages*");
+    assert_eq!(
+        editor.window().selections.primary().cursor,
+        0,
+        "*Messages* is empty"
+    );
     editor.toggle_messages();
     assert_eq!(editor.window().selections.primary().cursor, 4);
 }

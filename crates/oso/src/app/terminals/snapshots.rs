@@ -19,7 +19,6 @@ impl App {
     /// while its thread goes on parsing.
     pub(in crate::app) fn terminal_ready(&mut self, buffer: BufferId) {
         // A terminal's thread also wakes the loop when it answers a restart's export.
-        #[cfg(feature = "dev")]
         self.carry_terminals();
         if let Some(hosted) = self.terminals.map.get_mut(buffer) {
             hosted.ready = true;

@@ -16,6 +16,11 @@
 //!   values.
 //! - [`account_shell`] reads the account's login shell from the user database.
 //! - [`start_time`] says when a process started, by its ID (ADR 0121).
+//! - A caller can pass one descriptor, which the child finds as its descriptor 3
+//!   ([`PassedFd`]): `oso-restart`'s end of the pair for the instance it starts (ADR 0133).
+//!   Every other descriptor of this process is close-on-exec in the child.
+//! - A spawn waits while a descriptor this process made is not yet close-on-exec
+//!   (`privacy::inheritance`), so that no child inherits one by chance.
 //!
 //! In every build since the terminal ships (ADR 0120).
 
@@ -145,6 +150,26 @@ impl From<Source> for Stdio {
     }
 }
 
+/// A descriptor a child gets as its descriptor 3 ([`crate::control::INHERITED_FD`]), for as
+/// long as the spawn borrows it (ADR 0133). Only Unix has one.
+#[derive(Debug, Clone, Copy)]
+pub struct PassedFd<'a> {
+    #[cfg(unix)]
+    fd: std::os::fd::BorrowedFd<'a>,
+    #[cfg(not(unix))]
+    never: std::convert::Infallible,
+    #[cfg(not(unix))]
+    life: std::marker::PhantomData<&'a ()>,
+}
+
+impl<'a> PassedFd<'a> {
+    /// `fd`, to be the child's descriptor 3.
+    #[cfg(unix)]
+    pub fn new(fd: std::os::fd::BorrowedFd<'a>) -> Self {
+        Self { fd }
+    }
+}
+
 /// A process to start. Its `Debug` shows the names in `set`, never their values.
 #[derive(Clone, Copy)]
 pub struct Spawn<'a> {
@@ -181,6 +206,10 @@ pub struct Spawn<'a> {
     /// Such a spawn forks this whole process, which can take milliseconds, so
     /// it never runs on the UI thread.
     pub terminal: Option<&'a pty::Slave>,
+    /// A descriptor the child gets as its descriptor 3, with every other one of this process
+    /// closed to it. Not with `terminal`. Such a spawn forks this whole process too, so it
+    /// never runs on the UI thread.
+    pub pass_fd: Option<PassedFd<'a>>,
 }
 
 impl fmt::Debug for Spawn<'_> {
@@ -200,11 +229,14 @@ impl fmt::Debug for Spawn<'_> {
                 &self.set.iter().map(|(name, _)| name).collect::<Vec<_>>(),
             )
             .field("terminal", &self.terminal)
+            .field("pass_fd", &self.pass_fd)
             .finish()
     }
 }
 
-/// Starts a process.
+/// Starts a process. It may wait while another thread makes a descriptor that is not yet
+/// close-on-exec, and a spawn with a terminal or a passed descriptor forks, so it never runs on
+/// the UI thread.
 pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
     check(request)?;
     let current = env::current_dir().ok();
@@ -213,7 +245,7 @@ pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
     let path = env::join_paths(dirs).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
     let variables = allowed_env(env::vars_os(), request.inherit);
     log::info!(
-        "{SPAWN_MARKER}: {} {:?} in {:?}{}{} with PATH and {:?}",
+        "{SPAWN_MARKER}: {} {:?} in {:?}{}{}{} with PATH and {:?}",
         request.executable.path().display(),
         request.args,
         request.cwd,
@@ -224,6 +256,11 @@ pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
         },
         if request.stdin == Source::Piped {
             " with standard input piped"
+        } else {
+            ""
+        },
+        if request.pass_fd.is_some() {
+            " with a descriptor passed"
         } else {
             ""
         },
@@ -258,7 +295,65 @@ pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
     if let Some(terminal) = request.terminal {
         pty::run_in(terminal, &mut command)?;
     }
+    #[cfg(unix)]
+    let _held = match request.pass_fd {
+        Some(passed) => pass_in(passed.fd, &mut command)?,
+        None => None,
+    };
+    #[cfg(not(unix))]
+    if let Some(passed) = request.pass_fd {
+        match passed.never {}
+    }
+    let _starting = crate::privacy::inheritance::spawning();
     command.spawn()
+}
+
+/// Gives the child `command` starts `fd` as its descriptor 3, and marks every other descriptor
+/// of this process close-on-exec in the child, as a terminal's child gets them (ADR 0133).
+/// Returns what holds descriptor 3 here until the spawn is over, if it was free.
+#[cfg(unix)]
+fn pass_in(fd: std::os::fd::BorrowedFd<'_>, command: &mut Command) -> io::Result<Option<fs::File>> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::process::CommandExt;
+
+    const PASSED: libc::c_int = crate::privacy::inheritance::INHERITED_FD;
+    let from = fd.as_raw_fd();
+    // The standard library's pipe that reports a failed `exec` must not be the descriptor the
+    // child puts `fd` at, or the child would close it. It takes the lowest free number, so a
+    // free descriptor 3 is held, until the spawn is over, by a file of nothing.
+    // SAFETY: `F_GETFD` reads the flags of a descriptor number and touches no memory.
+    let held = if from != PASSED && unsafe { libc::fcntl(PASSED, libc::F_GETFD) } < 0 {
+        Some(fs::File::open("/dev/null")?)
+    } else {
+        None
+    };
+    let last = pty::open_limit();
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the passed descriptor's child-side hook, in the process module (ADR 0133)"
+    )]
+    // SAFETY: the hook runs in the child between `fork` and `exec`, where only
+    // async-signal-safe functions may be called. It calls only `dup2` and `fcntl`, and
+    // `syscall` (`close_range`) and `fcntl` through `pty::mark_close_on_exec`, which are. It
+    // allocates nothing (an OS error is a number) and takes no lock. `dup2` makes a copy without
+    // close-on-exec, and the descriptor already there is the one copy that keeps it; marking the
+    // rest close-on-exec, rather than closing them, keeps the standard library's pipe that
+    // reports a failed `exec`, which is close-on-exec already.
+    unsafe {
+        command.pre_exec(move || {
+            let placed = if from == PASSED {
+                libc::fcntl(PASSED, libc::F_SETFD, 0)
+            } else {
+                libc::dup2(from, PASSED)
+            };
+            if placed < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            pty::mark_close_on_exec(PASSED + 1, last);
+            Ok(())
+        });
+    }
+    Ok(held)
 }
 
 /// Refuses what [`Spawn`] says it refuses.
@@ -274,6 +369,9 @@ fn check(request: &Spawn<'_>) -> io::Result<()> {
             "a child in a terminal has the terminal as its streams and its own session".into(),
         );
     }
+    if request.terminal.is_some() && request.pass_fd.is_some() {
+        return invalid("a child in a terminal gets no other descriptor".into());
+    }
     let names = request
         .set
         .iter()
@@ -285,8 +383,10 @@ fn check(request: &Spawn<'_>) -> io::Result<()> {
     }
 }
 
-/// Whether a caller may pass the variable `name`, by value or by name.
-fn may_pass(name: &str) -> bool {
+/// Whether a caller may pass the variable `name` to a child, by value or by name: not empty,
+/// with no `=` or NUL, and neither `PATH`, which this module sets itself, nor the loader's
+/// `LD_*` and `DYLD_*` (ADR 0047). [`Spawn`] refuses any other.
+pub fn may_pass(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
     let name = if cfg!(windows) { upper.as_str() } else { name };
     !name.is_empty()
@@ -427,6 +527,7 @@ mod tests {
                 own_process_group: name == "sleep" && own_process_group,
                 set: &[],
                 terminal: None,
+                pass_fd: None,
             })
             .unwrap()
         };
@@ -599,6 +700,7 @@ mod tests {
             own_process_group: false,
             set: &[],
             terminal: None,
+            pass_fd: None,
         })
         .unwrap();
         let mut output = String::new();
@@ -649,6 +751,7 @@ mod tests {
             own_process_group: false,
             set: &[],
             terminal: None,
+            pass_fd: None,
         })
         .unwrap();
         let mut input = child.stdin.take().unwrap();

@@ -1,10 +1,10 @@
-//! Terminals coming over `oso dev`'s restart, in the new instance (ADR 0120, step 11): the
+//! Terminals coming over a restart, in the new instance (ADR 0120, step 11; ADR 0133): the
 //! import makes each carried terminal's buffer, or takes the one its session came back in,
-//! and a thread restores its engine from its state; `import-terminals` then brings the
+//! and a thread restores its engine from its state; the masters come later,
 //! masters, once the instance before has gone, and each terminal reads where that one
 //! stopped. A hosted session keeps its id, name, space, parent and baseline, and the agent
 //! channel is on for its bridge (ADR 0121, Q20). Masters that never come leave the terminals
-//! ended, their last screen kept. Dev builds only.
+//! ended, their last screen kept.
 //!
 //! Must not depend on: sockets; the server passes the descriptors. Nothing here reads a
 //! terminal's text: its state goes from the items to its thread as bytes.
@@ -20,8 +20,8 @@ use serde_json::{Value, json};
 
 use super::carry::{CarryEvent, NOT_PARENT};
 use crate::app::{App, UserEvent};
-use crate::dev;
-use crate::dev::handoff::terminals::{self, TerminalState};
+use crate::carry::terminals::{self, TerminalState};
+use crate::carry::{Passed, Reply};
 
 /// How long carried terminals wait for their masters after the import.
 const MASTERS_TIME: Duration = Duration::from_secs(30);
@@ -30,7 +30,7 @@ const MASTERS_TIME: Duration = Duration::from_secs(30);
 #[derive(Default)]
 pub(in crate::app) struct Coming {
     /// Each carried terminal's buffer, in the state's order, and its master once it came.
-    terminals: Vec<(BufferId, Option<crate::dev::fds::Fd>)>,
+    terminals: Vec<(BufferId, Option<crate::carry::fds::Fd>)>,
     since: Option<Instant>,
 }
 
@@ -128,7 +128,7 @@ impl App {
                 waker.send(UserEvent::Carry(CarryEvent::Adopted(buffer, adopted)));
             });
         if spawned.is_err() {
-            log::warn!("oso dev: no thread to restore a carried terminal");
+            log::warn!("restart: no thread to restore a carried terminal");
         }
     }
 
@@ -155,8 +155,8 @@ impl App {
     pub(in crate::app) fn import_terminals(
         &mut self,
         count: Option<usize>,
-        passed: dev::Passed,
-    ) -> dev::Reply {
+        passed: Passed,
+    ) -> Reply {
         if !passed.parent {
             return Err(NOT_PARENT.into());
         }
@@ -232,7 +232,7 @@ impl App {
             .since
             .is_some_and(|since| since.elapsed() >= MASTERS_TIME)
         {
-            log::warn!("oso dev: the carried terminals' masters did not come");
+            log::warn!("restart: the carried terminals' masters did not come");
             self.abandon_terminals();
         }
     }
@@ -250,8 +250,6 @@ impl App {
     /// Writes the record of the instances this one took over from, for a session's bridge
     /// pinned to one of them (ADR 0121; the author's choice).
     fn write_follows(&self) {
-        if let Some(dev) = &self.dev {
-            dev.write_follows(&self.handover.follows);
-        }
+        crate::channel::mcp::write_follows(&self.handover.follows);
     }
 }

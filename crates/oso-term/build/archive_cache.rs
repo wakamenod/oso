@@ -1,6 +1,7 @@
 //! A cache of the built libghostty-vt archive in the target directory. Cargo runs a build
-//! script once for each set of a package's features, so a build with `dev` and one without
-//! would each run Zig; the second takes the archive the first built. The cache sits in the
+//! script once for each set of features in a package's dependency tree, so a build with
+//! `oso-platform`'s `dev` and one without would each run Zig; the second takes the archive the
+//! first built. The cache sits in the
 //! profile directory that holds `OUT_DIR`, under one directory per key, the sha256 of what the
 //! archive is built from. The archive's sha256 is recorded beside it when it is put there and
 //! checked on a copy before it is used; anything else rebuilds.

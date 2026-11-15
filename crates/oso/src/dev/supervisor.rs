@@ -327,6 +327,7 @@ impl Running {
             own_process_group: true,
             set: &[],
             terminal: None,
+            pass_fd: None,
         })?;
         Ok(Self {
             child,
@@ -494,6 +495,7 @@ fn build(cargo: &Executable, root: &Path) -> io::Result<Build> {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })?;
     let mut artifact = None;
     let mut errors = Vec::new();
@@ -612,6 +614,7 @@ mod tests {
                 own_process_group: false,
                 set: &[],
                 terminal: None,
+                pass_fd: None,
             })
             .unwrap();
             Running {
@@ -728,6 +731,7 @@ mod tests {
                 own_process_group: false,
                 set: &[],
                 terminal: None,
+                pass_fd: None,
             })
             .unwrap();
             let mut group = String::new();

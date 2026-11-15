@@ -175,7 +175,10 @@ impl App {
     /// Turns the agent channel on for a hosted session's bridge, if it is off, and says so
     /// (ADR 0121, Q20): the person asked for a session whose `oso mcp` needs it.
     pub(super) fn turn_agent_channel_on_for_a_session(&mut self) {
-        if self.agent.channel.is_some() || self.agent.starting {
+        if self.agent.channel.is_some()
+            || self.agent.starting
+            || self.restart_holds_the_channel(super::restart::Wanted::Session)
+        {
             return;
         }
         self.start_agent_channel();

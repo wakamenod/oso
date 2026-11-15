@@ -6,7 +6,7 @@ use super::super::{
     Restore, SECRET_SHOWN, State, check, exit_allowed, export_value as export, generation, parse,
 };
 use super::{TYPED, absolute, type_text, visiting};
-use crate::dev::protocol::EXIT_REFUSED;
+use crate::carry::EXIT_REFUSED;
 use oso_core::buffer::Buffer;
 use oso_core::display_map::TabWidth;
 use oso_core::editor::Editor;

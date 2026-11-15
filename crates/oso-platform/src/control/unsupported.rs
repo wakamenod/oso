@@ -130,8 +130,12 @@ impl ControlStream {
     }
 
     /// Fails: not supported on this system.
-    #[doc(hidden)]
     pub fn pair() -> io::Result<(Self, Self)> {
+        Err(unsupported())
+    }
+
+    /// Fails: not supported on this system.
+    pub fn inherited() -> io::Result<Self> {
         Err(unsupported())
     }
 }

@@ -24,7 +24,6 @@ use crate::sessions::worker::{Job, SessionKey};
 mod adopt;
 mod begin;
 mod bridge;
-#[cfg(feature = "dev")]
 mod carried;
 mod fork;
 mod terminal;

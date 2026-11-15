@@ -112,6 +112,7 @@ fn run_elsewhere(flow: &Flow, id: &str, cwd: &Path, name: &str) -> std::process:
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .unwrap();
     let sessions = flow.home.join(".claude/sessions");

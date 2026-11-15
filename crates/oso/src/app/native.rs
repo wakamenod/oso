@@ -137,19 +137,16 @@ impl Window {
     }
 
     /// Where the window's frame is on the screen. For the restart handoff.
-    #[cfg(feature = "dev")]
     pub(super) fn outer_position(&self) -> Option<(i32, i32)> {
         self.0.outer_position()
     }
 
-    #[cfg(feature = "dev")]
     pub(super) fn set_outer_position(&self, x: i32, y: i32) {
         self.0.set_outer_position(x, y);
     }
 
     /// Asks for a drawable area of `width` x `height`. It is applied once the app has handled
     /// this event, and a `Resized` says what it came to, so this gives no size.
-    #[cfg(feature = "dev")]
     pub(super) fn request_inner_size(&self, width: u32, height: u32) -> Option<(u32, u32)> {
         self.0.request_inner_size(width, height);
         None

@@ -40,6 +40,7 @@ impl App {
     pub(super) fn after_event(&mut self, event_loop: &Loop<'_>) {
         self.sync_ime_after_event(event_loop);
         self.sync_agent();
+        self.sync_restart();
         self.sync_sessions();
         self.sync_reviews();
         self.sync_terminals();
@@ -95,8 +96,8 @@ impl App {
             UserEvent::Review(event) => self.review_reported(event),
             UserEvent::Terminal(buffer) => self.terminal_ready(buffer),
             UserEvent::TerminalStarted(started) => self.terminal_started(*started),
-            #[cfg(feature = "dev")]
             UserEvent::Carry(event) => self.carry_event(event),
+            UserEvent::Restart(asked) => self.restart_asked(event_loop, asked),
             // `after_event` looks at the deadlines.
             UserEvent::AgentDeadline => {}
         }

@@ -4,7 +4,7 @@
 //!
 //! Must not depend on: a window or the file system; a state is a plain value.
 
-use super::super::carry::MAX_CARRIED;
+use super::super::pieces::MAX_CARRIED;
 use super::super::{Restore, check, export_value as export, generation, parse};
 use super::{Mutation, TYPED, absolute, restore, type_text, visiting};
 use oso_core::buffer::{Buffer, FileStamp, Replacement};

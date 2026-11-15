@@ -75,6 +75,7 @@ fn sleeper() -> std::process::Child {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .unwrap()
 }

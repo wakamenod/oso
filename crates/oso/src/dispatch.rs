@@ -14,7 +14,6 @@ use oso_core::command::{
 use oso_core::editor::{Editor, MacroEvent};
 use oso_core::key::Key;
 use oso_core::key::KeyPress;
-#[cfg(any(test, feature = "dev"))]
 use oso_core::keymap::Layers;
 use oso_core::keymap::{CANCEL, KeyResolver, Keymap, Resolution, is_cancel};
 
@@ -232,7 +231,6 @@ impl Dispatcher {
     /// Picks up a prefix in progress, for a state handoff, and the echo area shows it.
     /// Commands never run here: keys that are no longer a prefix in this build are
     /// dropped.
-    #[cfg(any(test, feature = "dev"))]
     pub fn restore_pending(&mut self, editor: &mut Editor, keys: &[KeyPress]) {
         let layers = Layers {
             user: self.keymaps.user(),

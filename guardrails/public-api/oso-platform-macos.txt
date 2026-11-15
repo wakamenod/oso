@@ -121,6 +121,8 @@ pub const oso_platform::control::ControlStream::MAX_FDS: usize
 pub fn oso_platform::control::ControlStream::recv_with_fds(&self, &mut [u8], &mut alloc::vec::Vec<std::os::fd::owned::OwnedFd>) -> std::io::error::Result<usize>
 pub fn oso_platform::control::ControlStream::send_with_fds(&self, &[u8], &[std::os::fd::owned::BorrowedFd<'_>]) -> std::io::error::Result<()>
 impl oso_platform::control::ControlStream
+pub fn oso_platform::control::ControlStream::inherited() -> std::io::error::Result<Self>
+pub fn oso_platform::control::ControlStream::pair() -> std::io::error::Result<(Self, Self)>
 pub fn oso_platform::control::ControlStream::peer(&self) -> oso_platform::control::Peer
 pub fn oso_platform::control::ControlStream::set_read_timeout(&self, core::option::Option<core::time::Duration>) -> std::io::error::Result<()>
 pub fn oso_platform::control::ControlStream::set_write_timeout(&self, core::option::Option<core::time::Duration>) -> std::io::error::Result<()>
@@ -133,6 +135,8 @@ pub fn oso_platform::control::ControlStream::read(&mut self, &mut [u8]) -> std::
 impl std::io::Write for oso_platform::control::ControlStream
 pub fn oso_platform::control::ControlStream::flush(&mut self) -> std::io::error::Result<()>
 pub fn oso_platform::control::ControlStream::write(&mut self, &[u8]) -> std::io::error::Result<usize>
+impl std::os::fd::owned::AsFd for oso_platform::control::ControlStream
+pub fn oso_platform::control::ControlStream::as_fd(&self) -> std::os::fd::owned::BorrowedFd<'_>
 pub struct oso_platform::control::Peer
 pub oso_platform::control::Peer::parent: core::option::Option<oso_platform::control::PeerProcess>
 pub oso_platform::control::Peer::process: core::option::Option<oso_platform::control::PeerProcess>
@@ -160,6 +164,7 @@ pub fn oso_platform::control::PeerProcess::eq(&self, &oso_platform::control::Pee
 impl core::fmt::Debug for oso_platform::control::PeerProcess
 pub fn oso_platform::control::PeerProcess::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_platform::control::PeerProcess
+pub const oso_platform::control::INHERITED_FD: std::os::fd::raw::RawFd
 pub mod oso_platform::file_meta
 pub enum oso_platform::file_meta::EntryKind
 pub oso_platform::file_meta::EntryKind::Directory
@@ -429,12 +434,21 @@ pub fn oso_platform::process::Executable::eq(&self, &oso_platform::process::Exec
 impl core::fmt::Debug for oso_platform::process::Executable
 pub fn oso_platform::process::Executable::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_platform::process::Executable
+pub struct oso_platform::process::PassedFd<'a>
+impl<'a> oso_platform::process::PassedFd<'a>
+pub fn oso_platform::process::PassedFd<'a>::new(std::os::fd::owned::BorrowedFd<'a>) -> Self
+impl<'a> core::clone::Clone for oso_platform::process::PassedFd<'a>
+pub fn oso_platform::process::PassedFd<'a>::clone(&self) -> oso_platform::process::PassedFd<'a>
+impl<'a> core::fmt::Debug for oso_platform::process::PassedFd<'a>
+pub fn oso_platform::process::PassedFd<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::marker::Copy for oso_platform::process::PassedFd<'a>
 pub struct oso_platform::process::Spawn<'a>
 pub oso_platform::process::Spawn::args: &'a [std::ffi::os_str::OsString]
 pub oso_platform::process::Spawn::cwd: core::option::Option<&'a std::path::Path>
 pub oso_platform::process::Spawn::executable: &'a oso_platform::process::Executable
 pub oso_platform::process::Spawn::inherit: &'a [&'a str]
 pub oso_platform::process::Spawn::own_process_group: bool
+pub oso_platform::process::Spawn::pass_fd: core::option::Option<oso_platform::process::PassedFd<'a>>
 pub oso_platform::process::Spawn::project: core::option::Option<&'a std::path::Path>
 pub oso_platform::process::Spawn::set: &'a [(&'a str, &'a std::ffi::os_str::OsStr)]
 pub oso_platform::process::Spawn::stderr: oso_platform::process::Sink
@@ -447,6 +461,7 @@ impl<'a> core::clone::Clone for oso_platform::process::Spawn<'a>
 pub fn oso_platform::process::Spawn<'a>::clone(&self) -> oso_platform::process::Spawn<'a>
 impl<'a> core::marker::Copy for oso_platform::process::Spawn<'a>
 pub fn oso_platform::process::account_shell() -> core::option::Option<std::path::PathBuf>
+pub fn oso_platform::process::may_pass(&str) -> bool
 pub fn oso_platform::process::spawn(&oso_platform::process::Spawn<'_>) -> std::io::error::Result<std::process::Child>
 pub fn oso_platform::process::start_time(u32) -> std::io::error::Result<core::option::Option<std::time::SystemTime>>
 pub mod oso_platform::random

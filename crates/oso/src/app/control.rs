@@ -17,7 +17,6 @@ use super::App;
 use super::draw::with_frame;
 use super::shell::Loop;
 use crate::dev;
-use crate::dev::handoff;
 use oso_platform::window::{Held, ImeEvent, Mouse, MouseAction, Position, Wheel};
 
 impl App {
@@ -125,7 +124,7 @@ impl App {
             dev::UiOp::Exit { generation } => self.answer_exit(event_loop, generation),
             // The rest are a restart's: exporting and importing the state, its texts and its
             // terminals, and whether it may go.
-            op => return self.answer_restart(op, reply, passed),
+            dev::UiOp::Restart(op) => return self.answer_restart(op, reply, passed),
         };
         Some((reply, result))
     }
@@ -135,21 +134,7 @@ impl App {
     /// generation, terminals handed over go now: the next instance has their masters
     /// (ADR 0120, step 11).
     fn answer_exit(&mut self, event_loop: &Loop<'_>, generation: Option<u64>) -> dev::Reply {
-        let allowed = handoff::exit_allowed(&self.editor, generation).and_then(|()| {
-            if generation.is_some() {
-                self.exit_with_terminals()
-            } else {
-                Ok(())
-            }
-        });
-        if allowed.is_err() {
-            // That restart is over, and its snapshot need hold no text.
-            self.forget_export();
-        }
-        allowed.map(|()| {
-            self.leave(event_loop, true);
-            json!({ "exiting": true })
-        })
+        self.exit_for_restart(event_loop, generation)
     }
 
     /// Remembers the questions a request opened, and the prompts that complete, those newer
@@ -403,17 +388,6 @@ impl App {
                 let _ = reply.send(Err(e.to_string()));
             }
         }
-    }
-
-    /// The OS window's place and size, if there is a window.
-    pub(super) fn frame(&self) -> Option<handoff::Frame> {
-        let window = &self.view.as_ref()?.window;
-        let (width, height) = window.inner_size();
-        Some(handoff::Frame {
-            position: window.outer_position(),
-            width,
-            height,
-        })
     }
 }
 

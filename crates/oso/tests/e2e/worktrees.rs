@@ -183,6 +183,7 @@ impl Flow {
             own_process_group: false,
             set: &set,
             terminal: None,
+            pass_fd: None,
         })
         .and_then(Child::wait_with_output)
         .expect("cannot run git");
@@ -544,6 +545,7 @@ fn run_hook(command: &str, input: &str) -> (ExitStatus, String) {
         own_process_group: false,
         set: &[],
         terminal: None,
+        pass_fd: None,
     })
     .expect("cannot start the hook");
     // Dropped after the write, which closes it.

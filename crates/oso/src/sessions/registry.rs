@@ -628,6 +628,7 @@ mod tests {
             own_process_group: false,
             set: &[],
             terminal: None,
+            pass_fd: None,
         })
         .unwrap();
         assert!(child.wait().unwrap().success());
@@ -672,6 +673,7 @@ mod tests {
             own_process_group: false,
             set: &[],
             terminal: None,
+            pass_fd: None,
         })
         .unwrap();
         let pid = child.id();
