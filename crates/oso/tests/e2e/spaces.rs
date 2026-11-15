@@ -14,15 +14,16 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
+use super::harness::emergency_dir;
 use super::worktrees::{Flow, keys};
 
-/// oso's state directory under `home`, as the platform has it.
-fn state_dir(home: &Path) -> PathBuf {
-    if cfg!(target_os = "macos") {
-        home.join("Library/Application Support/oso")
-    } else {
-        home.join(".local/state/oso")
-    }
+/// oso's state directory for an instance started in `cwd`, as the harness gives it: beside
+/// its emergency copies.
+fn state_dir(cwd: &Path) -> PathBuf {
+    emergency_dir(cwd)
+        .parent()
+        .expect("the emergency copies' directory has a parent")
+        .to_path_buf()
 }
 
 /// A remembered session's line: its id from `n`, its name, and where it ran.
@@ -106,7 +107,7 @@ fn remembered_sessions_become_spaces_of_one_repository_that_a_restart_keeps() {
     let (repo, side, other) = (canonical(&flow.repo), canonical(&side), canonical(&other));
 
     // What an earlier oso remembered: no `spaces` file yet.
-    let state = state_dir(&flow.home);
+    let state = state_dir(&flow.repo);
     fs::create_dir_all(&state).unwrap();
     fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
     let lines = [
@@ -159,7 +160,7 @@ fn remembered_sessions_become_spaces_of_one_repository_that_a_restart_keeps() {
     app.wait_for_exit();
 
     // The next start reads the same spaces, and makes none again.
-    let (mut again, _) = flow.start();
+    let mut again = flow.start_again();
     let back = again.wait_for("the kept spaces", |state| spaces(state).len() == 2);
     let mut back_ids = space_ids(&back);
     back_ids.sort();

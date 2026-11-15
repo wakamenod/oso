@@ -139,6 +139,20 @@ impl Flow {
         (app, readme)
     }
 
+    /// Starts another instance in the repository, trusted already by an earlier one, with
+    /// `README.md` shown.
+    pub(super) fn start_again(&self) -> App {
+        let mut app = App::start_with_config_and_env(
+            &self.repo,
+            &self.config,
+            &[("HOME", self.home.as_os_str())],
+        );
+        app.wait_until_ready();
+        app.open_file(&self.repo.join("README.md"));
+        app.wait_until_ready();
+        app
+    }
+
     /// Runs git in `dir` with `args`, which must succeed, with a fixed identity and kept from
     /// the person's configuration and hooks. Returns what it printed.
     pub(super) fn git(&self, dir: &Path, args: &[&str]) -> String {

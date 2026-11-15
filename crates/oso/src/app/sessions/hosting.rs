@@ -195,12 +195,13 @@ impl App {
         readable: bool,
         fresh: Vec<crate::sessions::spaces::SpaceId>,
     ) {
-        self.watch.spaces_mut().recall(spaces, fresh, migrated);
+        // Spaces made from the sessions are kept at once, with the sessions' spaces, so that
+        // they are made once; with none made, nothing is written.
+        let made = migrated && !spaces.is_empty();
+        self.watch.spaces_mut().recall(spaces, fresh, made);
         self.watch.spaces_mut().set_readable(readable);
         let back = self.hosting.table.recall(remembered);
-        // Spaces made from the sessions are kept at once, with the sessions' spaces, so that
-        // they are made once.
-        self.hosting.unsaved |= migrated;
+        self.hosting.unsaved |= made;
         self.prune_sessions();
         for key in back {
             if self.hosting.table.get(key).is_some() {
