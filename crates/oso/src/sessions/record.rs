@@ -25,6 +25,7 @@ use oso_platform::privacy::{PrivateDir, has_one_name, is_this_users};
 use serde_json::{Map, Value, json};
 
 use super::identity::{Origin, SessionId, clean_name};
+use super::spaces::SpaceId;
 
 /// The file's name in its directory.
 const FILE: &str = "sessions";
@@ -58,6 +59,8 @@ pub struct Remembered {
     pub changed: u64,
     /// Its baseline for a review (ADR 0122): a git tree's id, 40 or 64 lower-case hex digits.
     pub baseline: Option<String>,
+    /// The issue space it belongs to (ADR 0136).
+    pub space: Option<SpaceId>,
 }
 
 /// What is remembered in `state_dir`. Anything the rules above refuse gives nothing.
@@ -74,13 +77,21 @@ pub fn read(state_dir: &Path) -> Vec<Remembered> {
 /// What is remembered in `state_dir`: nothing if there is no file, and an error if there is
 /// one that may not be read, which a write must then not replace.
 fn read_checked(state_dir: &Path) -> io::Result<Vec<Remembered>> {
+    Ok(read_file(state_dir, FILE, MAX_BYTES)?.map_or_else(Vec::new, |bytes| parse(&bytes)))
+}
+
+/// The bytes of the file called `name` in `state_dir`: `None` if there is none, and an error
+/// if there is one that may not be read, which a write must then not replace. It is read only
+/// if the directory is private and the file a regular one of this user's with one name, of at
+/// most `max` bytes. The `spaces` file is read the same way (ADR 0136).
+pub(super) fn read_file(state_dir: &Path, name: &str, max: u64) -> io::Result<Option<Vec<u8>>> {
     let Some(directory) = PrivateDir::existing(state_dir)? else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
-    let path = directory.path().join(FILE);
+    let path = directory.path().join(name);
     let opened = match file_meta::open_regular_here(&path) {
         Ok(opened) => opened,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e),
     };
     let refused = || {
@@ -90,15 +101,15 @@ fn read_checked(state_dir: &Path) -> io::Result<Vec<Remembered>> {
         ))
     };
     let (file, meta) = opened.ok_or_else(refused)?;
-    if !is_this_users(&meta) || !has_one_name(&meta) || meta.len() > MAX_BYTES {
+    if !is_this_users(&meta) || !has_one_name(&meta) || meta.len() > max {
         return Err(refused());
     }
     let mut bytes = Vec::new();
-    file.take(MAX_BYTES + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_BYTES {
+    file.take(max + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > max {
         return Err(refused());
     }
-    Ok(parse(&bytes))
+    Ok(Some(bytes))
 }
 
 /// The sessions in the file's bytes, the last of an id kept, at most [`MAX_SESSIONS`]: those
@@ -161,6 +172,10 @@ fn parse_line(line: &[u8]) -> Option<Remembered> {
         None => None,
     };
     let origin = Origin::read(optional("origin")?, parent.is_some());
+    let space = match optional("space")? {
+        Some(space) => Some(SpaceId::parse(space)?),
+        None => None,
+    };
     let baseline = match optional("baseline")? {
         Some(tree) if is_tree_id(tree) => Some(tree.to_owned()),
         Some(_) => return None,
@@ -177,6 +192,7 @@ fn parse_line(line: &[u8]) -> Option<Remembered> {
         archived: flag("archived")?,
         changed: object.get("changed")?.as_u64()?,
         baseline,
+        space,
     })
 }
 
@@ -208,6 +224,9 @@ fn line(session: &Remembered) -> Option<String> {
     if let Some(baseline) = &session.baseline {
         object.insert("baseline".into(), json!(baseline));
     }
+    if let Some(space) = &session.space {
+        object.insert("space".into(), json!(space.as_str()));
+    }
     Some(Value::Object(object).to_string())
 }
 
@@ -237,7 +256,18 @@ pub fn write(
         text.push_str(&line);
         text.push('\n');
     }
-    let part = directory.path().join(PART);
+    replace_file(&directory, FILE, PART, &text)
+}
+
+/// Replaces the file called `name` in `directory` with `text` whole, through `part`, or
+/// leaves it as it was. The `spaces` file is written the same way (ADR 0136).
+pub(super) fn replace_file(
+    directory: &PrivateDir,
+    name: &str,
+    part: &str,
+    text: &str,
+) -> io::Result<()> {
+    let part = directory.path().join(part);
     match fs::remove_file(&part) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
         _ => {}
@@ -249,7 +279,7 @@ pub fn write(
     let mut file = options.open(&part)?;
     file.write_all(text.as_bytes())?;
     file.sync_all()?;
-    fs::rename(&part, directory.path().join(FILE))
+    fs::rename(&part, directory.path().join(name))
 }
 
 // Hosted sessions run on Unix only (ADR 0120): the scratch paths and the private state
@@ -304,6 +334,7 @@ mod tests {
             archived: false,
             changed: 1_794_512_815_000,
             baseline: None,
+            space: None,
         }
     }
 
@@ -321,6 +352,7 @@ mod tests {
         full.pinned = true;
         full.archived = true;
         full.baseline = Some("a".repeat(40));
+        full.space = Some(crate::sessions::spaces::SpaceId::from_random([7; 16]));
         let mut bare = session(2);
         bare.root = None;
         bare.origin = Origin::Answered;

@@ -352,6 +352,20 @@ fn a_brief_makes_a_worktree_with_the_included_files_and_starts_its_session() {
         "{:?}",
         buffer_names(&state)
     );
+    // The worktree is held by the repository's space, not a space of its own (ADR 0136).
+    let held = place.display().to_string();
+    let state = app.wait_for("the worktree in the repository's space", |state| {
+        state["sessions"]["spaces"]
+            .as_array()
+            .is_some_and(|spaces| {
+                spaces.len() == 1
+                    && spaces[0]["name"] == "repo"
+                    && spaces[0]["worktrees"]
+                        .as_array()
+                        .is_some_and(|w| w.contains(&json!(held)))
+            })
+    });
+    assert_eq!(state["sessions"]["space"], "repo", "{}", state["sessions"]);
     flow.exit_with(0);
 }
 

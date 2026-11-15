@@ -10,6 +10,7 @@ mod alerts;
 #[cfg(feature = "dev")]
 mod dev_state;
 mod pane;
+mod placing;
 mod requests;
 mod sending;
 mod shared;
@@ -340,7 +341,10 @@ impl App {
                 .as_deref()
                 .and_then(|dir| self.watch.spaces.of_path(dir))
                 .and_then(|at| self.watch.spaces.get(at))
-                .map_or_else(|| external.directory_name(), |space| space.name.clone());
+                .map_or_else(
+                    || external.directory_name(),
+                    |space| space.name().to_owned(),
+                );
             let state = if external.working {
                 State::Working
             } else {
@@ -387,42 +391,6 @@ impl App {
             self.watch.attention.forget(key);
         }
         self.forget_sending(&keys);
-    }
-
-    /// Each hosted session's space, added if new; the frame's tree is the first space's.
-    fn place_sessions(&mut self) {
-        let roots: Vec<_> = self
-            .hosting
-            .table()
-            .iter()
-            .map(|session| place(session).to_path_buf())
-            .collect();
-        if self.watch.spaces.current().is_none()
-            && !roots.is_empty()
-            && let Ok((root, _)) = self.editor.project_files_root()
-        {
-            let at = self.watch.spaces.add(&root, None);
-            self.watch.spaces.adopt(at);
-        }
-        for root in roots {
-            self.watch.spaces.add(&root, None);
-        }
-        // Each session's space's name, worked out once a change of the table.
-        let placed: HashMap<SessionKey, String> = self
-            .hosting
-            .table()
-            .iter()
-            .map(|session| {
-                let name = self
-                    .watch
-                    .spaces
-                    .of_path(place(session))
-                    .and_then(|at| self.watch.spaces.get(at))
-                    .map_or_else(String::new, |space| space.name.clone());
-                (session.key, name)
-            })
-            .collect();
-        self.watch.placed = placed;
     }
 
     /// What the list shows of each session: hosted ones, then other programs'.

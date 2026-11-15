@@ -114,6 +114,8 @@ pub struct InForce {
     pub sessions: super::settings::Sessions,
     /// `[terminal]`, as the file gives it: it applies to the next terminal started (ADR 0120).
     pub terminal: super::Terminal,
+    /// `[spaces]`: it applies to the next space made (ADR 0136).
+    pub spaces: super::Spaces,
 }
 
 impl InForce {
@@ -140,6 +142,7 @@ impl InForce {
             mode_indents: [Default::default(); 4],
             sessions: super::settings::Sessions::default(),
             terminal: super::Terminal::default(),
+            spaces: super::Spaces::default(),
         }
     }
 
@@ -177,6 +180,7 @@ impl InForce {
             }),
             sessions: settings.sessions.clone(),
             terminal: settings.terminal.clone(),
+            spaces: settings.spaces.clone(),
         }
     }
 
@@ -309,6 +313,7 @@ mod tests {
                 mode_indents: [Default::default(); 4],
                 sessions: crate::config::settings::Sessions::default(),
                 terminal: crate::config::Terminal::default(),
+                spaces: crate::config::Spaces::default(),
             }
         );
         assert_eq!(InForce::of(&Settings::default(), THEMES), compiled);
@@ -363,6 +368,7 @@ mod tests {
                 mode_indents: [Default::default(); 4],
                 sessions: crate::config::settings::Sessions::default(),
                 terminal: crate::config::Terminal::default(),
+                spaces: crate::config::Spaces::default(),
             }
         );
     }

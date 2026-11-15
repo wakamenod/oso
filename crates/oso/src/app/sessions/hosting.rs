@@ -45,7 +45,7 @@ pub(in crate::app) struct Hosting {
     /// refused.
     baselines: HashMap<SessionKey, Baseline>,
     /// The sessions changed since the worker was last given them to remember.
-    unsaved: bool,
+    pub(in crate::app) unsaved: bool,
     /// The "fork it instead?" questions of refused resumes, and the conversation each is
     /// about: a `y` forks the one whose question it closed, whichever buffer is selected then.
     fork_offered: Vec<(PromptId, ForkFrom)>,
@@ -195,8 +195,15 @@ impl App {
     pub(in crate::app) fn sessions_recalled(
         &mut self,
         remembered: Vec<crate::sessions::record::Remembered>,
+        spaces: Vec<crate::sessions::spaces::Stored>,
+        migrated: bool,
+        fresh: Vec<crate::sessions::spaces::SpaceId>,
     ) {
+        self.watch.spaces_mut().recall(spaces, fresh, migrated);
         let back = self.hosting.table.recall(remembered);
+        // Spaces made from the sessions are kept at once, with the sessions' spaces, so that
+        // they are made once.
+        self.hosting.unsaved |= migrated;
         self.prune_sessions();
         for key in back {
             if self.hosting.table.get(key).is_some() {
@@ -214,16 +221,23 @@ impl App {
     }
 
     /// After an event: hands the sessions to the worker to remember, keeping another
-    /// instance's, if they changed.
+    /// instance's, if they changed, and the spaces to keep, if they did (ADR 0136).
     pub(in crate::app) fn save_sessions(&mut self) {
-        if !std::mem::take(&mut self.hosting.unsaved) {
+        let (Some(worker), Some(directory)) = (&self.sessions, &self.hosting.directory) else {
             return;
-        }
-        if let (Some(worker), Some(directory)) = (&self.sessions, &self.hosting.directory) {
+        };
+        if std::mem::take(&mut self.hosting.unsaved) {
             worker.send(Job::Remember {
                 directory: directory.clone(),
                 sessions: self.hosting.table.remembered(),
                 known: self.hosting.table.known().clone(),
+            });
+        }
+        if let Some((spaces, known)) = self.watch.spaces_mut().take_unsaved() {
+            worker.send(Job::RememberSpaces {
+                directory: directory.clone(),
+                spaces,
+                known,
             });
         }
     }

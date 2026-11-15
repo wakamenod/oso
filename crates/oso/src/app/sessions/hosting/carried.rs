@@ -69,6 +69,7 @@ impl App {
                     archived: false,
                     changed: session.changed,
                     baseline: session.baseline.clone(),
+                    space: None,
                 }]);
                 *back.first()?
             }

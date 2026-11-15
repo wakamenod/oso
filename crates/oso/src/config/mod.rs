@@ -25,9 +25,11 @@ mod indentation;
 mod keys;
 mod menus;
 mod outcome;
+mod paths;
 mod problems;
 mod settings;
 mod source;
+mod spaces;
 mod terminal;
 mod trust;
 mod watch;
@@ -52,6 +54,7 @@ pub use settings::Settings;
 #[cfg(test)]
 pub use source::FILE_NAME;
 pub use source::Source;
+pub use spaces::Spaces;
 pub use terminal::Terminal;
 pub use trust::{Record, TRUST_FILE_NAME, TrustFile};
 pub use watch::{Reader, Report};
@@ -221,6 +224,7 @@ fn apply(
             "modes" => settings.modes = indentation::modes(value, found),
             "sessions" => settings.sessions = settings::sessions(value, found),
             "terminal" => settings.terminal = terminal::terminal(value, found),
+            "spaces" => settings.spaces = spaces::spaces(value, found),
             other => found.at(
                 name.span().start,
                 format_args!("unknown table [{}], skipped", TableName(other)),
@@ -310,6 +314,8 @@ mod search_tests;
 mod session_keys_tests;
 #[cfg(test)]
 mod sessions_tests;
+#[cfg(test)]
+mod spaces_tests;
 #[cfg(test)]
 mod terminal_tests;
 #[cfg(test)]

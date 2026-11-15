@@ -153,8 +153,17 @@ impl App {
                 crate::sessions::worker::DROP_AFTER
             )),
             Out::WorktreesMoved(roots) => self.worktrees_moved(&roots),
-            Out::Recalled(remembered) => {
-                self.sessions_recalled(remembered);
+            Out::SpaceIds(fresh) => {
+                self.watch.spaces_mut().give_ids(fresh);
+                self.sessions_touched();
+            }
+            Out::Recalled {
+                sessions,
+                spaces,
+                migrated,
+                fresh,
+            } => {
+                self.sessions_recalled(sessions, spaces, migrated, fresh);
                 self.sessions_touched();
                 // Once oso knows its own, the others it may adopt.
                 self.hosting.adopting.recalled = true;

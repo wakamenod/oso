@@ -88,6 +88,15 @@ pub enum Job {
         sessions: Vec<super::record::Remembered>,
         known: std::collections::HashSet<super::identity::SessionId>,
     },
+    /// Keep these spaces in this state directory, keeping those of another instance: the ids
+    /// not in `known` (ADR 0136).
+    RememberSpaces {
+        directory: PathBuf,
+        spaces: Vec<super::spaces::Stored>,
+        known: std::collections::HashSet<super::spaces::SpaceId>,
+    },
+    /// Read this many ids for new spaces.
+    SpaceIds(usize),
 }
 
 /// What the worker tells the app.
@@ -118,8 +127,16 @@ pub enum Out {
     /// The rules took longer than their budget on [`SLOW_AFTER`] looks in a row at a screen,
     /// this rule the longest: said once for each set of rules.
     Slow(String),
-    /// The sessions an earlier oso remembered, as read.
-    Recalled(Vec<super::record::Remembered>),
+    /// The sessions an earlier oso remembered, as read, and the spaces kept with them, or made
+    /// from them when no spaces were kept (`migrated`), with ids for new spaces (ADR 0136).
+    Recalled {
+        sessions: Vec<super::record::Remembered>,
+        spaces: Vec<super::spaces::Stored>,
+        migrated: bool,
+        fresh: Vec<super::spaces::SpaceId>,
+    },
+    /// Ids for new spaces, as asked.
+    SpaceIds(Vec<super::spaces::SpaceId>),
     /// This local rule was the slowest of [`DROP_AFTER`] late looks in a row, so it is no
     /// longer used until the rules load again.
     Dropped(String),

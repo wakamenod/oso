@@ -40,6 +40,7 @@ mod secure;
 mod session_tools;
 mod sessions;
 mod sessions_tree;
+mod spaces;
 mod terminal;
 mod undo;
 mod windows;

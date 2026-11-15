@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use oso_core::project::{ProjectId, same_place};
+use oso_core::project::ProjectId;
 
 use super::super::super::App;
 use super::{QUESTION_NAMES, Removing, hosted_state};
@@ -172,27 +172,11 @@ impl App {
         go.proceed();
     }
 
-    /// Closes the space of the worktree at `path`, entering its repository's first if it is
-    /// the one in the frame (ADR 0121). With a prompt open, the frame's tree cannot change, so
-    /// the space stays until oso starts again, and the removal goes on.
+    /// Forgets the removed worktree at `path` in the space that held it (ADR 0136): the space
+    /// stays, with its tree.
     pub(in crate::app) fn close_worktree_space(&mut self, path: &Path) {
-        let spaces = self.watch.spaces();
-        let at = spaces.find(path).or_else(|| {
-            spaces
-                .of_path(path)
-                .filter(|&at| spaces.get(at).is_some_and(|s| same_place(&s.root, path)))
-        });
-        let Some(at) = at else {
-            return;
-        };
-        if self
-            .watch
-            .spaces_mut()
-            .remove(&mut self.editor, at)
-            .is_err()
-        {
-            log::debug!("a removed worktree's space stays while a prompt is open");
-        }
+        let now = crate::sessions::spaces::stored::now_ms();
+        self.watch.spaces_mut().forget_worktree(path, now);
         self.request_redraw();
     }
 

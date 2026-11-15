@@ -1,10 +1,10 @@
-//! Spaces: names and nesting, each space's tree kept across switches, the first entry's tree,
-//! and zoom kept per space.
+//! Spaces: each space's tree kept across switches, the first entry's tree, and zoom kept per
+//! space; and which space a session joins (ADR 0136).
 //!
 //! Must not depend on: `app` or `dispatch`; these drive an editor alone, with no
 //! window.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use oso_core::buffer::Buffer;
 use oso_core::editor::Editor;
@@ -12,7 +12,32 @@ use oso_core::frame::{FrameSize, Way};
 use oso_core::selection::SelectionSet;
 use oso_core::window::WindowId;
 
-use super::{Refused, Spaces, Zoom};
+use super::{Member, Refused, SpaceId, Spaces, Stored, Zoom};
+
+fn id(n: u8) -> SpaceId {
+    SpaceId::from_random([n; 16])
+}
+
+/// A space of the one repository at `root`, recalled.
+fn add(spaces: &mut Spaces, root: &str) -> usize {
+    let n = u8::try_from(spaces.iter().count()).unwrap() + 1;
+    let name = Path::new(root)
+        .file_name()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let stored = Stored::of_repository(id(n), name, Member::at(Path::new(root)), 1);
+    spaces.recall(vec![stored], Vec::new(), false);
+    spaces.iter().count() - 1
+}
+
+/// Spaces recalled with no space, and `ids` fresh ids.
+fn recalled(ids: u8) -> Spaces {
+    let mut spaces = Spaces::default();
+    spaces.recall(Vec::new(), (100..100 + ids).map(id).collect(), false);
+    spaces
+}
 
 fn editor() -> Editor {
     let text: String = (0..200).map(|i| format!("line {i}\n")).collect();
@@ -41,41 +66,11 @@ fn shown(editor: &Editor) -> Vec<String> {
 }
 
 #[test]
-fn a_worktree_nests_under_its_repository_and_names_stay_apart() {
-    let mut spaces = Spaces::default();
-    let repo = spaces.add(Path::new("/src/oso"), None);
-    let tree = spaces.add(Path::new("/src/oso-wt/fix-1"), Some(Path::new("/src/oso")));
-    let other = spaces.add(Path::new("/elsewhere/oso"), None);
-    assert_eq!(spaces.add(Path::new("/src/oso"), None), repo, "found again");
-    let names: Vec<&str> = [repo, tree, other]
-        .map(|at| spaces.get(at).unwrap().name.as_str())
-        .to_vec();
-    assert_eq!(names, ["oso", "oso/fix-1", "oso<2>"]);
-    assert_eq!(
-        spaces.get(tree).unwrap().repo.as_deref(),
-        Some(Path::new("/src/oso"))
-    );
-    let texts: Vec<String> = spaces
-        .candidates()
-        .iter()
-        .map(|c| c.text().to_owned())
-        .collect();
-    assert_eq!(texts, ["oso", "oso/fix-1", "oso<2>"]);
-    assert_eq!(spaces.named("oso/fix-1"), Some(tree));
-    assert_eq!(
-        spaces.of_path(Path::new("/src/oso-wt/fix-1/src/main.rs")),
-        Some(tree)
-    );
-    assert_eq!(spaces.of_path(Path::new("/src/oso/x")), Some(repo));
-    assert_eq!(spaces.of_path(Path::new("/tmp")), None);
-}
-
-#[test]
 fn each_space_keeps_its_tree_and_a_first_entry_shows_its_last_buffers() {
     let mut editor = editor();
     let mut spaces = Spaces::default();
-    let one = spaces.add(Path::new("/src/one"), None);
-    let two = spaces.add(Path::new("/src/two"), None);
+    let one = add(&mut spaces, "/src/one");
+    let two = add(&mut spaces, "/src/two");
     spaces.enter(&mut editor, one).unwrap();
     assert_eq!(
         spaces.current(),
@@ -86,9 +81,7 @@ fn each_space_keeps_its_tree_and_a_first_entry_shows_its_last_buffers() {
     let first_tree = ids(&editor);
     let file = editor.add_buffer(Buffer::from_text("b.rs", "b"));
     let session = editor.add_buffer(Buffer::from_text("*claude: two*", "c"));
-    let space = spaces.get_mut(two).unwrap();
-    space.last_file = Some(file);
-    space.last_session = Some(session);
+    spaces.showed(two, Some(session), Some(file));
     spaces.enter(&mut editor, two).unwrap();
     assert_eq!(shown(&editor), ["b.rs", "*claude: two*"], "side by side");
     editor.split_window(Way::Down, false).unwrap();
@@ -103,14 +96,14 @@ fn each_space_keeps_its_tree_and_a_first_entry_shows_its_last_buffers() {
 fn a_space_with_nothing_shown_takes_the_frames_tree() {
     let mut editor = editor();
     let mut spaces = Spaces::default();
-    let one = spaces.add(Path::new("/src/one"), None);
-    let empty = spaces.add(Path::new("/src/empty"), None);
+    let one = add(&mut spaces, "/src/one");
+    let empty = add(&mut spaces, "/src/empty");
     spaces.adopt(one);
     let before = ids(&editor);
     spaces.enter(&mut editor, empty).unwrap();
     assert_eq!(ids(&editor), before);
     let file = editor.add_buffer(Buffer::from_text("one.rs", "1"));
-    spaces.get_mut(one).unwrap().last_file = Some(file);
+    spaces.showed(one, None, Some(file));
     spaces.enter(&mut editor, one).unwrap();
     assert_eq!(
         shown(&editor),
@@ -123,11 +116,11 @@ fn a_space_with_nothing_shown_takes_the_frames_tree() {
 fn a_prompt_open_refuses_and_changes_nothing() {
     let mut editor = editor();
     let mut spaces = Spaces::default();
-    let one = spaces.add(Path::new("/src/one"), None);
-    let two = spaces.add(Path::new("/src/two"), None);
+    let one = add(&mut spaces, "/src/one");
+    let two = add(&mut spaces, "/src/two");
     spaces.adopt(one);
     let file = editor.add_buffer(Buffer::from_text("b.rs", "b"));
-    spaces.get_mut(two).unwrap().last_file = Some(file);
+    spaces.showed(two, None, Some(file));
     editor
         .open_completion("Space: ", "space", std::sync::Arc::from([]))
         .unwrap();
@@ -141,8 +134,8 @@ fn a_prompt_open_refuses_and_changes_nothing() {
 fn zoom_is_kept_per_space_and_back_keeps_the_zoomed_windows_place() {
     let mut editor = editor();
     let mut spaces = Spaces::default();
-    let one = spaces.add(Path::new("/src/one"), None);
-    let two = spaces.add(Path::new("/src/two"), None);
+    let one = add(&mut spaces, "/src/one");
+    let two = add(&mut spaces, "/src/two");
     spaces.adopt(one);
     editor.split_window(Way::Down, false).unwrap();
     let tree = ids(&editor);
@@ -153,7 +146,7 @@ fn zoom_is_kept_per_space_and_back_keeps_the_zoomed_windows_place() {
     editor.follow_cursor();
     // Away and back: still zoomed.
     let file = editor.add_buffer(Buffer::from_text("b.rs", "b"));
-    spaces.get_mut(two).unwrap().last_file = Some(file);
+    spaces.showed(two, None, Some(file));
     spaces.enter(&mut editor, two).unwrap();
     spaces.enter(&mut editor, one).unwrap();
     assert_eq!(ids(&editor).len(), 1);
@@ -177,75 +170,6 @@ fn zoom_from_the_side_window_acts_on_the_tree() {
 }
 
 #[test]
-fn closing_a_space_moves_the_later_ones_down_and_keeps_the_current() {
-    let mut editor = editor();
-    let mut spaces = Spaces::default();
-    let a = spaces.add(Path::new("/src/a"), None);
-    let b = spaces.add(Path::new("/src/b"), None);
-    let c = spaces.add(Path::new("/src/c"), None);
-    spaces.adopt(a);
-    spaces.enter(&mut editor, c).unwrap();
-    assert_eq!(spaces.remove(&mut editor, b), Ok(()));
-    assert_eq!(spaces.current(), Some(1), "c moved down one place");
-    assert_eq!(spaces.get(1).unwrap().name, "c");
-    assert_eq!(spaces.find(Path::new("/src/b")), None);
-    assert_eq!(spaces.remove(&mut editor, 7), Ok(()), "no such space");
-}
-
-#[test]
-fn closing_the_current_worktree_space_enters_its_repository() {
-    let mut editor = editor();
-    let mut spaces = Spaces::default();
-    let other = spaces.add(Path::new("/src/other"), None);
-    let repo = spaces.add(Path::new("/src/oso"), None);
-    let tree = spaces.add(
-        Path::new("/src/oso/.claude/worktrees/fix"),
-        Some(Path::new("/src/oso")),
-    );
-    spaces.adopt(other);
-    spaces.enter(&mut editor, repo).unwrap();
-    spaces.enter(&mut editor, tree).unwrap();
-    assert_eq!(spaces.remove(&mut editor, tree), Ok(()));
-    assert_eq!(
-        spaces.current(),
-        Some(repo),
-        "back in its repository's space"
-    );
-    assert_eq!(spaces.get(spaces.current().unwrap()).unwrap().name, "oso");
-}
-
-#[test]
-fn closing_the_current_space_with_no_repository_enters_the_first_other() {
-    let mut editor = editor();
-    let mut spaces = Spaces::default();
-    let a = spaces.add(Path::new("/src/a"), None);
-    let b = spaces.add(Path::new("/src/b"), None);
-    spaces.adopt(a);
-    spaces.enter(&mut editor, b).unwrap();
-    assert_eq!(spaces.remove(&mut editor, b), Ok(()));
-    assert_eq!(spaces.current(), Some(a));
-    // The last space: none is current, and the frame keeps its tree.
-    let windows = ids(&editor);
-    assert_eq!(spaces.remove(&mut editor, a), Ok(()));
-    assert_eq!(spaces.current(), None);
-    assert_eq!(ids(&editor), windows);
-}
-
-#[test]
-fn closing_the_current_space_waits_while_a_prompt_is_open() {
-    let mut editor = editor();
-    let mut spaces = Spaces::default();
-    let a = spaces.add(Path::new("/src/a"), None);
-    let b = spaces.add(Path::new("/src/b"), None);
-    spaces.adopt(a);
-    spaces.enter(&mut editor, b).unwrap();
-    editor.ask("Sure?", "keyboard-quit").unwrap();
-    assert_eq!(spaces.remove(&mut editor, b), Err(Refused));
-    assert_eq!(spaces.current(), Some(b), "nothing changed");
-    assert!(spaces.get(b).is_some());
-}
-
-#[test]
 fn a_zoom_goes_with_the_frames_tree() {
     let mut editor = editor();
     let mut spaces = Spaces::default();
@@ -253,13 +177,140 @@ fn a_zoom_goes_with_the_frames_tree() {
     let tree = ids(&editor);
     // Before the first session: no space yet.
     assert_eq!(spaces.zoom(&mut editor), Ok(Zoom::In));
-    let one = spaces.add(Path::new("/src/one"), None);
+    let one = add(&mut spaces, "/src/one");
     spaces.enter(&mut editor, one).unwrap();
     assert_eq!(ids(&editor).len(), 1);
     // To a space with nothing to show, which takes the zoomed tree, and its zoom.
-    let empty = spaces.add(Path::new("/src/empty"), None);
+    let empty = add(&mut spaces, "/src/empty");
     spaces.enter(&mut editor, empty).unwrap();
     assert_eq!(ids(&editor).len(), 1);
     assert_eq!(spaces.zoom(&mut editor), Ok(Zoom::Out));
     assert_eq!(ids(&editor), tree);
+}
+
+#[test]
+fn no_session_joins_before_the_spaces_are_recalled() {
+    let mut spaces = Spaces::default();
+    assert_eq!(spaces.join(Path::new("/src/oso"), None, 1), None);
+    assert!(!spaces.wants_ids(), "nor are ids asked for");
+}
+
+#[test]
+fn a_session_in_a_new_repository_makes_a_space_of_it_named_after_it() {
+    let mut spaces = recalled(2);
+    let at = spaces.join(Path::new("/src/oso"), None, 5).unwrap();
+    let stored = &spaces.get(at).unwrap().stored;
+    assert_eq!(stored.name, "oso");
+    assert_eq!(stored.members, [Member::at(Path::new("/src/oso"))]);
+    assert_eq!((stored.created, stored.directory.as_deref()), (5, None));
+    let again = spaces.join(Path::new("/src/oso"), None, 6);
+    assert_eq!(again, Some(at), "the same repository joins the same space");
+    let other = spaces.join(Path::new("/elsewhere/oso"), None, 7).unwrap();
+    assert_eq!(spaces.get(other).unwrap().name(), "oso-2");
+    assert_eq!(
+        spaces.join(Path::new("/src/third"), None, 8),
+        None,
+        "no id left"
+    );
+    assert!(spaces.wants_ids());
+    assert!(!spaces.wants_ids(), "asked once");
+    spaces.give_ids(vec![id(50)]);
+    assert!(spaces.join(Path::new("/src/third"), None, 9).is_some());
+}
+
+#[test]
+fn a_worktree_joins_the_space_of_its_repository_and_is_held_there() {
+    let mut spaces = recalled(4);
+    let repo = spaces.join(Path::new("/src/oso"), None, 1).unwrap();
+    // Listed by git as a worktree of the repository.
+    let elsewhere = Path::new("/wt/fix");
+    assert_eq!(
+        spaces.join(elsewhere, Some(Path::new("/src/oso")), 2),
+        Some(repo)
+    );
+    // Inside the repository, as oso makes them, with no listing yet.
+    let inside = Path::new("/src/oso/.claude/worktrees/x");
+    assert_eq!(spaces.join(inside, None, 3), Some(repo));
+    let held = &spaces.get(repo).unwrap().stored.worktrees;
+    assert_eq!(held, &[PathBuf::from("/wt/fix"), PathBuf::from(inside)]);
+    assert_eq!(spaces.holding(inside), Some(repo));
+    assert_eq!(spaces.of_path(&inside.join("src/main.rs")), Some(repo));
+    assert_eq!(spaces.of_path(Path::new("/tmp")), None);
+}
+
+#[test]
+fn a_repository_in_several_spaces_joins_the_one_in_front_else_the_one_entered_last() {
+    let mut editor = editor();
+    let mut spaces = recalled(0);
+    let a = add(&mut spaces, "/src/oso");
+    let b = add(&mut spaces, "/src/oso");
+    let c = add(&mut spaces, "/src/other");
+    spaces.adopt(a);
+    spaces.enter(&mut editor, b).unwrap();
+    spaces.enter(&mut editor, c).unwrap();
+    assert_eq!(
+        spaces.join(Path::new("/src/oso"), None, 1),
+        Some(b),
+        "entered last"
+    );
+    spaces.enter(&mut editor, a).unwrap();
+    assert_eq!(
+        spaces.join(Path::new("/src/oso"), None, 1),
+        Some(a),
+        "in front"
+    );
+}
+
+#[test]
+fn a_worktree_is_held_by_one_space_and_forgotten_when_removed() {
+    let mut spaces = recalled(0);
+    let a = add(&mut spaces, "/src/oso");
+    let b = add(&mut spaces, "/src/oso");
+    let path = Path::new("/src/oso/.claude/worktrees/x");
+    spaces.hold_worktree(a, path, 2);
+    spaces.hold_worktree(b, path, 3);
+    assert!(!spaces.get(a).unwrap().stored.holds_worktree(path));
+    assert!(spaces.get(b).unwrap().stored.holds_worktree(path));
+    assert_eq!(spaces.get(b).unwrap().stored.changed, 3);
+    let (kept, known) = spaces.take_unsaved().expect("changed");
+    assert_eq!(kept.len(), 2);
+    assert_eq!(known.len(), 2);
+    assert!(spaces.take_unsaved().is_none(), "written once");
+    spaces.forget_worktree(path, 4);
+    assert_eq!(spaces.holding(path), None);
+    assert!(spaces.take_unsaved().is_some());
+}
+
+#[test]
+fn space_switch_lists_open_spaces_with_their_title_or_repositories() {
+    let mut spaces = recalled(0);
+    let mut titled =
+        Stored::of_repository(id(1), "fix-login".into(), Member::at(Path::new("/b")), 1);
+    titled.title = "Login error".into();
+    titled.members.push(Member::at(Path::new("/f")));
+    let mut closed = Stored::of_repository(id(2), "old".into(), Member::at(Path::new("/o")), 1);
+    closed.archived = true;
+    let bare = Stored::of_repository(id(3), "app".into(), Member::at(Path::new("/src/app")), 1);
+    spaces.recall(vec![titled, closed, bare], Vec::new(), true);
+    let listed: Vec<(String, String)> = spaces
+        .candidates()
+        .iter()
+        .map(|c| (c.text().to_owned(), c.annotation().to_owned()))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            ("app".to_owned(), "app".to_owned()),
+            ("fix-login".to_owned(), "Login error".to_owned())
+        ]
+    );
+    assert!(
+        spaces.take_unsaved().is_some(),
+        "spaces made from sessions are kept at once"
+    );
+    assert_eq!(
+        spaces.join(Path::new("/o"), None, 1),
+        None,
+        "an archived space takes none, and no id is left for a new one"
+    );
 }
