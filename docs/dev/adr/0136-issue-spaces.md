@@ -130,6 +130,8 @@ space's orchestrator and its workers.
   `<root>/<name>/`, where the root is `[spaces] root` in the person's `config.toml` (default
   `~/spaces`), so it is easy to reach from a shell. oso makes the root and the space's directory
   with mode `0700` when the space is made. Two spaces of one name over time get `<name>-2`.
+  The name is the one the space had when its directory was made: `space-rename` does not move
+  it.
 - **The setting** is read from `config.toml` only, as the rest of it ([ADR
   0110](0110-adr-0108-as-built.md)): an absolute path or one under `~`, at most 1 KiB, never from
   a repository or an agent. A change applies to spaces made after it.
@@ -714,12 +716,22 @@ space's sessions (Q7); `space_status` is a `Look` tool (Q8); oso-core gains
   orchestrator's buffer selected, lists that repository's worktrees as "the selected window's
   project".
 - **Who is the orchestrator:** the session its space records, while the space is open and the
-  session runs in the directory oso makes for the space's name under `[spaces] root`, kept with
-  the identity oso made it with. The record is in oso's state directory, which agents can
+  session runs in the space's recorded directory, which must be one oso makes under
+  `[spaces] root`: `<root>/<name>` for a name as oso makes names. That name need not be the
+  space's current one, as `space-rename` does not move the directory. The directory must also
+  keep the identity oso made it with. The record is in oso's state directory, which agents can
   write, so it makes no session elsewhere one. A closed space's orchestrator, an earlier one,
   and one elsewhere still see only the space's sessions, start no session, and name no
   repository. What a forged record can still change, the repositories of a real orchestrator,
   stays within the repositories oso trusts by path and identity.
+- **A renamed space keeps its orchestrator** (a fix, 2026-11-16, the author's choice). The check
+  first required the name the space has now, so `space-rename` made the orchestrator a former
+  one, and so did a name changed while the directory was made. The record's name is one agents
+  can write, so that requirement gave no more than the parent and slug check does now.
+- **A known limit:** the check takes `[spaces] root` as it is now. After a change of the root, a
+  space made under the old one has no orchestrator in its own right until the root is set back,
+  though its directory and its starts are kept. Taking the root from the record alone would let
+  a forged record name any directory, so this stays as it is (the author's choice, 2026-11-16).
 - **Every start in a space's directory** passes its checks, the person's own starts too.
 - **Every session start** (the author's choice, 2026-11-15, a change to ADR 0121): the start
   thread refuses a trusted root put in another's place since oso found it, and says to trust the

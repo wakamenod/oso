@@ -132,18 +132,18 @@ impl Stored {
     }
 
     /// Whether a session running in `runs_in` is this space's orchestrator in its own right,
-    /// with `root` the `[spaces] root` now: the space is open, its directory is the one oso
-    /// makes for its name under the root, kept with the identity oso made it with where the
-    /// system has identities, and the session runs there. The record is one agents can write,
-    /// so it alone makes no session elsewhere an orchestrator (ADR 0136, step 4a).
+    /// with `root` the `[spaces] root` now: the space is open, its directory is one oso makes
+    /// under the root, kept with the identity oso made it with where the system has
+    /// identities, and the session runs there. The record is one agents can write, so it
+    /// alone makes no session elsewhere an orchestrator (ADR 0136, step 4a). The directory
+    /// may be named otherwise than the space: `space-rename` leaves it where it is, and a name
+    /// changed, or taken, while it was made is kept.
     pub fn orchestrated_from(&self, root: &Path, runs_in: &Path) -> bool {
         let made = self.directory_identity.is_some() || !cfg!(unix);
         let directory = self.directory.as_deref();
         !self.archived
             && made
-            && directory.is_some_and(|dir| {
-                same(dir, &super::dir::place(root, &self.name)) && same(dir, runs_in)
-            })
+            && directory.is_some_and(|dir| super::dir::made_under(root, dir) && same(dir, runs_in))
     }
 
     /// The root of its repository a session may also read `dir` of (ADR 0136, step 4b): `dir`

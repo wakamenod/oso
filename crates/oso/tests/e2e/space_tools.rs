@@ -5,7 +5,7 @@
 //! with a trusted one asks the person and starts a worker in a worktree of it, told its space,
 //! which then belongs to the space. `session_start` and `worktree_list` name the repository too.
 //! `with_dirs` gives the worker another trusted repository of the space to read, and refuses a
-//! directory in none (ADR 0136, step 4b).
+//! directory in none (ADR 0136, step 4b). A renamed space's orchestrator keeps its role.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: which repository
 //! `repo` names and the scope have their own tests.
@@ -147,4 +147,14 @@ fn an_orchestrator_works_through_the_repositories_of_its_space() {
     let (status, _) = bridge.tool("space_status", json!({}));
     let sessions = status["sessions"].as_array().unwrap();
     assert_eq!(sessions.len(), 2, "the worker is the space's: {status}");
+
+    // Renamed, the space keeps its directory, and the orchestrator there its role.
+    app.send_keys("C-x a S");
+    app.send_keys("n");
+    reply_with(&mut app, "Space title:", "Login fix");
+    app.wait_for("the new name", |state| space(state, "login-fix").is_some());
+    let (status, error) = bridge.tool("space_status", json!({}));
+    assert!(!error, "{status}");
+    assert_eq!(status["space"], "login-fix");
+    assert_eq!(status["you_orchestrate"], true, "{status}");
 }
