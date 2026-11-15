@@ -22,6 +22,10 @@ const PATCHES: &[(&str, &str)] = &[
         "0003-snapshot-restore.patch",
         include_str!("../../../../patches/0003-snapshot-restore.patch"),
     ),
+    (
+        "0004-reflow-degrade.patch",
+        include_str!("../../../../patches/0004-reflow-degrade.patch"),
+    ),
 ];
 
 #[test]

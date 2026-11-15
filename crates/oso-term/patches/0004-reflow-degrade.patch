@@ -1,0 +1,106 @@
+oso's change to libghostty-vt 1.0.1 (MIT, like the library), applied by build.rs after
+0001 and 0003 and checked against ghostty-vt.lock: a column reflow that cannot fit a
+cell's hyperlink, grapheme or style into a page, even after growing the page to its
+maximum capacity, drops that data and keeps the cell, in every build, instead of
+crashing in safe builds. A dense page narrowed reaches this, and a live terminal
+reflows the same way. Drop or rebase it at every bump.
+
+diff -ruN a/src/terminal/PageList.zig b/src/terminal/PageList.zig
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -2495,10 +2495,11 @@
+                 // though we choose to recover by corrupting the cell
+                 // to a non-grapheme codepoint.
+                 log.err("setGraphemes failed after capacity increase err={}", .{err});
+-                if (comptime std.debug.runtime_safety) {
+-                    // Force a crash with safe builds.
+-                    unreachable;
+-                }
++                // oso patch: a reflow can exhaust this page's capacity for the
++                // cell's managed memory (a hyperlink/grapheme/style-dense page
++                // narrowed) even at the maximum, which a live terminal reflows
++                // the same way. Degrade by dropping it (below) in every build
++                // instead of crashing in safe builds.
+ 
+                 // Unsafe builds we throw away grapheme data!
+                 self.page_cell.content_tag = .codepoint;
+@@ -2531,10 +2532,11 @@
+                 // This shouldn't fail since we did a capacity
+                 // check above.
+                 log.err("link dupe failed with capacity check err={}", .{err});
+-                if (comptime std.debug.runtime_safety) {
+-                    // Force a crash with safe builds.
+-                    unreachable;
+-                }
++                // oso patch: a reflow can exhaust this page's capacity for the
++                // cell's managed memory (a hyperlink/grapheme/style-dense page
++                // narrowed) even at the maximum, which a live terminal reflows
++                // the same way. Degrade by dropping it (below) in every build
++                // instead of crashing in safe builds.
+ 
+                 break :hyperlink;
+             };
+@@ -2575,10 +2577,11 @@
+                     // This shouldn't fail since we did a capacity
+                     // check above.
+                     log.err("link dupe failed with capacity check err={}", .{err2});
+-                    if (comptime std.debug.runtime_safety) {
+-                        // Force a crash with safe builds.
+-                        unreachable;
+-                    }
++                    // oso patch: a reflow can exhaust this page's capacity for the
++                    // cell's managed memory (a hyperlink/grapheme/style-dense page
++                    // narrowed) even at the maximum, which a live terminal reflows
++                    // the same way. Degrade by dropping it (below) in every build
++                    // instead of crashing in safe builds.
+ 
+                     break :hyperlink;
+                 };
+@@ -2601,10 +2604,11 @@
+                         "addWithIdContext failed after capacity increase err={}",
+                         .{err2},
+                     );
+-                    if (comptime std.debug.runtime_safety) {
+-                        // Force a crash with safe builds.
+-                        unreachable;
+-                    }
++                    // oso patch: a reflow can exhaust this page's capacity for the
++                    // cell's managed memory (a hyperlink/grapheme/style-dense page
++                    // narrowed) even at the maximum, which a live terminal reflows
++                    // the same way. Degrade by dropping it (below) in every build
++                    // instead of crashing in safe builds.
+ 
+                     dst_link2.free(self.page);
+                     break :hyperlink;
+@@ -2623,10 +2627,11 @@
+                     "setHyperlink failed after capacity increase err={}",
+                     .{err},
+                 );
+-                if (comptime std.debug.runtime_safety) {
+-                    // Force a crash with safe builds.
+-                    unreachable;
+-                }
++                // oso patch: a reflow can exhaust this page's capacity for the
++                // cell's managed memory (a hyperlink/grapheme/style-dense page
++                // narrowed) even at the maximum, which a live terminal reflows
++                // the same way. Degrade by dropping it (below) in every build
++                // instead of crashing in safe builds.
+ 
+                 // Unsafe builds we throw away hyperlink data!
+                 self.page.hyperlink_set.release(self.page.memory, dst_id);
+@@ -2687,10 +2692,11 @@
+                         "addWithId failed after capacity increase err={}",
+                         .{err2},
+                     );
+-                    if (comptime std.debug.runtime_safety) {
+-                        // Force a crash with safe builds.
+-                        unreachable;
+-                    }
++                    // oso patch: a reflow can exhaust this page's capacity for the
++                    // cell's managed memory (a hyperlink/grapheme/style-dense page
++                    // narrowed) even at the maximum, which a live terminal reflows
++                    // the same way. Degrade by dropping it (below) in every build
++                    // instead of crashing in safe builds.
+ 
+                     self.page_cell.style_id = stylepkg.default_id;
+                     break :style;
