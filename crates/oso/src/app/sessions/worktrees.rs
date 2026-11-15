@@ -253,6 +253,9 @@ impl App {
         }
         // From a row of `*Sessions*`, its session and its worktree's branch (ADR 0131).
         let row = self.sessions_row_place().and_then(Result::ok);
+        if let Some(row) = &row {
+            self.enter_row_space(row);
+        }
         let base = base.or_else(|| row.as_ref()?.base().map(str::to_owned));
         let detached = if base.is_none() && row.as_ref().is_some_and(|row| row.detached()) {
             " (that worktree is on no branch: this one starts at HEAD)"

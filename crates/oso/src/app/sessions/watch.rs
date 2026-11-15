@@ -344,15 +344,14 @@ impl App {
         // Each session's space by its directory, from one look at the spaces' places.
         let places = self.watch.spaces.places();
         for external in live.iter().filter(|external| !ours(external)) {
-            let space = external
-                .directory
-                .as_deref()
+            let found = (external.directory.as_deref())
                 .and_then(|dir| places.of(dir))
-                .and_then(|at| self.watch.spaces.get(at))
-                .map_or_else(
-                    || external.directory_name(),
-                    |space| space.name().to_owned(),
-                );
+                .and_then(|at| self.watch.spaces.get(at));
+            let space_id = found.map(|space| space.id().clone());
+            let space = found.map_or_else(
+                || external.directory_name(),
+                |space| space.name().to_owned(),
+            );
             let state = if external.working {
                 State::Working
             } else {
@@ -366,6 +365,7 @@ impl App {
                 key: Key::External(external.pid),
                 name: external.listed_name(),
                 space,
+                space_id,
                 branch: None,
                 state,
                 since,
@@ -423,10 +423,14 @@ impl App {
                     .as_ref()
                     .and_then(|id| by_id.get(id))
                     .map(|key| Key::Hosted(*key));
+                let space_id = (self.space_of_session(session))
+                    .and_then(|at| self.watch.spaces.get(at))
+                    .map(|space| space.id().clone());
                 Entry {
                     key: Key::Hosted(session.key),
                     name: session.name.clone(),
                     space,
+                    space_id,
                     branch: None,
                     state,
                     since,

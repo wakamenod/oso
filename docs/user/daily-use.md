@@ -113,8 +113,11 @@ option. It starts the agent channel, which its tools need.
 
 `*Sessions*` shows in a window 44 columns wide at the frame's left while you have sessions;
 a frame with no room for that narrows it, down to 24 columns. It is a
-tree: each project, its worktrees (the main checkout first, then the newest), and the sessions
-in each, one line each: a mark, a name, and how long since it last changed state (`now` under
+tree: each space, its repositories, the worktrees the space uses of each (the main checkout
+first, then the newest), and the sessions in each, one line each. A space of one repository
+lists its worktrees right under its own row. While another space is in front, a space is
+folded unless one of its sessions works or needs you; closed spaces wait in a folded
+`Archived spaces` group. Each line has a mark, a name, and how long since it last changed state (`now` under
 a minute). A worktree's mark is its most urgent session's. Worktrees made with git outside oso
 show too, and those untouched for a week wait in a folded `quiet` row. `s` groups the
 sessions by state instead. A session that needs you takes a second line with the question it
@@ -132,10 +135,11 @@ In `*Sessions*`:
 
 | Key | What it does |
 |---|---|
-| `RET` | Show the session on this row. On a worktree, show its session, or go to its space, or find a file in it when it has neither. On a project or a group, fold it. |
+| `RET` | Show the session on this row. On a space, go to it; on a closed one, open it again. On a worktree, show its session, or go to its space, or find a file in it when it has neither. On a repository or a group, fold it. |
 | `n`, `p` | Next and previous row. |
-| `M-n`, `M-p` | Next and previous project, worktree or group. |
-| `TAB` | Fold or unfold a project, a worktree or a group. |
+| `M-n`, `M-p` | Next and previous space, repository, worktree or group. |
+| `TAB` | Fold or unfold a space, a repository, a worktree or a group. |
+| `a` | Add a repository to the space in front. |
 | `c` | Start a session in this row's worktree: a project's main checkout, the worktree, or the session's worktree. |
 | `w` | Start a session in a new worktree of this row's project. From a worktree, the new branch starts at its branch; from a session, it is also that session's child. |
 | `/` | Switch to a session by name, as `C-x a b`. |

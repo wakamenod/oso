@@ -1,11 +1,20 @@
-//! The tree of `*Sessions*` (ADR 0131, step 2): each project of this oso, its worktrees, the main
-//! checkout first and then the newest made, and the sessions in each, the most urgent first. An
-//! external session in a worktree of the tree is listed under it, quiet; every other one goes
-//! in `Other projects`, by the repository or directory it runs in. A worktree with no session
-//! and no change for a week goes in its project's quiet row. Rows never move when a state
-//! changes: urgency shows in the marks, and a worktree's and a project's roll-up.
+//! The tree of `*Sessions*` (ADR 0131, step 2; ADR 0136, step 2): each open issue space, its
+//! repositories, the worktrees it shows of each, the main checkout first and then the newest
+//! made, and the sessions in each, the most urgent first. A space of one repository shows its
+//! worktrees right under its own row. An external session in a worktree of the tree is listed
+//! under it, quiet; every other one goes in `Other projects`, by the repository or directory it
+//! runs in. A worktree with no session and no change for a week goes in its repository's quiet
+//! row; closed spaces go in `Archived spaces`, their sessions with the archived ones. A
+//! worktree's row never moves when a state changes, though a space unfolds when one of its
+//! sessions comes to work or need input (ADR 0136, Q4): urgency shows in the marks, and the
+//! roll-ups of a worktree, a repository and a space.
 //!
 //! Must not depend on: `app`, `dispatch` or `config`; plain data in, text out, as the list.
+
+mod choose;
+mod space;
+
+pub use choose::{SpaceInput, space_rows};
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -18,6 +27,7 @@ use super::{
     cut, cut_middle, face, mark, order, pad, rank,
 };
 use crate::sessions::recap::clean;
+use crate::sessions::spaces::SpaceId;
 use crate::sessions::state::State;
 
 /// How long a worktree with no session stays unchanged before it goes in the quiet row.
@@ -26,10 +36,16 @@ pub const QUIET_AFTER: Duration = Duration::from_secs(7 * 86_400);
 /// The mark of a worktree with no session: one of the row marks, so that `n` and `p` stop on it.
 pub const NO_SESSION: char = '·';
 
-/// How far a worktree's row is indented, and its sessions'.
-const WORKTREE: &str = "  ";
+/// The indents of the tree's rows, by depth: a space's, a repository's or a one-repository
+/// space's worktree's, a worktree's of a space of several, and their sessions'. A row two
+/// cells in from the fold row above it is a heading for `M-n` (`sessions-next-heading`); a
+/// session never is.
+const INDENT: [&str; 5] = ["", "  ", "    ", "      ", "        "];
+
+/// The indent of an archived session's row, and of one in `Other projects`: never two cells in
+/// from a fold row, so that `M-n` passes them.
 const SESSION: &str = "    ";
-const NESTED_SESSION: &str = "      ";
+const OTHER_SESSION: &str = "      ";
 
 /// A project of the tree: a repository with a space in this oso.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -54,11 +70,31 @@ pub struct Worktree {
     pub active: Option<SystemTime>,
 }
 
+/// An open space of the tree (ADR 0136): its repositories, each with the worktrees the space
+/// shows of it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpaceRows {
+    pub id: SpaceId,
+    pub name: String,
+    pub projects: Vec<Project>,
+}
+
+/// A closed space, listed in `Archived spaces`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClosedSpace {
+    pub id: SpaceId,
+    pub name: String,
+    pub title: String,
+}
+
 /// What the tree shows besides the sessions.
 #[derive(Clone, Debug, Default)]
 pub struct Tree {
-    pub projects: Vec<Project>,
-    /// The worktree, or project root, whose space is in front.
+    pub spaces: Vec<SpaceRows>,
+    pub closed: Vec<ClosedSpace>,
+    /// The space in front.
+    pub front_space: Option<SpaceId>,
+    /// The worktree, or project root, the space in front showed last.
     pub front: Option<PathBuf>,
     /// The wall-clock time the render's `now` stands for, for worktrees' activity.
     pub wall: Option<SystemTime>,
@@ -66,33 +102,37 @@ pub struct Tree {
 
 /// Where a session goes in the tree.
 enum Place<'e> {
-    /// Under worktree `.1` of project `.0`.
-    Worktree(usize, usize),
+    /// Under worktree `.2` of repository `.1` of space `.0`.
+    Worktree(usize, usize, usize),
     /// In `Other projects`, under this directory.
     Other(&'e Path),
     Archived,
 }
 
-/// A worktree's sessions, as placed.
+/// A space's sessions, by repository and worktree, as placed.
 type Placed<'e> = Vec<Vec<Vec<&'e Entry>>>;
 
 impl List {
     /// The tree of `entries` for a window `width` cells wide, ages as of `now`.
     pub(super) fn render_tree(&self, entries: &[Entry], width: usize, now: Instant) -> Rendered {
         let mut out = Rendered::default();
-        let projects = &self.tree.projects;
-        let mut placed: Placed<'_> = projects
+        let spaces = &self.tree.spaces;
+        let mut placed: Vec<Placed<'_>> = spaces
             .iter()
-            .map(|project| vec![Vec::new(); project.worktrees.len()])
+            .map(|space| {
+                (space.projects.iter())
+                    .map(|project| vec![Vec::new(); project.worktrees.len()])
+                    .collect()
+            })
             .collect();
         let mut other: Vec<(&Path, Vec<&Entry>)> = Vec::new();
         // Each directory's place in `other`, by its bytes: cheaper than comparing paths.
         let mut other_at: HashMap<&[u8], usize> = HashMap::new();
         let mut archived = Vec::new();
-        let worktrees = by_depth(projects);
+        let worktrees = by_depth(spaces);
         for entry in entries {
-            match place(&worktrees, entry) {
-                Place::Worktree(p, w) => placed[p][w].push(entry),
+            match place(&worktrees, &self.tree, entry) {
+                Place::Worktree(s, p, w) => placed[s][p][w].push(entry),
                 Place::Other(dir) => {
                     let at = *other_at
                         .entry(dir.as_os_str().as_encoded_bytes())
@@ -105,77 +145,13 @@ impl List {
                 Place::Archived => archived.push(entry),
             }
         }
-        for (project, worktrees) in projects.iter().zip(&placed) {
-            self.project(&mut out, project, worktrees, width, now);
+        for (space, placed) in spaces.iter().zip(&placed) {
+            self.space(&mut out, space, placed, width, now);
         }
         self.other(&mut out, &mut other, width, now);
         self.archived(&mut out, &archived, width, now);
+        self.closed(&mut out, width);
         out
-    }
-
-    /// A project's row, then its worktrees unless it is folded.
-    fn project(
-        &self,
-        out: &mut Rendered,
-        project: &Project,
-        placed: &[Vec<&Entry>],
-        width: usize,
-        now: Instant,
-    ) {
-        let all: Vec<&Entry> = placed.iter().flatten().copied().collect();
-        let folded = self.folded_as(&Fold::Project(project.root.clone()), false);
-        let roll = worst(&all).map(|top| {
-            let n = all
-                .iter()
-                .filter(|e| rank(e.state) == rank(top.state))
-                .count();
-            (format!("{} {n}", mark(top.state)), face(top.state))
-        });
-        let head = format!("{} ", if folded { '▸' } else { '▾' });
-        heading(
-            out,
-            (&head, &clean(&project.name)),
-            roll,
-            width,
-            Line::Project(project.root.clone()),
-        );
-        if folded {
-            return;
-        }
-        let mut shown: Vec<usize> = (0..project.worktrees.len()).collect();
-        shown.sort_by_key(|&w| {
-            let worktree = &project.worktrees[w];
-            (!worktree.primary, std::cmp::Reverse(worktree.made))
-        });
-        let quiet_since = self
-            .tree
-            .wall
-            .and_then(|wall| wall.checked_sub(QUIET_AFTER));
-        let (quiet, shown): (Vec<usize>, Vec<usize>) = shown.into_iter().partition(|&w| {
-            let worktree = &project.worktrees[w];
-            placed[w].is_empty()
-                && !worktree.primary
-                && worktree
-                    .active
-                    .zip(quiet_since)
-                    .is_some_and(|(active, since)| active < since)
-        });
-        for w in shown {
-            self.worktree(out, &project.worktrees[w], &placed[w], width, now);
-        }
-        if quiet.is_empty() {
-            return;
-        }
-        let group = Group::Quiet(project.root.clone());
-        let folded = self.folded(&Fold::Group(group.clone()));
-        let head = format!("{WORKTREE}{} ", if folded { '▸' } else { '▾' });
-        let name = format!("{} quiet", quiet.len());
-        heading(out, (&head, &name), None, width, Line::Header(group));
-        if !folded {
-            for w in quiet {
-                self.worktree(out, &project.worktrees[w], &[], width, now);
-            }
-        }
     }
 
     /// A worktree's row, then its sessions unless it is folded: by default, while none of
@@ -183,19 +159,21 @@ impl List {
     fn worktree(
         &self,
         out: &mut Rendered,
-        worktree: &Worktree,
+        (space, worktree, depth): (&SpaceRows, &Worktree, usize),
         sessions: &[&Entry],
         width: usize,
         now: Instant,
     ) {
-        let line = Line::Worktree(worktree.path.clone());
+        let indent = INDENT[depth];
+        let line = Line::Worktree(space.id.clone(), worktree.path.clone());
         let hosted: Vec<&Entry> = sessions
             .iter()
             .copied()
             .filter(|e| matches!(e.key, Key::Hosted(_)))
             .collect();
         let running = hosted.iter().any(|e| e.state != State::Stopped);
-        let folded = self.folded_as(&Fold::Worktree(worktree.path.clone()), !running);
+        let fold = Fold::Worktree(space.id.clone(), worktree.path.clone());
+        let folded = self.folded_as(&fold, !running);
         let roll = worst(sessions);
         // It spins while its roll-up is a working session of oso's (Q13).
         let spin = self.spin.filter(|_| {
@@ -216,7 +194,7 @@ impl List {
         } else {
             String::new()
         };
-        let head = format!("{WORKTREE}{mark} ");
+        let head = format!("{indent}{mark} ");
         let age = super::shown_age(
             self.worktree_age(worktree, sessions, now),
             width,
@@ -226,8 +204,9 @@ impl List {
         let room = width.saturating_sub(cells(&head) + cells(&age) + cells(&count) + 1);
         let name = cut_middle(&name, room);
         let mut text = format!("{head}{name}");
-        let mut spans = vec![(WORKTREE.len()..head.len() - 1, mark_face)];
-        let front = self.tree.front.as_deref() == Some(worktree.path.as_path());
+        let mut spans = vec![(indent.len()..head.len() - 1, mark_face)];
+        let front = self.tree.front_space.as_ref() == Some(&space.id)
+            && self.tree.front.as_deref() == Some(worktree.path.as_path());
         if front {
             spans.push((head.len()..text.len(), Highlight::SessionFront));
         }
@@ -255,10 +234,10 @@ impl List {
                 .iter()
                 .filter(|e| matches!(e.state, State::NeedsInput(_)))
                 .count();
-            self.session(out, top, SESSION, waiting, width, now);
+            self.session(out, top, INDENT[depth + 1], waiting, width, now);
             if !self.folded(&Fold::Nested(top.key)) {
                 for entry in nested {
-                    self.session(out, entry, NESTED_SESSION, 0, width, now);
+                    self.session(out, entry, INDENT[depth + 2], 0, width, now);
                 }
             }
         }
@@ -337,13 +316,13 @@ impl List {
         for (dir, sessions) in other.iter_mut() {
             let group = Group::OtherDir(dir.to_path_buf());
             let folded = self.folded(&Fold::Group(group.clone()));
-            let head = format!("{WORKTREE}{} ", if folded { '▸' } else { '▾' });
+            let head = format!("{}{} ", INDENT[1], if folded { '▸' } else { '▾' });
             let name = format!("{} ({})", dir_name(dir), sessions.len());
             heading(out, (&head, &name), None, width, Line::Header(group));
             if !folded {
                 sessions.sort_by(|a, b| order(a).cmp(&order(b)));
                 for entry in sessions.iter() {
-                    self.session(out, entry, SESSION, 0, width, now);
+                    self.session(out, entry, OTHER_SESSION, 0, width, now);
                 }
             }
         }
@@ -404,28 +383,63 @@ fn heading(
     width: usize,
     line: Line,
 ) {
+    named_heading(out, (head, name, None), right, width, line);
+}
+
+/// A heading row as [`heading`] draws it, its name in `name_face` if given: the space in
+/// front's.
+fn named_heading(
+    out: &mut Rendered,
+    (head, name, name_face): (&str, &str, Option<Highlight>),
+    right: Option<(String, Highlight)>,
+    width: usize,
+    line: Line,
+) {
     let (right, right_face) = right.unwrap_or((String::new(), Highlight::SessionQuiet));
     let room = width.saturating_sub(cells(head) + cells(&right) + 1);
     let text = format!("{head}{}", cut_middle(super::unmarked(name), room));
+    let name_end = text.len();
     let text = pad(&text, width.saturating_sub(cells(&right))) + &right;
-    let spans = [(text.len() - right.len()..text.len(), right_face)];
+    let mut spans = vec![(text.len() - right.len()..text.len(), right_face)];
+    if let Some(face) = name_face {
+        spans.insert(0, (head.len()..name_end, face));
+    }
     out.push_drawn(&cut(&text, width), line, &spans);
 }
 
-/// Where `entry` goes: under the deepest worktree of the tree that holds its directory, else in
-/// `Other projects` by its repository, else by its directory. `worktrees` are the tree's, by
-/// project and worktree, the deepest first.
-fn place<'e>(worktrees: &[(usize, usize, &[u8])], entry: &'e Entry) -> Place<'e> {
-    if entry.archived {
+/// Where `entry` goes: with the archived sessions when it or its space is; under the deepest
+/// worktree of the tree that holds its directory, of its own space where two spaces show one;
+/// else in `Other projects` by its repository, else by its directory. `worktrees` are the
+/// tree's, by space, repository and worktree, the deepest first.
+fn place<'e>(
+    worktrees: &[(usize, usize, usize, &[u8])],
+    tree: &Tree,
+    entry: &'e Entry,
+) -> Place<'e> {
+    let closed = |id: &SpaceId| tree.closed.iter().any(|space| space.id == *id);
+    // A closed space's sessions wait with the archived ones (ADR 0136, step 2).
+    if entry.archived || entry.space_id.as_ref().is_some_and(closed) {
         return Place::Archived;
     }
     let Some(dir) = entry.dir.as_deref() else {
         return Place::Other(entry.repo.as_deref().unwrap_or(Path::new("")));
     };
     let bytes = dir.as_os_str().as_encoded_bytes();
-    match worktrees.iter().find(|(.., path)| holds(path, bytes)) {
-        Some(&(p, w, _)) => Place::Worktree(p, w),
-        None => Place::Other(entry.repo.as_deref().unwrap_or(dir)),
+    let mut holding = worktrees.iter().filter(|(.., path)| holds(path, bytes));
+    let Some(&(s, p, w, deepest)) = holding.next() else {
+        return Place::Other(entry.repo.as_deref().unwrap_or(dir));
+    };
+    // A main checkout two spaces show: the session's own space's.
+    let own = |s: usize| entry.space_id.as_ref() == Some(&tree.spaces[s].id);
+    if own(s) {
+        return Place::Worktree(s, p, w);
+    }
+    let found = holding
+        .take_while(|(.., path)| path.len() == deepest.len())
+        .find(|(other, ..)| own(*other));
+    match found {
+        Some(&(s, p, w, _)) => Place::Worktree(s, p, w),
+        None => Place::Worktree(s, p, w),
     }
 }
 
@@ -439,35 +453,69 @@ fn holds(path: &[u8], dir: &[u8]) -> bool {
 }
 
 impl Tree {
-    /// The project whose repository is `root`.
+    /// The repository `root` as the first space that has it shows it.
+    #[cfg(test)]
     pub fn project(&self, root: &Path) -> Option<&Project> {
-        self.projects.iter().find(|project| project.root == root)
+        self.projects().find(|project| project.root == root)
     }
 
-    /// The deepest worktree that holds `dir`, with its project, as a session there is placed.
+    /// The deepest worktree that holds `dir`, with its repository, as a session there is
+    /// placed.
     pub fn holding(&self, dir: &Path) -> Option<(&Project, &Worktree)> {
         let bytes = dir.as_os_str().as_encoded_bytes();
-        by_depth(&self.projects)
+        by_depth(&self.spaces)
             .into_iter()
             .find(|(.., path)| holds(path, bytes))
-            .map(|(p, w, _)| (&self.projects[p], &self.projects[p].worktrees[w]))
+            .map(|(s, p, w, _)| {
+                let project = &self.spaces[s].projects[p];
+                (project, &project.worktrees[w])
+            })
+    }
+
+    /// The worktree at `path` as space `id` shows it, with its repository.
+    pub fn holding_in(&self, id: &SpaceId, path: &Path) -> Option<(&Project, &Worktree)> {
+        let space = self.spaces.iter().find(|space| space.id == *id)?;
+        space.projects.iter().find_map(|project| {
+            let worktree = project.worktrees.iter().find(|w| w.path == path)?;
+            Some((project, worktree))
+        })
+    }
+
+    /// Every repository of every space, in their order.
+    #[cfg(test)]
+    pub fn projects(&self) -> impl Iterator<Item = &Project> {
+        self.spaces.iter().flat_map(|space| space.projects.iter())
+    }
+
+    /// A tree of one space for each of `projects`, named and keyed after it, as a test of rows
+    /// below the spaces needs.
+    #[cfg(test)]
+    pub fn of_projects(projects: Vec<Project>) -> Self {
+        let spaces = (projects.into_iter().enumerate())
+            .map(|(n, project)| SpaceRows {
+                id: SpaceId::from_random([u8::try_from(n).unwrap_or(u8::MAX); 16]),
+                name: project.name.clone(),
+                projects: vec![project],
+            })
+            .collect();
+        Self {
+            spaces,
+            ..Self::default()
+        }
     }
 }
 
-/// Every worktree of `projects`, by project and worktree with its path's bytes, the deepest
-/// first, so that the first that holds a directory is the deepest.
-fn by_depth(projects: &[Project]) -> Vec<(usize, usize, &[u8])> {
-    let mut all: Vec<(usize, usize, &[u8])> = projects
-        .iter()
-        .enumerate()
-        .flat_map(|(p, project)| {
-            project
-                .worktrees
-                .iter()
-                .enumerate()
-                .map(move |(w, worktree)| (p, w, worktree.path.as_os_str().as_encoded_bytes()))
-        })
-        .collect();
+/// Every worktree of `spaces`, by space, repository and worktree with its path's bytes, the
+/// deepest first, so that the first that holds a directory is the deepest.
+fn by_depth(spaces: &[SpaceRows]) -> Vec<(usize, usize, usize, &[u8])> {
+    let mut all: Vec<(usize, usize, usize, &[u8])> = Vec::new();
+    for (s, space) in spaces.iter().enumerate() {
+        for (p, project) in space.projects.iter().enumerate() {
+            for (w, worktree) in project.worktrees.iter().enumerate() {
+                all.push((s, p, w, worktree.path.as_os_str().as_encoded_bytes()));
+            }
+        }
+    }
     all.sort_by_key(|(.., path)| std::cmp::Reverse(path.len()));
     all
 }

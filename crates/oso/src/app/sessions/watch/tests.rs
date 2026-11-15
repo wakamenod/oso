@@ -14,6 +14,7 @@ fn entry(key: u64, state: State, archived: bool) -> Entry {
         key: Key::Hosted(key),
         name: format!("s{key}"),
         space: String::new(),
+        space_id: None,
         branch: None,
         state,
         since: Instant::now(),

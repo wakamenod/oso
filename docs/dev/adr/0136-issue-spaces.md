@@ -577,6 +577,54 @@ characters are dropped from a typed title and a line holding one is refused when
   named by a `RepoCheck` count. The host runs `space-add-repo` with
   `Dispatcher::run_from_host` (`dispatch/host.rs`). Session mode has `C-c S` for the menu.
 
+## Step 2, as built
+
+The author answered on 2026-11-15, through the coordinator, (a) for each: a space of one
+repository shows its worktrees right under its row (Q1); `RET` on a space's row enters it
+(Q2); closed spaces go in a folded `Archived spaces (N)` group, where `RET` opens one again
+(Q3); while another space is in front, a space is folded unless one of its sessions works or
+needs input (Q4).
+
+- **The tree's model** is `Tree { spaces, closed, front_space, front, wall }`, each open space
+  a `SpaceRows` of its repositories. Which worktrees each shows is `space_rows`
+  (`sessions/list/tree/choose.rs`), a plain function with tests, given each space's
+  repositories, the worktrees it holds and where its running sessions run. The space level is
+  drawn in `sessions/list/tree/space.rs`.
+- **Rows:** `Line::Space`, `Line::Repository` (by space and root, so that one repository
+  folds in one space and not another), `Line::ClosedSpace`; `Fold::Space` and
+  `Fold::Repository`. The indents are 0 for a space, 2 for a repository or a one-repository
+  space's worktree, 4 for a worktree of a space of several, then the sessions two in from
+  their worktree; `Other projects`' sessions moved to 6, under their directory at 2.
+- **`M-n` and `M-p`** stop at a fold's row and at a row two cells in from the nearest fold row
+  above it, by the text, which every layout of the tree keeps: a session is never two cells in
+  from a fold row. ADR 0131's rule (a worktree's row at 2 under a project's at 0) is this
+  rule's case of one repository.
+- **A session in a main checkout two spaces show** is placed under its own space's.
+- **With no space in front,** none is folded.
+- **`a` in the list adds a repository to the space in front,** not the row's: a row-aware
+  action needs a new `RowAction` in oso-core, which was not asked for. `RET` on a space's row
+  puts it in front first.
+- **The pane's cost:** a release test renders 10 spaces of 3 repositories with 4 worktrees
+  each, 40 sessions and 300 external ones under ADR 0131's 0.5 ms. The tree is made again
+  with each change of the model and each second's ages, never with a spinner's frame.
+- **After the review:**
+  - a worktree's row, its fold and a quiet row are a space's (`Line::Worktree(space, path)`),
+    as a main checkout two spaces show is a row of each, and `RET` on one enters the row's
+    space; the front's mark shows in the space in front only;
+  - a space shows the main checkout while a session of it is there, running or stopped, so a
+    session does not move to another space when it stops;
+  - a worktree a closed space holds shows in no open space, and a closed space's sessions
+    wait with the archived ones; a worktree is held only by a space that still has its
+    repository;
+  - a session is placed by its space's id, which each entry carries;
+  - a space the person folds or opens stays so, whatever its default comes to;
+  - another program's session neither unfolds a space nor colours its roll-up, as its
+    worktree's row has it;
+  - `c` and `w` on a row put the row's space in front first, so the new session joins it; on
+    the row of a space of several repositories they say the row has no place, as which is the
+    person's to say on a repository's row.
+- **The orchestrator's row** under a space's waits for step 3, which starts the orchestrator.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it. They apply once this ADR is

@@ -20,16 +20,13 @@ use oso_core::selection::SelectionSet;
 pub const ROW_MARKS: &str = "▾▸⚠✗▶◆●○■·⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
 /// What `?` says in `*Sessions*` (ADR 0131): the marks, then the keys.
-pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  M-n/M-p worktrees  TAB fold  c new  w worktree  / switch  s group  </> width  k stop  e explain";
+pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  M-n/M-p headings  TAB fold  c new  w worktree  a add repo  / switch  s group  </> width  k stop  e explain";
 
 /// How many columns `<` and `>` take from or give to the pane, once each (ADR 0131).
 pub const PANE_STEP: isize = 4;
 
-/// The folds' marks, which begin a project's, a group's and a quiet row's line.
+/// The folds' marks, which begin a space's, a repository's, a group's and a quiet row's line.
 const FOLDS: [char; 2] = ['▾', '▸'];
-
-/// The indent of a worktree's row in the tree (ADR 0131), and of a nested session's by state.
-const WORKTREE_INDENT: usize = 2;
 
 /// The commands of `*Sessions*`.
 pub const COMMANDS: &[Command] = &[
@@ -275,7 +272,7 @@ fn previous_heading(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 enum Stop {
     /// At any row: a session's first line, a worktree's, a project's or a group's.
     Row,
-    /// At a project's, a worktree's or a group's row (ADR 0131).
+    /// At a space's, a repository's, a worktree's or a group's row (ADR 0131, ADR 0136).
     Heading,
 }
 
@@ -303,11 +300,11 @@ fn step(ctx: &mut Ctx<'_>, count: isize, stop: Stop) -> Result<(), CommandError>
     let stops = |row: usize| match (stop, row_at(row)) {
         (_, None) => false,
         (Stop::Row, Some(_)) => true,
+        // The nearest row above with less indent: the fold row a worktree's row is under.
         (Stop::Heading, Some((indent, mark))) => is_heading(indent, mark, || {
             (0..row)
                 .rev()
-                .find_map(|r| row_at(r).filter(|(indent, _)| *indent == 0))
-                .map(|(_, mark)| mark)
+                .find_map(|r| row_at(r).filter(|(above, _)| *above < indent))
         }),
     };
     let mut row = from;
@@ -333,11 +330,12 @@ fn step(ctx: &mut Ctx<'_>, count: isize, stop: Stop) -> Result<(), CommandError>
 }
 
 /// Whether a row `indent` cells in that begins with `mark` is a heading: a fold's mark, or a
-/// worktree's row, at a worktree's indent under a project's row. `section` gives the mark of the
-/// nearest row above with no indent; by state, that of a nested session's parent.
-fn is_heading(indent: usize, mark: char, section: impl FnOnce() -> Option<char>) -> bool {
+/// worktree's row, two cells in from the fold row above it: a space's, or a repository's in a
+/// space of several (ADR 0136, step 2). `parent` gives the nearest row above with less indent,
+/// its indent and mark; a session is never two cells in from a fold row.
+fn is_heading(indent: usize, mark: char, parent: impl FnOnce() -> Option<(usize, char)>) -> bool {
     FOLDS.contains(&mark)
-        || (indent == WORKTREE_INDENT && section().is_some_and(|mark| FOLDS.contains(&mark)))
+        || parent().is_some_and(|(above, mark)| above + 2 == indent && FOLDS.contains(&mark))
 }
 
 #[cfg(test)]

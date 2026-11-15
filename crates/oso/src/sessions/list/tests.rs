@@ -19,6 +19,7 @@ fn entry(key: u64, name: &str, state: State, since: Instant) -> Entry {
         key: Key::Hosted(key),
         name: name.to_owned(),
         space: "oso".to_owned(),
+        space_id: None,
         branch: Some("main".to_owned()),
         state,
         since,
@@ -101,7 +102,7 @@ fn sessions_nest_under_their_parent_which_counts_those_that_need_input() {
     // In the tree, under their worktree.
     let mut list = List::default();
     list.set_tree(super::Tree {
-        projects: vec![super::Project {
+        spaces: super::Tree::of_projects(vec![super::Project {
             root: PathBuf::from("/w/oso"),
             name: "oso".to_owned(),
             worktrees: vec![super::Worktree {
@@ -110,7 +111,8 @@ fn sessions_nest_under_their_parent_which_counts_those_that_need_input() {
                 primary: true,
                 ..super::Worktree::default()
             }],
-        }],
+        }])
+        .spaces,
         ..super::Tree::default()
     });
     let shown = list.render(&entries, 32, t);

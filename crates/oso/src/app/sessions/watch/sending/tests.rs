@@ -15,6 +15,7 @@ fn entry(key: Key, name: &str, state: State, archived: bool) -> Entry {
         key,
         name: name.to_owned(),
         space: "oso".to_owned(),
+        space_id: None,
         branch: None,
         state,
         since: Instant::now(),
