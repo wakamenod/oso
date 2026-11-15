@@ -114,10 +114,15 @@ pub fn make(
         PrivateDir::open(root).map_err(|e| Refusal::Refused(root.to_owned(), e))?;
     }
     // Made new, never taken over: something put at its place meanwhile is refused.
-    let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-    match builder.create(&path) {
+    let made = {
+        let mut builder = fs::DirBuilder::new();
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder.create(&path)
+    };
+    #[cfg(not(unix))]
+    let made = fs::DirBuilder::new().create(&path);
+    match made {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return Err(Refusal::Exists(path)),
         Err(e) => return Err(Refusal::Refused(path, e)),
