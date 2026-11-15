@@ -5,13 +5,15 @@
 //! Must not depend on: `app`, `dispatch` or winit; these drive the thread's state directly, and
 //! run git only through the process module.
 
+#[cfg(unix)]
 use std::path::Path;
 
-use super::{
-    Repo, Report, Section, TEN, Target, View, cached, open_a, read, run, state, text, two_hunks,
-};
+use super::{Repo, Report, Section, Target, View, open_a, read, run, state, text, two_hunks};
+#[cfg(unix)]
+use super::{TEN, cached};
 
 /// The hunk header `target` names in the unstaged section's first file.
+#[cfg(unix)]
 fn first_hunk() -> Target {
     Target::Hunk {
         section: Section::Unstaged,
@@ -20,6 +22,7 @@ fn first_hunk() -> Target {
     }
 }
 
+#[cfg(unix)]
 fn index_file(repo: &Repo, path: &str) -> Vec<u8> {
     repo.git(&["show", &format!(":{path}")])
 }
