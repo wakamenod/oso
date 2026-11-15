@@ -216,7 +216,15 @@ impl App {
         self.request_redraw();
         let name = self.editor.buffer(buffer).map(|b| b.name().to_owned());
         self.agent_log(&format!("open {}: ok", name.as_deref().unwrap_or("")));
-        Ok(json!({ "buffer": buffer.get(), "name": name }))
+        // What opening it would have started waits for the person, if its project is known by
+        // now; `state` says so later otherwise (ADR 0118, Q6).
+        self.starting.ask();
+        self.settle_opens();
+        let mut reply = json!({ "buffer": buffer.get(), "name": name });
+        if let Some(note) = self.waits_note(buffer, false) {
+            reply["waits"] = json!(note);
+        }
+        Ok(reply)
     }
 
     /// Drops what `connection` was opening, or everything if `None`, as it or the channel

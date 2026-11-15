@@ -105,11 +105,15 @@ impl Dispatcher {
         // And one a jump's keys do not run ends the jump, with nothing moved (ADR 0116).
         let ended_search = ended_search | (!self.jump_commands.contains(&id) && editor.jump_end());
         // A yank waits for the clipboard as it does from a key, and replies at once.
-        let (effects, result) = if command.args == ArgSpec::CountAndClipboard {
-            self.run_or_read(editor, id, args, invocation)
-        } else {
-            self.execute(editor, id, args, invocation, Step::MayJoin)
-        };
+        // The dev socket's command is no key of the person's: it lets no mark go (ADR 0118).
+        let reads_clipboard = command.args == ArgSpec::CountAndClipboard;
+        let (effects, result) = self.not_as_input(|this| {
+            if reads_clipboard {
+                this.run_or_read(editor, id, args, invocation)
+            } else {
+                this.execute(editor, id, args, invocation, Step::MayJoin)
+            }
+        });
         let mut effects = effects.union(self.after_prompts(editor));
         effects.redraw |= ended_search;
         (effects, result.map_err(|e| e.to_string()))

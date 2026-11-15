@@ -87,12 +87,18 @@ pub struct Order {
 /// What an orchestrator starts with, looked at again just before it starts (ADR 0136, step 3).
 #[derive(Debug, Clone)]
 pub struct SpaceStart {
+    /// Whether it starts in the space's own directory, which its checks look at first; a
+    /// worker in a repository gets none of them (ADR 0136, step 4b).
+    pub in_space_directory: bool,
     /// The space directory's identity when oso made it.
     pub made: Option<(u64, u64)>,
     /// Every repository of the space, which the directory must be inside none of.
     pub members: Vec<crate::sessions::spaces::Member>,
     /// The trusted ones, given with `--add-dir` while each is still the one recorded.
     pub trusted: Vec<crate::sessions::spaces::Member>,
+    /// For a worker, the directories it also reads, each with its repository's trust: each is
+    /// checked again here, with git, as the tool's job checked it (ADR 0136, step 4b).
+    pub reads: Vec<(crate::sessions::worktree::jobs::Trust, PathBuf)>,
     /// The fixed text and the space's header, for `--append-system-prompt`.
     pub prompt: String,
     /// The space's instructions, read here and added to the prompt.
@@ -194,7 +200,8 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
         Ok(found) => found,
         Err(e) => return refuse(format!("The session did not start: no shell is found: {e}")),
     };
-    let (extra, notes) = match space_extra(order.space.as_ref(), &order.directory) {
+    let state = order.state.as_deref();
+    let (extra, notes) = match space_extra(order.space.as_ref(), &order.directory, state) {
         Ok(found) => found,
         Err(why) => return refuse(why),
     };
@@ -319,19 +326,22 @@ struct Extra {
 fn space_extra(
     space: Option<&SpaceStart>,
     directory: &Path,
+    state: Option<&Path>,
 ) -> Result<(Extra, Vec<String>), String> {
     use crate::sessions::spaces::orchestrator;
     let Some(space) = space else {
         return Ok((Extra::default(), Vec::new()));
     };
-    orchestrator::check_before_start(directory, space.made, &space.members)
-        .map_err(|why| format!("The orchestrator did not start: {why}"))?;
+    if space.in_space_directory {
+        orchestrator::check_before_start(directory, space.made, &space.members)
+            .map_err(|why| format!("The orchestrator did not start: {why}"))?;
+    }
     let (kept, gone) = orchestrator::still_there(&space.trusted);
     let mut notes: Vec<String> = gone
         .iter()
         .map(|root| {
             format!(
-                "{} is not the repository the space recorded: left out",
+                "{} is no longer the directory oso checked: left out",
                 root.display()
             )
         })
@@ -358,11 +368,32 @@ fn space_extra(
     }
     prompt.push_str(&orchestrator::instructions_section(&instructions));
     // A session in the space's directory that is not its orchestrator gets the checks alone.
+    let mut add_dirs: Vec<PathBuf> = kept.into_iter().map(|member| member.root).collect();
+    let (reads, left) = reads_checked(&space.reads, state);
+    add_dirs.extend(reads);
+    notes.extend(left);
     let extra = Extra {
-        add_dirs: kept.into_iter().map(|member| member.root).collect(),
+        add_dirs,
         system_prompt: (!prompt.is_empty()).then_some(prompt),
     };
     Ok((extra, notes))
+}
+
+/// A worker's directories to read, each checked again in its repository as the tool's job did:
+/// those that pass, and what the echo area says of each one left out.
+fn reads_checked(
+    reads: &[(crate::sessions::worktree::jobs::Trust, PathBuf)],
+    state: Option<&Path>,
+) -> (Vec<PathBuf>, Vec<String>) {
+    let mut kept = Vec::new();
+    let mut left = Vec::new();
+    for (trust, dir) in reads {
+        match crate::sessions::worktree::jobs::readable_in(trust, dir, state) {
+            Ok(read) => kept.push(read.root),
+            Err(why) => left.push(format!("Not given to read: {why}")),
+        }
+    }
+    (kept, left)
 }
 
 /// Refuses a session whose trusted root was put in another's place since it was found: none

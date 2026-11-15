@@ -122,7 +122,19 @@ impl App {
                 closed.push(input);
             }
         }
-        space_rows(&open, &closed, all)
+        let mut rows = space_rows(&open, &closed, all);
+        // Each space's orchestrator by the record's id, never by a session's name (step 5).
+        for row in &mut rows {
+            let spaces = &self.watch.spaces;
+            let recorded = (spaces.find(&row.id))
+                .and_then(|at| spaces.stored(at))
+                .and_then(|stored| stored.orchestrator.as_ref());
+            row.orchestrator = recorded.and_then(|id| {
+                let session = self.hosting.table().iter().find(|s| &s.id == id)?;
+                Some(crate::sessions::list::Key::Hosted(session.key))
+            });
+        }
+        rows
     }
 
     /// `root`'s worktrees: as listed, else its main checkout and `held`, the worktrees spaces

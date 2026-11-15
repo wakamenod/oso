@@ -149,12 +149,22 @@ fn parse_line(line: &[u8]) -> Option<Stored> {
 }
 
 /// A member's object: its root, and its identity if it has one.
-fn member(value: &Value) -> Option<Member> {
+pub fn member(value: &Value) -> Option<Member> {
     let object = value.as_object()?;
     Some(Member {
         root: path(object.get("root")?.as_str()?)?,
         identity: identity(object.get("identity"))?,
     })
+}
+
+/// A member's object, as [`member`] reads it; `None` for a root that is not UTF-8.
+pub fn member_value(member: &Member) -> Option<Value> {
+    let mut object = Map::new();
+    object.insert("root".into(), json!(member.root.to_str()?));
+    if let Some((dev, ino)) = member.identity {
+        object.insert("identity".into(), json!([dev, ino]));
+    }
+    Some(Value::Object(object))
 }
 
 /// An identity, `[device, inode]`, or none: `Some(None)` when it is left out.
@@ -187,17 +197,8 @@ fn line(space: &Stored) -> Option<String> {
         paths.iter().map(|p| Some(json!(p.to_str()?))).collect()
     };
     let pair = |pair: Option<(u64, u64)>| pair.map(|(dev, ino)| json!([dev, ino]));
-    let members = space
-        .members
-        .iter()
-        .map(|m| {
-            let mut object = Map::new();
-            object.insert("root".into(), json!(m.root.to_str()?));
-            if let Some(identity) = pair(m.identity) {
-                object.insert("identity".into(), identity);
-            }
-            Some(Value::Object(object))
-        })
+    let members = (space.members.iter())
+        .map(member_value)
         .collect::<Option<Vec<_>>>()?;
     let mut object = Map::new();
     object.insert("id".into(), json!(space.id.as_str()));

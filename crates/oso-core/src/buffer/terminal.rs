@@ -43,6 +43,24 @@ impl Buffer {
 
     pub(crate) fn set_running(&mut self, running: bool) {
         self.running = running;
+        if !running {
+            (self.job, self.turn) = (false, false);
+        }
+    }
+
+    /// Whether work is under way in its terminal (ADR 0133): in a hosted session's, a turn or
+    /// a question it asks, as the sessions' worker read its screen; in another, a job its
+    /// shell waits for, as the PTY's foreground process group says. Never while nothing runs.
+    pub fn is_busy(&self) -> bool {
+        self.running && if self.session { self.turn } else { self.job }
+    }
+
+    pub(crate) fn set_job(&mut self, job: bool) {
+        self.job = job;
+    }
+
+    pub(crate) fn set_turn(&mut self, turn: bool) {
+        self.turn = turn;
     }
 
     pub(crate) fn set_mode_note(&mut self, note: String) {

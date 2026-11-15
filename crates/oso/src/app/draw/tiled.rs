@@ -139,12 +139,14 @@ fn modeline_spans(status: &Status) -> [Span<'_>; MODELINE_SPANS] {
         span(&status.project[..], face),
         // Dim, as `Agent` is: what the trust record says, never a name (ADR 0114).
         span(status.restricted, Face::Prompt),
+        // Dim too: what an agent's open or save left for the person (ADR 0118).
+        span(&status.waits[..], Face::Prompt),
         span(&status.state[..], face),
     ]
 }
 
 /// How many spans a modeline is drawn in.
-const MODELINE_SPANS: usize = 8;
+const MODELINE_SPANS: usize = 9;
 
 fn modeline_face(status: &Status) -> Face {
     if status.selected {

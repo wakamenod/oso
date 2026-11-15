@@ -30,6 +30,8 @@ pub const DRAFT: &[(&str, &str)] = &[
 pub const QUESTION: &[(&str, &str)] = &[
     ("y", "answer-yes"),
     ("n", "answer-no"),
+    // The third answer some questions have, as an exit's wait (ADR 0133).
+    ("w", "answer-third"),
     ("C-g", "keyboard-quit"),
     // What a question the agent caused would run (ADR 0121, step 6).
     ("?", "agent-question-details"),

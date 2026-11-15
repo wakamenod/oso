@@ -46,6 +46,9 @@ impl App {
                 .message("The space's orchestrator runs: here it is".to_owned());
             return self.show_session(key);
         }
+        if let Some(why) = self.space_starts_busy(at) {
+            return self.editor.message(why);
+        }
         let Some(stored) = self.watch.spaces().stored(at) else {
             return;
         };
@@ -59,7 +62,7 @@ impl App {
                 self.hosting.spaces.start_after.insert(id.clone());
                 self.remake_space_directory(at, &id, &directory);
             }
-            Some(_) => self.launch_orchestrator(at),
+            Some(_) => self.launch_orchestrator(at, None),
         }
     }
 
@@ -86,7 +89,7 @@ impl App {
     }
 
     /// Starts space `at`'s orchestrator in its directory, named after the space.
-    pub(in crate::app) fn launch_orchestrator(&mut self, at: usize) {
+    pub(in crate::app) fn launch_orchestrator(&mut self, at: usize, brief: Option<String>) {
         let space = match self.orchestrator_start(at) {
             Ok(space) => space,
             Err(why) => return self.editor.message(why),
@@ -102,6 +105,7 @@ impl App {
         let begin = Begin {
             name: Some(name),
             directory,
+            brief,
             space: Some(space),
             ..Begin::default()
         };
@@ -151,7 +155,9 @@ impl App {
             .position(|space| space.stored.orchestrator.as_ref() == Some(&id));
         match at {
             Some(at) => self.orchestrator_start(at).map(Some),
-            None => Ok(self.space_checks(&directory)),
+            None => Ok(self
+                .space_checks(&directory)
+                .or_else(|| self.reads_again(key))),
         }
     }
 
@@ -163,6 +169,8 @@ impl App {
             (space.stored.directory.as_deref()).is_some_and(|its| same(its, directory))
         })?;
         Some(SpaceStart {
+            in_space_directory: true,
+            reads: Vec::new(),
             made: space.stored.directory_identity,
             members: space.stored.members.clone(),
             trusted: Vec::new(),
@@ -187,6 +195,9 @@ impl App {
     /// instructions' file.
     fn orchestrator_start_of(&self, at: usize) -> Result<SpaceStart, String> {
         let stored = self.watch.spaces().stored(at).ok_or("No such space")?;
+        if stored.archived {
+            return Err("The space is closed: space-reopen opens it again".to_owned());
+        }
         if stored.directory.is_none() {
             return Err("The space has no directory yet: space-directory makes it".to_owned());
         }
@@ -211,6 +222,8 @@ impl App {
             crate::sessions::spaces::probe::instructions_path(&state, stored.id.as_str())
         });
         Ok(SpaceStart {
+            in_space_directory: true,
+            reads: Vec::new(),
             made: stored.directory_identity,
             members: stored.members.clone(),
             trusted: trusted_members,
@@ -264,6 +277,7 @@ impl App {
         );
         // A question asked anew drops the one before, and what it offered.
         self.hosting.spaces.offer = None;
+        self.hosting.spaces.replace_asked = None;
         match self.editor.ask(question, "space-confirm") {
             Ok(prompt) => {
                 self.hosting.spaces.offer = Some(Offer {
@@ -285,6 +299,9 @@ impl App {
     /// one asked anew replaced it, so a `y` does only the question it answered; with nothing
     /// kept, it does nothing.
     pub(in crate::app) fn space_confirmed(&mut self) {
+        if self.hosting.spaces.replace_asked.is_some() {
+            return self.replace_confirmed();
+        }
         let Some(offer) = self.hosting.spaces.offer.take() else {
             return;
         };
@@ -312,6 +329,15 @@ impl App {
     /// in it, is dropped, so that no later `y` does it.
     pub(in crate::app) fn forget_unanswered_offer(&mut self) {
         let open = self.editor.prompt().map(|prompt| prompt.id());
+        let replace = self
+            .hosting
+            .spaces
+            .replace_asked
+            .as_ref()
+            .map(|asked| asked.prompt);
+        if replace.is_some() && open != replace {
+            self.hosting.spaces.replace_asked = None;
+        }
         let asked = self.hosting.spaces.offer.as_ref().map(|offer| offer.prompt);
         if asked.is_some() && open != asked {
             self.hosting.spaces.offer = None;

@@ -383,5 +383,21 @@ pub fn start_question(
     )
 }
 
+/// `said`, a question or what the echo area says of a start, with the directories the new
+/// session also reads (ADR 0136, step 4b), each quoted; as it was with none.
+pub fn also_reads(said: String, dirs: &[std::path::PathBuf]) -> String {
+    if dirs.is_empty() {
+        return said;
+    }
+    let dirs: Vec<String> = (dirs.iter())
+        .map(|dir| quoted(&dir.display().to_string()))
+        .collect();
+    let count = match dirs.len() {
+        1 => "1 more directory".to_owned(),
+        n => format!("{n} more directories"),
+    };
+    format!("{said} It also reads {count}: {}.", dirs.join(", "))
+}
+
 #[cfg(test)]
 mod tests;

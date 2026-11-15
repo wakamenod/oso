@@ -190,6 +190,7 @@ can write.
 | `c` | `space-close` | Archive the space; refused while one of its sessions works or needs input. |
 | `R` | `space-reopen` | Open a closed space again. |
 | `o` | `space-orchestrator-start` | Start the space's orchestrator, the session you talk to about the issue, in the space's directory, with each trusted repository as a working directory. `C-u` makes a space directory that is gone again at its place. |
+| `O` | `space-orchestrator-replace` | Replace the orchestrator by a new one that takes over from it, once it is idle: the old one is stopped and kept as `NAME-was-N`, and the new one is told to read `handoff.md` first. Asks first when there is no `handoff.md`. |
 
 The orchestrator is told the space's repositories, its title and its instructions, and to
 keep a `handoff.md` in its directory for whoever takes over. Its row is right under its
@@ -200,7 +201,9 @@ Claude Code, `/permissions` and its Workspace tab list the directories it was gi
 The orchestrator works through sessions: its tools name a repository of the space with
 `repo`, and it sees the space's sessions only. A worker it starts belongs to the space, and
 its brief says to report to the orchestrator by the space's name. `space_status` gives any
-session of the space the space, its repositories with their trust, and its sessions.
+session of the space the space, its repositories with their trust, and its sessions. With
+`with_dirs`, the orchestrator lets a worker also read another trusted repository of the space or
+one of its worktrees; the question you answer lists them.
 
 ### Send work to a session
 

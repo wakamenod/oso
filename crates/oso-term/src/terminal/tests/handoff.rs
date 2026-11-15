@@ -51,6 +51,7 @@ fn adopt(exported: &Exported) -> Seen {
         events: Vec::new(),
         echo_off: false,
         echo_said: Vec::new(),
+        job: false,
         cursor: crate::snapshot::Cursor::default(),
         size: (0, 0),
         scrolled: 0,
@@ -76,8 +77,8 @@ fn the_next_terminal_shows_the_screen_at_once_and_reads_what_came_meanwhile() {
     old.until(|s| s.shows("one"));
     let pid = old.terminal.pid();
     let exported = export(&mut old, &Terminal::library(), BUDGET).expect("exported");
-    // The snapshot is off until a patch to the library.
-    assert_eq!(exported.encoding, Encoding::Escapes);
+    // Carried to the same library build, the terminal travels as its snapshot.
+    assert_eq!(exported.encoding, Encoding::Snapshot);
     assert_eq!(exported.pid, pid);
     assert!(exported.started.is_some(), "its start time is read");
     // Typed into the old one after the export: it still reaches the program, whose answer
@@ -166,18 +167,27 @@ fn a_state_too_large_is_refused_and_the_terminal_reads_on() {
 }
 
 #[test]
-fn a_state_said_to_be_a_snapshot_is_not_restored_while_snapshots_are_off() {
-    let mut old = Seen::start(sh("printf 'one\\n'; read x"));
-    old.until(|s| s.shows("one"));
-    let mut exported = export(&mut old, &Terminal::library(), BUDGET).expect("exported");
-    // Escape sequences, said to be a snapshot: the decoder must not read them (ADR 0133).
-    exported.encoding = Encoding::Snapshot;
+fn a_snapshot_carries_the_screen_not_in_use() {
+    // Only the snapshot carries a screen the program is not showing (escape sequences carry the
+    // one in use). A program draws on the primary screen, then on the alternate; carried as the
+    // snapshot and leaving the alternate, it finds the primary screen as it was.
+    let mut old = Seen::start(sh(
+        "printf 'kept-primary\\n\\033[?1049h\\033[Hon-the-alt\\n'; read x; \
+         printf '\\033[?1049l'; read y",
+    ));
+    old.until(|s| s.shows("on-the-alt"));
+    std::thread::sleep(Duration::from_millis(100));
+    old.take();
+    let exported = export(&mut old, &Terminal::library(), BUDGET).expect("exported");
+    assert_eq!(exported.encoding, Encoding::Snapshot);
     let mut new = adopt(&exported);
-    new.until(|s| s.end().is_some());
-    assert!(matches!(new.end(), Some(End::Failed(_))), "{:?}", new.end());
-    old.terminal.resume();
-    old.terminal.hang_up();
-    old.until(|s| s.end().is_some());
+    new.until(|s| s.shows("on-the-alt"));
+    old.terminal.release();
+    new.terminal.attach(exported.master);
+    // Leaving the alternate screen restores the primary, which only the snapshot carried.
+    new.terminal.send(b"\r".to_vec()).expect("queued");
+    new.until(|s| s.shows("kept-primary"));
+    new.terminal.hang_up();
 }
 
 #[test]

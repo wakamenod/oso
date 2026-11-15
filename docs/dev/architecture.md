@@ -849,6 +849,17 @@ changed asks before going over it, and replaces it only if it is still what that
 [ADR 0059](adr/0059-safe-save-and-the-exit-guard.md) and
 [ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md).
 
+The exit's question also names the work under way in terminals, which the host notes on each
+terminal buffer and `oso-core` judges (`Buffer::is_busy`): a hosted session's turn, or a
+question it asks, from the sessions' worker (`Editor::set_session_turn`), and in another
+terminal a job, which `oso-term` reads from the PTY's foreground process group when it looks at
+its flags (`Editor::set_terminal_job`). `w` (`quit-when-idle`) leaves a flag on the editor; the
+host exits as a confirmed `C-x C-c` once no terminal has been busy, no session has printed and
+none is starting for 2 s, with no prompt open. If more is at risk by then than the question
+named, it asks nothing, as no question opens from a background event: the wait stops and the
+echo area says why (`app/idle_quit.rs`, [ADR 0133](adr/0133-keeping-terminals-over-an-update.md),
+step 5).
+
 ### Restarting the installed oso
 
 `oso-restart`, the person's command, moves a release build's terminals, sessions and unsaved
@@ -1001,7 +1012,12 @@ Full details are in [`security.md`](security.md).
     process, such as the final newline and the whitespace cleanup. From M4, each kind of thing
     opening or saving starts declares `Runs::InOso` or `Runs::Program` in `oso-core`; a
     `Program` kind for an agent's open or save marks the buffer instead, and the person's next
-    command there, or next save of it, lets it run (ADR 0118). Nothing in M3 is `Program`.
+    command there, or next save of it, lets it run (ADR 0118). Nothing in M3 is `Program`. The
+    kinds are `oso_core::buffer::Start`, with the buffer's two marks; `Editor::starts_on_open`
+    and `starts_on_save` decide, `Dispatcher::execute` and a click into a window let an open's
+    mark go (`Editor::note_persons_command`), and `app/starts.rs` settles each open once its
+    file has loaded, its project is found and the trust record is read, and each save as it
+    ends (ADR 0138, step 1). The language servers are the first `Program` kinds.
   - Each `Command` has a `reach` (`Look`, `Change`, `Person`), and the channel refuses `Person`
     commands. `Dispatcher::run_for_agent` checks the argument against the spec and runs the
     command inside `Editor::for_agent`, so the prompts it opens are the agent's.

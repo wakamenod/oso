@@ -137,13 +137,16 @@ impl fmt::Display for ExitRefused {
 }
 
 /// Why `buffer` cannot be saved now, if it cannot. Unmodified comes before no file,
-/// as in Emacs, where `C-x C-s` in an untouched `*scratch*` has nothing to do.
-pub(super) fn refusal(buffer: &Buffer) -> Option<SaveRefused> {
+/// as in Emacs, where `C-x C-s` in an untouched `*scratch*` has nothing to do. An unmodified
+/// buffer where an agent's save left something waiting saves all the same for the person
+/// (`persons`), so that their `C-x C-s` lets it go without an edit first (ADR 0118, Q3).
+pub(super) fn refusal(buffer: &Buffer, persons: bool) -> Option<SaveRefused> {
+    let saves_to_let_go = persons && !buffer.save_waits().is_empty();
     if let Some(reason) = buffer.read_only() {
         Some(SaveRefused::ReadOnly(reason))
     } else if buffer.is_saving() {
         Some(SaveRefused::AlreadySaving)
-    } else if !buffer.is_modified() && !may_have_lost_its_file(buffer) {
+    } else if !buffer.is_modified() && !may_have_lost_its_file(buffer) && !saves_to_let_go {
         Some(SaveRefused::Unmodified)
     } else if buffer.path().is_none() {
         Some(SaveRefused::NoFile)
@@ -196,8 +199,9 @@ impl Editor {
 
     pub(super) fn queue_save(&mut self, over: bool) -> Result<bool, SaveRefused> {
         let id = self.window().buffer();
+        let persons = !self.runs_for_agent();
         let buffer = self.current().1;
-        if let Some(refused) = refusal(buffer) {
+        if let Some(refused) = refusal(buffer, persons) {
             return Err(refused);
         }
         // An unmodified buffer has nothing to save over a file with: it writes only if the file
@@ -236,7 +240,8 @@ impl Editor {
         kept: Vec<Range<usize>>,
     ) -> Result<bool, SaveRefused> {
         let buffer = self.buffer(id).ok_or(SaveRefused::NoFile)?;
-        if let Some(refused) = refusal(buffer) {
+        // Only a modified buffer waits for a cleanup's scan, so the exception never applies.
+        if let Some(refused) = refusal(buffer, false) {
             return Err(refused);
         }
         let found = buffer.save_over().filter(|_| buffer.is_modified());
@@ -406,17 +411,18 @@ impl Editor {
     pub fn confirm_exit(&mut self, confirmed: bool) -> Result<(), ExitRefused> {
         let modified = self.buffers().filter(|(_, b)| b.is_modified()).count();
         let saving = self.buffers().filter(|(_, b)| b.is_saving()).count();
-        // The person agreed to lose these buffers, and no other: a buffer modified since the
-        // question asks again, even if another's save landed meanwhile.
-        let at_risk: Vec<BufferId> = self
+        // The person agreed to lose these buffers as they were, and no other: a buffer modified
+        // or edited since the question asks again, even if another's save landed meanwhile, as
+        // an exit that waits for the terminals lets the person go on working (ADR 0133).
+        let at_risk: Vec<(BufferId, ContentId)> = self
             .buffers()
             .filter(|(_, b)| b.is_modified() || b.is_saving())
-            .map(|(id, _)| id)
+            .map(|(id, b)| (id, b.content_id()))
             .collect();
         let agreed = self
             .exit_attempt
             .as_ref()
-            .is_some_and(|asked| at_risk.iter().all(|id| asked.contains(id)));
+            .is_some_and(|asked| at_risk.iter().all(|risk| asked.contains(risk)));
         if at_risk.is_empty() || (confirmed && agreed) {
             return Ok(());
         }
@@ -427,5 +433,16 @@ impl Editor {
     /// Forgets a refused exit, so that the next one is refused again.
     pub fn reset_exit_guard(&mut self) {
         self.exit_attempt = None;
+    }
+
+    /// Asks to exit once no terminal is busy, or no longer (ADR 0133). The host waits for it,
+    /// and exits as a confirmed `C-x C-c` would.
+    pub fn set_quit_when_idle(&mut self, waiting: bool) {
+        self.quit_when_idle = waiting;
+    }
+
+    /// Whether an exit waits for every terminal to be idle.
+    pub fn quit_when_idle(&self) -> bool {
+        self.quit_when_idle
     }
 }

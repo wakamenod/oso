@@ -282,6 +282,7 @@ impl App {
         }
         // A start in a space's directory passes its checks (ADR 0136).
         let space = begin.space.or_else(|| self.space_checks(&directory));
+        self.note_reads(key, space.as_ref());
         self.order_session(Order {
             token: key,
             kind: Kind::New,

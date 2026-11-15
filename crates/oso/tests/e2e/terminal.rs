@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 
 mod mouse;
 mod oso_restart;
+mod quit_idle;
 pub(crate) mod restart;
 
 use super::agent::let_in;

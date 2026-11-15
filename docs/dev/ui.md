@@ -91,10 +91,20 @@ are rounded.
   is shown keeps none.
 - A prompt can open from a prompt, 8 deep. Only the innermost shows, its depth first: `[2]`.
 - **Questions** show in the same float, with their keys as chips on the last row, each with
-  what it does: `[y] exit  [n] stay`. Only `y` and `n` answer; `SPC`,
-  `DEL` and `RET` do not, unlike in Emacs, and any other key says `Answer y or n`. A held
+  what it does: `[y] exit  [n] stay`. Only `y` and `n` answer, and `w` where a question has a
+  third answer (below); `SPC`, `DEL` and `RET` do not, unlike in Emacs, and any other key says
+  `Answer y or n`. A held
   key answers once. `C-x C-c` and the close button ask before exiting with unsaved work, and
   `C-x C-s` asks before saving over a file that changed on disk.
+- **A third answer**, `w` (`minibuffer::Third`, whose key is always `w`), comes after `n` on
+  the few questions that have one: the label ends `(y, n or w)`, and another key says
+  `Answer y, n or w`. `C-x C-c` with a session's turn under way or a job running in a shell
+  names them, up to three each, and offers `[y] exit  [n] stay  [w] wait`. `w` exits once
+  every terminal has been idle for 2 seconds; the echo area says what it waits for, and that
+  `C-x C-c n` cancels, which works from a terminal too. `C-g` cancels where oso has the keys;
+  a terminal sends it to its program (ADR 0120). If more is at risk once idle than the
+  question named, or a review comment is not sent, nothing is asked: the wait stops and the echo area says why
+  ([ADR 0133](adr/0133-keeping-terminals-over-an-update.md), step 5).
 - **A passphrase** shows one `*` per character, keeps no undo and enters no history.
 - `C-g` does one thing at a time: a pending prefix, then the region, then the innermost
   prompt.

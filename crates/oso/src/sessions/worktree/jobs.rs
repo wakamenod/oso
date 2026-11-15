@@ -33,6 +33,7 @@ use super::prepare::{self, Prepare, Prepared};
 use crate::project::{Trusted, linked_worktree};
 use crate::review::TrustedRoot;
 use crate::review::git::MAX_SHORT;
+use crate::sessions::spaces::Member;
 
 /// Why a job refuses a repository whose main checkout is not trusted.
 pub const MAIN_UNTRUSTED: &str =
@@ -154,9 +155,12 @@ pub enum Report {
     /// step 6).
     ///
     /// A directory found is given with its trust, which a session started there takes.
+    ///
+    /// With it, the directories the new session also reads, each checked with its identity
+    /// (ADR 0136, step 4b).
     Prepared {
         token: u64,
-        result: Result<(Prepared, Option<TrustedRoot>), String>,
+        result: Result<(Prepared, Option<TrustedRoot>, Vec<Member>), String>,
     },
 }
 
@@ -325,12 +329,19 @@ impl Jobs {
     }
 
     /// Looks at what an agent's session tool would do, before the person is asked.
-    pub fn prepare(&self, token: u64, trust: Trust, what: Prepare) {
+    ///
+    /// `with` are the directories the new session also reads, each with its repository's
+    /// trust: each is checked as that repository's root or one of its linked worktrees.
+    pub fn prepare(&self, token: u64, trust: Trust, what: Prepare, with: Vec<(Trust, PathBuf)>) {
+        let state = self.state.clone();
         self.on_repo(
             trust,
             true,
             move |root, repo, send| {
-                let result = prepare::prepare(repo, &what).map(|prepared| {
+                let readable = (with.iter())
+                    .map(|(trust, dir)| readable_in(trust, dir, state.as_deref()))
+                    .collect::<Result<Vec<Member>, String>>();
+                let result = prepare::prepare(repo, &what).and_then(|prepared| {
                     let trusted = match &prepared {
                         // The root itself keeps the identity its check just held.
                         Prepared::Directory(directory) if directory == root.path() => {
@@ -341,7 +352,7 @@ impl Jobs {
                         }
                         Prepared::Worktree { .. } => None,
                     };
-                    (prepared, trusted)
+                    Ok((prepared, trusted, readable?))
                 });
                 send(Report::Prepared { token, result });
             },
@@ -419,6 +430,19 @@ impl Jobs {
 
 /// git in the main checkout of the repository of `trust`, with the empty private directory
 /// for hooks under `state`, if that main checkout is trusted too.
+/// `dir`, a directory a new session also reads, checked in the repository `trust` names, with
+/// `state` oso's state directory: the root still the one trusted, and `dir` that root or one
+/// of its linked worktrees itself (ADR 0136, step 4b). It runs git, so it belongs off the UI
+/// thread.
+///
+/// # Errors
+///
+/// Why not, in words for the agent or the echo area.
+pub fn readable_in(trust: &Trust, dir: &Path, state: Option<&Path>) -> Result<Member, String> {
+    trust.root.check()?;
+    prepare::readable(&repo(trust, state)?, dir)
+}
+
 fn repo(trust: &Trust, state: Option<&Path>) -> Result<Repo, String> {
     let state = state.ok_or("oso has no state directory, so it runs no git for worktrees")?;
     let hooks = PrivateDir::open(state.join("worktrees").join("hooks"))

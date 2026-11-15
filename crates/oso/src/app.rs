@@ -28,6 +28,7 @@ mod files;
 mod flash;
 mod greps;
 mod handover;
+mod idle_quit;
 mod ime;
 mod input;
 mod jumps;
@@ -42,6 +43,7 @@ mod saves;
 mod searches;
 mod sessions;
 mod slices;
+mod starts;
 mod syntax;
 mod terminals;
 mod theme_file;
@@ -184,6 +186,8 @@ pub struct App {
     freer: Freer,
     /// An exit waiting for running saves, once this instance has agreed to go.
     leaving: Leaving,
+    /// Since when no terminal is busy, while an exit waits for that (ADR 0133).
+    idle_quit: idle_quit::IdleClock,
     /// What the panic hook and the end of the event loop write (ADR 0062).
     emergency: Emergency,
     /// The emergency copies on offer (ADR 0064).
@@ -268,6 +272,8 @@ pub struct App {
     log_gate: LogGate,
     /// The agent channel, once the person turns it on (ADR 0085).
     agent: agent::Agent,
+    /// What opening and saving files start, and what waits for the person (ADR 0118).
+    starting: starts::Starting,
     /// The cursor flash fading after a large jump (ADR 0097).
     flash: flash::Flash,
     /// The terminals, by their buffers, and what they share (ADR 0120).
@@ -294,6 +300,16 @@ pub struct App {
 struct ShownTheme {
     index: usize,
     default: String,
+}
+
+impl ShownTheme {
+    /// The first theme, with `default` as the configured one.
+    fn first(default: &str) -> Self {
+        Self {
+            index: 0,
+            default: default.to_owned(),
+        }
+    }
 }
 
 /// The thread that drops what the UI thread is done with, or none if it could not start.
@@ -347,16 +363,12 @@ impl App {
         let projects = projects::detector(&waker);
         let (home_dir, editorconfigs) = projects::editorconfig_reader(&waker);
         let walker = walks::walker(&waker);
-        let grep = greps::grep(&waker);
-        let previewer = greps::previewer(&waker);
+        let (grep, previewer) = (greps::grep(&waker), greps::previewer(&waker));
         let sessions = sessions::worker(&waker, theme_directory.as_deref());
         let mut editor = starting_editor();
         let themes = theme_names();
         let configuration = configuration::Configuration::new(&themes);
-        let remembered_theme = ShownTheme {
-            index: 0,
-            default: configuration.default_theme().to_owned(),
-        };
+        let remembered_theme = ShownTheme::first(configuration.default_theme());
         editor.set_themes(themes.clone(), 0);
         Self {
             view: None,
@@ -369,6 +381,7 @@ impl App {
             configuration,
             freer: Freer::start(),
             leaving: Leaving::with_cell(emergency.agreement_cell()),
+            idle_quit: idle_quit::IdleClock::default(),
             offer: emergency.offer(),
             emergency,
             answering: None,
@@ -407,6 +420,7 @@ impl App {
             gits: vcs::GitStatuses::default(),
             log_gate,
             agent: agent::Agent::default(),
+            starting: starts::Starting::new(),
             flash: flash::Flash::default(),
             terminals: terminals::Host::new(),
             jump_timer: jumps::JumpTimer::default(),
@@ -492,6 +506,8 @@ impl App {
         self.start_walks();
         self.start_project_search();
         self.start_saves();
+        self.start_released();
+        self.settle_opens();
         self.start_trims();
         self.start_searches();
         self.start_reverts();

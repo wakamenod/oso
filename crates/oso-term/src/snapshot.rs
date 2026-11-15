@@ -25,6 +25,11 @@ pub struct Snapshot {
     /// moment since the last snapshot, so one typed and entered between two is still seen
     /// (ADR 0120, Q17). A program that reads keys raw does not count.
     pub echo_off: bool,
+    /// A job runs in the foreground: the terminal's foreground process group is not its
+    /// child's own, as when a shell waits for a command (ADR 0133). Seen when the thread looks
+    /// at the PTY's flags; false where the system cannot say, or for a child that starts
+    /// programs in its own group, as `sh -c` does.
+    pub foreground_job: bool,
     /// Lines in the scrollback, above the screen.
     pub history: usize,
     /// Lines the view is scrolled back from the bottom, 0 at the bottom. While it is not 0,
@@ -43,6 +48,7 @@ impl Snapshot {
             cursor: Cursor::default(),
             modes: Modes::default(),
             echo_off: false,
+            foreground_job: false,
             history: 0,
             scrolled: 0,
             events: Vec::new(),

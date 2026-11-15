@@ -173,6 +173,9 @@ impl App {
         let drag = match (goes, buffer) {
             (PressGoes::SelectWindow, _) => {
                 self.editor.select_window(window);
+                // A click into a window counts as the person's command there (ADR 0118, Q9).
+                self.editor.note_persons_command();
+                self.start_released();
                 self.request_redraw();
                 Drag::Nothing
             }

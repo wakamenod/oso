@@ -68,6 +68,8 @@ pub struct Hosted {
     pub baseline: Option<String>,
     /// The issue space it belongs to, once it joined one (ADR 0136).
     pub space: Option<SpaceId>,
+    /// The directories it also reads, as they were checked (ADR 0136, step 4b).
+    pub reads: Vec<crate::sessions::spaces::Member>,
     pub pinned: bool,
     /// Archived with `C-x k`: not brought back at start, until step 3's list restores it.
     pub archived: bool,
@@ -98,6 +100,7 @@ impl Hosted {
             changed: self.changed,
             baseline: self.baseline.clone(),
             space: self.space.clone(),
+            reads: self.reads.clone(),
         }
     }
 
@@ -178,6 +181,7 @@ impl Table {
             run: Run::Starting,
             baseline: None,
             space: None,
+            reads: Vec::new(),
             pinned: false,
             archived: false,
             changed: new.changed,
@@ -198,8 +202,13 @@ impl Table {
                 // One carried over a restart before the record was read: its space is the
                 // record's.
                 let held = self.sessions.iter_mut().find(|held| held.id == session.id);
-                if let Some(held) = held.filter(|held| held.space.is_none()) {
-                    held.space = session.space;
+                if let Some(held) = held {
+                    if held.space.is_none() {
+                        held.space = session.space;
+                    }
+                    if held.reads.is_empty() {
+                        held.reads = session.reads;
+                    }
                 }
                 continue;
             }
@@ -222,6 +231,7 @@ impl Table {
                 run: Run::Stopped,
                 baseline: session.baseline,
                 space: session.space,
+                reads: session.reads,
                 pinned: session.pinned,
                 archived: session.archived,
                 changed: session.changed,
@@ -461,6 +471,7 @@ mod tests {
             changed: 5,
             baseline: None,
             space: None,
+            reads: Vec::new(),
         }
     }
 

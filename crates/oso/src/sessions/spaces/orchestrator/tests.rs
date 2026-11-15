@@ -8,8 +8,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use super::{
-    MAX_INSTRUCTIONS, Repository, TEXT, check_before_start, header, instructions_section,
-    read_instructions, still_there,
+    MAX_BRIEF_SESSIONS, MAX_INSTRUCTIONS, MAX_TAKEOVER, Repository, TEXT, check_before_start,
+    earlier_name, header, instructions_section, next_earlier, read_instructions, still_there,
+    takeover_brief,
 };
 use crate::sessions::spaces::dir::{self, Refusal};
 use crate::sessions::spaces::{Member, SpaceId, Stored};
@@ -219,4 +220,85 @@ fn a_repository_put_in_anothers_place_is_left_out() {
         gone,
         [moved, scratch.0.join("new"), kept, PathBuf::from("/")]
     );
+}
+
+#[test]
+fn an_earlier_orchestrators_name_is_a_sessions_name_and_never_used_twice() {
+    assert_eq!(earlier_name("fix-login", 1), "fix-login-was-1");
+    let long = "a".repeat(48);
+    let name = earlier_name(&long, 12);
+    assert_eq!(name.len(), crate::sessions::identity::MAX_NAME, "{name}");
+    assert!(name.ends_with("-was-12"), "{name}");
+    let names = [
+        "fix-login-was-1",
+        "fix-login-was-3",
+        "other-was-9",
+        "fix-login",
+    ];
+    assert_eq!(next_earlier("fix-login", names.into_iter()), 4);
+    assert_eq!(next_earlier("fix-login", std::iter::empty()), 1);
+    // A longer name cut to fit counts too.
+    let cut = earlier_name(&long, 5);
+    assert_eq!(next_earlier(&long, [cut.as_str()].into_iter()), 6);
+}
+
+#[test]
+fn a_successor_is_told_whom_it_takes_over_from_and_the_spaces_sessions_within_bounds() {
+    let brief = takeover_brief(
+        "fix-login",
+        ("fix-login-was-1", "abc"),
+        Some(Path::new("/c/projects/x/abc.jsonl")),
+        &[(
+            "api-fix".into(),
+            "idle".into(),
+            PathBuf::from("/r/.claude/worktrees/a"),
+        )],
+    );
+    assert!(
+        brief.starts_with(
+            "You take over as the orchestrator of space fix-login from session fix-login-was-1 \
+         (id abc). Read handoff.md in this directory first.\n\nWhat follows is oso's record"
+        ),
+        "{brief}"
+    );
+    assert!(brief.contains("\nThe old orchestrator's transcript: /c/projects/x/abc.jsonl"));
+    assert!(
+        brief.ends_with("\n- api-fix: idle, in /r/.claude/worktrees/a"),
+        "{brief}"
+    );
+    // No transcript and no session: the take-over text alone.
+    let bare = takeover_brief("fix", ("fix-was-1", "abc"), None, &[]);
+    assert!(!bare.contains("record"), "{bare}");
+    // Past forty sessions, a count; names on one line, cleaned.
+    let many: Vec<(String, String, PathBuf)> = (0..45)
+        .map(|n| {
+            (
+                format!("s{n}\u{202e}\nx"),
+                "idle".into(),
+                PathBuf::from("/r"),
+            )
+        })
+        .collect();
+    let brief = takeover_brief("fix", ("fix-was-1", "abc"), None, &many);
+    assert_eq!(
+        brief.lines().filter(|l| l.starts_with("- s")).count(),
+        MAX_BRIEF_SESSIONS
+    );
+    assert!(
+        brief.ends_with("- and 5 more: space_status lists them all"),
+        "{brief}"
+    );
+    assert!(!brief.contains('\u{202e}'), "names are cleaned");
+    // Long directories: within the byte cap, the rest counted.
+    let wide: Vec<(String, String, PathBuf)> = (0..40)
+        .map(|n| {
+            (
+                format!("s{n}"),
+                "idle".into(),
+                PathBuf::from(format!("/{}", "d".repeat(4000))),
+            )
+        })
+        .collect();
+    let brief = takeover_brief("fix", ("fix-was-1", "abc"), None, &wide);
+    assert!(brief.len() <= MAX_TAKEOVER, "{}", brief.len());
 }

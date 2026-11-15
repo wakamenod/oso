@@ -9,7 +9,7 @@ use crate::buffer::{Buffer, Replacement};
 use crate::complete::Candidate;
 use crate::frame::CellRect;
 use crate::frame::{FrameSize, PixelGrid};
-use crate::minibuffer::{Kind, MAX_DEPTH, Outcome, PromptError};
+use crate::minibuffer::{Kind, MAX_DEPTH, Outcome, PromptError, Third};
 use crate::secret::Verdict;
 use crate::selection::{MarkActive, Selection, SelectionSet};
 
@@ -325,4 +325,28 @@ fn prompt_screen(editor: &Editor) -> crate::window::Screen {
     let mut screen = crate::window::Screen::default();
     editor.prompt_screen(&mut screen);
     screen
+}
+
+#[test]
+fn a_third_answer_runs_its_command_and_only_a_question_with_one_takes_it() {
+    let mut editor = editor(3);
+    let third = Third {
+        command: "quit-when-idle",
+        verb: "wait",
+    };
+    editor
+        .ask_with_third("Exit?", "exit-now", ["exit", "stay"], third)
+        .unwrap();
+    assert_eq!(editor.prompt().unwrap().label(), "Exit? (y, n or w)");
+    editor.answer_question_third().unwrap();
+    assert!(editor.prompt().is_none());
+    assert!(matches!(
+        editor.take_prompt_outcome(),
+        Some(Outcome::Run("quit-when-idle"))
+    ));
+    // A question of two answers keeps its prompt open on `w`.
+    editor.ask("Exit?", "exit-now").unwrap();
+    assert_eq!(editor.prompt().unwrap().label(), "Exit? (y or n)");
+    assert_eq!(editor.answer_question_third(), Err(PromptError::NoPrompt));
+    assert!(editor.prompt().is_some());
 }

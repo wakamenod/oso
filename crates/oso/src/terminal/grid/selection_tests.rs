@@ -61,6 +61,7 @@ fn screen(lines: &[(&str, bool)], history: usize) -> Snapshot {
         cursor: oso_term::Cursor::default(),
         modes: oso_term::Modes::default(),
         echo_off: false,
+        foreground_job: false,
         history,
         scrolled: 0,
         events: Vec::new(),

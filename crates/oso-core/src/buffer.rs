@@ -44,6 +44,7 @@ mod reload;
 pub(crate) use reload::Noticed;
 mod sliced;
 mod splice;
+mod starts;
 mod terminal;
 mod trim;
 pub(crate) use trim::{Reads, TooLong, Trim, TrimRules, as_spans, trailing_whitespace};
@@ -60,6 +61,8 @@ pub use mode::Mode;
 pub(crate) use names::{base as file_base, distinct as distinct_names};
 pub(crate) use sliced::{Budget, FOLLOW_WORK, PIECE, SPLICE_WORK};
 use splice::normalized;
+pub(crate) use starts::Waits;
+pub use starts::{Acted, Runs, Start, Starts};
 
 /// Identifies a buffer in its [`Editor`](crate::editor::Editor).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -209,10 +212,16 @@ pub struct Buffer {
     withheld_from_agents: bool,
     /// The agent channel opened it (ADR 0085).
     opened_by_agent: bool,
+    /// What an agent's open or save would have started, waiting for the person (ADR 0118).
+    waits: Waits,
     /// A terminal's buffer, which holds no text of its own (ADR 0120).
     terminal: bool,
     /// A program runs in its terminal, as the host says.
     running: bool,
+    /// A job runs in its terminal's foreground, and a hosted session's turn is under way, as
+    /// the host says (ADR 0133).
+    job: bool,
+    turn: bool,
     /// What the modeline says after the mode, as the host sets it: a terminal's title.
     mode_note: String,
     /// Whether the person let the agent channel read this terminal (ADR 0120, Q16).
@@ -279,8 +288,11 @@ impl Buffer {
             yanked_secret: false,
             withheld_from_agents: false,
             opened_by_agent: false,
+            waits: Waits::default(),
             terminal: false,
             running: false,
+            job: false,
+            turn: false,
             mode_note: String::new(),
             agent_reads: false,
             session: false,

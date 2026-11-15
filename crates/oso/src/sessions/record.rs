@@ -38,6 +38,9 @@ pub const MAX_SESSIONS: usize = 256;
 /// The longest directory or root kept, in bytes.
 const MAX_PATH: usize = 4096;
 
+/// The most directories a session's record keeps that it also reads.
+const MAX_READS: usize = 8;
+
 /// One remembered session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Remembered {
@@ -61,6 +64,9 @@ pub struct Remembered {
     pub baseline: Option<String>,
     /// The issue space it belongs to (ADR 0136).
     pub space: Option<SpaceId>,
+    /// The directories it also reads, with the identities they were checked with, each
+    /// checked again before a resume passes it (ADR 0136, step 4b).
+    pub reads: Vec<super::spaces::Member>,
 }
 
 /// What is remembered in `state_dir`. Anything the rules above refuse gives nothing.
@@ -176,6 +182,13 @@ fn parse_line(line: &[u8]) -> Option<Remembered> {
         Some(space) => Some(SpaceId::parse(space)?),
         None => None,
     };
+    let reads = match object.get("reads") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(items)) if items.len() <= MAX_READS => (items.iter())
+            .map(super::spaces::record::member)
+            .collect::<Option<Vec<_>>>()?,
+        Some(_) => return None,
+    };
     let baseline = match optional("baseline")? {
         Some(tree) if is_tree_id(tree) => Some(tree.to_owned()),
         Some(_) => return None,
@@ -193,6 +206,7 @@ fn parse_line(line: &[u8]) -> Option<Remembered> {
         changed: object.get("changed")?.as_u64()?,
         baseline,
         space,
+        reads,
     })
 }
 
@@ -226,6 +240,12 @@ fn line(session: &Remembered) -> Option<String> {
     }
     if let Some(space) = &session.space {
         object.insert("space".into(), json!(space.as_str()));
+    }
+    if !session.reads.is_empty() {
+        let reads = (session.reads.iter())
+            .map(super::spaces::record::member_value)
+            .collect::<Option<Vec<_>>>()?;
+        object.insert("reads".into(), Value::Array(reads));
     }
     Some(Value::Object(object).to_string())
 }
@@ -335,6 +355,7 @@ mod tests {
             changed: 1_794_512_815_000,
             baseline: None,
             space: None,
+            reads: Vec::new(),
         }
     }
 
@@ -353,6 +374,13 @@ mod tests {
         full.archived = true;
         full.baseline = Some("a".repeat(40));
         full.space = Some(crate::sessions::spaces::SpaceId::from_random([7; 16]));
+        full.reads = vec![
+            crate::sessions::spaces::Member {
+                root: PathBuf::from("/work/web"),
+                identity: Some((1, 2)),
+            },
+            crate::sessions::spaces::Member::at(std::path::Path::new("/work/db")),
+        ];
         let mut bare = session(2);
         bare.root = None;
         bare.origin = Origin::Answered;

@@ -66,6 +66,7 @@ mod reviews;
 mod save;
 mod screen;
 mod sessions;
+mod starts;
 mod status;
 mod switch;
 mod tab;
@@ -177,8 +178,7 @@ pub struct Editor {
     /// While a command runs, whether it has taken a buffer that may hold secrets off the
     /// screen. This holds whatever then becomes of that buffer.
     command_left_secret: Option<bool>,
-    /// A file a write to a new place found, which the next `C-x C-w` of it asks to write over
-    /// (ADR 0087).
+    /// A file a write to a new place found, which the next `C-x C-w` asks to write over (ADR 0087).
     write_over_asked: Option<write::WriteOver>,
     /// What the prompt that reads a path keeps beside its candidates (ADR 0087).
     file_list: files::FileList,
@@ -192,8 +192,7 @@ pub struct Editor {
     completion_work: completion::CompletionWork,
     /// Files commands asked to visit, with the most bytes each may read, for the host.
     visits: Vec<(std::path::PathBuf, u64)>,
-    /// A file a load stopped before reading as too large, with its size, which `C-x C-f` asks
-    /// about next (ADR 0087).
+    /// A file a load stopped as too large, with its size, which `C-x C-f` asks about (ADR 0087).
     large: Option<(std::path::PathBuf, u64)>,
     /// The directory oso started in.
     start_directory: std::path::PathBuf,
@@ -219,13 +218,14 @@ pub struct Editor {
     /// The keys in progress were typed, or stayed, while a buffer that may hold secrets was
     /// shown, so the control socket leaves them out until they end.
     keys_withheld: bool,
-    /// The composition was open while such a buffer was shown, so the control socket leaves it
-    /// out until it ends.
+    /// The composition was open while such a buffer was shown, so the socket leaves it out too.
     preedit_withheld: bool,
     /// Saves the host has yet to start.
     save_jobs: Vec<SaveJob>,
-    /// The buffers the last refused exit put at risk, until its question is answered or a save.
-    exit_attempt: Option<Vec<BufferId>>,
+    /// What the last refused exit put at risk, until it is answered or a save changes that.
+    exit_attempt: Option<Vec<(BufferId, ContentId)>>,
+    /// The person asked to exit once no terminal is busy (ADR 0133).
+    quit_when_idle: bool,
     /// What an input method is composing, shown at the selected window's primary
     /// cursor and in no buffer (ADR 0069).
     preedit: Option<Preedit>,
@@ -256,8 +256,7 @@ pub struct Editor {
     terminal_requests: Vec<TerminalRequest>,
     /// The isearch under way in the selected window (ADR 0082).
     isearch: Option<Isearch>,
-    /// Migemo's setting, its dictionary, and the needles of the last romaji strings
-    /// (ADR 0116).
+    /// Migemo's setting, its dictionary, and the last romaji strings' needles (ADR 0116).
     migemo: migemo::Migemo,
     /// The jump under way, and the keys its labels are typed with (ADR 0116).
     jump: Option<crate::jump::Jump>,
@@ -359,6 +358,7 @@ impl Editor {
             preedit_withheld: false,
             save_jobs: Vec::new(),
             exit_attempt: None,
+            quit_when_idle: false,
             preedit: None,
             prompts: Vec::new(),
             histories: Histories::default(),
@@ -1105,6 +1105,8 @@ mod reload_tests;
 mod reviews_tests;
 #[cfg(test)]
 mod save_tests;
+#[cfg(test)]
+mod starts_tests;
 #[cfg(test)]
 mod test_buffers;
 #[cfg(test)]

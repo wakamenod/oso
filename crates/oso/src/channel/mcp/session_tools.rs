@@ -17,8 +17,8 @@ pub(super) fn method(name: &str) -> Option<(&'static str, &'static [&'static str
         "session_state" => &["session"],
         "worktree_list" => &["repo"],
         "worktree_remove" => &["path"],
-        "start_worktree_session" => &["branch", "base", "brief", "name", "repo"],
-        "session_start" => &["directory", "name", "brief", "repo"],
+        "start_worktree_session" => &["branch", "base", "brief", "name", "repo", "with_dirs"],
+        "session_start" => &["directory", "name", "brief", "repo", "with_dirs"],
         "space_status" => &[],
         _ => return None,
     };
@@ -75,6 +75,11 @@ fn repo() -> Value {
     json!({ "type": "string", "description": "A repository of your space, by its name from space_status: needed from a space's orchestrator; any other session may name only its own repository." })
 }
 
+/// What `with_dirs` says of itself.
+fn with_dirs() -> Value {
+    json!({ "type": "array", "items": { "type": "string" }, "maxItems": 8, "description": "For a space's orchestrator only: up to 8 more directories the new session may read, each a trusted repository's root or one of its linked worktrees in your space, by absolute path, as worktree_list and space_status give them." })
+}
+
 /// The session tools that act.
 pub(super) fn acting() -> Vec<Value> {
     vec![
@@ -97,6 +102,7 @@ pub(super) fn acting() -> Vec<Value> {
                 "brief": { "type": "string", "description": "The task for the new session, at most 64 KiB." },
                 "name": { "type": "string", "description": "The session's name; the worktree's if not given." },
                 "repo": repo(),
+                "with_dirs": with_dirs(),
             }),
             &["branch", "brief"],
             false,
@@ -110,6 +116,7 @@ pub(super) fn acting() -> Vec<Value> {
                 "name": { "type": "string" },
                 "brief": { "type": "string", "description": "The task for the new session, at most 64 KiB." },
                 "repo": repo(),
+                "with_dirs": with_dirs(),
             }),
             &[],
             false,

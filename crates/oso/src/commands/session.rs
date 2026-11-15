@@ -1,11 +1,13 @@
 //! Commands for the session as a whole: cancelling what is in progress, and
-//! exiting (ADR 0034, ADR 0059, ADR 0071).
+//! exiting, at once or once the terminals are idle (ADR 0034, ADR 0059, ADR 0071, ADR 0133).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
+use oso_core::buffer::BufferId;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::Quit;
+use oso_core::editor::{Editor, Quit};
+use oso_core::minibuffer::Third;
 
 /// The session commands.
 pub const COMMANDS: &[Command] = &[
@@ -19,13 +21,24 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "save-buffers-kill-terminal",
-        doc: "Exit oso, if nothing is at risk.\n\nWith a modified buffer, a save running, or a program running in a terminal, this asks whether to exit, and says how many. `y` exits, unless more is at risk by then, when it asks again, and a save still running then gets to finish.",
+        doc: "Exit oso, if nothing is at risk.\n\nWith a modified buffer, a save running, or a program running in a terminal, this asks whether to exit, and says how many. It names the sessions with a turn under way and the terminals with a job running. `y` exits, unless more is at risk by then, when it asks again, and a save still running then gets to finish. With work under way, `w` waits for it, as `quit-when-idle` does.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: save_buffers_kill_terminal,
         state: None,
     },
+    Command {
+        name: "quit-when-idle",
+        doc: "Exit oso once no session has a turn under way and no terminal runs a job.\n\nYou go on working meanwhile. Once every terminal has been idle for 2 seconds, oso exits as `C-x C-c` would, and if more is at risk by then than you agreed to lose, or a review comment of yours is not sent, it stops and says so instead. `C-x C-c` cancels, as it asks again and only `w` waits again, and so does `C-g` where oso has the keys: a terminal sends it to its program. A shell started with no job control, as `sh -c` is, shows no job, and a job in the background is not waited for.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: quit_when_idle,
+        state: None,
+    },
 ];
+
+/// The most buffers a list in an exit's question names; the rest are counted.
+const NAMED: usize = 3;
 
 fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     // Whatever else it does, a person's `C-g` drops a search for cursors (ADR 0091).
@@ -50,7 +63,16 @@ fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         ctx.editor.echo("Stopping after the file in hand…");
         return Ok(());
     }
-    // With nothing else to do, it drops a keyboard macro being recorded (ADR 0113).
+    // With nothing else to do, it cancels an exit that waits for the terminals (ADR 0133).
+    if quit == Quit::Nothing && ctx.editor.quit_when_idle() {
+        ctx.editor.set_quit_when_idle(false);
+        // What the person agreed to lose for that exit is asked about again next time.
+        ctx.editor.reset_exit_guard();
+        ctx.editor.echo("Quit when idle cancelled");
+        ctx.request_redraw();
+        return Ok(());
+    }
+    // Then it drops a keyboard macro being recorded (ADR 0113).
     if quit == Quit::Nothing && ctx.editor.macro_recording() {
         ctx.editor
             .macro_cancel("Keyboard macro recording cancelled");
@@ -63,19 +85,42 @@ fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    // An exit that waited for the terminals asks again, and waits again only on `w`.
+    ctx.editor.set_quit_when_idle(false);
+    let (turns, jobs) = busy(ctx.editor);
     // Comments of the person's not sent yet are lost with the editor until reviews are saved
-    // (ADR 0122, step 6), and programs in terminals end with it (ADR 0120): one question says
-    // all of it.
+    // (ADR 0122, step 6), and work and programs in terminals end with it (ADR 0120,
+    // ADR 0133): one question says all of it.
     let mut lost = Vec::new();
     match super::review::unsent_everywhere(ctx.editor) {
         0 => {}
         1 => lost.push("1 comment of yours will be lost".to_owned()),
         n => lost.push(format!("{n} comments of yours will be lost")),
     }
-    match ctx.editor.running_terminals().count() {
+    match turns.len() {
         0 => {}
+        1 => lost.push(format!(
+            "a turn is under way in {}",
+            names(ctx.editor, &turns)
+        )),
+        _ => lost.push(format!(
+            "turns are under way in {}",
+            names(ctx.editor, &turns)
+        )),
+    }
+    match jobs.len() {
+        0 => {}
+        1 => lost.push(format!("a job runs in {}", names(ctx.editor, &jobs))),
+        _ => lost.push(format!("jobs run in {}", names(ctx.editor, &jobs))),
+    }
+    let work = !turns.is_empty() || !jobs.is_empty();
+    let more = if work { " more" } else { "" };
+    let others = ctx.editor.running_terminals().count();
+    match others.saturating_sub(turns.len() + jobs.len()) {
+        0 => {}
+        1 if work => lost.push("1 more terminal ends".to_owned()),
         1 => lost.push("1 terminal runs a program".to_owned()),
-        n => lost.push(format!("{n} terminals run programs")),
+        n => lost.push(format!("{n}{more} terminals end")),
     }
     let lost = (!lost.is_empty()).then(|| lost.join(", and "));
     let question = match (ctx.editor.confirm_exit(ctx.confirmed()), lost) {
@@ -91,12 +136,81 @@ fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandE
         (Err(refused), None) => format!("{refused}; exit without saving?"),
         (Err(refused), Some(lost)) => format!("{lost}, and {refused}; exit without saving?"),
     };
-    ask(
-        ctx,
-        question,
-        "save-buffers-kill-terminal",
-        ["exit", "stay"],
-    )
+    if !work {
+        return ask(
+            ctx,
+            question,
+            "save-buffers-kill-terminal",
+            ["exit", "stay"],
+        );
+    }
+    let third = Third {
+        command: "quit-when-idle",
+        verb: "wait",
+    };
+    ctx.editor
+        .ask_with_third(
+            question,
+            "save-buffers-kill-terminal",
+            ["exit", "stay"],
+            third,
+        )
+        .map_err(|error| CommandError::new(error.to_string()))?;
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn quit_when_idle(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    // From `M-x`, nothing was agreed to: the exit asks about unsaved text once idle. As `w` to
+    // `C-x C-c`'s question, what that question named was.
+    if !ctx.confirmed() {
+        ctx.editor.reset_exit_guard();
+    }
+    ctx.editor.set_quit_when_idle(true);
+    let (turns, jobs) = busy(ctx.editor);
+    let count = |n: usize, one: &str, many: &str| match n {
+        0 => None,
+        1 => Some(format!("1 {one}")),
+        n => Some(format!("{n} {many}")),
+    };
+    let under_way: Vec<String> = [
+        count(turns.len(), "turn", "turns"),
+        count(jobs.len(), "job", "jobs"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    ctx.editor.echo(if under_way.is_empty() {
+        "Quitting when idle; C-x C-c n cancels".to_owned()
+    } else {
+        format!(
+            "Quitting when idle: {} under way; C-x C-c n cancels",
+            under_way.join(" and ")
+        )
+    });
+    ctx.request_redraw();
+    Ok(())
+}
+
+/// The busy terminals: hosted sessions with a turn under way, then those with a job running.
+fn busy(editor: &Editor) -> (Vec<BufferId>, Vec<BufferId>) {
+    editor.busy_terminals().partition(|id| {
+        editor
+            .buffer(*id)
+            .is_some_and(oso_core::buffer::Buffer::hosts_session)
+    })
+}
+
+/// The names of the buffers `ids`, up to [`NAMED`], and how many more.
+fn names(editor: &Editor, ids: &[BufferId]) -> String {
+    let named: Vec<&str> = (ids.iter().take(NAMED))
+        .filter_map(|id| editor.buffer(*id))
+        .map(oso_core::buffer::Buffer::name)
+        .collect();
+    match ids.len().saturating_sub(NAMED) {
+        0 => named.join(", "),
+        more => format!("{} and {more} more", named.join(", ")),
+    }
 }
 
 /// Asks `question`, whose `y` runs `command`, and shows it, with `verbs` saying what `y`
@@ -188,8 +302,122 @@ mod tests {
             Kind::Question {
                 yes: "save-buffers-kill-terminal",
                 verbs: ["exit", "stay"],
+                third: None,
             }
         );
+    }
+
+    fn echo(editor: &oso_core::editor::Editor) -> String {
+        let mut status = oso_core::editor::Status::default();
+        editor.status_into(editor.tiled().0.id(), &mut status);
+        status.echo
+    }
+
+    fn run_confirmed(
+        editor: &mut oso_core::editor::Editor,
+        name: &str,
+    ) -> (Result<(), String>, Effects) {
+        let registry = crate::commands::registry();
+        let id = registry.lookup(name).unwrap();
+        let invocation = oso_core::command::Invocation {
+            confirmed: true,
+            ..oso_core::command::Invocation::default()
+        };
+        let mut ctx = oso_core::command::Ctx::invoked(editor, invocation);
+        let result = (registry.execute(id, &mut ctx, Args::NONE)).map_err(|e| e.to_string());
+        (result, ctx.effects())
+    }
+
+    /// An editor with a hosted session whose turn is under way and a shell running a job,
+    /// besides an idle shell.
+    fn busy_editor() -> (oso_core::editor::Editor, [oso_core::buffer::BufferId; 3]) {
+        let mut editor = editor("");
+        let session = editor.add_terminal_buffer("*claude: docs*");
+        editor.set_hosts_session(session, true);
+        let job = editor.add_terminal_buffer("*terminal*");
+        let idle = editor.add_terminal_buffer("*terminal*");
+        for id in [session, job, idle] {
+            editor.set_running(id, true);
+        }
+        editor.set_session_turn(session, true);
+        editor.set_terminal_job(job, true);
+        (editor, [session, job, idle])
+    }
+
+    #[test]
+    fn an_exit_names_the_work_under_way_and_offers_to_wait_for_it() {
+        let (mut editor, [_, job, _]) = busy_editor();
+        let (result, effects) = run(&mut editor, "save-buffers-kill-terminal", Args::NONE);
+        assert_eq!(result, Ok(()));
+        assert!(!effects.exit);
+        let prompt = editor.prompt().expect("a question");
+        assert_eq!(
+            prompt.label(),
+            "a turn is under way in *claude: docs*, and a job runs in *terminal*, and 1 more \
+             terminal ends; exit anyway? (y, n or w)"
+        );
+        let Kind::Question { third, .. } = prompt.kind() else {
+            panic!("not a question");
+        };
+        assert_eq!(third.map(|third| third.verb), Some("wait"));
+        // `w` waits, and says for what.
+        run(&mut editor, "answer-third", Args::NONE).0.unwrap();
+        assert!(editor.prompt().is_none());
+        let Some(oso_core::minibuffer::Outcome::Run(name)) = editor.take_prompt_outcome() else {
+            panic!("w runs nothing");
+        };
+        let (_, effects) = run(&mut editor, name, Args::NONE);
+        assert!(!effects.exit);
+        assert!(editor.quit_when_idle());
+        assert_eq!(
+            echo(&editor),
+            "Quitting when idle: 1 turn and 1 job under way; C-x C-c n cancels"
+        );
+        // A job that ends leaves the turn to wait for.
+        editor.set_terminal_job(job, false);
+        assert_eq!(editor.busy_terminals().count(), 1);
+    }
+
+    #[test]
+    fn c_g_or_another_exit_stops_the_wait() {
+        let (mut editor, _) = busy_editor();
+        run(&mut editor, "quit-when-idle", Args::NONE).0.unwrap();
+        assert!(editor.quit_when_idle());
+        run(&mut editor, "keyboard-quit", Args::NONE).0.unwrap();
+        assert!(!editor.quit_when_idle());
+        assert_eq!(echo(&editor), "Quit when idle cancelled");
+        // `C-x C-c` while it waits asks again, waiting no more unless `w` says so.
+        run(&mut editor, "quit-when-idle", Args::NONE).0.unwrap();
+        run(&mut editor, "save-buffers-kill-terminal", Args::NONE)
+            .0
+            .unwrap();
+        assert!(!editor.quit_when_idle());
+        assert!(editor.prompt().is_some());
+    }
+
+    #[test]
+    fn many_busy_terminals_are_named_up_to_three() {
+        let mut editor = editor("");
+        for _ in 0..5 {
+            let id = editor.add_terminal_buffer("*terminal*");
+            editor.set_running(id, true);
+            editor.set_terminal_job(id, true);
+        }
+        run(&mut editor, "save-buffers-kill-terminal", Args::NONE)
+            .0
+            .unwrap();
+        assert_eq!(
+            editor.prompt().unwrap().label(),
+            "jobs run in *terminal*, *terminal*<2>, *terminal*<3> and 2 more; exit anyway? \
+             (y, n or w)"
+        );
+    }
+
+    #[test]
+    fn a_confirmed_exit_goes_whatever_runs() {
+        let (mut editor, _) = busy_editor();
+        let (_, effects) = run_confirmed(&mut editor, "save-buffers-kill-terminal");
+        assert!(effects.exit);
     }
 
     #[test]

@@ -219,7 +219,11 @@ network features.
   benchmark harness, which never ships
   ([ADR 0046](adr/0046-performance-regression-checks.md)).
 - Executables resolve from absolute paths in user config, or from `PATH` with
-  the current directory and the project directory removed.
+  the current directory and the project directory removed. Language servers also come from
+  oso's built-in table: on `PATH`, in a toolchain's directory under the home (`~/.cargo/bin`,
+  `~/go/bin`), or, in a trusted project only, from fixed names under its root, such as
+  `node_modules/.bin`, whose link must lead to a regular file of this user's inside the root
+  ([ADR 0138](adr/0138-language-servers.md)). Only an `.exe` starts one on Windows.
 - The environment is sanitized and every spawn is logged in a visible buffer.
 
 ### Dependencies (T2, T8)
