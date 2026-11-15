@@ -190,6 +190,11 @@ fn the_status_needs_a_trusted_project() {
     let (result, _) = run(&mut editor, "git-status", Args::NONE);
     assert_eq!(result.unwrap_err().to_string(), super::RESTRICTED);
     assert!(editor.take_git_requests().is_empty());
+    // Unix only from here, as the review's trust test is: without a drive, the path is not
+    // absolute on Windows, and a record of it trusts nothing there.
+    if cfg!(not(unix)) {
+        return;
+    }
     let (mut editor, project) = crate::commands::review::tests::in_project(true);
     let (result, _) = run(&mut editor, "git-status", Args::NONE);
     assert!(result.is_ok());
