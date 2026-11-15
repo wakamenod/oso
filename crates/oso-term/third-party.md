@@ -22,6 +22,12 @@ does their work by hand, the way ADR 0111 does for the grammars' C.
   is pooled with the same row headroom as a live one, including a page too large for the pool;
   its lines say so where they change the code. The files stay under the library's MIT licence,
   and `build.rs` checks the patch and each file against the lock.
+- **oso's patch:** `patches/0004-reflow-degrade.patch` changes one file
+  (`src/terminal/PageList.zig`) so that a column reflow which cannot fit a cell's hyperlink,
+  grapheme or style into a page even at the page's maximum capacity drops that data and keeps
+  the cell, in every build, instead of crashing in safe builds; its lines say so where they
+  change the code. The file stays under the library's MIT licence, and `build.rs` checks the
+  patch and the file against the lock.
 - **At a bump:** read the new report and the diff of each linked package, update the lock and
   this table, and copy any licence text that changed into `licenses/`. Drop the patch if the
   new release makes it needless, or rebase it and update its hashes. Then fuzz again with

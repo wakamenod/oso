@@ -759,6 +759,10 @@ Each passage stays in its ADR as written; what holds now follows it.
   program from the host API, and sets a terminal's extra environment through it. M4's compile buffer
   gets the seam.
 - Until step 11, a running terminal holds `oso dev`'s restarts.
+- A narrowing resize that reflows a cell into a page which cannot hold the cell's hyperlink,
+  grapheme or style even at its largest keeps the cell's character but drops that data. This is
+  rare (a hyperlink-, grapheme- or style-dense page narrowed) and happens the same whether the
+  terminal is live or was restored.
 - Follow-up: ADR 0121 (sessions, `claude`, the MCP config, OS notifications), ADR 0122 (review), the
   compile buffer's ADR, ConPTY, Sixel and iTerm2 images, moving between OSC 133 prompts, and a
   line search with a list, as consult-line, for buffers and terminals.
