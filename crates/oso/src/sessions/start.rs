@@ -87,11 +87,15 @@ pub struct Order {
 /// What an orchestrator starts with, looked at again just before it starts (ADR 0136, step 3).
 #[derive(Debug, Clone)]
 pub struct SpaceStart {
+    /// Whether it starts in the space's own directory, which its checks look at first; a
+    /// worker in a repository gets none of them (ADR 0136, step 4b).
+    pub in_space_directory: bool,
     /// The space directory's identity when oso made it.
     pub made: Option<(u64, u64)>,
     /// Every repository of the space, which the directory must be inside none of.
     pub members: Vec<crate::sessions::spaces::Member>,
-    /// The trusted ones, given with `--add-dir` while each is still the one recorded.
+    /// The trusted ones, given with `--add-dir` while each is still the one recorded; for a
+    /// worker, the directories it also reads, as they were checked.
     pub trusted: Vec<crate::sessions::spaces::Member>,
     /// The fixed text and the space's header, for `--append-system-prompt`.
     pub prompt: String,
@@ -324,14 +328,16 @@ fn space_extra(
     let Some(space) = space else {
         return Ok((Extra::default(), Vec::new()));
     };
-    orchestrator::check_before_start(directory, space.made, &space.members)
-        .map_err(|why| format!("The orchestrator did not start: {why}"))?;
+    if space.in_space_directory {
+        orchestrator::check_before_start(directory, space.made, &space.members)
+            .map_err(|why| format!("The orchestrator did not start: {why}"))?;
+    }
     let (kept, gone) = orchestrator::still_there(&space.trusted);
     let mut notes: Vec<String> = gone
         .iter()
         .map(|root| {
             format!(
-                "{} is not the repository the space recorded: left out",
+                "{} is no longer the directory oso checked: left out",
                 root.display()
             )
         })

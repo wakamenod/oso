@@ -13,6 +13,7 @@ use crate::review::TrustedRoot;
 use crate::sessions::identity::SessionId;
 use crate::sessions::spaces::Member;
 use crate::sessions::spaces::stored::now_ms;
+use crate::sessions::start::SpaceStart;
 use crate::sessions::tools::repo;
 use crate::sessions::worker::SessionKey;
 
@@ -31,9 +32,79 @@ impl App {
         self.member_trust(member).is_some()
     }
 
+    /// What a worker that also reads `reads` starts with: those directories, checked again
+    /// on its start thread (ADR 0136, step 4b); nothing for none.
+    pub(in crate::app) fn worker_reads(reads: Vec<Member>) -> Option<SpaceStart> {
+        (!reads.is_empty()).then(|| SpaceStart {
+            in_space_directory: false,
+            made: None,
+            members: Vec::new(),
+            trusted: reads,
+            prompt: String::new(),
+            instructions: None,
+        })
+    }
+
+    /// The directories a start with `space` also reads: a worker's; none for another.
+    pub(in crate::app) fn reads_of(space: Option<&SpaceStart>) -> Vec<PathBuf> {
+        let reads = space.filter(|space| !space.in_space_directory);
+        reads.map_or_else(Vec::new, |space| {
+            space.trusted.iter().map(|m| m.root.clone()).collect()
+        })
+    }
+
+    /// The directories session `key` also reads, for its resume (Q1): each still a trusted
+    /// repository of the session's space, or a worktree git listed of one, as the record is one
+    /// agents can write; the start thread checks each one's identity again. Those left out are
+    /// said.
+    pub(in crate::app) fn reads_again(&mut self, key: SessionKey) -> Option<SpaceStart> {
+        let session = self.hosting.table.get(key)?;
+        if session.reads.is_empty() {
+            return None;
+        }
+        let spaces = self.watch.spaces();
+        let stored = self
+            .space_of_session(session)
+            .and_then(|at| spaces.stored(at));
+        let still = |dir: &Path| {
+            let stored = stored?;
+            let root = match stored.member(dir) {
+                Some(member) => member.root.clone(),
+                None => self.listed_repository_of(dir)?,
+            };
+            stored.member(&root).filter(|member| self.trusts(member))
+        };
+        let (kept, left): (Vec<Member>, Vec<Member>) =
+            (session.reads.iter().cloned()).partition(|read| still(&read.root).is_some());
+        if !left.is_empty() {
+            let shown: Vec<String> = (left.iter())
+                .map(|read| super::printable(&read.root.display().to_string()))
+                .collect();
+            (self.editor).message(format!(
+                "Not given again, as no trusted repository of the space holds it now: {}",
+                shown.join(", ")
+            ));
+        }
+        Self::worker_reads(kept)
+    }
+
+    /// Hosted session `key`, about to start as `space` says: the directories it also reads
+    /// are kept for its record, which a resume passes again once checked.
+    pub(in crate::app) fn note_reads(&mut self, key: SessionKey, space: Option<&SpaceStart>) {
+        if let Some(space) = space.filter(|space| !space.in_space_directory) {
+            (self.hosting.spaces.reads).insert(key, space.trusted.clone());
+        }
+    }
+
     /// Hosted session `key`, just started: when its parent is a space's orchestrator, it is a
-    /// worker of that space.
+    /// worker of that space; the directories it also reads go in its record.
     pub(super) fn worker_joined(&mut self, key: SessionKey) {
+        if let Some(reads) = self.hosting.spaces.reads.remove(&key)
+            && let Some(session) = self.hosting.table.get_mut(key)
+        {
+            session.reads = reads;
+            self.hosting.unsaved = true;
+        }
         let Some(parent) = self.hosting.table.get(key).and_then(|s| s.parent.clone()) else {
             return;
         };

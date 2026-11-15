@@ -200,7 +200,9 @@ Claude Code, `/permissions` and its Workspace tab list the directories it was gi
 The orchestrator works through sessions: its tools name a repository of the space with
 `repo`, and it sees the space's sessions only. A worker it starts belongs to the space, and
 its brief says to report to the orchestrator by the space's name. `space_status` gives any
-session of the space the space, its repositories with their trust, and its sessions.
+session of the space the space, its repositories with their trust, and its sessions. With
+`with_dirs`, the orchestrator lets a worker also read another trusted repository of the space or
+one of its worktrees; the question you answer lists them.
 
 ### Send work to a session
 

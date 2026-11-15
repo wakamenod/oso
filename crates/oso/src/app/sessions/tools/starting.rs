@@ -54,6 +54,7 @@ impl App {
                 name,
                 parent,
                 origin,
+                reads,
             } => {
                 let token = self.worktree_token();
                 let branch = printable(&order.branch, 80);
@@ -73,6 +74,7 @@ impl App {
                         name,
                         parent,
                         origin,
+                        reads,
                         said,
                     }),
                 );
@@ -126,7 +128,7 @@ impl App {
                     origin: creating.origin,
                     check_shared: false,
                     trusted: Some(trusted),
-                    space: None,
+                    space: App::worker_reads(creating.reads),
                 });
                 match key {
                     Some(key) => {

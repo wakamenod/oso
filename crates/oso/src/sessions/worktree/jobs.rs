@@ -33,6 +33,7 @@ use super::prepare::{self, Prepare, Prepared};
 use crate::project::{Trusted, linked_worktree};
 use crate::review::TrustedRoot;
 use crate::review::git::MAX_SHORT;
+use crate::sessions::spaces::Member;
 
 /// Why a job refuses a repository whose main checkout is not trusted.
 pub const MAIN_UNTRUSTED: &str =
@@ -154,9 +155,12 @@ pub enum Report {
     /// step 6).
     ///
     /// A directory found is given with its trust, which a session started there takes.
+    ///
+    /// With it, the directories the new session also reads, each checked with its identity
+    /// (ADR 0136, step 4b).
     Prepared {
         token: u64,
-        result: Result<(Prepared, Option<TrustedRoot>), String>,
+        result: Result<(Prepared, Option<TrustedRoot>, Vec<Member>), String>,
     },
 }
 
@@ -325,12 +329,26 @@ impl Jobs {
     }
 
     /// Looks at what an agent's session tool would do, before the person is asked.
-    pub fn prepare(&self, token: u64, trust: Trust, what: Prepare) {
+    ///
+    /// `with` are the directories the new session also reads, each with its repository's
+    /// trust: each is checked as that repository's root or one of its linked worktrees.
+    pub fn prepare(&self, token: u64, trust: Trust, what: Prepare, with: Vec<(Trust, PathBuf)>) {
+        let state = self.state.clone();
         self.on_repo(
             trust,
             true,
             move |root, repo, send| {
-                let result = prepare::prepare(repo, &what).map(|prepared| {
+                let readable = with
+                    .iter()
+                    .map(|(trust, dir)| {
+                        let repo = trust
+                            .root
+                            .check()
+                            .and_then(|()| self::repo(trust, state.as_deref()));
+                        prepare::readable(&repo?, dir)
+                    })
+                    .collect::<Result<Vec<Member>, String>>();
+                let result = prepare::prepare(repo, &what).and_then(|prepared| {
                     let trusted = match &prepared {
                         // The root itself keeps the identity its check just held.
                         Prepared::Directory(directory) if directory == root.path() => {
@@ -341,7 +359,7 @@ impl Jobs {
                         }
                         Prepared::Worktree { .. } => None,
                     };
-                    (prepared, trusted)
+                    Ok((prepared, trusted, readable?))
                 });
                 send(Report::Prepared { token, result });
             },

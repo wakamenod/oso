@@ -67,6 +67,7 @@ fn session(n: u8, place: &Path) -> Remembered {
         changed: 1,
         baseline: None,
         space: None,
+        reads: Vec::new(),
     }
 }
 

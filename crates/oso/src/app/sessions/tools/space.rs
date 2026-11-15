@@ -19,6 +19,7 @@ use crate::sessions::hosted::Hosted;
 use crate::sessions::spaces::SpaceId;
 use crate::sessions::spaces::stored::same;
 use crate::sessions::tools::repo::{self, Named};
+use crate::sessions::worktree::jobs::Trust;
 
 /// A caller's space, and its part there.
 #[derive(Clone, Debug)]
@@ -111,6 +112,39 @@ impl App {
             Named::Own => Ok(caller),
             Named::Member(root) => self.at_member(caller, root),
         }
+    }
+
+    /// As [`App::scoped_caller`], with the directories `with_dirs` names, each with the trust
+    /// of the space's repository it is of, for the job to check (ADR 0136, step 4b): only an
+    /// orchestrator names any, and each must be a trusted repository's root or one of its
+    /// worktrees.
+    ///
+    /// # Errors
+    ///
+    /// Why the call is refused, for the agent.
+    pub(super) fn scoped_with(
+        &self,
+        caller: Caller,
+        repo: Option<&str>,
+        with_dirs: &[PathBuf],
+    ) -> Result<(Caller, Vec<(Trust, PathBuf)>), String> {
+        if !with_dirs.is_empty() && !caller.orchestrator() {
+            return Err("only a space's orchestrator names \"with_dirs\"".to_owned());
+        }
+        let members = self.caller_members(&caller);
+        let mut with = Vec::with_capacity(with_dirs.len());
+        for dir in with_dirs {
+            let listed = (self.listed_repository_of(dir))
+                .filter(|root| members.iter().any(|(_, member)| same(member, root)));
+            let root = listed
+                .or_else(|| repo::holding(&members, dir).map(Path::to_path_buf))
+                .ok_or_else(|| format!("{} is in no repository of your space", quoted_path(dir)))?;
+            let acting = self.at_member(caller.clone(), &root)?;
+            let root = acting.acting_at.ok_or("that repository is not trusted")?;
+            let trusted = self.trusted_list();
+            with.push((Trust { root, trusted }, dir.clone()));
+        }
+        Ok((self.scoped_caller(caller, repo)?, with))
     }
 
     /// An orchestrator's call on the worktree at `path` acts in the space's repository git

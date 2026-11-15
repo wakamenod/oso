@@ -64,6 +64,9 @@ pub(in crate::app) struct SpaceWork {
     /// The repository `space-use-repo` chose for project commands from each space's
     /// orchestrator's buffer (ADR 0136, step 4).
     pub(in crate::app) used: HashMap<SpaceId, PathBuf>,
+    /// The directories each session being started also reads, until it is in the table.
+    pub(in crate::app) reads:
+        HashMap<crate::sessions::worker::SessionKey, Vec<crate::sessions::spaces::Member>>,
 }
 
 impl SpaceWork {
