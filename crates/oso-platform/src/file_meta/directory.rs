@@ -78,6 +78,7 @@ fn is_one_name(name: &OsStr) -> bool {
 /// The most bytes of a link's target read.
 const MAX_LINK_BYTES: usize = 64 * 1024;
 
+mod mode;
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
@@ -174,6 +175,13 @@ impl Directory {
     /// is where it leads.
     pub fn target_kind(&self, name: &OsStr) -> io::Result<EntryKind> {
         backend::target_kind(&self.inner, name)
+    }
+
+    /// What a listing shows of `.`, this directory, and `..`, the one above it, each read from
+    /// this one: `.` itself and `..` relative to it on Unix, by their paths elsewhere. It
+    /// touches the disk, so it belongs off the UI thread.
+    pub fn dots(&self) -> [io::Result<EntryMeta>; 2] {
+        backend::dots(&self.inner)
     }
 
     /// What the entry `name` is, not following it. It touches the disk, so it belongs off the

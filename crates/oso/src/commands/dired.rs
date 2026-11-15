@@ -140,7 +140,7 @@ pub const KEYS: &[(&str, &str)] = &[
 ];
 
 /// The listing buffer the selected window shows, or why the command means nothing here.
-fn listing(ctx: &Ctx<'_>) -> Result<oso_core::buffer::BufferId, CommandError> {
+pub(super) fn listing(ctx: &Ctx<'_>) -> Result<oso_core::buffer::BufferId, CommandError> {
     let (window, buffer) = ctx.editor.current();
     if buffer.mode() != Mode::Directory || ctx.editor.listing(window.buffer()).is_none() {
         return Err(CommandError::new("Not in a directory listing"));
@@ -233,12 +233,12 @@ fn up_directory(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 /// Moves every cursor `n` rows, to the start of the row's name, staying on the rows.
-fn move_rows(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
+pub(super) fn move_rows(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
     let buffer = listing(ctx)?;
-    let Some(record) = ctx.editor.listing(buffer) else {
+    let Some(record) = ctx.editor.listing(buffer).cloned() else {
         return Ok(());
     };
-    let (first, rows, column) = (record.header_lines, record.rows, record.name_column);
+    let (first, rows) = (record.header_lines, record.rows);
     if rows == 0 {
         return Ok(());
     }
@@ -248,8 +248,7 @@ fn move_rows(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
     let update = window.selections.update(|selection: &mut Selection| {
         let row = text.offset_to_point(selection.cursor).row;
         let line = row.saturating_add_signed(n).clamp(first, last);
-        let start = text.line_start(line);
-        selection.cursor = start + column.min(text.line_len(line));
+        selection.cursor = record.name_start(&text, line);
         selection.goal = None;
         Ok::<(), ()>(())
     });
@@ -299,6 +298,10 @@ fn sort_toggle(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         .request_listing(ListingRequest::ToggleSort { buffer });
     Ok(())
 }
+
+mod marks;
+
+pub use marks::{COMMANDS as MARK_COMMANDS, KEYS as MARK_KEYS};
 
 #[cfg(test)]
 mod tests;

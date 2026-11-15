@@ -10,18 +10,52 @@
 //! - Its text comes whole, with its display map, and goes in at O(1), as a file's load does.
 //! - What a line names is the host's: the editor keeps only where names start, so that motion
 //!   can go to the name's column, and the directory, so that a prompt for a path starts there.
+//! - A listing is named after its directory, `crates/`, told apart from another of the same name
+//!   by the directories above it, as files are (`crates/<oso>`).
+//! - A mark is the first character of its row, changed in place with its faces (`*`), which
+//!   moves no cursor.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use super::Editor;
-use crate::buffer::{Buffer, BufferId, Mode};
+use crate::buffer::{self, Buffer, BufferId, Mode, Replacement};
 use crate::load::LoadSnapshot;
+use crate::rope::Rope;
 use crate::secret;
 use crate::selection::SelectionSet;
-use crate::syntax::Highlights;
+use crate::syntax::{Highlight, Highlights};
 use crate::window::WindowId;
+
+/// How a listing orders its rows, directories first in each (ADR 0134).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ListingOrder {
+    /// By name, ignoring ASCII case.
+    #[default]
+    Name,
+    /// By modification time, newest first.
+    Date,
+}
+
+impl ListingOrder {
+    /// What the modeline says of it, as dired's `Dired by name`.
+    pub fn note(self) -> &'static str {
+        match self {
+            Self::Name => "by name",
+            Self::Date => "by date",
+        }
+    }
+
+    /// The other order, as `s` toggles them.
+    #[must_use]
+    pub fn toggled(self) -> Self {
+        match self {
+            Self::Name => Self::Date,
+            Self::Date => Self::Name,
+        }
+    }
+}
 
 /// What the editor knows of a listing buffer's text, which the host sets with it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -36,8 +70,36 @@ pub struct Listing {
     pub rows: usize,
     /// Whether the rows show their details, or only their names (`(`).
     pub details: bool,
-    /// What the modeline says after the mode: the order, such as `by name`.
-    pub note: String,
+    pub order: ListingOrder,
+    /// How many rows are marked.
+    pub marked: usize,
+}
+
+impl Listing {
+    /// Where the name of the row at `line` of `text` starts, or the line's end if it is shorter,
+    /// as a header or a note line is.
+    pub fn name_start(&self, text: &Rope, line: usize) -> usize {
+        let line = line.min(text.max_point().row);
+        text.line_start(line) + self.name_column.min(text.line_len(line))
+    }
+
+    /// What the modeline says after the mode: the order, and how many rows are marked.
+    fn note(&self) -> String {
+        match self.marked {
+            0 => self.order.note().to_owned(),
+            marked => format!("{}  {marked} marked", self.order.note()),
+        }
+    }
+}
+
+/// A row whose mark changes (ADR 0134): its line, whether it is marked now, and the face of its
+/// name, of `name_len` bytes, which an unmarked row takes back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RowMark {
+    pub line: usize,
+    pub marked: bool,
+    pub face: Option<Highlight>,
+    pub name_len: usize,
 }
 
 /// What a command asks of the host for a listing (ADR 0134).
@@ -70,6 +132,16 @@ pub enum ListingRequest {
     ToggleDetails { buffer: BufferId },
     /// Order the rows by name or by time (`s`).
     ToggleSort { buffer: BufferId },
+    /// Mark the rows at `lines`, or unmark them (`m`, `u`, `DEL`).
+    Mark {
+        buffer: BufferId,
+        lines: Vec<usize>,
+        on: bool,
+    },
+    /// Unmark every row (`U`).
+    UnmarkAll { buffer: BufferId },
+    /// Mark every row not marked and unmark those that are (`t`).
+    ToggleMarks { buffer: BufferId },
 }
 
 /// The listings and what commands asked for them.
@@ -90,9 +162,10 @@ impl Editor {
         std::mem::take(&mut self.listings.requests)
     }
 
-    /// Adds an empty listing buffer named `name`, shown in no window yet, which does not wrap.
-    pub fn add_listing(&mut self, name: impl Into<String>, directory: PathBuf) -> BufferId {
-        let id = self.add_internal_buffer(name, Mode::Directory);
+    /// Adds an empty listing buffer for `directory`, named after it, shown in no window yet,
+    /// which does not wrap.
+    pub fn add_listing(&mut self, directory: PathBuf) -> BufferId {
+        let id = self.add_internal_buffer(String::new(), Mode::Directory);
         // Judged by its path's words until its real place is known, so that no text of it shows
         // before then.
         let verdict = secret::judge_name(&directory);
@@ -106,12 +179,55 @@ impl Editor {
             ..Listing::default()
         };
         self.listings.records.insert(id, record);
+        self.name_listings();
         id
     }
 
-    /// Drops the record of the listing `id`, as its buffer goes.
+    /// Drops the record of the listing `id`, as its buffer goes, and names the rest again.
     pub(super) fn forget_listing(&mut self, id: BufferId) {
-        self.listings.records.remove(&id);
+        if self.listings.records.remove(&id).is_some() {
+            self.name_listings();
+        }
+    }
+
+    /// Names every listing after its directory, `crates/`, telling apart those of one name by
+    /// the directories above them, as files are (`crates/<oso>`), and apart from every other
+    /// buffer's name.
+    fn name_listings(&mut self) {
+        let mut listed: Vec<(BufferId, PathBuf)> = (self.listings.records.iter())
+            .filter(|(id, _)| self.buffer(**id).is_some())
+            .map(|(id, record)| (*id, record.directory.clone()))
+            .collect();
+        listed.sort_unstable_by_key(|(id, _)| *id);
+        let others: Vec<String> = (self.buffers.iter())
+            .filter(|(id, buffer)| {
+                !listed.iter().any(|(listing, _)| listing == id) && buffer.path().is_none()
+            })
+            .map(|(_, buffer)| buffer.name().to_owned())
+            .collect();
+        // The names files take, without the slash, and then with it after the directory's own.
+        let taken: Vec<&str> = others
+            .iter()
+            .filter_map(|name| name.strip_suffix('/'))
+            .collect();
+        let paths: Vec<&Path> = listed.iter().map(|(_, path)| path.as_path()).collect();
+        let names = buffer::distinct_names(&paths, &taken);
+        for ((id, path), name) in listed.iter().zip(names) {
+            let named = match path.file_name() {
+                Some(base) => {
+                    let base = base.to_string_lossy();
+                    match name.strip_prefix(base.as_ref()) {
+                        Some(rest) => format!("{base}/{rest}"),
+                        None => name,
+                    }
+                }
+                // The root, named by its whole path.
+                None => name,
+            };
+            if let Some(buffer) = self.buffer_mut(*id) {
+                buffer.set_name(named);
+            }
+        }
     }
 
     /// The record of the listing buffer `id`, if it is one and is still there.
@@ -154,10 +270,74 @@ impl Editor {
             .collect()
     }
 
+    /// Marks or unmarks `rows` of the listing `id` in place: each row's first character becomes
+    /// `*` or a space, in the mark's face, and its name takes the marked face or its own back.
+    /// `marked` is how many rows are marked now, which the modeline says. No cursor moves and no
+    /// undo; O(log n) a row. A line that is no row's, or out of the text, is left alone.
+    pub fn set_listing_marks(&mut self, id: BufferId, rows: &[RowMark], marked: usize) {
+        let Some(record) = self.listings.records.get(&id).cloned() else {
+            return;
+        };
+        let Some(buffer) = self.buffer(id).filter(|buffer| is_listing(buffer)) else {
+            return;
+        };
+        let text = buffer.text();
+        let first = record.header_lines;
+        let last = first + record.rows;
+        let rows: Vec<(usize, &RowMark)> = rows
+            .iter()
+            .filter(|row| (first..last).contains(&row.line) && text.line_len(row.line) > 0)
+            .map(|row| (text.line_start(row.line), row))
+            .collect();
+        let edits: Vec<Replacement<'_>> = rows
+            .iter()
+            .map(|(start, row)| Replacement {
+                range: *start..start + 1,
+                text: if row.marked { "*" } else { " " },
+            })
+            .collect();
+        let names: Vec<(usize, usize, &RowMark)> = rows
+            .iter()
+            .map(|(start, row)| (*start, record.name_start(text, row.line), *row))
+            .collect();
+        let staged = buffer.stage_internal(&edits);
+        // The highlights go around the edit, which keeps no generated ones: each mark is one
+        // byte for one, so they cover the text after it as before.
+        let highlights = self
+            .buffer_mut(id)
+            .and_then(Buffer::take_generated_highlights);
+        if let Some(staged) = staged {
+            let views = self.moved_views(id, &staged.display(), staged.steps(), staged.rewrap());
+            if let Some(buffer) = self.buffer_mut(id) {
+                buffer.commit_internal(staged);
+            }
+            self.commit_views(id, views);
+        }
+        let Some(buffer) = self.buffer_mut(id) else {
+            return;
+        };
+        if let Some(mut highlights) = highlights {
+            for (start, name, row) in names {
+                let mark = row.marked.then_some(Highlight::DiredMark);
+                highlights.replace(start..start + 1, [(1, mark)]);
+                let face = if row.marked {
+                    Some(Highlight::DiredMarked)
+                } else {
+                    row.face
+                };
+                highlights.replace(name..name + row.name_len, [(row.name_len, face)]);
+            }
+            let _ = buffer.set_generated_highlights(highlights);
+        }
+        let record = Listing { marked, ..record };
+        buffer.set_mode_note(record.note());
+        self.listings.records.insert(id, record);
+    }
+
     /// Puts in the whole text of the listing `id`, built off the UI thread, with its record and
     /// highlights. O(1) for the text: each window that shows it has its cursor at the name of
     /// the line `lines` gives for it, else of `line`, and a window that will come back to it
-    /// at `line` too. No undo. It renames the buffer `name`, and judges it from the
+    /// at `line` too. No undo. It names the buffer after the directory, and judges it from the
     /// directory's real place, `resolved` (`None` if that could not be found), as a file is
     /// judged: a listing inside `.ssh` is withheld as such a file's buffer is. The host keeps
     /// the highlights given back, which replaced, to free them off the UI thread.
@@ -170,31 +350,24 @@ impl Editor {
         let ListingShown {
             record,
             highlights,
-            name,
             resolved,
             line,
             lines,
         } = shown;
-        let column = record.name_column;
         let verdict = secret::judge(Some(&record.directory), resolved.as_deref());
         let Some(buffer) = self.buffer_mut(id).filter(|buffer| is_listing(buffer)) else {
             return Some(highlights);
         };
         buffer.apply_load(text);
         buffer.set_listing_verdict(verdict);
-        buffer.set_mode_note(record.note.clone());
+        buffer.set_mode_note(record.note());
         let old = buffer.take_generated_highlights();
         let refused = if buffer.text().len() == highlights.len() {
             buffer.set_generated_highlights(highlights).or(old)
         } else {
             Some(highlights)
         };
-        let start_of = |buffer: &Buffer, line: usize| {
-            let line = line.min(buffer.text().max_point().row);
-            let start = buffer.text().line_start(line);
-            let room = buffer.text().line_len(line);
-            start + column.min(room)
-        };
+        let start_of = |buffer: &Buffer, line: usize| record.name_start(buffer.text(), line);
         let Some(buffer) = self.buffer(id) else {
             return refused;
         };
@@ -216,10 +389,13 @@ impl Editor {
                 .map_or(default, |(_, at)| *at);
             window.selections = SelectionSet::new(at);
         }
-        if let Some(buffer) = self.buffer_mut(id) {
-            buffer.set_name(name);
-        }
+        let moved = self
+            .listing(id)
+            .is_none_or(|old| old.directory != record.directory);
         self.listings.records.insert(id, record);
+        if moved {
+            self.name_listings();
+        }
         self.loaded(id);
         if self.window().buffer() == id {
             self.follow_cursor();
@@ -234,8 +410,6 @@ pub struct ListingShown {
     pub record: Listing,
     /// The highlights, built with the text, covering it whole.
     pub highlights: Highlights,
-    /// The buffer's name.
-    pub name: String,
     /// The directory's real place and each link's target on the way to it, or `None` if it
     /// could not be found.
     pub resolved: Option<Vec<PathBuf>>,

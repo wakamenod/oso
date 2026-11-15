@@ -8,5 +8,9 @@
 /// Global key sequences and the commands they run.
 pub const BINDINGS: &[(&str, &str)] = &[("C-x d", "dired"), ("C-x C-j", "dired-jump")];
 
-/// Key sequences and the commands they run, in a listing only.
-pub const LISTING: &[(&str, &str)] = crate::commands::dired::KEYS;
+/// Key sequences and the commands they run, in a listing only: moving, opening and showing, and
+/// marks.
+pub const LISTING: &[&[(&str, &str)]] = &[
+    crate::commands::dired::KEYS,
+    crate::commands::dired::MARK_KEYS,
+];

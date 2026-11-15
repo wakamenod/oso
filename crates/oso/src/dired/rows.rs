@@ -6,62 +6,20 @@
 
 use std::time::{Duration, SystemTime};
 
-/// Unix mode bits as `ls -l` writes them, such as `drwxr-xr-x` or `-rwsr-x--T`.
+/// Unix mode bits as `ls -l` writes them, such as `drwxr-xr-x`, for a look that has the bits
+/// alone, as `C-x C-f`'s annotation does; the platform writes them (`EntryMeta::mode_text`).
 pub(crate) fn mode_text(mode: u32) -> String {
-    let kind = match mode & 0o170_000 {
-        0o040_000 => 'd',
-        0o120_000 => 'l',
-        0o010_000 => 'p',
-        0o020_000 => 'c',
-        0o060_000 => 'b',
-        0o140_000 => 's',
-        _ => '-',
+    let meta = oso_platform::file_meta::EntryMeta {
+        name: std::ffi::OsString::new(),
+        kind: oso_platform::file_meta::EntryKind::Other,
+        mode,
+        len: 0,
+        modified: None,
+        owner: None,
+        others: false,
+        attributes: 0,
     };
-    let mut text = String::with_capacity(10);
-    text.push(kind);
-    // Each of owner, group and others: read, write, and run with what a set id or the sticky
-    // bit puts in its place.
-    let specials = [(0o4000, 's'), (0o2000, 's'), (0o1000, 't')];
-    for (index, (special, letter)) in specials.into_iter().enumerate() {
-        let shift = 6 - 3 * index;
-        let bits = (mode >> shift) & 0o7;
-        text.push(if bits & 0o4 != 0 { 'r' } else { '-' });
-        text.push(if bits & 0o2 != 0 { 'w' } else { '-' });
-        let runs = bits & 0o1 != 0;
-        text.push(match (mode & special != 0, runs) {
-            (true, true) => letter,
-            (true, false) => letter.to_ascii_uppercase(),
-            (false, true) => 'x',
-            (false, false) => '-',
-        });
-    }
-    text
-}
-
-/// Windows attribute bits as PowerShell's `Mode` column writes them: `d----`, `-a---`, `la---`.
-pub(crate) fn attributes_text(attributes: u32, directory: bool) -> String {
-    const ARCHIVE: u32 = 0x20;
-    const READ_ONLY: u32 = 0x1;
-    const HIDDEN: u32 = 0x2;
-    const SYSTEM: u32 = 0x4;
-    const REPARSE: u32 = 0x400;
-    let flag = |bit: u32, letter: char| if attributes & bit != 0 { letter } else { '-' };
-    let first = if attributes & REPARSE != 0 {
-        'l'
-    } else if directory {
-        'd'
-    } else {
-        '-'
-    };
-    [
-        first,
-        flag(ARCHIVE, 'a'),
-        flag(READ_ONLY, 'r'),
-        flag(HIDDEN, 'h'),
-        flag(SYSTEM, 's'),
-    ]
-    .into_iter()
-    .collect()
+    meta.mode_text()
 }
 
 /// A size as `ls -h` writes it: bytes below 1024, then one decimal below ten of a unit and

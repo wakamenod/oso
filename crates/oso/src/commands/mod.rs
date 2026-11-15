@@ -83,6 +83,7 @@ const TABLES: &[&[Command]] = &[
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
     dired::COMMANDS,
+    dired::MARK_COMMANDS,
     edit::COMMANDS,
     files::COMMANDS,
     indent::COMMANDS,

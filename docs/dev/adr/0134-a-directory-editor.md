@@ -505,6 +505,43 @@ The author agreed to each on 2026-11-15, through the coordinator.
   a link's target shows at most 1 KiB. `w` refuses a name that is not UTF-8 or holds a line
   break. The 100,000-entry limit counts every entry read, backups and unreadable ones too.
 
+## Step 1b, as built
+
+The author split step 1b in two on 2026-11-15: 1b-1, marks and what step 1a left for it, then
+1b-2, the operations. The author answered 1b's questions the same day, (a) for each: a file whose
+buffer has unsaved edits is neither deleted nor moved away, and the operation names the buffer;
+no operation goes into another file system, and it names the mount; copying a directory onto one
+of the same name asks with the overwrite question, then merges into it, as `cp -R`; `C-g` stops
+an operation after the file in hand and says how far it got.
+
+### Step 1b-1: marks
+
+- **Keys:** `m` marks the row at point and moves down, `u` unmarks and moves down, `DEL` moves up
+  and unmarks, each with a count for that many rows, or the rows a shown region covers, which
+  point stays at. `U` unmarks every row and `t` toggles every mark. They are `Look`: marks open,
+  show and write nothing.
+- **Shown:** a mark is a `*` in a row's first column, in `dired.mark`'s face (the warning's
+  colour), and a marked row's name takes `dired.marked`'s. The modeline says how many rows are
+  marked, `Dired by name  3 marked`. `.` and `..` are never marked.
+- **Kept:** the app keeps the names marked for each listing, and every new listing of the same
+  directory, as a refresh, marks the rows of those names; one of another directory starts with
+  none, and a restart carries none.
+- **Cost:** `m`, `u` and `DEL` change one character a row in place and its faces
+  (`Editor::set_listing_marks`, O(log n) a row), which moves no cursor. `U` and `t` have the
+  lister's thread build the listing again with the new marks, `t` working out the names to mark
+  there once every entry is read, so no pass over the rows runs on the UI thread.
+- **What step 1a left:**
+  - `oso_platform::file_meta::Directory::dots` gives `.` and `..` from the directory's own
+    descriptor, and `EntryMeta::mode_text` writes the mode column (`ls -l` on Unix, PowerShell's
+    `Mode` on Windows), so the tip crate holds no mode bits or Windows attributes of its own.
+  - oso-core names listings, as files are named: `crates/`, and `crates/<oso>` and
+    `crates/<zed>` side by side, named again as one goes. `ListingShown` gives no name.
+  - The listing's order is typed, `ListingOrder` (`Name`, `Date`), on its record, which also
+    counts the rows marked; the modeline's note comes from them.
+  - `Listing::name_start` is where a row's name starts, which the editor, the commands and the
+    host share.
+  - The stamp of the directory opened, by its descriptor, goes with step 1b-2's identity check.
+
 ## Consequences
 
 - The author gets a daily directory editor in two pull requests, with the rest listed.

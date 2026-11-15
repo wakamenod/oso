@@ -5,7 +5,7 @@
 //! Must not depend on: `app`, `dispatch`, `commands` or winit. It runs on the lister's thread,
 //! which a directory on a file system that hangs stalls alone.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use oso_platform::file_meta::{self, Directory, EntryKind, EntryMeta};
 
-use super::build::{Entry, Leads, build};
+use super::build::{Entry, Leads, Shape, build};
 use super::{Answer, Built, MAX_ENTRIES, Request, order};
 
 /// How long reading goes before the first partial listing, and between two of them.
@@ -173,6 +173,8 @@ struct Reading<'a> {
     backups: usize,
     /// More entries were there than a listing keeps.
     cut: bool,
+    /// The names marked in place of the request's, once inverted.
+    inverted: Option<Arc<HashSet<OsString>>>,
     names: Names,
     offsets: Offsets,
     now: SystemTime,
@@ -190,6 +192,7 @@ impl<'a> Reading<'a> {
             unopened: None,
             backups: 0,
             cut: false,
+            inverted: None,
             names: Names::default(),
             offsets: Offsets::default(),
             now: SystemTime::now(),
@@ -211,11 +214,12 @@ impl<'a> Reading<'a> {
             Leads::Here
         };
         let owner = self.names.owner(&meta);
+        let mode_text = meta.mode_text();
         self.entries.push(Entry {
             name: meta.name,
             kind: meta.kind,
             mode: meta.mode,
-            attributes: meta.attributes,
+            mode_text,
             len: meta.len,
             modified: meta.modified,
             owner,
@@ -252,19 +256,20 @@ impl<'a> Reading<'a> {
         }
     }
 
-    /// Looks at `.`, the directory itself, and `..`, the one above it.
+    /// Looks at `.`, the directory itself, and `..`, the one above it, from the directory.
     fn add_dots(&mut self, directory: &Directory) {
-        let here = directory.metadata();
-        let above = std::fs::metadata(self.request.directory.join(".."));
-        for (name, metadata) in [(".", here), ("..", above)] {
+        for (name, meta) in [".", ".."].into_iter().zip(directory.dots()) {
             let mut entry = Entry {
                 name: OsString::from(name),
                 kind: EntryKind::Directory,
                 ..Entry::default()
             };
-            if let Ok(metadata) = metadata {
-                fill_from(&mut entry, &metadata);
-                entry.owner = self.names.owner_of_metadata(&metadata);
+            if let Ok(meta) = meta {
+                entry.mode = meta.mode;
+                entry.mode_text = meta.mode_text();
+                entry.len = meta.len;
+                entry.modified = meta.modified;
+                entry.owner = self.names.owner(&meta);
             }
             self.dots.push(entry);
         }
@@ -283,11 +288,19 @@ impl<'a> Reading<'a> {
         let notes = vec![format!("reading… {} entries so far", self.entries.len())];
         let shown: Vec<&Entry> = self.entries[..first].iter().collect();
         let parts = (self.request, self.resolved.as_ref(), self.now);
-        listing(parts, &mut self.offsets, &notes, &shown, false)
+        listing(parts, &mut self.offsets, &notes, &shown, (false, None))
     }
 
-    /// The whole listing, ordered.
+    /// The whole listing, ordered, its marks inverted if the request asked.
     fn built(&mut self, done: bool) -> Built {
+        if self.request.invert && self.inverted.is_none() {
+            let marked = &self.request.marked;
+            let inverted: HashSet<OsString> = (self.entries.iter())
+                .filter(|entry| !marked.contains(&entry.name))
+                .map(|entry| entry.name.clone())
+                .collect();
+            self.inverted = Some(Arc::new(inverted));
+        }
         order::sort(&mut self.entries, self.request.options.sort);
         let mut notes = Vec::new();
         if let Some(why) = &self.unopened {
@@ -307,7 +320,8 @@ impl<'a> Reading<'a> {
         }
         let shown: Vec<&Entry> = self.dots.iter().chain(&self.entries).collect();
         let parts = (self.request, self.resolved.as_ref(), self.now);
-        listing(parts, &mut self.offsets, &notes, &shown, done)
+        let inverted = self.inverted.clone();
+        listing(parts, &mut self.offsets, &notes, &shown, (done, inverted))
     }
 }
 
@@ -321,17 +335,16 @@ fn listing(
     offsets: &mut Offsets,
     notes: &[String],
     shown: &[&Entry],
-    done: bool,
+    (done, inverted): (bool, Option<Arc<HashSet<OsString>>>),
 ) -> Built {
     let header = header_of(&request.directory, request.home.as_deref());
-    let shown = build(
-        header.as_encoded_bytes(),
+    let shape = Shape {
+        header: header.as_encoded_bytes(),
         notes,
-        shown,
-        request.options.details,
-        now,
-        &mut |time| offsets.at(time),
-    );
+        details: request.options.details,
+        marked: inverted.as_deref().unwrap_or(&request.marked),
+    };
+    let shown = build(&shape, shown, now, &mut |time| offsets.at(time));
     Built {
         text: shown.text,
         highlights: shown.highlights,
@@ -340,6 +353,8 @@ fn listing(
         name_column: shown.name_column,
         resolved: resolved.cloned(),
         done,
+        marked: shown.marked,
+        marked_names: inverted,
         stamp: None,
     }
 }
@@ -361,20 +376,6 @@ fn header_of(directory: &Path, home: Option<&Path>) -> OsString {
     header
 }
 
-/// What `metadata`, read by its path, says of `.` or `..`.
-fn fill_from(entry: &mut Entry, metadata: &std::fs::Metadata) {
-    entry.len = metadata.len();
-    entry.modified = metadata.modified().ok();
-    #[cfg(unix)]
-    {
-        entry.mode = std::os::unix::fs::MetadataExt::mode(metadata);
-    }
-    #[cfg(windows)]
-    {
-        entry.attributes = std::os::windows::fs::MetadataExt::file_attributes(metadata);
-    }
-}
-
 /// The names of owners and groups, looked up once each and shared by the rows.
 #[derive(Default)]
 struct Names {
@@ -387,19 +388,6 @@ impl Names {
     fn owner(&mut self, meta: &EntryMeta) -> Option<(Arc<str>, Arc<str>)> {
         let (uid, gid) = meta.owner.filter(|_| meta.others)?;
         Some(self.pair(uid, gid))
-    }
-
-    fn owner_of_metadata(&mut self, metadata: &std::fs::Metadata) -> Option<(Arc<str>, Arc<str>)> {
-        if oso_platform::privacy::is_this_users(metadata) {
-            return None;
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            Some(self.pair(metadata.uid(), metadata.gid()))
-        }
-        #[cfg(not(unix))]
-        None
     }
 
     fn pair(&mut self, uid: u32, gid: u32) -> (Arc<str>, Arc<str>) {

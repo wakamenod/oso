@@ -126,6 +126,21 @@ fn attributes(_: &Metadata) -> u32 {
     0
 }
 
+pub(super) fn dots(inner: &Inner) -> [io::Result<EntryMeta>; 2] {
+    [(".", inner.clone()), ("..", inner.join(".."))].map(|(name, path)| {
+        std::fs::metadata(path).map(|metadata| EntryMeta {
+            name: name.into(),
+            kind: kind_of_type(metadata.file_type()),
+            mode: 0,
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+            owner: None,
+            others: false,
+            attributes: attributes(&metadata),
+        })
+    })
+}
+
 pub(super) fn target_kind(inner: &Inner, name: &OsStr) -> io::Result<EntryKind> {
     Ok(kind_of_type(
         std::fs::metadata(joined(inner, name)?)?.file_type(),

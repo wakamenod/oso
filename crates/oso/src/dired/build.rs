@@ -8,6 +8,7 @@
 //! then the name and a link's target. Every byte before the name is ASCII, so the name starts
 //! at the same column, in bytes and cells, on every row.
 
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,7 +19,7 @@ use oso_core::syntax::{Highlight, Highlights};
 use oso_platform::file_meta::EntryKind;
 
 use super::Row;
-use super::rows::{attributes_text, decoded_len, mode_text, push_name, size_text, time_text};
+use super::rows::{decoded_len, push_name, size_text, time_text};
 
 /// The most bytes of a link's target a row shows.
 const MAX_TARGET: usize = 1024;
@@ -41,7 +42,8 @@ pub(super) struct Entry {
     pub(super) name: OsString,
     pub(super) kind: EntryKind,
     pub(super) mode: u32,
-    pub(super) attributes: u32,
+    /// Its mode column, as the platform writes it (`EntryMeta::mode_text`).
+    pub(super) mode_text: String,
     pub(super) len: u64,
     pub(super) modified: Option<SystemTime>,
     /// Its owner's and group's names, only when someone other than this user owns it.
@@ -57,7 +59,7 @@ impl Default for Entry {
             name: OsString::new(),
             kind: EntryKind::File,
             mode: 0,
-            attributes: 0,
+            mode_text: String::new(),
             len: 0,
             modified: None,
             owner: None,
@@ -84,15 +86,6 @@ impl Entry {
             EntryKind::File => None,
         }
     }
-
-    /// Its mode column: as `ls -l` on Unix, as PowerShell's `Mode` on Windows.
-    fn mode_column(&self) -> String {
-        if cfg!(windows) {
-            attributes_text(self.attributes, self.kind == EntryKind::Directory)
-        } else {
-            mode_text(self.mode)
-        }
-    }
 }
 
 /// What [`build`] makes.
@@ -102,21 +95,36 @@ pub(super) struct Shown {
     pub(super) rows: Arc<[Row]>,
     pub(super) header_lines: usize,
     pub(super) name_column: usize,
+    /// How many rows are marked.
+    pub(super) marked: usize,
 }
 
 /// The time zone's offset at a moment, in seconds east of UTC.
 pub(super) type Offsets<'a> = &'a mut dyn FnMut(SystemTime) -> i32;
 
-/// Builds a listing: `header`, the directory as the header line writes it, then a line for each
-/// of `notes`, then a row for each of `entries`, in order, `.` and `..` among them.
+/// What a listing shows beside its entries: the directory as the header line writes it, the
+/// lines under it, whether rows show their details, and the names marked.
+pub(super) struct Shape<'a> {
+    pub(super) header: &'a [u8],
+    pub(super) notes: &'a [String],
+    pub(super) details: bool,
+    pub(super) marked: &'a HashSet<OsString>,
+}
+
+/// Builds a listing: the header, a line for each note, then a row for each of `entries`, in
+/// order, `.` and `..` among them, a marked one with `*` in its first column.
 pub(super) fn build(
-    header: &[u8],
-    notes: &[String],
+    shape: &Shape<'_>,
     entries: &[&Entry],
-    details: bool,
     now: SystemTime,
     offsets: Offsets<'_>,
 ) -> Shown {
+    let Shape {
+        header,
+        notes,
+        details,
+        marked,
+    } = *shape;
     let mut out = Out::default();
     out.line(b"  ", None);
     let mut path = Vec::with_capacity(header.len() + 1);
@@ -132,8 +140,17 @@ pub(super) fn build(
     let columns = details.then(|| Columns::of(entries, now, offsets));
     let mut rows = Vec::with_capacity(entries.len());
     let mut name_column = 2;
+    let mut count = 0;
     for (index, entry) in entries.iter().enumerate() {
-        out.line(b"  ", None);
+        let dot = entry.name == "." || entry.name == "..";
+        let is_marked = !dot && marked.contains(&entry.name);
+        if is_marked {
+            count += 1;
+            out.part(b"*", Some(Highlight::DiredMark));
+            out.part(b" ", None);
+        } else {
+            out.line(b"  ", None);
+        }
         if let Some(columns) = &columns {
             let detail = columns.row(index, entry);
             name_column = 2 + detail.len();
@@ -141,7 +158,12 @@ pub(super) fn build(
         }
         let mut name = Vec::new();
         push_name(&mut name, entry.name.as_encoded_bytes());
-        out.part(&name, entry.face());
+        let face = if is_marked {
+            Some(Highlight::DiredMarked)
+        } else {
+            entry.face()
+        };
+        out.part(&name, face);
         if let (Some(target), true) = (&entry.target, details) {
             let mut arrow = b" -> ".to_vec();
             let words = target.as_os_str().as_encoded_bytes();
@@ -156,6 +178,8 @@ pub(super) fn build(
             name: entry.name.clone(),
             enters: entry.enters(),
             modified: entry.modified,
+            face: entry.face(),
+            name_len: decoded_len(&name),
         });
     }
     let (text, highlights) = out.finish();
@@ -165,6 +189,7 @@ pub(super) fn build(
         rows: rows.into(),
         header_lines: 1 + notes.len(),
         name_column,
+        marked: count,
     }
 }
 
@@ -180,7 +205,10 @@ struct Columns {
 
 impl Columns {
     fn of(entries: &[&Entry], now: SystemTime, offsets: Offsets<'_>) -> Self {
-        let modes: Vec<String> = entries.iter().map(|entry| entry.mode_column()).collect();
+        let modes: Vec<String> = entries
+            .iter()
+            .map(|entry| entry.mode_text.clone())
+            .collect();
         let sizes: Vec<String> = entries
             .iter()
             .map(|entry| match entry.kind {

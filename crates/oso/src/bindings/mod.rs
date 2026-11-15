@@ -210,7 +210,7 @@ pub fn review_keymap(registry: &Registry) -> Keymap {
 /// A directory listing's own keymap, above the global one in it (ADR 0134). Empty for a
 /// registry without its commands, as in tests that bring their own.
 pub fn dired_keymap(registry: &Registry) -> Keymap {
-    Keymap::from_table(registry, dired::LISTING).unwrap_or_default()
+    Keymap::from_table(registry, &dired::LISTING.concat()).unwrap_or_default()
 }
 
 /// `*Sessions*`'s own keymap, above the global one in it (ADR 0121). Empty for a registry

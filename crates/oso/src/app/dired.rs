@@ -10,13 +10,13 @@
 //! - A new text keeps each window's point on the name it was on, or on the name a command
 //!   asked for, and waits while the editor's text must not change ([`Editor::reload_waits`]).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use oso_core::buffer::{BufferId, FileStamp};
-use oso_core::editor::{Editor, ListingRequest};
+use oso_core::editor::ListingRequest;
 use oso_core::frame::Way;
 
 use super::App;
@@ -58,6 +58,11 @@ struct Listing {
     /// Whether it shows a whole listing of `directory`, which a new one replaces at once,
     /// without partial ones that would cut it short.
     whole: bool,
+    /// The names marked, kept over a new listing of the same directory, each one the listing
+    /// shows marked (ADR 0134).
+    marked: Arc<HashSet<OsString>>,
+    /// Whether the next whole listing inverts the marks, as `t` asked.
+    invert: bool,
 }
 
 impl Listing {
@@ -114,6 +119,11 @@ impl App {
                         options.details = !options.details
                     });
                 }
+                ListingRequest::Mark { buffer, lines, on } => {
+                    self.mark_listed_rows(buffer, &lines, on);
+                }
+                ListingRequest::UnmarkAll { buffer } => self.unmark_all(buffer),
+                ListingRequest::ToggleMarks { buffer } => self.toggle_marks(buffer),
                 ListingRequest::ToggleSort { buffer } => {
                     self.change_listing_options(buffer, |options| {
                         options.sort = options.sort.toggled()
@@ -135,8 +145,7 @@ impl App {
             self.list_again(id);
             return;
         }
-        let name = listing_name(&self.editor, &directory, None);
-        let id = self.editor.add_listing(name, directory.clone());
+        let id = self.editor.add_listing(directory.clone());
         let mut header = b"  ".to_vec();
         dired::rows::push_name(&mut header, directory.as_os_str().as_encoded_bytes());
         header.extend_from_slice(":\n  listing…\n".as_bytes());
@@ -155,6 +164,8 @@ impl App {
             stamp: None,
             seen: None,
             whole: false,
+            marked: Arc::default(),
+            invert: false,
         };
         self.dired.by_buffer.insert(id, listing);
         self.list_again(id);
@@ -171,14 +182,13 @@ impl App {
     ) -> BufferId {
         let options = Options {
             sort: if entry.by_date {
-                dired::Sort::Time
+                dired::Sort::Date
             } else {
                 dired::Sort::Name
             },
             details: entry.details,
         };
-        let name = listing_name(&self.editor, &entry.directory, None);
-        let id = self.editor.add_listing(name, entry.directory.clone());
+        let id = self.editor.add_listing(entry.directory.clone());
         self.dired.options = options;
         let listing = Listing {
             directory: entry.directory,
@@ -192,6 +202,8 @@ impl App {
             stamp: None,
             seen: None,
             whole: false,
+            marked: Arc::default(),
+            invert: false,
         };
         self.dired.by_buffer.insert(id, listing);
         self.list_again(id);
@@ -271,6 +283,8 @@ impl App {
             listing.stamp = None;
             listing.seen = None;
             listing.whole = false;
+            listing.marked = Arc::default();
+            listing.invert = false;
         }
         self.list_again(buffer);
     }
@@ -290,6 +304,8 @@ impl App {
             options: listing.options,
             home: self.editor.home().map(Path::to_path_buf),
             partials: !listing.whole,
+            marked: Arc::clone(&listing.marked),
+            invert: listing.invert,
         });
     }
 
@@ -350,38 +366,6 @@ impl App {
     }
 }
 
-/// A listing buffer's name: the directory's own name ending in `/`, as `crates/`, with the
-/// directories above it in angle brackets when another buffer has that name, as files' are.
-fn listing_name(editor: &Editor, directory: &Path, own: Option<BufferId>) -> String {
-    let base = directory.file_name().map_or_else(
-        || directory.to_string_lossy().into_owned(),
-        |name| format!("{}/", name.to_string_lossy()),
-    );
-    let taken = |name: &str| editor.buffer_named(name).is_some_and(|id| Some(id) != own);
-    if !taken(&base) {
-        return base;
-    }
-    let mut above: Vec<String> = Vec::new();
-    for parent in directory.ancestors().skip(1) {
-        let Some(name) = parent.file_name() else {
-            break;
-        };
-        above.insert(0, name.to_string_lossy().into_owned());
-        let named = format!("{base}<{}>", above.join("/"));
-        if !taken(&named) {
-            return named;
-        }
-    }
-    let mut count = 2;
-    loop {
-        let named = format!("{base}<{count}>");
-        if !taken(&named) {
-            return named;
-        }
-        count += 1;
-    }
-}
-
 /// `directory` made absolute from `start` and cleaned by its words: `.` dropped and `..` taking
 /// the name before it, as Emacs's `expand-file-name` does, with no look at the disk.
 fn lexically_clean(directory: &Path, start: &Path) -> PathBuf {
@@ -403,6 +387,7 @@ fn lexically_clean(directory: &Path, start: &Path) -> PathBuf {
     clean
 }
 
+mod marks;
 mod show;
 #[cfg(test)]
 mod tests;

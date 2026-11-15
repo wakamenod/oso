@@ -1247,11 +1247,32 @@ impl core::fmt::Debug for oso_core::editor::KillRefused
 pub fn oso_core::editor::KillRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::KillRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::KillRefused
+pub enum oso_core::editor::ListingOrder
+pub oso_core::editor::ListingOrder::Date
+pub oso_core::editor::ListingOrder::Name
+impl oso_core::editor::ListingOrder
+pub fn oso_core::editor::ListingOrder::note(self) -> &'static str
+pub fn oso_core::editor::ListingOrder::toggled(self) -> Self
+impl core::clone::Clone for oso_core::editor::ListingOrder
+pub fn oso_core::editor::ListingOrder::clone(&self) -> oso_core::editor::ListingOrder
+impl core::cmp::Eq for oso_core::editor::ListingOrder
+impl core::cmp::PartialEq for oso_core::editor::ListingOrder
+pub fn oso_core::editor::ListingOrder::eq(&self, &oso_core::editor::ListingOrder) -> bool
+impl core::default::Default for oso_core::editor::ListingOrder
+pub fn oso_core::editor::ListingOrder::default() -> oso_core::editor::ListingOrder
+impl core::fmt::Debug for oso_core::editor::ListingOrder
+pub fn oso_core::editor::ListingOrder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::ListingOrder
+impl core::marker::StructuralPartialEq for oso_core::editor::ListingOrder
 pub enum oso_core::editor::ListingRequest
 pub oso_core::editor::ListingRequest::CopyNames
 pub oso_core::editor::ListingRequest::CopyNames::absolute: bool
 pub oso_core::editor::ListingRequest::CopyNames::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::ListingRequest::CopyNames::lines: alloc::vec::Vec<usize>
+pub oso_core::editor::ListingRequest::Mark
+pub oso_core::editor::ListingRequest::Mark::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::ListingRequest::Mark::lines: alloc::vec::Vec<usize>
+pub oso_core::editor::ListingRequest::Mark::on: bool
 pub oso_core::editor::ListingRequest::Open
 pub oso_core::editor::ListingRequest::Open::directory: std::path::PathBuf
 pub oso_core::editor::ListingRequest::Open::point: core::option::Option<std::ffi::os_str::OsString>
@@ -1259,8 +1280,12 @@ pub oso_core::editor::ListingRequest::Revert
 pub oso_core::editor::ListingRequest::Revert::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::ListingRequest::ToggleDetails
 pub oso_core::editor::ListingRequest::ToggleDetails::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::ListingRequest::ToggleMarks
+pub oso_core::editor::ListingRequest::ToggleMarks::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::ListingRequest::ToggleSort
 pub oso_core::editor::ListingRequest::ToggleSort::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::ListingRequest::UnmarkAll
+pub oso_core::editor::ListingRequest::UnmarkAll::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::ListingRequest::Up
 pub oso_core::editor::ListingRequest::Up::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::ListingRequest::Visit
@@ -1736,12 +1761,13 @@ pub fn oso_core::editor::Editor::set_internal_text(&mut self, oso_core::buffer::
 pub fn oso_core::editor::Editor::take_recovery_actions(&mut self) -> alloc::vec::Vec<oso_core::editor::RecoveryAction>
 pub fn oso_core::editor::Editor::toggle_copies(&mut self)
 impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::add_listing(&mut self, impl core::convert::Into<alloc::string::String>, std::path::PathBuf) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::Editor::add_listing(&mut self, std::path::PathBuf) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::listing(&self, oso_core::buffer::BufferId) -> core::option::Option<&oso_core::editor::Listing>
 pub fn oso_core::editor::Editor::listing_of(&self, &std::path::Path) -> core::option::Option<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::listing_points(&self, oso_core::buffer::BufferId) -> alloc::vec::Vec<(oso_core::window::WindowId, usize)>
 pub fn oso_core::editor::Editor::listings(&self) -> impl core::iter::traits::iterator::Iterator<Item = (oso_core::buffer::BufferId, &oso_core::editor::Listing)>
 pub fn oso_core::editor::Editor::request_listing(&mut self, oso_core::editor::ListingRequest)
+pub fn oso_core::editor::Editor::set_listing_marks(&mut self, oso_core::buffer::BufferId, &[oso_core::editor::RowMark], usize)
 pub fn oso_core::editor::Editor::set_listing_text(&mut self, oso_core::buffer::BufferId, oso_core::load::LoadSnapshot, oso_core::editor::ListingShown) -> core::option::Option<oso_core::syntax::Highlights>
 pub fn oso_core::editor::Editor::take_listing_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ListingRequest>
 impl oso_core::editor::Editor
@@ -2256,9 +2282,12 @@ pub struct oso_core::editor::Listing
 pub oso_core::editor::Listing::details: bool
 pub oso_core::editor::Listing::directory: std::path::PathBuf
 pub oso_core::editor::Listing::header_lines: usize
+pub oso_core::editor::Listing::marked: usize
 pub oso_core::editor::Listing::name_column: usize
-pub oso_core::editor::Listing::note: alloc::string::String
+pub oso_core::editor::Listing::order: oso_core::editor::ListingOrder
 pub oso_core::editor::Listing::rows: usize
+impl oso_core::editor::Listing
+pub fn oso_core::editor::Listing::name_start(&self, &oso_core::rope::Rope, usize) -> usize
 impl core::clone::Clone for oso_core::editor::Listing
 pub fn oso_core::editor::Listing::clone(&self) -> oso_core::editor::Listing
 impl core::cmp::Eq for oso_core::editor::Listing
@@ -2273,7 +2302,6 @@ pub struct oso_core::editor::ListingShown
 pub oso_core::editor::ListingShown::highlights: oso_core::syntax::Highlights
 pub oso_core::editor::ListingShown::line: usize
 pub oso_core::editor::ListingShown::lines: alloc::vec::Vec<(oso_core::window::WindowId, usize)>
-pub oso_core::editor::ListingShown::name: alloc::string::String
 pub oso_core::editor::ListingShown::record: oso_core::editor::Listing
 pub oso_core::editor::ListingShown::resolved: core::option::Option<alloc::vec::Vec<std::path::PathBuf>>
 impl core::fmt::Debug for oso_core::editor::ListingShown
@@ -2449,6 +2477,20 @@ impl core::marker::StructuralPartialEq for oso_core::editor::ReviewId
 pub struct oso_core::editor::ReviewLeftover
 impl core::fmt::Debug for oso_core::editor::ReviewLeftover
 pub fn oso_core::editor::ReviewLeftover::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::RowMark
+pub oso_core::editor::RowMark::face: core::option::Option<oso_core::syntax::Highlight>
+pub oso_core::editor::RowMark::line: usize
+pub oso_core::editor::RowMark::marked: bool
+pub oso_core::editor::RowMark::name_len: usize
+impl core::clone::Clone for oso_core::editor::RowMark
+pub fn oso_core::editor::RowMark::clone(&self) -> oso_core::editor::RowMark
+impl core::cmp::Eq for oso_core::editor::RowMark
+impl core::cmp::PartialEq for oso_core::editor::RowMark
+pub fn oso_core::editor::RowMark::eq(&self, &oso_core::editor::RowMark) -> bool
+impl core::fmt::Debug for oso_core::editor::RowMark
+pub fn oso_core::editor::RowMark::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::RowMark
+impl core::marker::StructuralPartialEq for oso_core::editor::RowMark
 pub struct oso_core::editor::SaveJob
 pub oso_core::editor::SaveJob::baseline: core::option::Option<oso_core::buffer::Baseline>
 pub oso_core::editor::SaveJob::bom: bool
@@ -4816,6 +4858,8 @@ pub oso_core::syntax::Highlight::DiredDetails
 pub oso_core::syntax::Highlight::DiredDirectory
 pub oso_core::syntax::Highlight::DiredExecutable
 pub oso_core::syntax::Highlight::DiredHeader
+pub oso_core::syntax::Highlight::DiredMark
+pub oso_core::syntax::Highlight::DiredMarked
 pub oso_core::syntax::Highlight::DiredSpecial
 pub oso_core::syntax::Highlight::DiredSymlink
 pub oso_core::syntax::Highlight::Function

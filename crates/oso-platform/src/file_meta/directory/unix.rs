@@ -242,7 +242,6 @@ fn time_of(seconds: i64, nanos: i64) -> Option<std::time::SystemTime> {
 }
 
 /// What a listing shows of `name`, from what `fstatat` gave.
-#[cfg(not(target_os = "macos"))]
 #[cfg_attr(
     target_os = "linux",
     expect(
@@ -288,6 +287,13 @@ pub(super) fn list_with_metadata(
         }
     }
     Ok(())
+}
+
+pub(super) fn dots(inner: &Inner) -> [io::Result<EntryMeta>; 2] {
+    let fd = inner.as_raw_fd();
+    let user = this_user();
+    [(c".", "."), (c"..", "..")]
+        .map(|(c_name, name)| stat_at(fd, c_name).map(|stat| meta_of(name.into(), &stat, user)))
 }
 
 pub(super) fn target_kind(inner: &Inner, name: &OsStr) -> io::Result<EntryKind> {

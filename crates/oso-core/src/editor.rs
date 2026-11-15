@@ -93,7 +93,7 @@ pub use indent::{IndentError, Shift};
 pub use isearch::{Isearch, MatchCells};
 pub use jump::{Chose, JumpActionError, JumpCells, LabelCells};
 pub use kill::{ClipboardWrite, YankError};
-pub use listings::{Listing, ListingRequest, ListingShown};
+pub use listings::{Listing, ListingOrder, ListingRequest, ListingShown, RowMark};
 pub use macros::{MAX_MACRO_EVENTS, MAX_MACRO_TEXT, MacroError, MacroEvent};
 pub use messages::row_text;
 pub use pairs::NoPair;

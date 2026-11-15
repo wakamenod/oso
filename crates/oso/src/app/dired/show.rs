@@ -6,13 +6,15 @@
 //! longer wanted, is freed off the UI thread, and no name is looked for row by row but the one a
 //! command asked for, once the whole listing is in.
 
+use std::collections::HashSet;
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use oso_core::buffer::{BufferId, FileStamp};
 use oso_core::editor::{Listing as Record, ListingShown};
 
-use super::{App, listing_name};
+use super::App;
 use crate::dired::{self, Answer};
 
 impl App {
@@ -100,26 +102,16 @@ impl App {
                 Some((*window, header + index))
             })
             .collect();
-        // What was asked for holds until the whole listing is in.
-        let mut stale = false;
-        if built.done {
-            listing.point = None;
-            listing.line = None;
-            listing.stamp = Some(built.stamp);
-            listing.whole = true;
-            // The watcher saw it change while it was read.
-            stale = listing.seen.is_some_and(|seen| seen != built.stamp);
-        }
+        let stale = built.done && whole_listing_in(listing, built.marked_names, built.stamp);
         let record = Record {
             directory: listing.directory.clone(),
             header_lines: header,
             name_column: built.name_column,
             rows: built.rows.len(),
             details: listing.options.details,
-            note: sort.note().to_owned(),
+            order: sort,
+            marked: built.marked,
         };
-        let directory = listing.directory.clone();
-        let name = listing_name(&self.editor, &directory, Some(answer.buffer));
         let old_text = (self.editor.buffer(answer.buffer)).map(|shown| shown.text().clone());
         let refused = self.editor.set_listing_text(
             answer.buffer,
@@ -127,7 +119,6 @@ impl App {
             ListingShown {
                 record,
                 highlights: built.highlights,
-                name,
                 resolved: built.resolved,
                 line,
                 lines,
@@ -185,4 +176,23 @@ impl App {
             self.list_again(id);
         }
     }
+}
+
+/// Notes that the whole listing asked for is in: what a command asked for is done, the marks it
+/// inverted, as `t` asked, are the ones kept from now on, and the stamp read before it is the
+/// listing's. Whether the watcher saw the directory change while it was read.
+fn whole_listing_in(
+    listing: &mut super::Listing,
+    marked: Option<Arc<HashSet<OsString>>>,
+    stamp: Option<FileStamp>,
+) -> bool {
+    listing.point = None;
+    listing.line = None;
+    if let Some(marked) = marked {
+        listing.marked = marked;
+        listing.invert = false;
+    }
+    listing.stamp = Some(stamp);
+    listing.whole = true;
+    listing.seen.is_some_and(|seen| seen != stamp)
 }

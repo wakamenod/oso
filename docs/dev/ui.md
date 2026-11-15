@@ -423,6 +423,10 @@ file, in a listing buffer named after the directory, `crates/`, as Emacs's dired
   paths), `q` shows the buffer before. `C-x k` kills a listing, and `C-x b` goes back to one.
 - A shown listing is listed again within a second of its directory changing, each window's
   point on the name it was on.
+- `m` marks the row at point and moves down, `u` unmarks and moves down, `DEL` moves up and
+  unmarks, each with a count, or over the rows a shown region covers; `U` unmarks every row and
+  `t` toggles every mark. A mark is a `*` before the row, in the warning's colour with the row's
+  name, and the modeline counts them: `Dired by name  3 marked`. Marks stay over a refresh.
 
 ## Echo area
 
