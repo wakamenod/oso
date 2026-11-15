@@ -247,12 +247,6 @@ impl There for NewInstance {
 pub fn inherited_names() -> Vec<String> {
     std::env::vars_os()
         .filter_map(|(name, _)| name.into_string().ok())
-        .filter(|name| {
-            !name.is_empty()
-                && !name.contains(['=', '\0'])
-                && name != "PATH"
-                && !name.starts_with("LD_")
-                && !name.starts_with("DYLD_")
-        })
+        .filter(|name| oso_platform::process::may_pass(name))
         .collect()
 }

@@ -383,8 +383,10 @@ fn check(request: &Spawn<'_>) -> io::Result<()> {
     }
 }
 
-/// Whether a caller may pass the variable `name`, by value or by name.
-fn may_pass(name: &str) -> bool {
+/// Whether a caller may pass the variable `name` to a child, by value or by name: not empty,
+/// with no `=` or NUL, and neither `PATH`, which this module sets itself, nor the loader's
+/// `LD_*` and `DYLD_*` (ADR 0047). [`Spawn`] refuses any other.
+pub fn may_pass(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
     let name = if cfg!(windows) { upper.as_str() } else { name };
     !name.is_empty()

@@ -219,6 +219,8 @@ release-safety:
     # `oso-restart`, whose pair has names of its own (ADR 0133).
     markers="oso-dev-control-socket oso-dev-supervisor send-keys export-state"
     markers="$markers export-text import-state hand-over-terminals import-terminals"
+    # The dev hook that stops an `oso-restart` short for end-to-end flows.
+    markers="$markers OSO_DEV_RESTART_FAIL"
     # On macOS, the window layer's dev-only Carbon import, for the dev socket's secure input
     # check (ADR 0070, ADR 0073).
     if [ "$(uname -s)" = Darwin ]; then markers="$markers IsSecureEventInputEnabled"; fi

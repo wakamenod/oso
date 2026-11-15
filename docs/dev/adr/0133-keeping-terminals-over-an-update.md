@@ -291,7 +291,8 @@ each), the new public items and the guarded edits through the coordinator.
 - **The pair** carries one JSON object a line, at most the dev socket's line, descriptors only
   with `take-masters`. Its names are its own: `just release-safety` now also checks that no
   release binary holds the names of `export-text`, `import-state`, `hand-over-terminals` or
-  `import-terminals`. A reason from the other end is cut to 200 characters with no control
+  `import-terminals`, nor of the dev build's hook `OSO_DEV_RESTART_FAIL`. A reason from the
+  other end is cut to 200 characters with no control
   character before it is said.
 - **Descriptors and children.** macOS makes a socket pair, and takes descriptors from a message,
   close-on-exec only a moment later. A gate in `oso-platform`'s `privacy::inheritance`, a lock
@@ -302,7 +303,8 @@ each), the new public items and the guarded edits through the coordinator.
 - **Bridges** follow as under `oso dev`: the new instance writes `<pid>-follows`, which the
   bridge reads in every build now.
 - **New public items:** `oso-platform`'s `ControlStream::{pair, inherited}`, `AsFd` for
-  `ControlStream`, `control::INHERITED_FD`, `process::PassedFd` and `Spawn::pass_fd`;
+  `ControlStream`, `control::INHERITED_FD`, `process::PassedFd`, `Spawn::pass_fd` and
+  `process::may_pass`, which the restart's filter of its variables reads;
   `oso-core`'s `TerminalRequest::Restart`; `oso-term`'s handoff API leaves the `dev` feature.
 - **Tests.** The order's failures (`carry::going`), the new instance's side (`carry::coming`),
   the pair's lines, the binary's checks, a passed descriptor and a refused snapshot have unit
