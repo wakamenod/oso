@@ -243,15 +243,16 @@ fn an_agents_save_only_marks_the_status_stale_until_the_persons_key() {
         .to_owned();
     assert!(!modeline.contains("stale"), "{modeline}");
     // A save the person starts, from the file beside it, reads the status again with no key in
-    // it and no mark.
+    // it and no mark: `C-x o` back into it reads nothing of itself.
     app.send_keys(&format!("C-x o M-> {} C-x C-s", typing("end")));
     assert_eq!(app.state()["buffer"]["name"], "a.txt");
     app.wait_for("the person's save", |state| {
         state["buffer"]["modified"] == false
     });
+    app.send_keys("C-x o");
+    assert_eq!(app.state()["buffer"]["name"], "*git: proj-git*");
     let shown = rows_until(&mut app, |rows| has(rows, "M  a.txt  +4 -3"));
     assert!(has(&shown, "M  a.txt  +4 -3"), "{shown:?}");
-    app.send_keys("C-x o");
     let modeline = app.state()["modeline"]
         .as_str()
         .unwrap_or_default()
