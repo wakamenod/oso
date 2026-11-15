@@ -720,8 +720,10 @@ space's sessions (Q7); `space_status` is a `Look` tool (Q8); oso-core gains
   and one elsewhere still see only the space's sessions, start no session, and name no
   repository. What a forged record can still change, the repositories of a real orchestrator,
   stays within the repositories oso trusts by path and identity.
-- **Every start in a space's directory** passes its checks, the person's own starts too, and
-  any session's start thread refuses a trusted root put in another's place since it was found.
+- **Every start in a space's directory** passes its checks, the person's own starts too.
+- **Every session start** (the author's choice, 2026-11-15, a change to ADR 0121): the start
+  thread refuses a trusted root put in another's place since oso found it, and says to trust the
+  directory there again with `trust-project`. It started before, with no review baseline.
 - **Trust:** a repository's trust comes from the trust list by its path and the identity the
   space kept (`TrustedRoot::of_member`), with no open buffer. Such a root is made for each call
   and never revoked, so a start asks the trust list again at the person's `y`, and a start at a
@@ -761,6 +763,10 @@ accepted and the step that builds each is merged.
   asks for one of the space's repositories.
 - [ADR 0135](0135-agents-start-sessions-without-asking.md), "Trusted only": for an orchestrator,
   the target repository must be a trusted member of its space.
+- ADR 0121, "a session started in a trusted project takes its baseline … after which it
+  spawns": a session whose trusted root was put in another's place since oso found it does not
+  start, and the echo area says to trust the directory there again with `trust-project` (the
+  author's choice, 2026-11-15, step 4a).
 
 ## Consequences
 

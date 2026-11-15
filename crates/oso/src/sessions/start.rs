@@ -370,8 +370,8 @@ fn space_extra(
 fn root_kept(order: &Order) -> Result<(), String> {
     if order.trusted.as_ref().is_some_and(TrustedRoot::replaced) {
         return Err(
-            "The session did not start: its project's root is no longer the directory \
-                    that was trusted"
+            "The session did not start: its project's root is another directory than the one \
+             trusted; trust-project trusts the one there now, if it is yours"
                 .to_owned(),
         );
     }
