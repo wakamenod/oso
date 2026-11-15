@@ -45,9 +45,12 @@ escape-sequence policy, and a thread per terminal that owns its PTY, its child a
 - `oso dev`'s restart (ADR 0120, step 11) is behind the `dev` feature: a thread stops reading
   and writes the terminal's state (`terminal/thread/handoff.rs`, `engine/ghostty/carry.rs`),
   and a terminal is adopted from it with its master attached later. The state is escape
-  sequences until oso's third patch to the library lands; only then may `SNAPSHOTS` in
-  `terminal/thread/handoff.rs` turn the library's snapshot on, after `terminal::fuzz::restore`
-  runs clean with and without `OSO_TERM_FUZZ_DAMAGE`. Only one instance
+  sequences for now: oso's third patch gives a restored page a live page's capacity and caps a
+  snapshot's size, but `SNAPSHOTS` in `terminal/thread/handoff.rs` stays off until a later patch
+  closes the remaining cases where a restored terminal reflows differently from a live one; only
+  then may it turn the library's snapshot on, after `terminal::fuzz::restore` runs clean (a
+  restored terminal stopping on nothing a live terminal fed the same input does not) with and
+  without `OSO_TERM_FUZZ_DAMAGE`. Only one instance
   reads a PTY at a time: an exported terminal reads nothing and applies no resize until it
   resumes or is released, and a released one hangs nothing up and reaps nothing.
 - Terminals exist on Unix only for now: on Windows nothing is built and `Terminal::start`

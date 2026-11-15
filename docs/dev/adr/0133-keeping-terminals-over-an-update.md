@@ -94,11 +94,17 @@ running work (Q5).
 ### Security
 
 - **T-socket** does not arise: there is no socket.
-- **T-parse:** the decoder reads only what came over the pair, from the parent. Before the
-  decoder ships in release builds, a patch to libghostty-vt (oso's third, in its own pull
-  request) makes a decode refuse any snapshot it cannot restore consistently, and the decoder
-  is fuzzed on both library builds, damaged snapshots included, until no input stops it or
-  holds it (the author's choice, 2026-11-15).
+- **T-parse:** the decoder reads only what came over the pair, from the parent. oso's third
+  patch to libghostty-vt (its own pull request) gives a restored page the same capacity a live
+  one has, and oso refuses a snapshot larger than the terminal's size and scrollback allow
+  before it is decoded. Until the library snapshot can be turned on, the carried state is escape
+  sequences, which replay through the live terminal. A later patch (oso's fourth) closes the
+  remaining cases where a restored terminal reflows differently from a live one; only then does
+  the snapshot turn on, and only after the decoder is fuzzed on both library builds until a
+  restored terminal stops on no input a live terminal fed the same input does not also stop on.
+  Because the snapshot always comes from the parent over a private channel, hardening the
+  decoder against a damaged-but-well-framed snapshot is tracked as later, lower-priority work
+  (the author's choice, 2026-11-15).
 - **T-agent:** the command is `Person`, and the agent channel stops before the handoff, as an
   exit stops it. Each bridge follows its session to the new instance as under `oso dev`.
 - **T-exec** is bounded by the checks above but not removed. A process that can write the
@@ -161,9 +167,10 @@ team identity when the running one has one (Q3). Everything step 11 and ADR 0090
   socket pair. The order and the state stay shared.
 - `just release-safety` keeps every dev method's name out of release binaries.
 - A quit or a crash still ends the terminals. Option C's "quit when idle" (Q5) covers the quit.
-- The steps: first the library patch and the fuzzing that T-parse asks for, then the
-  socket-pair transport and `oso-restart`, then the binary checks, then the notice on focus,
-  then the quit (Q5). The release handoff lands only after the first.
+- The steps: first the library patch and the fuzzing that T-parse asks for (its first pull
+  request turns the snapshot back on under `oso dev`), then the socket-pair transport and
+  `oso-restart`, then the binary checks, then the notice on focus, then the quit (Q5). The
+  release handoff lands only after the first.
 
 ## Alternatives considered
 

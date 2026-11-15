@@ -229,13 +229,15 @@ impl Source {
         } else {
             damage(&mut rng, &bytes, &self.before)
         };
-        let size = if rng.chance(20) {
-            let &(columns, rows) = rng.pick(SIZES);
-            sized(columns, rows)
-        } else {
-            self.size
-        };
-        let restored = Ghostty::restore(encoding, &state, size, self.scrollback, policy::XTVERSION);
+        // oso restores at the terminal's own size, then the window resizes it (adopt.rs); a
+        // different size is reached through that live resize, not by decoding at it.
+        let restored = Ghostty::restore(
+            encoding,
+            &state,
+            self.size,
+            self.scrollback,
+            policy::XTVERSION,
+        );
         if !escapes {
             self.before = bytes;
         }
@@ -246,7 +248,7 @@ impl Source {
             self.taken += u64::from(restored.is_some());
         }
         match restored {
-            Some(engine) => Source::drive(engine, size, seed, iteration, &mut rng),
+            Some(engine) => Source::drive(engine, self.size, seed, iteration, &mut rng),
             None => assert!(!kept, "an unchanged snapshot did not restore"),
         }
         state.len()
@@ -259,6 +261,11 @@ impl Source {
             .engine
             .snapshot(&mut driver.snapshot, &mut driver.spare);
         driver.snapshot.clear(&mut driver.spare);
+        // A window of another size resizes the restored terminal, through the live path.
+        if rng.chance(20) {
+            let &(columns, rows) = rng.pick(SIZES);
+            driver.engine.resize(sized(columns, rows));
+        }
         driver.run(input(seed ^ 0xAF7E_0000_AF7E, iteration, true));
         if rng.chance(20) {
             let budget = AtomicUsize::new(usize::MAX / 2);

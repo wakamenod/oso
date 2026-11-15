@@ -12,12 +12,36 @@ fn one_file(old: &str, new: &str) -> String {
     format!("--- {old}\n+++ {new}\n{HUNK}")
 }
 
+/// Each checked-in patch, in the order the lock lists them, with its text.
+const PATCHES: &[(&str, &str)] = &[
+    (
+        "0001-row-copies.patch",
+        include_str!("../../../../patches/0001-row-copies.patch"),
+    ),
+    (
+        "0003-snapshot-restore.patch",
+        include_str!("../../../../patches/0003-snapshot-restore.patch"),
+    ),
+];
+
 #[test]
-fn the_checked_in_patch_changes_what_the_lock_hashes() {
-    let patch = include_str!("../../../../patches/0001-row-copies.patch");
+fn the_checked_in_patches_change_what_the_lock_hashes() {
     let lock = include_str!("../../../../ghostty-vt.lock");
-    let mut changed = changed_files(patch).expect("the patch is a plain diff");
+    // The names in PATCHES are the names the lock lists, in order.
+    let listed: Vec<&str> = lock
+        .lines()
+        .filter_map(|line| line.strip_prefix("patch "))
+        .filter_map(|rest| rest.split_whitespace().next())
+        .collect();
+    let named: Vec<&str> = PATCHES.iter().map(|(name, _)| *name).collect();
+    assert_eq!(named, listed, "PATCHES must match the lock's patch lines");
+    // Every file the patches change is a file the lock hashes, and the reverse.
+    let mut changed: Vec<String> = PATCHES
+        .iter()
+        .flat_map(|(_, text)| changed_files(text).expect("the patch is a plain diff"))
+        .collect();
     changed.sort();
+    changed.dedup();
     let mut hashed: Vec<&str> = lock
         .lines()
         .filter_map(|line| line.strip_prefix("patched "))
