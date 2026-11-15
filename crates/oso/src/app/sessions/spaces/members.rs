@@ -84,8 +84,8 @@ impl App {
     }
 
     /// The directories session `key` also reads, for its resume (Q1), when it is a worker of
-    /// an open space, started by that space's orchestrator, current or earlier: each in a
-    /// trusted repository of the space, with that repository's trust, for its start thread to
+    /// an open space, started by that space's orchestrator, current or earlier: each a trusted
+    /// repository's root or a worktree the space holds, with that repository's trust, for its start thread to
     /// check with git as the tool's job did. The record is one agents can write, so nothing in
     /// it is taken as checked. What is given, and what is left out, is said.
     pub(in crate::app) fn reads_again(&mut self, key: SessionKey) -> Option<SpaceStart> {
@@ -102,13 +102,9 @@ impl App {
                     stored.orchestrator.as_ref() == Some(parent) || stored.earlier.contains(parent)
                 })
             });
-        let members: Vec<(String, PathBuf)> = (stored.iter())
-            .flat_map(|stored| stored.members.iter())
-            .map(|member| (String::new(), member.root.clone()))
-            .collect();
         let trust_of = |dir: &Path| {
-            let root = crate::sessions::tools::repo::holding(&members, dir)?;
-            let member = stored?.member(root)?;
+            let stored = stored?;
+            let member = stored.member(stored.read_root(dir)?)?;
             let root = self.member_trust(member)?;
             Some(Trust {
                 root,

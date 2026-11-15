@@ -115,8 +115,8 @@ impl App {
 
     /// As [`App::scoped_caller`], with the directories `with_dirs` names, each with the trust
     /// of the space's repository it is of, for the job to check (ADR 0136, step 4b): only an
-    /// orchestrator names any, and each must be a trusted repository's root or one of its
-    /// worktrees.
+    /// orchestrator names any, and each must be a trusted repository's root or a worktree the
+    /// space holds (`Stored::read_root`).
     ///
     /// # Errors
     ///
@@ -130,14 +130,20 @@ impl App {
         if !with_dirs.is_empty() && !caller.orchestrator() {
             return Err("only a space's orchestrator names \"with_dirs\"".to_owned());
         }
-        let members = self.caller_members(&caller);
+        let spaces = self.watch.spaces();
+        let stored =
+            (caller.space.as_ref()).and_then(|space| spaces.stored(spaces.find(&space.id)?));
         let mut with = Vec::with_capacity(with_dirs.len());
         for dir in with_dirs {
-            let listed = (self.listed_repository_of(dir))
-                .filter(|root| members.iter().any(|(_, member)| same(member, root)));
-            let root = listed
-                .or_else(|| repo::holding(&members, dir).map(Path::to_path_buf))
-                .ok_or_else(|| format!("{} is in no repository of your space", quoted_path(dir)))?;
+            // A repository's root, or a worktree the space holds: never one git alone lists.
+            let root = (stored.and_then(|stored| stored.read_root(dir)))
+                .map(Path::to_path_buf)
+                .ok_or_else(|| {
+                    format!(
+                        "{} is neither a repository of your space nor a worktree it holds",
+                        quoted_path(dir)
+                    )
+                })?;
             let acting = self.at_member(caller.clone(), &root)?;
             let root = acting.acting_at.ok_or("that repository is not trusted")?;
             let trusted = self.trusted_list();
