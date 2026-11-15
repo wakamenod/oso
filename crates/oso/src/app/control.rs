@@ -121,6 +121,11 @@ impl App {
             dev::UiOp::Wheel { delta, at } => self.dev_wheel(delta, at),
             dev::UiOp::Mouse { action, at, shift } => self.dev_mouse(action, at, shift),
             dev::UiOp::Focus(focused) => Ok(self.dev_focus(focused)),
+            dev::UiOp::WindowFocus => {
+                self.terminals.focused = true;
+                self.window_gained_focus();
+                Ok(json!({ "focused": true }))
+            }
             dev::UiOp::Exit { generation } => self.answer_exit(event_loop, generation),
             // The rest are a restart's: exporting and importing the state, its texts and its
             // terminals, and whether it may go.

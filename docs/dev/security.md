@@ -622,9 +622,11 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   needs it ([ADR 0120](adr/0120-the-terminal.md)); a child in a terminal gets the
   terminal's slave as its streams and controlling terminal, in a session of its own, and
   neither end of a terminal reaches any other child. One descriptor may be passed, as the
-  child's descriptor 3 (`oso-restart`'s pair), with every other one close-on-exec in the
-  child, and no spawn starts while a descriptor oso just made or received is not yet
-  close-on-exec ([ADR 0133](adr/0133-keeping-terminals-over-an-update.md)). `oso dev` builds offline,
+  child's descriptor 3 (`oso-restart`'s pair,
+  [ADR 0133](adr/0133-keeping-terminals-over-an-update.md)). On macOS and Linux a child gets
+  only its standard streams and that descriptor, however the rest were made, and is started
+  with `posix_spawn`, never a fork, but a terminal's child on macOS, whose hook marks every
+  other descriptor close-on-exec ([ADR 0137](adr/0137-starting-processes-with-posix-spawn.md)). `oso dev` builds offline,
   so a changed lock file fetches nothing by itself
   ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
 - The state handoff never carries a secret buffer's content, and no position in one

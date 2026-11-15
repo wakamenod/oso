@@ -384,6 +384,10 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   focus and never give it back; a session counts as seen only in a focused window
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)). `get-state`'s `sessions.focused`
   says what oso believes.
+- `window-focus` is the window system's focus event itself, with what follows it: open files
+  and the configuration are looked at again, adoptable sessions listed, and the binary looked
+  at for a change ([ADR 0133](adr/0133-keeping-terminals-over-an-update.md), step 4). `focus`
+  sets only whether the window has the keys, so flows that send it do none of that work.
 - `get-text` reads whole rows, up to 512 KiB and 10,000 rows, and fails clearly
   past that.
 - `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives in M2.
