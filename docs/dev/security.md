@@ -598,7 +598,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   may hold secrets. A memory error in one ends oso with no emergency save
   ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
 - Fuzz targets (`cargo-fuzz`) cover file loading, decoding, highlighting and
-  layout.
+  layout. What a language server sends is fuzzed through proptest targets in `oso-lsp`'s
+  modules (framing, JSON, URIs, positions; [ADR 0138](adr/0138-language-servers.md)).
 
 ### Development (T9)
 

@@ -16,8 +16,9 @@
 
 [workspace]
 oso
-# `oso-term` holds the terminal model (ADR 0120).
-oso-render oso-syntax oso-term
+# `oso-term` holds the terminal model (ADR 0120), and `oso-lsp` the language server client
+# (ADR 0138).
+oso-render oso-syntax oso-term oso-lsp
 oso-core oso-platform
 
 [oso-core]
@@ -93,3 +94,9 @@ policy input
 engine
 snapshot
 event limits
+
+[oso-lsp]
+# The client's parts, each over the bounds in `limits` (ADR 0138).
+crate
+framing json position uri
+limits

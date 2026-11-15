@@ -1423,6 +1423,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "oso-lsp"
+version = "0.1.0"
+dependencies = [
+ "oso-core",
+ "proptest",
+ "serde_json",
+]
+
+[[package]]
 name = "oso-platform"
 version = "0.1.0"
 dependencies = [
