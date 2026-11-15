@@ -130,7 +130,7 @@ In `*Sessions*`:
 
 | Key | What it does |
 |---|---|
-| `RET` | Show the session on this row. On a worktree, go to its space, or find a file in it when it has none. On a project or a group, fold it. |
+| `RET` | Show the session on this row. On a worktree, show its session, or go to its space, or find a file in it when it has neither. On a project or a group, fold it. |
 | `n`, `p` | Next and previous row. |
 | `M-n`, `M-p` | Next and previous project, worktree or group. |
 | `TAB` | Fold or unfold a project, a worktree or a group. |
@@ -156,10 +156,14 @@ buffer stops and archives the session.
 
 ### Spaces
 
-A space is a project and its sessions, with its own windows. `C-x a j` switches spaces, and the
-windows of the space you leave are kept for when you come back. Showing a session of another
-space switches to that space. A worktree session gets a space of its own, under its
-repository's. The modeline names the space.
+A space is the workplace of one issue: its repositories, the worktrees made in it, their
+sessions, and its own windows. oso keeps spaces from one start to the next. `C-x a j` switches
+spaces, and the windows of the space you leave are kept for when you come back. Showing a
+session of another space switches to that space. A worktree made in a space stays in it. A
+session started in a repository joins the space in front when that space has the repository,
+else the space you were in last that has it, else a new space of that repository. Each
+repository you used before spaces came becomes a space of its own. The modeline names the
+space.
 
 ### Send work to a session
 

@@ -465,6 +465,48 @@ and Q6.
   restricted members listed but unused until trusted (Q8); `space-close` archives and
   `space-reopen` brings back (Q9); a space from a GitHub issue later, with ADR 0127's `gh` (Q10).
 
+## Step 1a, as built
+
+The author split step 1 into 1a (the model, the `spaces` file, the migration, `[spaces] root` and
+the directory checks) and 1b (the commands and the `C-x a S` menu), and chose on 2026-11-15:
+worktree spaces go in 1a, one window tree a space (P1 (a)); `oso dev`'s handoff format is
+unchanged (P3 (a)); `space-new` completes over known repositories (P4 (a), for 1b).
+
+- **The model** is `sessions/spaces.rs` (lookups, the join rule, the window trees),
+  `spaces/stored.rs` (the plain data), `spaces/record.rs` (the file), `spaces/migrate.rs` and
+  `spaces/dir.rs`. The file shares its read and replace with `sessions` (`record::read_file`,
+  `record::replace_file`). It has a proptest fuzz target in its tests.
+- **A space's directory is decided at its first use,** not when it is made from sessions or
+  joined: the record keeps none until then, and the root in force at that moment gives it. A
+  space made at start would otherwise take the compiled-in root before `config.toml` is read.
+  `space-new` (1b) makes it at once.
+- **Ids come from the worker:** 8 come with the recalled sessions, and more are asked for when
+  fewer than 4 are left, as random bytes are never read on the UI thread. A session that would
+  make a space while none is at hand joins one when they come.
+- **No session joins a space before the `spaces` file is read,** so that none is made twice.
+- **A place's repository, for the join:** the repository git listed it as a worktree of
+  (the pane's listing); else the deepest repository of an open space above it, as oso's own
+  worktrees are inside theirs; else the place itself. A worktree elsewhere, before its
+  repository is listed, becomes a space of its own.
+- **The migration** looks at the remembered places only, and the directories above them: a
+  place whose `.git` is a file goes with a repository above it, or another remembered place,
+  that records it back (ADR 0114's check). Migrated spaces are written at once, so the
+  migration runs once.
+- **Worktree spaces are gone (P1):** a made worktree is held by the space of the session that
+  asked for it when its repository is that space's, else by the space it joins; a removed one is
+  forgotten there, and no space closes. `RET` on a worktree row shows its session, in its
+  space.
+- **After a restart that kept terminals (P3),** a carried session takes its space from the
+  record once that is read, and the frame's tree is taken as the space of the session the
+  selected window shows.
+- **The pane** lists the repositories of the open spaces, in their order, each once; its space
+  level is step 2. `space-switch` lists open spaces, with the title, else the repositories'
+  names, as the annotation.
+- **Waiting for 1b:** `Configuration::spaces_root`, `config::paths::expand` and the directory
+  module are built and tested but not yet called, under `expect(dead_code)`.
+- **A shared state directory:** a build before this step that writes `sessions` drops the
+  `space` field; such a session joins its space again by the rule.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it. They apply once this ADR is
