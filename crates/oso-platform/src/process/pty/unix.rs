@@ -29,10 +29,24 @@ pub(super) struct Master(pub(super) File);
 
 #[derive(Debug)]
 pub(super) struct Slave {
+    /// Held open on Linux too, where the child opens the slave again by its name, so that the
+    /// terminal does not end before it has.
+    #[cfg_attr(
+        all(target_os = "linux", not(test)),
+        expect(
+            dead_code,
+            reason = "held open, not read, where the child opens the name"
+        )
+    )]
     pub(super) fd: OwnedFd,
     /// Its path, which the child opens again on Linux to make it its controlling terminal.
     #[cfg(target_os = "linux")]
     pub(super) name: std::ffi::CString,
+    /// A close-on-exec copy of the master, which alone tells another process the slave's
+    /// session on Linux: there `TIOCGSID` on a slave fails unless it is the caller's own
+    /// controlling terminal.
+    #[cfg(target_os = "linux")]
+    master: OwnedFd,
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +123,8 @@ pub(super) fn open(size: Size) -> io::Result<(Master, Slave)> {
         fd: slave.into(),
         #[cfg(target_os = "linux")]
         name,
+        #[cfg(target_os = "linux")]
+        master: master.try_clone_fd()?,
     };
     Ok((master, slave))
 }
@@ -183,9 +199,10 @@ fn set_non_blocking(file: &File) -> io::Result<()> {
 
 #[cfg(target_os = "linux")]
 impl Slave {
+    /// The session whose controlling terminal the slave is, asked of the master.
     pub(super) fn session(&self) -> io::Result<libc::pid_t> {
         // SAFETY: `tcgetsid` takes a descriptor, which `self` keeps open, and nothing else.
-        let session = unsafe { libc::tcgetsid(self.fd.as_raw_fd()) };
+        let session = unsafe { libc::tcgetsid(self.master.as_raw_fd()) };
         if session < 0 {
             Err(io::Error::last_os_error())
         } else {

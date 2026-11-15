@@ -72,8 +72,10 @@ later, reaches no child. Whatever made it, and on whatever thread, it needs no l
   opened by its name at 0 without `O_NOCTTY`, which a session leader with no terminal takes as
   its controlling one. `dup2` then copies it to 1 and 2. The `Slave` keeps its own descriptor
   open until the caller drops it, as before. As the old hook failed when `TIOCSCTTY` did, the
-  spawn checks `tcgetsid` on the slave once `posix_spawn` returns (after the child's `exec`),
-  and ends, reaps and fails a child whose session the terminal does not belong to.
+  spawn asks the terminal's session once `posix_spawn` returns (after the child's `exec`), and
+  ends, reaps and fails a child whose session the terminal does not belong to. It asks through
+  a close-on-exec copy of the master that the `Slave` holds: Linux answers `TIOCGSID` on a
+  slave only for the caller's own controlling terminal.
 - **macOS forks, as before.** XNU runs the file actions before `POSIX_SPAWN_SETSID`, and only
   the session leader's own `TIOCSCTTY` gives a session a controlling terminal: opening a
   terminal never does. So `posix_spawn` cannot start a child with one. A stress test of 8

@@ -251,7 +251,8 @@ fn in_terminal(actions: &mut Actions, slave: &super::pty::Slave) -> io::Result<(
 /// the child has run its file actions and `exec`, so this needs no waiting.
 #[cfg(target_os = "linux")]
 fn controls(slave: &super::pty::Slave, pid: libc::pid_t) -> io::Result<()> {
-    if slave.session().ok() == Some(pid) {
+    let session = slave.session();
+    if session.as_ref().ok() == Some(&pid) {
         return Ok(());
     }
     let mut child = Process {
@@ -261,9 +262,14 @@ fn controls(slave: &super::pty::Slave, pid: libc::pid_t) -> io::Result<()> {
     };
     let _ = child.kill();
     let _ = child.wait();
-    Err(io::Error::other(
-        "the terminal did not become the child's controlling terminal",
-    ))
+    Err(io::Error::other(match session {
+        Ok(other) => format!(
+            "the terminal did not become the child's controlling terminal: its session is {other}"
+        ),
+        Err(error) => {
+            format!("the terminal did not become the child's controlling terminal: {error}")
+        }
+    }))
 }
 
 /// Starts a child in a terminal on macOS by a fork, through the standard library, whose hook
