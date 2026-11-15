@@ -34,16 +34,22 @@ fn the_built_in_table_needs_no_configuration() {
 
 #[test]
 fn an_override_changes_only_the_keys_it_names() {
-    let (lsp, said) = parsed(
+    // An absolute path on this system: `C:` starts one on Windows.
+    let program = if cfg!(windows) {
+        "C:/ra/bin/rust-analyzer.exe"
+    } else {
+        "/opt/ra/bin/rust-analyzer"
+    };
+    let (lsp, said) = parsed(&format!(
         "[lsp]\nstart = \"manual\"\n\
-         [lsp.servers.rust-analyzer]\ncommand = [\"/opt/ra/bin/rust-analyzer\"]\n\
+         [lsp.servers.rust-analyzer]\ncommand = [\"{program}\"]\n\
          env = [\"RUSTUP_TOOLCHAIN\", \"CARGO_HOME\"]\n\
          [lsp.servers.rust-analyzer.options]\ncheck.command = \"clippy\"\ncargo.features = [\"a\"]\n",
-    );
+    ));
     assert_eq!(said, Vec::<String>::new());
     assert_eq!(lsp.start, StartWhen::Manual);
     let rust = lsp.for_mode(Mode::Rust).unwrap();
-    assert_eq!(rust.command, ["/opt/ra/bin/rust-analyzer"]);
+    assert_eq!(rust.command, [program]);
     assert!(
         !rust.in_cargo_bin,
         "a command of the person's is looked for where it says"

@@ -192,7 +192,13 @@ fn a_server_starts_answers_and_shuts_down() {
     assert_eq!(seen.shown, [(Severity::Warning, "careful".to_owned())]);
     seen.server.shut_down();
     seen.until(LIMIT, |seen| seen.state() == Some(State::Ended));
-    assert!(seen.logged("ended: exit status: 0"), "{:?}", seen.log);
+    // How the system writes a clean end: `exit status: 0`, or `exit code: 0` on Windows.
+    let clean = if cfg!(windows) {
+        "ended: exit code: 0"
+    } else {
+        "ended: exit status: 0"
+    };
+    assert!(seen.logged(clean), "{:?}", seen.log);
 }
 
 #[test]
