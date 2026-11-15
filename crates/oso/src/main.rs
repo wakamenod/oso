@@ -16,6 +16,7 @@ mod dev;
 mod dired;
 mod dispatch;
 mod emergency;
+mod git;
 mod grep;
 mod keys;
 mod lister;

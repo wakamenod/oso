@@ -20,8 +20,8 @@ use std::time::Instant;
 use oso_platform::process::{Child, Sink, Source};
 
 use super::MAX_BLOB;
-use super::git::{self, Git, GitError};
-use super::id::{Id, trim_line};
+use crate::git::{self, Git, GitError};
+use crate::git::{Id, trim_line};
 
 /// The longest header line `cat-file` writes for one object.
 const MAX_HEADER: u64 = 256;

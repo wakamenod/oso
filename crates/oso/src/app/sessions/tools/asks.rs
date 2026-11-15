@@ -60,7 +60,7 @@ pub(super) enum Plan {
     },
     /// A session to start, and for an orchestrator's call the space's repository whose trust
     /// is asked again before it starts.
-    Start(Begin, Option<crate::review::TrustedRoot>),
+    Start(Begin, Option<crate::git::TrustedRoot>),
 }
 
 impl Plan {

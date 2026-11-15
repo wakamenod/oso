@@ -14,7 +14,7 @@ use oso_core::minibuffer::PromptId;
 use oso_core::project::ProjectId;
 
 use super::super::{App, UserEvent};
-use crate::review::TrustedRoot;
+use crate::git::TrustedRoot;
 use crate::sessions::hosted::{New, Run, Table};
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
@@ -581,7 +581,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::{Baseline, revoke_untrusted};
-    use crate::review::TrustedRoot;
+    use crate::git::TrustedRoot;
 
     #[test]
     fn a_start_baseline_of_a_project_no_longer_trusted_is_revoked_and_forgotten() {

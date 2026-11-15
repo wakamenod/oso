@@ -21,8 +21,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, SyncSender};
 use std::time::Duration;
 
-use oso_platform::privacy::PrivateDir;
-
 use super::checks::{self, Check, Depth, Held, HostedSession, Looked};
 use super::create::{self, Created, Order, Step};
 use super::facts::RepoFacts;
@@ -30,9 +28,9 @@ use super::git::{Gh, Repo, said};
 use super::merged::{self, Merged};
 use super::pool::Pool;
 use super::prepare::{self, Prepare, Prepared};
+use crate::git::MAX_SHORT;
+use crate::git::TrustedRoot;
 use crate::project::{Trusted, linked_worktree};
-use crate::review::TrustedRoot;
-use crate::review::git::MAX_SHORT;
 use crate::sessions::spaces::Member;
 
 /// Why a job refuses a repository whose main checkout is not trusted.
@@ -428,8 +426,6 @@ impl Jobs {
     }
 }
 
-/// git in the main checkout of the repository of `trust`, with the empty private directory
-/// for hooks under `state`, if that main checkout is trusted too.
 /// `dir`, a directory a new session also reads, checked in the repository `trust` names, with
 /// `state` oso's state directory: the root still the one trusted, and `dir` that root or one
 /// of its linked worktrees itself (ADR 0136, step 4b). It runs git, so it belongs off the UI
@@ -443,15 +439,12 @@ pub fn readable_in(trust: &Trust, dir: &Path, state: Option<&Path>) -> Result<Me
     prepare::readable(&repo(trust, state)?, dir)
 }
 
+/// git in the main checkout of the repository of `trust`, with the empty private directory
+/// for hooks under `state`, if that main checkout is trusted too.
 fn repo(trust: &Trust, state: Option<&Path>) -> Result<Repo, String> {
     let state = state.ok_or("oso has no state directory, so it runs no git for worktrees")?;
-    let hooks = PrivateDir::open(state.join("worktrees").join("hooks"))
-        .map_err(|e| format!("Cannot make oso's directory for git: {e}"))?;
-    let empty = std::fs::read_dir(hooks.path()).is_ok_and(|mut e| e.next().is_none());
-    if !empty {
-        return Err("oso's empty directory for git's hooks is not empty".to_owned());
-    }
-    let main = main_of(trust.root.path(), hooks.path())?;
+    let hooks = crate::git::empty_hooks(state, "worktrees")?;
+    let main = main_of(trust.root.path(), &hooks)?;
     // Worktrees take their trust from the main repository (ADR 0114).
     let main_trusted = trust
         .trusted
@@ -460,7 +453,7 @@ fn repo(trust: &Trust, state: Option<&Path>) -> Result<Repo, String> {
     if !main_trusted {
         return Err(MAIN_UNTRUSTED.to_owned());
     }
-    Repo::open(&main, hooks.path())
+    Repo::open(&main, &hooks)
 }
 
 /// The main checkout of the repository `project` is in: `project` itself, or the main

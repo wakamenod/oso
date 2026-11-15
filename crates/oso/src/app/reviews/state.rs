@@ -12,9 +12,10 @@ use oso_core::editor::ReviewId;
 use oso_core::project::ProjectId;
 use oso_core::window::{Screen, ViewSize, WindowId};
 
+use crate::git::{Id, TrustedRoot};
 use crate::review::count::Counter;
 use crate::review::view::{Tell, Text, View};
-use crate::review::{Id, Reading, Reviewer, Scope, TrustedRoot};
+use crate::review::{Reading, Reviewer, Scope};
 
 /// What the review's note says once its project is no longer trusted.
 pub(super) const UNTRUSTED: &str = "the project is no longer trusted: M-x trust-project, then g";

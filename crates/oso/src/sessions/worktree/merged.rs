@@ -21,7 +21,7 @@ use std::collections::HashSet;
 use super::facts::{MAIN_BRANCHES, RepoFacts};
 use super::git::{Gh, MAX_LISTING, MAX_NAMES, Repo, run, status};
 use super::porcelain;
-use crate::review::git::MAX_SHORT;
+use crate::git::MAX_SHORT;
 
 /// The most bytes of a branch's reflog read.
 const MAX_REFLOG: usize = 1024 * 1024;

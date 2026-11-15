@@ -52,6 +52,12 @@ impl Starting {
     pub(super) fn save_started(&mut self, buffer: BufferId, by: Acted) {
         self.saves.insert(buffer, by);
     }
+
+    /// Who started the save of `buffer` that ended, forgotten now: a save no one here started is
+    /// taken as the agent's, so that it runs nothing.
+    fn save_ended(&mut self, buffer: BufferId) -> Acted {
+        self.saves.remove(&buffer).unwrap_or(Acted::Agent)
+    }
 }
 
 impl App {
@@ -120,11 +126,11 @@ impl App {
 
     /// A save of `id` ended: unless it failed, what it starts runs, or waits if it was the
     /// agent's; the person's lets go what an agent's save left waiting there.
-    pub(super) fn save_starts(&mut self, id: BufferId, failed: bool) {
-        // A save no one here started is taken as the agent's, so that it runs nothing.
-        let by = self.starting.saves.remove(&id).unwrap_or(Acted::Agent);
+    /// Returns who started it, a save no one here started being the agent's.
+    pub(super) fn save_starts(&mut self, id: BufferId, failed: bool) -> Acted {
+        let by = self.starting.save_ended(id);
         if failed {
-            return;
+            return by;
         }
         let held = self
             .editor
@@ -138,6 +144,7 @@ impl App {
             Acted::Agent => self.log_held(id, true),
         }
         self.run_starts(id, runs);
+        by
     }
 
     /// What waits in `id` for the person after an agent's open, or its save if `save`, as the
@@ -214,7 +221,9 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use oso_core::buffer::{Runs, Start};
+    use oso_core::buffer::{Acted, Runs, Start};
+
+    use super::Starting;
 
     /// Every kind that runs a program, so waits after an agent's open or save (ADR 0118, Q2). A
     /// new kind, or one that changes sides, shows in review here.
@@ -228,5 +237,20 @@ mod tests {
             .map(Start::id)
             .collect();
         assert_eq!(programs, PROGRAM);
+    }
+
+    #[test]
+    fn a_save_is_the_persons_only_when_the_person_started_it() {
+        let mut editor = oso_core::editor::Editor::default();
+        let mut id = || editor.add_buffer(oso_core::buffer::Buffer::new("b"));
+        let (person, agent, unknown) = (id(), id(), id());
+        let mut starting = Starting::default();
+        starting.save_started(person, Acted::Person);
+        starting.save_started(agent, Acted::Agent);
+        assert_eq!(starting.save_ended(person), Acted::Person);
+        assert_eq!(starting.save_ended(agent), Acted::Agent);
+        assert_eq!(starting.save_ended(unknown), Acted::Agent);
+        // An ended save is forgotten: its next end, with no new start, is no one's.
+        assert_eq!(starting.save_ended(person), Acted::Agent);
     }
 }

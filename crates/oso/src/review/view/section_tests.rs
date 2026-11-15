@@ -10,7 +10,8 @@ use oso_core::syntax::Highlight;
 use proptest::prelude::*;
 
 use super::*;
-use crate::review::{Content, Entry, Id, Reading};
+use crate::git::Id;
+use crate::review::{Content, Entry, Reading};
 
 pub(crate) fn entry(path: &[u8], status: Status) -> Entry {
     let zero = Id::parse(&[b'0'; 40]).unwrap();

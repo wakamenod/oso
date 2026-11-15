@@ -1,7 +1,8 @@
 //! Reading a review's file list from `git diff --raw -z` (ADR 0122): paths as bytes,
 //! NUL-separated, never parsed from patch headers.
 //!
-//! Must not depend on: `app`, `dispatch`, `git` or `batch`; this parses bytes it is given.
+//! Must not depend on: `app`, `dispatch`, `batch` or git's runner; this parses bytes it is
+//! given, and takes only object ids from the shared git module.
 //!
 //! At most [`MAX_FILES`] are kept; the rest are counted. Line counts and whether a file is
 //! binary come from the review's own reading, not from git.
@@ -9,7 +10,7 @@
 //! A conflicted file is listed once, as unmerged: git writes it again for a stage it compares,
 //! and that record is dropped.
 
-use super::id::Id;
+use crate::git::Id;
 
 /// The most files a review lists.
 pub(crate) const MAX_FILES: usize = 10_000;

@@ -13,8 +13,9 @@ use oso_core::review::{Anchor, Author, Base, Hunk, Review, Shape, Side};
 
 use super::check_editor;
 use crate::commands::review::tests::in_project;
+use crate::git::Id;
 use crate::review::view::{Carrying, Tell, built};
-use crate::review::{Content, Entry, Id, Reading, Status};
+use crate::review::{Content, Entry, Reading, Status};
 
 fn entry(path: &[u8], status: Status) -> Entry {
     let zero = Id::parse(&[b'0'; 40]).unwrap();

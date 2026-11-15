@@ -33,7 +33,8 @@ use super::identity::{self, SessionId};
 use super::launch::{self, Launch};
 use super::registry;
 use super::worktree::steer;
-use crate::review::{self, Reviewer, TrustedRoot};
+use crate::git::TrustedRoot;
+use crate::review::{self, Reviewer};
 use crate::terminal::hosted;
 use crate::terminal::shell::{self, Settings};
 

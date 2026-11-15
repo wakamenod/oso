@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use oso_core::buffer::BufferId;
 
 use crate::app::App;
-use crate::review::TrustedRoot;
+use crate::git::TrustedRoot;
 use crate::sessions::identity::SessionId;
 use crate::sessions::spaces::Member;
 use crate::sessions::spaces::stored::now_ms;

@@ -170,7 +170,7 @@ impl Git {
     }
 
     /// The same git, run in `top` instead.
-    pub(super) fn in_top(&self, top: &Path) -> Git {
+    pub(crate) fn in_top(&self, top: &Path) -> Git {
         Git {
             top: for_git(top),
             ..self.clone()
@@ -184,8 +184,9 @@ impl Git {
 
     /// Starts git with `args` after oso's own, `set` over the environment, standard input as
     /// `stdin` and standard error as `stderr`. A path in `set` must have gone through
-    /// [`for_git`].
-    pub(super) fn start(
+    /// [`for_git`]. Its output is read only through [`collect`], which bounds it and kills a
+    /// run past [`RUN_LIMIT`], or the child is given to [`stop`].
+    pub(crate) fn start(
         &self,
         args: &[&OsStr],
         set: &[(&str, &OsStr)],
@@ -301,7 +302,7 @@ impl Git {
     }
 
     /// The id of the empty tree, in this repository's hash.
-    pub(super) fn empty_tree(&self) -> Result<Id, GitError> {
+    pub(crate) fn empty_tree(&self) -> Result<Id, GitError> {
         let args = ["hash-object", "-t", "tree", "--stdin"].map(OsStr::new);
         let out = self.run(&args, &[], MAX_SHORT)?;
         Id::parse(trim_line(&out)).ok_or(GitError::Unexpected("not an object id"))
@@ -406,7 +407,7 @@ fn write_away(child: &mut Child, input: Vec<u8>) -> Result<(), GitError> {
 }
 
 /// Kills `child` and reaps it; one that has gone already is no error.
-pub(super) fn stop(child: &mut Child) {
+pub(crate) fn stop(child: &mut Child) {
     let _ = child.kill();
     let _ = child.wait();
 }

@@ -5,7 +5,7 @@
 //! Must not depend on: `app`, `dispatch` or the UI thread; this runs on a worktree
 //! job's thread and waits for git.
 //!
-//! - Every git run is [`review::git`](crate::review)'s: oso's own arguments and environment,
+//! - Every git run is [`git`](crate::git)'s runner's: oso's own arguments and environment,
 //!   no hook and no file system monitor of the repository's (the author's choice, ADR 0121
 //!   step 4), `GIT_TERMINAL_PROMPT=0`, output bounded, killed after 10 s. Nothing here fetches.
 //! - A linked worktree is run in only once its claim and the main repository's record of it
@@ -23,8 +23,8 @@ use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 use serde_json::Value;
 
 use super::porcelain::{self, Listed};
+use crate::git::{Git, GitError, MAX_SHORT, RUN_LIMIT, collect, read_at_most};
 use crate::project::linked_worktree;
-use crate::review::git::{self as rgit, Git, GitError, MAX_SHORT};
 
 /// The most bytes of a listing read: worktrees, branches, refs, paths.
 pub const MAX_LISTING: usize = 4 * 1024 * 1024;
@@ -348,8 +348,8 @@ impl Gh {
             pass_fd: None,
         })
         .map_err(|e| format!("cannot run gh: {e}"))?;
-        let out = rgit::collect(child, None, |stdout| rgit::read_at_most(stdout, MAX_GH))
-            .map_err(|e| gh_said(&e))?;
+        let out =
+            collect(child, None, |stdout| read_at_most(stdout, MAX_GH)).map_err(|e| gh_said(&e))?;
         if out.cut {
             return Err("gh said more than oso reads".to_owned());
         }
@@ -366,7 +366,7 @@ fn gh_said(error: &GitError) -> String {
     let said = match error {
         GitError::Spawn(e) => format!("cannot run gh: {e}"),
         GitError::Io(e) => format!("cannot talk to gh: {e}"),
-        GitError::TimedOut => format!("gh took more than {} s", rgit::RUN_LIMIT.as_secs()),
+        GitError::TimedOut => format!("gh took more than {} s", RUN_LIMIT.as_secs()),
         GitError::TooLong => "gh said more than oso reads".to_owned(),
         GitError::Failed { stderr, .. } => format!("gh failed: {}", stderr.trim()),
         GitError::NoCeiling | GitError::Unexpected(_) | GitError::BadRevision => {

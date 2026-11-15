@@ -550,7 +550,8 @@ agent, after ADR 0122's step 12. The plan's questions were answered (a) each:
   file under the repository's root reaches the disk while it shows; a read asked while it is not
   shown waits until it is. What an agent does runs no git (the author's choice, 2026-11-15, in
   line with ADR 0118): a save the agent asked for, or a status its command left shown, only marks
-  the status stale, `stale: g reads it again` in its modeline, and the person's next `g` or key
+  the status stale (and, since the shared `git` module's pull request, any save the person did
+  not start), `stale: g reads it again` in its modeline, and the person's next `g` or key
   in it reads it.
 - **Names and open files:** a status is named `*git: NAME*`, told apart from another buffer of
   that name by `<2>`. Files no longer listed are forgotten as open, and no more patches are read
@@ -576,6 +577,29 @@ agent, after ADR 0122's step 12. The plan's questions were answered (a) each:
   paths, the first commit, secret files, roots and hooks it refuses); the commands; an
   end-to-end flow; and the report-only scenario `git_status_open_ms` and
   `git_status_refresh_type_p99_ms`.
+
+### The shared `git` module (before step 1b)
+
+- **What moved:** step 1a's deviation (4), done with no change of what anything does.
+  `crates/oso/src/git.rs` and `git/` hold what every run of git shares: the runner (`run`, was
+  `review/git.rs`), object ids and `trim_line` (`id`, was `review/id.rs`), `TrustedRoot`
+  (`trust`, was in `review.rs`), git's names, a path's device and inode and the secret-name check
+  (`path`, was in `review/side.rs`), and the empty hooks directory under oso's state directory
+  (`hooks`, which the worktree jobs and the status each made the same way). `review`,
+  `sessions`, `vcs` and `app` import them from `crate::git`. A review's own hooks directory,
+  beside its index copies, stays in `review`.
+- **Layers:** `git` is on a line of its own just below `channel dired project review walk` in
+  `guardrails/layers.txt` (approved), not on that line as first planned: `review` uses it, and
+  entries on one line may not use each other.
+- **One wording:** the worktree jobs' "Cannot make oso's directory for git" is now the status's
+  "cannot make oso's directory for git", as one helper says it for both.
+- **Who saved:** a save's end asks ADR 0118's record of who started it (`Starting::saves`)
+  instead of the agent's list of saves waiting for a reply (the author's choice, 2026-11-16). A
+  save no one here started counts as the agent's, and so do two the list had let go of: an
+  agent's save that outlasted the wait for its reply, and one whose connection closed. Each
+  only marks the status stale; before, they read it again, running git on what an agent did.
+- **Follow-up:** `identity`, a file's device and inode, is a file system helper, not git's;
+  `grep` and `sessions` keep copies of their own. One helper, in `oso-platform`, would do.
 
 ## Sources
 

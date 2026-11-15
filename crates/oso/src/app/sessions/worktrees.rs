@@ -26,7 +26,7 @@ mod listing;
 mod removal;
 use super::hosting::Begin;
 use super::watch::Watch;
-use crate::review::TrustedRoot;
+use crate::git::TrustedRoot;
 use crate::sessions::hosted::{Hosted, Run};
 use crate::sessions::identity::SessionId;
 use crate::sessions::state::State;

@@ -7,7 +7,7 @@
 //! - It starts only from a [`TrustedRoot`], and looks at the root again before each batch: a
 //!   restricted project, or another directory put in a trusted one's place, runs no git (ADR
 //!   0009, ADR 0011, ADR 0114). The repository's top must be the root, as a review's.
-//! - git runs through `review`'s runner: oso's arguments and environment, no hook and no file
+//! - git runs through `git`'s runner: oso's arguments and environment, no hook and no file
 //!   system monitor, each read bounded, a run past ten seconds killed. Every run here adds
 //!   `GIT_LITERAL_PATHSPECS=1`, so that a path is only ever itself, and paths go to `add` and
 //!   `restore` on standard input. No hook runs: every index write would run
@@ -30,15 +30,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
-use oso_platform::privacy::PrivateDir;
-
 use super::layout::Built;
 use super::layout::{self, Head, Hunks, Laid, Section, View};
 use super::patch;
 use super::stage::{self, Op, Target};
 use super::status::{self, Status};
-use crate::review::git::{Git, GitError, MAX_SHORT, read_at_most};
-use crate::review::{TrustedRoot, may_hold_secrets, os_path};
+use crate::git::{Git, GitError, MAX_SHORT, read_at_most};
+use crate::git::{TrustedRoot, may_hold_secrets, os_path};
 
 /// The most bytes of the status's listing read; past it, the files after are not shown.
 pub(crate) const MAX_LIST: usize = 32 * 1024 * 1024;
@@ -387,13 +385,7 @@ impl State {
 /// hooks are there, so that none runs, `post-index-change` neither (ADR 0127, step 1a).
 fn hooks_dir(state: Option<&Path>) -> Result<PathBuf, String> {
     let state = state.ok_or("oso has no state directory, so it runs no git for a status")?;
-    let hooks = PrivateDir::open(state.join("vcs").join("hooks"))
-        .map_err(|e| format!("cannot make oso's directory for git: {e}"))?;
-    let empty = std::fs::read_dir(hooks.path()).is_ok_and(|mut entries| entries.next().is_none());
-    if !empty {
-        return Err("oso's empty directory for git's hooks is not empty".to_owned());
-    }
-    Ok(hooks.path().to_path_buf())
+    crate::git::empty_hooks(state, "vcs")
 }
 
 /// git for the repository whose work tree's top is `root`; a top elsewhere is refused.
@@ -402,7 +394,7 @@ fn find(root: &Path, hooks: &Path) -> Result<Git, String> {
     let out = git
         .run(&args(&["rev-parse", "--show-toplevel"]), &set(), MAX_SHORT)
         .map_err(|e| e.to_string())?;
-    let top = crate::review::trim_line(&out);
+    let top = crate::git::trim_line(&out);
     let top = os_path(top).map_err(|e| e.to_string())?;
     let same = match (Path::new(top).canonicalize(), root.canonicalize()) {
         (Ok(a), Ok(b)) => a == b,
@@ -442,7 +434,7 @@ fn head_commit(git: &Git) -> Option<(String, Vec<u8>)> {
         "--",
     ];
     let out = git.run(&args(&words), &set(), MAX_SHORT).ok()?;
-    let line = crate::review::trim_line(&out);
+    let line = crate::git::trim_line(&out);
     let at = line.iter().position(|&byte| byte == 0)?;
     let id = std::str::from_utf8(&line[..at]).ok()?;
     id.bytes()
