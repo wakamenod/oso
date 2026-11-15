@@ -489,6 +489,54 @@ fn only_a_session_in_the_directory_oso_makes_for_the_space_is_its_orchestrator()
 }
 
 #[test]
+fn a_renamed_space_keeps_its_orchestrator_in_the_directory_it_was_made_with() {
+    let root = Path::new("/home/u/spaces");
+    let mut spaces = Spaces::default();
+    let at = add(&mut spaces, "/src/oso-2");
+    let place = root.join("oso-2");
+    spaces.set_directory(at, place.clone(), Some((1, 2)), "oso-2", "oso-2", 2);
+    spaces.rename(at, "oso dev", 3);
+    let stored = spaces.stored(at).unwrap();
+    assert_eq!(stored.name, "oso-dev");
+    assert_eq!(stored.directory.as_deref(), Some(place.as_path()));
+    assert!(
+        stored.orchestrated_from(root, &place),
+        "the directory stays, so does the role"
+    );
+    assert!(
+        !stored.orchestrated_from(root, &root.join("oso-dev")),
+        "not where the new name would be made"
+    );
+}
+
+#[test]
+fn a_space_directory_off_the_root_makes_no_orchestrator_whatever_the_name() {
+    let root = Path::new("/home/u/spaces");
+    let mut stored = Stored::of_repository(id(1), "x".into(), Member::at(Path::new("/r")), 1);
+    stored.directory_identity = Some((1, 2));
+    // Forged records: a worktree, a directory below a space's, one under another root, the
+    // root itself, and names that are no slug.
+    for dir in [
+        "/r/.claude/worktrees/x",
+        "/home/u/spaces/oso-2/x",
+        "/home/u/other/x",
+        "/home/u/spaces",
+        "/home/u/spaces/Oso",
+        "/home/u/spaces/..",
+        "/home/u/spaces/.claude",
+        "/home/u/spaces/x/../fix",
+        "/home/u/spaces/con",
+    ] {
+        let dir = PathBuf::from(dir);
+        stored.directory = Some(dir.clone());
+        assert!(!stored.orchestrated_from(root, &dir), "{}", dir.display());
+    }
+    // The same place in other words is the same directory.
+    stored.directory = Some(PathBuf::from("/home/u/spaces/fix/."));
+    assert!(stored.orchestrated_from(root, &root.join("fix")));
+}
+
+#[test]
 fn a_session_reads_a_repositorys_root_or_a_worktree_the_space_holds_only() {
     let mut stored = Stored::of_repository(id(1), "fix".into(), Member::at(Path::new("/r")), 1);
     let held = Path::new("/r/.claude/worktrees/a");

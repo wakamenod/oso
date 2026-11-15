@@ -5,10 +5,10 @@
 //! Must not depend on: key presses or how a frame is drawn. Nothing here touches the disk.
 //!
 //! - The orchestrator is the session its space records, while it runs in the directory oso
-//!   makes for the space under `[spaces] root` (`Stored::orchestrated_from`): the record is one
-//!   agents can write, so it makes no session elsewhere one. A closed space's orchestrator, an
-//!   earlier one, and one elsewhere still see only the space's sessions, start nothing, and
-//!   reach no repository of the space.
+//!   made for the space under `[spaces] root`, whatever the space is called since
+//!   (`Stored::orchestrated_from`): the record is one agents can write, so it makes no session
+//!   elsewhere one. A closed space's orchestrator, an earlier one, and one elsewhere still see
+//!   only the space's sessions, start nothing, and reach no repository of the space.
 
 use std::path::{Path, PathBuf};
 

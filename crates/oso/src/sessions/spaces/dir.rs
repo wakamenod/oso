@@ -1,8 +1,9 @@
-//! A space's own directory (ADR 0136, Q1): `<root>/<name>`, where the orchestrator starts,
-//! outside every repository. oso makes it private and checks it before each use; it reads
-//! nothing in it.
+//! A space's own directory (ADR 0136, Q1): `<root>/<name>`, named for the space when it was
+//! made, where the orchestrator starts, outside every repository; `space-rename` leaves it
+//! where it is. oso makes it private and checks it before each use; it reads nothing in it.
 //!
-//! Must not depend on: threads, the UI or `app`; it touches the disk, so it runs on a worker.
+//! Must not depend on: threads, the UI or `app`; it touches the disk, so it runs on a worker,
+//! but for [`place`] and [`made_under`], which touch nothing and may run anywhere.
 //!
 //! - The root, and each directory on the way to it, must be writable by no one but the person
 //!   and root, as `config.toml`'s directories are (ADR 0108). A shared one is refused, never
@@ -23,7 +24,7 @@ use std::path::{Path, PathBuf};
 
 use oso_platform::privacy::{PrivateDir, Writers, who_can_change};
 
-use super::stored::Member;
+use super::stored::{Member, same, slug};
 
 /// Why a space's directory may not be used.
 #[derive(Debug)]
@@ -93,6 +94,14 @@ impl fmt::Display for Refusal {
 /// Where the directory of a space called `name` goes under `root`.
 pub fn place(root: &Path, name: &str) -> PathBuf {
     root.join(name)
+}
+
+/// Whether `dir` is where oso makes the directory of a space of some name under `root`: the
+/// [`place`] of a name as [`slug`] leaves it. Not necessarily the space's name now, as
+/// `space-rename` does not move the directory.
+pub fn made_under(root: &Path, dir: &Path) -> bool {
+    let name = dir.file_name().and_then(|name| name.to_str());
+    name.is_some_and(|name| slug(name) == name && same(dir, &place(root, name)))
 }
 
 /// Makes the directory of a space called `name` under `root`, and `root` if missing, both
