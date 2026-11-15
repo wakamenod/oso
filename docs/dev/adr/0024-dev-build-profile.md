@@ -1,6 +1,6 @@
 # 0024. Dev build profile and build-time budget
 
-- Status: Accepted
+- Status: Accepted, amended by 0139
 - Date: 2026-11-03
 
 ## Context
