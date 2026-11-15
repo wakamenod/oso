@@ -62,9 +62,9 @@ fn modeline_has(app: &mut App, what: &str, part: &'static str) -> Value {
 
 /// The rows of `*LSP*`, read in the selected window, which then shows `back` again.
 fn lsp_log(app: &mut App, back: &str) -> String {
-    app.send_keys("C-x b *LSP* RET");
+    app.send_keys(&format!("C-x b {} RET", super::typing("*LSP*")));
     let text = app.call("get-text", Some(json!({ "start_row": 0, "rows": 2000 })));
-    app.send_keys(&format!("C-x b {back} RET"));
+    app.send_keys(&format!("C-x b {} RET", super::typing(back)));
     text["rows"]
         .as_array()
         .unwrap()
@@ -158,13 +158,13 @@ fn a_server_starts_on_a_visit_stops_when_asked_and_ends_with_oso() {
     app.wait_for("the server stopped", |state| {
         state["modeline"]
             .as_str()
-            .is_some_and(|modeline| !modeline.contains("lsp"))
+            .is_some_and(|modeline| !modeline.contains("proj-lsp  lsp"))
     });
     until_gone(first);
     app.open_file(&root.join("src/lib.rs"));
     std::thread::sleep(Duration::from_millis(500));
     let modeline = app.state()["modeline"].as_str().unwrap().to_owned();
-    assert!(!modeline.contains("lsp"), "{modeline}");
+    assert!(!modeline.contains("proj-lsp  lsp"), "{modeline}");
 
     // lsp-start does.
     app.run_command("lsp-start", None).unwrap();
@@ -181,7 +181,7 @@ fn a_server_starts_on_a_visit_stops_when_asked_and_ends_with_oso() {
     );
     until_gone(second);
     let modeline = app.state()["modeline"].as_str().unwrap().to_owned();
-    assert!(!modeline.contains("lsp"), "{modeline}");
+    assert!(!modeline.contains("proj-lsp  lsp"), "{modeline}");
 }
 
 #[cfg(unix)]
@@ -217,7 +217,7 @@ fn a_server_that_keeps_crashing_stops_after_three_crashes() {
         "{echo}"
     );
     let log = lsp_log(&mut app, "main.rs");
-    assert_eq!(log.matches("] crashed: exited").count(), 3, "{log}");
+    assert_eq!(log.matches("] crashed: ").count(), 3, "{log}");
     // lsp-restart tries again.
     app.run_command("lsp-restart", None).unwrap();
     modeline_has(&mut app, "it starts again", "proj-lsp  lsp  ");

@@ -31,6 +31,10 @@ pub(super) struct Configuration {
     in_force: InForce,
     /// Whether a look has applied settings.
     applied: bool,
+    /// Whether the file was looked at once, or there is none: until then no open starts a
+    /// language server, so that the built-in table never runs before the person's changes to
+    /// it (ADR 0138).
+    looked: bool,
     /// A dev restart's handoff set the theme and the aids before any look applied settings: the
     /// next takes the file's as those in force without applying them (ADR 0108).
     handed_over: bool,
@@ -48,8 +52,14 @@ impl Configuration {
             in_force: InForce::compiled(&names),
             names,
             applied: false,
+            looked: false,
             handed_over: false,
         }
+    }
+
+    /// Whether the file was looked at once, or there is none (ADR 0138).
+    pub(super) fn looked(&self) -> bool {
+        self.looked
     }
 
     /// `[lsp]` in force, for the next server started (ADR 0138).
@@ -133,6 +143,7 @@ impl App {
                     .map(|name| name.to_string_lossy().into_owned())
             })
             .unwrap_or_default();
+        self.configuration.looked = reader.is_none();
         self.configuration.reader = reader;
         self.configuration.directories = source.directories();
         self.configuration.name = name;
@@ -205,6 +216,12 @@ impl App {
             self.editor.message(said);
         }
         self.configuration.troubled = outcome.troubled;
+        // The first look lets opens settle, now with the person's `[lsp]`.
+        if !self.configuration.looked {
+            self.configuration.looked = true;
+            self.starting.ask();
+            self.settle_opens();
+        }
     }
 
     /// Carries out what `settings` come to on this `look`, against those in force

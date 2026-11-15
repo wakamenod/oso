@@ -1128,6 +1128,12 @@ layers of `oso-lsp` below (Q8).
     thread of its own.
   - `lsp-start` or `lsp-restart` while a server stops starts it again once it has ended,
     and lifts an `lsp-shutdown`.
+  - No open settles before the configuration file was looked at once, so the built-in table
+    never starts a server ahead of the person's `[lsp]`: an `enabled = false`, `start =
+    "manual"` or a `command` of their own. The first end-to-end run found it, as the
+    machine's rust-analyzer started in place of the fake server.
+  - The end-to-end flows and the review bench that trust a project of Rust files set
+    `[lsp] start = "manual"`, so no language server of the machine's runs in them.
   - The rustup proxy that runs rust-analyzer reads the project's `rust-toolchain.toml`,
     which can name a toolchain inside the project. So in a trusted project, the project can
     choose the rust-analyzer that runs, as it chooses its build scripts; trust covers both.

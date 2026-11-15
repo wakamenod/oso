@@ -111,7 +111,8 @@ fn rows_until(app: &mut App, row: &str) -> Vec<String> {
 fn a_review_of_uncommitted_changes_reads_its_files_moves_refreshes_and_quits() {
     let scratch = Scratch::new("review-flow");
     set_mode(scratch.path(), 0o700);
-    let config = scratch.write("config.toml", b"");
+    // No language server of the machine's starts in the trusted project (ADR 0138).
+    let config = scratch.write("config.toml", b"[lsp]\nstart = \"manual\"\n");
     set_mode(&config, 0o644);
     let file = project(&scratch);
     let mut app = App::start_with_config(Some(&file), scratch.path(), &config);
@@ -183,7 +184,8 @@ fn a_review_of_uncommitted_changes_reads_its_files_moves_refreshes_and_quits() {
 /// trusted.
 fn open_review(scratch: &Scratch) -> App {
     set_mode(scratch.path(), 0o700);
-    let config = scratch.write("config.toml", b"");
+    // No language server of the machine's starts in the trusted project (ADR 0138).
+    let config = scratch.write("config.toml", b"[lsp]\nstart = \"manual\"\n");
     set_mode(&config, 0o644);
     let file = project(scratch);
     let mut app = App::start_with_config(Some(&file), scratch.path(), &config);

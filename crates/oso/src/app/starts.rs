@@ -48,10 +48,14 @@ impl Starting {
 
 impl App {
     /// Settles the open of each buffer that is ready: loaded, shown to whoever opened it, in a
-    /// project, with the record of trusted projects read. What would start for the person runs,
-    /// or waits in the buffer if the agent opened it (ADR 0118). Each buffer once.
+    /// project, with the record of trusted projects and the configuration read. What would start
+    /// for the person runs, or waits in the buffer if the agent opened it (ADR 0118). Each
+    /// buffer once.
     pub(super) fn settle_opens(&mut self) {
-        if !self.starting.asked || self.editor.trust_list().is_none() {
+        if !self.starting.asked
+            || self.editor.trust_list().is_none()
+            || !self.configuration.looked()
+        {
             return;
         }
         self.starting.asked = false;

@@ -407,8 +407,9 @@ fn claude_path(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<std::p
     None
 }
 
-/// `env` of `table`, as `[sessions] env`: at most [`MAX_ENV_NAMES`] variables' names, each one oso may pass on:
-/// not empty, with no `=` or NUL, and not `PATH`, `LD_*` or `DYLD_*`. A name refused is said
+/// `env` of `table`, as `[sessions] env`: at most [`MAX_ENV_NAMES`] variables' names, each
+/// one oso may pass on: not empty, with no `=` or NUL, and not `PATH`, `LD_*` or `DYLD_*`.
+/// A name refused is said
 /// and left out; the others stay.
 pub(super) fn env_names(
     value: &Spanned<DeValue<'_>>,
