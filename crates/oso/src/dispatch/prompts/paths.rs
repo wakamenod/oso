@@ -85,7 +85,14 @@ impl Dispatcher {
         }
         let this_one = matches!(prefix, Some(Prefix::Universal(_)));
         let start = editor.listing_target(this_one);
-        if let Some(prompt) = open_path_prompt(editor, prompt, history, false, start.as_deref()) {
+        // The marked rows are what goes, so the prompt says how many, whoever marked them.
+        let marked = (editor.listing(editor.window().buffer())).map_or(0, |record| record.marked);
+        let label = match (marked, prompt.strip_suffix(" to:")) {
+            (0, _) | (_, None) => prompt.to_owned(),
+            (1, Some(verb)) => format!("{verb} the marked row to:"),
+            (count, Some(verb)) => format!("{verb} {count} marked rows to:"),
+        };
+        if let Some(prompt) = open_path_prompt(editor, &label, history, false, start.as_deref()) {
             self.reading.push(Reading::run(id, prefix, prompt));
         }
         (redraw(), Ok(()))
@@ -289,7 +296,7 @@ fn redraw() -> Effects {
 /// could not open, which the prompt beneath says.
 fn open_path_prompt(
     editor: &mut Editor,
-    label: &'static str,
+    label: &str,
     history: &'static str,
     directory: bool,
     start_in: Option<&std::path::Path>,

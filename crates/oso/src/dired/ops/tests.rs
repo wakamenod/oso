@@ -38,14 +38,30 @@ fn plan(kind: Kind, directory: &Path, names: &[&str], target: PathBuf) -> Plan {
     let identity = oso_platform::file_meta::Directory::open(directory)
         .and_then(|listed| listed.identity())
         .unwrap();
+    // Each listed as what it is now.
+    let directories = (names.iter())
+        .map(|name| {
+            fs::symlink_metadata(directory.join(name)).is_ok_and(|metadata| metadata.is_dir())
+        })
+        .collect();
     Plan {
         kind,
         directory: directory.to_path_buf(),
         identity,
         names: names.iter().map(OsString::from).collect(),
+        directories,
         target,
         overwrite: None,
     }
+}
+
+/// The paths of what a question would name.
+fn paths(outcome: &Outcome) -> Vec<PathBuf> {
+    outcome
+        .existing
+        .iter()
+        .map(|there| there.path.clone())
+        .collect()
 }
 
 fn ran(plan: &Plan) -> Outcome {
@@ -69,10 +85,11 @@ fn a_copy_goes_into_a_directory_and_asks_before_writing_over() {
     let to = scratch.0.join("to");
     let mut asked = plan(Kind::Copy, &from, &["a.txt", "sub"], to.clone());
     let outcome = ran(&asked);
-    assert_eq!(outcome.existing, [to.join("a.txt")]);
+    assert_eq!(paths(&outcome), [to.join("a.txt")]);
+    assert!(!outcome.existing[0].directory);
     assert_eq!(outcome.done, 0, "nothing written before the question");
     assert_eq!(fs::read_to_string(to.join("a.txt")).unwrap(), "old");
-    asked.overwrite = Some(outcome.existing);
+    asked.overwrite = Some(paths(&outcome));
     let outcome = ran(&asked);
     assert_eq!(outcome.error, None);
     assert_eq!(fs::read_to_string(to.join("a.txt")).unwrap(), "one");
@@ -119,10 +136,9 @@ fn a_move_renames_and_says_where_each_went() {
     ));
     assert_eq!(outcome.error, None);
     assert!(!scratch.0.join("a.txt").exists());
-    assert_eq!(
-        outcome.moved,
-        [(scratch.0.join("a.txt"), scratch.0.join("to").join("a.txt"))]
-    );
+    // Where it went, by its real place, as a visit judges a file.
+    let real = fs::canonicalize(scratch.0.join("to").join("a.txt")).unwrap();
+    assert_eq!(outcome.moved, [(scratch.0.join("a.txt"), real)]);
 }
 
 #[test]
@@ -197,4 +213,67 @@ fn directories_are_made_with_their_parents() {
     assert_eq!(outcome.done, 3);
     let again = ran(&plan(Kind::Mkdir, &scratch.0, &[], target));
     assert!(again.error.unwrap().contains("there already"));
+}
+
+#[test]
+fn only_what_the_person_agreed_to_is_written_over() {
+    let scratch = Scratch::new("agreed");
+    scratch.file("from/a", "new a");
+    scratch.file("from/b", "new b");
+    scratch.file("to/a", "old a");
+    let from = scratch.0.join("from");
+    let to = scratch.0.join("to");
+    let mut asked = plan(Kind::Copy, &from, &["a", "b"], to.clone());
+    asked.overwrite = Some(paths(&ran(&asked)));
+    // `b` appears after the question: it is asked about again, and nothing is written.
+    scratch.file("to/b", "old b");
+    let outcome = ran(&asked);
+    assert_eq!(paths(&outcome), [to.join("a"), to.join("b")]);
+    assert_eq!(fs::read_to_string(to.join("b")).unwrap(), "old b");
+    assert_eq!(fs::read_to_string(to.join("a")).unwrap(), "old a");
+}
+
+#[test]
+fn a_directory_there_is_said_to_merge() {
+    let scratch = Scratch::new("merge");
+    scratch.file("from/d/x", "new");
+    scratch.file("to/d/y", "kept");
+    let outcome = ran(&plan(
+        Kind::Copy,
+        &scratch.0.join("from"),
+        &["d"],
+        scratch.0.join("to"),
+    ));
+    assert!(outcome.existing[0].directory);
+}
+
+#[test]
+fn a_directory_is_never_copied_into_itself() {
+    let scratch = Scratch::new("itself");
+    scratch.file("d/sub/x", "");
+    let outcome = ran(&plan(
+        Kind::Copy,
+        &scratch.0,
+        &["d"],
+        scratch.0.join("d/sub"),
+    ));
+    assert!(outcome.error.unwrap().contains("inside itself"));
+    assert!(!scratch.0.join("d/sub/d").exists());
+}
+
+#[test]
+fn a_row_that_changed_kind_since_it_was_listed_is_left() {
+    let scratch = Scratch::new("kind");
+    scratch.file("thing", "a file");
+    let asked = plan(Kind::Delete, &scratch.0, &["thing"], PathBuf::new());
+    fs::remove_file(scratch.0.join("thing")).unwrap();
+    scratch.file("thing/inner", "");
+    let outcome = ran(&asked);
+    assert!(
+        outcome
+            .error
+            .unwrap()
+            .contains("changed since it was listed")
+    );
+    assert!(scratch.0.join("thing/inner").exists());
 }

@@ -227,7 +227,8 @@ fn copy_into(source: &File, to_fd: RawFd, name: &CStr) -> io::Result<()> {
         return Err(error);
     }
     let written = create_at(to_fd, name)?;
-    let flags = libc::COPYFILE_DATA | libc::COPYFILE_STAT | libc::COPYFILE_XATTR;
+    let flags =
+        libc::COPYFILE_DATA | libc::COPYFILE_STAT | libc::COPYFILE_XATTR | libc::COPYFILE_ACL;
     // SAFETY: both descriptors are open for the call; a null state asks for none.
     let copied = unsafe {
         libc::fcopyfile(
@@ -243,7 +244,11 @@ fn copy_into(source: &File, to_fd: RawFd, name: &CStr) -> io::Result<()> {
         return Err(error);
     }
     // On the disk before a move removes its source.
-    written.sync_all()
+    if let Err(error) = written.sync_all() {
+        let _ = unlink_at(to_fd, name, false);
+        return Err(error);
+    }
+    Ok(())
 }
 
 /// Copies the open file `source` to a new `name` in `to_fd`, with its mode and times, the

@@ -124,11 +124,11 @@ fn c_copies_to_the_next_windows_listing_and_asks_before_writing_over() {
     go_to(&mut app, "notes.md");
     app.send_keys("C");
     let state = app.wait_for("the target prompt", |state| {
-        state["prompts"][0]["answer"]
+        state["prompts"][0]["text"]
             .as_str()
             .is_some_and(|answer| answer.contains("to"))
     });
-    let answer = state["prompts"][0]["answer"].as_str().unwrap().to_owned();
+    let answer = state["prompts"][0]["text"].as_str().unwrap().to_owned();
     assert!(answer.trim_end_matches('/').ends_with("to"), "{answer}");
     app.send_keys("M-RET");
     let asked = question(&mut app);
@@ -185,9 +185,11 @@ fn r_moves_a_file_whose_buffer_follows_and_refuses_one_with_unsaved_edits() {
     assert!(moved.exists());
     let state = app.state();
     let buffers = state["buffers"].as_array().unwrap();
+    // The buffer visits its file's real place now.
+    let real = std::fs::canonicalize(&moved).unwrap();
     let followed = buffers
         .iter()
-        .any(|buffer| buffer["path"].as_str() == Some(moved.to_string_lossy().as_ref()));
+        .any(|buffer| buffer["path"].as_str() == Some(real.to_string_lossy().as_ref()));
     assert!(followed, "{buffers:?}");
 }
 

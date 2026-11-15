@@ -60,6 +60,8 @@ struct Listing {
     seen: Option<Option<FileStamp>>,
     /// The directory's device and inode, from the listing shown.
     identity: Option<(u64, u64)>,
+    /// Its real place, as the listing found it.
+    real: Option<PathBuf>,
     /// Whether it shows a whole listing of `directory`, which a new one replaces at once,
     /// without partial ones that would cut it short.
     whole: bool,
@@ -102,7 +104,15 @@ impl App {
             self.freer
                 .free((listing.map(|listing| listing.rows), waiting));
         }
-        for request in self.editor.take_listing_requests() {
+        let requests = self.editor.take_listing_requests();
+        let confirming = requests.iter().any(|request| {
+            matches!(
+                request,
+                ListingRequest::DeleteConfirmed | ListingRequest::OverwriteConfirmed
+            )
+        });
+        self.forget_refused_question(confirming);
+        for request in requests {
             match request {
                 ListingRequest::Open { directory, point } => {
                     self.open_listing_of(&directory, point)
@@ -185,6 +195,7 @@ impl App {
             stamp: None,
             seen: None,
             identity: None,
+            real: None,
             whole: false,
             marked: Arc::default(),
             invert: false,
@@ -224,6 +235,7 @@ impl App {
             stamp: None,
             seen: None,
             identity: None,
+            real: None,
             whole: false,
             marked: Arc::default(),
             invert: false,

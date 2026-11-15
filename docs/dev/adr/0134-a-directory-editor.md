@@ -551,7 +551,8 @@ an operation after the file in hand and says how far it got.
 - **Where to:** `C` and `R` read a path in `C-x C-f`'s prompt (`ArgSpec::Target`), starting at
   the directory of the next tiled window, in `C-x o`'s order, that shows a listing, or with `C-u`
   this listing's (`Editor::listing_target`). An existing directory takes the rows by their names;
-  one row alone may take a new name.
+  one row alone may take a new name. With rows marked, the prompt says how many
+  (`Copy 3 marked rows to:`), so marks set by anyone are seen before they go.
 - **The `oso-files` thread** runs one operation at a time (`dired/ops.rs`,
   `dired/ops/worker.rs`). It opens the listed directory again and checks it is the one listed by
   device and inode (read from the descriptor it was listed from), reaches each source from it by
@@ -567,20 +568,31 @@ an operation after the file in hand and says how far it got.
   and times elsewhere; written to disk before a move removes its source), `copy_link_to`,
   `make_directory` (with the source's mode, less the umask) and `identity`.
 - **Writing over:** what is at the targets is found first, and nothing is written; one question
-  names how many and the first three, and its `y` writes over exactly those, a different set
-  found then asking again. A file written over is copied beside it under a name of its own, then
-  renamed over it. A directory is never written over a file or a file over a directory; a
-  directory copied onto one of its name merges into it, and one moved onto one is refused.
+  names how many and the first three, a directory with `/` and the words that directories merge,
+  their files of the same names written over, and its `y` writes over exactly those targets, a
+  different set found then asking again. A file written over is copied beside it under a name of
+  its own, then renamed over it. A directory is never written over a file or a file over a
+  directory; a directory copied onto one of its name merges into it, and one moved onto one is
+  refused. A question that would open over another prompt is not asked: keys typed for that one
+  would answer it. A question closed without its `y` is forgotten.
+- **What was listed:** each row is acted on as the kind it was listed as; one that turned from a
+  file into a directory, or back, stops the operation. A directory is never copied or moved into
+  itself, by the real places of both.
 - **Deleting** asks first, `Delete 2 files (old/, a.txt) and all the directories hold?`, and
-  deletes for good. A move across file systems copies, then deletes the source the same way.
+  deletes for good. A move across file systems copies, then removes only what it copied, each
+  directory once empty, and nothing if an entry could not be copied (a pipe, a socket, a device).
 - **The author's answers:** a file whose buffer has unsaved edits is neither deleted nor moved
-  away (the message names the buffer, before the question and again after its `y`); a tree is
+  away (the message names the buffer, before the question and again after its `y`, by the words
+  of its path and by its file's real place); a tree is
   never gone into across file systems (the error names where); a buffer visiting a moved file
-  follows it (`Editor::file_moved`), keeping its edits, judged again by its new name and never
-  less secret.
-- **Names in questions and messages** show control, bidirectional and invisible characters as
-  escapes, so no name passes for another.
-- **Windows:** renames, removals and copies go by path, and links are not copied yet.
+  follows it (`Editor::file_moved`) to the file's real place, keeping its edits, judged again by
+  its new name and never less secret; a buffer visiting through a moved link stays.
+- **Names in questions, messages and errors** are escaped as `*Messages*`' rows are
+  (`row_text`), so no name passes for another. What an operation in a listing that may hold
+  secrets says goes to the echo area only, not the log or `*Messages*`.
+- **Windows:** only `+` runs. A directory is reached by its path there, which another process
+  could swap under a copy, a move or a delete, so those wait until handles that cannot be
+  redirected are used.
 
 ## Consequences
 

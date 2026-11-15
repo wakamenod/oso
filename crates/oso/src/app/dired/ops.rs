@@ -21,7 +21,7 @@ use oso_core::buffer::BufferId;
 use super::App;
 use crate::app::UserEvent;
 use crate::dired::ops::worker::{Report, Worker};
-use crate::dired::ops::{Kind, Outcome, Plan};
+use crate::dired::ops::{Existing, Kind, Outcome, Plan};
 
 /// The file operations the app keeps.
 #[derive(Default)]
@@ -40,6 +40,8 @@ struct Asked {
     plan: Plan,
     /// The listing's generation then, which must hold when the person says yes.
     generation: u64,
+    /// The question, while it is open; once it closes on anything but `y`, nothing is asked.
+    prompt: oso_core::minibuffer::PromptId,
 }
 
 struct Running {
@@ -56,24 +58,7 @@ const NAMED: usize = 3;
 /// A name as a question or a message says it: control, bidirectional and invisible characters
 /// as escapes, so that no name passes for another.
 fn said(name: &std::ffi::OsStr) -> String {
-    let mut out = String::new();
-    for c in name.to_string_lossy().chars() {
-        let hidden = c.is_control()
-            || matches!(
-                c,
-                '\u{061c}'
-                    | '\u{200b}'..='\u{200f}'
-                    | '\u{202a}'..='\u{202e}'
-                    | '\u{2060}'..='\u{2069}'
-                    | '\u{feff}'
-            );
-        if hidden {
-            out.extend(c.escape_unicode());
-        } else {
-            out.push(c);
-        }
-    }
-    out
+    oso_core::editor::row_text(&name.to_string_lossy())
 }
 
 /// `count` entries, the first [`NAMED`] of `names` named: `3 files (a.txt, b.txt, c.rs)`.
@@ -131,6 +116,10 @@ impl App {
             .collect();
         let directories = shown.iter().any(|name| name.ends_with('/'));
         let names: Vec<OsString> = rows.iter().map(|row| row.name.clone()).collect();
+        let listed_directories: Vec<bool> = rows
+            .iter()
+            .map(|row| row.face == Some(oso_core::syntax::Highlight::DiredDirectory))
+            .collect();
         if names.is_empty() {
             return self.editor.message("No file on this line");
         }
@@ -139,6 +128,7 @@ impl App {
             directory: listing.directory.clone(),
             identity: listing.identity,
             names,
+            directories: listed_directories,
             target,
             overwrite: None,
         };
@@ -184,6 +174,7 @@ impl App {
             directory,
             identity: None,
             names: Vec::new(),
+            directories: Vec::new(),
             target: super::lexically_clean(&path, self.editor.start_directory()),
             overwrite: None,
         };
@@ -191,19 +182,28 @@ impl App {
     }
 
     /// The name of a buffer with unsaved edits whose file `plan` would delete or move away.
+    /// It compares by the words of each path, and by the real places the listing and each
+    /// buffer's file were found at, so that a link or another spelling on the way does not hide
+    /// one.
     fn unsaved_under(&self, plan: &Plan) -> Option<String> {
-        let sources: Vec<PathBuf> = plan
-            .names
-            .iter()
+        let real = (self.dired.by_buffer.values())
+            .find(|listing| listing.directory == plan.directory)
+            .and_then(|listing| listing.real.clone());
+        let mut sources: Vec<PathBuf> = (plan.names.iter())
             .map(|name| plan.directory.join(name))
             .collect();
+        if let Some(real) = real {
+            sources.extend(plan.names.iter().map(|name| real.join(name)));
+        }
+        let under = |path: &std::path::Path| sources.iter().any(|source| path.starts_with(source));
         self.editor
             .buffers()
             .filter(|(_, buffer)| buffer.is_modified())
             .find(|(_, buffer)| {
-                buffer
-                    .path()
-                    .is_some_and(|path| sources.iter().any(|source| path.starts_with(source)))
+                buffer.path().is_some_and(under)
+                    || buffer
+                        .baseline()
+                        .is_some_and(|baseline| under(&baseline.location))
             })
             .map(|(_, buffer)| buffer.name().to_owned())
     }
@@ -218,11 +218,12 @@ impl App {
         verbs: [&'static str; 2],
     ) {
         match self.editor.ask_with(question, yes, verbs) {
-            Ok(_) => {
+            Ok(prompt) => {
                 self.dired.ops.asked = Some(Asked {
                     buffer,
                     plan,
                     generation,
+                    prompt,
                 });
                 self.request_redraw();
             }
@@ -236,6 +237,9 @@ impl App {
         let Some(asked) = self.dired.ops.asked.take() else {
             return;
         };
+        if self.dired.ops.running.is_some() {
+            return self.editor.message("A file operation runs: C-g stops it");
+        }
         let same = self
             .dired
             .by_buffer
@@ -293,6 +297,20 @@ impl App {
             && let Some(worker) = &self.dired.ops.worker
         {
             worker.stop();
+        }
+    }
+
+    /// Forgets a question closed without its `y`: `n`, `C-g` or another prompt over it, so that
+    /// nothing runs what was refused. `confirming` is whether a `y` came with this batch.
+    pub(super) fn forget_refused_question(&mut self, confirming: bool) {
+        let open = (self.dired.ops.asked.as_ref()).is_some_and(|asked| {
+            self.editor
+                .prompts()
+                .iter()
+                .any(|prompt| prompt.id() == asked.prompt)
+        });
+        if !open && !confirming {
+            self.dired.ops.asked = None;
         }
     }
 
@@ -358,22 +376,46 @@ impl App {
         if let Some(error) = outcome.error {
             message += &format!("; stopped: {error}");
         }
-        self.editor.message(message);
+        // Names in a listing that may hold secrets stay out of the log and `*Messages*`.
+        let withheld = (self.editor.buffer(running.buffer)).is_none_or(|shown| shown.is_secret());
+        if withheld {
+            self.editor.echo(message);
+        } else {
+            self.editor.message(message);
+        }
     }
 
-    /// Asks before a copy or a move writes over what is at its targets.
-    fn ask_to_overwrite(&mut self, running: &Running, existing: Vec<PathBuf>) {
+    /// Asks before a copy or a move writes over what is at its targets, naming them, and saying
+    /// of a directory that the copy merges into it. Not over another prompt, where keys typed
+    /// for that one would answer it.
+    fn ask_to_overwrite(&mut self, running: &Running, existing: Vec<Existing>) {
+        if self.editor.prompt().is_some() {
+            return self
+                .editor
+                .message("Targets are there already: nothing was written; ask again");
+        }
         let Some(listing) = self.dired.by_buffer.get(&running.buffer) else {
             return;
         };
         let generation = listing.generation;
         let mut plan = running.plan.clone();
-        let names: Vec<String> = existing
-            .iter()
-            .map(|path| said(path.file_name().unwrap_or(path.as_os_str())))
+        let names: Vec<String> = (existing.iter())
+            .map(|there| {
+                let name = said(there.path.file_name().unwrap_or(there.path.as_os_str()));
+                if there.directory {
+                    format!("{name}/")
+                } else {
+                    name
+                }
+            })
             .collect();
-        let question = format!("{} there already: write over them?", counted(&names));
-        plan.overwrite = Some(existing);
+        let merge = if existing.iter().any(|there| there.directory) {
+            "; directories merge, their files of the same names written over"
+        } else {
+            ""
+        };
+        let question = format!("{} there already{merge}: write over them?", counted(&names));
+        plan.overwrite = Some(existing.into_iter().map(|there| there.path).collect());
         self.ask_about(
             running.buffer,
             plan,
@@ -402,8 +444,9 @@ mod tests {
     #[test]
     fn a_name_said_shows_what_could_hide() {
         assert_eq!(said("it's a.txt".as_ref()), "it's a.txt");
-        assert_eq!(said("a\nb".as_ref()), "a\\u{a}b");
+        assert_eq!(said("a\nb".as_ref()), "a\\nb");
         assert_eq!(said("evil\u{202e}txt.exe".as_ref()), "evil\\u{202e}txt.exe");
+        assert_eq!(said("x\u{2028}y".as_ref()), "x\\u{2028}y");
     }
 
     #[test]

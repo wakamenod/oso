@@ -80,6 +80,7 @@ impl App {
         let old_rows = std::mem::replace(&mut listing.rows, Arc::clone(&built.rows));
         listing.rows_of.clone_from(&listing.directory);
         listing.identity = built.identity;
+        listing.real = (built.resolved.as_ref()).and_then(|resolved| resolved.first().cloned());
         let old_header = std::mem::replace(&mut listing.header_lines, built.header_lines);
         let header = built.header_lines;
         // The name a command asked for, once the whole listing is in.
