@@ -259,7 +259,8 @@ alongside the steps above, after M2-16:
   servers): what an agent's open or save starts waits for the person in that buffer, a `waits`
   modeline segment, and the agent told so
   ([ADR 0118](adr/0118-what-an-agents-open-or-save-starts.md)).
-- Language servers: diagnostics, go to definition, completion.
+- Language servers: diagnostics, go to definition, completion, references and hover, with a built-in
+  table of servers, then code actions and rename ([ADR 0138](adr/0138-language-servers.md)).
 - A git-porcelain subset: status, staging hunks, commit, push/pull, log,
   conflict resolution.
 - Compile buffer (running `just ci`), format on save.
