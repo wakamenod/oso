@@ -548,10 +548,11 @@ mod tests {
         use oso_core::buffer::Mode;
         use oso_core::frame::FrameSize;
         let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
-        // Room for the list and a tree's window without line numbers, not with them.
+        // Room for the list, narrowed to 25 columns, and a tree's window without line
+        // numbers; with them, under the 24 it narrows to (ADR 0131).
         editor.set_frame_size(FrameSize {
             rows: 24,
-            columns: 44,
+            columns: 36,
         });
         let terminal = editor.add_terminal_buffer("*terminal*");
         editor.show(terminal);

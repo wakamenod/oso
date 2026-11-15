@@ -267,6 +267,8 @@ impl App {
             self.editor.set_theme_pair([first, second]);
         }
         self.remember_theme();
+        // A new `[sessions] pane_width` replaces what `<` and `>` left (ADR 0131).
+        self.set_pane_width(self.configuration.in_force.sessions.pane_width);
         let dictionary = self.configuration.in_force.migemo_dictionary.clone();
         self.set_migemo_dictionary(dictionary.as_deref());
         self.request_redraw();

@@ -4,7 +4,8 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host for the rest.
 //!
-//! Moving, by row or by heading, folding, regrouping and explaining are `Look`. Showing a session puts its terminal
+//! Moving, by row or by heading, folding, regrouping, the pane's width and explaining are
+//! `Look`. Showing a session puts its terminal
 //! in front of the person's keys, pinning and archiving change which sessions ask for them,
 //! and resuming and stopping run or end a process: those are `Person`.
 
@@ -19,7 +20,10 @@ use oso_core::selection::SelectionSet;
 pub const ROW_MARKS: &str = "▾▸⚠✗▶◆●○■·⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
 /// What `?` says in `*Sessions*` (ADR 0131): the marks, then the keys.
-pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  M-n/M-p worktrees  TAB fold  c new  w worktree  / switch  s group  k stop  e explain";
+pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  M-n/M-p worktrees  TAB fold  c new  w worktree  / switch  s group  </> width  k stop  e explain";
+
+/// How many columns `<` and `>` take from or give to the pane, once each (ADR 0131).
+pub const PANE_STEP: isize = 4;
 
 /// The folds' marks, which begin a project's, a group's and a quiet row's line.
 const FOLDS: [char; 2] = ['▾', '▸'];
@@ -65,6 +69,22 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: previous_heading,
+        state: None,
+    },
+    Command {
+        name: "sessions-wider",
+        doc: "Make the `*Sessions*` pane 4 columns wider, times the count, up to 80.\n\nFor this oso: `[sessions] pane_width` gives the width it starts at.",
+        args: ArgSpec::Count,
+        reach: Reach::Look,
+        run: wider,
+        state: None,
+    },
+    Command {
+        name: "sessions-narrower",
+        doc: "Make the `*Sessions*` pane 4 columns narrower, times the count, down to 24.\n\nFor this oso: `[sessions] pane_width` gives the width it starts at.",
+        args: ArgSpec::Count,
+        reach: Reach::Look,
+        run: narrower,
         state: None,
     },
     row(
@@ -223,6 +243,23 @@ fn next(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 
 fn previous(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     step(ctx, args.count().saturating_neg(), Stop::Row)
+}
+
+fn wider(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    pane_width(ctx, args.count())
+}
+
+fn narrower(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    pane_width(ctx, args.count().saturating_neg())
+}
+
+/// Asks the host for the pane `steps` of [`PANE_STEP`] wider, narrower if negative.
+fn pane_width(ctx: &mut Ctx<'_>, steps: isize) -> Result<(), CommandError> {
+    in_list(ctx)?;
+    let columns = steps.saturating_mul(PANE_STEP);
+    ctx.editor
+        .request_session(SessionRequest::PaneWidth(columns));
+    Ok(())
 }
 
 fn next_heading(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {

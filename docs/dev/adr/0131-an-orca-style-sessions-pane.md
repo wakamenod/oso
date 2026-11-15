@@ -569,6 +569,28 @@ plan and chose (a) for each question, through the coordinator.
 - **The pane's modeline** says `*Sessions*` and `tree · ? keys` or `by state · ? keys`: oso-core
   writes a `Mode::Sessions` buffer's mode note in place of a position, as a terminal's.
 
+## Step 3, as built
+
+Built on 2026-11-15: the pane's width. The author approved the plan and chose (a) for each
+question, through the coordinator.
+
+- **44 columns** unless `[sessions] pane_width` gives 24 to 80 (`sessions/width.rs`). Another
+  value, or one that is no whole number, is said at its place in the file and the default
+  stays. A changed `pane_width` replaces what `<` and `>` left.
+- **`<` and `>`** (`sessions-narrower`, `sessions-wider`, `Look`) ask the host for 4 columns a
+  step, times the count, through a new `SessionRequest::PaneWidth(isize)`, one line of
+  oso-core's public API (approved). The host keeps the width within 24 to 80 for this instance
+  and says it in the echo area, or that the pane is at its narrowest or widest. It is never
+  written to the configuration, and an `oso dev` restart starts at `pane_width` again (Q2).
+- **A frame with no room** for the pane beside the tree's narrowest window narrows it, down to
+  24 columns, and gives it no cells below that (Q1): oso-core's `layout_into`, with no new
+  public item.
+- **Under 36 columns** a session's or a worktree's row drops its age before its name would be
+  cut below 12 cells, or below its length if shorter. At 24 columns that happens only behind
+  nested sessions' indents.
+- **Perf:** the spinning flow of step 1 runs at 44 columns now, unchanged otherwise, with no
+  threshold.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it.
