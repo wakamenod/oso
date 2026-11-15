@@ -203,6 +203,7 @@ pub enum Out {
     /// a file there, and the old orchestrator's transcript, if found.
     HandoverLooked {
         id: super::spaces::SpaceId,
+        from: super::identity::SessionId,
         handoff: bool,
         transcript: Option<PathBuf>,
     },

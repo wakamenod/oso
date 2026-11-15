@@ -777,20 +777,31 @@ its transcript and the space's sessions, at most 40 (Q4); there is no model opti
 oso-core gains `SpaceRequest::ReplaceOrchestrator` (Q6).
 
 - **`space-orchestrator-replace`** (`Person`, menu `O`) refuses while the orchestrator works or
-  needs input, or with none. A probe thread looks whether `handoff.md` is a file in the space's
+  needs input, with none, in a closed space, and while one of the space's orchestrator starts
+  is under way: one starting, one waiting for the old to end, or a replacement being looked
+  at. `o` refuses then too. A probe thread looks whether `handoff.md` is a file in the space's
   directory and where the old orchestrator's transcript is, with the bounded search the worktree
-  hand-off uses; with no `handoff.md`, a `y` to the question (`space-confirm`) goes on, after the
-  checks are made again.
-- **The old orchestrator** is renamed `<name>-was-<n>` in oso's record, `n` the count of earlier
-  ones and one, and hung up as `session-stop` does. Its id goes to the space's earlier ones when
-  the successor starts. From then on it is a former orchestrator (step 4a): its space's sessions
-  only, no repository; a resume starts it under its new name, with the directory's checks alone.
-- **The successor** starts as `o` starts one, under the space's name, once the old one ended
-  (or at once if it did not run), with a first prompt: "You take over as the orchestrator of space
-  NAME from session OLD (id ID). Read handoff.md in this directory first. Its transcript is at
-  PATH.", then the space's sessions by name, state and directory.
+  hand-off uses. Its answer counts only while the old one is still the space's orchestrator;
+  with no `handoff.md`, a `y` to the question (`space-confirm`) goes on, after the checks are
+  made again.
+- **The old orchestrator** is renamed `<name>-was-<n>` in oso's record, the space's name cut
+  so that it stays a session's name, `n` one past the highest such name there, so that none is
+  used twice. At once it is the space's earlier one, and no session its orchestrator until the
+  successor starts: from then on it is a former orchestrator (step 4a), its space's sessions
+  only, no repository, and a resume starts it under its new name with the directory's checks
+  alone. It is hung up as `session-stop` does. Any session in a space's own directory that the
+  record does not name as its orchestrator is a former one.
+- **The successor** starts as `o` starts one, under the space's name, once the old one's program
+  exited (or at once if it did not run). If the old one's terminal closed while its program still
+  ran, nothing starts, and the echo area says to start the successor with `o` once it ended.
+  Closing the space drops a successor waiting to start. Its first prompt: "You take over as the
+  orchestrator of space NAME from session OLD (id ID). Read handoff.md in this directory first.",
+  then, under a line saying it is oso's record, which agents can change, the old one's transcript
+  and the space's sessions by name, state and directory: each part at most 200 characters, at
+  most 40 sessions and 16 KiB in all.
 - **The pane** lists the earlier orchestrators still there under the orchestrator's row, tagged
-  `earlier`; `RET` shows a stopped one's buffer, as on any session row.
+  `earlier`, telling the current one by the record's id, never by name; `RET` shows a stopped
+  one's buffer, as on any session row.
 
 ## Changes to accepted ADRs
 

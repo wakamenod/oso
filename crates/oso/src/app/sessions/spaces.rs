@@ -61,6 +61,8 @@ pub(in crate::app) struct SpaceWork {
     pub(in crate::app) replace_asked: Option<handover::Asked>,
     /// The orchestrators being stopped for a successor, by key: what starts once each ended.
     pub(in crate::app) replacing: HashMap<crate::sessions::worker::SessionKey, handover::Successor>,
+    /// The spaces whose replacement's probe is out: a second asks nothing.
+    pub(in crate::app) probing: HashSet<SpaceId>,
     /// The open spaces' trusted repositories as last seen, to tell one trusted since; none
     /// while the trust list is unread.
     pub(in crate::app) trusted_seen: Option<Vec<(SpaceId, PathBuf)>>,
@@ -367,6 +369,8 @@ impl App {
         for key in idle {
             self.hang_up_session(key);
         }
+        // Nothing starts in it any more: no successor, and no orchestrator after its directory.
+        self.forget_space_starts(at);
         self.editor
             .message(format!("Space {name} closed; space-reopen opens it again"));
     }

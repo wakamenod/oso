@@ -61,7 +61,14 @@ impl App {
                 .find(|&at| (spaces.stored(at)).is_some_and(|s| s.earlier.contains(&session.id)))
                 .map(|at| (at, Role::Former))
         };
-        let worker = || self.space_of_session(session).map(|at| (at, Role::Worker));
+        // A session in a space's own directory is no worker: one its record no longer names
+        // as an earlier orchestrator is a former one still.
+        let worker = || {
+            let at = self.space_of_session(session)?;
+            let here = (spaces.stored(at)?.directory.as_deref())
+                .is_some_and(|dir| same(dir, &session.directory));
+            Some((at, if here { Role::Former } else { Role::Worker }))
+        };
         caller.space = current
             .or_else(earlier)
             .or_else(worker)

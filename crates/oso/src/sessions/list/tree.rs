@@ -79,6 +79,9 @@ pub struct SpaceRows {
     pub projects: Vec<Project>,
     /// Its own directory, where its orchestrator runs (ADR 0136, step 3).
     pub directory: Option<PathBuf>,
+    /// Its orchestrator's session, which the record names: the others in its directory are
+    /// earlier ones (step 5).
+    pub orchestrator: Option<super::Key>,
 }
 
 /// A closed space, listed in `Archived spaces`.
@@ -434,11 +437,8 @@ fn place<'e>(
     };
     // A session of a space in the space's own directory: its orchestrator.
     let own_directory = tree.spaces.iter().position(|space| {
-        entry.space_id.as_ref() == Some(&space.id)
-            && space
-                .directory
-                .as_deref()
-                .is_some_and(|own| dir.starts_with(own))
+        let here = (space.directory.as_deref()).is_some_and(|own| dir.starts_with(own));
+        entry.space_id.as_ref() == Some(&space.id) && here
     });
     if let Some(s) = own_directory {
         return Place::Orchestrator(s);
@@ -516,6 +516,7 @@ impl Tree {
                 name: project.name.clone(),
                 projects: vec![project],
                 directory: None,
+                orchestrator: None,
             })
             .collect();
         Self {

@@ -158,7 +158,7 @@ impl App {
         }
         self.remember_sessions();
         // An orchestrator stopped for its successor: that starts now (ADR 0136, step 5).
-        self.replaced_orchestrator_ended(key);
+        self.replaced_orchestrator_ended(key, matches!(end, End::Exited(_)));
     }
 
     /// Brings session `key` back as a terminal buffer with no process, which says

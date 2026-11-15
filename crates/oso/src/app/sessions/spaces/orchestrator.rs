@@ -46,6 +46,9 @@ impl App {
                 .message("The space's orchestrator runs: here it is".to_owned());
             return self.show_session(key);
         }
+        if let Some(why) = self.space_starts_busy(at) {
+            return self.editor.message(why);
+        }
         let Some(stored) = self.watch.spaces().stored(at) else {
             return;
         };
@@ -192,6 +195,9 @@ impl App {
     /// instructions' file.
     fn orchestrator_start_of(&self, at: usize) -> Result<SpaceStart, String> {
         let stored = self.watch.spaces().stored(at).ok_or("No such space")?;
+        if stored.archived {
+            return Err("The space is closed: space-reopen opens it again".to_owned());
+        }
         if stored.directory.is_none() {
             return Err("The space has no directory yet: space-directory makes it".to_owned());
         }

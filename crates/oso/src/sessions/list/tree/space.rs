@@ -48,7 +48,7 @@ impl List {
         }
         // Its orchestrator first, as the session the person talks to (ADR 0136, step 3), then
         // the earlier ones that are still there, renamed (step 5).
-        let current = |entry: &&Entry| entry.name == space.name;
+        let current = |entry: &&Entry| Some(entry.key) == space.orchestrator;
         let (now_row, earlier): (Vec<&Entry>, Vec<&Entry>) =
             orchestrator.iter().copied().partition(current);
         for (entry, tag) in (now_row.into_iter().map(|e| (e, "orchestrator")))

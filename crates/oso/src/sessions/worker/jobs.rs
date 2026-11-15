@@ -110,6 +110,7 @@ pub(super) fn space_job(job: SpaceJob) -> Vec<Out> {
             });
             Out::HandoverLooked {
                 id,
+                from,
                 handoff: file,
                 transcript,
             }
