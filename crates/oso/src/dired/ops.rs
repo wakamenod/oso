@@ -18,8 +18,8 @@
 //!   and only once empty, and nothing if any entry could not be copied.
 //! - It stops at the first error, or once asked to between two files, and says how far it got.
 //!   Names in what it says are escaped as a listing's rows are.
-//! - On Windows, where a directory is reached by its path, only `+` runs: copying, moving and
-//!   deleting wait until handles that cannot be redirected are used there.
+//! - On Windows a directory is reached by its path, as other editors reach it; a link, a
+//!   junction among them, is removed and never gone into.
 
 pub(crate) mod worker;
 
@@ -116,10 +116,6 @@ pub(crate) fn run(plan: &Plan, progress: &mut Progress<'_>) -> Outcome {
     let mut outcome = Outcome::default();
     let ran = match plan.kind {
         Kind::Mkdir => make_directories(&plan.target, &mut outcome),
-        _ if cfg!(windows) => Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "copying, moving and deleting from a listing do not run on Windows yet",
-        )),
         _ => listed(plan).and_then(|from| match plan.kind {
             Kind::Delete => delete(plan, &from, progress, &mut outcome),
             _ => copy_or_move(plan, &from, progress, &mut outcome),

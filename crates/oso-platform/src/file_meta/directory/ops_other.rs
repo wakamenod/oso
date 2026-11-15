@@ -28,14 +28,30 @@ pub(in crate::file_meta::directory) fn rename_to(
     std::fs::rename(from, to)
 }
 
+/// Removes the entry at `path`, never what a link at it leads to: a link to a directory, or a
+/// junction, which Windows removes as a directory, is removed as the link it is.
 pub(in crate::file_meta::directory) fn remove(inner: &Inner, name: &OsStr) -> io::Result<()> {
     let path = joined(inner, name)?;
-    let kind = std::fs::symlink_metadata(&path)?.file_type();
-    if kind.is_dir() {
+    let metadata = std::fs::symlink_metadata(&path)?;
+    if metadata.is_dir() || is_directory_link(&metadata) {
         std::fs::remove_dir(path)
     } else {
         std::fs::remove_file(path)
     }
+}
+
+/// Whether `metadata`, read without following, is of a link or a junction to a directory, which
+/// is removed as a directory is and listed as the link it is.
+#[cfg(windows)]
+fn is_directory_link(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
+    metadata.file_type().is_symlink() && metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
+}
+
+#[cfg(not(windows))]
+fn is_directory_link(_: &std::fs::Metadata) -> bool {
+    false
 }
 
 pub(in crate::file_meta::directory) fn make_directory(

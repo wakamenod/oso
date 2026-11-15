@@ -590,9 +590,9 @@ an operation after the file in hand and says how far it got.
 - **Names in questions, messages and errors** are escaped as `*Messages*`' rows are
   (`row_text`), so no name passes for another. What an operation in a listing that may hold
   secrets says goes to the echo area only, not the log or `*Messages*`.
-- **Windows:** only `+` runs. A directory is reached by its path there, which another process
-  could swap under a copy, a move or a delete, so those wait until handles that cannot be
-  redirected are used.
+- **Windows:** operations are path-based, as other editors do (the author's choice); a
+  handle-relative version is a later step. A link or a junction is listed as a link, never gone
+  into, and removed as the link it is. Links are not copied there yet.
 
 ## Consequences
 
