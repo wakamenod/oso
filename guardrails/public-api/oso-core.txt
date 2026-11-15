@@ -319,6 +319,9 @@ pub oso_core::command::ArgSpec::ProjectSearch
 pub oso_core::command::ArgSpec::ProjectSearch::history: &'static str
 pub oso_core::command::ArgSpec::Replace
 pub oso_core::command::ArgSpec::Replace::regexp: bool
+pub oso_core::command::ArgSpec::Target
+pub oso_core::command::ArgSpec::Target::history: &'static str
+pub oso_core::command::ArgSpec::Target::prompt: &'static str
 pub oso_core::command::ArgSpec::Text
 pub oso_core::command::ArgSpec::Text::history: &'static str
 pub oso_core::command::ArgSpec::Text::prompt: &'static str
@@ -1265,17 +1268,33 @@ pub fn oso_core::editor::ListingOrder::fmt(&self, &mut core::fmt::Formatter<'_>)
 impl core::marker::Copy for oso_core::editor::ListingOrder
 impl core::marker::StructuralPartialEq for oso_core::editor::ListingOrder
 pub enum oso_core::editor::ListingRequest
+pub oso_core::editor::ListingRequest::Copy
+pub oso_core::editor::ListingRequest::Copy::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::ListingRequest::Copy::lines: alloc::vec::Vec<usize>
+pub oso_core::editor::ListingRequest::Copy::target: std::path::PathBuf
 pub oso_core::editor::ListingRequest::CopyNames
 pub oso_core::editor::ListingRequest::CopyNames::absolute: bool
 pub oso_core::editor::ListingRequest::CopyNames::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::ListingRequest::CopyNames::lines: alloc::vec::Vec<usize>
+pub oso_core::editor::ListingRequest::Delete
+pub oso_core::editor::ListingRequest::Delete::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::ListingRequest::Delete::lines: alloc::vec::Vec<usize>
+pub oso_core::editor::ListingRequest::DeleteConfirmed
 pub oso_core::editor::ListingRequest::Mark
 pub oso_core::editor::ListingRequest::Mark::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::ListingRequest::Mark::lines: alloc::vec::Vec<usize>
 pub oso_core::editor::ListingRequest::Mark::on: bool
+pub oso_core::editor::ListingRequest::Mkdir
+pub oso_core::editor::ListingRequest::Mkdir::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::ListingRequest::Mkdir::path: std::path::PathBuf
 pub oso_core::editor::ListingRequest::Open
 pub oso_core::editor::ListingRequest::Open::directory: std::path::PathBuf
 pub oso_core::editor::ListingRequest::Open::point: core::option::Option<std::ffi::os_str::OsString>
+pub oso_core::editor::ListingRequest::OverwriteConfirmed
+pub oso_core::editor::ListingRequest::Rename
+pub oso_core::editor::ListingRequest::Rename::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::ListingRequest::Rename::lines: alloc::vec::Vec<usize>
+pub oso_core::editor::ListingRequest::Rename::target: std::path::PathBuf
 pub oso_core::editor::ListingRequest::Revert
 pub oso_core::editor::ListingRequest::Revert::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::ListingRequest::ToggleDetails
@@ -1376,6 +1395,7 @@ pub enum oso_core::editor::Quit
 pub oso_core::editor::Quit::Cursors
 pub oso_core::editor::Quit::Jump
 pub oso_core::editor::Quit::Nothing
+pub oso_core::editor::Quit::Operation
 pub oso_core::editor::Quit::Prompt
 pub oso_core::editor::Quit::Region
 pub oso_core::editor::Quit::Replace
@@ -1763,14 +1783,18 @@ pub fn oso_core::editor::Editor::take_recovery_actions(&mut self) -> alloc::vec:
 pub fn oso_core::editor::Editor::toggle_copies(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_listing(&mut self, std::path::PathBuf) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::Editor::file_moved(&mut self, &std::path::Path, &std::path::Path)
 pub fn oso_core::editor::Editor::listing(&self, oso_core::buffer::BufferId) -> core::option::Option<&oso_core::editor::Listing>
 pub fn oso_core::editor::Editor::listing_of(&self, &std::path::Path) -> core::option::Option<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::listing_points(&self, oso_core::buffer::BufferId) -> alloc::vec::Vec<(oso_core::window::WindowId, usize)>
+pub fn oso_core::editor::Editor::listing_target(&self, bool) -> core::option::Option<std::path::PathBuf>
 pub fn oso_core::editor::Editor::listings(&self) -> impl core::iter::traits::iterator::Iterator<Item = (oso_core::buffer::BufferId, &oso_core::editor::Listing)>
 pub fn oso_core::editor::Editor::request_listing(&mut self, oso_core::editor::ListingRequest)
 pub fn oso_core::editor::Editor::set_listing_marks(&mut self, oso_core::buffer::BufferId, &[oso_core::editor::RowMark], usize)
 pub fn oso_core::editor::Editor::set_listing_text(&mut self, oso_core::buffer::BufferId, oso_core::load::LoadSnapshot, oso_core::editor::ListingShown) -> core::option::Option<oso_core::syntax::Highlights>
+pub fn oso_core::editor::Editor::set_operation_running(&mut self, bool)
 pub fn oso_core::editor::Editor::take_listing_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ListingRequest>
+pub fn oso_core::editor::Editor::take_operation_stop(&mut self) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_review(&mut self, oso_core::project::ProjectId, alloc::string::String) -> (oso_core::editor::ReviewId, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::agents_folded(&self, oso_core::editor::ReviewId) -> bool

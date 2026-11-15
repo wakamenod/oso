@@ -427,6 +427,11 @@ file, in a listing buffer named after the directory, `crates/`, as Emacs's dired
   unmarks, each with a count, or over the rows a shown region covers; `U` unmarks every row and
   `t` toggles every mark. A mark is a `*` before the row, in the warning's colour with the row's
   name, and the modeline counts them: `Dired by name  3 marked`. Marks stay over a refresh.
+- `C` copies and `R` moves the marked rows, or the row at point, to a path read from the
+  directory of the next window's listing (`C-u`: this one's). `D` deletes them after a question
+  that names them, and `+` makes a directory with its parents. Before writing over anything, a
+  question names what is there. Past half a second the echo area counts what is done, and `C-g`
+  stops after the file in hand.
 
 ## Echo area
 

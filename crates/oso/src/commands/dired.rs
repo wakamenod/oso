@@ -300,8 +300,10 @@ fn sort_toggle(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 mod marks;
+mod ops;
 
 pub use marks::{COMMANDS as MARK_COMMANDS, KEYS as MARK_KEYS};
+pub use ops::{COMMANDS as OPERATION_COMMANDS, KEYS as OPERATION_KEYS};
 
 #[cfg(test)]
 mod tests;

@@ -45,6 +45,11 @@ fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     if quit == Quit::SearchStep {
         return Ok(());
     }
+    // A file operation stops after the file in hand, and says how far it got (ADR 0134).
+    if quit == Quit::Operation {
+        ctx.editor.echo("Stopping after the file in hand…");
+        return Ok(());
+    }
     // With nothing else to do, it drops a keyboard macro being recorded (ADR 0113).
     if quit == Quit::Nothing && ctx.editor.macro_recording() {
         ctx.editor

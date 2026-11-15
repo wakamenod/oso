@@ -125,6 +125,14 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
     },
+    /// A path to copy or move a directory listing's rows to, read as [`ArgSpec::File`] reads a
+    /// path, starting at the directory of the next window's listing, or with `C-u` this one's
+    /// (`Editor::listing_target`, ADR 0134). The command reads the path with
+    /// [`Ctx::answer`](super::Ctx::answer).
+    Target {
+        prompt: &'static str,
+        history: &'static str,
+    },
     /// A file of the current buffer's project, read in a prompt that completes over the
     /// project's files as paths from its root, listed as they are walked, and kept in the
     /// history named `history`, one for each project (ADR 0114). Its label names the project,

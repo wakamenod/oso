@@ -17,6 +17,10 @@ use super::{Entry, EntryKind, EntryMeta, MAX_LINK_BYTES, is_one_name, not_one_na
 #[cfg(target_os = "macos")]
 #[path = "bulk.rs"]
 mod bulk;
+#[path = "ops_unix.rs"]
+mod ops;
+
+pub(super) use ops::{copy_file_to, copy_link_to, identity, make_directory, remove, rename_to};
 
 #[cfg(not(any(
     target_os = "macos",

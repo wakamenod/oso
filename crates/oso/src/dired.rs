@@ -9,6 +9,7 @@
 //! said, never from its bytes. No process starts.
 
 mod build;
+pub(crate) mod ops;
 mod order;
 mod read;
 pub(crate) mod rows;
@@ -125,6 +126,9 @@ pub(crate) struct Built {
     pub(crate) done: bool,
     /// How many of its rows are marked.
     pub(crate) marked: usize,
+    /// The directory's device and inode, read from the descriptor it was listed from, which an
+    /// operation checks the directory it acts in against.
+    pub(crate) identity: Option<(u64, u64)>,
     /// The names marked in place of the request's, when it asked to invert them.
     pub(crate) marked_names: Option<Arc<HashSet<OsString>>>,
     /// What the directory's metadata said just before it was read, which the lister sets, so

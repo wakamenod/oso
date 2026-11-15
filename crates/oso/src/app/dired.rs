@@ -20,6 +20,7 @@ use oso_core::editor::ListingRequest;
 use oso_core::frame::Way;
 
 use super::App;
+use crate::dired::ops::Kind;
 use crate::dired::{self, Answer, Options, Row};
 
 /// The listings the app keeps, by buffer.
@@ -32,6 +33,8 @@ pub(super) struct Listings {
     waiting: HashMap<BufferId, Answer>,
     /// The directories the watcher was last given.
     watched: Vec<(BufferId, PathBuf)>,
+    /// The file operations (ADR 0134, step 1b-2).
+    ops: ops::Ops,
     next_generation: u64,
 }
 
@@ -55,6 +58,10 @@ struct Listing {
     stamp: Option<Option<FileStamp>>,
     /// What the watcher last saw of it.
     seen: Option<Option<FileStamp>>,
+    /// The directory's device and inode, from the listing shown.
+    identity: Option<(u64, u64)>,
+    /// Its real place, as the listing found it.
+    real: Option<PathBuf>,
     /// Whether it shows a whole listing of `directory`, which a new one replaces at once,
     /// without partial ones that would cut it short.
     whole: bool,
@@ -97,7 +104,15 @@ impl App {
             self.freer
                 .free((listing.map(|listing| listing.rows), waiting));
         }
-        for request in self.editor.take_listing_requests() {
+        let requests = self.editor.take_listing_requests();
+        let confirming = requests.iter().any(|request| {
+            matches!(
+                request,
+                ListingRequest::DeleteConfirmed | ListingRequest::OverwriteConfirmed
+            )
+        });
+        self.forget_refused_question(confirming);
+        for request in requests {
             match request {
                 ListingRequest::Open { directory, point } => {
                     self.open_listing_of(&directory, point)
@@ -123,6 +138,22 @@ impl App {
                     self.mark_listed_rows(buffer, &lines, on);
                 }
                 ListingRequest::UnmarkAll { buffer } => self.unmark_all(buffer),
+                ListingRequest::Copy {
+                    buffer,
+                    lines,
+                    target,
+                } => self.ask_for_operation(buffer, Kind::Copy, &lines, target),
+                ListingRequest::Rename {
+                    buffer,
+                    lines,
+                    target,
+                } => self.ask_for_operation(buffer, Kind::Rename, &lines, target),
+                ListingRequest::Delete { buffer, lines } => {
+                    self.ask_for_operation(buffer, Kind::Delete, &lines, PathBuf::new());
+                }
+                ListingRequest::Mkdir { buffer, path } => self.make_listed_directory(buffer, path),
+                ListingRequest::DeleteConfirmed => self.operation_confirmed(false),
+                ListingRequest::OverwriteConfirmed => self.operation_confirmed(true),
                 ListingRequest::ToggleMarks { buffer } => self.toggle_marks(buffer),
                 ListingRequest::ToggleSort { buffer } => {
                     self.change_listing_options(buffer, |options| {
@@ -163,6 +194,8 @@ impl App {
             line: None,
             stamp: None,
             seen: None,
+            identity: None,
+            real: None,
             whole: false,
             marked: Arc::default(),
             invert: false,
@@ -201,6 +234,8 @@ impl App {
             line: Some(entry.line),
             stamp: None,
             seen: None,
+            identity: None,
+            real: None,
             whole: false,
             marked: Arc::default(),
             invert: false,
@@ -388,6 +423,7 @@ fn lexically_clean(directory: &Path, start: &Path) -> PathBuf {
 }
 
 mod marks;
+mod ops;
 mod show;
 #[cfg(test)]
 mod tests;

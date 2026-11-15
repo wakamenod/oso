@@ -104,6 +104,8 @@ pub enum UserEvent {
     CompletionFailed,
     /// The lister answered a prompt that reads a path (ADR 0087).
     Listed,
+    /// The file operations' thread told how one goes (ADR 0134).
+    FileOps,
     /// The thread that finds projects answered (ADR 0114).
     Projects,
     /// A thread read the EditorConfig of a file `C-x C-w` named (ADR 0115).
@@ -474,6 +476,7 @@ impl App {
         }
         self.serve_files();
         self.serve_listings();
+        self.stop_operation_if_asked();
         self.forget_listings();
         self.start_walks();
         self.start_project_search();

@@ -78,6 +78,9 @@ fn is_one_name(name: &OsStr) -> bool {
 /// The most bytes of a link's target read.
 const MAX_LINK_BYTES: usize = 64 * 1024;
 
+/// The deepest a tree is removed or copied (ADR 0134), as a project's walk goes (ADR 0114).
+pub const MAX_DEPTH: usize = 256;
+
 mod mode;
 #[cfg(unix)]
 mod unix;
@@ -182,6 +185,149 @@ impl Directory {
     /// touches the disk, so it belongs off the UI thread.
     pub fn dots(&self) -> [io::Result<EntryMeta>; 2] {
         backend::dots(&self.inner)
+    }
+
+    /// Its device and inode, by which it is told from another directory at its path, or `None`
+    /// where they are not read (Windows). It touches the disk, so it belongs off the UI thread.
+    ///
+    /// # Errors
+    ///
+    /// If it cannot be looked at.
+    pub fn identity(&self) -> io::Result<Option<(u64, u64)>> {
+        backend::identity(&self.inner)
+    }
+
+    /// Renames the entry `name`, never following it, to `to_name` in `to`: over what is there
+    /// only if `replace`. Across file systems it fails with `CrossesDevices`. It touches the
+    /// disk, so it belongs off the UI thread (ADR 0134).
+    ///
+    /// # Errors
+    ///
+    /// If a name is not one entry's, something is at `to_name` and `replace` is false
+    /// (`AlreadyExists`), or it cannot be renamed.
+    pub fn rename_to(
+        &self,
+        name: &OsStr,
+        to: &Directory,
+        to_name: &OsStr,
+        replace: bool,
+    ) -> io::Result<()> {
+        backend::rename_to(&self.inner, name, &to.inner, to_name, replace)
+    }
+
+    /// Removes the entry `name`: a file or a link, never what a link leads to, or an empty
+    /// directory. It touches the disk, so it belongs off the UI thread.
+    ///
+    /// # Errors
+    ///
+    /// If `name` is not one entry's name, or it cannot be removed.
+    pub fn remove(&self, name: &OsStr) -> io::Result<()> {
+        backend::remove(&self.inner, name)
+    }
+
+    /// Removes the entry `name` with all it holds, a name at a time from each directory's own
+    /// descriptor, following no link, at most `MAX_DEPTH` deep, and never into another file
+    /// system: a directory on another device stops it with an error that names it, as does
+    /// `stop` saying true between two entries (`Interrupted`). `each` hears of every entry
+    /// removed. It touches the disk, so it belongs off the UI thread.
+    ///
+    /// # Errors
+    ///
+    /// The first that stops it; what was removed before stays removed.
+    pub fn remove_tree(
+        &self,
+        name: &OsStr,
+        stop: &dyn Fn() -> bool,
+        each: &mut dyn FnMut(),
+    ) -> io::Result<()> {
+        let device = self.identity()?.map(|(device, _)| device);
+        self.remove_under(name, device, MAX_DEPTH, (stop, each))
+    }
+
+    fn remove_under(
+        &self,
+        name: &OsStr,
+        device: Option<u64>,
+        depth: usize,
+        (stop, each): (&dyn Fn() -> bool, &mut dyn FnMut()),
+    ) -> io::Result<()> {
+        if stop() {
+            return Err(io::ErrorKind::Interrupted.into());
+        }
+        if self.kind_of(name)? == EntryKind::Directory {
+            let Some(inner) = self.open_directory(name)? else {
+                return Err(io::Error::other("a directory turned into something else"));
+            };
+            let theirs = inner.identity()?.map(|(device, _)| device);
+            if device.is_some() && theirs != device {
+                return Err(io::Error::other(format!(
+                    "{} is on another file system",
+                    name.to_string_lossy()
+                )));
+            }
+            if depth == 0 {
+                return Err(io::Error::other(
+                    "directories go deeper than may be removed",
+                ));
+            }
+            let names: Vec<OsString> = inner
+                .entries()?
+                .map(|entry| entry.map(|entry| entry.name))
+                .collect::<io::Result<_>>()?;
+            for entry in names {
+                inner.remove_under(&entry, device, depth - 1, (stop, &mut *each))?;
+            }
+        }
+        self.remove(name)?;
+        each();
+        Ok(())
+    }
+
+    /// The directory `name` in this one, made with `mode`'s permission bits (less the umask)
+    /// if missing, or the one there, opened from this one without following a link: `None` if
+    /// `name` is something else. It touches the disk, so it belongs off the UI thread.
+    ///
+    /// # Errors
+    ///
+    /// If `name` is not one entry's name, or it cannot be made or opened.
+    pub fn make_directory(&self, name: &OsStr, mode: u32) -> io::Result<Option<Self>> {
+        backend::make_directory(&self.inner, name, mode)
+            .map(|inner| inner.map(|inner| Self { inner }))
+    }
+
+    /// Copies the regular file `name`, never following it, to `to_name` in `to`, with its mode
+    /// and times, and on macOS its extended attributes: over what is there only if `replace`,
+    /// which stays whole until the copy is. It touches the disk, so it belongs off the UI
+    /// thread.
+    ///
+    /// # Errors
+    ///
+    /// If `name` is no regular file here, or one a sync service keeps elsewhere, something is at
+    /// `to_name` and `replace` is false (`AlreadyExists`), or it cannot be copied.
+    pub fn copy_file_to(
+        &self,
+        name: &OsStr,
+        to: &Directory,
+        to_name: &OsStr,
+        replace: bool,
+    ) -> io::Result<()> {
+        backend::copy_file_to(&self.inner, name, &to.inner, to_name, replace)
+    }
+
+    /// Copies the link `name` as a link, with its target's words, to `to_name` in `to`: over
+    /// what is there only if `replace`. It touches the disk, so it belongs off the UI thread.
+    ///
+    /// # Errors
+    ///
+    /// As [`Directory::copy_file_to`]; where links are not copied yet (Windows), `Unsupported`.
+    pub fn copy_link_to(
+        &self,
+        name: &OsStr,
+        to: &Directory,
+        to_name: &OsStr,
+        replace: bool,
+    ) -> io::Result<()> {
+        backend::copy_link_to(&self.inner, name, &to.inner, to_name, replace)
     }
 
     /// What the entry `name` is, not following it. It touches the disk, so it belongs off the

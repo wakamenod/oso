@@ -142,6 +142,26 @@ pub enum ListingRequest {
     UnmarkAll { buffer: BufferId },
     /// Mark every row not marked and unmark those that are (`t`).
     ToggleMarks { buffer: BufferId },
+    /// Copy the marked rows, or the rows at `lines` if none is, to `target` (`C`).
+    Copy {
+        buffer: BufferId,
+        lines: Vec<usize>,
+        target: PathBuf,
+    },
+    /// Rename or move the marked rows, or the rows at `lines`, to `target` (`R`).
+    Rename {
+        buffer: BufferId,
+        lines: Vec<usize>,
+        target: PathBuf,
+    },
+    /// Delete the marked rows, or the rows at `lines`, once asked (`D`).
+    Delete { buffer: BufferId, lines: Vec<usize> },
+    /// Make the directory `path` with its parents (`+`).
+    Mkdir { buffer: BufferId, path: PathBuf },
+    /// The question about deleting was answered yes: check it all again, then delete.
+    DeleteConfirmed,
+    /// The question about overwriting was answered yes: check it all again, then copy or move.
+    OverwriteConfirmed,
 }
 
 /// The listings and what commands asked for them.
@@ -149,6 +169,10 @@ pub enum ListingRequest {
 pub(super) struct Listings {
     records: HashMap<BufferId, Listing>,
     requests: Vec<ListingRequest>,
+    /// A file operation runs, which `C-g` may stop.
+    running: bool,
+    /// `C-g` asked it to stop.
+    stop: bool,
 }
 
 impl Editor {
@@ -160,6 +184,77 @@ impl Editor {
     /// What commands asked of the host for listings, oldest first.
     pub fn take_listing_requests(&mut self) -> Vec<ListingRequest> {
         std::mem::take(&mut self.listings.requests)
+    }
+
+    /// Notes whether a file operation runs (ADR 0134): while one does, `C-g` with nothing else
+    /// to do asks it to stop ([`Editor::quit`]).
+    pub fn set_operation_running(&mut self, running: bool) {
+        self.listings.running = running;
+        self.listings.stop = false;
+    }
+
+    /// Whether `C-g` asked the running file operation to stop, once.
+    pub fn take_operation_stop(&mut self) -> bool {
+        std::mem::take(&mut self.listings.stop)
+    }
+
+    /// Asks the running file operation to stop, if one runs and was not asked already: what
+    /// `C-g` does with nothing else to do.
+    pub(super) fn stop_operation(&mut self) -> bool {
+        let asked = self.listings.running && !self.listings.stop;
+        self.listings.stop |= asked;
+        asked
+    }
+
+    /// The directory `C` and `R` offer first (dired's `dired-dwim-target`): that of the next
+    /// tiled window, in `C-x o`'s order, that shows a listing, or, with `this_one` or none,
+    /// the selected window's listing's. `None` outside a listing.
+    pub fn listing_target(&self, this_one: bool) -> Option<PathBuf> {
+        let here = self.window();
+        let own = self.listing(here.buffer())?.directory.clone();
+        if this_one {
+            return Some(own);
+        }
+        let order: Vec<WindowId> = self.frame().windows().iter().map(|(id, _)| *id).collect();
+        let at = order.iter().position(|id| *id == here.id()).unwrap_or(0);
+        let after = order
+            .iter()
+            .cycle()
+            .skip(at + 1)
+            .take(order.len().saturating_sub(1));
+        let other = after
+            .filter_map(|id| self.window_by_id(*id))
+            .find_map(|window| self.listing(window.buffer()));
+        Some(other.map_or(own, |listing| listing.directory.clone()))
+    }
+
+    /// The file at `from` was renamed or moved to `to`, or a directory holding it was: each
+    /// buffer visiting a file there now visits it at its new place, keeping its text and its
+    /// edits, and is judged again by its new name, never less secret than before (ADR 0134).
+    pub fn file_moved(&mut self, from: &Path, to: &Path) {
+        let moved: Vec<(BufferId, PathBuf)> = (self.buffers.iter())
+            .filter_map(|(id, buffer)| {
+                let rest = buffer.path()?.strip_prefix(from).ok()?;
+                let new = if rest.as_os_str().is_empty() {
+                    to.to_path_buf()
+                } else {
+                    to.join(rest)
+                };
+                Some((*id, new))
+            })
+            .collect();
+        for (id, path) in moved {
+            let old_base = (self.buffer(id).and_then(Buffer::path)).map(buffer::file_base);
+            if let Some(buffer) = self.buffer_mut(id) {
+                buffer.moved_to(path.clone());
+            }
+            // Those that shared the old name, and those that share the new one, are told apart
+            // again.
+            if let Some(old_base) = old_base {
+                self.name_files_like(&old_base);
+            }
+            self.name_files_like(&buffer::file_base(&path));
+        }
     }
 
     /// Adds an empty listing buffer for `directory`, named after it, shown in no window yet,

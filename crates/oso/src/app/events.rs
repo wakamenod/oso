@@ -75,6 +75,7 @@ impl App {
             UserEvent::Completion(report) => self.completion_reported(event_loop, report),
             UserEvent::CompletionFailed => self.completion_failed(),
             UserEvent::Listed => self.listed(),
+            UserEvent::FileOps => self.file_ops_reported(),
             UserEvent::Projects => self.projects_found(),
             UserEvent::EditorConfig => self.editorconfigs_read(),
             UserEvent::Migemo(read) => self.migemo_dictionary_read(*read),

@@ -48,6 +48,7 @@ pub(crate) fn list(request: &Request, stale: &dyn Fn() -> bool, emit: &mut dyn F
     };
     let resolved = resolved_place(&request.directory, &directory);
     let mut reading = Reading::new(request, resolved);
+    reading.identity = directory.identity().ok().flatten();
     let mut next = Instant::now() + FIRST_PARTIAL;
     let mut seen = 0_usize;
     let mut gone = false;
@@ -175,6 +176,8 @@ struct Reading<'a> {
     cut: bool,
     /// The names marked in place of the request's, once inverted.
     inverted: Option<Arc<HashSet<OsString>>>,
+    /// The directory's device and inode, from its descriptor.
+    identity: Option<(u64, u64)>,
     names: Names,
     offsets: Offsets,
     now: SystemTime,
@@ -193,6 +196,7 @@ impl<'a> Reading<'a> {
             backups: 0,
             cut: false,
             inverted: None,
+            identity: None,
             names: Names::default(),
             offsets: Offsets::default(),
             now: SystemTime::now(),
@@ -288,7 +292,9 @@ impl<'a> Reading<'a> {
         let notes = vec![format!("reading… {} entries so far", self.entries.len())];
         let shown: Vec<&Entry> = self.entries[..first].iter().collect();
         let parts = (self.request, self.resolved.as_ref(), self.now);
-        listing(parts, &mut self.offsets, &notes, &shown, (false, None))
+        let mut built = listing(parts, &mut self.offsets, &notes, &shown, (false, None));
+        built.identity = self.identity;
+        built
     }
 
     /// The whole listing, ordered, its marks inverted if the request asked.
@@ -321,7 +327,9 @@ impl<'a> Reading<'a> {
         let shown: Vec<&Entry> = self.dots.iter().chain(&self.entries).collect();
         let parts = (self.request, self.resolved.as_ref(), self.now);
         let inverted = self.inverted.clone();
-        listing(parts, &mut self.offsets, &notes, &shown, (done, inverted))
+        let mut built = listing(parts, &mut self.offsets, &notes, &shown, (done, inverted));
+        built.identity = self.identity;
+        built
     }
 }
 
@@ -355,6 +363,7 @@ fn listing(
         done,
         marked: shown.marked,
         marked_names: inverted,
+        identity: None,
         stamp: None,
     }
 }

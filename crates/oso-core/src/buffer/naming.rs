@@ -33,6 +33,23 @@ impl Buffer {
         self.naming = self.naming.wrapping_add(1);
     }
 
+    /// Makes the buffer visit its file at `path`, where it was moved (ADR 0134): its text, edits
+    /// and baseline stay, the baseline at the new place, and it is judged by its new name,
+    /// never less secret than before. Its project is looked for again.
+    pub(crate) fn moved_to(&mut self, path: PathBuf) {
+        let stricter = crate::secret::judge_name(&path).is_withheld();
+        if let Some(baseline) = self.baseline.as_mut() {
+            baseline.location.clone_from(&path);
+        }
+        self.path = Some(path);
+        self.own_spelling = None;
+        self.project = None;
+        self.naming = self.naming.wrapping_add(1);
+        if stricter {
+            self.judge_moved_secret();
+        }
+    }
+
     /// Changes whenever the name or the path does.
     pub fn naming(&self) -> u32 {
         self.naming

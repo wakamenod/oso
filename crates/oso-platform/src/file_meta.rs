@@ -28,7 +28,7 @@ mod directory;
 mod posix_list;
 mod users;
 
-pub use directory::{Directory, Entries, Entry, EntryKind, EntryMeta};
+pub use directory::{Directory, Entries, Entry, EntryKind, EntryMeta, MAX_DEPTH};
 
 /// The name of the user `uid`, if the system's user database has one: a listing's owner
 /// (ADR 0134). It may read a file or ask a directory service, so it belongs off the UI thread.

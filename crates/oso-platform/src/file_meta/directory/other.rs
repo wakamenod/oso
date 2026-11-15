@@ -10,6 +10,11 @@ use std::path::{Path, PathBuf};
 
 use super::{Entry, EntryKind, EntryMeta, MAX_LINK_BYTES, is_one_name, not_one_name};
 
+#[path = "ops_other.rs"]
+mod ops;
+
+pub(super) use ops::{copy_file_to, copy_link_to, identity, make_directory, remove, rename_to};
+
 /// An open directory: its path.
 pub(super) type Inner = PathBuf;
 
