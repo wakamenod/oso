@@ -6,11 +6,10 @@ use std::ffi::{OsStr, OsString};
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::process::ExitStatusExt;
-use std::process::Child;
 use std::time::{Duration, Instant};
 
 use super::{Master, Ready, Size, Slave, open, wake_pair};
-use crate::process::{Executable, Sink, Source, Spawn, account_shell, spawn};
+use crate::process::{Child, Executable, Sink, Source, Spawn, account_shell, spawn};
 
 const SIZE: Size = Size {
     rows: 24,
@@ -216,7 +215,7 @@ fn an_idle_terminal_would_block() {
 #[test]
 fn no_other_child_inherits_either_end() {
     let (master, slave) = open(SIZE).unwrap();
-    let fds = [master.0.0.as_raw_fd(), slave.0.0.as_raw_fd()];
+    let fds = [master.0.0.as_raw_fd(), slave.0.fd.as_raw_fd()];
     let script = format!(
         "for fd in {} {}; do test -e /dev/fd/$fd && echo leaked $fd; done; true",
         fds[0], fds[1]
@@ -342,27 +341,19 @@ fn a_dropped_waker_does_not_end_the_wait() {
 #[test]
 fn a_descriptor_left_open_on_exec_reaches_no_terminal_child() {
     let file = std::fs::File::open("/dev/null").unwrap();
-    // SAFETY: `dup` takes a descriptor, which `file` keeps open, and returns a new
-    // one without close-on-exec, or -1.
-    let fd = unsafe { libc::dup(file.as_raw_fd()) };
-    assert!(fd > 2);
+    // SAFETY: `F_DUPFD` copies a descriptor `file` keeps open to a free number from 200 up,
+    // without close-on-exec, and touches no memory.
+    let fd = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD, 200) };
+    assert!(fd >= 200, "{}", io::Error::last_os_error());
     // SAFETY: `fd` was just made, and nothing else owns it.
     let leaky = unsafe { std::os::fd::OwnedFd::from_raw_fd(fd) };
-    let script = format!("test -e /dev/fd/{fd} && echo leaked; echo done");
-    // A child outside a terminal shows that the check can see it.
-    let sh = sh();
-    let args = ["-c".into(), script.clone().into()];
-    let mut child = spawn(&Spawn {
-        stdout: Sink::Piped,
-        ..request(&sh, &args, &[], None)
-    })
-    .unwrap();
-    let mut output = String::new();
-    io::Read::read_to_string(&mut child.stdout.take().unwrap(), &mut output).unwrap();
-    child.wait().unwrap();
-    assert_eq!(output, "leaked\ndone\n");
+    // The shell's own descriptor 7 shows that the check can see one.
+    let script = format!(
+        "exec 7</dev/null; test -e /dev/fd/7 && echo seen; test -e /dev/fd/{fd} && echo leaked; echo done"
+    );
     let (master, mut child) = start(&script);
     let text = read_until(&master, "done");
+    assert!(text.contains("seen"), "{text:?}");
     assert!(!text.contains("leaked"), "{text:?}");
     child.wait().unwrap();
     drop(leaky);
@@ -439,7 +430,7 @@ mod handed {
         assert!(flags & libc::FD_CLOEXEC != 0, "the clone is close-on-exec");
         let adopted = Master::from_fd(fd).unwrap();
         drop(master);
-        let mut slave = std::fs::File::from(slave.0.0);
+        let mut slave = std::fs::File::from(slave.0.fd);
         slave.write_all(b"after\n").unwrap();
         assert!(!read_some(&adopted).is_empty(), "the adopted master reads");
         // A size set through it is the terminal's.
@@ -452,7 +443,7 @@ mod handed {
         let error = Master::from_fd(reader.into()).unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
         let (_master, slave) = open(SIZE).unwrap();
-        assert!(Master::from_fd(slave.0.0).is_err(), "a slave is no master");
+        assert!(Master::from_fd(slave.0.fd).is_err(), "a slave is no master");
     }
 }
 

@@ -17,13 +17,13 @@ mod pointer;
 use std::collections::VecDeque;
 use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::process::{Child, ExitStatus};
+use std::process::ExitStatus;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, TryRecvError};
 use std::time::{Duration, Instant};
 
 use oso_platform::process::pty::{self, Master, Size, Wakeup};
-use oso_platform::process::{self as spawning, Sink, Source, Spawn};
+use oso_platform::process::{self as spawning, Child, Sink, Source, Spawn};
 
 use super::{Input, Request, Shared, Start};
 use crate::engine::ghostty::Ghostty;

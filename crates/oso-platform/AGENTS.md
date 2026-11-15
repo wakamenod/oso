@@ -14,10 +14,11 @@ and the agent channel (ADR 0085); only the dev tooling and the agent channel
 listen. Passing descriptors over a connection (`control/unix/rights.rs`) and a PTY master
 from a descriptor serve the restart of terminals, `oso dev`'s (ADR 0120, step 11) and
 `oso-restart`'s, whose socket pair `ControlStream::pair` makes and whose new instance takes it
-as descriptor 3 (`ControlStream::inherited`, `process::PassedFd`, ADR 0133). `privacy::inheritance`
-holds the one `static` allowed, a lock with no data: every spawn holds it shared, and making a
-descriptor that is not yet close-on-exec holds it alone (an exception to ADR 0042). Process spawning lives in `process`, and pseudo-terminals in
-`process::pty`, in every build (ADR 0120). `notify` asks for the person's attention for agent
+as descriptor 3 (`ControlStream::inherited`, `process::PassedFd`, ADR 0133; its number is
+`privacy::inheritance`'s). Process spawning lives in `process`, and pseudo-terminals in
+`process::pty`, in every build (ADR 0120). On macOS and Linux `process/unix.rs` starts each child
+with `posix_spawn`, which gets only the descriptors its file actions name; a terminal's child on
+macOS still forks, through `pty/unix.rs`'s hook (ADR 0137). `notify` asks for the person's attention for agent
 sessions (ADR 0121). `random` reads the system's random bytes, for ids such as a hosted
 session's (ADR 0121). `window` holds the window layer's
 events, which the tip crate's winit adapter builds too, and on macOS the window system itself, in `window/appkit/`

@@ -8,18 +8,10 @@
 //! Must not depend on: the file system or the other checks; it sees only
 //! tokens.
 //!
-//! One file is let off: [`GATE`], whose one static is a lock with no data that orders every
-//! spawn against a descriptor not yet close-on-exec, which must hold for the whole process
-//! (ADR 0133, an exception to ADR 0042).
+//! No file is let off: the gate ADR 0133 let off went once each child got only the descriptors
+//! it is given (ADR 0137).
 
 use crate::lexer::{Tok, Token, skip_group, test_item_lines};
-
-/// The one file that may declare a `static` of its own: the gate that keeps a descriptor out
-/// of a child it was not made for (ADR 0133). It may hold exactly one, a lock of `()`.
-pub const GATE: &str = "crates/oso-platform/src/privacy/inheritance.rs";
-
-/// What [`GATE`]'s one static is.
-pub const GATE_STATIC: &str = "static GATE: RwLock<()> = RwLock::new(());";
 
 /// Types that hold state behind a shared reference, which a foreign constant must not be.
 const HOLDS_STATE: [&str; 9] = [

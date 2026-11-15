@@ -30,12 +30,12 @@ use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdout, ExitStatus};
+use std::process::{ChildStdout, ExitStatus};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
+use oso_platform::process::{Child, Executable, Sink, Source, Spawn, spawn};
 
 use super::id::{Id, trim_line};
 
