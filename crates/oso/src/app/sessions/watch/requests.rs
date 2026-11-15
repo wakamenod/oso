@@ -119,7 +119,7 @@ impl App {
 
     /// Shows session `key` (Q2): in its space, switched to first, in the window that shows it
     /// there, else in the tree's selected window, which is then selected.
-    pub(super) fn show_session(&mut self, key: SessionKey) {
+    pub(in crate::app) fn show_session(&mut self, key: SessionKey) {
         let Some(session) = self.hosting.table().get(key) else {
             return;
         };
@@ -255,9 +255,14 @@ impl App {
             }
             // A space's row enters it on `RET` (ADR 0136, step 2, Q2); a closed one's reopens it
             // (Q3).
+            // Its orchestrator when it has one (ADR 0136, step 3), else the space entered.
             Line::Space(id) if action == RowAction::Show => {
-                if let Some(at) = self.watch.spaces.find(&id) {
-                    self.enter_space(at);
+                let Some(at) = self.watch.spaces.find(&id) else {
+                    return;
+                };
+                match self.orchestrator_of(at) {
+                    Some(key) => self.show_session(key),
+                    None => self.enter_space(at),
                 }
                 return;
             }

@@ -57,6 +57,7 @@ fn each_worktree_shows_in_one_space_and_the_main_checkout_where_it_is_used() {
             members: vec![Path::new("/b"), Path::new("/f")],
             held: &a_held,
             sessions: HashSet::new(),
+            directory: None,
         },
         SpaceInput {
             id: &b,
@@ -64,6 +65,7 @@ fn each_worktree_shows_in_one_space_and_the_main_checkout_where_it_is_used() {
             members: vec![Path::new("/b")],
             held: &[],
             sessions: HashSet::from([PathBuf::from("/b")]),
+            directory: None,
         },
     ];
     let rows = space_rows(&spaces, &[], &listed);
@@ -116,6 +118,7 @@ fn a_closed_spaces_worktree_and_one_of_a_repository_taken_out_show_where_they_sh
             members: vec![Path::new("/b")],
             held: &[],
             sessions: HashSet::new(),
+            directory: None,
         },
         // Its repository was taken out: what it held is no one's.
         SpaceInput {
@@ -124,6 +127,7 @@ fn a_closed_spaces_worktree_and_one_of_a_repository_taken_out_show_where_they_sh
             members: vec![],
             held: &taken_held,
             sessions: HashSet::new(),
+            directory: None,
         },
     ];
     let closed = [SpaceInput {
@@ -132,6 +136,7 @@ fn a_closed_spaces_worktree_and_one_of_a_repository_taken_out_show_where_they_sh
         members: vec![Path::new("/b")],
         held: &gone_held,
         sessions: HashSet::new(),
+        directory: None,
     }];
     let rows = space_rows(&spaces, &closed, &listed);
     assert_eq!(shown(&rows, 0), [vec!["/b", "/b/wt/moved"]]);

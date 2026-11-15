@@ -389,3 +389,138 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     });
     flow.exit_with(0);
 }
+
+/// The fake's run whose arguments hold `name`'s `--name`.
+fn run_named<'a>(
+    runs: &'a [(String, Vec<String>)],
+    name: &str,
+) -> Option<&'a (String, Vec<String>)> {
+    let flag = format!("--name={name}");
+    runs.iter().rev().find(|(_, args)| args.contains(&flag))
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories() {
+    // The orchestrator's directory must have a private way, and the scratch is in the system's
+    // temporary directory, shared on Linux: the spaces' root is in a private one instead.
+    let spaces = PrivateRoot::new("spaces-orchestrator");
+    let config = format!("\n[spaces]\nroot = \"{}\"\n", spaces.0.display());
+    let flow = Flow::new("spaces-orchestrator", &config);
+    let other = flow.scratch.path().join("other");
+    fs::create_dir(&other).unwrap();
+    flow.git(&other, &["init", "-q", "-b", "main"]);
+    fs::write(other.join("notes.md"), "# other\n").unwrap();
+    let (mut app, _) = flow.start();
+    app.send_keys("C-x a O");
+    answer(&mut app, "New space for issue:", "Fix login");
+    app.wait_for("the space's directory", |state| {
+        space(state, "fix-login").is_some_and(|s| s["directory"].is_string())
+    });
+    app.send_keys("C-x a S");
+    app.send_keys("a");
+    answer(&mut app, "Add repository:", other.to_str().unwrap());
+    app.wait_for("its second repository, not trusted", |state| {
+        space(state, "fix-login")
+            .is_some_and(|s| s["members"].as_array().is_some_and(|m| m.len() == 2))
+    });
+
+    // `o` starts it in the space's directory, given the trusted repository alone.
+    app.send_keys("C-x a S");
+    app.send_keys("o");
+    let runs = flow.wait_for_runs(1);
+    let (cwd, args) = run_named(&runs, "fix-login").expect("the orchestrator's run");
+    let directory = fs::canonicalize(spaces.0.join("fix-login")).unwrap();
+    assert_eq!(PathBuf::from(cwd), directory);
+    let repo = fs::canonicalize(&flow.repo).unwrap();
+    let other_real = fs::canonicalize(&other).unwrap();
+    let add = |path: &Path| format!("--add-dir={}", path.display());
+    assert!(args.contains(&add(&repo)), "{args:?}");
+    assert!(!args.contains(&add(&other_real)), "{args:?}");
+    let prompt = args
+        .iter()
+        .find(|arg| arg.starts_with("--append-system-prompt="))
+        .expect("the orchestrator's text");
+    assert!(prompt.contains("You are the orchestrator of an issue space"));
+    assert!(prompt.contains("# This space: fix-login"));
+    assert!(prompt.contains("not trusted in oso yet"), "{prompt}");
+    let state = app.wait_for("the orchestrator recorded and listed", |state| {
+        space(state, "fix-login").is_some_and(|s| s["orchestrator"].is_string())
+            && list(state)
+                .lines()
+                .any(|row| row.starts_with("  ") && row.contains("orchestrator"))
+    });
+    assert!(
+        line_starting(&state, "▾ fix-login").is_some(),
+        "{}",
+        list(&state)
+    );
+
+    // The other repository trusted now: its `/add-dir` is offered, not pasted unasked.
+    app.open_file(&other.join("notes.md"));
+    app.wait_until_ready();
+    app.send_keys(&format!("M-x {} RET y", keys("trust-project")));
+    app.wait_for("the offer", |state| {
+        super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with("Paste /add-dir"))
+    });
+    app.send_keys("n");
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+
+    // Started again, it is back stopped; resumed, it is given both repositories now.
+    let mut again = flow.start_again();
+    again.wait_for("the orchestrator listed", |state| {
+        list(state).lines().any(|row| row.contains("orchestrator"))
+    });
+    again.send_keys(&format!("C-x a b {} RET", keys("*claude: fix-login*")));
+    again.wait_for("its buffer", |state| {
+        state["buffer"]["name"] == "*claude: fix-login*"
+    });
+    again.send_keys("C-x a r");
+    let runs = flow.wait_for_runs(2);
+    let (_, args) = runs
+        .iter()
+        .rev()
+        .find(|(_, args)| args.iter().any(|arg| arg.starts_with("--resume=")))
+        .expect("the resume");
+    assert!(
+        args.contains(&add(&repo)) && args.contains(&add(&other_real)),
+        "{args:?}"
+    );
+    flow.exit_with(0);
+}
+
+/// A directory for a space's root whose whole way is private and inside no repository: the
+/// first of the temporary, runtime and home directories that is; removed when dropped.
+struct PrivateRoot(PathBuf);
+
+impl PrivateRoot {
+    fn new(test: &str) -> Self {
+        let candidates = [
+            Some(std::env::temp_dir()),
+            std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from),
+            std::env::var_os("HOME").map(PathBuf::from),
+        ];
+        let base = (candidates.into_iter().flatten())
+            .filter_map(|dir| fs::canonicalize(dir).ok())
+            .find(|dir| {
+                dir.ancestors().all(|above| {
+                    let private = fs::metadata(above)
+                        .is_ok_and(|meta| meta.permissions().mode() & 0o022 == 0);
+                    private && !above.join(".git").exists()
+                })
+            })
+            .expect("no private directory outside a repository");
+        let path = base.join(format!("oso-e2e-{}-{test}", std::process::id()));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        Self(path)
+    }
+}
+
+impl Drop for PrivateRoot {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}

@@ -51,8 +51,19 @@ fn recall(directory: Option<&Path>) -> Out {
     }
 }
 
+/// Whether `job` looks at the disk for a space command, which a thread of its own does
+/// (step 3): not keeping the spaces or reading ids, which the worker does in turn.
+pub(super) fn looks_at_the_disk(job: &SpaceJob) -> bool {
+    matches!(
+        job,
+        SpaceJob::MakeDirectory { .. }
+            | SpaceJob::CheckRepository { .. }
+            | SpaceJob::Instructions { .. }
+    )
+}
+
 /// What the spaces asked of the worker (ADR 0136).
-fn space_job(job: SpaceJob) -> Vec<Out> {
+pub(super) fn space_job(job: SpaceJob) -> Vec<Out> {
     use spaces::probe;
     let out = match job {
         SpaceJob::Remember {
@@ -67,9 +78,10 @@ fn space_job(job: SpaceJob) -> Vec<Out> {
             name,
             members,
             taken,
+            exact,
         } => {
             let taken = |candidate: &str| taken.iter().any(|name| name == candidate);
-            let made = probe::make_directory(&root, &name, &members, &taken);
+            let made = probe::make_directory(&root, &name, &members, &taken, exact);
             let identities = probe::identities(&members);
             Out::SpaceDirMade {
                 id,

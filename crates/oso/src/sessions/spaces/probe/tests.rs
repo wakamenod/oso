@@ -35,15 +35,15 @@ impl Drop for Scratch {
 fn a_taken_directory_name_gives_the_next_free_one() {
     let scratch = Scratch::new("names");
     let root = scratch.0.join("spaces");
-    let first = make_directory(&root, "fix", &[], &|_| false).unwrap();
+    let first = make_directory(&root, "fix", &[], &|_| false, false).unwrap();
     assert_eq!(
         (first.name.as_str(), first.path.clone()),
         ("fix", root.join("fix"))
     );
-    let second = make_directory(&root, "fix", &[], &|_| false).unwrap();
+    let second = make_directory(&root, "fix", &[], &|_| false, false).unwrap();
     assert_eq!(second.name, "fix-2");
     // A name another space has is passed over too, though nothing is at it.
-    let third = make_directory(&root, "fix", &[], &|name| name == "fix-3").unwrap();
+    let third = make_directory(&root, "fix", &[], &|name| name == "fix-3", false).unwrap();
     assert_eq!(third.name, "fix-4");
     assert!(third.identity.is_some());
 }
@@ -54,7 +54,7 @@ fn a_shared_root_is_said_and_nothing_is_made() {
     let root = scratch.0.join("spaces");
     fs::create_dir(&root).unwrap();
     fs::set_permissions(&root, fs::Permissions::from_mode(0o770)).unwrap();
-    let why = make_directory(&root, "x", &[], &|_| false).unwrap_err();
+    let why = make_directory(&root, "x", &[], &|_| false, false).unwrap_err();
     assert!(why.contains("[spaces] root"), "{why}");
     assert!(!root.join("x").exists());
 }

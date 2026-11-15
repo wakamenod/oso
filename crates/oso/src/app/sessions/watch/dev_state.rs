@@ -56,6 +56,7 @@ impl App {
                     "worktrees": stored.worktrees.iter().map(|w| w.display().to_string()).collect::<Vec<_>>(),
                     "archived": stored.archived,
                     "title": stored.title,
+                    "orchestrator": stored.orchestrator.as_ref().map(|id| id.as_str().to_owned()),
                     "directory": stored.directory.as_ref().map(|d| d.display().to_string()),
                 })
             })

@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use oso_core::syntax::Highlight;
 
-use super::super::{Entry, Fold, Group, Key, Line, List, Rendered, face, mark, rank};
+use super::super::{Entry, Fold, Group, Key, Line, List, Rendered, Row, face, mark, rank};
 use super::{
     INDENT, Project, QUIET_AFTER, SpaceRows, Worktree, cells, cut, cut_middle, heading,
     named_heading, pad, worst,
@@ -22,12 +22,13 @@ impl List {
     pub(super) fn space(
         &self,
         out: &mut Rendered,
-        space: &SpaceRows,
+        (space, orchestrator): (&SpaceRows, &[&Entry]),
         placed: &[Vec<Vec<&Entry>>],
         width: usize,
         now: Instant,
     ) {
-        let all: Vec<&Entry> = placed.iter().flatten().flatten().copied().collect();
+        let mut all: Vec<&Entry> = placed.iter().flatten().flatten().copied().collect();
+        all.extend(orchestrator.iter().copied());
         let front = self.tree.front_space.as_ref() == Some(&space.id);
         // Only oso's own sessions unfold a space: another program's are listed, quiet.
         let busy = all.iter().any(|e| {
@@ -44,6 +45,18 @@ impl List {
         named_heading(out, (&head, &name, face), roll(&all), width, line);
         if folded {
             return;
+        }
+        // Its orchestrator first, as the session the person talks to (ADR 0136, step 3).
+        for entry in orchestrator {
+            let row = Row {
+                entry,
+                indent: INDENT[1],
+                spin: self.spin,
+                waiting: 0,
+                place: false,
+                tag: Some("orchestrator"),
+            };
+            row.render(out, width, now);
         }
         if let [only] = space.projects.as_slice() {
             return self.body(out, (space, only), &placed[0], 1, width, now);

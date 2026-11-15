@@ -188,6 +188,13 @@ can write.
 | `n` | `space-rename` | Give the space a new title, and a name made from it. |
 | `c` | `space-close` | Archive the space; refused while one of its sessions works or needs input. |
 | `R` | `space-reopen` | Open a closed space again. |
+| `o` | `space-orchestrator-start` | Start the space's orchestrator, the session you talk to about the issue, in the space's directory, with each trusted repository as a working directory. `C-u` makes a space directory that is gone again at its place. |
+
+The orchestrator is told the space's repositories, its title and its instructions, and to
+keep a `handoff.md` in its directory for whoever takes over. Its row is right under its
+space's, and `RET` on the space's row shows it. A repository added to the space, or trusted,
+while it runs is offered to it: `y` pastes `/add-dir PATH` into its prompt, not sent. In
+Claude Code, `/permissions` and its Workspace tab list the directories it was given.
 
 ### Send work to a session
 

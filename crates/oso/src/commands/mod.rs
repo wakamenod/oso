@@ -351,9 +351,11 @@ mod tests {
         // 0136).
         "space-add-repo",
         "space-close",
+        "space-confirm",
         "space-instructions",
         "space-new",
         "space-directory",
+        "space-orchestrator-start",
         "space-remove-repo",
         "space-rename",
         "space-reopen",
