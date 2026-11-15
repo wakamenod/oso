@@ -98,6 +98,27 @@ pub enum Job {
     },
     /// Read this many ids for new spaces.
     SpaceIds(usize),
+    /// Make the directory of space `id`, called `name`, under `root`, for its `members`,
+    /// under the next free name if that one is taken, here or by a name in `taken` (ADR 0136,
+    /// step 1b); and look at the members' devices and inodes.
+    MakeSpaceDir {
+        id: super::spaces::SpaceId,
+        root: PathBuf,
+        name: String,
+        members: Vec<super::spaces::Member>,
+        taken: Vec<String>,
+    },
+    /// Whether `path` is a repository's main checkout, for space `id` (`space-add-repo`).
+    CheckRepository {
+        id: super::spaces::SpaceId,
+        path: PathBuf,
+    },
+    /// The file of space `id`'s instructions in the state directory `state`, its directory
+    /// made private (`space-instructions`).
+    Instructions {
+        id: super::spaces::SpaceId,
+        state: PathBuf,
+    },
 }
 
 /// What the worker tells the app.
@@ -141,6 +162,23 @@ pub enum Out {
     },
     /// Ids for new spaces, as asked.
     SpaceIds(Vec<super::spaces::SpaceId>),
+    /// Space `id`'s directory was made, or why not, and its members' devices and inodes.
+    SpaceDirMade {
+        id: super::spaces::SpaceId,
+        made: Result<super::spaces::probe::Made, String>,
+        identities: Vec<(PathBuf, Option<(u64, u64)>)>,
+    },
+    /// What `path` was found to be, for space `id`.
+    RepositoryChecked {
+        id: super::spaces::SpaceId,
+        path: PathBuf,
+        member: Result<super::spaces::Member, String>,
+    },
+    /// Space `id`'s instructions' file, or why its directory may not be used.
+    InstructionsReady {
+        id: super::spaces::SpaceId,
+        file: Result<PathBuf, String>,
+    },
     /// This local rule was the slowest of [`DROP_AFTER`] late looks in a row, so it is no
     /// longer used until the rules load again.
     Dropped(String),

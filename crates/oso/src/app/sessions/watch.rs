@@ -264,6 +264,7 @@ impl App {
             self.editor.set_listed(SESSIONS_LIST, candidates);
             self.editor
                 .set_listed(SPACES_LIST, self.watch.spaces.candidates());
+            self.space_lists();
             self.sending_lists(&entries);
         }
         visible |= self.note_sessions(&entries, now);

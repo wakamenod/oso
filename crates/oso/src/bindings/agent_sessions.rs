@@ -1,12 +1,14 @@
 //! Default key bindings of the agent session commands (ADR 0121, Q7): `C-x a` and a key, the
 //! keys of `*Sessions*`, and session mode's `C-c` and a key in a session's terminal (ADR 0132).
-//! `C-x a o` comes with its command, in a later step.
+//! `C-x a O` makes an issue space and `C-x a S` opens the space menu (ADR 0136). `C-x a o` comes
+//! with its command, in a later step.
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
 /// Key sequences and the commands they run.
 pub const BINDINGS: &[(&str, &str)] = &[
     ("C-x a c", "claude"),
+    ("C-x a O", "space-new"),
     ("C-x a r", "session-resume"),
     ("C-x a a", "session-adopt"),
     ("C-x a w", "session-worktree"),
@@ -28,6 +30,7 @@ pub const BINDINGS: &[(&str, &str)] = &[
 /// the terminal's, but `C-c C-u`, as `C-u` goes to the program.
 pub const SESSION: &[(&str, &str)] = &[
     ("C-c c", "claude"),
+    ("C-c O", "space-new"),
     ("C-c r", "session-resume"),
     ("C-c a", "session-adopt"),
     ("C-c w", "session-worktree"),

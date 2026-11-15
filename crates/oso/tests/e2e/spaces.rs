@@ -167,3 +167,122 @@ fn remembered_sessions_become_spaces_of_one_repository_that_a_restart_keeps() {
     assert_eq!(back_ids, ids);
     flow.exit_with(0);
 }
+
+/// The space of this name in the dev state, if there is one.
+fn space<'a>(state: &'a Value, name: &str) -> Option<&'a Value> {
+    state["sessions"]["spaces"]
+        .as_array()?
+        .iter()
+        .find(|space| space["name"] == name)
+}
+
+/// What the echo area says.
+fn echo(state: &Value) -> String {
+    state["echo"].as_str().unwrap_or_default().to_owned()
+}
+
+/// Answers the prompt now open with `text`, once it says `label`.
+fn answer(app: &mut crate::harness::App, label: &str, text: &str) {
+    app.wait_for(label, |state| {
+        super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with(label))
+    });
+    app.send_keys(&format!("{} RET", keys(text)));
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_space_commands_make_change_close_and_reopen_a_space() {
+    let flow = Flow::new("spaces-commands", "");
+    let other = flow.scratch.path().join("other");
+    fs::create_dir(&other).unwrap();
+    flow.git(&other, &["init", "-q", "-b", "main"]);
+    let (mut app, _) = flow.start();
+    let root = flow.home.join("spaces");
+
+    // A space for an issue, of the selected buffer's repository, made with its directory.
+    app.send_keys("C-x a O");
+    answer(&mut app, "New space for issue:", "Fix login error");
+    let state = app.wait_for("the new space and its directory", |state| {
+        space(state, "fix-login-error").is_some_and(|s| s["directory"].is_string())
+            && state["sessions"]["space"] == "fix-login-error"
+    });
+    let made = space(&state, "fix-login-error").unwrap();
+    let repo = fs::canonicalize(&flow.repo).unwrap().display().to_string();
+    assert_eq!(made["members"], serde_json::json!([repo]));
+    assert_eq!(made["title"], "Fix login error");
+    let directory = root.join("fix-login-error");
+    assert_eq!(made["directory"], directory.display().to_string());
+    let mode = fs::metadata(&directory).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o700);
+
+    // Another repository, by its path.
+    app.send_keys("C-x a S");
+    app.send_keys("a");
+    answer(&mut app, "Add repository:", other.to_str().unwrap());
+    app.wait_for("the second repository", |state| {
+        space(state, "fix-login-error")
+            .is_some_and(|s| s["members"].as_array().is_some_and(|m| m.len() == 2))
+    });
+
+    // A root others can write: the space is made, its directory refused and said why.
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o770)).unwrap();
+    app.send_keys("C-x a O");
+    answer(&mut app, "New space for issue:", "Second");
+    let state = app.wait_for("the refusal", |state| echo(state).contains("[spaces] root"));
+    assert!(space(&state, "second").is_some_and(|s| s["directory"].is_null()));
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+
+    // Closing the space in front enters the one entered last; reopening brings it back.
+    app.send_keys("C-x a S");
+    app.send_keys("c");
+    app.wait_for("the space closed", |state| {
+        space(state, "second").is_some_and(|s| s["archived"] == true)
+            && state["sessions"]["space"] == "fix-login-error"
+    });
+    app.send_keys("C-x a S");
+    app.send_keys("R");
+    answer(&mut app, "Reopen space:", "second");
+    app.wait_for("the space open again", |state| {
+        space(state, "second").is_some_and(|s| s["archived"] == false)
+            && state["sessions"]["space"] == "second"
+    });
+
+    // Renaming makes the name from the title.
+    app.send_keys("C-x a S");
+    app.send_keys("n");
+    answer(&mut app, "Space title:", "Third title");
+    app.wait_for("the new name", |state| {
+        space(state, "third-title").is_some()
+    });
+
+    // A session of the first space, idle, is stopped when the space closes.
+    app.send_keys(&format!("C-x a j {} RET", keys("fix-login-error")));
+    app.wait_for("the first space", |state| {
+        state["sessions"]["space"] == "fix-login-error"
+    });
+    app.send_keys("C-x a c");
+    app.wait_for("its session", |state| {
+        state["sessions"]["sessions"].as_array().is_some_and(|s| {
+            s.iter()
+                .any(|s| s["space"] == "fix-login-error" && s["state"] == "idle")
+        })
+    });
+    app.send_keys("C-x a S");
+    app.send_keys("c");
+    app.wait_for("the session stopped and the space closed", |state| {
+        space(state, "fix-login-error").is_some_and(|s| s["archived"] == true)
+            && state["sessions"]["sessions"]
+                .as_array()
+                .is_some_and(|s| s.iter().all(|s| s["state"] == "stopped"))
+    });
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+
+    // All of it is kept.
+    let mut again = flow.start_again();
+    again.wait_for("the kept spaces", |state| {
+        space(state, "fix-login-error").is_some_and(|s| s["archived"] == true)
+            && space(state, "third-title").is_some_and(|s| s["archived"] == false)
+    });
+    flow.exit_with(0);
+}

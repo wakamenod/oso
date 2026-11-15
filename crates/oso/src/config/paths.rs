@@ -60,10 +60,6 @@ pub(super) fn user_path(
 
 /// `written`, a path [`user_path`] took, with `~/` joined to `home`. `None` for `~/` with no
 /// home directory or a relative one, and for a path that is then on another computer.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "space-new makes directories under it in step 1b")
-)]
 pub fn expand(written: &str, home: Option<&Path>) -> Option<std::path::PathBuf> {
     let path = match written.strip_prefix("~/") {
         Some(rest) => home.filter(|home| home.is_absolute())?.join(rest),

@@ -55,6 +55,8 @@ impl App {
                     "members": stored.members.iter().map(|m| m.root.display().to_string()).collect::<Vec<_>>(),
                     "worktrees": stored.worktrees.iter().map(|w| w.display().to_string()).collect::<Vec<_>>(),
                     "archived": stored.archived,
+                    "title": stored.title,
+                    "directory": stored.directory.as_ref().map(|d| d.display().to_string()),
                 })
             })
             .collect();

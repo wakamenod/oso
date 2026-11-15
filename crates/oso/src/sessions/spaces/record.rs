@@ -174,9 +174,10 @@ fn path(text: &str) -> Option<PathBuf> {
     (text.len() <= MAX_PATH && path.is_absolute() && !text.contains('\0')).then_some(path)
 }
 
-/// Whether `text` has no control character, so that a title or an issue never moves a row.
+/// Whether `text` has no control or invisible character, so that a title or an issue never
+/// moves a row or reads otherwise than it is (ADR 0136, step 1b, P5).
 fn is_plain(text: &str) -> bool {
-    !text.chars().any(char::is_control)
+    text.chars().all(super::stored::is_plain)
 }
 
 /// One space as its line. A path that is not UTF-8 cannot be written, and its space is not

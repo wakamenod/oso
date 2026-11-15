@@ -167,9 +167,45 @@ pub fn slug(raw: &str) -> String {
     }
     if name.is_empty() {
         FALLBACK.to_owned()
+    } else if is_device_name(&name) {
+        // A directory of this name would be a device on Windows.
+        format!("{name}-{FALLBACK}")
     } else {
         name
     }
+}
+
+/// Whether `name`, lower-case, names a device on Windows, as `con` and `com1` do.
+fn is_device_name(name: &str) -> bool {
+    let numbered = |prefix: &str| {
+        name.strip_prefix(prefix)
+            .is_some_and(|n| n.len() == 1 && n.as_bytes()[0].is_ascii_digit())
+    };
+    matches!(name, "con" | "prn" | "aux" | "nul") || numbered("com") || numbered("lpt")
+}
+
+/// `raw`, the person's words for an issue, as a title: control and invisible characters
+/// dropped, as they could make a row read otherwise than it is, runs of white space made one,
+/// trimmed, and cut to [`MAX_TITLE`] bytes (ADR 0136, step 1b).
+pub fn clean_title(raw: &str) -> String {
+    let words: Vec<String> = raw
+        .split(|c: char| c.is_whitespace() || c.is_control())
+        .map(|word| word.chars().filter(|&c| is_plain(c)).collect::<String>())
+        .filter(|word| !word.is_empty())
+        .collect();
+    let mut title = words.join(" ");
+    let mut end = title.len().min(MAX_TITLE);
+    while !title.is_char_boundary(end) {
+        end -= 1;
+    }
+    title.truncate(end);
+    title.trim_end().to_owned()
+}
+
+/// Whether `c` may stand in a title or an issue reference: no control character, and nothing
+/// drawn as a boxed code point (oso-core's `is_invisible`).
+pub fn is_plain(c: char) -> bool {
+    !c.is_control() && !oso_core::display_map::cell::is_invisible(c)
 }
 
 /// `base`, a slug, or `base-2`, `base-3` and on, the first that `taken` does not hold, within

@@ -76,6 +76,8 @@ through `oso mcp`.
 | `C-x a @` | `session-mention` | Insert a session's name as `@NAME`. |
 | `C-x a f` | `session-follow-message` | Show the session that sent this one its newest message. |
 | `C-x a j` | `space-switch` | Switch to another space. |
+| `C-x a O` | `space-new` | Make a space for an issue, of the selected buffer's repository. |
+| `C-x a S` | the space menu | Add or remove a repository, instructions, directory, rename, close, reopen. |
 | `C-x a z` | `space-zoom` | Show the selected window alone, and back. |
 | `C-x a e` | `session-explain` | Explain why this session has the state it shows. |
 
@@ -164,6 +166,24 @@ session started in a repository joins the space in front when that space has the
 else the space you were in last that has it, else a new space of that repository. Each
 repository you used before spaces came becomes a space of its own. The modeline names the
 space.
+
+`C-x a O` makes a space for an issue: type its title, and the space is named after it, with the
+selected buffer's repository; with none, it asks for one. Each space gets a directory of its
+own, `~/spaces/<name>` (set `[spaces] root` in `config.toml` to put them elsewhere), where its
+orchestrator will work. oso makes it readable by you alone, and refuses a root that other users
+can write.
+
+`C-x a S` opens the space menu for the space in front:
+
+| Key | Command | What it does |
+|---|---|---|
+| `a` | `space-add-repo` | Add a repository, by completion or its path; it must be a main checkout. |
+| `r` | `space-remove-repo` | Take a repository out; refused while a session of the space runs in it. |
+| `i` | `space-instructions` | Edit the goal the space's orchestrator is given. |
+| `d` | `space-directory` | List the space's directory. |
+| `n` | `space-rename` | Give the space a new title, and a name made from it. |
+| `c` | `space-close` | Archive the space; refused while one of its sessions works or needs input. |
+| `R` | `space-reopen` | Open a closed space again. |
 
 ### Send work to a session
 

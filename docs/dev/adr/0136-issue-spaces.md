@@ -523,6 +523,41 @@ unchanged (P3 (a)); `space-new` completes over known repositories (P4 (a), for 1
 - **A shared state directory:** a build before this step that writes `sessions` drops the
   `space` field; such a session joins its space again by the rule.
 
+## Step 1b, as built
+
+The author approved the plan on 2026-11-15, through the coordinator: `SessionRequest::Spaces`
+and `SpaceRequest` in oso-core; `space-new` reads the title only, the repository from the
+selected buffer, else from `space-add-repo`'s prompt (P1 (a)); no issue reference yet (P2 (a));
+a directory name taken on the disk gives `-2` and on, and the space takes that name (P3 (a));
+closing the space in front enters the open space entered last, else none (P4 (a)); invisible
+characters are dropped from a typed title and a line holding one is refused when read (P5 (a)).
+
+- **The commands** are in `commands/agent_sessions/spaces.rs`, the host's side in
+  `app/sessions/spaces.rs`, the changes to the spaces in `sessions/spaces/edit.rs`, and what
+  is looked up on the disk in `sessions/spaces/probe.rs`, on the sessions worker.
+- **`space-new` and `space-add-repo`** look at a repository on the worker before it is taken:
+  a main checkout, its `.git` a directory the person or root owns, by its real path, with its
+  device and inode. A worktree is refused with a word on its repository. The selected
+  buffer's repository is its project's root, or for a worktree the repository git listed it
+  under, else the deepest repository of a space above it.
+- **The directory** is made right after the space, with each member's device and inode looked
+  at in the same job. A refusal leaves the space without one and is said; `space-directory`
+  tries again.
+- **`space-add-repo`'s prompt takes any text** (`listed_takes_input`), so a repository oso does
+  not know yet is given by its path; its list holds the open spaces' repositories, the hosted
+  sessions' project roots and the buffers' projects that are no listed worktree, leaving out a
+  path with a control or invisible character.
+- **The dispatcher gains `read_for`,** which opens a command's prompt from the host, as
+  `find_file_in` does; `space-new` with no repository opens `space-add-repo`'s with it.
+- **A space's name** is never a device's on Windows (`con`, `nul`, `aux`, `prn`, `com1`–`9`,
+  `lpt1`–`9` get `-space`).
+- **Instructions** are `space-instructions/<id>.md` in oso's state directory, made private on
+  the worker and visited as a file; step 3 reads them.
+- **Keys:** `C-x a O` and session mode's `C-c O` run `space-new`; `C-x a S` opens the built-in
+  `space` menu. Its `o` and `O` are kept for steps 3 and 5.
+- **oso-core's `editor` re-exports `sessions` with a glob,** as it does `reviews`: the module's
+  public items are the ones it named, and the file stays within its size.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it. They apply once this ADR is

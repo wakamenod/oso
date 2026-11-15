@@ -51,6 +51,46 @@ fn recall(directory: Option<&Path>) -> Out {
     }
 }
 
+/// What the spaces asked of the worker (ADR 0136): to be kept, ids for new ones, and what the
+/// space commands look up on the disk.
+fn spaces_job(job: Job) -> Vec<Out> {
+    use spaces::probe;
+    let out = match job {
+        Job::RememberSpaces {
+            directory,
+            spaces,
+            known,
+        } => return keep_spaces(&directory, &spaces, &known),
+        Job::SpaceIds(count) => Out::SpaceIds(space_ids(count)),
+        Job::MakeSpaceDir {
+            id,
+            root,
+            name,
+            members,
+            taken,
+        } => {
+            let taken = |candidate: &str| taken.iter().any(|name| name == candidate);
+            let made = probe::make_directory(&root, &name, &members, &taken);
+            let identities = probe::identities(&members);
+            Out::SpaceDirMade {
+                id,
+                made,
+                identities,
+            }
+        }
+        Job::CheckRepository { id, path } => {
+            let member = probe::main_checkout(&path);
+            Out::RepositoryChecked { id, path, member }
+        }
+        Job::Instructions { id, state } => {
+            let file = probe::instructions_file(&state, id.as_str());
+            Out::InstructionsReady { id, file }
+        }
+        _ => return Vec::new(),
+    };
+    vec![out]
+}
+
 /// Keeps `spaces` in `directory`, with another instance's: those not in `known`.
 fn keep_spaces(
     directory: &Path,
@@ -258,14 +298,11 @@ impl Core {
                 return Vec::new();
             }
             Job::Recall(directory) => return vec![recall(directory.as_deref())],
-            Job::RememberSpaces {
-                directory,
-                spaces,
-                known,
-            } => {
-                return keep_spaces(&directory, &spaces, &known);
-            }
-            Job::SpaceIds(count) => return vec![Out::SpaceIds(space_ids(count))],
+            Job::RememberSpaces { .. }
+            | Job::SpaceIds(_)
+            | Job::MakeSpaceDir { .. }
+            | Job::CheckRepository { .. }
+            | Job::Instructions { .. } => return spaces_job(job),
             Job::Remember {
                 directory,
                 sessions,
