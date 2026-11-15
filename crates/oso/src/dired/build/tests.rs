@@ -61,6 +61,8 @@ fn shown(details: bool, entries: &[Entry]) -> (String, super::Shown) {
     (shown.text.text().to_string(), shown)
 }
 
+/// Unix's mode column; Windows has its own test below.
+#[cfg(unix)]
 #[test]
 fn rows_read_as_ls_l_writes_them() {
     let (text, shown) = shown(true, &entries());
@@ -116,6 +118,8 @@ fn every_name_starts_at_one_column() {
     assert_eq!(text.lines().nth(4).unwrap(), "  latest");
 }
 
+/// Unix's mode column; Windows has its own test below.
+#[cfg(unix)]
 #[test]
 fn each_part_has_its_face() {
     let (text, shown) = shown(true, &entries());
@@ -132,6 +136,8 @@ fn each_part_has_its_face() {
     assert_eq!(shown.highlights.len(), text.len());
 }
 
+/// Unix's mode column; Windows has its own test below.
+#[cfg(unix)]
 #[test]
 fn owners_show_only_when_someone_else_owns_a_row() {
     let mut rows = entries();
@@ -169,4 +175,29 @@ fn notes_go_under_the_header() {
     assert_eq!(shown.header_lines, 2);
     let text = shown.text.text().to_string();
     assert_eq!(text.lines().nth(1).unwrap(), "  reading… 3 entries so far");
+}
+
+/// Windows has no mode bits: its column is PowerShell's `Mode`, and a link shows as one from its
+/// attributes, as reading a directory there gives them.
+#[cfg(windows)]
+#[test]
+fn windows_rows_show_their_attributes() {
+    let mut directory = entry(b"oso", EntryKind::Directory, 0, 0);
+    directory.attributes = 0x10;
+    let mut link = entry(b"latest", EntryKind::Link, 0, 0);
+    link.attributes = 0x420;
+    link.target = Some("oso".into());
+    link.leads = Leads::Directory;
+    let mut file = entry(b"AGENTS.md", EntryKind::File, 0, 4096);
+    file.attributes = 0x20;
+    let rows = [directory, link, file];
+    let (text, shown) = shown(true, &rows);
+    let lines: Vec<&str> = text.lines().skip(1).collect();
+    assert!(lines[0].starts_with("  d----"), "{text}");
+    assert!(lines[1].starts_with("  la---"), "{text}");
+    assert!(lines[1].ends_with("latest -> oso"), "{text}");
+    assert!(lines[2].starts_with("  -a---"), "{text}");
+    let face_at = |needle: &str| shown.highlights.at(text.find(needle).unwrap());
+    assert_eq!(face_at("latest"), Some(Highlight::DiredSymlink));
+    assert_eq!(face_at("oso\n"), Some(Highlight::DiredDirectory));
 }

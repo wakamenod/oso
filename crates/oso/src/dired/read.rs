@@ -133,8 +133,18 @@ pub(super) fn reaches_out(directory: &Path, target: &Path) -> bool {
                 place.pop();
             }
             std::path::Component::CurDir => {}
+            // A share or a device: another machine, or something that is no file.
             #[cfg(windows)]
-            std::path::Component::Prefix(_) => return true,
+            std::path::Component::Prefix(prefix)
+                if matches!(
+                    prefix.kind(),
+                    std::path::Prefix::UNC(..)
+                        | std::path::Prefix::VerbatimUNC(..)
+                        | std::path::Prefix::DeviceNS(..)
+                ) =>
+            {
+                return true;
+            }
             other => place.push(other),
         }
     }

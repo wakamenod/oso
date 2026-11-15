@@ -243,6 +243,13 @@ fn time_of(seconds: i64, nanos: i64) -> Option<std::time::SystemTime> {
 
 /// What a listing shows of `name`, from what `fstatat` gave.
 #[cfg(not(target_os = "macos"))]
+#[cfg_attr(
+    target_os = "linux",
+    expect(
+        clippy::useless_conversion,
+        reason = "`mode_t` is `u32` on Linux and narrower elsewhere"
+    )
+)]
 fn meta_of(name: OsString, stat: &libc::stat, user: u32) -> EntryMeta {
     EntryMeta {
         name,

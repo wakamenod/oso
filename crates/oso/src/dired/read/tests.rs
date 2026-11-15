@@ -132,6 +132,13 @@ fn a_link_that_may_reach_another_machine_is_not_followed() {
         assert!(!reaches_out(&here, &PathBuf::from("/usr/local")));
         assert!(!reaches_out(&here, &PathBuf::from("network")));
     }
+    #[cfg(windows)]
+    {
+        let here = PathBuf::from(r"C:\Users\me\src");
+        assert!(!reaches_out(&here, &PathBuf::from(r"..\lib")));
+        assert!(!reaches_out(&here, &PathBuf::from(r"D:\work")));
+        assert!(reaches_out(&here, &PathBuf::from(r"\\?\UNC\host\share")));
+    }
 }
 
 #[test]
