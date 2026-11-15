@@ -3,6 +3,50 @@ oso's change to libghostty-vt 1.0.1 (MIT, like the library), applied by build.rs
 so a later resize splits it into native-sized pages instead of keeping an over-capacity page.
 Drop or rebase it at every bump.
 
+diff -ruN a/src/terminal/PageList.zig b/src/terminal/PageList.zig
+--- a/src/terminal/PageList.zig
++++ b/src/terminal/PageList.zig
+@@ -5096,8 +5096,9 @@
+ }
+ 
+ /// Returns `cap` with more rows, enough to fill the memory a pooled page
+-/// takes up anyway. If a page with `cap` is too large for the pool, this
+-/// returns `cap` unchanged.
++/// takes up anyway. A page too large for the pool instead gets the same
++/// bytes for rows a native pooled page has, so a later resize splits it
++/// like a live page rather than keeping one over-wide page.
+ ///
+ /// Every page small enough for the pool gets a full `std_size` buffer,
+ /// even when its capacity needs less. The leftover space can hold more
+@@ -5112,9 +5113,25 @@
+ /// const allocation = try list.allocatePage(PageList.fillPooled(capacity));
+ /// ```
+ pub fn fillPooled(cap: Capacity) Capacity {
+-    if (Page.layout(cap).total_size > std_size) return cap;
+-    const filled = cap.fitRows(std_size) orelse return cap;
+-    assert(filled.rows >= cap.rows);
++    if (Page.layout(cap).total_size <= std_size) {
++        const filled = cap.fitRows(std_size) orelse return cap;
++        assert(filled.rows >= cap.rows);
++        return filled;
++    }
++
++    // A page too large for the pool (for example one restored with a lot
++    // of string or hyperlink data) would otherwise keep only as many rows
++    // as it holds. With no row headroom, a later `resizeCols` to a wider
++    // width can't fit even one row of the new width in the page's memory,
++    // so `adjust` fails and the reflow keeps every existing row at the new
++    // width. A whole-area style fill on that page then drives one style's
++    // u16 reference count past its maximum. Give the page the same bytes
++    // for rows that a native pooled page has, so `adjust` succeeds and a
++    // widen splits it into native-sized pages like a live terminal's.
++    const row_budget = std_size - Page.MetaLayout.init(std_capacity).total_size;
++    const target = Page.MetaLayout.init(cap).total_size + row_budget;
++    const filled = cap.fitRows(target) orelse return cap;
++    if (filled.rows < cap.rows) return cap;
+     return filled;
+ }
+ 
 diff -ruN a/src/terminal/snapshot/history.zig b/src/terminal/snapshot/history.zig
 --- a/src/terminal/snapshot/history.zig
 +++ b/src/terminal/snapshot/history.zig
