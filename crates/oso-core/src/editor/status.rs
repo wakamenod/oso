@@ -127,12 +127,12 @@ impl Status {
 /// `waits: server  ` while something waits in `buffer` for the person (ADR 0118), each name
 /// once, or nothing.
 fn push_waits(out: &mut String, buffer: &Buffer) {
-    let shown = buffer.waits().shown();
-    if shown.is_empty() {
+    let waits = buffer.waits();
+    if waits.is_empty() {
         return;
     }
     out.push_str("waits: ");
-    for (n, name) in shown.into_iter().enumerate() {
+    for (n, name) in waits.shown().enumerate() {
         if n > 0 {
             out.push_str(", ");
         }

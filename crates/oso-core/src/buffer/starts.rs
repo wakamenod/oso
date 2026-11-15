@@ -67,6 +67,9 @@ impl Start {
     }
 }
 
+// A set holds each kind in a bit of a `u8`.
+const _: () = assert!(Start::ALL.len() <= 8);
+
 /// A set of [`Start`]s, each at most once.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Starts(u8);
@@ -127,15 +130,14 @@ impl Starts {
             .fold(Self::NONE, Self::with)
     }
 
-    /// What is shown of the set, each name once, in [`Start::ALL`]'s order: `["server"]`.
-    pub fn shown(self) -> Vec<&'static str> {
-        let mut shown: Vec<&'static str> = Vec::new();
-        for name in self.iter().map(Start::shown) {
-            if !shown.contains(&name) {
-                shown.push(name);
-            }
-        }
-        shown
+    /// What is shown of the set, each name once, in [`Start::ALL`]'s order: `server`. It
+    /// allocates nothing, as the modeline asks for it each frame.
+    pub fn shown(self) -> impl Iterator<Item = &'static str> {
+        self.iter().enumerate().filter_map(move |(n, start)| {
+            let name = start.shown();
+            let earlier = self.iter().take(n).any(|before| before.shown() == name);
+            (!earlier).then_some(name)
+        })
     }
 }
 
@@ -155,6 +157,9 @@ pub enum Acted {
 pub(crate) struct Waits {
     pub(crate) open: Starts,
     pub(crate) save: Starts,
+    /// The person let an agent's open go here: the open counts as theirs from now on, also
+    /// after a restart (ADR 0118, Q8).
+    pub(crate) open_let_go: bool,
 }
 
 impl Buffer {
@@ -179,12 +184,21 @@ impl Buffer {
         &mut self.waits
     }
 
+    /// Whether the person let an agent's open go here, so that the open counts as theirs.
+    pub fn open_let_go(&self) -> bool {
+        self.waits.open_let_go
+    }
+
     /// Puts back the marks a restart carried (ADR 0118, Q8), the kinds that run a program only.
+    /// Whether the person let an agent's open go stays as it is.
     pub fn carry_waits(&mut self, open: Starts, save: Starts) {
-        self.waits = Waits {
-            open: open.programs(),
-            save: save.programs(),
-        };
+        self.waits.open = open.programs();
+        self.waits.save = save.programs();
+    }
+
+    /// Notes that the person let an agent's open go here, as a restart carries it.
+    pub fn carry_open_let_go(&mut self) {
+        self.waits.open_let_go = true;
     }
 }
 
@@ -192,6 +206,21 @@ impl Buffer {
 mod tests {
     use super::{Runs, Start, Starts};
     use crate::buffer::Buffer;
+
+    /// Every kind is in [`Start::ALL`], once and in its place: a new kind that is left out
+    /// would be neither run nor held, and would not show in the guard test's list.
+    #[test]
+    fn all_lists_every_kind_in_its_place() {
+        for (place, start) in Start::ALL.into_iter().enumerate() {
+            let expected = match start {
+                Start::ServerStart => 0,
+                Start::ServerOpen => 1,
+                Start::ServerSave => 2,
+            };
+            assert_eq!(place, expected, "{start:?}");
+            assert_eq!(start as usize, place, "a bit of its own");
+        }
+    }
 
     #[test]
     fn every_kind_has_an_id_that_names_it_back() {
@@ -210,8 +239,8 @@ mod tests {
             set.iter().collect::<Vec<_>>(),
             [Start::ServerStart, Start::ServerSave]
         );
-        assert_eq!(set.shown(), ["server"]);
-        assert!(Starts::NONE.is_empty() && Starts::NONE.shown().is_empty());
+        assert_eq!(set.shown().collect::<Vec<_>>(), ["server"]);
+        assert!(Starts::NONE.is_empty() && Starts::NONE.shown().next().is_none());
     }
 
     #[test]
@@ -232,6 +261,6 @@ mod tests {
         );
         assert_eq!(buffer.open_waits(), Starts::of(Start::ServerStart));
         assert_eq!(buffer.save_waits(), Starts::of(Start::ServerSave));
-        assert_eq!(buffer.waits().shown(), ["server"]);
+        assert_eq!(buffer.waits().shown().collect::<Vec<_>>(), ["server"]);
     }
 }

@@ -889,9 +889,17 @@ gains `amended by 0138`.
   and return what runs now. A project that is not trusted runs and keeps nothing. Untrusting,
   or a record that stops trusting a root, clears its buffers' marks.
 - **What lets an open's mark go** is `Editor::note_persons_command`, called after every command
-  `Dispatcher::execute` runs that is not the agent's, macro replays and the dev socket's keys
-  included, and after a click that selects a window. The host takes the marks let go
-  (`take_released_starts`) and works out again what would start.
+  `Dispatcher::execute` runs that is not the agent's, macro replays and the dev socket's
+  `send-keys` included, and after a click that selects a window. Not after the person's answer to
+  the agent's question (`y`, `n`, `C-g` or `?`, Q11), nor after the dev socket's `run-command` or
+  the window's close request, which any process may send (`Dispatcher::not_as_input`). The host
+  takes the marks let go (`take_released_starts`) and works out again what would start.
+- **Letting an agent's open go makes the open the person's** (`Buffer::open_let_go`), and a
+  restart carries that. Every other open of the agent's settles as the agent's, also after a
+  restart: one not settled before it, or that held nothing, as in a project restricted then and
+  trusted since, is held again rather than run (Q7, Q8). Marks are cleared only for a buffer
+  whose project is known and not trusted, so a carried mark stays while the new instance looks
+  for the project.
 - **`app/starts.rs` settles each open once:** when the file has loaded, its project is found and
   the record of trusted projects is read, after a load ends, a project is found or the record is
   read. A buffer the agent opened is the agent's, unless a restart carried it. A save's starts
@@ -899,17 +907,23 @@ gains `amended by 0138`.
 - **The agent's reply** to `open` has `waits` (`"server waits for the person in lib.rs"`) when the
   project was found by the time the file showed. Otherwise only `state` says so, a moment later.
   The reply to a save has `waits` whenever its save holds something. `state`'s buffers list
-  `waits`, and its version is 2. The handoff carries `waits_open` and `waits_save` by id, only
-  when something waits, and leaves out an id the build does not know.
-- **`C-x C-s` in an unmodified buffer with a save waiting goes ahead.** The job writes only if the
-  file has gone, as for any unmodified buffer, and its end lets the mark go.
+  `waits`, and its version is 2. The handoff carries `waits_open`, `waits_save` (by id) and
+  `open_let_go`, each only when it holds something. An id the build does not know holds every
+  kind that runs a program, so the handoff fails closed.
+- **`C-x C-s` in an unmodified buffer with a save waiting goes ahead,** for the person only: the
+  agent's save of it still says there is nothing to save. The job writes only if the file has
+  gone, as for any unmodified buffer, and its end lets the mark go.
 - **The modeline** shows `waits: server` dim, after `restricted`. `*Agent*` says what waits, what
   the person let go and, in a dev build run with `OSO_DEV_STARTS=1`, what the stand-in ran: it
   makes a Rust file in a trusted project start a server on open and tell it of a save. Nothing
-  else starts yet. `just release-safety` passes, and a release binary holds neither the variable
-  nor the stand-in's words.
+  else starts yet. `just release-safety` checks that a release binary does not hold the
+  variable's name.
+- **Public API in `oso-core`:** `buffer::{Start, Runs, Starts, Acted}`, `Buffer::{open_waits,
+  save_waits, waits, carry_waits, open_let_go, carry_open_let_go}`, `Editor::{starts_on_open,
+  starts_on_save, note_persons_command, take_released_starts}` and `Status::waits`.
 - **Tests:** unit tests of each rule in `oso-core` (`editor/starts_tests.rs`, the modeline, the
-  save), a dispatcher test that the person's key lets go and the agent's command does not, the
-  handoff's format, a guard test listing the `Program` kinds (`app/starts.rs`), and the
+  save), dispatcher tests that the person's key lets go and that the agent's command, the
+  person's answers to its question and the dev socket's `run-command` do not, the handoff's
+  format, a guard test listing the `Program` kinds (`app/starts.rs`), and the
   end-to-end flow `starts.rs`: an agent's open waits for the person's key, an agent's save for
   the person's `C-x C-s`, and a restricted project holds nothing.

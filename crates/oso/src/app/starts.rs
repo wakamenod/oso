@@ -24,9 +24,6 @@ const STAND_IN: &str = "OSO_DEV_STARTS";
 pub(super) struct Starting {
     /// The buffers whose open has been settled: what it starts ran, or waits.
     settled: HashSet<BufferId>,
-    /// The buffers a restart carried, whose open counts as the person's: their marks came with
-    /// them (ADR 0118, Q8).
-    carried: HashSet<BufferId>,
     /// Who started each running save.
     saves: HashMap<BufferId, Acted>,
     /// A load ended, a project was found or the trust record read since opens were settled.
@@ -51,11 +48,6 @@ impl Starting {
         self.asked = true;
     }
 
-    /// A restart carried `buffer`.
-    pub(super) fn carried(&mut self, buffer: BufferId) {
-        self.carried.insert(buffer);
-    }
-
     /// A save of `buffer` by `by` started.
     pub(super) fn save_started(&mut self, buffer: BufferId, by: Acted) {
         self.saves.insert(buffer, by);
@@ -75,6 +67,9 @@ impl App {
         self.starting
             .settled
             .retain(|id| editor.buffer(*id).is_some());
+        self.starting
+            .saves
+            .retain(|id, _| editor.buffer(*id).is_some());
         let ready: Vec<BufferId> = editor
             .buffers()
             .filter(|(id, buffer)| {
@@ -97,7 +92,10 @@ impl App {
             if !buffer.open_waits().is_empty() {
                 continue;
             }
-            let by = if buffer.opened_by_agent() && !self.starting.carried.contains(&id) {
+            // The agent's open stays the agent's until the person lets it go, also over a
+            // restart (ADR 0118, Q8): one not settled before it, or that held nothing, as in a
+            // project restricted then, is held now rather than run.
+            let by = if buffer.opened_by_agent() && !buffer.open_let_go() {
                 Acted::Agent
             } else {
                 Acted::Person
@@ -151,7 +149,7 @@ impl App {
         } else {
             buffer.open_waits()
         };
-        let shown = waits.shown();
+        let shown: Vec<&str> = waits.shown().collect();
         (!shown.is_empty()).then(|| {
             format!(
                 "{} waits for the person in {}",
@@ -209,7 +207,7 @@ impl App {
         let name = self.editor.buffer(id).map_or("", |b| b.name()).to_owned();
         self.agent_log(&format!(
             "the person let go: {} in {name}",
-            held.shown().join(", ")
+            held.shown().collect::<Vec<_>>().join(", ")
         ));
     }
 }

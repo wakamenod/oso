@@ -58,7 +58,9 @@ impl Editor {
     /// The person ran a command from the window (ADR 0118, Q3): what an agent's open left
     /// waiting in the selected window's buffer is let go, for the host to take with
     /// [`Self::take_released_starts`]. Not for a command the agent channel ran, nor for the one
-    /// the person's `y` to its question ran, which is the agent's.
+    /// the person's `y` to its question ran, which is the agent's; the host does not call it for
+    /// the answer to the agent's question itself (Q11), nor for what is no input of the
+    /// person's. The person's open is then theirs: [`crate::buffer::Buffer::open_let_go`].
     pub fn note_persons_command(&mut self) {
         if self.runs_for_agent() {
             return;
@@ -69,6 +71,7 @@ impl Editor {
         };
         let open = std::mem::take(&mut buffer.waits_mut().open);
         if !open.is_empty() {
+            buffer.waits_mut().open_let_go = true;
             self.agent.released.push((id, open));
         }
     }
@@ -79,17 +82,18 @@ impl Editor {
         std::mem::take(&mut self.agent.released)
     }
 
-    /// Clears the marks of every buffer whose project is not trusted now, as untrusting it does
-    /// (ADR 0118, Q7).
+    /// Clears the marks of every buffer whose project is known and not trusted now, as untrusting
+    /// it does (ADR 0118, Q7). A buffer whose project is not found yet, as after a restart,
+    /// keeps them.
     pub(super) fn drop_untrusted_waits(&mut self) {
         let untrusted: Vec<BufferId> = self
             .buffers
             .iter()
             .filter(|(_, buffer)| !buffer.waits().is_empty())
             .filter(|(_, buffer)| {
-                !buffer
+                buffer
                     .project()
-                    .is_some_and(|project| self.project_trusted(project))
+                    .is_some_and(|project| !self.project_trusted(project))
             })
             .map(|(id, _)| *id)
             .collect();

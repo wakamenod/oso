@@ -369,9 +369,11 @@ impl App {
                 }
                 // What waited for the person still does: a restart lets nothing go (ADR 0118).
                 if let Some(buffer) = self.editor.buffer_mut(buffer) {
-                    buffer.carry_waits(waits.0, waits.1);
+                    buffer.carry_waits(waits.open, waits.save);
+                    if waits.open_let_go {
+                        buffer.carry_open_let_go();
+                    }
                 }
-                self.starting.carried(buffer);
             }
             self.editor.set_wraps(buffer, wraps);
             named.push(buffer);

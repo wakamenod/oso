@@ -59,7 +59,15 @@ fn an_agents_open_runs_no_program_and_marks_the_buffer() {
         Starts::NONE
     );
     assert_eq!(editor.buffer(id).unwrap().open_waits(), SERVER);
-    assert_eq!(editor.buffer(id).unwrap().waits().shown(), ["server"]);
+    assert_eq!(
+        editor
+            .buffer(id)
+            .unwrap()
+            .waits()
+            .shown()
+            .collect::<Vec<_>>(),
+        ["server"]
+    );
 }
 
 #[test]
@@ -187,5 +195,46 @@ fn an_unmodified_buffer_saves_while_a_save_waits_there() {
     assert!(
         job.only_if_gone,
         "its text is the file's, so nothing need be written"
+    );
+}
+
+#[test]
+fn letting_an_agents_open_go_makes_the_open_the_persons() {
+    let (mut editor, id) = in_oso(true);
+    editor.starts_on_open(id, SERVER, Acted::Agent);
+    assert!(!editor.buffer(id).unwrap().open_let_go());
+    editor.note_persons_command();
+    assert!(editor.buffer(id).unwrap().open_let_go());
+}
+
+#[test]
+fn a_buffer_whose_project_is_not_found_yet_keeps_its_marks_as_the_record_comes() {
+    // As after a restart: the marks came with the buffer, and its project is still asked for.
+    let mut editor = Editor::with_buffer(visited("/w/oso/main.rs"));
+    let id = editor.tiled().0.buffer();
+    editor.buffer_mut(id).unwrap().carry_waits(SERVER, SAVED);
+    editor.set_trust_list(Some(TrustList::parse("/w/other\tdev=1 ino=3\n").0));
+    assert_eq!(editor.buffer(id).unwrap().open_waits(), SERVER);
+    assert_eq!(editor.buffer(id).unwrap().save_waits(), SAVED);
+}
+
+#[test]
+fn the_agents_save_of_an_unmodified_buffer_is_refused_while_a_save_waits() {
+    let mut buffer = Buffer::visiting(PathBuf::from("/w/oso/main.rs"));
+    buffer.apply_load(decode_all(b"fn main() {}\n", TabWidth::default()));
+    buffer.set_baseline(Baseline {
+        location: PathBuf::from("/w/oso/main.rs"),
+        file: None,
+    });
+    let mut editor = Editor::with_buffer(buffer);
+    let id = editor.tiled().0.buffer();
+    editor
+        .buffer_mut(id)
+        .unwrap()
+        .carry_waits(Starts::NONE, SAVED);
+    assert_eq!(
+        editor.for_agent(Editor::start_save),
+        Err(super::SaveRefused::Unmodified),
+        "only the person's C-x C-s"
     );
 }

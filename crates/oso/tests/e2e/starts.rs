@@ -39,19 +39,13 @@ fn project(scratch: &Scratch, name: &str, files: &[&str]) -> std::path::PathBuf 
     root
 }
 
-/// The rows of `*Agent*`, as the agent reads them, or nothing before it exists.
-fn agent_log(agent: &mut Agent) -> String {
-    let state = agent.call("state", None).unwrap();
-    let Some(id) = state["buffers"]
-        .as_array()
-        .and_then(|buffers| buffers.iter().find(|b| b["name"] == "*Agent*"))
-        .map(|buffer| buffer["id"].clone())
-    else {
-        return String::new();
-    };
-    let text = agent
-        .call("text", Some(json!({ "buffer": id, "rows": 2000 })))
-        .unwrap();
+/// The rows of `*Agent*`. The agent shows it by name and then the buffer shown before: its
+/// commands let nothing go, so reading the log changes nothing it checks.
+fn agent_log(app: &mut App, agent: &mut Agent) -> String {
+    let back = app.state()["buffer"]["name"].as_str().unwrap().to_owned();
+    show(agent, "*Agent*");
+    let text = app.call("get-text", Some(json!({ "start_row": 0, "rows": 2000 })));
+    show(agent, &back);
     text["rows"]
         .as_array()
         .unwrap()
@@ -59,6 +53,22 @@ fn agent_log(agent: &mut Agent) -> String {
         .filter_map(Value::as_str)
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Has the agent show the buffer called `name`, once the person's last key is far enough back.
+fn show(agent: &mut Agent, name: &str) {
+    let started = Instant::now();
+    loop {
+        let params = json!({ "name": "switch-to-buffer", "arg": name, "reach": "look" });
+        match agent.call("run", Some(params)) {
+            Ok(_) => return,
+            Err(e) if started.elapsed() < Duration::from_secs(5) => {
+                let _ = e;
+                thread::sleep(Duration::from_millis(200));
+            }
+            Err(e) => panic!("the agent cannot show {name}: {e}"),
+        }
+    }
 }
 
 /// What `state` says waits in the buffer called `name`.
@@ -70,11 +80,23 @@ fn waits(agent: &mut Agent, name: &str) -> Value {
         .map_or(Value::Null, |buffer| buffer["waits"].clone())
 }
 
-/// Waits until `done` holds of what the agent sees, for at most 10 s.
-fn wait_until(agent: &mut Agent, what: &str, done: impl Fn(&mut Agent) -> bool) {
+/// Waits until `done` holds of what the person's app and the agent see, for at most 10 s.
+fn wait_until(
+    app: &mut App,
+    agent: &mut Agent,
+    what: &str,
+    done: impl Fn(&mut App, &mut Agent) -> bool,
+) {
     let started = Instant::now();
-    while !done(agent) {
-        assert!(started.elapsed().as_secs() < 10, "never: {what}");
+    while !done(app, agent) {
+        if started.elapsed().as_secs() >= 10 {
+            let log = agent_log(app, agent);
+            let state = app.state();
+            panic!(
+                "never: {what}\n*Agent*:\n{log}\nbuffers: {}",
+                state["buffers"]
+            );
+        }
         thread::sleep(Duration::from_millis(50));
     }
 }
@@ -86,11 +108,13 @@ fn what_an_agents_open_or_save_starts_waits_for_the_person_and_a_restricted_proj
 {
     let scratch = Scratch::new("starts");
     set_mode(scratch.path(), 0o700);
-    let config = scratch.write("config.toml", b"");
+    // The configuration directory is apart from the projects: the agent never saves there.
+    let config = scratch.write("conf/config.toml", b"");
+    set_mode(&scratch.path().join("conf"), 0o700);
     set_mode(&config, 0o644);
     let trusted = project(&scratch, "proj-starts", &["main.rs", "lib.rs"]);
     project(&scratch, "proj-free", &["free.rs"]);
-    let record = scratch.write("trusted-projects", record_line(&trusted).as_bytes());
+    let record = scratch.write("conf/trusted-projects", record_line(&trusted).as_bytes());
     set_mode(&record, 0o600);
     let main = trusted.join("src/main.rs");
     let stand_in = std::ffi::OsStr::new("1");
@@ -103,9 +127,12 @@ fn what_an_agents_open_or_save_starts_waits_for_the_person_and_a_restricted_proj
     );
     app.wait_until_ready();
     let mut agent = let_in(&mut app);
-    wait_until(&mut agent, "the person's open ran", |agent| {
-        agent_log(agent).contains("stand-in ran server-start in main.rs")
-    });
+    wait_until(
+        &mut app,
+        &mut agent,
+        "the person's open ran",
+        |app, agent| agent_log(app, agent).contains("stand-in ran server-start in main.rs"),
+    );
     assert_eq!(waits(&mut agent, "main.rs"), json!([]));
     an_agents_open_waits_for_the_persons_key(&mut app, &mut agent, &trusted.join("src/lib.rs"));
     an_agents_save_waits_for_the_persons_save(&mut app, &mut agent, &main);
@@ -121,7 +148,7 @@ fn what_an_agents_open_or_save_starts_waits_for_the_person_and_a_restricted_proj
 fn an_agents_open_waits_for_the_persons_key(app: &mut App, agent: &mut Agent, lib: &Path) {
     let opened = agent.call("open", Some(json!({ "path": lib }))).unwrap();
     assert_eq!(opened["name"], "lib.rs");
-    wait_until(agent, "lib.rs's open waits", |agent| {
+    wait_until(app, agent, "lib.rs's open waits", |_, agent| {
         waits(agent, "lib.rs") == json!(["server"])
     });
     if let Some(note) = opened.get("waits") {
@@ -132,12 +159,12 @@ fn an_agents_open_waits_for_the_persons_key(app: &mut App, agent: &mut Agent, li
         modeline.contains("proj-starts  waits: server  "),
         "{modeline}"
     );
-    assert!(!agent_log(agent).contains("ran server-start in lib.rs"));
+    assert!(!agent_log(app, agent).contains("ran server-start in lib.rs"));
     app.send_keys("C-f");
-    wait_until(agent, "lib.rs's open let go", |agent| {
+    wait_until(app, agent, "lib.rs's open let go", |_, agent| {
         waits(agent, "lib.rs") == json!([])
     });
-    let log = agent_log(agent);
+    let log = agent_log(app, agent);
     assert!(log.contains("the person let go: server in lib.rs"), "{log}");
     assert!(log.contains("stand-in ran server-start in lib.rs"), "{log}");
     thread::sleep(AFTER_TYPING);
@@ -162,12 +189,12 @@ fn an_agents_save_waits_for_the_persons_save(app: &mut App, agent: &mut Agent, m
         "{saved}"
     );
     assert_eq!(waits(agent, "main.rs"), json!(["server"]));
-    assert!(!agent_log(agent).contains("ran server-save"));
+    assert!(!agent_log(app, agent).contains("ran server-save"));
     app.send_keys("C-x C-s");
-    wait_until(agent, "main.rs's save let go", |agent| {
+    wait_until(app, agent, "main.rs's save let go", |_, agent| {
         waits(agent, "main.rs") == json!([])
     });
-    let log = agent_log(agent);
+    let log = agent_log(app, agent);
     assert!(
         log.contains("the person let go: server in main.rs"),
         "{log}"
@@ -190,7 +217,7 @@ fn a_restricted_project_holds_nothing(app: &mut App, agent: &mut Agent, free: &P
     assert_eq!(waits(agent, "free.rs"), json!([]));
     app.send_keys("C-f");
     thread::sleep(Duration::from_millis(300));
-    let log = agent_log(agent);
+    let log = agent_log(app, agent);
     assert!(
         !log.contains("in free.rs"),
         "nothing ran or waited there: {log}"

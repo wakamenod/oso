@@ -236,7 +236,9 @@ pub fn oso_core::buffer::Buffer::highlights(&self) -> core::option::Option<&oso_
 pub fn oso_core::buffer::Buffer::splices_since(&self, u64) -> core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
 pub fn oso_core::buffer::Buffer::take_highlights(&mut self, u64, oso_core::syntax::Highlights) -> bool
 impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::carry_open_let_go(&mut self)
 pub fn oso_core::buffer::Buffer::carry_waits(&mut self, oso_core::buffer::Starts, oso_core::buffer::Starts)
+pub fn oso_core::buffer::Buffer::open_let_go(&self) -> bool
 pub fn oso_core::buffer::Buffer::open_waits(&self) -> oso_core::buffer::Starts
 pub fn oso_core::buffer::Buffer::save_waits(&self) -> oso_core::buffer::Starts
 pub fn oso_core::buffer::Buffer::waits(&self) -> oso_core::buffer::Starts
@@ -322,7 +324,7 @@ pub const fn oso_core::buffer::Starts::is_empty(self) -> bool
 pub fn oso_core::buffer::Starts::iter(self) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::buffer::Start>
 pub const fn oso_core::buffer::Starts::of(oso_core::buffer::Start) -> Self
 pub fn oso_core::buffer::Starts::programs(self) -> Self
-pub fn oso_core::buffer::Starts::shown(self) -> alloc::vec::Vec<&'static str>
+pub fn oso_core::buffer::Starts::shown(self) -> impl core::iter::traits::iterator::Iterator<Item = &'static str>
 pub const fn oso_core::buffer::Starts::union(self, Self) -> Self
 pub const fn oso_core::buffer::Starts::with(self, oso_core::buffer::Start) -> Self
 impl core::clone::Clone for oso_core::buffer::Starts

@@ -111,6 +111,9 @@ pub struct Dispatcher {
     completion_held: Option<held::HeldTake>,
     /// Whether the last input made the cursor flash, until the host takes it (ADR 0097).
     view_jumped: Option<bool>,
+    /// What runs now is no input of the person's, though it is not the agent's: the dev
+    /// socket's `run-command` and the window's close request. It lets no mark go (ADR 0118).
+    not_input: bool,
     /// A command ran for the agent channel since the host last asked: what it queued is the
     /// agent's, so the saves it queued are checked as the channel's (ADR 0108).
     ran_for_agent: bool,
@@ -169,6 +172,7 @@ impl Dispatcher {
             from_socket: false,
             completion_held: None,
             view_jumped: None,
+            not_input: false,
             ran_for_agent: false,
             terminal_keys: std::collections::HashMap::new(),
             terminal_sends: Vec::new(),
@@ -195,6 +199,14 @@ impl Dispatcher {
         if let Some(publisher) = &self.publisher {
             publisher.publish(editor);
         }
+    }
+
+    /// Runs `work` with what it runs taken as no input of the person's: it lets no mark go.
+    pub(crate) fn not_as_input<R>(&mut self, work: impl FnOnce(&mut Self) -> R) -> R {
+        let outer = std::mem::replace(&mut self.not_input, true);
+        let out = work(self);
+        self.not_input = outer;
+        out
     }
 
     /// Runs `work` as one input, as Emacs does a key: the echo area empties first,
@@ -374,6 +386,9 @@ impl Dispatcher {
         if step == Step::Apart || !self.keymaps.rigid_commands.contains(&id) {
             editor.set_indent_rigidly_layer(false);
         }
+        // The person's answer to the agent's question, `y`, `n` or `C-g`, lets nothing go
+        // (ADR 0118, Q11).
+        let answers_the_agent = editor.prompt().is_some_and(|prompt| prompt.from_agent());
         editor.begin_command();
         if std::mem::take(&mut self.passphrase_next) {
             editor.command_reads_passphrase();
@@ -411,7 +426,9 @@ impl Dispatcher {
         }
         editor.end_command();
         // A command of the person's lets go what an agent's open left in its buffer (ADR 0118).
-        editor.note_persons_command();
+        if !self.not_input && !answers_the_agent {
+            editor.note_persons_command();
+        }
         self.macro_ran(id, result.is_err(), editor);
         // What the command typed in a prompt that completes is matched once, now (ADR 0076).
         editor.match_completion();

@@ -158,7 +158,7 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
         "loading": buffer.loading().is_some(),
         "wrapped": shown.then(|| buffer.wraps()),
         // What an agent's open or save would have started, waiting for the person (ADR 0118).
-        "waits": buffer.waits().shown(),
+        "waits": buffer.waits().shown().collect::<Vec<_>>(),
     });
     if buffer.is_terminal() {
         if let Some(fields) = state.as_object_mut() {

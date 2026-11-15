@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use oso_core::buffer::{Baseline, FileFacts, FileStamp, Starts};
+use oso_core::buffer::{Baseline, FileFacts, FileStamp};
 use oso_core::decode::{FileInfo, LineEnding};
 use oso_core::key::{KeyPress, KeySequence};
 use oso_core::kill;
@@ -108,7 +108,7 @@ pub struct BufferEntry {
     pub opened_by_agent: bool,
     /// What an agent's open and save left waiting for the person (ADR 0118), said only when
     /// something waits.
-    pub waits: (Starts, Starts),
+    pub waits: super::waits::Carried,
     /// Whether its long lines wrap (ADR 0100), said only when they do.
     pub wraps: bool,
     /// The carried terminal it stands for, by its place among the state's terminals.

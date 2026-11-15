@@ -365,7 +365,7 @@ fn a_buffer_the_agent_opened_says_so_read_again_or_carried() {
 }
 
 #[test]
-fn what_waits_for_the_person_is_carried_by_kind_and_an_unknown_kind_is_left_out() {
+fn what_waits_for_the_person_is_carried_by_kind_and_an_unknown_kind_holds_every_program() {
     use oso_core::buffer::{Start, Starts};
     let path = absolute("/p/main.rs");
     let mut editor = visiting(&path, "fn main() {}\n");
@@ -376,10 +376,7 @@ fn what_waits_for_the_person_is_carried_by_kind_and_an_unknown_kind_is_left_out(
         None,
         "said only when something waits"
     );
-    assert_eq!(
-        parse(&state).unwrap().buffers[1].waits,
-        (Starts::NONE, Starts::NONE)
-    );
+    assert_eq!(parse(&state).unwrap().buffers[1].waits, Default::default());
     let (open, save) = (
         Starts::of(Start::ServerStart),
         Starts::of(Start::ServerSave),
@@ -388,13 +385,25 @@ fn what_waits_for_the_person_is_carried_by_kind_and_an_unknown_kind_is_left_out(
     let state = export(&editor, &[], None, None).unwrap();
     assert_eq!(state["buffers"][1]["waits_open"], json!(["server-start"]));
     assert_eq!(state["buffers"][1]["waits_save"], json!(["server-save"]));
-    assert_eq!(parse(&state).unwrap().buffers[1].waits, (open, save));
+    let waits = parse(&state).unwrap().buffers[1].waits;
+    assert_eq!(
+        (waits.open, waits.save, waits.open_let_go),
+        (open, save, false)
+    );
+    editor.buffer_mut(id).unwrap().carry_open_let_go();
+    let state = export(&editor, &[], None, None).unwrap();
+    assert_eq!(state["buffers"][1]["open_let_go"], true);
+    assert!(parse(&state).unwrap().buffers[1].waits.open_let_go);
     let newer =
         carrying(|state| state["buffers"][1]["waits_open"] = json!(["format", "server-open"]));
+    let every = Start::ALL.into_iter().fold(Starts::NONE, Starts::with);
     assert_eq!(
-        parse(&newer).unwrap().buffers[1].waits.0,
-        Starts::of(Start::ServerOpen)
+        parse(&newer).unwrap().buffers[1].waits.open,
+        every,
+        "an unknown kind holds every program"
     );
+    let bad = carrying(|state| state["buffers"][1]["open_let_go"] = json!("yes"));
+    assert!(parse(&bad).unwrap_err().contains("open_let_go"));
     let bad = carrying(|state| state["buffers"][1]["waits_save"] = json!("server-save"));
     assert!(parse(&bad).unwrap_err().contains("waits_save"));
     let bad = carrying(|state| state["buffers"][1]["waits_save"] = json!([1]));
