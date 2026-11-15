@@ -78,7 +78,8 @@ carry vcs
 # editor's listings, which `lister`'s threads run (ADR 0134).
 channel dired project review walk
 # `git` is what every run of git shares: the runner, object ids, the trusted root, git's
-# names and the empty hooks directory (ADR 0127, as built), for `review`, `sessions` and `vcs`.
+# names and the empty hooks directory (ADR 0127, as built), for `review`, `sessions`, `vcs`
+# and `app`.
 git
 
 [oso-syntax]

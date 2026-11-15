@@ -2,8 +2,8 @@
 //! reads a file: from the work tree's top a directory at a time, following no link, regular
 //! files only, waiting for nothing.
 //!
-//! Must not depend on: `app`, `dispatch`, `batch` or anything that runs git; this reads the
-//! file system on the review's thread, naming paths as the shared git module does.
+//! Must not depend on: `app`, `dispatch`, `batch` or git's runner; this reads the file system
+//! on the review's thread, and takes only the path helpers from the shared git module.
 //!
 //! - A link is never followed: its side is its target's text, as git stores a link.
 //! - A file with more than one name, as a hard link gives one, is not read: another of its

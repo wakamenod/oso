@@ -19,7 +19,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use oso_core::buffer::BufferId;
+use oso_core::buffer::{Acted, BufferId};
 use oso_core::editor::{GitLines, GitRequest, GitShown};
 use oso_core::project::ProjectId;
 
@@ -441,8 +441,8 @@ impl App {
     }
 
     /// A save of `buffer` ended: the status of its repository is read again if it is shown, or,
-    /// for a save the agent asked for, marked stale.
-    pub(super) fn git_saved(&mut self, buffer: BufferId, for_agent: bool) {
+    /// for a save the person did not start (ADR 0118's record), marked stale.
+    pub(super) fn git_saved(&mut self, buffer: BufferId, by: Acted) {
         let Some(path) = self.editor.buffer(buffer).and_then(|b| b.path()) else {
             return;
         };
@@ -452,7 +452,7 @@ impl App {
             if open.revoked || !path.starts_with(open.root.path()) {
                 continue;
             }
-            if for_agent {
+            if by == Acted::Agent {
                 self.mark_git_stale(index);
             } else {
                 self.git_ask(index, Ask::Read);

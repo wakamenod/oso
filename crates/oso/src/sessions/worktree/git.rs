@@ -23,7 +23,7 @@ use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 use serde_json::Value;
 
 use super::porcelain::{self, Listed};
-use crate::git::{self as rgit, Git, GitError, MAX_SHORT};
+use crate::git::{Git, GitError, MAX_SHORT, RUN_LIMIT, collect, read_at_most};
 use crate::project::linked_worktree;
 
 /// The most bytes of a listing read: worktrees, branches, refs, paths.
@@ -348,8 +348,8 @@ impl Gh {
             pass_fd: None,
         })
         .map_err(|e| format!("cannot run gh: {e}"))?;
-        let out = rgit::collect(child, None, |stdout| rgit::read_at_most(stdout, MAX_GH))
-            .map_err(|e| gh_said(&e))?;
+        let out =
+            collect(child, None, |stdout| read_at_most(stdout, MAX_GH)).map_err(|e| gh_said(&e))?;
         if out.cut {
             return Err("gh said more than oso reads".to_owned());
         }
@@ -366,7 +366,7 @@ fn gh_said(error: &GitError) -> String {
     let said = match error {
         GitError::Spawn(e) => format!("cannot run gh: {e}"),
         GitError::Io(e) => format!("cannot talk to gh: {e}"),
-        GitError::TimedOut => format!("gh took more than {} s", rgit::RUN_LIMIT.as_secs()),
+        GitError::TimedOut => format!("gh took more than {} s", RUN_LIMIT.as_secs()),
         GitError::TooLong => "gh said more than oso reads".to_owned(),
         GitError::Failed { stderr, .. } => format!("gh failed: {}", stderr.trim()),
         GitError::NoCeiling | GitError::Unexpected(_) | GitError::BadRevision => {

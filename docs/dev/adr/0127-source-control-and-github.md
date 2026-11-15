@@ -550,7 +550,8 @@ agent, after ADR 0122's step 12. The plan's questions were answered (a) each:
   file under the repository's root reaches the disk while it shows; a read asked while it is not
   shown waits until it is. What an agent does runs no git (the author's choice, 2026-11-15, in
   line with ADR 0118): a save the agent asked for, or a status its command left shown, only marks
-  the status stale, `stale: g reads it again` in its modeline, and the person's next `g` or key
+  the status stale (and, since the shared `git` module's pull request, any save the person did
+  not start), `stale: g reads it again` in its modeline, and the person's next `g` or key
   in it reads it.
 - **Names and open files:** a status is named `*git: NAME*`, told apart from another buffer of
   that name by `<2>`. Files no longer listed are forgotten as open, and no more patches are read
@@ -593,8 +594,12 @@ agent, after ADR 0122's step 12. The plan's questions were answered (a) each:
 - **One wording:** the worktree jobs' "Cannot make oso's directory for git" is now the status's
   "cannot make oso's directory for git", as one helper says it for both.
 - **Who saved:** a save's end asks ADR 0118's record of who started it (`Starting::saves`)
-  instead of the agent's list of saves under way, so that a save no one here started counts as
-  the agent's and only marks the status stale (the author's choice, 2026-11-16).
+  instead of the agent's list of saves waiting for a reply (the author's choice, 2026-11-16). A
+  save no one here started counts as the agent's, and so do two the list had let go of: an
+  agent's save that outlasted the wait for its reply, and one whose connection closed. Each
+  only marks the status stale; before, they read it again, running git on what an agent did.
+- **Follow-up:** `identity`, a file's device and inode, is a file system helper, not git's;
+  `grep` and `sessions` keep copies of their own. One helper, in `oso-platform`, would do.
 
 ## Sources
 

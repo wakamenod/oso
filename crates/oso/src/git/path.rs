@@ -34,7 +34,7 @@ pub(crate) fn identity(_: &Metadata) -> Option<(u64, u64)> {
 
 /// The device and inode of what is at `path`, not following a link, where the system has
 /// them.
-pub(crate) fn identity_of(path: &Path) -> Option<(u64, u64)> {
+pub(super) fn identity_of(path: &Path) -> Option<(u64, u64)> {
     identity(&std::fs::symlink_metadata(path).ok()?)
 }
 

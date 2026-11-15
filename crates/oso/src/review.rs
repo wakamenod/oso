@@ -359,7 +359,7 @@ fn serve(
         // rest wait, to be answered between its files, or failed if the root was revoked.
         let mut carries = || {
             pull(queue, &held, waiting);
-            if held.borrow().carries.is_empty() || stop() || !root.still_there() {
+            if held.borrow().carries.is_empty() || stop() || root.replaced() {
                 return None;
             }
             held.borrow_mut().carries.pop_front()

@@ -2,7 +2,8 @@
 //! then `C-x g` in a trusted one lists its untracked and unstaged files; `n` and `TAB` show a
 //! file's hunks; `s` stages one hunk alone, `U` unstages it, `s` on a section stages its
 //! files; `RET` visits a hunk's line; `q` goes back. And an agent's save in the repository
-//! runs no git: the status is only marked stale until the person's next key in it.
+//! runs no git: the status is only marked stale until the person's next key in it, while a
+//! save of the person's reads it again.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The layout, the
 //! staging and the keys have their own tests.
@@ -236,6 +237,21 @@ fn an_agents_save_only_marks_the_status_stale_until_the_persons_key() {
     app.send_keys("n");
     let shown = rows_until(&mut app, |rows| has(rows, "M  a.txt  +3 -3"));
     assert!(has(&shown, "M  a.txt  +3 -3"), "{shown:?}");
+    let modeline = app.state()["modeline"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    assert!(!modeline.contains("stale"), "{modeline}");
+    // A save the person starts, from the file beside it, reads the status again with no key in
+    // it and no mark.
+    app.send_keys(&format!("C-x o M-> {} C-x C-s", typing("end")));
+    assert_eq!(app.state()["buffer"]["name"], "a.txt");
+    app.wait_for("the person's save", |state| {
+        state["buffer"]["modified"] == false
+    });
+    let shown = rows_until(&mut app, |rows| has(rows, "M  a.txt  +4 -3"));
+    assert!(has(&shown, "M  a.txt  +4 -3"), "{shown:?}");
+    app.send_keys("C-x o");
     let modeline = app.state()["modeline"]
         .as_str()
         .unwrap_or_default()

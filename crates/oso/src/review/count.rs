@@ -201,7 +201,7 @@ fn count(
         count: Count::Failed,
         base: None,
     };
-    if job.root.revoked() || !job.root.still_there() {
+    if job.root.check().is_err() {
         let scope = match &job.counting {
             Counting::Scope(kind, _) => *kind,
             Counting::Branch => ScopeKind::Branch,

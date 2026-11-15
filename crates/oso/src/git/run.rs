@@ -184,7 +184,8 @@ impl Git {
 
     /// Starts git with `args` after oso's own, `set` over the environment, standard input as
     /// `stdin` and standard error as `stderr`. A path in `set` must have gone through
-    /// [`for_git`].
+    /// [`for_git`]. Its output is read only through [`collect`], which bounds it and kills a
+    /// run past [`RUN_LIMIT`], or the child is given to [`stop`].
     pub(crate) fn start(
         &self,
         args: &[&OsStr],

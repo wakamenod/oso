@@ -96,7 +96,7 @@ impl App {
         // A shown git status of the file's repository is read again, or only marked stale if
         // the person did not start the save (ADR 0127, ADR 0118).
         if confirmed {
-            self.git_saved(buffer, by == Acted::Agent);
+            self.git_saved(buffer, by);
         }
         // The save may have been of the configuration file, which is read again at once.
         self.look_at_configuration_again();

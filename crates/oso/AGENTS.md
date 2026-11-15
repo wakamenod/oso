@@ -62,13 +62,18 @@ often, so it must rebuild within 2 s.
   `oso-session-adopt-list` thread (`adopt`). `app/sessions.rs` and `app/sessions/` carry out
   what the worker, the jobs and the start thread find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
-  a trusted project's root, and git only through `oso_platform::process`. Its runner, its
-  `TrustedRoot` and its secret-name check are `src/git.rs`'s (ADR 0127, as built), shared with
-  the worktree jobs and the git status (`vcs`). `review/view.rs`
+  a trusted project's root, and git only through `oso_platform::process`, with `src/git.rs`'s
+  runner, `TrustedRoot` and secret-name check. `review/view.rs`
   lays out a review buffer's whole text on `oso-review-view`, one thread per review, and
   `review/count.rs` counts the review menu's scopes on `oso-review-count`. A review buffer's
   keys are listed in `commands::review::KEYS`, which `?` reads, and bound by
   `bindings/review.rs`.
+- `src/git.rs` and `src/git/` are what every run of git shares (ADR 0127, as built): the
+  runner (`run`), which starts git only through `oso_platform::process` with oso's own
+  arguments and environment, every read bounded and a run past 10 s killed; object ids (`id`);
+  `TrustedRoot` (`trust`), the only place git starts from; git's names and the secret-name
+  check (`path`); and the empty hooks directory under oso's state directory (`hooks`). The
+  review, the worktree jobs and the git status use it; it uses none of them.
 - `src/vcs.rs` and `src/vcs/` are source control's git status (ADR 0127): one thread per status
   buffer, `oso-vcs` (`work`), which runs git through `git`'s runner for a trusted root only,
   reads porcelain v2 and patches as untrusted bytes (`status`, `patch`), lays out the text with

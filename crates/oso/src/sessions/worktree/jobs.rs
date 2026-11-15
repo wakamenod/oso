@@ -426,8 +426,6 @@ impl Jobs {
     }
 }
 
-/// git in the main checkout of the repository of `trust`, with the empty private directory
-/// for hooks under `state`, if that main checkout is trusted too.
 /// `dir`, a directory a new session also reads, checked in the repository `trust` names, with
 /// `state` oso's state directory: the root still the one trusted, and `dir` that root or one
 /// of its linked worktrees itself (ADR 0136, step 4b). It runs git, so it belongs off the UI
@@ -441,6 +439,8 @@ pub fn readable_in(trust: &Trust, dir: &Path, state: Option<&Path>) -> Result<Me
     prepare::readable(&repo(trust, state)?, dir)
 }
 
+/// git in the main checkout of the repository of `trust`, with the empty private directory
+/// for hooks under `state`, if that main checkout is trusted too.
 fn repo(trust: &Trust, state: Option<&Path>) -> Result<Repo, String> {
     let state = state.ok_or("oso has no state directory, so it runs no git for worktrees")?;
     let hooks = crate::git::empty_hooks(state, "worktrees")?;

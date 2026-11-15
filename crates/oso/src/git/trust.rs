@@ -84,8 +84,8 @@ impl TrustedRoot {
         }
     }
 
-    /// Takes the trust back, as when the person no longer trusts the project: the review's
-    /// thread runs nothing more for it.
+    /// Takes the trust back, as when the person no longer trusts the project: no thread that
+    /// holds it runs git for it any more.
     pub(crate) fn revoke(&self) {
         self.revoked.store(true, Ordering::SeqCst);
     }
@@ -123,7 +123,7 @@ impl TrustedRoot {
 
     /// Whether the root is still the directory that was trusted, by its device and inode where
     /// the system has them, not following a link.
-    pub(crate) fn still_there(&self) -> bool {
+    fn still_there(&self) -> bool {
         match self.identity {
             Some(identity) => identity_of(&self.path) == Some(identity),
             None => std::fs::symlink_metadata(&self.path).is_ok_and(|metadata| metadata.is_dir()),
