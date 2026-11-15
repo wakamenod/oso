@@ -6,8 +6,9 @@
 //! and takes reports out, and supplies the wake-up.
 //!
 //! - Each status buffer has its own thread, `oso-vcs` ([`work`]), which runs git only for a
-//!   trusted project's root, through `git`'s runner and `oso-platform::process`, and lays
-//!   out the whole text there ([`layout`]), for the UI to put in at O(1).
+//!   trusted project's root, through `git`'s runner and `oso-platform::process`, its reads
+//!   in [`read`] and its writes to the index in [`write`], and lays out the whole text there
+//!   ([`layout`]), for the UI to put in at O(1).
 //! - What git writes is untrusted: [`status`] and [`patch`] read it as bytes, bounded, and
 //!   skip what does not parse.
 //! - What a line names is the table's ([`layout::Built`]), never the text's; [`stage`] turns
@@ -21,10 +22,12 @@
 pub(crate) mod commit;
 pub(crate) mod layout;
 pub(crate) mod patch;
+pub(crate) mod read;
 pub(crate) mod run;
 pub(crate) mod stage;
 pub(crate) mod status;
 pub(crate) mod work;
+pub(crate) mod write;
 
 pub(crate) use layout::{Built, View};
 pub(crate) use work::{Report, Request, Worker};

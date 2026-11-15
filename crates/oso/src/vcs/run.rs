@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 use oso_core::editor::{CommitKind, CommitSwitches};
 
 use super::commit;
-use super::work::{find, hooks_dir};
+use super::read::{find, hooks_dir};
 use crate::git::{Ender, Git, MAX_SHORT, Next, TrustedRoot, os_path, trim_line};
 
 /// How often what a run wrote is sent on.
