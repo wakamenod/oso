@@ -150,6 +150,9 @@ pub enum UserEvent {
     Carry(terminals::carry::CarryEvent),
     /// A thread of `oso-restart` asks (ADR 0133).
     Restart(crate::carry::Asked),
+    /// The file this instance's binary came from has changed (ADR 0133, step 4).
+    #[cfg_attr(not(unix), allow(dead_code, reason = "oso-restart runs on Unix only"))]
+    BinaryChanged(crate::carry::notice::Found),
 }
 
 /// Top-level application state.

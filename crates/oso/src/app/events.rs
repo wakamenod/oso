@@ -35,6 +35,14 @@ fn focus_after(event: &Event<'_>) -> Option<bool> {
 }
 
 impl App {
+    /// The window is in front again, as its event or the dev socket's `window-focus` says.
+    pub(super) fn window_gained_focus(&mut self) {
+        self.window_focused();
+        self.look_at_configuration_again();
+        self.list_adoptable_on_focus();
+        self.look_at_binary();
+    }
+
     /// What follows every event, before the next is read: the input method's part, then the
     /// agent channel's (ADR 0069, ADR 0085).
     pub(super) fn after_event(&mut self, event_loop: &Loop<'_>) {
@@ -98,6 +106,7 @@ impl App {
             UserEvent::TerminalStarted(started) => self.terminal_started(*started),
             UserEvent::Carry(event) => self.carry_event(event),
             UserEvent::Restart(asked) => self.restart_asked(event_loop, asked),
+            UserEvent::BinaryChanged(found) => self.binary_found(&found),
             // `after_event` looks at the deadlines.
             UserEvent::AgentDeadline => {}
         }
@@ -176,11 +185,7 @@ impl App {
             }
 
             // ---- In front again: another program may have changed open files ----
-            Event::Focused => {
-                self.window_focused();
-                self.look_at_configuration_again();
-                self.list_adoptable_on_focus();
-            }
+            Event::Focused => self.window_gained_focus(),
 
             // ---- Elsewhere: kept above, for a terminal's program that asks (ADR 0120); a
             // drag ends, as its release may go to another program ----

@@ -19,14 +19,14 @@ often, so it must rebuild within 2 s.
   answers the dev socket, and `handover` exports and imports the state of a restart, `oso dev`'s
   or `oso-restart`'s; its terminals go in `terminals/carry.rs` (the instance going) and
   `terminals/adopt.rs` (the one coming) (ADR 0120, step 11). `restart` starts `oso-restart`
-  and answers its threads (ADR 0133).
+  and answers its threads, and says when a new binary is in place (ADR 0133).
 - `src/carry.rs` and `src/carry/` are the state a restart carries and both its transports'
   shared parts: the state's format, its texts in pieces, the terminals' entries, the
   descriptors (`fds`) and the requests (`op`). `oso dev`'s supervisor asks them over the dev
   socket; `oso-restart`'s thread (`going`) plays the supervisor over a socket pair with the
   instance it starts (`pair`), whose own thread (`coming`) answers, after the binary's check
-  (`binary`). A dev build's `OSO_DEV_RESTART_FAIL` stops such a restart short, for end-to-end
-  flows.
+  (`binary`). `notice`'s thread looks at the binary again on focus. A dev build's
+  `OSO_DEV_RESTART_FAIL` stops such a restart short, for end-to-end flows.
 - `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies
   (ADR 0062), and recovering them (ADR 0064). Their writer sits above `saver`, and nothing
   there may hold text in a message or a log. A path in a `.meta` is never used to touch a file.

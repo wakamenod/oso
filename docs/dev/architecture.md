@@ -850,6 +850,11 @@ the new instance's `oso-carried` thread answers. The masters go over the pair an
 once the instance going has gone. No socket listens, none of the dev methods ship, and the agent
 channel is off while the restart is under way.
 
+When the window gains focus, a thread of `carry::notice` looks at the binary's path off the UI
+thread. Once the file there is not the one this instance started from (device, inode,
+modification time or length), the echo area says once that it changed and that `oso-restart`
+would start it, or why it would refuse it. oso never restarts by itself.
+
 ## Security architecture (summary)
 
 - Projects open in **restricted mode** until trusted with `M-x trust-project`.

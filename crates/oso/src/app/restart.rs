@@ -1,7 +1,8 @@
 //! `oso-restart` on the UI thread (ADR 0133): in the instance going, checking that it may hand
 //! over, stopping the agent channel and starting the restart's thread, then answering what that
 //! thread asks; in the new instance, starting the thread that reads the pair once the window is
-//! up, and answering what it asks. Both answer with the same handover code as `oso dev`'s
+//! up, and answering what it asks. On focus, a new binary in place is looked for, off the UI
+//! thread, and said once (step 4). Both answer with the same handover code as `oso dev`'s
 //! restart (`handover`, `terminals/carry.rs`, `terminals/adopt.rs`), as the parent.
 //!
 //! Must not depend on: sockets or processes; the restart's threads hold the pair and the
@@ -27,6 +28,10 @@ pub(super) struct Restart {
     /// Who asked for the agent channel while a restart held it off: it starts once the
     /// restart is over (ADR 0133, T-agent).
     channel_wanted: Option<Wanted>,
+    /// Not a restart's, but of the binary it would start (step 4): the thread that looks at
+    /// the binary on focus, on Unix, where `oso-restart` runs, and what was said of it.
+    looker: Option<carry::notice::Looker>,
+    notice: carry::notice::Notice,
 }
 
 /// Who asked for the agent channel while a restart held it off.
@@ -40,14 +45,49 @@ pub(super) enum Wanted {
 
 impl App {
     /// What this instance starts on `oso-restart`, and, if it takes over from the instance
-    /// `parent` through `pair`, those two, until the window is up.
+    /// `parent` through `pair`, those two, until the window is up. With `own`, the identity of
+    /// that binary as this instance started, it also starts the thread that looks at it on
+    /// focus.
     pub fn set_restart(
         &mut self,
         start: carry::going::Start,
+        own: Option<carry::notice::Identity>,
         taking_over: Option<carry::coming::Inherited>,
     ) {
+        // `oso-restart` runs on Unix only, so only there is a changed binary worth saying.
+        #[cfg(not(unix))]
+        let _ = own;
+        #[cfg(unix)]
+        if let (Some(path), Some(own)) = (start.binary.clone(), own) {
+            let waker = self.waker.clone();
+            match carry::notice::Looker::start(path, own, move |found| {
+                waker.send(UserEvent::BinaryChanged(found));
+            }) {
+                Ok(looker) => self.restart.looker = Some(looker),
+                Err(e) => log::warn!("cannot look for a new binary: {e}"),
+            }
+        }
         self.restart.start = Some(start);
         self.restart.coming = taking_over;
+    }
+
+    /// On focus: looks at the binary this instance came from again, off the UI thread.
+    pub(super) fn look_at_binary(&self) {
+        if let Some(looker) = &self.restart.looker {
+            looker.look_again();
+        }
+    }
+
+    /// The binary changed: says so once, unless a restart is under way or this
+    /// instance still takes over, when a later focus says it.
+    pub(super) fn binary_found(&mut self, found: &carry::notice::Found) {
+        if self.restart.under_way || self.restart.taking_over || self.restart.coming.is_some() {
+            return;
+        }
+        if let Some(said) = self.restart.notice.say(found) {
+            self.editor.message(said);
+            self.request_redraw();
+        }
     }
 
     /// After each event: in a new instance whose window is up, starts the thread that reads
