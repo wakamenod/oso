@@ -70,6 +70,7 @@ impl App {
                     changed: session.changed,
                     baseline: session.baseline.clone(),
                     space: None,
+                    reads: Vec::new(),
                 }]);
                 *back.first()?
             }

@@ -218,6 +218,10 @@ pub struct Buffer {
     terminal: bool,
     /// A program runs in its terminal, as the host says.
     running: bool,
+    /// A job runs in its terminal's foreground, and a hosted session's turn is under way, as
+    /// the host says (ADR 0133).
+    job: bool,
+    turn: bool,
     /// What the modeline says after the mode, as the host sets it: a terminal's title.
     mode_note: String,
     /// Whether the person let the agent channel read this terminal (ADR 0120, Q16).
@@ -287,6 +291,8 @@ impl Buffer {
             waits: Waits::default(),
             terminal: false,
             running: false,
+            job: false,
+            turn: false,
             mode_note: String::new(),
             agent_reads: false,
             session: false,

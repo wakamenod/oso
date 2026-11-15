@@ -13,8 +13,10 @@ use crate::review::TrustedRoot;
 use crate::sessions::identity::SessionId;
 use crate::sessions::spaces::Member;
 use crate::sessions::spaces::stored::now_ms;
+use crate::sessions::start::SpaceStart;
 use crate::sessions::tools::repo;
 use crate::sessions::worker::SessionKey;
+use crate::sessions::worktree::jobs::Trust;
 
 impl App {
     /// The trust of space repository `member`, if oso trusts it by its path and the identity
@@ -31,9 +33,145 @@ impl App {
         self.member_trust(member).is_some()
     }
 
+    /// What a worker that also reads `reads` starts with: those directories, each with its
+    /// repository's trust, checked again with git on its start thread (ADR 0136, step 4b);
+    /// nothing for none.
+    pub(in crate::app) fn worker_reads(reads: Vec<(Trust, PathBuf)>) -> Option<SpaceStart> {
+        (!reads.is_empty()).then(|| SpaceStart {
+            in_space_directory: false,
+            made: None,
+            members: Vec::new(),
+            trusted: Vec::new(),
+            reads,
+            prompt: String::new(),
+            instructions: None,
+        })
+    }
+
+    /// The directories a start with `space` also reads: a worker's; none for another.
+    pub(in crate::app) fn reads_of(space: Option<&SpaceStart>) -> Vec<PathBuf> {
+        let reads = space.map_or(&[][..], |space| space.reads.as_slice());
+        reads.iter().map(|(_, dir)| dir.clone()).collect()
+    }
+
+    /// `reads` as they stand at the person's `y`, or before a start: those whose repository oso
+    /// still trusts, with the trusted roots as they are now; the others are said and left out.
+    pub(in crate::app) fn reads_now(
+        &mut self,
+        reads: Vec<(Trust, PathBuf)>,
+    ) -> Vec<(Trust, PathBuf)> {
+        let (kept, left): (Vec<_>, Vec<_>) = reads
+            .into_iter()
+            .partition(|(trust, _)| self.still_trusted(&trust.root));
+        self.say_left_out(left.iter().map(|(_, dir)| dir.as_path()));
+        let trusted = self.trusted_list();
+        (kept.into_iter())
+            .map(|(trust, dir)| {
+                let trusted = trusted.clone();
+                (Trust { trusted, ..trust }, dir)
+            })
+            .collect()
+    }
+
+    /// `space` with its worker's directories as they stand now ([`App::reads_now`]).
+    pub(in crate::app) fn space_now(&mut self, space: Option<SpaceStart>) -> Option<SpaceStart> {
+        match space {
+            Some(space) if !space.in_space_directory => {
+                Self::worker_reads(self.reads_now(space.reads))
+            }
+            other => other,
+        }
+    }
+
+    /// The directories session `key` also reads, for its resume (Q1), when it is a worker of
+    /// an open space, started by that space's orchestrator, current or earlier: each a trusted
+    /// repository's root or a worktree the space holds, with that repository's trust, for its start thread to
+    /// check with git as the tool's job did. The record is one agents can write, so nothing in
+    /// it is taken as checked. What is given, and what is left out, is said.
+    pub(in crate::app) fn reads_again(&mut self, key: SessionKey) -> Option<SpaceStart> {
+        let session = self.hosting.table.get(key)?;
+        if session.reads.is_empty() {
+            return None;
+        }
+        let spaces = self.watch.spaces();
+        let stored = (self.space_of_session(session))
+            .and_then(|at| spaces.stored(at))
+            .filter(|stored| !stored.archived)
+            .filter(|stored| {
+                (session.parent.as_ref()).is_some_and(|parent| {
+                    stored.orchestrator.as_ref() == Some(parent) || stored.earlier.contains(parent)
+                })
+            });
+        let trust_of = |dir: &Path| {
+            let stored = stored?;
+            let member = stored.member(stored.read_root(dir)?)?;
+            let root = self.member_trust(member)?;
+            Some(Trust {
+                root,
+                trusted: self.trusted_list(),
+            })
+        };
+        let mut given = Vec::new();
+        let mut left = Vec::new();
+        for read in &session.reads {
+            match trust_of(&read.root) {
+                Some(trust) => given.push((trust, read.root.clone())),
+                None => left.push(read.root.clone()),
+            }
+        }
+        self.say_left_out(left.iter().map(PathBuf::as_path));
+        if !given.is_empty() {
+            let shown: Vec<String> = (given.iter())
+                .map(|(_, dir)| super::printable(&dir.display().to_string()))
+                .collect();
+            (self.editor).message(format!(
+                "Given again to read, once checked: {}",
+                shown.join(", ")
+            ));
+        }
+        Self::worker_reads(given)
+    }
+
+    /// Says which directories to read are left out.
+    fn say_left_out<'a>(&mut self, left: impl Iterator<Item = &'a Path>) {
+        let shown: Vec<String> = left
+            .map(|dir| super::printable(&dir.display().to_string()))
+            .collect();
+        if !shown.is_empty() {
+            (self.editor).message(format!(
+                "Not given to read, as no trusted repository of the space holds it now: {}",
+                shown.join(", ")
+            ));
+        }
+    }
+
+    /// Whether `root` is still trusted, by path and identity, and not taken back.
+    pub(in crate::app) fn still_trusted(&self, root: &TrustedRoot) -> bool {
+        !root.revoked()
+            && (self.editor.trust_list()).is_some_and(|list| {
+                TrustedRoot::of_member(list, root.path(), root.identity()).is_some()
+            })
+    }
+
+    /// Hosted session `key`, about to start as `space` says: the directories it also reads
+    /// are kept for its record, which a resume checks again before it passes them.
+    pub(in crate::app) fn note_reads(&mut self, key: SessionKey, space: Option<&SpaceStart>) {
+        let dirs = Self::reads_of(space);
+        if !dirs.is_empty() {
+            let reads = dirs.iter().map(|dir| Member::at(dir)).collect();
+            (self.hosting.spaces.reads).insert(key, reads);
+        }
+    }
+
     /// Hosted session `key`, just started: when its parent is a space's orchestrator, it is a
-    /// worker of that space.
+    /// worker of that space; the directories it also reads go in its record.
     pub(super) fn worker_joined(&mut self, key: SessionKey) {
+        if let Some(reads) = self.hosting.spaces.reads.remove(&key)
+            && let Some(session) = self.hosting.table.get_mut(key)
+        {
+            session.reads = reads;
+            self.hosting.unsaved = true;
+        }
         let Some(parent) = self.hosting.table.get(key).and_then(|s| s.parent.clone()) else {
             return;
         };

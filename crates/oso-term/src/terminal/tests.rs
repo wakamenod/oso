@@ -48,6 +48,8 @@ pub(super) struct Seen {
     /// What each snapshot said of echo, in order: one `take` may drain several snapshots, and
     /// `echo_off` keeps only the last.
     echo_said: Vec<bool>,
+    /// Whether the last snapshot said a job runs in the foreground.
+    job: bool,
     pub cursor: crate::snapshot::Cursor,
     size: (u16, u16),
     pub scrolled: usize,
@@ -74,6 +76,7 @@ impl Seen {
             events: Vec::new(),
             echo_off: false,
             echo_said: Vec::new(),
+            job: false,
             cursor: crate::snapshot::Cursor::default(),
             size: (0, 0),
             scrolled: 0,
@@ -126,6 +129,7 @@ impl Seen {
             }
             self.echo_off = snapshot.echo_off;
             self.echo_said.push(snapshot.echo_off);
+            self.job = snapshot.foreground_job;
             self.cursor = snapshot.cursor;
             self.size = (snapshot.size.columns, snapshot.size.rows);
             self.events.append(&mut snapshot.events);
@@ -211,6 +215,24 @@ fn a_size_is_clamped_to_the_limits() {
 fn echo_off_is_reported() {
     let mut seen = Seen::start(sh("stty -echo; printf 'ready\\n'; read x"));
     seen.until(|s| s.shows("ready") && s.echo_off);
+}
+
+#[test]
+fn a_job_in_the_foreground_is_reported_while_it_runs() {
+    // With job control on, the shell gives the terminal to each job's own group, and takes
+    // it back at its prompt (ADR 0133).
+    let mut seen = Seen::start(sh(
+        "set -m; printf 'go\\n'; sleep 1; printf 'done\\n'; read x",
+    ));
+    seen.until(|s| s.shows("go") && s.job);
+    seen.until(|s| s.shows("done") && !s.job);
+}
+
+#[test]
+fn a_shell_at_its_prompt_has_no_job() {
+    let mut seen = Seen::start(sh("printf 'ready\\n'; read x"));
+    seen.until(|s| s.shows("ready"));
+    assert!(!seen.job);
 }
 
 #[test]

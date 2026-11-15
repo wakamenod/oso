@@ -140,8 +140,18 @@ It is told the space's repositories, title and instructions, and given each trus
         state: None,
     },
     Command {
+        name: "space-orchestrator-replace",
+        doc: "Replace the orchestrator of the space in front by a new one, which takes over from it.
+
+It is refused while the orchestrator works or needs input. The old one is stopped and kept, stopped, as `NAME-was-N`; once it ended, the new one starts under the space's name, told to read `handoff.md` first, where the old one's transcript is, and the space's sessions. With no `handoff.md` in the space's directory, it asks first.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: space_orchestrator_replace,
+        state: None,
+    },
+    Command {
         name: "space-confirm",
-        doc: "Do what the space question just answered with y offers: paste `/add-dir` into the space's orchestrator, not sent.",
+        doc: "Do what the space question just answered with y offers: paste `/add-dir` into the space's orchestrator, not sent, or replace its orchestrator.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: space_confirm,
@@ -214,6 +224,10 @@ fn space_instructions(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 fn space_orchestrator_start(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     let remake_directory = args.raw().is_some();
     ask(ctx, SpaceRequest::StartOrchestrator { remake_directory })
+}
+
+fn space_orchestrator_replace(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    ask(ctx, SpaceRequest::ReplaceOrchestrator)
 }
 
 fn space_confirm(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

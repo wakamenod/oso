@@ -306,3 +306,18 @@ fn only_the_person_s_session_starts_without_asking_trusted_and_below_its_limit()
         assert!(!starts_without_asking(no), "{no:?}");
     }
 }
+
+#[test]
+fn a_question_names_each_directory_the_new_session_also_reads() {
+    let said = super::also_reads("let it start?".to_owned(), &[]);
+    assert_eq!(said, "let it start?");
+    let dirs = [
+        std::path::PathBuf::from("/web"),
+        std::path::PathBuf::from("/a\u{202e}b"),
+    ];
+    let said = super::also_reads("let it start?".to_owned(), &dirs);
+    assert_eq!(
+        said,
+        "let it start? It also reads 2 more directories: \"/web\", \"/a\\u{202e}b\"."
+    );
+}

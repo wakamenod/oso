@@ -11,7 +11,7 @@
 
 use std::time::Instant;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use oso_core::buffer::{Buffer, Mode};
 use oso_core::minibuffer::PromptId;
@@ -55,6 +55,8 @@ pub(super) enum Plan {
         name: Option<String>,
         parent: SessionId,
         origin: Origin,
+        /// The directories it also reads, as the job checked them, with their trust.
+        reads: Vec<(Trust, PathBuf)>,
     },
     /// A session to start, and for an orchestrator's call the space's repository whose trust
     /// is asked again before it starts.
@@ -83,6 +85,8 @@ pub(in crate::app) struct Preparing {
     target: String,
     trust: Trust,
     then: Then,
+    /// The directories the new session also reads, which the job checks too.
+    with: Vec<(Trust, PathBuf)>,
 }
 
 /// What the call does once looked at.
@@ -106,6 +110,8 @@ pub(in crate::app) struct WorktreeCall {
     pub(in crate::app) base: Option<String>,
     pub(in crate::app) brief: String,
     pub(in crate::app) name: Option<String>,
+    /// The directories it also reads, each with its repository's trust (ADR 0136, step 4b).
+    pub(in crate::app) with: Vec<(Trust, PathBuf)>,
 }
 
 /// `session_start`'s arguments.
@@ -114,6 +120,8 @@ pub(in crate::app) struct StartCall {
     pub(in crate::app) directory: Option<PathBuf>,
     pub(in crate::app) name: Option<String>,
     pub(in crate::app) brief: Option<String>,
+    /// As [`WorktreeCall::with`].
+    pub(in crate::app) with: Vec<(Trust, PathBuf)>,
 }
 
 /// A worktree being made after the person's `y`.
@@ -123,6 +131,8 @@ pub(in crate::app) struct Creating {
     pub(super) name: Option<String>,
     pub(super) parent: SessionId,
     pub(super) origin: Origin,
+    /// The directories its session also reads, with their trust.
+    pub(super) reads: Vec<(Trust, PathBuf)>,
     /// What the echo area says once its session starts, for a start without asking.
     pub(super) said: Option<String>,
 }
@@ -142,6 +152,7 @@ impl App {
             base,
             brief,
             name,
+            with,
         } = call;
         let then = Then::Worktree {
             brief,
@@ -154,7 +165,7 @@ impl App {
             caller: caller.directory.clone(),
         };
         // Kept by the name typed until the job resolves it; then by the branch git names.
-        self.tool_prepare(pending, tool, caller, branch, (then, prepare));
+        self.tool_prepare(pending, tool, caller, branch, (then, prepare, with));
     }
 
     /// `session_start` from `caller`: in its own directory at once, elsewhere once a job has
@@ -170,6 +181,7 @@ impl App {
             directory,
             name,
             brief,
+            with,
         } = call;
         // An orchestrator no more starts nothing: the space's directory is no repository.
         if caller.scoped() && caller.acting_at.is_none() {
@@ -184,7 +196,7 @@ impl App {
         if directory != caller.runs_in || caller.acting_at.is_some() {
             let then = Then::Start { brief, name };
             let prepare = Prepare::Directory(directory);
-            return self.tool_prepare(pending, tool, caller, target, (then, prepare));
+            return self.tool_prepare(pending, tool, caller, target, (then, prepare, with));
         }
         if let Err(why) = self.admit_tool(tool, caller, &target) {
             return pending.answer(Err(why));
@@ -214,7 +226,7 @@ impl App {
         tool: &Tool,
         caller: &Caller,
         target: String,
-        (then, prepare): (Then, Prepare),
+        (then, prepare, with): (Then, Prepare, Vec<(Trust, PathBuf)>),
     ) {
         if let Err(why) = self.admit_tool(tool, caller, &target) {
             return pending.answer(Err(why));
@@ -224,7 +236,8 @@ impl App {
             Err(why) => return pending.answer(Err(why)),
         };
         let token = self.worktree_token();
-        self.worktree_jobs().prepare(token, trust.clone(), prepare);
+        self.worktree_jobs()
+            .prepare(token, trust.clone(), prepare, with.clone());
         self.hosting.tools.jobs.insert(
             token,
             Job::Prepared(Box::new(Preparing {
@@ -233,6 +246,7 @@ impl App {
                 target,
                 trust,
                 then,
+                with,
             })),
         );
     }
@@ -245,11 +259,13 @@ impl App {
             target,
             trust,
             then,
+            with,
         } = preparing;
         let Report::Prepared { result, .. } = report else {
             return pending.answer(Err("the call's check ended unexpectedly".into()));
         };
-        let (prepared, trusted) = match result {
+        // Each directory to read was checked with the rest; its start thread checks it again.
+        let (prepared, trusted, _) = match result {
             Ok(found) => found,
             Err(why) => return pending.answer(Err(why)),
         };
@@ -278,10 +294,8 @@ impl App {
                 let target = branch.clone();
                 let from = start.as_ref().map(|(_, name)| name.as_str());
                 let start = from.map_or(Branch::Existing, |from| Branch::New { from });
-                let (place, lines) = (shown(&place), rules::lines(&brief));
-                let label = rules::worktree_question(&caller.name, &place, &branch, start, lines);
-                let said = rules::worktree_started(&caller.name, &place, &branch, start, lines);
-                let details = details(&caller.name, &label, &brief);
+                let paths: Vec<PathBuf> = with.iter().map(|(_, dir)| dir.clone()).collect();
+                let words = worktree_words(&caller.name, (&place, &branch, start), &brief, &paths);
                 // The job that makes it resolves the start again, as the question named it: the
                 // base given, else the caller's `HEAD`.
                 let order = Order {
@@ -295,6 +309,7 @@ impl App {
                         // Where it runs: its own uncommitted files, not the repository's it names.
                         directory: caller.runs_in.clone(),
                         space: self.space_orchestrated_by(&caller),
+                        reads: paths,
                     }),
                 };
                 let plan = Plan::Worktree {
@@ -303,8 +318,8 @@ impl App {
                     name,
                     parent: caller.id.clone(),
                     origin: Origin::Answered,
+                    reads: with,
                 };
-                let words = Words(label, details, said);
                 self.ask_or_start(pending, &caller, (target, true), words, plan);
             }
             (Prepared::Directory(directory), Then::Start { brief, name }) => {
@@ -316,7 +331,7 @@ impl App {
                     origin: Origin::Answered,
                     check_shared: false,
                     trusted,
-                    space: None,
+                    space: App::worker_reads(with),
                 };
                 // Its job, as a worktree's, looked at trust against the record as it is now.
                 let now = (target, begin.trusted.is_some());
@@ -351,11 +366,20 @@ impl App {
         );
         let details = details(&caller.name, &label, brief.unwrap_or("(no brief)"));
         let said = rules::start_started(&caller.name, &shown(&directory), brief.map(rules::lines));
+        let reads = App::reads_of(begin.space.as_ref());
+        let (label, said) = (
+            rules::also_reads(label, &reads),
+            rules::also_reads(said, &reads),
+        );
+        let details = rules::also_reads(details, &reads);
         // The new session's first prompt starts with oso's line, never with the agent's text,
         // so that no brief is read as a command of Claude Code's own (`/`, `!`, `#`).
+        let also = crate::sessions::worktree::brief::reads_line(&reads)
+            .map(|line| format!("{line}\n\n"))
+            .unwrap_or_default();
         begin.brief = begin.brief.map(|brief| {
             format!(
-                "Session {} started this session through oso, with this brief:\n\n{brief}",
+                "{also}Session {} started this session through oso, with this brief:\n\n{brief}",
                 rules::quoted(&caller.name)
             )
         });
@@ -521,6 +545,24 @@ impl App {
 }
 
 /// What `?` shows for a question: who asks, what, and the whole brief.
+/// What a worktree session's question says, what `?` shows, and what the echo area says of
+/// its start without asking: `caller` starts one at `place` on `branch` from `start`, with
+/// `brief`, also reading `reads`.
+fn worktree_words(
+    caller: &str,
+    (place, branch, start): (&Path, &str, Branch<'_>),
+    brief: &str,
+    reads: &[PathBuf],
+) -> Words {
+    let (place, lines) = (shown(place), rules::lines(brief));
+    let label = rules::worktree_question(caller, &place, branch, start, lines);
+    let label = rules::also_reads(label, reads);
+    let said = rules::worktree_started(caller, &place, branch, start, lines);
+    let said = rules::also_reads(said, reads);
+    let details = details(caller, &label, brief);
+    Words(label, details, said)
+}
+
 fn details(caller: &str, label: &str, brief: &str) -> String {
     format!(
         "Session {} asks:\n\n  {label}\n\ny allows it, n or C-g refuses it.\n\nThe brief, which the new session gets after oso's header and hand-off facts:\n\n{brief}\n",

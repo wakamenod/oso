@@ -33,6 +33,8 @@ pub struct Header<'a> {
     pub base: &'a str,
     /// The issue space whose orchestrator starts it (ADR 0136, step 4).
     pub space: Option<&'a str>,
+    /// The directories it also reads (ADR 0136, step 4b).
+    pub reads: &'a [PathBuf],
 }
 
 /// What the starting session leaves behind; every field may be empty.
@@ -231,6 +233,10 @@ pub fn compose(
         head.pop();
         head.push_str(&format!(", in space {}.", clean(space)));
     }
+    if let Some(line) = reads_line(header.reads) {
+        head.push('\n');
+        head.push_str(&line);
+    }
     if let Some(name) = handoff.and_then(|handoff| handoff.name) {
         let name = clean(name);
         head.push_str(&format!(
@@ -255,6 +261,19 @@ pub fn compose(
 }
 
 /// A path as text for the prompt.
+/// The line a brief's header gives the directories its session also reads (ADR 0136, step
+/// 4b); none for none.
+pub fn reads_line(reads: &[PathBuf]) -> Option<String> {
+    if reads.is_empty() {
+        return None;
+    }
+    let shown: Vec<String> = reads.iter().map(|dir| shown_path(dir)).collect();
+    Some(format!(
+        "You can also read: {} (added to your working directories).",
+        shown.join(", ")
+    ))
+}
+
 fn shown_path(path: &Path) -> String {
     clean(&path.to_string_lossy())
 }

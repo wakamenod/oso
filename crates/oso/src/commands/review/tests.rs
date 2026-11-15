@@ -80,7 +80,7 @@ fn rows() -> Rows {
 }
 
 /// A review of `project` shown in the selected window, holding [`TEXT`].
-fn with_review(editor: &mut Editor, project: ProjectId) -> ReviewId {
+pub(crate) fn with_review(editor: &mut Editor, project: ProjectId) -> ReviewId {
     let (review, buffer) = editor.add_review(project, "*review: uncommitted oso*".into());
     let window = editor.window().id();
     editor.show_in(window, buffer);
@@ -90,7 +90,7 @@ fn with_review(editor: &mut Editor, project: ProjectId) -> ReviewId {
 }
 
 /// Gives the review `review` an unsent comment of the person's.
-fn comment_in(editor: &mut Editor, review: ReviewId) {
+pub(crate) fn comment_in(editor: &mut Editor, review: ReviewId) {
     let shape = Arc::new(
         Shape::new(
             Base::Unknown,

@@ -337,6 +337,7 @@ fn space(n: u8, name: &str, projects: Vec<Project>) -> super::SpaceRows {
         name: name.to_owned(),
         projects,
         directory: None,
+        orchestrator: None,
     }
 }
 
