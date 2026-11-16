@@ -259,8 +259,14 @@ network features.
   display boxes is escaped in what an agent reads too. The system's opener
   (`oso_platform::process::open_link`) takes only an `https` address of plain characters, finds
   its program and helpers with the project left out of `PATH`, and oso opens only a pull
-  request's own address on the repository's host, after the echo area shows it. Every command is `Person`; an agent
-  may read `*pr: #N*` through `text`, as data.
+  request's own address on the repository's host, after the echo area shows it. Every command
+  is `Person`; an agent may read `*pr: #N*` through `text`, as data. Making and merging (step 5a-2) are the person's
+  runs on the run thread: `gh pr create` and `gh pr merge` with every value bound to its flag
+  and the body on standard input, the branch's remote looked at again before `gh` runs; a merge
+  only after a question naming the pull request, its base, the method and its head, with
+  `--match-head-commit` so that a push since makes `gh` refuse it. A pull request's message is
+  the person's: an agent's command does not change it. A template is read only as a regular
+  file under the root, at most 64 KiB, never one whose name may hold secrets.
 - Stashes and branches from a git status (ADR 0127, step 3b) are the person's acts, `Person`,
   with the repository's hooks: a checkout runs `post-checkout` and the filters, as git's own
   does in a trusted project. A stash is named by its commit's id: an apply gives git the id, and

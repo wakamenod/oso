@@ -644,6 +644,12 @@ topological order, children before their parents, one row each (ADR 0127, step 4
   the browser after the echo area shows its address, `l` lists the open ones. In those buffers
   `RET` visits a thread's file at its line, shows a check's address, or shows a listed one; `o`
   opens, `w` copies an address, `g` reads it again.
+- Making and merging (step 5a-2): `N c` opens `*pull request: BRANCH*`, the branch's commit's
+  message or its commits' subjects above the template, its first line the title; `C-c C-c` makes
+  it, asking first to push a branch with no upstream or ahead of it, `C-c C-k` cancels, `M-p`
+  and `M-n` walk the messages kept. `- d` makes a draft, `- b` reads the base. `N m` opens the
+  merge menu: `s`, `m` or `r` after a question naming the pull request, its base, the method and
+  its head; `- d` deletes the branch on the remote.
 
 ## Echo area
 

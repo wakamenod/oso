@@ -11,6 +11,7 @@
 //! - Every answer is untrusted: an entry missing a field, or of another shape, is left out, an
 //!   answer of the wrong shape reads as `None`, and every list has a bound.
 
+pub(crate) mod create;
 pub(crate) mod work;
 pub(crate) mod write;
 
@@ -320,6 +321,35 @@ pub(crate) fn is_plain_path(path: &str) -> bool {
         && Path::new(path)
             .components()
             .all(|part| matches!(part, Component::Normal(_)))
+}
+
+/// The default branch in `gh repo view --json defaultBranchRef`'s answer (step 5a-2).
+pub(crate) fn read_default_branch(json: &[u8]) -> Option<String> {
+    let value = serde_json::from_slice::<Value>(json).ok()?;
+    text(value.get("defaultBranchRef")?.get("name")?)
+}
+
+/// A pull request to merge, as `gh pr view --json number,state,baseRefName,headRefOid,
+/// headRefName` gives it (step 5a-2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ToMerge {
+    pub(crate) number: u64,
+    pub(crate) open: bool,
+    pub(crate) base: String,
+    pub(crate) head: String,
+    pub(crate) branch: String,
+}
+
+/// The pull request to merge in `gh pr view`'s answer.
+pub(crate) fn read_merge(json: &[u8]) -> Option<ToMerge> {
+    let value = serde_json::from_slice::<Value>(json).ok()?;
+    Some(ToMerge {
+        number: value.get("number")?.as_u64()?,
+        open: value.get("state")?.as_str()? == "OPEN",
+        base: text(value.get("baseRefName")?)?,
+        head: text(value.get("headRefOid")?)?,
+        branch: text(value.get("headRefName")?)?,
+    })
 }
 
 /// Whether `url` is the address of pull request `number` of `repo`, as GitHub writes it: the

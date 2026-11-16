@@ -96,9 +96,13 @@ impl Dispatcher {
     ) -> Result<(Effects, Result<(), String>), Refused> {
         let refused = |why: String| Err(Refused(why));
         let (id, command) = self.by_reach(name, reach)?;
-        // A commit's message is the person's to write until `draft_set` (ADR 0127, Q6); the
-        // agent may read it.
-        if reach == Reach::Change && editor.current().1.mode() == Mode::GitCommit {
+        // A commit's message is the person's to write until `draft_set` (ADR 0127, Q6), and a
+        // pull request's (step 5a); the agent may read them.
+        let message = matches!(
+            editor.current().1.mode(),
+            Mode::GitCommit | Mode::GitPrMessage
+        );
+        if reach == Reach::Change && message {
             return refused(MESSAGE_REFUSED.into());
         }
         if self.waits_for_clipboard() {
@@ -333,6 +337,7 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::GitPr
         | Mode::GitPrList
         | Mode::GitCommit
+        | Mode::GitPrMessage
         | Mode::GitLog
         | Mode::Conversation
         | Mode::GitDiscarded

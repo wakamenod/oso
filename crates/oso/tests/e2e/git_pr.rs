@@ -13,6 +13,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use super::config::set_mode;
+use super::git_remote::identity;
 use super::git_status::project;
 use super::harness::{App, Scratch};
 use super::review::{git, rows};
@@ -31,6 +32,9 @@ const THREADS: &str = r#"{"data":{"repository":{"pullRequest":{"reviewThreads":{
 const LIST: &str = r#"[{"number":12,"title":"Add x","headRefName":"main","author":{"login":"ann"},
 "isDraft":false,"reviewDecision":"APPROVED","statusCheckRollup":[],"url":"https://github.com/o/r/pull/12"}]"#;
 
+const MERGE: &str = r#"{"number":13,"state":"OPEN","baseRefName":"main",
+"headRefOid":"abcdef0123456789abcdef0123456789abcdef01","headRefName":"feature"}"#;
+
 /// A `gh` in `bin` that logs where it ran and what it was asked to `asked`, and answers from
 /// the files beside it.
 fn stand_in_gh(scratch: &Scratch) -> std::path::PathBuf {
@@ -41,6 +45,7 @@ fn stand_in_gh(scratch: &Scratch) -> std::path::PathBuf {
         ("checks", CHECKS),
         ("threads", THREADS),
         ("list", LIST),
+        ("merge", MERGE),
     ] {
         fs::write(bin.join(format!("{name}.json")), text).unwrap();
     }
@@ -48,7 +53,11 @@ fn stand_in_gh(scratch: &Scratch) -> std::path::PathBuf {
     let script = format!(
         "#!/bin/sh\nprintf '%s | %s\\n' \"$(pwd)\" \"$*\" >> '{b}/asked'\n\
          case \"$1 $2\" in\n\
-         'pr view') cat '{b}/view.json' ;;\n\
+         'pr view') case \"$*\" in *number,state,baseRefName*) cat '{b}/merge.json' ;; \
+         *) cat '{b}/view.json' ;; esac ;;\n\
+         'repo view') printf '{{\"defaultBranchRef\":{{\"name\":\"main\"}}}}' ;;\n\
+         'pr create') cat > '{b}/body.txt'; echo https://github.com/o/r/pull/13 ;;\n\
+         'pr merge') echo merged ;;\n\
          'pr checks') cat '{b}/checks.json'; exit 8 ;;\n\
          'api graphql') cat '{b}/threads.json' ;;\n\
          'pr list') cat '{b}/list.json' ;;\n\
@@ -75,17 +84,9 @@ fn wait_text(app: &mut App, what: &str, part: &str) -> String {
     panic!("no {what}: {}", text(app));
 }
 
-#[test]
-#[ignore = "opens windows; run with `just e2e`"]
-fn a_status_shows_the_branch_s_pull_request_and_its_buffer_and_list_read_through_gh() {
-    let scratch = Scratch::new("git-pr");
-    let file = project(&scratch);
-    let root = scratch.path().join("proj-git");
-    git(
-        &root,
-        &["remote", "add", "origin", "https://github.com/o/r.git"],
-    );
-    let bin = stand_in_gh(&scratch);
+/// An instance on `file` whose `gh` is the one in `bin`, the project trusted and its status
+/// shown.
+fn status_with_gh(scratch: &Scratch, file: &Path, bin: &Path) -> App {
     set_mode(scratch.path(), 0o700);
     let config = scratch.write("conf/config.toml", b"[lsp]\nstart = \"manual\"\n");
     set_mode(&scratch.path().join("conf"), 0o700);
@@ -93,7 +94,7 @@ fn a_status_shows_the_branch_s_pull_request_and_its_buffer_and_list_read_through
     // `PATH` is the platform's own: a dev build takes its stand-in `gh` by name.
     let gh = bin.join("gh");
     let env: [(&str, &OsStr); 1] = [("OSO_DEV_GH", gh.as_os_str())];
-    let mut app = App::start_with_file_config_and_env(&file, scratch.path(), &config, &env);
+    let mut app = App::start_with_file_config_and_env(file, scratch.path(), &config, &env);
     app.wait_until_ready();
     // The project is known before it is trusted, as the status's flows wait for.
     app.wait_for("the project", |state| {
@@ -111,6 +112,29 @@ fn a_status_shows_the_branch_s_pull_request_and_its_buffer_and_list_read_through
     app.wait_for("the status", |state| {
         state["buffer"]["name"] == "*git: proj-git*"
     });
+    app
+}
+
+fn wait_echo(app: &mut App, what: &str, start: &str) {
+    app.wait_for(what, |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.starts_with(start))
+    });
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_status_shows_the_branch_s_pull_request_and_its_buffer_and_list_read_through_gh() {
+    let scratch = Scratch::new("git-pr");
+    let file = project(&scratch);
+    let root = scratch.path().join("proj-git");
+    git(
+        &root,
+        &["remote", "add", "origin", "https://github.com/o/r.git"],
+    );
+    let bin = stand_in_gh(&scratch);
+    let mut app = status_with_gh(&scratch, &file, &bin);
     // The head's `PR:` line, stale as the stand-in's head is not the commit checked out.
     let shown = wait_text(
         &mut app,
@@ -164,4 +188,93 @@ fn a_status_shows_the_branch_s_pull_request_and_its_buffer_and_list_read_through
         let about = args.contains("--repo github.com/o/r") || args.starts_with("api graphql");
         assert!(about, "{cwd} | {args}");
     }
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_pull_request_is_made_after_its_branch_s_push_and_merged_after_a_question() {
+    let scratch = Scratch::new("git-pr-create");
+    let file = project(&scratch);
+    let root = scratch.path().join("proj-git");
+    identity(&root);
+    // `origin` is on github.com for `gh`; its pushes go to a bare repository beside.
+    let bare = scratch.path().join("remote.git");
+    git(
+        &root,
+        &["init", "-q", "--bare", "-b", "main", bare.to_str().unwrap()],
+    );
+    git(
+        &root,
+        &["remote", "add", "origin", "https://github.com/o/r.git"],
+    );
+    let push_to = format!("url.{}.pushInsteadOf", bare.display());
+    git(&root, &["config", &push_to, "https://github.com/o/r.git"]);
+    git(&root, &["push", "-q", "origin", "main"]);
+    git(&root, &["checkout", "-q", "-b", "feature"]);
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-q", "-m", "Add feature"]);
+    scratch.write(
+        "proj-git/.github/pull_request_template.md",
+        b"## Checklist\n",
+    );
+    let bin = stand_in_gh(&scratch);
+    let mut app = status_with_gh(&scratch, &file, &bin);
+
+    // `N c`: the branch's single commit's message, above the template.
+    app.send_keys("N c");
+    app.wait_for("the message", |state| {
+        state["buffer"]["name"] == "*pull request: feature*"
+    });
+    let shown = text(&mut app);
+    assert!(shown.starts_with("Add feature\n\n## Checklist"), "{shown}");
+    // `C-c C-c` asks to push the branch, which has no upstream, then makes it.
+    app.send_keys("C-c C-c");
+    let asked = |state: &serde_json::Value| {
+        state["prompts"][0]["prompt"]
+            .as_str()
+            .is_some_and(|label| label.starts_with("Push feature to origin first?"))
+    };
+    app.wait_for("the push question", asked);
+    app.send_keys("y");
+    wait_echo(
+        &mut app,
+        "the pull request made",
+        "Made the pull request of feature into main",
+    );
+    git(
+        &bare,
+        &["rev-parse", "--verify", "-q", "refs/heads/feature"],
+    );
+    assert_eq!(
+        fs::read_to_string(bin.join("body.txt")).unwrap(),
+        "## Checklist"
+    );
+
+    // `N m - d s`: asks, naming the pull request, its base, the method and its head.
+    app.send_keys("N m - d s");
+    let asked = |state: &serde_json::Value| {
+        state["prompts"][0]["prompt"].as_str().is_some_and(|label| {
+            label.starts_with(
+                "Merge #13 into main by squash, its head abcdef0, deleting its branch on the remote?",
+            )
+        })
+    };
+    app.wait_for("the merge question", asked);
+    app.send_keys("y");
+    wait_echo(&mut app, "the merge", "Merged #13");
+
+    let log = fs::read_to_string(bin.join("asked")).unwrap();
+    let ran = |part: &str| log.lines().any(|line| line.contains(part));
+    assert!(
+        ran(
+            "pr create --repo=github.com/o/r --title=Add feature --body-file=- --base=main --head=feature"
+        ),
+        "{log}"
+    );
+    assert!(
+        ran(
+            "pr merge 13 --repo=github.com/o/r --squash --match-head-commit=abcdef0123456789abcdef0123456789abcdef01 --delete-branch"
+        ),
+        "{log}"
+    );
 }

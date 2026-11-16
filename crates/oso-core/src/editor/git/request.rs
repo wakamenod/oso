@@ -177,6 +177,15 @@ pub enum PrAct {
     CopyLink,
 }
 
+/// How `N m` merges a pull request (ADR 0127, step 5a): `gh pr merge`'s `--squash`, `--merge`
+/// or `--rebase`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MergeMethod {
+    Squash,
+    Merge,
+    Rebase,
+}
+
 /// What a command asks of the host for git (ADR 0127).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GitRequest {
@@ -316,4 +325,26 @@ pub enum GitRequest {
         act: PrAct,
         line: usize,
     },
+    /// Write a pull request for `project`'s branch checked out, a draft if `draft`, into `base`,
+    /// or the remote's default branch (`N c`).
+    PrCreate {
+        project: ProjectId,
+        draft: bool,
+        base: Option<String>,
+    },
+    /// Make the pull request the message `buffer` holds (`C-c C-c`).
+    PrCreateFinish { buffer: BufferId },
+    /// Drop the pull request's message `buffer`, keeping its text for `M-p` (`C-c C-k`).
+    PrCreateCancel { buffer: BufferId },
+    /// Show an earlier message in `buffer`, or a later one (`M-p`, `M-n`).
+    PrRing { buffer: BufferId, older: bool },
+    /// Merge the pull request of `project`'s branch as `method`, deleting its branch on the
+    /// remote if `delete_branch`, after a question (`N m`).
+    PrMerge {
+        project: ProjectId,
+        method: MergeMethod,
+        delete_branch: bool,
+    },
+    /// The `y` to a pull request's question: to push first, or to merge.
+    PrConfirmed,
 }

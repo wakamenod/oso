@@ -111,7 +111,15 @@ impl Git {
         } else {
             Source::Closed
         };
-        let mut child = self.spawn_with(args, set, stdin, Sink::Piped, true)?;
+        let child = self.spawn_with(args, set, stdin, Sink::Piped, true)?;
+        Long::adopt(child, input)
+    }
+}
+
+impl Long {
+    /// The long run of `child`, started in a process group of its own with its output piped, and
+    /// its input piped if `input` is: `gh`'s too (ADR 0127, step 5a).
+    pub(crate) fn adopt(mut child: Child, input: Option<Vec<u8>>) -> Result<Long, GitError> {
         let streams = (child.stdout.take(), child.stderr.take());
         let (Some(stdout), Some(stderr)) = streams else {
             end_now(&mut child);
@@ -139,7 +147,9 @@ impl Git {
             tail: Vec::new(),
         })
     }
+}
 
+impl Git {
     /// Runs git as [`Git::start_long`] does, until it ends or `stop` is set, and keeps the
     /// start of what it wrote, at most [`MAX_STDERR`] bytes, as standard error: for a write to
     /// the index, whose failure says why there.

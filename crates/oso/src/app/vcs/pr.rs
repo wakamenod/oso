@@ -22,6 +22,8 @@ use oso_core::project::ProjectId;
 
 use super::super::{App, UserEvent};
 use super::Ask;
+
+mod create;
 use crate::git::{TrustedRoot, printable};
 use crate::vcs::pr::PrHead;
 use crate::vcs::pr::work::{PrReport, PrRequest, PrWorker};
@@ -54,6 +56,8 @@ impl std::fmt::Debug for PrEvent {
 pub(super) struct Prs {
     repos: Vec<PrRepo>,
     views: Vec<PrBuffer>,
+    /// Making and merging pull requests (step 5a-2).
+    create: create::Creating,
     serial: u64,
     generation: u64,
 }
@@ -101,6 +105,20 @@ impl App {
                 self.ask_pr(project, PrRequest::Address);
             }
             GitRequest::PrAct { buffer, act, line } => self.pr_act(buffer, act, line),
+            GitRequest::PrCreate {
+                project,
+                draft,
+                base,
+            } => self.pr_create_asked(project, draft, base),
+            GitRequest::PrCreateFinish { buffer } => self.finish_pr(buffer),
+            GitRequest::PrCreateCancel { buffer } => self.cancel_pr(buffer),
+            GitRequest::PrRing { buffer, older } => self.walk_pr_ring(buffer, older),
+            GitRequest::PrMerge {
+                project,
+                method,
+                delete_branch,
+            } => self.start_merge(project, method, delete_branch),
+            GitRequest::PrConfirmed => self.pr_confirmed(),
             // The others are not pull requests' (`requests::concern`).
             _ => {}
         }
@@ -265,6 +283,12 @@ impl App {
             PrReport::View { generation, laid } => self.pr_text(generation, laid),
             PrReport::List { generation, laid } => self.pr_text(generation, laid),
             PrReport::Address(Ok((url, number))) => self.open_pr_address(project, url, number),
+            PrReport::Drafted { generation, draft } => {
+                self.pr_drafted(project, generation, draft);
+            }
+            PrReport::MergeAsked { generation, merge } => {
+                self.pr_merge_read(project, generation, merge);
+            }
             PrReport::Address(Err(why)) | PrReport::Opened(why) => {
                 self.editor.message(printable(&why, super::MAX_MESSAGE));
             }
@@ -356,6 +380,7 @@ impl App {
     /// repositories no longer trusted, revoking their roots so that nothing queued runs and
     /// what comes back late is dropped; and puts in a text that waited.
     pub(super) fn sync_prs(&mut self) {
+        self.sync_pr_drafts();
         let editor = &self.editor;
         let gone: Vec<usize> = (self.gits.prs.views.iter().enumerate())
             .filter(|(_, view)| editor.git_pr_of(view.buffer).is_none())

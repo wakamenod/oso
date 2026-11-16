@@ -289,12 +289,15 @@ impl App {
         };
         self.editor.clear_echo_saying(&run.echoed);
         let seconds = run.started.elapsed().as_secs();
-        // A push changes the pull request's head, and a checkout the branch, so the `PR:` line is
+        // A push changes the pull request's head, a checkout the branch and `gh pr` the pull request,
+        // so the `PR:` line is
         // read again (step 5a).
-        let pushed = matches!(end, RunEnd::Done)
-            && ["git push", "git switch", "git checkout"]
+        let done = matches!(end, RunEnd::Done);
+        let rereads = done
+            && ["git push", "git switch", "git checkout", "gh pr"]
                 .iter()
                 .any(|run_of| run.title.starts_with(run_of));
+        let was_push = run.title.starts_with("git push");
         let (said, ended) = match end {
             RunEnd::Done if run.kind.is_none() => ("done", run.done.clone()),
             RunEnd::Done => ("done", self.commit_done(&run)),
@@ -315,8 +318,12 @@ impl App {
             self.git_ask(status, Ask::Read);
         }
         self.graph_after_run(project);
-        if pushed {
+        if rereads {
             self.ask_pr_head(project, true);
+        }
+        // A pull request waiting for its branch's push is made once the push went well.
+        if was_push {
+            self.pr_after_push(project, done);
         }
     }
 

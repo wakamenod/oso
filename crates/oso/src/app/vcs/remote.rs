@@ -170,6 +170,35 @@ impl App {
         }
     }
 
+    /// Pushes the branch of the status `buffer` before a pull request is made of it (step
+    /// 5a-2): to `remote`, setting the upstream, if it has none, else to its upstream, as `P`
+    /// does. Whether the push was asked for.
+    pub(super) fn push_for_pr(&mut self, buffer: BufferId, remote: Option<String>) -> bool {
+        let Some(index) = self.remote_repo(buffer, None, false) else {
+            return false;
+        };
+        let want = match remote {
+            Some(remote) => Want::Remote {
+                remote,
+                set_upstream: true,
+            },
+            None => Want::Upstream,
+        };
+        let switches = PushSwitches::default();
+        let asked = self.ask_runner(
+            index,
+            RunRequest::Remote(RemoteRun::Plan { want, switches }),
+        );
+        if asked {
+            let pushes = &mut self.gits.commits.repos[index].pushes;
+            pushes.planning = Some(Planning {
+                status: buffer,
+                switches,
+            });
+        }
+        asked
+    }
+
     /// `y` to the question before a forced push: runs what it asked about.
     fn push_asked(&mut self, buffer: BufferId) {
         let Some(index) = self.remote_repo(buffer, None, false) else {
