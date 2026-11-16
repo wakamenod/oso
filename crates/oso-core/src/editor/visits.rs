@@ -12,9 +12,21 @@ use std::path::{Path, PathBuf};
 use super::Editor;
 use crate::buffer::{Buffer, BufferId};
 use crate::rope::Rope;
+use crate::sum_tree::Bias;
+
+/// A column on a line, as what gave it counts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Column {
+    /// In characters, as a person counts them.
+    Chars(usize),
+    /// In UTF-8 bytes.
+    Utf8(usize),
+    /// In UTF-16 code units, the protocol's default.
+    Utf16(usize),
+}
 
 /// A file to go to a place in once a visit shows it, with the line and column.
-pub(super) type VisitPlace = (PathBuf, usize, super::Column);
+pub(super) type VisitPlace = (PathBuf, usize, Column);
 
 impl Editor {
     /// Asks the host to visit `path` in the selected window, reading at most `limit` bytes, as a
@@ -69,7 +81,7 @@ impl Editor {
     /// does, and once it shows, to go to `line`, from 1, and `column`, in characters from 0,
     /// each as far as the text goes, with the place before on the mark ring.
     pub fn request_visit_at(&mut self, path: PathBuf, limit: u64, line: usize, column: usize) {
-        self.request_visit_at_column(path, limit, line, super::Column::Chars(column));
+        self.request_visit_at_column(path, limit, line, Column::Chars(column));
     }
 
     /// As [`Editor::request_visit_at`], with the column as `column` counts it (ADR 0138).
@@ -78,7 +90,7 @@ impl Editor {
         path: PathBuf,
         limit: u64,
         line: usize,
-        column: super::Column,
+        column: Column,
     ) {
         self.request_visit(path.clone(), limit);
         self.visit_place = Some((path, line, column));
@@ -114,16 +126,30 @@ impl Editor {
         if buffer.loading().is_some() && row + 1 >= text.line_count() {
             return;
         }
-        let offset = super::servers::column_offset(text, row, *column);
+        let offset = column_offset(text, row, *column);
         self.visit_place = None;
         let index = self.selected;
         if index >= self.tiled_count() || self.windows[index].buffer() != id {
             return;
         }
+        let display = self.buffer(id).map(Buffer::display);
+        let target = display.map_or(offset, |display| {
+            crate::motion::cluster_start(&display, offset)
+        });
+        self.land_primary(index, target);
+    }
+
+    /// Leaves the primary cursor of the window at `index` alone at `target`, a cluster's start,
+    /// with the place before on the mark ring unless a region shows or it does not move, as
+    /// avy's jumps do (ADR 0116), and the window following it.
+    pub(super) fn land_primary(&mut self, index: usize, target: usize) {
         let selections = &mut self.windows[index].selections;
+        let from = selections.primary().cursor;
+        if !selections.mark_active().is_active() && from != target {
+            selections.push_primary_mark(from);
+        }
         selections.keep_primary();
-        selections.push_marks();
-        selections.move_primary(offset);
+        selections.move_primary(target);
         self.follow_window(index);
     }
 }
@@ -133,13 +159,19 @@ pub(super) fn file_identity(buffer: &Buffer) -> Option<(u64, u64)> {
     buffer.baseline()?.file?.identity
 }
 
-/// The offset of `column`, in characters from 0, on the line `row`, from 0, each as far as the
-/// text goes. O(log n), as the line may be 16 MiB long.
-pub(super) fn place_offset(text: &Rope, row: usize, column: usize) -> usize {
+/// The offset of `column` on the line `row`, from 0, each as far as the text goes. O(log n),
+/// as the line may be 16 MiB long.
+pub(super) fn column_offset(text: &Rope, row: usize, column: Column) -> usize {
     let row = row.min(text.line_count().saturating_sub(1));
     let (start, end) = (text.line_start(row), text.line_end(row));
-    let chars = text.chars_before(start).saturating_add(column);
-    text.char_to_offset(chars).min(end)
+    let offset = match column {
+        Column::Chars(chars) => text.char_to_offset(text.chars_before(start).saturating_add(chars)),
+        Column::Utf8(bytes) => text.clip_offset(start.saturating_add(bytes).min(end), Bias::Left),
+        Column::Utf16(units) => {
+            text.utf16_to_offset(text.offset_to_utf16(start).saturating_add(units))
+        }
+    };
+    offset.min(end)
 }
 
 #[cfg(test)]

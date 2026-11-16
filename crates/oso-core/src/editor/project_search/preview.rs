@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::buffer::BufferId;
 use crate::display_map::{DisplayMap, DisplayPoint, DisplaySnapshot, TabWidth};
-use crate::editor::visits::{file_identity, place_offset};
+use crate::editor::visits::{Column, column_offset, file_identity};
 use crate::editor::{Editor, MatchCells, Preview};
 use crate::frame::{self, CellRect};
 use crate::project::{CUT, LineQuery, cut_bounds, decoded_len, push_cut};
@@ -366,7 +366,11 @@ impl Editor {
     /// as far as its text goes, with that line about halfway down; nothing of it if it may hold
     /// secrets.
     fn buffer_preview(&self, id: BufferId, line: usize, column: usize) -> Option<Preview> {
-        let cursor = place_offset(self.buffer(id)?.text(), line.saturating_sub(1), column);
+        let cursor = column_offset(
+            self.buffer(id)?.text(),
+            line.saturating_sub(1),
+            Column::Chars(column),
+        );
         self.buffer_preview_at(id, cursor)
     }
 

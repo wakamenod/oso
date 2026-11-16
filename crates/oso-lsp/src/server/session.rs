@@ -68,7 +68,7 @@ enum Asked {
     Initialize,
     Shutdown,
     /// An ask of the UI's about a document (step 8).
-    Place(super::Ask),
+    Ask(super::Ask),
 }
 
 /// Where a stop the person asked for is: waiting for `shutdown`'s answer, for the process to
@@ -390,7 +390,7 @@ impl Session {
         if let Some((asked, _)) = run.overdue(now) {
             run.pending.retain(|_, (_, deadline)| *deadline > now);
             match asked {
-                Asked::Place(_) => {}
+                Asked::Ask(_) => {}
                 Asked::Initialize => {
                     return Some(End::Crashed(format!(
                         "did not answer initialize within {} s",

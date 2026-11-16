@@ -263,7 +263,9 @@ impl App {
                             }
                         }
                     }
-                    Op::Open { path, line } => self.agent_open(connection, path, line, reply),
+                    Op::Open { path, line } => {
+                        self.agent_open(connection, path, line, false, reply)
+                    }
                     // Each replies when it can: at once, after a job, or after the person's
                     // answer and what it started (ADR 0121, step 6).
                     Op::Session(call) => self.session_tool(connection, call, reply),
@@ -468,13 +470,11 @@ impl App {
             *bytes += text.len();
         }
         let newest = self.editor.prompts().last().map(|prompt| prompt.id());
-        // An ask it makes of a language server is answered later: the answer opens for it.
-        self.servers.asking_agent = Some(connection);
         let ran = self
             .dispatcher
             .run_for_agent(&mut self.editor, name, given, reach);
-        self.sync_servers();
-        self.servers.asking_agent = None;
+        // An ask it made of a language server is the agent's: its answer opens for it.
+        self.sync_servers_for(Some(connection));
         let (effects, result) = match ran {
             Ok(ran) => ran,
             Err(refused) => {
@@ -516,6 +516,12 @@ impl App {
     }
 
     /// Why the channel may run nothing now, if it may not.
+    /// Whether `connection` is still let in, with the channel on: what was asked for it may
+    /// still happen.
+    pub(in crate::app) fn agent_connected(&self, connection: Connection) -> bool {
+        self.agent.channel.is_some() && self.agent.connected.contains(&connection)
+    }
+
     pub(super) fn agent_waits(&self) -> Option<&'static str> {
         let prompts = self.editor.prompts();
         waits(&Now {

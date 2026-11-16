@@ -65,26 +65,61 @@ fn a_place_follows_edits_and_goes_with_its_buffer() {
 }
 
 #[test]
-fn a_column_is_read_as_its_source_counts_it() {
-    // `é` is two bytes, one UTF-16 unit; `😀` four bytes, two units.
-    let text = Rope::from("x\né😀z\n");
-    let line = text.line_start(1);
-    assert_eq!(column_offset(&text, 1, Column::Chars(2)), line + 6);
-    assert_eq!(column_offset(&text, 1, Column::Utf8(6)), line + 6);
+fn an_undo_moves_a_place_back_as_the_edit_moved_it() {
+    let mut editor = Editor::with_buffer(Buffer::from_text("a.rs", "abc def\n"));
+    let a = editor.window().buffer();
+    editor.buffer_mut(a).unwrap().set_followed(true);
+    let b = editor.add_buffer(Buffer::from_text("b.rs", "xyz\n"));
+    editor.current_mut().0.selections = crate::selection::SelectionSet::new(4);
+    editor.jump_to_place(b, 1);
+    editor.show(a);
+    crate::editor::edit_tests::plain_edit(&mut editor, a, 0..0, "// ");
+    editor.undo().unwrap();
+    editor.show(b);
+    assert_eq!(editor.jump_back(), Ok(()));
+    assert_eq!(cursor(&editor), (a, 4), "the undo took the place back");
+}
+
+#[test]
+fn a_region_keeps_its_mark_and_a_jump_to_where_the_cursor_is_does_nothing() {
+    use crate::selection::{MarkActive, SelectionSet};
+    let mut editor = Editor::with_buffer(Buffer::from_text("a.rs", "abcdefgh\n"));
+    let a = editor.window().buffer();
+    let mut set = SelectionSet::new(5);
+    set.push_primary_mark(1);
+    set.set_mark_active(MarkActive::Active);
+    editor.current_mut().0.selections = set;
+    editor.jump_to_place(a, 7);
+    let primary = editor.window().selections.primary();
     assert_eq!(
-        column_offset(&text, 1, Column::Utf8(3)),
-        line + 2,
-        "back to a character's start"
+        (primary.cursor, primary.mark),
+        (7, Some(1)),
+        "the region's start stays"
     );
-    assert_eq!(column_offset(&text, 1, Column::Utf16(3)), line + 6);
+    editor.jump_to_place(a, 7);
     assert_eq!(
-        column_offset(&text, 1, Column::Utf16(99)),
-        line + 7,
-        "as far as the line goes"
+        editor.window().jumps().len(),
+        (1, 0),
+        "no place for a jump that stays"
+    );
+}
+
+#[test]
+fn the_agent_goes_back_to_no_buffer_it_may_not_be_shown() {
+    let mut editor = Editor::with_buffer(Buffer::from_text("a.rs", "abc\n"));
+    let a = editor.window().buffer();
+    let b = editor.add_buffer(Buffer::from_text("b.rs", "xyz\n"));
+    editor.jump_to_place(b, 1);
+    assert!(editor.buffer_mut(a).unwrap().treat_as_secret());
+    assert_eq!(
+        editor.for_agent(Editor::jump_back),
+        Err("That place's buffer is not for the agent")
     );
     assert_eq!(
-        column_offset(&text, 9, Column::Chars(0)),
-        text.len(),
-        "the last line"
+        editor.window().jumps().len(),
+        (1, 0),
+        "the history is as it was"
     );
+    assert_eq!(editor.jump_back(), Ok(()), "the person may");
+    assert_eq!(cursor(&editor).0, a);
 }

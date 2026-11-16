@@ -71,7 +71,7 @@ impl App {
             .filter(|(id, buffer)| {
                 !self.starting.settled.contains(id)
                     && buffer.path().is_some()
-                    && buffer.project().is_some()
+                    && (buffer.project().is_some() || self.joined_a_server(*id))
                     && buffer.loading().is_none()
                     && !buffer.agent_pending()
                     && !buffer.is_internal()

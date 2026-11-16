@@ -1468,16 +1468,23 @@ with nothing asked (Q7); and the public items below (Q8).
     echo area.
 - **`oso-core`:**
   - `window::jumps` keeps 64 places back, each a buffer and an offset, and the way forward,
-    which a new jump empties. `Window::show` carries it over, as it does the places. An edit's
-    steps move its offsets as markers (`Editor::apply_edits`); a sliced undo's crossing and a
-    reload leave them, and going there clips them to the text and to a cluster's start. A
-    killed buffer's places go. `Debug` gives counts.
+    which a new jump empties. `Window::show` carries it over, as it does the places. Each
+    edit, sliced undo and reload moves its offsets as markers, in one pass over the edits
+    whatever the number of places, on the stack: an edit's steps (`Editor::apply_edits`), the
+    batch a crossing's step made as the buffer's log has it (one that keeps none leaves them),
+    and a reload's change as the cursors take it. Going there clips them to the text and to a
+    cluster's start. A killed buffer's places go. `Debug` gives counts.
   - `Editor::jump_to_place` and `jump_visit` keep the place left in the selected window's
-    history and on its mark ring, then go with one cursor, the place before on the target's
-    mark ring; `jump_back` and `jump_forward` say `No earlier place` and `No later place`.
-    `keep_jump_start` keeps the place for a jump the host makes in its own way, as the agent's.
-    `request_visit_at_column` visits at a column in characters, UTF-8 bytes or UTF-16 units
-    (`Column`), so a line and column of the server's land once the file has loaded.
+    history and, unless a region shows, on its mark ring, as avy's jumps do
+    ([ADR 0116](0116-migemo-and-jumps.md)); a jump to where the cursor is keeps nothing. They
+    land one cursor on a cluster's start, the place before on the target's mark ring, the rule
+    a visit at a place now shares (`Editor::land_primary`). `jump_back` and `jump_forward`
+    change the history only once the place is there, and say `No earlier place` and `No later
+    place`; for the agent they refuse a buffer it may not be shown, as one that may hold
+    secrets, is withheld, or is loading. `keep_jump_start` keeps the place for a jump the host
+    makes in its own way, as the agent's. `request_visit_at_column` visits at a column in
+    characters, UTF-8 bytes or UTF-16 units (`editor::Column`, with the visits), so a line and
+    column of the server's land once the file has loaded.
   - `ServerRequest::{Definition, References}` carry `At`: the buffer, its revision, the primary
     cursor, and whether the agent's command asked (`Editor::ask_at`).
 - **The tip crate:**
@@ -1491,19 +1498,27 @@ with nothing asked (Q7); and the public items below (Q8).
     found`; one goes there; several go to the first and say `1 of 3` until 8b's float. A place
     in an open document is mapped through the buffer's edits since; any other is visited as
     `C-x C-f` would, at the server's line and column, so a name that may hold secrets opens as
-    such a buffer, with no server.
-  - **Joining:** a place's file joins the server that gave it when its buffer, now or once it
-    loads, is in no project: `Running::joined` holds its path, and it is the server's as a
-    file of its project is, so it opens with it, gets its modeline mark and its `lsp` layer,
-    and `M-.` there asks the same server. It starts no server of its own. It leaves when its
-    document closes, as when its buffer is killed. A file of another project follows that
+    such a buffer, with no server. An answer goes only while nothing moved since the ask: the
+    same window selected, showing the same buffer at the same revision with the primary cursor
+    where it was, and no prompt or isearch open. The places go to the freeing thread.
+  - **Joining:** a place's file joins the server that gave it by its buffer, once project
+    detection has said that buffer is in no project: at once for an open one, or when the
+    answer for a new visit comes (`App::projects_known`), as `Buffer::project` alone cannot
+    tell "not found yet" from "none". It is then the server's as a file of its project is: its
+    open is settled again, so ADR 0118 holds the agent's, and it opens with the server, gets
+    its modeline mark and its `lsp` layer, and `M-.` there asks the same server. It starts no
+    server of its own. One buffer joins one server; a server holds at most 64 joined, and 16
+    files waiting for their project. It leaves when its document closes, as when its buffer is
+    killed. A name that may hold secrets joins nothing. A file of another project follows that
     project's rules, and one outside any project visited by hand joins nothing, as in Eglot.
-  - **The agent's ask:** the app keeps the connection while the agent's command runs, and its
-    answer opens through the channel's `open`, at the place's line: a name that may hold
-    secrets is refused, and `*Agent*` says so; the file shows once judged ordinary, counts
-    toward the connection's 100, and is the agent's, so its open with the server waits for the
-    person (ADR 0118). Its reply went when the command ran, so what the open says goes to
-    `*Agent*`.
+  - **The agent's ask:** the connection whose command ran goes with the asks it made
+    (`App::sync_servers_for`); an agent's ask with none is dropped, never taken as the
+    person's. Its answer is dropped once the connection or the channel is gone, and otherwise
+    opens through the channel's `open`, at the place's line: a name that may hold secrets is
+    refused, and `*Agent*` says so; the file shows once judged ordinary, counts toward the
+    connection's 100, and is the agent's, so its open with the server waits for the person
+    (ADR 0118). The place left is kept only as the file shows. Its reply went when the command
+    ran, so what the open says, a refusal too, goes to `*Agent*`.
 - **Public API:** `oso-core`: `window::{Jumps, JUMPS_MAX}`, `Window::jumps`,
   `Editor::{ask_at, jump_to_place, jump_visit, jump_back, jump_forward, keep_jump_start,
   request_visit_at_column}`, `editor::{At, Column}`, `ServerRequest::{Definition,
@@ -1517,6 +1532,12 @@ with nothing asked (Q7); and the public items below (Q8).
   10 s wait and a crash each failing the ask; an ask with no server running. Dispatcher tests
   of the keys, and the end-to-end flow `lsp.rs`
   (`a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins`).
+- **From this step's reviews:** the history follows undos and reloads, in one pass; the
+  mark ring follows avy's rule; stale answers, and an agent's whose connection went, are
+  dropped; joining goes by buffer, once its project is known to be none, through the settling
+  of opens, with bounds; the session thread looks the documents up once an answer; a replaced
+  answer is freed outside the outbox's lock; `Column` and its offset went to the visits, and a
+  visit at a place lands on a cluster's start too.
 - **Left for 8b:** the float with a preview for several definitions, `M-?`
   (`lsp-find-references`), its rows read on a worker, and the excerpt reader made to read any
   absolute path.

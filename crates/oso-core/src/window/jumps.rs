@@ -7,9 +7,10 @@
 //!
 //! - It holds [`JUMPS_MAX`] places back; past that, the oldest goes. A new jump empties the way
 //!   forward.
-//! - A place is a buffer and an offset, which follows the edits a window's cursors follow
-//!   ([`Jumps::follow`]); an edit the history does not see, such as a sliced undo's, leaves the
-//!   offset as it was, and going there clips it to the text.
+//! - A place is a buffer and an offset, which follows each edit, undo and reload of its buffer
+//!   as a marker, in one pass over the edits ([`Jumps::follow`], [`Jumps::map`]); a sliced
+//!   undo whose batch the buffer does not keep leaves it, and going there clips it to the text
+//!   and to a display cluster's start.
 //! - A killed buffer's places go.
 //! - `Debug` gives counts only: an offset tells how long words are in a buffer that may hold
 //!   secrets.
@@ -19,7 +20,7 @@ use std::fmt;
 
 use super::Window;
 use crate::buffer::BufferId;
-use crate::selection::{OffsetEdit, follow_offset};
+use crate::selection::{OffsetEdit, follow_sorted};
 use crate::sum_tree::Bias;
 
 /// The most places a window's history keeps back.
@@ -69,6 +70,15 @@ impl Jumps {
         Some(place)
     }
 
+    /// The nearest place back, or forward, without taking it.
+    pub(crate) fn nearest(&self, forward: bool) -> Option<(BufferId, usize)> {
+        if forward {
+            self.forward.last().copied()
+        } else {
+            self.back.back().copied()
+        }
+    }
+
     /// Lets the places in `buffer` go, as it is killed.
     pub(crate) fn forget(&mut self, buffer: BufferId) {
         self.back.retain(|(kept, _)| *kept != buffer);
@@ -76,15 +86,55 @@ impl Jumps {
     }
 
     /// Moves the places in `buffer` through `steps`, each a step's edits, as an Emacs marker:
-    /// a place at an insertion stays before it.
+    /// a place at an insertion stays before it. One pass over each step's edits, whatever the
+    /// number of places: O(edits + places log places).
     pub(crate) fn follow(&mut self, buffer: BufferId, steps: &[Vec<OffsetEdit>]) {
-        let places = self.back.iter_mut().chain(self.forward.iter_mut());
-        for (kept, offset) in places {
-            if *kept == buffer {
-                for edits in steps {
-                    *offset = follow_offset(*offset, edits, Bias::Left);
-                }
+        self.map_sorted(buffer, |offsets| {
+            for edits in steps {
+                follow_sorted(offsets, edits, Bias::Left);
             }
+        });
+    }
+
+    /// Moves each place in `buffer` through `map`, as a reload moves a cursor.
+    pub(crate) fn map(&mut self, buffer: BufferId, mut map: impl FnMut(usize) -> usize) {
+        self.map_sorted(buffer, |offsets| {
+            for offset in offsets {
+                *offset = map(*offset);
+            }
+        });
+    }
+
+    /// Gives `change` the offsets of the places in `buffer`, ascending, on the stack, and puts
+    /// back what it made of them.
+    fn map_sorted(&mut self, buffer: BufferId, change: impl FnOnce(&mut [usize])) {
+        let mut order = [(0usize, 0usize); 2 * JUMPS_MAX];
+        let mut len = 0;
+        let back = self.back.len();
+        let places = self.back.iter().chain(self.forward.iter()).enumerate();
+        for (index, (kept, offset)) in places {
+            if *kept == buffer && len < order.len() {
+                order[len] = (*offset, index);
+                len += 1;
+            }
+        }
+        if len == 0 {
+            return;
+        }
+        let order = &mut order[..len];
+        order.sort_unstable();
+        let mut offsets = [0usize; 2 * JUMPS_MAX];
+        for (slot, (offset, _)) in offsets.iter_mut().zip(order.iter()) {
+            *slot = *offset;
+        }
+        change(&mut offsets[..len]);
+        for (offset, (_, index)) in offsets.iter().zip(order.iter()) {
+            let place = if *index < back {
+                &mut self.back[*index]
+            } else {
+                &mut self.forward[*index - back]
+            };
+            place.1 = *offset;
         }
     }
 

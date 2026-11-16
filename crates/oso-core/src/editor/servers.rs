@@ -11,8 +11,7 @@ mod jumps;
 
 use crate::buffer::{Buffer, BufferId};
 
-pub(super) use jumps::column_offset;
-pub use jumps::{At, Column};
+pub use jumps::At;
 
 use super::Editor;
 use super::messages::Keep;

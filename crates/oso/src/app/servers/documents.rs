@@ -80,9 +80,9 @@ fn may_be_sent(buffer: &Buffer) -> bool {
 
 /// Whether `buffer` may be opened with `running`'s server: it may be sent, and is in the
 /// server's project and mode. Its URI, if so.
-fn fits(buffer: &Buffer, running: &Running) -> Option<String> {
+fn fits(id: BufferId, buffer: &Buffer, running: &Running) -> Option<String> {
     let fits = may_be_sent(buffer)
-        && belongs(buffer, running)
+        && belongs(id, buffer, running)
         && running.entry.modes.contains(&buffer.mode());
     if !fits {
         return None;
@@ -90,10 +90,10 @@ fn fits(buffer: &Buffer, running: &Running) -> Option<String> {
     oso_lsp::uri::from_path(buffer.path()?)
 }
 
-/// Whether `buffer` is the server's to have, by where its file is: in its project, or outside
-/// any and joined to it by a jump (step 8).
-fn belongs(buffer: &Buffer, running: &Running) -> bool {
-    buffer.project() == Some(running.project) || super::places::joins(buffer, &running.joined)
+/// Whether `buffer`, `id`, is the server's to have, by where its file is: in its project, or
+/// outside any and joined to it by a jump (step 8).
+fn belongs(id: BufferId, buffer: &Buffer, running: &Running) -> bool {
+    buffer.project() == Some(running.project) || super::places::joins(id, buffer, running)
 }
 
 /// Whether the agent opened `buffer`, and the person has not let its open go (ADR 0118): only
@@ -107,7 +107,7 @@ impl App {
     pub(super) fn running_for(&self, id: BufferId) -> Option<usize> {
         let buffer = self.editor.buffer(id)?;
         self.servers.running.iter().position(|running| {
-            belongs(buffer, running) && running.entry.modes.contains(&buffer.mode())
+            belongs(id, buffer, running) && running.entry.modes.contains(&buffer.mode())
         })
     }
 
@@ -125,7 +125,7 @@ impl App {
                 !running.stopping
                     && running.state != oso_lsp::server::State::NotStarted
                     && !running.documents.contains_key(&id)
-                    && fits(buffer, running).is_some()
+                    && fits(id, buffer, running).is_some()
             }
             None => may_be_sent(buffer) && self.would_start_server(id),
         }
@@ -176,7 +176,7 @@ impl App {
         let Some(buffer) = self.editor.buffer(id) else {
             return;
         };
-        let Some(uri) = fits(buffer, running) else {
+        let Some(uri) = fits(id, buffer, running) else {
             return;
         };
         let (path, mode) = (
@@ -228,17 +228,20 @@ impl App {
         let mut unfollow = Vec::new();
         let editor = &self.editor;
         for running in &mut self.servers.running {
+            // A buffer that joined leaves with its document, or once killed (step 8).
+            running.joined.retain(|id| editor.buffer(id).is_some());
             if running.documents.is_empty() {
                 continue;
             }
             let mut gone = Vec::new();
             let mut seen = 0;
             for (id, buffer) in editor.buffers() {
-                let belongs = belongs(buffer, running);
                 let Some(open) = running.documents.get_mut(&id) else {
                     continue;
                 };
                 seen += 1;
+                let belongs = buffer.project() == Some(running.project)
+                    || (buffer.project().is_none() && running.joined.has(id));
                 if buffer.path() != Some(open.path.as_path()) {
                     // Another file, as after the person's `C-x C-w`: its open is settled again
                     // once its project is known, as a new visit's is.
@@ -281,10 +284,8 @@ impl App {
                 );
             }
             for id in gone {
-                // A file that joined leaves with its document (step 8).
-                if let Some(open) = running.documents.remove(&id) {
-                    running.joined.remove(&open.path);
-                }
+                running.documents.remove(&id);
+                running.joined.forget(id);
                 running.server.close(id.get());
                 unfollow.push(id);
             }

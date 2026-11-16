@@ -30,7 +30,8 @@ impl Session {
     /// An ask during a run: a request, or an answer at once saying why not.
     pub(super) fn ask(&mut self, run: &mut Run, ask: Ask) -> Result<(), String> {
         if !run.ready || run.stopping.is_some() {
-            let why = if run.ready {
+            // A run asked to stop before it was ready is not starting.
+            let why = if run.ready || run.stopping.is_some() {
                 NOT_RUNNING
             } else {
                 "it is starting"
@@ -49,9 +50,7 @@ impl Session {
         };
         // The older of its kind for the document is moot.
         let older = run.pending.iter().find_map(|(id, (asked, _))| match asked {
-            Asked::Place(kept) if (kept.document, kept.kind) == (ask.document, ask.kind) => {
-                Some(*id)
-            }
+            Asked::Ask(kept) if (kept.document, kept.kind) == (ask.document, ask.kind) => Some(*id),
             _ => None,
         });
         if let Some(older) = older {
@@ -67,12 +66,7 @@ impl Session {
             ask.kind.method(),
             run.next_id
         ));
-        run.request(
-            Asked::Place(ask),
-            ask.kind.method(),
-            params,
-            DEFINITION_WAIT,
-        )
+        run.request(Asked::Ask(ask), ask.kind.method(), params, DEFINITION_WAIT)
     }
 
     /// The answer to `ask`, request `id`, which was due by `deadline`.
@@ -106,12 +100,14 @@ impl Session {
         drop(result);
         let mut locations = Vec::with_capacity(located.len());
         let mut unread = left;
+        // One look at the documents for the whole answer, not one for each of its places.
+        let sent = self.documents.sent_by_path();
         for place in located {
             let Some(path) = uri::to_path(&place.uri) else {
                 unread += 1;
                 continue;
             };
-            let target = match self.documents.sent_at(&path) {
+            let target = match sent.get(path.as_path()).copied() {
                 Some((document, revision, text)) => Target::Open {
                     document,
                     revision,
@@ -125,9 +121,12 @@ impl Session {
             };
             locations.push(Location { path, target });
         }
+        let count = match locations.len() {
+            1 => "1 place".to_owned(),
+            count => format!("{count} places"),
+        };
         self.reporter.log(format!(
-            "request {id} answered with {} places in {took} ms{}",
-            locations.len(),
+            "request {id} answered with {count} in {took} ms{}",
             if unread > 0 {
                 format!(", {unread} more left out")
             } else {
@@ -164,7 +163,7 @@ impl Session {
             .pending
             .drain()
             .filter_map(|(_, (asked, _))| match asked {
-                Asked::Place(ask) => Some(ask),
+                Asked::Ask(ask) => Some(ask),
                 _ => None,
             })
             .collect();

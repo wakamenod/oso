@@ -197,20 +197,26 @@ impl Reporter {
         self.due = true;
     }
 
-    /// Wakes the UI if something waits and the interval has passed. Returns how long until it
-    /// may, if something still waits.
     /// An answer to an ask, which wakes the UI at once: a person waits for it. At most one of
-    /// each kind waits for each document, the latest, as a newer ask makes the older moot.
+    /// each kind waits for each document, the latest, as a newer ask makes the older moot; the
+    /// older is dropped once the lock is let go, as it can hold 1000 paths.
     pub(super) fn answer(&mut self, answer: Answer) {
-        self.outbox.with(|waiting| {
-            waiting
+        let older = self.outbox.with(|waiting| {
+            let key = (answer.document, answer.kind);
+            let older = waiting
                 .answers
-                .retain(|kept| (kept.document, kept.kind) != (answer.document, answer.kind));
+                .iter()
+                .position(|kept| (kept.document, kept.kind) == key)
+                .map(|at| waiting.answers.swap_remove(at));
             waiting.answers.push(answer);
+            older
         });
+        drop(older);
         self.wake_now();
     }
 
+    /// Wakes the UI if something waits and the interval has passed. Returns how long until it
+    /// may, if something still waits.
     pub(super) fn flush(&mut self, now: Instant) -> Option<Duration> {
         if !self.due {
             return None;

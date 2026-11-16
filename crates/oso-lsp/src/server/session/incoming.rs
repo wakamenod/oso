@@ -118,7 +118,7 @@ impl Session {
                 return Err(format!("refused initialize: {message} ({code})"));
             }
             (Asked::Shutdown, _) => run.exit(now),
-            (Asked::Place(ask), outcome) => self.answered(run, (id, ask), outcome, deadline, now),
+            (Asked::Ask(ask), outcome) => self.answered(run, (id, ask), outcome, deadline, now),
         }
         Ok(())
     }

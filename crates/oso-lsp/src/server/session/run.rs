@@ -88,12 +88,12 @@ impl Run {
         let ids: Vec<i64> = self
             .pending
             .iter()
-            .filter(|(_, (asked, deadline))| matches!(asked, Asked::Place(_)) && *deadline <= now)
+            .filter(|(_, (asked, deadline))| matches!(asked, Asked::Ask(_)) && *deadline <= now)
             .map(|(id, _)| *id)
             .collect();
         ids.into_iter()
             .filter_map(|id| match self.pending.remove(&id) {
-                Some((Asked::Place(ask), _)) => Some((id, ask)),
+                Some((Asked::Ask(ask), _)) => Some((id, ask)),
                 _ => None,
             })
             .collect()

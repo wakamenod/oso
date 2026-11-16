@@ -190,7 +190,7 @@ pub struct Report {
     pub documents: Vec<(u64, Option<Closed>)>,
     /// Diagnostics reported since the last report, the latest of each document.
     pub diagnostics: Vec<Diagnosed>,
-    /// Answers to [`Server::ask`], in the order they came (step 8).
+    /// Answers to [`Server::ask`], the latest of each document and kind (step 8).
     pub answers: Vec<Answer>,
 }
 

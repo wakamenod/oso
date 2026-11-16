@@ -12,22 +12,11 @@
 use std::path::PathBuf;
 
 use crate::buffer::BufferId;
-use crate::rope::Rope;
 use crate::selection::OffsetEdit;
 use crate::sum_tree::Bias;
 
 use super::super::Editor;
-
-/// A column on a line, as what gave it counts.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Column {
-    /// In characters, as a person counts them.
-    Chars(usize),
-    /// In UTF-8 bytes.
-    Utf8(usize),
-    /// In UTF-16 code units, the protocol's default.
-    Utf16(usize),
-}
+use super::super::visits::Column;
 
 /// Where an ask about a buffer is: its primary cursor in the selected window, in the text of
 /// `revision`, and whether the agent's command asked.
@@ -52,13 +41,17 @@ impl Editor {
     }
 
     /// Jumps the selected window to `offset` in `buffer`, an open buffer, clipped to its text
-    /// and to a display cluster's start. Does nothing for a buffer that does not exist.
+    /// and to a display cluster's start. Does nothing for a buffer that does not exist, or a
+    /// jump to where the primary cursor is.
     pub fn jump_to_place(&mut self, buffer: BufferId, offset: usize) {
-        if self.buffer(buffer).is_none() {
+        let Some(target) = self.place_in(buffer, offset) else {
+            return;
+        };
+        if self.here() == (buffer, target) {
             return;
         }
         self.keep_jump_start();
-        self.go_to(buffer, offset);
+        self.go_to(buffer, target);
     }
 
     /// Jumps the selected window to `line`, from 1, and `column` in `path`, visited as
@@ -70,30 +63,88 @@ impl Editor {
 
     /// `M-,`: back to the nearest place in the selected window's history. `Err` says why not.
     pub fn jump_back(&mut self) -> Result<(), &'static str> {
-        let here = self.here();
-        let place = self.windows[self.selected]
-            .jumps_mut()
-            .back(here)
-            .ok_or("No earlier place")?;
-        self.go_to(place.0, place.1);
-        Ok(())
+        self.walk_jumps(false)
     }
 
     /// `C-M-,`: forward again to the place the last `M-,` left. `Err` says why not.
     pub fn jump_forward(&mut self) -> Result<(), &'static str> {
+        self.walk_jumps(true)
+    }
+
+    /// Goes to the nearest place `forward` or back, the history changed only once it can. The
+    /// agent goes to no buffer it may not be shown (ADR 0094).
+    fn walk_jumps(&mut self, forward: bool) -> Result<(), &'static str> {
+        let none = if forward {
+            "No later place"
+        } else {
+            "No earlier place"
+        };
+        let (buffer, offset) = self.windows[self.selected]
+            .jumps()
+            .nearest(forward)
+            .ok_or(none)?;
+        let shown = self.buffer(buffer).ok_or(none)?;
+        if self.runs_for_agent()
+            && (shown.is_secret()
+                || shown.withheld_from_agents()
+                || shown.agent_pending()
+                || shown.loading().is_some())
+        {
+            return Err("That place's buffer is not for the agent");
+        }
+        let target = self.place_in(buffer, offset).ok_or(none)?;
         let here = self.here();
-        let place = self.windows[self.selected]
-            .jumps_mut()
-            .forward(here)
-            .ok_or("No later place")?;
-        self.go_to(place.0, place.1);
+        let jumps = self.windows[self.selected].jumps_mut();
+        if forward {
+            jumps.forward(here);
+        } else {
+            jumps.back(here);
+        }
+        self.go_to(buffer, target);
         Ok(())
     }
 
     /// Moves the places in `buffer` of every window's history through an edit's `steps`.
-    pub(in crate::editor) fn jumps_follow(&mut self, buffer: BufferId, steps: &[Vec<OffsetEdit>]) {
+    pub(in crate::editor) fn follow_jump_history(
+        &mut self,
+        buffer: BufferId,
+        steps: &[Vec<OffsetEdit>],
+    ) {
         for window in &mut self.windows {
             window.jumps_mut().follow(buffer, steps);
+        }
+    }
+
+    /// Moves the places in `buffer` through what a sliced undo's step did since `before`, as
+    /// the batch the buffer keeps says; a buffer that keeps none leaves them (ADR 0119).
+    pub(in crate::editor) fn jumps_cross(&mut self, buffer: BufferId, before: u64) {
+        let Some(splices) = self
+            .buffer(buffer)
+            .and_then(|shown| shown.edits_since(before))
+        else {
+            return;
+        };
+        let mut edits: Vec<OffsetEdit> = splices
+            .iter()
+            .map(|splice| OffsetEdit {
+                start: splice.start,
+                old_len: splice.old_len,
+                new_len: splice.new_len,
+            })
+            .collect();
+        edits.sort_unstable_by_key(|edit| edit.start);
+        self.follow_jump_history(buffer, &[edits]);
+    }
+
+    /// Moves the places in `buffer` of every window's history through `map`, as a reload
+    /// moves the cursors.
+    pub(in crate::editor) fn map_jump_history(
+        &mut self,
+        buffer: BufferId,
+        mut map: impl FnMut(usize) -> usize,
+    ) {
+        for window in &mut self.windows {
+            window.jumps_mut().map(buffer, &mut map);
         }
     }
 
@@ -102,52 +153,37 @@ impl Editor {
         (window.buffer(), window.selections.primary().cursor)
     }
 
-    /// Keeps the selected window's place in its history and on its mark ring, as a jump
-    /// leaves it: for a jump the host makes in its own way, as the agent channel's open.
+    /// Keeps the selected window's place in its history, and on its mark ring unless a region
+    /// shows, as avy's jumps do (ADR 0116): for a jump the host makes in its own way, as the
+    /// agent channel's open.
     pub fn keep_jump_start(&mut self) {
         let here = self.here();
         let window = &mut self.windows[self.selected];
         window.jumps_mut().push(here);
-        window.selections.push_marks();
+        if !window.selections.mark_active().is_active() {
+            window.selections.push_primary_mark(here.1);
+        }
     }
 
-    /// Shows `buffer` in the selected window with one cursor at `offset`, the place before on
-    /// its mark ring.
-    fn go_to(&mut self, buffer: BufferId, offset: usize) {
-        let Some(shown) = self.buffer(buffer) else {
-            return;
-        };
-        let display = shown.display();
-        let target =
-            crate::motion::cluster_start(&display, shown.text().clip_offset(offset, Bias::Left));
+    /// `offset` in `buffer` as far as its text goes, on a display cluster's start.
+    fn place_in(&self, buffer: BufferId, offset: usize) -> Option<usize> {
+        let shown = self.buffer(buffer)?;
+        let clipped = shown.text().clip_offset(offset, Bias::Left);
+        Some(crate::motion::cluster_start(&shown.display(), clipped))
+    }
+
+    /// Shows `buffer` in the selected window and lands its primary cursor, alone, at `target`,
+    /// a cluster's start, as a visit at a place lands.
+    fn go_to(&mut self, buffer: BufferId, target: usize) {
         let index = self.selected;
         if self.windows[index].buffer() != buffer {
             self.show(buffer);
             if self.windows[index].buffer() != buffer {
                 return;
             }
-            self.windows[index].selections.push_marks();
         }
-        let selections = &mut self.windows[index].selections;
-        selections.keep_primary();
-        selections.move_primary(target);
-        self.follow_window(index);
+        self.land_primary(index, target);
     }
-}
-
-/// The offset of `column` on the line `row`, from 0, each as far as the text goes. O(log n),
-/// as the line may be 16 MiB long.
-pub(in crate::editor) fn column_offset(text: &Rope, row: usize, column: Column) -> usize {
-    let row = row.min(text.line_count().saturating_sub(1));
-    let (start, end) = (text.line_start(row), text.line_end(row));
-    let offset = match column {
-        Column::Chars(chars) => text.char_to_offset(text.chars_before(start).saturating_add(chars)),
-        Column::Utf8(bytes) => text.clip_offset(start.saturating_add(bytes).min(end), Bias::Left),
-        Column::Utf16(units) => {
-            text.utf16_to_offset(text.offset_to_utf16(start).saturating_add(units))
-        }
-    };
-    offset.min(end)
 }
 
 #[cfg(test)]

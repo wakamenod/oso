@@ -34,6 +34,8 @@ pub(in crate::app) struct Opening {
     /// The file name asked for, which the file found must have.
     name: Option<std::ffi::OsString>,
     line: Option<usize>,
+    /// A jump of the agent's `M-.`: the place left is kept as the file shows (ADR 0138).
+    jump: bool,
     reply: mpsc::Sender<Reply>,
     /// When it was asked for: a load that takes longer than the reply may wait is dropped,
     /// so that nothing shows after the agent was told it failed.
@@ -45,12 +47,14 @@ const OPEN_WITHIN: std::time::Duration = std::time::Duration::from_secs(8);
 
 impl App {
     /// Starts visiting `path` for `connection`, unshown; the reply goes once it is shown or
-    /// dropped.
+    /// dropped. With `jump`, the selected window's place is kept in its history of jumps and
+    /// on its mark ring as the file shows, as the agent's `M-.` does (ADR 0138).
     pub(in crate::app) fn agent_open(
         &mut self,
         connection: Connection,
         path: PathBuf,
         line: Option<usize>,
+        jump: bool,
         reply: mpsc::Sender<Reply>,
     ) {
         let refused = |why: &str| {
@@ -68,7 +72,7 @@ impl App {
             .find(|(_, buffer)| !buffer.agent_pending() && buffer.path() == Some(path.as_path()))
             .map(|(id, _)| id);
         if let Some(open) = open {
-            let _ = reply.send(self.show_open_for_agent(open, line));
+            let _ = reply.send(self.show_open_for_agent(open, line, jump));
             return;
         }
         if self.agent.opening.len() >= MAX_OPENING {
@@ -93,6 +97,7 @@ impl App {
             connection,
             name,
             line,
+            jump,
             reply,
             asked: std::time::Instant::now(),
         });
@@ -139,7 +144,7 @@ impl App {
                     if let Some(opened) = self.agent.opened.get_mut(&opening.connection) {
                         *opened = opened.saturating_sub(1);
                     }
-                    self.show_open_for_agent(open, opening.line)
+                    self.show_open_for_agent(open, opening.line, opening.jump)
                 }
                 Next::Show => self.show_agents_file(&opening),
             };
@@ -168,7 +173,7 @@ impl App {
     /// Shows `open`, a buffer that already holds the file the agent asked for, at `line`, if
     /// it may be shown: judged ordinary, read, and the person not in the middle of something.
     /// Its mark stays as it is: a buffer the person visited stays theirs (ADR 0094).
-    fn show_open_for_agent(&mut self, open: BufferId, line: Option<usize>) -> Reply {
+    fn show_open_for_agent(&mut self, open: BufferId, line: Option<usize>, jump: bool) -> Reply {
         let refused = match self.editor.buffer(open) {
             None => Some("the file could not be opened"),
             Some(buffer) => reusable(buffer),
@@ -177,7 +182,7 @@ impl App {
             self.agent_log("open: refused");
             return Err(why.into());
         }
-        self.show_for_agent(open, line)
+        self.show_for_agent(open, line, jump)
     }
 
     /// Shows a file the channel opened, which is judged ordinary and read, and goes to its
@@ -191,14 +196,17 @@ impl App {
         if let Some(buffer) = self.editor.buffer_mut(opening.buffer) {
             buffer.set_agent_pending(false);
         }
-        self.show_for_agent(opening.buffer, opening.line)
+        self.show_for_agent(opening.buffer, opening.line, opening.jump)
     }
 
     /// Shows `buffer` for the agent, at `line` if given, and replies with it. `goto-line`
     /// leaves one cursor, as it does for the person, so in a buffer the person already had open
     /// it ends their several cursors there.
-    fn show_for_agent(&mut self, buffer: BufferId, line: Option<usize>) -> Reply {
+    fn show_for_agent(&mut self, buffer: BufferId, line: Option<usize>, jump: bool) -> Reply {
         let before = self.editor.view_sample();
+        if jump {
+            self.editor.keep_jump_start();
+        }
         self.editor.show(buffer);
         if let Some(line) = line {
             let line = isize::try_from(line).unwrap_or(isize::MAX);
@@ -531,6 +539,7 @@ mod tests {
             connection: Connection { run: 1, number: 1 },
             name: None,
             line: None,
+            jump: false,
             reply,
             asked: std::time::Instant::now(),
         }];

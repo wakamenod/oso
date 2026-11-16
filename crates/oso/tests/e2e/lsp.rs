@@ -516,6 +516,10 @@ fn a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins() {
             {"method": "textDocument/definition", "nth": 2, "do": [
                 {"reply": [{"uri": there, "range": range(1, 7)}, {"uri": here, "range": range(0, 3)}]}
             ]},
+            {"method": "textDocument/definition", "nth": 3, "do": [
+                {"sleep_ms": 800},
+                {"reply": {"uri": there, "range": range(1, 7)}}
+            ]},
             {"method": "shutdown", "do": [{"reply": null}]},
         ],
         "log_documents": true,
@@ -572,4 +576,11 @@ fn a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins() {
     app.send_keys(&format!("C-x k {} RET", super::typing("std.rs")));
     let log = lsp_log_with(&mut app, "main.rs", "stderr: closed ", 1);
     assert!(log.contains(&format!("stderr: closed {there}")), "{log}");
+
+    // An answer that comes once the person moved on does not move them back.
+    app.send_keys("C-a M-. C-e");
+    lsp_log_with(&mut app, "main.rs", "answered with 1 place in", 2);
+    let state = app.state();
+    assert_eq!(state["buffer"]["name"], "main.rs");
+    assert_eq!(state["cursor"]["column"], 12);
 }
