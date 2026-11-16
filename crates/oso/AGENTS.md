@@ -67,8 +67,10 @@ often, so it must rebuild within 2 s.
   (`registry`) and oso's record (`record`) are read off the UI thread, and a bridge's claim is
   judged by one pure function (`bridge`). `session-adopt` reads Claude Code's transcripts
   (`transcripts`) only for ids, names, times and directories, on its own
-  `oso-session-adopt-list` thread (`adopt`). `app/sessions.rs` and `app/sessions/` carry out
-  what the worker, the jobs and the start thread find.
+  `oso-session-adopt-list` thread (`adopt`). The clipboard's images a session is given
+  (`images`, ADR 0142) are written, converted by `sips` and removed on one `oso-images` thread,
+  never the worker's. `app/sessions.rs` and `app/sessions/` carry out what the worker, the jobs
+  and the start thread find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
   a trusted project's root, and git only through `oso_platform::process`, with `src/git.rs`'s
   runner, `TrustedRoot` and secret-name check. `review/refine.rs` refines a change block's words,

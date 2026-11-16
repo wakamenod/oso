@@ -6,11 +6,14 @@
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use super::{Backend, Found};
+use super::{Backend, Found, Image, ImageContents, ImageKind};
 
+/// What it holds. Like the system's, it holds text or an image, and a copy of one replaces
+/// the other.
 #[derive(Default)]
 struct Held {
     text: Option<(String, bool)>,
+    image: Option<(Image, bool)>,
     count: i64,
 }
 
@@ -21,7 +24,7 @@ pub struct MemoryClipboard(Arc<Mutex<Held>>);
 
 impl fmt::Debug for MemoryClipboard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("MemoryClipboard") // Never the text: it could reach a log.
+        f.write_str("MemoryClipboard") // Never the text or image: they could reach a log.
     }
 }
 
@@ -40,6 +43,17 @@ impl MemoryClipboard {
     pub fn set(&self, text: String, concealed: bool) {
         self.with(|held| {
             held.text = Some((text, concealed));
+            held.image = None;
+            held.count += 1;
+        });
+    }
+
+    /// Puts an image of type `kind` there, as another app would, in place of any text, marked
+    /// concealed if `concealed`.
+    pub fn set_image(&self, kind: ImageKind, bytes: Vec<u8>, concealed: bool) {
+        self.with(|held| {
+            held.image = Some((Image { kind, bytes }, concealed));
+            held.text = None;
             held.count += 1;
         });
     }
@@ -63,6 +77,15 @@ impl Backend for MemoryClipboard {
                 text: text.clone(),
                 concealed: *concealed,
             },
+        })
+    }
+
+    fn read_image(&mut self, max: usize) -> ImageContents {
+        self.with(|held| match &held.image {
+            Some((_, true)) => ImageContents::Concealed,
+            Some((image, false)) if image.bytes.len() > max => ImageContents::TooLarge,
+            Some((image, false)) if !image.bytes.is_empty() => ImageContents::Image(image.clone()),
+            _ => ImageContents::Nothing,
         })
     }
 }

@@ -370,7 +370,9 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
 - `clipboard` reads the clipboard in memory, or with `text` (and `concealed`) sets it as
   another app would. It works only in an instance started with `--clipboard memory`, which
   the harness always passes, so no flow touches the person's clipboard. Text marked
-  concealed reads as null.
+  concealed reads as null. With `image` (`png`, `jpeg`, `gif`, `webp` or `tiff`) and `bytes`,
+  an array of byte values, it puts an image there in place of the text
+  ([ADR 0142](adr/0142-attaching-the-clipboard-s-image-to-a-session.md)).
 - `wheel` scrolls as the mouse wheel (`lines`) or the trackpad (`pixels`) would, each
   `[x, y]`, with the pointer `at` a pixel (`x`, `y`) or the middle of a cell (`row`,
   `column`), or nowhere. It says which window it scrolled, by id, and whether its view

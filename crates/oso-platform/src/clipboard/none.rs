@@ -3,7 +3,7 @@
 //!
 //! Must not depend on: anything of the system.
 
-use super::{Backend, Found};
+use super::{Backend, Found, ImageContents};
 
 /// A clipboard that holds nothing.
 pub(super) struct NoClipboard;
@@ -19,5 +19,9 @@ impl Backend for NoClipboard {
 
     fn read(&mut self, _: usize) -> Found {
         Found::Nothing
+    }
+
+    fn read_image(&mut self, _: usize) -> ImageContents {
+        ImageContents::Unsupported
     }
 }

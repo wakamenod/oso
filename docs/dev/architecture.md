@@ -247,7 +247,10 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
 - **The clipboard** (`oso_platform::clipboard`) runs on two threads of its own: one owns
   the system's clipboard, and one answers each read within 500 ms. The host hands it what
   a command killed, joined there with line breaks, and `yank` waits for its read through
-  the dispatcher, which holds the keys that come meanwhile. oso reads it only on a yank.
+  the dispatcher, which holds the keys that come meanwhile. oso reads it only on a yank,
+  and reads an image only for `session-yank-image`, whose bytes the same worker copies and
+  `sessions::images` keeps in a private file under the cache
+  ([ADR 0142](adr/0142-attaching-the-clipboard-s-image-to-a-session.md)).
   macOS uses `NSPasteboard`; Linux and Windows have none until their window layers.
 - **Modified state** compares content ids. Each edit gets a new id, undo and redo
   restore the stored one, and a buffer is modified when its id differs from the
@@ -728,7 +731,11 @@ The UI thread never blocks on I/O or parsing:
   the terminal's own paste, never submitted, and shows the session. Commands only describe
   what to send (`SessionRequest::Send`); the text is put together by pure functions
   (`sessions/send.rs::compose`). ADR 0122's review comments and ADR 0127's drafts call the
-  same path. The worker finds message lines' senders with `[[message]]` rules
+  same path, and so does `session-yank-image` (`C-c C-y`, ADR 0142), which checks the same
+  refusals first (`paste_target`), has the clipboard's worker read the image, and keeps it on
+  `sessions::images`' one `oso-images` thread, which also removes a session's images when it is
+  archived and sweeps old ones (`app/sessions/watch/images.rs`). The dispatcher notes whether
+  each run came through the dev socket. The worker finds message lines' senders with `[[message]]` rules
   (`sessions/messages.rs`) after each verdict, and tells the app when a session is first judged
   and when a hold rule starts or stops matching (`Out::Judged`).
 - Worktree sessions (`crates/oso/src/sessions/worktree/`, glue in `app/sessions/worktrees.rs`,
