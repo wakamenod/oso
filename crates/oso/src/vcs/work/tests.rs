@@ -462,7 +462,8 @@ fn the_commit_sections_show_what_the_upstream_lacks_and_holds() {
     std::fs::write(repo.root.join("a.txt"), "one\n").unwrap();
     repo.git(&["add", "a.txt"]);
     repo.git(&["commit", "-q", "-m", "first"]);
-    let bare = repo.dir.join("remote.git");
+    // Without Windows' verbatim prefix, which git cannot take.
+    let bare = crate::git::for_git(&repo.dir.join("remote.git"));
     let bare = bare.to_str().unwrap();
     repo.git(&["init", "-q", "--bare", "-b", "main", bare]);
     repo.git(&["remote", "add", "origin", bare]);

@@ -17,7 +17,8 @@ use crate::review::tests::Repo;
 /// A repository with a first commit and an empty bare remote, `origin`, beside it.
 fn with_remote(name: &str) -> (Repo, String) {
     let repo = repo(name);
-    let bare = repo.dir.join("remote.git");
+    // Without Windows' verbatim prefix, which git cannot take.
+    let bare = crate::git::for_git(&repo.dir.join("remote.git"));
     let bare = bare.to_str().unwrap().to_owned();
     repo.git(&["init", "-q", "--bare", "-b", "main", &bare]);
     repo.git(&["remote", "add", "origin", &bare]);
@@ -104,7 +105,7 @@ fn a_forced_push_names_what_it_drops_and_git_refuses_it_once_the_remote_moved() 
     let (repo, bare) = with_remote("run-push-lease");
     repo.git(&["push", "-q", "-u", "origin", "main"]);
     // Another clone moves the remote on.
-    let other = repo.dir.join("other");
+    let other = crate::git::for_git(&repo.dir.join("other"));
     let other = other.to_str().unwrap();
     repo.git(&["clone", "-q", &bare, other]);
     std::fs::write(repo.dir.join("other/b.txt"), "b\n").unwrap();
@@ -170,7 +171,7 @@ fn a_forced_push_names_what_it_drops_and_git_refuses_it_once_the_remote_moved() 
 fn a_fetch_and_a_fast_forward_pull_take_the_remote_s_commits() {
     let (repo, bare) = with_remote("run-pull");
     repo.git(&["push", "-q", "-u", "origin", "main"]);
-    let other = repo.dir.join("other");
+    let other = crate::git::for_git(&repo.dir.join("other"));
     let other = other.to_str().unwrap();
     repo.git(&["clone", "-q", &bare, other]);
     std::fs::write(repo.dir.join("other/b.txt"), "b\n").unwrap();
