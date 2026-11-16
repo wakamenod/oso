@@ -631,7 +631,6 @@ mod tests {
         assert_eq!(status(&editor).restricted, RESTRICTED, "refused");
     }
 
-    #[cfg(unix)]
     #[test]
     fn the_server_s_segment_has_the_counts_that_are_not_zero_and_no_hints() {
         use crate::diagnostic::{Diagnostics, New, Severity, Tags};
@@ -676,6 +675,7 @@ mod tests {
         assert_eq!(status(&editor).lsp, "lsp  ", "gone with the server");
     }
 
+    #[cfg(unix)]
     #[test]
     fn what_waits_for_the_person_follows_restricted_and_goes_when_let_go() {
         use crate::buffer::{Acted, Start, Starts};

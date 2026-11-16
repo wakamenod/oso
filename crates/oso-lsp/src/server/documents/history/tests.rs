@@ -13,7 +13,7 @@ use oso_core::diagnostic::{Severity, Tags};
 use oso_core::rope::Rope;
 use oso_core::syntax::Splice;
 use proptest::prelude::*;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use super::*;
 use crate::position::{Encoding, Position};
@@ -21,11 +21,22 @@ use crate::protocol::Reported;
 use crate::server::Document;
 use crate::server::documents::Documents;
 
+/// The document's URI, with a drive on Windows, where a path needs one.
+#[cfg(windows)]
+const URI: &str = "file:///C:/w/a.rs";
+#[cfg(not(windows))]
+const URI: &str = "file:///w/a.rs";
+
+/// The path `URI` reads as.
+fn path() -> PathBuf {
+    crate::uri::to_path(URI).unwrap()
+}
+
 fn open(documents: &mut Documents, text: &str) {
     documents.open(
         Document {
             id: 1,
-            uri: "file:///w/a.rs".into(),
+            uri: URI.into(),
             language_id: "rust".into(),
             text: Rope::from(text),
             revision: 10,
@@ -57,7 +68,7 @@ fn change(
 
 fn report(version: Option<i32>, ranges: &[(Position, Position)]) -> Published {
     Published {
-        uri: "file:///w/a.rs".into(),
+        uri: URI.into(),
         version,
         diagnostics: ranges
             .iter()
@@ -115,12 +126,8 @@ fn a_report_for_an_older_version_is_mapped_to_the_latest_text() {
         "// a\nlet x = 1;\n",
         Some(&[insert(0, 5)]),
     );
-    let (revision, ranges) = placed(documents.diagnose(
-        Path::new("/w/a.rs"),
-        &report(Some(1), &[X]),
-        "fake",
-        Encoding::Utf8,
-    ));
+    let (revision, ranges) =
+        placed(documents.diagnose(&path(), &report(Some(1), &[X]), "fake", Encoding::Utf8));
     assert_eq!((revision, ranges), (11, vec![9..10]));
     assert_eq!(
         documents.given(1),
@@ -129,21 +136,12 @@ fn a_report_for_an_older_version_is_mapped_to_the_latest_text() {
     );
     // Version 2 names the new text, and lets version 1's go.
     let line_1 = (Position::new(1, 4), Position::new(1, 5));
-    let (_, ranges) = placed(documents.diagnose(
-        Path::new("/w/a.rs"),
-        &report(Some(2), &[line_1]),
-        "fake",
-        Encoding::Utf8,
-    ));
+    let (_, ranges) =
+        placed(documents.diagnose(&path(), &report(Some(2), &[line_1]), "fake", Encoding::Utf8));
     assert_eq!(ranges, vec![9..10]);
     assert_eq!(documents.given(1), 1);
     assert!(matches!(
-        documents.diagnose(
-            Path::new("/w/a.rs"),
-            &report(Some(1), &[X]),
-            "fake",
-            Encoding::Utf8
-        ),
+        documents.diagnose(&path(), &report(Some(1), &[X]), "fake", Encoding::Utf8),
         Diagnose::Stale
     ));
 }
@@ -159,30 +157,17 @@ fn a_report_for_no_version_is_placed_against_the_latest_sent() {
         "let xy = 1;\n",
         Some(&[insert(5, 1)]),
     );
-    let (revision, ranges) = placed(documents.diagnose(
-        Path::new("/w/a.rs"),
-        &report(None, &[X]),
-        "fake",
-        Encoding::Utf8,
-    ));
+    let (revision, ranges) =
+        placed(documents.diagnose(&path(), &report(None, &[X]), "fake", Encoding::Utf8));
     assert_eq!((revision, ranges), (11, vec![4..5]));
     // Past a whole text, a versioned one is past, and one for no version takes the latest.
     change(&mut documents, 12, "let xy = 1;\n", "fn x() {}\n", None);
     assert!(matches!(
-        documents.diagnose(
-            Path::new("/w/a.rs"),
-            &report(Some(2), &[X]),
-            "fake",
-            Encoding::Utf8
-        ),
+        documents.diagnose(&path(), &report(Some(2), &[X]), "fake", Encoding::Utf8),
         Diagnose::Stale
     ));
-    let (revision, ranges) = placed(documents.diagnose(
-        Path::new("/w/a.rs"),
-        &report(None, &[X]),
-        "fake",
-        Encoding::Utf8,
-    ));
+    let (revision, ranges) =
+        placed(documents.diagnose(&path(), &report(None, &[X]), "fake", Encoding::Utf8));
     assert_eq!((revision, ranges), (12, vec![4..5]));
 }
 
@@ -190,18 +175,13 @@ fn a_report_for_no_version_is_placed_against_the_latest_sent() {
 fn a_report_for_a_document_not_open_or_a_version_never_sent_is_not_placed() {
     let mut documents = Documents::default();
     assert!(matches!(
-        documents.diagnose(
-            Path::new("/w/a.rs"),
-            &report(None, &[X]),
-            "fake",
-            Encoding::Utf8
-        ),
+        documents.diagnose(&path(), &report(None, &[X]), "fake", Encoding::Utf8),
         Diagnose::NotOpen
     ));
     documents.open(
         Document {
             id: 1,
-            uri: "file:///w/a.rs".into(),
+            uri: URI.into(),
             language_id: "rust".into(),
             text: Rope::from("a"),
             revision: 0,
@@ -209,25 +189,15 @@ fn a_report_for_a_document_not_open_or_a_version_never_sent_is_not_placed() {
         false,
     );
     assert!(matches!(
-        documents.diagnose(
-            Path::new("/w/a.rs"),
-            &report(None, &[X]),
-            "fake",
-            Encoding::Utf8
-        ),
+        documents.diagnose(&path(), &report(None, &[X]), "fake", Encoding::Utf8),
         Diagnose::NotOpen
     ));
-    assert!(documents.has_path(Path::new("/w/a.rs")));
+    assert!(documents.has_path(&path()));
     documents.open_all();
     while documents.next_whole().is_some() {}
-    assert_eq!(documents.take_opened(), [PathBuf::from("/w/a.rs")]);
+    assert_eq!(documents.take_opened(), [path()]);
     assert!(matches!(
-        documents.diagnose(
-            Path::new("/w/a.rs"),
-            &report(Some(9), &[X]),
-            "fake",
-            Encoding::Utf8
-        ),
+        documents.diagnose(&path(), &report(Some(9), &[X]), "fake", Encoding::Utf8),
         Diagnose::Stale
     ));
 }
@@ -250,20 +220,11 @@ fn at_most_sixteen_texts_are_kept() {
     }
     assert_eq!(documents.given(1), KEPT_VERSIONS_MAX);
     assert!(matches!(
-        documents.diagnose(
-            Path::new("/w/a.rs"),
-            &report(Some(1), &[]),
-            "fake",
-            Encoding::Utf8
-        ),
+        documents.diagnose(&path(), &report(Some(1), &[]), "fake", Encoding::Utf8),
         Diagnose::Stale
     ));
-    let (revision, _) = placed(documents.diagnose(
-        Path::new("/w/a.rs"),
-        &report(Some(10), &[]),
-        "fake",
-        Encoding::Utf8,
-    ));
+    let (revision, _) =
+        placed(documents.diagnose(&path(), &report(Some(10), &[]), "fake", Encoding::Utf8));
     assert_eq!(revision, 30);
 }
 
@@ -355,7 +316,7 @@ proptest! {
             text = after;
         }
         let Diagnose::For { revision, diagnostics, .. } =
-            documents.diagnose(Path::new("/w/a.rs"), &report(Some(1), &positions), "fake", encoding)
+            documents.diagnose(&path(), &report(Some(1), &positions), "fake", encoding)
         else {
             return Err(TestCaseError::fail("not placed"));
         };
