@@ -109,6 +109,7 @@ fn open_a(section: Section) -> View {
 #[test]
 fn the_stashes_show_after_the_staged_changes_and_a_row_names_its_stash() {
     let repo = Repo::new("vcs-stashes");
+    repo.git(&["config", "core.autocrlf", "false"]);
     repo.write("a.txt", b"one\n");
     repo.commit("first");
     repo.write("a.txt", b"two\n");
@@ -143,6 +144,7 @@ fn the_stashes_show_after_the_staged_changes_and_a_row_names_its_stash() {
 #[test]
 fn a_stopped_pick_shows_under_the_head_with_its_unmerged_path() {
     let repo = Repo::new("vcs-stopped");
+    repo.git(&["config", "core.autocrlf", "false"]);
     repo.write("a.txt", b"one\n");
     repo.commit("first");
     repo.git(&["checkout", "-q", "-b", "side"]);
