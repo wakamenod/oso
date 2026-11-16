@@ -3,7 +3,8 @@
 //! a region, a note and a place arrive as one bracketed paste with no Enter after it; a
 //! dialog refuses a send; a buffer that may hold secrets sends its place only; a mention is
 //! inserted or pasted; a message line notes the row and `C-x a f` shows its sender; and
-//! `C-c C-y` pastes an `@` reference to the clipboard's image, kept in a private file (ADR 0142).
+//! `C-c C-y` pastes an `@` reference to the clipboard's image, kept in a private file (ADR 0142);
+//! a session carried over a restart is judged and takes a send in the new instance.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: composing the
 //! text, the refusals, the message rule and the completions have their own tests.
@@ -260,6 +261,36 @@ fn a_send_is_one_bracketed_paste_not_submitted_and_a_dialog_refuses_it() {
 
     mention(&flow, &mut app, session);
     end(&flow, &mut app, &["proj"]);
+}
+
+/// A session carried over a restart is judged in the new instance, which tells its states and
+/// takes a send: its screens went unjudged once, and every send was refused as not judged yet.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_session_carried_over_a_restart_is_judged_and_takes_a_send() {
+    let flow = flow("sessions-send-restart");
+    let mut old = flow.start();
+    let session = "*claude: proj*";
+    start_session(&flow, &mut old, session, "proj");
+    let mut new = flow.start();
+    crate::terminal::restart::hand_over(&mut old, &mut new);
+    new.wait_for("the session carried", |state| {
+        terminal(state, session).is_some_and(|terminal| terminal["running"] == true)
+    });
+    print(&flow, "proj", PERMISSION);
+    new.wait_for("needs input", |state| {
+        state_of(state, "proj").is_some_and(|s| s.starts_with("needs input"))
+    });
+    print(&flow, "proj", WORKING);
+    new.wait_for("judged working", |state| {
+        state_of(state, "proj").as_deref() == Some("working")
+    });
+    open(&mut new, &flow.project.join("notes.md"), false);
+    let state = send_to(&mut new, session, Some("after the restart"));
+    assert_eq!(echo(&state), "Pasted into proj: press Enter there");
+    let read = wait_for_pastes(&flow, "proj", 1);
+    assert_eq!(paste(&read, 1), ("after the restart", ""));
+    end(&flow, &mut new, &["proj"]);
 }
 
 /// `C-x a @` inserts the name in a file's buffer, and pastes `@NAME ` in a session's terminal.
