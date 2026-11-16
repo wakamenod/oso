@@ -186,8 +186,6 @@ impl App {
             return;
         };
         self.editor.set_hosts_session(buffer, true);
-        // It stands where the session runs (ADR 0141).
-        self.editor.set_buffer_directory(buffer, directory.clone());
         self.editor.request_directory_project(buffer, &directory);
     }
 

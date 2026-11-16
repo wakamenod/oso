@@ -11,6 +11,9 @@
 //! - Any other buffer stands where it was made: in the directory of the buffer shown then, in
 //!   the window commands act on, as Emacs's new buffers take the current one's. The host gives
 //!   a terminal the one it started in, a session its own, and the side pane the row at point's.
+//! - What a terminal's program says of its directory (OSC 7) moves where a prompt for a path
+//!   starts in that terminal and nothing else: a buffer made from it takes the one it started
+//!   in, so that a program's output never reaches where a process starts.
 //! - A buffer with none of these, such as `*scratch*`, stands in the directory oso started in.
 
 use std::path::{Path, PathBuf};
@@ -23,20 +26,35 @@ impl Editor {
     /// a git status's or a review's project root, else the one it was made in or the host gave
     /// it, else the directory oso started in.
     pub fn default_directory(&self, id: BufferId) -> PathBuf {
-        self.own_directory(id)
+        let reported = self
+            .buffer(id)
+            .and_then(crate::buffer::Buffer::reported_directory);
+        (reported.map(Path::to_path_buf))
+            .or_else(|| self.own_directory(id))
             .unwrap_or_else(|| self.start_directory.clone())
     }
 
     /// Gives the buffer `id` the directory it stands in where no file, listing or project says
-    /// one: the one a terminal started in or its program last named, a session's, the place of
-    /// the side pane's row at point (ADR 0141). Nothing happens to a buffer not there.
+    /// one: the one a terminal started in, a session's, the place of the side pane's row at
+    /// point (ADR 0141). Nothing happens to a buffer not there.
     pub fn set_buffer_directory(&mut self, id: BufferId, directory: PathBuf) {
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.set_directory(Some(directory));
         }
     }
 
-    /// The directory the buffer `id` stands in, unless it falls back to the one oso started in.
+    /// The program of the terminal buffer `id` says it is in `directory` (OSC 7): a prompt for
+    /// a path starts there, and [`Editor::default_directory`] says it, but a buffer made from it
+    /// stands where the terminal started (ADR 0141). Nothing happens to a buffer that is not a
+    /// terminal's.
+    pub fn set_reported_directory(&mut self, id: BufferId, directory: PathBuf) {
+        if let Some(buffer) = self.buffer_mut(id).filter(|buffer| buffer.is_terminal()) {
+            buffer.set_reported_directory(directory);
+        }
+    }
+
+    /// The directory the buffer `id` stands in, unless it falls back to the one oso started in,
+    /// leaving out what a terminal's program said.
     fn own_directory(&self, id: BufferId) -> Option<PathBuf> {
         let buffer = self.buffer(id)?;
         let parent = buffer
@@ -57,7 +75,8 @@ impl Editor {
         if let Some(project) = project.and_then(|project| self.project(project)) {
             return Some(project.root().to_path_buf());
         }
-        buffer.directory().map(Path::to_path_buf)
+        // A hosted session's, which its project is found from (ADR 0132).
+        (buffer.session_directory().or_else(|| buffer.directory())).map(Path::to_path_buf)
     }
 
     /// Gives `buffer`, about to be added, the directory it stands in unless it has one: that of

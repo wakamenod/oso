@@ -156,7 +156,7 @@ fn a_buffer_with_no_file_starts_where_it_was_made_or_where_oso_started() {
 fn a_terminal_starts_where_its_program_said_it_is() {
     let (mut d, mut editor) = on_notes();
     let terminal = editor.add_terminal_buffer("*terminal*");
-    editor.set_buffer_directory(terminal, PathBuf::from("/notes/plans"));
+    editor.set_reported_directory(terminal, PathBuf::from("/notes/plans"));
     editor.show(terminal);
     send(&mut d, &mut editor, "C-x C-f");
     assert_eq!(prompt_text(&editor), "/notes/plans/");

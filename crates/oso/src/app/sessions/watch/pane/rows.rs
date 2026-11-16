@@ -83,13 +83,19 @@ impl App {
         if buffer.mode() != Mode::Sessions {
             return;
         }
-        let (id, had) = (window.buffer(), buffer.directory().map(Path::to_path_buf));
+        let id = window.buffer();
         let place = self.row_place(self.editor.cursor_line());
-        let directory = place.map(|place| place.directory).or_else(|| {
+        let Some(directory) = place.map(|place| place.directory).or_else(|| {
             let spaces = self.watch.spaces();
             spaces.stored(spaces.current()?)?.directory.clone()
-        });
-        if let Some(directory) = directory.filter(|directory| had.as_ref() != Some(directory)) {
+        }) else {
+            return;
+        };
+        let had = self
+            .editor
+            .buffer(id)
+            .and_then(oso_core::buffer::Buffer::directory);
+        if had != Some(directory.as_path()) {
             self.editor.set_buffer_directory(id, directory);
         }
     }

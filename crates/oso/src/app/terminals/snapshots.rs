@@ -125,7 +125,7 @@ impl App {
             }
         }
         for (id, directory) in moved {
-            self.editor.set_buffer_directory(id, directory);
+            self.editor.set_reported_directory(id, directory);
         }
         self.terminals_ended(ended);
         // A password prompt is a secret from the snapshot on: secure input, the log and the

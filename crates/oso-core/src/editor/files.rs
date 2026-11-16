@@ -307,10 +307,9 @@ impl Editor {
     /// of one name apart beside it. The row selected stays selected, by its path.
     pub(super) fn install_files(&mut self, built: Built, cut: bool, revision: u64) {
         self.file_list.cut = cut || built.more || self.file_list.listing_cut;
-        // A row moved to stays selected while listed, over a directory's typed path too (ADR 0141).
-        let prompt = self
-            .prompt()
-            .and_then(crate::minibuffer::Prompt::candidates);
+        // A row moved to stays selected over a directory's typed path, which a new list selects
+        // (ADR 0141): where the build kept it, else found by its path.
+        let prompt = (self.prompt()).and_then(crate::minibuffer::Prompt::candidates);
         let chosen = (self.selected_found().map(|found| found.path.clone()))
             .filter(|_| prompt.is_some_and(crate::complete::Candidates::chosen));
         let Some((candidates, seen)) = self
@@ -324,7 +323,8 @@ impl Editor {
         let next = candidates.rebuilt(built.items, built.order, built.matched);
         let before = std::mem::replace(candidates, next);
         *seen = revision;
-        let moved_to = chosen.and_then(|path| built.found.iter().position(|f| f.path == path));
+        let moved_to = (chosen.filter(|_| candidates.on_input()))
+            .and_then(|path| path::place_of_path(&built.found, built.kept, &path));
         let kept = (built.kept.filter(|_| !on_input)).and_then(|index| candidates.place_of(index));
         let place = moved_to.and_then(|index| candidates.place_of(index));
         if let Some(place) = place.or(kept.filter(|&place| place > 0)) {

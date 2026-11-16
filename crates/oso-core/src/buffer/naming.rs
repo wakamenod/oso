@@ -74,4 +74,14 @@ impl Buffer {
     pub(crate) fn set_directory(&mut self, directory: Option<PathBuf>) {
         self.directory = directory;
     }
+
+    /// The directory its terminal's program last said it is in, which only a prompt for a path
+    /// starts at (ADR 0141).
+    pub(crate) fn reported_directory(&self) -> Option<&Path> {
+        self.reported_directory.as_deref()
+    }
+
+    pub(crate) fn set_reported_directory(&mut self, directory: PathBuf) {
+        self.reported_directory = Some(directory);
+    }
 }

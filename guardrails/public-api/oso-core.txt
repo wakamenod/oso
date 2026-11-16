@@ -2253,6 +2253,7 @@ pub fn oso_core::editor::Editor::drop_cursor_search(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::default_directory(&self, oso_core::buffer::BufferId) -> std::path::PathBuf
 pub fn oso_core::editor::Editor::set_buffer_directory(&mut self, oso_core::buffer::BufferId, std::path::PathBuf)
+pub fn oso_core::editor::Editor::set_reported_directory(&mut self, oso_core::buffer::BufferId, std::path::PathBuf)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::delete_trailing_whitespace(&mut self) -> core::result::Result<bool, oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::set_trim_whitespace(&mut self, bool)

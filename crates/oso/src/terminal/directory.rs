@@ -6,13 +6,17 @@
 //! Must not depend on: `app`, `config` or `dispatch`, or the file system: nothing is looked at
 //! here, and the prompt's listing says whether the directory is there.
 
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf, Prefix};
+
+use oso_core::display_map::cell::is_invisible;
 
 /// The local directory `sent` names, sent by a terminal's program and already free of control
 /// characters and at most 4 KiB (`oso-term`'s policy), on the machine named `host`: a `file:`
 /// URI whose host is empty, `localhost` or this machine's, or a plain path. Either must be
-/// absolute, with no `.` or `..` in it, and a URI's `%` escapes must decode to UTF-8 with no
-/// control character. `None` for anything else, such as a path on another machine after `ssh`.
+/// absolute, on a local disk (no `//server/share`, UNC or `\\?\` path, which listing would
+/// reach over the network), with no `.` or `..` in it, and a URI's `%` escapes must decode to
+/// UTF-8; neither may hold a control character or one drawn as a box (bidi controls,
+/// zero-width ones). `None` for anything else, such as a path on another machine after `ssh`.
 pub(crate) fn local(sent: &str, host: Option<&str>) -> Option<PathBuf> {
     let path = match strip_scheme(sent) {
         Some(rest) => {
@@ -30,8 +34,23 @@ pub(crate) fn local(sent: &str, host: Option<&str>) -> Option<PathBuf> {
     let plain = path
         .split(['/', std::path::MAIN_SEPARATOR])
         .all(|part| part != "." && part != "..");
+    let shown = !path.chars().any(|c| c.is_control() || is_invisible(c));
     let path = PathBuf::from(path);
-    (path.is_absolute() && plain).then_some(path)
+    (path.is_absolute() && plain && shown && on_a_local_disk(&path)).then_some(path)
+}
+
+/// Whether `path` starts at a local root: `/` alone on Unix, not `//`, and a drive letter on
+/// Windows, not a server's share or a verbatim or device path.
+fn on_a_local_disk(path: &Path) -> bool {
+    let text = path.as_os_str().to_string_lossy();
+    if text.starts_with("//") || text.starts_with(r"\\") {
+        return false;
+    }
+    match path.components().next() {
+        Some(Component::Prefix(prefix)) => matches!(prefix.kind(), Prefix::Disk(_)),
+        Some(Component::RootDir) => cfg!(unix),
+        _ => false,
+    }
 }
 
 /// What follows `file:`, whatever its case.
@@ -41,7 +60,8 @@ fn strip_scheme(sent: &str) -> Option<&str> {
 }
 
 /// Whether the URI's host `named` is this machine: empty, `localhost`, or `host`, without
-/// case, also where one of the two is the other's first label (`mac` and `mac.local`).
+/// case, or `host`'s first label alone (`mac` for `mac.local`), as a shell's `$HOST` may be.
+/// A longer name than `host`'s, such as `mac.example` for `mac`, is another machine's.
 fn this_machine(named: &str, host: Option<&str>) -> bool {
     if named.is_empty() || named.eq_ignore_ascii_case("localhost") {
         return true;
@@ -49,10 +69,8 @@ fn this_machine(named: &str, host: Option<&str>) -> bool {
     let Some(host) = host else {
         return false;
     };
-    let first = |name: &str| name.split('.').next().unwrap_or(name).to_owned();
-    named.eq_ignore_ascii_case(host)
-        || named.eq_ignore_ascii_case(&first(host))
-        || first(named).eq_ignore_ascii_case(host)
+    let first = host.split('.').next().unwrap_or(host);
+    named.eq_ignore_ascii_case(host) || named.eq_ignore_ascii_case(first)
 }
 
 /// `path` with its `%XX` escapes decoded, if they are whole and give UTF-8 with no control

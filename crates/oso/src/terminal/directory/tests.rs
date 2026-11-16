@@ -26,8 +26,9 @@ fn a_file_uri_on_this_machine_gives_its_path() {
         "case, first label"
     );
     assert_eq!(
-        local("file://mac.local/w", Some("mac")),
-        Some(PathBuf::from("/w"))
+        local("file://mac.example/w", Some("mac")),
+        None,
+        "a longer name"
     );
 }
 
@@ -62,6 +63,20 @@ fn another_machine_a_relative_path_and_dots_are_dropped() {
 
 #[cfg(unix)]
 #[test]
+fn a_share_and_text_drawn_as_boxes_are_dropped() {
+    let path = |sent| local(sent, None);
+    assert_eq!(
+        path("file:////server/share"),
+        None,
+        "an empty host, then a share"
+    );
+    assert_eq!(path("//server/share"), None);
+    assert_eq!(path("file:///w/%E2%80%AEtxt"), None, "a bidi control");
+    assert_eq!(path("/w/\u{200b}oso"), None, "a zero-width space");
+}
+
+#[cfg(unix)]
+#[test]
 fn a_plain_path_is_taken_as_it_is() {
     // OSC 9;9's and OSC 1337 `CurrentDir`'s are paths, with no escapes.
     assert_eq!(
@@ -72,9 +87,14 @@ fn a_plain_path_is_taken_as_it_is() {
 
 #[cfg(windows)]
 #[test]
-fn a_drive_path_loses_the_slash_before_it() {
+fn a_drive_path_loses_the_slash_before_it_and_a_share_is_dropped() {
     assert_eq!(
         local("file:///C:/work", None),
         Some(PathBuf::from("C:/work"))
     );
+    assert_eq!(local(r"C:\work", None), Some(PathBuf::from(r"C:\work")));
+    assert_eq!(local(r"\\server\share", None), None);
+    assert_eq!(local(r"\\?\UNC\server\share", None), None);
+    assert_eq!(local(r"\\?\C:\work", None), None);
+    assert_eq!(local("file:////server/share", None), None);
 }

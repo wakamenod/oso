@@ -116,6 +116,23 @@ fn the_host_gives_a_terminal_its_directory_which_a_move_follows() {
 }
 
 #[test]
+fn what_a_terminals_program_says_moves_its_prompts_but_no_buffer_made_from_it() {
+    let mut editor = editor();
+    let terminal = editor.add_terminal_buffer("*terminal*");
+    editor.set_buffer_directory(terminal, at("oso"));
+    editor.set_reported_directory(terminal, at("elsewhere"));
+    assert_eq!(editor.default_directory(terminal), at("elsewhere"));
+    editor.show(terminal);
+    // A buffer made from it stands where it started, which a process started from that takes.
+    let made = editor.add_internal_buffer("*Help*", Mode::Fundamental);
+    assert_eq!(editor.default_directory(made), at("oso"));
+    // Only a terminal's program says one.
+    let scratch = editor.add_internal_buffer("*notes*", Mode::Fundamental);
+    editor.set_reported_directory(scratch, at("elsewhere"));
+    assert_eq!(editor.default_directory(scratch), at("oso"));
+}
+
+#[test]
 fn a_buffer_made_under_a_prompt_stands_where_the_window_beneath_does() {
     let mut editor = editor();
     let file = editor.add_buffer(visited(&at("oso/src/main.rs")));

@@ -35,7 +35,7 @@ The author answered all five questions with (a) on 2026-11-16, through the coord
   | A listing (dired) | the directory it lists |
   | `*git: NAME*`, a review | the project's root (the worktree's own) |
   | `*commit: NAME*`, `*git log: NAME*` | the project's root, given by the host when it makes them |
-  | A hosted session's terminal | the session's directory, where it runs; its program's OSC 7 does not move it |
+  | A hosted session's terminal | the session's directory, where it runs, which its project is found from ([ADR 0132](0132-a-session-mode-for-hosted-sessions.md)); its program's OSC 7 does not move it |
   | A plain terminal | where it started, then the local directory its program last sent (OSC 7, OSC 9;9, OSC 1337 `CurrentDir`) |
   | The side pane | the place of the row at point, as `claude` and `c` there take it ([ADR 0131](0131-an-orca-style-sessions-pane.md)); on a row with no place, the space in front's directory |
   | `*scratch*`, `*Messages*` | the directory oso started in |
@@ -44,8 +44,10 @@ The author answered all five questions with (a) on 2026-11-16, through the coord
 - **A buffer keeps the directory it was made in,** as Emacs's do. A buffer made before any other,
   or beside one that stands where oso started, follows the start directory.
 - **The host gives a buffer its own directory** with `Editor::set_buffer_directory`: a terminal's
-  start and its program's directory, a session's, the commit and log buffers' root, and the side
-  pane's row. A file, a listing, a git status and a review are worked out from their records and
+  start, a session's, the commit and log buffers' root, and the side pane's row. What a
+  terminal's program says goes in apart, with `Editor::set_reported_directory`: it is what
+  `default_directory` says for that terminal, but a buffer made from the terminal takes the one
+  it started in, so that no program's output passes on to another buffer. A file, a listing, a git status and a review are worked out from their records and
   take no directory of their own.
 - **A rename or a move** of a directory (dired's `R`, ADR 0134) moves each buffer that stands in
   it, or under it, to the new place.
@@ -56,13 +58,15 @@ The author answered all five questions with (a) on 2026-11-16, through the coord
 - **Every prompt for a path:** `find-file`, `write-file`, `dired`, `dired-create-directory`,
   `session-explain-file`, the `C-u` directory prompts of `C-x p f`, `C-x p g` and `claude`, and `C`
   and `R` outside a listing.
-- **`dired-jump`** in a buffer with no file lists that buffer's directory, as ADR 0134 already
-  says ("a terminal's starting directory, `*scratch*`'s current directory").
+- **`dired-jump`** in a buffer with no file lists the directory that buffer stands in; from a
+  terminal, what its program last said, else where it started.
 - **A new terminal and a new session (Q2):** the selected buffer's project root, as before, else
-  the directory it stands in. From a plain terminal that is the one the terminal started in, never
-  what its program sent (Q3), and the home directory for one carried over a restart, which keeps
-  no start. Then, as before, the home directory for a terminal and the start directory for a
-  session.
+  the directory it stands in. From a plain terminal that is its own, the one it started in, never
+  what its program sent (Q3). Then, as before, the home directory for a terminal and the start
+  directory for a session.
+- **`C-x p m`** ([ADR 0120](0120-the-terminal.md) step 8, not built yet) from a terminal takes the
+  project of the directory the terminal started in, not of what its program sent, as it starts
+  a terminal without asking.
 - **`C-x p f` and `C-x p g` (Q5)** in a buffer with no file and no project list the directory it
   stands in, as ADR 0114's Q10 lets a file's directory stand in. The home directory, one that
   holds it, and `/` still say `Not in a project`.
@@ -88,16 +92,22 @@ The author answered all five questions with (a) on 2026-11-16, through the coord
 ### A terminal's directory from its program (Q3)
 
 - **The program's OSC 7 `file:` URI** is taken when its host is empty, `localhost`, or this
-  machine's name: compared without case, and also as the first label of either (`mac`,
-  `mac.local`). The name comes from `oso_platform::host::name()`, `gethostname` on Unix and none
+  machine's name: compared without case, or the first label of it alone (`mac` for
+  `mac.local`); a longer name (`mac.example` for `mac`) is another machine's. The name comes from `oso_platform::host::name()`, `gethostname` on Unix and none
   elsewhere yet, read once at startup. A URI from another machine (after `ssh`) is dropped.
 - **Its path** must decode its `%XX` escapes to UTF-8 with no control character, be absolute, and
   have no `.` or `..` segment. OSC 9;9's and OSC 1337 `CurrentDir`'s plain paths are taken as they
   are, under the same rules. `oso-term`'s policy has already dropped any with a control character
   or longer than 4 KiB. Nothing is looked at: the prompt's listing says whether it is there.
-- **It moves only where a prompt starts,** which the person sees before `RET`. A terminal or
-  session started from that terminal starts where the terminal started, so text the program
-  prints (`cat` of a crafted file) cannot choose where a process runs.
+- **It moves only what the person sees first:** where a prompt for a path starts, before `RET`;
+  the listing `dired-jump` shows; the directory `C-x p f` and `C-x p g` list, named in their
+  prompt. A terminal or session started from that terminal, or from any buffer made from it,
+  starts where the terminal started, so text the program prints (`cat` of a crafted file)
+  cannot choose where a process runs. From a listing the person then opens there, a new session
+  starts in the directory listed, as from any listing.
+- **Only a local disk:** a path that starts with `//` or `\\`, a Windows share, a verbatim
+  (`\\?\`) or device path is dropped, as listing it would reach a server, and so is one with a
+  character drawn as a box (bidi controls, zero-width ones), which would read as another path.
 - A hosted session's terminal keeps the session's directory, whatever its program sends.
 - This is the OSC 7 row of [ADR 0120](0120-the-terminal.md)'s table ahead of its step 6. The shell
   scripts that send OSC 7 at each prompt stay in step 6; until then, OSC 7 comes from the person's
@@ -105,8 +115,9 @@ The author answered all five questions with (a) on 2026-11-16, through the coord
 
 ### Public items
 
-- `Editor::default_directory` and `Editor::set_buffer_directory`, and `Buffer::directory`, the
-  buffer's own directory, in oso-core.
+- `Editor::default_directory`, `Editor::set_buffer_directory` and
+  `Editor::set_reported_directory`, and `Buffer::directory`, the buffer's own directory, in
+  oso-core. The third came from the security review, to keep a program's directory apart.
 - `oso_platform::host`, a new module with one function, `name()`. It is the module's only item;
   its `unsafe` call has a `// SAFETY:` comment.
 
@@ -122,10 +133,19 @@ Each passage stays in its ADR as written; what holds now follows it.
   gives that directory, which `find-file` lists.
 - ADR 0087, "`C-p` on the first candidate selects the typed text": also selected at first while it
   names a directory; `C-n` goes to the first candidate.
-- [ADR 0134](0134-a-directory-editor.md), "`C-x C-f`'s `RET` on a directory keeps entering it (ADR
-  0087 unchanged)": as above. `RET` on a directory's row enters it; `RET` on the directory typed
+- [ADR 0134](0134-a-directory-editor.md), "In a buffer with no file it lists the buffer's
+  directory (a terminal's starting directory, `*scratch*`'s current directory)", and "A buffer
+  with no file lists the directory oso started in for `C-x C-j`; a terminal's own directory is a
+  later step": the directory it stands in; for a terminal, what its program last said, else where
+  it started.
+- ADR 0134, "`C-x C-f`'s `RET` on a directory keeps entering it (ADR 0087 unchanged)": as above. `RET` on a directory's row enters it; `RET` on the directory typed
   lists it.
-- [ADR 0120](0120-the-terminal.md), Q18, "Its directory is the project's root, else the buffer's
+- [ADR 0120](0120-the-terminal.md), "From a terminal it is the project of the terminal's
+  directory (OSC 7's, else the one it started in)" (`C-x p m`): of the one it started in. Its
+  table's row "OSC 7 working directory … Sets the terminal's directory for `C-x C-f`, `C-x p f`
+  and `C-x p m`": for its prompts for a path, `dired-jump`, `C-x p f` and `C-x p g`, not `C-x p
+  m`, nor where any process starts.
+- ADR 0120, Q18, "Its directory is the project's root, else the buffer's
   directory, else the home directory": the project's root, else the directory the buffer stands
   in (from a terminal, the one it started in), else the home directory.
 - [ADR 0121](0121-agent-sessions-and-spaces.md), "`claude` (`Person`) starts a session in the
@@ -144,10 +164,12 @@ Each passage stays in its ADR as written; what holds now follows it.
 - `RET RET` no longer opens the first file of a directory. `C-n RET` does, and typing a name
   works as before. Muscle memory from oso's earlier behaviour changes, as it does when moving from
   vertico with `vertico-preselect 'first` to its default.
-- A buffer made from a terminal that has moved stands where that terminal stood then. This is
-  Emacs's behaviour, and the person can see it in the prompt.
-- A terminal carried over a restart has no start directory of its own, so a terminal started
-  from it starts in the home directory. Its program's next OSC 7 gives prompts their place again.
+- A buffer made from a terminal stands where the terminal started, not where its program has
+  moved since. Emacs would take the moved one; here a program's output reaches no buffer but its
+  own terminal's prompts.
+- A buffer's own directory is not carried over a restart. A terminal carried back stands where
+  the buffer shown when it came back stands, and its program's next OSC 7 gives its prompts
+  their place again; files, listings and sessions work theirs out anew.
 - `oso-platform` gains a small module and one `unsafe` call.
 - The tests: oso-core's for each kind of buffer, inheritance, moves and the selection; the
   dispatcher's for `C-x C-f RET` listing the directory, a terminal and `*scratch*`; the host's for
