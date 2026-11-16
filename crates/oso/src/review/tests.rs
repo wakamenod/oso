@@ -71,6 +71,7 @@ impl Repo {
             stdout: Sink::Piped,
             stderr: Sink::Null,
             own_process_group: false,
+            own_session: false,
             set: &[("HOME", home), ("GIT_CONFIG_NOSYSTEM", "1".as_ref())],
             terminal: None,
             pass_fd: None,

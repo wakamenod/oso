@@ -42,6 +42,7 @@ mod completion;
 mod copies;
 mod crossing;
 mod cursors;
+mod diagnostics;
 mod directories;
 mod excerpt;
 mod files;
@@ -92,9 +93,11 @@ pub use completion::CompletionStyle;
 pub use copies::RecoveryAction;
 pub use crossing::Crossing;
 pub use cursors::{CursorError, Toward};
+pub use diagnostics::DiagnosticCells;
 pub use files::Looked;
 pub use git::{
-    CommitKind, CommitSwitches, GitHeading, GitLines, GitRequest, GitShown, MAX_GIT_LOG,
+    CommitKind, CommitSwitches, FetchFrom, GitHeading, GitLines, GitRequest, GitShown, MAX_GIT_LOG,
+    PushSwitches, PushTarget,
 };
 pub use gutter::Gutter;
 pub use indent::{IndentError, Shift};
@@ -115,7 +118,7 @@ pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use reviews::*;
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
-pub use servers::{AskAt, ServerRequest};
+pub use servers::{AskAt, ServerRequest, VisitColumn};
 pub use sessions::*;
 pub use status::{ServerFace, Status};
 pub use switch::{KillRefused, Preview};
@@ -124,7 +127,6 @@ pub use themes::NoSuchTheme;
 #[cfg(test)]
 use trim::TRIM_ON_THE_UI_THREAD;
 pub use trim::{TrimId, TrimJob, TrimOutcome, TrimReport};
-pub use visits::VisitColumn;
 pub use walks::{NotInProject, WalkEnd, WalkRequest};
 pub use windows::{CannotResize, NoWindow, SoleWindow};
 pub use yank_pop::YankPopError;

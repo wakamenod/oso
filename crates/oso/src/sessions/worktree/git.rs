@@ -343,6 +343,7 @@ impl Gh {
             stdout: Sink::Piped,
             stderr: Sink::Piped,
             own_process_group: false,
+            own_session: false,
             set: &set,
             terminal: None,
             pass_fd: None,

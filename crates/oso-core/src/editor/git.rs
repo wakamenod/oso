@@ -57,6 +57,11 @@ pub enum CommitKind {
     Extend,
     /// `HEAD`'s message alone, edited (`w`).
     Reword,
+    /// A `fixup!` commit of what is staged for the commit at point, made at once (`f`, step 2).
+    Fixup,
+    /// A `squash!` commit of what is staged for the commit at point, its message edited (`s`,
+    /// step 2).
+    Squash,
 }
 
 /// The commit menu's switches that were on as its head ran.
@@ -68,6 +73,39 @@ pub struct CommitSwitches {
     pub signoff: bool,
     /// `--allow-empty`.
     pub allow_empty: bool,
+}
+
+/// Where the push menu's head pushes the branch checked out (ADR 0127, step 2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PushTarget {
+    /// git's own push target, `@{push}` (`p`); with none, a remote is read in a prompt.
+    PushRemote,
+    /// The upstream (`u`); with none, a remote is read in a prompt and set as it.
+    Upstream,
+    /// A remote's branch read in a prompt (`e`).
+    Elsewhere,
+    /// What the prompt one of the others opened read: a remote, or `REMOTE/BRANCH`.
+    Named(String),
+    /// What the question before a forced push asked about, after the person's `y`.
+    Asked,
+}
+
+/// The push menu's switches that were on as its head ran.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PushSwitches {
+    /// `--force-with-lease`, with the remote's tip as oso last saw it, after a question.
+    pub force_with_lease: bool,
+    /// `--no-verify`: the `pre-push` hook does not run.
+    pub no_verify: bool,
+}
+
+/// What the fetch menu's head fetches from (ADR 0127, step 2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FetchFrom {
+    /// The upstream's remote (`u`).
+    Upstream,
+    /// Every remote (`a`).
+    All,
 }
 
 /// What a command asks of the host for git (ADR 0127).
@@ -101,11 +139,12 @@ pub enum GitRequest {
         column: usize,
     },
     /// Make the commit `kind` in the repository of the status `buffer`, with `switches` (the
-    /// commit menu's heads).
+    /// commit menu's heads); a fixup or a squash is for the commit on `line`, point's.
     Commit {
         buffer: BufferId,
         kind: CommitKind,
         switches: CommitSwitches,
+        line: usize,
     },
     /// Commit with the message `buffer` holds (`C-c C-c`).
     CommitFinish { buffer: BufferId },
@@ -141,6 +180,17 @@ pub enum GitRequest {
     /// Ask the agent session of the repository's worktree to fix what made its last commit
     /// fail, from `buffer`, that commit's message or the log (`C-c C-f`, `F`, step 6a).
     FixWithAgent { buffer: BufferId },
+    /// Push the branch checked out in the repository of the status `buffer` to `target`, with
+    /// `switches` (the push menu's heads, step 2).
+    Push {
+        buffer: BufferId,
+        target: PushTarget,
+        switches: PushSwitches,
+    },
+    /// Pull the upstream into the branch checked out, fast-forward only (`F u`, step 2).
+    Pull { buffer: BufferId },
+    /// Fetch from `from`, pruning what the remote deleted (`f u`, `f a`, step 2).
+    Fetch { buffer: BufferId, from: FetchFrom },
 }
 
 /// A status buffer's record.

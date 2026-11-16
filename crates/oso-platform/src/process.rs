@@ -215,6 +215,13 @@ pub struct Spawn<'a> {
     /// which is not supported elsewhere (ADR 0032, ADR 0055), and git's long runs end
     /// git alone there (ADR 0127).
     pub own_process_group: bool,
+    /// Starts it as the leader of a session of its own, with no controlling terminal, so that
+    /// nothing it runs can open oso's terminal (`/dev/tty`) to ask for a passphrase or a
+    /// password, as `ssh` would: it fails instead (ADR 0127, step 2). It then leads a process
+    /// group of its own too, which [`Child::signal_group`] reaches, and outlives this process.
+    /// Only Unix has this; elsewhere nothing changes. Not with `terminal` or
+    /// `own_process_group`, which it takes the place of.
+    pub own_session: bool,
     /// Variables set to these values, after the allowlist and over it. Their
     /// values are not logged. A name that is empty, holds `=` or NUL, or is
     /// `PATH` (this module's own), `LD_*` or `DYLD_*` (the loader's) is refused.
@@ -243,6 +250,7 @@ impl fmt::Debug for Spawn<'_> {
             .field("stdout", &self.stdout)
             .field("stderr", &self.stderr)
             .field("own_process_group", &self.own_process_group)
+            .field("own_session", &self.own_session)
             .field(
                 "set",
                 &self.set.iter().map(|(name, _)| name).collect::<Vec<_>>(),
@@ -306,11 +314,15 @@ fn check(request: &Spawn<'_>) -> io::Result<()> {
         && (request.stdin != Source::Closed
             || request.stdout != Sink::Inherit
             || request.stderr != Sink::Inherit
-            || request.own_process_group)
+            || request.own_process_group
+            || request.own_session)
     {
         return invalid(
             "a child in a terminal has the terminal as its streams and its own session".into(),
         );
+    }
+    if request.own_session && request.own_process_group {
+        return invalid("a child in a session of its own leads its own group already".into());
     }
     if request.terminal.is_some() && request.pass_fd.is_some() {
         return invalid("a child in a terminal gets no other descriptor".into());
@@ -558,6 +570,7 @@ mod tests {
                 stdout,
                 stderr: Sink::Null,
                 own_process_group: name == "sleep" && own_process_group,
+                own_session: false,
                 set: &[],
                 terminal: None,
                 pass_fd: None,
@@ -594,6 +607,66 @@ mod tests {
         assert_ne!(group, pid, "it stays in this process's group");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_child_in_a_session_of_its_own_has_no_terminal_and_leads_its_group() {
+        use super::{Sink, Source, Spawn, spawn};
+        // `ps` marks a session's leader with `s` in its state, on macOS and Linux alike.
+        let script = "if (exec 3</dev/tty) 2>/dev/null; then echo tty; else echo none; fi; \
+                      echo $$; ps -o pgid= -p $$; ps -o stat= -p $$";
+        let child = spawn(&Spawn {
+            executable: &Executable::from_path("sh", None).unwrap(),
+            args: &["-c".into(), script.into()],
+            cwd: None,
+            project: None,
+            inherit: &[],
+            stdin: Source::Closed,
+            stdout: Sink::Piped,
+            stderr: Sink::Null,
+            own_process_group: false,
+            own_session: true,
+            set: &[],
+            terminal: None,
+            pass_fd: None,
+        })
+        .unwrap();
+        let out = child.wait_with_output().unwrap();
+        let out = String::from_utf8_lossy(&out.stdout);
+        let lines: Vec<&str> = out.lines().map(str::trim).collect();
+        assert_eq!(
+            lines.first(),
+            Some(&"none"),
+            "it cannot open a terminal: {out}"
+        );
+        assert_eq!(lines.get(1), lines.get(2), "it leads its group: {out}");
+        assert!(
+            lines.get(3).is_some_and(|stat| stat.contains('s')),
+            "it leads a session: {out}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_session_of_its_own_is_refused_with_a_group_or_a_terminal_asked_too() {
+        use super::{Sink, Source, Spawn, spawn};
+        let refused = spawn(&Spawn {
+            executable: &Executable::from_path("sh", None).unwrap(),
+            args: &[],
+            cwd: None,
+            project: None,
+            inherit: &[],
+            stdin: Source::Closed,
+            stdout: Sink::Null,
+            stderr: Sink::Null,
+            own_process_group: true,
+            own_session: true,
+            set: &[],
+            terminal: None,
+            pass_fd: None,
+        });
+        assert!(refused.is_err_and(|e| e.kind() == std::io::ErrorKind::InvalidInput));
+    }
+
     /// `sh -c script`, piped out, in a process group of its own if `group`.
     #[cfg(unix)]
     fn shell(script: &str, group: bool) -> super::Child {
@@ -608,6 +681,7 @@ mod tests {
             stdout: Sink::Piped,
             stderr: Sink::Null,
             own_process_group: group,
+            own_session: false,
             set: &[],
             terminal: None,
             pass_fd: None,
@@ -629,6 +703,7 @@ mod tests {
             stdout: Sink::Piped,
             stderr: Sink::Null,
             own_process_group: false,
+            own_session: false,
             set: &[],
             terminal: None,
             pass_fd: None,
@@ -822,6 +897,7 @@ mod tests {
             stdout: Sink::Piped,
             stderr: Sink::Null,
             own_process_group: false,
+            own_session: false,
             set: &[],
             terminal: None,
             pass_fd: None,
@@ -873,6 +949,7 @@ mod tests {
             stdout: Sink::Piped,
             stderr: Sink::Null,
             own_process_group: false,
+            own_session: false,
             set: &[],
             terminal: None,
             pass_fd: None,
@@ -946,6 +1023,7 @@ mod tests {
             stdout: Sink::Null,
             stderr: Sink::Null,
             own_process_group: false,
+            own_session: false,
             set: &[],
             terminal: None,
             pass_fd: None,
@@ -966,6 +1044,7 @@ mod tests {
         };
         let grouped = Spawn {
             own_process_group: true,
+            own_session: false,
             ..plain
         };
         let passed = Spawn {

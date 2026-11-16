@@ -324,6 +324,7 @@ fn fork_when_live(flow: &Flow, app: &mut App, id: &str) -> String {
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,
+        own_session: false,
         set: &[],
         terminal: None,
         pass_fd: None,

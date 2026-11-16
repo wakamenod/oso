@@ -155,7 +155,7 @@ fn parents(target: Target) -> [Option<Target>; 3] {
 /// the hunk, and, for a cursor, a hunk's line its hunk.
 fn target_of(row: Row, cursor: bool) -> Option<Target> {
     match row {
-        Row::Heading(section) => Some(Target::Section(section)),
+        Row::Heading(section) if section.holds_files() => Some(Target::Section(section)),
         Row::File { section, file }
         | Row::Detail {
             section,
@@ -181,7 +181,12 @@ fn target_of(row: Row, cursor: bool) -> Option<Target> {
             file,
             hunk,
         }),
-        Row::Line { .. } | Row::Detail { .. } | Row::Other | Row::More(_) => None,
+        Row::Line { .. }
+        | Row::Detail { .. }
+        | Row::Other
+        | Row::More(_)
+        | Row::Heading(_)
+        | Row::Commit { .. } => None,
     }
 }
 

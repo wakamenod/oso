@@ -1431,6 +1431,75 @@ the `revision` fields of step 4's `Document` and `Change` among them (Q8).
 - **Left for step 12:** the `just perf` metrics: typing with 2000 diagnostics at 1 and 1000
   cursors, and a 2000-entry report applied while typing.
 
+### Step 7: diagnostics, drawing
+
+The author answered step 7's questions on 2026-11-16, all with the first choice: the sign is a
+bar a third of a cell wide, the row's full height (Q1), on the line a diagnostic starts on, on
+its first view row (Q2), in a column at the window's left edge, before the line numbers (Q3);
+unnecessary code keeps its own colours, syntax ones too, faded toward the background (Q4); and
+deprecated code is struck through now, as the renderer strikes a terminal's cells (Q5).
+
+- **Faces:** `Face::DiagnosticError`, `DiagnosticWarning` and `DiagnosticInfo`, in red (a
+  terminal's colour 9), the warning face's amber and a blue of their own (`FgInfo`), in every
+  theme. Their floors: 3:1 for the line and the sign, marks to notice, on the background, the
+  current line's band, the region and isearch's fills; 4.5:1 for the counts on both modelines.
+  A test keeps the three apart from each other, and the error's from `lsp!`'s warning face.
+- **Faded text:** each theme resolves a faded colour for every face, its foreground mixed in sRGB
+  toward the background, at most 0.35 of the way (`FADED`), about VS Code's opacity of 0.67,
+  and less where that would take it under 4.5:1 on the background or the band: a comment, near
+  its floor already, fades less. Only glyphs of text fade: an escape, a box, a mark, the glyph
+  under the cursor and text on a fill other than the band keep their colours, as syntax faces
+  do (ADR 0111).
+- **`oso-render`:**
+  - `TextView::marks: TextMarks { underlines, faded, struck }`, the frame's cells of each, and
+    `TextMarks::NONE`; `PaneContent::Signs`, a column of bars.
+  - Wavy lines are a third pipeline beside the rectangles and the rounded boxes (`shape.rs`,
+    `wave.wgsl`): one instanced quad a run of cells, an antialiased sine at the cells' bottom,
+    a line's thickness thick, swinging over three, its period twice that, its phase from the
+    frame's left so runs side by side join. At most 4096 a frame (`MAX_WAVES`), the most severe
+    first so it keeps its room; each layer has its range, drawn after its rectangles and before
+    its glyphs, so a line is over the fills and under the text. It leaves the cursor's cells
+    out, so the box, or a hollow one's sides, stays whole. The pipeline is made the first time
+    a frame has a wave, not at start-up. Strikes and bars are rectangles under the glyphs, as a
+    terminal's strikes are, and share its strike's line (`scene/boxes.rs`).
+  - New files: `scene/marks.rs` draws the marks and the signs; `scene/boxes.rs` holds the
+    cursor box, the outlines and the divider, moved out of `scene.rs`; `pane/face.rs` holds
+    `Face`, moved out of `pane.rs`. `highlight.rs`'s list of plain cells became `CellRows`,
+    which faded cells use too.
+- **`oso-core`** (`editor/diagnostics.rs`):
+  - `Editor::diagnostic_cells(id, screen, &mut DiagnosticCells)` gives each severity's cells,
+    the most severe where they meet, and the faded and struck ones, as `isearch_cells` does. A
+    frame works out each view row's offsets shown, two conversions a row, and asks the set once
+    for what meets them all: one query, as a query costs as many entries as an early long one
+    reaches over. Only a diagnostic that meets a row's offsets is converted, its ends cut to the
+    rows it meets, so the part of a long line out of view and a range around the whole view cost
+    a search each. A list a diagnostic takes a whole row of is one range on that row, however
+    many do. A range stops at its line's text and never runs to the window's edge or under the
+    wrap mark; an empty one, or one of a line break alone, takes its cell on the row it starts
+    on, with its line but never faded or struck, which would read as a character the buffer
+    does not hold. A preedit's cells get nothing. Hints get no line.
+  - `Gutter::signs()`: the sign column is the gutter's first cell while `Buffer::server` is
+    `Some` and the buffer is no terminal, with line numbers off too, so the text does not move
+    when a report comes; `signs` is empty while there is none, which the tip and the text grid
+    read. The line numbers' floor stays the numbers' own. The signs come from the same one
+    query; each start's line is found by a search of the rows' offsets.
+  - `Status::lsp` holds the state alone, and `Status::lsp_counts` the counts and the gap,
+    which `Status::count_parts` splits for the severities' faces. `Status::modeline` reads as
+    before. `Status::counts`, step 6's numbers, stays for the agents' `state` (step 11).
+- **The tip crate:** each window has a fifth pane, its sign column (`tiled::Part::Signs`), so a
+  window's pane ids moved from four to five apart and every window's rows are shaped once again
+  after the upgrade; its modeline is drawn in 13 spans (`tiled/modeline.rs`, moved out of
+  `tiled.rs`). A preview shows no diagnostics.
+- **Tests:** contrast, faded and told-apart tests in every theme; scene tests of the waves'
+  places, colours, order, cut and cap, strikes, bars and faded glyphs; a GPU pixel test of the
+  wave and a wave cut around the cursor; `oso-core` tests of the cells, ranges across lines and
+  wraps, a range from above the view, a view scrolled sideways, a preedit, a range on a wrapped
+  line's first row alone, empty ranges, and the signs; the tip's panes; and the text-grid snapshot `diagnostics`, whose legend
+  is in `docs/dev/testing.md`. The grid's modeline now has the `lsp` segment.
+- **Public API:** `oso-render`: `Face::{DiagnosticError, DiagnosticWarning, DiagnosticInfo}`,
+  `TextMarks`, `TextView::marks`, `PaneContent::Signs`. `oso-core`: `editor::DiagnosticCells`,
+  `Editor::diagnostic_cells`, `Gutter::signs`, `Status::{lsp_counts, count_parts}`.
+
 ### Step 8a: definition and back
 
 The author answered step 8's questions on 2026-11-16, all with the first choice: two pull

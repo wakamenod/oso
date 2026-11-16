@@ -150,7 +150,8 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   over a shared buffer ([ADR 0112](adr/0112-window-splits.md)). See
   [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md). A pure function,
   `oso_core::frame::layout`, divides the frame into whole cells: each
-  window's text area, with a gutter for line numbers at its left, above its modeline row, a
+  window's text area, with a gutter for a language server's signs and line numbers at its
+  left, above its modeline row, a
   divider column between side by side windows, and the echo area ([ADR 0057](adr/0057-frame-layout.md), [ADR 0097](adr/0097-visual-aids.md), [ADR 0112](adr/0112-window-splits.md)).
 - **Selections** are per window and support multiple cursors
   (`oso_core::selection::SelectionSet`). Each selection has a cursor, a
@@ -457,12 +458,15 @@ glyphs:
 ```
 for each layer, back to front:
   rectangles: backgrounds, boxes, cursors, selections   (shape renderer)
+  wavy lines: diagnostics under text                    (shape renderer, one quad a run)
   rounded boxes: a float's panel, field and key chips   (shape renderer, one quad each)
   glyphs from the atlas                                 (text renderer)
 ```
 
 A layer with no rounded box draws none, so a frame with no float costs nothing more
-([ADR 0075](adr/0075-a-float-as-a-panel-attached-to-the-top-edge.md)).
+([ADR 0075](adr/0075-a-float-as-a-panel-attached-to-the-top-edge.md)), and the same goes for
+wavy lines, whose pipeline is made the first time a frame has one
+([ADR 0138](adr/0138-language-servers.md)).
 
 `scene` builds those ranges with no GPU, and `paint` uploads and records them, for the
 window and for a screenshot alike. Panes are built front to back, so the caps on quads
@@ -645,6 +649,13 @@ The UI thread never blocks on I/O or parsing:
   hook that ignores `SIGTERM` goes too. Quitting sends each run's group `SIGTERM`, then `SIGKILL`,
   and waits for nothing
   ([ADR 0127](adr/0127-source-control-and-github.md), step 1b).
+- Pushes, pulls and fetches run on the same thread (`vcs/run/remotes.rs`, glue in
+  `app/vcs/remote.rs`): a push is planned there first from `for-each-ref`, and with no target
+  the host gives the remotes to a prompt it opens as its keys would
+  (`Dispatcher::run_from_host`); a forced push asks first. `vcs/run/stream.rs` streams every
+  long run, a remote's progress too, and `vcs/remote.rs` holds what needs no git. The status's
+  thread reads the unpushed, unpulled and recent commits (`vcs/history.rs`) with the rest
+  ([ADR 0127](adr/0127-source-control-and-github.md), step 2).
 - What a commit asks of the worktree's agent session (step 6a): `vcs/agent.rs` writes the
   requests, a draft's and a failed commit's fix, as pure functions; `app/vcs/agent.rs` reads the
   last subjects on `oso-vcs-run` and pastes the requests through `send_to_session`; and

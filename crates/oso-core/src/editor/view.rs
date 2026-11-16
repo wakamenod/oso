@@ -32,20 +32,24 @@ impl Editor {
     /// (ADR 0112), and the selected one never loses its cells.
     pub(super) fn lay_out(&mut self, size: FrameSize) -> bool {
         let count = self.tiled_count();
-        let gutters: Vec<(WindowId, usize)> = self.windows[..count]
+        let gutters: Vec<(WindowId, usize, usize)> = self.windows[..count]
             .iter()
-            .map(|window| (window.id(), self.gutter_columns(window)))
+            .map(|window| {
+                let numbers = self.number_columns(window);
+                (window.id(), self.gutter_columns(window), numbers)
+            })
             .collect();
-        let numbers = self.aids.line_numbers;
-        for (window, &(_, gutter)) in self.windows[..count].iter_mut().zip(&gutters) {
-            window.set_gutter_floor(numbers.then_some((window.buffer(), gutter)));
+        let numbered = self.aids.line_numbers;
+        // The floor is the numbers' alone: the sign column comes and goes with a server.
+        for (window, &(_, _, numbers)) in self.windows[..count].iter_mut().zip(&gutters) {
+            window.set_gutter_floor(numbered.then_some((window.buffer(), numbers)));
         }
         let keep = self.tree_id();
         let tree = (&self.splits, self.side_columns());
         frame::layout_into(&mut self.frame, size, tree, keep, |id| {
             gutters
                 .iter()
-                .find_map(|&(other, gutter)| (other == id).then_some(gutter))
+                .find_map(|&(other, gutter, _)| (other == id).then_some(gutter))
                 .unwrap_or(0)
         });
         // The selected window always has cells: the side window gives them up first.

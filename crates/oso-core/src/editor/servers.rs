@@ -11,6 +11,8 @@ mod jumps;
 
 use crate::buffer::{Buffer, BufferId};
 
+/// Where on a line a server's place is: the host turns the server's encoding into one.
+pub use super::visits::VisitColumn;
 pub use jumps::AskAt;
 
 use super::Editor;

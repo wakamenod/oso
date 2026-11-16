@@ -80,7 +80,7 @@ impl App {
         }
         let open = &self.gits.open[index];
         let (project, built) = (open.project, Arc::clone(&open.built));
-        if self.commit_runs(project) {
+        if self.repo_busy(project) {
             return self.editor.message(RUNNING);
         }
         let targets = match stage::targets(&built, lines) {

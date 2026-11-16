@@ -1359,8 +1359,10 @@ impl core::marker::StructuralPartialEq for oso_core::editor::Chose
 pub enum oso_core::editor::CommitKind
 pub oso_core::editor::CommitKind::Amend
 pub oso_core::editor::CommitKind::Extend
+pub oso_core::editor::CommitKind::Fixup
 pub oso_core::editor::CommitKind::New
 pub oso_core::editor::CommitKind::Reword
+pub oso_core::editor::CommitKind::Squash
 impl core::clone::Clone for oso_core::editor::CommitKind
 pub fn oso_core::editor::CommitKind::clone(&self) -> oso_core::editor::CommitKind
 impl core::cmp::Eq for oso_core::editor::CommitKind
@@ -1423,10 +1425,23 @@ pub fn oso_core::editor::DraftFor::eq(&self, &oso_core::editor::DraftFor) -> boo
 impl core::fmt::Debug for oso_core::editor::DraftFor
 pub fn oso_core::editor::DraftFor::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::DraftFor
+pub enum oso_core::editor::FetchFrom
+pub oso_core::editor::FetchFrom::All
+pub oso_core::editor::FetchFrom::Upstream
+impl core::clone::Clone for oso_core::editor::FetchFrom
+pub fn oso_core::editor::FetchFrom::clone(&self) -> oso_core::editor::FetchFrom
+impl core::cmp::Eq for oso_core::editor::FetchFrom
+impl core::cmp::PartialEq for oso_core::editor::FetchFrom
+pub fn oso_core::editor::FetchFrom::eq(&self, &oso_core::editor::FetchFrom) -> bool
+impl core::fmt::Debug for oso_core::editor::FetchFrom
+pub fn oso_core::editor::FetchFrom::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::FetchFrom
+impl core::marker::StructuralPartialEq for oso_core::editor::FetchFrom
 pub enum oso_core::editor::GitRequest
 pub oso_core::editor::GitRequest::Commit
 pub oso_core::editor::GitRequest::Commit::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Commit::kind: oso_core::editor::CommitKind
+pub oso_core::editor::GitRequest::Commit::line: usize
 pub oso_core::editor::GitRequest::Commit::switches: oso_core::editor::CommitSwitches
 pub oso_core::editor::GitRequest::CommitCancel
 pub oso_core::editor::GitRequest::CommitCancel::buffer: oso_core::buffer::BufferId
@@ -1441,8 +1456,17 @@ pub oso_core::editor::GitRequest::Discard::confirmed: bool
 pub oso_core::editor::GitRequest::Discard::lines: alloc::vec::Vec<oso_core::editor::GitLines>
 pub oso_core::editor::GitRequest::DraftMessage
 pub oso_core::editor::GitRequest::DraftMessage::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Fetch
+pub oso_core::editor::GitRequest::Fetch::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Fetch::from: oso_core::editor::FetchFrom
 pub oso_core::editor::GitRequest::FixWithAgent
 pub oso_core::editor::GitRequest::FixWithAgent::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Pull
+pub oso_core::editor::GitRequest::Pull::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Push
+pub oso_core::editor::GitRequest::Push::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Push::switches: oso_core::editor::PushSwitches
+pub oso_core::editor::GitRequest::Push::target: oso_core::editor::PushTarget
 pub oso_core::editor::GitRequest::Refresh
 pub oso_core::editor::GitRequest::Refresh::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::RestoreDiscarded
@@ -1675,6 +1699,20 @@ pub oso_core::editor::ProjectPreviewRead::Unreadable
 pub oso_core::editor::ProjectPreviewRead::Withheld
 impl core::fmt::Debug for oso_core::editor::ProjectPreviewRead
 pub fn oso_core::editor::ProjectPreviewRead::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum oso_core::editor::PushTarget
+pub oso_core::editor::PushTarget::Asked
+pub oso_core::editor::PushTarget::Elsewhere
+pub oso_core::editor::PushTarget::Named(alloc::string::String)
+pub oso_core::editor::PushTarget::PushRemote
+pub oso_core::editor::PushTarget::Upstream
+impl core::clone::Clone for oso_core::editor::PushTarget
+pub fn oso_core::editor::PushTarget::clone(&self) -> oso_core::editor::PushTarget
+impl core::cmp::Eq for oso_core::editor::PushTarget
+impl core::cmp::PartialEq for oso_core::editor::PushTarget
+pub fn oso_core::editor::PushTarget::eq(&self, &oso_core::editor::PushTarget) -> bool
+impl core::fmt::Debug for oso_core::editor::PushTarget
+pub fn oso_core::editor::PushTarget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::PushTarget
 pub enum oso_core::editor::Quit
 pub oso_core::editor::Quit::Cursors
 pub oso_core::editor::Quit::Jump
@@ -2130,6 +2168,16 @@ pub fn oso_core::editor::Crossing::left(&self) -> usize
 pub fn oso_core::editor::Crossing::redo(&self) -> bool
 impl core::fmt::Debug for oso_core::editor::Crossing
 pub fn oso_core::editor::Crossing::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::DiagnosticCells
+pub oso_core::editor::DiagnosticCells::deprecated: alloc::vec::Vec<oso_core::frame::CellRect>
+pub oso_core::editor::DiagnosticCells::error: alloc::vec::Vec<oso_core::frame::CellRect>
+pub oso_core::editor::DiagnosticCells::information: alloc::vec::Vec<oso_core::frame::CellRect>
+pub oso_core::editor::DiagnosticCells::unnecessary: alloc::vec::Vec<oso_core::frame::CellRect>
+pub oso_core::editor::DiagnosticCells::warning: alloc::vec::Vec<oso_core::frame::CellRect>
+impl core::default::Default for oso_core::editor::DiagnosticCells
+pub fn oso_core::editor::DiagnosticCells::default() -> oso_core::editor::DiagnosticCells
+impl core::fmt::Debug for oso_core::editor::DiagnosticCells
+pub fn oso_core::editor::DiagnosticCells::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::Editor
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_buffer(&mut self, oso_core::buffer::Buffer) -> oso_core::buffer::BufferId
@@ -2421,6 +2469,8 @@ pub fn oso_core::editor::Editor::server_log<'a>(&mut self, &str, impl core::iter
 pub fn oso_core::editor::Editor::server_log_shown(&self) -> bool
 pub fn oso_core::editor::Editor::take_server_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ServerRequest>
 pub fn oso_core::editor::Editor::to_diagnostic(&mut self, bool) -> core::result::Result<bool, &'static str>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::diagnostic_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut oso_core::editor::DiagnosticCells)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::directory_answer_waits(&self) -> bool
 impl oso_core::editor::Editor
@@ -2727,6 +2777,7 @@ pub fn oso_core::editor::GitShown::fmt(&self, &mut core::fmt::Formatter<'_>) -> 
 pub struct oso_core::editor::Gutter
 impl oso_core::editor::Gutter
 pub fn oso_core::editor::Gutter::rows(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&str, bool)>
+pub fn oso_core::editor::Gutter::signs(&self) -> &[core::option::Option<oso_core::diagnostic::Severity>]
 impl core::default::Default for oso_core::editor::Gutter
 pub fn oso_core::editor::Gutter::default() -> oso_core::editor::Gutter
 impl core::fmt::Debug for oso_core::editor::Gutter
@@ -2915,6 +2966,20 @@ impl core::clone::Clone for oso_core::editor::ProjectSearchRow
 pub fn oso_core::editor::ProjectSearchRow::clone(&self) -> oso_core::editor::ProjectSearchRow
 impl core::fmt::Debug for oso_core::editor::ProjectSearchRow
 pub fn oso_core::editor::ProjectSearchRow::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::PushSwitches
+pub oso_core::editor::PushSwitches::force_with_lease: bool
+pub oso_core::editor::PushSwitches::no_verify: bool
+impl core::clone::Clone for oso_core::editor::PushSwitches
+pub fn oso_core::editor::PushSwitches::clone(&self) -> oso_core::editor::PushSwitches
+impl core::cmp::Eq for oso_core::editor::PushSwitches
+impl core::cmp::PartialEq for oso_core::editor::PushSwitches
+pub fn oso_core::editor::PushSwitches::eq(&self, &oso_core::editor::PushSwitches) -> bool
+impl core::default::Default for oso_core::editor::PushSwitches
+pub fn oso_core::editor::PushSwitches::default() -> oso_core::editor::PushSwitches
+impl core::fmt::Debug for oso_core::editor::PushSwitches
+pub fn oso_core::editor::PushSwitches::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::PushSwitches
+impl core::marker::StructuralPartialEq for oso_core::editor::PushSwitches
 pub struct oso_core::editor::Replace
 impl oso_core::editor::Replace
 pub fn oso_core::editor::Replace::around_secret(&self) -> bool
@@ -3066,6 +3131,7 @@ pub oso_core::editor::Status::agent_connected: bool
 pub oso_core::editor::Status::counts: oso_core::diagnostic::Counts
 pub oso_core::editor::Status::echo: alloc::string::String
 pub oso_core::editor::Status::lsp: alloc::string::String
+pub oso_core::editor::Status::lsp_counts: alloc::string::String
 pub oso_core::editor::Status::lsp_face: oso_core::editor::ServerFace
 pub oso_core::editor::Status::name: alloc::string::String
 pub oso_core::editor::Status::project: alloc::string::String
@@ -3076,6 +3142,7 @@ pub oso_core::editor::Status::state: alloc::string::String
 pub oso_core::editor::Status::waits: alloc::string::String
 pub oso_core::editor::Status::warnings: alloc::string::String
 impl oso_core::editor::Status
+pub fn oso_core::editor::Status::count_parts(&self) -> [(&str, oso_core::diagnostic::Severity); 3]
 pub fn oso_core::editor::Status::echo_warnings(&self) -> &str
 pub fn oso_core::editor::Status::modeline(&self) -> alloc::string::String
 impl core::clone::Clone for oso_core::editor::Status

@@ -259,6 +259,7 @@ impl Session {
             stdout: Sink::Piped,
             stderr: Sink::Piped,
             own_process_group: cfg!(unix),
+            own_session: false,
             set: &[],
             terminal: None,
             pass_fd: None,

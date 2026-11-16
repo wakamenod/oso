@@ -1,6 +1,7 @@
 //! A repository's thread for git's long runs, `oso-vcs-run` (ADR 0127, step 1b): a commit with
 //! the repository's hooks, which has no time limit, the message an amend starts from, and, from
-//! step 1c, reading the record of what discards kept and writing a copy back.
+//! step 1c, reading the record of what discards kept and writing a copy back; from step 2,
+//! pushes, pulls and fetches (`remotes`), and planning where a push goes.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
 //! takes reports out, and supplies the wake-up.
@@ -14,7 +15,8 @@
 //!   paths as patterns.
 //! - What git writes streams out as lines a log shows ([`commit::log_lines`]), sent at most
 //!   every [`FLUSH`], at most [`MAX_FLUSH`] bytes at once, with a line that says how many were
-//!   left out before them. The time since it began is sent each second.
+//!   left out before them (`stream`). The time since it began is sent each second, and a
+//!   remote's progress as it changes.
 //! - A failure names the hooks that may have made it, from the hooks directory git says it
 //!   uses (`core.hooksPath` respected).
 //! - One request at a time; the UI refuses a second run while one is under way (ADR 0127,
@@ -26,15 +28,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use oso_core::editor::{CommitKind, CommitSwitches};
+use oso_core::editor::{CommitKind, CommitSwitches, FetchFrom, PushSwitches};
 
 use super::commit;
 use super::discarded::{self, Entry};
 use super::keep;
 use super::read::{find, hooks_dir};
-use crate::git::{Ender, Git, MAX_SHORT, Next, TrustedRoot, os_path, trim_line};
+use super::remote::Push;
+use crate::git::{Ender, Git, MAX_SHORT, TrustedRoot, os_path, trim_line};
+
+mod remotes;
+mod stream;
+
+pub(crate) use remotes::{Planned, Want};
+use stream::stream;
 
 /// How often what a run wrote is sent on.
 pub(crate) const FLUSH: Duration = Duration::from_millis(100);
@@ -54,13 +63,28 @@ pub(crate) enum RunRequest {
     /// secrets, which no copy is kept of.
     Restore { entry: Entry, secret: bool },
     /// Make the commit `kind` with `switches`, `message` on standard input if it takes one, and
-    /// the names `pass` passes on to its hooks.
+    /// the names `pass` passes on to its hooks; a fixup or a squash for the commit `target`.
     Commit {
         kind: CommitKind,
         switches: CommitSwitches,
         message: Option<Vec<u8>>,
         pass: Vec<String>,
+        target: Option<String>,
     },
+    /// A push's plan, or a push, a pull or a fetch (step 2).
+    Remote(RemoteRun),
+}
+
+/// What a remote's request asks for, with the names `pass` passes on to the hooks of a run.
+pub(crate) enum RemoteRun {
+    /// Find where the push `want` asks for goes, with `switches`.
+    Plan { want: Want, switches: PushSwitches },
+    /// Run `push`, planned.
+    Push { push: Push, pass: Vec<String> },
+    /// Pull the upstream, fast-forward only.
+    Pull { pass: Vec<String> },
+    /// Fetch from `from`, pruning.
+    Fetch { from: FetchFrom, pass: Vec<String> },
 }
 
 /// How a run ended.
@@ -90,6 +114,10 @@ pub(crate) enum RunReport {
     },
     /// What discards in this repository kept, newest first, or why it could not be read.
     Discarded(Result<Vec<Entry>, String>),
+    /// Where a push goes, or why it goes nowhere (step 2).
+    Planned(Result<Planned, String>),
+    /// The progress a remote's run shows now, as `Writing objects 42%`.
+    Progress(String),
     /// A copy was written back: what the echo area says, or why not.
     Restored(Result<String, String>),
     /// A run began: the command line the log shows.
@@ -108,6 +136,8 @@ impl std::fmt::Debug for RunReport {
             Self::Message(_) => f.write_str("Message"),
             Self::Subjects { subjects, .. } => write!(f, "Subjects({})", subjects.len()),
             Self::Discarded(_) => f.write_str("Discarded"),
+            Self::Planned(_) => f.write_str("Planned"),
+            Self::Progress(_) => f.write_str("Progress"),
             Self::Restored(_) => f.write_str("Restored"),
             Self::Began { .. } => f.write_str("Began"),
             Self::Output(text) => write!(f, "Output({} bytes)", text.len()),
@@ -228,7 +258,15 @@ fn serve(
                 let done = keep::restore(&git, root, (&entry, secret), state, watch.stop);
                 vec![RunReport::Restored(done)]
             }
-            (Err(why), RunRequest::Commit { .. }) => vec![RunReport::Ended(RunEnd::Refused(why))],
+            (Err(why), RunRequest::Remote(RemoteRun::Plan { .. })) => {
+                vec![RunReport::Planned(Err(why))]
+            }
+            (Err(why), RunRequest::Commit { .. } | RunRequest::Remote(_)) => {
+                vec![RunReport::Ended(RunEnd::Refused(why))]
+            }
+            (Ok(git), RunRequest::Remote(request)) => {
+                vec![remote(&git, request, watch, &mut send)]
+            }
             (Ok(git), RunRequest::Message) => vec![RunReport::Message(message(&git))],
             (
                 Ok(git),
@@ -237,6 +275,7 @@ fn serve(
                     switches,
                     message,
                     pass,
+                    target,
                 },
             ) => {
                 let run = Commit {
@@ -244,10 +283,10 @@ fn serve(
                     kind,
                     switches,
                     message,
+                    target,
                 };
                 let end = run.run(watch, &mut send);
-                *watch.ender.lock().unwrap_or_else(PoisonError::into_inner) = None;
-                vec![RunReport::Ended(end)]
+                vec![ended(watch, end)]
             }
         };
         for report in reports {
@@ -256,6 +295,30 @@ fn serve(
             }
         }
     }
+}
+
+/// What a remote's `request` comes to: a push's plan, or how its run ended.
+fn remote(
+    git: &Git,
+    request: RemoteRun,
+    watch: &Watch<'_>,
+    send: &mut impl FnMut(RunReport) -> bool,
+) -> RunReport {
+    let end = match request {
+        RemoteRun::Plan { want, switches } => {
+            return RunReport::Planned(remotes::plan(git, want, switches));
+        }
+        RemoteRun::Push { push, pass } => remotes::push(git, &push, &pass, watch, send),
+        RemoteRun::Pull { pass } => remotes::pull(git, &pass, watch, send),
+        RemoteRun::Fetch { from, pass } => remotes::fetch(git, from, &pass, watch, send),
+    };
+    ended(watch, end)
+}
+
+/// The report of a run that ended as `end`, once its ender is let go.
+fn ended(watch: &Watch<'_>, end: RunEnd) -> RunReport {
+    *watch.ender.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    RunReport::Ended(end)
 }
 
 /// `HEAD`'s message, as git keeps it.
@@ -306,61 +369,21 @@ struct Commit {
     kind: CommitKind,
     switches: CommitSwitches,
     message: Option<Vec<u8>>,
+    target: Option<String>,
 }
 
 impl Commit {
     /// Runs it to its end, a stop or the root's revocation, sending what it writes; `false`
     /// from `send` ends it.
     fn run(self, watch: &Watch<'_>, send: &mut impl FnMut(RunReport) -> bool) -> RunEnd {
-        let words = commit::args(self.kind, self.switches);
-        let args: Vec<&OsStr> = words.iter().map(OsStr::new).collect();
+        let words = commit::args(self.kind, self.switches, self.target.as_deref());
         let input = self.message.filter(|_| commit::takes_message(self.kind));
-        let mut long = match self.git.start_long(&args, &[], input) {
-            Ok(long) => long,
-            Err(e) => return RunEnd::Refused(e.to_string()),
+        let streamed = match stream(&self.git, &words, input, watch, send, false) {
+            Ok(streamed) => streamed,
+            Err(why) => return RunEnd::Refused(why),
         };
-        *watch.ender.lock().unwrap_or_else(PoisonError::into_inner) = Some(long.ender());
-        let line = format!("$ git {}\n", words.join(" "));
-        if !send(RunReport::Began { line }) {
-            return RunEnd::Stopped;
-        }
-        let began = Instant::now();
-        let mut flushed = Instant::now();
-        let mut seconds = 0;
-        let (mut partial, mut pending) = (Vec::new(), Waiting::default());
-        let status = loop {
-            // A project no longer trusted runs nothing more, whatever the UI thread does.
-            if watch.stop.load(Ordering::SeqCst) || watch.root.revoked() {
-                long.stop();
-            }
-            match long.next(FLUSH) {
-                Ok(Next::Out(piece)) => pending.push(&commit::log_lines(&piece, &mut partial)),
-                Ok(Next::Quiet) => {}
-                Ok(Next::Ended(status)) => break Ok(status),
-                Err(e) => break Err(e.to_string()),
-            }
-            if flushed.elapsed() >= FLUSH
-                && let Some(text) = pending.take()
-            {
-                flushed = Instant::now();
-                if !send(RunReport::Output(text)) {
-                    long.stop();
-                }
-            }
-            let now = began.elapsed().as_secs();
-            if now > seconds {
-                seconds = now;
-                if !send(RunReport::Elapsed(now)) {
-                    long.stop();
-                }
-            }
-        };
-        pending.push(&commit::log_rest(&mut partial));
-        if let Some(text) = pending.take() {
-            send(RunReport::Output(text));
-        }
-        match status {
-            _ if long.stopped() => RunEnd::Stopped,
+        match streamed.status {
+            _ if streamed.stopped => RunEnd::Stopped,
             Ok(status) if status.success() => RunEnd::Done,
             Ok(_) => {
                 let hooks = hooks_of(&self.git)
@@ -377,49 +400,6 @@ impl Commit {
             },
         }
     }
-}
-
-/// What a run wrote that waits to be sent on, and how many bytes were left out before it.
-#[derive(Default)]
-struct Waiting {
-    text: String,
-    left_out: usize,
-}
-
-impl Waiting {
-    /// Adds whole `lines`; past twice [`MAX_FLUSH`], only the last of them stay.
-    fn push(&mut self, lines: &str) {
-        self.text.push_str(lines);
-        if self.text.len() > 2 * MAX_FLUSH {
-            self.left_out += keep_tail(&mut self.text, MAX_FLUSH);
-        }
-    }
-
-    /// What to send: at most [`MAX_FLUSH`] bytes, after a line that says how many were left
-    /// out, if any; `None` with nothing to say.
-    fn take(&mut self) -> Option<String> {
-        self.left_out += keep_tail(&mut self.text, MAX_FLUSH);
-        if self.text.is_empty() && self.left_out == 0 {
-            return None;
-        }
-        let mut out = match std::mem::take(&mut self.left_out) {
-            0 => String::new(),
-            n => format!("[… {n} bytes left out]\n"),
-        };
-        out.push_str(&std::mem::take(&mut self.text));
-        Some(out)
-    }
-}
-
-/// Keeps the end of `text`, at most `keep` bytes from a line's start, and says how many went.
-fn keep_tail(text: &mut String, keep: usize) -> usize {
-    if text.len() <= keep {
-        return 0;
-    }
-    let from = text.ceil_char_boundary(text.len() - keep);
-    let from = text[from..].find('\n').map_or(from, |at| from + at + 1);
-    text.drain(..from);
-    from
 }
 
 /// The hooks directory git uses for this repository, `core.hooksPath` respected.

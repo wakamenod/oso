@@ -1,0 +1,34 @@
+---
+source: crates/oso/src/vcs/layout/tests.rs
+expression: grid(&laid)
+---
+other   |Head:     main 1111111 Add the first file
+        |          bbbb hhhhhhh
+other   |Upstream: origin/main  ahead 2, behind 0
+        |          rrrrrrrrrrrccccccccccccccccccc
+other   |Push:     fork/main
+        |          rrrrrrrrr
+other   |
+heading |Unpushed to origin/main (2)
+        |HHHHHHHHHHHrrrrrrrrrrrrcccc
+commit  |1111111 second
+        |hhhhhhh
+commit  |2222222 a‮rtl\nsubject
+        |hhhhhhh
+other   |
+heading |Unpulled from origin/main (1+)
+        |HHHHHHHHHHHHHrrrrrrrrrrrrccccc
+commit  |3333333 theirs
+        |hhhhhhh
+more    |… and more not shown
+        |cccccccccccccccccccc
+other   |
+heading |Recent commits (3)
+        |HHHHHHHHHHHHHHcccc
+commit  |1111111 second
+        |hhhhhhh
+commit  |2222222 a‮rtl\nsubject
+        |hhhhhhh
+commit  |4444444 first
+        |hhhhhhh
+end     |

@@ -1,6 +1,6 @@
 //! A status's thread over temporary repositories: reading each section, staging and unstaging
-//! files and git's own hunks, a hunk git refuses, literal paths, the first commit, and the
-//! roots it refuses.
+//! files and git's own hunks, a hunk git refuses, literal paths, the first commit, the roots it
+//! refuses, and the commit sections and the push target (step 2).
 //!
 //! Must not depend on: `app`, `dispatch` or winit; these drive the thread's state and thread
 //! directly, and run git only through the process module.
@@ -444,3 +444,61 @@ fn the_thread_runs_nothing_for_a_revoked_root_and_takes_a_batch_as_one() {
 
 mod discard;
 mod guards;
+
+#[test]
+fn the_commit_sections_show_what_the_upstream_lacks_and_holds() {
+    let repo = Repo::new("work-commits");
+    for (key, value) in [
+        ("user.name", "t"),
+        ("user.email", "t@t"),
+        ("commit.gpgsign", "false"),
+    ] {
+        repo.git(&["config", key, value]);
+    }
+    let mut state = state(&repo);
+    // No commit yet: no commit section, and no push line.
+    let laid = read(&mut state, &repo.root, &View::default());
+    assert!(!text(&laid).contains("Recent commits"), "{}", text(&laid));
+    std::fs::write(repo.root.join("a.txt"), "one\n").unwrap();
+    repo.git(&["add", "a.txt"]);
+    repo.git(&["commit", "-q", "-m", "first"]);
+    // Without Windows' verbatim prefix, which git cannot take.
+    let bare = crate::git::for_git(&repo.dir.join("remote.git"));
+    let bare = bare.to_str().unwrap();
+    repo.git(&["init", "-q", "--bare", "-b", "main", bare]);
+    repo.git(&["remote", "add", "origin", bare]);
+    repo.git(&["push", "-q", "-u", "origin", "main"]);
+    repo.git(&["commit", "-q", "--allow-empty", "-m", "second"]);
+    let laid = read(&mut state, &repo.root, &View::default());
+    let shown = text(&laid);
+    assert!(shown.contains("Unpushed to origin/main (1)\n"), "{shown}");
+    assert!(!shown.contains("Unpulled from"), "{shown}");
+    assert!(shown.contains("Recent commits (2)\n"), "{shown}");
+    // `@{push}` is the upstream here, so no push line.
+    assert!(!shown.contains("Push:"), "{shown}");
+    // The head's line names the subject too: the row is the one under the heading.
+    let heading = (shown.lines())
+        .position(|line| line.starts_with("Unpushed to"))
+        .unwrap();
+    let line = heading + 1;
+    let (section, commit) = laid.built.commit_at(line).unwrap();
+    assert_eq!(section, Section::Unpushed);
+    let head = String::from_utf8(repo.git(&["rev-parse", "HEAD"])).unwrap();
+    assert_eq!(commit.id, head.trim());
+    // A push target elsewhere gets its own line. git resolves no `@{push}` for `simple` to
+    // another remote than the upstream's, so `current`.
+    repo.git(&["remote", "add", "fork", bare]);
+    repo.git(&["config", "remote.pushDefault", "fork"]);
+    repo.git(&["config", "push.default", "current"]);
+    repo.git(&["fetch", "-q", "fork"]);
+    let laid = read(&mut state, &repo.root, &View::default());
+    assert!(
+        text(&laid).contains("Push:     fork/main\n"),
+        "{}",
+        text(&laid)
+    );
+    assert!(matches!(
+        laid.built.rows.get(line),
+        Some(Row::Commit { .. }) | Some(_)
+    ));
+}

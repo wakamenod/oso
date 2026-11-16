@@ -357,6 +357,28 @@ A comment opens as a draft at the top: `RET` breaks a line, `C-c C-c` keeps it, 
 it into the kill ring. `C-x k` closes the review, and asks first while it holds comments you
 have not sent. Sending comments to a session is not built yet.
 
+## Source control
+
+`C-x g` shows the git status of the current project, as magit's: the head, the untracked,
+unstaged and staged files, then the unpushed, unpulled and recent commits. It runs git, so the
+project must be trusted.
+
+| Key | Does |
+|---|---|
+| `TAB` | Show a file's hunks, or fold a section |
+| `s` / `u` | Stage or unstage what point is on: a section, a file, a hunk, or a region's lines |
+| `k` | Discard it, after a question; a copy is kept for two weeks (`M-x git-discarded`) |
+| `c` | The commit menu: `c` commit, `a` amend, `e` extend, `w` reword, and `f` fixup or `s` squash for the commit at point |
+| `P` | The push menu: `p` where git pushes, `u` the upstream, `e` elsewhere; `- f` forces with a lease, after a question |
+| `F u` | Pull the upstream, fast-forward only |
+| `f u` / `f a` | Fetch the upstream's remote, or every remote |
+| `RET` | Visit the file, or review the commit at point |
+| `$` | Show what git's runs wrote; `C-g` stops one |
+| `g` / `q` / `?` | Read it again, leave it, list the keys |
+
+Commits run the repository's hooks, with no time limit. A push, a pull or a fetch can ask for no
+password or passphrase: set up a credential helper or `ssh-agent`, or push from a terminal.
+
 ## What an agent in oso can do
 
 A session oso started connects to oso without a question. Its `oso mcp` server gives it these

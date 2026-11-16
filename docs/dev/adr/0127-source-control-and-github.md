@@ -811,7 +811,7 @@ last 200 lines; (6) one pull request.
 
 - **The session:** the hosted, running session whose directory is the repository's root, the
   one whose terminal was shown last if several are; none: "No agent session runs in this
-  worktree: C-x a c starts one". A request is pasted through `send_to_session`, the one delivery
+  worktree: C-c a c starts one" (the keys `claude` is on, as bound now). A request is pasted through `send_to_session`, the one delivery
   path, as the person's bracketed paste, not submitted, and refused as a send is while the
   session needs input; the session's terminal is shown.
 - **`C-c C-d`** (`git-draft-commit-message`, `Person`) reads the last 5 subjects on the
@@ -865,6 +865,90 @@ last 200 lines; (6) one pull request.
   above the `#` lines, with property tests over any output and text; reading the last subjects
   over temporary repositories; the tool's parsing and its place in the tools' table; what lets a
   draft in; the commands; and an end-to-end flow with a fake session that runs `oso mcp`.
+
+### Step 2: remotes, the commit sections, and fixup and squash at point
+
+The plan's questions were answered (a) each (the author, 2026-11-16): (1) the recent commits
+always show; (2) a pull is `--ff-only` only, `-r` and `-m` wait for step 3, where a stopped one
+gets continue and abort; (3) a push, a pull or a fetch starts in a session of its own with no
+controlling terminal, so that `ssh` cannot ask on the terminal oso was started from
+(`Spawn::own_session` in `oso-platform`, Unix only, approved); (4) `p` follows git's
+`@{push}`, and with none a remote is picked in a prompt, nothing written to the configuration;
+(5) these runs inherit `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` and `NO_PROXY`, in both cases;
+(6) a fixup onto a commit the upstream has asks nothing; (7) one pull request.
+
+- **The sections:** below the staged changes, `Unpushed to UPSTREAM (N)` (`@{upstream}..HEAD`)
+  and `Unpulled from UPSTREAM (N)` (`HEAD..@{upstream}`), each at most 256 commits, `N+` and a
+  note past them, and `Recent commits (N)`, the last 10. Each row is the short id and the
+  subject, escaped on one line as a file's name is. They are read on the status's thread with
+  `git log -z --no-show-signature --format=%H%x1f%h%x1f%s` from the local refs that track the
+  remote: a refresh fetches nothing. A side that the ahead and behind counts say is empty is not
+  read, `HEAD`'s line takes the newest recent commit, and a subject past 1 KiB is cut with `…`,
+  as an unpulled commit is anyone's text. `TAB` folds a section; `RET` on a commit opens its review
+  (`review-commit`, read-only). The head gets `Push:     REMOTE/BRANCH` when git's `@{push}`
+  is not the upstream. A commit is found again by its id when the status is read again.
+- **The push menu, `P`:** `- f` (`--force-with-lease`) and `- n` (`--no-verify`), then `p` to
+  `@{push}`, `u` to the upstream, `e` elsewhere. Each is planned first on the repository's run
+  thread from `for-each-ref`'s `%(push:…)` and `%(upstream:…)`: with no push target or no
+  upstream, the remotes go to a prompt (`git-push-to-remote`) and the branch goes to its own name
+  there, `u` setting it as the upstream with `--set-upstream`; `e` completes over
+  `REMOTE/BRANCH`, the branch's own name on each remote first, then the remote branches tracked,
+  and takes a new name as typed (`git-push-to`); each list holds at most 5,000, as many as a
+  completion opens with on the UI thread. A remote typed or picked must be one `git remote`
+  lists; one from git's configuration is taken as git takes it, an address shown without its
+  user and password. A branch name is refused before git sees it when it could read as anything
+  else on a command line, or holds a control or bidirectional character: a stricter filter than
+  `check-ref-format --branch`, which git still applies. The run is `git push -v
+  --progress [--no-verify] [--set-upstream] [--force-with-lease=THERE:ID] -- REMOTE
+  refs/heads/BRANCH:THERE`. Never a plain `--force`.
+- **A forced push** asks first, naming the commits it would drop there, at most five and how
+  many in all (`git log HEAD..TIP`, `git rev-list --count`), or that it drops none; its lease is
+  the tip of the local ref that tracks where it goes, read as it was planned, or empty when
+  there is none, so that git refuses it if the remote moved since; when git cannot count what
+  it drops, the question says oso could not tell. The `y` runs what was asked
+  (`git-push-confirmed`), and is refused if the branch moved since the question. A question or
+  a push's prompt takes its answer only for the status it was asked over, and one closed with
+  `n`, `C-g` or another prompt over it is forgotten.
+- **Pull and fetch:** `F u` runs `git pull --ff-only --no-rebase --progress`, so that
+  `pull.rebase` cannot make it rebase; a branch gone apart from its upstream is refused by git
+  and stays as it was. With no upstream, `F u` and `f u` are refused, naming `P u` and `f a`. `f u` runs `git fetch --prune --progress -- REMOTE`, the upstream's
+  remote, and `f a` `git fetch --prune --progress --all`.
+- **The runs:** as a commit's, on the run thread, with no time limit, `C-g` to stop, the
+  output in `*git log: NAME*`, one at a time in a repository (a push being planned counts),
+  named by `C-x C-c` and a restart, and the status read again after. Each has the repository's
+  own hooks (`pre-push`, `post-merge`, the reference transaction's), the variables a hook
+  gets, the proxies (Q5), and no controlling terminal (Q3). The echo area shows git's progress
+  as it changes, `git push origin/main… Writing objects 42% 3 s`. A failure for want of a
+  password, a passphrase or a key says "git asked for a password; set up a credential helper or
+  ssh-agent, or push from a terminal", and one for an unknown host key says to connect once
+  from a terminal; any other names git's last `fatal:`, `error:` or `! [` line, but the
+  server's own words (`remote error:`), which stay in the log, as its `remote:` progress
+  lines do.
+- **Fixup and squash at point:** the commit menu's `f` runs `git commit --fixup=ID` at once, as
+  extend does, and `s` opens `*commit: NAME*` for `--squash=ID --file=-`, whose message may be
+  empty, for the commit at point in Unpushed or Recent commits; an unpulled commit, or none, is
+  refused. Both need something staged, but with `- e`. No rebase follows (Q8): the echo area
+  says `git rebase -i --autosquash` in a shell folds it in.
+- **Deviations:** (1) magit's `l` log menu waits for step 4, as each of its heads opens the
+  graph. (2) The stashes section, and the pull's `-r` and `-m`, wait for step 3 (Q2). (3) The
+  pull menu has `u` alone, and the fetch menu `u` and `a`, not magit's push-remote heads. (4) A
+  forced push asks even when it drops nothing there. (5) The progress names its phase with its
+  percentage. (6) The unpushed and unpulled sections are against the upstream only, not the
+  push target too, as magit's are. (7) Where git resolves no `@{push}` but names a push remote
+  (`simple` to another remote than the upstream's), `p` pushes to the branch's own name there.
+  (8) `GitRequest::Commit` carries point's line, which the host reads as a commit from its
+  table, not the commit's id. (9) An unknown host key has a message of its own.
+- **Library items** (approved): `CommitKind::{Fixup, Squash}`; `GitRequest::Commit::line`;
+  `GitRequest::{Push, Pull, Fetch}`; `editor::{PushTarget, PushSwitches, FetchFrom}`;
+  `Spawn::own_session` in `oso-platform`.
+- **Tests:** the platform's session with no terminal and its refusal beside a group; the log
+  records, the tracking read, a push's arguments and question, `REMOTE/BRANCH`, branch names,
+  progress and failures, with property tests over any bytes and text; the sections' layout as
+  a text grid, a commit found again, folding; the status's thread reading the sections and the
+  push line over temporary repositories; the run thread with a bare remote: planning with and
+  without targets, setting the upstream, a lease git refuses once the remote moved, a fetch and
+  a pull, fixup and squash, and a key's failure through `core.sshCommand`; the commands; and an
+  end-to-end flow.
 
 ## Sources
 

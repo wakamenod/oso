@@ -3,7 +3,9 @@
 //! with git's output in a log (step 1b), staging lines, refined words, and discarding with
 //! copies kept and written back (step 1c: [`cut`], [`discard`], [`keep`], [`discarded`]), and
 //! asking the worktree's agent session for a message's draft or a failed commit's fix (step
-//! 6a: [`agent`]).
+//! 6a: [`agent`]); and from step 2 the unpushed, unpulled and recent commits ([`history`]),
+//! fixup and squash, and pushes, pulls and fetches on [`run`], with what they need that runs no
+//! git in [`remote`].
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in
 //! and takes reports out, and supplies the wake-up.
@@ -27,10 +29,12 @@ pub(crate) mod commit;
 pub(crate) mod cut;
 pub(crate) mod discard;
 pub(crate) mod discarded;
+pub(crate) mod history;
 pub(crate) mod keep;
 pub(crate) mod layout;
 pub(crate) mod patch;
 pub(crate) mod read;
+pub(crate) mod remote;
 pub(crate) mod run;
 pub(crate) mod stage;
 pub(crate) mod status;

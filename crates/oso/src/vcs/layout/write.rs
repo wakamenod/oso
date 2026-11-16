@@ -14,6 +14,7 @@ use oso_core::syntax::{Highlight, Highlights};
 
 use super::{Built, File, Head, Hunks, MAX_FILE_TEXT, MAX_FILES, MAX_TEXT, Row, Section, View};
 use crate::dired::rows::{decoded_len, push_name};
+use crate::vcs::history::Log;
 
 /// A status's text, highlights, outline and table.
 pub(crate) struct Laid {
@@ -53,6 +54,15 @@ pub(crate) fn lay_out(
         };
         cut |= shown.section(*section, files, hunks, view);
     }
+    for (section, log) in &head.logs {
+        let mut shown = Shown {
+            out: &mut out,
+            built: &mut built,
+            outline: &mut outline,
+        };
+        shown.log(*section, log, head.branch.upstream.as_deref(), view);
+    }
+    built.logs.clone_from(&head.logs);
     if cut {
         out.end_line();
         built.rows.push(Row::Other);
@@ -161,6 +171,71 @@ impl Shown<'_> {
         }
         cut
     }
+
+    /// Lays out the commit section `section`'s heading and commits, the unpushed and unpulled
+    /// ones naming `upstream`.
+    fn log(&mut self, section: Section, log: &Log, upstream: Option<&[u8]>, view: &View) {
+        let Shown {
+            out,
+            built,
+            outline,
+        } = self;
+        if log.commits.is_empty() {
+            return;
+        }
+        out.end_line();
+        built.rows.push(Row::Other);
+        outline.push(GitHeading {
+            line: built.rows.len(),
+            depth: 0,
+        });
+        built.headings.insert(section, built.rows.len());
+        out.part(
+            section.heading().as_bytes(),
+            Some(Highlight::GitSectionHeading),
+        );
+        if let Some(upstream) = upstream.filter(|_| section != Section::Recent) {
+            let mut name = b" ".to_vec();
+            push_name(&mut name, upstream);
+            out.part(&name, Some(Highlight::GitBranchRemote));
+        }
+        let more = if log.more { "+" } else { "" };
+        out.part(
+            format!(" ({}{more})", log.commits.len()).as_bytes(),
+            Some(Highlight::GitDetail),
+        );
+        if view.folded.contains(&section) {
+            out.part("…".as_bytes(), Some(Highlight::GitDetail));
+        }
+        out.end_line();
+        built.rows.push(Row::Heading(section));
+        if view.folded.contains(&section) {
+            return;
+        }
+        for (index, commit) in log.commits.iter().enumerate() {
+            built.file_rows.insert(
+                (section, commit.id.clone().into_bytes()),
+                (index, built.rows.len()),
+            );
+            out.part(commit.short.as_bytes(), Some(Highlight::GitHash));
+            let mut subject = b" ".to_vec();
+            push_name(&mut subject, &commit.subject);
+            out.part(&subject, None);
+            out.end_line();
+            built.rows.push(Row::Commit {
+                section,
+                commit: index,
+            });
+        }
+        if log.more && section != Section::Recent {
+            out.part(
+                "… and more not shown".as_bytes(),
+                Some(Highlight::GitDetail),
+            );
+            out.end_line();
+            built.rows.push(Row::More(section));
+        }
+    }
 }
 
 fn head_lines(out: &mut Out, rows: &mut Vec<Row>, head: &Head) {
@@ -200,6 +275,14 @@ fn head_lines(out: &mut Out, rows: &mut Vec<Row>, head: &Head) {
                 Some(Highlight::GitDetail),
             );
         }
+        out.end_line();
+        rows.push(Row::Other);
+    }
+    if let Some(push) = &head.push {
+        out.part(b"Push:     ", None);
+        let mut name = Vec::new();
+        push_name(&mut name, push);
+        out.part(&name, Some(Highlight::GitBranchRemote));
         out.end_line();
         rows.push(Row::Other);
     }
