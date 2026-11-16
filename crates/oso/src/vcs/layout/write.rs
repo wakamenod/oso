@@ -5,6 +5,7 @@
 //! pure function of what was read.
 
 use std::collections::HashMap;
+use std::ops::Range;
 use std::sync::Arc;
 
 use oso_core::editor::GitHeading;
@@ -274,13 +275,11 @@ fn file_hunks(
             hunk: index,
         });
         for (line_index, line) in hunk.lines.iter().enumerate() {
-            let face = match line.first() {
-                Some(b'+') => Some(Highlight::DiffAdded),
-                Some(b'-') => Some(Highlight::DiffRemoved),
-                Some(b'\\') => Some(Highlight::GitDetail),
-                _ => None,
-            };
-            out.part(trim_break(line), face);
+            hunk_line(
+                out,
+                line,
+                hunk.refined.get(&line_index).map_or(&[], Vec::as_slice),
+            );
             out.end_line();
             built.rows.push(Row::Line {
                 section,
@@ -308,6 +307,27 @@ fn file_hunks(
     }
     built.hunk_rows.insert((section, file), headers);
     built.patches.insert((section, file), patch);
+}
+
+/// Writes one of a hunk's lines in its face, the words refinement marked, `refined`, from after
+/// its `+` or `-`, in the refined one.
+fn hunk_line(out: &mut Out, line: &[u8], refined: &[Range<usize>]) {
+    let (face, refine) = match line.first() {
+        Some(b'+') => (Some(Highlight::DiffAdded), Highlight::DiffRefineAdded),
+        Some(b'-') => (Some(Highlight::DiffRemoved), Highlight::DiffRefineRemoved),
+        Some(b'\\') => (Some(Highlight::GitDetail), Highlight::GitDetail),
+        _ => (None, Highlight::GitDetail),
+    };
+    let line = trim_break(line);
+    let mut at = 0;
+    for span in refined {
+        let from = (span.start + 1).min(line.len()).max(at);
+        let to = (span.end + 1).min(line.len()).max(from);
+        out.part(&line[at..from], face);
+        out.part(&line[from..to], Some(refine));
+        at = to;
+    }
+    out.part(&line[at..], face);
 }
 
 /// A line without its line break, `\n` or `\r\n`.

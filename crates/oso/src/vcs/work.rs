@@ -1,5 +1,6 @@
 //! A status buffer's thread, `oso-vcs` (ADR 0127): it reads the status, the open files' hunks
-//! and the head, runs what `s` and `u` asked, and lays out the buffer's text.
+//! and the head, runs what `s`, `u` and `k` asked, keeping copies before a discard, and lays
+//! out the buffer's text.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
 //! takes reports out, and supplies the wake-up.
@@ -34,19 +35,13 @@ use std::thread;
 
 use super::layout::Built;
 use super::layout::{self, Head, Hunks, Laid, Section, View};
-use super::patch;
+use super::read::{MAX_LIST, args, find, head_commit, hooks_dir, numstat, read_patch, set};
 use super::stage::{self, Op, Target};
 use super::status::{self, Status};
-use crate::git::{Git, GitError, MAX_SHORT};
-use crate::git::{TrustedRoot, may_hold_secrets, os_path};
-
-/// The most bytes of the status's listing read; past it, the files after are not shown.
-pub(crate) const MAX_LIST: usize = 32 * 1024 * 1024;
-/// The most bytes of one file's patch read.
-pub(crate) const MAX_PATCH: usize = 1024 * 1024;
-
-/// The variable every run here sets.
-const LITERAL: [(&str, &str); 1] = [("GIT_LITERAL_PATHSPECS", "1")];
+use super::write::run;
+use super::{discard, keep};
+use crate::git::{Git, GitError};
+use crate::git::{TrustedRoot, may_hold_secrets};
 
 /// What the thread is asked to do. Each carries the view to lay out with.
 pub(crate) enum Request {
@@ -64,6 +59,14 @@ pub(crate) enum Request {
         stage: bool,
         view: View,
     },
+    /// Discard `targets`, which name what `built` shows, keeping copies first, then read the
+    /// status again (step 1c).
+    Discard {
+        generation: u64,
+        built: Arc<Built>,
+        targets: Vec<Target>,
+        view: View,
+    },
 }
 
 impl Request {
@@ -71,13 +74,17 @@ impl Request {
         match self {
             Self::Read { generation, .. }
             | Self::Layout { generation, .. }
-            | Self::Stage { generation, .. } => *generation,
+            | Self::Stage { generation, .. }
+            | Self::Discard { generation, .. } => *generation,
         }
     }
 
     fn view(&self) -> &View {
         match self {
-            Self::Read { view, .. } | Self::Layout { view, .. } | Self::Stage { view, .. } => view,
+            Self::Read { view, .. }
+            | Self::Layout { view, .. }
+            | Self::Stage { view, .. }
+            | Self::Discard { view, .. } => view,
         }
     }
 }
@@ -254,6 +261,20 @@ impl State {
                     }
                     Err(why) => out.push(Report::Refused { why }),
                 },
+                Request::Discard { built, targets, .. } => match discard::plan(&built, &targets) {
+                    Ok(plan) => {
+                        read = true;
+                        let (state, stop) = (self.state_dir.clone(), Arc::clone(&self.stop));
+                        let ran = self.git(trusted.path()).cloned().and_then(|git| {
+                            keep::discard(&git, trusted, &plan, state.as_deref(), &stop)
+                        });
+                        match ran {
+                            Ok(()) => out.push(Report::Ran { said: plan.said }),
+                            Err(why) => out.push(Report::Failed { why }),
+                        }
+                    }
+                    Err(why) => out.push(Report::Refused { why }),
+                },
             }
         }
         if read && let Err(why) = self.read_status(trusted) {
@@ -400,200 +421,6 @@ impl State {
         }
         Ok(())
     }
-}
-
-/// `vcs/hooks` under `state`, made private if missing, and checked to be empty: git is told the
-/// hooks are there, so that none runs, `post-index-change` neither (ADR 0127, step 1a).
-pub(super) fn hooks_dir(state: Option<&Path>) -> Result<PathBuf, String> {
-    let state = state.ok_or("oso has no state directory, so it runs no git for a status")?;
-    crate::git::empty_hooks(state, "vcs")
-}
-
-/// git for the repository whose work tree's top is `root`; a top elsewhere is refused.
-pub(super) fn find(root: &Path, hooks: &Path) -> Result<Git, String> {
-    let git = Git::new(root, hooks).map_err(|e| e.to_string())?;
-    let out = git
-        .run(&args(&["rev-parse", "--show-toplevel"]), &set(), MAX_SHORT)
-        .map_err(|e| e.to_string())?;
-    let top = crate::git::trim_line(&out);
-    let top = os_path(top).map_err(|e| e.to_string())?;
-    let same = match (Path::new(top).canonicalize(), root.canonicalize()) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => false,
-    };
-    if !same {
-        return Err("git found a repository whose top is not the project's root".into());
-    }
-    Ok(git)
-}
-
-fn args<'a>(words: &[&'a str]) -> Vec<&'a OsStr> {
-    words.iter().map(|word| OsStr::new(*word)).collect()
-}
-
-fn set() -> Vec<(&'static str, &'static OsStr)> {
-    LITERAL
-        .iter()
-        .map(|(name, value)| (*name, OsStr::new(value)))
-        .collect()
-}
-
-fn numstat(git: &Git, args: &[&OsStr]) -> Option<HashMap<Vec<u8>, status::Counts>> {
-    let out = git.output(args, &set(), MAX_LIST).ok()?;
-    (out.status.success() && !out.cut).then(|| status::parse_numstat(&out.stdout))
-}
-
-/// `HEAD`'s short id and subject.
-fn head_commit(git: &Git) -> Option<(String, Vec<u8>)> {
-    let words = [
-        "log",
-        "-1",
-        "--no-show-signature",
-        "--no-color",
-        "--format=%h%x00%s",
-        "HEAD",
-        "--",
-    ];
-    let out = git.run(&args(&words), &set(), MAX_SHORT).ok()?;
-    let line = crate::git::trim_line(&out);
-    let at = line.iter().position(|&byte| byte == 0)?;
-    let id = std::str::from_utf8(&line[..at]).ok()?;
-    id.bytes()
-        .all(|byte| byte.is_ascii_hexdigit())
-        .then(|| (id.to_owned(), line[at + 1..].to_vec()))
-}
-
-/// The patch of `path` in `section`, as git writes it for staging, from `from` if renamed.
-fn read_patch(
-    git: &Git,
-    section: Section,
-    path: &[u8],
-    from: Option<&[u8]>,
-) -> Result<patch::Patch, String> {
-    let mut words = args(&[
-        "-c",
-        "diff.suppressBlankEmpty=false",
-        "diff",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--no-color",
-        "--no-relative",
-        "--src-prefix=a/",
-        "--dst-prefix=b/",
-        "-U3",
-    ]);
-    if section == Section::Staged {
-        words.push(OsStr::new("--cached"));
-    }
-    if from.is_some() {
-        words.push(OsStr::new("-M"));
-    }
-    words.push(OsStr::new("--"));
-    if let Some(from) = from {
-        words.push(os_path(from).map_err(|e| e.to_string())?);
-    }
-    words.push(os_path(path).map_err(|e| e.to_string())?);
-    let out = git
-        .output(&words, &set(), MAX_PATCH)
-        .map_err(|e| e.to_string())?;
-    if !out.cut && !out.status.success() {
-        return Err(GitError::Failed {
-            status: out.status.code(),
-            stderr: out.stderr,
-        }
-        .to_string());
-    }
-    Ok(patch::parse(&out.stdout, out.cut))
-}
-
-/// Runs one op, with no time limit until `stop` is set; `initial` before the repository's first
-/// commit, when unstaging is `rm --cached`.
-fn run(git: &Git, op: &Op, initial: bool, stop: &AtomicBool) -> Result<(), String> {
-    let (words, input, refused): (Vec<&str>, Vec<u8>, bool) = match op {
-        Op::Add(paths) => (
-            vec!["add", "--pathspec-from-file=-", "--pathspec-file-nul"],
-            nul_joined(paths),
-            false,
-        ),
-        Op::Update(paths) => (
-            vec![
-                "add",
-                "--update",
-                "--pathspec-from-file=-",
-                "--pathspec-file-nul",
-            ],
-            nul_joined(paths),
-            false,
-        ),
-        Op::Unstage(paths) if initial => (
-            vec![
-                "rm",
-                "--cached",
-                "--quiet",
-                "--ignore-unmatch",
-                "--pathspec-from-file=-",
-                "--pathspec-file-nul",
-            ],
-            nul_joined(paths),
-            false,
-        ),
-        Op::Unstage(paths) => (
-            vec![
-                "restore",
-                "--staged",
-                "--pathspec-from-file=-",
-                "--pathspec-file-nul",
-            ],
-            nul_joined(paths),
-            false,
-        ),
-        Op::Apply { patch, reverse } => {
-            let mut words = vec![
-                "-c",
-                "apply.ignoreWhitespace=no",
-                "apply",
-                "--cached",
-                "--whitespace=nowarn",
-            ];
-            if *reverse {
-                words.push("-R");
-            }
-            words.push("-");
-            (words, patch.clone(), true)
-        }
-    };
-    let out = git
-        .run_long(&args(&words), &set(), Some(input), stop)
-        .map_err(|e| e.to_string())?;
-    if out.status.success() {
-        return Ok(());
-    }
-    let first = out
-        .stderr
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_owned();
-    if refused {
-        return Err(format!(
-            "git refused the hunk, as the file changed since it was read: {first}"
-        ));
-    }
-    Err(GitError::Failed {
-        status: out.status.code(),
-        stderr: out.stderr,
-    }
-    .to_string())
-}
-
-fn nul_joined(paths: &[Vec<u8>]) -> Vec<u8> {
-    let mut out = Vec::new();
-    for path in paths {
-        out.extend_from_slice(path);
-        out.push(0);
-    }
-    out
 }
 
 #[cfg(test)]

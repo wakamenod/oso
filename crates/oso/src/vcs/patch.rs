@@ -1,15 +1,21 @@
-//! One file's patch, as `git diff -U3 -- PATH` writes it, cut into its header and hunks, and
-//! the patch that stages one hunk (ADR 0127).
+//! One file's patch, as `git diff -U3 -- PATH` writes it, cut into its header and hunks, with
+//! the words that changed refined (ADR 0127); `cut` makes the patches that stage its hunks.
 //!
 //! Must not depend on: `app`, `dispatch`, git or the file system; these are pure functions of a
 //! child's output, which is untrusted.
 //!
 //! - Staging applies git's own bytes: a hunk's patch is the file's header and that hunk as git
-//!   wrote them, so that `git apply` gets exactly what was shown, and refuses it if the file
-//!   moved on.
+//!   wrote them (`cut::file_patch`), so that `git apply` gets exactly what was shown, and refuses
+//!   it if the file moved on.
+//! - The words that changed in a change block are refined once, as the patch is read, within a
+//!   budget for the whole patch (`review::refine`, ADR 0122's refinement).
 //! - A hunk whose lines do not add up to its header's counts is shown but cannot be staged
 //!   alone, and neither can a hunk of a patch git cut short, nor one of a new or deleted
 //!   file, a rename, a binary file or a submodule: those stage as a whole.
+
+use std::collections::HashMap;
+use std::ops::Range;
+use std::time::{Duration, Instant};
 
 /// One hunk: its header line, `@@ -a,b +c,d @@ …`, and its lines, each with its line break.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,6 +27,9 @@ pub(crate) struct Hunk {
     pub(crate) lines: Vec<Vec<u8>>,
     /// Whether its lines add up to its header's counts.
     pub(crate) whole: bool,
+    /// The words refinement marks in its lines, by the line's index, the spans from after its
+    /// `+` or `-` ([`Patch::refine`]).
+    pub(crate) refined: HashMap<usize, Vec<Range<usize>>>,
 }
 
 impl Hunk {
@@ -56,21 +65,70 @@ impl Patch {
             .map(|hunk| hunk.header.len() + hunk.lines.iter().map(Vec::len).sum::<usize>());
         self.header.len() + hunks.sum::<usize>()
     }
+}
 
-    /// The patch that stages hunk `index` alone, or unstages it when applied in reverse: the
-    /// header and the hunk as git wrote them. `None` if it cannot be staged alone.
-    pub(crate) fn hunk_patch(&self, index: usize) -> Option<Vec<u8>> {
-        if self.whole_only.is_some() {
-            return None;
+impl Patch {
+    /// Marks the words that changed in each hunk's change blocks, once, as the patch is read,
+    /// within [`REFINE_BUDGET`] for the whole patch: hunks past it stay plain.
+    pub(crate) fn refine(&mut self) {
+        let deadline = Instant::now() + REFINE_BUDGET;
+        for hunk in &mut self.hunks {
+            hunk.refined = refine_hunk(&hunk.lines, deadline);
         }
-        let hunk = self.hunks.get(index).filter(|hunk| hunk.whole)?;
-        let mut out = self.header.clone();
-        out.extend_from_slice(&hunk.header);
-        for line in &hunk.lines {
-            out.extend_from_slice(line);
-        }
-        Some(out)
     }
+}
+
+/// How long refining one file's patch may take in all.
+pub(crate) const REFINE_BUDGET: Duration = Duration::from_millis(50);
+
+/// The words refinement marks in each line of a hunk's `lines`, by the line's index, the spans
+/// from after its `+` or `-`: each change block's removed lines paired in order with its added
+/// ones (ADR 0122's refinement, `review::refine`).
+fn refine_hunk(lines: &[Vec<u8>], deadline: Instant) -> HashMap<usize, Vec<Range<usize>>> {
+    let mut out = HashMap::new();
+    let mut at = 0;
+    while at < lines.len() && Instant::now() < deadline {
+        let removed = at..at + count_marked(&lines[at..], b'-');
+        let added = removed.end..removed.end + count_marked(&lines[removed.end..], b'+');
+        if removed.is_empty() || added.is_empty() {
+            at = added.end.max(at + 1);
+            continue;
+        }
+        // A `\ No newline` between them is no line of either side, and is not paired.
+        let of = |range: Range<usize>, mark: u8| -> Vec<usize> {
+            range
+                .filter(|&at| lines[at].first() == Some(&mark))
+                .collect()
+        };
+        let (old_at, new_at) = (of(removed.clone(), b'-'), of(added.clone(), b'+'));
+        let old: Vec<&[u8]> = old_at.iter().map(|&at| body(&lines[at])).collect();
+        let new: Vec<&[u8]> = new_at.iter().map(|&at| body(&lines[at])).collect();
+        let (old, new) = crate::review::refine::refine(&old, &new);
+        for (index, spans) in old_at
+            .into_iter()
+            .zip(old)
+            .chain(new_at.into_iter().zip(new))
+        {
+            if !spans.is_empty() {
+                out.insert(index, spans);
+            }
+        }
+        at = added.end;
+    }
+    out
+}
+
+/// A hunk line without its `+`, `-` or ` `.
+fn body(line: &[u8]) -> &[u8] {
+    line.get(1..).unwrap_or_default()
+}
+
+/// How many of `lines` from the first start with `mark`, a `\ No newline` between them counted.
+fn count_marked(lines: &[Vec<u8>], mark: u8) -> usize {
+    lines
+        .iter()
+        .take_while(|line| line.first() == Some(&mark) || line.first() == Some(&b'\\'))
+        .count()
 }
 
 /// Reads a patch of one file, of which `cut` says git wrote more than `bytes`.
@@ -99,6 +157,7 @@ pub(crate) fn parse(bytes: &[u8], cut: bool) -> Patch {
             new_start: counts.2,
             lines: body,
             whole,
+            refined: HashMap::new(),
         });
     }
     if cut {
@@ -167,7 +226,7 @@ fn adds_up(body: &[Vec<u8>], (_, old, _, new): (u64, u64, u64, u64)) -> bool {
 
 /// The counts of a hunk's header `@@ -a[,b] +c[,d] @@`: old start and length, new start and
 /// length, a length left out being 1.
-fn counts(header: &[u8]) -> Option<(u64, u64, u64, u64)> {
+pub(super) fn counts(header: &[u8]) -> Option<(u64, u64, u64, u64)> {
     let rest = header.strip_prefix(b"@@ -")?;
     let end = rest.windows(3).position(|window| window == b" @@")?;
     let ranges = std::str::from_utf8(&rest[..end]).ok()?;

@@ -70,7 +70,8 @@ often, so it must rebuild within 2 s.
   what the worker, the jobs and the start thread find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
   a trusted project's root, and git only through `oso_platform::process`, with `src/git.rs`'s
-  runner, `TrustedRoot` and secret-name check. `review/view.rs`
+  runner, `TrustedRoot` and secret-name check. `review/refine.rs` refines a change block's words,
+  for a git status now and a review's view later. `review/view.rs`
   lays out a review buffer's whole text on `oso-review-view`, one thread per review, and
   `review/count.rs` counts the review menu's scopes on `oso-review-count`. A review buffer's
   keys are listed in `commands::review::KEYS`, which `?` reads, and bound by
@@ -84,6 +85,10 @@ often, so it must rebuild within 2 s.
   review, the worktree jobs and the git status use it; it uses none of them.
 - `src/vcs.rs` and `src/vcs/` are source control's git status (ADR 0127): one thread per status
   buffer, `oso-vcs` (`work`), which runs git through `git`'s runner for a trusted root only,
+  its reads in `read` and its writes to the index in `write`; staging lines cuts the patch
+  (`cut`), and discarding is planned in `discard`, run in `keep`, which writes copies back too,
+  and recorded in `discarded`, with `app/vcs/discard.rs` and `commands::vcs::discard` (the list's
+  keys, `bindings::vcs::DISCARDED`);
   reads porcelain v2 and patches as untrusted bytes (`status`, `patch`), lays out the text with
   its outline and the table of what each line is about (`layout`), and turns the lines commands
   name into staging (`stage`). A commit runs on its repository's thread, `oso-vcs-run`

@@ -32,6 +32,7 @@ use crate::vcs::stage::{self, Target};
 use crate::vcs::{Built, Report, Request, View, Worker};
 
 mod commit;
+mod discard;
 mod runs;
 
 pub(crate) use runs::RunEvent;
@@ -256,7 +257,9 @@ impl App {
     /// read waits until one does.
     fn git_ask(&mut self, index: usize, ask: Ask) {
         // A write to the index while a commit runs would race it for the index's lock (Q8).
-        if matches!(ask, Ask::Stage(..)) && self.commit_runs(self.gits.open[index].project) {
+        if matches!(ask, Ask::Stage(..) | Ask::Discard(..))
+            && self.commit_runs(self.gits.open[index].project)
+        {
             return self.editor.message(runs::RUNNING);
         }
         let open = &mut self.gits.open[index];
@@ -267,7 +270,7 @@ impl App {
             open.stale = true;
             return;
         }
-        if open.agent_stale && matches!(ask, Ask::Read | Ask::Stage(..)) {
+        if open.agent_stale && matches!(ask, Ask::Read | Ask::Stage(..) | Ask::Discard(..)) {
             open.agent_stale = false;
             self.editor.set_mode_note(open.buffer, String::new());
         }
@@ -285,6 +288,12 @@ impl App {
                 built: Arc::clone(&open.built),
                 targets,
                 stage,
+                view,
+            },
+            Ask::Discard(targets) => Request::Discard {
+                generation,
+                built: Arc::clone(&open.built),
+                targets,
                 view,
             },
         };
@@ -532,6 +541,8 @@ enum Ask {
     Read,
     Layout,
     Stage(Vec<Target>, bool),
+    /// Discard these targets, after the person's `y` (step 1c).
+    Discard(Vec<Target>),
 }
 
 /// The paths, from `root`, of the open buffers under it that may hold secrets, as git names them.

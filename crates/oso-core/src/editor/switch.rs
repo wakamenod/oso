@@ -574,6 +574,7 @@ fn kept_as_users(buffer: &Buffer) -> bool {
     super::listings::is_listing(buffer)
         || super::git::is_git_status(buffer)
         || super::git::is_git_log(buffer)
+        || (buffer.is_internal() && buffer.mode() == crate::buffer::Mode::GitDiscarded)
 }
 
 #[cfg(test)]

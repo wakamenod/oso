@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use oso_core::editor::GitLines;
 
-use super::{Op, PART_OF_A_HUNK, Target, ops, targets};
+use super::{Op, Target, ops, targets};
 use crate::vcs::layout::{Built, Head, Hunks, Row, Section, View, lay_out, sections};
 use crate::vcs::{patch, status};
 
@@ -132,7 +132,7 @@ fn a_cursor_means_what_its_line_is_on() {
 }
 
 #[test]
-fn a_region_means_the_headings_it_holds_and_refuses_part_of_a_hunk() {
+fn a_region_means_the_headings_it_holds_and_the_lines_of_a_hunk_it_holds_without_its_header() {
     let built = built();
     let first = line_of(&built, hunk(0));
     let last = line_of(&built, line(1, 2));
@@ -140,9 +140,46 @@ fn a_region_means_the_headings_it_holds_and_refuses_part_of_a_hunk() {
     assert_eq!(found.len(), 2);
     let inside = (line_of(&built, line(0, 0)), line_of(&built, line(0, 1)));
     assert_eq!(
-        targets(&built, &[region(inside.0, inside.1)]),
-        Err(PART_OF_A_HUNK)
+        targets(&built, &[region(inside.0, inside.1)]).unwrap(),
+        [Target::Lines {
+            section: Section::Unstaged,
+            file: 0,
+            hunk: 0,
+            first: 0,
+            last: 1
+        }]
     );
+}
+
+#[test]
+fn lines_stage_as_a_cut_patch_and_unstage_in_reverse() {
+    let built = built();
+    let lines = |first, last| Target::Lines {
+        section: Section::Unstaged,
+        file: 0,
+        hunk: 1,
+        first,
+        last,
+    };
+    // `-ten` alone of the second hunk: `+dix` goes.
+    let (found, said) = ops(&built, &[lines(1, 1)], true).unwrap();
+    assert_eq!(said, "Staged a hunk's lines");
+    let [Op::Apply { patch, reverse }] = found.as_slice() else {
+        panic!("{found:?}");
+    };
+    assert!(!reverse);
+    let patch = String::from_utf8(patch.clone()).unwrap();
+    assert!(patch.ends_with("@@ -9,2 +9,1 @@\n nine\n-ten\n"), "{patch}");
+    // Lines and their hunk whole: the hunk.
+    let hunk = Target::Hunk {
+        section: Section::Unstaged,
+        file: 0,
+        hunk: 1,
+    };
+    let (_, said) = ops(&built, &[lines(1, 1), hunk], true).unwrap();
+    assert_eq!(said, "Staged a hunk");
+    // Only context chosen: nothing to stage.
+    assert!(ops(&built, &[lines(0, 0)], true).is_err());
 }
 
 #[test]
@@ -273,4 +310,20 @@ fn a_region_over_ten_thousand_rows_is_told_apart_quickly() {
     // Linear: some milliseconds in a debug build, where the quadratic one took seconds.
     assert!(started.elapsed() < std::time::Duration::from_millis(500));
     assert_eq!(found.len(), 10_000);
+}
+
+#[test]
+fn a_region_inside_one_line_names_that_line() {
+    let built = built();
+    let at = line_of(&built, line(0, 1));
+    assert_eq!(
+        targets(&built, &[region(at, at)]).unwrap(),
+        [Target::Lines {
+            section: Section::Unstaged,
+            file: 0,
+            hunk: 0,
+            first: 1,
+            last: 1
+        }]
+    );
 }
