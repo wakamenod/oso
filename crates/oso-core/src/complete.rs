@@ -193,6 +193,9 @@ pub struct Candidates {
     given_order: bool,
     /// Only what is typed after the last `/` is matched, as a path's last segment (ADR 0087).
     last_segment: bool,
+    /// What is typed is selected while it names a directory, nothing typed after its last `/`,
+    /// as vertico's `vertico-preselect` `directory` does (ADR 0141).
+    selects_directory: bool,
 }
 
 impl Candidates {
@@ -240,12 +243,20 @@ impl Candidates {
             previews: false,
             given_order: false,
             last_segment: false,
+            selects_directory: false,
         }
     }
 
     /// Matches only what is typed after the last `/`.
     pub(crate) fn match_last_segment(&mut self) {
         self.last_segment = true;
+    }
+
+    /// Selects what is typed whenever it names a directory, with nothing after its last `/`,
+    /// so that `RET` gives the directory and `C-n` goes to its first name (ADR 0141). It takes
+    /// effect at the next match.
+    pub(crate) fn select_directory_typed(&mut self) {
+        self.selects_directory = true;
     }
 
     /// The same candidates' settings over a list built anew, with the input it matched.
@@ -260,6 +271,7 @@ impl Candidates {
         next.previews = self.previews;
         next.last_segment = self.last_segment;
         next.given_order = self.given_order;
+        next.selects_directory = self.selects_directory;
         next.apply(matched, false);
         next
     }
@@ -314,6 +326,11 @@ impl Candidates {
     /// Whether what is typed is selected, not a candidate.
     pub fn on_input(&self) -> bool {
         self.on_input
+    }
+
+    /// Whether a candidate or what is typed was moved to since the input last changed.
+    pub(crate) fn chosen(&self) -> bool {
+        self.chosen
     }
 
     /// Matches `input`, looking only at what matched before where it narrows that, and
@@ -385,7 +402,11 @@ impl Candidates {
         self.selected = 0;
         self.top = 0;
         self.chosen = false;
-        self.on_input = false;
+        // What is typed names a directory when nothing follows its last `/` (ADR 0141).
+        self.on_input = self.selects_directory
+            && self.takes_input
+            && self.last_segment
+            && self.input.as_deref() == Some("");
         if let Some(place) = kept.and_then(|index| self.place_of(index)) {
             self.select(place);
         }

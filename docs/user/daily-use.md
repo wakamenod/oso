@@ -58,8 +58,10 @@ A git worktree is trusted while its main repository is. `M-x untrust-project` ta
 
 ## Language servers
 
-In a trusted project, visiting a Rust file starts rust-analyzer for the project, found on `PATH`
-or in `~/.cargo/bin`. The modeline says `lsp` after the project's name: dim while it starts,
+In a trusted project, visiting a file starts its language server for the project, if it is
+installed: rust-analyzer (found on `PATH` or in `~/.cargo/bin`), gopls (or in `~/go/bin`), the
+project's own TypeScript server in `node_modules`, or `tsc --lsp`, texlab, sourcekit-lsp, taplo
+and marksman. One that is not installed is said once. The modeline says `lsp` after the project's name: dim while it starts,
 `lsp 34%` while it indexes, `lsp!` if it stopped after crashing three times. `*LSP*` says what
 the servers did. `M-x lsp-restart` starts the buffer's server again, `M-x lsp-shutdown` stops it
 until `M-x lsp-start`, and untrusting the project stops it. Diagnostics and the rest come in

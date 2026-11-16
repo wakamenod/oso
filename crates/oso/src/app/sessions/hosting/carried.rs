@@ -95,6 +95,9 @@ impl App {
             hosted.carried = true;
             hosted.started = terminal.started;
         }
+        // It stands where the session runs (ADR 0141).
+        self.editor
+            .set_buffer_directory(buffer, session.directory.clone());
         Some(buffer)
     }
 }

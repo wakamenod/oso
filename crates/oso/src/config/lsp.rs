@@ -13,7 +13,7 @@ use serde_json::{Map, Number, Value, json};
 use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
-use super::indentation::MODES;
+use super::modes::{MODES, server_mode_names};
 use super::problems::{Found, cut, quoted};
 use super::settings::{env_names, switch};
 use super::{table, type_name, unknown};
@@ -43,15 +43,37 @@ pub enum StartWhen {
 pub struct Entry {
     pub name: String,
     pub modes: Vec<Mode>,
+    /// The programs inside the project tried first, in order (ADR 0138, A server inside the
+    /// project): only a built-in entry has them.
+    pub in_project: Vec<InProject>,
     /// The program, a name on `PATH` or an absolute path, and its arguments.
     pub command: Vec<String>,
-    /// The program is also looked for in Cargo's `bin` directory, after `PATH`.
-    pub in_cargo_bin: bool,
+    /// Where the program is also looked for after `PATH`, from oso's own environment.
+    pub also_in: AlsoIn,
     /// More names from oso's environment.
     pub env: Vec<String>,
     /// The section of the settings it asks `workspace/configuration` for.
     pub section: Option<String>,
     pub options: Option<Value>,
+}
+
+/// A program in the project's `node_modules/.bin`, run with `args`, when `needs`, a file under
+/// the root, exists too.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InProject {
+    pub program: &'static str,
+    pub args: &'static [&'static str],
+    pub needs: Option<&'static str>,
+}
+
+/// Where a program is looked for after `PATH`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlsoIn {
+    Nowhere,
+    /// `$CARGO_HOME/bin`, else `~/.cargo/bin`.
+    CargoBin,
+    /// `$GOBIN`, else the first `$GOPATH` entry's `bin`, else `~/go/bin`.
+    GoBin,
 }
 
 /// `[lsp]`, with the table it leads to.
@@ -79,19 +101,83 @@ impl Lsp {
     }
 }
 
-/// oso's own table (ADR 0138, Q2). Step 3 has rust-analyzer; step 5 brings the rest.
+/// oso's own table (ADR 0138, Q2).
 fn builtin() -> Vec<Entry> {
-    vec![Entry {
-        name: "rust-analyzer".into(),
-        modes: vec![Mode::Rust],
-        command: vec!["rust-analyzer".into()],
-        in_cargo_bin: true,
-        // rustup's proxy needs them when they are not the defaults (ADR 0138, step 3's Q3).
-        env: vec!["CARGO_HOME".into(), "RUSTUP_HOME".into()],
-        section: Some("rust-analyzer".into()),
-        // Its own target directory, so that its checks never wait on `cargo`'s lock.
-        options: Some(json!({"cargo": {"targetDir": true}})),
-    }]
+    let entry = |name: &str, modes: &[Mode], command: &[&str]| Entry {
+        name: name.to_owned(),
+        modes: modes.to_vec(),
+        in_project: Vec::new(),
+        command: command.iter().map(|word| (*word).to_owned()).collect(),
+        also_in: AlsoIn::Nowhere,
+        env: Vec::new(),
+        section: Some(name.to_owned()),
+        options: None,
+    };
+    vec![
+        Entry {
+            also_in: AlsoIn::CargoBin,
+            // rustup's proxy needs them when they are not the defaults (step 3's Q3).
+            env: vec!["CARGO_HOME".into(), "RUSTUP_HOME".into()],
+            // Its own target directory, so that its checks never wait on `cargo`'s lock.
+            options: Some(json!({"cargo": {"targetDir": true}})),
+            ..entry("rust-analyzer", &[Mode::Rust], &["rust-analyzer"])
+        },
+        Entry {
+            also_in: AlsoIn::GoBin,
+            // The person's Go settings, from oso's own environment: without them gopls's module
+            // loading would ask the public proxy about private modules.
+            env: [
+                "GOPATH",
+                "GOROOT",
+                "GOBIN",
+                "GOFLAGS",
+                "GOPROXY",
+                "GOPRIVATE",
+                "GONOPROXY",
+                "GONOSUMDB",
+                "GOSUMDB",
+                "GOINSECURE",
+                "GOMODCACHE",
+                "GOTOOLCHAIN",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+            options: Some(json!({
+                "usePlaceholders": true,
+                "gofumpt": true,
+                "staticcheck": true,
+                "completeUnimported": true,
+                "matcher": "CaseSensitive",
+            })),
+            ..entry("gopls", &[Mode::Go], &["gopls"])
+        },
+        Entry {
+            // The project's own TypeScript, as the author's set-up runs it: its server before
+            // the native compiler's (ADR 0138, Which servers).
+            in_project: vec![
+                InProject {
+                    program: "typescript-language-server",
+                    args: &["--stdio"],
+                    needs: Some("node_modules/typescript/lib/tsserver.js"),
+                },
+                InProject {
+                    program: "tsc",
+                    args: &["--lsp", "--stdio"],
+                    needs: None,
+                },
+            ],
+            section: None,
+            ..entry(
+                "typescript",
+                &[Mode::TypeScript, Mode::Tsx, Mode::JavaScript],
+                &["tsc", "--lsp", "--stdio"],
+            )
+        },
+        entry("texlab", &[Mode::Latex], &["texlab"]),
+        entry("sourcekit-lsp", &[Mode::Swift], &["sourcekit-lsp"]),
+        entry("taplo", &[Mode::Toml], &["taplo", "lsp", "stdio"]),
+        entry("marksman", &[Mode::Markdown], &["marksman", "server"]),
+    ]
 }
 
 /// The changes one `[lsp.servers.<name>]` names.
@@ -236,7 +322,7 @@ fn modes(value: &Spanned<DeValue<'_>>, label: &str, found: &mut Found) -> Option
             Some(_) => {}
             None => found.at(
                 name.span().start,
-                format_args!("{label} modes takes rust, markdown or toml, skipped"),
+                format_args!("{label} modes takes {}, skipped", server_mode_names()),
             ),
         }
     }
@@ -358,7 +444,8 @@ fn apply(mut entries: Vec<Entry>, changes: Vec<Change>, found: &mut Found) -> Ve
                 name: change.name.clone(),
                 modes: Vec::new(),
                 command: Vec::new(),
-                in_cargo_bin: false,
+                in_project: Vec::new(),
+                also_in: AlsoIn::Nowhere,
                 env: Vec::new(),
                 section: Some(change.name.clone()),
                 options: None,
@@ -370,7 +457,8 @@ fn apply(mut entries: Vec<Entry>, changes: Vec<Change>, found: &mut Found) -> Ve
         if let Some(command) = change.command {
             entry.command = command;
             // A command of the person's is looked for where it says, on `PATH` or at its path.
-            entry.in_cargo_bin = false;
+            entry.in_project.clear();
+            entry.also_in = AlsoIn::Nowhere;
         }
         if let Some(env) = change.env {
             for name in env {

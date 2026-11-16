@@ -26,7 +26,14 @@ impl Language {
             Mode::Rust => Some(Self::Rust),
             Mode::Markdown => Some(Self::Markdown),
             Mode::Toml => Some(Self::Toml),
+            // The modes of ADR 0138 have no grammar yet.
             Mode::Fundamental
+            | Mode::Go
+            | Mode::TypeScript
+            | Mode::Tsx
+            | Mode::JavaScript
+            | Mode::Latex
+            | Mode::Swift
             | Mode::CopyList
             | Mode::CopyView
             | Mode::Brief

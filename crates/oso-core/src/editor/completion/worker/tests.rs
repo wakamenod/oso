@@ -277,7 +277,8 @@ fn a_candidate_moved_to_while_the_match_was_on_its_way_stays_selected() {
     let mut editor = prompt(6000);
     work(&mut editor);
     typing(&mut editor, "00");
-    editor.move_completion(2).unwrap();
+    // `/big/` is still matched, which selects what is typed: three down is the third row.
+    editor.move_completion(3).unwrap();
     let chosen = editor
         .prompt()
         .unwrap()

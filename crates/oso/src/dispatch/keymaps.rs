@@ -243,7 +243,15 @@ impl Keymaps {
             }
         } else {
             match buffer.mode() {
-                Mode::Fundamental | Mode::Rust | Mode::Toml => None,
+                Mode::Fundamental
+                | Mode::Rust
+                | Mode::Toml
+                | Mode::Go
+                | Mode::TypeScript
+                | Mode::Tsx
+                | Mode::JavaScript
+                | Mode::Latex
+                | Mode::Swift => None,
                 Mode::Review => Some(&self.review),
                 Mode::Directory => Some(&self.dired),
                 Mode::GitStatus => Some(&self.git),
