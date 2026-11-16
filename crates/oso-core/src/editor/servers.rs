@@ -2,8 +2,9 @@
 //! (ADR 0138, step 3): `lsp-start`, `lsp-restart` and `lsp-shutdown`; and `*LSP*`, the log of
 //! what servers did, which keeps the last bytes the host says; and what the echo area says of
 //! the diagnostics at point (step 6), and the list of a project's (`M-g d`, step 6b,
-//! `diagnostics_list`); the jumps an answer leads to, and back (step 8, `jumps`); and the
-//! description of what is at point in a float there (step 10, `hover`).
+//! `diagnostics_list`, sharing `listed` with the list of an answer's places); the jumps an
+//! answer leads to, and back (step 8, `jumps`), and the list of an answer's places (step 8b,
+//! `xref_list`); and the description of what is at point in a float there (step 10, `hover`).
 //!
 //! Must not depend on: the host's servers, threads or I/O; a command asks, and the host takes
 //! the request after the command and acts on the server.
@@ -11,16 +12,18 @@
 mod diagnostics_list;
 mod hover;
 mod jumps;
+mod listed;
+mod xref_list;
 
 use crate::buffer::{Buffer, BufferId};
 
 /// Where on a line a server's place is: the host turns the server's encoding into one.
 pub use super::visits::VisitColumn;
-pub use diagnostics_list::{
-    DiagnosticHit, DiagnosticRow, DiagnosticRowAt, DiagnosticRows, DiagnosticsRequest,
-};
+pub use diagnostics_list::{DiagnosticRow, DiagnosticRows, DiagnosticsRequest};
 pub use hover::HoverShown;
 pub use jumps::AskAt;
+pub use listed::{ListedAt, ListedHit};
+pub use xref_list::{XrefKind, XrefRow, XrefRows};
 
 use super::Editor;
 use super::messages::Keep;
@@ -34,6 +37,8 @@ pub(super) struct Servers {
     requests: Vec<ServerRequest>,
     /// The list of a project's diagnostics, `M-g d` (step 6b).
     pub(super) list: diagnostics_list::DiagnosticsList,
+    /// The list of a server's places, `M-.`'s and `M-?`'s (step 8b).
+    pub(super) xrefs: xref_list::XrefList,
     /// The description shown at point, `C-c C-d` (step 10).
     pub(super) hover: hover::Hover,
     log: Option<BufferId>,
@@ -52,6 +57,9 @@ pub enum ServerRequest {
     Definition(AskAt),
     /// `lsp-find-references` (step 8).
     References(AskAt),
+    /// `lsp-go-to-xref`: go to the row the list of a server's places took
+    /// ([`Editor::take_xref_hit`]), as an answer's jump goes (step 8b).
+    GoToXref,
     /// `lsp-describe-at-point` (step 10).
     Describe(AskAt),
 }
@@ -60,6 +68,16 @@ impl Editor {
     /// A command asks the host for `request`.
     pub fn request_server(&mut self, request: ServerRequest) {
         self.servers.requests.push(request);
+    }
+
+    /// Whether the innermost prompt is `M-g d`'s list or a list of places, and its rows were cut.
+    pub(super) fn server_list_cut(&self) -> bool {
+        self.diagnostics_cut() || self.xrefs_cut()
+    }
+
+    /// Whether the innermost prompt is `M-g d`'s list or a list of places, waiting for its rows.
+    pub(super) fn server_list_pending(&self) -> bool {
+        self.diagnostics_pending() || self.xrefs_pending()
     }
 
     /// What commands asked about servers since the host last looked, oldest first.

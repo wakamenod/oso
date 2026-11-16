@@ -51,6 +51,9 @@ pub enum Mode {
     Directory,
     /// A repository's status, as magit's status buffer shows it (ADR 0127).
     GitStatus,
+    /// A repository's commits as a graph of lanes, `*graph: NAME*`, as magit's log buffer
+    /// (ADR 0127, step 4).
+    GitGraph,
     /// A commit's message being written, `*commit: NAME*`, as magit's `git-commit-mode`
     /// (ADR 0127, step 1b).
     GitCommit,
@@ -120,6 +123,7 @@ impl Mode {
             Self::Terminal => "Terminal",
             Self::Directory => "Dired",
             Self::GitStatus => "Git",
+            Self::GitGraph => "Git Graph",
             Self::GitCommit => "Git Commit",
             Self::GitLog => "Git Log",
             Self::GitDiscarded => "Git Discarded",
@@ -160,6 +164,7 @@ impl Mode {
             | Self::Terminal
             | Self::Directory
             | Self::GitStatus
+            | Self::GitGraph
             | Self::GitLog
             | Self::GitDiscarded
             | Self::Sessions => None,

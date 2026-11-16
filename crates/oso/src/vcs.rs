@@ -6,7 +6,9 @@
 //! 6a: [`agent`]); and from step 2 the unpushed, unpulled and recent commits ([`history`]),
 //! fixup and squash, and pushes, pulls and fetches on [`run`], with what they need that runs no
 //! git in [`remote`]; and from step 3a a stopped merge, rebase, pick, revert or `git am`
-//! ([`sequence`]), which the head shows and `C-c C-c`, `C-c C-s` and `C-c C-k` go on with.
+//! ([`sequence`]), which the head shows and `C-c C-c`, `C-c C-s` and `C-c C-k` go on with;
+//! and from step 3b stashes ([`stash`]) and branches ([`branch`]); and from step 4 the graph of
+//! a repository's commits ([`graph`]).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in
 //! and takes reports out, and supplies the wake-up.
@@ -26,10 +28,12 @@
 //!   git, its arguments, its message and the log's lines, is [`commit`]'s.
 
 pub(crate) mod agent;
+pub(crate) mod branch;
 pub(crate) mod commit;
 pub(crate) mod cut;
 pub(crate) mod discard;
 pub(crate) mod discarded;
+pub(crate) mod graph;
 pub(crate) mod history;
 pub(crate) mod keep;
 pub(crate) mod layout;
@@ -39,6 +43,7 @@ pub(crate) mod remote;
 pub(crate) mod run;
 pub(crate) mod sequence;
 pub(crate) mod stage;
+pub(crate) mod stash;
 pub(crate) mod status;
 pub(crate) mod work;
 pub(crate) mod write;

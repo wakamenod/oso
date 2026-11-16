@@ -1,4 +1,4 @@
-//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8 and 10), on the UI thread: which server a
+//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8, 8b and 10), on the UI thread: which server a
 //! buffer's open would start, starting one for a project's root and entry, what the commands
 //! ask, what each server's thread reports, the modeline's marks, and the ends that trust, the
 //! configuration and a quit bring. One server runs per root and entry. The UI thread never
@@ -13,6 +13,7 @@ mod documents;
 mod find;
 mod hover;
 mod places;
+mod xrefs;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -47,6 +48,15 @@ pub(super) struct Servers {
     /// The generation of `M-g d`'s newest list, which stops the build of an older one
     /// (step 6b).
     listing: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// The list of a server's places, built or shown (step 8b).
+    xrefs: xrefs::Lists,
+}
+
+/// `path` in the form a server's URI of it reads back as, as the places and reports of servers
+/// spell paths: on Windows its drive letter upper case and no `\\?\` prefix, however it was
+/// written. `None` for a path no URI holds.
+fn read_back(path: &std::path::Path) -> Option<PathBuf> {
+    oso_lsp::uri::from_path(path).and_then(|uri| oso_lsp::uri::to_path(&uri))
 }
 
 /// One server, as the app knows it.
@@ -195,6 +205,7 @@ impl App {
                 ServerRequest::Describe(at) => {
                     self.lsp_ask(at, oso_lsp::server::AskKind::Hover, None);
                 }
+                ServerRequest::GoToXref => self.go_to_xref(),
             }
         }
     }

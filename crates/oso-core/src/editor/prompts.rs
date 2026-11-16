@@ -282,6 +282,10 @@ impl Editor {
         if let Some(path) = self.diagnostics_answer() {
             return self.give_answer_recording(path, None);
         }
+        // So is a server's place (ADR 0138, step 8b).
+        if let Some(path) = self.xrefs_answer() {
+            return self.give_answer_recording(path, None);
+        }
         // A project's file is given as its whole path, and kept in the history by its path
         // from the root, as the list shows it (ADR 0114).
         if let Some(path) = self.project_file_answer(&text) {
@@ -492,6 +496,7 @@ impl Editor {
         self.forget_project_files(prompt.id);
         self.forget_project_search(prompt.id);
         self.forget_diagnostics_list(prompt.id);
+        self.forget_xref_list(prompt.id);
         self.forget_completion_work(prompt.id);
         self.forget_draft(prompt.id);
         // A list of 100,000 is dropped on the worker (ADR 0096).

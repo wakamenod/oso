@@ -242,6 +242,7 @@ impl Dispatcher {
                 };
                 return self.read_buffer(editor, id, args.raw(), read);
             }
+            Some(ArgSpec::Xref) => return self.read_listed(editor, id, args.raw(), ArgSpec::Xref),
             Some(
                 spec @ (ArgSpec::Mark { .. }
                 | ArgSpec::Diagnostics { .. }
@@ -277,9 +278,10 @@ impl Dispatcher {
             Kind::Complete { history } if let Some(ArgSpec::Listed { list, .. }) = spec => {
                 let items = editor.listed_candidates(list);
                 let style = CompletionStyle {
-                    given_order: crate::commands::agent_sessions::listed_in_given_order(list),
+                    given_order: crate::commands::agent_sessions::listed_in_given_order(list)
+                        || crate::commands::vcs::listed_in_given_order(list),
                     takes_input: crate::commands::agent_sessions::listed_takes_input(list)
-                        || crate::commands::vcs::remote::listed_takes_input(list),
+                        || crate::commands::vcs::listed_takes_input(list),
                     ..CompletionStyle::default()
                 };
                 editor.open_completion_as(prompt, history, items, style)

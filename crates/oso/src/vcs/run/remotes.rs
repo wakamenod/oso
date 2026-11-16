@@ -21,7 +21,7 @@ use std::ffi::OsStr;
 use oso_core::editor::{FetchFrom, PullHow, PushSwitches, row_text};
 
 use super::sequence::stopped_now;
-use super::stream::stream;
+use super::stream::{ended_as, stream};
 use super::{RunEnd, RunReport, Watch};
 use crate::git::{Git, MAX_SHORT, trim_line};
 use crate::vcs::remote::{
@@ -31,7 +31,7 @@ use crate::vcs::sequence;
 
 /// The most remotes, or remote branches, a prompt is given: the most a completion opens with on
 /// the UI thread before its list is built on the worker (`complete::WORKER_PAST`).
-const MAX_LISTED: usize = 5000;
+pub(super) const MAX_LISTED: usize = 5000;
 /// The most bytes of a list of remotes or remote branches read.
 const MAX_LIST: usize = 1024 * 1024;
 /// The most characters of a dropped commit's subject a question names.
@@ -144,7 +144,7 @@ pub(super) fn plan(git: &Git, want: Want, switches: PushSwitches) -> Result<Plan
         let tip = track.as_deref().and_then(|track| tip_of(git, track));
         // With no tip seen, the lease says the remote holds none: nothing there is dropped.
         push.dropped = match &tip {
-            Some(tip) => dropped(git, tip),
+            Some(tip) => dropped(git, &[&format!("HEAD..{tip}")]),
             None => Some((Vec::new(), 0)),
         };
         push.lease = Some(tip.unwrap_or_default());
@@ -264,27 +264,14 @@ fn run(
         Ok(streamed) => streamed,
         Err(why) => return RunEnd::Refused(why),
     };
-    match streamed.status {
-        _ if streamed.stopped => RunEnd::Stopped,
-        Ok(status) if status.success() => RunEnd::Done,
-        Ok(_) => RunEnd::Failed {
-            said: match reads {
-                Some(reads) => {
-                    sequence::failed(title, &streamed.tail, stopped_now(reads).is_some())
-                }
-                None => remote::failed(title, &streamed.tail),
-            },
-            hooks: Vec::new(),
-        },
-        Err(why) => RunEnd::Failed {
-            said: format!("{title} failed: {why}"),
-            hooks: Vec::new(),
-        },
-    }
+    ended_as(streamed, title, |tail| match reads {
+        Some(reads) => sequence::failed(title, tail, stopped_now(reads).is_some()),
+        None => remote::failed(title, tail),
+    })
 }
 
 /// The branch checked out, or why there is none to push or pull.
-fn current_branch(git: &Git) -> Result<String, String> {
+pub(super) fn current_branch(git: &Git) -> Result<String, String> {
     // Not `--short`, which a tag of the same name would make `heads/NAME`.
     let words = ["symbolic-ref", "--quiet", "HEAD"].map(OsStr::new);
     let detached = || "HEAD is detached: check out a branch first".to_owned();
@@ -357,7 +344,7 @@ fn listed(out: &[u8], keep: impl Fn(&str) -> bool) -> Vec<String> {
 }
 
 /// The commit the local ref `track` is at, as hex, if it is one.
-fn tip_of(git: &Git, track: &str) -> Option<String> {
+pub(super) fn tip_of(git: &Git, track: &str) -> Option<String> {
     let at = format!("{track}^{{commit}}");
     let words = ["rev-parse", "--verify", "--quiet", &at];
     let words: Vec<&OsStr> = words.iter().map(OsStr::new).collect();
@@ -367,31 +354,37 @@ fn tip_of(git: &Git, track: &str) -> Option<String> {
         .then(|| id.to_owned())
 }
 
-/// The commits `tip` holds and `HEAD` does not: the first [`MAX_DROPPED`], each `ID SUBJECT` on
-/// one line, and how many in all; `None` if git cannot count them, which the question says
-/// rather than that it drops nothing.
-fn dropped(git: &Git, tip: &str) -> Option<(Vec<String>, usize)> {
-    let range = format!("HEAD..{tip}");
-    let count = ["rev-list", "--count", &range, "--"];
-    let count: Vec<&OsStr> = count.iter().map(OsStr::new).collect();
-    let all: usize = (git.run(&count, &[], MAX_SHORT).ok())
-        .and_then(|out| std::str::from_utf8(trim_line(&out)).ok()?.parse().ok())?;
-    let most = format!("--max-count={MAX_DROPPED}");
-    let words = [
+/// The commits the revisions `range` name (as `HEAD..TIP`, or a tip `--not` others): the first
+/// [`MAX_DROPPED`], each `ID SUBJECT` escaped on one line, and how many in all; `None` if git
+/// cannot say, which a question says rather than that nothing goes. With no more than it
+/// names, the log's lines are the count, and the history is walked once.
+pub(super) fn dropped(git: &Git, range: &[&str]) -> Option<(Vec<String>, usize)> {
+    let most = format!("--max-count={}", MAX_DROPPED + 1);
+    let mut words = vec![
         "log",
         "--no-show-signature",
         "--no-color",
         "--format=%h %s",
         &most,
-        &range,
-        "--",
     ];
+    words.extend(range);
+    words.push("--");
     let words: Vec<&OsStr> = words.iter().map(OsStr::new).collect();
-    let out = git.run(&words, &[], MAX_LIST).unwrap_or_default();
-    let named = (String::from_utf8_lossy(&out).lines())
+    let out = git.run(&words, &[], MAX_LIST).ok()?;
+    let mut named: Vec<String> = (String::from_utf8_lossy(&out).lines())
         .filter(|line| !line.is_empty())
         .map(|line| row_text(&line.chars().take(MAX_SUBJECT).collect::<String>()))
-        .take(MAX_DROPPED)
         .collect();
+    if named.len() <= MAX_DROPPED {
+        let all = named.len();
+        return Some((named, all));
+    }
+    named.truncate(MAX_DROPPED);
+    let mut count = vec!["rev-list", "--count"];
+    count.extend(range);
+    count.push("--");
+    let count: Vec<&OsStr> = count.iter().map(OsStr::new).collect();
+    let all: usize = (git.run(&count, &[], MAX_SHORT).ok())
+        .and_then(|out| std::str::from_utf8(trim_line(&out)).ok()?.parse().ok())?;
     Some((named, all))
 }

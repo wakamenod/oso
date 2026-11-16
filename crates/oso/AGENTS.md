@@ -58,8 +58,10 @@ often, so it must rebuild within 2 s.
   the server's thread. A server's diagnostics go into its buffers, and the message at point
   waits 300 ms there (`servers/diagnostics.rs`); its reports of files no buffer holds are kept
   there for `M-g d`, whose rows are built on `oso-diagnostics` (`servers/diagnostics/rows.rs`).
-  A server's description at point (`C-c C-d`) goes to its float from `servers/hover.rs`, drawn
-  by `draw/float/hover.rs`. The fake server the tests run against is the dev-only binary
+  An answer's several places, and `M-?`'s references, are listed (`servers/xrefs.rs`), their
+  rows built on `oso-xrefs` (`servers/xrefs/rows.rs`), each file's lines read by
+  `grep/preview/lines.rs`. A server's description at point (`C-c C-d`) goes to its float from
+  `servers/hover.rs`, drawn by `draw/float/hover.rs`. The fake server the tests run against is the dev-only binary
   `fake-lsp-server` (`tests/fake_lsp_server/`), which `just release-safety` keeps out of
   release builds.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a
@@ -85,7 +87,7 @@ often, so it must rebuild within 2 s.
   `bindings/review.rs`.
 - `src/git.rs` and `src/git/` are what every run of git shares (ADR 0127, as built): the
   runner (`run`), which starts git only through `oso_platform::process` with oso's own
-  arguments and environment, every read bounded and a run past 10 s killed; object ids (`id`);
+  arguments and environment, every read bounded (`run/collect`) and a run past 10 s killed; object ids (`id`);
   `TrustedRoot` (`trust`), the only place git starts from; git's names and the secret-name
   check (`path`); the empty hooks directory under oso's state directory (`hooks`); and runs
   with no time limit in a process group of their own, which the person stops (`long`); a push,
@@ -107,10 +109,15 @@ often, so it must rebuild within 2 s.
   sections are read by `history` (step 2), with `app/vcs/remote.rs` and
   `commands::vcs::remote`. What is stopped, a merge, rebase, pick, revert or `git am` (a
   sequence, in the code), is judged by `sequence`, continued, skipped and aborted on the run
-  thread (`run/sequence`), with `app/vcs/sequence.rs` and `commands::vcs::sequence` (step 3a). Its keys are listed in `commands::vcs::KEYS` and
+  thread (`run/sequence`), with `app/vcs/sequence.rs` and `commands::vcs::sequence` (step 3a).
+  Stashes and branches are `stash`'s and `branch`'s, run on the run thread (`run/stash`,
+  `run/branch`), with `app/vcs/stash.rs`, `app/vcs/branch.rs`, `commands::vcs::stash` and
+  `commands::vcs::branch` (step 3b). The graph is `graph`'s: its records, `graph/lanes`, the
+  text `graph/write` and its thread `graph/work`, `oso-vcs-graph`, with `app/vcs/graph.rs` and
+  `commands::vcs::graph` (step 4). Its keys are listed in `commands::vcs::KEYS` and
   `commands::vcs::commit`, the commit menu is built in, and `bindings/vcs.rs` binds them;
-  `app/vcs.rs` carries out what its commands ask, with `app/vcs/commit.rs` (messages) and
-  `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,
+  `app/vcs.rs` carries out what its commands ask, with `app/vcs/status.rs` (the status's own
+  requests), `app/vcs/commit.rs` (messages) and `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,
   a draft and a fix, is written by `vcs/agent.rs` and pasted, and the session tool `draft_set`
   answered, by `app/vcs/agent.rs` (step 6a).
 - `src/dired.rs` and `src/dired/` are the directory editor's listings (ADR 0134): read on the
@@ -123,7 +130,7 @@ often, so it must rebuild within 2 s.
   `sessions/worktree/include.rs`, which matches `.worktreeinclude` (ADR 0121), use `ignore`,
   which review keeps: no guard test checks it. `src/grep.rs` searches them on `oso-grep` over the same
   walk, and `src/grep/preview.rs` reads a row's file for the preview on `oso-preview`, for the
-  search and for `M-g d` (ADR 0138).
+  search, for `M-g d` and for the list of a server's places (ADR 0138).
 - Keep logic that can be tested without a window in `oso-core`. This crate
   translates events and wires things together.
 - Dev-only code (the control socket, `oso ctl`, `oso dev`, timings) stays

@@ -122,6 +122,8 @@ pub enum UserEvent {
     Previewed(crate::grep::Previewed),
     /// The rows of `M-g d`'s list were built (ADR 0138, step 6b).
     DiagnosticsListed(oso_core::editor::DiagnosticRows),
+    /// The rows of a list of a server's places were built (ADR 0138, step 8b).
+    XrefsListed(u64, oso_core::editor::XrefRows),
     /// The record of trusted projects was read, or written and read back (ADR 0114).
     Trust,
     /// A control socket request, in dev builds.
@@ -156,6 +158,8 @@ pub enum UserEvent {
     Review(reviews::ReviewEvent),
     /// A git status buffer's thread reported (ADR 0127).
     Git(vcs::GitEvent),
+    /// A graph buffer's thread reported (ADR 0127, step 4).
+    Graph(vcs::GraphEvent),
     /// A language server's thread reported (ADR 0138).
     Servers,
     /// A repository's thread for git's long runs reported (ADR 0127, step 1b).

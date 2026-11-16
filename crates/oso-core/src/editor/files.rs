@@ -156,12 +156,12 @@ impl Editor {
 
     /// Whether the innermost prompt that reads a path left candidates out: past the limits of a
     /// listing, of a segment's directories or of the list, of a project's walk or search (ADR
-    /// 0114), or of the list of its diagnostics (ADR 0138). The count says so with `+`.
+    /// 0114), or of a language server's list (ADR 0138). The count says so with `+`.
     pub fn files_cut(&self) -> bool {
         (self.reads_path() && self.file_list.cut)
             || self.project_files_cut()
             || self.search_cut()
-            || self.diagnostics_cut()
+            || self.server_list_cut()
     }
 
     /// Whether a prompt that reads a path is open, innermost or not.
@@ -171,12 +171,12 @@ impl Editor {
 
     /// Whether the innermost prompt that reads a path waits for a listing: of a directory, of
     /// a project whose walk has not ended or whose rows are not all in its list, for a search
-    /// that runs (ADR 0114), or for the rows of the list of diagnostics (ADR 0138).
+    /// that runs (ADR 0114), or for the rows of a language server's list (ADR 0138).
     pub fn files_pending(&self) -> bool {
         (self.reads_path() && !self.file_list.asked.is_empty())
             || self.project_files_pending()
             || self.search_pending()
-            || self.diagnostics_pending()
+            || self.server_list_pending()
     }
 
     /// The directory the innermost prompt's path reaches, for the control socket, if it reads

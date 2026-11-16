@@ -12,7 +12,7 @@ use super::{App, Loop, UserEvent, Waker};
 use crate::grep::{Found, Grep, Previewed, Previewer};
 
 /// Where a root leads, as the loader resolves a path: a root nobody can resolve is none.
-fn leads(root: &Path) -> Option<Vec<PathBuf>> {
+pub(in crate::app) fn leads(root: &Path) -> Option<Vec<PathBuf>> {
     match crate::loader::resolve(root) {
         crate::loader::Resolved::Paths(paths) => Some(paths),
         crate::loader::Resolved::Unknown(_) => None,

@@ -1,7 +1,8 @@
 //! A repository's run thread over temporary repositories: a commit with its message and its
 //! output, a hook that fails and the name the failure gives, `--no-verify`, the message an
 //! amend starts from, a stop that ends a hook and leaves no lock, and a root it refuses; with a
-//! remote (`remote`), and over what is stopped (`sequence`, step 3a).
+//! remote (`remote`), over what is stopped (`sequence`, step 3a), and over stashes (`stash`)
+//! and branches (`branch`, step 3b).
 //!
 //! Must not depend on: `app`, `dispatch` or winit.
 
@@ -14,12 +15,16 @@ use super::{RunEnd, RunReport, RunRequest, Runner};
 use crate::git::TrustedRoot;
 use crate::review::tests::Repo;
 
+mod branch;
 mod remote;
 mod sequence;
+mod stash;
 
-/// A repository with a first commit, its own identity and no signing.
+/// A repository with a first commit, its own identity and no signing, its files as written:
+/// a machine's `core.autocrlf`, as Windows' runners set, would turn `\n` into `\r\n` on checkout.
 pub(super) fn repo(name: &str) -> Repo {
     let repo = Repo::new(name);
+    repo.git(&["config", "core.autocrlf", "false"]);
     repo.git(&["config", "user.name", "t"]);
     repo.git(&["config", "user.email", "t@t"]);
     repo.git(&["config", "commit.gpgsign", "false"]);
@@ -54,6 +59,8 @@ pub(super) fn until_end(got: &mpsc::Receiver<RunReport>) -> (RunEnd, String, boo
             RunReport::Elapsed(_)
             | RunReport::Progress(_)
             | RunReport::Planned(_)
+            | RunReport::Branches(_)
+            | RunReport::DeletePlanned { .. }
             | RunReport::Message(_)
             | RunReport::Subjects { .. }
             | RunReport::Discarded(_)
