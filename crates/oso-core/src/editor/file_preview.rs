@@ -269,6 +269,8 @@ pub(super) enum Lister {
     Search,
     /// The list of a project's diagnostics, `M-g d` (ADR 0138).
     Diagnostics,
+    /// The list of a server's places, `M-.`'s and `M-?`'s (ADR 0138, step 8b).
+    Xrefs,
 }
 
 /// The selected row of a list, as its preview wants it: its key, its list's generation and its
@@ -289,6 +291,8 @@ impl Editor {
             Some(Lister::Search)
         } else if self.lists_diagnostics() {
             Some(Lister::Diagnostics)
+        } else if self.lists_xrefs() {
+            Some(Lister::Xrefs)
         } else {
             None
         }
@@ -298,6 +302,7 @@ impl Editor {
         match lister {
             Lister::Search => &self.project_search.preview,
             Lister::Diagnostics => &self.servers.list.preview,
+            Lister::Xrefs => &self.servers.xrefs.preview,
         }
     }
 
@@ -305,6 +310,7 @@ impl Editor {
         match lister {
             Lister::Search => &mut self.project_search.preview,
             Lister::Diagnostics => &mut self.servers.list.preview,
+            Lister::Xrefs => &mut self.servers.xrefs.preview,
         }
     }
 
@@ -313,6 +319,7 @@ impl Editor {
         match lister {
             Lister::Search => self.search_wanted(),
             Lister::Diagnostics => self.diagnostic_wanted(),
+            Lister::Xrefs => self.xref_wanted(),
         }
     }
 

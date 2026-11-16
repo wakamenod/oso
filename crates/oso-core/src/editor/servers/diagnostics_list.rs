@@ -362,53 +362,9 @@ impl Editor {
         Some((item, Path::new(text.get(..place.path)?), place))
     }
 
-    /// Where the open buffer of the row `item` is now: its offset moved through the edits since
-    /// the list was made, as the cursors move, clipped to its text. `None` once the buffer has
-    /// gone, or its edits since no longer reach the list's revision: the row is then its file's,
-    /// by line. Worked out once for each revision of the buffer, as each frame asks.
+    /// Where the open buffer of the row `item` is now (see [`open_now`]).
     fn open_place(&self, item: usize, at: DiagnosticRowAt) -> Option<(BufferId, usize)> {
-        let DiagnosticRowAt::Open {
-            buffer: id,
-            offset,
-            revision,
-        } = at
-        else {
-            return None;
-        };
-        let buffer = self.buffer(id)?;
-        let now = buffer.revision();
-        let offset = if now == revision {
-            offset
-        } else if let Some((seen, at, moved)) = self.servers.list.moved.get()
-            && (seen, at) == (item, now)
-        {
-            moved?
-        } else {
-            let moved = buffer.edits_since(revision).map(|splices| {
-                let mut edits: Vec<OffsetEdit> = (splices.iter())
-                    .map(|splice| OffsetEdit {
-                        start: splice.start,
-                        old_len: splice.old_len,
-                        new_len: splice.new_len,
-                    })
-                    .collect();
-                edits.sort_unstable_by_key(|edit| edit.start);
-                follow_offset(offset, &edits, Bias::Left)
-            });
-            self.servers.list.moved.set(Some((item, now, moved)));
-            moved?
-        };
-        let text = buffer.text();
-        Some((id, text.clip_offset(offset.min(text.len()), Bias::Left)))
-    }
-
-    /// The column a row of `at` is gone to by its file: its server's, or the line's start for an
-    /// open buffer's row whose place is no longer known.
-    fn file_column(at: DiagnosticRowAt) -> VisitColumn {
-        match at {
-            DiagnosticRowAt::File { column } => column,
-            DiagnosticRowAt::Open { .. } => VisitColumn::Chars(0),
-        }
+        open_now(self, &self.servers.list.moved, item, at)
     }
 
     /// The selected row, as the preview of a file wants it: none for a row of an open buffer,
@@ -425,7 +381,7 @@ impl Editor {
             path,
             at: PreviewAt::Line {
                 line: place.line,
-                column: Self::file_column(place.at),
+                column: file_column(place.at),
             },
             // The server's thread drops a report of such a file, and the reader withholds one
             // it judges so; nothing of one is asked for either, as for a search's row.
@@ -453,7 +409,7 @@ impl Editor {
             None => DiagnosticHit::File {
                 path: whole,
                 line: place.line,
-                column: Self::file_column(place.at),
+                column: file_column(place.at),
             },
         };
         self.servers.list.hit = Some(hit);
@@ -481,6 +437,61 @@ impl Editor {
             preview,
             ..DiagnosticsList::default()
         };
+    }
+}
+
+/// Where the open buffer of the row `item`, at `at`, is now: its offset moved through the edits
+/// since the list was made, as the cursors move, clipped to its text. `None` for a file's row,
+/// once the buffer has gone, or once its edits since no longer reach the list's revision: the
+/// row is then its file's, by line. Worked out once for each revision of the buffer and kept in
+/// `moved`, as each frame asks.
+pub(super) fn open_now(
+    editor: &Editor,
+    moved: &Cell<Option<(usize, u64, Option<usize>)>>,
+    item: usize,
+    at: DiagnosticRowAt,
+) -> Option<(BufferId, usize)> {
+    let DiagnosticRowAt::Open {
+        buffer: id,
+        offset,
+        revision,
+    } = at
+    else {
+        return None;
+    };
+    let buffer = editor.buffer(id)?;
+    let now = buffer.revision();
+    let offset = if now == revision {
+        offset
+    } else if let Some((seen, at, kept)) = moved.get()
+        && (seen, at) == (item, now)
+    {
+        kept?
+    } else {
+        let found = buffer.edits_since(revision).map(|splices| {
+            let mut edits: Vec<OffsetEdit> = (splices.iter())
+                .map(|splice| OffsetEdit {
+                    start: splice.start,
+                    old_len: splice.old_len,
+                    new_len: splice.new_len,
+                })
+                .collect();
+            edits.sort_unstable_by_key(|edit| edit.start);
+            follow_offset(offset, &edits, Bias::Left)
+        });
+        moved.set(Some((item, now, found)));
+        found?
+    };
+    let text = buffer.text();
+    Some((id, text.clip_offset(offset.min(text.len()), Bias::Left)))
+}
+
+/// The column a row of `at` is gone to by its file: its server's, or the line's start for an
+/// open buffer's row whose place is no longer known.
+pub(super) fn file_column(at: DiagnosticRowAt) -> VisitColumn {
+    match at {
+        DiagnosticRowAt::File { column } => column,
+        DiagnosticRowAt::Open { .. } => VisitColumn::Chars(0),
     }
 }
 

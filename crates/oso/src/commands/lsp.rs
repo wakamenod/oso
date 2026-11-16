@@ -1,15 +1,17 @@
 //! Commands of the language server that follows the current buffer (ADR 0138, step 3):
 //! starting it, starting it again, and stopping it; moving to its diagnostics (step 6), and
 //! the list of the project's (step 6b); and going to a definition, and back and forward
-//! through the window's jumps (step 8).
+//! through the window's jumps (step 8), and to the references or one of several definitions,
+//! through their list (step 8b).
 //!
 //! Must not depend on: winit, the GPU, `bindings` or the host's servers; a command asks the
 //! host through `Editor::request_server`, and the host acts on the server after it.
 //!
 //! Starting a server spawns a process, and stopping one manages the person's processes, so
 //! those are `Person`; the moves only move, and a definition asks a running server about a
-//! buffer it knows, so they are `Look`; the list is an interactive float for the keyboard, so
-//! it is `Person` (ADR 0138, Q24).
+//! buffer it knows, so they are `Look`; the lists are interactive floats for the keyboard, so
+//! `M-g d` and the row a list of places takes are `Person`, and the agent's `M-?`, which only
+//! lists, is refused (ADR 0138, Q24, step 8's Q5).
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{DiagnosticHit, ServerRequest, VisitColumn};
@@ -68,10 +70,26 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "lsp-find-definition",
-        doc: "Go to the definition of what is at point, as the language server finds it, as Eglot's `xref-find-definitions`.\n\nThe server is asked about the primary cursor; one cursor is left at the definition. With several, it goes to the first and says how many there are. The place left is kept in the window's history, which `lsp-go-back` goes back through, and on the mark ring. A file outside any project that it leads to joins the server, until its buffer is killed.",
+        doc: "Go to the definition of what is at point, as the language server finds it, as Eglot's `xref-find-definitions`.\n\nThe server is asked about the primary cursor; one cursor is left at the definition. Several are listed as `consult-xref` lists them, each row `path:line: text` with a preview of its place, and `RET` goes to the one picked; the agent's goes to the first and says how many there are. The place left is kept in the window's history, which `lsp-go-back` goes back through, and on the mark ring. A file outside any project that it leads to joins the server, until its buffer is killed.",
         args: ArgSpec::None,
         reach: Reach::Look,
         run: find_definition,
+        state: None,
+    },
+    Command {
+        name: "lsp-find-references",
+        doc: "List the references to what is at point, as the language server finds them, the declaration among them, as Eglot's `xref-find-references`.\n\nThe rows are in the server's order, grouped by file, each `path:line: text` with a preview of its place; `RET` goes to the one picked, as `lsp-find-definition` goes, and one reference is gone to at once. The agent is refused, as the list is the person's.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: find_references,
+        state: None,
+    },
+    Command {
+        name: "lsp-go-to-xref",
+        doc: "Go to the place the list of a language server's places took, as `lsp-find-definition` goes to one.\n\n`RET` in the list that `lsp-find-definition` and `lsp-find-references` open runs it; it reads nothing else.",
+        args: ArgSpec::Xref,
+        reach: Reach::Person,
+        run: go_to_xref,
         state: None,
     },
     Command {
@@ -168,6 +186,32 @@ fn find_definition(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     // The host says whether a server follows it.
     let at = ctx.editor.ask_at();
     ctx.editor.request_server(ServerRequest::Definition(at));
+    Ok(())
+}
+
+fn find_references(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    let at = ctx.editor.ask_at();
+    // The list is a float, which the agent cannot read (ADR 0138, step 8's Q5): it asks nothing.
+    if at.agent {
+        return Err(CommandError::new(
+            "References are listed in a float, which only the person reads; search the project with your own tools",
+        ));
+    }
+    if ctx.editor.current().1.is_secret() {
+        return Err(CommandError::new(
+            "No server for a buffer that may hold secrets",
+        ));
+    }
+    ctx.editor.request_server(ServerRequest::References(at));
+    Ok(())
+}
+
+/// The host takes the row the list took and goes there, as to an answer's place.
+fn go_to_xref(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    ctx.editor.request_server(ServerRequest::GoToXref);
+    ctx.request_redraw();
     Ok(())
 }
 

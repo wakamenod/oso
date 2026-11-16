@@ -66,8 +66,10 @@ and marksman. One that is not installed is said once. The modeline says `lsp` af
 the servers did. `M-x lsp-restart` starts the buffer's server again, `M-x lsp-shutdown` stops it
 until `M-x lsp-start`, and untrusting the project stops it. In a buffer a server follows,
 `M-.` goes to the definition at point, `M-,` goes back, and `C-M-,` forward again; each window
-keeps its own history. A file outside any project that `M-.` leads to, such as the standard
-library's, joins the server until its buffer is killed. The rest comes in later steps.
+keeps its own history. With several definitions, and for `M-?`, the references, a list opens,
+each row `path:line: text` with a preview of its place; `RET` goes there. A file outside any
+project that they lead to, such as the standard library's, joins the server until its buffer is
+killed. The rest comes in later steps.
 
 A server can be changed in `config.toml`:
 

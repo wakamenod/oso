@@ -99,6 +99,7 @@ impl App {
             UserEvent::Grepped(found) => self.grepped(event_loop, found),
             UserEvent::Previewed(read) => self.previewed(read),
             UserEvent::DiagnosticsListed(rows) => self.diagnostics_listed(rows),
+            UserEvent::XrefsListed(rows) => self.xrefs_listed(rows),
             UserEvent::Trust => self.trust_reported(),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
@@ -168,6 +169,7 @@ impl App {
         self.draw_flash_if_due();
         self.show_jump_labels_if_due();
         self.diagnostic_at_point_if_due();
+        self.xrefs_if_due();
         self.quit_if_idle(event_loop);
         // Last, once every deadline is known.
         self.set_wake(event_loop);
@@ -265,6 +267,7 @@ impl App {
             self.flash.next_wake(),
             self.jump_timer.next_wake(),
             self.diagnostic_at_point_deadline(),
+            self.xrefs_deadline(),
             self.reload_deadline(),
             self.quiet_walk_deadline(),
             self.slice_deadline(),

@@ -438,6 +438,7 @@ mod tests {
         // The theme, which is the person's and is remembered on disk (ADR 0089).
         "load-theme",
         "lsp-diagnostics",
+        "lsp-go-to-xref",
         "lsp-restart",
         "lsp-shutdown",
         "lsp-start",

@@ -21,6 +21,8 @@
 //!   and before each part read; a newer selection stops it, and only the newest of those
 //!   waiting is read.
 //! - Nothing here logs what is read; `Debug` gives a generation.
+//! - `lines` reads the lines a list of a server's places shows, as a file is reached here
+//!   (step 8b).
 
 use std::fmt;
 use std::fs::File;
@@ -422,6 +424,8 @@ fn lines_before(bytes: &[u8], at_start: bool, before: usize) -> (usize, usize) {
     }
     (from, kept)
 }
+
+pub(crate) mod lines;
 
 #[cfg(test)]
 mod tests;

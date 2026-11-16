@@ -179,3 +179,60 @@ fn m_g_d_lists_the_project_s_diagnostics_and_ret_goes_to_the_one_picked() {
     send(&mut d, &mut editor, "M-g d");
     assert!(editor.prompt().is_none());
 }
+
+#[test]
+fn m_question_asks_for_references_and_ret_in_the_list_of_places_goes_to_the_row() {
+    use oso_core::editor::{DiagnosticHit, DiagnosticRowAt, ServerRequest, XrefKind, XrefRow};
+    use oso_core::editor::{VisitColumn, XrefRows};
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    let id = editor.window().buffer();
+    send(&mut d, &mut editor, "C-f M-?");
+    match editor.take_server_requests().as_slice() {
+        [ServerRequest::References(at)] => {
+            assert_eq!((at.buffer, at.offset, at.agent), (id, 1, false));
+        }
+        other => panic!("{other:?}"),
+    }
+    // The host opens the list once an answer has several places.
+    let root = std::path::PathBuf::from("/w");
+    assert!(d.list_xrefs(&mut editor, XrefKind::References, 3, root.clone()));
+    assert!(
+        !d.list_xrefs(&mut editor, XrefKind::References, 4, root),
+        "not over a prompt"
+    );
+    let row = |line| XrefRow {
+        shown: "b.rs".into(),
+        path: "/w/b.rs".into(),
+        line,
+        at: DiagnosticRowAt::File {
+            column: VisitColumn::Utf16(2),
+        },
+        text: "x".into(),
+    };
+    editor.xref_listed(XrefRows::new(3, vec![row(4), row(9)], false));
+    send(&mut d, &mut editor, "C-n RET");
+    assert!(editor.prompt().is_none());
+    assert_eq!(
+        editor.take_server_requests(),
+        [ServerRequest::GoToXref],
+        "lsp-go-to-xref asks the host"
+    );
+    assert_eq!(
+        editor.take_xref_hit(),
+        Some(DiagnosticHit::File {
+            path: "/w/b.rs".into(),
+            line: 9,
+            column: VisitColumn::Utf16(2)
+        })
+    );
+}
+
+#[test]
+fn m_x_lsp_go_to_xref_opens_nothing() {
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    let name: Vec<String> = "lsp-go-to-xref".chars().map(String::from).collect();
+    send(&mut d, &mut editor, &format!("M-x {} RET", name.join(" ")));
+    assert!(editor.prompt().is_none());
+    assert!(editor.take_server_requests().is_empty());
+    assert!(echo(&editor).contains("M-. and M-?"), "{}", echo(&editor));
+}

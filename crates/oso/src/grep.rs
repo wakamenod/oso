@@ -45,6 +45,7 @@ mod files;
 mod preview;
 mod read;
 
+pub(crate) use preview::lines::{LINE_KEPT, RowLines, read_lines};
 pub use preview::{Previewed, Previewer};
 
 /// How often a search sends the rows it found.

@@ -1,4 +1,4 @@
-//! The language servers the app runs (ADR 0138, steps 3, 4, 6 and 8), on the UI thread: which server a
+//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8 and 8b), on the UI thread: which server a
 //! buffer's open would start, starting one for a project's root and entry, what the commands
 //! ask, what each server's thread reports, the modeline's marks, and the ends that trust, the
 //! configuration and a quit bring. One server runs per root and entry. The UI thread never
@@ -12,6 +12,7 @@ mod diagnostics;
 mod documents;
 mod find;
 mod places;
+mod xrefs;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -46,6 +47,8 @@ pub(super) struct Servers {
     /// The generation of `M-g d`'s newest list, which stops the build of an older one
     /// (step 6b).
     listing: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// The list of a server's places, built or shown (step 8b).
+    xrefs: xrefs::Listing,
 }
 
 /// One server, as the app knows it.
@@ -190,6 +193,7 @@ impl App {
                 ServerRequest::References(at) => {
                     self.lsp_find(at, oso_lsp::server::AskKind::References, agent);
                 }
+                ServerRequest::GoToXref => self.go_to_xref(),
             }
         }
     }

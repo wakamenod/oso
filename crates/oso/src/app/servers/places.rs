@@ -14,7 +14,8 @@
 //!   secret patterns is refused, a file shows only once judged ordinary, it counts toward the
 //!   connection's files and is the agent's, so its open with the server waits for the person
 //!   (ADR 0118). Its answer is dropped once the connection or the channel is gone. Several
-//!   places never open a float for the agent: it goes to the first.
+//!   places never open a float for the agent: it goes to the first. The person's several, and
+//!   their references, are listed (`xrefs`, step 8b).
 //! - A file joins by its buffer, once project detection has said it is in no project, and
 //!   through the settling of opens, so ADR 0118 holds the agent's. One buffer joins one server;
 //!   a server holds at most [`JOINED_MAX`] joined and [`JOINING_MAX`] waiting.
@@ -23,7 +24,7 @@ use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 
 use oso_core::buffer::{Buffer, BufferId};
-use oso_core::editor::{AskAt, VisitColumn};
+use oso_core::editor::AskAt;
 use oso_core::syntax::Splice;
 use oso_core::window::WindowId;
 use oso_lsp::position::{Encoding, Position};
@@ -55,6 +56,13 @@ pub(super) struct Asker {
 pub(super) struct Joined {
     buffers: HashSet<BufferId>,
     waiting: VecDeque<PathBuf>,
+}
+
+impl Asker {
+    /// The ask's serial, which numbers the list of its places too.
+    pub(super) fn serial(&self) -> u64 {
+        self.serial
+    }
 }
 
 impl Joined {
@@ -92,6 +100,8 @@ impl App {
         let Some(index) = self.server_to_ask(at.buffer) else {
             return;
         };
+        // A newer ask stops the list that waits for its rows (step 8b).
+        self.servers.xrefs.stop_waiting();
         self.servers.serial += 1;
         let serial = self.servers.serial;
         let running = &self.servers.running[index];
@@ -176,7 +186,7 @@ impl App {
         if let Some((asked, asker)) = taken
             && self.still_there(asked, &asker)
         {
-            self.go_to_answer(index, kind, asker, &places);
+            self.go_to_answer(index, (kind, asked, asker), &places);
             self.request_redraw();
         }
         self.freer.free(places);
@@ -206,7 +216,7 @@ impl App {
 
     /// Whether nothing moved since `asker` asked about `asked`, and an agent's connection is
     /// still let in.
-    fn still_there(&self, asked: BufferId, asker: &Asker) -> bool {
+    pub(super) fn still_there(&self, asked: BufferId, asker: &Asker) -> bool {
         let (window, buffer) = self.editor.current();
         window.id() == asker.window
             && window.buffer() == asked
@@ -219,7 +229,14 @@ impl App {
                 .is_none_or(|connection| self.agent_connected(connection))
     }
 
-    fn go_to_answer(&mut self, index: usize, kind: AskKind, asker: Asker, places: &[Location]) {
+    /// Goes to the answer's place, or lists its places for the person when it has several, or
+    /// for `M-?`, one at once (step 8b); the agent goes to the first.
+    fn go_to_answer(
+        &mut self,
+        index: usize,
+        (kind, asked, asker): (AskKind, BufferId, Asker),
+        places: &[Location],
+    ) {
         let Some(first) = places.first() else {
             self.editor.message(match kind {
                 AskKind::Definition => "No definition found",
@@ -227,14 +244,23 @@ impl App {
             });
             return;
         };
+        let Some(connection) = asker.agent else {
+            if places.len() > 1 {
+                self.list_places(index, (kind, asked, asker), places);
+                return;
+            }
+            // Said before the jump, as below.
+            if kind == AskKind::References {
+                self.editor.echo("1 reference");
+            }
+            self.person_jump(index, first);
+            return;
+        };
         // Said before the jump: said once a file not judged yet shows, it would go with it.
         if places.len() > 1 {
             self.editor.echo(format!("1 of {}", places.len()));
         }
-        match asker.agent {
-            Some(connection) => self.agent_jump(index, connection, first),
-            None => self.person_jump(index, first),
-        };
+        self.agent_jump(index, connection, first);
     }
 
     /// Goes to `place` for the person; whether it went.
@@ -249,10 +275,7 @@ impl App {
         if !Buffer::name_may_hold_secrets(&place.path) {
             self.join(index, place.path.clone());
         }
-        let column = match encoding {
-            Encoding::Utf8 => VisitColumn::Utf8(start.character as usize),
-            Encoding::Utf16 => VisitColumn::Utf16(start.character as usize),
-        };
+        let column = super::xrefs::column(start.character as usize, encoding);
         self.editor.xref_visit(
             place.path.clone(),
             oso_core::load::UNASKED,
@@ -293,7 +316,7 @@ impl App {
 
     /// The open buffer and offset of a place in a document open with server `index`, mapped
     /// through the buffer's edits since the text the server placed it in.
-    fn open_place(&self, index: usize, place: &Location) -> Option<(BufferId, usize)> {
+    pub(super) fn open_place(&self, index: usize, place: &Location) -> Option<(BufferId, usize)> {
         let Target::Open {
             document,
             revision,
@@ -331,7 +354,7 @@ impl App {
 
     /// Lets the file at `path` join server `index` once its buffer is known to be in no project:
     /// at once if it is, or when its project is found.
-    fn join(&mut self, index: usize, path: PathBuf) {
+    pub(super) fn join(&mut self, index: usize, path: PathBuf) {
         let open = self
             .editor
             .buffers()
@@ -422,7 +445,7 @@ impl App {
 }
 
 /// Where `target` starts, as the server counts it, and in which encoding.
-fn line_and_column(target: &Target) -> (Position, Encoding) {
+pub(super) fn line_and_column(target: &Target) -> (Position, Encoding) {
     match *target {
         Target::Lines {
             start, encoding, ..
