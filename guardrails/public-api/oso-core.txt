@@ -5135,6 +5135,8 @@ pub oso_core::syntax::Highlight::Constant
 pub oso_core::syntax::Highlight::DiffAdded
 pub oso_core::syntax::Highlight::DiffFileHeader
 pub oso_core::syntax::Highlight::DiffHunkHeader
+pub oso_core::syntax::Highlight::DiffRefineAdded
+pub oso_core::syntax::Highlight::DiffRefineRemoved
 pub oso_core::syntax::Highlight::DiffRemoved
 pub oso_core::syntax::Highlight::DiredBrokenSymlink
 pub oso_core::syntax::Highlight::DiredDetails

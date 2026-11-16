@@ -377,3 +377,33 @@ fn files_no_longer_listed_are_forgotten_as_open() {
     assert!(view.is_open(Section::Unstaged, b"src/a.rs"));
     assert!(!view.is_open(Section::Unstaged, b"gone.rs"));
 }
+
+#[test]
+fn a_changed_word_of_a_paired_line_is_refined() {
+    let patch = b"diff --git a/src/a.rs b/src/a.rs
+--- a/src/a.rs
++++ b/src/a.rs
+@@ -1,1 +1,1 @@
+-let total = sum(a, b);
++let total = add(a, c);
+";
+    let mut view = View::default();
+    view.open_file(Section::Unstaged, b"src/a.rs".to_vec());
+    let sections = sections(&status(), &counts(), &counts(), &|_| false);
+    let hunks = HashMap::from([(
+        (Section::Unstaged, b"src/a.rs".to_vec()),
+        Hunks::Patch(Arc::new(patch::parse(patch, false))),
+    )]);
+    let laid = lay_out(&head(), &[], sections, &hunks, &view);
+    let text = laid.text.text().to_string();
+    let added = text.find("+let total = add").unwrap();
+    let removed = text.find("-let total = sum").unwrap();
+    let at = |offset: usize| laid.highlights.at(offset);
+    // `+` and `let` keep the line's face; `add` and `c` are refined.
+    assert_eq!(at(added), Some(Highlight::DiffAdded));
+    assert_eq!(at(added + 13), Some(Highlight::DiffRefineAdded));
+    assert_eq!(at(added + 17), Some(Highlight::DiffAdded));
+    assert_eq!(at(added + 20), Some(Highlight::DiffRefineAdded));
+    assert_eq!(at(removed + 13), Some(Highlight::DiffRefineRemoved));
+    assert_eq!(laid.highlights.len(), text.len());
+}
