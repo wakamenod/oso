@@ -20,9 +20,11 @@ mod remote;
 mod sequence;
 mod stash;
 
-/// A repository with a first commit, its own identity and no signing.
+/// A repository with a first commit, its own identity and no signing, its files as written:
+/// a machine's `core.autocrlf`, as Windows' runners set, would turn `\n` into `\r\n` on checkout.
 pub(super) fn repo(name: &str) -> Repo {
     let repo = Repo::new(name);
+    repo.git(&["config", "core.autocrlf", "false"]);
     repo.git(&["config", "user.name", "t"]);
     repo.git(&["config", "user.email", "t@t"]);
     repo.git(&["config", "commit.gpgsign", "false"]);
