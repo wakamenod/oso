@@ -82,7 +82,7 @@ often, so it must rebuild within 2 s.
   `bindings/review.rs`.
 - `src/git.rs` and `src/git/` are what every run of git shares (ADR 0127, as built): the
   runner (`run`), which starts git only through `oso_platform::process` with oso's own
-  arguments and environment, every read bounded and a run past 10 s killed; object ids (`id`);
+  arguments and environment, every read bounded (`run/collect`) and a run past 10 s killed; object ids (`id`);
   `TrustedRoot` (`trust`), the only place git starts from; git's names and the secret-name
   check (`path`); the empty hooks directory under oso's state directory (`hooks`); and runs
   with no time limit in a process group of their own, which the person stops (`long`); a push,
@@ -106,8 +106,8 @@ often, so it must rebuild within 2 s.
   sequence, in the code), is judged by `sequence`, continued, skipped and aborted on the run
   thread (`run/sequence`), with `app/vcs/sequence.rs` and `commands::vcs::sequence` (step 3a). Its keys are listed in `commands::vcs::KEYS` and
   `commands::vcs::commit`, the commit menu is built in, and `bindings/vcs.rs` binds them;
-  `app/vcs.rs` carries out what its commands ask, with `app/vcs/commit.rs` (messages) and
-  `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,
+  `app/vcs.rs` carries out what its commands ask, with `app/vcs/status.rs` (the status's own
+  requests), `app/vcs/commit.rs` (messages) and `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,
   a draft and a fix, is written by `vcs/agent.rs` and pasted, and the session tool `draft_set`
   answered, by `app/vcs/agent.rs` (step 6a).
 - `src/dired.rs` and `src/dired/` are the directory editor's listings (ADR 0134): read on the
