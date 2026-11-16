@@ -206,8 +206,8 @@ pub struct Report {
     pub diagnostics: Vec<Diagnosed>,
     /// Answers to [`Server::ask`], the latest of each document and kind (step 8).
     pub answers: Vec<Answer>,
-    /// What the server said of its completions once it was initialized, until the UI took it
-    /// (step 9b).
+    /// What the server said of its completions in its run's `initialize`, until the UI took
+    /// it: nothing of it for a server that does not complete (step 9b).
     pub completing: Option<crate::protocol::Completing>,
 }
 

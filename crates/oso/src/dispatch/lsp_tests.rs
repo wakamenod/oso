@@ -384,8 +384,9 @@ fn only_the_person_s_typing_is_noted_for_completion() {
     use oso_core::command::Reach;
     let (mut d, mut editor) = followed(Some(ServerMark::Ready));
     send(&mut d, &mut editor, "a b c");
-    let typed = editor.take_completion_typed().expect("the person typed");
-    assert_eq!((typed.last, typed.word), ('c', 3));
+    let at = editor.take_completion_typed().expect("the person typed");
+    let typed = editor.completion_typed(at).unwrap();
+    assert_eq!((typed.last, typed.word_clusters), ('c', 3));
     // Moving is no typing.
     send(&mut d, &mut editor, "C-f");
     assert!(editor.take_completion_typed().is_none());

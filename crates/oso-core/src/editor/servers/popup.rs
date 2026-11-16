@@ -17,7 +17,7 @@
 //! - An item's range is kept only on the cursor's line, around it, and within
 //!   [`WORD_BYTES_MAX`] of it: a server's range elsewhere would edit text out of view.
 //! - The word and the ranges follow every edit (`Editor::answers_follow`), each offset once;
-//!   a reload closes the popup.
+//!   a reload closes the popup. An item's edits besides its own are mapped only when it goes in.
 //! - Inserting replaces what the item covers at the primary cursor, and the word at each other
 //!   cursor whose word before it is the same, with the item's edits besides its own, in one
 //!   edit. With no word typed, only the primary's. Those edits, from the answer or the item's
@@ -88,9 +88,9 @@ pub struct CompletionPopupAnswer {
 /// What an item inserts, and the range it replaces as places in the offsets followed.
 type Insert = (Box<str>, Option<(usize, usize)>);
 
-/// An edit an item makes besides its own: its range as places in the offsets followed, and its
-/// text.
-type ExtraAt = (usize, usize, Box<str>);
+/// An item's edits besides its own, as given, in the text of the revision with them: mapped
+/// only when the item goes in, as only one item ever does.
+type Extras = Option<(u64, Vec<(Range<usize>, Box<str>)>)>;
 
 /// The open popup. `Debug` gives counts.
 pub struct CompletionPopup {
@@ -115,7 +115,7 @@ pub struct CompletionPopup {
     serial: u64,
     incomplete: bool,
     /// Each item's edits besides its own, by item.
-    extras: Vec<Vec<ExtraAt>>,
+    extras: Vec<Extras>,
     /// The item whose resolve was asked for last.
     resolving: Option<usize>,
 }
@@ -284,26 +284,22 @@ impl Editor {
                 });
             }
         }
-        // Its edits besides its own, but where one would overlap another (ADR 0138's table).
-        let mut extra = Vec::new();
-        for (from, to, text) in popup.extras.get(item).into_iter().flatten() {
-            let Some(range) = at(*from).zip(at(*to)).map(|(from, to)| from..to) else {
-                continue;
-            };
-            let overlaps = |edit: &Replacement<'_>| {
-                range.start < edit.range.end.max(edit.range.start + 1)
-                    && edit.range.start < range.end.max(range.start + 1)
-            };
-            if !edits.iter().any(overlaps) {
-                extra.push(range.start);
-                edits.push(Replacement { range, text });
-            }
-        }
         let id = window.buffer();
+        let main: Vec<Range<usize>> = edits.iter().map(|edit| edit.range.clone()).collect();
+        let extra = popup.extras.get(item).and_then(Option::as_ref);
+        let Some(extra) = self.extras_now(extra, &main) else {
+            return Err(None);
+        };
+        let began = self.buffer(id).map(Buffer::undo_mark);
+        let before = self.windows[self.selected].selections.clone();
+        edits.extend(extra.iter().map(|(range, text)| Replacement {
+            range: range.clone(),
+            text,
+        }));
         let inserted = self.apply_edits(id, &edits).map_err(Some);
         if inserted.is_ok() {
-            self.say_extra_out_of_view(id, &extra);
-            self.note_inserted(popup, item);
+            self.say_extra_changed(id, &edits, main.len());
+            self.note_inserted(popup, item, (began, before), &edits);
         }
         inserted
     }
@@ -406,15 +402,10 @@ impl Editor {
 }
 
 /// The ranges of `answer`'s items in `buffer`'s text now, each kept only on the line of
-/// `cursor`, around it and near it, and their edits besides their own, each while it still
-/// maps.
+/// `cursor`, around it and near it.
 type Spans = Vec<Option<(usize, usize)>>;
 
-fn ranges_now(
-    buffer: &Buffer,
-    cursor: usize,
-    answer: &CompletionPopupAnswer,
-) -> (Spans, Vec<Spans>) {
+fn ranges_now(buffer: &Buffer, cursor: usize, answer: &CompletionPopupAnswer) -> Spans {
     let text = buffer.text();
     let line = text.line_start(text.offset_to_point(cursor).row);
     // A range of the answer's text in the text now, kept only on the cursor's line, around
@@ -433,25 +424,13 @@ fn ranges_now(
     let ranges: Spans = (answer.items.iter())
         .map(|item| item.range.as_ref().and_then(near))
         .collect();
-    // An item's edits besides its own, in the text now; one that no longer maps goes.
-    let extras: Vec<Spans> = (answer.items.iter())
-        .map(|item| {
-            (item.extra.iter())
-                .map(|(range, _)| {
-                    let start = moved_to(buffer, answer.revision, range.start)?;
-                    let end = moved_to(buffer, answer.revision, range.end)?;
-                    Some((start, end.max(start)))
-                })
-                .collect()
-        })
-        .collect();
-    (ranges, extras)
+    ranges
 }
 
 /// The popup over `answer` in `buffer`, shown by the window `window` with its primary cursor at
 /// `cursor`: the identifier and the replaced text's start, the items' ranges kept only on the
-/// cursor's line, around it and near it, their edits besides their own that still map, and
-/// what is matched and shown of each.
+/// cursor's line, around it and near it, their edits besides their own as given, and what is
+/// matched and shown of each.
 fn popup_of(
     buffer: &Buffer,
     (window, cursor): (WindowId, usize),
@@ -460,7 +439,7 @@ fn popup_of(
     let buffer_id = answer.at.buffer;
     let text = buffer.text();
     let ident = word_start(text, cursor);
-    let (ranges, extras) = ranges_now(buffer, cursor, &answer);
+    let ranges = ranges_now(buffer, cursor, &answer);
     let start = (ranges.iter().flatten().next())
         .map_or(ident, |(start, _)| *start)
         .min(ident);
@@ -472,13 +451,6 @@ fn popup_of(
                 .flatten()
                 .flat_map(|(start, end)| [*start, *end]),
         )
-        .chain(
-            extras
-                .iter()
-                .flatten()
-                .flatten()
-                .flat_map(|(start, end)| [*start, *end]),
-        )
         .collect();
     followed.sort_unstable();
     followed.dedup();
@@ -487,7 +459,7 @@ fn popup_of(
     let mut matched = Vec::with_capacity(answer.items.len());
     let mut shown = Vec::with_capacity(answer.items.len());
     let mut extras_at = Vec::with_capacity(answer.items.len());
-    for ((item, range), extra) in answer.items.into_iter().zip(ranges).zip(extras) {
+    for (item, range) in answer.items.into_iter().zip(ranges) {
         let label = shown_text(&item.label);
         matched.push(Candidate::new(item.filter.unwrap_or(item.label), "", ""));
         shown.push(Candidate::unmatched(label, shown_text(&item.annotation)));
@@ -495,15 +467,7 @@ fn popup_of(
             item.text,
             range.map(|(start, end)| (place(start), place(end))),
         ));
-        // The edits that still map, each with its text.
-        let texts = item.extra.into_iter().map(|(_, text)| text);
-        extras_at.push(
-            (extra.into_iter().zip(texts))
-                .filter_map(|(range, text)| {
-                    range.map(|(start, end)| (place(start), place(end), text))
-                })
-                .collect(),
-        );
+        extras_at.push((!item.extra.is_empty()).then_some((answer.revision, item.extra)));
     }
     let (ident, start) = (place(ident), place(start));
     CompletionPopup {
@@ -525,11 +489,12 @@ fn popup_of(
 
 mod extra;
 mod text;
+mod typed;
 
 use text::{moved_to, shown_text, text_holds, text_is, text_of, word_start};
 
-pub use extra::CompletionTyped;
 pub(in crate::editor) use extra::Inserted;
+pub use typed::CompletionTyped;
 
 #[cfg(test)]
 mod tests;

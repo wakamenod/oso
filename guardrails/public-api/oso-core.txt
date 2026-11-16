@@ -2359,7 +2359,7 @@ impl core::marker::StructuralPartialEq for oso_core::editor::CompletionStyle
 pub struct oso_core::editor::CompletionTyped
 pub oso_core::editor::CompletionTyped::at: oso_core::editor::AskAt
 pub oso_core::editor::CompletionTyped::last: char
-pub oso_core::editor::CompletionTyped::word: usize
+pub oso_core::editor::CompletionTyped::word_clusters: usize
 impl core::clone::Clone for oso_core::editor::CompletionTyped
 pub fn oso_core::editor::CompletionTyped::clone(&self) -> oso_core::editor::CompletionTyped
 impl core::cmp::Eq for oso_core::editor::CompletionTyped
@@ -2646,9 +2646,11 @@ pub fn oso_core::editor::Editor::completion_reported(&mut self, oso_core::comple
 pub fn oso_core::editor::Editor::take_completion_job(&mut self) -> core::option::Option<oso_core::complete::CompletionJob>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::completion_resolved(&mut self, (u64, usize), u64, alloc::vec::Vec<(core::ops::range::Range<usize>, alloc::string::String)>) -> bool
-pub fn oso_core::editor::Editor::note_completion_typed(&mut self)
 pub fn oso_core::editor::Editor::take_completion_resolve(&mut self) -> core::option::Option<(u64, usize)>
-pub fn oso_core::editor::Editor::take_completion_typed(&mut self) -> core::option::Option<oso_core::editor::CompletionTyped>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::completion_typed(&self, oso_core::editor::AskAt) -> core::option::Option<oso_core::editor::CompletionTyped>
+pub fn oso_core::editor::Editor::note_completion_typed(&mut self)
+pub fn oso_core::editor::Editor::take_completion_typed(&mut self) -> core::option::Option<oso_core::editor::AskAt>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::confirm_exit(&mut self, bool) -> core::result::Result<(), oso_core::editor::ExitRefused>
 pub fn oso_core::editor::Editor::file_changed_on_disk(&mut self, oso_core::buffer::BufferId)

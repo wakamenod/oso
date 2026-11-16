@@ -57,6 +57,8 @@ pub(super) struct Keymaps {
     pub(super) popup: [Keymap; 2],
     /// The commands the popup stays open for: its own, and typing.
     pub(super) popup_commands: Vec<CommandId>,
+    /// `self-insert-command`, the person's typing of which may complete by itself (step 9b).
+    pub(super) self_insert: Option<CommandId>,
     /// Markdown's own keys, above the global ones in a Markdown buffer.
     pub(super) markdown: Keymap,
     /// A `*Brief*` buffer's own keys, and a `*Worktrees*` buffer's, above the global ones
@@ -118,6 +120,7 @@ impl Keymaps {
             rigid_commands: bindings::rigid_commands(registry),
             popup,
             popup_commands,
+            self_insert: registry.lookup("self-insert-command"),
             markdown: bindings::markdown_keymap(registry),
             worktrees: bindings::worktree_keymaps(registry),
             sessions: bindings::sessions_keymap(registry),
@@ -155,6 +158,7 @@ impl Keymaps {
             rigid_commands: _,
             popup: [popup, popup_moved],
             popup_commands: _,
+            self_insert: _,
             markdown,
             worktrees: [brief, worktrees],
             sessions,

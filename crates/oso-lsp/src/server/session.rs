@@ -313,7 +313,7 @@ impl Session {
                 save: false,
             },
             resolves: false,
-            given: None,
+            last_items: None,
         };
         let root_uri = uri::from_path(&start.root).unwrap_or_default();
         let root_name = start

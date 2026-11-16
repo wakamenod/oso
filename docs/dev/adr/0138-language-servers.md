@@ -851,6 +851,10 @@ gains `amended by 0138`.
 - [ADR 0088](0088-switching-and-killing-buffers.md), "`previous-buffer` on `M-,`": in a buffer a
   language server follows, `M-,` is `lsp-go-back`, through the `lsp` minor mode layer. Everywhere
   else it is still `previous-buffer`.
+- [ADR 0053](0053-edit-core.md), "An edit with no group open is a step of its own": and the
+  edits besides a completion's own that its resolve gives after the insert join the insert's
+  step afterwards, as `C-x TAB`'s keys' edits join theirs (ADR 0115), if nothing changed since
+  (step 9b).
 - [ADR 0008](0008-floating-ui.md), "completion popups … [are] buffers shown in floating windows
   … Editing commands … work in them unchanged": the completion popup is no buffer: it is the
   editor's state of the items a server offered, drawn as a float at point, and typing goes on
@@ -864,7 +868,8 @@ gains `amended by 0138`.
   is installed.
 - A language server runs only for a trusted project and is started only by the person. A broken
   or hostile server can slow only its own threads, and never blocks the UI thread, edits a
-  buffer by itself, opens a file by itself, or makes oso reach another computer.
+  buffer but within an insert the person made (a completion's edits besides its own, step 9b),
+  opens a file by itself, or makes oso reach another computer.
 - oso gains a crate, and `oso-core` gains `diagnostic`, `window::jumps`, ADR 0118's enum,
   completion at point and six modes with no highlighting yet. The renderer gains a wavy underline and three faces in each theme.
 - The gutter gains a column in buffers a server follows, and `M-,` means another thing there.
@@ -1905,9 +1910,9 @@ with it.
   One that comes once the item was inserted joins the insert's undo step if nothing changed
   since, the buffer at the revision the insert left and the cursors where it left them;
   otherwise it is dropped, and the echo area says so. Where such an edit changes a line out of
-  view, the echo area says which. `Editor::note_completion_typed` notes the person's typing,
-  with the character typed and how many grapheme clusters the identifier before the cursor has
-  (`CompletionTyped`).
+  view, the echo area says which. `Editor::note_completion_typed` notes where the person typed,
+  and `Editor::completion_typed` reads the character typed and how many grapheme clusters the
+  identifier before the cursor has (`CompletionTyped`).
 - **The tip crate:** the dispatcher notes typing after the person's `self-insert-command` only,
   never a replayed macro's or the agent's, which types through the channel's `change` and runs
   no command (`dispatch/transient.rs`). After the event's edits went to the server
@@ -1915,13 +1920,28 @@ with it.
   list asks again, and three identifier characters ask once the typing has rested 200 ms with
   nothing moved; such an ask says nothing of no answer or of a failure. The selected item's
   resolve is asked for when the popup opens and when the selection moves.
+- **From this step's reviews:** the late edits join the insert's step afterwards with
+  `join_undo_since`, as `C-x TAB`'s do, so the next typed character is a step of its own; an
+  item's edits besides its own are kept as given and mapped only when it goes in, so that no
+  edit follows thousands of offsets; one ask of an incomplete list at a time, a stale answer
+  asking again from where the typing is; the raw items are taken out of the answer, not
+  copied, and only while the server resolves; a resolve's ranges are placed in the text it was
+  asked in, as an answer's edits besides an item's own are; the late edits pass the overlap
+  checks the insert's do; an edit besides an item's own replaces at most 8 lines
+  (`limits::EXTRA_EDIT_LINES_MAX`), and the lines they change out of view are all said, as the
+  text is after them, in `*Messages*` too; every run reports its completion capabilities;
+  `AskContext` is one of none, a completion's `Invoked`, or a resolve's item, a kind with the
+  wrong one failing; the typing is noted only after a successful `self-insert-command`, by its
+  place alone, and read only where a server completes (`Editor::completion_typed`); and who
+  asked is the person, the agent or the host (`app/servers/asks.rs`).
 - **Public API:** `oso-lsp`: `server::{AskContext, Resolved}`, `Ask::context`,
   `AskKind::Resolve`, `Answered::Resolved`, `Completion::extra`, `Report::completing`,
-  `protocol::{Completing, Extra, Invoked, completing, extra_edits, resolved}` and
-  `completion_params`' `Invoked`. `oso-core`: `editor::CompletionTyped`,
+  `protocol::{Completing, Extra, Invoked, completing, extra_edits, resolved, take_items}`,
+  `CompletionList::at`, `Offered::extra`, `completion_params`' `Invoked`, and
+  `limits::{TRIGGERS_MAX, EXTRA_EDIT_LINES_MAX}`. `oso-core`: `editor::CompletionTyped`,
   `CompletionPopupItem::extra`, `CompletionPopupAnswer::{serial, incomplete}`,
   `CompletionPopup::incomplete`, `Editor::{take_completion_resolve, completion_resolved,
-  note_completion_typed, take_completion_typed}`.
+  note_completion_typed, take_completion_typed, completion_typed}`.
 - **Tests:** in `oso-lsp`, the trigger characters and resolve read, the extra edits within their
   bounds, and the three trigger kinds; in `oso-core`, an answer's extra edits in one undo step,
   the resolve asked once a selection and kept, edits resolved after the insert joining its step

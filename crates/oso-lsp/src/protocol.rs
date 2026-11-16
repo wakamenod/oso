@@ -15,7 +15,7 @@ mod tests;
 
 pub use completion::{
     Completing, CompletionList, Extra, Invoked, Offered, completed, completing, completion_params,
-    extra_edits, kind_name, plain, resolved,
+    extra_edits, kind_name, plain, resolved, take_items,
 };
 pub use located::{Located, located, position_params, references_params};
 pub use published::{Published, Reported, published};

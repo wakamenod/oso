@@ -102,11 +102,9 @@ impl Session {
                 run.ready = true;
                 run.encoding = encoding;
                 run.sync = protocol::sync(&result);
-                run.resolves = false;
-                if let Some(completing) = protocol::completing(&result) {
-                    run.resolves = completing.resolves;
-                    self.reporter.completing(completing);
-                }
+                let completing = protocol::completing(&result);
+                run.resolves = completing.resolves;
+                self.reporter.completing(completing);
                 self.open_documents(run)?;
                 let name = protocol::server_name(&result)
                     .map(|name| format!(" as {name}"))

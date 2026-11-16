@@ -16,7 +16,7 @@ use crate::uri;
 use super::super::{
     Answer, Answered, Ask, AskContext, AskKind, Completion, Completions, Location, Resolved, Target,
 };
-use super::run::Run;
+use super::run::{LastItems, Run};
 use super::{Asked, Session};
 
 /// Why there is no answer while no server runs.
@@ -46,31 +46,25 @@ impl Session {
         };
         let at = position::from_offset(text, ask.offset, run.encoding);
         let params = match (ask.kind, ask.context) {
-            (AskKind::Definition, _) => protocol::position_params(uri, at),
-            (AskKind::References, _) => protocol::references_params(uri, at),
-            (AskKind::Completion, context) => {
-                let invoked = match context {
-                    AskContext::Character(c) => protocol::Invoked::Character(c),
-                    AskContext::Incomplete => protocol::Invoked::Incomplete,
-                    AskContext::Plain | AskContext::Item { .. } => protocol::Invoked::Asked,
-                };
+            (AskKind::Definition, AskContext::None) => protocol::position_params(uri, at),
+            (AskKind::References, AskContext::None) => protocol::references_params(uri, at),
+            (AskKind::Completion, AskContext::Completion(invoked)) => {
                 protocol::completion_params(uri, at, invoked)
             }
             // The item as the server gave it, if it is one of its last completions'.
-            (AskKind::Resolve, context) => {
-                let item = match (context, &run.given) {
-                    (AskContext::Item { answer, index }, Some((document, serial, given)))
-                        if (*document, *serial) == (ask.document, answer) =>
-                    {
-                        given.get(index).cloned()
-                    }
-                    _ => None,
-                };
+            (AskKind::Resolve, AskContext::Item { answer, index }) => {
+                let item = (run.last_items.as_ref())
+                    .filter(|last| (last.document, last.serial) == (ask.document, answer))
+                    .and_then(|last| last.items.get(index).cloned());
                 let Some(item) = item else {
                     self.fail(ask, "its completions are gone".to_owned());
                     return Ok(());
                 };
                 item
+            }
+            _ => {
+                self.fail(ask, "an ask of this kind takes another context".to_owned());
+                return Ok(());
             }
         };
         // The older of its kind for the document is moot.
@@ -122,7 +116,7 @@ impl Session {
             }
         };
         match ask.kind {
-            AskKind::Completion => return self.completed(run, (id, ask), &result, took),
+            AskKind::Completion => return self.completed(run, (id, ask), result, took),
             AskKind::Resolve => return self.resolved(run, (id, ask), &result, took),
             AskKind::Definition | AskKind::References => {}
         }
@@ -180,23 +174,35 @@ impl Session {
         &mut self,
         run: &mut Run,
         (id, ask): (i64, Ask),
-        result: &serde_json::Value,
+        result: serde_json::Value,
         took: u128,
     ) {
-        let completed = protocol::completed(result);
+        let completed = protocol::completed(&result);
+        // Kept for their resolve, taken out of the answer, while they are the document's last;
+        // the last ones go first.
+        run.last_items = None;
+        if run.resolves {
+            run.last_items = Some(LastItems {
+                document: ask.document,
+                serial: ask.serial,
+                items: protocol::take_items(result, &completed.at),
+            });
+        }
         let Some((revision, text)) = self.documents.sent(ask.document) else {
             self.fail(ask, "the document is no longer open with it".to_owned());
             return;
         };
-        // A range is kept only around the position asked about, in the text asked about.
-        let at = (revision == ask.revision)
-            .then(|| position::from_offset(text, ask.offset, run.encoding));
+        // A range is kept only around the position asked about, and an edit besides an item's
+        // own at all, in the text asked about.
+        let asked = revision == ask.revision;
+        let at = asked.then(|| position::from_offset(text, ask.offset, run.encoding));
         let encoding = run.encoding;
         let items: Vec<Completion> = (completed.items.into_iter())
             .map(|offered| Completion {
                 range: (at.and_then(|at| offered.range_around(at)))
                     .map(|(start, end)| position::to_range(text, start, end, encoding)),
                 extra: (offered.extra.into_iter())
+                    .filter(|_| asked)
                     .map(|(start, end, new)| (position::to_range(text, start, end, encoding), new))
                     .collect(),
                 label: offered.label,
@@ -206,10 +212,6 @@ impl Session {
                 text: offered.text,
             })
             .collect();
-        // Kept for their resolve, while they are the document's last.
-        run.given = run
-            .resolves
-            .then_some((ask.document, ask.serial, completed.given));
         self.reporter.log(format!(
             "request {id} answered with {} completions in {took} ms{}{}",
             items.len(),
@@ -247,12 +249,15 @@ impl Session {
         took: u128,
     ) {
         let AskContext::Item { answer, index } = ask.context else {
+            self.fail(ask, "a resolve names no item".to_owned());
             return;
         };
-        let Some((revision, text)) = self.documents.sent(ask.document) else {
-            self.fail(ask, "the document is no longer open with it".to_owned());
+        // Placed against the text the resolve was asked in, which the server's ranges are of.
+        let Some(text) = self.documents.given_text(ask.document, ask.revision) else {
+            self.fail(ask, "the text it was asked in is gone".to_owned());
             return;
         };
+        let revision = ask.revision;
         let extra: Vec<(std::ops::Range<usize>, String)> = (protocol::resolved(result).into_iter())
             .map(|(start, end, new)| (position::to_range(text, start, end, run.encoding), new))
             .collect();

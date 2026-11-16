@@ -27,10 +27,16 @@ pub(super) struct Asker {
     window: WindowId,
     revision: u64,
     offset: usize,
-    agent: Option<Connection>,
-    /// The host asked by itself, for the person's typing: nothing is said of no answer or a
-    /// failed one (step 9b).
-    quiet: bool,
+    who: Who,
+}
+
+/// Who asked: the person, the agent's connection whose command ran, or the host by itself, for
+/// the person's typing, of which nothing is said when it finds nothing or fails (step 9b).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Who {
+    Person,
+    Agent(Connection),
+    Host,
 }
 
 impl Asker {
@@ -41,12 +47,15 @@ impl Asker {
 
     /// Whether the host asked by itself, so that nothing is said of no answer.
     pub(super) fn quiet(&self) -> bool {
-        self.quiet
+        self.who == Who::Host
     }
 
     /// The agent's connection whose command asked, if the agent's did.
     pub(super) fn agent(&self) -> Option<Connection> {
-        self.agent
+        match self.who {
+            Who::Agent(connection) => Some(connection),
+            Who::Person | Who::Host => None,
+        }
     }
 
     /// Where it asked about `asked`, as the editor judges an answer against it.
@@ -55,7 +64,7 @@ impl Asker {
             buffer: asked,
             revision: self.revision,
             offset: self.offset,
-            agent: self.agent.is_some(),
+            agent: matches!(self.who, Who::Agent(_)),
         }
     }
 }
@@ -71,16 +80,16 @@ impl App {
         let Some(index) = self.server_to_ask(at.buffer) else {
             return;
         };
-        self.send_ask(index, (at, kind, AskContext::Plain), (agent, false));
+        let who = agent.map_or(Who::Person, Who::Agent);
+        self.send_ask(index, (at, kind, AskContext::None), who);
     }
 
-    /// Sends server `index` the ask of `kind` at `at` with `context`, and keeps who asked: the
-    /// agent's `connection` or the person, and whether the host asked by itself (`quiet`).
+    /// Sends server `index` the ask of `kind` at `at` with `context`, and keeps `who` asked.
     pub(super) fn send_ask(
         &mut self,
         index: usize,
         (at, kind, context): (AskAt, AskKind, AskContext),
-        (agent, quiet): (Option<Connection>, bool),
+        who: Who,
     ) {
         // A newer ask for places stops the list that waits for its rows (step 8b).
         if matches!(kind, AskKind::Definition | AskKind::References)
@@ -104,8 +113,7 @@ impl App {
             window: self.editor.window().id(),
             revision: at.revision,
             offset: at.offset,
-            agent,
-            quiet,
+            who,
         };
         self.servers.running[index]
             .asked
@@ -173,7 +181,7 @@ impl App {
             Ok(_) => return,
             Err(why) => {
                 if let Some((asked, asker)) = taken
-                    && !asker.quiet
+                    && !asker.quiet()
                     && self.still_there(asked, &asker)
                 {
                     let name = self.servers.running[index].entry.name.clone();
@@ -227,7 +235,7 @@ impl App {
             && self.editor.prompt().is_none()
             && self.editor.isearch().is_none()
             && asker
-                .agent
+                .agent()
                 .is_none_or(|connection| self.agent_connected(connection))
     }
 }

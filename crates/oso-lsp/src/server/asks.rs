@@ -71,20 +71,18 @@ pub struct Ask {
     pub context: AskContext,
 }
 
-/// What more an ask says (step 9b): for completions, why they are asked for; for a resolve,
-/// which item of which answer, by the completions' ask's serial and the item's place in its
-/// answer. Definitions and references take [`AskContext::Plain`].
+/// What more an ask says (step 9b): nothing, for definitions and references; why completions
+/// are asked for; or, for a resolve, which item of which answer, by the completions' ask's
+/// serial and the item's place in its answer. A kind with the wrong context fails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AskContext {
-    /// Asked for by the person.
     #[default]
-    Plain,
-    /// The person typed this trigger character of the server's.
-    Character(char),
-    /// The person typed on in a list the server said is incomplete.
-    Incomplete,
-    /// The item `index` of the answer to the completions' ask `answer`.
-    Item { answer: u64, index: usize },
+    None,
+    Completion(crate::protocol::Invoked),
+    Item {
+        answer: u64,
+        index: usize,
+    },
 }
 
 /// The answer to an [`Ask`], with its serial: what the server answered, or why there is

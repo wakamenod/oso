@@ -1,6 +1,8 @@
 //! The layers a key opens over the buffer's for a while, closed by any command not their own
 //! (ADR 0115, ADR 0138): `C-x TAB`'s, and the completion popup's (step 9), which typing into
 //! the buffer keeps open and narrows; a key no keymap binds, a menu and the mouse close both.
+//! After a command, the popup follows its word, and the person's typing is noted for
+//! completing by itself (step 9b).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 
@@ -17,13 +19,13 @@ pub(super) fn close_all(editor: &mut Editor) {
 }
 
 impl Dispatcher {
-    /// After command `id` ran: the completion popup follows the word, and the person's own
-    /// typing is noted, which may ask for completions (ADR 0138, step 9b): never the agent's, a
-    /// replayed macro's or a host's.
-    pub(super) fn after_command(&self, editor: &mut Editor, id: CommandId) {
+    /// After command `id` ran, `ran` well: the completion popup follows the word, and the
+    /// person's own typing is noted, which may ask for completions (ADR 0138, step 9b): never
+    /// the agent's, a replayed macro's or a host's.
+    pub(super) fn after_command(&self, editor: &mut Editor, id: CommandId, ran: bool) {
         editor.follow_completion_popup();
-        let typed = !self.not_input && !editor.macro_replaying() && !editor.runs_for_agent();
-        if typed && self.registry.lookup("self-insert-command") == Some(id) {
+        let typed = ran && !self.not_input && !editor.macro_replaying() && !editor.runs_for_agent();
+        if typed && self.keymaps.self_insert == Some(id) {
             editor.note_completion_typed();
         }
     }

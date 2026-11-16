@@ -1094,7 +1094,12 @@ fn ask(seen: &Seen, kind: oso_lsp::server::AskKind, offset: usize) {
         kind,
         revision: 7,
         offset,
-        context: oso_lsp::server::AskContext::Plain,
+        context: match kind {
+            oso_lsp::server::AskKind::Completion => {
+                oso_lsp::server::AskContext::Completion(oso_lsp::protocol::Invoked::Invoked)
+            }
+            _ => oso_lsp::server::AskContext::None,
+        },
     });
 }
 
@@ -1346,7 +1351,7 @@ fn an_ask_fails_on_an_old_text_an_error_a_crash_and_a_long_wait() {
         kind: AskKind::Definition,
         revision: 6,
         offset: 0,
-        context: oso_lsp::server::AskContext::Plain,
+        context: oso_lsp::server::AskContext::None,
     });
     seen.until(LIMIT, |seen| !seen.answers.is_empty());
     assert_eq!(

@@ -842,8 +842,8 @@ fn typing_opens_the_completion_popup_and_a_resolved_use_line_goes_in_with_it() {
                 "completionProvider": {"triggerCharacters": ["."], "resolveProvider": true},
             }}}]},
             {"method": "textDocument/completion", "do": [{"reply": [
-                {"label": "len", "kind": 2, "data": 1},
-                {"label": "abcdef", "kind": 3, "data": 2},
+                {"label": "len", "kind": 2, "sortText": "1", "data": 1},
+                {"label": "abcdef", "kind": 3, "sortText": "2", "data": 2},
             ]}]},
             {"method": "completionItem/resolve", "do": [{"reply": {
                 "label": "len",

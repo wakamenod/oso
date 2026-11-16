@@ -4,7 +4,8 @@
 //! the diagnostics at point (step 6), and the list of a project's (`M-g d`, step 6b,
 //! `diagnostics_list`, sharing `listed` with the list of an answer's places); the jumps an
 //! answer leads to, and back (step 8, `jumps`), and the list of an answer's places (step 8b,
-//! `xref_list`); and the completion popup (step 9, `popup`).
+//! `xref_list`); and the completion popup (step 9, `popup`), with what it takes after it opened
+//! and what the person typed (step 9b).
 //!
 //! Must not depend on: the host's servers, threads or I/O; a command asks, and the host takes
 //! the request after the command and acts on the server.
@@ -46,8 +47,8 @@ pub(super) struct Servers {
     popup: Option<popup::CompletionPopup>,
     /// An item inserted before its resolve came, whose other edits may still come (step 9b).
     inserted: Option<popup::Inserted>,
-    /// What the person last typed, for the host to judge whether to complete (step 9b).
-    typed: Option<popup::CompletionTyped>,
+    /// Where the person last typed, for the host to judge whether to complete (step 9b).
+    typed: Option<AskAt>,
     log: Option<BufferId>,
 }
 

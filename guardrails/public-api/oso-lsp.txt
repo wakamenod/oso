@@ -96,6 +96,7 @@ pub const oso_lsp::limits::DIAGNOSTIC_MESSAGE_BYTES_MAX: usize
 pub const oso_lsp::limits::DIAGNOSTIC_ROWS_MAX: usize
 pub const oso_lsp::limits::DOCUMENT_BYTES_MAX: usize
 pub const oso_lsp::limits::EXIT_WAIT: core::time::Duration
+pub const oso_lsp::limits::EXTRA_EDIT_LINES_MAX: u32
 pub const oso_lsp::limits::FLOOD_BYTES_MAX: usize
 pub const oso_lsp::limits::FLOOD_MESSAGES_MAX: usize
 pub const oso_lsp::limits::FLOOD_WINDOW: core::time::Duration
@@ -129,6 +130,7 @@ pub const oso_lsp::limits::SHOW_MESSAGE_INTERVAL: core::time::Duration
 pub const oso_lsp::limits::SHUTDOWN_WAIT: core::time::Duration
 pub const oso_lsp::limits::SORT_TEXT_BYTES_MAX: usize
 pub const oso_lsp::limits::STDERR_KEPT_BYTES: usize
+pub const oso_lsp::limits::TRIGGERS_MAX: usize
 pub const oso_lsp::limits::URI_BYTES_MAX: usize
 pub const oso_lsp::limits::WRITER_QUEUE_BYTES_MAX: usize
 pub mod oso_lsp::position
@@ -195,14 +197,16 @@ impl core::fmt::Debug for oso_lsp::protocol::Incoming
 pub fn oso_lsp::protocol::Incoming::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_lsp::protocol::Incoming
 pub enum oso_lsp::protocol::Invoked
-pub oso_lsp::protocol::Invoked::Asked
 pub oso_lsp::protocol::Invoked::Character(char)
 pub oso_lsp::protocol::Invoked::Incomplete
+pub oso_lsp::protocol::Invoked::Invoked
 impl core::clone::Clone for oso_lsp::protocol::Invoked
 pub fn oso_lsp::protocol::Invoked::clone(&self) -> oso_lsp::protocol::Invoked
 impl core::cmp::Eq for oso_lsp::protocol::Invoked
 impl core::cmp::PartialEq for oso_lsp::protocol::Invoked
 pub fn oso_lsp::protocol::Invoked::eq(&self, &oso_lsp::protocol::Invoked) -> bool
+impl core::default::Default for oso_lsp::protocol::Invoked
+pub fn oso_lsp::protocol::Invoked::default() -> oso_lsp::protocol::Invoked
 impl core::fmt::Debug for oso_lsp::protocol::Invoked
 pub fn oso_lsp::protocol::Invoked::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_lsp::protocol::Invoked
@@ -296,7 +300,7 @@ impl core::fmt::Debug for oso_lsp::protocol::Completing
 pub fn oso_lsp::protocol::Completing::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_lsp::protocol::Completing
 pub struct oso_lsp::protocol::CompletionList
-pub oso_lsp::protocol::CompletionList::given: alloc::vec::Vec<serde_json::value::Value>
+pub oso_lsp::protocol::CompletionList::at: alloc::vec::Vec<usize>
 pub oso_lsp::protocol::CompletionList::incomplete: bool
 pub oso_lsp::protocol::CompletionList::items: alloc::vec::Vec<oso_lsp::protocol::Offered>
 pub oso_lsp::protocol::CompletionList::left: usize
@@ -411,7 +415,7 @@ pub fn oso_lsp::protocol::answer_for(&str, &serde_json::value::Value, core::opti
 pub fn oso_lsp::protocol::chosen_encoding(&serde_json::value::Value) -> core::option::Option<oso_lsp::position::Encoding>
 pub fn oso_lsp::protocol::classify(serde_json::value::Value) -> core::result::Result<oso_lsp::protocol::Incoming, oso_lsp::protocol::NotRpc>
 pub fn oso_lsp::protocol::completed(&serde_json::value::Value) -> oso_lsp::protocol::CompletionList
-pub fn oso_lsp::protocol::completing(&serde_json::value::Value) -> core::option::Option<oso_lsp::protocol::Completing>
+pub fn oso_lsp::protocol::completing(&serde_json::value::Value) -> oso_lsp::protocol::Completing
 pub fn oso_lsp::protocol::completion_params(&str, oso_lsp::position::Position, oso_lsp::protocol::Invoked) -> serde_json::value::Value
 pub fn oso_lsp::protocol::extra_edits(core::option::Option<&serde_json::value::Value>) -> alloc::vec::Vec<oso_lsp::protocol::Extra>
 pub fn oso_lsp::protocol::initialize_params(&oso_lsp::protocol::Initialize<'_>) -> serde_json::value::Value
@@ -429,6 +433,7 @@ pub fn oso_lsp::protocol::request(i64, &str, serde_json::value::Value) -> alloc:
 pub fn oso_lsp::protocol::resolved(&serde_json::value::Value) -> alloc::vec::Vec<oso_lsp::protocol::Extra>
 pub fn oso_lsp::protocol::server_name(&serde_json::value::Value) -> core::option::Option<&str>
 pub fn oso_lsp::protocol::sync(&serde_json::value::Value) -> oso_lsp::protocol::Sync
+pub fn oso_lsp::protocol::take_items(serde_json::value::Value, &[usize]) -> alloc::vec::Vec<serde_json::value::Value>
 pub type oso_lsp::protocol::Extra = (oso_lsp::position::Position, oso_lsp::position::Position, alloc::string::String)
 pub mod oso_lsp::server
 #[non_exhaustive] pub enum oso_lsp::server::Answered
@@ -444,12 +449,11 @@ impl core::fmt::Debug for oso_lsp::server::Answered
 pub fn oso_lsp::server::Answered::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_lsp::server::Answered
 pub enum oso_lsp::server::AskContext
-pub oso_lsp::server::AskContext::Character(char)
-pub oso_lsp::server::AskContext::Incomplete
+pub oso_lsp::server::AskContext::Completion(oso_lsp::protocol::Invoked)
 pub oso_lsp::server::AskContext::Item
 pub oso_lsp::server::AskContext::Item::answer: u64
 pub oso_lsp::server::AskContext::Item::index: usize
-pub oso_lsp::server::AskContext::Plain
+pub oso_lsp::server::AskContext::None
 impl core::clone::Clone for oso_lsp::server::AskContext
 pub fn oso_lsp::server::AskContext::clone(&self) -> oso_lsp::server::AskContext
 impl core::cmp::Eq for oso_lsp::server::AskContext

@@ -91,7 +91,7 @@ fn a_snippet_is_read_as_plain_text() {
 
 #[test]
 fn the_request_asks_as_the_person_invoked_it() {
-    let params = completion_params("file:///a.rs", Position::new(2, 5), Invoked::Asked);
+    let params = completion_params("file:///a.rs", Position::new(2, 5), Invoked::Invoked);
     assert_eq!(params["context"]["triggerKind"], 1);
     let typed = completion_params("file:///a.rs", Position::new(2, 5), Invoked::Character('.'));
     assert_eq!(
@@ -194,6 +194,11 @@ fn any_json() -> impl Strategy<Value = Value> {
                     Just("start".to_owned()),
                     Just("line".to_owned()),
                     Just("character".to_owned()),
+                    Just("additionalTextEdits".to_owned()),
+                    Just("capabilities".to_owned()),
+                    Just("completionProvider".to_owned()),
+                    Just("triggerCharacters".to_owned()),
+                    Just("resolveProvider".to_owned()),
                 ],
                 inner,
                 0..6,
@@ -213,7 +218,15 @@ proptest! {
             prop_assert!(item.label.len() <= LABEL_BYTES_MAX);
             prop_assert!(item.detail.len() <= DETAIL_BYTES_MAX);
             prop_assert!(item.text.len() <= INSERT_TEXT_BYTES_MAX);
+            prop_assert!(item.extra.len() <= ADDITIONAL_EDITS_MAX);
         }
+        prop_assert!(completed.at.len() == completed.items.len());
+        let extra = resolved(&result);
+        prop_assert!(extra.len() <= ADDITIONAL_EDITS_MAX);
+        prop_assert!(extra.iter().map(|(_, _, text)| text.len()).sum::<usize>() <= ADDITIONAL_EDITS_BYTES_MAX);
+        let read = completing(&result);
+        prop_assert!(read.triggers.len() <= TRIGGERS_MAX);
+        prop_assert!(read.triggers.iter().all(|c| !c.is_control() && !c.is_whitespace()));
         let plain = plain(&snippet);
         prop_assert!(plain.len() <= snippet.len());
     }
@@ -225,10 +238,13 @@ fn the_server_s_trigger_characters_and_resolve_are_read() {
         "triggerCharacters": [".", ":", "::", " ", "\u{7}"],
         "resolveProvider": true,
     }}});
-    let read = completing(&result).unwrap();
+    let read = completing(&result);
     assert_eq!(read.triggers, ['.', ':'], "one printable character each");
     assert!(read.resolves);
-    assert_eq!(completing(&json!({"capabilities": {}})), None);
+    assert_eq!(
+        completing(&json!({"capabilities": {}})),
+        Completing::default()
+    );
 }
 
 #[test]
@@ -262,4 +278,14 @@ fn extra_edits_are_read_within_their_bounds_or_not_at_all() {
     );
     let resolved_item = json!({"label": "x", "additionalTextEdits": [edit(2, "b")]});
     assert_eq!(resolved(&resolved_item).len(), 1);
+}
+
+#[test]
+fn the_items_are_taken_out_of_the_answer_as_the_server_gave_them() {
+    let answer = json!({"items": [{"label": "b", "data": 2}, {"label": "a", "data": 1}]});
+    let list = completed(&answer);
+    assert_eq!(list.at, [1, 0], "sorted by label");
+    let taken = take_items(answer, &list.at);
+    assert_eq!(taken[0]["data"], 1);
+    assert_eq!(taken[1]["data"], 2);
 }

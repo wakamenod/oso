@@ -138,14 +138,78 @@ fn an_extra_edit_out_of_view_says_which_line_it_changed() {
 }
 
 #[test]
-fn what_the_person_typed_is_noted_with_the_word_before_the_cursor() {
+fn what_the_person_typed_is_read_with_the_word_before_the_cursor_while_nothing_moved() {
     let mut editor = editing("let x = foo.", 12);
     editor.note_completion_typed();
-    let typed = editor.take_completion_typed().unwrap();
-    assert_eq!((typed.last, typed.word), ('.', 0));
+    let at = editor.take_completion_typed().unwrap();
+    let typed = editor.completion_typed(at).unwrap();
+    assert_eq!((typed.last, typed.word_clusters), ('.', 0));
     let mut editor = editing("let x = fooé", 13);
     editor.note_completion_typed();
-    let typed = editor.take_completion_typed().unwrap();
-    assert_eq!((typed.last, typed.word), ('é', 4));
+    let at = editor.take_completion_typed().unwrap();
     assert!(editor.take_completion_typed().is_none(), "once");
+    let typed = editor.completion_typed(at).unwrap();
+    assert_eq!((typed.last, typed.word_clusters), ('é', 4));
+    editor.current_mut().0.selections = SelectionSet::new(0);
+    assert!(editor.completion_typed(at).is_none(), "moved since");
+}
+
+#[test]
+fn nothing_is_noted_in_a_buffer_that_may_hold_secrets_or_with_a_prompt_open() {
+    let path = std::path::PathBuf::from("/tmp/.env");
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.judge_secret(Some(&[path]));
+    let mut editor = Editor::with_buffer(buffer);
+    editor.note_completion_typed();
+    assert!(editor.take_completion_typed().is_none());
+    let mut editor = editing("fo", 2);
+    editor
+        .open_prompt(
+            "Go to line:",
+            crate::minibuffer::Kind::Text { history: None },
+        )
+        .unwrap();
+    editor.note_completion_typed();
+    assert!(editor.take_completion_typed().is_none());
+}
+
+#[test]
+fn typing_after_a_late_join_is_a_step_of_its_own() {
+    let mut editor = editing("x\nfo", 4);
+    open(&mut editor, vec![item("foo", Vec::new())]);
+    assert!(editor.take_completion_resolve().is_some());
+    editor.begin_undo_group();
+    editor.completion_popup_insert().unwrap();
+    editor.end_undo_group();
+    let revision = editor.current().1.revision();
+    assert!(editor.completion_resolved((9, 0), revision, use_line()));
+    // A typed character after it, as `self-insert-command` allows joining.
+    let id = editor.window().buffer();
+    editor.begin_undo_group();
+    editor.allow_undo_join();
+    let end = editor.current().1.text().len();
+    editor.apply_edits(id, &[edit(end..end, "!")]).unwrap();
+    editor.end_undo_group();
+    editor.undo().unwrap();
+    assert_eq!(
+        text(&editor),
+        "use a::fo;\nx\nfoo",
+        "only the typed character"
+    );
+}
+
+#[test]
+fn a_late_edit_over_the_inserted_item_is_dropped() {
+    let mut editor = editing("x\nfo", 4);
+    open(&mut editor, vec![item("foo", Vec::new())]);
+    assert!(editor.take_completion_resolve().is_some());
+    editor.completion_popup_insert().unwrap();
+    let revision = editor.current().1.revision();
+    let over = vec![(2..5, "bar".to_owned()), (0..0, "use a::foo;\n".to_owned())];
+    assert!(editor.completion_resolved((9, 0), revision, over));
+    assert_eq!(
+        text(&editor),
+        "use a::foo;\nx\nfoo",
+        "the edit over the item went"
+    );
 }

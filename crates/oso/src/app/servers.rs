@@ -52,7 +52,7 @@ pub(super) struct Servers {
     /// The list of a server's places, built or shown (step 8b).
     xrefs: xrefs::Lists,
     /// Where the person's typing asks for completions once it has rested, and when (step 9b).
-    completing: Option<(oso_core::editor::AskAt, std::time::Instant)>,
+    typing_rest: Option<(oso_core::editor::AskAt, std::time::Instant)>,
 }
 
 /// `path` in the form a server's URI of it reads back as, as the places and reports of servers
