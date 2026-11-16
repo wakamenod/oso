@@ -33,6 +33,12 @@ fn discard(
     )
 }
 
+/// The repository's files as written, line breaks and all: a machine's `core.autocrlf`, as
+/// Windows runners set, would make git write CRLF where the tests compare bytes.
+fn lf_only(repo: &Repo) {
+    repo.git(&["config", "core.autocrlf", "false"]);
+}
+
 fn kept(repo: &Repo) -> Vec<crate::vcs::discarded::Entry> {
     crate::vcs::discarded::read(&repo.dir.join("state")).unwrap()
 }
@@ -40,6 +46,7 @@ fn kept(repo: &Repo) -> Vec<crate::vcs::discarded::Entry> {
 #[test]
 fn a_discarded_file_is_kept_first_and_written_back_with_what_it_held_kept_too() {
     let repo = Repo::new("vcs-discard-file");
+    lf_only(&repo);
     repo.write("a.txt", b"one\n");
     repo.commit("first");
     repo.write("a.txt", b"edited\n");
@@ -80,6 +87,7 @@ fn a_discarded_file_is_kept_first_and_written_back_with_what_it_held_kept_too() 
 #[test]
 fn hunks_lines_staged_changes_and_untracked_files_are_discarded() {
     let repo = two_hunks("vcs-discard-kinds");
+    lf_only(&repo);
     repo.write("new.txt", b"new\n");
     repo.write("s.txt", b"s\n");
     repo.git(&["add", "s.txt"]);
@@ -120,6 +128,7 @@ fn hunks_lines_staged_changes_and_untracked_files_are_discarded() {
 #[test]
 fn a_file_that_may_hold_secrets_is_discarded_with_no_copy() {
     let repo = Repo::new("vcs-discard-secret");
+    lf_only(&repo);
     repo.write(".env", b"A=1\n");
     repo.commit("first");
     repo.write(".env", b"A=2\n");
@@ -143,6 +152,7 @@ fn a_file_that_may_hold_secrets_is_discarded_with_no_copy() {
 #[test]
 fn a_path_through_a_link_is_never_deleted() {
     let repo = Repo::new("vcs-discard-link");
+    lf_only(&repo);
     repo.write("kept.txt", b"k\n");
     repo.commit("first");
     let outside = repo.dir.join("outside");
@@ -159,6 +169,7 @@ fn a_path_through_a_link_is_never_deleted() {
 #[test]
 fn a_staged_hunk_goes_from_the_index_and_the_work_tree_whatever_else_is_unstaged() {
     let repo = two_hunks("vcs-discard-staged-hunk");
+    lf_only(&repo);
     let mut state = state(&repo);
     // The first hunk staged; the second stays unstaged, so index and work tree differ.
     let view = open_a(Section::Unstaged);
@@ -194,6 +205,7 @@ fn a_staged_hunk_goes_from_the_index_and_the_work_tree_whatever_else_is_unstaged
 fn a_file_with_two_names_or_for_its_owner_alone_gets_no_copy_and_nothing_runs() {
     use std::os::unix::fs::PermissionsExt;
     let repo = Repo::new("vcs-discard-links");
+    lf_only(&repo);
     repo.write("kept.txt", b"k\n");
     repo.commit("first");
     std::fs::write(repo.dir.join("elsewhere"), b"theirs\n").unwrap();
