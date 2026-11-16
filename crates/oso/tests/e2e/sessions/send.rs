@@ -2,7 +2,7 @@
 //! bracketed paste on, logs every byte it reads, and prints the screen a flow writes for it:
 //! a region, a note and a place arrive as one bracketed paste with no Enter after it; a
 //! dialog refuses a send; a buffer that may hold secrets sends its place only; a mention is
-//! inserted or pasted; a message line notes the row and `C-x a f` shows its sender; and
+//! inserted or pasted; a message line notes the row and `C-c a f` shows its sender; and
 //! `C-c C-y` pastes an `@` reference to the clipboard's image, kept in a private file (ADR 0142);
 //! a session carried over a restart is judged and takes a send in the new instance.
 //!
@@ -171,10 +171,10 @@ fn end(flow: &Flow, app: &mut App, names: &[&str]) {
     super::quit(app);
 }
 
-/// `C-x a m` to session `buffer`, then the note `note` if one is asked.
+/// `C-c a m` to session `buffer`, then the note `note` if one is asked.
 fn send_to(app: &mut App, buffer: &str, note: Option<&str>) -> Value {
     let before = echo(&app.state());
-    app.send_keys("C-x a m");
+    app.send_keys("C-c a m");
     app.wait_for("the session prompt", |state| {
         asks(state).is_some_and(|prompt| prompt.starts_with("Send to session"))
     });
@@ -233,7 +233,7 @@ fn a_send_is_one_bracketed_paste_not_submitted_and_a_dialog_refuses_it() {
     // A buffer that may hold secrets: its place only, and the echo area says so.
     open(&mut app, &flow.project.join(".env"), true);
     // The state withholds the prompt while the buffer is shown; the send shows the session.
-    app.send_keys(&format!("C-x h C-x a m {} RET", keys(session)));
+    app.send_keys(&format!("C-x h C-c a m {} RET", keys(session)));
     let state = app.wait_for("the send", |state| {
         state["buffer"]["name"] == session && echo(state).contains("may hold secrets")
     });
@@ -293,14 +293,14 @@ fn a_session_carried_over_a_restart_is_judged_and_takes_a_send() {
     end(&flow, &mut new, &["proj"]);
 }
 
-/// `C-x a @` inserts the name in a file's buffer, and pastes `@NAME ` in a session's terminal.
+/// `C-c a @` inserts the name in a file's buffer, and pastes `@NAME ` in a session's terminal.
 fn mention(flow: &Flow, app: &mut App, session: &str) {
     app.send_keys("M-<");
     print(flow, "proj", WORKING);
     app.wait_for("working", |state| {
         state_of(state, "proj").as_deref() == Some("working")
     });
-    app.send_keys("C-x a @");
+    app.send_keys("C-c a @");
     app.wait_for("the mention prompt", |state| {
         asks(state).is_some_and(|prompt| prompt.starts_with("Mention session"))
     });
@@ -313,12 +313,12 @@ fn mention(flow: &Flow, app: &mut App, session: &str) {
     app.wait_for("notes.md unmodified", |state| {
         state["buffer"]["modified"] == false
     });
-    app.send_keys("C-x a b");
+    app.send_keys("C-c a b");
     app.send_keys(&format!("{} RET", keys(session)));
     app.wait_for("the session shown", |state| {
         state["buffer"]["name"] == session
     });
-    app.send_keys("C-x a @");
+    app.send_keys("C-c a @");
     app.wait_for("the mention prompt", |state| {
         asks(state).is_some_and(|prompt| prompt.starts_with("Mention session"))
     });
@@ -350,13 +350,13 @@ fn a_message_line_notes_the_row_until_seen_and_c_x_a_f_shows_its_sender() {
         })
     });
 
-    // From proj's terminal, `C-x a f` shows the sender.
-    app.send_keys("C-x a b");
+    // From proj's terminal, `C-c a f` shows the sender.
+    app.send_keys("C-c a b");
     app.send_keys(&format!("{} RET", keys("*claude: proj*")));
     app.wait_for("proj shown", |state| {
         state["buffer"]["name"] == "*claude: proj*"
     });
-    app.send_keys("C-x a f");
+    app.send_keys("C-c a f");
     app.wait_for("the sender shown", |state| {
         state["buffer"]["name"] == "*claude: proj-2*"
     });
@@ -451,7 +451,7 @@ fn c_c_c_y_pastes_a_reference_to_the_clipboard_s_image_kept_in_a_private_file() 
     assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
 
     // Archived, the session's images go.
-    app.send_keys("C-c A");
+    app.send_keys("C-c a A");
     let directory = path.parent().unwrap().to_path_buf();
     let deadline = Instant::now() + Duration::from_secs(10);
     while directory.exists() {

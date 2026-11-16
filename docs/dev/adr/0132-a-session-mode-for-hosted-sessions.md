@@ -1,6 +1,6 @@
 # 0132. A session mode for hosted sessions
 
-- Status: Accepted, amended by 0136 and 0142
+- Status: Accepted, amended by 0136, 0142 and 0143
 - Date: 2026-11-14
 
 ## Context

@@ -11,3 +11,8 @@ pub const TERMINAL: &[(&str, &str)] = &[
     ("C-q", "terminal-send-next-key"),
     ("C-y", "terminal-yank"),
 ];
+
+/// Key sequences and the built-in menus they open, in a terminal's buffer only: the Agents
+/// menu, as `C-c a` opens it elsewhere, since the global `C-c` keys do not apply after `C-c` in a
+/// terminal (ADR 0143).
+pub const TERMINAL_MENUS: &[(&str, &str)] = &[("C-c a", "agents")];

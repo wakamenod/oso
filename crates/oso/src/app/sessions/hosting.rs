@@ -345,9 +345,12 @@ impl App {
     /// Asks before `begin` starts a session where another live one runs (ADR 0121).
     fn ask_shared(&mut self, begin: Begin) {
         self.hosting.shared = Some(begin);
-        let question = "Another session runs in this directory. A worktree keeps their changes \
-                        apart (C-x a w). Start here anyway?";
-        if let Err(e) = self.editor.ask(question, "session-start-shared") {
+        let worktree = self.dispatcher.where_is(&self.editor, "session-worktree");
+        let question = format!(
+            "Another session runs in this directory. A worktree keeps their changes apart \
+             ({worktree}). Start here anyway?"
+        );
+        if let Err(e) = self.editor.ask(&question, "session-start-shared") {
             self.hosting.shared = None;
             self.editor.message(e.to_string());
         }

@@ -3,8 +3,8 @@
 //! session command and sends nothing, an unbound one sends nothing either, `C-c C-c` sends one
 //! `C-c`, `C-z` is kept back and `C-q C-z` sends it, char mode sends them all, the modeline
 //! says `Session`, the buffer is in its directory's project, and after a stop the mode stays and
-//! `C-c r` resumes. `[keys.session]` binds and unbinds `C-c` keys there, `C-c ?` says them, and a
-//! change to the file takes them away again (step 2).
+//! `C-c C-r` resumes (ADR 0143). `[keys.session]` binds and unbinds `C-c` keys there, `C-c ?`
+//! says them, and a change to the file takes them away again (step 2).
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the route, the
 //! keymaps and the help text have their own tests.
@@ -116,27 +116,27 @@ fn a_session_s_c_c_keys_are_oso_s_and_claude_code_gets_the_rest() {
     app.wait_for("the prompt closed", |state| asks(state).is_none());
 
     // Char mode sends a session key as it is.
-    app.send_keys("C-c C-k C-c n C-c C-k");
-    wait_for_keys(&flow, &mut app, b"ab\x03\x1ac\x03n");
+    app.send_keys("C-c C-k C-c C-n C-c C-k");
+    wait_for_keys(&flow, &mut app, b"ab\x03\x1ac\x03\x0e");
 
-    // `C-c s` shows the list and sends nothing.
-    app.send_keys("C-c s");
+    // `C-c C-p` shows the list and sends nothing (ADR 0143).
+    app.send_keys("C-c C-p");
     app.wait_for("the list selected", |state| {
         state["buffer"]["name"] == "*Spaces*"
     });
-    app.send_keys("C-x a s");
+    app.send_keys("C-c a s");
     app.wait_for("the session again", |state| {
         state["buffer"]["name"] == BUFFER
     });
 
-    // `C-c K` stops the idle session; the mode stays, and `C-c r` resumes it.
-    app.send_keys("C-c K");
+    // The Agents menu's `K` stops the idle session; the mode stays, and `C-c C-r` resumes it.
+    app.send_keys("C-c a K");
     flow.exit_with(0);
     let state = app.wait_for("the stop", |state| ended(state, BUFFER).is_some());
     assert!(modeline(&state).contains("Session"), "{}", modeline(&state));
     flow.hold();
     let _ = fs::remove_file(flow.path("keys"));
-    app.send_keys("C-c r");
+    app.send_keys("C-c C-r");
     app.wait_for("the resumed fake", |state| {
         ended(state, BUFFER).is_none() && shows(state, BUFFER, "fake ready")
     });
@@ -148,7 +148,7 @@ fn a_session_s_c_c_keys_are_oso_s_and_claude_code_gets_the_rest() {
 }
 
 /// `[keys.session]`, appended to the flow's configuration.
-const SESSION_KEYS: &str = "\n[keys.session]\n\"C-c g\" = \"sessions\"\n\"C-c s\" = false\n";
+const SESSION_KEYS: &str = "\n[keys.session]\n\"C-c g\" = \"sessions\"\n\"C-c C-p\" = false\n";
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
@@ -160,26 +160,26 @@ fn a_session_s_keys_from_the_configuration_apply_and_go_with_it() {
     app.run_command("claude", None).unwrap();
     app.wait_for("the fake", |state| shows(state, BUFFER, "fake ready"));
 
-    // `C-c g` runs what the file binds it to, and `C-c s`, which it unbinds, is undefined.
+    // `C-c g` runs what the file binds it to, and `C-c C-p`, which it unbinds, is undefined.
     app.send_keys("C-c g");
     app.wait_for("the list selected", |state| {
         state["buffer"]["name"] == "*Spaces*"
     });
-    app.send_keys("C-x a s");
+    app.send_keys("C-c a s");
     app.wait_for("the session again", |state| {
         state["buffer"]["name"] == BUFFER
     });
-    app.send_keys("C-c s");
+    app.send_keys("C-c C-p");
     app.wait_for("the unbound key", |state| {
-        echo(state) == "C-c s is undefined (C-c C-c sends C-c)"
+        echo(state) == "C-c C-p is undefined (C-c C-c sends C-c)"
     });
     app.send_keys("C-c ?");
     let state = app.wait_for("the keys", |state| echo(state).starts_with("C-c then:"));
     let said = echo(&state);
     assert!(said.contains("  g sessions"), "{said}");
-    assert!(!said.contains("  s sessions"), "{said}");
+    assert!(!said.contains("  C-p sessions"), "{said}");
 
-    // Without the table, the defaults are back: `C-c ?` says `s` again.
+    // Without the table, the defaults are back: `C-c ?` says `C-p` again.
     let new = flow.config.with_extension("new");
     fs::write(&new, config).unwrap();
     fs::rename(&new, &flow.config).unwrap();
@@ -187,7 +187,7 @@ fn a_session_s_keys_from_the_configuration_apply_and_go_with_it() {
     loop {
         app.send_keys("C-c ?");
         let state = app.wait_for("the keys", |state| echo(state).starts_with("C-c then:"));
-        if echo(&state).contains("  s sessions") {
+        if echo(&state).contains("  C-p sessions") {
             assert!(!echo(&state).contains("  g sessions"), "{}", echo(&state));
             break;
         }

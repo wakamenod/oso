@@ -106,7 +106,7 @@ it gets 5 ms of its own after the rules' verdict; past that, the recap stays as 
 When another session's `SendMessage` arrives, the TUI shows a line such as
 `› Message from @api-fix: …`. A `[[message]]` table finds that line and its sender, so that
 the receiving session's row in `*Spaces*` says "message from api-fix" until you see the
-session, and `C-x a f` (`session-follow-message`) shows the sender:
+session, and `C-c a f` (`session-follow-message`) shows the sender:
 
 ```toml
 [[message]]
@@ -126,7 +126,7 @@ pattern = '^\s*›\s*Message from @(?P<from>[^\s:]+)'  # needs a capture named f
   past that, the lines are looked for again at the next look. Only the newest sender of a look
   is kept.
 - The line is screen text, which any program in the terminal could print. A sender found only
-  sets the row's note and the session `C-x a f` shows; it is never proof of who wrote.
+  sets the row's note and the session `C-c a f` shows; it is never proof of who wrote.
 
 ### Replacing and disabling
 
