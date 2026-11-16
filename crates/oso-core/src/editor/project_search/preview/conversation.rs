@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use super::{EXCERPT_LINE, EXCERPT_LINES, Excerpt};
-use crate::display_map::{DisplayMap, TabWidth};
+use crate::display_map::{CellKind, Clusters, DisplayMap, TabWidth};
 use crate::editor::Editor;
 use crate::editor::project_search::ConversationPreviewRequest;
 use crate::project::{cut_bounds, push_cut};
@@ -30,15 +30,18 @@ impl Editor {
             .map(|layout| layout.regions.preview)
             .filter(|region| region.rows > 0 && region.columns > 0)?;
         let (_, place) = self.selected_search_place()?;
-        let session = place.session.clone()?;
-        let (message, line, column) = (place.offset, place.line, place.column);
+        let crate::editor::project_search::To::Message { session, message } = &place.to else {
+            return None;
+        };
+        let (session, message) = (session.clone(), *message);
+        let (line, column) = (place.line, place.column);
         let preview = &mut self.project_search.preview;
         preview.reset();
         preview.asked = Some(key);
         Some(ConversationPreviewRequest {
             generation: preview.live.load(Ordering::Relaxed),
             session,
-            message: usize::try_from(message).unwrap_or(usize::MAX),
+            message,
             line,
             column,
             rows: region.rows,
@@ -106,11 +109,16 @@ impl Excerpt {
     }
 }
 
+/// The cells a tab is counted as when wrapping: the display model draws it to the next stop,
+/// which wrapping here does not know.
+const TAB_CELLS: usize = 4;
+
 /// The parts of `line` that fit in `columns` cells each, the first at full width and the rest
 /// two cells narrower, as byte ranges: broken after a space where one is in the second half of
-/// a part, else where the part is full. An empty line is one empty part.
+/// a part, else where the part is full. Cells are the cell grid's, a grapheme cluster at a
+/// time, so a boxed control or invisible character takes what it is drawn as. An empty line is
+/// one empty part.
 fn wrap_line(line: &str, columns: usize) -> Vec<(usize, usize)> {
-    use unicode_width::UnicodeWidthChar as _;
     let mut parts = Vec::new();
     let mut start = 0;
     while start < line.len() || parts.is_empty() {
@@ -122,14 +130,18 @@ fn wrap_line(line: &str, columns: usize) -> Vec<(usize, usize)> {
         let mut width = 0;
         let mut end = line.len();
         let mut space = None;
-        for (at, ch) in line[start..].char_indices() {
-            let cells = ch.width().unwrap_or(1).max(1);
+        for (at, cluster, kind, cells) in Clusters::new(&line[start..]) {
+            let cells = if kind == CellKind::Tab {
+                TAB_CELLS
+            } else {
+                cells
+            };
             if width + cells > room {
                 end = start + at;
                 break;
             }
             width += cells;
-            if ch == ' ' && width > room / 2 {
+            if cluster == " " && width > room / 2 {
                 space = Some(start + at + 1);
             }
         }
@@ -139,8 +151,11 @@ fn wrap_line(line: &str, columns: usize) -> Vec<(usize, usize)> {
             end = space;
         }
         if end == start {
-            // A character wider than the room still takes a part of its own.
-            end = start + line[start..].chars().next().map_or(0, char::len_utf8);
+            // A cluster wider than the room still takes a part of its own.
+            end = start
+                + Clusters::new(&line[start..])
+                    .next()
+                    .map_or(0, |(_, cluster, _, _)| cluster.len());
         }
         parts.push((start, end));
         if end >= line.len() {

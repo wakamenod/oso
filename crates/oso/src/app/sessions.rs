@@ -18,7 +18,7 @@ mod spaces;
 mod tools;
 mod watch;
 mod worktrees;
-pub(super) use conversations::history;
+pub(super) use conversations::conversations;
 pub(super) use hosting::Hosting;
 pub(super) use watch::Watch;
 
@@ -83,8 +83,9 @@ impl App {
                     self.adopt_session(&pick);
                     continue;
                 }
-                SessionRequest::Found(id) => {
-                    self.go_to_conversation(&id);
+                // The message is for step 2's read-only view (ADR 0145).
+                SessionRequest::GoToConversation { session, .. } => {
+                    self.go_to_conversation(&session);
                     continue;
                 }
                 SessionRequest::Worktree { .. }

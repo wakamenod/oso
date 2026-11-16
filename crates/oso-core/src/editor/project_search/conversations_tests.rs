@@ -209,7 +209,6 @@ fn the_preview_asks_for_the_rows_conversation_once_and_shows_what_came() {
 #[test]
 fn a_scope_holds_its_sessions_and_what_ran_under_its_roots() {
     let scope = &scopes()[1];
-    assert!(!scope.is_all() && ConversationScope::all().is_all());
     assert!(scope.holds("id", &[]));
     assert!(scope.holds("other", &[PathBuf::from("/w/oso/.claude/worktrees/x")]));
     assert!(!scope.holds("other", &[PathBuf::from("/w/osopher")]));

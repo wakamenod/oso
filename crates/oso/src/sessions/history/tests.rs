@@ -90,7 +90,11 @@ fn search(
 ) -> (Vec<(String, usize, String)>, bool) {
     let found = Mutex::new(Vec::new());
     let send = |report: Report| found.lock().unwrap().push(report);
-    run_search(Some(dir), hold, request, &send);
+    let mut incoming = Incoming {
+        queue: None,
+        preview: None,
+    };
+    run_search(Some(dir), hold, request.clone(), &send, &mut incoming);
     let mut rows = Vec::new();
     let mut cut = None;
     for report in found.into_inner().unwrap() {
@@ -127,7 +131,7 @@ fn tree(scratch: &Scratch) -> (SessionId, SessionId) {
         600,
     );
     let newer_path = scratch.write(
-        "-w-b",
+        "-w-b--claude-worktrees-x",
         &newer,
         &[
             r#"{"type":"ai-title","aiTitle":"Worktree trust"}"#.to_owned(),
@@ -137,7 +141,7 @@ fn tree(scratch: &Scratch) -> (SessionId, SessionId) {
     );
     let sub = scratch
         .0
-        .join("-w-b")
+        .join("-w-b--claude-worktrees-x")
         .join(newer.as_str())
         .join("subagents");
     std::fs::create_dir_all(&sub).unwrap();
@@ -150,7 +154,7 @@ fn tree(scratch: &Scratch) -> (SessionId, SessionId) {
         &newer_path,
         scratch
             .0
-            .join("-w-b")
+            .join("-w-b--claude-worktrees-x")
             .join(format!("{}.jsonl", id(3).as_str())),
     )
     .unwrap();
@@ -327,14 +331,130 @@ fn a_conversation_gives_at_most_its_rows_and_a_superseded_search_nothing() {
     let stale = request("needle", ConversationScope::all());
     stale.live.store(2, std::sync::atomic::Ordering::Relaxed);
     let found = Mutex::new(Vec::new());
-    run_search(Some(&scratch.0), &mut hold, &stale, &|report| {
-        found.lock().unwrap().push(report)
-    });
+    let mut incoming = Incoming {
+        queue: None,
+        preview: None,
+    };
+    let send = |report| found.lock().unwrap().push(report);
+    run_search(Some(&scratch.0), &mut hold, stale, &send, &mut incoming);
     assert!(found.lock().unwrap().is_empty());
 }
 
 #[test]
-fn the_preview_shows_the_messages_around_the_row_with_its_marks() {
+fn a_conversation_past_the_hold_is_a_stub_read_again_only_once_it_changed() {
+    let scratch = Scratch::new("stub");
+    let (older, newer) = tree(&scratch);
+    let mut hold = Hold::default();
+    search(
+        &scratch.0,
+        &mut hold,
+        &request("trust", ConversationScope::all()),
+    );
+    let newest = hold.conversations[0].bytes;
+    hold.most = newest;
+    hold.listed = None;
+    let (rows, cut) = search(
+        &scratch.0,
+        &mut hold,
+        &request("trust", ConversationScope::all()),
+    );
+    assert!(cut, "a search past the hold says so");
+    assert!(rows.iter().all(|row| row.0 == newer.as_str()), "{rows:?}");
+    let stub = hold
+        .conversations
+        .iter()
+        .find(|c| c.about.id == older)
+        .unwrap();
+    assert!(!stub.held && stub.messages.is_empty());
+    // Unchanged, the stub stays one and is not read; room again, it is read once it changes.
+    hold.most = MAX_HELD;
+    hold.listed = None;
+    let (rows, _) = search(
+        &scratch.0,
+        &mut hold,
+        &request("trust", ConversationScope::all()),
+    );
+    assert!(rows.iter().all(|row| row.0 == newer.as_str()));
+    let path = scratch
+        .0
+        .join("-w-a")
+        .join(format!("{}.jsonl", older.as_str()));
+    let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+    writeln!(file, "{}", reply("more trust")).unwrap();
+    drop(file);
+    hold.listed = None;
+    let (rows, _) = search(
+        &scratch.0,
+        &mut hold,
+        &request("trust", ConversationScope::all()),
+    );
+    assert_eq!(
+        rows.iter().filter(|row| row.0 == older.as_str()).count(),
+        3,
+        "read whole"
+    );
+}
+
+#[test]
+fn a_newer_search_takes_over_while_the_transcripts_are_read() {
+    let scratch = Scratch::new("newer");
+    let (older, _) = tree(&scratch);
+    let (jobs, queue) = mpsc::channel();
+    let first = request("trust", ConversationScope::all());
+    let newer = ConversationSearchRequest {
+        generation: 2,
+        ..request("record", ConversationScope::all())
+    };
+    newer.live.store(2, std::sync::atomic::Ordering::Relaxed);
+    first.live.store(2, std::sync::atomic::Ordering::Relaxed);
+    jobs.send(Job::Search(newer)).unwrap();
+    let found = Mutex::new(Vec::new());
+    let send = |report| found.lock().unwrap().push(report);
+    let mut incoming = Incoming {
+        queue: Some(&queue),
+        preview: None,
+    };
+    let mut hold = Hold::default();
+    run_search(Some(&scratch.0), &mut hold, first, &send, &mut incoming);
+    let reports = found.into_inner().unwrap();
+    let mut rows = Vec::new();
+    for report in reports {
+        let Report::Found(found) = report else {
+            panic!("rows only");
+        };
+        assert_eq!(found.generation, 2, "only the newer search sends");
+        rows.extend(found.hits.into_iter().map(|hit| hit.about.id.clone()));
+    }
+    assert_eq!(rows, [older]);
+}
+
+fn about(gone: bool) -> About {
+    About {
+        id: id(9),
+        directory: Some(PathBuf::from("/w/oso")),
+        directories: vec![PathBuf::from("/w/oso")],
+        title: None,
+        first_prompt: None,
+        changed: SystemTime::now(),
+        gone,
+    }
+}
+
+fn preview_request(message: usize, line: usize, column: usize) -> ConversationPreviewRequest {
+    ConversationPreviewRequest {
+        generation: 1,
+        session: "x".into(),
+        message,
+        line,
+        column,
+        rows: 20,
+        columns: 60,
+        live: Arc::new(AtomicU64::new(1)),
+    }
+}
+
+#[test]
+fn the_preview_names_the_directory_and_shows_the_messages_around_the_row() {
     let messages: Vec<Message> = ["one", "two\nthe needle", "three"]
         .iter()
         .enumerate()
@@ -343,21 +463,42 @@ fn the_preview_shows_the_messages_around_the_row_with_its_marks() {
             text: (*text).into(),
         })
         .collect();
-    let request = ConversationPreviewRequest {
-        generation: 1,
-        session: "x".into(),
-        message: 1,
-        line: 1,
-        column: 4,
-        rows: 20,
-        columns: 60,
-        live: Arc::new(AtomicU64::new(1)),
-    };
-    let (text, line, column) = preview_text(&messages, &request);
-    assert_eq!(text, "› one\n\n‹ two\n  the needle\n\n› three");
+    let (text, line, column) = preview::text(&about(false), &messages, &preview_request(1, 1, 4));
+    assert_eq!(text, "in /w/oso\n\n› one\n\n‹ two\n  the needle\n\n› three");
     assert_eq!(text.lines().nth(line).unwrap(), "  the needle");
-    assert_eq!(column, 6);
     assert_eq!(&text.lines().nth(line).unwrap()[column..], "needle");
+    let (text, _, _) = preview::text(&about(true), &messages, &preview_request(0, 0, 0));
+    assert!(text.starts_with("in /w/oso (gone)\n"), "{text}");
+}
+
+#[test]
+fn a_long_line_before_the_match_is_cut_so_the_match_shows() {
+    let long = format!("{}needle", "x".repeat(60_000));
+    let messages = vec![
+        Message {
+            prompt: true,
+            text: "y".repeat(60_000).into(),
+        },
+        Message {
+            prompt: false,
+            text: long.into(),
+        },
+    ];
+    let (text, line, column) =
+        preview::text(&about(false), &messages, &preview_request(1, 0, 60_000));
+    let shown = text.lines().nth(line).unwrap();
+    assert!(
+        shown
+            .chars()
+            .skip(column)
+            .collect::<String>()
+            .starts_with("needle"),
+        "{shown:.40}"
+    );
+    assert!(
+        text.chars().count() < 2000,
+        "only the room before the match is kept"
+    );
 }
 
 #[test]

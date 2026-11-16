@@ -102,24 +102,45 @@ impl fmt::Debug for ProjectSearchHit {
     }
 }
 
-/// What a row keeps beside its candidate: where it leads, and how much of its text is its
-/// path and line. The path itself is read from the candidate's text, which starts with it.
-/// A conversation's row (ADR 0145) has no path: its session's id, and its message's index in
-/// place of the offset.
+/// What a row keeps beside its candidate: where it leads, the line and column of its match,
+/// and how much of its text is its prefix, drawn in the annotation's face.
 struct Place {
-    /// The bytes of the path at the start of the candidate's text.
-    path: usize,
+    /// The line, from 1 in a file and from 0 in a message.
     line: usize,
-    /// The offset of the line in its file, as the search found it, or a conversation's
-    /// message's index.
-    offset: u64,
     column: usize,
     /// The bytes of `path:line: `, or the whole text for a file that may hold secrets, or a
     /// conversation's row's label and the space after it.
     prefix: usize,
-    secret: bool,
-    /// The conversation's session id, for a conversation's row.
-    session: Option<Box<str>>,
+    to: To,
+}
+
+/// Where a row leads.
+enum To {
+    /// A project's file: the bytes of its path at the start of the candidate's text, which
+    /// starts with it, and the offset of the line in it, as the search found it.
+    File {
+        path: usize,
+        offset: u64,
+        secret: bool,
+    },
+    /// A conversation's message (ADR 0145): its session's id and the message's index in what
+    /// the host holds.
+    Message { session: Box<str>, message: usize },
+}
+
+impl Place {
+    /// Whether the row is of a file that may hold secrets, whose text never shows.
+    fn secret(&self) -> bool {
+        matches!(self.to, To::File { secret: true, .. })
+    }
+
+    /// The bytes of the file's path at the start of the row's text; none for a message.
+    fn path(&self) -> usize {
+        match self.to {
+            To::File { path, .. } => path,
+            To::Message { .. } => 0,
+        }
+    }
 }
 
 /// What the prompt that searches a project keeps beside its rows.
@@ -258,13 +279,14 @@ impl Editor {
                 )
             };
             search.places.push(Place {
-                path: row.path.len(),
                 line: row.line,
-                offset: row.offset,
                 column: row.column,
                 prefix,
-                secret: row.secret,
-                session: None,
+                to: To::File {
+                    path: row.path.len(),
+                    offset: row.offset,
+                    secret: row.secret,
+                },
             });
             added.push(candidate);
         }
@@ -425,15 +447,15 @@ impl Editor {
         let text = candidates.get(candidates.selected()?)?.text();
         let search = &mut self.project_search;
         let place = search.places.get(item)?;
-        if let Some(session) = &place.session {
+        if let To::Message { session, message } = &place.to {
             search.conversation_hit = Some(ConversationHit {
                 session: session.clone(),
-                message: usize::try_from(place.offset).unwrap_or(usize::MAX),
+                message: *message,
             });
             let input = search.input.clone().flatten().unwrap_or_default();
             return Some((session.to_string(), Some(input.trim().to_owned())));
         }
-        let path = search.root.join(text.get(..place.path)?);
+        let path = search.root.join(text.get(..place.path())?);
         let answer = path.to_str()?.to_owned();
         search.hit = Some(ProjectSearchHit {
             path,
@@ -441,7 +463,7 @@ impl Editor {
             column: place.column,
         });
         let input = search.input.clone().flatten().unwrap_or_default();
-        let recorded = (!place.secret).then(|| input.trim().to_owned());
+        let recorded = (!place.secret()).then(|| input.trim().to_owned());
         Some((answer, recorded))
     }
 
@@ -467,7 +489,7 @@ impl Editor {
         let item = self.prompts.last()?.candidates()?.item_at(place)?;
         let row = self.project_search.places.get(item)?;
         let prefix = row.prefix.min(text.len());
-        if row.secret || !text.is_char_boundary(prefix) {
+        if row.secret() || !text.is_char_boundary(prefix) {
             return Some(prefix);
         }
         if let Some(query) = &self.project_search.query {

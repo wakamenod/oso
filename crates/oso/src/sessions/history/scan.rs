@@ -9,33 +9,23 @@
 //!   compact summary or of a side chain, and does not start as a command's or a hook's
 //!   wrapper. A reply is an `assistant` line's `text` parts, not of a side chain and not an API
 //!   error. Tool inputs and results, thinking and images are never decoded.
-//! - A title is taken only from a line whose bytes start as a title line does, as
-//!   `transcripts` reads one: a message's text can never start a line.
+//! - A title is taken only from a line whose bytes start as a title line does, by
+//!   `transcripts`' own [`TITLES`] and bounds: a message's text can never start a line.
 //! - A directory is the line's top-level `cwd`, when absolute with no `.` or `..` in it.
 
 use std::ops::Range;
 use std::path::PathBuf;
 
 use crate::sessions::registry::is_plain_directory;
-
-/// The longest directory kept, in bytes.
-const MAX_CWD: usize = 4096;
-
-/// The longest title kept, in bytes.
-const MAX_TITLE: usize = 256;
+pub(super) use crate::sessions::transcripts::TITLES;
+use crate::sessions::transcripts::{MAX_CWD, MAX_TITLE};
 
 /// The deepest a value nests before the line is left unread.
 const MAX_DEPTH: usize = 128;
 
-/// What a title line starts with, the field that holds its name, ranked as `transcripts`
-/// ranks them: the person's name, the agent's, then the one Claude Code made.
-pub(super) const TITLES: [(&str, &str); 3] = [
-    ("{\"type\":\"custom-title\"", "customTitle"),
-    ("{\"type\":\"agent-name\"", "agentName"),
-    ("{\"type\":\"ai-title\"", "aiTitle"),
-];
-
-/// How a prompt that a command or a hook wrapped starts: never a person's words.
+/// How a prompt that a command or a hook wrapped starts: never a person's words. A deny list:
+/// a wrapper Claude Code adds later is searched and shown until it is listed here, which
+/// shows on the screen only, never to an agent.
 const WRAPPERS: [&str; 6] = [
     "<command-",
     "<local-command",

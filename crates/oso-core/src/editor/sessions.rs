@@ -79,9 +79,10 @@ pub enum SessionRequest {
     /// Resume the conversation this `session-adopt` candidate names, which runs or ran outside
     /// oso, as a hosted session in a new buffer (`session-adopt`).
     Adopt(String),
-    /// Go to the conversation of this session id, which `session-search`'s row gave
-    /// (ADR 0145): show it if oso hosts it, else adopt it as `session-adopt` does.
-    Found(String),
+    /// Go to the conversation of the session `session`, at its message `message`, which
+    /// `session-search`'s row gave (ADR 0145): show it if oso hosts it, else adopt it as
+    /// `session-adopt` does.
+    GoToConversation { session: String, message: usize },
     /// Open `*Brief*` for a new worktree session on `branch`, a new one starting at `base`
     /// (`session-worktree`).
     Worktree {

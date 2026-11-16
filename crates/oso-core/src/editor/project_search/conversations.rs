@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
-use super::{Place, ProjectSearchRequest};
+use super::{Place, ProjectSearchRequest, To};
 use crate::complete::{Candidate, WORKER_PAST};
 use crate::editor::{CompletionStyle, Editor, WalkEnd};
 use crate::minibuffer::{PromptError, PromptId};
@@ -71,11 +71,6 @@ impl ConversationScope {
             label,
             within: Some(Arc::new(Within { roots, sessions })),
         }
-    }
-
-    /// Whether it holds every conversation.
-    pub fn is_all(&self) -> bool {
-        self.within.is_none()
     }
 
     /// Whether the conversation of the session `id`, which ran in `directories`, is in it:
@@ -234,7 +229,7 @@ impl Editor {
     }
 
     /// Whether the innermost prompt searches conversations.
-    pub fn searches_conversations(&self) -> bool {
+    fn searches_conversations(&self) -> bool {
         self.searches_project() && self.project_search.conversations.is_some()
     }
 
@@ -295,13 +290,13 @@ impl Editor {
         for row in rows.into_iter().take(room) {
             let prefix = row.label.len() + 1;
             search.places.push(Place {
-                path: 0,
                 line: row.line,
-                offset: u64::try_from(row.message).unwrap_or(u64::MAX),
                 column: row.column,
                 prefix,
-                secret: false,
-                session: Some(row.session),
+                to: To::Message {
+                    session: row.session,
+                    message: row.message,
+                },
             });
             added.push(Candidate::unmatched(
                 format!("{} {}", row.label, row.text),
@@ -336,11 +331,6 @@ impl Editor {
             scopes.push(ConversationScope::within(label, roots, Vec::new()));
         }
         scopes
-    }
-
-    /// The scope of the space in front, as the host gave it last.
-    pub fn space_scope(&self) -> Option<&ConversationScope> {
-        self.project_search.space_scope.as_ref()
     }
 
     /// The conversation's row the last search's `RET` took, once.

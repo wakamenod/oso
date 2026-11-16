@@ -98,7 +98,7 @@ impl App {
             UserEvent::Walked(walked) => self.walked(event_loop, walked),
             UserEvent::Grepped(found) => self.grepped(event_loop, found),
             UserEvent::Previewed(read) => self.previewed(read),
-            UserEvent::History(report) => self.history_reported(event_loop, report),
+            UserEvent::Conversations(report) => self.conversations_reported(event_loop, report),
             UserEvent::Trust => self.trust_reported(),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),

@@ -44,7 +44,10 @@ fn session_search(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         return Err(CommandError::new("No conversation was picked"));
     };
     ctx.editor
-        .request_session(SessionRequest::Found(hit.session.into()));
+        .request_session(SessionRequest::GoToConversation {
+            session: hit.session.into(),
+            message: hit.message,
+        });
     ctx.request_redraw();
     Ok(())
 }

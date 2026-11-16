@@ -14,8 +14,12 @@
 //!   before each, and a superseded one sends nothing more. A batch goes at most every
 //!   [`BATCH_EVERY`], of at most [`MAX_BATCH`] rows; at most [`PER_CONVERSATION`] rows a
 //!   conversation, and [`MAX_ROWS`] in all.
-//! - At most [`MAX_HELD`] bytes of text are held, newest first; a search past them says it was
-//!   cut.
+//! - At most [`MAX_HELD`] bytes of text are held, newest first, each message counted with
+//!   [`held::MESSAGE_COST`]; past them a conversation is kept as a stub of what its file was,
+//!   read again only once it changes, and a search says it was cut. The reading threads read
+//!   at most [`AHEAD`] transcripts past the one the search waits for.
+//! - A search that comes while the transcripts are read takes over at once: it searches what
+//!   was read so far, then each conversation as it comes.
 //! - Nothing here logs what is searched for or found; `Debug` gives a generation and a count.
 
 use std::collections::HashMap;
@@ -34,8 +38,10 @@ use oso_core::project::{LineQuery, MAX_ROWS, row_text};
 
 pub use held::{About, Message};
 use held::{Conversation, Listed};
+pub use preview::place;
 
 mod held;
+mod preview;
 mod scan;
 
 /// How long what was read is held with no search coming.
@@ -56,11 +62,9 @@ pub const PER_CONVERSATION: usize = 50;
 /// The most bytes of text held in all.
 pub const MAX_HELD: usize = 64 * 1024 * 1024;
 
-/// How many messages before the row's the preview shows at most.
-const PREVIEW_BEFORE: usize = 3;
-
-/// How many messages after the row's the preview shows at most.
-const PREVIEW_AFTER: usize = 4;
+/// How many transcripts past the one a search waits for the reading threads may read ahead,
+/// which bounds what is read and not yet held.
+const AHEAD: usize = 64;
 
 /// A message a search found, and the conversation it is of.
 #[derive(Clone)]
@@ -196,14 +200,47 @@ impl History {
 }
 
 /// What the thread holds.
-#[derive(Default)]
 struct Hold {
-    /// The conversations, newest first.
+    /// The most bytes it holds: [`MAX_HELD`], less in tests.
+    most: usize,
+    /// The conversations, newest first, stubs among them.
     conversations: Vec<Conversation>,
     /// When the transcripts were listed last.
     listed: Option<Instant>,
-    /// Conversations left out as more text than [`MAX_HELD`] was held before them.
+    /// Conversations left out as more than [`MAX_HELD`] was held before them.
     left_out: usize,
+}
+
+impl Default for Hold {
+    fn default() -> Self {
+        Self {
+            most: MAX_HELD,
+            conversations: Vec::new(),
+            listed: None,
+            left_out: 0,
+        }
+    }
+}
+
+/// The jobs that come while a search runs: a newer search takes over, and the newest preview
+/// waits for the search to end.
+struct Incoming<'a> {
+    queue: Option<&'a Receiver<Job>>,
+    preview: Option<ConversationPreviewRequest>,
+}
+
+impl Incoming<'_> {
+    /// The newest search that came, if one did; previews are kept.
+    fn newer_search(&mut self) -> Option<ConversationSearchRequest> {
+        let mut newest = None;
+        for job in self.queue?.try_iter() {
+            match job {
+                Job::Search(request) => newest = Some(request),
+                Job::Preview(request) => self.preview = Some(request),
+            }
+        }
+        newest
+    }
 }
 
 fn run(projects: Option<&Path>, queue: &Receiver<Job>, send: &(dyn Fn(Report) + Sync)) {
@@ -224,19 +261,24 @@ fn run(projects: Option<&Path>, queue: &Receiver<Job>, send: &(dyn Fn(Report) + 
                 Err(_) => return,
             }
         };
-        // Only the newest search and the newest preview matter.
-        let (mut search, mut preview) = (None, None);
-        for job in std::iter::once(job).chain(queue.try_iter()) {
-            match job {
-                Job::Search(request) => search = Some(request),
-                Job::Preview(request) => preview = Some(request),
+        let mut incoming = Incoming {
+            queue: Some(queue),
+            preview: None,
+        };
+        let search = match job {
+            Job::Search(request) => Some(request),
+            Job::Preview(request) => {
+                incoming.preview = Some(request);
+                None
             }
-        }
+        };
+        // Only the newest search matters.
+        let search = incoming.newer_search().or(search);
         let hold = hold.get_or_insert_with(Hold::default);
         if let Some(request) = search {
-            run_search(projects, hold, &request, send);
+            run_search(projects, hold, request, send, &mut incoming);
         }
-        if let Some(request) = preview
+        if let Some(request) = incoming.preview.take()
             && live(&request.live, request.generation)
         {
             let read = preview_of(hold, &request);
@@ -254,7 +296,7 @@ fn live(live: &std::sync::atomic::AtomicU64, generation: u64) -> bool {
 
 /// What a search sends, in batches.
 struct Sending<'a> {
-    request: &'a ConversationSearchRequest,
+    request: ConversationSearchRequest,
     send: &'a (dyn Fn(Report) + Sync),
     batch: Vec<Hit>,
     sent: Instant,
@@ -262,25 +304,34 @@ struct Sending<'a> {
     cut: bool,
 }
 
-impl Sending<'_> {
+impl<'a> Sending<'a> {
+    fn new(request: ConversationSearchRequest, send: &'a (dyn Fn(Report) + Sync)) -> Self {
+        Self {
+            request,
+            send,
+            batch: Vec::new(),
+            sent: Instant::now(),
+            rows: 0,
+            cut: false,
+        }
+    }
+
     fn live(&self) -> bool {
         live(&self.request.live, self.request.generation) && !self.cut
     }
 
     /// Searches `conversation`, unless the search is superseded or full.
     fn search(&mut self, conversation: &Conversation) {
-        if !self.live() {
-            return;
-        }
         let about = &conversation.about;
-        if !self
-            .request
-            .scope
-            .holds(about.id.as_str(), &about.directories)
+        if !self.live()
+            || !conversation.held
+            || !self
+                .request
+                .scope
+                .holds(about.id.as_str(), &about.directories)
         {
             return;
         }
-        let mut about = None;
         let mut here = 0;
         for (index, message) in conversation.messages.iter().enumerate() {
             if here == PER_CONVERSATION {
@@ -293,7 +344,6 @@ impl Sending<'_> {
                 self.cut = true;
                 break;
             }
-            let about = about.get_or_insert_with(|| Arc::new(conversation.about.clone()));
             self.batch.push(Hit {
                 about: Arc::clone(about),
                 message: index,
@@ -328,37 +378,40 @@ impl Sending<'_> {
 }
 
 /// Searches `hold` for `request`, listing and reading the transcripts first if the last
-/// listing is old, and searching each conversation as it is read.
+/// listing is old, and searching each conversation as it is read. A newer search that comes
+/// in `incoming` meanwhile takes over.
 fn run_search(
     projects: Option<&Path>,
     hold: &mut Hold,
-    request: &ConversationSearchRequest,
+    request: ConversationSearchRequest,
     send: &(dyn Fn(Report) + Sync),
+    incoming: &mut Incoming<'_>,
 ) {
-    if !live(&request.live, request.generation) {
-        return;
-    }
-    let mut sending = Sending {
-        request,
-        send,
-        batch: Vec::new(),
-        sent: Instant::now(),
-        rows: 0,
-        cut: false,
-    };
+    let mut sending = Sending::new(request, send);
     let stale = hold.listed.is_none_or(|at| at.elapsed() >= LIST_EVERY);
     match projects {
-        Some(projects) if stale => refresh(projects, hold, |conversation| {
+        Some(projects) if stale => refresh(projects, hold, |kept, conversation| {
+            if let Some(newer) = incoming.newer_search() {
+                sending = Sending::new(newer, send);
+                for conversation in kept {
+                    sending.search(conversation);
+                }
+            }
             sending.search(conversation);
         }),
-        _ => {
+        _ => 'again: loop {
             for conversation in &hold.conversations {
+                if let Some(newer) = incoming.newer_search() {
+                    sending = Sending::new(newer, send);
+                    continue 'again;
+                }
                 if !sending.live() {
                     break;
                 }
                 sending.search(conversation);
             }
-        }
+            break;
+        },
     }
     let cut = sending.cut || hold.left_out > 0;
     sending.flush(Some(WalkEnd { cut }));
@@ -386,10 +439,59 @@ fn message_hit(query: &LineQuery, message: &Message) -> Option<(usize, usize, Bo
 /// A transcript to read: its place in the listing, its file, and what was held of it.
 type ToRead = (usize, Listed, Option<Conversation>);
 
+/// How far the search has taken what the reading threads read: a reader waits before a
+/// transcript more than [`AHEAD`] past it.
+#[derive(Default)]
+struct Gate {
+    taken: Mutex<usize>,
+    moved: std::sync::Condvar,
+}
+
+impl Gate {
+    fn wait_for(&self, at: usize) {
+        let mut taken = self.taken.lock().unwrap_or_else(PoisonError::into_inner);
+        while at > *taken + AHEAD {
+            taken = self
+                .moved
+                .wait(taken)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
+    fn took(&self, at: usize) {
+        *self.taken.lock().unwrap_or_else(PoisonError::into_inner) = at + 1;
+        self.moved.notify_all();
+    }
+}
+
+/// Reads the transcripts of `slots` from `next` on, each once `gate` lets it, and sends each
+/// one's conversation, or none if it could not be read or its reading panicked.
+fn read_slots(
+    slots: &[Mutex<Option<ToRead>>],
+    next: &AtomicUsize,
+    gate: &Gate,
+    done: &Sender<(usize, Option<Conversation>)>,
+) {
+    while let Some(slot) = slots.get(next.fetch_add(1, Ordering::Relaxed)) {
+        let taken = slot.lock().unwrap_or_else(PoisonError::into_inner).take();
+        let Some((at, listed, held)) = taken else {
+            continue;
+        };
+        gate.wait_for(at);
+        // The search waits for each transcript by its place, so one must always come.
+        let read =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| held::read(&listed, held)))
+                .unwrap_or(None);
+        if done.send((at, read)).is_err() {
+            return;
+        }
+    }
+}
+
 /// Lists the transcripts under `projects` into `hold`, newest first, reading those that
 /// changed on the reading threads, and hands each conversation to `each` in that order as it
-/// is ready.
-fn refresh(projects: &Path, hold: &mut Hold, mut each: impl FnMut(&Conversation)) {
+/// is ready, with those kept before it.
+fn refresh(projects: &Path, hold: &mut Hold, mut each: impl FnMut(&[Conversation], &Conversation)) {
     let listed = held::list(projects);
     let mut before: HashMap<PathBuf, Conversation> = std::mem::take(&mut hold.conversations)
         .into_iter()
@@ -407,36 +509,27 @@ fn refresh(projects: &Path, hold: &mut Hold, mut each: impl FnMut(&Conversation)
             }
         }
     }
+    drop(before);
     let slots: Vec<Mutex<Option<ToRead>>> = reads
         .into_iter()
         .map(|read| Mutex::new(Some(read)))
         .collect();
-    let next = AtomicUsize::new(0);
+    let (next, gate) = (AtomicUsize::new(0), Gate::default());
     let readers = thread::available_parallelism()
         .map_or(1, |count| count.get().saturating_sub(1))
         .clamp(1, 8)
         .min(slots.len().max(1));
     let (done, results) = mpsc::channel::<(usize, Option<Conversation>)>();
-    let mut kept = Vec::with_capacity(listed.len());
+    let mut kept: Vec<Conversation> = Vec::with_capacity(listed.len());
     let mut bytes = 0;
     hold.left_out = 0;
     thread::scope(|scope| {
         for _ in 0..readers {
             let done = done.clone();
-            let (slots, next) = (&slots, &next);
+            let (slots, next, gate) = (&slots, &next, &gate);
             let _ = thread::Builder::new()
                 .name("oso-history-read".into())
-                .spawn_scoped(scope, move || {
-                    while let Some(slot) = slots.get(next.fetch_add(1, Ordering::Relaxed)) {
-                        let taken = slot.lock().unwrap_or_else(PoisonError::into_inner).take();
-                        let Some((at, listed, held)) = taken else {
-                            continue;
-                        };
-                        if done.send((at, held::read(&listed, held))).is_err() {
-                            return;
-                        }
-                    }
-                });
+                .spawn_scoped(scope, move || read_slots(slots, next, gate, &done));
         }
         drop(done);
         let mut waiting: HashMap<usize, Option<Conversation>> = HashMap::new();
@@ -452,20 +545,22 @@ fn refresh(projects: &Path, hold: &mut Hold, mut each: impl FnMut(&Conversation)
                         Ok((got, read)) => {
                             waiting.insert(got, read);
                         }
-                        // A reader that could not start or ended: what it had is not read.
+                        // No reader is left: what was not read is not held.
                         Err(_) => break None,
                     }
                 },
             };
-            let Some(conversation) = conversation else {
+            gate.took(at);
+            let Some(mut conversation) = conversation else {
                 continue;
             };
-            if bytes + conversation.bytes > MAX_HELD {
+            if !conversation.held || bytes + conversation.bytes > hold.most {
+                conversation.leave_out();
                 hold.left_out += 1;
-                continue;
+            } else {
+                bytes += conversation.bytes;
+                each(&kept, &conversation);
             }
-            bytes += conversation.bytes;
-            each(&conversation);
             kept.push(conversation);
         }
     });
@@ -475,99 +570,13 @@ fn refresh(projects: &Path, hold: &mut Hold, mut each: impl FnMut(&Conversation)
 
 /// The preview's text for `request`, from what `hold` holds.
 fn preview_of(hold: &Hold, request: &ConversationPreviewRequest) -> ProjectPreviewRead {
-    let Some(conversation) = hold
-        .conversations
-        .iter()
-        .find(|conversation| conversation.about.id.as_str() == &*request.session)
-    else {
+    let Some(conversation) = hold.conversations.iter().find(|conversation| {
+        conversation.held && conversation.about.id.as_str() == &*request.session
+    }) else {
         return ProjectPreviewRead::Unreadable;
     };
-    let (text, line, column) = preview_text(&conversation.messages, request);
+    let (text, line, column) = preview::text(&conversation.about, &conversation.messages, request);
     ProjectPreviewRead::Text(Excerpt::wrapped(&text, request.columns, (line, column)))
-}
-
-/// The messages around `request`'s, each starting with `› ` for a prompt or `‹ ` for a reply,
-/// its other lines indented to match and a blank line between, and the line and column the
-/// row's match is at in it.
-fn preview_text(
-    messages: &[Message],
-    request: &ConversationPreviewRequest,
-) -> (String, usize, usize) {
-    let hit = request.message.min(messages.len().saturating_sub(1));
-    let rows = request.rows.max(4);
-    let mut text = String::new();
-    let mut lines = 0;
-    let (mut at_line, mut at_column) = (0, 0);
-    let first = hit.saturating_sub(PREVIEW_BEFORE);
-    let last = (hit + PREVIEW_AFTER).min(messages.len());
-    for (index, message) in messages.iter().enumerate().take(last).skip(first) {
-        let all: Vec<&str> = message.text.split('\n').collect();
-        // Before the row's message, only its last lines, and of the row's, the lines before
-        // its match up to half the preview.
-        let skip = if index < hit {
-            all.len().saturating_sub(rows / 2)
-        } else if index == hit {
-            request.line.saturating_sub(rows / 2)
-        } else {
-            0
-        };
-        if !text.is_empty() {
-            text.push_str("\n\n");
-            lines += 2;
-        }
-        let mark = if message.prompt { "› " } else { "‹ " };
-        if skip > 0 {
-            text.push_str(mark);
-            text.push('…');
-            text.push('\n');
-            lines += 1;
-        }
-        for (number, part) in all.iter().enumerate().skip(skip) {
-            if number > skip || skip > 0 {
-                text.push_str("  ");
-            } else {
-                text.push_str(mark);
-            }
-            if index == hit && number == request.line {
-                (at_line, at_column) = (lines, request.column + 2);
-            }
-            text.push_str(part);
-            text.push('\n');
-            lines += 1;
-        }
-        if text.ends_with('\n') {
-            text.pop();
-            lines -= 1;
-        }
-    }
-    (text, at_line, at_column)
-}
-
-/// The place a row names for a conversation that ran in `directory`: `repository/worktree` for
-/// one under `<repository>/.claude/worktrees/`, else the directory's last name.
-pub fn place(directory: &Path) -> String {
-    let parts: Vec<&std::ffi::OsStr> = directory
-        .components()
-        .filter_map(|part| match part {
-            std::path::Component::Normal(name) => Some(name),
-            _ => None,
-        })
-        .collect();
-    let worktree = parts
-        .windows(4)
-        .rev()
-        .find(|window| window[1] == ".claude" && window[2] == "worktrees");
-    match worktree {
-        Some(window) => format!(
-            "{}/{}",
-            window[0].to_string_lossy(),
-            window[3].to_string_lossy()
-        ),
-        None => parts.last().map_or_else(
-            || "/".to_owned(),
-            |name| name.to_string_lossy().into_owned(),
-        ),
-    }
 }
 
 #[cfg(all(test, unix))]

@@ -132,7 +132,9 @@ agent tool.
 - **Prompts and replies only (Q6):**
   - a prompt is a `user` line's text, a string or its `text` parts, that is not `isMeta`, not a
     compact summary, not of a side chain, and does not start as a command's or hook's wrapper
-    (`<command-`, `<local-command`, `<bash-`, `<task-notification`, `<system-reminder`);
+    (`<command-`, `<local-command`, `<bash-`, `<task-notification`, `<system-reminder`,
+    `[Request interrupted`). This is a deny list: a wrapper Claude Code adds later is searched
+    and shown, on the screen only, until it is listed;
   - a reply is an `assistant` line's `text` parts, not of a side chain and not an API error.
 
   Never tool inputs, tool results, thinking, attachments, images, request records, or the files
@@ -149,9 +151,12 @@ agent tool.
 ### Reading and memory
 
 - **Its own thread, `oso-history`,** never the sessions worker or the UI thread, holds what was
-  read; up to `min(cores - 1, 8)` reading threads read the transcripts for it. Each key starts a
-  search with a new generation, which the search reads before each conversation; a superseded
-  one stops there and sends nothing more.
+  read; up to `min(cores - 1, 8)` reading threads read the transcripts for it, at most 64
+  transcripts ahead of the one the search waits for. Each key starts a search with a new
+  generation, which the search reads before each conversation; a superseded one stops there
+  and sends nothing more. A search that comes while the transcripts are read takes over at
+  once: it searches what was read so far, then each conversation as it comes, so the rows of
+  the word being typed do not wait for the whole read.
 - **What is read is held in memory only:** each conversation's id, directories, title, change
   time and the text of its prompts and replies. It is never written to disk, logged, carried
   over a restart, or sent over a socket. It goes 5 minutes after the last search.
@@ -167,9 +172,21 @@ agent tool.
   read as a directory; a directory is taken from a line's `cwd` only when it is absolute with no
   `.` or `..` in it.
 - **Lines:** a line is scanned without decoding the values it does not need, so a tool result is
-  skipped by its quotes. A line longer than 16 MiB is skipped. A message keeps at most 64 KiB of
-  text, a conversation at most 1 MiB, and all of them at most 64 MiB; past that, older
-  conversations are left out and the count says so.
+  skipped by its quotes; a line that is not one whole JSON object says nothing. A line longer
+  than 4 MiB is skipped: the longest lines are tool results. A message keeps at most 64 KiB of
+  text. Each message counts as its text and 256 bytes more, its memory and the time a search
+  spends on it, and each directory as its length; a conversation counts at most 1 MiB, so at
+  most 4,096 messages, and all of them at most 64 MiB. Past that, older conversations are kept
+  as stubs of what their file was, read again only once it changes, and the count says `+`.
+- **Where a conversation resumes:** Claude Code keeps a transcript in the directory named after
+  the one it started in, each character but an ASCII letter or digit as `-`, and finds it there
+  to resume. So a conversation resumes in the first directory a line names whose name, spelled
+  so, is that of the directory its transcript is in; one with none is listed but not resumed
+  ("oso cannot tell where that conversation ran"). A `cwd` a planted line gives elsewhere is
+  shown, never resumed in. The preview's first line names the whole directory, so the person
+  sees where `RET` resumes before pressing it.
+- **Echo-area messages** about a conversation never quote its text or its directory, and are not
+  logged: agents read `*Messages*`.
 
 ### The agent channel (Q2)
 
@@ -186,7 +203,7 @@ agent tool.
 |---|---|
 | First rows after the float opens, over 2 GiB of transcripts | ≤ 300 ms |
 | Reading 2 GiB of transcripts cold | ≤ 2 s |
-| A key once the text is held, over 32 MiB of it | ≤ 50 ms |
+| A key once the text is held, over 32 MiB of it (64 MiB at most, ≤ 100 ms) | ≤ 50 ms |
 | The UI thread per batch of rows | as `project-search`: at most 1,000 rows every 30 ms |
 | Memory | at most 64 MiB of text, gone 5 minutes after the last search |
 | While no search runs | nothing: no timer, no thread wakes |
@@ -203,8 +220,11 @@ agent tool.
   prose wrapped at its width; `project::LineQuery::matches_message` matches a whole message.
   A file's search keeps its own request and rows unchanged. `command::spec` gains
   `ArgSpec::ConversationSearch`. No new public module.
-- **`SessionRequest::Found`** carries the row `RET` took to the app, which shows, adopts or
-  refuses as above, through `session-adopt`'s start.
+- **`SessionRequest::GoToConversation`** carries the row `RET` took, its session and message,
+  to the app, which shows, adopts or refuses as above, through `session-adopt`'s start.
+- **The space's scope** is given to the editor by the app (`Editor::set_space_scope`) when the
+  space in front changes or what the spaces hold does, as the editor knows no space; the
+  project's scope the editor makes itself from the selected buffer's project.
 
 ### The work, in steps
 

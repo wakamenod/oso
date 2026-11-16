@@ -17,6 +17,7 @@
 use std::fs::File;
 use std::io::{self, BufReader, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use oso_platform::file_meta;
@@ -34,14 +35,22 @@ pub const MAX_FILES: usize = 4096;
 /// The most names looked at in all the directories, transcripts or not.
 pub const MAX_NAMES: usize = 4 * MAX_FILES;
 
-/// The longest line read; a longer one is skipped.
-pub const MAX_LINE: usize = 16 * 1024 * 1024;
+/// The longest line read; a longer one is skipped. A message's text keeps at most
+/// [`MAX_MESSAGE`] anyway, and the longest lines are tool results, which are never searched; so
+/// each reading thread holds at most this and its decoded copy.
+pub const MAX_LINE: usize = 4 * 1024 * 1024;
 
 /// The most bytes of text a message keeps.
 pub const MAX_MESSAGE: usize = 64 * 1024;
 
-/// The most bytes of text a conversation keeps; past them its later messages are not kept.
+/// The most bytes a conversation's messages are counted as; past them its later messages are
+/// not kept.
 pub const MAX_CONVERSATION: usize = 1024 * 1024;
+
+/// What each message is counted as besides its text: its own memory, and the time a search
+/// takes to look at it however short it is. So a conversation holds at most
+/// [`MAX_CONVERSATION`] / 256 = 4096 messages.
+pub const MESSAGE_COST: usize = 256;
 
 /// The most directories a conversation is known to have run in.
 const MAX_DIRECTORIES_RUN: usize = 8;
@@ -55,11 +64,15 @@ pub struct Listed {
     pub len: u64,
 }
 
-/// What a conversation is, apart from its messages: what a row and `RET` need.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What a conversation is, apart from its messages: what a row and `RET` need. `Debug` gives
+/// its id only.
+#[derive(Clone, PartialEq, Eq)]
 pub struct About {
     pub id: SessionId,
-    /// The directory it first ran in, where it resumes, if a line named one.
+    /// Where it resumes: the first directory it ran in whose name, spelled as Claude Code
+    /// spells a project's directory, is the name of the directory its transcript is in. Claude
+    /// Code finds a transcript to resume from there, and a line naming another directory is not
+    /// believed for a resume.
     pub directory: Option<PathBuf>,
     /// Every directory it ran in, the first first, at most [`MAX_DIRECTORIES_RUN`].
     pub directories: Vec<PathBuf>,
@@ -68,32 +81,67 @@ pub struct About {
     /// The first line of its first prompt, if it has one.
     pub first_prompt: Option<String>,
     pub changed: SystemTime,
-    /// Its first directory is no longer a directory.
+    /// The directory it names is no longer a directory.
     pub gone: bool,
 }
 
-/// One prompt or reply.
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl std::fmt::Debug for About {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("About")
+            .field("id", &self.id.as_str())
+            .finish_non_exhaustive()
+    }
+}
+
+impl About {
+    /// The directory a row names: where it resumes, else the first it ran in.
+    pub fn shown_directory(&self) -> Option<&Path> {
+        self.directory
+            .as_deref()
+            .or_else(|| self.directories.first().map(PathBuf::as_path))
+    }
+}
+
+/// One prompt or reply. `Debug` says nothing of it.
+#[derive(Clone, PartialEq, Eq)]
 pub struct Message {
     pub prompt: bool,
     pub text: Box<str>,
 }
 
-/// A conversation held: what it is and what was said.
-#[derive(Debug)]
+impl std::fmt::Debug for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Message").finish_non_exhaustive()
+    }
+}
+
+/// A conversation held: what it is and what was said, or only what its file was, while more
+/// than a search holds was held before it. `Debug` gives counts only.
 pub struct Conversation {
-    pub about: About,
+    pub about: Arc<About>,
     pub messages: Vec<Message>,
-    /// The bytes of text its messages keep.
+    /// What its messages and directories are counted as, by [`MESSAGE_COST`].
     pub bytes: usize,
     /// More was said than it keeps.
     pub cut: bool,
+    /// Its messages are held: not a stub left out of the hold.
+    pub held: bool,
     /// Each title's rank's latest.
     titles: [Option<String>; scan::TITLES.len()],
     /// What its file was when last read.
     file: FileState,
     /// The transcript's path.
     pub path: PathBuf,
+}
+
+impl std::fmt::Debug for Conversation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Conversation")
+            .field("messages", &self.messages.len())
+            .field("bytes", &self.bytes)
+            .field("held", &self.held)
+            .finish_non_exhaustive()
+    }
 }
 
 /// What a transcript's file was when last read.
@@ -173,7 +221,8 @@ impl Conversation {
     fn new(id: SessionId, path: PathBuf) -> Self {
         Self {
             path,
-            about: About {
+            held: true,
+            about: Arc::new(About {
                 id,
                 directory: None,
                 directories: Vec::new(),
@@ -181,7 +230,7 @@ impl Conversation {
                 first_prompt: None,
                 changed: SystemTime::UNIX_EPOCH,
                 gone: false,
-            },
+            }),
             messages: Vec::new(),
             bytes: 0,
             cut: false,
@@ -200,20 +249,23 @@ impl Conversation {
         self.file.len == listed.len && self.file.changed == listed.changed
     }
 
+    /// Leaves out its messages, keeping what its file was, so that it is not read again
+    /// until it changes.
+    pub fn leave_out(&mut self) {
+        self.messages = Vec::new();
+        self.bytes = 0;
+        self.held = false;
+    }
+
     /// Takes in one line's reading.
     fn take(&mut self, line: scan::Line) {
-        if let Some(cwd) = line.cwd
-            && self.about.directories.len() < MAX_DIRECTORIES_RUN
-            && !self.about.directories.contains(&cwd)
-        {
-            if self.about.directory.is_none() {
-                self.about.directory = Some(cwd.clone());
-            }
-            self.about.directories.push(cwd);
+        if let Some(cwd) = line.cwd {
+            self.take_directory(cwd);
         }
         if let Some((rank, title)) = line.title {
             self.titles[rank] = Some(title);
-            self.about.title = self.titles.iter().flatten().next().cloned();
+            let best = self.titles.iter().flatten().next().cloned();
+            Arc::make_mut(&mut self.about).title = best;
         }
         let Some((prompt, texts)) = line.message else {
             return;
@@ -221,23 +273,55 @@ impl Conversation {
         for text in texts {
             if prompt && self.about.first_prompt.is_none() {
                 let first = text.trim().lines().next().unwrap_or_default();
-                self.about.first_prompt = Some(cut(first, 200).to_owned());
+                Arc::make_mut(&mut self.about).first_prompt = Some(cut(first, 200).to_owned());
             }
             if self.cut {
                 continue;
             }
             let text = cut(&text, MAX_MESSAGE);
-            if self.bytes + text.len() > MAX_CONVERSATION {
+            let cost = text.len() + MESSAGE_COST;
+            if self.bytes + cost > MAX_CONVERSATION {
                 self.cut = true;
                 continue;
             }
-            self.bytes += text.len();
+            self.bytes += cost;
             self.messages.push(Message {
                 prompt,
                 text: text.into(),
             });
         }
     }
+
+    /// Takes in a directory a line says it ran in: counted, at most [`MAX_DIRECTORIES_RUN`],
+    /// and where it resumes if its transcript is in that directory's project directory.
+    fn take_directory(&mut self, cwd: PathBuf) {
+        if self.about.directories.len() == MAX_DIRECTORIES_RUN
+            || self.about.directories.contains(&cwd)
+        {
+            return;
+        }
+        let slug = self
+            .path
+            .parent()
+            .and_then(Path::file_name)
+            .is_some_and(|name| *name == *slug_of(&cwd));
+        self.bytes += cwd.as_os_str().len();
+        let about = Arc::make_mut(&mut self.about);
+        if slug && about.directory.is_none() {
+            about.directory = Some(cwd.clone());
+        }
+        about.directories.push(cwd);
+    }
+}
+
+/// The name Claude Code gives the project directory of transcripts that ran in `directory`:
+/// its path with each character but an ASCII letter or digit as `-`.
+pub fn slug_of(directory: &Path) -> String {
+    directory
+        .to_string_lossy()
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+        .collect()
 }
 
 /// `text` cut to at most `bytes`, at a character's boundary.
@@ -262,7 +346,8 @@ pub fn read(listed: &Listed, held: Option<Conversation>) -> Option<Conversation>
     };
     let mut conversation = match held {
         Some(held)
-            if held.file.identity == now.identity
+            if held.held
+                && held.file.identity == now.identity
                 && held.file.len <= now.len
                 && held.about.id == listed.id =>
         {
@@ -273,11 +358,10 @@ pub fn read(listed: &Listed, held: Option<Conversation>) -> Option<Conversation>
     let from = conversation.file.read_to;
     let read_to = read_lines(&mut file, from, now.len, &mut conversation).unwrap_or(from);
     conversation.file = FileState { read_to, ..now };
-    conversation.about.changed = now.changed;
-    conversation.about.gone = conversation
-        .about
-        .directory
-        .as_deref()
+    let about = Arc::make_mut(&mut conversation.about);
+    about.changed = now.changed;
+    about.gone = about
+        .shown_directory()
         .is_some_and(|directory| !directory.is_dir());
     Some(conversation)
 }
@@ -389,7 +473,11 @@ mod tests {
         held.take(scan::read(
             br#"{"type":"user","cwd":"/w/a/.claude/worktrees/b","message":{"content":"three"}}"#,
         ));
-        assert_eq!(held.about.directory, Some(PathBuf::from("/w/a")));
+        assert_eq!(
+            held.about.directory, None,
+            "not where /c/p holds transcripts"
+        );
+        assert_eq!(held.about.shown_directory(), Some(Path::new("/w/a")));
         assert_eq!(held.about.directories.len(), 2);
         assert_eq!(held.about.first_prompt.as_deref(), Some("one"));
         assert_eq!(held.messages.len(), 2);
@@ -410,5 +498,41 @@ mod tests {
                 .iter()
                 .all(|message| message.text.len() == MAX_MESSAGE)
         );
+    }
+
+    #[test]
+    fn many_short_messages_are_counted_by_what_each_costs() {
+        let mut held = conversation();
+        let parts: Vec<String> = (0..10_000)
+            .map(|_| r#"{"type":"text","text":"x"}"#.to_owned())
+            .collect();
+        let line = format!(
+            r#"{{"type":"assistant","message":{{"content":[{}]}}}}"#,
+            parts.join(",")
+        );
+        held.take(scan::read(line.as_bytes()));
+        assert!(held.cut);
+        assert!(held.messages.len() <= MAX_CONVERSATION / MESSAGE_COST);
+    }
+
+    #[test]
+    fn a_conversation_resumes_only_where_its_transcript_says() {
+        let id = SessionId::parse("6c1b5d1e-2f3a-4b5c-8d9e-0f1a2b3c4d5e").unwrap();
+        let mut held = Conversation::new(id, PathBuf::from("/c/-w-oso--x/x.jsonl"));
+        held.take(scan::read(
+            br#"{"type":"user","cwd":"/elsewhere/oso","message":{"content":"a"}}"#,
+        ));
+        held.take(scan::read(
+            br#"{"type":"user","cwd":"/w/oso/.x","message":{"content":"b"}}"#,
+        ));
+        assert_eq!(held.about.directory, Some(PathBuf::from("/w/oso/.x")));
+        assert_eq!(held.about.shown_directory(), Some(Path::new("/w/oso/.x")));
+        assert_eq!(held.about.directories.len(), 2);
+        assert_eq!(
+            slug_of(Path::new("/Users/me/a b/.claude")),
+            "-Users-me-a-b--claude"
+        );
+        let debug = format!("{held:?} {:?}", held.about);
+        assert!(!debug.contains("oso"), "{debug}");
     }
 }

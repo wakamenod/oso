@@ -13,33 +13,32 @@ use std::time::SystemTime;
 use oso_core::editor::{ConversationRow, ConversationScope};
 
 use crate::app::{App, Loop, UserEvent, Waker};
-use crate::sessions::adopt::Pick;
+use crate::sessions::adopt::{ANNOTATION_DOTS, Pick};
 use crate::sessions::history::{self, About, History, Hit, Report};
 use crate::sessions::hosted::Run;
-use crate::sessions::identity::{SessionId, cleaned};
-use crate::sessions::list::age_of;
-use crate::sessions::registry::shown_directory;
+use crate::sessions::identity::SessionId;
+use crate::sessions::list::{age_of, cut};
 use crate::sessions::worker::externals::External;
 
-/// The longest name a row shows, in characters.
+/// The most cells a row's name takes.
 const NAME: usize = 40;
 
-/// The longest place a row shows, in characters.
+/// The most cells a row's place takes.
 const PLACE: usize = 32;
 
-/// The searcher for the app, waking the event loop with [`UserEvent::History`].
-pub(in crate::app) fn history(waker: &Waker) -> History {
+/// The searcher for the app, waking the event loop with [`UserEvent::Conversations`].
+pub(in crate::app) fn conversations(waker: &Waker) -> History {
     let waker = Mutex::new(waker.clone());
     History::new(crate::sessions::transcripts::directory(), move |report| {
         waker
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .send(UserEvent::History(report));
+            .send(UserEvent::Conversations(report));
     })
 }
 
-/// What the app keeps of the search shown.
-#[derive(Debug, Default)]
+/// What the app keeps of the search shown. `Debug` gives counts only.
+#[derive(Default)]
 pub(in crate::app) struct Searching {
     /// The conversations its rows are of, by their session id, for `RET`.
     abouts: HashMap<String, Arc<About>>,
@@ -50,19 +49,20 @@ pub(in crate::app) struct Searching {
     given: Option<Option<crate::sessions::spaces::SpaceId>>,
 }
 
-/// `text` cut to `chars` characters, with `…` where it was cut.
-fn cut(text: &str, chars: usize) -> String {
-    match text.char_indices().nth(chars) {
-        Some((at, _)) => format!("{}…", &text[..at]),
-        None => text.to_owned(),
+impl std::fmt::Debug for Searching {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Searching")
+            .field("abouts", &self.abouts.len())
+            .field("elsewhere", &self.elsewhere.len())
+            .finish_non_exhaustive()
     }
 }
 
-/// Text of a transcript made fit for a row: one line, with no `·`, which splits a row's parts,
-/// cut to `chars`.
-fn shown(text: &str, chars: usize) -> String {
-    let one = oso_core::editor::row_text(text).replace('·', " ");
-    cut(one.trim(), chars)
+/// Text of a transcript made fit for a row, as `session-adopt` shows a name: escaped onto one
+/// row, without the dots a row's parts are split by, cut to `cells`.
+fn shown(text: &str, cells: usize) -> String {
+    let one = oso_core::editor::row_text(text.trim()).replace(ANNOTATION_DOTS, " ");
+    cut(one.trim(), cells)
 }
 
 impl App {
@@ -71,16 +71,16 @@ impl App {
     pub(in crate::app) fn start_conversation_search(&mut self) {
         if let Some(request) = self.editor.take_conversation_search_request() {
             self.hosting.searching.abouts.clear();
-            self.history.search(request);
+            self.conversations.search(request);
         }
         if let Some(request) = self.editor.take_conversation_preview_request() {
-            self.history.preview(request);
+            self.conversations.preview(request);
         }
     }
 
     /// The history thread reported: rows go to the prompt, labelled, and a preview's text to
     /// the preview.
-    pub(in crate::app) fn history_reported(&mut self, event_loop: &Loop<'_>, report: Report) {
+    pub(in crate::app) fn conversations_reported(&mut self, event_loop: &Loop<'_>, report: Report) {
         match report {
             Report::Found(found) => {
                 let now = SystemTime::now();
@@ -123,7 +123,7 @@ impl App {
                 (mark, conversation_name(about))
             }
         };
-        let place = about.directory.as_deref().map_or_else(
+        let place = about.shown_directory().map_or_else(
             || "?".to_owned(),
             |directory| {
                 let place = shown(&history::place(directory), PLACE);
@@ -187,14 +187,16 @@ impl App {
                 .editor
                 .message("No such conversation now: run session-search again");
         };
+        // Text a transcript gave is never logged, and agents read `*Messages*`.
         if about.gone {
-            let directory = about
-                .directory
-                .as_deref()
-                .map_or_else(String::new, shown_directory);
-            return self.editor.message(format!(
-                "{directory} is gone, so this conversation cannot resume there"
-            ));
+            return self.editor.message_unlogged(
+                "Its directory is gone, so this conversation cannot resume there",
+            );
+        }
+        if about.directory.is_none() {
+            return self.editor.message_unlogged(
+                "oso cannot tell where that conversation ran, so it cannot resume it",
+            );
         }
         self.adopt_conversation(Pick {
             id,
@@ -213,11 +215,11 @@ impl App {
         let front = spaces
             .current()
             .and_then(|at| spaces.get(at))
-            .map(|space| space.id().clone());
-        if !changed && self.hosting.searching.given.as_ref() == Some(&front) {
+            .map(|space| space.id());
+        if !changed && self.hosting.searching.given.as_ref().map(Option::as_ref) == Some(front) {
             return;
         }
-        self.hosting.searching.given = Some(front);
+        self.hosting.searching.given = Some(front.cloned());
         self.give_space_scope();
     }
 
@@ -259,8 +261,7 @@ impl App {
 fn conversation_name(about: &About) -> String {
     about
         .title
-        .as_deref()
-        .and_then(cleaned)
+        .clone()
         .or_else(|| {
             about
                 .first_prompt
@@ -276,10 +277,15 @@ mod tests {
 
     #[test]
     fn a_long_text_is_cut_and_put_on_one_row() {
-        assert_eq!(cut("abcdef", 3), "abc…");
-        assert_eq!(cut("abc", 3), "abc");
+        assert!(
+            shown(&"あ".repeat(40), 10).chars().count() <= 10,
+            "cut by cells"
+        );
+        assert_eq!(shown("abc", 3), "abc");
         let said = shown("first · line\nsecond", 40);
         assert!(!said.contains('·'), "{said}");
         assert!(!said.contains('\n'), "{said}");
+        let spoof = shown("fix\u{202e}gol\r\u{2066}x", 40);
+        assert!(!spoof.contains(['\u{202e}', '\r', '\u{2066}']), "{spoof}");
     }
 }

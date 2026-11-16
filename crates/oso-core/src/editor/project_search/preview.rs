@@ -250,7 +250,7 @@ impl Editor {
         let candidates = self.prompts.last()?.candidates()?;
         let text = candidates.get(candidates.selected()?)?.text();
         let place = self.project_search.places.get(item)?;
-        Some((Path::new(text.get(..place.path)?), place))
+        Some((Path::new(text.get(..place.path())?), place))
     }
 
     /// An open buffer of the file at `path` from the root, as it is spelled, that shows what it
@@ -292,7 +292,10 @@ impl Editor {
             .filter(|region| region.rows > 0 && region.columns > 0)?
             .rows;
         let (path, place) = self.selected_search_place()?;
-        let (line, column, offset, secret) = (place.line, place.column, place.offset, place.secret);
+        let super::To::File { offset, secret, .. } = place.to else {
+            return None;
+        };
+        let (line, column) = (place.line, place.column);
         let open = self.find_open_buffer_at(path).is_some();
         let path: Box<str> = path.to_str()?.into();
         let preview = &mut self.project_search.preview;
@@ -336,12 +339,12 @@ impl Editor {
     /// What the preview of the innermost prompt's selected row shows, if it searches a project.
     pub(in crate::editor) fn search_preview(&self) -> Option<Preview> {
         let (path, place) = self.selected_search_place()?;
-        if place.secret {
+        if place.secret() {
             return Some(Preview::Withheld);
         }
         let (line, column) = (place.line, place.column);
         // A conversation's row is never a file's (ADR 0145).
-        let conversation = place.session.is_some();
+        let conversation = matches!(place.to, super::To::Message { .. });
         if !conversation && let Some(id) = self.find_open_buffer_at(path) {
             return self.buffer_preview(id, line, column);
         }

@@ -39,7 +39,7 @@ pub const MAX_REGISTRY_NAMES: usize = 256;
 const MAX_SHOWN_NAME: usize = 64;
 
 /// What a name never shows: the dot the annotations are split by, and dots that look like it.
-const ANNOTATION_DOTS: [char; 4] = ['·', '\u{0387}', '\u{2219}', '\u{22c5}'];
+pub const ANNOTATION_DOTS: [char; 4] = ['·', '\u{0387}', '\u{2219}', '\u{22c5}'];
 
 /// A live conversation of the registry's.
 #[derive(Debug, Clone, PartialEq, Eq)]

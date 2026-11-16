@@ -742,6 +742,12 @@ The UI thread never blocks on I/O or parsing:
   `session-adopt`'s list of conversations oso does not host is made on a short
   `oso-session-adopt-list` thread (`sessions/adopt.rs`, `sessions/transcripts.rs`, glue in
   `app/sessions/hosting/adopt.rs`), and its pick resumes through the same start thread.
+  `session-search` ([ADR 0145](adr/0145-searching-past-agent-conversations.md)) reads what was
+  said in them on its own `oso-history` thread, with `oso-history-read` threads for a cold read
+  (`sessions/history.rs`, `history/held.rs` holds the conversations, `history/scan.rs` reads a
+  line, `history/preview.rs` makes a preview's text; glue in `app/sessions/conversations.rs`).
+  Its prompt is the project search's (`oso-core`'s `editor/project_search/conversations.rs`),
+  and its `RET` adopts through `session-adopt`'s start.
 - Sending to a session ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 5) has one
   delivery path on the UI thread, `App::send_to_session` (`app/sessions/watch/sending.rs`): it
   refuses a session that cannot take a paste (`sessions/send.rs::refusal`, pure), pastes with
