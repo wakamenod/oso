@@ -1,6 +1,7 @@
 //! A buffer's highlights, and the batches of edits since recent revisions, for the syntax
 //! worker's jobs and reports (ADR 0111), and for a language server that follows the buffer,
-//! whose document is sent as those batches (ADR 0138, step 4). An edit maps the highlights on the clones it is made
+//! whose document is sent as those batches (ADR 0138, step 4), with its diagnostics, which
+//! follow each batch as the highlights do (step 6). An edit maps the highlights on the clones it is made
 //! on (ADR 0053), and an undo staged over several turns slice by slice on its own copy
 //! (ADR 0119). A report made for an older revision is mapped through the batches since.
 //!
@@ -9,6 +10,7 @@
 use std::collections::VecDeque;
 
 use super::{Buffer, Mode};
+use crate::diagnostic::Diagnostics;
 use crate::selection::OffsetEdit;
 use crate::syntax::{Highlights, MAX_BYTES, Splice, compose};
 
@@ -36,6 +38,9 @@ pub(super) struct Highlighting {
     /// The first revision the syntax worker may map from: a reload is kept in the log for a
     /// server, but the worker parses from nothing after one (ADR 0111).
     syntax_floor: u64,
+    /// What the server that follows the buffer last reported, mapped through the edits since
+    /// (ADR 0138, step 6). Only while a server follows it.
+    diagnostics: Option<Diagnostics>,
 }
 
 /// Highlighting followed a slice at a time on a copy, as an undo staged over several turns
@@ -84,6 +89,7 @@ impl FollowedHighlighting {
             return StagedHighlighting {
                 batch: None,
                 highlights: None,
+                diagnostics: None,
             };
         }
         let highlights = if !keep.highlights {
@@ -101,9 +107,22 @@ impl FollowedHighlighting {
                 (Some(_), None) => self.highlights,
             }
         };
+        // The diagnostics as they are now, a report taken meanwhile included, follow the whole
+        // batch; without one they go, until the next report.
+        let diagnostics = now
+            .diagnostics
+            .as_ref()
+            .filter(|_| keep.followed)
+            .zip(self.batch.as_ref())
+            .map(|(diagnostics, batch)| {
+                let mut diagnostics = diagnostics.clone();
+                diagnostics.splice(batch);
+                diagnostics
+            });
         StagedHighlighting {
             highlights: highlights.filter(|_| self.batch.is_some() || self.too_large),
             batch: self.batch,
+            diagnostics,
         }
     }
 }
@@ -115,6 +134,8 @@ impl FollowedHighlighting {
 pub(super) struct Keep {
     highlights: bool,
     log: bool,
+    /// A server follows it, so its diagnostics follow the edit.
+    followed: bool,
 }
 
 /// What an edit, an undo or a redo made on clones does to highlighting, to commit with it.
@@ -124,6 +145,7 @@ pub(crate) struct StagedHighlighting {
     /// steps did not compose.
     batch: Option<Vec<Splice>>,
     highlights: Option<Highlights>,
+    diagnostics: Option<Diagnostics>,
 }
 
 impl Highlighting {
@@ -158,6 +180,7 @@ impl Highlighting {
         staged: StagedHighlighting,
     ) -> Option<Highlights> {
         let old = std::mem::replace(&mut self.highlights, staged.highlights);
+        self.diagnostics = staged.diagnostics;
         let Some(batch) = staged.batch else {
             self.forget_log();
             return old;
@@ -180,10 +203,12 @@ impl Highlighting {
         self.forget_log();
     }
 
-    /// Drops the log, so that no report or job from before now is followed.
+    /// Drops the log, so that no report or job from before now is followed, and the
+    /// diagnostics, which no longer follow the text.
     pub(super) fn forget_log(&mut self) {
         self.log.clear();
         self.logged = 0;
+        self.diagnostics = None;
     }
 
     /// The batch from `revision` to `now`, or `None` if the log no longer reaches it.
@@ -252,9 +277,11 @@ impl Buffer {
     /// What a buffer of `len` bytes keeps through an edit.
     fn keeps(&self, len: usize) -> Keep {
         let highlights = self.highlightable(len);
+        let followed = self.followed_now();
         Keep {
             highlights,
-            log: highlights || self.followed_now(),
+            log: highlights || followed,
+            followed,
         }
     }
 
@@ -267,9 +294,11 @@ impl Buffer {
     /// A copy of the highlighting to follow an undo staged over several turns (ADR 0119).
     pub(super) fn follow_highlighting(&self) -> FollowedHighlighting {
         let highlights = self.may_highlight();
+        let followed = self.followed_now();
         self.highlighting.follow(Keep {
             highlights,
-            log: highlights || self.followed_now(),
+            log: highlights || followed,
+            followed,
         })
     }
 
@@ -320,6 +349,9 @@ impl Buffer {
     /// it whatever this says.
     pub fn set_followed(&mut self, followed: bool) {
         self.highlighting.followed = followed;
+        if !followed {
+            self.highlighting.diagnostics = None;
+        }
         self.recheck_highlighting();
     }
 
@@ -362,6 +394,34 @@ impl Buffer {
         }
         self.highlighting.highlights = Some(highlights);
         self.highlighting.changes += 1;
+        true
+    }
+
+    /// What the server that follows it last reported, mapped through the edits since, or `None`
+    /// while none follows it or it may hold secrets (ADR 0138, step 6).
+    pub fn diagnostics(&self) -> Option<&Diagnostics> {
+        self.highlighting
+            .diagnostics
+            .as_ref()
+            .filter(|_| self.followed_now())
+    }
+
+    /// Takes the diagnostics a server reported for `revision`, mapped through the edits since,
+    /// in place of those it had. Returns false, and keeps what it had, if no server follows it,
+    /// the log no longer reaches that revision, or the set does not fit the text: those it had
+    /// followed the edits, and the next report puts them right.
+    pub fn take_diagnostics(&mut self, revision: u64, mut diagnostics: Diagnostics) -> bool {
+        if !self.followed_now() {
+            return false;
+        }
+        let Some(batch) = self.highlighting.since(revision, self.revision) else {
+            return false;
+        };
+        diagnostics.splice(&batch);
+        if !diagnostics.fits(self.text.len()) {
+            return false;
+        }
+        self.highlighting.diagnostics = Some(diagnostics);
         true
     }
 
@@ -426,5 +486,7 @@ impl Buffer {
     }
 }
 
+#[cfg(test)]
+mod diagnostics_tests;
 #[cfg(test)]
 mod tests;

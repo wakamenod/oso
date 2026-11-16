@@ -17,6 +17,7 @@ mod indent;
 mod isearch;
 mod jump;
 mod kill;
+mod lsp;
 mod macros;
 mod mark;
 mod markdown;
@@ -270,6 +271,12 @@ pub fn markdown_keymap(registry: &Registry) -> Keymap {
 pub fn worktree_keymaps(registry: &Registry) -> [Keymap; 2] {
     let keymap = |table| Keymap::from_table(registry, table).unwrap_or_default();
     [keymap(worktrees::BRIEF), keymap(worktrees::WORKTREES)]
+}
+
+/// The `lsp` minor mode's keymap, above the major mode's in a buffer a language server follows
+/// (ADR 0138). Empty for a registry without its commands, as in tests that bring their own.
+pub fn lsp_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, lsp::LSP).unwrap_or_default()
 }
 
 /// A terminal's own keymap, above the global one in a terminal's buffer (ADR 0120). Empty for

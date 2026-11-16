@@ -156,7 +156,13 @@ fn initialize_claims_only_what_step_3_uses() {
             "general": {"positionEncodings": ["utf-8", "utf-16"]},
             "window": {"workDoneProgress": true},
             "workspace": {"configuration": true},
-            "textDocument": {"synchronization": {"didSave": true}},
+            "textDocument": {
+                "synchronization": {"didSave": true},
+                "publishDiagnostics": {
+                    "versionSupport": true,
+                    "tagSupport": {"valueSet": [1, 2]},
+                },
+            },
         })
     );
     let params = initialize_params(&Initialize {

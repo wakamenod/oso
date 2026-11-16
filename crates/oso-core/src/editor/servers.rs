@@ -1,6 +1,7 @@
 //! What commands ask of the host about the language server of the selected buffer
 //! (ADR 0138, step 3): `lsp-start`, `lsp-restart` and `lsp-shutdown`; and `*LSP*`, the log of
-//! what servers did, which keeps the last bytes the host says.
+//! what servers did, which keeps the last bytes the host says; and what the echo area says of
+//! the diagnostics at point (step 6).
 //!
 //! Must not depend on: the host's servers, threads or I/O; a command asks, and the host takes
 //! the request after the command and acts on the server.
@@ -90,6 +91,30 @@ impl Editor {
     pub(super) fn server_log_buffer(&self) -> Option<BufferId> {
         self.servers.log
     }
+
+    /// What the echo area says of the diagnostics at the selected window's primary cursor, as
+    /// Flymake does with ElDoc (Q14): the server's name, then the most severe one's first line,
+    /// and `+2` when two more cover that place. Hints too (Q16). `None` where none is, and in a
+    /// buffer that may hold secrets or that no server follows, which has none.
+    pub fn diagnostic_at_point(&self) -> Option<String> {
+        let (window, buffer) = self.current();
+        let diagnostics = buffer.diagnostics()?;
+        let offset = window.selections.primary().cursor;
+        let mut shown = None;
+        let mut covering = 0usize;
+        for diagnostic in diagnostics.at(offset) {
+            covering += 1;
+            if shown.is_none_or(|(severity, _)| diagnostic.severity() < severity) {
+                shown = Some((diagnostic.severity(), diagnostic.first_line()));
+            }
+        }
+        let (_, line) = shown?;
+        let mut text = format!("{}: {line}", diagnostics.server());
+        if covering > 1 {
+            text.push_str(&format!(" +{}", covering - 1));
+        }
+        Some(text)
+    }
 }
 
 #[cfg(test)]
@@ -97,6 +122,55 @@ mod tests {
     use super::*;
 
     const MAX_SERVER_LOG: usize = 1 << 20;
+
+    #[test]
+    fn the_message_at_point_names_the_server_and_the_most_severe_with_the_rest_counted() {
+        use crate::diagnostic::{Diagnostics, New, Severity, Tags};
+        let mut editor = Editor::with_buffer(Buffer::from_text("t.rs", "let x = 1;\n"));
+        let id = editor.window().buffer();
+        editor.buffer_mut(id).unwrap().set_followed(true);
+        let new = |range, severity, message| New {
+            range,
+            severity,
+            tags: Tags::default(),
+            source: "rustc",
+            code: "",
+            message,
+        };
+        let set = Diagnostics::new(
+            "rust-analyzer",
+            [
+                new(0..5, Severity::Hint, "a hint"),
+                new(4..6, Severity::Error, "mismatched types\nexpected u8"),
+                new(4..9, Severity::Warning, "unused"),
+                new(8..9, Severity::Hint, "only a hint"),
+            ],
+            11,
+        );
+        let buffer = editor.buffer_mut(id).unwrap();
+        let revision = buffer.revision();
+        assert!(buffer.take_diagnostics(revision, set));
+        let at = |editor: &mut Editor, offset| {
+            editor.current_mut().0.selections = crate::selection::SelectionSet::new(offset);
+            editor.diagnostic_at_point()
+        };
+        assert_eq!(at(&mut editor, 2).as_deref(), Some("rust-analyzer: a hint"));
+        assert_eq!(
+            at(&mut editor, 4).as_deref(),
+            Some("rust-analyzer: mismatched types +2")
+        );
+        assert_eq!(
+            at(&mut editor, 8).as_deref(),
+            Some("rust-analyzer: unused +1")
+        );
+        assert_eq!(at(&mut editor, 10), None);
+        assert!(editor.buffer_mut(id).unwrap().treat_as_secret());
+        assert_eq!(
+            at(&mut editor, 4),
+            None,
+            "none in a buffer that may hold secrets"
+        );
+    }
 
     #[test]
     fn requests_are_taken_oldest_first() {

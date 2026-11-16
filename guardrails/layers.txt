@@ -32,7 +32,8 @@ frame
 window word
 buffer motion search
 undo kill indent
-load selection
+# `diagnostic` holds a buffer's diagnostics from a language server (ADR 0138, step 6).
+load selection diagnostic
 display_map syntax
 complete decode editorconfig key project review rope secret
 # `migemo` turns a romaji string into a pattern (ADR 0116), for `search`, `complete` and `project`.

@@ -173,6 +173,7 @@ fn document(id: u64, text: &str) -> Document {
         uri: format!("file:///w/{id}.rs"),
         language_id: "rust".into(),
         text: Rope::from(text),
+        revision: 0,
     }
 }
 
@@ -209,7 +210,7 @@ fn a_document_opens_changes_saves_and_closes() {
         old_len: 0,
         new_len: 1,
     }];
-    let out = documents.change(1, &before, after, Some(&splices), Encoding::Utf8, true);
+    let out = documents.change(1, 0, &before, after, Some(&splices), Encoding::Utf8, true);
     assert_eq!(methods(&out), ["textDocument/didChange"]);
     assert_eq!(out.send[0].1["textDocument"]["version"], 2);
     assert_eq!(documents.text(1).unwrap(), "fn ab() {}\n");
@@ -225,6 +226,7 @@ fn a_document_is_kept_until_the_server_is_ready_and_opened_again_each_run() {
     assert!(!documents.waiting());
     let out = documents.change(
         1,
+        0,
         &Rope::from("a"),
         Rope::from("ab"),
         None,
@@ -254,6 +256,7 @@ fn a_whole_text_waits_and_goes_as_the_latest() {
     // No splices: a whole text waits, and later batches only change what it will be.
     let out = documents.change(
         1,
+        0,
         &Rope::from("a"),
         Rope::from("ab"),
         None,
@@ -268,6 +271,7 @@ fn a_whole_text_waits_and_goes_as_the_latest() {
     }];
     let out = documents.change(
         1,
+        0,
         &Rope::from("ab"),
         Rope::from("abc"),
         Some(&splices),
@@ -299,6 +303,7 @@ fn a_whole_text_waits_and_goes_as_the_latest() {
     }];
     let out = documents.change(
         1,
+        0,
         &Rope::from("abc"),
         Rope::from("abcd"),
         Some(&splices),
@@ -309,6 +314,7 @@ fn a_whole_text_waits_and_goes_as_the_latest() {
     // A server that wants whole texts gets one that waits, each time.
     let out = documents.change(
         1,
+        0,
         &Rope::from("abcd"),
         Rope::from("abcde"),
         Some(&splices),
@@ -335,6 +341,7 @@ fn a_lone_carriage_return_keeps_a_document_from_the_server_until_a_save_that_fit
     }];
     let out = documents.change(
         2,
+        0,
         &Rope::from("a\nb"),
         Rope::from("a\rb"),
         Some(&splices),
@@ -346,6 +353,7 @@ fn a_lone_carriage_return_keeps_a_document_from_the_server_until_a_save_that_fit
     // Edited while closed: nothing goes, and a save with the \r still there opens nothing.
     let out = documents.change(
         2,
+        0,
         &Rope::from("a\rb"),
         Rope::from("a\rbc"),
         None,
@@ -357,6 +365,7 @@ fn a_lone_carriage_return_keeps_a_document_from_the_server_until_a_save_that_fit
     // Fixed, then saved: opened again with its text.
     documents.change(
         2,
+        0,
         &Rope::from("a\rbc"),
         Rope::from("a\r\nbc"),
         None,
@@ -384,6 +393,7 @@ fn a_batch_that_does_not_place_is_checked_whole() {
     }];
     let out = documents.change(
         1,
+        0,
         &Rope::from("x\ny"),
         Rope::from("\rx\ny!"),
         Some(&wrong),
@@ -399,7 +409,7 @@ fn a_document_past_the_bound_is_closed() {
     documents.open(document(1, "a"), true);
     waiting(&mut documents);
     let large = Rope::from("x".repeat(DOCUMENT_BYTES_MAX + 1).as_str());
-    let out = documents.change(1, &Rope::from("a"), large, None, Encoding::Utf8, true);
+    let out = documents.change(1, 0, &Rope::from("a"), large, None, Encoding::Utf8, true);
     assert_eq!(methods(&out), ["textDocument/didClose"]);
     assert_eq!(out.state, Some(Some(Closed::TooLarge)));
     documents.open(document(2, &"x".repeat(DOCUMENT_BYTES_MAX)), true);
@@ -438,7 +448,7 @@ fn a_batch_before_the_server_is_ready_is_judged_too() {
     let mut documents = Documents::default();
     documents.open(document(1, "a"), false);
     let large = Rope::from("x".repeat(DOCUMENT_BYTES_MAX + 1).as_str());
-    let out = documents.change(1, &Rope::from("a"), large, None, Encoding::Utf8, true);
+    let out = documents.change(1, 0, &Rope::from("a"), large, None, Encoding::Utf8, true);
     assert_eq!(out.state, Some(Some(Closed::TooLarge)));
     assert!(out.send.is_empty(), "nothing was sent to close");
     documents.open_all();

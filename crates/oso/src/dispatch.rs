@@ -329,7 +329,7 @@ impl Dispatcher {
             self.forget_keys(editor);
             return Effects::default();
         }
-        let reading = self.keymaps.reading();
+        let reading = self.keymaps.reading(editor);
         let text_command = self
             .keymaps
             .active(&reading, self.prefix, editor)
@@ -494,7 +494,7 @@ impl Dispatcher {
         if let Some(effects) = self.jump_digit(editor, key) {
             return effects;
         }
-        let reading = self.keymaps.reading();
+        let reading = self.keymaps.reading(editor);
         let mut layers = self.keymaps.active(&reading, self.prefix, editor);
         // `C-g` is never the user's, Shift or not: under a prefix it cancels whatever is bound,
         // and on its own it runs what the defaults bind (ADR 0108, ADR 0110).
@@ -636,6 +636,8 @@ mod isearch_tests;
 mod jump_tests;
 #[cfg(test)]
 mod kill_tests;
+#[cfg(test)]
+mod lsp_tests;
 #[cfg(test)]
 mod macro_tests;
 #[cfg(test)]

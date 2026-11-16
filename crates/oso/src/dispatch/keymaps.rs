@@ -1,15 +1,16 @@
 //! The keymaps a dispatcher holds, and which of them are active at a moment: a prefix
 //! argument's, the layer `C-x TAB` opens, a prompt's, a completion's, a review comment's
-//! draft's or a question's, a jump's, isearch's, a mode's, a session's terminal's with the
-//! user's `[keys.session]` over it, the user's and the global one (ADR 0034, ADR 0072,
-//! ADR 0076, ADR 0082, ADR 0108, ADR 0115, ADR 0116, ADR 0121, ADR 0122, ADR 0132).
+//! draft's or a question's, a jump's, isearch's, the `lsp` minor mode's in a buffer a language
+//! server follows, a mode's, a session's terminal's with the user's `[keys.session]` over it,
+//! the user's and the global one (ADR 0034, ADR 0072, ADR 0076, ADR 0082, ADR 0108, ADR 0115,
+//! ADR 0116, ADR 0121, ADR 0122, ADR 0132, ADR 0138).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 //!
 //! The default keymaps come from `bindings`. The user's keymap from the configuration goes in
 //! here too, once no prefix key waits for the one before.
 
-use oso_core::buffer::{Buffer, Mode};
+use oso_core::buffer::{Buffer, Mode, ServerMark};
 use oso_core::command::{CommandId, Prefix, Registry};
 use oso_core::editor::Editor;
 use oso_core::keymap::{Keymap, Layers};
@@ -78,6 +79,9 @@ pub(super) struct Keymaps {
     /// The user's keys from `[keys.session]`, above `session` in a session's terminal
     /// (ADR 0132, step 2). Empty without any, and then not a layer.
     pub(super) user_session: Keymap,
+    /// The `lsp` minor mode's keys, above the major mode's in a buffer a language server
+    /// follows (ADR 0138, Keys in buffers a server follows).
+    pub(super) lsp: Keymap,
     /// What `session-help` says: session mode's keys, from its keymap (ADR 0132).
     pub(super) session_help: SessionHelp,
 }
@@ -117,12 +121,13 @@ impl Keymaps {
             session_help: SessionHelp::new(&session, registry),
             session,
             user_session: Keymap::new(),
+            lsp: bindings::lsp_keymap(registry),
         }
     }
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 27] {
+    pub(super) fn all(&self) -> [&Keymap; 28] {
         let Self {
             global,
             user,
@@ -149,6 +154,7 @@ impl Keymaps {
             terminal,
             session,
             user_session,
+            lsp,
             session_help: _,
         } = self;
         [
@@ -179,19 +185,21 @@ impl Keymaps {
             terminal,
             session,
             user_session,
+            lsp,
         ]
     }
 
-    /// The prefix argument's keymaps, the user's session keys and the layer of `C-x TAB`, as
-    /// [`Keymaps::active`] takes them: in this order, so that each set it makes active is
-    /// one slice.
-    pub(super) fn reading(&self) -> [&Keymap; 4] {
-        [
-            &self.prefix[1],
-            &self.prefix[0],
-            &self.user_session,
-            &self.rigid,
-        ]
+    /// The prefix argument's keymaps, the user's session keys in a session's terminal or the
+    /// `lsp` minor mode's keys elsewhere, and the layer of `C-x TAB`, as [`Keymaps::active`]
+    /// takes them: in this order, so that each set it makes active is one slice. A session's
+    /// terminal is never a buffer a server follows, so the two share a place.
+    pub(super) fn reading(&self, editor: &Editor) -> [&Keymap; 4] {
+        let minor = if editor.current().1.hosts_session() {
+            &self.user_session
+        } else {
+            &self.lsp
+        };
+        [&self.prefix[1], &self.prefix[0], minor, &self.rigid]
     }
 
     /// The keymaps active now. A question's keys take the global keymap's place, so that
@@ -224,10 +232,14 @@ impl Keymaps {
             return Layers::global(&self.replace);
         }
         let buffer = editor.current().1;
-        // The user's session keys come after the prefix argument's, which bind no `C-c` key.
-        let session = usize::from(
-            !self.user_session.is_empty() && editor.prompt().is_none() && buffer.hosts_session(),
-        );
+        // The user's session keys, or the `lsp` layer's, come after the prefix argument's,
+        // which bind no `C-c` or `C-M-` key.
+        let minor_on = if buffer.hosts_session() {
+            !self.user_session.is_empty()
+        } else {
+            lsp_on(buffer)
+        };
+        let session = usize::from(minor_on && editor.prompt().is_none());
         let minor: &[&Keymap] = match prefix {
             Some(prefix) if prefix.reads_minus() => &reading[..2 + session],
             Some(prefix) if prefix.reads_digits() => &reading[1..2 + session],
@@ -282,6 +294,15 @@ impl Keymaps {
     pub(super) fn user(&self) -> Option<&Keymap> {
         Some(&self.user).filter(|user| !user.is_empty())
     }
+}
+
+/// Whether the `lsp` layer is on in `buffer`: a server follows it, open with it, as the
+/// modeline's `lsp` says, and has not stopped for the session; one that waits to start again
+/// after a crash keeps it (ADR 0138).
+fn lsp_on(buffer: &Buffer) -> bool {
+    buffer
+        .server()
+        .is_some_and(|mark| mark != ServerMark::Stopped)
 }
 
 /// The user's keymap from the configuration, which waits for a pending prefix key to go in
@@ -403,7 +424,7 @@ impl Dispatcher {
         {
             return false;
         }
-        let reading = self.keymaps.reading();
+        let reading = self.keymaps.reading(editor);
         let active = self.keymaps.active(&reading, self.prefix, editor);
         active.text_command().is_some()
     }

@@ -7,14 +7,18 @@
 
 use std::time::Instant;
 
+use oso_core::buffer::Buffer;
 use serde_json::{Value, json};
 
 use crate::framing::Frame;
 use crate::json::{self, JsonError};
 use crate::limits::MESSAGE_BYTES_MAX;
 use crate::position::Encoding;
-use crate::protocol::{self, Incoming, Outcome};
+use crate::protocol::{self, Incoming, Outcome, Published};
+use crate::uri;
 
+use super::super::Diagnosed;
+use super::super::documents::Diagnose;
 use super::super::pipes::FRAME_COST;
 use super::run::Run;
 use super::{Asked, Session};
@@ -144,16 +148,70 @@ impl Session {
                     self.reporter.log(format!("log: {text}"));
                 }
             }
-            // Diagnostics come with step 6; until then they are counted and dropped.
-            "textDocument/publishDiagnostics" => run.diagnostics_dropped += 1,
+            "textDocument/publishDiagnostics" => self.published(run, params),
             _ => self.reporter.log(format!("told {method}")),
+        }
+    }
+
+    /// A diagnostics report (step 6). One for a file outside the project, or whose name may
+    /// hold secrets, as a compiler's message can quote the file, is dropped and only counted;
+    /// the rest is kept, and an open document's goes to the UI.
+    fn published(&mut self, run: &mut Run, params: &Value) {
+        let Some(report) = protocol::published(params) else {
+            self.reporter
+                .log("a diagnostics report that does not read".into());
+            return;
+        };
+        // The root as a URI reads back, so that both are in one form: on Windows, the drive
+        // letter upper case and no `\\?\` prefix.
+        let root = uri::from_path(&self.start.root).and_then(|root| uri::to_path(&root));
+        let judged = uri::to_path(&report.uri).filter(|path| {
+            root.as_ref().is_some_and(|root| path.starts_with(root))
+                && !Buffer::name_may_hold_secrets(path)
+        });
+        let Some(path) = judged else {
+            run.diagnostics_dropped += 1;
+            return;
+        };
+        self.deliver_diagnostics(&path, &report, run.encoding);
+        let documents = &self.documents;
+        self.diagnosed
+            .put(path, report, |path| documents.has_path(path));
+    }
+
+    /// Hands the UI the set `report` gives the document open at `path`, if one is.
+    pub(super) fn deliver_diagnostics(
+        &mut self,
+        path: &std::path::Path,
+        report: &Published,
+        encoding: Encoding,
+    ) {
+        match self
+            .documents
+            .diagnose(path, report, &self.start.name, encoding)
+        {
+            Diagnose::For {
+                id,
+                revision,
+                diagnostics,
+            } => self.reporter.diagnostics(Diagnosed::Open {
+                id,
+                revision,
+                diagnostics,
+            }),
+            Diagnose::NotOpen => {}
+            Diagnose::Stale => self.reporter.log(format!(
+                "a diagnostics report for version {} is past: a newer one follows",
+                report.version.unwrap_or_default()
+            )),
         }
     }
 
     pub(super) fn dropped_diagnostics(&mut self, run: &mut Run) {
         let count = std::mem::take(&mut run.diagnostics_dropped);
         self.reporter.log(format!(
-            "dropped {count} diagnostics reports: oso does not show them yet"
+            "dropped {count} diagnostics reports for files outside the project or whose names \
+             may hold secrets"
         ));
     }
 }

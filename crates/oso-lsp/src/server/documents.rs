@@ -8,19 +8,30 @@
 //!
 //! Must not depend on: the session's loop, the pipes or the outbox; this keeps text and builds
 //! values, and the session thread sends them.
+//!
+//! Each document keeps the last [`KEPT_VERSIONS_MAX`] texts it was given, with the splices
+//! between them and the version each went as, so that a late diagnostics report is placed
+//! against the text it names and mapped forward to the latest (step 6). The ropes share their
+//! chunks with the buffer's.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
+use std::path::{Path, PathBuf};
 
+use oso_core::diagnostic::{Diagnostics, New};
 use oso_core::rope::Rope;
 use oso_core::sum_tree::Bias;
 use oso_core::syntax::Splice;
 use serde_json::{Value, json};
 
-use crate::limits::DOCUMENT_BYTES_MAX;
+use crate::limits::{DOCUMENT_BYTES_MAX, KEPT_VERSIONS_MAX};
 use crate::position::{self, Encoding};
+use crate::protocol::Published;
+use crate::uri;
 
 use super::{Closed, Document};
 
+#[cfg(test)]
+mod diagnose_tests;
 #[cfg(test)]
 mod tests;
 
@@ -28,6 +39,9 @@ mod tests;
 #[derive(Debug)]
 struct Kept {
     uri: String,
+    /// The path its URI reads as, which a report's is compared with: on Windows its drive
+    /// letter is upper case, whatever case the server writes it in.
+    path: Option<PathBuf>,
     language_id: String,
     /// The text as the server has it, or will once what waits is sent.
     text: Rope,
@@ -40,6 +54,37 @@ struct Kept {
     save_after: bool,
     /// Kept from the server, and why.
     closed: Option<Closed>,
+    /// The texts given last, oldest first: the last is `text`.
+    given: VecDeque<Given>,
+}
+
+/// A text the caller gave, kept to map a late report forward (step 6).
+#[derive(Debug)]
+struct Given {
+    /// The caller's revision of it.
+    revision: u64,
+    text: Rope,
+    /// The splices from the text given before it, if they placed.
+    splices: Option<Vec<Splice>>,
+    /// The version it went to the server as, once it went.
+    version: Option<i32>,
+}
+
+/// What a report comes to for the documents.
+#[derive(Debug)]
+pub(super) enum Diagnose {
+    /// The set for document `id`, placed against the text the report names and mapped to the
+    /// text given last, of revision `revision`.
+    For {
+        id: u64,
+        revision: u64,
+        diagnostics: Diagnostics,
+    },
+    /// No document open with the server has its URI.
+    NotOpen,
+    /// It names a version no longer kept, or one a whole text came after, which it cannot be
+    /// mapped through: a newer one follows.
+    Stale,
 }
 
 /// A whole text that waits for room in the writer's queue.
@@ -71,16 +116,23 @@ impl Out {
     }
 }
 
-/// The documents, by the caller's id.
+/// The documents, by the caller's id, and the paths opened since the session last asked.
 #[derive(Debug, Default)]
-pub(super) struct Documents(BTreeMap<u64, Kept>);
+pub(super) struct Documents(BTreeMap<u64, Kept>, Vec<PathBuf>);
 
 impl Documents {
     /// A new document. `live` says whether the server is ready to be told: its open then waits
     /// for room.
     pub(super) fn open(&mut self, document: Document, live: bool) -> Out {
         let closed = why_not(&document.text);
+        let given = VecDeque::from([Given {
+            revision: document.revision,
+            text: document.text.clone(),
+            splices: None,
+            version: None,
+        }]);
         let kept = Kept {
+            path: uri::to_path(&document.uri),
             uri: document.uri,
             language_id: document.language_id,
             text: document.text,
@@ -93,6 +145,7 @@ impl Documents {
             },
             save_after: false,
             closed,
+            given,
         };
         self.0.insert(document.id, kept);
         // Said of every open, so that a report about an earlier document of the same id never
@@ -107,10 +160,16 @@ impl Documents {
     /// `splices` the batch from one to the other if the caller has it. A batch is placed once,
     /// against the text the server has, and that answer decides both the carriage return check
     /// and what goes: the changes, or a whole text that waits. Unless `incremental`, it is a
-    /// whole text. A document not sent yet is judged as one sent is.
+    /// whole text. A document not sent yet is judged as one sent is. `revision` is the caller's
+    /// revision of `after`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the parts of a change, apart, so that a test gives them as it builds them"
+    )]
     pub(super) fn change(
         &mut self,
         id: u64,
+        revision: u64,
         before: &Rope,
         after: Rope,
         splices: Option<&[Splice]>,
@@ -121,15 +180,23 @@ impl Documents {
             return Out::default();
         };
         let mut out = Out::default();
+        // The caller's before is the text it last gave; the session's is what the server has.
+        let placed = splices
+            .filter(|_| before.len() == kept.text.len())
+            .and_then(|splices| placed(&kept.text, &after, splices));
+        kept.give(Given {
+            revision,
+            text: after.clone(),
+            splices: placed
+                .as_ref()
+                .map(|placed| placed.iter().map(|(splice, _)| *splice).collect()),
+            version: None,
+        });
         if kept.closed.is_some() {
             // Kept from the server: its edits are taken in, for a save to open it again.
             kept.text = after;
             return out;
         }
-        // The caller's before is the text it last gave; the session's is what the server has.
-        let placed = splices
-            .filter(|_| before.len() == kept.text.len())
-            .and_then(|splices| placed(&kept.text, &after, splices));
         let reason = if after.len() > DOCUMENT_BYTES_MAX {
             Some(Closed::TooLarge)
         } else if placed.as_ref().map_or_else(
@@ -158,6 +225,7 @@ impl Documents {
             Some(placed) => {
                 let changes = changes_of(&kept.text, &after, &placed, encoding);
                 kept.version += 1;
+                kept.went_as(kept.version);
                 out.send.push((
                     "textDocument/didChange",
                     json!({
@@ -246,10 +314,12 @@ impl Documents {
             .find(|kept| kept.waits != Waits::Nothing)?;
         let waited = std::mem::replace(&mut kept.waits, Waits::Nothing);
         kept.version += 1;
+        kept.went_as(kept.version);
         let mut send = Vec::with_capacity(2);
         match waited {
             Waits::Open => {
                 kept.sent = true;
+                self.1.extend(kept.path.clone());
                 send.push((
                     "textDocument/didOpen",
                     json!({"textDocument": {
@@ -274,9 +344,107 @@ impl Documents {
         Some(send)
     }
 
+    /// The paths opened with the server since the last call, for a report kept from before.
+    pub(super) fn take_opened(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.1)
+    }
+
+    /// Whether a document open with the server, or waiting to be, is at `path`.
+    pub(super) fn has_path(&self, path: &Path) -> bool {
+        self.0
+            .values()
+            .any(|kept| kept.path.as_deref() == Some(path))
+    }
+
+    /// The diagnostics `report`, for the file at `path`, gives the document open with the
+    /// server at that path, by server `server`: placed against the text of the version it
+    /// names, or of the latest sent when it names none, then mapped through the splices of the
+    /// texts given since. A versioned report lets the texts before its version go.
+    pub(super) fn diagnose(
+        &mut self,
+        path: &Path,
+        report: &Published,
+        server: &str,
+        encoding: Encoding,
+    ) -> Diagnose {
+        let Some((&id, kept)) = self.0.iter_mut().find(|(_, kept)| {
+            kept.sent && kept.closed.is_none() && kept.path.as_deref() == Some(path)
+        }) else {
+            return Diagnose::NotOpen;
+        };
+        let index = match report.version {
+            Some(version) => kept.given.iter().position(|g| g.version == Some(version)),
+            None => kept.given.iter().rposition(|g| g.version.is_some()),
+        };
+        let Some(index) = index else {
+            return Diagnose::Stale;
+        };
+        let through = kept.given.range(index + 1..);
+        let mapped = through.clone().all(|given| given.splices.is_some());
+        let latest = kept.given.len() - 1;
+        let (from, splices): (usize, Vec<&[Splice]>) = match (mapped, report.version) {
+            (true, _) => (
+                index,
+                through
+                    .filter_map(|given| given.splices.as_deref())
+                    .collect(),
+            ),
+            (false, Some(_)) => return Diagnose::Stale,
+            // A report for no version, past a whole text: placed against the latest.
+            (false, None) => (latest, Vec::new()),
+        };
+        let text = &kept.given[from].text;
+        let mut diagnostics = Diagnostics::new(
+            server,
+            report.diagnostics.iter().map(|reported| New {
+                range: position::to_range(text, reported.start, reported.end, encoding),
+                severity: reported.severity,
+                tags: reported.tags,
+                source: &reported.source,
+                code: &reported.code,
+                message: &reported.message,
+            }),
+            text.len(),
+        );
+        for batch in splices {
+            diagnostics.splice(batch);
+        }
+        let revision = kept.given[latest].revision;
+        if report.version.is_some() {
+            kept.given.drain(..index);
+        }
+        Diagnose::For {
+            id,
+            revision,
+            diagnostics,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn given(&self, id: u64) -> usize {
+        self.0.get(&id).map_or(0, |kept| kept.given.len())
+    }
+
     #[cfg(test)]
     pub(super) fn text(&self, id: u64) -> Option<String> {
         self.0.get(&id).map(|kept| kept.text.to_string())
+    }
+}
+
+impl Kept {
+    /// Keeps `given` as the latest text, and lets the oldest go past the bound.
+    fn give(&mut self, given: Given) {
+        self.given.push_back(given);
+        while self.given.len() > KEPT_VERSIONS_MAX {
+            self.given.pop_front();
+        }
+    }
+
+    /// The latest text given went to the server as `version`.
+    fn went_as(&mut self, version: i32) {
+        if let Some(latest) = self.given.back_mut() {
+            latest.version = Some(version);
+        }
     }
 }
 

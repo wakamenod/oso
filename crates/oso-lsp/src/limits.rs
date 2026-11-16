@@ -51,11 +51,17 @@ pub const DIAGNOSTIC_MESSAGE_BYTES_MAX: usize = 8 << 10;
 /// The most bytes kept of hover or documentation text (steps 9 and 10).
 pub const HOVER_BYTES_MAX: usize = 64 << 10;
 
+/// The most bytes kept of a diagnostic's source and of its code, each (step 6).
+pub const DIAGNOSTIC_LABEL_BYTES_MAX: usize = 256;
 /// The most diagnostics kept for one document, the most severe first (step 6).
 pub const DIAGNOSTICS_MAX: usize = 2000;
 /// The most documents with diagnostics; past it, the oldest unopened one goes first
 /// (step 6).
 pub const DIAGNOSED_DOCUMENTS_MAX: usize = 10_000;
+/// The most bytes of diagnostics a server's session keeps in all, their strings and a fixed
+/// cost for each entry; past it, the oldest unopened document's go first (step 6). Without
+/// it, the bounds above would allow some 160 GiB.
+pub const DIAGNOSTICS_BYTES_MAX: usize = 64 << 20;
 /// The most locations kept of one answer (step 8).
 pub const LOCATIONS_MAX: usize = 1000;
 /// The most edits in a completion's `additionalTextEdits` (step 9).
@@ -66,8 +72,8 @@ pub const ADDITIONAL_EDITS_BYTES_MAX: usize = 64 << 10;
 /// The most bytes queued for the writer. Sync cannot drop a message, so past this the
 /// server is stopped (step 3).
 pub const WRITER_QUEUE_BYTES_MAX: usize = 64 << 20;
-/// The ropes kept of each document, one per version sent, to map a late report forward
-/// (step 4).
+/// The texts kept of each document, one for each version given, to map a late report forward
+/// (step 6).
 pub const KEPT_VERSIONS_MAX: usize = 16;
 
 /// How long `initialize` may take (step 3).
