@@ -1122,8 +1122,9 @@ graph buffer per repository.
   or forks into the first lane free before the row. A cell knows its lines up, down, left and
   right and takes the box-drawing character of them; the commit's is `●`. The lanes go on from
   page to page. Each lane's cells take `GitLane0` to `GitLane7` in turn, six of a terminal's
-  bright colours and the warning's and the info's, and tags `GitTag`, a terminal's yellow, which
-  the fifth lane shares, all through every theme's contrast check. A commit's parents past 64
+  bright colours and the warning's and the info's, and tags `GitTag`, gold, the colour a
+  completion's match takes, a deep amber in a light theme (the author's choice, from the light
+  theme's screenshot), all through every theme's contrast check. A commit's parents past 64
   are given no lane, and a row's labels past 32 are counted, `+N`.
 - **Deviations:** (1) the ref labels are coloured names after the id, not magit's parentheses.
   (2) A page is read with `--skip`, so a ref moved between pages may repeat or skip a row until

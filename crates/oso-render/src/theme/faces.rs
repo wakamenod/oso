@@ -376,7 +376,8 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         Face::GitCommitOverlong => (Warning, BgMain),
         // A graph's lanes in a terminal's bright colours, which every theme has apart from its
         // text, as `git log --graph --color` draws them, then the warning's and the info's; a tag
-        // in a terminal's yellow, as magit's, which the fifth lane shares (step 4).
+        // in gold, as magit's, the completion match's colour, which each theme makes dark enough
+        // on its own background, a light one's a deep amber (step 4).
         Face::GitLane0 => (Terminal(12), BgMain),
         Face::GitLane1 => (Terminal(10), BgMain),
         Face::GitLane2 => (Terminal(13), BgMain),
@@ -385,7 +386,7 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         Face::GitLane5 => (Terminal(9), BgMain),
         Face::GitLane6 => (Warning, BgMain),
         Face::GitLane7 => (FgInfo, BgMain),
-        Face::GitTag => (Terminal(11), BgMain),
+        Face::GitTag => (Gold, BgMain),
         // A language server's diagnostics (ADR 0138): a wavy line, a sign and a count, each in
         // the foreground, in red, amber and blue, as Flymake and VS Code draw them. A
         // warning's is the warning face's amber.
