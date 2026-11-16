@@ -6,7 +6,7 @@
 # Needs input is strict: only a rule that knows a dialog sets it. An unknown prompt is idle.
 # Every hold rule ranks below every needs-input rule, so that no view hides a dialog.
 #
-# A `recap` finds the line `*Sessions*` shows under a session: the dialog's question. A session
+# A `recap` finds the line `*Spaces*` shows under a session: the dialog's question. A session
 # with no recap shows its title. It reads the rule's region, or `recap_region`, from the bottom up.
 
 version = 1

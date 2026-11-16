@@ -1,5 +1,5 @@
 //! What the dev socket's state says of agent sessions (ADR 0121 step 3), for end-to-end flows:
-//! each session's state and recap, whether `*Sessions*` shows and its lines, the marks, how
+//! each session's state and recap, whether `*Spaces*` shows and its lines, the marks, how
 //! many notices asked for attention, and the issue spaces (ADR 0136). The dev socket trusts the same user (ADR 0044); the
 //! agent channel reads none of this.
 //!

@@ -2,8 +2,9 @@
 //! area and a prompt's float (ADR 0112).
 //!
 //! Must not depend on: key presses or commands. Before a frame it takes in what
-//! has loaded and fits the gutter to it, as a load is no input; otherwise a frame only
-//! reads the editor's state.
+//! has loaded and fits the gutter to it, as a load is no input, and sets `*Spaces*`' modeline
+//! note for whether the side window is selected (ADR 0140), as any key may have changed that;
+//! otherwise a frame only reads the editor's state.
 //!
 //! Whatever changes the modeline or the echo area gets a frame in one place
 //! ([`App::ask_for_a_frame_if_status_changed`]), so a failed command, a message from a
@@ -20,11 +21,13 @@ use oso_render::{
 use super::App;
 use super::shell::{Loop, Window};
 use crate::dispatch::OpenMenu;
+use crate::sessions::list::SpaceBands;
 use crate::terminal::hosted::Terminals;
 use crate::text;
 
 mod float;
 mod menu;
+mod spaces;
 mod tiled;
 
 pub(super) use tiled::statuses_into;
@@ -75,20 +78,21 @@ pub(super) fn with_panes<R>(
     draw: impl FnOnce(&[Pane<'_>]) -> R,
 ) -> R {
     let terminals = Terminals::default();
-    with_frame((editor, &terminals), None, statuses, cells, draw)
+    let bands = SpaceBands::default();
+    with_frame((editor, &terminals, &bands), None, statuses, cells, draw)
 }
 
 /// As [`with_panes`], with the open menu's float over the tiled panes, if one is open
 /// (ADR 0117).
 pub(super) fn with_frame<R>(
-    (editor, terminals): (&Editor, &Terminals),
+    (editor, terminals, bands): (&Editor, &Terminals, &SpaceBands),
     open_menu: Option<&OpenMenu<'_>>,
     statuses: &[(WindowId, Status)],
     cells: &mut Cells,
     draw: impl FnOnce(&[Pane<'_>]) -> R,
 ) -> R {
     let menu_shown = cells.menu.update(editor, open_menu);
-    tiled::fill(editor, &mut cells.windows);
+    tiled::fill(editor, bands, &mut cells.windows);
     editor.prompt_screen(&mut cells.answer);
     editor.preview_screen(&mut cells.preview);
     editor.preview_cells(&cells.preview, &mut cells.preview_matches);
@@ -318,6 +322,7 @@ impl App {
         }
         // Sessions' ages move on with a frame drawn anyway (ADR 0121, Q4).
         self.age_sessions();
+        self.note_pane_focus();
         // A load, a reload or a key may have given the line count another digit (ADR 0097).
         self.editor.fit_gutter();
         let Some(view) = self.view.as_mut() else {
@@ -349,7 +354,7 @@ impl App {
         cells.flash = self.flash.strength(Instant::now());
         let open_menu = self.dispatcher.menu();
         let result = with_frame(
-            (&self.editor, &self.terminals.map),
+            (&self.editor, &self.terminals.map, self.watch.pane_bands()),
             open_menu.as_ref(),
             &self.statuses,
             cells,
@@ -669,7 +674,7 @@ mod tests {
                 }
             },
         );
-        // As `*Sessions*` draws their marks (ADR 0131).
+        // As `*Spaces*` draws their marks (ADR 0131).
         assert_eq!(modeline[1], ("⚠ 2  ".to_owned(), Face::SessionAlert));
         assert_eq!(modeline[2], ("● 3  ".to_owned(), Face::SessionDone));
     }

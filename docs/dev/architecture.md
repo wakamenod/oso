@@ -689,7 +689,7 @@ The UI thread never blocks on I/O or parsing:
   it against recorded screens, and `session-explain-file` explains a saved one in
   `*Session explain*`, a buffer the agent channel cannot read.
 - What follows a session's change is made once after the event that brought it
-  (`app/sessions/watch.rs`, ADR 0121 step 3): `*Sessions*` (`sessions/list.rs`, rendered only
+  (`app/sessions/watch.rs`, ADR 0121 step 3): `*Spaces*` (`sessions/list.rs`, rendered only
   while shown) in the side window, which oso-core keeps outside the window tree
   (`editor/sessions/side.rs`); the modeline's `SessionMarks`; the lists `ArgSpec::Listed`
   completes over (`Editor::set_listed`); the session buffers' modeline notes; and the

@@ -122,7 +122,7 @@ impl Editor {
     /// shows it ([`Editor::screen_of`]), if the current line is shown and some of it is in
     /// view: every view row the line takes, so a wrapped line has the band on each of its rows
     /// (ADR 0097). Only the selected window has one, also beneath a prompt (ADR 0112). The
-    /// side window has one too while it shows `*Sessions*`, whatever the visual aids say: the
+    /// side window has one too while it shows `*Spaces*`, whatever the visual aids say: the
     /// band is how its rows show where point is (ADR 0131).
     pub fn current_line_cells(&self, id: WindowId, screen: &Screen) -> Option<CellRect> {
         let list = self.side_window() == Some(id)

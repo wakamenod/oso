@@ -490,7 +490,7 @@ fn the_side_window_is_left_out_and_the_state_reads_back() {
     use oso_core::buffer::Mode;
     let mut editor = visiting(&absolute("/p/a.txt"), "abc\ndef\n");
     editor.set_view_size(oso_core::window::ViewSize::new(30, 120));
-    let list = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+    let list = editor.add_internal_buffer("*Spaces*", Mode::Sessions);
     let side = editor.show_side_window(list, 32);
     for selected in [false, true] {
         if selected {
