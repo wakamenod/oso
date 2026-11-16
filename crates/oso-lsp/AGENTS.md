@@ -4,7 +4,10 @@ The language server client (ADR 0138). Step 2 built the parts that spawn nothing
 `json`, `uri`, `position` and `limits`. Step 3 added `protocol`, the messages of a server's
 life as plain types, and `server`, its threads: the session thread (`server/session.rs`,
 with `run.rs` and `incoming.rs`), the pipe threads (`pipes.rs`), the crash and flood rules
-(`policy.rs`) and what is reported to the UI (`outbox.rs`).
+(`policy.rs`) and what is reported to the UI (`outbox.rs`). Step 4 added the documents a
+server knows (`server/documents.rs`, with `session/sync.rs`): a whole text never goes past
+half the writer's queue, and a document with a lone carriage return or over the bound is kept
+from the server.
 
 - May depend on `oso-core` and `oso-platform` only; only the tip crate depends on it. Module
   layers are in `guardrails/layers.txt` (`[oso-lsp]`). No new dependency: JSON is

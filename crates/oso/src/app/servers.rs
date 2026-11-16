@@ -1,4 +1,4 @@
-//! The language servers the app runs (ADR 0138, step 3), on the UI thread: which server a
+//! The language servers the app runs (ADR 0138, steps 3 and 4), on the UI thread: which server a
 //! buffer's open would start, starting one for a project's root and entry, what the commands
 //! ask, what each server's thread reports, the modeline's marks, and the ends that trust, the
 //! configuration and a quit bring. One server runs per root and entry. The UI thread never
@@ -124,24 +124,25 @@ impl App {
             }),
         );
         match started {
-            Ok(server) => self.servers.running.push(Running {
-                root,
-                project,
-                entry,
-                trust,
-                server,
-                state: State::Starting,
-                stopping: false,
-                start_again: None,
-                documents: HashMap::new(),
-            }),
+            Ok(server) => {
+                self.servers.running.push(Running {
+                    root,
+                    project,
+                    entry,
+                    trust,
+                    server,
+                    state: State::Starting,
+                    stopping: false,
+                    start_again: None,
+                    documents: HashMap::new(),
+                });
+                // Its project's buffers go to it, once it is ready, but the agent's
+                // (ADR 0118).
+                self.open_documents_of(self.servers.running.len() - 1);
+            }
             Err(error) => self
                 .editor
                 .message(format!("{}: could not start: {error}", entry.name)),
-        }
-        // Its project's buffers go to it, once it is ready, but the agent's (ADR 0118).
-        if let Some(index) = self.servers.running.len().checked_sub(1) {
-            self.open_documents_of(index);
         }
         self.mark_servers();
     }
@@ -149,7 +150,9 @@ impl App {
     /// Carries out what `lsp-start`, `lsp-restart` and `lsp-shutdown` asked. After each event.
     pub(super) fn sync_servers(&mut self) {
         self.stop_untrusted_servers();
-        self.sync_documents();
+        if self.sync_documents() {
+            self.mark_servers();
+        }
         for request in self.editor.take_server_requests() {
             match request {
                 ServerRequest::Start(id) => self.lsp_start(id, false),

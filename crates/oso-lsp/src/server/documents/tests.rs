@@ -180,13 +180,28 @@ fn methods(out: &Out) -> Vec<&'static str> {
     out.send.iter().map(|(method, _)| *method).collect()
 }
 
+/// Every whole text that waits, sent as room allows: here, at once.
+fn waiting(documents: &mut Documents) -> Vec<(&'static str, Value)> {
+    let mut sent = Vec::new();
+    while let Some(next) = documents.next_whole() {
+        sent.extend(next);
+    }
+    sent
+}
+
+fn names(sent: &[(&'static str, Value)]) -> Vec<&'static str> {
+    sent.iter().map(|(method, _)| *method).collect()
+}
+
 #[test]
 fn a_document_opens_changes_saves_and_closes() {
     let mut documents = Documents::default();
     let out = documents.open(document(1, "fn a() {}\n"), true);
-    assert_eq!(methods(&out), ["textDocument/didOpen"]);
-    assert_eq!(out.send[0].1["textDocument"]["version"], 1);
-    assert_eq!(out.state, None);
+    assert!(out.send.is_empty(), "the open waits for room");
+    assert_eq!(out.state, Some(None), "every open says how it went");
+    let sent = waiting(&mut documents);
+    assert_eq!(names(&sent), ["textDocument/didOpen"]);
+    assert_eq!(sent[0].1["textDocument"]["version"], 1);
     let before = Rope::from("fn a() {}\n");
     let after = Rope::from("fn ab() {}\n");
     let splices = [Splice {
@@ -194,7 +209,7 @@ fn a_document_opens_changes_saves_and_closes() {
         old_len: 0,
         new_len: 1,
     }];
-    let out = documents.change(1, &before, after, Some(&splices), Encoding::Utf8);
+    let out = documents.change(1, &before, after, Some(&splices), Encoding::Utf8, true);
     assert_eq!(methods(&out), ["textDocument/didChange"]);
     assert_eq!(out.send[0].1["textDocument"]["version"], 2);
     assert_eq!(documents.text(1).unwrap(), "fn ab() {}\n");
@@ -207,29 +222,112 @@ fn a_document_opens_changes_saves_and_closes() {
 fn a_document_is_kept_until_the_server_is_ready_and_opened_again_each_run() {
     let mut documents = Documents::default();
     assert!(documents.open(document(1, "a"), false).send.is_empty());
-    let out = documents.change(1, &Rope::from("a"), Rope::from("ab"), None, Encoding::Utf8);
+    assert!(!documents.waiting());
+    let out = documents.change(
+        1,
+        &Rope::from("a"),
+        Rope::from("ab"),
+        None,
+        Encoding::Utf8,
+        true,
+    );
     assert!(out.send.is_empty());
-    let out = documents.open_all();
-    assert_eq!(methods(&out), ["textDocument/didOpen"]);
-    assert_eq!(out.send[0].1["textDocument"]["text"], "ab");
+    documents.open_all();
+    let sent = waiting(&mut documents);
+    assert_eq!(names(&sent), ["textDocument/didOpen"]);
+    assert_eq!(sent[0].1["textDocument"]["text"], "ab");
     documents.forget_sent();
-    let out = documents.open_all();
-    assert_eq!(methods(&out), ["textDocument/didOpen"], "the next run");
+    documents.open_all();
+    let sent = waiting(&mut documents);
+    assert_eq!(names(&sent), ["textDocument/didOpen"], "the next run");
     assert_eq!(
-        out.send[0].1["textDocument"]["version"], 2,
+        sent[0].1["textDocument"]["version"], 2,
         "versions only go up"
     );
+}
+
+#[test]
+fn a_whole_text_waits_and_goes_as_the_latest() {
+    let mut documents = Documents::default();
+    documents.open(document(1, "a"), true);
+    waiting(&mut documents);
+    // No splices: a whole text waits, and later batches only change what it will be.
+    let out = documents.change(
+        1,
+        &Rope::from("a"),
+        Rope::from("ab"),
+        None,
+        Encoding::Utf8,
+        true,
+    );
+    assert!(out.send.is_empty());
+    let splices = [Splice {
+        start: 2,
+        old_len: 0,
+        new_len: 1,
+    }];
+    let out = documents.change(
+        1,
+        &Rope::from("ab"),
+        Rope::from("abc"),
+        Some(&splices),
+        Encoding::Utf8,
+        true,
+    );
+    assert!(
+        out.send.is_empty(),
+        "the server's copy is behind: no incremental change"
+    );
+    assert!(
+        documents.save(1, true).send.is_empty(),
+        "the save waits for the text"
+    );
+    let sent = waiting(&mut documents);
+    assert_eq!(
+        names(&sent),
+        ["textDocument/didChange", "textDocument/didSave"]
+    );
+    assert_eq!(
+        sent[0].1["contentChanges"],
+        serde_json::json!([{"text": "abc"}])
+    );
+    // In step again: the next batch is incremental.
+    let splices = [Splice {
+        start: 3,
+        old_len: 0,
+        new_len: 1,
+    }];
+    let out = documents.change(
+        1,
+        &Rope::from("abc"),
+        Rope::from("abcd"),
+        Some(&splices),
+        Encoding::Utf8,
+        true,
+    );
+    assert_eq!(methods(&out), ["textDocument/didChange"]);
+    // A server that wants whole texts gets one that waits, each time.
+    let out = documents.change(
+        1,
+        &Rope::from("abcd"),
+        Rope::from("abcde"),
+        Some(&splices),
+        Encoding::Utf8,
+        false,
+    );
+    assert!(out.send.is_empty());
+    assert!(documents.waiting());
 }
 
 #[test]
 fn a_lone_carriage_return_keeps_a_document_from_the_server_until_a_save_that_fits() {
     let mut documents = Documents::default();
     let out = documents.open(document(1, "a\rb"), true);
-    assert!(out.send.is_empty());
     assert_eq!(out.state, Some(Some(Closed::LoneCarriageReturn)));
+    assert!(waiting(&mut documents).is_empty());
 
-    let out = documents.open(document(2, "a\nb"), true);
-    assert_eq!(methods(&out), ["textDocument/didOpen"]);
+    documents.open(document(2, "a\nb"), true);
+    assert_eq!(names(&waiting(&mut documents)), ["textDocument/didOpen"]);
     let splices = [Splice {
         start: 1,
         old_len: 1,
@@ -241,6 +339,7 @@ fn a_lone_carriage_return_keeps_a_document_from_the_server_until_a_save_that_fit
         Rope::from("a\rb"),
         Some(&splices),
         Encoding::Utf8,
+        true,
     );
     assert_eq!(methods(&out), ["textDocument/didClose"]);
     assert_eq!(out.state, Some(Some(Closed::LoneCarriageReturn)));
@@ -251,6 +350,7 @@ fn a_lone_carriage_return_keeps_a_document_from_the_server_until_a_save_that_fit
         Rope::from("a\rbc"),
         None,
         Encoding::Utf8,
+        true,
     );
     assert!(out.send.is_empty() && out.state.is_none());
     assert_eq!(documents.save(2, true), Out::default());
@@ -261,23 +361,53 @@ fn a_lone_carriage_return_keeps_a_document_from_the_server_until_a_save_that_fit
         Rope::from("a\r\nbc"),
         None,
         Encoding::Utf8,
+        true,
     );
     let out = documents.save(2, true);
-    assert_eq!(methods(&out), ["textDocument/didOpen"]);
-    assert_eq!(out.send[0].1["textDocument"]["text"], "a\r\nbc");
     assert_eq!(out.state, Some(None));
+    let sent = waiting(&mut documents);
+    assert_eq!(names(&sent), ["textDocument/didOpen"]);
+    assert_eq!(sent[0].1["textDocument"]["text"], "a\r\nbc");
+}
+
+#[test]
+fn a_batch_that_does_not_place_is_checked_whole() {
+    let mut documents = Documents::default();
+    documents.open(document(1, "x\ny"), true);
+    waiting(&mut documents);
+    // Splices that do not take one length to the other place nowhere: the text is checked
+    // whole, and its lone \r found far from them.
+    let wrong = [Splice {
+        start: 3,
+        old_len: 0,
+        new_len: 5,
+    }];
+    let out = documents.change(
+        1,
+        &Rope::from("x\ny"),
+        Rope::from("\rx\ny!"),
+        Some(&wrong),
+        Encoding::Utf8,
+        true,
+    );
+    assert_eq!(out.state, Some(Some(Closed::LoneCarriageReturn)), "{out:?}");
 }
 
 #[test]
 fn a_document_past_the_bound_is_closed() {
     let mut documents = Documents::default();
     documents.open(document(1, "a"), true);
+    waiting(&mut documents);
     let large = Rope::from("x".repeat(DOCUMENT_BYTES_MAX + 1).as_str());
-    let out = documents.change(1, &Rope::from("a"), large, None, Encoding::Utf8);
+    let out = documents.change(1, &Rope::from("a"), large, None, Encoding::Utf8, true);
     assert_eq!(methods(&out), ["textDocument/didClose"]);
     assert_eq!(out.state, Some(Some(Closed::TooLarge)));
-    let at_bound = documents.open(document(2, &"x".repeat(DOCUMENT_BYTES_MAX)), true);
-    assert_eq!(methods(&at_bound), ["textDocument/didOpen"]);
+    documents.open(document(2, &"x".repeat(DOCUMENT_BYTES_MAX)), true);
+    assert_eq!(
+        names(&waiting(&mut documents)),
+        ["textDocument/didOpen"],
+        "at the bound"
+    );
 }
 
 #[test]
@@ -301,4 +431,16 @@ fn the_check_after_a_batch_sees_each_way_to_leave_a_lone_carriage_return() {
     assert!(check("a\rb", 2, 1, 0), "the \\n after a \\r deleted");
     assert!(!check("a\r\nb", 1, 0, 2), "a \\r\\n inserted");
     assert!(!check("a\r\nb", 2, 0, 1), "a \\n put after a \\r");
+}
+
+#[test]
+fn a_batch_before_the_server_is_ready_is_judged_too() {
+    let mut documents = Documents::default();
+    documents.open(document(1, "a"), false);
+    let large = Rope::from("x".repeat(DOCUMENT_BYTES_MAX + 1).as_str());
+    let out = documents.change(1, &Rope::from("a"), large, None, Encoding::Utf8, true);
+    assert_eq!(out.state, Some(Some(Closed::TooLarge)));
+    assert!(out.send.is_empty(), "nothing was sent to close");
+    documents.open_all();
+    assert!(waiting(&mut documents).is_empty(), "and nothing opens");
 }

@@ -380,9 +380,10 @@ fn the_sync_a_server_asks_for_is_read() {
         Sync {
             open_close: true,
             change: SyncKind::Incremental,
-            save: true
+            save: false
         }
     );
+    assert!(!sync_of(json!({"openClose": true, "change": 2, "save": {"includeText": true}})).save);
     assert_eq!(
         sync_of(json!(0)),
         Sync {

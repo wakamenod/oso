@@ -11,7 +11,6 @@ use std::path::PathBuf;
 
 use oso_core::buffer::{Buffer, BufferId, Mode, ReadOnly};
 use oso_core::rope::Rope;
-use oso_lsp::limits::DOCUMENT_BYTES_MAX;
 use oso_lsp::server::{Change, Closed, Document};
 
 use super::{App, Running};
@@ -39,12 +38,12 @@ fn language_id(mode: Mode) -> &'static str {
     }
 }
 
-/// Whether `buffer` may be opened with `running`'s server: a file's buffer, loaded and judged,
-/// not one that may hold secrets, not read-only for its bytes, not internal or a terminal, in
-/// the server's project and mode, and within the bound. Its URI, if so.
-fn fits(buffer: &Buffer, running: &Running) -> Option<String> {
-    let path = buffer.path()?;
-    let fits = buffer.loading().is_none()
+/// Whether `buffer` may be sent to a server at all: a file's buffer, loaded and judged, not one
+/// that may hold secrets, not read-only for its bytes, not internal or a terminal. Its size is
+/// the server's thread's to judge, which keeps it from the server and lets a save open it again.
+fn may_be_sent(buffer: &Buffer) -> bool {
+    buffer.path().is_some()
+        && buffer.loading().is_none()
         && !buffer.is_secret()
         && !matches!(
             buffer.read_only(),
@@ -54,13 +53,18 @@ fn fits(buffer: &Buffer, running: &Running) -> Option<String> {
         )
         && !buffer.is_internal()
         && !buffer.is_terminal()
+}
+
+/// Whether `buffer` may be opened with `running`'s server: it may be sent, and is in the
+/// server's project and mode. Its URI, if so.
+fn fits(buffer: &Buffer, running: &Running) -> Option<String> {
+    let fits = may_be_sent(buffer)
         && buffer.project() == Some(running.project)
-        && running.entry.modes.contains(&buffer.mode())
-        && buffer.text().len() <= DOCUMENT_BYTES_MAX;
+        && running.entry.modes.contains(&buffer.mode());
     if !fits {
         return None;
     }
-    oso_lsp::uri::from_path(path)
+    oso_lsp::uri::from_path(buffer.path()?)
 }
 
 /// Whether the agent opened `buffer`, and the person has not let its open go (ADR 0118): only
@@ -92,7 +96,7 @@ impl App {
                     && !running.documents.contains_key(&id)
                     && fits(buffer, running).is_some()
             }
-            None => self.would_start_server(id),
+            None => may_be_sent(buffer) && self.would_start_server(id),
         }
     }
 
@@ -110,13 +114,20 @@ impl App {
         self.open_with(index, id);
     }
 
-    /// Opens with server `index` every buffer that fits and is not the agent's, as when it
-    /// starts.
+    /// Opens with server `index` every buffer that fits, is not the agent's, and has the mode
+    /// its file's name gives it, as when it starts: a mode set since, which the agent can do,
+    /// opens nothing the person did not visit as such.
     pub(super) fn open_documents_of(&mut self, index: usize) {
         let ids: Vec<BufferId> = self
             .editor
             .buffers()
-            .filter(|(_, buffer)| !the_agents(buffer) && buffer.open_waits().is_empty())
+            .filter(|(_, buffer)| {
+                !the_agents(buffer)
+                    && buffer.open_waits().is_empty()
+                    && buffer
+                        .path()
+                        .is_some_and(|path| Mode::for_path(path) == buffer.mode())
+            })
             .map(|(id, _)| id)
             .collect();
         for id in ids {
@@ -174,25 +185,38 @@ impl App {
         }
     }
 
-    /// After each event: a document whose buffer went, or no longer fits, as after `C-x C-w`
-    /// or a change of mode, is closed, and one written to a file that still fits is opened as
-    /// that file; each other whose text moved gets the batch since.
-    pub(super) fn sync_documents(&mut self) {
-        let mut reopen = Vec::new();
+    /// After each event: a document whose buffer went, or no longer fits, as once it may hold
+    /// secrets or is set to another mode, is closed; one written to another file is closed and
+    /// its open settled again, as a new visit's is; each other whose text moved gets the batch
+    /// since.
+    /// One pass over the buffers for each server with documents. Returns whether a document
+    /// closed, for the modeline.
+    pub(super) fn sync_documents(&mut self) -> bool {
+        let mut resettle = Vec::new();
         let mut unfollow = Vec::new();
-        for (index, running) in self.servers.running.iter_mut().enumerate() {
-            let editor = &self.editor;
+        let editor = &self.editor;
+        for running in &mut self.servers.running {
+            if running.documents.is_empty() {
+                continue;
+            }
             let mut gone = Vec::new();
-            for (&id, open) in &mut running.documents {
-                let Some(buffer) = editor.buffer(id) else {
-                    gone.push(id);
+            let mut seen = 0;
+            for (id, buffer) in editor.buffers() {
+                let Some(open) = running.documents.get_mut(&id) else {
                     continue;
                 };
-                if buffer.path() != Some(open.path.as_path()) || buffer.mode() != open.mode {
-                    // Another file, or another mode: the old document goes, and the buffer is
-                    // opened again as it is now, if it fits.
+                seen += 1;
+                if buffer.path() != Some(open.path.as_path()) {
+                    // Another file, as after the person's `C-x C-w`: its open is settled again
+                    // once its project is known, as a new visit's is.
                     gone.push(id);
-                    reopen.push((index, id));
+                    resettle.push(id);
+                    continue;
+                }
+                if buffer.mode() != open.mode {
+                    // Another mode, which the agent can set: closed, and opened again only by
+                    // a visit or `lsp-start`.
+                    gone.push(id);
                     continue;
                 }
                 if no_longer_fits(buffer, running.project, &running.entry.modes) {
@@ -212,16 +236,28 @@ impl App {
                 });
                 open.revision = buffer.revision();
             }
+            // Killed buffers, which the pass did not meet: looked for only when there are some.
+            if seen < running.documents.len() {
+                gone.extend(
+                    running
+                        .documents
+                        .keys()
+                        .filter(|id| editor.buffer(**id).is_none())
+                        .copied(),
+                );
+            }
             for id in gone {
                 running.documents.remove(&id);
                 running.server.close(id.get());
                 unfollow.push(id);
             }
         }
+        let closed = !unfollow.is_empty();
         self.unfollow(unfollow);
-        for (index, id) in reopen {
-            self.open_with(index, id);
+        for id in resettle {
+            self.unsettle_open(id);
         }
+        closed
     }
 
     /// Stops following the buffers of a server that ended.

@@ -33,6 +33,9 @@ pub(super) struct Highlighting {
     /// A language server follows the buffer, so the log is kept whatever its mode or size, as
     /// the host says (ADR 0138).
     followed: bool,
+    /// The first revision the syntax worker may map from: a reload is kept in the log for a
+    /// server, but the worker parses from nothing after one (ADR 0111).
+    syntax_floor: u64,
 }
 
 /// Highlighting followed a slice at a time on a copy, as an undo staged over several turns
@@ -192,6 +195,10 @@ impl Highlighting {
             .log
             .iter()
             .position(|(made, _)| *made == revision + 1)?;
+        // One batch, as after each command: copied, not composed.
+        if first + 1 == self.log.len() {
+            return Some(self.log[first].1.clone());
+        }
         self.log
             .range(first..)
             .try_fold(Vec::new(), |batch, (_, next)| compose(&batch, next))
@@ -296,6 +303,17 @@ impl Buffer {
         }
     }
 
+    /// A reload came in as `revision`: no report or job from before it is mapped for the syntax
+    /// worker, which parses from nothing (ADR 0111); a server that follows the buffer still
+    /// gets the reload's batch.
+    pub(super) fn reloaded_highlighting(&mut self, revision: u64) {
+        if self.followed_now() {
+            self.highlighting.syntax_floor = revision;
+        } else {
+            self.highlighting.forget_log();
+        }
+    }
+
     /// Keeps the log of edits for a language server that follows the buffer, or stops, as the
     /// host says (ADR 0138). A buffer that may hold secrets, or an internal one, keeps none for
     /// it whatever this says.
@@ -329,6 +347,9 @@ impl Buffer {
     /// reaches that revision, or the highlights do not cover the text.
     pub fn take_highlights(&mut self, revision: u64, mut highlights: Highlights) -> bool {
         if !self.highlightable(self.text.len()) {
+            return false;
+        }
+        if revision < self.highlighting.syntax_floor {
             return false;
         }
         let Some(batch) = self.highlighting.since(revision, self.revision) else {
@@ -397,7 +418,7 @@ impl Buffer {
     /// `None` if the log no longer reaches it, the buffer cannot be highlighted, or a load or a
     /// reload came since, so that the worker must parse from nothing.
     pub fn splices_since(&self, revision: u64) -> Option<Vec<Splice>> {
-        if !self.highlightable(self.text.len()) {
+        if !self.highlightable(self.text.len()) || revision < self.highlighting.syntax_floor {
             return None;
         }
         self.highlighting.since(revision, self.revision)

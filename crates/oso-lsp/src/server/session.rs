@@ -31,6 +31,9 @@ mod sync;
 
 use run::Run;
 
+/// How often the writer's queue is looked at while whole texts wait for room in it.
+const WAITING_POLL: Duration = Duration::from_millis(20);
+
 /// How often the end of a process is looked for while waiting for it.
 const POLL: Duration = Duration::from_millis(10);
 
@@ -341,6 +344,13 @@ impl Session {
     /// What is due at `now`: the stderr's lines, the waits of requests and of a stop, and a
     /// look at whether the process ended.
     fn tick(&mut self, run: &mut Run, now: Instant) -> Option<End> {
+        // Whole texts that wait for room; while some do, the queue is looked at again soon.
+        if let Err(full) = self.send_waiting(run) {
+            return Some(End::Crashed(full));
+        }
+        if self.documents.waiting() {
+            run.look_at = run.look_at.min(now + WAITING_POLL);
+        }
         let (lines, dropped) = run.stderr.take();
         if dropped > 0 {
             self.reporter

@@ -654,9 +654,13 @@ fn a_lone_carriage_return_closes_the_document() {
         }]),
     });
     seen.until(LIMIT, |seen| {
-        seen.logged("stderr: closed file:///w/p/a.rs") && !seen.documents.is_empty()
+        seen.logged("stderr: closed file:///w/p/a.rs") && seen.documents.len() == 2
     });
-    assert_eq!(seen.documents, [(3, Some(Closed::LoneCarriageReturn))]);
+    assert_eq!(
+        seen.documents,
+        [(3, None), (3, Some(Closed::LoneCarriageReturn))],
+        "opened, then kept from the server"
+    );
     assert!(seen.logged("a document is not sent: it holds a carriage return that ends no line"));
     seen.server.shut_down();
 }
@@ -681,5 +685,120 @@ fn batches_before_the_server_is_ready_go_with_its_open() {
     seen.until(LIMIT, |seen| seen.logged(" v1 "));
     let hash = format!("len=2 hash={:016x}", fnv(b"ab"));
     assert!(seen.logged(&hash), "{:?}", seen.log);
+    seen.server.shut_down();
+}
+
+/// Random edits at several places at once, and undos, made by the editor on a buffer a server
+/// follows: each batch the buffer's log gives keeps the fake server's copy equal to the text.
+fn a_followed_buffers_batches_keep_the_copy(encoding: &str, seed: u64) {
+    use oso_core::buffer::{Buffer, Replacement};
+    use oso_core::editor::Editor;
+    use oso_lsp::server::{Change, Document};
+    let mut seen = started(&format!("buffer-{encoding}"), &syncing(encoding), open());
+    let mut editor = Editor::with_buffer(Buffer::from_text(
+        "t.rs",
+        "fn main() {\r\n    let é = \"日\u{1F600}\";\n}\n",
+    ));
+    let id = editor.window().buffer();
+    editor.buffer_mut(id).unwrap().set_followed(true);
+    let text = |editor: &Editor| editor.buffer(id).unwrap().text().clone();
+    seen.server.open(Document {
+        id: 9,
+        uri: "file:///w/p/t.rs".into(),
+        language_id: "rust".into(),
+        text: text(&editor),
+    });
+    seen.until(LIMIT, |seen| seen.logged(" v1 "));
+    let mut sent = text(&editor);
+    let mut revision = editor.buffer(id).unwrap().revision();
+    let mut version = 1;
+    let mut rng = Lcg(seed);
+    let mut last_hash = 0;
+    for _ in 0..120 {
+        if rng.below(5) == 0 {
+            let _ = editor.undo();
+        } else {
+            let now = sent.to_string();
+            let (splices, _) = random_batch(&mut rng, &now);
+            let inserts: Vec<String> = splices
+                .iter()
+                .map(|splice| {
+                    ["x", "é", "\u{1F600}", "\n", "\r\n", ""][splice.new_len % 6].to_owned()
+                })
+                .collect();
+            let edits: Vec<Replacement<'_>> = splices
+                .iter()
+                .zip(&inserts)
+                .map(|(splice, insert)| Replacement {
+                    range: splice.start..splice.start + splice.old_len,
+                    text: insert,
+                })
+                .collect();
+            editor.apply_edits(id, &edits).unwrap();
+        }
+        let buffer = editor.buffer(id).unwrap();
+        if buffer.revision() == revision {
+            continue;
+        }
+        let after = buffer.text().clone();
+        seen.server.change(Change {
+            id: 9,
+            before: sent,
+            after: after.clone(),
+            splices: buffer.edits_since(revision),
+        });
+        revision = buffer.revision();
+        last_hash = fnv(after.to_string().as_bytes());
+        sent = after;
+        version += 1;
+    }
+    let line = format!(" v{version} len=");
+    seen.until(LIMIT, |seen| seen.logged(&line));
+    let logged = seen.log.iter().find(|row| row.contains(&line)).unwrap();
+    assert!(
+        logged.ends_with(&format!("hash={last_hash:016x}")),
+        "seed {seed}: {logged}"
+    );
+    assert!(!seen.logged("closed"), "no lone carriage return was made");
+    seen.server.shut_down();
+}
+
+#[test]
+fn a_followed_buffers_batches_keep_the_copy_in_utf_8() {
+    a_followed_buffers_batches_keep_the_copy("utf-8", 3);
+}
+
+#[test]
+fn a_followed_buffers_batches_keep_the_copy_in_utf_16() {
+    a_followed_buffers_batches_keep_the_copy("utf-16", 4);
+}
+
+/// Documents past the writer queue's bound in all open one at a time, as room comes, and the
+/// server is not stopped as one that did not read.
+#[test]
+fn many_large_documents_open_as_room_comes() {
+    use oso_core::rope::Rope;
+    use oso_lsp::server::Document;
+    // It reads nothing for a while after the first open, so that what is sent waits in the
+    // writer's queue.
+    let mut script = syncing("utf-8");
+    script["rules"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"method": "textDocument/didOpen", "nth": 1, "do": [{"sleep_ms": 1500}]}));
+    let mut seen = started("large", &script, open());
+    let text = Rope::from("x".repeat(7 << 20).as_str());
+    for id in 0..12u64 {
+        seen.server.open(Document {
+            id,
+            uri: format!("file:///w/p/large{id}.rs"),
+            language_id: "rust".into(),
+            text: text.clone(),
+        });
+    }
+    seen.until(Duration::from_secs(60), |seen| {
+        (0..12).all(|id| seen.logged(&format!("/large{id}.rs v1 ")))
+    });
+    assert!(!seen.logged("crashed: "), "{:?}", seen.log);
     seen.server.shut_down();
 }

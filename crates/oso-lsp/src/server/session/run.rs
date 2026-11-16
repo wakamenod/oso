@@ -62,6 +62,11 @@ impl Run {
         self.send(&protocol::request(id, method, params))
     }
 
+    /// How many bytes wait for the writer, none once it is gone.
+    pub(super) fn queued(&self) -> usize {
+        self.writer.as_ref().map_or(0, Writer::queued)
+    }
+
     pub(super) fn send(&self, body: &[u8]) -> Result<(), String> {
         match &self.writer {
             Some(writer) => writer.send(body).map_err(|_| queue_full()),

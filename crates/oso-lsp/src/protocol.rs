@@ -231,7 +231,8 @@ pub enum SyncKind {
 }
 
 /// The sync `initialize`'s result asks for. A bare kind, the protocol's older form, also asks
-/// for opens, closes and saves; nothing asks for none.
+/// for opens and closes, not saves; nothing asks for none. A server that wants a save's text
+/// (`includeText`) is told of no save: oso sends none.
 pub fn sync(result: &Value) -> Sync {
     let kind = |value: Option<&Value>| match value.and_then(|v| integer_in(v, 0..=2)) {
         Some(1) => SyncKind::Full,
@@ -247,7 +248,7 @@ pub fn sync(result: &Value) -> Sync {
             change: kind(options.get("change")),
             save: match options.get("save") {
                 Some(Value::Bool(on)) => *on,
-                Some(Value::Object(_)) => true,
+                Some(Value::Object(save)) => save.get("includeText") != Some(&Value::Bool(true)),
                 _ => false,
             },
         },
@@ -256,7 +257,7 @@ pub fn sync(result: &Value) -> Sync {
             Sync {
                 open_close: change != SyncKind::None,
                 change,
-                save: change != SyncKind::None,
+                save: false,
             }
         }
         _ => Sync {
