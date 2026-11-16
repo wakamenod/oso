@@ -21,7 +21,9 @@ pub(in crate::app) struct Begin {
     pub brief: Option<String>,
     /// The session that started it.
     pub parent: Option<SessionId>,
-    /// How it starts: by the person, unless an agent's tool starts it (ADR 0135).
+    /// How it starts: by the person, unless an agent's tool starts it (ADR 0135). One an agent's
+    /// tool starts, asked or not, starts behind what the person is doing: its terminal is not
+    /// shown (ADR 0144).
     pub origin: Origin,
     /// Whether to ask first when another live session runs in its directory.
     pub check_shared: bool,

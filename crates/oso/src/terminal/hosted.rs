@@ -213,6 +213,15 @@ impl Terminals {
         }
     }
 
+    /// Notes that no window selected `buffer`'s terminal yet: it started behind what the person
+    /// is doing, so `terminal` does not take it for the one selected last (ADR 0144).
+    pub(crate) fn behind(&mut self, buffer: BufferId) {
+        if let Some(hosted) = self.map.get_mut(&buffer) {
+            hosted.selected = 0;
+            hosted.owner = None;
+        }
+    }
+
     /// The terminal still running that was selected last, for `terminal` (ADR 0120, Q2).
     pub(crate) fn last_running(&self) -> Option<BufferId> {
         self.map
@@ -404,6 +413,23 @@ mod tests {
         terminals.selected(a, window);
         assert_eq!(terminals.last_running(), Some(a));
         terminals.get_mut(a).unwrap().ended = Some("exited 0".into());
+        assert_eq!(terminals.last_running(), Some(b));
+    }
+
+    #[test]
+    fn a_terminal_started_behind_is_not_the_one_selected_last() {
+        let (a, b) = ids();
+        let window = Editor::default().window().id();
+        let mut terminals = Terminals::default();
+        terminals.add(a);
+        terminals.selected(a, window);
+        // An agent's session, started after it without being shown (ADR 0144).
+        terminals.add(b);
+        terminals.behind(b);
+        assert_eq!(terminals.last_running(), Some(a));
+        assert_eq!(terminals.get(b).unwrap().owner, None);
+        // Once a window is selected on it, it is.
+        terminals.selected(b, window);
         assert_eq!(terminals.last_running(), Some(b));
     }
 

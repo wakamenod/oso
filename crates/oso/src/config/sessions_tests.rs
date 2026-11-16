@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 
 use super::tests::{Fixture, messages};
+use crate::sessions::tools::StartLimit;
 
 #[test]
 fn claude_is_an_absolute_path() {
@@ -135,32 +136,48 @@ fn agents_start_without_asking_and_its_limit() {
     assert!(!loaded.settings.sessions.agents_start_without_asking);
     assert_eq!(
         loaded.settings.sessions.agents_start_limit(),
-        4,
+        StartLimit::Most(4),
         "the default"
     );
     let loaded =
         f.parse("[sessions]\nagents_start_without_asking = true\nagents_start_limit = 8\n");
     assert_eq!(messages(&loaded), Vec::<String>::new());
     assert!(loaded.settings.sessions.agents_start_without_asking);
-    assert_eq!(loaded.settings.sessions.agents_start_limit(), 8);
+    assert_eq!(
+        loaded.settings.sessions.agents_start_limit(),
+        StartLimit::Most(8)
+    );
+    // No limit but the loop guard (ADR 0144).
+    let loaded = f.parse("[sessions]\nagents_start_limit = \"none\"\n");
+    assert_eq!(messages(&loaded), Vec::<String>::new());
+    assert_eq!(
+        loaded.settings.sessions.agents_start_limit(),
+        StartLimit::Unlimited
+    );
     for (value, said) in [
         ("0", "not 0"),
         ("9", "not 9"),
         ("-1", "not -1"),
         ("2.5", "not a number"),
-        ("\"4\"", "not a string"),
+        ("\"4\"", "not \"4\""),
+        ("\"None\"", "not \"None\""),
+        ("true", "not true or false"),
     ] {
         let loaded = f.parse(&format!("[sessions]\nagents_start_limit = {value}\n"));
         let messages = messages(&loaded);
         assert_eq!(messages.len(), 1, "{value}");
         assert!(
             messages[0].ends_with(&format!(
-                "[sessions] agents_start_limit takes a number from 1 to 8, {said}"
+                "[sessions] agents_start_limit takes a number from 1 to 8, or \"none\", {said}"
             )),
             "{}",
             messages[0]
         );
-        assert_eq!(loaded.settings.sessions.agents_start_limit(), 4, "{value}");
+        assert_eq!(
+            loaded.settings.sessions.agents_start_limit(),
+            StartLimit::Most(4),
+            "{value}"
+        );
     }
     let loaded = f.parse("[sessions]\nagents_start_without_asking = 1\n");
     assert_eq!(messages(&loaded).len(), 1);
