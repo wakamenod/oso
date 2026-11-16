@@ -88,9 +88,10 @@ impl Draws {
         if self.over.rects.is_empty() && self.over.quads.is_empty() {
             return;
         }
-        let (rects, rounded, quads) = (
+        let (rects, rounded, waves, quads) = (
             self.rects.len() as u32,
             self.rounded.len() as u32,
+            self.waves.len() as u32,
             self.quads.len() as u32,
         );
         self.rects.append(&mut self.over.rects);
@@ -98,6 +99,7 @@ impl Draws {
         let labels = LayerDraw {
             rects: rects..self.rects.len() as u32,
             rounded: rounded..rounded,
+            waves: waves..waves,
             quads: quads..self.quads.len() as u32,
         };
         layers.insert(layers.len().saturating_sub(1), labels);

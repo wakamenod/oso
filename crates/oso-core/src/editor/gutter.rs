@@ -1,6 +1,8 @@
-//! Each tiled window's gutter (ADR 0097, ADR 0112): how wide line numbers make it, laying the frame out
-//! again when that changes, and the numbers of the rows in view, built each frame as the
-//! modeline's text is.
+//! Each tiled window's gutter (ADR 0097, ADR 0112): how wide line numbers and the sign column
+//! make it, laying the frame out again when that changes, and the numbers and signs of the rows
+//! in view, built each frame as the modeline's text is. The sign column, one cell at the
+//! gutter's left, is there while a language server follows the buffer, before its first report
+//! too, so the text does not move when one comes (ADR 0138, Q13).
 //!
 //! Must not depend on: `command`, `keymap` or the host's window.
 
@@ -8,6 +10,8 @@ use std::fmt::Write as _;
 use std::ops::Range;
 
 use super::Editor;
+use super::diagnostics::{line_sign, starts_in_view};
+use crate::diagnostic::Severity;
 use crate::frame;
 use crate::window::{Screen, Window, WindowId};
 
@@ -15,11 +19,15 @@ use crate::window::{Screen, Window, WindowId};
 const MIN_DIGITS: usize = 3;
 
 /// The gutter's rows in view, from the window's top: each a line's number, right-aligned
-/// with a cell of space after it, or blank. Reused from frame to frame.
+/// with a cell of space after it, or blank, and apart from the text, its sign if the gutter has a
+/// sign column. Reused from frame to frame.
 #[derive(Debug, Default)]
 pub struct Gutter {
     text: String,
     rows: Vec<(Range<usize>, bool)>,
+    signs: Vec<Option<Severity>>,
+    /// The lines in view on which diagnostics start, and their severities.
+    starts: Vec<(usize, Severity)>,
 }
 
 impl Gutter {
@@ -29,6 +37,13 @@ impl Gutter {
         self.rows
             .iter()
             .map(|(range, current)| (&self.text[range.clone()], *current))
+    }
+
+    /// Each row's sign, as [`Gutter::rows`]: the most severe diagnostic's that starts on the
+    /// row's line, on its first row, hints left out (ADR 0138, Q2). Empty while the gutter has no
+    /// sign column, which then is its first cell.
+    pub fn signs(&self) -> &[Option<Severity>] {
+        &self.signs
     }
 }
 
@@ -48,12 +63,25 @@ fn columns_for(lines: usize) -> usize {
 }
 
 impl Editor {
-    /// The gutter's columns for `window` as it is: none with line numbers off or in a terminal,
+    /// The gutter's columns for `window` as it is: the sign column's, then the line numbers'
+    /// (ADR 0138).
+    pub(super) fn gutter_columns(&self, window: &Window) -> usize {
+        self.sign_columns(window) + self.number_columns(window)
+    }
+
+    /// The sign column's cell while a language server follows `window`'s buffer (ADR 0138), or
+    /// none.
+    fn sign_columns(&self, window: &Window) -> usize {
+        let buffer = self.shown(window);
+        usize::from(buffer.server().is_some() && !buffer.is_terminal())
+    }
+
+    /// The columns of `window`'s line numbers: none with line numbers off or in a terminal,
     /// and otherwise as its own buffer's line count needs (ADR 0112). They never narrow while
     /// it shows one buffer, so that a line count crossing a digit boundary back and forth, as a
     /// newline typed and deleted at 1000 lines, does not change the text area's width at each
     /// key, which would wrap its rows again (ADR 0104, ADR 0105).
-    pub(super) fn gutter_columns(&self, window: &Window) -> usize {
+    pub(super) fn number_columns(&self, window: &Window) -> usize {
         // A terminal's grid has no lines of the buffer's to number (ADR 0120).
         if !self.aids.line_numbers || self.shown(window).is_terminal() {
             return 0;
@@ -93,10 +121,12 @@ impl Editor {
 
     /// Fills in the gutter's rows in view of the tiled window `id`, as `screen` shows them
     /// ([`Editor::screen_of`]), reusing `gutter`'s room: none while it has no columns. A line's
-    /// number is on its first view row, and the rows it continues on stay blank (ADR 0100).
+    /// number and sign are on its first view row, and the rows it continues on stay blank
+    /// (ADR 0100).
     pub fn gutter_into(&self, id: WindowId, screen: &Screen, gutter: &mut Gutter) {
         gutter.text.clear();
         gutter.rows.clear();
+        gutter.signs.clear();
         let Some((window, buffer, regions)) = self.window_in_tree(id) else {
             return;
         };
@@ -104,15 +134,29 @@ impl Editor {
         if columns == 0 {
             return;
         }
-        let current = window.cursor_point(&buffer.display()).row;
+        let signs = self.sign_columns(window).min(columns);
+        let numbers = columns - signs;
+        let display = buffer.display();
+        let current = window.cursor_point(&display).row;
+        gutter.starts.clear();
+        if let Some(diagnostics) = buffer.diagnostics().filter(|_| signs > 0) {
+            let view = (screen, regions.text.rows);
+            starts_in_view(diagnostics, &display, view, &mut gutter.starts);
+        }
         for row in screen.rows().iter().take(regions.text.rows) {
             let start = gutter.text.len();
-            if row.starts_line() {
-                let _ = write!(gutter.text, "{:>1$} ", row.line + 1, columns - 1);
+            if row.starts_line() && numbers > 0 {
+                let _ = write!(gutter.text, "{:>1$} ", row.line + 1, numbers - 1);
             }
             gutter
                 .rows
                 .push((start..gutter.text.len(), row.line == current));
+            if signs > 0 {
+                let sign = (row.starts_line())
+                    .then(|| line_sign(&gutter.starts, row.line))
+                    .flatten();
+                gutter.signs.push(sign);
+            }
         }
     }
 }

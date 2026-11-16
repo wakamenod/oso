@@ -21,7 +21,7 @@ use super::Editor;
 use super::messages::CUT;
 use crate::buffer::{Buffer, Mode, ServerMark, Verdict};
 use crate::decode::{FileInfo, LineEnding};
-use crate::diagnostic::Counts;
+use crate::diagnostic::{Counts, Severity};
 use crate::display_map::text_clusters;
 use crate::frame::CellRect;
 use crate::window::{Window, WindowId};
@@ -93,13 +93,17 @@ pub struct Status {
     /// (ADR 0114). It comes from the record of trusted projects alone, never from a name.
     pub restricted: &'static str,
     /// `lsp`, `lsp 34%` or `lsp!`, after the project, while a language server follows the
-    /// buffer, then the counts of its diagnostics that are not zero, `E2 W5 I1`, or nothing
-    /// (ADR 0138), drawn as [`Self::lsp_face`] says.
+    /// buffer, or nothing (ADR 0138), drawn as [`Self::lsp_face`] says.
     pub lsp: String,
     pub lsp_face: ServerFace,
-    /// The counts of the buffer's diagnostics, which [`Self::lsp`] shows (ADR 0138, step 6),
-    /// for a host that draws each in its severity's face.
+    /// The counts of the buffer's diagnostics that are not zero, ` E2 W5 I1`, then the gap
+    /// before what follows, while a server follows the buffer, or nothing (ADR 0138). The host
+    /// draws each count in its severity's face, as [`Status::count_parts`] splits them.
+    pub lsp_counts: String,
+    /// The counts themselves (step 6).
     pub counts: Counts,
+    /// Where [`Self::lsp_counts`]' warnings and information start.
+    count_starts: [usize; 2],
     /// `waits: server` while what an agent's open or save would have started waits for the
     /// person, which the host draws dim, or nothing (ADR 0118). It comes from the buffer's marks
     /// alone.
@@ -122,7 +126,7 @@ impl Status {
     /// The modeline as one string.
     pub fn modeline(&self) -> String {
         format!(
-            "{}{}{}{}{}{}{}{}{}",
+            "{}{}{}{}{}{}{}{}{}{}",
             self.agent,
             self.sessions,
             self.warnings,
@@ -130,9 +134,26 @@ impl Status {
             self.project,
             self.restricted,
             self.lsp,
+            self.lsp_counts,
             self.waits,
             self.state
         )
+    }
+
+    /// [`Self::lsp_counts`] in three, each for its severity's face: ` E2`, ` W5`, then ` I1` with
+    /// the gap after it, which no face shows. A count that is zero is empty.
+    pub fn count_parts(&self) -> [(&str, Severity); 3] {
+        let [warnings, information] = self.count_starts;
+        // Nothing, rather than a panic, if the text was changed since it was made.
+        let part = |range: std::ops::Range<usize>| self.lsp_counts.get(range).unwrap_or_default();
+        [
+            (part(0..warnings), Severity::Error),
+            (part(warnings..information), Severity::Warning),
+            (
+                part(information..self.lsp_counts.len()),
+                Severity::Information,
+            ),
+        ]
     }
 
     /// The warnings that go first on the echo row: all of them in a frame with no
@@ -146,17 +167,21 @@ impl Status {
     }
 }
 
-/// `lsp  `, `lsp 34%  ` or `lsp!  ` for the server that follows the buffer, with the counts
-/// that are not zero before the gap (`lsp E2 W5  `), or nothing, and how it is drawn
-/// (ADR 0138), with the counts.
-fn push_server(out: &mut String, buffer: &Buffer) -> (ServerFace, Counts) {
+/// `lsp`, `lsp 34%` or `lsp!` for the server that follows the buffer into `status.lsp`, and
+/// the counts that are not zero and the gap after them into `status.lsp_counts` (` E2 W5  `),
+/// or nothing in both, with how the state is drawn and the counts (ADR 0138).
+fn push_server(status: &mut Status, buffer: &Buffer) {
+    let (out, text) = (&mut status.lsp, &mut status.lsp_counts);
     out.clear();
+    text.clear();
     let counts = buffer
         .diagnostics()
         .map(crate::diagnostic::Diagnostics::counts)
         .unwrap_or_default();
+    status.counts = counts;
     let Some(mark) = buffer.server() else {
-        return (ServerFace::Dim, counts);
+        (status.lsp_face, status.count_starts) = (ServerFace::Dim, [0, 0]);
+        return;
     };
     match mark {
         ServerMark::Starting => out.push_str("lsp"),
@@ -166,27 +191,35 @@ fn push_server(out: &mut String, buffer: &Buffer) -> (ServerFace, Counts) {
         }
         ServerMark::Stopped => out.push_str("lsp!"),
     }
-    for (letter, count) in [
+    let mut starts = [0; 2];
+    for (index, (letter, count)) in [
         ('E', counts.errors),
         ('W', counts.warnings),
         ('I', counts.information),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if let Some(start) = index.checked_sub(1).and_then(|at| starts.get_mut(at)) {
+            *start = text.len();
+        }
         if count > 0 {
-            let _ = write!(out, " {letter}{count}");
+            let _ = write!(text, " {letter}{count}");
         }
     }
-    out.push_str(GAP);
-    let face = match mark {
+    text.push_str(GAP);
+    status.lsp_face = match mark {
         ServerMark::Starting => ServerFace::Dim,
         ServerMark::Ready | ServerMark::Working(_) => ServerFace::Plain,
         ServerMark::Stopped => ServerFace::Warning,
     };
-    (face, counts)
+    status.count_starts = starts;
 }
 
 /// `waits: server  ` while something waits in `buffer` for the person (ADR 0118), each name
-/// once, or nothing.
+/// once, or nothing, in place of what `out` held.
 fn push_waits(out: &mut String, buffer: &Buffer) {
+    out.clear();
     let waits = buffer.waits();
     if waits.is_empty() {
         return;
@@ -399,8 +432,7 @@ impl Editor {
             }
         }
 
-        (status.lsp_face, status.counts) = push_server(&mut status.lsp, buffer);
-        status.waits.clear();
+        push_server(status, buffer);
         push_waits(&mut status.waits, buffer);
         let marker = marker(buffer);
         // These parts are ASCII, so their bytes are their cells.
@@ -413,6 +445,7 @@ impl Editor {
             + text_cells(&status.project)
             + status.restricted.len()
             + status.lsp.len()
+            + status.lsp_counts.len()
             + status.waits.len()
             + status.state.len();
         let columns = regions.modeline.columns;
@@ -648,7 +681,8 @@ mod tests {
         let buffer = editor.buffer_mut(id).unwrap();
         buffer.set_server(Some(ServerMark::Ready));
         buffer.set_followed(true);
-        assert_eq!(status(&editor).lsp, "lsp  ");
+        assert_eq!(status(&editor).lsp, "lsp");
+        assert_eq!(status(&editor).lsp_counts, "  ");
         let new = |severity| New {
             range: 0..1,
             severity,
@@ -671,7 +705,17 @@ mod tests {
         let revision = buffer.revision();
         assert!(buffer.take_diagnostics(revision, set));
         let shown = status(&editor);
-        assert_eq!(shown.lsp, "lsp E2 I1  ");
+        assert_eq!(shown.lsp, "lsp");
+        assert_eq!(shown.lsp_counts, " E2 I1  ");
+        assert_eq!(
+            shown.count_parts(),
+            [
+                (" E2", Severity::Error),
+                ("", Severity::Warning),
+                (" I1  ", Severity::Information)
+            ]
+        );
+        assert!(shown.modeline().contains("lsp E2 I1  "));
         assert_eq!(
             shown.counts,
             Counts {
@@ -681,7 +725,7 @@ mod tests {
             }
         );
         editor.buffer_mut(id).unwrap().set_followed(false);
-        assert_eq!(status(&editor).lsp, "lsp  ", "gone with the server");
+        assert_eq!(status(&editor).lsp_counts, "  ", "gone with the server");
     }
 
     #[cfg(unix)]

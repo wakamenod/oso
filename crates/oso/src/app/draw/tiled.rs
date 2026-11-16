@@ -1,6 +1,6 @@
-//! Each tiled window's part of a frame (ADR 0112): its text, gutter, modeline and divider
-//! panes, the cells its text fills, and the pane ids that keep each window's shaped rows
-//! from frame to frame.
+//! Each tiled window's part of a frame (ADR 0112): its text, gutter, sign column, modeline and
+//! divider panes, the cells its text fills and its diagnostics mark (ADR 0138), and the pane ids
+//! that keep each window's shaped rows from frame to frame.
 //!
 //! Must not depend on: key presses or commands; a frame only reads the editor's state.
 //!
@@ -13,22 +13,29 @@
 //! region and band (ADR 0072, ADR 0097). The editor's cells and status already say all this.
 
 use oso_core::buffer::{BufferId, Mode};
-use oso_core::editor::{Editor, Gutter, JumpCells, MatchCells, ReviewCells, ServerFace, Status};
+use oso_core::diagnostic::Severity;
+use oso_core::editor::{
+    DiagnosticCells, Editor, Gutter, JumpCells, MatchCells, ReviewCells, Status,
+};
 use oso_core::frame::{CellRect, WindowRegions};
 use oso_core::window::{Screen, WindowId};
 use oso_render::{
     Bands, CursorStyle, Face, FlashFill, GridRow, GridView, Layer, Pane, PaneContent, PaneId, Span,
-    TextView,
+    TextMarks, TextView,
 };
 
 use super::spaces::SpacesFills;
 use crate::sessions::list::SpaceBands;
 use crate::terminal::hosted::Terminals;
 
+mod modeline;
+
+use modeline::{MODELINE_SPANS, modeline_face, modeline_spans};
+
 /// The first pane id of the windows': the echo area's and the floats' are below it.
 const FIRST: u32 = 16;
-/// The panes a window draws: its text, gutter, modeline and divider.
-const PER_WINDOW: u32 = 4;
+/// The panes a window draws: its text, gutter, modeline, divider and sign column.
+const PER_WINDOW: u32 = 5;
 
 /// Which of a window's panes.
 #[derive(Clone, Copy)]
@@ -37,6 +44,7 @@ pub(super) enum Part {
     Gutter = 1,
     Modeline = 2,
     Divider = 3,
+    Signs = 4,
 }
 
 /// The id of a window's pane, from the window's id, so that a window keeps its shaped rows
@@ -53,7 +61,8 @@ pub(super) fn pane_id(window: WindowId, part: Part) -> PaneId {
 /// none of it is allocated again: the regions' (ADR 0071), isearch's matches' (ADR 0082), the
 /// current line's band and trailing whitespace (ADR 0097), the other cursors' boxes
 /// (ADR 0091), its rows in view (ADR 0104), its gutter's numbers (ADR 0097), a jump's
-/// matches and labels (ADR 0116) and a review's bands (ADR 0122).
+/// matches and labels (ADR 0116), a review's bands (ADR 0122), and a server's diagnostics and
+/// the gutter's signs (ADR 0138).
 #[derive(Default)]
 pub(super) struct WindowCells {
     region: Vec<CellRect>,
@@ -67,6 +76,8 @@ pub(super) struct WindowCells {
     pane: SpacesFills,
     screen: Screen,
     gutter: Gutter,
+    diagnostics: DiagnosticCells,
+    signs: Vec<Option<Face>>,
 }
 
 impl WindowCells {
@@ -83,6 +94,11 @@ impl WindowCells {
         editor.trailing_cells(id, screen, &mut self.trailing);
         editor.review_cells(id, screen, &mut self.review);
         editor.gutter_into(id, screen, &mut self.gutter);
+        editor.diagnostic_cells(id, screen, &mut self.diagnostics);
+        self.signs.clear();
+        let signs = self.gutter.signs().iter();
+        self.signs
+            .extend(signs.map(|sign| sign.and_then(severity_face)));
         self.band.clear();
         self.band.extend(editor.current_line_cells(id, screen));
         self.pane
@@ -122,56 +138,35 @@ pub(super) fn tiled_status<'a>(
         .find_map(|(id, status)| (*id == tiled).then_some(status))
 }
 
-/// A modeline's spans: warnings first, so that nothing can push them off the row, after
-/// `Agent` while the agent channel is on, dim, and bright while an agent is connected
-/// (ADR 0085), which only the selected window's says, then the sessions' marks, `⚠ N` and
-/// `● N` in their states' faces, as `*Spaces*` draws them (ADR 0121, ADR 0131). A name and the rest are shaped apart,
-/// so that neither changes how the other reads. A window that is not selected has its
-/// modeline in [`Face::ModelineInactive`] (ADR 0112).
-fn modeline_spans(status: &Status) -> [Span<'_>; MODELINE_SPANS] {
-    let span = |text, face| Span { text, face };
-    let agent = if status.agent_connected {
-        Face::Warning
-    } else {
-        Face::Prompt
-    };
-    let face = modeline_face(status);
-    let (waiting, done) = status
-        .sessions
-        .split_at(status.sessions.find('●').unwrap_or(status.sessions.len()));
+/// The face a diagnostic of `severity` is drawn in, its line, its sign and its count: none for
+/// a hint (ADR 0138, Q16).
+pub(super) fn severity_face(severity: Severity) -> Option<Face> {
+    match severity {
+        Severity::Error => Some(Face::DiagnosticError),
+        Severity::Warning => Some(Face::DiagnosticWarning),
+        Severity::Information => Some(Face::DiagnosticInfo),
+        Severity::Hint => None,
+    }
+}
+
+/// A window's diagnostics' wavy lines, which do not meet, the most severe first, so that it keeps
+/// its room if a frame runs out of it (ADR 0138).
+fn underlines_of(cells: &WindowCells) -> [(Face, &[CellRect]); UNDERLINES] {
+    let found = &cells.diagnostics;
     [
-        span(status.agent, agent),
-        span(waiting, Face::SessionAlert),
-        span(done, Face::SessionDone),
-        span(&status.warnings[..], Face::Warning),
-        span(&status.name[..], face),
-        span(&status.project[..], face),
-        // Dim, as `Agent` is: what the trust record says, never a name (ADR 0114).
-        span(status.restricted, Face::Prompt),
-        // The language server's state (ADR 0138).
-        span(
-            &status.lsp[..],
-            match status.lsp_face {
-                ServerFace::Dim => Face::Prompt,
-                ServerFace::Plain => face,
-                ServerFace::Warning => Face::Warning,
-            },
-        ),
-        // Dim too: what an agent's open or save left for the person (ADR 0118).
-        span(&status.waits[..], Face::Prompt),
-        span(&status.state[..], face),
+        (Face::DiagnosticError, &found.error[..]),
+        (Face::DiagnosticWarning, &found.warning[..]),
+        (Face::DiagnosticInfo, &found.information[..]),
     ]
 }
 
-/// How many spans a modeline is drawn in.
-const MODELINE_SPANS: usize = 10;
+/// How many lists of cells a window draws wavy lines under.
+const UNDERLINES: usize = 3;
 
-fn modeline_face(status: &Status) -> Face {
-    if status.selected {
-        Face::Modeline
-    } else {
-        Face::ModelineInactive
-    }
+/// What a window draws behind its glyphs: its fills, and its diagnostics' wavy lines.
+pub(super) struct Behind<'a> {
+    fills: [(Face, &'a [CellRect]); FILLS],
+    underlines: [(Face, &'a [CellRect]); UNDERLINES],
 }
 
 /// The fills behind a window's text, from the back: `*Spaces*`' bands, in the side window only
@@ -258,7 +253,7 @@ pub(super) struct Room {
     modeline_rows: Vec<[&'static [Span<'static>]; 1]>,
     numbers: Vec<[Span<'static>; 1]>,
     gutters: Vec<&'static [Span<'static>]>,
-    fills: Vec<[(Face, &'static [CellRect]); FILLS]>,
+    behind: Vec<Behind<'static>>,
     labels: Vec<(CellRect, Span<'static>)>,
 }
 
@@ -304,21 +299,23 @@ pub(super) fn spans_of<'a>(
             [Span { text, face }]
         }));
     }
-    let mut fills: Vec<[(Face, &'a [CellRect]); FILLS]> =
-        super::reuse(std::mem::take(&mut room.fills));
-    fills.extend(cells.iter().map(fills_of));
+    let mut behind: Vec<Behind<'a>> = super::reuse(std::mem::take(&mut room.behind));
+    behind.extend(cells.iter().map(|cells| Behind {
+        fills: fills_of(cells),
+        underlines: underlines_of(cells),
+    }));
     let mut labels: Vec<(CellRect, Span<'a>)> = super::reuse(std::mem::take(&mut room.labels));
     for window in cells {
         labels_of(window, &mut labels);
     }
-    (modelines, numbers, fills, labels)
+    (modelines, numbers, behind, labels)
 }
 
 /// Every window's modeline spans, gutter numbers and fills, as [`spans_of`] makes them.
 pub(super) type Spans<'a> = (
     Vec<[Span<'a>; MODELINE_SPANS]>,
     Vec<[Span<'a>; 1]>,
-    Vec<[(Face, &'a [CellRect]); FILLS]>,
+    Vec<Behind<'a>>,
     Vec<(CellRect, Span<'a>)>,
 );
 
@@ -346,10 +343,10 @@ pub(super) fn give_back_rows(
 }
 
 /// Gives back the spans and fills a frame took of `room`.
-pub(super) fn give_back_spans(room: &mut Room, (modelines, numbers, fills, labels): Spans<'_>) {
+pub(super) fn give_back_spans(room: &mut Room, (modelines, numbers, behind, labels): Spans<'_>) {
     room.modelines = super::reuse(modelines);
     room.numbers = super::reuse(numbers);
-    room.fills = super::reuse(fills);
+    room.behind = super::reuse(behind);
     room.labels = super::reuse(labels);
 }
 
@@ -379,7 +376,8 @@ impl<'a> Grids<'a> {
 pub(super) struct Drawn<'a> {
     pub(super) terminals: Grids<'a>,
     pub(super) cells: &'a [WindowCells],
-    pub(super) fills: &'a [[(Face, &'a [CellRect]); FILLS]],
+    /// What each window draws behind its glyphs.
+    pub(super) behind: &'a [Behind<'a>],
     /// Every window's jump labels, one window's after another's in the tree's order.
     pub(super) labels: &'a [(CellRect, Span<'a>)],
     pub(super) modelines: &'a [[&'a [Span<'a>]; 1]],
@@ -390,9 +388,9 @@ pub(super) struct Drawn<'a> {
 }
 
 /// Pushes every tiled window's panes onto `list`: all their texts, the selected one's last
-/// among them, then their gutters, modelines and dividers, as later panes come first if a
-/// frame runs out of room, so no amount of text can take their place, nor another window's
-/// text the selected one's (ADR 0061).
+/// among them, then their sign columns and gutters, modelines and dividers, as later panes come
+/// first if a frame runs out of room, so no amount of text can take their place, nor another
+/// window's text the selected one's (ADR 0061).
 pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pane<'a>>) {
     let windows = editor.frame().windows();
     let empty = Status::default();
@@ -427,14 +425,15 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
         let rows = cells.gutter.rows().count();
         let gutter = drawn.gutters.get(at..at + rows).unwrap_or_default();
         at += rows;
+        // The sign column at the gutter's left, while a server follows the buffer (ADR 0138).
+        let (signs, numbers) = split_gutter(regions.gutter, !cells.signs.is_empty());
+        if let Some(signs) = signs {
+            let content = PaneContent::Signs(&cells.signs);
+            list.push(pane(pane_id(*id, Part::Signs), signs, None, content));
+        }
         // No band and no fill: the current line's number marks the line there.
         let content = PaneContent::Lines(gutter);
-        list.push(pane(
-            pane_id(*id, Part::Gutter),
-            regions.gutter,
-            None,
-            content,
-        ));
+        list.push(pane(pane_id(*id, Part::Gutter), numbers, None, content));
     }
     for (index, ((id, regions), _)) in shown() {
         let modeline = drawn.modelines.get(index).map_or(&[][..], |row| &row[..]);
@@ -450,6 +449,23 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
     for (id, regions) in windows {
         divider(*id, regions, list);
     }
+}
+
+/// A gutter's sign column, its first cell if it has `signs`, and the rest, for the numbers.
+fn split_gutter(gutter: CellRect, signs: bool) -> (Option<CellRect>, CellRect) {
+    if !signs || gutter.columns == 0 {
+        return (None, gutter);
+    }
+    let column = CellRect {
+        columns: 1,
+        ..gutter
+    };
+    let rest = CellRect {
+        column: gutter.column + 1,
+        columns: gutter.columns - 1,
+        ..gutter
+    };
+    (Some(column), rest)
 }
 
 /// A window's divider pane, while a window is to its right (ADR 0112).
@@ -510,12 +526,23 @@ fn text<'a>(
         // Where the screen was laid out with it: the selected window, not beneath a prompt
         // (ADR 0104).
         preedit: editor.preedit().filter(|_| screen.preedit().is_some()),
-        fills: drawn.fills.get(index).map_or(&[][..], |fills| &fills[..]),
+        fills: drawn
+            .behind
+            .get(index)
+            .map_or(&[][..], |behind| &behind.fills[..]),
         labels: drawn.labels.get(labels).unwrap_or_default(),
         whitespace: editor.visual_aids().whitespace,
         flash,
         // None while font-lock is off, and in a buffer that may hold secrets (ADR 0111).
         highlights: buffer.highlights(),
+        marks: TextMarks {
+            underlines: drawn
+                .behind
+                .get(index)
+                .map_or(&[][..], |behind| &behind.underlines[..]),
+            faded: &cells.diagnostics.unnecessary,
+            struck: &cells.diagnostics.deprecated,
+        },
     })
 }
 

@@ -109,8 +109,9 @@ impl Painter {
             );
         }
         self.text.prepare(device, queue, self.scene.quads());
+        let shapes = (self.scene.rounded(), self.scene.waves());
         self.shape
-            .prepare(device, queue, self.scene.rects(), self.scene.rounded());
+            .prepare(device, queue, self.scene.rects(), shapes);
     }
 
     /// Records the prepared frame into `view`.
@@ -135,6 +136,7 @@ impl Painter {
         });
         for layer in self.scene.layers() {
             self.shape.render(&mut pass, layer.rects.clone());
+            self.shape.render_waves(&mut pass, layer.waves.clone());
             self.shape.render_rounded(&mut pass, layer.rounded.clone());
             self.text.render(&mut pass, layer.quads.clone());
         }
@@ -801,6 +803,7 @@ mod tests {
                 whitespace: false,
                 flash: None,
                 highlights: None,
+                marks: crate::pane::TextMarks::NONE,
             }),
             ..pane(0, (0, 0, 3, 6), 0, Some(Face::Text), &[])
         }];
@@ -828,6 +831,77 @@ mod tests {
             (32, 47),
             INK(),
             "the row below reaches up past the label",
+        );
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn a_wave_swings_along_the_bottom_of_its_cells_and_draws_nothing_above_its_band() {
+        use crate::pane::{CursorStyle, TextView};
+        use oso_core::buffer::Buffer;
+        use oso_core::display_map::DisplayPoint;
+        use oso_core::window::{Screen, ViewSize, ViewTop};
+
+        // No text, so only the wave is drawn: under columns 0 to 7 of row 0, x 8..88, its band
+        // y 25..28.
+        let buffer = Buffer::from_text("t", "");
+        let mut screen = Screen::default();
+        screen.show_lines(&buffer.display(), ViewTop::default(), ViewSize::new(1, 10));
+        let cells = [CellRect {
+            row: 0,
+            column: 0,
+            rows: 1,
+            columns: 8,
+        }];
+        let underlines = [(Face::DiagnosticError, &cells[..])];
+        let panes = [Pane {
+            content: PaneContent::Text(TextView {
+                display: buffer.display(),
+                buffer: oso_core::editor::Editor::default().window().buffer(),
+                revision: 1,
+                screen: &screen,
+                cursor: DisplayPoint::new(1000, 0),
+                cursor_style: CursorStyle::None,
+                others: &[],
+                preedit: None,
+                fills: &[],
+                labels: &[],
+                whitespace: false,
+                flash: None,
+                highlights: None,
+                marks: crate::pane::TextMarks {
+                    underlines: &underlines,
+                    ..crate::pane::TextMarks::NONE
+                },
+            }),
+            ..pane(0, (0, 0, 1, 10), 0, Some(Face::Text), &[])
+        }];
+        let pixels = draw(&panes);
+        let (ink, paper) = (
+            eight_bit(theme().foreground(Face::DiagnosticError)),
+            eight_bit(PAPER()),
+        );
+        let inked = |x: u32, y: u32| {
+            (i32::from(red(&pixels, x, y)) - paper).abs() * 3 > (ink - paper).abs()
+        };
+        let mut lowest = Vec::new();
+        for x in 9..87 {
+            let rows: Vec<u32> = (25..28).filter(|&y| inked(x, y)).collect();
+            assert!(!rows.is_empty(), "the line at x {x}");
+            lowest.push(*rows.last().unwrap());
+            for y in (8..24).chain(29..40) {
+                assert!(!inked(x, y), "nothing at ({x}, {y}), outside the band");
+            }
+        }
+        for x in [7, 89] {
+            assert!(
+                (25..28).all(|y| !inked(x, y)),
+                "nothing past its cells at x {x}"
+            );
+        }
+        assert!(
+            lowest.iter().any(|&y| y != lowest[0]),
+            "it swings: {lowest:?}"
         );
     }
 }

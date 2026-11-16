@@ -1,13 +1,15 @@
 //! A tiled window's rows in a text-grid snapshot (ADR 0045, ADR 0112): each row, then the
-//! lines that mark its cells, the fills behind it, a jump's labels and a preedit's underline.
+//! lines that mark its cells, the fills behind it, a jump's labels, a language server's
+//! diagnostics and a preedit's underline.
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU; these run on every OS with no
 //! window.
 
 use std::ops::Range;
 
+use oso_core::diagnostic::Severity;
 use oso_core::display_map::Preedit;
-use oso_core::editor::{Editor, Gutter, JumpCells, ReviewCells};
+use oso_core::editor::{DiagnosticCells, Editor, Gutter, JumpCells, ReviewCells};
 use oso_core::frame::{self, CellRect, WindowRegions};
 use oso_core::motion;
 use oso_core::window::{Screen, WindowId};
@@ -15,7 +17,9 @@ use oso_core::window::{Screen, WindowId};
 use super::rows::{Style, blank_row, draw_row, screen_row};
 
 /// The gutter's text before each row in view, then `┆`, and the blank that stands for it
-/// before a line of marks: nothing with line numbers off (ADR 0097).
+/// before a line of marks: nothing with line numbers off and no sign column (ADR 0097). The
+/// sign column, while a server follows the buffer, is the gutter's first cell: `E`, `W` or `I`
+/// for its bar's severity, or a blank (ADR 0138).
 fn gutter_rows(
     editor: &Editor,
     (id, columns): (WindowId, usize),
@@ -27,9 +31,21 @@ fn gutter_rows(
     }
     let mut gutter = Gutter::default();
     editor.gutter_into(id, screen, &mut gutter);
+    let signs = gutter.signs();
+    let numbers = columns - usize::from(!signs.is_empty());
     let mut shown: Vec<String> = gutter
         .rows()
-        .map(|(text, _)| format!("{text:<columns$}┆"))
+        .enumerate()
+        .map(|(index, (text, _))| {
+            let sign = match signs.get(index) {
+                None => "",
+                Some(Some(Severity::Error)) => "E",
+                Some(Some(Severity::Warning)) => "W",
+                Some(Some(Severity::Information)) => "I",
+                Some(_) => " ",
+            };
+            format!("{sign}{text:<numbers$}┆")
+        })
         .collect();
     shown.resize(rows, format!("{}┆", " ".repeat(columns)));
     (shown, " ".repeat(columns + 1))
@@ -62,6 +78,8 @@ pub(super) fn draw_text_area(
     let mut others = Vec::new();
     editor.other_cursor_cells(id, screen, &mut others);
     let (fills, jump) = fills_of(editor, (id, screen), flash);
+    let mut diagnostics = DiagnosticCells::default();
+    editor.diagnostic_cells(id, screen, &mut diagnostics);
     let whitespace = editor.visual_aids().whitespace;
     for (index, gutter) in gutter.iter().enumerate() {
         let row = screen_row(screen, index, area.columns);
@@ -92,6 +110,7 @@ pub(super) fn draw_text_area(
             lines.push(format!(":{pad}{marks}:"));
         }
         draw_fills(&fills, &jump, (area, index), pad.as_str(), lines);
+        draw_diagnostics(&diagnostics, (area, index), pad.as_str(), lines);
         let on_row = screen
             .rows()
             .get(index)
@@ -170,6 +189,58 @@ fn draw_fills(
     }
     if let Some(keys) = keys {
         lines.push(format!("@{pad}{keys}@"));
+    }
+}
+
+/// The lines that mark the diagnostics' cells on the area's row `index`, as the renderer draws
+/// them (ADR 0138): one between `%` with `E`, `W` and `I` under the cells of each severity's
+/// wavy line, in lower case where the text is faded too, and `u` where it is only faded; and
+/// one between `$` with `s` under struck cells.
+fn draw_diagnostics(
+    found: &DiagnosticCells,
+    (area, index): (CellRect, usize),
+    pad: &str,
+    lines: &mut Vec<String>,
+) {
+    let row = area.row + index;
+    let on_row = |cells: &[CellRect]| -> Vec<Range<usize>> {
+        cells
+            .iter()
+            .filter(|cells| (cells.row..cells.row + cells.rows).contains(&row))
+            .map(|cells| {
+                let start = cells.column - area.column;
+                start..start + cells.columns
+            })
+            .collect()
+    };
+    let mut marks = vec![' '; area.columns];
+    for (cells, mark) in [
+        (&found.information, 'I'),
+        (&found.warning, 'W'),
+        (&found.error, 'E'),
+    ] {
+        for columns in on_row(cells) {
+            marks[columns].fill(mark);
+        }
+    }
+    for columns in on_row(&found.unnecessary) {
+        for mark in &mut marks[columns] {
+            *mark = if *mark == ' ' {
+                'u'
+            } else {
+                mark.to_ascii_lowercase()
+            };
+        }
+    }
+    if marks.iter().any(|&mark| mark != ' ') {
+        lines.push(format!("%{pad}{}%", marks.into_iter().collect::<String>()));
+    }
+    let mut struck = vec![' '; area.columns];
+    for columns in on_row(&found.deprecated) {
+        struck[columns].fill('s');
+    }
+    if struck.iter().any(|&mark| mark != ' ') {
+        lines.push(format!("${pad}{}$", struck.into_iter().collect::<String>()));
     }
 }
 

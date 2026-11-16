@@ -1,0 +1,48 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: let x: u8 = 300\\nuse std::fs;\\nold();\\nfn f() {}\\n"
+---
+keys: none
+│E┆let x: u8 = 300                        │
+:  ^                                      :
+%      WWWWWWWWEEEE                       %
+│ ┆use std::fs;                           │
+%  uuuuuuuuuuuu                           %
+│W┆old();                                 │
+%  WWW                                    %
+$  sss                                    $
+│I┆fn f() {}                              │
+%     I                                   %
+│ ┆                                       │
+=-- t.rs  lsp E2 W2 I1  1:0  Fundamental =
+"                                        "
+
+keys: M-x g l o b a l - d i s p l a y - l i n e - n u m b e r s - m o d e RET
+│E  1 ┆let x: u8 = 300                    │
+:      ^                                  :
+%          WWWWWWWWEEEE                   %
+│   2 ┆use std::fs;                       │
+%      uuuuuuuuuuuu                       %
+│W  3 ┆old();                             │
+%      WWW                                %
+$      sss                                $
+│I  4 ┆fn f() {}                          │
+%         I                               %
+│   5 ┆                                   │
+=-- t.rs  lsp E2 W2 I1  1:0  Fundamental =
+"Global Display-Line-Numbers mode enabled"
+
+keys: C-f C-f C-f C-f a
+│E  1 ┆let ax: u8 = 300                   │
+:           ^                             :
+%           WWWWWWWWEEEE                  %
+│   2 ┆use std::fs;                       │
+%      uuuuuuuuuuuu                       %
+│W  3 ┆old();                             │
+%      WWW                                %
+$      sss                                $
+│I  4 ┆fn f() {}                          │
+%         I                               %
+│   5 ┆                                   │
+=** t.rs  lsp E2 W2 I1  1:5  Fundamental =
+"                                        "

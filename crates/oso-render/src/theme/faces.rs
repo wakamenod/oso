@@ -7,7 +7,7 @@ use super::palettes::Name;
 use crate::pane::Face;
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-pub(super) const FACES: [Face; 100] = [
+pub(super) const FACES: [Face; 103] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -108,6 +108,9 @@ pub(super) const FACES: [Face; 100] = [
     Face::SessionFrontTint,
     Face::SessionPoint,
     Face::SessionPointBar,
+    Face::DiagnosticError,
+    Face::DiagnosticWarning,
+    Face::DiagnosticInfo,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -218,6 +221,9 @@ pub(super) const fn index(face: Face) -> usize {
         Face::SessionFrontTint => 97,
         Face::SessionPoint => 98,
         Face::SessionPointBar => 99,
+        Face::DiagnosticError => 100,
+        Face::DiagnosticWarning => 101,
+        Face::DiagnosticInfo => 102,
     }
 }
 
@@ -350,6 +356,12 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         // What a commit's line holds past its length, as magit's overlong summary, in the
         // warning's colour.
         Face::GitCommitOverlong => (Warning, BgMain),
+        // A language server's diagnostics (ADR 0138): a wavy line, a sign and a count, each in
+        // the foreground, in red, amber and blue, as Flymake and VS Code draw them. A
+        // warning's is the warning face's amber.
+        Face::DiagnosticError => (Terminal(9), BgMain),
+        Face::DiagnosticWarning => (Warning, BgMain),
+        Face::DiagnosticInfo => (FgInfo, BgMain),
     }
 }
 

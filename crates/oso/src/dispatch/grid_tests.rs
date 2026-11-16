@@ -30,6 +30,12 @@
 //! of the boxes of the cursors other than the primary, drawn as dim outlines, from
 //! `Editor::other_cursor_cells` (ADR 0091).
 //!
+//! In a buffer a language server follows, the gutter's first cell is its sign column, with
+//! `E`, `W` or `I` for a line's sign. A line between `%` below a row marks with `E`, `W` and `I`
+//! the cells of each severity's wavy line, in lower case where the text is faded too, and with
+//! `u` the cells only faded; a line between `$` marks struck cells with `s`. All of them come
+//! from `Editor::diagnostic_cells` and `Gutter::signs` (ADR 0138).
+//!
 //! With several tiled windows, each comes in the tree's order after a line that says where it
 //! is and whether it is selected; a divider at a window's right ends its rows and modeline with
 //! `┃`, and the modeline of a window that is not selected, as every window beneath a prompt,
@@ -55,6 +61,8 @@ use oso_core::window::{Screen, ViewSize};
 use super::Dispatcher;
 use super::motion_tests::drain;
 
+#[cfg(test)]
+mod diagnostics;
 #[cfg(test)]
 mod jumps;
 mod preview;
@@ -111,6 +119,9 @@ fn flashing_grid(editor: &Editor, flashing: bool) -> String {
             &status.name[..],
             &status.project[..],
             status.restricted,
+            // The server's state and its counts (ADR 0138), which the app draws in their faces.
+            &status.lsp[..],
+            &status.lsp_counts[..],
             &status.waits[..],
             &status.state[..],
         ];
