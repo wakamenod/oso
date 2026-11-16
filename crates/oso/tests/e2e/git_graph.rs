@@ -12,6 +12,7 @@ use super::git_status::{project, rows_until, trusted_status};
 use super::harness::{App, Scratch};
 use super::review::{git, rows};
 use super::typing;
+use super::worktrees::keys;
 
 fn wait_echo_starting(app: &mut App, what: &str, start: &str) {
     app.wait_for(what, |state| {
@@ -160,7 +161,7 @@ fn a_graph_tags_marks_a_range_picks_after_a_question_and_refuses_a_merge_s_rever
             .is_some_and(|name| name.starts_with("*review"))
     });
     // Back in the graph, `C` on `apart`'s commit, the marks taken off, picks it after a question.
-    app.send_keys(&format!("C-x b {} RET", typing("*graph: proj-git*")));
+    app.send_keys(&format!("C-x b {} RET", keys("*graph: proj-git*")));
     app.wait_for("the graph", |state| {
         state["buffer"]["name"] == "*graph: proj-git*"
     });
