@@ -168,6 +168,7 @@ fn initialize_claims_only_what_the_steps_use() {
                     },
                     "contextSupport": true,
                 },
+                "hover": {"contentFormat": ["markdown", "plaintext"]},
                 "publishDiagnostics": {
                     "versionSupport": true,
                     "tagSupport": {"valueSet": [1, 2]},

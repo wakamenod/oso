@@ -1,0 +1,88 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: fn main() {\\n    run();\\n}\\n"
+---
+keys: none
+│fn main() {                                       │
+:^                                                 :
+│    run();                                        │
+│}                                                 │
+│                                                  │
+│                                                  │
+│                                                  │
+│                                                  │
+│                                                  │
+│                                                  │
+│                                                  │
+│                                                  │
+│                                                  │
+│                                                  │
+│                                                  │
+=-- t.rs  lsp  1:0  Fundamental  UTF-8 LF          =
+"                                                  "
+description at row 1, column 0: 13 x 50
+┊fake                                            ┊
+┊```rust                                         ┊
+┊fn main()                                       ┊
+┊```                                             ┊
+┊                                                ┊
+┊The program's *entry*, which runs first and a   ┊
+┊little more than fits.                          ┊
+┊                                                ┊
+┊Line 1.                                         ┊
+┊Line 2.                                         ┊
+┊Line 3.                                         ┊
+┊Line 4.                                         ┊
+┊Line 5.                                         ┊
+
+keys: C-v
+│ ┆fn main() {                                      │
+:  ^                                                :
+│ ┆    run();                                       │
+│ ┆}                                                │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+=-- t.rs  lsp  1:0  Fundamental  UTF-8 LF          =
+"                                                  "
+description at row 1, column 1: 13 x 49
+┊Line 1.                                        ┊
+┊Line 2.                                        ┊
+┊Line 3.                                        ┊
+┊Line 4.                                        ┊
+┊Line 5.                                        ┊
+┊Line 6.                                        ┊
+┊Line 7.                                        ┊
+┊Line 8.                                        ┊
+┊Line 9.                                        ┊
+┊Line 10.                                       ┊
+┊Line 11.                                       ┊
+┊Line 12.                                       ┊
+┊                                               ┊
+
+keys: C-f
+│ ┆fn main() {                                      │
+:   ^                                               :
+│ ┆    run();                                       │
+│ ┆}                                                │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+=-- t.rs  lsp  1:1  Fundamental  UTF-8 LF          =
+"                                                  "

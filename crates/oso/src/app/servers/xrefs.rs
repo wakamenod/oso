@@ -96,6 +96,12 @@ impl App {
         (kind, asked, asker): (AskKind, BufferId, Asker),
         places: &[Location],
     ) {
+        let kind = match kind {
+            AskKind::Definition => XrefKind::Definitions,
+            AskKind::References => XrefKind::References,
+            // Completions are no places, and a description goes to its float: neither comes here.
+            AskKind::Completion | AskKind::Resolve | AskKind::Hover => return,
+        };
         let Some(running) = self.servers.running.get(index) else {
             return;
         };
@@ -110,11 +116,6 @@ impl App {
         if !reads {
             snapshot.read_max = 0;
         }
-        let kind = match kind {
-            AskKind::Definition => XrefKind::Definitions,
-            // Completions are no places; they never come here.
-            AskKind::References | AskKind::Completion | AskKind::Resolve => XrefKind::References,
-        };
         if let Some(old) = self.servers.xrefs.stop() {
             self.freer.free(old);
         }

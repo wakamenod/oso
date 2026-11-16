@@ -60,6 +60,10 @@ pub const EXTRA_EDIT_LINES_MAX: u32 = 8;
 pub const DIAGNOSTIC_MESSAGE_BYTES_MAX: usize = 8 << 10;
 /// The most bytes kept of hover or documentation text (steps 9 and 10).
 pub const HOVER_BYTES_MAX: usize = 64 << 10;
+/// The most pieces of a hover's list of `MarkedString`s read (step 10).
+pub const HOVER_PIECES_MAX: usize = 256;
+/// The most bytes of the language a hover's fenced block names (step 10).
+pub const HOVER_LANGUAGE_BYTES_MAX: usize = 32;
 
 /// The most bytes kept of a diagnostic's source and of its code, each (step 6).
 pub const DIAGNOSTIC_LABEL_BYTES_MAX: usize = 256;

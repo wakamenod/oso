@@ -332,12 +332,28 @@ fn bind_menus(keymap: &mut Keymap, registry: &Registry, table: &[(&str, &str)]) 
     }
 }
 
-/// The commands the layer of `C-x TAB` runs rather than closes for.
-pub fn rigid_commands(registry: &Registry) -> Vec<oso_core::command::CommandId> {
-    indent::RIGID
+/// The keys of a server's description at point, while it shows (ADR 0138, Hover). Empty for a
+/// registry without its commands, as in tests that bring their own.
+pub fn hover_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, lsp::HOVER).unwrap_or_default()
+}
+
+/// The commands a description's layer runs rather than closes for.
+pub fn hover_commands(registry: &Registry) -> Vec<oso_core::command::CommandId> {
+    commands_of(registry, lsp::HOVER)
+}
+
+/// The commands `table` binds, of those `registry` has.
+fn commands_of(registry: &Registry, table: &[(&str, &str)]) -> Vec<oso_core::command::CommandId> {
+    table
         .iter()
         .filter_map(|&(_, name)| registry.lookup(name))
         .collect()
+}
+
+/// The commands the layer of `C-x TAB` runs rather than closes for.
+pub fn rigid_commands(registry: &Registry) -> Vec<oso_core::command::CommandId> {
+    commands_of(registry, indent::RIGID)
 }
 
 /// The keymaps of the list of emergency copies and of a buffer showing one, above the global

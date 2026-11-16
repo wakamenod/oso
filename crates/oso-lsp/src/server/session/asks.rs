@@ -1,7 +1,8 @@
-//! The UI's asks about documents on the session thread (ADR 0138, step 8): each becomes a
-//! request at the position its offset is in the text the server has, a newer one cancelling
-//! the older of its kind for the document, and each answer, or the end of its wait or of the
-//! run, becomes an [`Answer`] for the UI.
+//! The UI's asks about documents on the session thread (ADR 0138, steps 8 and 10): each becomes
+//! a request at the position its offset is in the text the server has, a newer one cancelling
+//! the older of its kind for the document, and each answer, the places of a definition or the
+//! text of a description, or the end of its wait or of the run, becomes an [`Answer`] for the
+//! UI.
 //!
 //! Must not depend on: the process or the pipes; the run sends, and the reporter hands over.
 
@@ -14,7 +15,8 @@ use crate::protocol::{self, Outcome};
 use crate::uri;
 
 use super::super::{
-    Answer, Answered, Ask, AskContext, AskKind, Completion, Completions, Location, Resolved, Target,
+    Answer, Answered, Ask, AskContext, AskFailure, AskKind, Completion, Completions, Location,
+    Resolved, Target,
 };
 use super::run::{LastItems, Run};
 use super::{Asked, Session};
@@ -46,7 +48,9 @@ impl Session {
         };
         let at = position::from_offset(text, ask.offset, run.encoding);
         let params = match (ask.kind, ask.context) {
-            (AskKind::Definition, AskContext::None) => protocol::position_params(uri, at),
+            (AskKind::Definition | AskKind::Hover, AskContext::None) => {
+                protocol::position_params(uri, at)
+            }
             (AskKind::References, AskContext::None) => protocol::references_params(uri, at),
             (AskKind::Completion, AskContext::Completion(invoked)) => {
                 protocol::completion_params(uri, at, invoked)
@@ -118,6 +122,7 @@ impl Session {
         match ask.kind {
             AskKind::Completion => return self.completed(run, (id, ask), result, took),
             AskKind::Resolve => return self.resolved(run, (id, ask), &result, took),
+            AskKind::Hover => return self.answered_hover(id, ask, &result, took),
             AskKind::Definition | AskKind::References => {}
         }
         let (located, left) = protocol::located(&result);
@@ -165,6 +170,23 @@ impl Session {
             kind: ask.kind,
             revision: ask.revision,
             outcome: Ok(Answered::Places(locations)),
+        });
+    }
+
+    /// The answer to the description `ask`, request `id`, which took `took` ms: its text, which
+    /// only its size reaches `*LSP*`, as it may quote what the server read.
+    fn answered_hover(&mut self, id: i64, ask: Ask, result: &serde_json::Value, took: u128) {
+        let hover = protocol::hover(result);
+        self.reporter.log(format!(
+            "request {id} answered with {} bytes of description in {took} ms",
+            hover.as_ref().map_or(0, |hover| hover.text.len())
+        ));
+        self.reporter.answer(Answer {
+            serial: ask.serial,
+            document: ask.document,
+            kind: ask.kind,
+            revision: ask.revision,
+            outcome: Ok(Answered::Hover(hover)),
         });
     }
 
@@ -285,10 +307,7 @@ impl Session {
             "request {id} not answered within {} s, cancelled",
             ask.kind.wait().as_secs()
         ));
-        self.fail(
-            ask,
-            format!("no answer within {} s", ask.kind.wait().as_secs()),
-        );
+        self.answer_failed(ask, AskFailure::Overdue);
         run.send(&protocol::notification(
             "$/cancelRequest",
             json!({"id": id}),
@@ -311,12 +330,16 @@ impl Session {
     }
 
     fn fail(&mut self, ask: Ask, why: String) {
+        self.answer_failed(ask, AskFailure::Other(why));
+    }
+
+    fn answer_failed(&mut self, ask: Ask, failure: AskFailure) {
         self.reporter.answer(Answer {
             serial: ask.serial,
             document: ask.document,
             kind: ask.kind,
             revision: ask.revision,
-            outcome: Err(why),
+            outcome: Err(failure),
         });
     }
 }

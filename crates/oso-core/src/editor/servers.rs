@@ -4,13 +4,15 @@
 //! the diagnostics at point (step 6), and the list of a project's (`M-g d`, step 6b,
 //! `diagnostics_list`, sharing `listed` with the list of an answer's places); the jumps an
 //! answer leads to, and back (step 8, `jumps`), and the list of an answer's places (step 8b,
-//! `xref_list`); and the completion popup (step 9, `popup`), with what it takes after it opened
-//! and what the person typed (step 9b).
+//! `xref_list`); the completion popup (step 9, `popup`), with what it takes after it opened
+//! and what the person typed (step 9b); and the description of what is at point in a float
+//! there (step 10, `hover`).
 //!
 //! Must not depend on: the host's servers, threads or I/O; a command asks, and the host takes
 //! the request after the command and acts on the server.
 
 mod diagnostics_list;
+mod hover;
 mod jumps;
 mod listed;
 mod popup;
@@ -21,6 +23,7 @@ use crate::buffer::{Buffer, BufferId};
 /// Where on a line a server's place is: the host turns the server's encoding into one.
 pub use super::visits::VisitColumn;
 pub use diagnostics_list::{DiagnosticRow, DiagnosticRows, DiagnosticsRequest};
+pub use hover::HoverShown;
 pub use jumps::AskAt;
 pub use listed::{ListedAt, ListedHit};
 pub use popup::{
@@ -49,6 +52,8 @@ pub(super) struct Servers {
     inserted: Option<popup::Inserted>,
     /// Where the person last typed, for the host to judge whether to complete (step 9b).
     typed: Option<AskAt>,
+    /// The description shown at point, `C-c C-d` (step 10).
+    pub(super) hover: hover::Hover,
     log: Option<BufferId>,
 }
 
@@ -70,6 +75,8 @@ pub enum ServerRequest {
     /// `lsp-go-to-xref`: go to the row the list of a server's places took
     /// ([`Editor::take_xref_hit`]), as an answer's jump goes (step 8b).
     GoToXref,
+    /// `lsp-describe-at-point` (step 10).
+    Describe(AskAt),
 }
 
 impl Editor {

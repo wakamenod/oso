@@ -1,5 +1,5 @@
 //! Drawing: the window and its renderer, and what a frame shows: every tiled window, the echo
-//! area and a prompt's float (ADR 0112).
+//! area, a server's description at point (ADR 0138) and a prompt's float (ADR 0112).
 //!
 //! Must not depend on: key presses or commands. Before a frame it takes in what
 //! has loaded and fits the gutter to it, as a load is no input, and sets `*Spaces*`' modeline
@@ -13,6 +13,7 @@
 use std::time::Instant;
 
 use oso_core::editor::{Editor, MatchCells, Status};
+use oso_core::frame::CellRect;
 use oso_core::window::{Screen, WindowId};
 use oso_render::{
     Bands, Face, GridRow, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Span,
@@ -43,6 +44,10 @@ pub(super) struct Cells {
     pub(super) flash: Option<f32>,
     answer: Screen,
     preview: Screen,
+    /// The rows of a server's description at point, and the cells of its first row, which
+    /// names the server and is drawn dim (ADR 0138).
+    hover: Screen,
+    hover_named: Vec<CellRect>,
     /// The matches a project search's preview shows (ADR 0114).
     preview_matches: MatchCells,
     /// Room for the spans and rows each frame lists, empty between frames.
@@ -94,8 +99,7 @@ pub(super) fn with_frame<R>(
     let menu_shown = cells.menu.update(editor, open_menu);
     tiled::fill(editor, bands, &mut cells.windows);
     editor.prompt_screen(&mut cells.answer);
-    editor.preview_screen(&mut cells.preview);
-    editor.preview_cells(&cells.preview, &mut cells.preview_matches);
+    fill_float_screens(editor, cells);
     let empty = Status::default();
     let status = tiled::tiled_status(editor, statuses).unwrap_or(&empty);
     let echo = [
@@ -138,6 +142,9 @@ pub(super) fn with_frame<R>(
         (Face::SearchCurrent, &cells.preview_matches.current[..]),
         (Face::SearchMatch, &cells.preview_matches.others[..]),
     ];
+    // A description at point goes over the tiled panes, under a prompt's float, which closes
+    // it anyway.
+    float::hover_panes(editor, (&cells.hover, &cells.hover_named), &mut list);
     if let (Some(parts), Some(lines)) = (&float, &lines) {
         let screens = float::Screens {
             answer: &cells.answer,
@@ -173,6 +180,23 @@ pub(super) fn with_frame<R>(
     tiled::give_back_spans(&mut room, spans);
     cells.room = room;
     result
+}
+
+/// The rows the floats over the windows show into `cells`: a prompt's preview with the matches
+/// of a search in it, and a server's description at point (ADR 0138).
+fn fill_float_screens(editor: &Editor, cells: &mut Cells) {
+    editor.preview_screen(&mut cells.preview);
+    editor.preview_cells(&cells.preview, &mut cells.preview_matches);
+    editor.hover_screen(&mut cells.hover);
+    cells.hover_named.clear();
+    let named = editor.hover().filter(|shown| shown.top() == 0);
+    if let (Some(regions), Some(shown)) = (editor.hover_layout(), named) {
+        cells.hover_named.push(CellRect {
+            rows: 1,
+            columns: shown.label().min(regions.inner.columns),
+            ..regions.inner
+        });
+    }
 }
 
 /// The echo area's pane, showing `echo`. It has no background of its own, so that nothing marks

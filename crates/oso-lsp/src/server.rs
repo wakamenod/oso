@@ -39,7 +39,8 @@ use oso_platform::process::{Child, Executable, Signal};
 use serde_json::Value;
 
 pub use asks::{
-    Answer, Answered, Ask, AskContext, AskKind, Completion, Completions, Location, Resolved, Target,
+    Answer, Answered, Ask, AskContext, AskFailure, AskKind, Completion, Completions, Location,
+    Resolved, Target,
 };
 
 use crate::framing::{Frame, FrameError};
