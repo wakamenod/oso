@@ -115,6 +115,7 @@ impl Buffer {
         self.display = staged.display;
         self.revision += 1;
         self.edited.follow(&staged.edits);
+        self.follow_diagnostics(staged.highlighting.batch(), &staged.edits);
         self.highlighting.commit(self.revision, staged.highlighting);
         if self.no_history {
             return;

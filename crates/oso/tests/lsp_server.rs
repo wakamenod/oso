@@ -25,6 +25,7 @@ struct Seen {
     log: Vec<String>,
     shown: Vec<(Severity, String)>,
     documents: Vec<(u64, Option<oso_lsp::server::Closed>)>,
+    diagnosed: Vec<oso_lsp::server::Diagnosed>,
     dir: PathBuf,
 }
 
@@ -78,6 +79,7 @@ fn started(name: &str, script: &Value, gate: Gate) -> Seen {
         log: Vec::new(),
         shown: Vec::new(),
         documents: Vec::new(),
+        diagnosed: Vec::new(),
         dir,
     }
 }
@@ -107,6 +109,7 @@ impl Seen {
         self.shown
             .extend(report.shown.into_iter().map(|s| (s.severity, s.text)));
         self.documents.extend(report.documents);
+        self.diagnosed.extend(report.diagnostics);
     }
 
     /// Waits up to `limit` for `done`, taking each report.
@@ -480,6 +483,7 @@ fn a_crash_ends_what_the_server_left_in_its_group() {
         log: Vec::new(),
         shown: Vec::new(),
         documents: Vec::new(),
+        diagnosed: Vec::new(),
         dir,
     };
     seen.until(LIMIT, |seen| {
@@ -597,6 +601,7 @@ fn the_server_s_copy_follows_random_batches(encoding: &str, seed: u64) {
         uri: "file:///w/p/main.rs".into(),
         language_id: "rust".into(),
         text: Rope::from(text.as_str()),
+        revision: 0,
     });
     let mut expected = vec![(1, fnv(text.as_bytes()))];
     // Batches before the server is ready only change what it is opened with: one version.
@@ -609,6 +614,7 @@ fn the_server_s_copy_follows_random_batches(encoding: &str, seed: u64) {
             before: Rope::from(text.as_str()),
             after: Rope::from(after.as_str()),
             splices: Some(splices),
+            revision: 0,
         });
         text = after;
         expected.push((version, fnv(text.as_bytes())));
@@ -649,6 +655,7 @@ fn a_lone_carriage_return_closes_the_document() {
         uri: "file:///w/p/a.rs".into(),
         language_id: "rust".into(),
         text: Rope::from("a\r\nb"),
+        revision: 0,
     });
     seen.until(LIMIT, |seen| seen.logged(" v1 "));
     // The \n of the \r\n deleted.
@@ -661,6 +668,7 @@ fn a_lone_carriage_return_closes_the_document() {
             old_len: 1,
             new_len: 0,
         }]),
+        revision: 0,
     });
     seen.until(LIMIT, |seen| {
         seen.logged("stderr: closed file:///w/p/a.rs") && seen.documents.len() == 2
@@ -684,12 +692,14 @@ fn batches_before_the_server_is_ready_go_with_its_open() {
         uri: "file:///w/p/b.rs".into(),
         language_id: "rust".into(),
         text: Rope::from("a"),
+        revision: 0,
     });
     seen.server.change(Change {
         id: 1,
         before: Rope::from("a"),
         after: Rope::from("ab"),
         splices: None,
+        revision: 0,
     });
     seen.until(LIMIT, |seen| seen.logged(" v1 "));
     let hash = format!("len=2 hash={:016x}", fnv(b"ab"));
@@ -716,6 +726,7 @@ fn a_followed_buffers_batches_keep_the_copy(encoding: &str, seed: u64) {
         uri: "file:///w/p/t.rs".into(),
         language_id: "rust".into(),
         text: text(&editor),
+        revision: 0,
     });
     seen.until(LIMIT, |seen| seen.logged(" v1 "));
     let mut sent = text(&editor);
@@ -755,6 +766,7 @@ fn a_followed_buffers_batches_keep_the_copy(encoding: &str, seed: u64) {
             before: sent,
             after: after.clone(),
             splices: buffer.edits_since(revision),
+            revision: buffer.revision(),
         });
         revision = buffer.revision();
         last_hash = fnv(after.to_string().as_bytes());
@@ -803,11 +815,215 @@ fn many_large_documents_open_as_room_comes() {
             uri: format!("file:///w/p/large{id}.rs"),
             language_id: "rust".into(),
             text: text.clone(),
+            revision: 0,
         });
     }
     seen.until(Duration::from_secs(60), |seen| {
         (0..12).all(|id| seen.logged(&format!("/large{id}.rs v1 ")))
     });
     assert!(!seen.logged("crashed: "), "{:?}", seen.log);
+    seen.server.shut_down();
+}
+
+/// Random edits before a word, made by the editor, then a report for the version the document
+/// opened as, which the server sends on the save after them: placed against that text on the
+/// session thread, mapped forward through each batch, and taken by the buffer, it covers the
+/// word where it is now (ADR 0138, step 6).
+fn a_report_for_the_first_version_lands_on_the_word_after_random_batches(
+    encoding: &str,
+    seed: u64,
+) {
+    use oso_core::buffer::{Buffer, Replacement};
+    use oso_core::editor::Editor;
+    use oso_lsp::server::{Change, Diagnosed, Document};
+    let first = "fn main() {\r\n    let é = \"日\u{1F600}\";\n}\n// marker\n";
+    let name = format!("diagnosed-{encoding}-{seed}");
+    // A file of the project `started` makes, as a report for one outside it is dropped.
+    let uri = oso_lsp::uri::from_path(&scratch(&name).join("t.rs")).unwrap();
+    let script = word_reported_on_save(encoding, &uri, first);
+    let mut seen = started(&name, &script, open());
+    let mut editor = Editor::with_buffer(Buffer::from_text("t.rs", first));
+    let id = editor.window().buffer();
+    editor.buffer_mut(id).unwrap().set_followed(true);
+    let mut revision = editor.buffer(id).unwrap().revision();
+    let mut sent = editor.buffer(id).unwrap().text().clone();
+    seen.server.open(Document {
+        id: 9,
+        uri,
+        language_id: "rust".into(),
+        text: sent.clone(),
+        revision,
+    });
+    seen.until(LIMIT, |seen| seen.logged(" v1 "));
+    let mut rng = Lcg(seed);
+    // Fewer batches than the 16 texts kept, so that version 1 is still there.
+    for _ in 0..12 {
+        if rng.below(5) == 0 {
+            let _ = editor.undo();
+        } else {
+            let edits = edits_before_the_word(&mut rng, &sent.to_string());
+            editor.apply_edits(id, &edits).unwrap();
+        }
+        let buffer = editor.buffer(id).unwrap();
+        if buffer.revision() == revision {
+            continue;
+        }
+        let after = buffer.text().clone();
+        seen.server.change(Change {
+            id: 9,
+            before: sent,
+            after: after.clone(),
+            splices: buffer.edits_since(revision),
+            revision: buffer.revision(),
+        });
+        revision = buffer.revision();
+        sent = after;
+    }
+    seen.server.save(9);
+    seen.until(LIMIT, |seen| !seen.diagnosed.is_empty());
+    let Diagnosed::Open {
+        id: document,
+        revision: reported,
+        diagnostics,
+    } = seen.diagnosed.pop().unwrap();
+    assert_eq!(document, 9);
+    // A batch more before the buffer takes it, which the buffer maps it through.
+    editor
+        .apply_edits(
+            id,
+            &[Replacement {
+                range: 0..0,
+                text: "// new\n",
+            }],
+        )
+        .unwrap();
+    let buffer = editor.buffer_mut(id).unwrap();
+    assert!(
+        buffer.take_diagnostics(reported, diagnostics),
+        "seed {seed}"
+    );
+    let text = buffer.text().to_string();
+    let set = buffer.diagnostics().unwrap();
+    assert_eq!(set.len(), 1);
+    let range = set.get(0).unwrap().range();
+    assert_eq!(&text[range], "marker", "seed {seed}");
+    assert_eq!(set.server(), "fake");
+    seen.server.shut_down();
+}
+
+/// The fake server's script for the test above: on a save, a report for version 1 of `first`
+/// over the word `marker`, in `encoding`.
+fn word_reported_on_save(encoding: &str, uri: &str, first: &str) -> Value {
+    use oso_lsp::position::{self, Encoding};
+    let rope = oso_core::rope::Rope::from(first);
+    let units = if encoding == "utf-8" {
+        Encoding::Utf8
+    } else {
+        Encoding::Utf16
+    };
+    let at = first.find("marker").unwrap();
+    let place = |offset| {
+        let p = position::from_offset(&rope, offset, units);
+        json!({"line": p.line, "character": p.character})
+    };
+    let mut script = syncing(encoding);
+    script["rules"].as_array_mut().unwrap().push(json!({
+        "method": "textDocument/didSave",
+        "do": [{"notify": {"method": "textDocument/publishDiagnostics", "params": {
+            "uri": uri,
+            "version": 1,
+            "diagnostics": [{
+                "range": {"start": place(at), "end": place(at + "marker".len())},
+                "severity": 1,
+                "message": "a word",
+            }],
+        }}}],
+    }));
+    script
+}
+
+/// A random batch of edits of `text` before its `// marker` line.
+fn edits_before_the_word(rng: &mut Lcg, text: &str) -> Vec<oso_core::buffer::Replacement<'static>> {
+    let before_word = text.find("// marker").unwrap();
+    let (splices, _) = random_batch(rng, &text[..before_word]);
+    let inserts = ["x", "é", "\u{1F600}", "\n", "\r\n", ""];
+    splices
+        .iter()
+        .filter(|splice| splice.start + splice.old_len < before_word)
+        .map(|splice| oso_core::buffer::Replacement {
+            range: splice.start..splice.start + splice.old_len,
+            text: inserts[splice.new_len % 6],
+        })
+        .collect()
+}
+
+#[test]
+fn a_report_for_the_first_version_lands_on_the_word_in_utf_8() {
+    for seed in [5, 6, 7] {
+        a_report_for_the_first_version_lands_on_the_word_after_random_batches("utf-8", seed);
+    }
+}
+
+#[test]
+fn a_report_for_the_first_version_lands_on_the_word_in_utf_16() {
+    for seed in [8, 9, 10] {
+        a_report_for_the_first_version_lands_on_the_word_after_random_batches("utf-16", seed);
+    }
+}
+
+/// A report for a file outside the project, in a sibling whose name the root's is the start of,
+/// through `..`, or whose name may hold secrets, is dropped and counted in `*LSP*`; one for a
+/// file not open is kept, and goes to the UI once it opens.
+#[test]
+fn reports_outside_the_project_or_for_secrets_are_dropped_and_a_kept_one_follows_an_open() {
+    use oso_lsp::server::{Diagnosed, Document};
+    let report = |uri: &str| {
+        json!({"notify": {"method": "textDocument/publishDiagnostics", "params": {
+            "uri": uri,
+            "diagnostics": [{
+                "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}},
+                "message": "m",
+            }],
+        }}})
+    };
+    // The directory `started` makes for this test, so that the URIs can name files in it.
+    let dir = scratch("diagnosed-dropped");
+    let inside = |name: &str| oso_lsp::uri::from_path(&dir.join(name)).unwrap();
+    let mut sibling = dir.clone().into_os_string();
+    sibling.push("x");
+    let sibling = oso_lsp::uri::from_path(&PathBuf::from(sibling).join("a.rs")).unwrap();
+    let through = format!("{}/../a.rs", inside("src"));
+    let mut script = syncing("utf-8");
+    script["rules"].as_array_mut().unwrap().insert(
+        0,
+        json!({"method": "initialized", "do": [
+            report("file:///elsewhere/a.rs"),
+            report(&sibling),
+            report(&through),
+            report(&inside(".env")),
+            report(&inside("later.rs")),
+        ]}),
+    );
+    let mut seen = started("diagnosed-dropped", &script, open());
+    seen.until(LIMIT, |seen| seen.logged("dropped 4 diagnostics reports"));
+    assert!(seen.diagnosed.is_empty());
+    seen.server.open(Document {
+        id: 4,
+        uri: inside("later.rs"),
+        language_id: "rust".into(),
+        text: oso_core::rope::Rope::from("abc"),
+        revision: 3,
+    });
+    seen.until(LIMIT, |seen| !seen.diagnosed.is_empty());
+    let Diagnosed::Open {
+        id,
+        revision,
+        diagnostics,
+    } = seen.diagnosed.pop().unwrap();
+    assert_eq!((id, revision, diagnostics.len()), (4, 3, 1));
+    assert!(
+        !seen.log.iter().any(|line| line.contains(".env")),
+        "never named"
+    );
     seen.server.shut_down();
 }

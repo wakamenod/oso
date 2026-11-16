@@ -185,6 +185,7 @@ impl App {
             uri,
             language_id: language_id(mode, &path).to_owned(),
             text: text.clone(),
+            revision,
         });
         self.servers.running[index].documents.insert(
             id,
@@ -259,6 +260,7 @@ impl App {
                     before: std::mem::replace(&mut open.text, after.clone()),
                     after,
                     splices,
+                    revision: buffer.revision(),
                 });
                 open.revision = buffer.revision();
             }

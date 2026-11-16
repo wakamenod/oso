@@ -270,6 +270,9 @@ pub fn oso_core::buffer::Buffer::open_waits(&self) -> oso_core::buffer::Starts
 pub fn oso_core::buffer::Buffer::save_waits(&self) -> oso_core::buffer::Starts
 pub fn oso_core::buffer::Buffer::waits(&self) -> oso_core::buffer::Starts
 impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::diagnostics(&self) -> core::option::Option<&oso_core::diagnostic::Diagnostics>
+pub fn oso_core::buffer::Buffer::take_diagnostics(&mut self, u64, oso_core::diagnostic::Diagnostics) -> bool
+impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::directory(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::buffer::Buffer::naming(&self) -> u32
 pub fn oso_core::buffer::Buffer::project(&self) -> core::option::Option<oso_core::project::ProjectId>
@@ -797,6 +800,106 @@ impl core::iter::traits::iterator::Iterator for oso_core::decode::InvalidIter<'_
 pub type oso_core::decode::InvalidIter<'_>::Item = (usize, u8)
 pub fn oso_core::decode::InvalidIter<'_>::next(&mut self) -> core::option::Option<(usize, u8)>
 pub const oso_core::decode::BOM: &[u8]
+pub mod oso_core::diagnostic
+pub enum oso_core::diagnostic::Severity
+pub oso_core::diagnostic::Severity::Error
+pub oso_core::diagnostic::Severity::Hint
+pub oso_core::diagnostic::Severity::Information
+pub oso_core::diagnostic::Severity::Warning
+impl core::clone::Clone for oso_core::diagnostic::Severity
+pub fn oso_core::diagnostic::Severity::clone(&self) -> oso_core::diagnostic::Severity
+impl core::cmp::Eq for oso_core::diagnostic::Severity
+impl core::cmp::Ord for oso_core::diagnostic::Severity
+pub fn oso_core::diagnostic::Severity::cmp(&self, &oso_core::diagnostic::Severity) -> core::cmp::Ordering
+impl core::cmp::PartialEq for oso_core::diagnostic::Severity
+pub fn oso_core::diagnostic::Severity::eq(&self, &oso_core::diagnostic::Severity) -> bool
+impl core::cmp::PartialOrd for oso_core::diagnostic::Severity
+pub fn oso_core::diagnostic::Severity::partial_cmp(&self, &oso_core::diagnostic::Severity) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for oso_core::diagnostic::Severity
+pub fn oso_core::diagnostic::Severity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::diagnostic::Severity
+pub fn oso_core::diagnostic::Severity::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::diagnostic::Severity
+impl core::marker::StructuralPartialEq for oso_core::diagnostic::Severity
+pub struct oso_core::diagnostic::Counts
+pub oso_core::diagnostic::Counts::errors: u32
+pub oso_core::diagnostic::Counts::information: u32
+pub oso_core::diagnostic::Counts::warnings: u32
+impl core::clone::Clone for oso_core::diagnostic::Counts
+pub fn oso_core::diagnostic::Counts::clone(&self) -> oso_core::diagnostic::Counts
+impl core::cmp::Eq for oso_core::diagnostic::Counts
+impl core::cmp::PartialEq for oso_core::diagnostic::Counts
+pub fn oso_core::diagnostic::Counts::eq(&self, &oso_core::diagnostic::Counts) -> bool
+impl core::default::Default for oso_core::diagnostic::Counts
+pub fn oso_core::diagnostic::Counts::default() -> oso_core::diagnostic::Counts
+impl core::fmt::Debug for oso_core::diagnostic::Counts
+pub fn oso_core::diagnostic::Counts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::diagnostic::Counts
+pub fn oso_core::diagnostic::Counts::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::diagnostic::Counts
+impl core::marker::StructuralPartialEq for oso_core::diagnostic::Counts
+pub struct oso_core::diagnostic::Diagnostic<'a>
+impl<'a> oso_core::diagnostic::Diagnostic<'a>
+pub fn oso_core::diagnostic::Diagnostic<'a>::code(&self) -> &'a str
+pub fn oso_core::diagnostic::Diagnostic<'a>::first_line(&self) -> &'a str
+pub fn oso_core::diagnostic::Diagnostic<'a>::message(&self) -> &'a str
+pub fn oso_core::diagnostic::Diagnostic<'a>::range(&self) -> core::ops::range::Range<usize>
+pub fn oso_core::diagnostic::Diagnostic<'a>::severity(&self) -> oso_core::diagnostic::Severity
+pub fn oso_core::diagnostic::Diagnostic<'a>::source(&self) -> &'a str
+pub fn oso_core::diagnostic::Diagnostic<'a>::tags(&self) -> oso_core::diagnostic::Tags
+impl core::fmt::Debug for oso_core::diagnostic::Diagnostic<'_>
+pub fn oso_core::diagnostic::Diagnostic<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::clone::Clone for oso_core::diagnostic::Diagnostic<'a>
+pub fn oso_core::diagnostic::Diagnostic<'a>::clone(&self) -> oso_core::diagnostic::Diagnostic<'a>
+impl<'a> core::marker::Copy for oso_core::diagnostic::Diagnostic<'a>
+pub struct oso_core::diagnostic::Diagnostics
+impl oso_core::diagnostic::Diagnostics
+pub fn oso_core::diagnostic::Diagnostics::at(&self, usize) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::diagnostic::Diagnostic<'_>>
+pub fn oso_core::diagnostic::Diagnostics::counts(&self) -> oso_core::diagnostic::Counts
+pub fn oso_core::diagnostic::Diagnostics::get(&self, usize) -> core::option::Option<oso_core::diagnostic::Diagnostic<'_>>
+pub fn oso_core::diagnostic::Diagnostics::in_range(&self, core::ops::range::Range<usize>) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::diagnostic::Diagnostic<'_>>
+pub fn oso_core::diagnostic::Diagnostics::is_empty(&self) -> bool
+pub fn oso_core::diagnostic::Diagnostics::iter(&self) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::diagnostic::Diagnostic<'_>>
+pub fn oso_core::diagnostic::Diagnostics::len(&self) -> usize
+pub fn oso_core::diagnostic::Diagnostics::new<'a>(&str, impl core::iter::traits::collect::IntoIterator<Item = oso_core::diagnostic::New<'a>>, usize) -> Self
+pub fn oso_core::diagnostic::Diagnostics::server(&self) -> &str
+pub fn oso_core::diagnostic::Diagnostics::splice(&mut self, &[oso_core::syntax::Splice])
+pub fn oso_core::diagnostic::Diagnostics::step(&self, usize, bool) -> core::option::Option<(oso_core::diagnostic::Diagnostic<'_>, bool)>
+impl core::clone::Clone for oso_core::diagnostic::Diagnostics
+pub fn oso_core::diagnostic::Diagnostics::clone(&self) -> oso_core::diagnostic::Diagnostics
+impl core::cmp::Eq for oso_core::diagnostic::Diagnostics
+impl core::cmp::PartialEq for oso_core::diagnostic::Diagnostics
+pub fn oso_core::diagnostic::Diagnostics::eq(&self, &oso_core::diagnostic::Diagnostics) -> bool
+impl core::fmt::Debug for oso_core::diagnostic::Diagnostics
+pub fn oso_core::diagnostic::Diagnostics::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::diagnostic::Diagnostics
+pub struct oso_core::diagnostic::New<'a>
+pub oso_core::diagnostic::New::code: &'a str
+pub oso_core::diagnostic::New::message: &'a str
+pub oso_core::diagnostic::New::range: core::ops::range::Range<usize>
+pub oso_core::diagnostic::New::severity: oso_core::diagnostic::Severity
+pub oso_core::diagnostic::New::source: &'a str
+pub oso_core::diagnostic::New::tags: oso_core::diagnostic::Tags
+impl<'a> core::clone::Clone for oso_core::diagnostic::New<'a>
+pub fn oso_core::diagnostic::New<'a>::clone(&self) -> oso_core::diagnostic::New<'a>
+impl<'a> core::fmt::Debug for oso_core::diagnostic::New<'a>
+pub fn oso_core::diagnostic::New<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::diagnostic::Tags
+pub oso_core::diagnostic::Tags::deprecated: bool
+pub oso_core::diagnostic::Tags::unnecessary: bool
+impl core::clone::Clone for oso_core::diagnostic::Tags
+pub fn oso_core::diagnostic::Tags::clone(&self) -> oso_core::diagnostic::Tags
+impl core::cmp::Eq for oso_core::diagnostic::Tags
+impl core::cmp::PartialEq for oso_core::diagnostic::Tags
+pub fn oso_core::diagnostic::Tags::eq(&self, &oso_core::diagnostic::Tags) -> bool
+impl core::default::Default for oso_core::diagnostic::Tags
+pub fn oso_core::diagnostic::Tags::default() -> oso_core::diagnostic::Tags
+impl core::fmt::Debug for oso_core::diagnostic::Tags
+pub fn oso_core::diagnostic::Tags::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::diagnostic::Tags
+pub fn oso_core::diagnostic::Tags::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::diagnostic::Tags
+impl core::marker::StructuralPartialEq for oso_core::diagnostic::Tags
 pub mod oso_core::display_map
 pub mod oso_core::display_map::cell
 pub enum oso_core::display_map::cell::CellKind
@@ -2276,6 +2379,13 @@ pub fn oso_core::editor::Editor::take_trim_jobs(&mut self) -> alloc::vec::Vec<os
 pub fn oso_core::editor::Editor::trim_failed(&mut self, oso_core::editor::TrimId)
 pub fn oso_core::editor::Editor::trim_reported(&mut self, oso_core::editor::TrimReport) -> core::option::Option<oso_core::editor::TrimOutcome>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::diagnostic_at_point(&self) -> core::option::Option<alloc::string::String>
+pub fn oso_core::editor::Editor::request_server(&mut self, oso_core::editor::ServerRequest)
+pub fn oso_core::editor::Editor::server_log<'a>(&mut self, &str, impl core::iter::traits::collect::IntoIterator<Item = &'a str>, usize)
+pub fn oso_core::editor::Editor::server_log_shown(&self) -> bool
+pub fn oso_core::editor::Editor::take_server_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ServerRequest>
+pub fn oso_core::editor::Editor::to_diagnostic(&mut self, bool) -> core::result::Result<bool, &'static str>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::directory_answer_waits(&self) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::draft(&self) -> core::option::Option<(oso_core::editor::ReviewId, &oso_core::editor::DraftFor)>
@@ -2494,11 +2604,6 @@ pub fn oso_core::editor::Editor::replace_answer(&mut self, oso_core::editor::Rep
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::replace_continue(&mut self)
 pub fn oso_core::editor::Editor::replace_works(&self) -> bool
-impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::request_server(&mut self, oso_core::editor::ServerRequest)
-pub fn oso_core::editor::Editor::server_log<'a>(&mut self, &str, impl core::iter::traits::collect::IntoIterator<Item = &'a str>, usize)
-pub fn oso_core::editor::Editor::server_log_shown(&self) -> bool
-pub fn oso_core::editor::Editor::take_server_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ServerRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::review_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut oso_core::editor::ReviewCells)
 impl oso_core::editor::Editor
@@ -2920,6 +3025,7 @@ impl core::marker::StructuralPartialEq for oso_core::editor::SoleWindow
 pub struct oso_core::editor::Status
 pub oso_core::editor::Status::agent: &'static str
 pub oso_core::editor::Status::agent_connected: bool
+pub oso_core::editor::Status::counts: oso_core::diagnostic::Counts
 pub oso_core::editor::Status::echo: alloc::string::String
 pub oso_core::editor::Status::lsp: alloc::string::String
 pub oso_core::editor::Status::lsp_face: oso_core::editor::ServerFace

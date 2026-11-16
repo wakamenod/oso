@@ -7,9 +7,11 @@
 //! Must not depend on: `server`, threads or processes; this builds and reads values, and the
 //! session thread sends and receives them.
 
+mod published;
 #[cfg(test)]
 mod tests;
 
+pub use published::{Published, Reported, published};
 use serde_json::{Map, Value, json};
 
 use crate::json::{integer_in, string, uinteger};
@@ -180,8 +182,9 @@ pub struct Initialize<'a> {
 }
 
 /// `initialize`'s parameters: oso's process, the root as the one workspace folder, the entry's
-/// settings, and the capabilities step 3 uses: positions in UTF-8 or UTF-16, progress, and
-/// `workspace/configuration`.
+/// settings, and the capabilities the steps so far use: positions in UTF-8 or UTF-16,
+/// progress, `workspace/configuration`, saves (step 4), and diagnostics with their versions and
+/// tags (step 6).
 pub fn initialize_params(start: &Initialize<'_>) -> Value {
     let mut params = json!({
         "processId": std::process::id(),
@@ -192,7 +195,13 @@ pub fn initialize_params(start: &Initialize<'_>) -> Value {
             "general": {"positionEncodings": Encoding::OFFERED},
             "window": {"workDoneProgress": true},
             "workspace": {"configuration": true},
-            "textDocument": {"synchronization": {"didSave": true}},
+            "textDocument": {
+                "synchronization": {"didSave": true},
+                "publishDiagnostics": {
+                    "versionSupport": true,
+                    "tagSupport": {"valueSet": [1, 2]},
+                },
+            },
         },
     });
     if let (Some(options), Value::Object(fields)) = (start.options, &mut params) {

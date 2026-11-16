@@ -52,6 +52,7 @@ impl Session {
                     .map_or(crate::position::Encoding::Utf16, |run| run.encoding);
                 let out = self.documents.change(
                     change.id,
+                    change.revision,
                     &change.before,
                     change.after,
                     splices,
@@ -93,6 +94,13 @@ impl Session {
                 break;
             };
             self.deliver(Some(run), 0, Out { send, state: None })?;
+        }
+        // A report kept from before a document opened, which names no version, as a check's
+        // on save does: placed against the text it opened with.
+        for path in self.documents.take_opened() {
+            if let Some(report) = self.diagnosed.get(&path).filter(|r| r.version.is_none()) {
+                self.deliver_diagnostics(&path, &report, run.encoding);
+            }
         }
         Ok(())
     }

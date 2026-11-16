@@ -30,7 +30,7 @@ use super::Dispatcher;
 impl Dispatcher {
     /// The commands `M-x` lists, opened over what `editor` shows now.
     pub(super) fn command_candidates(&self, editor: &Editor) -> Arc<[Candidate]> {
-        let reading = self.keymaps.reading();
+        let reading = self.keymaps.reading(editor);
         let layers = self.keymaps.active(&reading, None, editor);
         // The shortest binding of each command, by keys and then by how it reads.
         let mut shortest: HashMap<CommandId, (usize, String)> = HashMap::new();
@@ -74,7 +74,7 @@ impl Dispatcher {
     /// The menus `open-menu` lists: every menu in force, each with the shortest key that opens
     /// it in the layers active now and its title, as `M-x` shows a command's (ADR 0117).
     pub(super) fn menu_candidates(&self, editor: &Editor) -> Arc<[Candidate]> {
-        let reading = self.keymaps.reading();
+        let reading = self.keymaps.reading(editor);
         let layers = self.keymaps.active(&reading, None, editor);
         let mut shortest: HashMap<MenuId, (usize, String)> = HashMap::new();
         for keymap in layers.iter() {
@@ -100,7 +100,7 @@ impl Dispatcher {
     /// `config.toml` shows, and the heads a menu leaves out or dims still count, as they do once
     /// their reason goes.
     pub fn where_is(&self, editor: &Editor, name: &str) -> String {
-        let reading = self.keymaps.reading();
+        let reading = self.keymaps.reading(editor);
         self.where_is_in(&self.keymaps.active(&reading, None, editor), name)
     }
 

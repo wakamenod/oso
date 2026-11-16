@@ -21,6 +21,7 @@ use super::Editor;
 use super::messages::CUT;
 use crate::buffer::{Buffer, Mode, ServerMark, Verdict};
 use crate::decode::{FileInfo, LineEnding};
+use crate::diagnostic::Counts;
 use crate::display_map::text_clusters;
 use crate::frame::CellRect;
 use crate::window::{Window, WindowId};
@@ -92,9 +93,13 @@ pub struct Status {
     /// (ADR 0114). It comes from the record of trusted projects alone, never from a name.
     pub restricted: &'static str,
     /// `lsp`, `lsp 34%` or `lsp!`, after the project, while a language server follows the
-    /// buffer, or nothing (ADR 0138), drawn as [`Self::lsp_face`] says.
+    /// buffer, then the counts of its diagnostics that are not zero, `E2 W5 I1`, or nothing
+    /// (ADR 0138), drawn as [`Self::lsp_face`] says.
     pub lsp: String,
     pub lsp_face: ServerFace,
+    /// The counts of the buffer's diagnostics, which [`Self::lsp`] shows (ADR 0138, step 6),
+    /// for a host that draws each in its severity's face.
+    pub counts: Counts,
     /// `waits: server` while what an agent's open or save would have started waits for the
     /// person, which the host draws dim, or nothing (ADR 0118). It comes from the buffer's marks
     /// alone.
@@ -141,12 +146,17 @@ impl Status {
     }
 }
 
-/// `lsp  `, `lsp 34%  ` or `lsp!  ` for the server that follows the buffer, or nothing, and
-/// how it is drawn (ADR 0138).
-fn push_server(out: &mut String, mark: Option<ServerMark>) -> ServerFace {
+/// `lsp  `, `lsp 34%  ` or `lsp!  ` for the server that follows the buffer, with the counts
+/// that are not zero before the gap (`lsp E2 W5  `), or nothing, and how it is drawn
+/// (ADR 0138), with the counts.
+fn push_server(out: &mut String, buffer: &Buffer) -> (ServerFace, Counts) {
     out.clear();
-    let Some(mark) = mark else {
-        return ServerFace::Dim;
+    let counts = buffer
+        .diagnostics()
+        .map(crate::diagnostic::Diagnostics::counts)
+        .unwrap_or_default();
+    let Some(mark) = buffer.server() else {
+        return (ServerFace::Dim, counts);
     };
     match mark {
         ServerMark::Starting => out.push_str("lsp"),
@@ -156,12 +166,22 @@ fn push_server(out: &mut String, mark: Option<ServerMark>) -> ServerFace {
         }
         ServerMark::Stopped => out.push_str("lsp!"),
     }
+    for (letter, count) in [
+        ('E', counts.errors),
+        ('W', counts.warnings),
+        ('I', counts.information),
+    ] {
+        if count > 0 {
+            let _ = write!(out, " {letter}{count}");
+        }
+    }
     out.push_str(GAP);
-    match mark {
+    let face = match mark {
         ServerMark::Starting => ServerFace::Dim,
         ServerMark::Ready | ServerMark::Working(_) => ServerFace::Plain,
         ServerMark::Stopped => ServerFace::Warning,
-    }
+    };
+    (face, counts)
 }
 
 /// `waits: server  ` while something waits in `buffer` for the person (ADR 0118), each name
@@ -379,7 +399,7 @@ impl Editor {
             }
         }
 
-        status.lsp_face = push_server(&mut status.lsp, buffer.server());
+        (status.lsp_face, status.counts) = push_server(&mut status.lsp, buffer);
         status.waits.clear();
         push_waits(&mut status.waits, buffer);
         let marker = marker(buffer);
@@ -618,6 +638,50 @@ mod tests {
         assert_eq!(status(&editor).project, "oso  ");
         editor.set_trust_list(None);
         assert_eq!(status(&editor).restricted, RESTRICTED, "refused");
+    }
+
+    #[test]
+    fn the_server_s_segment_has_the_counts_that_are_not_zero_and_no_hints() {
+        use crate::diagnostic::{Diagnostics, New, Severity, Tags};
+        let mut editor = editor("let x = 1;\n");
+        let id = editor.window().buffer();
+        let buffer = editor.buffer_mut(id).unwrap();
+        buffer.set_server(Some(ServerMark::Ready));
+        buffer.set_followed(true);
+        assert_eq!(status(&editor).lsp, "lsp  ");
+        let new = |severity| New {
+            range: 0..1,
+            severity,
+            tags: Tags::default(),
+            source: "",
+            code: "",
+            message: "m",
+        };
+        let set = Diagnostics::new(
+            "fake",
+            [
+                new(Severity::Error),
+                new(Severity::Error),
+                new(Severity::Information),
+                new(Severity::Hint),
+            ],
+            11,
+        );
+        let buffer = editor.buffer_mut(id).unwrap();
+        let revision = buffer.revision();
+        assert!(buffer.take_diagnostics(revision, set));
+        let shown = status(&editor);
+        assert_eq!(shown.lsp, "lsp E2 I1  ");
+        assert_eq!(
+            shown.counts,
+            Counts {
+                errors: 2,
+                warnings: 0,
+                information: 1
+            }
+        );
+        editor.buffer_mut(id).unwrap().set_followed(false);
+        assert_eq!(status(&editor).lsp, "lsp  ", "gone with the server");
     }
 
     #[cfg(unix)]

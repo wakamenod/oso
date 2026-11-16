@@ -89,7 +89,9 @@ pub const oso_lsp::limits::DECLARED_BYTES_MAX: u64
 pub const oso_lsp::limits::DEFINITION_WAIT: core::time::Duration
 pub const oso_lsp::limits::DETAIL_BYTES_MAX: usize
 pub const oso_lsp::limits::DIAGNOSED_DOCUMENTS_MAX: usize
+pub const oso_lsp::limits::DIAGNOSTICS_BYTES_MAX: usize
 pub const oso_lsp::limits::DIAGNOSTICS_MAX: usize
+pub const oso_lsp::limits::DIAGNOSTIC_LABEL_BYTES_MAX: usize
 pub const oso_lsp::limits::DIAGNOSTIC_MESSAGE_BYTES_MAX: usize
 pub const oso_lsp::limits::DOCUMENT_BYTES_MAX: usize
 pub const oso_lsp::limits::EXIT_WAIT: core::time::Duration
@@ -287,6 +289,34 @@ impl core::fmt::Display for oso_lsp::protocol::NotRpc
 pub fn oso_lsp::protocol::NotRpc::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_lsp::protocol::NotRpc
 impl core::marker::StructuralPartialEq for oso_lsp::protocol::NotRpc
+pub struct oso_lsp::protocol::Published
+pub oso_lsp::protocol::Published::diagnostics: alloc::vec::Vec<oso_lsp::protocol::Reported>
+pub oso_lsp::protocol::Published::uri: alloc::string::String
+pub oso_lsp::protocol::Published::version: core::option::Option<i32>
+impl core::clone::Clone for oso_lsp::protocol::Published
+pub fn oso_lsp::protocol::Published::clone(&self) -> oso_lsp::protocol::Published
+impl core::cmp::Eq for oso_lsp::protocol::Published
+impl core::cmp::PartialEq for oso_lsp::protocol::Published
+pub fn oso_lsp::protocol::Published::eq(&self, &oso_lsp::protocol::Published) -> bool
+impl core::fmt::Debug for oso_lsp::protocol::Published
+pub fn oso_lsp::protocol::Published::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_lsp::protocol::Published
+pub struct oso_lsp::protocol::Reported
+pub oso_lsp::protocol::Reported::code: alloc::string::String
+pub oso_lsp::protocol::Reported::end: oso_lsp::position::Position
+pub oso_lsp::protocol::Reported::message: alloc::string::String
+pub oso_lsp::protocol::Reported::severity: oso_core::diagnostic::Severity
+pub oso_lsp::protocol::Reported::source: alloc::string::String
+pub oso_lsp::protocol::Reported::start: oso_lsp::position::Position
+pub oso_lsp::protocol::Reported::tags: oso_core::diagnostic::Tags
+impl core::clone::Clone for oso_lsp::protocol::Reported
+pub fn oso_lsp::protocol::Reported::clone(&self) -> oso_lsp::protocol::Reported
+impl core::cmp::Eq for oso_lsp::protocol::Reported
+impl core::cmp::PartialEq for oso_lsp::protocol::Reported
+pub fn oso_lsp::protocol::Reported::eq(&self, &oso_lsp::protocol::Reported) -> bool
+impl core::fmt::Debug for oso_lsp::protocol::Reported
+pub fn oso_lsp::protocol::Reported::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_lsp::protocol::Reported
 pub struct oso_lsp::protocol::Sync
 pub oso_lsp::protocol::Sync::change: oso_lsp::protocol::SyncKind
 pub oso_lsp::protocol::Sync::open_close: bool
@@ -311,6 +341,7 @@ pub fn oso_lsp::protocol::merge(&mut serde_json::value::Value, &serde_json::valu
 pub fn oso_lsp::protocol::message(&serde_json::value::Value) -> core::option::Option<(oso_lsp::protocol::Severity, &str)>
 pub fn oso_lsp::protocol::notification(&str, serde_json::value::Value) -> alloc::vec::Vec<u8>
 pub fn oso_lsp::protocol::progress(&serde_json::value::Value) -> core::option::Option<(oso_lsp::protocol::Token, oso_lsp::protocol::Progress)>
+pub fn oso_lsp::protocol::published(&serde_json::value::Value) -> core::option::Option<oso_lsp::protocol::Published>
 pub fn oso_lsp::protocol::request(i64, &str, serde_json::value::Value) -> alloc::vec::Vec<u8>
 pub fn oso_lsp::protocol::server_name(&serde_json::value::Value) -> core::option::Option<&str>
 pub fn oso_lsp::protocol::sync(&serde_json::value::Value) -> oso_lsp::protocol::Sync
@@ -327,6 +358,19 @@ impl core::fmt::Debug for oso_lsp::server::Closed
 pub fn oso_lsp::server::Closed::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_lsp::server::Closed
 impl core::marker::StructuralPartialEq for oso_lsp::server::Closed
+pub enum oso_lsp::server::Diagnosed
+pub oso_lsp::server::Diagnosed::Open
+pub oso_lsp::server::Diagnosed::Open::diagnostics: oso_core::diagnostic::Diagnostics
+pub oso_lsp::server::Diagnosed::Open::id: u64
+pub oso_lsp::server::Diagnosed::Open::revision: u64
+impl core::clone::Clone for oso_lsp::server::Diagnosed
+pub fn oso_lsp::server::Diagnosed::clone(&self) -> oso_lsp::server::Diagnosed
+impl core::cmp::Eq for oso_lsp::server::Diagnosed
+impl core::cmp::PartialEq for oso_lsp::server::Diagnosed
+pub fn oso_lsp::server::Diagnosed::eq(&self, &oso_lsp::server::Diagnosed) -> bool
+impl core::fmt::Debug for oso_lsp::server::Diagnosed
+pub fn oso_lsp::server::Diagnosed::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_lsp::server::Diagnosed
 pub enum oso_lsp::server::State
 pub oso_lsp::server::State::Ended
 pub oso_lsp::server::State::NotStarted
@@ -348,6 +392,7 @@ pub struct oso_lsp::server::Change
 pub oso_lsp::server::Change::after: oso_core::rope::Rope
 pub oso_lsp::server::Change::before: oso_core::rope::Rope
 pub oso_lsp::server::Change::id: u64
+pub oso_lsp::server::Change::revision: u64
 pub oso_lsp::server::Change::splices: core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
 impl core::clone::Clone for oso_lsp::server::Change
 pub fn oso_lsp::server::Change::clone(&self) -> oso_lsp::server::Change
@@ -356,6 +401,7 @@ pub fn oso_lsp::server::Change::fmt(&self, &mut core::fmt::Formatter<'_>) -> cor
 pub struct oso_lsp::server::Document
 pub oso_lsp::server::Document::id: u64
 pub oso_lsp::server::Document::language_id: alloc::string::String
+pub oso_lsp::server::Document::revision: u64
 pub oso_lsp::server::Document::text: oso_core::rope::Rope
 pub oso_lsp::server::Document::uri: alloc::string::String
 impl core::clone::Clone for oso_lsp::server::Document
@@ -369,6 +415,7 @@ pub oso_lsp::server::Found::notes: alloc::vec::Vec<alloc::string::String>
 impl core::fmt::Debug for oso_lsp::server::Found
 pub fn oso_lsp::server::Found::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_lsp::server::Report
+pub oso_lsp::server::Report::diagnostics: alloc::vec::Vec<oso_lsp::server::Diagnosed>
 pub oso_lsp::server::Report::documents: alloc::vec::Vec<(u64, core::option::Option<oso_lsp::server::Closed>)>
 pub oso_lsp::server::Report::log: alloc::vec::Vec<alloc::string::String>
 pub oso_lsp::server::Report::shown: alloc::vec::Vec<oso_lsp::server::Shown>

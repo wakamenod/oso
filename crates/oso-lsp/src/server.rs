@@ -7,7 +7,13 @@
 //!
 //! Must not depend on: the tip crate, the configuration or the editor; the caller says what
 //! to start ([`Start`]), whether it may ([`Gate`]), and how to wake the UI.
+//!
+//! Step 6 reads its diagnostics reports: the session thread drops those for a file outside the
+//! project or whose name may hold secrets, keeps each document's last within the bounds, and
+//! hands the UI a set for each open document, placed against the text the report names and
+//! mapped forward ([`Diagnosed`]).
 
+mod diagnosed;
 mod documents;
 mod outbox;
 mod pipes;
@@ -23,6 +29,7 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 
+use oso_core::diagnostic::Diagnostics;
 use oso_core::rope::Rope;
 use oso_core::syntax::Splice;
 use oso_platform::process::{Child, Executable, Signal};
@@ -95,6 +102,8 @@ pub struct Document {
     /// Its language, as the protocol names it (`rust`).
     pub language_id: String,
     pub text: Rope,
+    /// The caller's revision of `text`, which a set of diagnostics mapped to it names.
+    pub revision: u64,
 }
 
 /// A batch of edits to an open document: the text as last given, the text now, and the
@@ -105,6 +114,20 @@ pub struct Change {
     pub before: Rope,
     pub after: Rope,
     pub splices: Option<Vec<Splice>>,
+    /// The caller's revision of `after`, which a set of diagnostics mapped to it names.
+    pub revision: u64,
+}
+
+/// A document's diagnostics, as a report gave them (step 6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Diagnosed {
+    /// Those of open document `id`, mapped to the text of the caller's revision `revision`:
+    /// the caller maps them through its edits since, and swaps them in.
+    Open {
+        id: u64,
+        revision: u64,
+        diagnostics: Diagnostics,
+    },
 }
 
 /// Why a document is kept from the server.
@@ -159,6 +182,8 @@ pub struct Report {
     /// Documents kept from the server since the last report, and why, or opened with it again
     /// (`None`), in order.
     pub documents: Vec<(u64, Option<Closed>)>,
+    /// Diagnostics reported since the last report, the latest of each document.
+    pub diagnostics: Vec<Diagnosed>,
 }
 
 /// A server's session thread, and what the UI shares with it.

@@ -88,6 +88,8 @@ pub(in crate::server) struct Session {
     run: u64,
     /// The documents the server knows, across its runs.
     documents: super::documents::Documents,
+    /// The run's diagnostics reports, each document's last (step 6).
+    diagnosed: super::diagnosed::Store,
 }
 
 impl Session {
@@ -109,6 +111,7 @@ impl Session {
             crashes: Crashes::default(),
             run: 0,
             documents: super::documents::Documents::default(),
+            diagnosed: super::diagnosed::Store::default(),
         }
     }
 
@@ -200,6 +203,7 @@ impl Session {
         };
         let end = self.drive(run);
         self.documents.forget_sent();
+        self.diagnosed.clear();
         match end {
             End::Crashed(why) => {
                 self.reporter.log(format!("crashed: {why}"));

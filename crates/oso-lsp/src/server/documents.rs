@@ -8,8 +8,12 @@
 //!
 //! Must not depend on: the session's loop, the pipes or the outbox; this keeps text and builds
 //! values, and the session thread sends them.
+//!
+//! Each document also keeps the texts it was given last, so that a late diagnostics report is
+//! placed against the text it names and mapped forward to the latest (`history`, step 6).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
+use std::path::{Path, PathBuf};
 
 use oso_core::rope::Rope;
 use oso_core::sum_tree::Bias;
@@ -18,16 +22,24 @@ use serde_json::{Value, json};
 
 use crate::limits::DOCUMENT_BYTES_MAX;
 use crate::position::{self, Encoding};
+use crate::uri;
 
 use super::{Closed, Document};
 
+mod history;
 #[cfg(test)]
 mod tests;
+
+pub(super) use history::Diagnose;
+use history::Given;
 
 /// One document, as the session thread keeps it.
 #[derive(Debug)]
 struct Kept {
     uri: String,
+    /// The path its URI reads as, which a report's is compared with: on Windows its drive
+    /// letter is upper case, whatever case the server writes it in.
+    path: Option<PathBuf>,
     language_id: String,
     /// The text as the server has it, or will once what waits is sent.
     text: Rope,
@@ -40,6 +52,8 @@ struct Kept {
     save_after: bool,
     /// Kept from the server, and why.
     closed: Option<Closed>,
+    /// The texts given last, oldest first: the last is `text`.
+    given: VecDeque<Given>,
 }
 
 /// A whole text that waits for room in the writer's queue.
@@ -71,16 +85,23 @@ impl Out {
     }
 }
 
-/// The documents, by the caller's id.
+/// The documents, by the caller's id, and the paths opened since the session last asked.
 #[derive(Debug, Default)]
-pub(super) struct Documents(BTreeMap<u64, Kept>);
+pub(super) struct Documents(BTreeMap<u64, Kept>, Vec<PathBuf>);
 
 impl Documents {
     /// A new document. `live` says whether the server is ready to be told: its open then waits
     /// for room.
     pub(super) fn open(&mut self, document: Document, live: bool) -> Out {
         let closed = why_not(&document.text);
+        let given = VecDeque::from([Given {
+            revision: document.revision,
+            text: document.text.clone(),
+            splices: None,
+            version: None,
+        }]);
         let kept = Kept {
+            path: uri::to_path(&document.uri),
             uri: document.uri,
             language_id: document.language_id,
             text: document.text,
@@ -93,6 +114,7 @@ impl Documents {
             },
             save_after: false,
             closed,
+            given,
         };
         self.0.insert(document.id, kept);
         // Said of every open, so that a report about an earlier document of the same id never
@@ -107,10 +129,16 @@ impl Documents {
     /// `splices` the batch from one to the other if the caller has it. A batch is placed once,
     /// against the text the server has, and that answer decides both the carriage return check
     /// and what goes: the changes, or a whole text that waits. Unless `incremental`, it is a
-    /// whole text. A document not sent yet is judged as one sent is.
+    /// whole text. A document not sent yet is judged as one sent is. `revision` is the caller's
+    /// revision of `after`.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the parts of a change, apart, so that a test gives them as it builds them"
+    )]
     pub(super) fn change(
         &mut self,
         id: u64,
+        revision: u64,
         before: &Rope,
         after: Rope,
         splices: Option<&[Splice]>,
@@ -121,15 +149,23 @@ impl Documents {
             return Out::default();
         };
         let mut out = Out::default();
+        // The caller's before is the text it last gave; the session's is what the server has.
+        let placed = splices
+            .filter(|_| before.len() == kept.text.len())
+            .and_then(|splices| placed(&kept.text, &after, splices));
+        kept.give(Given {
+            revision,
+            text: after.clone(),
+            splices: placed
+                .as_ref()
+                .map(|placed| placed.iter().map(|(splice, _)| *splice).collect()),
+            version: None,
+        });
         if kept.closed.is_some() {
             // Kept from the server: its edits are taken in, for a save to open it again.
             kept.text = after;
             return out;
         }
-        // The caller's before is the text it last gave; the session's is what the server has.
-        let placed = splices
-            .filter(|_| before.len() == kept.text.len())
-            .and_then(|splices| placed(&kept.text, &after, splices));
         let reason = if after.len() > DOCUMENT_BYTES_MAX {
             Some(Closed::TooLarge)
         } else if placed.as_ref().map_or_else(
@@ -158,6 +194,7 @@ impl Documents {
             Some(placed) => {
                 let changes = changes_of(&kept.text, &after, &placed, encoding);
                 kept.version += 1;
+                kept.went_as(kept.version);
                 out.send.push((
                     "textDocument/didChange",
                     json!({
@@ -246,10 +283,12 @@ impl Documents {
             .find(|kept| kept.waits != Waits::Nothing)?;
         let waited = std::mem::replace(&mut kept.waits, Waits::Nothing);
         kept.version += 1;
+        kept.went_as(kept.version);
         let mut send = Vec::with_capacity(2);
         match waited {
             Waits::Open => {
                 kept.sent = true;
+                self.1.extend(kept.path.clone());
                 send.push((
                     "textDocument/didOpen",
                     json!({"textDocument": {
@@ -272,6 +311,18 @@ impl Documents {
             send.push(("textDocument/didSave", identifier(&kept.uri)));
         }
         Some(send)
+    }
+
+    /// The paths opened with the server since the last call, for a report kept from before.
+    pub(super) fn take_opened(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.1)
+    }
+
+    /// Whether a document open with the server, or waiting to be, is at `path`.
+    pub(super) fn has_path(&self, path: &Path) -> bool {
+        self.0
+            .values()
+            .any(|kept| kept.path.as_deref() == Some(path))
     }
 
     #[cfg(test)]

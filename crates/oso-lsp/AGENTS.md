@@ -7,7 +7,9 @@ with `run.rs` and `incoming.rs`), the pipe threads (`pipes.rs`), the crash and f
 (`policy.rs`) and what is reported to the UI (`outbox.rs`). Step 4 added the documents a
 server knows (`server/documents.rs`, with `session/sync.rs`): a whole text never goes past
 half the writer's queue, and a document with a lone carriage return or over the bound is kept
-from the server.
+from the server. Step 6 added diagnostics: reading `publishDiagnostics` (`protocol/published.rs`),
+the reports a session keeps (`server/diagnosed.rs`), and the texts each document keeps to place a
+late report against the version it names and map it forward (`server/documents.rs`).
 
 - May depend on `oso-core` and `oso-platform` only; only the tip crate depends on it. Module
   layers are in `guardrails/layers.txt` (`[oso-lsp]`). No new dependency: JSON is

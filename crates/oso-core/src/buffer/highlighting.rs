@@ -126,6 +126,13 @@ pub(crate) struct StagedHighlighting {
     highlights: Option<Highlights>,
 }
 
+impl StagedHighlighting {
+    /// The edit's batch, if the log keeps it, for what else follows the edit.
+    pub(super) fn batch(&self) -> Option<&[Splice]> {
+        self.batch.as_deref()
+    }
+}
+
 impl Highlighting {
     /// Maps the highlights through `steps`, batch by batch as they applied, on a clone, if the
     /// buffer can be highlighted afterwards (`keep`). Steps that do not compose leave no batch,
@@ -187,7 +194,7 @@ impl Highlighting {
     }
 
     /// The batch from `revision` to `now`, or `None` if the log no longer reaches it.
-    fn since(&self, revision: u64, now: u64) -> Option<Vec<Splice>> {
+    pub(super) fn since(&self, revision: u64, now: u64) -> Option<Vec<Splice>> {
         if revision == now {
             return Some(Vec::new());
         }
@@ -205,7 +212,7 @@ impl Highlighting {
     }
 }
 
-fn splice_of(edit: &OffsetEdit) -> Splice {
+pub(super) fn splice_of(edit: &OffsetEdit) -> Splice {
     Splice {
         start: edit.start,
         old_len: edit.old_len,
@@ -267,7 +274,7 @@ impl Buffer {
 
     /// Whether a server follows it now: one never follows a buffer that may hold secrets, nor
     /// an internal one.
-    fn followed_now(&self) -> bool {
+    pub(super) fn followed_now(&self) -> bool {
         self.highlighting.followed && !self.internal && !self.is_secret()
     }
 
@@ -302,6 +309,10 @@ impl Buffer {
     /// Drops the highlights and the log if the buffer can no longer be highlighted, after its
     /// verdict, its mode or its text changed otherwise than by an edit.
     pub(super) fn recheck_highlighting(&mut self) {
+        if !self.followed_now() {
+            // No server follows it, or it may hold secrets now: its diagnostics go (ADR 0138).
+            self.diagnosed = None;
+        }
         let keep = self.keeps(self.text.len());
         if !keep.log {
             self.highlighting.forget();

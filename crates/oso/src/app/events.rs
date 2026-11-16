@@ -164,6 +164,7 @@ impl App {
         self.ask_for_a_frame_if_status_changed();
         self.draw_flash_if_due();
         self.show_jump_labels_if_due();
+        self.diagnostic_at_point_if_due();
         self.quit_if_idle(event_loop);
         // Last, once every deadline is known.
         self.set_wake(event_loop);
@@ -260,6 +261,7 @@ impl App {
             self.leaving.next_wake(),
             self.flash.next_wake(),
             self.jump_timer.next_wake(),
+            self.diagnostic_at_point_deadline(),
             self.reload_deadline(),
             self.quiet_walk_deadline(),
             self.slice_deadline(),

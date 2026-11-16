@@ -1,4 +1,4 @@
-//! The language servers the app runs (ADR 0138, steps 3 and 4), on the UI thread: which server a
+//! The language servers the app runs (ADR 0138, steps 3, 4 and 6), on the UI thread: which server a
 //! buffer's open would start, starting one for a project's root and entry, what the commands
 //! ask, what each server's thread reports, the modeline's marks, and the ends that trust, the
 //! configuration and a quit bring. One server runs per root and entry. The UI thread never
@@ -8,6 +8,7 @@
 //! Must not depend on: the window system or the drawing; this keeps the servers and tells the
 //! editor what to show.
 
+mod diagnostics;
 mod documents;
 mod find;
 
@@ -34,6 +35,8 @@ pub(super) struct Servers {
     trusted: HashSet<ProjectId>,
     /// The number the next server's threads are named with.
     next: usize,
+    /// When the echo area says the diagnostic at point (step 6).
+    at_point: diagnostics::AtPoint,
 }
 
 /// One server, as the app knows it.
@@ -237,10 +240,11 @@ impl App {
             .message(format!("{} stops for {}", entry.name, root.display()));
     }
 
-    /// What the servers' threads reported: their states, `*LSP*`'s lines and their messages.
+    /// What the servers' threads reported: their states, `*LSP*`'s lines, their messages and
+    /// diagnostics.
     pub(super) fn servers_reported(&mut self) {
         let mut ended = Vec::new();
-        let (mut changed, mut said, mut logged) = (false, false, false);
+        let (mut changed, mut said, mut logged, mut diagnosed) = (false, false, false, false);
         for (index, running) in self.servers.running.iter_mut().enumerate() {
             let Some(report) = running.server.take_report() else {
                 continue;
@@ -266,15 +270,24 @@ impl App {
                 logged = true;
             }
             for (id, closed) in report.documents {
-                if let Some(open) = running
+                if let Some((buffer, open)) = running
                     .documents
                     .iter_mut()
-                    .find_map(|(buffer, open)| (buffer.get() == id).then_some(open))
+                    .find(|(buffer, _)| buffer.get() == id)
                 {
                     open.closed = closed;
                     changed = true;
+                    if closed.is_some() {
+                        diagnosed |= diagnostics::clear(&mut self.editor, *buffer);
+                    }
                 }
             }
+            diagnosed |= diagnostics::take(
+                &mut self.editor,
+                &running.documents,
+                report.diagnostics,
+                &self.freer,
+            );
             for shown in report.shown {
                 // The server's name first, so that no server passes as oso. Its text may
                 // quote what it read, so the log gets only its size.
@@ -303,7 +316,7 @@ impl App {
         if changed {
             self.mark_servers();
         }
-        if changed || said || (logged && self.editor.server_log_shown()) {
+        if changed || said || diagnosed || (logged && self.editor.server_log_shown()) {
             self.request_redraw();
         }
     }

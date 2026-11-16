@@ -1,7 +1,8 @@
 //! What a session thread reports to the UI, and when it wakes it (ADR 0138, Bounds): the
-//! server's state, lines for `*LSP*` and messages for the person, kept in a box the UI takes
-//! whole. A change of state and a message wake the UI at once; log lines and progress wake it
-//! at most once each [`REPORT_INTERVAL`]. What waits is bounded, the oldest lines going
+//! server's state, lines for `*LSP*`, messages for the person and diagnostics, kept in a box
+//! the UI takes whole. A change of state and a message wake the UI at once; log lines,
+//! progress and diagnostics wake it at most once each [`REPORT_INTERVAL`], the diagnostics
+//! coalesced to the latest of each document. What waits is bounded, the oldest lines going
 //! first, so a UI that does not take it holds at most [`REPORT_LOG_BYTES_MAX`].
 //!
 //! Must not depend on: `session`'s loop or `pipes`; this holds what they report.
@@ -15,7 +16,7 @@ use crate::limits::{
     REPORT_INTERVAL, REPORT_LOG_BYTES_MAX, REPORT_SHOWN_MAX, SHOW_MESSAGE_INTERVAL,
 };
 
-use super::{Closed, Report, Severity, Shown, State, Wake};
+use super::{Closed, Diagnosed, Report, Severity, Shown, State, Wake};
 
 /// The box the session thread fills and the UI empties.
 #[derive(Debug, Default)]
@@ -32,6 +33,7 @@ struct Waiting {
     log_dropped: usize,
     shown: Vec<Shown>,
     documents: Vec<(u64, Option<Closed>)>,
+    diagnostics: Vec<Diagnosed>,
 }
 
 impl Default for Waiting {
@@ -44,6 +46,7 @@ impl Default for Waiting {
             log_dropped: 0,
             shown: Vec::new(),
             documents: Vec::new(),
+            diagnostics: Vec::new(),
         }
     }
 }
@@ -69,6 +72,7 @@ impl Outbox {
             log,
             shown: mem::take(&mut waiting.shown),
             documents: mem::take(&mut waiting.documents),
+            diagnostics: mem::take(&mut waiting.diagnostics),
         })
     }
 
@@ -174,6 +178,20 @@ impl Reporter {
             waiting.documents.push((id, closed));
         });
         self.wake_now();
+    }
+
+    /// A document's diagnostics, in place of any of its own that wait: the UI is woken within
+    /// the interval.
+    pub(super) fn diagnostics(&mut self, diagnosed: Diagnosed) {
+        let Diagnosed::Open { id, .. } = &diagnosed;
+        let id = *id;
+        self.outbox.with(|waiting| {
+            waiting
+                .diagnostics
+                .retain(|Diagnosed::Open { id: kept, .. }| *kept != id);
+            waiting.diagnostics.push(diagnosed);
+        });
+        self.due = true;
     }
 
     /// Wakes the UI if something waits and the interval has passed. Returns how long until it
