@@ -410,6 +410,27 @@ fn c_c_c_u_gives_a_session_key_a_prefix_argument() {
 }
 
 #[test]
+fn c_c_c_y_yanks_an_image_in_a_session_and_reaches_a_plain_terminal_s_program() {
+    let (mut dispatcher, mut editor) = in_session();
+    let buffer = editor.window().buffer();
+    send(&mut dispatcher, &mut editor, "C-c C-y");
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
+    assert_eq!(
+        editor.take_session_requests(),
+        [oso_core::editor::SessionRequest::YankImage(buffer)]
+    );
+    // ADR 0120's rule stays for a terminal that hosts no session: both keys go.
+    let (mut dispatcher, mut editor) = in_terminal();
+    send(&mut dispatcher, &mut editor, "C-c C-y");
+    assert_eq!(sent(&mut dispatcher, &mut editor), keys("C-c C-y"));
+    assert!(editor.take_session_requests().is_empty());
+    dispatcher
+        .run_command(&mut editor, "session-yank-image", None)
+        .1
+        .unwrap_err();
+}
+
+#[test]
 fn c_c_question_mark_says_the_session_keys() {
     let (mut dispatcher, mut editor) = in_session();
     send(&mut dispatcher, &mut editor, "C-c ?");
@@ -421,6 +442,7 @@ fn c_c_question_mark_says_the_session_keys() {
         " V review menu",
         " C-c send-interrupt",
         " C-u universal-argument",
+        " C-y yank-image",
     ] {
         assert!(said.contains(part), "{part} in {said}");
     }

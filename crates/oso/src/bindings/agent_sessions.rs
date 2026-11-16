@@ -27,7 +27,8 @@ pub const BINDINGS: &[(&str, &str)] = &[
 /// Session mode's keys, in a terminal's buffer that hosts a session, with the terminal's own
 /// (ADR 0132): `C-c` and a key runs what `C-x a` and the same key runs elsewhere, and the
 /// commands on the session itself take capitals and punctuation. `C-c` and a control key stays
-/// the terminal's, but `C-c C-u`, as `C-u` goes to the program.
+/// the terminal's, but `C-c C-u`, as `C-u` goes to the program, and `C-c C-y`, which yanks the
+/// clipboard's image into the session as `C-y` yanks text (ADR 0142).
 pub const SESSION: &[(&str, &str)] = &[
     ("C-c c", "claude"),
     ("C-c O", "space-new"),
@@ -52,6 +53,7 @@ pub const SESSION: &[(&str, &str)] = &[
     ("C-c -", "terminal-deny-agent-read"),
     ("C-c ?", "session-help"),
     ("C-c C-u", "universal-argument"),
+    ("C-c C-y", "session-yank-image"),
 ];
 
 /// Session mode's menu keys (ADR 0117, ADR 0132): the review menu, as `C-x v r` elsewhere.

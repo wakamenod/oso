@@ -1,5 +1,5 @@
 //! Tests of the clipboard's threads over the clipboard in memory and a slow backend:
-//! its own text, text from another app, the bounds and the read's time limit.
+//! its own text, text from another app, images, the bounds and the read's time limit.
 //!
 //! Must not depend on: the system's clipboard, which a test must never touch.
 
@@ -29,6 +29,14 @@ fn read(clipboard: &Clipboard, events: &Receiver<Event>) -> Contents {
     clipboard.read();
     match next(events) {
         Event::Read(contents) => contents,
+        other => panic!("{other:?}"),
+    }
+}
+
+fn read_image(clipboard: &Clipboard, events: &Receiver<Event>) -> ImageContents {
+    clipboard.read_image();
+    match next(events) {
+        Event::Image(contents) => contents,
         other => panic!("{other:?}"),
     }
 }
@@ -133,6 +141,10 @@ impl Backend for Empty {
     fn read(&mut self, _: usize) -> Found {
         Found::Nothing
     }
+
+    fn read_image(&mut self, _: usize) -> ImageContents {
+        ImageContents::Nothing
+    }
 }
 
 /// A backend whose reads take as long as a test says.
@@ -150,6 +162,11 @@ impl Backend for Slow {
     fn read(&mut self, _: usize) -> Found {
         let _ = self.0.recv();
         Found::Nothing
+    }
+
+    fn read_image(&mut self, _: usize) -> ImageContents {
+        let _ = self.0.recv();
+        ImageContents::Nothing
     }
 }
 
@@ -225,6 +242,10 @@ impl Backend for Gate {
     fn read(&mut self, _: usize) -> Found {
         Found::Nothing
     }
+
+    fn read_image(&mut self, _: usize) -> ImageContents {
+        ImageContents::Nothing
+    }
 }
 
 #[test]
@@ -281,4 +302,100 @@ fn a_read_that_never_returns_is_left_behind_and_a_new_worker_takes_over() {
         Contents::Nothing,
         "the new worker answers"
     );
+}
+
+#[test]
+fn an_image_from_another_app_is_read_as_its_bytes() {
+    let (clipboard, events) = memory();
+    assert_eq!(read_image(&clipboard, &events), ImageContents::Nothing);
+    let memory = clipboard.memory().unwrap();
+    memory.set_image(ImageKind::Png, vec![1, 2, 3], false);
+    assert_eq!(
+        read_image(&clipboard, &events),
+        ImageContents::Image(Image {
+            kind: ImageKind::Png,
+            bytes: vec![1, 2, 3]
+        })
+    );
+    assert_eq!(
+        read(&clipboard, &events),
+        Contents::Nothing,
+        "it holds no text"
+    );
+    // Text copied after it replaces it.
+    memory.set("text".into(), false);
+    assert_eq!(read_image(&clipboard, &events), ImageContents::Nothing);
+}
+
+#[test]
+fn a_concealed_or_empty_image_is_not_read() {
+    let (clipboard, events) = memory();
+    let memory = clipboard.memory().unwrap();
+    memory.set_image(ImageKind::Png, vec![1], true);
+    assert_eq!(read_image(&clipboard, &events), ImageContents::Concealed);
+    memory.set_image(ImageKind::Png, Vec::new(), false);
+    assert_eq!(read_image(&clipboard, &events), ImageContents::Nothing);
+}
+
+#[test]
+fn an_image_over_the_bound_is_not_read() {
+    let (clipboard, events) = memory();
+    let memory = clipboard.memory().unwrap();
+    memory.set_image(ImageKind::Tiff, vec![0; MAX_IMAGE + 1], false);
+    assert_eq!(read_image(&clipboard, &events), ImageContents::TooLarge);
+    memory.set_image(ImageKind::Tiff, vec![0; MAX_IMAGE], false);
+    assert!(matches!(
+        read_image(&clipboard, &events),
+        ImageContents::Image(Image {
+            kind: ImageKind::Tiff,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn an_image_read_waits_until_the_give_up_time_and_a_new_worker_takes_over() {
+    let (_never, wait) = mpsc::channel();
+    let (tx, events) = mpsc::channel();
+    let timing = Timing {
+        answer: Duration::from_millis(50),
+        give_up: Duration::from_millis(300),
+    };
+    let clipboard = over(Slow(wait), timing, move |event| {
+        let _ = tx.send(event);
+    });
+    let started = Instant::now();
+    clipboard.read_image();
+    // A read while it is out is answered at once, and a text read too.
+    clipboard.read_image();
+    assert!(matches!(
+        next(&events),
+        Event::Image(ImageContents::NoAnswer)
+    ));
+    clipboard.read();
+    assert!(matches!(next(&events), Event::Read(Contents::NoAnswer)));
+    assert!(started.elapsed() < timing.give_up, "both at once");
+    // Its own answer comes at the give-up time, not the text read's answer time.
+    assert!(matches!(
+        next(&events),
+        Event::Image(ImageContents::NoAnswer)
+    ));
+    assert!(started.elapsed() >= timing.give_up);
+    assert_eq!(
+        read_image(&clipboard, &events),
+        ImageContents::Nothing,
+        "the new worker answers"
+    );
+    assert!(events.try_recv().is_err(), "one answer for each read");
+}
+
+#[test]
+fn debug_never_shows_an_image() {
+    let image = Image {
+        kind: ImageKind::Png,
+        bytes: b"hunter2".to_vec(),
+    };
+    let shown = format!("{:?}", ImageContents::Image(image));
+    assert!(!shown.contains("104"), "{shown}");
+    assert!(shown.contains("len: 7"), "{shown}");
 }

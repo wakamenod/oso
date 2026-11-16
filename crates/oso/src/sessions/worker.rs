@@ -93,6 +93,20 @@ pub enum Job {
     },
     /// What the spaces ask (ADR 0136).
     Space(SpaceJob),
+    /// Drop images kept for sessions (ADR 0142).
+    Images(ImageJob),
+}
+
+/// What drops the clipboard's images kept for sessions (ADR 0142), all under the images'
+/// root, [`super::images::root`].
+#[derive(Debug)]
+pub enum ImageJob {
+    /// Remove the images older than [`super::images::KEEP`], as oso starts.
+    Sweep(PathBuf),
+    /// Remove this session's images: it was archived or dropped.
+    Session(PathBuf, super::identity::SessionId),
+    /// Remove this image, which no paste refers to.
+    File(PathBuf),
 }
 
 /// What the issue spaces ask of the worker (ADR 0136): to be kept, ids for new ones, and what

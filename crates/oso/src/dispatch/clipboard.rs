@@ -110,6 +110,12 @@ impl Dispatcher {
         self.from_socket = from_socket;
     }
 
+    /// Whether the input being handled came through the dev socket, which never reads the
+    /// system's clipboard (ADR 0074).
+    pub fn input_from_socket(&self) -> bool {
+        self.from_socket
+    }
+
     /// Whether a command waits for the clipboard.
     pub fn waits_for_clipboard(&self) -> bool {
         self.waiting.is_some()

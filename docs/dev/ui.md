@@ -909,7 +909,9 @@ a switch made with its command stands until that setting changes in the file
   its modeline says `Session` in place of `Terminal`, and `C-c` and a key runs what `C-x a` and
   the key runs elsewhere. `C-c K`, `C-c P` and `C-c A` stop, pin and archive the session, `C-c v`
   and `C-c V` review it, `C-c +` and `C-c -` allow and deny the agent channel's reads, `C-c C-u` is
-  a prefix argument and `C-c ?` says the keys in the echo area. After `C-c`, only the session's and
+  a prefix argument, `C-c C-y` pastes an `@` reference to the clipboard's image, kept in a
+  private file ([ADR 0142](adr/0142-attaching-the-clipboard-s-image-to-a-session.md)), and
+  `C-c ?` says the keys in the echo area. After `C-c`, only the session's and
   the terminal's keys are read, and the user's `[keys.session]` over them, never the global keys
   or `[keys.global]`; any other key, or one `[keys.session]` sets to `false`, says
   `C-c g is undefined (C-c C-c sends C-c)` and sends nothing. `C-z` says

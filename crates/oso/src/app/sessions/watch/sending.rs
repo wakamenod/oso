@@ -34,6 +34,9 @@ pub(in crate::app) struct Sending {
     /// rule matched the newest look, `None` while that look ran out of time: a send waits for
     /// a look judged in time, and a view that holds refuses it.
     judged: HashMap<SessionKey, Option<bool>>,
+    /// The session a `session-yank-image` reads the clipboard's image for, while the read or
+    /// the save is out: one at a time (ADR 0142).
+    pub(super) image: Option<SessionKey>,
 }
 
 impl App {
@@ -89,6 +92,18 @@ impl App {
         key: SessionKey,
         text: String,
     ) -> Result<(), String> {
+        let buffer = self.paste_target(key)?;
+        self.paste(buffer, text);
+        self.show_session(key);
+        Ok(())
+    }
+
+    /// The terminal of hosted session `key`, if a paste may go there now; else why not, as
+    /// [`App::send_to_session`] refuses it.
+    pub(super) fn paste_target(
+        &self,
+        key: SessionKey,
+    ) -> Result<oso_core::buffer::BufferId, String> {
         let session = self
             .hosting
             .table()
@@ -123,12 +138,10 @@ impl App {
                 .is_some_and(crate::app::terminals::reads_a_password),
             held: judged == Some(true),
         };
-        if let Some(why) = send::refusal(&name, standing) {
-            return Err(why);
+        match send::refusal(&name, standing) {
+            Some(why) => Err(why),
+            None => Ok(buffer),
         }
-        self.paste(buffer, text);
-        self.show_session(key);
-        Ok(())
     }
 
     /// The worker judged session `key`'s newest look in time, a hold rule matching it or not,

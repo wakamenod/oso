@@ -38,6 +38,9 @@ pub(super) fn worker(waker: &Waker, state: Option<&std::path::Path>) -> Option<W
             .send(UserEvent::Sessions(out));
     })?;
     worker.send(Job::Recall(state.map(std::path::Path::to_path_buf)));
+    if let Some(root) = crate::sessions::images::root() {
+        worker.send(Job::Images(crate::sessions::worker::ImageJob::Sweep(root)));
+    }
     Some(worker)
 }
 

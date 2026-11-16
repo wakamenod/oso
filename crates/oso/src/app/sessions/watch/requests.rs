@@ -302,7 +302,15 @@ impl App {
             RowAction::Show => self.show_session(key),
             RowAction::Fold => {}
             RowAction::Pin => self.change_session(key, |session| session.pinned ^= true),
-            RowAction::Archive => self.change_session(key, |session| session.archived ^= true),
+            RowAction::Archive => {
+                self.change_session(key, |session| session.archived ^= true);
+                // Its images go with it (ADR 0142); brought back, it has none.
+                if let Some(session) = self.hosting.table().get(key)
+                    && session.archived
+                {
+                    self.drop_session_images(session.id.clone());
+                }
+            }
             RowAction::Resume => match self.hosting.table().get(key).and_then(|s| s.buffer) {
                 Some(buffer) => self.resume_session(buffer),
                 None => self

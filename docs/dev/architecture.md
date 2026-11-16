@@ -247,7 +247,10 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
 - **The clipboard** (`oso_platform::clipboard`) runs on two threads of its own: one owns
   the system's clipboard, and one answers each read within 500 ms. The host hands it what
   a command killed, joined there with line breaks, and `yank` waits for its read through
-  the dispatcher, which holds the keys that come meanwhile. oso reads it only on a yank.
+  the dispatcher, which holds the keys that come meanwhile. oso reads it only on a yank,
+  and reads an image only for `session-yank-image`, whose bytes the same worker copies and
+  `sessions::images` keeps in a private file under the cache
+  ([ADR 0142](adr/0142-attaching-the-clipboard-s-image-to-a-session.md)).
   macOS uses `NSPasteboard`; Linux and Windows have none until their window layers.
 - **Modified state** compares content ids. Each edit gets a new id, undo and redo
   restore the stored one, and a buffer is modified when its id differs from the

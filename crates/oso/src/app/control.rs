@@ -249,6 +249,14 @@ impl App {
                 memory.set(text, concealed);
                 json!({ "set": true })
             }
+            dev::ClipboardOp::SetImage {
+                kind,
+                bytes,
+                concealed,
+            } => {
+                memory.set_image(kind, bytes, concealed);
+                json!({ "set": true })
+            }
         })
     }
 

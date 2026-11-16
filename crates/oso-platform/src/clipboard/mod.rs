@@ -18,7 +18,13 @@
 //! clipboard, so the host can tell text that came back from another app without reading
 //! it on the UI thread.
 //!
-//! Nothing here logs or prints text, and the types that carry it print only its length.
+//! An image is read on the same worker, for the host to save to a file ([`Clipboard::read_image`]):
+//! the first of the types an API for models takes as they are, PNG, JPEG, GIF and WebP, else
+//! TIFF, which macOS apps often put there alone. Its bytes are copied, never decoded here. An
+//! image read waits up to [`GIVE_UP`] for its answer, as nothing waits on it.
+//!
+//! Nothing here logs or prints text or an image, and the types that carry them print only
+//! their length.
 
 use std::fmt;
 use std::io;
@@ -44,6 +50,10 @@ pub const READ_TIMEOUT: Duration = Duration::from_millis(500);
 /// How long a read may take before its worker is left behind and a new one takes over,
 /// as Emacs's `x-selection-timeout`.
 pub const GIVE_UP: Duration = Duration::from_secs(5);
+
+/// The most bytes of an image a read takes, 32 MiB: a screenshot of a large screen as PNG is a
+/// few MiB, and one as TIFF can be ten times that.
+pub const MAX_IMAGE: usize = 32 << 20;
 
 /// Which clipboard to use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,6 +117,72 @@ impl fmt::Debug for Contents {
     }
 }
 
+/// The type of an image on the clipboard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImageKind {
+    /// PNG, `public.png` on macOS.
+    Png,
+    /// JPEG, `public.jpeg`.
+    Jpeg,
+    /// GIF, `com.compuserve.gif`.
+    Gif,
+    /// WebP, `org.webmproject.webp`.
+    Webp,
+    /// TIFF, `public.tiff`, which models' APIs do not take as it is.
+    Tiff,
+}
+
+impl ImageKind {
+    /// The file name extension for an image of this type, in lower case.
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+            Self::Jpeg => "jpg",
+            Self::Gif => "gif",
+            Self::Webp => "webp",
+            Self::Tiff => "tiff",
+        }
+    }
+}
+
+/// An image read from the clipboard: its type and its bytes, as the app that copied it gave
+/// them.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Image {
+    /// Its type.
+    pub kind: ImageKind,
+    /// Its bytes, at most [`MAX_IMAGE`], never empty.
+    pub bytes: Vec<u8>,
+}
+
+impl fmt::Debug for Image {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Never the bytes: they could reach a log.
+        f.debug_struct("Image")
+            .field("kind", &self.kind)
+            .field("len", &self.bytes.len())
+            .finish()
+    }
+}
+
+/// What an image read found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ImageContents {
+    /// An image, of the first type there in the order the module gives.
+    Image(Image),
+    /// No image of a type it reads.
+    Nothing,
+    /// The clipboard is marked concealed, as a password manager marks its own, so nothing
+    /// was read.
+    Concealed,
+    /// An image larger than [`MAX_IMAGE`], which was not kept.
+    TooLarge,
+    /// No answer within [`GIVE_UP`], or a read still running from before.
+    NoAnswer,
+    /// This system has no clipboard backend that reads images yet.
+    Unsupported,
+}
+
 /// What the clipboard tells the host, from its own thread.
 #[derive(Debug)]
 pub enum Event {
@@ -119,6 +195,8 @@ pub enum Event {
     },
     /// The answer to a read.
     Read(Contents),
+    /// The answer to an image read.
+    Image(ImageContents),
     /// A read did not return within [`GIVE_UP`]; a new worker has taken over.
     NotAnswering,
 }
@@ -148,6 +226,9 @@ trait Backend {
     fn write(&mut self, text: &str, concealed: bool) -> Option<i64>;
     /// Reads the text, if there is any and it is at most `max` bytes.
     fn read(&mut self, max: usize) -> Found;
+    /// Reads an image, if there is one of a type it reads and it is at most `max` bytes.
+    /// Never [`ImageContents::NoAnswer`].
+    fn read_image(&mut self, max: usize) -> ImageContents;
 }
 
 /// Text a write computes on the backend's thread, so that joining it costs the UI thread
@@ -228,6 +309,13 @@ impl Clipboard {
     /// Reads the clipboard, and reports [`Event::Read`] within [`READ_TIMEOUT`].
     pub fn read(&self) {
         let _ = self.messages.send(Message::Read);
+    }
+
+    /// Reads an image from the clipboard, and reports [`Event::Image`] within [`GIVE_UP`].
+    /// A read while another, of text or an image, is out is answered at once with
+    /// [`ImageContents::NoAnswer`].
+    pub fn read_image(&self) {
+        let _ = self.messages.send(Message::ReadImage);
     }
 
     /// The clipboard in memory, if it was started over one.

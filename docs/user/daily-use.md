@@ -116,6 +116,7 @@ Inside a session's own buffer, the modeline says `Session`, and `C-c` and a key 
 | `C-c v` | Review what changed in its project since its baseline. `C-c V` opens the review menu. |
 | `C-c +`, `C-c -` | Let the agent channel read its screen, or take that back. |
 | `C-c C-u` | A prefix argument for the next key, as `C-u` elsewhere: `C-c C-u C-c m` sends the place only. |
+| `C-c C-y` | Attach the image on the clipboard: oso keeps it in a private file and pastes `@` and its path into the prompt, for you to press Enter. A TIFF is converted to PNG. macOS only for now. |
 | `C-c ?` | Say these keys in the echo area. |
 
 `C-c C-c` sends Claude Code a `Ctrl-C`, and `C-c C-k` switches char mode, where every key goes to

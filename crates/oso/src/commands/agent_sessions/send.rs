@@ -1,7 +1,8 @@
 //! Sending to a session (ADR 0121, Q17, step 5): `session-send` pastes the region, or a note,
 //! into a session as the person's bracketed paste, not submitted; `session-mention` gives
 //! another session's name as `@NAME`; `session-follow-message` shows who sent a session its
-//! newest message.
+//! newest message; `session-yank-image` keeps the clipboard's image in a file and pastes an `@`
+//! reference to it into the session (ADR 0142).
 //!
 //! Must not depend on: winit, the GPU, `bindings` or `sessions`; a command reads the window's
 //! selections and its buffer, and asks the host, which knows each session's directory and
@@ -9,7 +10,8 @@
 //!
 //! Sending and mentioning are the person's typing into a terminal, `Person`: the agent channel
 //! never writes to one (ADR 0120, Q15). Following a message selects the sender's terminal,
-//! which then takes the person's keys, so it is `Person` too.
+//! which then takes the person's keys, so it is `Person` too. Yanking an image reads the
+//! clipboard and may start `sips`: `Person`.
 
 use oso_core::buffer::Buffer;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
@@ -73,6 +75,14 @@ pub const COMMANDS: &[Command] = &[
         // It selects the sender's terminal, in front of the person's keys (ADR 0121, Q2).
         reach: Reach::Person,
         run: session_follow_message,
+        state: None,
+    },
+    Command {
+        name: "session-yank-image",
+        doc: "Keep the image on the clipboard in a file and paste an `@` reference to it into the session whose terminal is this buffer.\n\nThe reference is the file's absolute path, which Claude Code reads when you press Enter: the image goes by path, never inline. A PNG, JPEG, GIF or WebP is kept as it came; a TIFF alone, as some macOS apps copy, is converted to PNG with `sips`. The files are private to you, under the cache directory's `oso/images`, and go when the session is archived, or after a week. As with `session-send`, a session that asks for permission or another answer is refused until you answer it. macOS only for now.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: session_yank_image,
         state: None,
     },
 ];
@@ -191,5 +201,12 @@ fn session_follow_message(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError
     let buffer = ctx.editor.window().buffer();
     ctx.editor
         .request_session(SessionRequest::FollowMessage(buffer));
+    Ok(())
+}
+
+fn session_yank_image(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let buffer = super::mode::session_buffer(ctx)?;
+    ctx.editor
+        .request_session(SessionRequest::YankImage(buffer));
     Ok(())
 }
