@@ -24,8 +24,8 @@ pub(crate) use id::{Id, trim_line};
 pub(crate) use long::{Ender, GRACE, Next};
 pub(crate) use path::{identity, may_hold_secrets, os as os_path};
 pub(crate) use run::{
-    Git, GitError, MAX_SHORT, MAX_STDERR, Output, RUN_LIMIT, check_revision, collect_within,
-    for_git, read_at_most, stop,
+    Git, GitError, MAX_SHORT, MAX_STDERR, Output, RUN_LIMIT, check_revision, collect, for_git,
+    read_at_most, stop,
 };
 pub(crate) use said::printable;
 pub(crate) use trust::TrustedRoot;

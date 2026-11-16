@@ -1,6 +1,6 @@
 //! Reading a run of git's output, bounded (ADR 0122, ADR 0127): waiting for a child with its
 //! standard output and error read on threads of their own, `oso-git-read`, and its input
-//! written on another, `oso-git-write`, a run past [`RUN_LIMIT`] killed and left, and the reads'
+//! written on another, `oso-git-write`, a run past its limit, [`RUN_LIMIT`](super::RUN_LIMIT), killed and left, and the reads'
 //! limits.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs on the threads that
@@ -14,29 +14,20 @@ use std::time::{Duration, Instant};
 
 use oso_platform::process::Child;
 
-use super::{EXIT_POLL, GitError, MAX_STDERR, Output, RUN_LIMIT};
+use super::{EXIT_POLL, GitError, MAX_STDERR, Output};
 
 /// Waits for `child`, started with piped standard output and error, writing `input` to its
 /// standard input if there is one, and keeping what `read` keeps of its output, which says
 /// whether it cut it, and the start of its standard error. A cut run is killed; a run past
-/// [`RUN_LIMIT`] is killed and left. `gh` is run this way too (ADR 0121).
+/// `limit`, [`RUN_LIMIT`](super::RUN_LIMIT) but in a test, is killed and left. `gh` is run this way too (ADR
+/// 0121).
 pub(crate) fn collect(
-    child: Child,
-    input: Option<Vec<u8>>,
-    read: impl FnOnce(ChildStdout) -> io::Result<(Vec<u8>, bool)> + Send + 'static,
-) -> Result<Output, GitError> {
-    collect_within(child, input, read, RUN_LIMIT)
-}
-
-/// As [`collect`], a run past `within` killed and left: `gh`'s reads of a pull request take
-/// 30 s (ADR 0127, step 5a).
-pub(crate) fn collect_within(
     mut child: Child,
     input: Option<Vec<u8>>,
     read: impl FnOnce(ChildStdout) -> io::Result<(Vec<u8>, bool)> + Send + 'static,
-    within: Duration,
+    limit: Duration,
 ) -> Result<Output, GitError> {
-    let deadline = Instant::now() + within;
+    let deadline = Instant::now() + limit;
     let streams = (child.stdout.take(), child.stderr.take());
     let (Some(stdout), Some(stderr)) = streams else {
         stop(&mut child);

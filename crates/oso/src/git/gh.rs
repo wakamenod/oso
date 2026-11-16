@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 
-use super::{GitError, collect_within, printable, read_at_most};
+use super::{GitError, collect, printable, read_at_most};
 
 /// The most bytes of `gh`'s answer read.
 pub(crate) const MAX_GH: usize = 256 * 1024;
@@ -196,7 +196,7 @@ impl Gh {
         })
         .map_err(|e| format!("cannot run gh: {e}"))?;
         let read = move |stdout| read_at_most(stdout, limit);
-        let out = collect_within(child, None, read, within).map_err(|e| gh_said(&e, within))?;
+        let out = collect(child, None, read, within).map_err(|e| gh_said(&e, within))?;
         if out.cut {
             return Err("gh said more than oso reads".to_owned());
         }

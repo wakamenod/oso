@@ -210,6 +210,7 @@ impl App {
         path: &Path,
         result: Result<Vec<PathBuf>, String>,
     ) {
+        let shown = printable(&path.display().to_string(), 200);
         if self
             .hosting
             .worktrees
@@ -217,10 +218,16 @@ impl App {
             .as_ref()
             .is_none_or(|r| r.token != token)
         {
+            // An earlier removal, whose git ran on while the person went on to another: what
+            // it removed is still forgotten and said.
+            if result.is_ok() {
+                self.forget_removed_worktree(path);
+                self.editor
+                    .message(format!("Removed worktree {shown}; its branch is kept"));
+            }
             return;
         }
         self.hosting.worktrees.removing = None;
-        let shown = printable(&path.display().to_string(), 200);
         match result {
             Ok(_) => {
                 self.forget_removed_worktree(path);

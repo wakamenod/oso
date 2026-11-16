@@ -1,13 +1,15 @@
 //! `git` and `gh` for worktree sessions (ADR 0121): a repository's main checkout, its linked
 //! worktrees, and the pull requests `gh` knows of, each run bounded as ADR 0122's runner bounds
-//! it.
+//! it, but a removal's `git worktree remove`.
 //!
 //! Must not depend on: `app`, `dispatch` or the UI thread; this runs on a worktree
 //! job's thread and waits for git.
 //!
 //! - Every git run is [`git`](crate::git)'s runner's: oso's own arguments and environment,
 //!   no hook and no file system monitor of the repository's (the author's choice, ADR 0121
-//!   step 4), `GIT_TERMINAL_PROMPT=0`, output bounded, killed after 10 s. Nothing here fetches.
+//!   step 4), `GIT_TERMINAL_PROMPT=0`, output bounded, killed after 10 s; a removal's
+//!   `git worktree remove` alone runs with no time limit (`checks::remove`). Nothing here
+//!   fetches.
 //! - A linked worktree is run in only once its claim and the main repository's record of it
 //!   are checked, and then with `GIT_DIR` and `GIT_WORK_TREE` given, so git looks for no
 //!   repository of its own.
@@ -60,6 +62,13 @@ impl Repo {
             main: main.to_owned(),
             hooks: hooks.to_owned(),
         })
+    }
+
+    /// The same repository, whose bounded git runs are killed after `limit`.
+    #[cfg(all(test, unix))]
+    pub fn with_limit(mut self, limit: std::time::Duration) -> Repo {
+        self.git = self.git.with_limit(limit);
+        self
     }
 
     /// The main checkout's root.

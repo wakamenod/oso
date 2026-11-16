@@ -181,6 +181,81 @@ fn a_removal_runs_every_check_again() {
     assert!(!made.path.exists());
 }
 
+/// Two removals whose git runs long leave the pool to other jobs, and a second removal of a
+/// worktree being removed is refused while the first runs (ADR 0121, "Worktree removal, as
+/// fixed").
+#[test]
+fn removals_run_off_the_pool_and_hold_their_worktree() {
+    let s = Scratch::new("removals");
+    s.with_origin();
+    let one = s.create("one").unwrap().path;
+    let two = s.create("two").unwrap().path;
+    for (worktree, file) in [(&one, "b.txt"), (&two, "c.txt")] {
+        fs::write(worktree.join(file), "work\n").unwrap();
+        s.git_in(worktree, &["add", file]);
+        s.git_in(worktree, &["commit", "-q", "-m", "work"]);
+    }
+    s.git(&["merge", "-q", "-m", "both", "one", "two"]);
+    s.git(&["push", "-q", "origin", "main"]);
+    // git's own clean check before it deletes re-reads a.txt through this filter, slow only
+    // once the checks have held.
+    let slow = s.dir.join("slow");
+    let filter = format!("if [ -e '{}' ]; then sleep 3; fi; cat", slow.display());
+    s.git(&["config", "filter.slow.clean", &filter]);
+    fs::write(s.root.join(".git/info/attributes"), "a.txt filter=slow\n").unwrap();
+    for worktree in [&one, &two] {
+        fs::write(worktree.join("a.txt"), "a\n").unwrap();
+    }
+    let (jobs, got) = jobs(&s);
+    let trust = || trust(&s.root, &[&s.root]);
+    for (token, path) in [(1, &one), (2, &two)] {
+        jobs.remove(
+            token,
+            trust(),
+            path.clone(),
+            Snapshot::default(),
+            Asked::Unasked,
+        );
+    }
+    let mut goes = Vec::new();
+    while goes.len() < 2 {
+        match next(&got) {
+            Report::Clear { go, .. } => goes.push(go),
+            other => panic!("{other:?}"),
+        }
+    }
+    fs::write(&slow, "").unwrap();
+    goes.into_iter().for_each(super::super::jobs::Go::proceed);
+    // Both gits run now; the pool still takes jobs.
+    jobs.branches(3, trust());
+    jobs.remove(4, trust(), one.clone(), Snapshot::default(), Asked::Unasked);
+    let mut seen = Vec::new();
+    while !(seen.contains(&1) && seen.contains(&2)) {
+        match next(&got) {
+            Report::Branches { token: 3, branches } => {
+                assert!(branches.is_ok(), "{branches:?}");
+                seen.push(3);
+            }
+            Report::Removed {
+                token: 4, result, ..
+            } => {
+                let why = result.unwrap_err();
+                assert!(why.contains("still runs"), "{why}");
+                seen.push(4);
+            }
+            Report::Removed { token, result, .. } => {
+                assert!(result.is_ok(), "{token}: {result:?}");
+                seen.push(token);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+    let mut first = seen[..2].to_vec();
+    first.sort_unstable();
+    assert_eq!(first, [3, 4], "neither waited for a removal: {seen:?}");
+    assert!(!one.exists() && !two.exists());
+}
+
 /// An agent's listing ends with a report saying so, and one stopped before it ran lists
 /// nothing (ADR 0121, step 6).
 #[test]

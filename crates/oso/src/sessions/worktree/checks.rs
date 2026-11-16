@@ -8,14 +8,15 @@
 //!
 //! A check that cannot be run refuses: a worktree is removed only when every check holds.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 
 use super::facts::RepoFacts;
 use super::git::{MAX_LISTING, Repo, run, said};
 use super::merged::{self, Local, Merged};
 use super::porcelain::{self, Listed, Status};
-use crate::git::Gh;
-use crate::git::Git;
+use crate::git::{Gh, Git, GitError};
 
 /// The most names of ignored files and directories kept, for the removal's question.
 pub const MAX_IGNORED: usize = 1_000;
@@ -277,6 +278,13 @@ pub fn removable(looked: &Looked, held: &Held) -> Result<(), Check> {
 /// Removes the linked worktree at `path` with `git worktree remove`, never `--force`: git
 /// itself refuses one that has changes by then. Its branch is kept.
 ///
+/// git runs with no time limit, in a process group of its own, and nothing stops it: once it
+/// runs, every check has held and it may be deleting, and a kill would leave the worktree half
+/// removed, which check 2 then refuses. Deleting a large ignored `target/` can take longer than
+/// the 10 s of every other run (ADR 0121, "Worktree removal, as fixed"). It runs in a session of
+/// its own, with no controlling terminal, so a filter that opens the terminal fails instead of
+/// stopping. Quitting oso leaves it to finish.
+///
 /// # Errors
 ///
 /// What git said.
@@ -284,9 +292,17 @@ pub fn remove(repo: &Repo, path: &Path) -> Result<(), String> {
     let Some(path) = path.to_str() else {
         return Err("its path is not UTF-8".to_owned());
     };
-    run(repo.git(), &["worktree", "remove", "--", path], MAX_LISTING)
-        .map(drop)
-        .map_err(|e| said(&e))
+    let args = ["worktree", "remove", "--", path].map(OsStr::new);
+    let never = AtomicBool::new(false);
+    let git = repo.git().detached();
+    let out = (git.run_long(&args, &[], None, &never)).map_err(|e| said(&e))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    Err(said(&GitError::Failed {
+        status: out.status.code(),
+        stderr: out.stderr,
+    }))
 }
 
 #[cfg(test)]
