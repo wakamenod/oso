@@ -271,10 +271,19 @@ mod tests {
 
     #[test]
     fn a_prompt_as_a_string_is_read_with_its_directory() {
-        let line = br#"{"parentUuid":null,"isSidechain":false,"cwd":"/w/oso","type":"user","message":{"role":"user","content":"find the \"trust\" bug\nplease"}}"#;
-        let read = read(line);
+        // An absolute path here: with a drive on Windows, written as Claude Code writes it.
+        let cwd = if cfg!(windows) {
+            r"C:\\w\\oso"
+        } else {
+            "/w/oso"
+        };
+        let line = format!(
+            r#"{{"parentUuid":null,"isSidechain":false,"cwd":"{cwd}","type":"user","message":{{"role":"user","content":"find the \"trust\" bug\nplease"}}}}"#
+        );
+        let read = read(line.as_bytes());
         assert_eq!(read.message, prompt(&["find the \"trust\" bug\nplease"]));
-        assert_eq!(read.cwd, Some(PathBuf::from("/w/oso")));
+        let decoded = if cfg!(windows) { r"C:\w\oso" } else { "/w/oso" };
+        assert_eq!(read.cwd, Some(PathBuf::from(decoded)));
     }
 
     #[test]

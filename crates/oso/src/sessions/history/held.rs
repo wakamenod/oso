@@ -431,6 +431,14 @@ fn next_line(reader: &mut impl io::BufRead, line: &mut Vec<u8>) -> io::Result<(b
 mod tests {
     use super::*;
 
+    /// What makes a test's `/w/...` an absolute path here: a drive on Windows.
+    const ROOT: &str = if cfg!(windows) { "C:" } else { "" };
+
+    /// A user line that says it ran in `ROOT` and `cwd`.
+    fn ran_in(cwd: &str, text: &str) -> String {
+        format!(r#"{{"type":"user","cwd":"{ROOT}{cwd}","message":{{"content":"{text}"}}}}"#)
+    }
+
     fn conversation() -> Conversation {
         let id = SessionId::parse("6c1b5d1e-2f3a-4b5c-8d9e-0f1a2b3c4d5e").unwrap();
         Conversation::new(id, PathBuf::from("/c/p/x.jsonl"))
@@ -467,17 +475,16 @@ mod tests {
         ));
         held.take(scan::read(br#"{"type":"ai-title","aiTitle":"Made again"}"#));
         assert_eq!(held.about.title.as_deref(), Some("Mine"));
+        held.take(scan::read(ran_in("/w/a", "one\\ntwo").as_bytes()));
         held.take(scan::read(
-            br#"{"type":"user","cwd":"/w/a","message":{"content":"one\ntwo"}}"#,
-        ));
-        held.take(scan::read(
-            br#"{"type":"user","cwd":"/w/a/.claude/worktrees/b","message":{"content":"three"}}"#,
+            ran_in("/w/a/.claude/worktrees/b", "three").as_bytes(),
         ));
         assert_eq!(
             held.about.directory, None,
             "not where /c/p holds transcripts"
         );
-        assert_eq!(held.about.shown_directory(), Some(Path::new("/w/a")));
+        let first = format!("{ROOT}/w/a");
+        assert_eq!(held.about.shown_directory(), Some(Path::new(&first)));
         assert_eq!(held.about.directories.len(), 2);
         assert_eq!(held.about.first_prompt.as_deref(), Some("one"));
         assert_eq!(held.messages.len(), 2);
@@ -518,15 +525,13 @@ mod tests {
     #[test]
     fn a_conversation_resumes_only_where_its_transcript_says() {
         let id = SessionId::parse("6c1b5d1e-2f3a-4b5c-8d9e-0f1a2b3c4d5e").unwrap();
-        let mut held = Conversation::new(id, PathBuf::from("/c/-w-oso--x/x.jsonl"));
-        held.take(scan::read(
-            br#"{"type":"user","cwd":"/elsewhere/oso","message":{"content":"a"}}"#,
-        ));
-        held.take(scan::read(
-            br#"{"type":"user","cwd":"/w/oso/.x","message":{"content":"b"}}"#,
-        ));
-        assert_eq!(held.about.directory, Some(PathBuf::from("/w/oso/.x")));
-        assert_eq!(held.about.shown_directory(), Some(Path::new("/w/oso/.x")));
+        let resumes = format!("{ROOT}/w/oso/.x");
+        let slug = slug_of(Path::new(&resumes));
+        let mut held = Conversation::new(id, PathBuf::from(format!("/c/{slug}/x.jsonl")));
+        held.take(scan::read(ran_in("/elsewhere/oso", "a").as_bytes()));
+        held.take(scan::read(ran_in("/w/oso/.x", "b").as_bytes()));
+        assert_eq!(held.about.directory, Some(PathBuf::from(&resumes)));
+        assert_eq!(held.about.shown_directory(), Some(Path::new(&resumes)));
         assert_eq!(held.about.directories.len(), 2);
         assert_eq!(
             slug_of(Path::new("/Users/me/a b/.claude")),
