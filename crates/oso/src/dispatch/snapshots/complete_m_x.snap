@@ -50,7 +50,7 @@ float at row 4, column 19: 19 x 62
 │ edit-lines (C-x SPC)   Put a cursor on each line from the m… │
 │ load-theme             Draw with the theme named in a promp… │
 │ write-file (C-x C-w)   Write the buffer to a file, its path… │
-│ beacon-mode            Toggle the cursor flash after a larg… │
+│ beacon-mode (C-c t b)  Toggle the cursor flash after a larg… │
 │ delete-char (C-d)      Delete the N characters after every … │
 │ kill-buffer (C-x k)    Kill a buffer, read with completion,… │
 │ next-buffer (M-/)      Go the other way from `previous-buff… │

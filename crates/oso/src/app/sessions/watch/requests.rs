@@ -76,8 +76,8 @@ impl App {
         None
     }
 
-    /// `C-x a s` (Q1): hidden, it shows and is selected; shown, it is selected; selected, the
-    /// tree's window selected last is (ADR 0140). `C-u C-x a s` hides it, in the command.
+    /// `C-c a s` (Q1): hidden, it shows and is selected; shown, it is selected; selected, the
+    /// tree's window selected last is (ADR 0140). `C-u C-c a s` hides it, in the command.
     fn toggle_sessions_list(&mut self) {
         if !self.sessions_list_shown() {
             self.show_sessions_side();

@@ -10,8 +10,12 @@
 //! in the layers active now that no higher layer shadows, and that no shorter part of it cuts
 //! short, as `where-is` finds it. A global binding the user's keys shadow binds nothing, so a
 //! command the user left without a key is listed with none (ADR 0108, ADR 0110).
+//!
+//! [`Dispatcher::where_is`] names the key a message tells the person to press, the same way, and
+//! through the menus those layers open too (ADR 0143), which `M-x` lists as well.
 
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::sync::Arc;
 
 use oso_core::command::{ArgSpec, CommandId, Prefix};
@@ -19,7 +23,7 @@ use oso_core::complete::Candidate;
 use oso_core::editor::Editor;
 use oso_core::key::KeyPress;
 use oso_core::keymap::{Binding, Layers, display_keys, is_cancel};
-use oso_core::menu::MenuId;
+use oso_core::menu::{HeadAction, MenuId};
 
 use super::Dispatcher;
 
@@ -32,18 +36,14 @@ impl Dispatcher {
         let mut shortest: HashMap<CommandId, (usize, String)> = HashMap::new();
         for keymap in layers.iter() {
             keymap.bindings(|keys, id| {
-                if !reaches(&layers, keys, Binding::Command(id)) {
-                    return;
-                }
-                let text = display_keys(keys).to_string();
-                let rank = |len: usize, text: &str| (len, text.len(), text.to_owned());
-                let better = shortest
-                    .get(&id)
-                    .is_none_or(|(len, other)| rank(keys.len(), &text) < rank(*len, other));
-                if better {
-                    shortest.insert(id, (keys.len(), text));
+                if reaches(&layers, keys, Binding::Command(id)) {
+                    keep_shortest(&mut shortest, id, keys);
                 }
             });
+        }
+        // A command a menu's head runs is listed with that key, as one a key binds (ADR 0143).
+        for (keys, id) in self.menu_heads(&layers) {
+            keep_shortest(&mut shortest, id, &keys);
         }
         let mut bound = HashSet::new();
         let over_global = Layers {
@@ -79,16 +79,8 @@ impl Dispatcher {
         let mut shortest: HashMap<MenuId, (usize, String)> = HashMap::new();
         for keymap in layers.iter() {
             keymap.menu_bindings(|keys, id| {
-                if !reaches(&layers, keys, Binding::Menu(id)) {
-                    return;
-                }
-                let text = display_keys(keys).to_string();
-                let rank = |len: usize, text: &str| (len, text.len(), text.to_owned());
-                let better = shortest
-                    .get(&id)
-                    .is_none_or(|(len, other)| rank(keys.len(), &text) < rank(*len, other));
-                if better {
-                    shortest.insert(id, (keys.len(), text));
+                if reaches(&layers, keys, Binding::Menu(id)) {
+                    keep_shortest(&mut shortest, id, keys);
                 }
             });
         }
@@ -99,6 +91,90 @@ impl Dispatcher {
                 Candidate::new(definition.name(), key, definition.title())
             })
             .collect()
+    }
+
+    /// The keys that run the command named `name` from the current buffer, as a message names
+    /// them (ADR 0143): the shortest of its bindings in the layers active now, and of a menu's
+    /// key there and the keys of its head that runs the command, through up to
+    /// [`MAX_MENU_DEPTH`] menus (`C-c a S u`); else `M-x` and the name. A rebinding in
+    /// `config.toml` shows, and the heads a menu leaves out or dims still count, as they do once
+    /// their reason goes.
+    pub fn where_is(&self, editor: &Editor, name: &str) -> String {
+        let reading = self.keymaps.reading();
+        self.where_is_in(&self.keymaps.active(&reading, None, editor), name)
+    }
+
+    /// [`Dispatcher::where_is`] in the layers every buffer has, the user's keys over the global
+    /// ones, for a hint that holds wherever the person is, as the pane's modeline is (ADR 0143).
+    pub fn where_is_anywhere(&self, name: &str) -> String {
+        let layers = Layers {
+            user: self.keymaps.user(),
+            ..Layers::global(&self.keymaps.global)
+        };
+        self.where_is_in(&layers, name)
+    }
+
+    /// The shortest keys of the command named `name` in `layers`, through the menus they open,
+    /// else `M-x` and the name.
+    fn where_is_in(&self, layers: &Layers<'_>, name: &str) -> String {
+        let fallback = || format!("M-x {name}");
+        let Some(target) = self.registry.lookup(name) else {
+            return fallback();
+        };
+        let mut shortest = HashMap::new();
+        for keymap in layers.iter() {
+            keymap.bindings(|keys, id| {
+                if id == target && reaches(layers, keys, Binding::Command(id)) {
+                    keep_shortest(&mut shortest, (), keys);
+                }
+            });
+        }
+        for (keys, id) in self.menu_heads(layers) {
+            if id == target {
+                keep_shortest(&mut shortest, (), &keys);
+            }
+        }
+        shortest.remove(&()).map_or_else(fallback, |(_, text)| text)
+    }
+
+    /// The keys of each command a menu's head runs, from the menus a key in `layers` opens and
+    /// those their heads open, through up to [`MAX_MENU_DEPTH`] menus: the menu's key, then the
+    /// head's. Heads a menu leaves out or dims count too, as they do once their reason goes.
+    fn menu_heads(&self, layers: &Layers<'_>) -> Vec<(Vec<KeyPress>, CommandId)> {
+        let mut menus: Vec<(Vec<KeyPress>, MenuId)> = Vec::new();
+        for keymap in layers.iter() {
+            keymap.menu_bindings(|keys, id| {
+                if reaches(layers, keys, Binding::Menu(id)) {
+                    menus.push((keys.to_vec(), id));
+                }
+            });
+        }
+        let in_force = self.menus_in_force();
+        let (mut seen, mut heads) = (HashSet::new(), Vec::new());
+        for _ in 0..MAX_MENU_DEPTH {
+            // A menu is opened from its shortest key, the first of the order `keep_shortest`
+            // keeps, so its heads are named through that key.
+            menus.sort_by_cached_key(|(keys, _)| {
+                let text = display_keys(keys).to_string();
+                (keys.len(), text.len(), text)
+            });
+            let mut next = Vec::new();
+            for (keys, id) in menus {
+                let Some(definition) = in_force.get(id).filter(|_| seen.insert(id)) else {
+                    continue;
+                };
+                for head in definition.heads() {
+                    let keys = [&keys[..], &head.keys.0[..]].concat();
+                    match head.action {
+                        HeadAction::Command(id) => heads.push((keys, id)),
+                        HeadAction::Menu(id) => next.push((keys, id)),
+                        HeadAction::Switch(_) | HeadAction::Quit => {}
+                    }
+                }
+            }
+            menus = next;
+        }
+        heads
     }
 
     /// Whether `M-x` lists the command named `name`, of those it could: in a test that gave
@@ -113,6 +189,30 @@ impl Dispatcher {
         true
     }
 }
+
+/// Keeps `keys` for `id` in `shortest` if they are the shortest yet: the fewest keys, then the
+/// fewest characters spelled out, then the first in order. Keys longer than the best are not
+/// spelled out at all.
+fn keep_shortest<K: Hash + Eq>(
+    shortest: &mut HashMap<K, (usize, String)>,
+    id: K,
+    keys: &[KeyPress],
+) {
+    if shortest.get(&id).is_some_and(|(len, _)| keys.len() > *len) {
+        return;
+    }
+    let text = display_keys(keys).to_string();
+    let better = shortest
+        .get(&id)
+        .is_none_or(|(len, other)| (keys.len(), text.len(), &text) < (*len, other.len(), other));
+    if better {
+        shortest.insert(id, (keys.len(), text));
+    }
+}
+
+/// How many menus deep [`Dispatcher::where_is`] looks: a menu's key, a head that opens another,
+/// and its heads, as the Agents menu opens the space and review menus.
+const MAX_MENU_DEPTH: usize = 3;
 
 /// Whether `keys` come to `bound`, a command or a menu, in `layers`, as the resolver reads them
 /// a key at a time: no shorter part of them is bound to a command or a menu or left undefined,
@@ -160,6 +260,37 @@ mod tests {
     use oso_core::complete::Candidate;
     use oso_core::editor::Editor;
     use oso_core::keymap::Keymap;
+    use oso_core::keymap::Layers;
+
+    /// A message names a command's keys as bound, through the menus a key opens too
+    /// (ADR 0143).
+    #[test]
+    fn where_is_names_the_shortest_keys_through_menus_or_m_x() {
+        let dispatcher = Dispatcher::new();
+        let editor = Editor::with_buffer(Buffer::from_text("test", "text"));
+        let where_is = |name| dispatcher.where_is(&editor, name);
+        assert_eq!(where_is("save-buffer"), "C-x C-s");
+        assert_eq!(where_is("session-explain"), "C-c a e");
+        assert_eq!(where_is("session-worktree"), "C-c a w");
+        // Through the space menu the Agents menu opens.
+        assert_eq!(where_is("space-use-repo"), "C-c a S u");
+        assert_eq!(where_is("no-such-command"), "M-x no-such-command");
+        assert_eq!(dispatcher.where_is_anywhere("sessions"), "C-c a s");
+        // A longer key of the user's to the same menu does not win.
+        let mut dispatcher = Dispatcher::new();
+        let registry = crate::commands::registry();
+        let agents = crate::bindings::built_in_menus(&registry)
+            .lookup("agents")
+            .unwrap();
+        let mut user = Keymap::new();
+        let keys: oso_core::key::KeySequence = "C-c x y".parse().unwrap();
+        user.bind_menu(&keys.0, agents).unwrap();
+        dispatcher.set_user_keymap(user);
+        assert_eq!(dispatcher.where_is(&editor, "session-explain"), "C-c a e");
+        let (session, editor) = crate::dispatch::terminal_tests::in_session();
+        assert_eq!(session.where_is(&editor, "session-explain"), "C-c C-e");
+        assert_eq!(session.where_is(&editor, "session-send"), "C-c a m");
+    }
 
     #[test]
     fn m_x_lists_commands_with_their_shortest_binding_and_summary() {
@@ -204,6 +335,9 @@ mod tests {
                 into.insert(id);
             });
         }
+        // A command a global menu key's menu runs counts as bound globally (ADR 0143).
+        let layers = Layers::global(&dispatcher.keymaps.global);
+        global.extend(dispatcher.menu_heads(&layers).into_iter().map(|(_, id)| id));
         for (id, command) in dispatcher.registry.iter() {
             let runs =
                 command.args != ArgSpec::Key && (global.contains(&id) || !elsewhere.contains(&id));

@@ -1,6 +1,6 @@
-//! Sending to agent sessions through a dispatcher (ADR 0121, step 5): `C-x a m` reads a
+//! Sending to agent sessions through a dispatcher (ADR 0121, step 5): `C-c a m` reads a
 //! session, then a note unless a region shows, and asks the host to paste what it read;
-//! `C-x a @` inserts a session's name; `C-x a f` asks for a message's sender.
+//! `C-c a @` inserts a session's name; `C-c a f` asks for a message's sender.
 //!
 //! Must not depend on: `app` or winit; these drive a dispatcher and an editor alone.
 
@@ -66,7 +66,7 @@ fn messages(editor: &Editor) -> String {
 fn a_region_goes_with_its_lines_and_text_and_no_note_is_asked() {
     let (mut d, mut editor) = (Dispatcher::new(), notes());
     // The region ends at the start of the third line, which it leaves out.
-    send(&mut d, &mut editor, "C-SPC C-n C-n C-x a m");
+    send(&mut d, &mut editor, "C-SPC C-n C-n C-c a m");
     assert!(
         editor
             .prompt()
@@ -85,7 +85,7 @@ fn a_region_goes_with_its_lines_and_text_and_no_note_is_asked() {
 #[test]
 fn with_no_region_a_note_is_read_and_sent() {
     let (mut d, mut editor) = (Dispatcher::new(), notes());
-    send(&mut d, &mut editor, "C-x a m f i x RET");
+    send(&mut d, &mut editor, "C-c a m f i x RET");
     assert!(editor.prompt().unwrap().label().starts_with("Note:"));
     send(&mut d, &mut editor, "w h y SPC n o t ? RET");
     assert_eq!(
@@ -100,24 +100,24 @@ fn with_no_region_a_note_is_read_and_sent() {
 #[test]
 fn an_empty_note_or_c_g_sends_nothing() {
     let (mut d, mut editor) = (Dispatcher::new(), notes());
-    send(&mut d, &mut editor, "C-x a m RET RET");
+    send(&mut d, &mut editor, "C-c a m RET RET");
     assert!(editor.take_session_requests().is_empty());
     assert!(messages(&editor).contains("Nothing to send"));
-    send(&mut d, &mut editor, "C-x a m RET a C-g");
-    send(&mut d, &mut editor, "C-x a m C-g");
+    send(&mut d, &mut editor, "C-c a m RET a C-g");
+    send(&mut d, &mut editor, "C-c a m C-g");
     assert!(editor.take_session_requests().is_empty());
 }
 
 #[test]
 fn c_u_sends_the_place_only() {
     let (mut d, mut editor) = (Dispatcher::new(), notes());
-    send(&mut d, &mut editor, "C-n C-SPC C-n C-f C-u C-x a m RET");
+    send(&mut d, &mut editor, "C-n C-SPC C-n C-f C-u C-c a m RET");
     assert_eq!(
         editor.take_session_requests(),
         [sent(API, vec![lines(2, 3, None)])]
     );
     // With no region: the line at point, then the note, if any.
-    send(&mut d, &mut editor, "C-g C-u C-x a m RET l o o k RET");
+    send(&mut d, &mut editor, "C-g C-u C-c a m RET l o o k RET");
     assert_eq!(
         editor.take_session_requests(),
         [sent(
@@ -125,7 +125,7 @@ fn c_u_sends_the_place_only() {
             vec![lines(3, 3, None), SendPart::Note("look".to_owned())]
         )]
     );
-    send(&mut d, &mut editor, "C-u C-x a m RET RET");
+    send(&mut d, &mut editor, "C-u C-c a m RET RET");
     assert_eq!(
         editor.take_session_requests(),
         [sent(API, vec![lines(3, 3, None)])]
@@ -141,7 +141,7 @@ fn a_buffer_that_may_hold_secrets_sends_its_place_only() {
     assert!(buffer.is_secret());
     let (mut d, mut editor) = (Dispatcher::new(), editor(buffer));
     // Near a secret the float takes only what is typed, not its first candidate.
-    send(&mut d, &mut editor, "k e y RET C-SPC M-< C-x a m a p i RET");
+    send(&mut d, &mut editor, "k e y RET C-SPC M-< C-c a m a p i RET");
     let SessionRequest::Send { parts, .. } = &editor.take_session_requests()[0] else {
         panic!("no send");
     };
@@ -156,15 +156,15 @@ fn a_buffer_that_may_hold_secrets_sends_its_place_only() {
 fn a_region_past_256_kib_is_refused_with_the_place_only_way() {
     let text = "x".repeat(300 << 10);
     let (mut d, mut editor) = (Dispatcher::new(), editor(Buffer::from_text("big", &text)));
-    send(&mut d, &mut editor, "C-SPC M-> C-x a m RET");
+    send(&mut d, &mut editor, "C-SPC M-> C-c a m RET");
     assert!(editor.take_session_requests().is_empty());
     assert!(
         messages(&editor)
-            .contains("That is 300 KiB; at most 256 KiB goes to a session. C-u C-x a m"),
+            .contains("That is 300 KiB; at most 256 KiB goes to a session. C-u M-x session-send"),
         "{}",
         messages(&editor)
     );
-    send(&mut d, &mut editor, "C-u C-x a m RET");
+    send(&mut d, &mut editor, "C-u C-c a m RET");
     assert_eq!(editor.take_session_requests().len(), 1);
 }
 
@@ -172,7 +172,7 @@ fn a_region_past_256_kib_is_refused_with_the_place_only_way() {
 fn an_empty_region_reads_a_note_and_c_u_sends_each_cursors_line_once() {
     let buffer = Buffer::from_text("notes.md", "ab\nxx\nab\n");
     let (mut d, mut editor) = (Dispatcher::new(), editor(buffer));
-    send(&mut d, &mut editor, "C-SPC C-x a m RET h i RET");
+    send(&mut d, &mut editor, "C-SPC C-c a m RET h i RET");
     assert_eq!(
         editor.take_session_requests(),
         [sent(API, vec![SendPart::Note("hi".to_owned())])]
@@ -180,7 +180,7 @@ fn an_empty_region_reads_a_note_and_c_u_sends_each_cursors_line_once() {
     send(
         &mut d,
         &mut editor,
-        "C-SPC C-f C-f C-> C-g C-u C-x a m RET RET",
+        "C-SPC C-f C-f C-> C-g C-u C-c a m RET RET",
     );
     assert_eq!(
         editor.take_session_requests(),
@@ -192,7 +192,7 @@ fn an_empty_region_reads_a_note_and_c_u_sends_each_cursors_line_once() {
 fn each_region_of_several_cursors_is_one_excerpt_in_buffer_order() {
     let buffer = Buffer::from_text("notes.md", "ab\nxx\nab\n");
     let (mut d, mut editor) = (Dispatcher::new(), editor(buffer));
-    send(&mut d, &mut editor, "C-SPC C-f C-f C-> C-x a m RET");
+    send(&mut d, &mut editor, "C-SPC C-f C-f C-> C-c a m RET");
     assert_eq!(
         editor.take_session_requests(),
         [sent(
@@ -205,7 +205,7 @@ fn each_region_of_several_cursors_is_one_excerpt_in_buffer_order() {
 #[test]
 fn a_mention_inserts_the_name_at_each_cursor() {
     let (mut d, mut editor) = (Dispatcher::new(), notes());
-    send(&mut d, &mut editor, "C-e C-x a @ RET");
+    send(&mut d, &mut editor, "C-e C-c a @ RET");
     assert_eq!(
         editor.current().1.text().to_string(),
         "one@api\ntwo\nthree\n"
@@ -218,7 +218,7 @@ fn a_mention_in_a_terminal_asks_to_paste_the_name_into_its_session() {
     let (mut d, mut editor) = (Dispatcher::new(), notes());
     let buffer = editor.add_terminal_buffer("*claude: api*");
     editor.show(buffer);
-    send(&mut d, &mut editor, "C-x a @ RET");
+    send(&mut d, &mut editor, "C-c a @ RET");
     assert_eq!(
         editor.take_session_requests(),
         [SessionRequest::Send {
@@ -229,10 +229,10 @@ fn a_mention_in_a_terminal_asks_to_paste_the_name_into_its_session() {
 }
 
 #[test]
-fn c_x_a_f_asks_for_the_sender_of_this_sessions_newest_message() {
+fn c_c_a_f_asks_for_the_sender_of_this_sessions_newest_message() {
     let (mut d, mut editor) = (Dispatcher::new(), notes());
     let buffer = editor.window().buffer();
-    send(&mut d, &mut editor, "C-x a f");
+    send(&mut d, &mut editor, "C-c a f");
     assert_eq!(
         editor.take_session_requests(),
         [SessionRequest::FollowMessage(buffer)]

@@ -21,7 +21,7 @@ mod spaces;
 
 pub use list::COMMANDS as LIST_COMMANDS;
 pub use list::{FOLDS, GUIDES, ROW_MARKS, row_mark};
-pub use mode::{COMMANDS as MODE_COMMANDS, SESSION_HELP};
+pub use mode::{ARCHIVE_LABEL, COMMANDS as MODE_COMMANDS, PIN_LABEL, SESSION_HELP, agents_menu};
 pub use send::{
     COMMANDS as SEND_COMMANDS, MAX_SEND_BYTES, MENTION_LIST, SEND_LIST, YANK_IMAGE, too_large,
 };
@@ -196,7 +196,7 @@ Back, the window it was zoomed from shows what the zoomed window showed, where i
 
 fn sessions(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
-    // `C-u C-x a s` hides it (ADR 0140): the host sees it gone, and keeps it hidden.
+    // `C-u C-c a s` hides it (ADR 0140): the host sees it gone, and keeps it hidden.
     if args.raw().is_some() {
         if !ctx.editor.hide_side_window() {
             return Err(CommandError::new("*Spaces* is not shown"));
