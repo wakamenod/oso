@@ -341,12 +341,7 @@ where
             writeln!(writer, "{}", failure(&first_id, why))?;
             return Ok(());
         }
-        let asked = ask(&peer, connection, &lines, &mut writer, shared, send);
-        // Only the person's own `n` holds others off: a client that goes, or a channel that
-        // stops, is no refusal.
-        let refused = matches!(&asked, Err(Asked::Refused(why)) if why == REFUSED_BY_THE_PERSON);
-        gate(shared).answered(refused, Instant::now());
-        match asked {
+        match ask(&peer, connection, &lines, &mut writer, shared, send) {
             Ok(()) => {}
             Err(Asked::Refused(why)) => {
                 writeln!(writer, "{}", failure(&first_id, &why))?;
@@ -468,7 +463,7 @@ enum Asked {
 
 /// Asks the person, through the UI thread, whether this connection may drive the editor,
 /// and waits as long as they take. Tells the UI if the client goes or the channel stops
-/// meanwhile, so that the question closes.
+/// meanwhile, so that the question closes, once it has let the next connection ask.
 fn ask<S>(
     peer: &Peer,
     connection: Connection,
@@ -487,9 +482,16 @@ where
         reply: Some(reply),
     };
     if !send(asks) {
+        gate(shared).answered(false, Instant::now());
         return Err(Asked::Refused("the editor is shutting down".into()));
     }
-    match held::watching(&replied, None, held::PERSON, (lines, writer, shared)) {
+    let waited = held::watching(&replied, None, held::PERSON, (lines, writer, shared));
+    // The gate opens before the UI hears of the end, so that an agent that connects once it
+    // has is never told another one waits. Only the person's own `n` holds others off: a
+    // client that goes, or a channel that stops, is no refusal.
+    let refused = matches!(&waited, Waited::Replied(Ok(Err(why))) if why == REFUSED_BY_THE_PERSON);
+    gate(shared).answered(refused, Instant::now());
+    match waited {
         Waited::Replied(Ok(Ok(_))) => Ok(()),
         Waited::Replied(Ok(Err(why))) => Err(Asked::Refused(why)),
         Waited::Replied(Err(why)) => Err(Asked::Refused(why.into())),
