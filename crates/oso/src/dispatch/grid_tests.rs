@@ -1303,7 +1303,7 @@ mod scenarios {
 
     #[test]
     fn m_s_r_previews_the_selected_rows_file_but_never_one_that_may_hold_secrets() {
-        use oso_core::editor::{Excerpt, ProjectPreviewRead, ProjectSearchRow};
+        use oso_core::editor::{Excerpt, FilePreviewRead, ProjectSearchRow, VisitColumn};
         let mut editor = on_main_rs_in_oso(b"// main\nfn main() {\n    run();\n}\n");
         let mut dispatcher = Dispatcher::new();
         let mut frames = Vec::new();
@@ -1344,8 +1344,8 @@ mod scenarios {
         let read = editor.take_preview_request().expect("a read of src/lib.rs");
         frame(&editor, "C-n: nothing until the read comes");
         let lib = b"use std::fmt;\n\npub fn run() {\n\tprintln!(\"fn\");\n}\n";
-        let excerpt = Excerpt::new(lib, 1, (3, 4), None);
-        editor.preview_read(read.generation, ProjectPreviewRead::Text(excerpt));
+        let excerpt = Excerpt::new(lib, 1, (3, VisitColumn::Chars(4)), None);
+        editor.preview_read(read.generation, FilePreviewRead::Text(excerpt));
         frame(&editor, "the read came: its matches, the row's first");
         keys(&mut dispatcher, &mut editor, "C-n");
         assert!(
@@ -1355,8 +1355,8 @@ mod scenarios {
         frame(&editor, "C-n: a file that may hold secrets");
         keys(&mut dispatcher, &mut editor, "C-n");
         let read = editor.take_preview_request().unwrap();
-        let excerpt = Excerpt::new(long.as_bytes(), 1, (1, 150), None);
-        editor.preview_read(read.generation, ProjectPreviewRead::Text(excerpt));
+        let excerpt = Excerpt::new(long.as_bytes(), 1, (1, VisitColumn::Chars(150)), None);
+        editor.preview_read(read.generation, FilePreviewRead::Text(excerpt));
         frame(
             &editor,
             "C-n: a match past the preview's width scrolls into view",

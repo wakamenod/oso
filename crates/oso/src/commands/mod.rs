@@ -476,6 +476,7 @@ mod tests {
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).
         "load-theme",
+        "lsp-diagnostics",
         "lsp-restart",
         "lsp-shutdown",
         "lsp-start",

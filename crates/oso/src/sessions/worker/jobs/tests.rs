@@ -94,6 +94,25 @@ fn only_a_session_told_of_is_judged() {
     assert_eq!(states(&found), [State::Working]);
 }
 
+/// A screen at its prompt from the start, which never changes, is told idle once the grace is
+/// over: a session carried over a restart at its prompt is judged without a change.
+#[test]
+fn a_still_idle_screen_is_told_idle_when_the_grace_ends() {
+    let start = Instant::now();
+    let mut core = core();
+    core.handle(Job::Start(1), start);
+    core.handle(screen("> "), start + ms(10));
+    assert!(states(&core.tick(start + ms(10))).is_empty(), "in grace");
+    assert_eq!(core.due(), Some(start + GRACE), "woken when the grace ends");
+    assert_eq!(states(&core.tick(start + GRACE)), [State::Idle]);
+    assert_eq!(core.due(), None);
+    core.handle(screen("> again"), start + GRACE + ms(200));
+    assert!(
+        states(&core.tick(start + GRACE + ms(200))).is_empty(),
+        "told once"
+    );
+}
+
 #[test]
 fn screens_faster_than_ten_a_second_are_coalesced() {
     let start = Instant::now();
@@ -281,9 +300,11 @@ fn a_local_rule_late_three_looks_in_a_row_is_dropped_until_the_rules_load() {
     assert!(
         found
             .iter()
-            .all(|out| matches!(out, Out::Judged(_, Some(false)))),
-        "idle, as it was, and judged in time at last: {found:?}"
+            .all(|out| matches!(out, Out::Judged(_, Some(false)) | Out::Changed(1, _))),
+        "judged in time at last: {found:?}"
     );
+    // Idle, as it started, told now as no look in time had told it.
+    assert_eq!(states(&found), [State::Idle]);
     assert_eq!(core.due(), None, "judged in time");
     core.handle(Job::Rules(rules), due);
     let (found, _) = look_again(&mut core, due, 3);

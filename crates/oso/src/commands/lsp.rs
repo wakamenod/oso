@@ -1,16 +1,18 @@
 //! Commands of the language server that follows the current buffer (ADR 0138, step 3):
-//! starting it, starting it again, and stopping it; moving to its diagnostics (step 6); and
-//! going to a definition, and back and forward through the window's jumps (step 8).
+//! starting it, starting it again, and stopping it; moving to its diagnostics (step 6), and
+//! the list of the project's (step 6b); and going to a definition, and back and forward
+//! through the window's jumps (step 8).
 //!
 //! Must not depend on: winit, the GPU, `bindings` or the host's servers; a command asks the
 //! host through `Editor::request_server`, and the host acts on the server after it.
 //!
 //! Starting a server spawns a process, and stopping one manages the person's processes, so
 //! those are `Person`; the moves only move, and a definition asks a running server about a
-//! buffer it knows, so they are `Look` (ADR 0138, Q24).
+//! buffer it knows, so they are `Look`; the list is an interactive float for the keyboard, so
+//! it is `Person` (ADR 0138, Q24).
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::ServerRequest;
+use oso_core::editor::{DiagnosticHit, ServerRequest, VisitColumn};
 
 /// The commands of language servers.
 pub const COMMANDS: &[Command] = &[
@@ -52,6 +54,16 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::None,
         reach: Reach::Look,
         run: previous_diagnostic,
+        state: None,
+    },
+    Command {
+        name: "lsp-diagnostics",
+        doc: "List the diagnostics of the current buffer's project and go to the one picked, as `consult-flymake`.\n\nThe current buffer's come first, by place, then each other file's by its path and line, from every language server of the project, whether a buffer holds the file or not; hints are left out. Each row reads `path:line: severity: message`, with the source and the code beside it, and what is typed narrows them as any completion does. The first diagnostic at or after point is selected. The preview shows the selected row's place, from its buffer or read from its file, but nothing of a file that may hold secrets. The list holds what the servers had reported when it opened. `RET` goes there, with the place before on the mark ring.",
+        args: ArgSpec::Diagnostics {
+            prompt: "Diagnostics",
+        },
+        reach: Reach::Person,
+        run: diagnostics,
         state: None,
     },
     Command {
@@ -111,6 +123,36 @@ fn to_diagnostic(ctx: &mut Ctx<'_>, forward: bool) -> Result<(), CommandError> {
     if wrapped {
         ctx.editor.echo("Wrapped");
     }
+    ctx.request_redraw();
+    Ok(())
+}
+
+/// Goes to the diagnostic the list's prompt gave: in its open buffer, or in its file once
+/// visited, through the loader's verdict, with the place before on the mark ring.
+fn diagnostics(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    let Some(hit) = ctx.editor.take_diagnostic_hit() else {
+        return Err(CommandError::new("No diagnostic was picked"));
+    };
+    let (path, line, column) = match hit {
+        DiagnosticHit::Buffer { id, offset } => {
+            let buffer = ctx.editor.buffer(id);
+            let Some((buffer, path)) = buffer.and_then(|b| Some((b, b.path()?.to_path_buf())))
+            else {
+                return Err(CommandError::new("The diagnostic's buffer has gone"));
+            };
+            let point = buffer.text().offset_to_point(offset);
+            (path, point.row + 1, VisitColumn::Utf8(point.column))
+        }
+        DiagnosticHit::File { path, line, column } => {
+            if ctx.editor.large_file(&path).is_some() {
+                return super::files::visit(ctx, path);
+            }
+            (path, line, column)
+        }
+    };
+    ctx.editor
+        .request_visit_at_column(path, oso_core::load::UNASKED, line, column);
     ctx.request_redraw();
     Ok(())
 }

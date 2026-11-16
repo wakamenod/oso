@@ -80,12 +80,13 @@ fn past_the_documents_bound_the_oldest_not_open_goes_first() {
         store.put(PathBuf::from(&uri(n)), report(&uri(n), 1, 0), open);
     }
     assert_eq!(store.len(), DIAGNOSED_DOCUMENTS_MAX);
-    store.put(
+    let gone = store.put(
         PathBuf::from(&uri(DIAGNOSED_DOCUMENTS_MAX)),
         report(&uri(DIAGNOSED_DOCUMENTS_MAX), 1, 0),
         open,
     );
     assert_eq!(store.len(), DIAGNOSED_DOCUMENTS_MAX);
+    assert_eq!(gone, [PathBuf::from(&uri(1))], "what went is said");
     assert!(
         store.get(Path::new(&uri(0))).is_some(),
         "an open document's stays"

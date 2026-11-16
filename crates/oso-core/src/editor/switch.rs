@@ -311,6 +311,10 @@ impl Editor {
         if self.searches_project() {
             return self.search_preview();
         }
+        // `M-g d` previews its row's place, in an open buffer or its file (ADR 0138).
+        if self.lists_diagnostics() {
+            return self.diagnostics_preview();
+        }
         // `M-y` previews the kill its selected row names, never a secret one (ADR 0091).
         if self.kill_list_open() {
             let entry = self.selected_kill()?;

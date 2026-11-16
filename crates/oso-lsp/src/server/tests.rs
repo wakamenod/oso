@@ -223,3 +223,48 @@ fn messages_for_the_person_are_kept_up_to_the_bound() {
     assert_eq!(shown.len(), crate::limits::REPORT_SHOWN_MAX);
     assert_eq!(shown[0].text, "m0");
 }
+
+#[test]
+fn diagnostics_wait_as_the_latest_of_each_document_and_file_and_a_run_s_end_forgets_files() {
+    use std::path::PathBuf;
+
+    use super::Diagnosed;
+    use crate::position::Encoding;
+    use crate::protocol::Published;
+    let (outbox, mut reporter, _) = reporter();
+    // The version tells one report from another.
+    let file = |name: &str, version: i32| Diagnosed::File {
+        path: PathBuf::from(name),
+        report: Arc::new(Published {
+            uri: String::new(),
+            version: Some(version),
+            diagnostics: Vec::new(),
+        }),
+        encoding: Encoding::Utf16,
+    };
+    let open = |id| Diagnosed::Open {
+        id,
+        revision: 1,
+        diagnostics: oso_core::diagnostic::Diagnostics::new("s", [], 0),
+    };
+    reporter.diagnostics(file("/w/a.rs", 1));
+    reporter.diagnostics(open(4));
+    reporter.diagnostics(file("/w/a.rs", 2));
+    reporter.diagnostics(file("/w/b.rs", 1));
+    let report = outbox.take().unwrap();
+    // A newer one takes the place of the one waiting.
+    assert_eq!(
+        report.diagnostics,
+        [file("/w/a.rs", 2), open(4), file("/w/b.rs", 1)]
+    );
+    reporter.diagnostics(file("/w/a.rs", 1));
+    reporter.diagnostics(open(4));
+    reporter.diagnostics(Diagnosed::Forgotten);
+    reporter.diagnostics(file("/w/c.rs", 1));
+    let report = outbox.take().unwrap();
+    assert_eq!(
+        report.diagnostics,
+        [open(4), Diagnosed::Forgotten, file("/w/c.rs", 1)],
+        "what came after the end stays"
+    );
+}
