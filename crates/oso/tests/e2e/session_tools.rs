@@ -287,6 +287,8 @@ fn an_allowed_worktree_session_starts_and_its_finished_worktree_is_removed() {
     let flow = Flow::with_fake("session-tools-start", "", FAKE);
     let (mut app, mut bridge) = hosted(&flow);
     let place = flow.repo.join(".claude/worktrees/e2e-agent");
+    let before = selected(&mut app);
+    assert_eq!(before.1, "*claude: repo*");
 
     let id = bridge.call(
         "start_worktree_session",
@@ -301,6 +303,11 @@ fn an_allowed_worktree_session_starts_and_its_finished_worktree_is_removed() {
     app.wait_for("the worktree session's terminal", |state| {
         terminal(state, "*claude: e2e-agent*").is_some()
     });
+    assert_eq!(
+        selected(&mut app),
+        before,
+        "the start stayed in the background"
+    );
 
     // Its session ends, so no busy session keeps the worktree, and its work is merged into
     // main and pushed.
@@ -360,6 +367,20 @@ fn a_refused_worktree_session_is_refused_again_without_asking() {
     flow.exit_with(0);
 }
 
+/// The selected window and the name of the buffer it shows: what an agent's start leaves as it
+/// was (ADR 0144).
+fn selected(app: &mut App) -> (Value, Value) {
+    let state = app.state();
+    let window = state["windows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|window| window["selected"] == true)
+        .map(|window| window["id"].clone())
+        .unwrap_or_default();
+    (window, state["buffer"]["name"].clone())
+}
+
 /// The rows of the buffer the instance shows, read after `keys` select it.
 fn rows_after(app: &mut App, keys: &str, name: &str) -> String {
     app.send_keys(keys);
@@ -375,6 +396,7 @@ fn a_worktree_session_starts_without_asking_up_to_the_limit_and_asks_past_it() {
     let flow = Flow::with_fake("session-tools-unasked", sessions, FAKE);
     let (mut app, mut bridge) = hosted(&flow);
     let place = flow.repo.join(".claude/worktrees/e2e-unasked");
+    let before = selected(&mut app);
 
     let (started, error) = bridge.tool(
         "start_worktree_session",
@@ -388,6 +410,11 @@ fn a_worktree_session_starts_without_asking_up_to_the_limit_and_asks_past_it() {
     app.wait_for("the unasked session's terminal", |state| {
         terminal(state, "*claude: e2e-unasked*").is_some()
     });
+    assert_eq!(
+        selected(&mut app),
+        before,
+        "the start stayed in the background"
+    );
     let messages = rows_after(&mut app, "C-x b * M e s s a g e s * RET", "*Messages*");
     assert!(
         messages.contains("Agent: session \\\"repo\\\" is starting a session in a new worktree"),
@@ -407,6 +434,37 @@ fn a_worktree_session_starts_without_asking_up_to_the_limit_and_asks_past_it() {
     let (said, error) = bridge.result(id);
     assert!(error, "{said}");
     assert!(!flow.repo.join(".claude/worktrees/e2e-asked").exists());
+    flow.exit_with(0);
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn with_no_limit_worktree_sessions_start_without_asking() {
+    let sessions = "agents_start_without_asking = true\nagents_start_limit = \"none\"\n";
+    let flow = Flow::with_fake("session-tools-unlimited", sessions, FAKE);
+    let (mut app, mut bridge) = hosted(&flow);
+    let before = selected(&mut app);
+    // Past the default limit of 4.
+    for n in 0..5 {
+        let branch = format!("e2e-many-{n}");
+        let (started, error) = bridge.tool(
+            "start_worktree_session",
+            json!({ "branch": branch, "brief": "Fix the parser" }),
+        );
+        assert!(!error, "{started}");
+        assert_eq!(started["asked"], false, "{started}");
+        run_in(&flow, &flow.repo.join(".claude/worktrees").join(&branch));
+        let name = format!("*claude: {branch}*");
+        app.wait_for("the unasked session's terminal", |state| {
+            terminal(state, &name).is_some()
+        });
+    }
+    assert_eq!(app.state()["prompts"], json!([]), "nobody was asked");
+    assert_eq!(
+        selected(&mut app),
+        before,
+        "the starts stayed in the background"
+    );
     flow.exit_with(0);
 }
 
@@ -439,6 +497,7 @@ fn a_session_in_its_own_directory_starts_without_asking_until_the_project_is_unt
     let sessions = "agents_start_without_asking = true\n";
     let flow = Flow::with_fake("session-tools-own", sessions, FAKE);
     let (mut app, mut bridge) = hosted(&flow);
+    let before = selected(&mut app);
 
     let (started, error) = bridge.tool("session_start", json!({ "brief": "Look around" }));
     assert!(!error, "{started}");
@@ -451,6 +510,11 @@ fn a_session_in_its_own_directory_starts_without_asking_until_the_project_is_unt
     app.wait_for("the unasked session's terminal", |state| {
         terminal(state, &format!("*claude: {name}*")).is_some()
     });
+    assert_eq!(
+        selected(&mut app),
+        before,
+        "the start stayed in the background"
+    );
 
     // Once the person untrusts the project, which both sessions' buffers are in, the same call
     // asks.

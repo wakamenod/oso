@@ -401,7 +401,7 @@ env = ["AWS_PROFILE"]                # more variables a session takes from oso's
 steer_worktrees = true               # point the agent to start_worktree_session (off by default)
 spinner = false                      # keep working marks in *Spaces* still (they spin by default)
 agents_start_without_asking = true   # let your sessions start sessions with no question (off by default)
-agents_start_limit = 4               # how many such sessions each may run at once, 1 to 8
+agents_start_limit = 4               # how many such sessions each may run at once, 1 to 8, or "none"
 pane_width = 52                      # the *Spaces* pane's columns, 24 to 80 (44 by default)
 
 [sessions.notify]                    # which states ask for your attention
@@ -419,9 +419,13 @@ The `[sessions.notify]` values shown are the defaults.
 
 `agents_start_without_asking` lets a session you started, with a key or a `y`, start sessions
 through `start_worktree_session` and `session_start` without asking you, in a trusted project
-only, up to `agents_start_limit` running sessions each; past that it asks again. A session started
-this way asks for its own. Each start is said in the echo area and `*Messages*`, its row in
-`*Spaces*` says `unasked`, and `C-c a e` on it shows who started it and its brief, until oso
+only, up to `agents_start_limit` running sessions each; past that it asks again. With
+`agents_start_limit = "none"` no limit makes it ask, but a session can still start at most 20
+sessions each time you type in it. A session started this way asks for its own. A session an
+agent starts, whether it asked or not, stays in the background: it appears in the pane and the
+modeline marks, and the window you are in keeps its buffer. Each start is said in the echo area
+and `*Messages*`, its row in `*Spaces*` says `unasked`, and `C-c a e` on it shows who started it
+and its brief, until oso
 restarts. `M-x agent-starts-ask` brings the question back until oso restarts, and
 `M-x agent-starts-allow` takes that back. The setting is read when oso starts, so a change applies
 from the next start, and it does not apply from a file other users in a group can change. Each new
