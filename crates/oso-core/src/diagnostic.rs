@@ -32,6 +32,19 @@ pub enum Severity {
     Hint,
 }
 
+impl Severity {
+    /// The word a row, a send or an answer to an agent gives it: `error`, `warning`, `info` or
+    /// `hint`.
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warning => "warning",
+            Self::Information => "info",
+            Self::Hint => "hint",
+        }
+    }
+}
+
 /// The protocol's tags of a diagnostic.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Tags {
@@ -153,7 +166,7 @@ impl<'a> Diagnostic<'a> {
 }
 
 /// The first line of `message`, up to any line break, as [`Diagnostic::first_line`] reads it.
-pub(crate) fn first_line(message: &str) -> &str {
+pub fn first_line(message: &str) -> &str {
     message
         .split(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}'])
         .next()
