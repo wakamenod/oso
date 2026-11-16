@@ -1,7 +1,8 @@
 //! Hosted sessions carried over a restart (ADR 0120, step 11, ADR 0121, ADR 0133): what the
 //! state says of the session a terminal runs, and hosting it again in the new instance with
 //! its id, name, space, parent and baseline, running a `claude` that is not this instance's
-//! child, whose start time its bridge's proof checks.
+//! child, whose start time its bridge's proof checks. The sessions worker is told of it as
+//! of a start, so that its screens are judged.
 //!
 //! Must not depend on: sockets, or the terminal's screen.
 
@@ -12,6 +13,7 @@ use crate::carry::terminals::{SessionState, TerminalState};
 use crate::sessions::hosted::Run;
 use crate::sessions::identity::{Origin, SessionId};
 use crate::sessions::record::Remembered;
+use crate::sessions::worker::Job;
 
 impl App {
     /// What the state says of the session the terminal `buffer` runs, if it runs one.
@@ -94,6 +96,11 @@ impl App {
             };
             hosted.carried = true;
             hosted.started = terminal.started;
+        }
+        // The worker judges only the sessions it was told of, as a start tells it: without
+        // this, every screen of a carried session is dropped and its state never judged.
+        if let Some(worker) = &self.sessions {
+            worker.send(Job::Start(key));
         }
         // It stands where the session runs (ADR 0141).
         self.editor

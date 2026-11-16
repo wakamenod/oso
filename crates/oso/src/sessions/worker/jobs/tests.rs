@@ -68,6 +68,32 @@ fn nothing_waits_with_no_screen_and_a_screen_is_judged_at_once() {
     let _ = at;
 }
 
+/// A session the worker was not told of, as one carried over a restart was not, has its
+/// screens dropped: the app tells of every session it hosts, started or carried.
+#[test]
+fn only_a_session_told_of_is_judged() {
+    let start = Instant::now();
+    let mut core = core();
+    core.handle(screen("esc to interrupt"), start);
+    let at = start + GRACE;
+    assert!(core.tick(at).is_empty(), "no session 1 yet: nothing judged");
+    assert_eq!(core.due(), None);
+    core.handle(Job::Start(1), at);
+    core.handle(screen("esc to interrupt"), at);
+    let found = core.tick(at);
+    assert!(
+        found
+            .iter()
+            .any(|out| matches!(out, Out::Judged(1, Some(false)))),
+        "told judged, which a send waits for"
+    );
+    let later = at + GRACE;
+    core.handle(screen("esc to interrupt now"), later);
+    let mut found = core.tick(later);
+    found.extend(core.tick(later + EVALUATE_EVERY));
+    assert_eq!(states(&found), [State::Working]);
+}
+
 #[test]
 fn screens_faster_than_ten_a_second_are_coalesced() {
     let start = Instant::now();
