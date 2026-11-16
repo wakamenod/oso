@@ -42,6 +42,13 @@ impl Child {
         self.process.try_wait()
     }
 
+    /// Whether the process has ended, without waiting and without reaping it, so that its ID,
+    /// and its group's, stay its own: [`Child::signal_group`] still reaches what it left in
+    /// its group (ADR 0138).
+    pub fn exited(&mut self) -> io::Result<bool> {
+        self.process.exited()
+    }
+
     /// Ends the process at once (`SIGKILL` on Unix). Does nothing once it has been waited
     /// for, as its ID may be another process's by then.
     pub fn kill(&mut self) -> io::Result<()> {

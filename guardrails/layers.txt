@@ -100,7 +100,11 @@ snapshot
 event limits
 
 [oso-lsp]
-# The client's parts, each over the bounds in `limits` (ADR 0138).
+# The client's parts, each over the bounds in `limits` (ADR 0138): a server's threads
+# (`server`, step 3) over the messages of its life (`protocol`), over the framing, the JSON,
+# positions and URIs (step 2).
 crate
+server
+protocol
 framing json position uri
 limits

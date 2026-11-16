@@ -438,6 +438,7 @@ pub oso_platform::process::Child::stderr: core::option::Option<std::process::Chi
 pub oso_platform::process::Child::stdin: core::option::Option<std::process::ChildStdin>
 pub oso_platform::process::Child::stdout: core::option::Option<std::process::ChildStdout>
 impl oso_platform::process::Child
+pub fn oso_platform::process::Child::exited(&mut self) -> std::io::error::Result<bool>
 pub fn oso_platform::process::Child::id(&self) -> u32
 pub fn oso_platform::process::Child::kill(&mut self) -> std::io::error::Result<()>
 pub fn oso_platform::process::Child::signal_group(&mut self, oso_platform::process::Signal) -> std::io::error::Result<()>

@@ -60,9 +60,14 @@ pub(super) fn review(
     let mut rng = Lcg(57);
     repository(&root, &mut rng)?;
     let count = (count / KEYS.len()).max(1) * KEYS.len();
+    // No language server of the machine's starts in the trusted repository: the bench measures
+    // the review (ADR 0138).
+    let config = dir.file("config.toml");
+    std::fs::write(&config, "[lsp]\nstart = \"manual\"\n")
+        .map_err(|e| format!("{}: {e}", config.display()))?;
     let mut metrics: [Vec<f64>; 4] = Default::default();
     for run in 0..runs {
-        let mut app = App::start(exe, Some(&root.join(name(0))))?;
+        let mut app = App::start_with_config(exe, Some(&root.join(name(0))), Some(&config))?;
         app.wait_until("loaded file", LOAD_TIMEOUT, |t| {
             t["load"]["done_us"].is_u64()
         })?;

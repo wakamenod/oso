@@ -429,6 +429,43 @@ impl Process {
         self.reap(libc::WNOHANG)
     }
 
+    /// Whether the child has ended, without reaping it (`WNOWAIT`), so that its ID stays its
+    /// own.
+    pub(super) fn exited(&mut self) -> io::Result<bool> {
+        if self.status.is_some() || self.gone {
+            return Ok(true);
+        }
+        let pid = libc::id_t::try_from(self.pid)
+            .map_err(|_| io::Error::other("a process ID out of range"))?;
+        loop {
+            // SAFETY: `siginfo_t` is plain data, for which all zero is a valid value.
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            // SAFETY: `waitid` writes into `info`, which lives across the call, and reads only
+            // the numbers given.
+            let result = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    pid,
+                    &raw mut info,
+                    libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+                )
+            };
+            if result == 0 {
+                // SAFETY: `waitid` filled `info` for a child that ended, and left it zero for
+                // one that runs.
+                return Ok(unsafe { info.si_pid() } != 0);
+            }
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::ECHILD) {
+                self.gone = true;
+                return Ok(true);
+            }
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+
     pub(super) fn kill(&mut self) -> io::Result<()> {
         self.signal(Signal::Kill, false)
     }

@@ -50,6 +50,7 @@ mod gutter;
 mod indent;
 mod isearch;
 mod jump;
+mod key_time;
 mod kill;
 mod listings;
 mod macros;
@@ -65,6 +66,7 @@ mod replace;
 mod reviews;
 mod save;
 mod screen;
+mod servers;
 mod sessions;
 mod starts;
 mod status;
@@ -112,8 +114,9 @@ pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use reviews::*;
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
+pub use servers::ServerRequest;
 pub use sessions::*;
-pub use status::Status;
+pub use status::{ServerFace, Status};
 pub use switch::{KillRefused, Preview};
 pub use terminals::TerminalRequest;
 pub use themes::NoSuchTheme;
@@ -256,6 +259,8 @@ pub struct Editor {
     sessions: sessions::Sessions,
     /// What commands asked of the host about terminals (ADR 0120).
     terminal_requests: Vec<TerminalRequest>,
+    /// What commands asked of the host about language servers, and `*LSP*` (ADR 0138).
+    servers: servers::Servers,
     /// The isearch under way in the selected window (ADR 0082).
     isearch: Option<Isearch>,
     /// Migemo's setting, its dictionary, and the last romaji strings' needles (ADR 0116).
@@ -374,6 +379,7 @@ impl Editor {
             agent: agent::Agent::default(),
             sessions: sessions::Sessions::default(),
             terminal_requests: Vec::new(),
+            servers: servers::Servers::default(),
             isearch: None,
             migemo: migemo::Migemo::default(),
             jump: None,
@@ -468,17 +474,6 @@ impl Editor {
     /// The window named `id`, if there is one.
     pub fn window_by_id(&self, id: WindowId) -> Option<&Window> {
         self.windows.iter().find(|window| window.id() == id)
-    }
-
-    /// When a key's search that began at `started` leaves the rest to the worker, if it does.
-    pub(crate) fn key_until(&self, started: std::time::Instant) -> Option<std::time::Instant> {
-        self.key_time.map(|time| started + time)
-    }
-
-    /// Gives keys' searches `time` on the UI thread, or no limit but their work's.
-    #[cfg(test)]
-    pub(crate) fn set_key_time(&mut self, time: Option<std::time::Duration>) {
-        self.key_time = time;
     }
 
     /// A new window showing `buffer`, with a name no window had before.

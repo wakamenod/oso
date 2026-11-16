@@ -17,7 +17,8 @@
 //! ```
 //!
 //! A rule matches a method, and with `nth` only its nth message, from 1; the first rule that
-//! matches is used. A request no rule matches gets `MethodNotFound`, a notification nothing,
+//! matches is used. With `"log_answers": true`, each answer the client gives the server's
+//! requests is written to the standard error as a line, `answer: <JSON>`, for a test to read. A request no rule matches gets `MethodNotFound`, a notification nothing,
 //! and `exit` ends the server with 0. The actions:
 //!
 //! - `reply`: the request's result; `error`: its error, `{"code", "message"}`;
@@ -76,6 +77,8 @@ pub struct Script {
     seen: Vec<(String, usize)>,
     /// The id of the next request the server sends.
     next_id: u64,
+    /// Answers to the server's requests go to the standard error.
+    log_answers: bool,
 }
 
 impl Script {
@@ -100,6 +103,7 @@ impl Script {
             rules,
             seen: Vec::new(),
             next_id: 1,
+            log_answers: value.get("log_answers") == Some(&Value::Bool(true)),
         })
     }
 
@@ -114,7 +118,10 @@ impl Script {
         let method = message.get("method").and_then(Value::as_str);
         let id = message.get("id").filter(|_| method.is_some()).cloned();
         let Some(method) = method else {
-            // An answer to the server's own request: nothing to do.
+            // An answer to the server's own request.
+            if self.log_answers {
+                return vec![Action::Err(format!("answer: {message}\n").into_bytes())];
+            }
             return Vec::new();
         };
         let nth = self.count(method);

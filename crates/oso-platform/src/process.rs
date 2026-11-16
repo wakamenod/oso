@@ -503,6 +503,12 @@ mod other {
             self.0.try_wait()
         }
 
+        /// The handle keeps the process's ID its own until it is dropped, so a look reaps
+        /// nothing that matters.
+        pub(super) fn exited(&mut self) -> io::Result<bool> {
+            Ok(self.0.try_wait()?.is_some())
+        }
+
         pub(super) fn kill(&mut self) -> io::Result<()> {
             self.0.kill()
         }

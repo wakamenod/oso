@@ -235,6 +235,15 @@ network features.
   `~/go/bin`), or, in a trusted project only, from fixed names under its root, such as
   `node_modules/.bin`, whose link must lead to a regular file of this user's inside the root
   ([ADR 0138](adr/0138-language-servers.md)). Only an `.exe` starts one on Windows.
+- A language server starts only for a trusted project, on its own thread: before each start
+  and restart, that thread checks again that the trust was not taken back and that the root
+  is still the directory trusted, then finds the program. It runs in a process group of its
+  own, so that stopping it, after a crash, a broken bound, `lsp-shutdown`, untrusting or a
+  quit, ends the `cargo` and build scripts it started too. The group is signalled only
+  before the server is reaped, as its number may be a stranger's after. On Windows only the
+  server ends. What it sends is bounded as ADR 0138's table says, and `*LSP*` keeps its last
+  1 MiB in memory only: method names, ids, sizes and timings, and the server's standard
+  error, which may quote code it read, so it never reaches a log line or the disk.
 - The environment is sanitized and every spawn is logged in a visible buffer.
 
 ### Dependencies (T2, T8)

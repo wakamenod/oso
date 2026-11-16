@@ -14,6 +14,8 @@ oso-platform.workspace = true
 oso-syntax.workspace = true
 # The terminal model: its thread, snapshots and policy (ADR 0120).
 oso-term.workspace = true
+# The language server client: its threads, the protocol and the bounds (ADR 0138).
+oso-lsp.workspace = true
 pollster.workspace = true
 log.workspace = true
 env_logger.workspace = true
@@ -50,6 +52,21 @@ dev = ["dep:miniz_oxide", "oso-platform/dev", "oso-render/dev"]
 name = "perf"
 required-features = ["dev"]
 test = true
+
+# A language server for tests that answers from a script and misbehaves on cue (ADR 0138,
+# steps 2 and 3). Only a dev build has it, and `just release-safety` checks that no release
+# build does. `test = true` runs its script's unit tests.
+[[bin]]
+name = "fake-lsp-server"
+path = "tests/fake_lsp_server/server.rs"
+required-features = ["dev"]
+test = true
+
+# A server's life against the fake server: `oso-lsp`'s threads, spawn, restarts and stops
+# (ADR 0138, step 3).
+[[test]]
+name = "lsp_server"
+required-features = ["dev"]
 
 # End-to-end flows through a real dev build (ADR 0037, ADR 0049). Their tests are
 # ignored, since they open windows; `just e2e` runs them.

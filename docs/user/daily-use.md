@@ -56,6 +56,28 @@ of the current buffer's file, or of a session's own buffer, so run it from one o
 a plain terminal or `*Sessions*`.
 A git worktree is trusted while its main repository is. `M-x untrust-project` takes it back.
 
+## Language servers
+
+In a trusted project, visiting a Rust file starts rust-analyzer for the project, found on `PATH`
+or in `~/.cargo/bin`. The modeline says `lsp` after the project's name: dim while it starts,
+`lsp 34%` while it indexes, `lsp!` if it stopped after crashing three times. `*LSP*` says what
+the servers did. `M-x lsp-restart` starts the buffer's server again, `M-x lsp-shutdown` stops it
+until `M-x lsp-start`, and untrusting the project stops it. Diagnostics and the rest come in
+later steps.
+
+A server can be changed in `config.toml`:
+
+```toml
+[lsp]
+start = "manual"                   # only lsp-start starts one
+
+[lsp.servers.rust-analyzer]
+command = ["/opt/rust-analyzer/bin/rust-analyzer"]
+
+[lsp.servers.rust-analyzer.options]
+check.command = "clippy"
+```
+
 ## Agent sessions
 
 A session is Claude Code running in an oso terminal, in a buffer named `*claude: NAME*`. oso

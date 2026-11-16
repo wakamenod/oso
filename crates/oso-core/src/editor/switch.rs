@@ -265,13 +265,15 @@ impl Editor {
     }
 
     /// Whether a person goes to `buffer`: one of the user's, or the internal buffers a person
-    /// reads, `*Messages*`, the list of emergency copies and `*Agent*` (ADR 0088).
+    /// reads, `*Messages*`, the list of emergency copies, `*Agent*` (ADR 0088) and `*LSP*`
+    /// (ADR 0138).
     fn listed(&self, id: BufferId, buffer: &Buffer) -> bool {
         !buffer.is_internal()
             || kept_as_users(buffer)
             || id == self.messages_buffer
             || Some(id) == self.copies_buffer
             || Some(id) == self.agent_log_buffer()
+            || Some(id) == self.server_log_buffer()
     }
 
     /// Shows the buffer named `name`, making an empty one with no file if none is (ADR 0088).

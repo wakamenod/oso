@@ -1,5 +1,7 @@
 //! The root of a project trusted to run git (ADR 0009, ADR 0011, ADR 0114), which a review
-//! (ADR 0122), the worktree jobs (ADR 0121) and a git status (ADR 0127) start from.
+//! (ADR 0122), the worktree jobs (ADR 0121) and a git status (ADR 0127) start from. A
+//! language server's gate checks it before each start too (ADR 0138), so a change to what
+//! [`TrustedRoot::check`] or the revocation means changes when a server may start.
 //!
 //! Must not depend on: `app`, `dispatch` or winit; [`TrustedRoot::check`] and
 //! [`TrustedRoot::replaced`] look at the disk, so they run on the threads that run git.

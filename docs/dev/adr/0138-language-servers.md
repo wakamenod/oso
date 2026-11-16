@@ -1002,3 +1002,143 @@ gains `amended by 0138`.
     Windows 8.3 short name such as `ENV~1` passes them. What opens a path from a server goes
     through the loader's checks of a regular file, and whether it may hold secrets is judged
     from the file opened.
+
+### Step 3: a server's life
+
+The author answered step 3's questions on 2026-11-16, all with the first choice: the fake
+server is a binary of the tip crate's dev builds (Q1); `lsp-shutdown` keeps a server down
+for its root and entry until `lsp-start` or `lsp-restart` (Q2); the built-in rust-analyzer
+entry also passes `CARGO_HOME` and `RUSTUP_HOME` (Q3); an oversized answer that is dropped
+fails its request when its wait ends (Q4); a server is told only of the capabilities this
+step uses (Q5); the public items below (Q6); `*LSP*` keeps its last 1 MiB (Q7); and the
+layers of `oso-lsp` below (Q8).
+
+- **`oso-platform::process`** has `Signal`, `Child::terminate` and `Child::signal_group`
+  from [ADR 0127](0127-source-control-and-github.md)'s step 1b, which needed them first, and gains
+  `Child::exited`: whether the child ended, without reaping it (`waitid` with `WNOWAIT`),
+  so that its group can still be signalled for what it left there. A group is never
+  signalled once the child is reaped, as its number may be a stranger's by then. On macOS
+  a group that holds only the ended child refuses a signal with `EPERM`; the callers take
+  that as nothing left.
+- **`oso-lsp`** gains `protocol` and `server` (`guardrails/layers.txt`: `server` over
+  `protocol` over `framing json position uri` over `limits`), and depends on
+  `oso-platform`:
+  - `protocol` tells a message apart as an answer, a request or a notification, and anything
+    else stops the server. A method's name over 256 bytes is not JSON-RPC as oso reads it; a
+    server's string id over 256 bytes gets no answer. It builds `initialize`, which claims
+    only positions in UTF-8 or UTF-16, work done progress and `workspace/configuration`
+    (Q5), with the root as the one workspace folder and the entry's settings as
+    `initializationOptions`. It answers the server's requests as the bounds above say, with
+    `workspace/configuration` from the settings under the entry's section, a dotted section
+    reading into them, and at most 256 items. `merge` merges settings key by key.
+  - `server::Server::start(Start, Gate, Wake)` starts the session thread, which starts the
+    server. `Gate` runs on that thread before each start: the tip crate's checks the trust
+    and the root, and finds the program, so nothing of either runs on the UI thread. The UI
+    asks with `restart`, `shut_down` and `quit`, and takes `Report`s: the `State`, lines for
+    `*LSP*`, and `Shown` messages. A new kind of state and a message wake it at once; progress
+    and log lines at most each 50 ms.
+  - The threads are `oso-lsp-N` (the session), `-w`, `-r` and `-e`. The reader holds at most
+    32 MiB of frames the session thread has not taken, and then waits, so a slow session holds
+    the server's writes up rather than oso's memory. The error reader keeps the last 256 KiB
+    of the standard error as lines cut to 1 KiB, and the session thread takes them.
+  - A crash, for any of the reasons of the bounds above, or because the server exited, did
+    not answer `initialize` within 60 s, refused it, or chose an encoding oso did not offer,
+    sends `SIGTERM` to the group, then `SIGKILL` after 2 s, and reaps it. The server starts
+    again after 1 s, then 5 s, then 30 s, and the third crash within 3 minutes stops it for
+    the session, which the echo area and `*Messages*` say once. The flood bound counts in
+    seconds: any 10 whole seconds, the current one included.
+  - `shut_down` sends `shutdown` (2 s), then `exit` and closes the input (2 s), then
+    `SIGTERM` to the group (2 s), then `SIGKILL`. `quit` sends `SIGTERM` to the group from
+    the UI thread at once, under a lock the session thread holds only for calls that never
+    wait, and closes the input. A `Server` dropped is shut down.
+  - Diagnostics reports are counted and dropped until step 6, and `*LSP*` says how many.
+- **The tip crate:**
+  - `config/lsp.rs` reads `[lsp] start` and `[lsp.servers.<name>]`: `enabled`, `modes`
+    (`rust`, `markdown`, `toml`), `command` (a name on `PATH` or an absolute path, at most 64
+    words), `env` (as `[sessions] env` refuses them) and `options` (TOML as JSON, nesting at
+    most 32 deep, a date as its text). At most 64 servers, each name at most 64 bytes of
+    letters, digits, `-`, `_` and `.`. The built-in table has rust-analyzer only; step 5 adds
+    the rest. A command of the person's is looked for only where it says.
+  - `app/servers.rs` keeps one server per root and entry. An open whose mode has a server
+    and whose project has none running would start one, as ADR 0118's `server-start`; the
+    person's runs at once, and the agent's waits for the person. `server-open` and
+    `server-save` start nothing until step 4, which tells a server of an open and a save.
+    `app/servers/find.rs` finds the program: an absolute path, or `PATH` without the project,
+    then `$CARGO_HOME/bin` or `~/.cargo/bin` for the built-in entry, an `.exe` only on
+    Windows. A program not found stops the server for the session, and says where it was
+    looked for, once.
+  - Trusting a project settles its buffers' opens again, so the ones the person visited
+    start their server. Untrusting it stops its servers. A configuration change stops a
+    server whose entry went, and starts again one that stopped for the session whose entry
+    changed; a running one takes a change at `lsp-restart`. Quitting oso sends each group
+    `SIGTERM`, with no wait, and a restart of oso carries no server.
+  - The modeline shows `lsp` after the project: dim while it starts or waits to start again,
+    `lsp 34%` with progress, plain when ready, `lsp!` in the warning face when stopped, in
+    each buffer of the server's root and mode. `*LSP*` names each line's server and project:
+    `[rust-analyzer oso] initialized in 812 ms, positions in UTF-8`. A person can visit it;
+    it keeps its last 1 MiB, in whole rows. A server's message names it first:
+    `rust-analyzer: …`.
+  - `lsp-start`, `lsp-restart` and `lsp-shutdown` are `Person`. They ask the host through
+    `Editor::request_server`, as terminal commands do.
+  - The dev build's stand-in, `OSO_DEV_STARTS`, is gone, with its marker in
+    `just release-safety`. `*Agent*` now says `ran server-start in main.rs` of every start
+    that ran.
+- **Public API:** `oso-platform`: `process::Signal`, `Child::{terminate, signal_group,
+  exited}`. `oso-lsp`: `protocol` (`Incoming`, `Outcome`, `RequestId`, `NotRpc`,
+  `Initialize`, `Token`, `Progress`, `Severity`, `classify`, `request`, `notification`,
+  `answer`, `initialize_params`, `chosen_encoding`, `server_name`, `answer_for`, `progress`,
+  `message`, `merge`, `METHOD_NOT_FOUND`, `INVALID_PARAMS`), `server` (`Server`, `Start`,
+  `Gate`, `Wake`, `State`, `Shown`, `Report`), and the new bounds in `limits`. `oso-core`:
+  `buffer::ServerMark`, `Buffer::{server, set_server}`, `editor::{ServerFace,
+  ServerRequest}`, `Status::{lsp, lsp_face}` and `Editor::{request_server,
+  take_server_requests, server_log, server_log_shown, message_unlogged}`.
+- **The fake server** moved to `crates/oso/tests/fake_lsp_server/`, the dev-only binary
+  `fake-lsp-server` (`required-features = ["dev"]`). `just release-safety` checks that a dev
+  build makes it and the release build does not. With `"log_answers": true` in its script,
+  it writes each answer the client gives its requests to its standard error.
+- **Tests:** `protocol`'s rules and a fuzz target over any JSON; the crash policy, the flood
+  window and the outbox's wakes and bounds as units; `crates/oso/tests/lsp_server.rs`
+  against the fake server: a server's start, answers to its requests, messages, standard
+  error and shutdown, crashes and their restarts, the third crash, a broken header, a
+  message that is not JSON or JSON-RPC, an encoding not offered, a refused `initialize`, a
+  flood, an oversized message dropped, progress, a closed gate, a server that ignores
+  `shutdown` and `exit`, and a quit. `oso-platform`: `exited` leaves the child to be waited
+  for, and its group reached. The configuration's `[lsp]`, `find`, the editor's requests and
+  `*LSP*`'s bound have unit tests. The end-to-end flows: `lsp.rs` (a visit starts the server
+  and the modeline says so; `lsp-shutdown`, a visit that starts nothing, `lsp-start`;
+  untrusting; three crashes and `lsp-restart`; a quit ends the server) and `starts.rs`, which
+  now waits for the person's key before an agent's open starts a project's server.
+- **From this step's reviews:**
+  - `*LSP*` takes a report's lines in one edit, escaped as `*Messages*`' rows are, and the
+    agent channel never reads it: a server's text can quote files that may hold secrets. A
+    server's message reaches the echo area and `*Messages*` but not the log, which gets only
+    its size (`Editor::message_unlogged`).
+  - Work beginning and ending wakes the UI at most each 50 ms, as progress does; only a
+    start, a stop and an end wake it at once. A report that changes no state marks no buffer,
+    and draws a frame only for a message or a shown `*LSP*`. Dropped diagnostics are counted
+    in `*LSP*` once a second.
+  - Every kept line of the standard error, and every frame the reader hands over, counts a
+    fixed cost beside its bytes, so empty lines and tiny messages stay within the bounds. A
+    `workspace/configuration` answer that would pass 16 MiB is refused before it is built.
+  - Untrusting a project stops its servers after the command, before the trust record is
+    written and read back, so a server waiting to start again finds its gate closed.
+  - After a server has ended, its group gets `SIGKILL` 250 ms after `SIGTERM`, before the
+    server is reaped, so what it left there ends even if it ignores `SIGTERM`. A look at the
+    process that fails counts as no end, and a process that outlives `SIGKILL` is reaped by a
+    thread of its own.
+  - `lsp-start` or `lsp-restart` while a server stops starts it again once it has ended,
+    and lifts an `lsp-shutdown`.
+  - No open settles before the configuration file was looked at once, so the built-in table
+    never starts a server ahead of the person's `[lsp]`: an `enabled = false`, `start =
+    "manual"` or a `command` of their own. The first end-to-end run found it, as the
+    machine's rust-analyzer started in place of the fake server.
+  - The end-to-end flows and the review bench that trust a project of Rust files set
+    `[lsp] start = "manual"`, so no language server of the machine's runs in them.
+  - The rustup proxy that runs rust-analyzer reads the project's `rust-toolchain.toml`,
+    which can name a toolchain inside the project. So in a trusted project, the project can
+    choose the rust-analyzer that runs, as it chooses its build scripts; trust covers both.
+- **Left for later steps:**
+  - Step 4: what an agent's save would start, and its end-to-end flow, come back with
+    `server-save`.
+  - An agent's open in a project whose server already runs holds nothing until step 4's
+    `server-open`.

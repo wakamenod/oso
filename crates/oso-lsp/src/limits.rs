@@ -99,3 +99,57 @@ pub const FLOOD_BYTES_MAX: usize = 256 << 20;
 pub const STDERR_KEPT_BYTES: usize = 256 << 10;
 /// The largest document opened with a server (step 4).
 pub const DOCUMENT_BYTES_MAX: usize = 8 << 20;
+
+/// The most bytes of a method's name; a message with a longer one is not JSON-RPC as oso
+/// reads it, and stops the server (step 3, `protocol`).
+pub const METHOD_BYTES_MAX: usize = 256;
+/// The most bytes of a string id a server gives its request; a longer one gets no answer
+/// (step 3, `protocol`).
+pub const ID_BYTES_MAX: usize = 256;
+/// The most bytes kept of a server's message for the person: `window/showMessage`,
+/// `window/logMessage`, an error's message, a line of its standard error (step 3).
+pub const SHOWN_BYTES_MAX: usize = 1 << 10;
+/// The most items a `workspace/configuration` request may ask for; a longer one gets an
+/// error (step 3, `protocol`).
+pub const CONFIGURATION_ITEMS_MAX: usize = 256;
+/// The most progress tokens followed at once; a server that begins more has the rest
+/// ignored (step 3, `protocol`).
+pub const PROGRESS_TOKENS_MAX: usize = 64;
+/// The most bytes the reader hands the session thread before it waits for them to be taken,
+/// two of the largest messages: a slow session holds up the server's writes rather than
+/// growing memory (step 3, `server`).
+pub const READER_QUEUE_BYTES_MAX: usize = 2 * MESSAGE_BYTES_MAX;
+
+/// The waits before each start after a crash: the first, the second, and every later one
+/// (step 3, `server`).
+pub const RESTART_DELAYS: [Duration; 3] = [
+    Duration::from_secs(1),
+    Duration::from_secs(5),
+    Duration::from_secs(30),
+];
+/// This many crashes within [`CRASH_WINDOW`] stop a server for the session (step 3).
+pub const CRASHES_MAX: usize = 3;
+/// The time in which [`CRASHES_MAX`] crashes stop a server (step 3).
+pub const CRASH_WINDOW: Duration = Duration::from_secs(180);
+/// How long a server may take to end after `exit`, and then after `SIGTERM`, before the next
+/// step (step 3).
+pub const EXIT_WAIT: Duration = Duration::from_secs(2);
+/// How long what a server left in its group has, after the server ended and its group got
+/// `SIGTERM`, before the group gets `SIGKILL` (step 3, `server`).
+pub const GROUP_GRACE: Duration = Duration::from_millis(250);
+/// How often the session thread looks whether its server has ended, also when its output
+/// stays open, as when something it started holds the pipe (step 3).
+pub const LIVENESS_INTERVAL: Duration = Duration::from_millis(500);
+
+/// The most bytes `*LSP*` keeps, the last whole rows (step 3, the tip crate, which passes it
+/// to the editor).
+pub const LOG_BYTES_MAX: usize = 1 << 20;
+/// The most bytes of `*LSP*`'s lines a server's outbox holds until the UI takes them, the last
+/// ones (step 3, `server`).
+pub const REPORT_LOG_BYTES_MAX: usize = 1 << 20;
+/// The most messages for the person an outbox holds until the UI takes them; the rest go
+/// (step 3, `server`).
+pub const REPORT_SHOWN_MAX: usize = 16;
+/// The most bytes of a keyword a server sends, such as a progress's `kind` or a position
+/// encoding's name; a longer one is no keyword oso knows (step 3, `protocol`).
+pub const KEYWORD_BYTES_MAX: usize = 16;

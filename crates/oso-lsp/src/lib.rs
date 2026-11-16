@@ -1,6 +1,6 @@
-//! oso's language server client (ADR 0138). This step has its parts that spawn nothing:
-//! the framing of messages, bounded reads of their JSON, `file:` URIs, positions in the
-//! encoding agreed, and every bound in one place. Only the tip crate uses it.
+//! oso's language server client (ADR 0138): the framing of messages, bounded reads of their
+//! JSON, `file:` URIs, positions in the encoding agreed, the messages of a server's life, the
+//! server's threads, and every bound in one place. Only the tip crate uses it.
 //!
 //! Must not depend on: `oso`, `oso-render`, `oso-syntax` or `oso-term`.
 //!
@@ -15,4 +15,6 @@ pub mod framing;
 pub mod json;
 pub mod limits;
 pub mod position;
+pub mod protocol;
+pub mod server;
 pub mod uri;

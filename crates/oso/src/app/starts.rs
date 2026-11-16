@@ -1,23 +1,17 @@
-//! What opening or saving a file starts, on the UI thread (ADR 0118, ADR 0138 step 1): working
-//! out what would start for the person, asking the editor what runs now and what waits, letting
-//! go what the person's commands and saves release, and saying in `*Agent*` what was held and let
-//! go. Nothing here starts a program yet: the language servers come in ADR 0138's step 3. A dev
-//! build run with `OSO_DEV_STARTS=1` has a stand-in, for the end-to-end flows: a Rust file in a
-//! trusted project would start a server on open and tell it of a save, and what runs only says
-//! so in `*Agent*`.
+//! What opening or saving a file starts, on the UI thread (ADR 0118, ADR 0138 steps 1 and 3):
+//! working out what would start for the person, asking the editor what runs now and what waits,
+//! letting go what the person's commands and saves release, and saying in `*Agent*` what was
+//! held, let go and run. An open starts its mode's language server, through `servers`; telling
+//! a server of an open or a save comes with ADR 0138's step 4.
 //!
-//! Must not depend on: threads, processes or the channel's wire; the editor holds the marks, and
-//! this asks it.
+//! Must not depend on: processes or the channel's wire; the editor holds the marks, and this
+//! asks it. A server is started through `servers`, whose threads spawn it.
 
 use std::collections::{HashMap, HashSet};
 
-use oso_core::buffer::{Acted, BufferId, Starts};
+use oso_core::buffer::{Acted, BufferId, Start, Starts};
 
 use super::App;
-
-/// The variable that turns the dev build's stand-in on.
-#[cfg(feature = "dev")]
-const STAND_IN: &str = "OSO_DEV_STARTS";
 
 /// What the app keeps of opens and saves until what they start is settled.
 #[derive(Debug, Default)]
@@ -28,19 +22,11 @@ pub(super) struct Starting {
     saves: HashMap<BufferId, Acted>,
     /// A load ended, a project was found or the trust record read since opens were settled.
     asked: bool,
-    /// The dev build's stand-in is on.
-    #[cfg(feature = "dev")]
-    stand_in: bool,
 }
 
 impl Starting {
-    /// As the environment says: the stand-in only in a dev build, with its variable set to 1.
     pub(super) fn new() -> Self {
-        Self {
-            #[cfg(feature = "dev")]
-            stand_in: std::env::var_os(STAND_IN).is_some_and(|value| value == "1"),
-            ..Self::default()
-        }
+        Self::default()
     }
 
     /// Something an open's settling waits for came: a load's end, a project, the trust record.
@@ -62,10 +48,14 @@ impl Starting {
 
 impl App {
     /// Settles the open of each buffer that is ready: loaded, shown to whoever opened it, in a
-    /// project, with the record of trusted projects read. What would start for the person runs,
-    /// or waits in the buffer if the agent opened it (ADR 0118). Each buffer once.
+    /// project, with the record of trusted projects and the configuration read. What would start
+    /// for the person runs, or waits in the buffer if the agent opened it (ADR 0118). Each
+    /// buffer once.
     pub(super) fn settle_opens(&mut self) {
-        if !self.starting.asked || self.editor.trust_list().is_none() {
+        if !self.starting.asked
+            || self.editor.trust_list().is_none()
+            || !self.configuration.looked()
+        {
             return;
         }
         self.starting.asked = false;
@@ -111,6 +101,7 @@ impl App {
             self.log_held(id, false);
             self.run_starts(id, runs);
         }
+        self.mark_servers();
     }
 
     /// Runs, for the person, what each open mark their commands let go would start now
@@ -167,39 +158,38 @@ impl App {
     }
 
     /// What would start for the person as `id` is opened, or saved if `save`, with the settings
-    /// as they are. Only the dev build's stand-in starts anything before ADR 0138's step 3.
+    /// as they are: on an open, its mode's server, when none runs for its project. Telling a
+    /// server of an open or a save comes with ADR 0138's step 4.
     fn would_start(&self, id: BufferId, save: bool) -> Starts {
-        #[cfg(feature = "dev")]
-        if self.starting.stand_in
-            && self
-                .editor
-                .buffer(id)
-                .is_some_and(|buffer| buffer.mode() == oso_core::buffer::Mode::Rust)
-        {
-            use oso_core::buffer::Start;
-            return Starts::of(if save {
-                Start::ServerSave
-            } else {
-                Start::ServerStart
-            });
+        if !save && self.would_start_server(id) {
+            return Starts::of(Start::ServerStart);
         }
-        let _ = (id, save);
         Starts::NONE
     }
 
-    /// Starts what `runs` names for `id`. Nothing does yet but the dev build's stand-in, which
-    /// says so in `*Agent*`.
+    /// Starts what `runs` names for `id`, and says so in `*Agent*`.
     fn run_starts(&mut self, id: BufferId, runs: Starts) {
         if runs.is_empty() {
             return;
         }
-        #[cfg(feature = "dev")]
-        if self.starting.stand_in {
-            let kinds: Vec<&str> = runs.iter().map(oso_core::buffer::Start::id).collect();
-            let name = self.editor.buffer(id).map_or("", |b| b.name()).to_owned();
-            self.agent_log(&format!("stand-in ran {} in {name}", kinds.join(", ")));
+        if runs.iter().any(|start| start == Start::ServerStart) {
+            self.start_server_for(id);
         }
-        let _ = id;
+        let kinds: Vec<&str> = runs.iter().map(Start::id).collect();
+        let name = self.editor.buffer(id).map_or("", |b| b.name()).to_owned();
+        self.agent_log(&format!("ran {} in {name}", kinds.join(", ")));
+    }
+
+    /// Forgets that the opens of `project`'s buffers were settled, as when it is trusted now,
+    /// so that the next settling starts what the person's would (ADR 0138, Q5).
+    pub(super) fn unsettle_opens_in(&mut self, project: oso_core::project::ProjectId) {
+        let editor = &self.editor;
+        self.starting.settled.retain(|id| {
+            editor
+                .buffer(*id)
+                .is_none_or(|b| b.project() != Some(project))
+        });
+        self.starting.ask();
     }
 
     /// Says in `*Agent*` what waits in `id` after an agent's open, or its save if `save`.

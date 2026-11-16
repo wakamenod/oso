@@ -1,6 +1,6 @@
 [package]
 name = "oso-lsp"
-description = "oso's language server client: framing, bounded JSON, URIs and positions (ADR 0138)"
+description = "oso's language server client: framing, bounded JSON, URIs, positions and a server's threads (ADR 0138)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,18 +9,13 @@ rust-version.workspace = true
 
 [dependencies]
 oso-core.workspace = true
+# Spawns servers, in a process group of their own (ADR 0138, step 3).
+oso-platform.workspace = true
 # JSON-RPC through `Value` only, as the agent channel does (ADR 0138, Q10).
 serde_json.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-
-# A language server for tests that answers from a script and misbehaves on cue (ADR 0138,
-# step 2). An example, so it never ships; `test = true` runs its script's unit tests.
-[[example]]
-name = "fake-server"
-path = "examples/fake_server/main.rs"
-test = true
 
 [lints]
 workspace = true

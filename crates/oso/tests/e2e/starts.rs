@@ -1,8 +1,10 @@
-//! What an agent's open or save starts in the running app (ADR 0118, ADR 0138 step 1): it waits
-//! in the buffer for the person, the modeline says `waits: server`, the person's first key there
-//! or their next save lets it go, and a restricted project holds nothing. The dev build's
-//! stand-in (`OSO_DEV_STARTS=1`) stands for a language server, and says in `*Agent*` what it ran.
-//! The dev socket's keys stand in for the person's.
+//! What an agent's open starts in the running app (ADR 0118, ADR 0138 steps 1 and 3): the
+//! person's open starts the project's language server at once, the agent's open of a file in
+//! another project waits in the buffer for the person, the modeline says `waits: server`, the
+//! person's first key there lets it go and starts that project's server, and a restricted
+//! project holds nothing. The server is the fake one, named by the configuration as
+//! rust-analyzer's command; `*Agent*` says what ran. What a save starts waits for ADR 0138's
+//! step 4, which tells a server of a save. The dev socket's keys stand in for the person's.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The rules
 //! themselves have unit tests in the editor.
@@ -22,15 +24,34 @@ const AFTER_TYPING: Duration = Duration::from_millis(1200);
 
 /// The line of the record of trusted projects that trusts `root`.
 #[cfg(unix)]
-fn record_line(root: &Path) -> String {
+pub(super) fn record_line(root: &Path) -> String {
     use std::os::unix::fs::MetadataExt;
     let meta = std::fs::metadata(root).expect("the scratch project");
     let path = root.to_str().expect("a UTF-8 scratch path");
     format!("{path}\tdev={} ino={}\n", meta.dev(), meta.ino())
 }
 
+/// A configuration whose rust-analyzer is the fake server, answering `initialize`.
+pub(super) fn fake_server_config(scratch: &Scratch) -> std::path::PathBuf {
+    let script = scratch.write(
+        "conf/fake-lsp.json",
+        json!({"rules": [
+            {"method": "initialize", "do": [{"reply": {"capabilities": {"positionEncoding": "utf-8"}}}]},
+            {"method": "shutdown", "do": [{"reply": null}]},
+        ]})
+        .to_string()
+        .as_bytes(),
+    );
+    let toml = format!(
+        "[lsp.servers.rust-analyzer]\ncommand = [{:?}, {:?}]\n",
+        env!("CARGO_BIN_EXE_fake-lsp-server"),
+        script.to_str().expect("a UTF-8 scratch path"),
+    );
+    scratch.write("conf/config.toml", toml.as_bytes())
+}
+
 /// A project at `name` under the scratch directory, with a `.git` and `files`.
-fn project(scratch: &Scratch, name: &str, files: &[&str]) -> std::path::PathBuf {
+pub(super) fn project(scratch: &Scratch, name: &str, files: &[&str]) -> std::path::PathBuf {
     for file in files {
         scratch.write(&format!("{name}/src/{file}"), b"fn main() {}\n");
     }
@@ -104,38 +125,37 @@ fn wait_until(
 #[cfg(unix)]
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn what_an_agents_open_or_save_starts_waits_for_the_person_and_a_restricted_project_holds_nothing()
-{
+fn what_an_agents_open_starts_waits_for_the_person_and_a_restricted_project_holds_nothing() {
     let scratch = Scratch::new("starts");
     set_mode(scratch.path(), 0o700);
     // The configuration directory is apart from the projects: the agent never saves there.
-    let config = scratch.write("conf/config.toml", b"");
+    let config = fake_server_config(&scratch);
     set_mode(&scratch.path().join("conf"), 0o700);
     set_mode(&config, 0o644);
-    let trusted = project(&scratch, "proj-starts", &["main.rs", "lib.rs"]);
+    let trusted = project(&scratch, "proj-starts", &["main.rs"]);
+    let other = project(&scratch, "proj-other", &["lib.rs"]);
     project(&scratch, "proj-free", &["free.rs"]);
-    let record = scratch.write("conf/trusted-projects", record_line(&trusted).as_bytes());
+    let lines = record_line(&trusted) + &record_line(&other);
+    let record = scratch.write("conf/trusted-projects", lines.as_bytes());
     set_mode(&record, 0o600);
     let main = trusted.join("src/main.rs");
-    let stand_in = std::ffi::OsStr::new("1");
     // The person visits main.rs: what opening it starts runs at once.
-    let mut app = App::start_with_file_config_and_env(
-        &main,
-        scratch.path(),
-        &config,
-        &[("OSO_DEV_STARTS", stand_in)],
-    );
+    let mut app = App::start_with_file_config_and_env(&main, scratch.path(), &config, &[]);
     app.wait_until_ready();
     let mut agent = let_in(&mut app);
     wait_until(
         &mut app,
         &mut agent,
         "the person's open ran",
-        |app, agent| agent_log(app, agent).contains("stand-in ran server-start in main.rs"),
+        |app, agent| agent_log(app, agent).contains("ran server-start in main.rs"),
     );
     assert_eq!(waits(&mut agent, "main.rs"), json!([]));
-    an_agents_open_waits_for_the_persons_key(&mut app, &mut agent, &trusted.join("src/lib.rs"));
-    an_agents_save_waits_for_the_persons_save(&mut app, &mut agent, &main);
+    app.wait_for("the server is ready", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("proj-starts  lsp  "))
+    });
+    an_agents_open_waits_for_the_persons_key(&mut app, &mut agent, &other.join("src/lib.rs"));
     a_restricted_project_holds_nothing(
         &mut app,
         &mut agent,
@@ -156,7 +176,7 @@ fn an_agents_open_waits_for_the_persons_key(app: &mut App, agent: &mut Agent, li
     }
     let modeline = app.state()["modeline"].as_str().unwrap().to_owned();
     assert!(
-        modeline.contains("proj-starts  waits: server  "),
+        modeline.contains("proj-other  waits: server  "),
         "{modeline}"
     );
     assert!(!agent_log(app, agent).contains("ran server-start in lib.rs"));
@@ -166,40 +186,12 @@ fn an_agents_open_waits_for_the_persons_key(app: &mut App, agent: &mut Agent, li
     });
     let log = agent_log(app, agent);
     assert!(log.contains("the person let go: server in lib.rs"), "{log}");
-    assert!(log.contains("stand-in ran server-start in lib.rs"), "{log}");
-    thread::sleep(AFTER_TYPING);
-}
-
-/// The agent's save of `main`, which the person visited, starts nothing either, and waits for
-/// the person's next save: `C-x C-s` in the unmodified buffer.
-fn an_agents_save_waits_for_the_persons_save(app: &mut App, agent: &mut Agent, main: &Path) {
-    let opened = agent.call("open", Some(json!({ "path": main }))).unwrap();
-    assert_eq!(opened.get("waits"), None, "already open: {opened}");
-    let inserted = agent.call(
-        "run",
-        Some(json!({ "name": "insert", "arg": "// a\n", "reach": "change" })),
-    );
-    assert!(inserted.is_ok(), "{inserted:?}");
-    let saved = agent.run("save-buffer", None, "change");
-    let waiting = saved.as_ref().ok().and_then(|reply| reply.get("waiting"));
-    assert!(waiting.is_none(), "main.rs is the person's: {saved:?}");
-    let saved = saved.unwrap();
-    assert_eq!(
-        saved["waits"], "server waits for the person in main.rs",
-        "{saved}"
-    );
-    assert_eq!(waits(agent, "main.rs"), json!(["server"]));
-    assert!(!agent_log(app, agent).contains("ran server-save"));
-    app.send_keys("C-x C-s");
-    wait_until(app, agent, "main.rs's save let go", |_, agent| {
-        waits(agent, "main.rs") == json!([])
+    assert!(log.contains("ran server-start in lib.rs"), "{log}");
+    app.wait_for("lib.rs's server is ready", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("proj-other  lsp  "))
     });
-    let log = agent_log(app, agent);
-    assert!(
-        log.contains("the person let go: server in main.rs"),
-        "{log}"
-    );
-    assert!(log.contains("stand-in ran server-save in main.rs"), "{log}");
     thread::sleep(AFTER_TYPING);
 }
 

@@ -116,6 +116,8 @@ pub struct InForce {
     pub terminal: super::Terminal,
     /// `[spaces]`: it applies to the next space made (ADR 0136).
     pub spaces: super::Spaces,
+    /// `[lsp]` and the servers' table: it applies to the next server started (ADR 0138).
+    pub lsp: super::Lsp,
     /// `[git]`: it applies to the next commit (ADR 0127, step 1b).
     pub git: super::GitSettings,
 }
@@ -145,6 +147,7 @@ impl InForce {
             sessions: super::settings::Sessions::default(),
             terminal: super::Terminal::default(),
             spaces: super::Spaces::default(),
+            lsp: super::Lsp::default(),
             git: super::GitSettings::default(),
         }
     }
@@ -184,6 +187,7 @@ impl InForce {
             sessions: settings.sessions.clone(),
             terminal: settings.terminal.clone(),
             spaces: settings.spaces.clone(),
+            lsp: settings.lsp.clone(),
             git: settings.git.clone(),
         }
     }
@@ -318,6 +322,7 @@ mod tests {
                 sessions: crate::config::settings::Sessions::default(),
                 terminal: crate::config::Terminal::default(),
                 spaces: crate::config::Spaces::default(),
+                lsp: crate::config::Lsp::default(),
                 git: crate::config::GitSettings::default(),
             }
         );
@@ -374,6 +379,7 @@ mod tests {
                 sessions: crate::config::settings::Sessions::default(),
                 terminal: crate::config::Terminal::default(),
                 spaces: crate::config::Spaces::default(),
+                lsp: crate::config::Lsp::default(),
                 git: crate::config::GitSettings::default(),
             }
         );
