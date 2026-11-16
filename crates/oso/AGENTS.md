@@ -69,7 +69,9 @@ often, so it must rebuild within 2 s.
   (`registry`) and oso's record (`record`) are read off the UI thread, and a bridge's claim is
   judged by one pure function (`bridge`). `session-adopt` reads Claude Code's transcripts
   (`transcripts`) only for ids, names, times and directories, on its own
-  `oso-session-adopt-list` thread (`adopt`). The clipboard's images a session is given
+  `oso-session-adopt-list` thread (`adopt`). `session-search` alone reads what was said in
+  them, prompts and replies only, held in memory on `oso-history` (`history`, ADR 0145); no
+  agent gets it, and none of it is logged. The clipboard's images a session is given
   (`images`, ADR 0142) are written, converted by `sips` and removed on one `oso-images` thread,
   never the worker's. `app/sessions.rs` and `app/sessions/` carry out what the worker, the jobs
   and the start thread find.

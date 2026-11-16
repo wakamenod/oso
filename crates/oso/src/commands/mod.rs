@@ -119,6 +119,7 @@ const TABLES: &[&[Command]] = &[
     agent_sessions::COMMANDS,
     agent_sessions::LIST_COMMANDS,
     agent_sessions::MODE_COMMANDS,
+    agent_sessions::SEARCH_COMMANDS,
     agent_sessions::SEND_COMMANDS,
     agent_sessions::SPACE_COMMANDS,
     terminal::COMMANDS,
@@ -350,6 +351,9 @@ mod tests {
         "claude",
         "session-adopt",
         "session-fork",
+        // Every project's conversations, which no agent gets (ADR 0145).
+        "session-search",
+        "session-search-scope",
         // Sending to a session is the person's typing into its terminal (ADR 0120, Q15).
         "session-follow-message",
         "session-mention",

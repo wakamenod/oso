@@ -101,6 +101,10 @@ pub fn map(
         (ArgSpec::ProjectSearch { .. }, _) => Err(format!(
             "{name} searches in its prompt, which only keys open"
         )),
+        // Nor a search of conversations, whose rows are every project's text (ADR 0145).
+        (ArgSpec::ConversationSearch { .. }, _) => Err(format!(
+            "{name} searches conversations in its prompt, which only keys open"
+        )),
         (ArgSpec::None, Given::Nothing) => plain(Args::with_prefix(prefix)),
         (ArgSpec::None, _) => Err(format!("{name} takes no argument")),
         (ArgSpec::Count | ArgSpec::Key | ArgSpec::CountAndClipboard, Given::Nothing) => {
@@ -279,6 +283,11 @@ mod tests {
         };
         assert!(refused(project_search, Given::Text("fn main")).contains("searches"));
         assert!(refused(project_search, Given::Nothing).contains("searches"));
+        let conversations = ArgSpec::ConversationSearch {
+            history: "session-search",
+        };
+        assert!(refused(conversations, Given::Text("trust")).contains("conversations"));
+        assert!(refused(conversations, Given::Nothing).contains("conversations"));
         let branch = ArgSpec::BranchAndBaseOnPrefix {
             prompt: "Worktree branch:",
             base_prompt: "Base:",

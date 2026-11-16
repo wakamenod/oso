@@ -1095,6 +1095,26 @@ a switch made with its command stands until that setting changes in the file
   directory. A picked one is resumed in a new buffer, `*claude: NAME*`, in the directory it ran
   in, under the name it had. A live one is refused until it is stopped where it runs, and `y`
   forks it instead. If it was working when it stopped, the echo area says to ask it to go on.
+- `C-c a /` (`session-search`) finds a session by what was said in it
+  ([ADR 0145](adr/0145-searching-past-agent-conversations.md)). It opens a centred float,
+  `Search conversations (all):`, over every Claude Code conversation on this machine, of every
+  project; `C-c C-s` in the float moves to the space in front's (`(space NAME)`), then the
+  current project's (`(project NAME)`), then back, and `C-u C-c a /` starts in the next one.
+  The input is `project-search`'s: words in any order, `!` to exclude, regular expressions,
+  smart case and migemo. A row is one prompt or reply that holds every word:
+
+  ```text
+  ● oso-2 · oso-2 · 3m › …can worktree trust survive a rename?…
+  ◌ Fix the login redirect · webapp · 12d ‹ …the trust record keys by inode…
+  ```
+
+  `●` runs here, `○` is stopped here, `⊘` runs in another program, `◌` is not oso's; then the
+  name, the place (`repository/worktree`, `(gone)` once its directory is), the age, and `›` for
+  a prompt or `‹` for a reply. Rows come newest conversation first, at most 50 a conversation.
+  The preview shows the messages around the row, wrapped. `RET` shows a session oso hosts and
+  adopts any other, as `C-c a a` does; one whose directory is gone is not resumed. Only prompts
+  and replies are searched, never tool inputs or results, thinking or attachments. What was
+  read is held in memory only, for 5 minutes after the last search, and no agent gets it.
 - `config.toml`:
 
   ```toml

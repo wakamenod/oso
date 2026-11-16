@@ -243,15 +243,7 @@ impl Dispatcher {
                 return self.read_buffer(editor, id, args.raw(), read);
             }
             Some(ArgSpec::Xref) => return self.read_listed(editor, id, args.raw(), ArgSpec::Xref),
-            Some(
-                spec @ (ArgSpec::Mark { .. }
-                | ArgSpec::Diagnostics { .. }
-                | ArgSpec::File { .. }
-                | ArgSpec::Directory { .. }
-                | ArgSpec::Target { .. }
-                | ArgSpec::ProjectFile { .. }
-                | ArgSpec::ProjectSearch { .. }),
-            ) => {
+            Some(spec) if paths::reads_listed(spec) => {
                 return self.read_listed(editor, id, args.raw(), spec);
             }
             _ => return self.execute(editor, id, args, invocation, Step::MayJoin),
