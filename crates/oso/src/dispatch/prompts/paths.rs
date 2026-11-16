@@ -1,7 +1,8 @@
 //! The prompts that read a path, for a command's argument: `C-x C-f`'s and `C-x C-w`'s by its
 //! segments (ADR 0087), and a project's files, listed as they are walked, or a line of them,
 //! searched for (ADR 0114). The mark list and the list of a project's diagnostics (ADR 0138)
-//! share their way in, as they too list before they read.
+//! share their way in, as they too list before they read, and so does the list of a server's
+//! places, which the host opens (step 8b).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 
@@ -41,6 +42,11 @@ impl Dispatcher {
         match spec {
             ArgSpec::Mark { prompt } => self.read_mark(editor, id, prefix, prompt),
             ArgSpec::Diagnostics { prompt } => self.read_diagnostic(editor, id, prefix, prompt),
+            // Its list opens only once a server's answer needs it (ADR 0138, step 8b).
+            ArgSpec::Xref => {
+                editor.message("A server's places are listed by M-. and M-?");
+                (redraw(), Ok(()))
+            }
             ArgSpec::File { prompt, history } => {
                 self.read_file(editor, id, prefix, prompt, history, false)
             }
@@ -99,6 +105,33 @@ impl Dispatcher {
             Err(error) => editor.prompt_says(error.to_string()),
         }
         (redraw(), Ok(()))
+    }
+
+    /// Opens the list of the places of `kind` of the host's list `generation`, from the server of
+    /// `root`, for `lsp-go-to-xref`, which `RET` runs (ADR 0138, step 8b): the host's, once a
+    /// server's answer needs it, as [`Dispatcher::find_file_in`] is. Nothing opens while a prompt
+    /// is open; the list's prompt, if it opened.
+    pub fn list_xrefs(
+        &mut self,
+        editor: &mut Editor,
+        kind: oso_core::editor::XrefKind,
+        generation: u64,
+        root: std::path::PathBuf,
+    ) -> Option<oso_core::minibuffer::PromptId> {
+        let id = self.registry.lookup("lsp-go-to-xref")?;
+        if editor.prompt().is_some() {
+            return None;
+        }
+        match editor.open_xref_list(kind, generation, root) {
+            Ok(prompt) => {
+                self.reading.push(Reading::run(id, None, prompt));
+                Some(prompt)
+            }
+            Err(error) => {
+                editor.prompt_says(error.to_string());
+                None
+            }
+        }
     }
 
     /// Opens the prompt that reads a path for the command `id`, or a directory's if `directory`,

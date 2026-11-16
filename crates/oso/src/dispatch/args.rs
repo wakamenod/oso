@@ -73,6 +73,10 @@ pub fn map(
         (ArgSpec::Diagnostics { .. }, _) => Err(format!(
             "{name} reads a diagnostic, which only its prompt takes, from keys"
         )),
+        // A server's places are listed only in their list, which the host opens (step 8b).
+        (ArgSpec::Xref, _) => Err(format!(
+            "{name} reads a place of a server's answer, which only its list takes, from keys"
+        )),
         (ArgSpec::KillEntry { .. }, _) => Err(format!(
             "{name} reads a kill, which only its prompt takes, from keys"
         )),
@@ -259,6 +263,7 @@ mod tests {
             prompt: "Diagnostics",
         };
         assert!(refused(diagnostics, Given::Nothing).contains("diagnostic"));
+        assert!(refused(ArgSpec::Xref, Given::Nothing).contains("server's answer"));
         let theme = ArgSpec::Theme {
             prompt: "Load theme: ",
             history: "theme",

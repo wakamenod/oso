@@ -171,6 +171,11 @@ pub enum ArgSpec {
     /// the preview of each row's place, and no history (ADR 0138). The command takes the row
     /// with [`Editor::take_diagnostic_hit`](crate::editor::Editor::take_diagnostic_hit).
     Diagnostics { prompt: &'static str },
+    /// A place of a language server's answer, read in the list the host opens once an answer
+    /// has several, with the preview of each row's place, and no history (ADR 0138, step 8b):
+    /// never from keys or by name. The command takes the row with
+    /// [`Editor::take_xref_hit`](crate::editor::Editor::take_xref_hit).
+    Xref,
     /// The key that ran it, read with [`Ctx::input`](super::Ctx::input) or [`Ctx::key_char`](super::Ctx::key_char), and a numeric
     /// prefix argument as with `Count`. `M-x` does not list it, as no key runs it there
     /// (ADR 0076).

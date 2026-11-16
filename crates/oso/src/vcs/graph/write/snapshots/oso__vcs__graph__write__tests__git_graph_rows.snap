@@ -1,0 +1,14 @@
+---
+source: crates/oso/src/vcs/graph/write/tests.rs
+expression: grid(&laid)
+---
+Commits of main
+HHHHHHHHHHHHHHH
+●─╮ 1111111 HEAD main Merge side  Ann 2026-11-16
+011 hhhhhhhhhhhhbbbbb           cccccccccccccccc
+│ ● 3333333 origin/side s‮ide  Ann 2026-11-16
+0 1 hhhhhhhrrrrrrrrrrrr      cccccccccccccccc
+● │ 2222222 v1 main's  Ann 2026-11-16
+0 1 hhhhhhhttt       cccccccccccccccc
+●─╯ 4444444 base  Ann 2026-11-16
+011 hhhhhhh     cccccccccccccccc

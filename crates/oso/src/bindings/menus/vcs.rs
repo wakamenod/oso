@@ -1,5 +1,6 @@
 //! The git status's built-in menus (ADR 0127): the commit, push, pull and fetch menus (steps
-//! 1b and 2), and the stash and branch menus (step 3b), each reached from a key of the status.
+//! 1b and 2), the stash and branch menus (step 3b), and the log menu (step 4), each reached from
+//! a key of the status, the log menu from a graph's too.
 //!
 //! Must not depend on: `dispatch`, `app` or winit; menus are data.
 
@@ -158,5 +159,21 @@ pub(super) const BRANCH: BuiltInMenu = BuiltInMenu {
             ],
         ),
     ],
+    describe: None,
+};
+
+/// The log (ADR 0127, step 4, the build plan's Q3), from a git status's or a graph's `l`, as
+/// magit's: each head opens the graph.
+pub(super) const LOG: BuiltInMenu = BuiltInMenu {
+    name: "log",
+    title: "Log",
+    groups: &[(
+        "Show the graph of",
+        &[
+            exit("l", "git-graph", "the branch checked out"),
+            exit("a", "git-graph-all", "every ref"),
+            exit("o", "git-graph-other", "another ref"),
+        ],
+    )],
     describe: None,
 };

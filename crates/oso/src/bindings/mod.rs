@@ -229,6 +229,16 @@ pub fn git_log_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, vcs::LOG).unwrap_or_default()
 }
 
+/// A graph's own keymap, above the global one in it, with `l` opening the log menu (ADR 0127,
+/// step 4). Empty for a registry without its commands.
+pub fn git_graph_keymap(registry: &Registry) -> Keymap {
+    let Ok(mut keymap) = Keymap::from_table(registry, vcs::GRAPH) else {
+        return Keymap::default();
+    };
+    bind_menus(&mut keymap, registry, vcs::GRAPH_MENUS);
+    keymap
+}
+
 /// The keymap of the list of what discards kept, above the global one in it (ADR 0127, step
 /// 1c). Empty for a registry without its commands.
 pub fn git_discarded_keymap(registry: &Registry) -> Keymap {

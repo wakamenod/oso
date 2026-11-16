@@ -100,6 +100,7 @@ impl App {
             UserEvent::Previewed(read) => self.previewed(read),
             UserEvent::Conversations(report) => self.conversations_reported(event_loop, report),
             UserEvent::DiagnosticsListed(rows) => self.diagnostics_listed(rows),
+            UserEvent::XrefsListed(generation, rows) => self.xrefs_listed(generation, rows),
             UserEvent::Trust => self.trust_reported(),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
@@ -116,6 +117,7 @@ impl App {
             UserEvent::Worktree(report) => self.worktree_reported(event_loop, *report),
             UserEvent::Review(event) => self.review_reported(event),
             UserEvent::Git(event) => self.git_reported(event),
+            UserEvent::Graph(event) => self.graph_reported(event),
             UserEvent::Servers => self.servers_reported(),
             UserEvent::GitRun(event) => self.git_run_reported(event),
             UserEvent::Terminal(buffer) => self.terminal_ready(buffer),
@@ -169,6 +171,7 @@ impl App {
         self.draw_flash_if_due();
         self.show_jump_labels_if_due();
         self.diagnostic_at_point_if_due();
+        self.xrefs_if_due();
         self.quit_if_idle(event_loop);
         // Last, once every deadline is known.
         self.set_wake(event_loop);
@@ -266,6 +269,7 @@ impl App {
             self.flash.next_wake(),
             self.jump_timer.next_wake(),
             self.diagnostic_at_point_deadline(),
+            self.xrefs_deadline(),
             self.reload_deadline(),
             self.quiet_walk_deadline(),
             self.slice_deadline(),

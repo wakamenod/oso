@@ -1,5 +1,5 @@
 //! Which part of the app carries out each git request (ADR 0127): the status's own, a commit's and
-//! its log's, a remote's, a stopped run's, a stash's, or a branch's. One match over every request,
+//! its log's, a remote's, a stopped run's, a stash's, a branch's, or a graph's. One match over every request,
 //! so that a new one is placed here before it builds, never dropped at run time.
 //!
 //! Must not depend on: key presses, how a frame is drawn, or git; this only sorts requests.
@@ -22,6 +22,8 @@ pub(super) enum Concern {
     Stash,
     /// Checking out, creating, renaming and deleting branches (step 3b).
     Branch,
+    /// The graph of a repository's commits (step 4).
+    Graph,
 }
 
 /// Where `request` is carried out.
@@ -54,5 +56,8 @@ pub(super) fn concern(request: &GitRequest) -> Concern {
         }
         GitRequest::Stash { .. } => Concern::Stash,
         GitRequest::Branch { .. } => Concern::Branch,
+        GitRequest::Graph { .. } | GitRequest::GraphToggle { .. } | GitRequest::GraphAct { .. } => {
+            Concern::Graph
+        }
     }
 }

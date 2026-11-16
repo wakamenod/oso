@@ -356,6 +356,7 @@ planned.
     git status (ADR 0127, step 2); see [Remotes](#remotes).
   - `stash` on `z` and `branch` on `b` in a git status (ADR 0127, step 3b); see
     [Stashes and branches](#stashes-and-branches).
+  - `log` on `l` in a git status and in a graph (ADR 0127, step 4); see [Graph](#graph).
   - `agents` on `C-c a` ([ADR 0143](adr/0143-agent-keys-on-c-c-a-and-an-agents-menu.md)), in
     every buffer and every terminal: the agent session commands, in groups Start (`c w r a`),
     Go to (`s b n d f`), Talk (`m @ e`), Space (`j z O`, `S` the space menu) and Session
@@ -613,6 +614,21 @@ output.
     remote's in full.
 - While something is stopped, checking out, making a branch to check out, applying and popping
   are refused, naming `C-c C-c` and `C-c C-k`.
+
+### Graph
+
+`C-x v l`, or `l l` in a status, shows `*graph: NAME*`: the branch's commits in git's
+topological order, children before their parents, one row each (ADR 0127, step 4).
+
+- A row is the lanes in box-drawing cells, each lane in a colour of its own, the commit as `●`;
+  then the short id, the refs on it (`HEAD`, branches, remote branches, tags), the subject, the
+  author and the date, `YYYY-MM-DD`.
+- The `l` menu, in a status or a graph: `l` the branch checked out, `a` every ref, `o` another
+  ref, read in a prompt over the branches, `HEAD` first, or any revision typed.
+- In a graph: `RET` reviews the commit at point, `w` copies its id, `a` shows every ref or the
+  branch again, `g` reads it again, `n` and `p` move a line, `q` leaves it.
+- It reads 2,000 commits at a time, the next as point nears the end, up to 50,000, then says a
+  narrower scope shows the rest. At most 16 lanes are drawn, `┄` past them.
 
 ## Echo area
 

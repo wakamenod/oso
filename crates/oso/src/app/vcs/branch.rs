@@ -16,6 +16,8 @@
 //!   revert or `git am` is stopped (Q6), checked again as each runs.
 //! - A delete that is not merged asks first, naming the commits only that branch holds; its
 //!   `y` runs `-D` only while the branch is where the question saw it.
+//! - The graph's `l o` lists the branches the same way, `HEAD` first, for the ref it shows
+//!   (step 4); its answer goes to the graph as the full ref listed, or as typed.
 
 use std::sync::Arc;
 
@@ -28,9 +30,12 @@ use super::super::App;
 use super::runs::{MAX_SAID, RUNNING};
 use crate::commands::review::one_line;
 use crate::commands::vcs::branch::{BRANCHES_LIST, STARTS_LIST};
+use crate::commands::vcs::graph::GRAPH_REFS_LIST;
+use crate::git::TrustedRoot;
 use crate::vcs::branch::{self, BranchRead, BranchRun, Branches, DeletePlan};
 use crate::vcs::layout::Built;
 use crate::vcs::run::RunRequest;
+use oso_core::project::ProjectId;
 
 /// The most branches a prompt lists, as a push's: the most a completion opens with on the UI
 /// thread before its list is built on the worker.
@@ -40,9 +45,13 @@ const LISTED: usize = 5000;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BranchHead {
     Checkout,
-    Create { checkout: bool },
+    Create {
+        checkout: bool,
+    },
     Rename,
     Delete,
+    /// The ref a graph shows (step 4).
+    Graph,
 }
 
 /// A name a prompt listed, and the ref git is given for it.
@@ -64,6 +73,8 @@ enum Reads {
     Name { checkout: bool, start: String },
     /// The name `old` is renamed to.
     NewName { old: String },
+    /// The ref a graph shows: one of those `shown`, or any revision typed (step 4).
+    Graph { shown: Vec<Shown> },
 }
 
 /// A prompt waiting for its answer, opened over the status `status`.
@@ -123,9 +134,7 @@ impl App {
             BranchAction::Picked(text) | BranchAction::Named(text) => {
                 return match prompted {
                     Some(wait) => self.branch_answered(index, (&built, buffer), wait.reads, &text),
-                    None => self
-                        .editor
-                        .message("The branch's prompt is gone: b asks again"),
+                    None => self.editor.message("The prompt is gone: ask again"),
                 };
             }
             BranchAction::Confirmed => {
@@ -170,11 +179,13 @@ impl App {
             }
         };
         if !self.still_at(status) {
-            return self.editor.message("The branches are read: b asks again");
+            return self.editor.message("The branches are read: ask again");
         }
         let (list, command, reads) = reads_for(head, &branches);
         let shown = match &reads {
-            Reads::Pick(_, shown) | Reads::Start { shown, .. } => shown.as_slice(),
+            Reads::Pick(_, shown) | Reads::Start { shown, .. } | Reads::Graph { shown } => {
+                shown.as_slice()
+            }
             Reads::Name { .. } | Reads::NewName { .. } => &[],
         };
         if shown.is_empty() {
@@ -242,6 +253,55 @@ impl App {
                 };
                 self.run_branch(index, built, run);
             }
+            // `l o`'s answer comes to the graph as a request of its own (`graph_ref_named`), not
+            // as a branch's.
+            Reads::Graph { .. } => {}
+        }
+    }
+
+    /// `l o`: lists the branches of `project` on the run thread for the prompt of the ref its
+    /// graph shows, opened over the buffer selected now (step 4).
+    pub(super) fn pick_graph_ref(&mut self, project: ProjectId) {
+        let Some(root) = TrustedRoot::of(&self.editor, project) else {
+            return self.editor.message(crate::commands::vcs::graph::RESTRICTED);
+        };
+        let index = self.git_repo(project, &root);
+        if self.repo_busy(project) {
+            return self.editor.message(RUNNING);
+        }
+        let here = self.editor.window().buffer();
+        if self.ask_runner(index, RunRequest::BranchRead(BranchRead::List)) {
+            self.gits.commits.repos[index].branches.listing = Some((here, BranchHead::Graph));
+        }
+    }
+
+    /// The full ref `text`, the answer to `l o`'s prompt, names: one the prompt listed, else
+    /// `text` itself if it may go to git; `None` once the echo area says why not.
+    pub(super) fn graph_ref_named(&mut self, project: ProjectId, text: &str) -> Option<String> {
+        let text = text.trim();
+        // Only `l o`'s own prompt, opened over the buffer still selected, answers it.
+        let here = self.editor.window().buffer();
+        let listed = (self.repo_of(project))
+            .and_then(|index| {
+                let prompt = &mut self.gits.commits.repos[index].branches.prompt;
+                prompt.take_if(|wait| {
+                    wait.status == here && matches!(wait.reads, Reads::Graph { .. })
+                })
+            })
+            .and_then(|wait| match wait.reads {
+                Reads::Graph { shown } => shown.into_iter().find(|shown| shown.name == text),
+                _ => None,
+            });
+        if let Some(shown) = listed {
+            return Some(shown.full);
+        }
+        match crate::git::check_revision(text) {
+            Ok(()) => Some(text.to_owned()),
+            Err(_) => {
+                self.editor
+                    .message("That is not a revision oso hands git: name a branch, a tag or an id");
+                None
+            }
         }
     }
 
@@ -271,8 +331,8 @@ impl App {
                     self.gits.commits.repos[index].branches.deleting = Some(status);
                 }
             }
-            // A start is read by its own prompt.
-            BranchHead::Create { .. } => {}
+            // A start, and a graph's ref, are read by prompts of their own, not picked here.
+            BranchHead::Create { .. } | BranchHead::Graph => {}
         }
     }
 
@@ -378,16 +438,7 @@ fn reads_for(head: BranchHead, branches: &Branches) -> (&'static str, &'static s
                 .collect(),
         ),
         BranchHead::Create { checkout } => {
-            let here = Shown {
-                name: "HEAD".into(),
-                full: "HEAD".into(),
-                remote: false,
-            };
-            let shown = (std::iter::once(here))
-                .chain(branches.local.iter().map(local))
-                .chain(branches.remote.iter().map(remote))
-                .take(LISTED)
-                .collect();
+            let shown = with_head(branches, local, remote);
             (
                 STARTS_LIST,
                 "git-branch-start",
@@ -399,5 +450,28 @@ fn reads_for(head: BranchHead, branches: &Branches) -> (&'static str, &'static s
             pick(first.chain(others()).map(local).take(LISTED).collect())
         }
         BranchHead::Delete => pick(others().map(local).take(LISTED).collect()),
+        BranchHead::Graph => {
+            let shown = with_head(branches, local, remote);
+            (GRAPH_REFS_LIST, "git-graph-of", Reads::Graph { shown })
+        }
     }
+}
+
+/// `HEAD`, then the local branches, then the remotes', at most [`LISTED`]: where a branch is
+/// made, and which ref a graph shows.
+fn with_head(
+    branches: &Branches,
+    local: impl Fn(&String) -> Shown,
+    remote: impl Fn(&String) -> Shown,
+) -> Vec<Shown> {
+    let here = Shown {
+        name: "HEAD".into(),
+        full: "HEAD".into(),
+        remote: false,
+    };
+    (std::iter::once(here))
+        .chain(branches.local.iter().map(local))
+        .chain(branches.remote.iter().map(remote))
+        .take(LISTED)
+        .collect()
 }

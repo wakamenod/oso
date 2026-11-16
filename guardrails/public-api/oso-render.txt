@@ -101,7 +101,16 @@ pub oso_render::Face::GitBranchRemote
 pub oso_render::Face::GitCommitOverlong
 pub oso_render::Face::GitDetail
 pub oso_render::Face::GitHash
+pub oso_render::Face::GitLane0
+pub oso_render::Face::GitLane1
+pub oso_render::Face::GitLane2
+pub oso_render::Face::GitLane3
+pub oso_render::Face::GitLane4
+pub oso_render::Face::GitLane5
+pub oso_render::Face::GitLane6
+pub oso_render::Face::GitLane7
 pub oso_render::Face::GitSectionHeading
+pub oso_render::Face::GitTag
 pub oso_render::Face::JumpLabel
 pub oso_render::Face::JumpLabelNext
 pub oso_render::Face::Key

@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use oso_core::buffer::BufferId;
 use oso_core::diagnostic::{Diagnostics, Severity};
-use oso_core::editor::{DiagnosticRow, DiagnosticRowAt, DiagnosticRows, VisitColumn};
+use oso_core::editor::{DiagnosticRow, DiagnosticRows, ListedAt, VisitColumn};
 use oso_core::rope::Rope;
 use oso_lsp::limits::DIAGNOSTIC_ROWS_MAX;
 use oso_lsp::position::Encoding;
@@ -124,9 +124,8 @@ pub(crate) fn build(snapshot: &Snapshot, live: &dyn Fn() -> bool) -> Option<Diag
         (relative.len() <= ROW_PATH_BYTES_MAX).then(|| relative.into())
     };
     // The root as the servers' paths spell it.
-    let server_root = oso_lsp::uri::from_path(&snapshot.root)
-        .and_then(|uri| oso_lsp::uri::to_path(&uri))
-        .unwrap_or_else(|| snapshot.root.clone());
+    let server_root =
+        super::super::read_back(&snapshot.root).unwrap_or_else(|| snapshot.root.clone());
     let current = snapshot
         .open
         .iter()
@@ -135,9 +134,9 @@ pub(crate) fn build(snapshot: &Snapshot, live: &dyn Fn() -> bool) -> Option<Diag
         && let Some(path) = relative(&open.path, &snapshot.root)
     {
         push_open(&mut rows, &path, open);
-        selected = rows.rows.iter().position(|row| {
-            matches!(row.at, DiagnosticRowAt::Open { offset, .. } if offset >= snapshot.cursor)
-        });
+        selected = rows.rows.iter().position(
+            |row| matches!(row.at, ListedAt::Open { offset, .. } if offset >= snapshot.cursor),
+        );
     }
     // The rest by path: open buffers' sets, and the servers' reports of other files.
     let mut others: Vec<(Box<str>, Source<'_>)> = Vec::new();
@@ -190,7 +189,7 @@ fn push_open(rows: &mut Rows<'_>, path: &str, open: &OpenSet) {
         rows.rows.push(DiagnosticRow {
             path: path.into(),
             line: open.text.offset_to_point(offset).row + 1,
-            at: DiagnosticRowAt::Open {
+            at: ListedAt::Open {
                 buffer: open.buffer,
                 offset,
                 revision: open.revision,
@@ -219,7 +218,7 @@ fn push_file(rows: &mut Rows<'_>, path: &str, report: &Published, encoding: Enco
         rows.rows.push(DiagnosticRow {
             path: path.into(),
             line: reported.start.line as usize + 1,
-            at: DiagnosticRowAt::File {
+            at: ListedAt::File {
                 column: match encoding {
                     Encoding::Utf8 => VisitColumn::Utf8(character),
                     Encoding::Utf16 => VisitColumn::Utf16(character),

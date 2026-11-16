@@ -1,6 +1,7 @@
 //! A list's preview of a file at a place (ADR 0114, ADR 0138): the selected row's file around
 //! its line, from an open buffer of that file or from what the host read of it, for a project's
-//! search and the list of diagnostics, each with its own [`FilePreview`].
+//! search, the list of diagnostics and the list of a server's places, each with its own
+//! [`FilePreview`].
 //!
 //! Must not depend on: `command` or `keymap`, or the host's threads or I/O; the host reads the
 //! file and hands over an [`Excerpt`] of it.
@@ -297,6 +298,8 @@ pub(super) enum Lister {
     Search,
     /// The list of a project's diagnostics, `M-g d` (ADR 0138).
     Diagnostics,
+    /// The list of a server's places, `M-.`'s and `M-?`'s (ADR 0138, step 8b).
+    Xrefs,
 }
 
 /// The selected row of a list, as its preview wants it: its key, its list's generation and its
@@ -317,6 +320,8 @@ impl Editor {
             Some(Lister::Search)
         } else if self.lists_diagnostics() {
             Some(Lister::Diagnostics)
+        } else if self.lists_xrefs() {
+            Some(Lister::Xrefs)
         } else {
             None
         }
@@ -325,14 +330,16 @@ impl Editor {
     fn file_preview(&self, lister: Lister) -> &FilePreview {
         match lister {
             Lister::Search => &self.project_search.preview,
-            Lister::Diagnostics => &self.servers.list.preview,
+            Lister::Diagnostics => &self.servers.list.listed.preview,
+            Lister::Xrefs => &self.servers.xrefs.preview,
         }
     }
 
     fn file_preview_mut(&mut self, lister: Lister) -> &mut FilePreview {
         match lister {
             Lister::Search => &mut self.project_search.preview,
-            Lister::Diagnostics => &mut self.servers.list.preview,
+            Lister::Diagnostics => &mut self.servers.list.listed.preview,
+            Lister::Xrefs => &mut self.servers.xrefs.preview,
         }
     }
 
@@ -341,6 +348,7 @@ impl Editor {
         match lister {
             Lister::Search => self.search_wanted(),
             Lister::Diagnostics => self.diagnostic_wanted(),
+            Lister::Xrefs => self.xref_wanted(),
         }
     }
 
@@ -468,7 +476,7 @@ impl Editor {
         // A search's row of a conversation has no file, but has an excerpt (ADR 0145).
         let key = match lister {
             Lister::Search => self.selected_search_row()?,
-            Lister::Diagnostics => self.wanted_row(lister)?.key,
+            Lister::Diagnostics | Lister::Xrefs => self.wanted_row(lister)?.key,
         };
         let preview = self.file_preview(lister);
         if preview.asked != Some(key) {

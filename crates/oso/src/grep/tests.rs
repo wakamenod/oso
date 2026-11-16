@@ -514,3 +514,16 @@ fn rows_are_taken_as_they_are_found_so_searchers_together_stay_in_bounds() {
     assert_eq!(taken, MAX_ROWS);
     assert!(search.full.load(Ordering::Relaxed));
 }
+
+#[test]
+fn a_name_with_a_tilde_and_a_digit_reads_as_a_windows_short_name() {
+    use std::path::Path;
+    assert!(super::short_name(Path::new("ENV~1")));
+    assert!(super::short_name(Path::new("src/CONFIG~2/a.rs")));
+    assert!(!super::short_name(Path::new("src/a~b.rs")));
+    assert_eq!(
+        super::may_hold_secrets(Path::new("/w"), Some(&[]), Path::new("ENV~1")),
+        cfg!(windows),
+        "taken to on Windows only"
+    );
+}

@@ -188,6 +188,17 @@ pub enum Face {
     GitDetail,
     /// What a commit's message holds past its line's length, in the warning's colour.
     GitCommitOverlong,
+    /// A graph's lanes (ADR 0127, step 4), each in a colour of its own, in turn.
+    GitLane0,
+    GitLane1,
+    GitLane2,
+    GitLane3,
+    GitLane4,
+    GitLane5,
+    GitLane6,
+    GitLane7,
+    /// A tag's name on a graph's row.
+    GitTag,
     /// An error a language server reports (ADR 0138): the wavy line under its range, its
     /// line's sign in the gutter and the modeline's `E2`, each in this face's foreground.
     DiagnosticError,
