@@ -117,10 +117,7 @@ pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use reviews::*;
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
-pub use servers::{
-    AskAt, DiagnosticHit, DiagnosticRow, DiagnosticRowAt, DiagnosticRows, DiagnosticsRequest,
-    ServerRequest, VisitColumn,
-};
+pub use servers::*;
 pub use sessions::*;
 pub use status::{ServerFace, Status};
 pub use switch::{KillRefused, Preview};
