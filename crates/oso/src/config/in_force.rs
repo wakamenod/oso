@@ -109,7 +109,7 @@ pub struct InForce {
     pub electric_indent: bool,
     /// Each mode's indentation, in the order of `config::MODES`, with where each property
     /// came from: the file or the compiled-in default.
-    pub mode_indents: [(indent::Settings, indent::Origins); 10],
+    pub mode_indents: [(indent::Settings, indent::Origins); super::MODE_COUNT],
     /// How hosted sessions start (ADR 0121): read when one starts.
     pub sessions: super::settings::Sessions,
     /// `[terminal]`, as the file gives it: it applies to the next terminal started (ADR 0120).
@@ -143,7 +143,7 @@ impl InForce {
                 timeout: JUMP_TIMEOUT,
             },
             electric_indent: true,
-            mode_indents: [Default::default(); 10],
+            mode_indents: [Default::default(); super::MODE_COUNT],
             sessions: super::settings::Sessions::default(),
             terminal: super::Terminal::default(),
             spaces: super::Spaces::default(),
@@ -318,7 +318,7 @@ mod tests {
                     timeout: JUMP_TIMEOUT,
                 },
                 electric_indent: true,
-                mode_indents: [Default::default(); 10],
+                mode_indents: [Default::default(); crate::config::MODE_COUNT],
                 sessions: crate::config::settings::Sessions::default(),
                 terminal: crate::config::Terminal::default(),
                 spaces: crate::config::Spaces::default(),
@@ -375,7 +375,7 @@ mod tests {
                     timeout: Duration::from_secs(1),
                 },
                 electric_indent: true,
-                mode_indents: [Default::default(); 10],
+                mode_indents: [Default::default(); crate::config::MODE_COUNT],
                 sessions: crate::config::settings::Sessions::default(),
                 terminal: crate::config::Terminal::default(),
                 spaces: crate::config::Spaces::default(),

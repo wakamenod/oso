@@ -160,7 +160,10 @@ mod unix {
         let (found, args) = program(&typescript(), &root, &mut passed).unwrap();
         assert_eq!(found.path(), root.join("node_modules/.bin/tsc"));
         assert_eq!(args, ["--lsp", "--stdio"]);
-        assert!(passed[0].contains("tsserver.js is not there"), "{passed:?}");
+        assert!(
+            passed[0].contains("tsserver.js: it is not there"),
+            "{passed:?}"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -207,6 +210,53 @@ mod unix {
         );
         fs::remove_dir_all(root).unwrap();
         fs::remove_file(outside).unwrap();
+    }
+
+    #[test]
+    fn a_directory_others_can_change_on_the_way_is_refused_too() {
+        let root = project("way");
+        program_at(&root.join("node_modules/.bin/tsc"), 0o755);
+        fs::set_permissions(
+            root.join("node_modules/.bin"),
+            fs::Permissions::from_mode(0o775),
+        )
+        .unwrap();
+        let mut passed = Vec::new();
+        assert!(program(&typescript(), &root, &mut passed).is_err());
+        assert!(
+            passed.iter().any(|why| why.contains("or the way to it")),
+            "{passed:?}"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_file_the_projects_server_needs_must_be_the_projects_too() {
+        let root = project("needs");
+        let server = root.join("node_modules/typescript-language-server/lib/cli.mjs");
+        program_at(&server, 0o755);
+        symlink(
+            &server,
+            root.join("node_modules/.bin/typescript-language-server"),
+        )
+        .unwrap();
+        // node_modules/typescript leads to another place than the project.
+        let elsewhere = root
+            .parent()
+            .unwrap()
+            .join(format!("oso-find-typescript-{}", std::process::id()));
+        program_at(&elsewhere.join("lib/tsserver.js"), 0o644);
+        symlink(&elsewhere, root.join("node_modules/typescript")).unwrap();
+        let mut passed = Vec::new();
+        assert!(program(&typescript(), &root, &mut passed).is_err());
+        assert!(
+            passed
+                .iter()
+                .any(|why| why.contains("tsserver.js: it leads outside the project")),
+            "{passed:?}"
+        );
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(elsewhere).unwrap();
     }
 
     #[test]

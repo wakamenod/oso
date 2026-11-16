@@ -75,7 +75,7 @@ pub type Gate = Box<dyn Fn() -> Result<Found, String> + Send>;
 
 /// The program a [`Gate`] found, with its arguments, and lines for `*LSP*` on what it passed
 /// over, such as a program inside the project that did not pass its checks.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Found {
     pub executable: Executable,
     pub args: Vec<OsString>,
@@ -132,7 +132,8 @@ pub enum State {
     /// ([`Server::restart`]).
     Stopped,
     /// Never started: the gate said no, as for a program not installed, or the spawn failed.
-    /// The report said why once; `lsp-restart` tries again.
+    /// The report said why once; [`Server::restart`] tries again (`lsp-start` and
+    /// `lsp-restart`).
     NotStarted,
     /// Shut down: the session thread has ended.
     Ended,

@@ -860,8 +860,10 @@ the region, isearch's matches, trailing whitespace's fill and the cursor flash, 
 in the text's colour. The colours are provisional, until the author's own syntax theme.
 Dusk's are pale tints or the text's own, so it looks nearly plain. Off, it drops every buffer's
 highlights. A buffer's language is its major mode, from the file's name
-on a visit and on `C-x C-w`, and set by hand with `rust-mode`, `markdown-mode`, `toml-mode` and
-`fundamental-mode` (`M-x`, no keys), which refuse an internal buffer. Setting a mode again,
+on a visit and on `C-x C-w`, and set by hand with `rust-mode`, `markdown-mode`, `toml-mode`,
+`go-mode`, `typescript-mode`, `tsx-mode`, `javascript-mode`, `latex-mode`, `swift-mode` and
+`fundamental-mode` (`M-x`, no keys), which refuse an internal buffer. The six after TOML's have
+no highlighting yet: they are there for their language servers (ADR 0138). Setting a mode again,
 the same one too, gives a buffer whose highlighting stopped another try. The modeline names
 the mode.
 

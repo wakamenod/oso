@@ -584,6 +584,6 @@ fn an_indentation_width_in_another_form_is_reported_and_not_used() {
     );
     assert_eq!(
         loaded.settings.modes,
-        [super::indentation::ModeIndent::default(); 10]
+        [super::indentation::ModeIndent::default(); super::MODE_COUNT]
     );
 }

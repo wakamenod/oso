@@ -838,6 +838,9 @@ gains `amended by 0138`.
   project holds, such as `node_modules/.bin/typescript-language-server`: oso looks only at the
   metadata of fixed names under the root, never at a file's contents or the project's settings,
   and runs the program only from inside the root. The project still never names a program.
+- [ADR 0115](0115-indentation.md), "`[modes.<mode>]` … for `rust`, `markdown`, `toml` and
+  `fundamental`": and for `go`, `typescript`, `tsx`, `javascript`, `latex` and `swift`, the
+  modes of step 5, at the same defaults.
 - [ADR 0088](0088-switching-and-killing-buffers.md), "`previous-buffer` on `M-,`": in a buffer a
   language server follows, `M-,` is `lsp-go-back`, through the `lsp` minor mode layer. Everywhere
   else it is still `previous-buffer`.
@@ -1280,6 +1283,28 @@ first (Q4); the six modes (Q5); and the gate returns the program with its argume
   missing `tsserver.js`, the order of the choices). End to end, `lsp.rs`: a Go file starts the
   fake server as gopls, which is told gopls's settings, and a server not installed is said once
   and shows nothing in the modeline.
+- **From this step's reviews:**
+  - A program inside the project, and the file it needs, are judged by ADR 0108's check of
+    who can change a file (`privacy::who_can_change`): the file and every directory and link
+    on the way to it must be this user's or root's alone, besides being this user's, under the
+    root, and a regular file. What a swap after the check can still do is open only to this
+    user and root, which trust covers. On macOS an access list is not read, as for
+    `config.toml`. No program inside the project runs on Windows yet.
+  - When no choice is left, why each program inside the project was passed over goes with the
+    reason, so that it reaches `*LSP*` and the echo area too.
+  - Cargo's and Go's `bin` directories, from oso's environment, are not looked in when they are
+    inside the project or the current directory, as `PATH`'s are left out.
+  - gopls takes the person's Go settings from oso's environment (`GOPATH`, `GOPROXY`,
+    `GOPRIVATE`, `GONOSUMDB` and the rest), so that its module loading keeps to them.
+  - A server that never started holds no agent's open for the person: it has nothing to
+    open. `lsp-start` or `lsp-restart` starts it again, and opens its project's buffers then.
+  - The configuration's mode names are one list, `config/modes.rs`, for `[modes]` and
+    `[lsp.servers.<name>] modes`.
+  - The message for a server not installed is, as shown,
+    `gopls: not started: gopls is not installed (looked on PATH and in /home/me/go/bin)`.
+  - A trusted project's files can make a server reach the network itself, as taplo fetching a
+    schema a file names, or the TypeScript server installing type packages; trust covers it,
+    as it covers the project's build.
 - **Public API:** `oso-core`: `Mode::{Go, TypeScript, Tsx, JavaScript, Latex, Swift}`, and
   `Editor::set_mode_indents` over ten modes. `oso-lsp`: `server::Found`, the `Gate` that
   returns it, `State::NotStarted`, and no `Start::args`.

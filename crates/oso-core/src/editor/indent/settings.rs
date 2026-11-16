@@ -12,6 +12,12 @@ use crate::indent::{self, Origin, Origins, Settings};
 /// Each mode's indentation, as the configuration gives it, and where each property came from.
 pub(in crate::editor) type ModeIndents = [(Mode, Settings, Origins); 10];
 
+/// The modes with an indentation of their own, in the configuration's order.
+#[cfg(test)]
+pub(in crate::editor) fn compiled_modes() -> [Mode; 10] {
+    compiled_mode_indents().map(|(mode, ..)| mode)
+}
+
 /// Each mode's compiled-in indentation, before the configuration gives one.
 pub(in crate::editor) fn compiled_mode_indents() -> ModeIndents {
     [

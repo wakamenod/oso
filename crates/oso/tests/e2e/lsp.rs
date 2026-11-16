@@ -387,6 +387,7 @@ fn a_go_file_starts_gopls_with_its_settings_and_a_missing_server_shows_nothing()
     set_mode(&config, 0o644);
     scratch.write("proj-go/main.go", b"package main\n");
     scratch.write("proj-go/README.md", b"# go\n");
+    scratch.write("proj-go/NOTES.md", b"# notes\n");
     let root = project(&scratch, "proj-go", &[]);
     let record = scratch.write("conf/trusted-projects", record_line(&root).as_bytes());
     set_mode(&record, 0o600);
@@ -413,4 +414,14 @@ fn a_go_file_starts_gopls_with_its_settings_and_a_missing_server_shows_nothing()
     });
     let modeline = app.state()["modeline"].as_str().unwrap().to_owned();
     assert!(!modeline.contains("lsp"), "{modeline}");
+
+    // Another Markdown file of the project: not looked for, nor said, again.
+    app.open_file(&root.join("NOTES.md"));
+    std::thread::sleep(Duration::from_millis(500));
+    let log = lsp_log(&mut app, "NOTES.md");
+    assert_eq!(
+        log.matches("oso-no-such-marksman is not installed").count(),
+        1,
+        "{log}"
+    );
 }

@@ -13,6 +13,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use oso_platform::privacy::Writers;
 use oso_platform::process::Executable;
 
 use crate::config::{AlsoIn, InProject};
@@ -48,19 +49,24 @@ pub(super) fn program(
     let found = if Path::new(name).is_absolute() {
         Executable::absolute(name).map_err(|error| error.to_string())
     } else {
-        Executable::from_path(name, Some(root)).or_else(|_| also_in(name, how.also_in))
+        Executable::from_path(name, Some(root)).or_else(|_| also_in(name, how.also_in, root))
     }?;
     only_exe(&found)?;
     Ok((found, args.iter().map(OsString::from).collect()))
 }
 
 /// `name` in the directory `also` names, or that it is not installed, saying where it looked.
-fn also_in(name: &str, also: AlsoIn) -> Result<Executable, String> {
+fn also_in(name: &str, also: AlsoIn, root: &Path) -> Result<Executable, String> {
     let dir = match also {
         AlsoIn::Nowhere => None,
         AlsoIn::CargoBin => cargo_bin(),
         AlsoIn::GoBin => go_bin(),
     };
+    // Never the project's own, nor the current directory's, as `PATH` leaves them out: a
+    // shell started there may set `GOBIN` or `CARGO_HOME` to one.
+    let dir = dir.filter(|dir| {
+        !inside(dir, root) && !env::current_dir().is_ok_and(|current| inside(dir, &current))
+    });
     match dir {
         Some(dir) => Executable::absolute(dir.join(exe(name))).map_err(|_| {
             format!(
@@ -73,35 +79,50 @@ fn also_in(name: &str, also: AlsoIn) -> Result<Executable, String> {
 }
 
 /// The program `choice` names in the project's `node_modules/.bin`, if it may run: the file
-/// `choice` needs is there, the link is followed, and where it leads is a regular file under the
-/// root, owned by this user, that no one else can change.
+/// `choice` needs is there and passes the same checks, the link is followed, and where it leads
+/// is a regular file under the root, owned by this user, that no one else can change, nor any
+/// directory or link on the way. Never on Windows yet, where no owner or access list is read:
+/// npm's programs there are `.cmd` files anyway (ADR 0138, Windows).
 fn in_project(choice: &InProject, root: &Path) -> Result<Executable, String> {
     let named = format!("node_modules/.bin/{}", choice.program);
     let not = |why: &str| format!("the project's {named} is not used: {why}");
-    if let Some(needs) = choice.needs
-        && fs::metadata(root.join(needs)).is_err()
-    {
-        return Err(not(&format!("{needs} is not there")));
+    if cfg!(not(unix)) {
+        return Err(not(
+            "a program inside the project is not run on this system yet",
+        ));
     }
     let root = fs::canonicalize(root).map_err(|_| not("the root cannot be read"))?;
-    let target = fs::canonicalize(root.join(&named)).map_err(|_| not("it is not there"))?;
-    if !target.starts_with(&root) {
-        return Err(not("it leads outside the project"));
+    if let Some(needs) = choice.needs {
+        judge(&root, needs).map_err(|why| not(&format!("{needs}: {why}")))?;
     }
-    let metadata = fs::metadata(&target).map_err(|_| not("it cannot be read"))?;
-    if !metadata.is_file() {
-        return Err(not("it is not a regular file"));
-    }
-    if !oso_platform::privacy::is_this_users(&metadata) {
-        return Err(not("another user owns it"));
-    }
-    #[cfg(unix)]
-    if std::os::unix::fs::PermissionsExt::mode(&metadata.permissions()) & 0o022 != 0 {
-        return Err(not("others can change it"));
-    }
+    let target = judge(&root, &named).map_err(|why| not(&why))?;
     let found = Executable::absolute(&target).map_err(|error| not(&error.to_string()))?;
     only_exe(&found).map_err(|why| not(&why))?;
     Ok(found)
+}
+
+/// Where `relative`, under the canonical `root`, leads, if it may be used: links followed, a
+/// regular file under the root, this user's, that no one else can change, nor any directory or
+/// link on the way to it (ADR 0108's check); what a check finds otherwise, for a person.
+fn judge(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    let path = root.join(relative);
+    let target = fs::canonicalize(&path).map_err(|_| "it is not there".to_owned())?;
+    if !target.starts_with(root) {
+        return Err("it leads outside the project".into());
+    }
+    // Through the links, so that each directory on the way is judged.
+    let judged =
+        oso_platform::privacy::who_can_change(&path).map_err(|_| "it cannot be read".to_owned())?;
+    if !judged.metadata.is_file() {
+        return Err("it is not a regular file".into());
+    }
+    if !oso_platform::privacy::is_this_users(&judged.metadata) {
+        return Err("another user owns it".into());
+    }
+    if judged.file != Writers::Nobody || judged.way != Writers::Nobody {
+        return Err("others can change it, or the way to it".into());
+    }
+    Ok(target)
 }
 
 /// Cargo's `bin` directory: `$CARGO_HOME/bin`, else `~/.cargo/bin`, from oso's own
@@ -141,6 +162,12 @@ fn go_bin_of(
         return Some(first.join("bin"));
     }
     home.map(|home| home.join("go").join("bin"))
+}
+
+/// Whether `dir` is `base` or under it, as both resolve.
+fn inside(dir: &Path, base: &Path) -> bool {
+    let resolved = |path: &Path| fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    resolved(dir).starts_with(resolved(base))
 }
 
 /// `name` as the file it is on this system.

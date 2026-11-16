@@ -33,6 +33,9 @@ fn the_built_in_table_needs_no_configuration() {
     assert_eq!(go.name, "gopls");
     assert_eq!(go.also_in, super::lsp::AlsoIn::GoBin);
     assert_eq!(go.section.as_deref(), Some("gopls"));
+    for name in ["GOPATH", "GOPRIVATE", "GOPROXY", "GONOSUMDB", "GOFLAGS"] {
+        assert!(go.env.iter().any(|kept| kept == name), "{name}");
+    }
     assert_eq!(
         go.options,
         Some(json!({

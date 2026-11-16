@@ -3,11 +3,11 @@
 //!
 //! Must not depend on: `app` or `dispatch`; applying a setting, and when, is the caller's.
 
-use oso_core::buffer::Mode;
 use oso_core::indent::{self, Origin, Style};
 use toml::Spanned;
 use toml::de::DeValue;
 
+use super::modes::{MODE_COUNT, MODES};
 use super::problems::{Found, quoted};
 use super::settings::switch;
 use super::{table, type_name, unknown};
@@ -56,22 +56,8 @@ impl ModeIndent {
     }
 }
 
-/// The modes `[modes]` can set, by the name their table has.
-pub const MODES: [(&str, Mode); 10] = [
-    ("rust", Mode::Rust),
-    ("markdown", Mode::Markdown),
-    ("toml", Mode::Toml),
-    ("go", Mode::Go),
-    ("typescript", Mode::TypeScript),
-    ("tsx", Mode::Tsx),
-    ("javascript", Mode::JavaScript),
-    ("latex", Mode::Latex),
-    ("swift", Mode::Swift),
-    ("fundamental", Mode::Fundamental),
-];
-
 /// `[modes]`: each mode's, in the order of [`MODES`].
-pub type Modes = [ModeIndent; 10];
+pub type Modes = [ModeIndent; MODE_COUNT];
 
 /// `[indent]`.
 pub(super) fn indent(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Indent {

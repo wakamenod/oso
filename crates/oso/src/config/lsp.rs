@@ -13,13 +13,10 @@ use serde_json::{Map, Number, Value, json};
 use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
-use super::indentation::MODES;
+use super::modes::{MODES, server_mode_names};
 use super::problems::{Found, cut, quoted};
 use super::settings::{env_names, switch};
 use super::{table, type_name, unknown};
-
-/// The modes a server can follow, as `[lsp.servers.<name>] modes` names them.
-const MODE_NAMES: &str = "rust, markdown, toml, go, typescript, tsx, javascript, latex or swift";
 
 /// The most entries `[lsp.servers]` takes.
 pub(super) const MAX_SERVERS: usize = 64;
@@ -127,6 +124,24 @@ fn builtin() -> Vec<Entry> {
         },
         Entry {
             also_in: AlsoIn::GoBin,
+            // The person's Go settings, from oso's own environment: without them gopls's module
+            // loading would ask the public proxy about private modules.
+            env: [
+                "GOPATH",
+                "GOROOT",
+                "GOBIN",
+                "GOFLAGS",
+                "GOPROXY",
+                "GOPRIVATE",
+                "GONOPROXY",
+                "GONOSUMDB",
+                "GOSUMDB",
+                "GOINSECURE",
+                "GOMODCACHE",
+                "GOTOOLCHAIN",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
             options: Some(json!({
                 "usePlaceholders": true,
                 "gofumpt": true,
@@ -307,7 +322,7 @@ fn modes(value: &Spanned<DeValue<'_>>, label: &str, found: &mut Found) -> Option
             Some(_) => {}
             None => found.at(
                 name.span().start,
-                format_args!("{label} modes takes {MODE_NAMES}, skipped"),
+                format_args!("{label} modes takes {}, skipped", server_mode_names()),
             ),
         }
     }

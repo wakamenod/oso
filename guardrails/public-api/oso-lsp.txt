@@ -366,8 +366,6 @@ pub struct oso_lsp::server::Found
 pub oso_lsp::server::Found::args: alloc::vec::Vec<std::ffi::os_str::OsString>
 pub oso_lsp::server::Found::executable: oso_platform::process::Executable
 pub oso_lsp::server::Found::notes: alloc::vec::Vec<alloc::string::String>
-impl core::clone::Clone for oso_lsp::server::Found
-pub fn oso_lsp::server::Found::clone(&self) -> oso_lsp::server::Found
 impl core::fmt::Debug for oso_lsp::server::Found
 pub fn oso_lsp::server::Found::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_lsp::server::Report

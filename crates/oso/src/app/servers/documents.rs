@@ -29,7 +29,7 @@ pub(super) struct Open {
 }
 
 /// The language a buffer of `mode` visiting `path` holds, as the protocol names it: JSX is
-/// JavaScript's mode, and named by its file.
+/// JavaScript's mode, and named by its file. A match with no wildcard, so that a new mode says.
 fn language_id(mode: Mode, path: &std::path::Path) -> &'static str {
     let jsx = path
         .extension()
@@ -45,7 +45,19 @@ fn language_id(mode: Mode, path: &std::path::Path) -> &'static str {
         Mode::Tsx => "typescriptreact",
         Mode::Latex => "latex",
         Mode::Swift => "swift",
-        _ => "plaintext",
+        Mode::Fundamental
+        | Mode::CopyList
+        | Mode::CopyView
+        | Mode::Sessions
+        | Mode::Brief
+        | Mode::Worktrees
+        | Mode::Review
+        | Mode::Terminal
+        | Mode::Directory
+        | Mode::GitStatus
+        | Mode::GitCommit
+        | Mode::GitLog
+        | Mode::GitDiscarded => "plaintext",
     }
 }
 
@@ -103,7 +115,10 @@ impl App {
         match self.running_for(id) {
             Some(index) => {
                 let running = &self.servers.running[index];
+                // A server that never started, as one not installed, holds nothing for the
+                // person: `lsp-restart` opens what fits once it starts (step 5's Q2).
                 !running.stopping
+                    && running.state != oso_lsp::server::State::NotStarted
                     && !running.documents.contains_key(&id)
                     && fits(buffer, running).is_some()
             }

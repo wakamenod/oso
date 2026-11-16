@@ -211,6 +211,8 @@ impl App {
             start_of(&running.root, &running.entry, number),
             gate(&running.trust, &running.entry, &running.root),
         );
+        // One that never started had no documents: they go to it now, once it is ready.
+        self.open_documents_of(index);
     }
 
     /// `lsp-shutdown`.
@@ -400,6 +402,7 @@ impl App {
                 start_of(&running.root, &running.entry, number),
                 gate(&running.trust, &running.entry, &running.root),
             );
+            self.open_documents_of(index);
         }
     }
 
@@ -448,7 +451,14 @@ fn gate(trust: &TrustedRoot, entry: &LspEntry, root: &std::path::Path) -> Gate {
     Box::new(move || {
         trust.check()?;
         let mut notes = Vec::new();
-        let (executable, args) = find::program(&how, &root, &mut notes)?;
+        // With no choice left, why each program inside the project was passed over goes with
+        // the reason, so that it reaches `*LSP*` too.
+        let (executable, args) = find::program(&how, &root, &mut notes).map_err(|why| {
+            std::iter::once(why)
+                .chain(notes.iter().cloned())
+                .collect::<Vec<_>>()
+                .join("; ")
+        })?;
         Ok(Found {
             executable,
             args,
