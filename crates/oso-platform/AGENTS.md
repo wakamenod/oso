@@ -4,7 +4,7 @@ OS abstractions: the text system backends, the clipboard (ADR 0074), and later
 IME and filesystem (ADR 0003, ADR 0004). `clipboard` runs on threads of
 its own, as reading it can wait on another process. `privacy` holds what keeps text
 private to its user: no core dumps, and private directories (ADR 0062), where oso's
-state and configuration live, the home directory, and who else can change a file by its mode
+state, configuration and cache (ADR 0142) live, the home directory, and who else can change a file by its mode
 (ADR 0108), and
 `file_meta` what decides who may reach a file beyond its mode (ADR 0065), and opening and
 listing a directory relative to itself, with the names of owners and groups and the local time
@@ -21,7 +21,8 @@ sent `SIGTERM` or `SIGKILL` with what it started (`Child::signal_group`, ADR 012
 with `posix_spawn`, which gets only the descriptors its file actions name; a terminal's child on
 macOS still forks, through `pty/unix.rs`'s hook (ADR 0137). `notify` asks for the person's attention for agent
 sessions (ADR 0121). `random` reads the system's random bytes, for ids such as a hosted
-session's (ADR 0121). `window` holds the window layer's
+session's (ADR 0121). `host` gives the machine's name, for a terminal's OSC 7 directory
+(ADR 0141). `window` holds the window layer's
 events, which the tip crate's winit adapter builds too, and on macOS the window system itself, in `window/appkit/`
 (ADR 0070).
 

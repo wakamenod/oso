@@ -17,7 +17,7 @@ use oso_core::kill::FromClipboard;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "terminal",
-        doc: "Switch to the last terminal still running, or start one.\n\nWith a prefix argument, always start a new one. It starts `[terminal] shell` from `config.toml`, else `$SHELL`, else the account's shell, else `/bin/sh`, as a login shell unless `[terminal] login` is false, in the project's root, else the buffer's directory, else the home directory. It opens in a restricted project too: what runs in it is the person's.",
+        doc: "Switch to the last terminal still running, or start one.\n\nWith a prefix argument, always start a new one. It starts `[terminal] shell` from `config.toml`, else `$SHELL`, else the account's shell, else `/bin/sh`, as a login shell unless `[terminal] login` is false, in the project's root, else the directory the buffer stands in (from a terminal, the one it started in), else the home directory. It opens in a restricted project too: what runs in it is the person's.",
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: terminal,
@@ -33,7 +33,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "terminal-char-mode",
-        doc: "Switch the terminal between semi-char and char mode.\n\nIn semi-char mode, `C-x`, `M-x`, the `C-c` prefix, `C-q` and `C-y` stay oso's and every other key goes to the program. In char mode every key goes to the program but `C-c C-k`, which comes back.",
+        doc: "Switch the terminal between semi-char and char mode.\n\nIn semi-char mode, `C-x`, `M-x`, the `C-c` prefix, `C-q`, `C-y` and every key with Super stay oso's and every other key goes to the program. In char mode every key goes to the program but `C-c C-k`, which comes back.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: char_mode,

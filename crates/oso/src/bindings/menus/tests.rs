@@ -1,6 +1,6 @@
 //! Tests of the built-in menus (ADR 0117): every head of their tables is there with the default
 //! commands, their ids are stable, `C-c t` opens the toggles, the toggling heads show a state,
-//! and the theme's note keeps its width.
+//! the theme's note keeps its width, and the Agents menu dims what needs a session (ADR 0143).
 //!
 //! Must not depend on: `dispatch`, `app` or winit; menus are data.
 
@@ -14,6 +14,7 @@ use oso_core::menu::{Definition, HeadAction, Open, Stay};
 use oso_core::minibuffer::cells_of;
 
 use super::{BUILT_IN, MENU_KEYS, THEME_LABEL, THEME_NOTE_CELLS, built_in_menus, describe_toggles};
+use crate::commands::agent_sessions::{ARCHIVE_LABEL, PIN_LABEL, agents_menu};
 use crate::{bindings, commands};
 
 fn built_in<'m>(menus: &'m oso_core::menu::Menus, name: &str) -> &'m Arc<Definition> {
@@ -37,7 +38,7 @@ fn every_head_of_the_tables_is_there_with_the_default_commands() {
             assert_eq!(head.label, want.label);
             match &head.action {
                 HeadAction::Command(id) => {
-                    assert!(!want.switch, "{} flips a switch", want.keys);
+                    assert!(!want.switch && !want.menu, "{} runs no command", want.keys);
                     assert_eq!(registry.get(*id).unwrap().name, want.command);
                 }
                 // The commit menu's arguments (ADR 0127, step 1b).
@@ -45,7 +46,12 @@ fn every_head_of_the_tables_is_there_with_the_default_commands() {
                     assert!(want.switch, "{} runs a command", want.keys);
                     assert_eq!(name, want.command);
                 }
-                _ => panic!("{} is neither a command's head nor a switch", want.keys),
+                // The Agents menu's space and review menus (ADR 0143).
+                HeadAction::Menu(id) => {
+                    assert!(want.menu, "{} opens no menu", want.keys);
+                    assert_eq!(Some(*id), menus.lookup(want.command));
+                }
+                HeadAction::Quit => panic!("{} only quits", want.keys),
             }
             assert_eq!(head.stay == Some(Stay::Stay), want.stay);
             assert_eq!(head.count, want.count);
@@ -57,7 +63,7 @@ fn every_head_of_the_tables_is_there_with_the_default_commands() {
 fn their_ids_follow_the_tables_whatever_the_registry_has() {
     let full = built_in_menus(&commands::registry());
     // A registry without their commands, as some tests bring, keeps the menus and their ids,
-    // with no command's heads; switches need no command.
+    // with no command's heads; switches and heads that open a menu need no command.
     let empty = built_in_menus(&Registry::new());
     for (index, menu) in BUILT_IN.iter().enumerate() {
         let id = full.lookup(menu.name).unwrap();
@@ -67,7 +73,7 @@ fn their_ids_follow_the_tables_whatever_the_registry_has() {
         assert!(
             heads
                 .iter()
-                .all(|head| matches!(head.action, HeadAction::Switch(_)))
+                .all(|head| matches!(head.action, HeadAction::Switch(_) | HeadAction::Menu(_)))
         );
     }
 }
@@ -89,7 +95,7 @@ fn the_default_keys_open_their_built_in_menus() {
     assert_eq!(
         bound.len(),
         MENU_KEYS.len(),
-        "only the toggles, the review and the space menus have a key"
+        "only the toggles, the review and the Agents menus have a key"
     );
 }
 
@@ -152,4 +158,27 @@ fn no_head_names_a_dev_command() {
             }
         }
     }
+}
+
+/// Outside a session's terminal, the Agents menu dims pinning and archiving, which act on the
+/// session in front, and leaves stopping, which also acts on a row of the pane (ADR 0143).
+#[test]
+fn the_agents_menu_dims_the_session_s_own_heads_with_no_session_in_front() {
+    let registry = commands::registry();
+    let menus = built_in_menus(&registry);
+    let open = Open::new(Arc::clone(built_in(&menus, "agents")));
+    let notes = agents_menu(&Editor::default(), &open);
+    let dim: Vec<&str> = open
+        .definition()
+        .heads()
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| {
+            notes
+                .get(*index)
+                .is_some_and(|note| note.unavailable.is_some())
+        })
+        .map(|(_, head)| head.label.as_str())
+        .collect();
+    assert_eq!(dim, [PIN_LABEL, ARCHIVE_LABEL]);
 }

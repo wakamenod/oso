@@ -12,6 +12,7 @@ use oso_core::indent;
 use oso_core::jump::Keys;
 
 use super::Settings;
+use crate::sessions::tools::StartLimit;
 
 /// How long a jump reads its string after the last key where `[jump] timeout` says nothing,
 /// as avy's `avy-timeout-seconds`.
@@ -51,12 +52,21 @@ pub struct Changes {
 
 /// Whether sessions oso hosts may start sessions without asking, and how many each, as
 /// `[sessions]` says at oso's start (ADR 0135).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AgentStarts {
     /// `agents_start_without_asking`.
     pub on: bool,
     /// `agents_start_limit`.
-    pub limit: u8,
+    pub limit: StartLimit,
+}
+
+impl Default for AgentStarts {
+    fn default() -> Self {
+        Self {
+            on: false,
+            limit: StartLimit::Most(super::settings::AGENTS_START_LIMIT),
+        }
+    }
 }
 
 impl AgentStarts {
@@ -66,6 +76,14 @@ impl AgentStarts {
             on: sessions.agents_start_without_asking,
             limit: sessions.agents_start_limit(),
         }
+    }
+}
+
+/// `limit` as `config.toml` spells it.
+fn spelled(limit: StartLimit) -> String {
+    match limit {
+        StartLimit::Most(most) => most.to_string(),
+        StartLimit::Unlimited => "\"none\"".to_owned(),
     }
 }
 
@@ -264,7 +282,7 @@ impl InForce {
             (now.limit != then.limit).then(|| {
                 format!(
                     "{name}: [sessions] agents_start_limit = {} applies from the next start",
-                    now.limit
+                    spelled(now.limit)
                 )
             })
         };
@@ -292,6 +310,7 @@ mod tests {
 
     use super::{AgentStarts, Changes, InForce, JUMP_TIMEOUT, JumpInForce, Look};
     use crate::config::Settings;
+    use crate::sessions::tools::StartLimit;
     use std::time::Duration;
 
     use oso_core::jump::Keys;
@@ -416,7 +435,7 @@ mod tests {
         assert_eq!(changes(&compiled, &compiled, LATER), none);
         let off = Some(AgentStarts {
             on: false,
-            limit: 4,
+            limit: StartLimit::Most(4),
         });
         assert_eq!(
             changes(&compiled, &compiled, LAUNCH),
@@ -509,11 +528,14 @@ mod tests {
         let off = InForce::compiled(THEMES);
         let mut on = off.clone();
         on.sessions.agents_start_without_asking = true;
-        on.sessions.agents_start_limit = Some(2);
+        on.sessions.agents_start_limit = Some(StartLimit::Most(2));
         let launch = changes(&on, &off, LAUNCH);
         assert_eq!(
             launch.agent_starts,
-            Some(AgentStarts { on: true, limit: 2 })
+            Some(AgentStarts {
+                on: true,
+                limit: StartLimit::Most(2)
+            })
         );
         assert_eq!(launch.agent_starts_later, None);
         // A later look changes nothing in this oso, and says when it will.
@@ -527,10 +549,21 @@ mod tests {
             )
         );
         let mut fewer = on.clone();
-        fewer.sessions.agents_start_limit = Some(1);
+        fewer.sessions.agents_start_limit = Some(StartLimit::Most(1));
         assert_eq!(
             changes(&fewer, &on, LATER).agent_starts_later.as_deref(),
             Some("config.toml: [sessions] agents_start_limit = 1 applies from the next start")
+        );
+        let mut unlimited = on.clone();
+        unlimited.sessions.agents_start_limit = Some(StartLimit::Unlimited);
+        assert_eq!(
+            changes(&unlimited, &on, LATER)
+                .agent_starts_later
+                .as_deref(),
+            Some(
+                "config.toml: [sessions] agents_start_limit = \"none\" applies from the next \
+                 start"
+            )
         );
         assert_eq!(
             changes(&on, &on, LATER).agent_starts_later,
@@ -547,7 +580,7 @@ mod tests {
             group.agent_starts,
             Some(AgentStarts {
                 on: false,
-                limit: 2
+                limit: StartLimit::Most(2)
             })
         );
         assert_eq!(

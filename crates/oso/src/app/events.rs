@@ -58,6 +58,7 @@ impl App {
         self.gits.by_agent = false;
         self.sync_terminals();
         self.sync_servers();
+        self.sync_pane_directory();
         // Once for all the changes the event made to the sessions (ADR 0121).
         self.save_sessions();
         // At once, not at the next wait: a buffer that turned secret gets no slice after this.
@@ -107,6 +108,7 @@ impl App {
             UserEvent::AgentStarted(started) => self.agent_started(started),
             UserEvent::Sessions(out) => self.sessions_reported(out),
             UserEvent::SessionStart(report) => self.session_start_reported(report),
+            UserEvent::ImageKept(key, kept) => self.image_kept(key, *kept),
             UserEvent::Adoptable(found) => self.adoptable_found(*found),
             UserEvent::SessionChanges(key, changed) => self.session_changes(key, changed),
             UserEvent::Worktree(report) => self.worktree_reported(event_loop, *report),

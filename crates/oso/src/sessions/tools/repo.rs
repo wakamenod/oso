@@ -101,18 +101,21 @@ pub fn holding<'a>(members: &'a [(String, PathBuf)], path: &Path) -> Option<&'a 
 /// # Errors
 ///
 /// What the echo area says.
-pub fn for_commands(trusted: &[&Path], chosen: Option<&Path>) -> Result<PathBuf, String> {
+pub fn for_commands(
+    trusted: &[&Path],
+    chosen: Option<&Path>,
+    use_repo: &str,
+) -> Result<PathBuf, String> {
     match (trusted, chosen) {
         ([], _) => Err("No repository of the space is trusted: trust-project first".to_owned()),
         ([one], _) => Ok(one.to_path_buf()),
         (several, Some(chosen)) if several.iter().any(|root| same(root, chosen)) => {
             Ok(chosen.to_path_buf())
         }
-        _ => Err(
+        _ => Err(format!(
             "The space has several trusted repositories: choose one with space-use-repo \
-             (C-x a S u)"
-                .to_owned(),
-        ),
+             ({use_repo})"
+        )),
     }
 }
 
@@ -180,17 +183,26 @@ mod tests {
     #[test]
     fn the_commands_use_the_one_trusted_repository_else_the_one_chosen() {
         let (api, web) = (Path::new("/src/api"), Path::new("/src/web"));
-        assert!(for_commands(&[], Some(api)).is_err());
-        assert_eq!(for_commands(&[api], None), Ok(api.to_path_buf()));
-        assert_eq!(for_commands(&[api], Some(web)), Ok(api.to_path_buf()));
-        assert!(
-            for_commands(&[api, web], None)
-                .unwrap_err()
-                .contains("space-use-repo")
+        assert!(for_commands(&[], Some(api), "C-c a S u").is_err());
+        assert_eq!(
+            for_commands(&[api], None, "C-c a S u"),
+            Ok(api.to_path_buf())
         );
-        assert_eq!(for_commands(&[api, web], Some(web)), Ok(web.to_path_buf()));
+        assert_eq!(
+            for_commands(&[api], Some(web), "C-c a S u"),
+            Ok(api.to_path_buf())
+        );
+        assert!(
+            for_commands(&[api, web], None, "C-c a S u")
+                .unwrap_err()
+                .contains("space-use-repo (C-c a S u)")
+        );
+        assert_eq!(
+            for_commands(&[api, web], Some(web), "C-c a S u"),
+            Ok(web.to_path_buf())
+        );
         // A choice no longer trusted is no choice.
         let gone = Path::new("/src/db");
-        assert!(for_commands(&[api, web], Some(gone)).is_err());
+        assert!(for_commands(&[api, web], Some(gone), "C-c a S u").is_err());
     }
 }

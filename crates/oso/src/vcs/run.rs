@@ -46,6 +46,8 @@ pub(crate) const MAX_FLUSH: usize = 256 * 1024;
 pub(crate) enum RunRequest {
     /// Read `HEAD`'s message, which amending and rewording start from.
     Message,
+    /// Read the last subjects, which a draft request names (step 6a).
+    Subjects,
     /// Read what discards in this repository kept (step 1c).
     Discarded,
     /// Write the copy `entry` back to its file; `secret` if a buffer of the file may hold
@@ -65,8 +67,11 @@ pub(crate) enum RunRequest {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum RunEnd {
     Done,
-    /// It failed: what the echo area says.
-    Failed(String),
+    /// It failed: what the echo area says, and the hooks that may have made it.
+    Failed {
+        said: String,
+        hooks: Vec<&'static str>,
+    },
     /// It was asked to stop, and did.
     Stopped,
     /// It did not start: why.
@@ -77,6 +82,12 @@ pub(crate) enum RunEnd {
 pub(crate) enum RunReport {
     /// `HEAD`'s message, or why it could not be read.
     Message(Result<String, String>),
+    /// The last subjects, newest first, none if they could not be read; and the request's id,
+    /// or why there is none.
+    Subjects {
+        subjects: Vec<String>,
+        id: Result<String, String>,
+    },
     /// What discards in this repository kept, newest first, or why it could not be read.
     Discarded(Result<Vec<Entry>, String>),
     /// A copy was written back: what the echo area says, or why not.
@@ -95,6 +106,7 @@ impl std::fmt::Debug for RunReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Message(_) => f.write_str("Message"),
+            Self::Subjects { subjects, .. } => write!(f, "Subjects({})", subjects.len()),
             Self::Discarded(_) => f.write_str("Discarded"),
             Self::Restored(_) => f.write_str("Restored"),
             Self::Began { .. } => f.write_str("Began"),
@@ -198,6 +210,10 @@ fn serve(
         });
         let reports = match (found, request) {
             (Err(why), RunRequest::Message) => vec![RunReport::Message(Err(why))],
+            (found, RunRequest::Subjects) => vec![RunReport::Subjects {
+                subjects: found.map(|git| subjects(&git)).unwrap_or_default(),
+                id: super::agent::request_id(),
+            }],
             (Err(why), RunRequest::Discarded) => vec![RunReport::Discarded(Err(why))],
             (Err(why), RunRequest::Restore { .. }) => vec![RunReport::Restored(Err(why))],
             (Ok(_), RunRequest::Discarded) => {
@@ -258,6 +274,31 @@ fn message(git: &Git) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
     Ok(String::from_utf8_lossy(&out).into_owned())
 }
+
+/// The last subjects, newest first, each as git gives it, lossily: none before the first
+/// commit, or if git fails.
+fn subjects(git: &Git) -> Vec<String> {
+    let count = format!("-{}", super::agent::SUBJECTS);
+    let words = [
+        "log",
+        &count,
+        "--no-show-signature",
+        "--format=%s",
+        "HEAD",
+        "--",
+    ];
+    let words: Vec<&OsStr> = words.iter().map(OsStr::new).collect();
+    let Ok(out) = git.run(&words, &[], MAX_SUBJECTS) else {
+        return Vec::new();
+    };
+    (String::from_utf8_lossy(&out).lines())
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The most bytes of subjects read.
+const MAX_SUBJECTS: usize = 64 * 1024;
 
 /// A commit to run.
 struct Commit {
@@ -325,9 +366,15 @@ impl Commit {
                 let hooks = hooks_of(&self.git)
                     .map(|dir| commit::hooks_present(&dir, self.switches.no_verify))
                     .unwrap_or_default();
-                RunEnd::Failed(commit::failed(&hooks))
+                RunEnd::Failed {
+                    said: commit::failed(&hooks),
+                    hooks,
+                }
             }
-            Err(why) => RunEnd::Failed(format!("commit failed: {why}")),
+            Err(why) => RunEnd::Failed {
+                said: format!("commit failed: {why}"),
+                hooks: Vec::new(),
+            },
         }
     }
 }

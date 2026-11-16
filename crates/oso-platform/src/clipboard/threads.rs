@@ -11,7 +11,9 @@
 //! still on a read after the give-up time is left to finish on its own, and a new one
 //! takes over, so one read that never returns costs one [`Event::NotAnswering`], not the
 //! clipboard for the rest of the session. What a worker left behind says afterwards is
-//! dropped.
+//! dropped. An image read is a read too, but nothing waits on it: it gets its answer when the
+//! worker has one, or [`ImageContents::NoAnswer`] at the give-up time, when its worker is left
+//! behind in the same way.
 
 use std::collections::hash_map::RandomState;
 use std::hash::BuildHasher;
@@ -20,7 +22,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::{Backend, Contents, Event, Fingerprint, Found, MakeText};
+use super::{Backend, Contents, Event, Fingerprint, Found, ImageContents, MAX_IMAGE, MakeText};
 
 /// A write the host asked for.
 pub(super) struct WriteJob {
@@ -33,12 +35,14 @@ pub(super) struct WriteJob {
 enum Job {
     Write(WriteJob),
     Read,
+    ReadImage,
 }
 
 /// What reaches the front: from the host, or from a worker of a given generation.
 pub(super) enum Message {
     Write(WriteJob),
     Read,
+    ReadImage,
     Written {
         id: u64,
         fingerprint: Fingerprint,
@@ -46,6 +50,10 @@ pub(super) enum Message {
     Found {
         worker: u64,
         contents: Contents,
+    },
+    FoundImage {
+        worker: u64,
+        contents: ImageContents,
     },
     /// The host's handle went: end once the worker has done its work.
     Close,
@@ -88,10 +96,12 @@ pub(super) fn start(
     Ok(messages)
 }
 
-/// A read the worker is on: when it began, and whether the host has had its answer.
+/// A read the worker is on: when it began, whether the host has had its answer, and whether
+/// it reads an image.
 struct Reading {
     since: Instant,
     answered: bool,
+    image: bool,
 }
 
 struct Front {
@@ -128,7 +138,7 @@ impl Front {
     /// When the front must act next with no message: answer for a read, or give up on it.
     fn deadline(&self) -> Option<Instant> {
         self.reading.as_ref().map(|reading| {
-            if reading.answered {
+            if reading.answered || reading.image {
                 reading.since + self.timing.give_up
             } else {
                 reading.since + self.timing.answer
@@ -160,13 +170,11 @@ impl Front {
                 Message::Read if self.reading.is_some() => {
                     report(Event::Read(Contents::NoAnswer));
                 }
-                Message::Read => {
-                    self.send(Job::Read);
-                    self.reading = Some(Reading {
-                        since: Instant::now(),
-                        answered: false,
-                    });
+                Message::Read => self.start_read(false),
+                Message::ReadImage if self.reading.is_some() => {
+                    report(Event::Image(ImageContents::NoAnswer));
                 }
+                Message::ReadImage => self.start_read(true),
                 Message::Written { id, fingerprint } => report(Event::Written { id, fingerprint }),
                 Message::Found { worker, contents } if worker == self.worker => {
                     if self.reading.take().is_some_and(|reading| !reading.answered) {
@@ -174,11 +182,27 @@ impl Front {
                     }
                     self.send_pending();
                 }
+                Message::FoundImage { worker, contents } if worker == self.worker => {
+                    if self.reading.take().is_some_and(|reading| !reading.answered) {
+                        report(Event::Image(contents));
+                    }
+                    self.send_pending();
+                }
                 // From a worker left behind.
-                Message::Found { .. } => {}
+                Message::Found { .. } | Message::FoundImage { .. } => {}
                 Message::Close => return,
             }
         }
+    }
+
+    /// Hands the worker a read, of an image if `image`.
+    fn start_read(&mut self, image: bool) {
+        self.send(if image { Job::ReadImage } else { Job::Read });
+        self.reading = Some(Reading {
+            since: Instant::now(),
+            answered: false,
+            image,
+        });
     }
 
     /// A read's time has come: answer for it, or, past the give-up time, leave its worker
@@ -187,13 +211,17 @@ impl Front {
         let Some(reading) = &mut self.reading else {
             return;
         };
-        if !reading.answered {
+        if reading.image {
+            // Its one answer, at the give-up time.
+            report(Event::Image(ImageContents::NoAnswer));
+        } else if !reading.answered {
             reading.answered = true;
             report(Event::Read(Contents::NoAnswer));
             return;
+        } else {
+            report(Event::NotAnswering);
         }
         self.reading = None;
-        report(Event::NotAnswering);
         if self.new_worker().is_err() {
             // No thread to replace it: writes go to the stuck one, behind its read.
             return;
@@ -242,7 +270,7 @@ fn run_worker(
                 while let Ok(later) = work.try_recv() {
                     match later {
                         Job::Write(newer) => write = newer,
-                        read @ Job::Read => {
+                        read @ (Job::Read | Job::ReadImage) => {
                             next = Some(read);
                             break;
                         }
@@ -269,6 +297,11 @@ fn run_worker(
                         Found::TooLarge => Contents::TooLarge,
                     },
                 },
+            },
+            // oso writes only text, so its own write holds no image to skip.
+            Job::ReadImage => Message::FoundImage {
+                worker,
+                contents: backend.read_image(MAX_IMAGE),
             },
         };
         if answers.send(message).is_err() {

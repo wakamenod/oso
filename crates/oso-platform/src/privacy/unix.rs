@@ -71,6 +71,18 @@ pub(super) fn state_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<
     }
 }
 
+/// `~/Library/Caches` on macOS, else `$XDG_CACHE_HOME` or `~/.cache`. Only an absolute value
+/// counts.
+pub(super) fn cache_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    if cfg!(target_os = "macos") {
+        return Some(home_from(var)?.join("Library").join("Caches"));
+    }
+    match absolute(var, "XDG_CACHE_HOME") {
+        Some(base) => Some(base),
+        None => Some(home_from(var)?.join(".cache")),
+    }
+}
+
 /// oso's configuration directory: `$XDG_CONFIG_HOME/oso` or `~/.config/oso`, on macOS too, as
 /// most dotfile setups and cross-platform tools have it (ADR 0108). Only an absolute value counts.
 pub(super) fn config_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {

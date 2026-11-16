@@ -42,6 +42,7 @@ mod completion;
 mod copies;
 mod crossing;
 mod cursors;
+mod directories;
 mod excerpt;
 mod files;
 mod follow;
@@ -419,13 +420,14 @@ impl Editor {
     }
 
     /// Adds a buffer, shown in no window yet, with its mode's indent size and style unless it
-    /// is internal.
-    pub fn add_buffer(&mut self, buffer: Buffer) -> BufferId {
+    /// is internal, standing where it was made unless it has a directory (ADR 0141).
+    pub fn add_buffer(&mut self, mut buffer: Buffer) -> BufferId {
         let id = BufferId(self.next_id);
         self.next_id += 1;
         let name = buffer
             .path()
             .map_or_else(|| buffer.name().to_owned(), crate::buffer::file_base);
+        self.stand_where_made(&mut buffer);
         self.buffers.push((id, buffer));
         self.name_files_like(&name);
         // Its mode's indentation, as the configuration gives it (ADR 0115).

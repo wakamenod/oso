@@ -2,7 +2,7 @@
 //! script that `[sessions] claude` names, which writes the directory it runs in and its
 //! arguments, each ended by a NUL, to a file, then exits with the status the flow gives it.
 //! Each flow has a git repository of its own, with a commit, a local bare `origin` and its own
-//! `HOME`, trusted with `trust-project` as a person trusts one. `C-x a w` makes a worktree from
+//! `HOME`, trusted with `trust-project` as a person trusts one. `C-c a w` makes a worktree from
 //! a brief, a second session in one directory is asked about, `*Worktrees*` lists a worktree
 //! and removes it only once its work is merged, and `[sessions] steer_worktrees` gives a session
 //! the hook that denies Claude's own worktree tools. One flow times a listing of 20 worktrees.
@@ -315,9 +315,9 @@ fn is_row(line: &str) -> bool {
     !line.starts_with(' ') && line.contains(".claude/worktrees/")
 }
 
-/// `C-x a w` on [`BRANCH`] with [`BRIEF`], sent with `C-c C-c`. Returns the fake's run.
+/// `C-c a w` on [`BRANCH`] with [`BRIEF`], sent with `C-c C-c`. Returns the fake's run.
 fn make_worktree(flow: &Flow, app: &mut App) -> Run {
-    app.send_keys("C-x a w");
+    app.send_keys("C-c a w");
     app.wait_for("the branch prompt", |state| {
         asks(state).is_some_and(|prompt| prompt.starts_with("Worktree branch"))
     });
@@ -390,7 +390,7 @@ fn a_brief_makes_a_worktree_with_the_included_files_and_starts_its_session() {
 fn a_second_session_in_one_directory_is_asked_about_and_n_starts_none() {
     let flow = Flow::new("worktrees-shared", "");
     let (mut app, readme) = flow.start();
-    app.send_keys("C-x a c");
+    app.send_keys("C-c a c");
     flow.wait_for_runs(1);
     app.wait_for("the session's terminal", |state| {
         terminal(state, "*claude: repo*").is_some()
@@ -398,7 +398,7 @@ fn a_second_session_in_one_directory_is_asked_about_and_n_starts_none() {
 
     // From the repository's root again, where the first one runs.
     app.show_buffer(&readme);
-    app.send_keys("C-x a c");
+    app.send_keys("C-c a c");
     let state = app.wait_for("the question", |state| asks(state).is_some());
     let question = asks(&state).unwrap_or_default();
     assert!(
@@ -502,7 +502,7 @@ fn a_worktree_is_kept_until_its_work_is_merged_then_removed_with_its_branch_kept
 fn steer_worktrees_gives_a_session_the_hook_that_denies_enter_worktree() {
     let flow = Flow::new("worktrees-steer", "steer_worktrees = true\n");
     let (mut app, _) = flow.start();
-    app.send_keys("C-x a c");
+    app.send_keys("C-c a c");
     let (_, args) = flow.wait_for_runs(1).remove(0);
     let settings: Vec<&str> = args
         .iter()

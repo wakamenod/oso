@@ -257,7 +257,9 @@ impl App {
             self.hosting.shared = Some(begin.clone());
         }
         self.turn_agent_channel_on_for_a_session();
-        let terminal = self.session_terminal(key, &name, None);
+        // An agent's tool's start stays behind what the person is doing (ADR 0144).
+        let shown = begin.origin == Origin::Person;
+        let terminal = self.session_terminal(key, &name, None, shown);
         let (trusted, root) = match begin.trusted.clone() {
             // A worktree just made, which no buffer opened yet: its own root and trust.
             Some(trusted) => (Some(trusted), Some(directory.clone())),
@@ -303,7 +305,7 @@ impl App {
 
     /// Where `claude` starts with no directory given: in `*Spaces*`, where the row at point
     /// is (ADR 0131, step 2b), and none on a row with no place, which the echo area says; else
-    /// the selected buffer's project root or directory, else the directory oso started in.
+    /// [`App::buffer_directory`], else the directory oso started in.
     fn session_directory_here(&mut self) -> Option<PathBuf> {
         match self.sessions_row_place() {
             Some(Ok(place)) => {
@@ -345,9 +347,12 @@ impl App {
     /// Asks before `begin` starts a session where another live one runs (ADR 0121).
     fn ask_shared(&mut self, begin: Begin) {
         self.hosting.shared = Some(begin);
-        let question = "Another session runs in this directory. A worktree keeps their changes \
-                        apart (C-x a w). Start here anyway?";
-        if let Err(e) = self.editor.ask(question, "session-start-shared") {
+        let worktree = self.dispatcher.where_is(&self.editor, "session-worktree");
+        let question = format!(
+            "Another session runs in this directory. A worktree keeps their changes apart \
+             ({worktree}). Start here anyway?"
+        );
+        if let Err(e) = self.editor.ask(&question, "session-start-shared") {
             self.hosting.shared = None;
             self.editor.message(e.to_string());
         }
@@ -394,7 +399,7 @@ impl App {
         if let Some(session) = self.hosting.table.get_mut(key) {
             session.run = Run::Starting;
         }
-        let terminal = self.session_terminal(key, &name, Some(buffer));
+        let terminal = self.session_terminal(key, &name, Some(buffer), true);
         self.order_session(Order {
             token: key,
             kind,

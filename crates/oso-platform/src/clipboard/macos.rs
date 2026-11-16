@@ -7,6 +7,11 @@
 //! `org.nspasteboard.ConcealedType` and `org.nspasteboard.TransientType`. Text read is
 //! concealed if the pasteboard carries the first, as a password manager's does.
 //!
+//! An image is read as the bytes of the first of [`IMAGE_TYPES`] the pasteboard has, and is
+//! not decoded: a screenshot usually carries `public.png` beside a much larger `public.tiff`.
+//! Nothing is read from a pasteboard marked concealed, and an image read while another app
+//! wrote the pasteboard is dropped, as it may not be the one the concealed check saw.
+//!
 //! Apple documents no rule for the threads `NSPasteboard` may run on; it is used only
 //! from the clipboard's thread here, never from two at once. Each call runs in an
 //! autorelease pool of its own, as that thread has none.
@@ -16,7 +21,7 @@ use objc2::runtime::ProtocolObject;
 use objc2_app_kit::{NSPasteboard, NSPasteboardItem};
 use objc2_foundation::{NSArray, NSString};
 
-use super::{Backend, Found};
+use super::{Backend, Found, Image, ImageContents, ImageKind};
 
 /// The type of plain text, the value of `NSPasteboardTypeString`.
 const PLAIN_TEXT: &str = "public.utf8-plain-text";
@@ -24,6 +29,16 @@ const PLAIN_TEXT: &str = "public.utf8-plain-text";
 /// What clipboard managers that follow nspasteboard.org leave out of their history.
 const CONCEALED: &str = "org.nspasteboard.ConcealedType";
 const TRANSIENT: &str = "org.nspasteboard.TransientType";
+
+/// The image types read, in the order they are preferred: those models' APIs take as they are
+/// first, then TIFF, which has to be converted.
+const IMAGE_TYPES: [(&str, ImageKind); 5] = [
+    ("public.png", ImageKind::Png),
+    ("public.jpeg", ImageKind::Jpeg),
+    ("com.compuserve.gif", ImageKind::Gif),
+    ("org.webmproject.webp", ImageKind::Webp),
+    ("public.tiff", ImageKind::Tiff),
+];
 
 /// The general pasteboard.
 pub(super) struct Pasteboard;
@@ -76,6 +91,44 @@ impl Backend for Pasteboard {
                 text: text.to_string(),
                 concealed,
             }
+        })
+    }
+
+    fn read_image(&mut self, max: usize) -> ImageContents {
+        autoreleasepool(|_| {
+            let pasteboard = NSPasteboard::generalPasteboard();
+            let before = pasteboard.changeCount();
+            let Some(types) = pasteboard.types() else {
+                return ImageContents::Nothing;
+            };
+            if types.containsObject(&NSString::from_str(CONCEALED)) {
+                return ImageContents::Concealed;
+            }
+            for (name, kind) in IMAGE_TYPES {
+                let name = NSString::from_str(name);
+                if !types.containsObject(&name) {
+                    continue;
+                }
+                // As with text, this can wait on the app that copied the image, and copies it
+                // whole before its length is known.
+                let Some(data) = pasteboard.dataForType(&name) else {
+                    continue;
+                };
+                if pasteboard.changeCount() != before {
+                    return ImageContents::NoAnswer;
+                }
+                if data.len() > max {
+                    return ImageContents::TooLarge;
+                }
+                if data.is_empty() {
+                    continue;
+                }
+                return ImageContents::Image(Image {
+                    kind,
+                    bytes: data.to_vec(),
+                });
+            }
+            ImageContents::Nothing
         })
     }
 }

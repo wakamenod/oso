@@ -73,7 +73,7 @@ const fn reads(name: &'static str) -> Tool {
 
 /// The tools, the reading ones first. A change here is a change of what an agent may do: the
 /// test below spells the table out, so that review sees it.
-pub const TOOLS: [Tool; 7] = [
+pub const TOOLS: [Tool; 8] = [
     reads("session_list"),
     reads("session_state"),
     // It runs git and `gh` with no question, as the author chose (ADR 0121, step 4).
@@ -102,6 +102,15 @@ pub const TOOLS: [Tool; 7] = [
         name: "session_start",
         reach: Reach::Change,
         asks: Asks::UnlessAllowed,
+        destructive: false,
+        outside: false,
+    },
+    // It writes only the person's message buffer of the caller's worktree, for oso's newest
+    // request there, and commits nothing (ADR 0127, step 6a).
+    Tool {
+        name: "draft_set",
+        reach: Reach::Change,
+        asks: Asks::No,
         destructive: false,
         outside: false,
     },
@@ -289,16 +298,17 @@ pub fn worktree_question(
 }
 
 /// What the echo area says of a `start_worktree_session` that started with no question
-/// (ADR 0135).
+/// (ADR 0135), with `explain` the keys of `session-explain` (ADR 0143).
 pub fn worktree_started(
     caller: &str,
     place: &str,
     branch: &str,
     start: Branch<'_>,
     brief_lines: usize,
+    explain: &str,
 ) -> String {
     format!(
-        "session {} is starting {}, without asking ({}; C-x a e explains)",
+        "session {} is starting {}, without asking ({}; {explain} explains)",
         quoted(caller),
         in_worktree(place, branch, start),
         brief_said(Some(brief_lines))
@@ -338,24 +348,50 @@ pub struct Unasked {
     /// The caller's live sessions that started without asking, and those starting.
     pub live_unasked: usize,
     /// `[sessions] agents_start_limit`.
-    pub limit: u8,
+    pub limit: StartLimit,
+}
+
+/// `[sessions] agents_start_limit`: how many live sessions one caller may have started without
+/// asking (ADR 0135, Q5, and ADR 0144).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StartLimit {
+    /// At most this many.
+    Most(u8),
+    /// `"none"`: as many as the loop guard lets the caller start.
+    Unlimited,
+}
+
+impl StartLimit {
+    /// Whether a caller with `live` such sessions may start one more.
+    pub fn allows(self, live: usize) -> bool {
+        match self {
+            Self::Most(most) => live < usize::from(most),
+            Self::Unlimited => true,
+        }
+    }
 }
 
 /// Whether a call that would ask starts without asking: only as the person's configuration
 /// allows, from a session the person started, so that it reaches one level, in a trusted
-/// project, and below the caller's limit; else it asks as before (ADR 0135).
+/// project, and below the caller's limit, if it has one; else it asks as before (ADR 0135).
 pub fn starts_without_asking(unasked: Unasked) -> bool {
     unasked.tool == Asks::UnlessAllowed
         && unasked.allowed
         && unasked.caller.by_the_person()
         && unasked.trusted
-        && unasked.live_unasked < usize::from(unasked.limit)
+        && unasked.limit.allows(unasked.live_unasked)
 }
 
-/// What the echo area says of a `session_start` that started with no question (ADR 0135).
-pub fn start_started(caller: &str, directory: &str, brief_lines: Option<usize>) -> String {
+/// What the echo area says of a `session_start` that started with no question (ADR 0135), with
+/// `explain` the keys of `session-explain` (ADR 0143).
+pub fn start_started(
+    caller: &str,
+    directory: &str,
+    brief_lines: Option<usize>,
+    explain: &str,
+) -> String {
     format!(
-        "session {} is starting a session in {}, without asking ({}; C-x a e explains)",
+        "session {} is starting a session in {}, without asking ({}; {explain} explains)",
         quoted(caller),
         quoted(directory),
         brief_said(brief_lines)

@@ -44,7 +44,8 @@ migemo sum_tree
 clipboard control notify process text window
 privacy
 # `random` reads the system's random bytes, for session ids (ADR 0121, step 1 as built).
-file_meta random
+# `host` gives the machine's name, for a terminal's OSC 7 directory (ADR 0141).
+file_meta random host
 
 [oso-render]
 capture

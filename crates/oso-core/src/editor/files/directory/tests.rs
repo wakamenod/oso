@@ -218,6 +218,8 @@ fn the_row_selected_is_looked_at_though_the_float_shows_no_rows() {
         columns: 40,
     });
     assert_eq!(editor.candidate_rows(), 0, "no room for a row");
+    // `~/` is selected first, as it names a directory.
+    editor.move_completion(1).unwrap();
     while editor
         .selected_found()
         .is_some_and(|found| found.path != Path::new("/home/me/ln"))

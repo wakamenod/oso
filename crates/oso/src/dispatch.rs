@@ -107,6 +107,8 @@ pub struct Dispatcher {
     /// The input being handled came through the dev socket, which never reads the system
     /// clipboard. It travels with what waits or is held.
     from_socket: bool,
+    /// Where each `session-yank-image` the host has not taken came from (ADR 0142).
+    image_yanks: clipboard::ImageYanks,
     /// `RET` or `TAB`, held while a worker matches the input (ADR 0096).
     completion_held: Option<held::HeldTake>,
     /// Whether the last input made the cursor flash, until the host takes it (ADR 0097).
@@ -140,6 +142,7 @@ impl Dispatcher {
         let keymaps = Keymaps::new(&registry, global);
         let macros = macros::MacroInput::new(&registry);
         let menus = menus::MenuSet::new(bindings::built_in_menus(&registry));
+        let image_yanks = clipboard::ImageYanks::new(&registry);
         #[cfg(any(test, feature = "dev"))]
         let isearch_commands = bindings::isearch_commands(&registry);
         #[cfg(any(test, feature = "dev"))]
@@ -170,6 +173,7 @@ impl Dispatcher {
             macros,
             held_during_all: hold_all::HeldDuringAll::default(),
             from_socket: false,
+            image_yanks,
             completion_held: None,
             view_jumped: None,
             not_input: false,
@@ -413,6 +417,7 @@ impl Dispatcher {
                 editor.end_undo_group();
                 // `session-help` says the keys the dispatcher holds (ADR 0132).
                 self.keymaps.session_help.answer(id, editor);
+                self.image_yanks.note(id, self.from_socket);
             }
             Err(ExecuteError::Failed { error, .. }) => {
                 editor.end_undo_group();

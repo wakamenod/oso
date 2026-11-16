@@ -20,6 +20,7 @@ pub(super) fn method(name: &str) -> Option<(&'static str, &'static [&'static str
         "start_worktree_session" => &["branch", "base", "brief", "name", "repo", "with_dirs"],
         "session_start" => &["directory", "name", "brief", "repo", "with_dirs"],
         "space_status" => &[],
+        "draft_set" => &["kind", "id", "text"],
         _ => return None,
     };
     let method = METHODS.into_iter().find(|method| *method == name)?;
@@ -119,6 +120,18 @@ pub(super) fn acting() -> Vec<Value> {
                 "with_dirs": with_dirs(),
             }),
             &[],
+            false,
+            false,
+        ),
+        tool(
+            "draft_set",
+            "Give oso the draft it asked you for: the commit message whose request named this id. It goes into the person's commit message buffer, their own text kept below it as comment lines; nothing is committed, the person reads it and commits. Only the message whose request oso pasted into your session, its newest, within 15 minutes, once.",
+            json!({
+                "kind": { "type": "string", "enum": ["commit"], "description": "What the draft is: a commit message." },
+                "id": { "type": "string", "description": "The id oso's request named." },
+                "text": { "type": "string", "description": "The message: its subject line, a blank line and its body, at most 16 KiB." },
+            }),
+            &["kind", "id", "text"],
             false,
             false,
         ),

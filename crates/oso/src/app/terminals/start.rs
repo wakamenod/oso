@@ -25,7 +25,11 @@ impl App {
         let project = self.terminal_project();
         let id = self.editor.add_terminal_buffer(NAME);
         self.terminals.map.add(id);
-        let size = self.prepare_terminal(id);
+        // It stands where it starts until its program says otherwise (ADR 0141).
+        if let Some(cwd) = &cwd {
+            self.editor.set_buffer_directory(id, cwd.clone());
+        }
+        let size = self.prepare_terminal(id, true);
         let settings = self.terminal_settings();
         let request = Request {
             buffer: id,
@@ -52,12 +56,19 @@ impl App {
         self.request_redraw();
     }
 
-    /// Shows the terminal buffer `id`, already in the map, in the selected window, says it
-    /// runs, and gives the size its terminal starts at.
-    pub(in crate::app) fn prepare_terminal(&mut self, id: BufferId) -> Size {
-        self.editor.show(id);
-        let window = self.editor.window().id();
-        self.terminals.map.selected(id, window);
+    /// Shows the terminal buffer `id`, already in the map, in the selected window unless not
+    /// `shown`, says it runs, and gives the size its terminal starts at: the selected tiled
+    /// window's, also beneath a prompt. One not shown starts behind what the person is doing
+    /// (ADR 0144): no window owns its size, and `terminal` does not take it for the one
+    /// selected last, until a window is selected on it.
+    pub(in crate::app) fn prepare_terminal(&mut self, id: BufferId, shown: bool) -> Size {
+        let window = self.editor.tiled().0.id();
+        if shown {
+            self.editor.show(id);
+            self.terminals.map.selected(id, window);
+        } else {
+            self.terminals.map.behind(id);
+        }
         // From now on, until it ends or fails: a restart or an exit started before the shell
         // is found would end the child about to start.
         self.editor.set_running(id, true);
@@ -119,17 +130,19 @@ impl App {
             .or_else(|| self.editor.home().map(std::path::Path::to_path_buf))
     }
 
-    /// The selected buffer's project root, else its file's directory: where a new terminal
-    /// starts, and a new session (ADR 0121).
+    /// Where a new terminal starts, and a new session (ADR 0121), from the selected buffer:
+    /// its project root, else the directory it stands in (ADR 0141). From a terminal that is
+    /// its own, where it started, as what its program says of its directory (OSC 7) never
+    /// chooses where a process starts.
     pub(in crate::app) fn buffer_directory(&self) -> Option<PathBuf> {
         if let Some(root) = self.terminal_project() {
             return Some(root);
         }
-        let buffer = self.editor.current().1;
-        buffer
-            .path()
-            .and_then(|path| path.parent())
-            .map(std::path::Path::to_path_buf)
+        let (window, buffer) = self.editor.current();
+        if buffer.is_terminal() && !buffer.hosts_session() {
+            return buffer.directory().map(std::path::Path::to_path_buf);
+        }
+        Some(self.editor.default_directory(window.buffer()))
     }
 
     fn terminal_project(&self) -> Option<PathBuf> {

@@ -11,7 +11,9 @@ use super::gib;
 pub enum LoadError {
     /// There is no such file. Emacs visits it as a new, empty file.
     NotFound,
-    /// A directory, a device or a pipe: only regular files are opened.
+    /// A directory, which a person's visit lists instead (ADR 0141).
+    Directory,
+    /// A device or a pipe: only regular files are opened.
     NotAFile,
     /// The file holds this many bytes, more than the load may read. Nothing was read.
     TooLarge(u64),
@@ -34,6 +36,7 @@ impl std::fmt::Display for LoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound => f.write_str("no such file"),
+            Self::Directory => f.write_str("a directory"),
             Self::NotAFile => f.write_str("not a regular file"),
             Self::TooLarge(bytes) => write!(f, "{}, too large to open without asking", gib(*bytes)),
             Self::Io(e) => write!(f, "{e}"),

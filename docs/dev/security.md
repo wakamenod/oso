@@ -360,7 +360,12 @@ shown, boxed or escaped.
   clipboard only on a yank, on its own thread. A kill from a buffer that may hold secrets
   goes there marked concealed for clipboard managers, never shows over the socket, and
   makes the buffer it is yanked into secret, also after a round trip through another app
-  ([ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md)). Core
+  ([ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md)). An image is read only on
+  `session-yank-image` and never decoded in oso's process: it is copied into a new `0600` file
+  in a `0700` directory under the cache, a TIFF is converted by `/usr/bin/sips` in a child
+  process with a time limit, a concealed pasteboard is not read, and the files go when the
+  session is archived or after 7 days
+  ([ADR 0142](adr/0142-attaching-the-clipboard-s-image-to-a-session.md)). Core
   dumps are disabled with `RLIMIT_CORE` on Unix, soft and hard. Windows has no such limit for a process to set.
   The panic hook prints the location and the stack and never the message, also for a panic caught at the
   command boundary ([ADR 0028](adr/0028-secrets-handling.md), [ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
@@ -505,6 +510,16 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     new connection resets neither, and a branch's refusal by the name git resolved it to.
   - A tool's worktree jobs take the trust of the session's open project as it is at the call,
     and again at the person's `y`, so a project the person no longer trusts runs nothing.
+  - `draft_set` ([ADR 0127](adr/0127-source-control-and-github.md), step 6a) asks nothing: it
+    writes only the commit message whose newest request, pasted by the person's `C-c C-d`,
+    named its 32-bit id, from the session it was pasted into, in that worktree of a trusted
+    project,
+    within 15 minutes, once, at most 16 KiB cleaned as a paste is, and commits nothing. The
+    requests oso pastes into a session are the person's, read before Enter; a fix request holds
+    the failed run's output, which the log withholds from the channel, so only the person's
+    paste gives it to the agent, and leaves out its lines shaped like a key or a token, saying
+    how many. `app/vcs/draft.rs` is one of the tools' files the guard test keeps from
+    terminals, and none of them may call `send_to_session`.
 - Worktree sessions run git and `gh` only for a trusted project whose main repository is
   trusted too, on `oso-sessions-git`, through `oso-platform::process`
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 4).

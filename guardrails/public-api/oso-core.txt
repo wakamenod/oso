@@ -273,10 +273,11 @@ impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::diagnostics(&self) -> core::option::Option<&oso_core::diagnostic::Diagnostics>
 pub fn oso_core::buffer::Buffer::take_diagnostics(&mut self, u64, oso_core::diagnostic::Diagnostics) -> bool
 impl oso_core::buffer::Buffer
-pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
-impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::directory(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::buffer::Buffer::naming(&self) -> u32
 pub fn oso_core::buffer::Buffer::project(&self) -> core::option::Option<oso_core::project::ProjectId>
+impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::server(&self) -> core::option::Option<oso_core::buffer::ServerMark>
 pub fn oso_core::buffer::Buffer::set_server(&mut self, core::option::Option<oso_core::buffer::ServerMark>)
@@ -1438,6 +1439,10 @@ pub oso_core::editor::GitRequest::Discard
 pub oso_core::editor::GitRequest::Discard::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Discard::confirmed: bool
 pub oso_core::editor::GitRequest::Discard::lines: alloc::vec::Vec<oso_core::editor::GitLines>
+pub oso_core::editor::GitRequest::DraftMessage
+pub oso_core::editor::GitRequest::DraftMessage::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::FixWithAgent
+pub oso_core::editor::GitRequest::FixWithAgent::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Refresh
 pub oso_core::editor::GitRequest::Refresh::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::RestoreDiscarded
@@ -1929,6 +1934,7 @@ pub oso_core::editor::SessionRequest::Worktree::branch: alloc::string::String
 pub oso_core::editor::SessionRequest::WorktreeList
 pub oso_core::editor::SessionRequest::WorktreeRemove(core::option::Option<std::path::PathBuf>)
 pub oso_core::editor::SessionRequest::WorktreeRemoveConfirmed
+pub oso_core::editor::SessionRequest::YankImage(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Zoom
 impl core::clone::Clone for oso_core::editor::SessionRequest
 pub fn oso_core::editor::SessionRequest::clone(&self) -> oso_core::editor::SessionRequest
@@ -2397,6 +2403,10 @@ pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(o
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_search_waits(&self) -> bool
 pub fn oso_core::editor::Editor::drop_cursor_search(&mut self)
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::default_directory(&self, oso_core::buffer::BufferId) -> std::path::PathBuf
+pub fn oso_core::editor::Editor::set_buffer_directory(&mut self, oso_core::buffer::BufferId, std::path::PathBuf)
+pub fn oso_core::editor::Editor::set_reported_directory(&mut self, oso_core::buffer::BufferId, std::path::PathBuf)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::delete_trailing_whitespace(&mut self) -> core::result::Result<bool, oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::set_trim_whitespace(&mut self, bool)

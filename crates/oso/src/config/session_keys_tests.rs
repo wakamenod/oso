@@ -23,7 +23,7 @@ fn a_session_s_keys_bind_and_unbind_c_c_sequences_over_its_defaults() {
     let loaded = f.parse(
         r#"[keys.session]
 "C-c g" = "sessions"
-"C-c s" = false
+"C-c C-p" = false
 "C-c x y" = "undo"
 "C-c R" = { menu = "review" }
 "#,
@@ -31,7 +31,7 @@ fn a_session_s_keys_bind_and_unbind_c_c_sequences_over_its_defaults() {
     assert_eq!(messages(&loaded), Vec::<String>::new());
     let user = &session(&loaded).keys;
     assert_eq!(f.bound(user, "C-c g"), Some("sessions"));
-    assert_eq!(f.bound(user, "C-c s"), Some("undefined"));
+    assert_eq!(f.bound(user, "C-c C-p"), Some("undefined"));
     assert_eq!(f.bound(user, "C-c x y"), Some("undo"));
     assert_eq!(f.bound(user, "C-c R"), Some("menu"));
     assert!(keys(&loaded).is_empty(), "the global keys are not touched");
@@ -49,7 +49,7 @@ a = false
 "C-c C-c x" = "undo"
 "C-c C-k" = false
 "C-c C-g" = "undo"
-"C-c s x" = "undo"
+"C-c C-p x" = "undo"
 "C-c C-k x" = "undo"
 "#,
     );
@@ -66,10 +66,10 @@ a = false
             r#"8:1: "C-c C-g": C-g is not configurable; it always cancels"#,
         ]
     );
-    // `C-c s` runs `sessions` there, so it cannot become a prefix unless it is unbound, as
+    // `C-c C-p` runs `sessions` there, so it cannot become a prefix unless it is unbound, as
     // in `[keys.global]`.
     assert!(
-        messages[7].starts_with(r#"9:1: "C-c s x": "#),
+        messages[7].starts_with(r#"9:1: "C-c C-p x": "#),
         "{}",
         messages[7]
     );
@@ -87,17 +87,17 @@ fn a_session_s_line_says_the_user_s_keys_over_the_defaults() {
     let loaded = f.parse(
         r#"[keys.session]
 "C-c g" = "sessions"
-"C-c s" = false
+"C-c C-p" = false
 "C-c x y" = "undo"
 "C-c K" = "session-pin"
 "#,
     );
     let help = session(&loaded).help.as_deref().unwrap();
     assert!(help.starts_with("C-c then:"), "{help}");
-    for shown in ["  g sessions", "  x y undo", "  K pin", "  b switch"] {
+    for shown in ["  g sessions", "  x y undo", "  K pin", "  C-b switch"] {
         assert!(help.contains(shown), "{shown} in {help}");
     }
-    for hidden in ["  s sessions", "  K stop", "  ? "] {
+    for hidden in ["  C-p sessions", "  ? "] {
         assert!(!help.contains(hidden), "{hidden} in {help}");
     }
 }
@@ -115,11 +115,11 @@ fn without_session_keys_the_line_is_the_default_one() {
 #[test]
 fn a_removed_menu_s_session_key_is_undefined_and_left_out_of_the_line() {
     let f = Fixture::new();
-    let loaded = f.parse("[menus]\nreview = false\n");
+    let loaded = f.parse("[menus]\nagents = false\n");
     let session = session(&loaded);
-    assert_eq!(f.bound(&session.keys, "C-c V"), Some("undefined"));
+    assert_eq!(f.bound(&session.keys, "C-c a"), Some("undefined"));
     let help = session.help.as_deref().unwrap();
-    assert!(!help.contains("review menu"), "{help}");
+    assert!(!help.contains("agents menu"), "{help}");
 }
 
 #[test]

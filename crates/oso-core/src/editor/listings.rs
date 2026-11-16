@@ -231,7 +231,9 @@ impl Editor {
     /// The file at `from` was renamed or moved to `to`, or a directory holding it was: each
     /// buffer visiting a file there now visits it at its new place, keeping its text and its
     /// edits, and is judged again by its new name, never less secret than before (ADR 0134).
+    /// A buffer that stands in a directory there stands at its new place (ADR 0141).
     pub fn file_moved(&mut self, from: &Path, to: &Path) {
+        self.directories_moved(from, to);
         let moved: Vec<(BufferId, PathBuf)> = (self.buffers.iter())
             .filter_map(|(id, buffer)| {
                 let rest = buffer.path()?.strip_prefix(from).ok()?;

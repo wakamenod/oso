@@ -49,6 +49,7 @@ fn until_end(got: &mpsc::Receiver<RunReport>) -> (RunEnd, String, bool) {
             RunReport::Output(text) => output.push_str(&text),
             RunReport::Elapsed(_)
             | RunReport::Message(_)
+            | RunReport::Subjects { .. }
             | RunReport::Discarded(_)
             | RunReport::Restored(_) => {}
             RunReport::Ended(end) => return (end, output, began),
@@ -118,7 +119,10 @@ fn a_failing_hook_is_named_and_no_verify_leaves_it_out() {
     let (end, output, _) = until_end(&got);
     assert_eq!(
         end,
-        RunEnd::Failed("commit failed (hook pre-commit): $ shows the output".into())
+        RunEnd::Failed {
+            said: "commit failed (hook pre-commit): $ shows the output".into(),
+            hooks: vec!["pre-commit"],
+        }
     );
     assert!(output.contains("checks failed\n"), "{output}");
     assert_eq!(subject(&repo), "first");
@@ -153,6 +157,35 @@ fn an_amend_starts_from_the_message_of_head() {
     assert_eq!(subject(&repo), "First, reworded");
     let count = String::from_utf8(repo.git(&["rev-list", "--count", "HEAD"])).unwrap();
     assert_eq!(count.trim(), "1");
+}
+
+/// The subjects the run thread of `repo` reads.
+fn subjects_of(repo: &Repo) -> Vec<String> {
+    let (thread, got) = runner(repo);
+    thread.ask(RunRequest::Subjects);
+    match got.recv_timeout(Duration::from_secs(30)).expect("a report") {
+        RunReport::Subjects { subjects, id } => {
+            if cfg!(unix) {
+                assert_eq!(id.map(|id| id.len()), Ok(8));
+            }
+            subjects
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn the_last_subjects_are_read_newest_first_and_none_before_the_first_commit() {
+    let repo = repo("run-subjects");
+    for n in 2..=7 {
+        std::fs::write(repo.root.join("a.txt"), format!("{n}\n")).unwrap();
+        repo.git(&["commit", "-q", "-am", &format!("change {n}")]);
+    }
+    assert_eq!(
+        subjects_of(&repo),
+        ["change 7", "change 6", "change 5", "change 4", "change 3"]
+    );
+    assert!(subjects_of(&Repo::new("run-subjects-none")).is_empty());
 }
 
 #[cfg(unix)]
@@ -262,7 +295,7 @@ fn the_runner_ends_its_run_as_oso_ends() {
     };
     runner.end();
     let (end, _, _) = until_end(&got);
-    assert!(matches!(end, RunEnd::Failed(_)), "{end:?}");
+    assert!(matches!(end, RunEnd::Failed { .. }), "{end:?}");
     std::thread::sleep(Duration::from_millis(200));
     assert!(!marker.exists());
 }
