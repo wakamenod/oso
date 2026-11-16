@@ -361,6 +361,8 @@ mod tests {
         "session-yank-image",
         "session-resume",
         "session-send",
+        "session-send-diagnostics",
+        "session-fix-error",
         "session-stop",
         "sessions-resume",
         // What puts a session's terminal or `*Spaces*` in front of the person's keys, and

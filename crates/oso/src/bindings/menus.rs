@@ -325,6 +325,8 @@ const AGENTS: BuiltInMenu = BuiltInMenu {
             "Talk",
             &[
                 exit("m", "session-send", "send\u{2026}"),
+                exit("!", "session-send-diagnostics", "send diagnostics\u{2026}"),
+                exit("x", "session-fix-error", "fix error\u{2026}"),
                 exit("@", "session-mention", "mention\u{2026}"),
                 exit("e", "session-explain", "explain"),
             ],

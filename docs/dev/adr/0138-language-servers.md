@@ -519,6 +519,7 @@ Every bound lives in `oso-lsp`'s `limits`:
 | `M-g d`, `C-M-i`, `C-c C-d`, `C-h .` | `Person` | an interactive float for the keyboard |
 | `lsp-describe-scroll-up`, `-down`, `-close` (step 10) | `Person` | the description's own keys |
 | `diagnostics` tool on `oso mcp` | read, like `text` | reads the reports oso holds |
+| `session-send-diagnostics`, `session-fix-error` (step 11) | `Person` | the person's paste into a session, as `session-send` |
 
 - **A definition the agent asks for opens as the channel's `open` does:** a target whose name
   matches the secret patterns is refused, a file is shown only once judged ordinary, it counts
@@ -531,7 +532,9 @@ Every bound lives in `oso-lsp`'s `limits`:
 - **The `diagnostics` tool** takes a buffer or `project`, and gives at most 500 entries: the path,
   line and column (1-based, in characters), the severity, the message (2 KiB at most), the source
   and the code. ADR 0121's `@diagnostics` mention reads the same. `state` gains each buffer's
-  server state and counts, and its schema version goes up by one.
+  server state and counts, and its schema version goes up by one. As built (step 11), a file no
+  buffer holds gives the server's column with `column_unit`, and `@diagnostics` gives the line
+  only.
 - **No completion or hover for the channel:** the agent has its own tools, and both are made for
   the keyboard.
 - The channel's "the person is in the middle of something" includes an open completion popup or
@@ -860,6 +863,17 @@ gains `amended by 0138`.
   of the items a server offered, drawn as a float at point, and typing goes on into the buffer
   beneath, narrowing it; `C-n`, `C-p`, `TAB`, `C-g`, and `RET` once the selection was moved,
   are its keys, and any other command closes it first (step 9).
+- [ADR 0085](0085-agent-channel-and-oso-mcp.md), the channel's methods and `oso mcp`'s tools: and
+  `diagnostics`, a read tool like `text`; `state` gains each followed buffer's `server` and
+  `diagnostics`, and its version goes to 3, as ADR 0118 bumped it for a buffer's new field
+  rather than keeping it as ADR 0103 has it (step 11).
+- [ADR 0121](0121-agent-sessions-and-spaces.md), "`@diagnostics` … (M4)" and "`session-fix-error`
+  (`Person`): the diagnostic at point, its 20 lines around": both are built (its Q5), as
+  `session-send-diagnostics` and `session-fix-error`, the latter with the 10 lines either side,
+  and the server's message in a fence of its own under a line saying a language server wrote it
+  (step 11).
+- [ADR 0143](0143-agent-keys-on-c-c-a-and-an-agents-menu.md), the Talk group: and `!`
+  (`session-send-diagnostics`) and `x` (`session-fix-error`) (step 11).
 
 ## Consequences
 
@@ -1941,3 +1955,46 @@ The author answered step 10's questions on 2026-11-16, all with the first choice
   - the keys through the dispatcher;
   - against the fake server, the ask at its position, the text never logged, a null answer and the 3 s wait;
   - the text-grid snapshot `hover`, and the end-to-end flow `lsp.rs` (`a_description_shows_at_point_scrolls_and_goes_with_the_next_key`).
+
+### Step 11: agents
+
+The author answered step 11's questions on 2026-11-16, all with the first choice:
+- **Q1:** the tool takes `buffer`, by default the selected one, and `project: true`.
+- **Q2:** `M-g d`'s order, with no hints, at most 500 entries and `more` for the rest.
+- **Q3:** a file no buffer holds gives the server's column with its `column_unit`; an open buffer's column is in characters.
+- **Q4:** a message is at most 2 KiB, cut at a character. Its line breaks are kept, and every other control, bidi or invisible character is written as `\u{…}`. Each entry names its server.
+- **Q5:** `state` gains each followed buffer's `server` and `diagnostics`, and `STATE_VERSION` goes 2→3.
+- **Q6:** two `Person` commands: `session-send-diagnostics` on `C-c a !` and `session-fix-error` on `C-c a x`.
+- **Q7:** the public items below.
+
+- **The channel's `diagnostics`** (`channel/diagnostics.rs`), and the `oso mcp` tool of that name, is a read tool like `text`. It reads a buffer's diagnostics, or with `project`, its project's, from every server:
+  - Sources: the open buffers' sets, then the reports the servers keep of files no buffer holds (6b), which the app shares by `Arc`.
+  - Where: the UI thread checks the buffer and takes a snapshot, the sets cloned and the texts and reports shared, O(the open buffers' entries); the answer is made on a thread of its own, `oso-agent-diagnostics`, as `text` copies its rows (`app/agent/reads.rs`).
+  - Order: the buffer's own first, by place, then each file's by its path from the root and by line. One function, `channel::diagnostics::ordered`, gives this order to `M-g d`'s rows too, with its paths judged as a URI reads back and its bound on a path's length, so the two cannot drift apart. Hints are left out.
+  - Bound: at most `MAX_ENTRIES` (500) and `ANSWER_BYTES` (512 KiB) of the entries' text, so that an answer fits a reply line; the rest are counted in `more`. Once full, an open set is counted from its counts and a file's reports without sorting them.
+  - Each entry gives the path, the line and column from 1, the severity (`error`, `warning` or `info`, `Severity::word`), the message, the source, the code and the server. An open buffer's column is in characters, counted in O(log n) by a slice of the rope. A file's column is the server's own, with `column_unit`.
+  - Text: the server's text goes to the agent as Q4 has it, the message cut at 2 KiB; the source, the code and a file's path, which a server names too, are escaped the same way, with no line break kept (`server_text`, which a send shares).
+  - Refusals: a buffer that may hold secrets, or one withheld from agents, gives none, worded as `text` words it. Such buffers, and those an agent's open still waits on, are left out of a project's, with the servers' reports of their files. A buffer in no project gives no project's.
+  - A file no buffer holds was judged by the name its server gave (6a). The author chose on 2026-11-16 that the job's thread also judges where the path really leads, as the loader judges a buffer's, through each link (`loader::resolve`, which the app hands over, as the channel sits below the loader), and gives nothing of a file that may hold secrets, or that nobody can resolve. Only the files whose entries go are judged; those only counted once the answer is full give a number.
+- **`state`** (`STATE_VERSION` 3):
+  - Each buffer a server follows gets `server`: the server's name, which the app gives, its state (`starting`, `ready`, `working` with `progress`, or `stopped`).
+  - It also gets `diagnostics`: its counts of errors, warnings and information, hints left out.
+  - Neither is given of a buffer the channel may not read, the same check `diagnostics` makes.
+  - The version follows ADR 0118, which bumped it for a buffer's new field; `STATE_VERSION`'s doc now says so.
+  - The `state` tool's description says so.
+- **ADR 0121's deferred forms** (its Q5) are two more kinds of `SendPart`, composed in `sessions/send.rs`:
+  - `session-send-diagnostics` (`C-c a !`, the Agents menu's Talk group) sends the buffer's diagnostics, or the region's, one line each, `path:line: severity: message`. The message's first line goes, as `M-g d` reads it (`diagnostic::first_line`), its blanks as one, hints left out. The command keeps only that line of each, at most 2 KiB, matches them against the sorted regions by a binary search, and refuses past 256 KiB as it goes.
+  - `session-fix-error` (`C-c a x`) sends the most severe diagnostic at the primary cursor:
+    - `path:line:column: severity`;
+    - "The language server says:", and the message, its line breaks kept, in a fence of its own longer than any run of backticks in it, so that no message can pass as the lines or the ask after it;
+    - the 10 lines either side of it, as `@region` gives lines;
+    - "Fix this error."
+  - Both are `Person`, pasted and not submitted, at most 256 KiB, with the controls in a message written out as in a path.
+- **Public API:** `oso-core`: `editor::SendPart::{Diagnostics, FixError}` and `editor::SendDiagnostic`; and, for the words and the first line the three readers share, `diagnostic::Severity::word` and `diagnostic::first_line`, which was crate-internal. The channel's and the commands' items are the tip crate's own.
+- **Tests:**
+  - the channel's answer: a buffer's, a project's with files, the order, the columns, the bounds and `more`, the refusals, the buffers and files left out of a project's, and the escaping of messages, sources, codes and paths;
+  - the protocol's parameters and the MCP tool's mapping;
+  - `state`'s new fields;
+  - the two parts as a send composes them, and a message that tries to pass as the lines and the ask;
+  - the two commands through the dispatcher;
+  - the end-to-end flow `lsp.rs` (`an_agent_reads_the_diagnostics_and_the_counts`).

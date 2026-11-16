@@ -16,6 +16,8 @@
 //!   is judged ordinary; `line` is optional.
 //! - `text`: `{"buffer": 3, "start_row": 0, "rows": 200}` gives whole rows of a buffer, or
 //!   `{"region": true}` the selected window's region.
+//! - `diagnostics`: `{"buffer": 3, "project": true}` gives the language servers' diagnostics
+//!   of a buffer, the selected one by default, or of its whole project (ADR 0138, step 11).
 //! - The session methods, one for each session tool (ADR 0121), in [`sessions`].
 
 use std::path::PathBuf;
@@ -48,8 +50,15 @@ pub const MAX_ROWS: usize = 2000;
 /// The methods, and the ones the dev socket has, which the channel must never answer. A
 /// unit test checks that no name is in both.
 #[cfg(test)]
-pub const METHODS: [&str; 7] = [
-    "version", "state", "commands", "run", "cancel", "open", "text",
+pub const METHODS: [&str; 8] = [
+    "version",
+    "state",
+    "commands",
+    "run",
+    "cancel",
+    "open",
+    "text",
+    "diagnostics",
 ];
 
 pub mod sessions;
@@ -90,6 +99,8 @@ pub enum Op {
         line: Option<usize>,
     },
     Text(TextOf),
+    /// The language servers' diagnostics of a buffer or its project (ADR 0138, step 11).
+    Diagnostics(DiagnosticsOf),
     /// A session tool's call (ADR 0121).
     Session(sessions::Call),
 }
@@ -105,6 +116,14 @@ pub enum TextOf {
     },
     /// The selected window's region.
     Region,
+}
+
+/// What `diagnostics` reads: the buffer `buffer`, the selected one if `None`, or with
+/// `project`, its whole project's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiagnosticsOf {
+    pub buffer: Option<u64>,
+    pub project: bool,
 }
 
 /// An argument given with `run`. Its `Debug` gives a text's length only.
@@ -146,6 +165,9 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         "run" => Method::Ui(parse_run(&parts.params).map_err(bad)?),
         "open" => Method::Ui(parse_open(&parts.params).map_err(bad)?),
         "text" => Method::Ui(Op::Text(parse_text(&parts.params).map_err(bad)?)),
+        "diagnostics" => Method::Ui(Op::Diagnostics(
+            parse_diagnostics(&parts.params).map_err(bad)?,
+        )),
         other => match sessions::parse(other, &parts.params) {
             Some(call) => Method::Ui(Op::Session(call.map_err(bad)?)),
             None => return Err(parts.unknown()),
@@ -282,6 +304,24 @@ fn parse_text(params: &Map<String, Value>) -> Result<TextOf, String> {
     })
 }
 
+/// The parameters of `diagnostics`: a buffer's id, and whether its whole project's.
+fn parse_diagnostics(params: &Map<String, Value>) -> Result<DiagnosticsOf, String> {
+    only(params, "diagnostics", &["buffer", "project"])?;
+    let buffer = match params.get("buffer") {
+        None | Some(Value::Null) => None,
+        Some(id) => Some(
+            id.as_u64()
+                .ok_or("diagnostics's \"buffer\" must be a buffer's id")?,
+        ),
+    };
+    let project = match params.get("project") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(project)) => *project,
+        Some(_) => return Err("diagnostics's \"project\" must be true or false".into()),
+    };
+    Ok(DiagnosticsOf { buffer, project })
+}
+
 /// Refuses a parameter of `method` other than `names`.
 fn only(params: &Map<String, Value>, method: &str, names: &[&str]) -> Result<(), String> {
     match params.keys().find(|name| !names.contains(&name.as_str())) {
@@ -297,7 +337,10 @@ fn short(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Arg, DEFAULT_ROWS, MAX_ROWS, MAX_TEXT_ARG, METHODS, Method, Op, TextOf, parse};
+    use super::{
+        Arg, DEFAULT_ROWS, DiagnosticsOf, MAX_ROWS, MAX_TEXT_ARG, METHODS, Method, Op, TextOf,
+        parse,
+    };
     use oso_core::command::Reach;
     use serde_json::Value;
     use serde_json::json;
@@ -311,6 +354,30 @@ mod tests {
 
     fn error(line: &str) -> String {
         parse(line).unwrap_err().message
+    }
+
+    #[test]
+    fn diagnostics_take_a_buffer_and_a_project_and_nothing_else() {
+        assert_eq!(
+            op(r#"{"method": "diagnostics"}"#),
+            Op::Diagnostics(DiagnosticsOf {
+                buffer: None,
+                project: false
+            })
+        );
+        assert_eq!(
+            op(r#"{"method": "diagnostics", "params": {"buffer": 3, "project": true}}"#),
+            Op::Diagnostics(DiagnosticsOf {
+                buffer: Some(3),
+                project: true
+            })
+        );
+        assert!(error(r#"{"method": "diagnostics", "params": {"x": 1}}"#).contains("no parameter"));
+        assert!(
+            error(r#"{"method": "diagnostics", "params": {"project": 1}}"#)
+                .contains("true or false")
+        );
+        assert!(error(r#"{"method": "diagnostics", "params": {"buffer": "a"}}"#).contains("id"));
     }
 
     #[test]

@@ -812,6 +812,8 @@ pub oso_core::diagnostic::Severity::Error
 pub oso_core::diagnostic::Severity::Hint
 pub oso_core::diagnostic::Severity::Information
 pub oso_core::diagnostic::Severity::Warning
+impl oso_core::diagnostic::Severity
+pub fn oso_core::diagnostic::Severity::word(self) -> &'static str
 impl core::clone::Clone for oso_core::diagnostic::Severity
 pub fn oso_core::diagnostic::Severity::clone(&self) -> oso_core::diagnostic::Severity
 impl core::cmp::Eq for oso_core::diagnostic::Severity
@@ -906,6 +908,7 @@ impl core::hash::Hash for oso_core::diagnostic::Tags
 pub fn oso_core::diagnostic::Tags::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::diagnostic::Tags
 impl core::marker::StructuralPartialEq for oso_core::diagnostic::Tags
+pub fn oso_core::diagnostic::first_line(&str) -> &str
 pub mod oso_core::display_map
 pub mod oso_core::display_map::cell
 pub enum oso_core::display_map::cell::CellKind
@@ -2033,7 +2036,11 @@ pub fn oso_core::editor::ScopeKind::hash<__H: core::hash::Hasher>(&self, &mut __
 impl core::marker::Copy for oso_core::editor::ScopeKind
 impl core::marker::StructuralPartialEq for oso_core::editor::ScopeKind
 pub enum oso_core::editor::SendPart
+pub oso_core::editor::SendPart::Diagnostics(alloc::vec::Vec<oso_core::editor::SendDiagnostic>)
 pub oso_core::editor::SendPart::Excerpt(oso_core::editor::SendExcerpt)
+pub oso_core::editor::SendPart::FixError
+pub oso_core::editor::SendPart::FixError::around: oso_core::editor::SendExcerpt
+pub oso_core::editor::SendPart::FixError::diagnostic: oso_core::editor::SendDiagnostic
 pub oso_core::editor::SendPart::Note(alloc::string::String)
 impl core::clone::Clone for oso_core::editor::SendPart
 pub fn oso_core::editor::SendPart::clone(&self) -> oso_core::editor::SendPart
@@ -3428,6 +3435,21 @@ pub fn oso_core::editor::SearchReport::eq(&self, &oso_core::editor::SearchReport
 impl core::fmt::Debug for oso_core::editor::SearchReport
 pub fn oso_core::editor::SearchReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::SearchReport
+pub struct oso_core::editor::SendDiagnostic
+pub oso_core::editor::SendDiagnostic::buffer: alloc::string::String
+pub oso_core::editor::SendDiagnostic::column: usize
+pub oso_core::editor::SendDiagnostic::line: usize
+pub oso_core::editor::SendDiagnostic::message: alloc::string::String
+pub oso_core::editor::SendDiagnostic::path: core::option::Option<std::path::PathBuf>
+pub oso_core::editor::SendDiagnostic::severity: oso_core::diagnostic::Severity
+impl core::clone::Clone for oso_core::editor::SendDiagnostic
+pub fn oso_core::editor::SendDiagnostic::clone(&self) -> oso_core::editor::SendDiagnostic
+impl core::cmp::Eq for oso_core::editor::SendDiagnostic
+impl core::cmp::PartialEq for oso_core::editor::SendDiagnostic
+pub fn oso_core::editor::SendDiagnostic::eq(&self, &oso_core::editor::SendDiagnostic) -> bool
+impl core::fmt::Debug for oso_core::editor::SendDiagnostic
+pub fn oso_core::editor::SendDiagnostic::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::SendDiagnostic
 pub struct oso_core::editor::SendExcerpt
 pub oso_core::editor::SendExcerpt::buffer: alloc::string::String
 pub oso_core::editor::SendExcerpt::first: usize
