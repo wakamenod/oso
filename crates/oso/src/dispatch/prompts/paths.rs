@@ -49,8 +49,8 @@ impl Dispatcher {
     }
 
     /// Opens the prompt that reads a path for the command `id`, or a directory's if `directory`,
-    /// starting at the shown buffer's directory, or the one oso started in, unless a prompt is
-    /// selected (ADR 0087, ADR 0134).
+    /// starting at the directory the shown buffer stands in, unless a prompt is selected (ADR
+    /// 0087, ADR 0134, ADR 0141).
     fn read_file(
         &mut self,
         editor: &mut Editor,
@@ -291,9 +291,9 @@ fn redraw() -> Effects {
 }
 
 /// Opens a prompt that says `label` and reads a path with `C-x C-f`'s completion, kept in the
-/// history `history`, starting at `start_in` if given, else the shown buffer's directory, or the
-/// one oso started in, for a directory if `directory`. A relative path typed in place of it starts there too. `None` if it
-/// could not open, which the prompt beneath says.
+/// history `history`, starting at `start_in` if given, else the directory the shown buffer
+/// stands in (ADR 0141), for a directory if `directory`. A relative path typed in place of it
+/// starts there too. `None` if it could not open, which the prompt beneath says.
 fn open_path_prompt(
     editor: &mut Editor,
     label: &str,
@@ -301,22 +301,9 @@ fn open_path_prompt(
     directory: bool,
     start_in: Option<&std::path::Path>,
 ) -> Option<oso_core::minibuffer::PromptId> {
-    let start = editor.start_directory().to_path_buf();
     let start_in = match start_in {
         Some(dir) => dir.to_path_buf(),
-        // A listing's directory is the one it lists (ADR 0134).
-        None => {
-            let (window, buffer) = editor.current();
-            let listed = editor
-                .listing(window.buffer())
-                .map(|listing| listing.directory.clone());
-            buffer
-                .path()
-                .and_then(std::path::Path::parent)
-                .map(std::path::Path::to_path_buf)
-                .or(listed)
-                .unwrap_or(start)
-        }
+        None => editor.default_directory(editor.window().buffer()),
     };
     let initial = oso_core::complete::typed_form(&start_in, true, editor.home());
     let opened = if directory {

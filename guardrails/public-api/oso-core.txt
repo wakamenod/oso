@@ -262,10 +262,11 @@ pub fn oso_core::buffer::Buffer::open_waits(&self) -> oso_core::buffer::Starts
 pub fn oso_core::buffer::Buffer::save_waits(&self) -> oso_core::buffer::Starts
 pub fn oso_core::buffer::Buffer::waits(&self) -> oso_core::buffer::Starts
 impl oso_core::buffer::Buffer
-pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
-impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::directory(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::buffer::Buffer::naming(&self) -> u32
 pub fn oso_core::buffer::Buffer::project(&self) -> core::option::Option<oso_core::project::ProjectId>
+impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::server(&self) -> core::option::Option<oso_core::buffer::ServerMark>
 pub fn oso_core::buffer::Buffer::set_server(&mut self, core::option::Option<oso_core::buffer::ServerMark>)
@@ -2249,6 +2250,9 @@ pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(o
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_search_waits(&self) -> bool
 pub fn oso_core::editor::Editor::drop_cursor_search(&mut self)
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::default_directory(&self, oso_core::buffer::BufferId) -> std::path::PathBuf
+pub fn oso_core::editor::Editor::set_buffer_directory(&mut self, oso_core::buffer::BufferId, std::path::PathBuf)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::delete_trailing_whitespace(&mut self) -> core::result::Result<bool, oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::set_trim_whitespace(&mut self, bool)

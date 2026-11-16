@@ -140,9 +140,9 @@ fn a_prefix_an_unbound_key_or_a_cancelled_one_drops_the_held_key() {
 #[test]
 fn ret_after_a_move_made_while_waiting_opens_the_row_moved_to() {
     let (mut d, mut editor) = finding();
-    // The rows shown are the whole list's, `sub/` first, so this moves to `file-0001.txt`,
-    // which `00` still matches.
-    send(&mut d, &mut editor, "0 0 C-n C-n RET");
+    // The rows shown are the whole list's, `sub/` first, under `/big/` selected as typed, so
+    // this moves to `file-0001.txt`, which `00` still matches.
+    send(&mut d, &mut editor, "0 0 C-n C-n C-n RET");
     work(&mut d, &mut editor);
     assert_eq!(
         editor.take_visits()[0].0,

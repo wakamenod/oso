@@ -1,10 +1,10 @@
 //! A buffer's name and path as the editor changes them: the names that tell files with one
-//! name apart, a write under a new name, and the project the file is in (ADR 0087, ADR 0088,
-//! ADR 0114).
+//! name apart, a write under a new name, the project the file is in, and the directory it
+//! stands in (ADR 0087, ADR 0088, ADR 0114, ADR 0141).
 //!
 //! Must not depend on: `editor`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::{Buffer, Mode};
 use crate::project::ProjectId;
@@ -63,5 +63,15 @@ impl Buffer {
 
     pub(crate) fn set_project(&mut self, project: Option<ProjectId>) {
         self.project = project;
+    }
+
+    /// The directory it stands in when no file, listing or project says one, if it has one of
+    /// its own (ADR 0141).
+    pub fn directory(&self) -> Option<&Path> {
+        self.directory.as_deref()
+    }
+
+    pub(crate) fn set_directory(&mut self, directory: Option<PathBuf>) {
+        self.directory = directory;
     }
 }

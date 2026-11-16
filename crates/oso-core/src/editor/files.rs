@@ -112,6 +112,7 @@ impl Editor {
             && let Some((candidates, _)) = prompt.completion.as_mut()
         {
             candidates.match_last_segment();
+            candidates.select_directory_typed();
         }
         let start = path::as_typed(&path::plan(initial, self.home.as_deref(), &base));
         self.file_list = FileList {
@@ -306,6 +307,12 @@ impl Editor {
     /// of one name apart beside it. The row selected stays selected, by its path.
     pub(super) fn install_files(&mut self, built: Built, cut: bool, revision: u64) {
         self.file_list.cut = cut || built.more || self.file_list.listing_cut;
+        // A row moved to stays selected while listed, over a directory's typed path too (ADR 0141).
+        let prompt = self
+            .prompt()
+            .and_then(crate::minibuffer::Prompt::candidates);
+        let chosen = (self.selected_found().map(|found| found.path.clone()))
+            .filter(|_| prompt.is_some_and(crate::complete::Candidates::chosen));
         let Some((candidates, seen)) = self
             .prompts
             .last_mut()
@@ -317,10 +324,10 @@ impl Editor {
         let next = candidates.rebuilt(built.items, built.order, built.matched);
         let before = std::mem::replace(candidates, next);
         *seen = revision;
-        if let Some(place) = built.kept.and_then(|index| candidates.place_of(index))
-            && place > 0
-            && !on_input
-        {
+        let moved_to = chosen.and_then(|path| built.found.iter().position(|f| f.path == path));
+        let kept = (built.kept.filter(|_| !on_input)).and_then(|index| candidates.place_of(index));
+        let place = moved_to.and_then(|index| candidates.place_of(index));
+        if let Some(place) = place.or(kept.filter(|&place| place > 0)) {
             candidates.select(place);
         }
         let found = std::mem::replace(&mut self.file_list.found, built.found);
@@ -400,8 +407,9 @@ impl Editor {
     }
 
     /// What `RET`, or `M-RET` with `typed`, gives in a prompt that reads a path, if the innermost
-    /// one does: a selected directory is gone into, as there is no directory editor, a selected
-    /// file gives its whole path, and what is typed gives the path it names as it is.
+    /// one does: a selected directory is gone into, a selected file gives its whole path, and
+    /// what is typed gives the path it names as it is, as it does when selected for naming a
+    /// directory, which `C-x C-f` then lists (ADR 0141).
     pub(super) fn submit_path(&mut self, typed: bool) -> Option<Result<(), PromptError>> {
         if !self.reads_path() {
             return None;
@@ -451,7 +459,8 @@ impl Editor {
         Some(self.give_answer(answer))
     }
 
-    /// The directory oso started in, which a buffer with no file starts a path from.
+    /// The directory oso started in, which a buffer that stands nowhere else stands in
+    /// ([`Editor::default_directory`]).
     pub fn start_directory(&self) -> &Path {
         &self.start_directory
     }

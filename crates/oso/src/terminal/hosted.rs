@@ -59,6 +59,10 @@ pub(crate) struct Hosted {
     pub noted: Marks,
     /// What was typed or pasted while the shell is found, sent once it starts.
     pub waiting: Vec<ToProgram>,
+    /// The directory it started in, where a terminal or a session started from it starts:
+    /// what its program says of its directory (OSC 7) moves only where a prompt for a path
+    /// starts, which the person sees (ADR 0141). `None` for one carried over a restart.
+    pub started_in: Option<std::path::PathBuf>,
 }
 
 impl Hosted {
@@ -80,6 +84,7 @@ impl Hosted {
             note_stale: false,
             noted: Marks::default(),
             waiting: Vec::new(),
+            started_in: None,
         }
     }
 

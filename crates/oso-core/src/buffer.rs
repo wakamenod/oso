@@ -191,6 +191,9 @@ pub struct Buffer {
     own_spelling: Option<PathBuf>,
     /// The project its file is in, once the host has found it (ADR 0114).
     project: Option<crate::project::ProjectId>,
+    /// The directory it stands in when no file, listing or project says one (ADR 0141): the
+    /// one it was made in, or the one the host gave it, as Emacs's `default-directory`.
+    directory: Option<PathBuf>,
     /// Changes whenever the name or the path does, so that what is kept of them elsewhere,
     /// such as an emergency entry, can tell (ADR 0062, ADR 0087).
     naming: u32,
@@ -282,6 +285,7 @@ impl Buffer {
             copy_waits: false,
             own_spelling: None,
             project: None,
+            directory: None,
             naming: 0,
             recovery: None,
             saving: false,

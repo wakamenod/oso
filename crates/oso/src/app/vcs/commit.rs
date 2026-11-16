@@ -163,6 +163,7 @@ impl App {
         let mut buffer = Buffer::from_text(name, &text);
         buffer.set_mode(Mode::GitCommit);
         let id = self.editor.add_buffer(buffer);
+        self.stand_in_root(id, project);
         self.editor.show(id);
         self.gits.commits.drafts.push(Draft {
             buffer: id,

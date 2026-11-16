@@ -382,8 +382,20 @@ impl App {
         if let Some(buffer) = self.editor.buffer_mut(log) {
             buffer.withhold_from_agents();
         }
+        self.stand_in_root(log, project);
         self.gits.commits.repos[index].log = Some(log);
         log
+    }
+
+    /// `buffer`, made for `project`, stands in its root, as its status does (ADR 0141).
+    pub(super) fn stand_in_root(&mut self, buffer: BufferId, project: ProjectId) {
+        if let Some(root) = self
+            .editor
+            .project(project)
+            .map(|found| found.root().to_path_buf())
+        {
+            self.editor.set_buffer_directory(buffer, root);
+        }
     }
 
     pub(super) fn project_name(&self, project: ProjectId) -> String {

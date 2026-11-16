@@ -11,7 +11,7 @@ use oso_term::Event;
 
 use super::super::App;
 use super::{HIDDEN_PACE, reads_a_password};
-use crate::terminal::hosted;
+use crate::terminal::{directory, hosted};
 
 impl App {
     /// A terminal's thread has a snapshot ready: the next frame takes it. A terminal no window
@@ -68,7 +68,9 @@ impl App {
         let mut said = Vec::new();
         let mut secret = Vec::new();
         let mut reported = Vec::new();
+        let mut moved = Vec::new();
         let mut again = false;
+        let host = self.terminals.host_name.as_deref();
         for (id, hosted) in self.terminals.map.iter_mut() {
             if !hosted.ready {
                 continue;
@@ -107,9 +109,9 @@ impl App {
                         "{lines} lines not pasted: the program turned bracketed paste off"
                     )),
                     Event::Progress(progress) => hosted.progress = Some(progress),
+                    Event::Directory(sent) => moved.extend(directory_of(id, buffer, &sent, host)),
                     // Step 6 and after (ADR 0120).
                     Event::Bell
-                    | Event::Directory(_)
                     | Event::Notification { .. }
                     | Event::Prompt(_)
                     | Event::ClipboardWrite(_) => {}
@@ -122,11 +124,10 @@ impl App {
                 terminal.recycle(snapshot);
             }
         }
-        for (id, end) in ended {
-            self.editor.set_running(id, false);
-            // A hosted session's end, which its modeline says differently (ADR 0121).
-            self.session_terminal_ended(id, &end);
+        for (id, directory) in moved {
+            self.editor.set_buffer_directory(id, directory);
         }
+        self.terminals_ended(ended);
         // A password prompt is a secret from the snapshot on: secure input, the log and the
         // input method follow at once, between events (ADR 0120, Q17).
         for (id, echo_off) in &secret {
@@ -152,6 +153,15 @@ impl App {
         again
     }
 
+    /// The programs of the terminals `ended` ended, each as it says.
+    fn terminals_ended(&mut self, ended: Vec<(BufferId, oso_term::End)>) {
+        for (id, end) in ended {
+            self.editor.set_running(id, false);
+            // A hosted session's end, which its modeline says differently (ADR 0121).
+            self.session_terminal_ended(id, &end);
+        }
+    }
+
     /// Notes what a snapshot says of the work in terminal `id`: its job, and for a hosted
     /// session's (`None`), output, which holds an exit that waits for the terminals as long
     /// as a turn might still be under way, whatever its screen reads as (ADR 0133).
@@ -161,6 +171,21 @@ impl App {
             None => self.idle_quit.restart(),
         }
     }
+}
+
+/// The directory the program of terminal `id`, shown in `buffer`, says it is in with `sent`,
+/// if local, which a prompt for a path then starts at: a hosted session's terminal keeps the
+/// session's (ADR 0141). `host` is the machine's name.
+fn directory_of(
+    id: BufferId,
+    buffer: Option<&Buffer>,
+    sent: &str,
+    host: Option<&str>,
+) -> Option<(BufferId, std::path::PathBuf)> {
+    if buffer.is_none_or(Buffer::hosts_session) {
+        return None;
+    }
+    Some((id, directory::local(sent, host)?))
 }
 
 /// What `snapshot` says of the terminal in `buffer`: whether its program reads a password,

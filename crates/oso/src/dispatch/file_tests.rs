@@ -100,11 +100,71 @@ fn ret_on_a_directory_goes_into_it() {
     send(&mut d, &mut editor, "p l RET");
     serve(&mut editor, TREE);
     assert_eq!(rows(&editor), ["q3.md"]);
-    send(&mut d, &mut editor, "RET");
+    // The directory gone into is selected as typed: `C-n` goes to its first name.
+    send(&mut d, &mut editor, "C-n RET");
     assert_eq!(
         editor.take_visits()[0].0,
         PathBuf::from("/notes/plans/q3.md")
     );
+}
+
+#[test]
+fn ret_on_the_directory_typed_lists_it() {
+    // `C-x C-f RET` lists the buffer's directory, as Emacs's dired does (ADR 0141).
+    let (mut d, mut editor) = on_notes();
+    send(&mut d, &mut editor, "C-x C-f");
+    serve(&mut editor, TREE);
+    send(&mut d, &mut editor, "RET");
+    assert!(editor.prompt().is_none());
+    assert!(editor.take_visits().is_empty());
+    let requests = editor.take_listing_requests();
+    let [oso_core::editor::ListingRequest::Open { directory, point }] = &requests[..] else {
+        panic!("{requests:?}");
+    };
+    assert_eq!(directory, Path::new("/notes"));
+    assert!(point.is_none());
+    // After `p l RET`, `RET` lists `plans`.
+    send(&mut d, &mut editor, "C-x C-f");
+    serve(&mut editor, TREE);
+    send(&mut d, &mut editor, "p l RET");
+    serve(&mut editor, TREE);
+    send(&mut d, &mut editor, "RET");
+    let requests = editor.take_listing_requests();
+    let [oso_core::editor::ListingRequest::Open { directory, .. }] = &requests[..] else {
+        panic!("{requests:?}");
+    };
+    assert_eq!(directory, Path::new("/notes/plans"));
+}
+
+#[test]
+fn a_buffer_with_no_file_starts_where_it_was_made_or_where_oso_started() {
+    let (mut d, mut editor) = on_notes();
+    // `*Help*` made beside `a.md` stands in `/notes`, as Emacs's buffers take the current one's.
+    let made = editor.add_buffer(Buffer::from_text("*Help*", "x"));
+    editor.show(made);
+    send(&mut d, &mut editor, "C-x C-f");
+    assert_eq!(prompt_text(&editor), "/notes/");
+    send(&mut d, &mut editor, "C-g");
+    // `*scratch*`, made before any file, stands where oso started.
+    let mut editor = Editor::default();
+    editor.set_start_directory(PathBuf::from("/notes/plans"));
+    send(&mut d, &mut editor, "C-x C-f");
+    assert_eq!(prompt_text(&editor), "/notes/plans/");
+}
+
+#[test]
+fn a_terminal_starts_where_its_program_said_it_is() {
+    let (mut d, mut editor) = on_notes();
+    let terminal = editor.add_terminal_buffer("*terminal*");
+    editor.set_buffer_directory(terminal, PathBuf::from("/notes/plans"));
+    editor.show(terminal);
+    send(&mut d, &mut editor, "C-x C-f");
+    assert_eq!(prompt_text(&editor), "/notes/plans/");
+}
+
+fn prompt_text(editor: &Editor) -> String {
+    let id = editor.prompt().unwrap().buffer();
+    editor.buffer(id).unwrap().text().to_string()
 }
 
 #[test]
@@ -121,10 +181,8 @@ fn a_file_open_already_shows_its_buffer() {
     let (mut d, mut editor) = on_notes();
     let other = editor.add_buffer(Buffer::from_text("other", "x"));
     editor.show(other);
-    // A buffer with no file starts the path where oso started, `/` here.
+    // A buffer with no file starts the path where it was made, `/notes` here (ADR 0141).
     send(&mut d, &mut editor, "C-x C-f");
-    serve(&mut editor, TREE);
-    send(&mut d, &mut editor, "n o t e s /");
     serve(&mut editor, TREE);
     send(&mut d, &mut editor, "a . m d RET");
     assert!(editor.take_visits().is_empty());
