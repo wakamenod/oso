@@ -22,7 +22,7 @@ use super::super::App;
 use super::runs::RUNNING;
 use crate::vcs::layout::{Built, Section};
 use crate::vcs::run::RunRequest;
-use crate::vcs::sequence::{self, Doing, Step, Want};
+use crate::vcs::sequence::{self, Step, Want};
 
 /// A skip or an abort waiting for the `y` to the question `prompt`, asked over the status
 /// `status`.
@@ -123,19 +123,10 @@ impl App {
     /// Whether `built` shows a merge, rebase, pick, revert or `git am` stopped, said in the echo
     /// area: what the commit menu and a pull are refused for (Q6).
     pub(super) fn refused_while_stopped(&mut self, built: &Built) -> bool {
-        let Some(stop) = built
-            .stop
-            .as_ref()
-            .filter(|stop| stop.doing != Doing::Bisect)
-        else {
+        let Some(why) = sequence::stopped_refusal(built.stop.as_ref()) else {
             return false;
         };
-        self.editor.message(format!(
-            "A {} is stopped here: {} continues it, {} aborts it",
-            stop.doing.noun(),
-            Step::Continue.key(),
-            Step::Abort.key()
-        ));
+        self.editor.message(why);
         true
     }
 }

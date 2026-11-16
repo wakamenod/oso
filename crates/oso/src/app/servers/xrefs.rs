@@ -28,7 +28,8 @@ use oso_core::minibuffer::PromptId;
 use oso_lsp::server::{AskKind, Location};
 
 use super::super::{App, UserEvent};
-use super::places::{Asker, column, line_and_column};
+use super::asks::Asker;
+use super::places::{column, line_and_column};
 
 /// How long a list waits for its rows before it opens without them (step 8's Q4).
 pub(super) const OPEN_AFTER: Duration = Duration::from_secs(1);
@@ -111,7 +112,8 @@ impl App {
         }
         let kind = match kind {
             AskKind::Definition => XrefKind::Definitions,
-            AskKind::References => XrefKind::References,
+            // Completions are no places; they never come here.
+            AskKind::References | AskKind::Completion => XrefKind::References,
         };
         if let Some(old) = self.servers.xrefs.stop() {
             self.freer.free(old);

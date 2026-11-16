@@ -58,10 +58,12 @@ impl Editor {
             return Err(PromptError::TooDeep);
         }
         // A prompt over a search ends it, as a key it does not bind does (ADR 0082), and so
-        // it does query-replace (ADR 0113) and a jump, with nothing moved (ADR 0116).
+        // it does query-replace (ADR 0113), a jump, with nothing moved (ADR 0116), and the
+        // completion popup (ADR 0138).
         self.isearch_abandon();
         self.replace_abandon();
         self.jump_end();
+        self.close_completion_popup();
         let depth = self.prompts.len() + 1;
         let from_agent = self.runs_for_agent();
         let mut label = label.into();

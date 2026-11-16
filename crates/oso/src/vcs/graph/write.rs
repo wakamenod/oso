@@ -19,7 +19,7 @@ use oso_core::load::{Builder, LoadSnapshot};
 use oso_core::syntax::{Highlight, Highlights};
 
 use super::lanes::Cell;
-use super::{Commit, Kind, MAX_COMMITS};
+use super::{Commit, Kind, Label, MAX_COMMITS};
 use crate::dired::rows::{decoded_len, push_name};
 
 /// The faces of the lanes, in turn.
@@ -40,19 +40,79 @@ pub(crate) const MAX_LABELS: usize = 32;
 /// The note a graph cut at [`MAX_COMMITS`] ends with (Q4).
 pub(crate) const MORE_NOTE: &str = "more: a narrower scope (l o) shows them";
 
+/// A commit as a line of the graph's table keeps it, for what keys ask of it (step 4b).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LineCommit {
+    pub(crate) id: String,
+    pub(crate) short: String,
+    /// Its refs, at most [`MAX_LABELS`].
+    pub(crate) labels: Vec<Label>,
+    /// Whether it has more than one parent.
+    pub(crate) merge: bool,
+}
+
+impl LineCommit {
+    /// The branches on its line `c` may check out, each with whether it is a remote's: local
+    /// and remote labels whose names the push's filter takes, not tags or `HEAD`.
+    pub(crate) fn branches(&self) -> Vec<(String, bool)> {
+        (self.labels.iter())
+            .filter(|label| matches!(label.kind, Kind::Local | Kind::Remote))
+            .filter(|label| crate::vcs::remote::check_branch(&label.name).is_ok())
+            .map(|label| (label.name.clone(), label.kind == Kind::Remote))
+            .collect()
+    }
+}
+
 /// What a graph's text shows, kept with it so that a line can be told back into its commit.
 #[derive(Debug, Default)]
 pub(crate) struct Built {
-    /// Each line's commit's full id; `None` for a line of no commit.
-    pub(crate) lines: Vec<Option<String>>,
+    /// Each line's commit; `None` for a line of no commit.
+    pub(crate) lines: Vec<Option<LineCommit>>,
     /// Whether a page can still be read: git has more, and the graph is short of its most.
     pub(crate) more: bool,
 }
 
 impl Built {
     /// The full id of the commit on `line`, if it is one's.
+    #[cfg(test)]
     pub(crate) fn commit_at(&self, line: usize) -> Option<&str> {
-        self.lines.get(line)?.as_deref()
+        self.line(line).map(|line| line.id.as_str())
+    }
+
+    /// The commit on `line`, if it is one's.
+    pub(crate) fn line(&self, line: usize) -> Option<&LineCommit> {
+        self.lines.get(line)?.as_ref()
+    }
+
+    /// The line of the commit `id`, if the graph shows it.
+    pub(crate) fn line_of(&self, id: &str) -> Option<usize> {
+        (self.lines.iter()).position(|line| line.as_ref().is_some_and(|line| line.id == id))
+    }
+
+    /// The commits `marks` names that the graph shows, each its id and short id, oldest first:
+    /// a graph's lower lines first, which `--topo-order` puts after what came of them.
+    pub(crate) fn oldest_first(&self, marks: &[String]) -> Vec<(String, String)> {
+        let mut shown: Vec<(usize, String, String)> = (marks.iter())
+            .filter_map(|id| {
+                let at = self.line_of(id)?;
+                Some((at, id.clone(), self.line(at)?.short.clone()))
+            })
+            .collect();
+        shown.sort_by_key(|(at, _, _)| std::cmp::Reverse(*at));
+        shown
+            .into_iter()
+            .map(|(_, id, short)| (id, short))
+            .collect()
+    }
+
+    /// The range between the two commits `marks` names, `OLDER..NEWER` as `review-range` reads
+    /// it; `None` unless there are two the graph shows.
+    pub(crate) fn range(&self, marks: &[String]) -> Option<String> {
+        let ordered = self.oldest_first(marks);
+        match (marks.len(), ordered.as_slice()) {
+            (2, [(older, _), (newer, _)]) => Some(format!("{older}..{newer}")),
+            _ => None,
+        }
     }
 }
 
@@ -69,13 +129,13 @@ pub(crate) struct Text {
     bytes: Vec<u8>,
     len: usize,
     runs: Vec<(usize, Option<Highlight>)>,
-    ids: Vec<String>,
+    lines: Vec<LineCommit>,
 }
 
 impl Text {
     /// How many rows are written.
     pub(crate) fn rows(&self) -> usize {
-        self.ids.len()
+        self.lines.len()
     }
 
     /// Writes the row of `commit`, with its lane `cells` and its `date`.
@@ -110,7 +170,12 @@ impl Text {
         author.extend_from_slice(date.as_bytes());
         self.part(&author, Some(Highlight::GitDetail));
         self.part(b"\n", None);
-        self.ids.push(commit.id.clone());
+        self.lines.push(LineCommit {
+            id: commit.id.clone(),
+            short: commit.short.clone(),
+            labels: commit.labels.iter().take(MAX_LABELS).cloned().collect(),
+            merge: commit.parents.len() > 1,
+        });
     }
 
     /// The whole text under the heading `title`; `more` if git has more commits, which a note
@@ -138,7 +203,7 @@ impl Text {
         highlights.replace(0..len, runs.collect::<Vec<_>>());
         let mut lines = Vec::with_capacity(self.rows() + 2);
         lines.push(None);
-        lines.extend(self.ids.iter().cloned().map(Some));
+        lines.extend(self.lines.iter().cloned().map(Some));
         if more && full {
             lines.push(None);
         }

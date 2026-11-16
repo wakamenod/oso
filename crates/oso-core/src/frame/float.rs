@@ -1,6 +1,7 @@
-//! Where a float goes over the frame: a prompt's panel at the top of the tiled window, and a
-//! completion's list centred in it, both on the window's gutter and text together, so that
-//! line numbers never move one (ADR 0072, ADR 0075, ADR 0076, ADR 0097).
+//! Where a float goes over the frame: a prompt's panel at the top of the tiled window and a
+//! completion's list centred in it, both on the window's gutter and text together, so that line
+//! numbers never move one (ADR 0072, ADR 0075, ADR 0076, ADR 0097); and a float at point under
+//! or over the cursor's row, in the window's text area (ADR 0138).
 //!
 //! Must not depend on: `editor`, `command`, or any GPU or window-system type.
 
@@ -11,8 +12,8 @@ use super::{CellRect, FrameLayout};
 pub struct FloatRegions {
     /// All of it: the cells its panel covers, padding included.
     pub outer: CellRect,
-    /// What it shows, inside the padding: the label's rows, the gap and the answer's row.
-    /// The same as `outer` where no padding fits.
+    /// What it shows, inside the padding: the label's rows, the gap and the answer's row, or
+    /// a float at point's rows ([`at_point`]). The same as `outer` where no padding fits.
     pub inner: CellRect,
     /// Whether a row of padding goes right above the answer's row: between the label and the
     /// answer, or at the top of a completion's float.
@@ -132,6 +133,64 @@ pub(crate) fn completion_regions(
     }
 }
 
+/// Where a float at point goes in `area`, a window's text area (ADR 0138: the completion popup,
+/// step 9, and hover, step 10): `rows` rows and `columns` columns of text, with a column of
+/// padding on each side, its text's left edge at `anchor`'s column, moved left as far as `area`
+/// needs. It goes below the anchor's row, or above it when fewer rows fit below than above,
+/// and never covers that row; rows and columns are cut to the room. `None` when nothing fits,
+/// or the anchor is outside `area`. `candidates` and `preview` are empty.
+pub(crate) fn at_point(
+    area: CellRect,
+    (anchor_row, anchor_column): (usize, usize),
+    (rows, columns): (usize, usize),
+) -> Option<FloatRegions> {
+    let inside = |at: usize, start: usize, len: usize| at >= start && at < start + len;
+    if !inside(anchor_row, area.row, area.rows) || !inside(anchor_column, area.column, area.columns)
+    {
+        return None;
+    }
+    let below = area.row + area.rows - (anchor_row + 1);
+    let above = anchor_row - area.row;
+    let (row, rows) = if below >= rows || below >= above {
+        (anchor_row + 1, rows.min(below))
+    } else {
+        let rows = rows.min(above);
+        (anchor_row - rows, rows)
+    };
+    // The text and a column of padding on each side, as wide as the area lets it be.
+    let width = (columns + 2).min(area.columns);
+    if rows == 0 || width < 3 {
+        return None;
+    }
+    let column = anchor_column
+        .saturating_sub(1)
+        .min(area.column + area.columns - width)
+        .max(area.column);
+    let outer = CellRect {
+        row,
+        column,
+        rows,
+        columns: width,
+    };
+    let inner = CellRect {
+        column: column + 1,
+        columns: width - 2,
+        ..outer
+    };
+    let none = CellRect {
+        rows: 0,
+        columns: 0,
+        ..inner
+    };
+    Some(FloatRegions {
+        outer,
+        inner,
+        gap: false,
+        candidates: none,
+        preview: none,
+    })
+}
+
 /// The columns of a float that takes `share` of `total` of the text area's `columns`, at least
 /// 40, and never closer than 2 to an edge.
 fn float_columns(columns: usize, share: usize, total: usize) -> usize {
@@ -194,3 +253,6 @@ fn answer_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
         },
     }
 }
+
+#[cfg(test)]
+mod tests;

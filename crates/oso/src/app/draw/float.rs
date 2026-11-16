@@ -1,6 +1,6 @@
 //! The panes of an open prompt's float: its panel, what it says, the answer or a
 //! question's keys, a message, and a list's candidates and count (ADR 0072, ADR 0075,
-//! ADR 0076).
+//! ADR 0076); and the completion popup at point's (`popup`, ADR 0138).
 //!
 //! Must not depend on: key presses or commands; a frame only reads the editor's state.
 //!
@@ -21,6 +21,7 @@ use oso_render::{
     TextView,
 };
 
+pub(super) mod popup;
 mod preview;
 mod row;
 

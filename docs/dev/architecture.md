@@ -340,7 +340,7 @@ A panicking command is caught at the command boundary
   ([ADR 0127](adr/0127-source-control-and-github.md)) and in a terminal, whose keymap holds session
   mode's keys too in a terminal that hosts an agent session ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)), with the user's
   `[keys.session]` as a minor mode layer above it there, the `lsp` minor mode layer in a buffer a
-  language server follows (`C-M-n`, `C-M-p`, `M-g d`, `M-.`, `M-?`, [ADR 0138](adr/0138-language-servers.md)), and a layer for the user's keys, which
+  language server follows (`C-M-n`, `C-M-p`, `M-g d`, `M-.`, `M-?`, `C-M-i`, [ADR 0138](adr/0138-language-servers.md)), above it while one is open the layer of `C-x TAB` or the completion popup's, which any other command closes, and a layer for the user's keys, which
   the configuration file fills ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
   take the global layer's place, so that no other key reaches a command. While a jump is on, its
   keymap comes before every other but a question's ([ADR 0116](adr/0116-migemo-and-jumps.md)).
@@ -517,9 +517,11 @@ text command. The PTY is `oso-platform::process::pty`, spawned through the
 process module's rules ([ADR 0015](adr/0015-terminal.md),
 [ADR 0120](adr/0120-the-terminal.md)).
 
-The minibuffer, completion popups and hover documentation are buffers shown in
-floating windows, and editing commands work inside them unchanged. See
-[ADR 0008](adr/0008-floating-ui.md). A menu (hydra/transient-style) is a float with no window or
+The minibuffer and hover documentation are buffers shown in floating windows, and editing
+commands work inside them unchanged. See [ADR 0008](adr/0008-floating-ui.md). The completion popup
+at point is no buffer: it is the editor's state of a server's items, drawn as a float under or
+over the cursor's row, and typing goes on into the buffer beneath
+([ADR 0138](adr/0138-language-servers.md), step 9). A menu (hydra/transient-style) is a float with no window or
 buffer, whose heads act on the window beneath ([ADR 0117](adr/0117-menus.md)). The open menus are
 the dispatcher's, a stack over the set the first came from, and their keys come first while one
 is open; the app draws the one on top over the tiled panes. A command never
@@ -673,7 +675,9 @@ The UI thread never blocks on I/O or parsing:
   `vcs/graph/lanes.rs` lays out the lanes, a pure function, `vcs/graph/write.rs` the text, and
   `vcs/graph/work.rs` runs the reads, a page at a time, on `oso-vcs-graph`, one thread per graph
   buffer; `app/vcs/graph.rs` keeps the buffers, asks the next page as point nears the end and
-  carries out the keys.
+  carries out the keys, and `app/vcs/graph/acts.rs` what they do with a commit (step 4b): its
+  tags, picks and reverts run on `oso-vcs-run` (`vcs/run/graph.rs`), its checkouts and branches
+  through the branches' runs.
 - Stashes and branches (step 3b): `vcs/stash.rs` reads the stash list into the Stashes section
   and `vcs/branch.rs` holds what branches need that runs no git; `vcs/run/stash.rs` and
   `vcs/run/branch.rs` run them on `oso-vcs-run`, finding a stash again by its id and planning a

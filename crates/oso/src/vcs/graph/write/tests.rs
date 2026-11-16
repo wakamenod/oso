@@ -132,3 +132,56 @@ fn a_row_s_labels_are_counted_past_their_most_and_names_escaped() {
     assert_eq!(shown.lines().count(), 2, "{shown:?}");
     assert!(!row.contains('\r'), "{row:?}");
 }
+
+#[test]
+fn a_line_offers_its_branches_and_marks_order_oldest_first() {
+    use super::super::Label;
+    let labels = vec![
+        Label {
+            kind: Kind::Head,
+            name: "HEAD".into(),
+        },
+        Label {
+            kind: Kind::Local,
+            name: "main".into(),
+        },
+        Label {
+            kind: Kind::Remote,
+            name: "origin/main".into(),
+        },
+        Label {
+            kind: Kind::Tag,
+            name: "v1".into(),
+        },
+        Label {
+            kind: Kind::Local,
+            name: "-x".into(),
+        },
+    ];
+    let laid = text(vec![
+        commit(1, &[2], labels, b"newest"),
+        commit(2, &[3], Vec::new(), b"middle"),
+        commit(3, &[], Vec::new(), b"oldest"),
+    ])
+    .laid("Commits", false);
+    let built = &laid.built;
+    let branches = built.line(1).unwrap().branches();
+    assert_eq!(
+        branches,
+        [("main".to_owned(), false), ("origin/main".to_owned(), true)]
+    );
+    let id = |n: u8| format!("{n:x}").repeat(40);
+    let marks = vec![id(1), id(3), id(2)];
+    let ordered: Vec<String> = built
+        .oldest_first(&marks)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    assert_eq!(ordered, [id(3), id(2), id(1)]);
+    assert_eq!(
+        built.range(&[id(1), id(3)]).as_deref(),
+        Some(format!("{}..{}", id(3), id(1)).as_str())
+    );
+    assert_eq!(built.range(&[id(1)]), None);
+    assert_eq!(built.range(&[id(1), "9".repeat(40)]), None);
+}

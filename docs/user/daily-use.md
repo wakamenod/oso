@@ -69,7 +69,10 @@ until `M-x lsp-start`, and untrusting the project stops it. In a buffer a server
 keeps its own history. With several definitions, and for `M-?`, the references, a list opens,
 each row `path:line: text` with a preview of its place; `RET` goes there. A file outside any
 project that they lead to, such as the standard library's, joins the server until its buffer is
-killed. The rest comes in later steps.
+killed. `C-M-i` completes the word before point in a popup under it, as Corfu does: typing
+narrows it, `C-n` and `C-p` move (from the last back to the first), `TAB` inserts, `RET`
+inserts once you have moved, and `C-g` or any other key closes it. The rest comes in later
+steps.
 
 A server can be changed in `config.toml`:
 
@@ -386,13 +389,16 @@ project must be trusted.
 | `z` | The stash menu: `z` stash, `a` apply, `p` pop, `k` drop the stash at point; `- u` takes untracked files |
 | `b` | The branch menu: `b` check out, `c` make and check out, `n` make, `m` rename, `k` delete |
 | `l` | The log menu: `l` the graph of the branch, `a` of every ref, `o` of another; `C-x v l` from anywhere |
-
-In the graph, `RET` reviews the commit at point, `w` copies its id, `a` shows every ref or the
-branch again, `g` reads it again, `n` and `p` move a line, and `q` leaves it.
 | `f u` / `f a` | Fetch the upstream's remote, or every remote |
 | `RET` | Visit the file, or review the commit at point |
 | `$` | Show what git's runs wrote; `C-g` stops one |
 | `g` / `q` / `?` | Read it again, leave it, list the keys |
+
+In the graph, `RET` reviews the commit at point, `w` copies its id, `a` shows every ref or the
+branch again, `g` reads it again, `n` and `p` move a line, and `q` leaves it. `m` marks a commit,
+and `RET` with two marked reviews the range; `c` checks out the branch on the line, `b` makes a
+branch there, `t` a tag, `C` cherry-picks the marked commits or the one at point, and `V`
+reverts it, asking first where it matters.
 
 When a merge or a rebase stops on a conflict, the status says so under its head and lists the
 files under Unmerged paths: resolve each, `s` stages it, and `C-c C-c` goes on. Commits run the

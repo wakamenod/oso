@@ -31,6 +31,7 @@ mod messages;
 mod minibuffer;
 mod modes;
 mod motion;
+mod popup;
 mod prefix;
 mod projects;
 mod recovery;
@@ -96,6 +97,7 @@ const TABLES: &[&[Command]] = &[
     jump::COMMANDS,
     kill::COMMANDS,
     lsp::COMMANDS,
+    popup::COMMANDS,
     macros::COMMANDS,
     mark::COMMANDS,
     menus::COMMANDS,
@@ -305,6 +307,12 @@ mod tests {
         "review-fold-agents",
         // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
         "consult-mark",
+        // The completion popup is a float for the keyboard (ADR 0138, step 9).
+        "completion-at-point",
+        "completion-popup-insert",
+        "completion-popup-next",
+        "completion-popup-previous",
+        "completion-popup-quit",
         // Opening and writing files by a path the person typed (ADR 0087); the channel has
         // its own `open`. `dired` reads its directory in the same prompt, and the listing's
         // commands that open a file, show a buffer or write the clipboard do so in the host,
@@ -468,11 +476,22 @@ mod tests {
         // The graph, which runs git, opens reviews and writes the clipboard (step 4).
         "git-graph",
         "git-graph-all",
+        "git-graph-branch",
+        "git-graph-branch-name",
+        "git-graph-checkout",
+        "git-graph-cherry-pick",
+        "git-graph-confirmed",
         "git-graph-copy-id",
+        "git-graph-label",
+        "git-graph-mark",
         "git-graph-of",
         "git-graph-other",
         "git-graph-refresh",
+        "git-graph-revert",
         "git-graph-review",
+        "git-graph-tag",
+        "git-graph-tag-message",
+        "git-graph-tag-name",
         "git-graph-toggle-all",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",

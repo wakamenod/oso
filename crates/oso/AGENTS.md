@@ -58,10 +58,7 @@ often, so it must rebuild within 2 s.
   the server's thread. A server's diagnostics go into its buffers, and the message at point
   waits 300 ms there (`servers/diagnostics.rs`); its reports of files no buffer holds are kept
   there for `M-g d` and the agent channel's `diagnostics`, in one order
-  (`channel::diagnostics::ordered`); `M-g d`'s rows are built on `oso-diagnostics`
-  (`servers/diagnostics/rows.rs`). An answer's several places, and `M-?`'s references, are
-  listed (`servers/xrefs.rs`), their rows built on `oso-xrefs` (`servers/xrefs/rows.rs`), each
-  file's lines read by `grep/preview/lines.rs`. The fake server the tests run against is the dev-only binary
+  (`channel::diagnostics::ordered`); `M-g d`'s rows are built on `oso-diagnostics` (`servers/diagnostics/rows.rs`). An answer's several places, and `M-?`'s references, are listed (`servers/xrefs.rs`), their rows built on `oso-xrefs` (`servers/xrefs/rows.rs`), each file's lines read by `grep/preview/lines.rs`. `C-M-i`'s answer opens the completion popup (`servers/complete.rs`), whose keys are `commands/popup.rs` and `bindings/popup.rs` in the transient layer `dispatch/transient.rs` closes, drawn by `app/draw/float/popup.rs`. The fake server the tests run against is the dev-only binary
   `fake-lsp-server` (`tests/fake_lsp_server/`), which `just release-safety` keeps out of
   release builds.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a
@@ -114,7 +111,8 @@ often, so it must rebuild within 2 s.
   `run/branch`), with `app/vcs/stash.rs`, `app/vcs/branch.rs`, `commands::vcs::stash` and
   `commands::vcs::branch` (step 3b). The graph is `graph`'s: its records, `graph/lanes`, the
   text `graph/write` and its thread `graph/work`, `oso-vcs-graph`, with `app/vcs/graph.rs` and
-  `commands::vcs::graph` (step 4). Its keys are listed in `commands::vcs::KEYS` and
+  `commands::vcs::graph` (step 4); what its keys do with a commit is `app/vcs/graph/acts.rs`,
+  run on the run thread (`run/graph`) (step 4b). Its keys are listed in `commands::vcs::KEYS` and
   `commands::vcs::commit`, the commit menu is built in, and `bindings/vcs.rs` binds them;
   `app/vcs.rs` carries out what its commands ask, with `app/vcs/status.rs` (the status's own
   requests), `app/vcs/commit.rs` (messages) and `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,

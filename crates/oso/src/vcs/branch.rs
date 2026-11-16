@@ -1,5 +1,5 @@
-//! Branches from a git status (ADR 0127, step 3b): what checking out, creating, renaming and
-//! deleting ask for, run and say, what the prompts list, which worktree has a branch checked
+//! Branches from a git status (ADR 0127, step 3b), and a graph's detached checkout (step 4b):
+//! what checking out, creating, renaming and deleting ask for, run and say, what the prompts list, which worktree has a branch checked
 //! out, and the question before deleting one that is not merged.
 //!
 //! Must not depend on: `app`, `dispatch`, git or the file system; these are pure functions of
@@ -46,6 +46,8 @@ pub(crate) enum BranchRun {
     Rename { old: String, new: String },
     /// Delete `name`, with `-D` while it is still on `tip` if that is given.
     Delete { name: String, tip: Option<String> },
+    /// Check out the commit `id`, detached, from a graph after a question (step 4b).
+    Detach { id: String },
 }
 
 impl BranchRun {
@@ -56,7 +58,16 @@ impl BranchRun {
             Self::Create { name, .. } => format!("git branch {name}"),
             Self::Rename { old, .. } => format!("git branch --move {old}"),
             Self::Delete { name, .. } => format!("git branch --delete {name}"),
+            Self::Detach { id } => format!("git switch --detach {}", short(id)),
         }
+    }
+
+    /// Whether it moves `HEAD`: what is refused while something is stopped (Q6).
+    pub(crate) fn checks_out(&self) -> bool {
+        matches!(
+            self,
+            Self::Checkout { .. } | Self::Create { checkout: true, .. } | Self::Detach { .. }
+        )
     }
 
     /// What the echo area says once it went well.
@@ -67,12 +78,29 @@ impl BranchRun {
                 let start = (start.strip_prefix("refs/heads/"))
                     .or_else(|| start.strip_prefix("refs/remotes/"))
                     .unwrap_or(start);
-                format!("Made {name} at {start}")
+                // A whole id, as a graph gives it, reads as its short one.
+                let whole =
+                    matches!(start.len(), 40 | 64) && start.bytes().all(|b| b.is_ascii_hexdigit());
+                format!(
+                    "Made {name} at {}",
+                    if whole { short(start) } else { start }
+                )
             }
             Self::Rename { old, new } => format!("Renamed {old} to {new}"),
             Self::Delete { name, .. } => format!("Deleted {name}"),
+            Self::Detach { id } => format!("Checked out {}, detached", short(id)),
         }
     }
+}
+
+/// `id`'s first seven characters, as git's short ids read.
+fn short(id: &str) -> &str {
+    id.get(..7).unwrap_or(id)
+}
+
+/// What checking out the commit `id` runs, `HEAD` detached at it.
+pub(crate) fn detach_args(id: &str) -> Vec<String> {
+    vec!["switch".into(), "--detach".into(), id.into()]
 }
 
 /// The branches a prompt lists: the local ones, the remote ones (`REMOTE/BRANCH`, not

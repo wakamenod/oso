@@ -28,6 +28,13 @@ impl Documents {
         (kept.sent_revision() == Some(revision)).then_some((kept.uri.as_str(), &kept.text))
     }
 
+    /// The caller's revision of the text the server has of document `id`, and that text, if it
+    /// has it (step 9: a completion's ranges are placed against it).
+    pub(in crate::server) fn sent(&self, id: u64) -> Option<(u64, &Rope)> {
+        let kept = self.0.get(&id)?;
+        Some((kept.sent_revision()?, &kept.text))
+    }
+
     /// The documents whose text the server has, by path: each one's id, the caller's revision
     /// of that text, and the text.
     pub(in crate::server) fn sent_by_path(&self) -> HashMap<&Path, (u64, u64, &Rope)> {

@@ -1161,6 +1161,62 @@ fn a_definition_is_asked_at_its_position_and_placed_in_the_open_text() {
 }
 
 #[test]
+fn completions_are_asked_at_their_position_and_their_ranges_placed_in_the_open_text() {
+    use oso_lsp::server::{Answered, AskKind};
+    let dir = scratch("completion");
+    let here = oso_lsp::uri::from_path(&dir.join("a.rs")).unwrap();
+    let range = |line: u32, start: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}});
+    let script = asking(
+        json!([{"method": "textDocument/completion", "do": [{"reply": {
+            "isIncomplete": false,
+            "items": [
+                {"label": "émoji", "sortText": "2", "kind": 3, "textEdit": {"range": range(1, 4, 6), "newText": "émoji()"}},
+                {"label": "élan", "sortText": "1", "insertText": "élan(${1:x})", "insertTextFormat": 2},
+            ],
+        }}]}]),
+    );
+    let mut seen = started("completion", &script, open());
+    // `é` is one UTF-16 unit and two bytes.
+    opened(&mut seen, 1, &here, "fn a() {}\nlet ém\n");
+    let offset = "fn a() {}\nlet ém".len();
+    ask(&seen, AskKind::Completion, offset);
+    seen.until(LIMIT, |seen| {
+        !seen.answers.is_empty() && seen.logged("stderr: asked textDocument/completion")
+    });
+    assert!(
+        seen.logged("asked textDocument/completion 1:6"),
+        "{:?}",
+        seen.log
+    );
+    let answer = seen.answers.pop().unwrap();
+    let Answered::Completion(completions) = answer.outcome.unwrap() else {
+        panic!("completions")
+    };
+    assert_eq!(completions.revision, 7);
+    assert!(!completions.incomplete);
+    let first = &completions.items[0];
+    assert_eq!(
+        (first.label.as_str(), first.text.as_str()),
+        ("élan", "élan(x)")
+    );
+    assert_eq!(first.range, None);
+    let second = &completions.items[1];
+    let start = "fn a() {}\nlet ".len();
+    assert_eq!(
+        second.range,
+        Some(start..offset),
+        "in bytes of the open text"
+    );
+    assert_eq!(second.kind, Some(3));
+    assert!(seen.logged("answered with 2 completions"), "{:?}", seen.log);
+    assert!(
+        !seen.log.iter().any(|line| line.contains("émoji")),
+        "no item is logged"
+    );
+    seen.server.shut_down();
+}
+
+#[test]
 fn a_newer_ask_cancels_the_older_and_only_it_is_answered() {
     use oso_lsp::server::AskKind;
     let script = asking(json!([

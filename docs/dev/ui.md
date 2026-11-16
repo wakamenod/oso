@@ -551,7 +551,8 @@ status is read again after.
   the commits it would drop there, and `- n` skips the pre-push hook; then `p` pushes the branch
   to where git pushes it (`@{push}`), `u` to its upstream, and `e` elsewhere, read as
   `REMOTE/BRANCH`. With no push target or no upstream, a prompt asks for the remote, and `u`
-  sets the one picked as the upstream. Never a plain `--force`.
+  sets the one picked as the upstream. Never a plain `--force`. A plan that comes back once the person
+  has left the status, or opened another prompt, opens nothing and says to press `P` again.
 - `F u` pulls the upstream, fast-forward only; a branch gone apart from it is refused. With the
   pull menu's `- r` it rebases onto the upstream (`git pull --rebase`), and with `- m` merges
   it, a fast-forward when it can be and else a merge commit with git's message (`git pull
@@ -627,6 +628,13 @@ topological order, children before their parents, one row each (ADR 0127, step 4
   ref, read in a prompt over the branches, `HEAD` first, or any revision typed.
 - In a graph: `RET` reviews the commit at point, `w` copies its id, `a` shows every ref or the
   branch again, `g` reads it again, `n` and `p` move a line, `q` leaves it.
+- What a graph's keys do with a commit (step 4b): `m` marks it, and `RET` with two marked reviews
+  the range between them; `c` checks out the branch on its line, asking which if there are
+  several, or the commit, detached, after a question; `b` makes a branch there and `t` a tag,
+  `C-u t` an annotated one; `C` cherry-picks the marked commits, oldest first, or the one at
+  point, and `V` reverts it, each after a question. A merge's revert is refused. While
+  something is stopped, `c`, `C` and `V` are refused, and a pick or a revert that stops is the
+  status's to go on with.
 - It reads 2,000 commits at a time, the next as point nears the end, up to 50,000, then says a
   narrower scope shows the rest. At most 16 lanes are drawn, `┄` past them.
 

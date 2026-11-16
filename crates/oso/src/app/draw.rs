@@ -132,18 +132,8 @@ pub(super) fn with_frame<R>(
     let lines = float_spans.as_ref().map(|spans| spans.lines());
     let mut list: Vec<Pane<'_>> = reuse(std::mem::take(&mut cells.panes));
     tiled::panes(editor, &drawn, &mut list);
-    // The echo area has no background of its own, so that nothing marks the pixels left
-    // over below it (ADR 0057). It comes after the windows, so that no amount of text can
-    // take its place (ADR 0061).
-    list.push(Pane {
-        id: ECHO,
-        region: editor.frame().echo,
-        layer: Layer::TILED,
-        background: None,
-        panel: None,
-        bands: Bands::NONE,
-        content: PaneContent::Lines(&echo),
-    });
+    // After the windows, so that no amount of text can take its place (ADR 0061).
+    list.push(echo_pane(editor, &echo));
     let preview_fills = [
         (Face::SearchCurrent, &cells.preview_matches.current[..]),
         (Face::SearchMatch, &cells.preview_matches.others[..]),
@@ -155,6 +145,13 @@ pub(super) fn with_frame<R>(
             preview_fills: &preview_fills,
         };
         float::panes(editor, (parts, screens), lines, &mut list);
+    }
+    // The completion popup at point goes over the tiled panes too (ADR 0138, step 9).
+    let popup = tiled::selected_screen(editor, &cells.windows)
+        .and_then(|screen| float::popup::PopupSpans::of(editor, screen));
+    let popup_lines = popup.as_ref().map(float::popup::PopupSpans::lines);
+    if let (Some(popup), Some(lines)) = (&popup, &popup_lines) {
+        popup.panes(editor, lines, &mut list);
     }
     // A menu never shows with a prompt, which closes it (ADR 0117, Q20).
     let menu_open = open_menu.filter(|_| menu_shown).map(OpenMenu::open);
@@ -176,6 +173,20 @@ pub(super) fn with_frame<R>(
     tiled::give_back_spans(&mut room, spans);
     cells.room = room;
     result
+}
+
+/// The echo area's pane, showing `echo`. It has no background of its own, so that nothing marks
+/// the pixels left over below it (ADR 0057).
+fn echo_pane<'a>(editor: &Editor, echo: &'a [&'a [Span<'a>]]) -> Pane<'a> {
+    Pane {
+        id: ECHO,
+        region: editor.frame().echo,
+        layer: Layer::TILED,
+        background: None,
+        panel: None,
+        bands: Bands::NONE,
+        content: PaneContent::Lines(echo),
+    }
 }
 
 /// Every terminal a window shows, its rows once however many windows show it, into `rows`,

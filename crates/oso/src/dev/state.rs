@@ -35,6 +35,7 @@ use serde_json::{Value, json};
 
 use super::Reply;
 
+mod popup;
 mod text;
 use crate::channel::state::slice;
 pub use text::get_text;
@@ -96,6 +97,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
             .collect::<Vec<_>>(),
         "keys": { "pending": keys_shown.then(|| display_keys(pending).to_string()) },
         "prompts": prompts_state(editor),
+        "popup": popup::popup_state(editor),
         "isearch": isearch_state(editor),
         "jump": jump_state(editor),
         "replace": replace_state(editor),
@@ -781,6 +783,7 @@ mod tests {
                 "keys": { "pending": "" },
                 "kill_ring": { "entries": 0, "newest": null },
                 "prompts": [],
+                "popup": null,
                 "isearch": null,
                 "jump": null,
                 "replace": null,
