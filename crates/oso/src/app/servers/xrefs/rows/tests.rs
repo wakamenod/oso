@@ -258,3 +258,17 @@ fn a_place_whose_path_is_not_utf_8_or_too_long_gives_no_row() {
     let rows = build(&snapshot, leads, &|| true).unwrap();
     assert_eq!(texts(editor, rows), ["ok.rs:1:"]);
 }
+
+#[cfg(windows)]
+#[test]
+fn a_path_under_the_root_or_the_home_is_spelled_with_slashes_on_windows() {
+    let (root, home) = (Path::new(r"C:\w\oso"), Some(Path::new(r"C:\h")));
+    assert_eq!(
+        &*shown_path(Path::new(r"C:\w\oso\src\a.rs"), root, home),
+        "src/a.rs"
+    );
+    assert_eq!(
+        &*shown_path(Path::new(r"C:\h\.cargo\c.rs"), root, home),
+        "~/.cargo/c.rs"
+    );
+}

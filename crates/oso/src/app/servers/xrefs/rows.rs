@@ -16,7 +16,7 @@
 //! - A row shows at most [`ROW_TEXT_BYTES`] of its line, its leading blanks left out, each
 //!   invalid byte one U+FFFD.
 //! - A path is shown from the server's root, or whole with the home directory as `~/`, as the
-//!   buffer list shows it.
+//!   buffer list shows it, spelled with `/` there on every system, as the project search's rows.
 //! - A newer list or the list's end stops the build, between files and within one.
 
 use std::collections::HashMap;
@@ -252,18 +252,25 @@ fn reached_from<'a>(path: &'a Path, root: &'a Path) -> Option<(&'a Path, &'a Pat
     }
 }
 
-/// `path` as a row shows it: from `root`, or whole with `home` as `~`.
+/// `path` as a row shows it: from `root`, or whole with `home` as `~`. A path from either is
+/// spelled with `/` on every system, as the project search's rows are.
 fn shown_path(path: &Path, root: &Path, home: Option<&Path>) -> Box<str> {
+    let slashed = |relative: &Path| {
+        let relative = relative.to_string_lossy().into_owned();
+        #[cfg(windows)]
+        let relative = relative.replace('\\', "/");
+        relative
+    };
     if let Ok(relative) = path.strip_prefix(root)
         && relative.file_name().is_some()
     {
-        return relative.to_string_lossy().into();
+        return slashed(relative).into();
     }
     if let Some(home) = home
         && let Ok(relative) = path.strip_prefix(home)
         && relative.file_name().is_some()
     {
-        return format!("~/{}", relative.to_string_lossy()).into();
+        return format!("~/{}", slashed(relative)).into();
     }
     path.to_string_lossy().into()
 }
