@@ -95,6 +95,12 @@ fn a_status_shows_the_branch_s_pull_request_and_its_buffer_and_list_read_through
     let env: [(&str, &OsStr); 1] = [("OSO_DEV_GH", gh.as_os_str())];
     let mut app = App::start_with_file_config_and_env(&file, scratch.path(), &config, &env);
     app.wait_until_ready();
+    // The project is known before it is trusted, as the status's flows wait for.
+    app.wait_for("the project", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("  proj-git  restricted  "))
+    });
     app.send_keys(&format!("M-x {} RET y", typing("trust-project")));
     app.wait_for("the trust", |state| {
         state["echo"]
@@ -145,15 +151,17 @@ fn a_status_shows_the_branch_s_pull_request_and_its_buffer_and_list_read_through
     });
     wait_text(&mut app, "its text", "● build");
 
-    // Every run asked about the remote's repository, outside the project.
+    // Every run asked about the remote's repository, outside the project: each run's line
+    // starts with where it ran; the GraphQL query's own lines follow its run's.
     let asked = fs::read_to_string(bin.join("asked")).unwrap();
-    assert!(asked.lines().count() >= 6, "{asked}");
-    for line in asked.lines() {
-        let (cwd, args) = line.split_once(" | ").unwrap();
-        assert!(!Path::new(cwd).starts_with(&root), "{line}");
-        assert!(
-            args.contains("--repo github.com/o/r") || args.starts_with("api graphql"),
-            "{line}"
-        );
+    let runs: Vec<(&str, &str)> = (asked.lines())
+        .filter_map(|line| line.split_once(" | "))
+        .filter(|(cwd, _)| cwd.starts_with('/'))
+        .collect();
+    assert!(runs.len() >= 6, "{asked}");
+    for (cwd, args) in runs {
+        assert!(!Path::new(cwd).starts_with(&root), "{cwd} | {args}");
+        let about = args.contains("--repo github.com/o/r") || args.starts_with("api graphql");
+        assert!(about, "{cwd} | {args}");
     }
 }
