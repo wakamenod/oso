@@ -1,19 +1,25 @@
 //! A status's reads (ADR 0127): finding the repository git works in, the status's listing,
-//! the counts, the head's subject, the push target and the commit sections (step 2), and an
-//! open file's patch, each bounded, with the arguments and the variable every run of the
-//! status's thread shares. The commit sections read the local refs that track the remote
-//! only: nothing here fetches.
+//! the counts, the head's subject, the push target and the commit sections (step 2), what is
+//! stopped (step 3a), and an open file's patch, each bounded, with the arguments and the
+//! variable every run of the status's thread shares. The commit sections read the local refs
+//! that track the remote only: nothing here fetches.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; these run on the status's
 //! thread, `oso-vcs`, and on the repository's run thread, and wait for git.
+//!
+//! - What is stopped is read from the files git keeps in the work tree's own directory, each a
+//!   regular file of at most [`sequence::MAX_FILE`] bytes: no link is followed to one, and nothing
+//!   that is not a file is opened, so that no pipe there can hold the thread.
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use super::history::{self, Log};
 use super::layout::Section;
 use super::patch;
+use super::sequence::{self, Stop};
 use super::status;
 use crate::git::{Git, GitError, MAX_SHORT, os_path};
 
@@ -77,6 +83,61 @@ pub(super) fn logs(git: &Git, branch: &status::Branch) -> (Option<Vec<u8>>, Vec<
         logs.push((Section::Recent, log));
     }
     (push, logs)
+}
+
+/// The work tree's own directory in the repository, absolute, where git keeps what is stopped.
+pub(super) fn git_dir(git: &Git) -> Option<PathBuf> {
+    let out = git
+        .run(
+            &args(&["rev-parse", "--absolute-git-dir"]),
+            &set(),
+            MAX_SHORT,
+        )
+        .ok()?;
+    let path = os_path(crate::git::trim_line(&out)).ok()?;
+    Some(PathBuf::from(path))
+}
+
+/// What is stopped in the work tree whose own directory is `dir`, judged from its files alone;
+/// `None` if nothing is. A directory or a mark that is a link is as missing.
+pub(super) fn judged(dir: &Path) -> Option<Stop> {
+    sequence::judge(&|name| small_file(&dir.join(name)), &|name| {
+        (dir.join(name).symlink_metadata()).is_ok_and(|meta| !meta.file_type().is_symlink())
+    })
+}
+
+/// [`judged`], with the commits it names read; `None` if nothing is stopped.
+pub(super) fn stopped(git: &Git, dir: &Path) -> Option<Stop> {
+    let mut stop = judged(dir)?;
+    let ids: Vec<String> = stop.ids().into_iter().map(str::to_owned).collect();
+    if !ids.is_empty() {
+        let mut words: Vec<&str> = vec![
+            "log",
+            "--no-walk=unsorted",
+            "-z",
+            "--no-show-signature",
+            "--no-color",
+            history::FORMAT,
+        ];
+        words.extend(ids.iter().map(String::as_str));
+        words.push("--");
+        if let Ok(out) = git.run(&args(&words), &set(), history::MAX_LOG) {
+            stop.commits = history::parse(&out, ids.len()).commits;
+        }
+    }
+    Some(stop)
+}
+
+/// The start of the regular file at `path`, at most [`sequence::MAX_FILE`] bytes; `None` for a
+/// link, a directory, a pipe or a missing file. It is opened following no link and waiting for
+/// no writer, so that a pipe put there after a look cannot hold the thread.
+fn small_file(path: &Path) -> Option<Vec<u8>> {
+    let (file, _) = oso_platform::file_meta::open_regular_here(path).ok()??;
+    let mut out = Vec::new();
+    (file.take(sequence::MAX_FILE as u64))
+        .read_to_end(&mut out)
+        .ok()?;
+    Some(out)
 }
 
 /// `vcs/hooks` under `state`, made private if missing, and checked to be empty: git is told the

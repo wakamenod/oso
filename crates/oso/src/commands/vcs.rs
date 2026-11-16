@@ -1,7 +1,8 @@
 //! Source control's commands (ADR 0127), step 1a: a repository's status buffer, as magit's,
 //! moving between its sections, showing a file's hunks, and staging and unstaging by section,
 //! file and hunk. Committing and the log of git's runs are [`commit`]'s (step 1b), discarding
-//! and the list of what it kept [`discard`]'s (step 1c).
+//! and the list of what it kept [`discard`]'s (step 1c), remotes [`remote`]'s (step 2), and
+//! going on with what is stopped [`sequence`]'s (step 3a).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host, which runs git on the status's thread. What a line names is the host's: a
@@ -18,6 +19,7 @@ use oso_core::selection::Selection;
 pub mod commit;
 pub mod discard;
 pub mod remote;
+pub mod sequence;
 
 /// Why a restricted project gets no status (ADR 0127, "Restricted projects").
 pub(crate) const RESTRICTED: &str =
@@ -151,6 +153,9 @@ pub const KEYS: &[(&str, &str)] = &[
     ("U", "git-unstage-all"),
     ("k", "git-discard"),
     ("$", "git-show-log"),
+    ("C-c C-c", "git-continue"),
+    ("C-c C-s", "git-skip"),
+    ("C-c C-k", "git-abort"),
     ("RET", "git-visit"),
     ("g", "git-refresh"),
     ("n", "git-next-section"),
@@ -178,6 +183,19 @@ pub(super) fn status(ctx: &Ctx<'_>) -> Result<BufferId, CommandError> {
         return Err(CommandError::new("Not in a git status"));
     }
     Ok(window.buffer())
+}
+
+/// Asks the host for what `make` makes of the status the selected window shows, outside a
+/// prompt: what the commands of remotes and of what is stopped share.
+fn request(
+    ctx: &mut Ctx<'_>,
+    make: impl FnOnce(BufferId) -> GitRequest,
+) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    let buffer = status(ctx)?;
+    ctx.editor.request_git(make(buffer));
+    ctx.request_redraw();
+    Ok(())
 }
 
 /// The line of the selected window's primary cursor.
@@ -457,7 +475,8 @@ pub const MENUS: &[(&str, &str)] = &[
 /// The first line of the doc of the source-control command `name`, if it is one.
 fn summary_of(name: &str) -> Option<&'static str> {
     let all = COMMANDS.iter().chain(commit::COMMANDS);
-    let mut all = all.chain(discard::COMMANDS).chain(remote::COMMANDS);
+    let all = all.chain(discard::COMMANDS).chain(remote::COMMANDS);
+    let mut all = all.chain(sequence::COMMANDS);
     let found = all.find(|command| command.name == name)?;
     found.doc.lines().next()
 }

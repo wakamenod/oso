@@ -1,5 +1,5 @@
 //! A status buffer's text, highlights, outline and row table (ADR 0127), in magit's order: the
-//! head, then unmerged paths, untracked files, unstaged changes and staged changes, each a
+//! head, with what is stopped under it (step 3a), then unmerged paths, untracked files, unstaged changes and staged changes, each a
 //! section that folds, with a file's hunks under it when it is open; then the commits unpushed
 //! to the upstream and unpulled from it, and the recent ones (step 2).
 //!
@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use super::history::{Commit, Log};
 use super::patch::Patch;
+use super::sequence::Stop;
 use super::status::{Branch, Counts, Entry, Kind, Status};
 
 /// The most files a section shows; the rest are counted.
@@ -191,7 +192,8 @@ pub(crate) enum Hunks {
 }
 
 /// What the head shows: the branch, the subject of `HEAD`'s commit with its short id, and the
-/// push target where it is not the upstream; and the commit sections (step 2).
+/// push target where it is not the upstream; the commit sections (step 2); and what is stopped
+/// (step 3a).
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Head {
     pub(crate) branch: Branch,
@@ -200,6 +202,8 @@ pub(crate) struct Head {
     pub(crate) push: Option<Vec<u8>>,
     /// The unpushed, unpulled and recent commits, each section read.
     pub(crate) logs: Vec<(Section, Log)>,
+    /// A merge, rebase, pick, revert or `git am` stopped, or a bisect under way.
+    pub(crate) stop: Option<Stop>,
 }
 
 /// What is folded and open: sections hidden, and files whose hunks show.
@@ -342,6 +346,8 @@ pub(crate) struct Built {
     pub(crate) sections: Vec<(Section, Vec<File>)>,
     /// The commit sections shown (step 2).
     pub(crate) logs: Vec<(Section, Log)>,
+    /// What is stopped, as the head shows it (step 3a).
+    pub(crate) stop: Option<Stop>,
     /// The patches of the open files shown, by section and file.
     pub(crate) patches: HashMap<(Section, usize), Arc<Patch>>,
     pub(crate) rows: Vec<Row>,

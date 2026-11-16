@@ -15,7 +15,7 @@ use super::review::git;
 use super::typing;
 
 /// The repository's own identity, so that no configuration of the machine's is needed.
-fn identity(root: &Path) {
+pub(super) fn identity(root: &Path) {
     git(root, &["config", "user.name", "e2e"]);
     git(root, &["config", "user.email", "e2e@example.invalid"]);
     git(root, &["config", "commit.gpgsign", "false"]);

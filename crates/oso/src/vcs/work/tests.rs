@@ -107,6 +107,53 @@ fn open_a(section: Section) -> View {
 }
 
 #[test]
+fn a_stopped_pick_shows_under_the_head_with_its_unmerged_path() {
+    let repo = Repo::new("vcs-stopped");
+    repo.write("a.txt", b"one\n");
+    repo.commit("first");
+    repo.git(&["checkout", "-q", "-b", "side"]);
+    repo.write("a.txt", b"side\n");
+    repo.commit("from the side");
+    repo.git(&["checkout", "-q", "main"]);
+    repo.write("a.txt", b"main\n");
+    repo.commit("on main");
+    assert!(!repo.git_ran(&["cherry-pick", "side"]).0);
+    let mut state = state(&repo);
+    let laid = read(&mut state, &repo.root, &View::default());
+    let shown = text(&laid);
+    let short = String::from_utf8(repo.git(&["rev-parse", "--short", "side"])).unwrap();
+    let line = format!("Picking:  {} from the side\n", short.trim());
+    assert!(shown.contains(&line), "{shown}");
+    assert!(shown.contains("C-c C-s skips"), "{shown}");
+    assert!(shown.contains("Unmerged paths (1)"), "{shown}");
+    let stop = laid.built.stop.as_ref().expect("a stop in the table");
+    assert_eq!(stop.doing, crate::vcs::sequence::Doing::CherryPick);
+    // `s` on the section stages the resolved file, which leaves Unmerged paths.
+    repo.write("a.txt", b"both\n");
+    let targets = [Target::Section(Section::Unmerged)];
+    let (staged, other) = run(
+        &mut state,
+        &repo.root,
+        &laid,
+        &targets,
+        true,
+        &View::default(),
+    );
+    assert!(
+        other
+            .iter()
+            .all(|report| matches!(report, Report::Ran { .. })),
+        "{other:?}"
+    );
+    let shown = text(&staged);
+    assert!(!shown.contains("Unmerged paths"), "{shown}");
+    assert!(shown.contains("Staged changes (1)"), "{shown}");
+    repo.git(&["cherry-pick", "--abort"]);
+    let laid = read(&mut state, &repo.root, &View::default());
+    assert_eq!(laid.built.stop, None);
+}
+
+#[test]
 fn a_status_shows_each_section() {
     let repo = Repo::new("vcs-sections");
     repo.write("kept.txt", b"one\n");

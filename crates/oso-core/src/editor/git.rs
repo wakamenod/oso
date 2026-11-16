@@ -108,6 +108,17 @@ pub enum FetchFrom {
     All,
 }
 
+/// How the pull menu's head pulls (ADR 0127, step 3a).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PullHow {
+    /// Fast-forward only, with no switch on.
+    FfOnly,
+    /// Rebase the branch onto what came (`-r`).
+    Rebase,
+    /// Fast-forward, else a merge commit with git's message (`-m`).
+    Merge,
+}
+
 /// What a command asks of the host for git (ADR 0127).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GitRequest {
@@ -187,10 +198,20 @@ pub enum GitRequest {
         target: PushTarget,
         switches: PushSwitches,
     },
-    /// Pull the upstream into the branch checked out, fast-forward only (`F u`, step 2).
-    Pull { buffer: BufferId },
+    /// Pull the upstream into the branch checked out, as `how` says (`F u`, step 2; the
+    /// switches from step 3a).
+    Pull { buffer: BufferId, how: PullHow },
     /// Fetch from `from`, pruning what the remote deleted (`f u`, `f a`, step 2).
     Fetch { buffer: BufferId, from: FetchFrom },
+    /// Go on with the merge, rebase, pick, revert or `git am` stopped in the repository of the
+    /// status `buffer` (`C-c C-c`, step 3a).
+    Continue { buffer: BufferId },
+    /// Skip the commit the rebase, pick, revert or `git am` stopped at, after the person's `y`
+    /// to the question it asks (`confirmed`) (`C-c C-s`, step 3a).
+    Skip { buffer: BufferId, confirmed: bool },
+    /// Abort what is stopped, after the person's `y` to the question it asks (`confirmed`)
+    /// (`C-c C-k`, step 3a).
+    Abort { buffer: BufferId, confirmed: bool },
 }
 
 /// A status buffer's record.

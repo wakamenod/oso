@@ -1,6 +1,7 @@
 //! A repository's run thread over temporary repositories: a commit with its message and its
 //! output, a hook that fails and the name the failure gives, `--no-verify`, the message an
-//! amend starts from, a stop that ends a hook and leaves no lock, and a root it refuses.
+//! amend starts from, a stop that ends a hook and leaves no lock, and a root it refuses; with a
+//! remote (`remote`), and over what is stopped (`sequence`, step 3a).
 //!
 //! Must not depend on: `app`, `dispatch` or winit.
 
@@ -14,6 +15,7 @@ use crate::git::TrustedRoot;
 use crate::review::tests::Repo;
 
 mod remote;
+mod sequence;
 
 /// A repository with a first commit, its own identity and no signing.
 pub(super) fn repo(name: &str) -> Repo {
