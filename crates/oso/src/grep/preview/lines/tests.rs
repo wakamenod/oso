@@ -9,7 +9,7 @@ use std::io::Cursor;
 use std::path::Path;
 
 use super::super::super::tests::{Scratch, leads};
-use super::{LINE_KEPT, RowLines, read_lines, scan};
+use super::{LINE_KEPT, RowLines, part_buffer, read_lines, scan};
 
 fn text(found: &[(usize, Vec<u8>)]) -> Vec<(usize, String)> {
     (found.iter())
@@ -18,7 +18,16 @@ fn text(found: &[(usize, Vec<u8>)]) -> Vec<(usize, String)> {
 }
 
 fn lines_of(bytes: &[u8], lines: &[usize], budget: &mut u64) -> Vec<(usize, String)> {
-    text(&scan(Cursor::new(bytes.to_vec()), lines, budget, &|| true).unwrap())
+    let mut part = part_buffer();
+    text(
+        &scan(
+            Cursor::new(bytes.to_vec()),
+            lines,
+            (&mut part, budget),
+            &|| true,
+        )
+        .unwrap(),
+    )
 }
 
 #[test]
@@ -36,6 +45,15 @@ fn the_lines_asked_for_are_found_in_one_pass_the_last_with_no_break() {
         [(2, "b".into())],
         "past the end, twice or out of order: once"
     );
+}
+
+#[test]
+fn many_lines_in_one_part_are_each_found() {
+    let text: String = (1..=500).map(|n| format!("{n}\n")).collect();
+    let lines: Vec<usize> = (1..=500).step_by(3).collect();
+    let found = lines_of(text.as_bytes(), &lines, &mut u64::MAX.clone());
+    assert_eq!(found.len(), lines.len());
+    assert!(found.iter().all(|(line, text)| *text == line.to_string()));
 }
 
 #[test]
@@ -59,7 +77,12 @@ fn nothing_past_the_budget_is_read() {
 
 #[test]
 fn a_stale_read_stops() {
-    let found = scan(Cursor::new(b"a\n".to_vec()), &[1], &mut 10, &|| false);
+    let found = scan(
+        Cursor::new(b"a\n".to_vec()),
+        &[1],
+        (&mut part_buffer(), &mut 10),
+        &|| false,
+    );
     assert!(found.is_none());
 }
 
@@ -73,17 +96,23 @@ fn a_file_is_reached_as_the_preview_reaches_it_and_one_that_may_hold_secrets_nev
     let read = |path: &str, home: Option<&Path>| {
         read_lines(
             (root, leads.as_deref()),
-            Path::new(path),
-            &[2],
+            (Path::new(path), &[2]),
             home,
-            &mut u64::MAX.clone(),
+            (&mut part_buffer(), &mut u64::MAX.clone()),
             &|| true,
         )
     };
-    assert_eq!(
-        read("src/a.rs", None),
-        Some(RowLines::Read(vec![(2, b"fn b() {}".to_vec())]))
-    );
+    match read("src/a.rs", None) {
+        Some(RowLines::Read(found, identity)) => {
+            assert_eq!(found, [(2, b"fn b() {}".to_vec())]);
+            assert_eq!(
+                identity.is_some(),
+                cfg!(unix),
+                "the file's device and inode"
+            );
+        }
+        other => panic!("{other:?}"),
+    }
     assert_eq!(read(".env", None), Some(RowLines::Withheld));
     assert_eq!(read("src/missing.rs", None), Some(RowLines::Unreadable));
     assert_eq!(read("../a.rs", None), Some(RowLines::Unreadable));

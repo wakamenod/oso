@@ -265,7 +265,8 @@ impl Editor {
 
     /// The selected row, as the preview of a file wants it: none for a row of an open buffer,
     /// which shows from memory. A file under the server's root is reached from it, any other
-    /// from its own directory.
+    /// from its own directory, as the host's rows read it (`reached_from` in the `oso` crate's
+    /// `app/servers/xrefs/rows.rs`); the two must agree.
     pub(in crate::editor) fn xref_wanted(&self) -> Option<Wanted<'_>> {
         let (item, place) = self.selected_xref()?;
         if self.xref_open_place(item, place.at).is_some() {
@@ -330,13 +331,17 @@ impl Editor {
         let mut preview = std::mem::take(&mut list.preview);
         preview.reset();
         let (generation, hit) = (list.generation, list.hit.take());
-        // At most the server's 1000 places: one free, here.
+        let places = std::mem::take(&mut list.places);
         *list = XrefList {
             generation,
             hit,
             preview,
             ..XrefList::default()
         };
+        // Up to the server's 1000 places, each with its path: freed off the UI thread.
+        if !places.is_empty() {
+            self.free_on_the_worker(Box::new(places));
+        }
     }
 }
 

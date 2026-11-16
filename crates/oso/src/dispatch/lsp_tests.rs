@@ -195,9 +195,11 @@ fn m_question_asks_for_references_and_ret_in_the_list_of_places_goes_to_the_row(
     }
     // The host opens the list once an answer has several places.
     let root = std::path::PathBuf::from("/w");
-    assert!(d.list_xrefs(&mut editor, XrefKind::References, 3, root.clone()));
+    let opened = d.list_xrefs(&mut editor, XrefKind::References, 3, root.clone());
+    assert_eq!(opened, editor.prompt().map(|prompt| prompt.id()));
     assert!(
-        !d.list_xrefs(&mut editor, XrefKind::References, 4, root),
+        d.list_xrefs(&mut editor, XrefKind::References, 4, root)
+            .is_none(),
         "not over a prompt"
     );
     let row = |line| XrefRow {
@@ -235,4 +237,32 @@ fn m_x_lsp_go_to_xref_opens_nothing() {
     assert!(editor.prompt().is_none());
     assert!(editor.take_server_requests().is_empty());
     assert!(echo(&editor).contains("M-. and M-?"), "{}", echo(&editor));
+}
+
+#[test]
+fn the_agent_s_m_question_is_refused_and_asks_nothing_and_its_m_dot_asks() {
+    use super::args::Given;
+    use oso_core::command::Reach;
+    use oso_core::editor::ServerRequest;
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    let ran = d.run_for_agent(
+        &mut editor,
+        "lsp-find-references",
+        Given::Nothing,
+        Reach::Look,
+    );
+    let why = ran.unwrap().1.unwrap_err();
+    assert!(why.contains("only the person reads"), "{why}");
+    assert!(editor.take_server_requests().is_empty(), "nothing asked");
+    let ran = d.run_for_agent(
+        &mut editor,
+        "lsp-find-definition",
+        Given::Nothing,
+        Reach::Look,
+    );
+    assert_eq!(ran.unwrap().1, Ok(()));
+    match editor.take_server_requests().as_slice() {
+        [ServerRequest::Definition(at)] => assert!(at.agent),
+        other => panic!("{other:?}"),
+    }
 }

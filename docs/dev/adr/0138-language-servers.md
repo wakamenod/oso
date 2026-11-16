@@ -1756,6 +1756,16 @@ agent's `M-?` refused with the words above (Q7); and the public items below (Q9)
     each invalid byte one U+FFFD, `…` where more follows.
   - The agent's `M-.` still goes to the first of several, saying `1 of 3`; its `M-?` asks
     nothing.
+- **From this step's reviews:** a row never reads the file of an open buffer that withholds
+  its text, by its path or its device and inode, as the preview never shows one; a place under
+  `/dev`, `/proc` or `/sys` is left out with those under an automount, the jump's too; on
+  Windows a name with `~` and a digit, as a short name, is taken to may hold secrets, the
+  search's preview's too; a place whose path is not UTF-8 or longer than 4 KiB gives no row;
+  the home directory's real place is found on `oso-xrefs`, and an answer's places in open
+  documents are looked up once per document; at most two builds read files at once; the last
+  list's server is kept until the next list, so `RET`'s row goes to it however late the host
+  takes the row, as a command a macro replays runs before it looks; and what the list held is
+  freed off the UI thread.
 - **Public API:** `oso-core`: `editor::{XrefKind, XrefRow, XrefRows}`, `Editor::{open_xref_list,
   xref_listed, take_xref_hit}`, `ServerRequest::GoToXref`, `ArgSpec::Xref`. The tip's
   `Dispatcher::list_xrefs`.

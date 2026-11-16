@@ -45,7 +45,7 @@ mod files;
 mod preview;
 mod read;
 
-pub(crate) use preview::lines::{LINE_KEPT, RowLines, read_lines};
+pub(crate) use preview::lines::{LINE_KEPT, RowLines, part_buffer, read_lines};
 pub use preview::{Previewed, Previewer};
 
 /// How often a search sends the rows it found.
@@ -98,9 +98,25 @@ pub type Leads = fn(&Path) -> Option<Vec<PathBuf>>;
 /// Whether the file at `path` from `root` may hold secrets, as the loader would judge it: by its
 /// name from the root as given or from any place `leads` says the root leads through. A root
 /// nobody could resolve, `None`, is taken to, as the loader takes a path it cannot resolve.
+///
+/// On Windows a name with `~` and a digit may be a short name another long one has, `ENV~1` for
+/// `.env`, which only the file system expands: such a name is taken to as well.
 pub(crate) fn may_hold_secrets(root: &Path, leads: Option<&[PathBuf]>, path: &Path) -> bool {
     let named = |root: &Path| Buffer::name_may_hold_secrets(&root.join(path));
-    named(root) || leads.is_none_or(|leads| leads.iter().any(|lead| named(lead)))
+    (cfg!(windows) && short_name(path))
+        || named(root)
+        || leads.is_none_or(|leads| leads.iter().any(|lead| named(lead)))
+}
+
+/// Whether a name of `path` has `~` and then a digit, as a Windows short name does.
+fn short_name(path: &Path) -> bool {
+    path.components().any(|part| {
+        let name = part.as_os_str().to_string_lossy();
+        let bytes = name.as_bytes();
+        bytes
+            .windows(2)
+            .any(|pair| pair[0] == b'~' && pair[1].is_ascii_digit())
+    })
 }
 
 /// Whether `opened`, a root opened by its path, is the directory `leads` says the path leads to,

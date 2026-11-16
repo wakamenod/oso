@@ -16,8 +16,8 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use super::{PART, SCAN_MAX, open};
-use super::{may_hold_secrets, walk};
+use super::{PART, SCAN_MAX, may_hold_secrets, open};
+use crate::walk;
 
 /// The most bytes of a line kept for its row, which shows less.
 pub(crate) const LINE_KEPT: usize = 1024;
@@ -29,20 +29,24 @@ pub(crate) enum RowLines {
     Withheld,
     /// It could not be reached or read as the preview would reach it.
     Unreadable,
-    /// The lines found, each by its number from 1, ascending; one past the file's end or a
-    /// bound is left out.
-    Read(Vec<(usize, Vec<u8>)>),
+    /// The lines found, each by its number from 1, ascending, one past the file's end or a
+    /// bound left out; and the file's device and inode where the system has them.
+    Read(Vec<(usize, Vec<u8>)>, Option<(u64, u64)>),
+}
+
+/// A buffer of a part for [`read_lines`], made once for all the files a caller reads.
+pub(crate) fn part_buffer() -> Vec<u8> {
+    vec![0; PART]
 }
 
 /// The lines `lines` (from 1, ascending, each once) of the file at `path` from `root`, where
-/// `leads` says the root leads, never under one that is or holds `home`; what is read comes off
-/// `budget`. `None` once `live` says the read is stale.
+/// `leads` says the root leads, never under one that is or holds `home`, read through `part`
+/// ([`part_buffer`]); what is read comes off `budget`. `None` once `live` says the read is stale.
 pub(crate) fn read_lines(
     (root, leads): (&Path, Option<&[PathBuf]>),
-    path: &Path,
-    lines: &[usize],
+    (path, lines): (&Path, &[usize]),
     home: Option<&Path>,
-    budget: &mut u64,
+    (part, budget): (&mut [u8], &mut u64),
     live: &dyn Fn() -> bool,
 ) -> Option<RowLines> {
     if !live() {
@@ -54,17 +58,18 @@ pub(crate) fn read_lines(
     if walk::holds_home(root, home) {
         return Some(RowLines::Unreadable);
     }
-    let Some((file, _)) = open((root, leads), path, home, live) else {
+    let Some((file, identity)) = open((root, leads), path, home, live) else {
         return live().then_some(RowLines::Unreadable);
     };
-    scan(file, lines, budget, live).map(RowLines::Read)
+    scan(file, lines, (part, budget), live).map(|found| RowLines::Read(found, identity))
 }
 
-/// Finds `lines` in `file` from its start, a part at a time.
+/// Finds `lines` in `file` from its start, a part at a time: each part's line breaks are
+/// counted once, and only the part a wanted line starts in is walked to it.
 fn scan(
     mut file: impl Read,
     lines: &[usize],
-    budget: &mut u64,
+    (part, budget): (&mut [u8], &mut u64),
     live: &dyn Fn() -> bool,
 ) -> Option<Vec<(usize, Vec<u8>)>> {
     let mut wanted = lines.iter().copied().filter(|line| *line > 0).peekable();
@@ -72,15 +77,15 @@ fn scan(
     // The line the read is in, and what is kept of it while it is a wanted one.
     let mut line = 1;
     let mut kept: Option<Vec<u8>> = (wanted.peek() == Some(&1)).then(Vec::new);
-    let mut part = vec![0; PART];
     let mut read: u64 = 0;
     let limit = SCAN_MAX.min(*budget);
+    let size = part.len();
     while read < limit && (kept.is_some() || wanted.peek().is_some()) {
         if !live() {
             return None;
         }
-        let size = usize::try_from(limit - read).map_or(PART, |rest| rest.min(PART));
-        let Ok(count) = file.read(&mut part[..size]) else {
+        let wanted_size = usize::try_from(limit - read).map_or(size, |rest| rest.min(size));
+        let Ok(count) = file.read(&mut part[..wanted_size]) else {
             break;
         };
         if count == 0 {
@@ -88,6 +93,8 @@ fn scan(
         }
         read += count as u64;
         let bytes = &part[..count];
+        // A whole part's breaks counted at once, which the compiler vectorizes.
+        let mut breaks = bytes.iter().filter(|&&byte| byte == b'\n').count();
         let mut at = 0;
         while at < bytes.len() {
             if let Some(text) = &mut kept {
@@ -103,6 +110,7 @@ fn scan(
                 wanted.next();
                 line += 1;
                 at += end + 1;
+                breaks -= 1;
                 if wanted.peek() == Some(&line) {
                     kept = Some(Vec::new());
                 }
@@ -121,20 +129,17 @@ fn scan(
                 continue;
             }
             let need = next - line;
-            let rest = &bytes[at..];
-            // A whole part's breaks counted at once, which the compiler vectorizes; only the
-            // part the line starts in is walked.
-            let breaks = rest.iter().filter(|&&byte| byte == b'\n').count();
             if breaks < need {
                 line += breaks;
                 break;
             }
-            let Some((index, _)) = (rest.iter().enumerate())
+            let Some((index, _)) = (bytes[at..].iter().enumerate())
                 .filter(|&(_, &byte)| byte == b'\n')
                 .nth(need - 1)
             else {
                 break;
             };
+            breaks -= need;
             line = next;
             at += index + 1;
             kept = Some(Vec::new());

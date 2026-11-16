@@ -20,11 +20,11 @@
 //!   through the settling of opens, so ADR 0118 holds the agent's. One buffer joins one server;
 //!   a server holds at most [`JOINED_MAX`] joined and [`JOINING_MAX`] waiting.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 
 use oso_core::buffer::{Buffer, BufferId};
-use oso_core::editor::AskAt;
+use oso_core::editor::{AskAt, VisitColumn};
 use oso_core::syntax::Splice;
 use oso_core::window::WindowId;
 use oso_lsp::position::{Encoding, Position};
@@ -101,7 +101,9 @@ impl App {
             return;
         };
         // A newer ask stops the list that waits for its rows (step 8b).
-        self.servers.xrefs.stop_waiting();
+        if let Some(old) = self.servers.xrefs.stop_waiting() {
+            self.freer.free(old);
+        }
         self.servers.serial += 1;
         let serial = self.servers.serial;
         let running = &self.servers.running[index];
@@ -272,19 +274,31 @@ impl App {
         // A place in an open document whose buffer is gone, or no longer maps it, is visited
         // by the server's line and column.
         let (start, encoding) = line_and_column(&place.target);
-        if !Buffer::name_may_hold_secrets(&place.path) {
-            self.join(index, place.path.clone());
-        }
-        let column = super::xrefs::column(start.character as usize, encoding);
-        self.editor.xref_visit(
-            place.path.clone(),
-            oso_core::load::UNASKED,
-            start.line as usize + 1,
-            column,
-        );
-        // An answer comes on a server's report, not after a command: the visit starts here.
-        self.serve_files();
+        let column = column(start.character as usize, encoding);
+        let line = start.line as usize + 1;
+        self.visit_place(Some(index), place.path.clone(), line, column);
         true
+    }
+
+    /// Visits `line`, from 1, and `column` of the file at `path` for the person, as `C-x C-f`
+    /// would, keeping the place left; the file joins server `index` once known to be in no
+    /// project, unless its name may hold secrets. An answer comes on a server's report, and the
+    /// list's row is taken after its command: the visit starts here.
+    pub(super) fn visit_place(
+        &mut self,
+        index: Option<usize>,
+        path: PathBuf,
+        line: usize,
+        column: VisitColumn,
+    ) {
+        if let Some(index) = index
+            && !Buffer::name_may_hold_secrets(&path)
+        {
+            self.join(index, path.clone());
+        }
+        self.editor
+            .xref_visit(path, oso_core::load::UNASKED, line, column);
+        self.serve_files();
     }
 
     /// Opens `place` for the agent's `connection`, as the channel's `open` does, at its line;
@@ -335,12 +349,8 @@ impl App {
             .copied()
             .find(|id| id.get() == document)?;
         let buffer = self.editor.buffer(id)?;
-        // In the form a URI reads back as, as the place's path is: on Windows the drive letter
-        // upper case and no `\\?\` prefix, however the buffer's path is written.
-        let read_back = buffer
-            .path()
-            .and_then(oso_lsp::uri::from_path)
-            .and_then(|uri| oso_lsp::uri::to_path(&uri));
+        // In the form a URI reads back as, as the place's path is.
+        let read_back = buffer.path().and_then(super::read_back);
         if read_back.as_deref() != Some(place.path.as_path()) {
             return None;
         }
@@ -350,6 +360,54 @@ impl App {
             forward(range.start, &buffer.edits_since(revision)?)
         };
         Some((id, offset))
+    }
+
+    /// [`App::open_place`] of each of `places`, each document looked up and its edits since read
+    /// once, however many places it has.
+    pub(super) fn open_places(
+        &self,
+        index: usize,
+        places: &[Location],
+    ) -> Vec<Option<(BufferId, usize)>> {
+        type Found = Option<(BufferId, Option<PathBuf>, Option<Vec<Splice>>)>;
+        let mut found: HashMap<(u64, u64), Found> = HashMap::new();
+        let documents = self
+            .servers
+            .running
+            .get(index)
+            .map(|running| &running.documents);
+        (places.iter())
+            .map(|place| {
+                let Target::Open {
+                    document,
+                    revision,
+                    ref range,
+                    ..
+                } = place.target
+                else {
+                    return None;
+                };
+                let entry = found.entry((document, revision)).or_insert_with(|| {
+                    let id = (documents?.keys().copied()).find(|id| id.get() == document)?;
+                    let buffer = self.editor.buffer(id)?;
+                    let read_back = buffer.path().and_then(super::read_back);
+                    let splices = if buffer.revision() == revision {
+                        None
+                    } else {
+                        Some(buffer.edits_since(revision)?)
+                    };
+                    Some((id, read_back, splices))
+                });
+                let (id, read_back, splices) = entry.as_ref()?;
+                if read_back.as_deref() != Some(place.path.as_path()) {
+                    return None;
+                }
+                let offset = splices
+                    .as_ref()
+                    .map_or(range.start, |splices| forward(range.start, splices));
+                Some((*id, offset))
+            })
+            .collect()
     }
 
     /// Lets the file at `path` join server `index` once its buffer is known to be in no project:
@@ -453,6 +511,14 @@ pub(super) fn line_and_column(target: &Target) -> (Position, Encoding) {
         Target::Open {
             start, encoding, ..
         } => (start, encoding),
+    }
+}
+
+/// `column` as the visits count it, in the server's `encoding`.
+pub(super) fn column(column: usize, encoding: Encoding) -> VisitColumn {
+    match encoding {
+        Encoding::Utf8 => VisitColumn::Utf8(column),
+        Encoding::Utf16 => VisitColumn::Utf16(column),
     }
 }
 

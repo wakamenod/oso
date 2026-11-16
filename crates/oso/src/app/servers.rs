@@ -48,7 +48,14 @@ pub(super) struct Servers {
     /// (step 6b).
     listing: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// The list of a server's places, built or shown (step 8b).
-    xrefs: xrefs::Listing,
+    xrefs: xrefs::Lists,
+}
+
+/// `path` in the form a server's URI of it reads back as, as the places and reports of servers
+/// spell paths: on Windows its drive letter upper case and no `\\?\` prefix, however it was
+/// written. `None` for a path no URI holds.
+fn read_back(path: &std::path::Path) -> Option<PathBuf> {
+    oso_lsp::uri::from_path(path).and_then(|uri| oso_lsp::uri::to_path(&uri))
 }
 
 /// One server, as the app knows it.

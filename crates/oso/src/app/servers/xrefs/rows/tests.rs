@@ -11,10 +11,10 @@ use std::path::{Path, PathBuf};
 
 use oso_core::buffer::{Buffer, BufferId};
 use oso_core::editor::Editor;
-use oso_core::editor::{DiagnosticRowAt, VisitColumn, XrefRows};
+use oso_core::editor::{VisitColumn, XrefRows};
 use oso_core::rope::Rope;
 
-use super::{ROW_TEXT_BYTES, Snapshot, Spot, build, grouped, row_text, shown_path};
+use super::{Home, ROW_TEXT_BYTES, Snapshot, Spot, Withheld, build, grouped, row_text, shown_path};
 
 /// A directory of its own under the system's temporary one, removed at the end.
 struct Scratch(PathBuf);
@@ -102,10 +102,9 @@ fn a_path_shows_from_the_root_or_whole_with_the_home_as_a_tilde() {
         &*shown_path(Path::new("/w/oso/src/a.rs"), root, home),
         "src/a.rs"
     );
-    let separator = std::path::MAIN_SEPARATOR;
     assert_eq!(
         &*shown_path(Path::new("/h/.cargo/c.rs"), root, home),
-        format!("~{separator}.cargo/c.rs")
+        "~/.cargo/c.rs"
     );
     assert_eq!(
         &*shown_path(Path::new("/usr/lib/d.rs"), root, home),
@@ -123,34 +122,49 @@ fn a_row_shows_its_line_from_its_first_non_blank_cut_at_a_character() {
     assert!(!shown.contains('\u{fffd}'), "never a split character");
 }
 
+/// A snapshot of `spots` under `root`, with no home, no buffer withheld and the whole budget.
+fn snapshot(root: &Path, spots: Vec<Spot>, texts: HashMap<BufferId, Rope>) -> Snapshot {
+    Snapshot {
+        generation: 1,
+        root: root.to_path_buf(),
+        home: Home {
+            spelled: None,
+            real: None,
+        },
+        spots,
+        texts,
+        withheld: Vec::new(),
+        read_max: super::READ_MAX,
+        cut: false,
+    }
+}
+
+fn open(path: PathBuf, buffer: BufferId, offset: usize, secret: bool) -> Spot {
+    Spot::Open {
+        path,
+        buffer,
+        offset,
+        revision: 3,
+        secret,
+    }
+}
+
 #[test]
 fn rows_read_open_buffers_and_files_once_and_nothing_of_a_secret_one() {
     let scratch = Scratch::new("build");
     let a = scratch.file("src/a.rs", "fn a() {}\n    fn b() {}\nfn c() {}\n");
     let secret = scratch.file(".env", "TOKEN=1\n");
-    let open = scratch.0.join("src/open.rs");
     let (editor, buffer) = editor();
     let mut texts_by_buffer = HashMap::new();
     texts_by_buffer.insert(buffer, Rope::from("one\n  two\n"));
-    let snapshot = Snapshot {
-        generation: 1,
-        root: scratch.0.clone(),
-        home: (None, None),
-        spots: vec![
-            file(&a, 2),
-            Spot::Open {
-                path: open,
-                buffer,
-                offset: 6,
-                revision: 3,
-                secret: false,
-            },
-            file(&secret, 1),
-            file(&a, 3),
-        ],
-        texts: texts_by_buffer,
-        cut: false,
-    };
+    let spots = vec![
+        file(&a, 2),
+        open(scratch.0.join("src/open.rs"), buffer, 6, false),
+        file(&secret, 1),
+        file(&a, 3),
+        open(scratch.0.join("src/held.rs"), buffer, 0, true),
+    ];
+    let snapshot = snapshot(&scratch.0, spots, texts_by_buffer);
     let rows = build(&snapshot, leads, &|| true).unwrap();
     assert_eq!(
         texts(editor, rows),
@@ -158,11 +172,89 @@ fn rows_read_open_buffers_and_files_once_and_nothing_of_a_secret_one() {
             "src/a.rs:2: fn b() {}",
             "src/a.rs:3: fn c() {}",
             "src/open.rs:2: two",
-            ".env:1:"
+            ".env:1:",
+            "src/held.rs:1:"
         ]
     );
     assert!(build(&snapshot, leads, &|| false).is_none(), "a stale list");
-    let _ = DiagnosticRowAt::File {
-        column: VisitColumn::Chars(0),
+}
+
+#[test]
+fn the_file_of_an_open_buffer_that_withholds_is_never_read() {
+    let scratch = Scratch::new("withheld");
+    let by_path = scratch.file("src/config.rs", "let key = 1;\n");
+    let linked = scratch.file("src/linked.rs", "let key = 2;\n");
+    let mut snapshot = snapshot(
+        &scratch.0,
+        vec![file(&by_path, 1), file(&linked, 1)],
+        HashMap::new(),
+    );
+    snapshot.withheld.push(Withheld {
+        path: Some(by_path.clone()),
+        identity: None,
+    });
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let meta = fs::metadata(&linked).unwrap();
+        snapshot.withheld.push(Withheld {
+            path: None,
+            identity: Some((meta.dev(), meta.ino())),
+        });
+    }
+    let (editor, _) = editor();
+    let rows = build(&snapshot, leads, &|| true).unwrap();
+    let linked_row = if cfg!(unix) {
+        "src/linked.rs:1:"
+    } else {
+        "src/linked.rs:1: let key = 2;"
     };
+    assert_eq!(texts(editor, rows), ["src/config.rs:1:", linked_row]);
+}
+
+#[test]
+fn a_file_right_in_the_home_directory_or_past_the_budget_gives_no_text() {
+    let scratch = Scratch::new("bounds");
+    let home = scratch.0.join("home");
+    let in_home = scratch.file("home/notes.rs", "fn n() {}\n");
+    let first = scratch.file("proj/a.rs", "fn a() {}\n");
+    let second = scratch.file("proj/b.rs", "fn b() {}\n");
+    let root = scratch.0.join("proj");
+    let mut snapshot = snapshot(
+        &root,
+        vec![file(&in_home, 1), file(&first, 1), file(&second, 1)],
+        HashMap::new(),
+    );
+    snapshot.home = Home {
+        spelled: Some(home.clone()),
+        real: Some(home),
+    };
+    // Enough for the first file of the root only.
+    snapshot.read_max = 12;
+    let (editor, _) = editor();
+    let rows = build(&snapshot, leads, &|| true).unwrap();
+    assert_eq!(
+        texts(editor, rows),
+        ["~/notes.rs:1:", "a.rs:1: fn a() {}", "b.rs:1:"]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_place_whose_path_is_not_utf_8_or_too_long_gives_no_row() {
+    use std::os::unix::ffi::OsStrExt;
+    let odd = PathBuf::from(std::ffi::OsStr::from_bytes(b"/w/\xff.rs"));
+    let long = PathBuf::from(format!("/w/{}.rs", "a".repeat(5000)));
+    let snapshot = snapshot(
+        Path::new("/w"),
+        vec![
+            file(&odd, 1),
+            file(&long, 1),
+            file(Path::new("/w/ok.rs"), 1),
+        ],
+        HashMap::new(),
+    );
+    let (editor, _) = editor();
+    let rows = build(&snapshot, leads, &|| true).unwrap();
+    assert_eq!(texts(editor, rows), ["ok.rs:1:"]);
 }

@@ -91,28 +91,26 @@ impl Dispatcher {
     /// Opens the list of the places of `kind` of the host's list `generation`, from the server of
     /// `root`, for `lsp-go-to-xref`, which `RET` runs (ADR 0138, step 8b): the host's, once a
     /// server's answer needs it, as [`Dispatcher::find_file_in`] is. Nothing opens while a prompt
-    /// is open; whether it opened.
+    /// is open; the list's prompt, if it opened.
     pub fn list_xrefs(
         &mut self,
         editor: &mut Editor,
         kind: oso_core::editor::XrefKind,
         generation: u64,
         root: std::path::PathBuf,
-    ) -> bool {
-        let Some(id) = self.registry.lookup("lsp-go-to-xref") else {
-            return false;
-        };
+    ) -> Option<oso_core::minibuffer::PromptId> {
+        let id = self.registry.lookup("lsp-go-to-xref")?;
         if editor.prompt().is_some() {
-            return false;
+            return None;
         }
         match editor.open_xref_list(kind, generation, root) {
             Ok(prompt) => {
                 self.reading.push(Reading::run(id, None, prompt));
-                true
+                Some(prompt)
             }
             Err(error) => {
                 editor.prompt_says(error.to_string());
-                false
+                None
             }
         }
     }

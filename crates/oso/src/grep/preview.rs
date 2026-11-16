@@ -1,6 +1,6 @@
 //! Reading a list's row's file for its preview (ADR 0114, ADR 0138): a thread of its own,
 //! `oso-preview`, reads the lines around the row's line and hands them to the editor as an
-//! excerpt, for a project's search and for the list of diagnostics.
+//! excerpt, for a project's search, the list of diagnostics and the list of a server's places.
 //!
 //! Must not depend on: `app`, winit or the UI thread; this reads the file system, and the caller
 //! supplies the wake-up.

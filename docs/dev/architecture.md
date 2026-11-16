@@ -611,6 +611,11 @@ The UI thread never blocks on I/O or parsing:
   editor shows it as `Preview::Excerpt`, drawn as a text pane of its own whose revision is the
   excerpt's, or an open buffer of the same file by device and inode in its place
   (`editor/file_preview.rs`, one for each list that previews files).
+- The rows of `M-g d`'s list are built on `oso-diagnostics`, and those of a list of a language
+  server's places, `M-.`'s several and `M-?`'s, on `oso-xrefs`, one thread per list, each from a
+  snapshot the UI thread takes; `oso-xrefs` reads each file's lines as `oso-preview` reaches the
+  file (`grep/preview/lines.rs`), and the rows come back as `UserEvent::DiagnosticsListed` and
+  `UserEvent::XrefsListed` ([ADR 0138](adr/0138-language-servers.md), steps 6b and 8b).
 - Directories for `C-x C-f` are listed on worker threads (`crates/oso/src/lister.rs`),
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest

@@ -242,9 +242,7 @@ impl Dispatcher {
                 };
                 return self.read_buffer(editor, id, args.raw(), read);
             }
-            Some(ArgSpec::Xref) => {
-                return self.read_listed(editor, id, args.raw(), ArgSpec::Xref);
-            }
+            Some(ArgSpec::Xref) => return self.read_listed(editor, id, args.raw(), ArgSpec::Xref),
             Some(
                 spec @ (ArgSpec::Mark { .. }
                 | ArgSpec::Diagnostics { .. }

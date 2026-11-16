@@ -189,10 +189,15 @@ impl Session {
 /// Where the system mounts other computers' files on a first look: macOS's `/net` and
 /// `/Network`, Linux's `/net`. A place there is left out, as opening it would reach another
 /// computer, and a mount that hangs would hold the threads that look at it.
+///
+/// The system's own files are left out too: `/dev`, `/proc` and `/sys` hold devices and what the
+/// system says of its processes, oso's own among them, never a definition (step 8b).
 const AUTOMOUNTS: &[&str] = if cfg!(target_os = "macos") {
-    &["net", "Network"]
+    &["net", "Network", "dev"]
 } else if cfg!(target_os = "linux") {
-    &["net"]
+    &["net", "dev", "proc", "sys"]
+} else if cfg!(unix) {
+    &["dev", "proc", "sys"]
 } else {
     &[]
 };
@@ -242,6 +247,12 @@ mod tests {
             automounted(Path::new("/w/../net/host/x.rs")),
             "a `..` could lead there"
         );
+        assert_eq!(
+            automounted(Path::new("/proc/self/environ")),
+            cfg!(target_os = "linux"),
+            "the system's own files"
+        );
+        assert_eq!(automounted(Path::new("/dev/stdin")), unix);
         assert!(!automounted(Path::new("/home/me/net/x.rs")));
         assert!(!automounted(Path::new("/netx/x.rs")));
     }

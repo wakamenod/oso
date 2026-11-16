@@ -99,7 +99,7 @@ impl App {
             UserEvent::Grepped(found) => self.grepped(event_loop, found),
             UserEvent::Previewed(read) => self.previewed(read),
             UserEvent::DiagnosticsListed(rows) => self.diagnostics_listed(rows),
-            UserEvent::XrefsListed(rows) => self.xrefs_listed(rows),
+            UserEvent::XrefsListed(generation, rows) => self.xrefs_listed(generation, rows),
             UserEvent::Trust => self.trust_reported(),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),

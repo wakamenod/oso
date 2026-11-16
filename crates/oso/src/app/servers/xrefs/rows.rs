@@ -8,10 +8,15 @@
 //! - A row of an open buffer reads its line from the buffer's text then; any other file is read
 //!   as the preview reads it (`grep::read_lines`), once for all its rows, at most
 //!   `SCAN_MAX` of it and [`READ_MAX`] of all the files; past them a row has no text.
-//! - A file that may hold secrets, by its name or as its buffer was judged, gives no text.
+//! - A file that may hold secrets, by its name or as its buffer was judged, gives no text; nor
+//!   does the file of an open buffer that withholds its text, by its path or its device and
+//!   inode, as the preview never shows one either.
+//! - A place whose path is not UTF-8, or longer than [`ROW_PATH_BYTES_MAX`], gives no row: a
+//!   row's `RET` gives its whole path, and each row holds its own.
 //! - A row shows at most [`ROW_TEXT_BYTES`] of its line, its leading blanks left out, each
 //!   invalid byte one U+FFFD.
-//! - A path is shown from the server's root, or whole with the home directory as `~`.
+//! - A path is shown from the server's root, or whole with the home directory as `~/`, as the
+//!   buffer list shows it.
 //! - A newer list or the list's end stops the build, between files and within one.
 
 use std::collections::HashMap;
@@ -28,6 +33,9 @@ pub(super) const READ_MAX: u64 = 256 << 20;
 
 /// The most bytes of a line a row shows (step 8's Q4).
 pub(super) const ROW_TEXT_BYTES: usize = 256;
+
+/// The longest path a row is made for, as long as a walk's longest path, as `M-g d`'s rows.
+const ROW_PATH_BYTES_MAX: usize = 4096;
 
 /// A place of the answer, as the UI thread found it.
 pub(super) enum Spot {
@@ -56,17 +64,33 @@ impl Spot {
     }
 }
 
+/// The home directory as the environment spells it, shown as `~`, and its real place, under
+/// which nothing is read, found on the build's thread.
+pub(super) struct Home {
+    pub(super) spelled: Option<PathBuf>,
+    pub(super) real: Option<PathBuf>,
+}
+
+/// An open buffer that withholds its text: its path, as a URI reads back, and its file's device
+/// and inode.
+pub(super) struct Withheld {
+    pub(super) path: Option<PathBuf>,
+    pub(super) identity: Option<(u64, u64)>,
+}
+
 /// What the rows are built from.
 pub(super) struct Snapshot {
     pub(super) generation: u64,
     /// The server's root, as a URI reads back, which the places' paths are too.
     pub(super) root: PathBuf,
-    /// The home directory as the environment spells it, shown as `~`, and its real place,
-    /// under which nothing is read.
-    pub(super) home: (Option<PathBuf>, Option<PathBuf>),
+    pub(super) home: Home,
     pub(super) spots: Vec<Spot>,
     /// The open buffers' texts, by buffer.
     pub(super) texts: HashMap<BufferId, Rope>,
+    /// The open buffers that withhold their text.
+    pub(super) withheld: Vec<Withheld>,
+    /// The most bytes read of all the files: [`READ_MAX`], or none.
+    pub(super) read_max: u64,
     /// The answer was cut at its limit.
     pub(super) cut: bool,
 }
@@ -79,14 +103,18 @@ pub(super) fn build(
 ) -> Option<XrefRows> {
     let order = grouped(&snapshot.spots);
     let lines = read_files(snapshot, &order, leads, live)?;
-    let (shown_home, _) = &snapshot.home;
+    let shown_home = snapshot.home.spelled.as_deref();
     let mut shown: HashMap<&Path, Box<str>> = HashMap::new();
     let rows = (order.iter().map(|&index| &snapshot.spots[index]))
+        .filter(|spot| {
+            let path = spot.path().as_os_str();
+            path.to_str().is_some() && path.len() <= ROW_PATH_BYTES_MAX
+        })
         .map(|spot| {
             let path = spot.path();
             let shown = shown
                 .entry(path)
-                .or_insert_with(|| shown_path(path, &snapshot.root, shown_home.as_deref()))
+                .or_insert_with(|| shown_path(path, &snapshot.root, shown_home))
                 .clone();
             match spot {
                 Spot::Open {
@@ -148,7 +176,7 @@ fn grouped(spots: &[Spot]) -> Vec<usize> {
 }
 
 /// The lines the files' rows show, by path and line, each file read once, in the rows' order,
-/// within [`READ_MAX`] in all.
+/// within the snapshot's bound in all; none of a file an open buffer withholds.
 fn read_files<'a>(
     snapshot: &'a Snapshot,
     order: &[usize],
@@ -167,9 +195,17 @@ fn read_files<'a>(
         });
         wanted[slot].1.push(*line);
     }
-    let (_, real_home) = &snapshot.home;
-    let mut budget = READ_MAX;
-    let mut led: HashMap<PathBuf, Option<Vec<PathBuf>>> = HashMap::new();
+    let withheld_path = |path: &Path| {
+        (snapshot.withheld.iter()).any(|withheld| withheld.path.as_deref() == Some(path))
+    };
+    let withheld_identity = |identity: Option<(u64, u64)>| {
+        identity.is_some()
+            && (snapshot.withheld.iter()).any(|withheld| withheld.identity == identity)
+    };
+    let real_home = snapshot.home.real.as_deref();
+    let mut budget = snapshot.read_max;
+    let mut part = crate::grep::part_buffer();
+    let mut led: HashMap<&Path, Option<Vec<PathBuf>>> = HashMap::new();
     let mut found = HashMap::new();
     for (path, mut lines) in wanted {
         if !live() {
@@ -178,7 +214,7 @@ fn read_files<'a>(
         if budget == 0 {
             break;
         }
-        if Buffer::name_may_hold_secrets(path) {
+        if Buffer::name_may_hold_secrets(path) || withheld_path(path) {
             continue;
         }
         let Some((root, relative)) = reached_from(path, &snapshot.root) else {
@@ -186,16 +222,20 @@ fn read_files<'a>(
         };
         lines.sort_unstable();
         lines.dedup();
-        let leads = led.entry(root.to_path_buf()).or_insert_with(|| leads(root));
+        let leads = led.entry(root).or_insert_with(|| leads(root));
+        if !live() {
+            return None;
+        }
         let read = read_lines(
             (root, leads.as_deref()),
-            relative,
-            &lines,
-            real_home.as_deref(),
-            &mut budget,
+            (relative, &lines),
+            real_home,
+            (&mut part, &mut budget),
             live,
         )?;
-        if let RowLines::Read(read) = read {
+        if let RowLines::Read(read, identity) = read
+            && !withheld_identity(identity)
+        {
             found.insert(path, read.into_iter().collect());
         }
     }
@@ -203,7 +243,8 @@ fn read_files<'a>(
 }
 
 /// The root a file is read from and its path from there: the server's root for a file under
-/// it, else its own directory.
+/// it, else its own directory, as the editor's preview of the row reaches it
+/// (`oso_core`'s `Editor::xref_wanted`); the two must agree.
 fn reached_from<'a>(path: &'a Path, root: &'a Path) -> Option<(&'a Path, &'a Path)> {
     match path.strip_prefix(root) {
         Ok(relative) if relative.file_name().is_some() => Some((root, relative)),
@@ -222,8 +263,7 @@ fn shown_path(path: &Path, root: &Path, home: Option<&Path>) -> Box<str> {
         && let Ok(relative) = path.strip_prefix(home)
         && relative.file_name().is_some()
     {
-        let separator = std::path::MAIN_SEPARATOR;
-        return format!("~{separator}{}", relative.to_string_lossy()).into();
+        return format!("~/{}", relative.to_string_lossy()).into();
     }
     path.to_string_lossy().into()
 }

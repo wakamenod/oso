@@ -124,9 +124,8 @@ pub(crate) fn build(snapshot: &Snapshot, live: &dyn Fn() -> bool) -> Option<Diag
         (relative.len() <= ROW_PATH_BYTES_MAX).then(|| relative.into())
     };
     // The root as the servers' paths spell it.
-    let server_root = oso_lsp::uri::from_path(&snapshot.root)
-        .and_then(|uri| oso_lsp::uri::to_path(&uri))
-        .unwrap_or_else(|| snapshot.root.clone());
+    let server_root =
+        super::super::read_back(&snapshot.root).unwrap_or_else(|| snapshot.root.clone());
     let current = snapshot
         .open
         .iter()

@@ -1,6 +1,7 @@
 //! A list's preview of a file at a place (ADR 0114, ADR 0138): the selected row's file around
 //! its line, from an open buffer of that file or from what the host read of it, for a project's
-//! search and the list of diagnostics, each with its own [`FilePreview`].
+//! search, the list of diagnostics and the list of a server's places, each with its own
+//! [`FilePreview`].
 //!
 //! Must not depend on: `command` or `keymap`, or the host's threads or I/O; the host reads the
 //! file and hands over an [`Excerpt`] of it.
