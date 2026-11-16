@@ -11,9 +11,10 @@
 use std::path::{Path, PathBuf};
 
 use super::facts::RepoFacts;
-use super::git::{Gh, MAX_LISTING, Repo, run, said};
+use super::git::{MAX_LISTING, Repo, run, said};
 use super::merged::{self, Local, Merged};
 use super::porcelain::{self, Listed, Status};
+use crate::git::Gh;
 use crate::git::Git;
 
 /// The most names of ignored files and directories kept, for the removal's question.

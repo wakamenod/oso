@@ -8,6 +8,8 @@
 
 use std::path::PathBuf;
 
+pub(crate) use crate::git::printable;
+
 /// The most characters [`status_lines`] shows of one entry.
 const MAX_LINE_CHARS: usize = 1024;
 
@@ -224,44 +226,6 @@ pub fn made_a_commit(reflog: &[u8]) -> bool {
                 .iter()
                 .any(|start| subject.starts_with(start))
         })
-}
-
-/// Text safe to show a person: control characters, the line and paragraph separators and the
-/// bidirectional controls become `\u{…}` escapes. At most `max` characters of it, then `…`.
-pub fn printable(text: &str, max: usize) -> String {
-    use std::fmt::Write;
-    let mut shown = String::with_capacity(text.len().min(max.saturating_mul(4)));
-    let mut count = 0;
-    for c in text.chars() {
-        let code = u32::from(c);
-        // `\u{`, the hex digits, `}`; or the character itself.
-        let width = if hidden(c) {
-            4 + (32 - code.leading_zeros()).div_ceil(4).max(1) as usize
-        } else {
-            1
-        };
-        if count + width > max {
-            shown.push('…');
-            return shown;
-        }
-        count += width;
-        if width == 1 {
-            shown.push(c);
-        } else {
-            let _ = write!(shown, "\\u{{{code:x}}}");
-        }
-    }
-    shown
-}
-
-/// Whether `c` would change how the text around it looks, or would not show: C0, DEL and C1
-/// controls, U+2028 and U+2029, and the bidirectional marks, embeddings, overrides and isolates.
-fn hidden(c: char) -> bool {
-    c.is_control()
-        || matches!(
-            c,
-            '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
-        )
 }
 
 /// A path from git's raw bytes: as they are on Unix, decoded as UTF-8 elsewhere.

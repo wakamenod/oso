@@ -14,8 +14,9 @@ use std::path::{Path, PathBuf};
 
 use oso_platform::process;
 
-use super::git::{GhRepo, MAX_LISTING, MAX_NAMES, Repo, said};
+use super::git::{MAX_LISTING, MAX_NAMES, Repo, said};
 use super::porcelain;
+use crate::git::GhRepo;
 use crate::sessions::registry;
 
 /// The branch names a remote's main line goes by, besides the one its `HEAD` points to.
