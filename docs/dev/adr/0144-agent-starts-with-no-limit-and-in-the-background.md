@@ -1,6 +1,6 @@
 # 0144. Agent starts with no limit, and in the background
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-16
 
 ## Context
@@ -61,6 +61,12 @@ asked, through the coordinator, for two changes on 2026-11-16:
   (`Terminals::behind`).
 - **Attention:** a session started behind is not seen (ADR 0121) until the person shows it. Its
   `needs input` and `done` ask for attention as for any session.
+
+## The author's choice
+
+The author accepted this ADR on 2026-11-16, through the coordinator, with both trade-offs in
+Consequences: up to 20 starts each time the person types in a caller with `"none"`, and sessions
+out of sight until the person goes to them.
 
 ## Changes to accepted ADRs
 
