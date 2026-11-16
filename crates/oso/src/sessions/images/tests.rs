@@ -77,6 +77,7 @@ fn names(directory: &Path) -> Vec<String> {
 }
 
 /// A 1×1 grey TIFF, uncompressed, little-endian: the smallest `sips` reads.
+#[cfg(target_os = "macos")]
 fn tiny_tiff() -> Vec<u8> {
     const SHORT: u16 = 3;
     const LONG: u16 = 4;
