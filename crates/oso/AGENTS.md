@@ -50,6 +50,13 @@ often, so it must rebuild within 2 s.
   terminal's thread sent). Terminal text never reaches a
   log or the disk, and reaches the agent channel only as the rows of a terminal the person
   let agents read (`terminal-allow-agent-read`), never while its program reads a password.
+- `src/app/servers.rs` runs language servers (ADR 0138): one per project root and entry, each
+  on `oso-lsp`'s threads, started from an open (`app/starts.rs`), the `lsp-*` commands
+  (`commands/lsp.rs`), trust and the configuration (`config/lsp.rs`, the built-in table and
+  `[lsp]`). Its `Gate` checks `git::TrustedRoot` and finds the program (`servers/find.rs`) on
+  the server's thread. The fake server the tests run against is the dev-only binary
+  `fake-lsp-server` (`tests/fake_lsp_server/`), which `just release-safety` keeps out of
+  release builds.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a
   hosted session's state from its screen, the tracker, the `oso-sessions` worker, and worktree
   sessions (`sessions/worktree/`), whose git and `gh` jobs run on `oso-sessions-git`, beside the

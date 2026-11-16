@@ -1,0 +1,186 @@
+//! A language server's life (ADR 0138, step 3): [`Server::start`] gives it a session thread,
+//! which checks the gate, spawns the program in a process group of its own, and runs
+//! `initialize` to `exit`, starting it again after a crash and stopping for the session after
+//! three. The UI thread only asks, through [`Server`]'s methods, and takes what the session
+//! thread reported ([`Server::take_report`]); it never reads, writes, parses or waits on a
+//! server.
+//!
+//! Must not depend on: the tip crate, the configuration or the editor; the caller says what
+//! to start ([`Start`]), whether it may ([`Gate`]), and how to wake the UI.
+
+mod outbox;
+mod pipes;
+mod policy;
+mod session;
+#[cfg(test)]
+mod tests;
+
+use std::ffi::OsString;
+use std::io;
+use std::path::PathBuf;
+use std::sync::mpsc::{self, Sender};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::thread;
+
+use oso_platform::process::{Child, Executable, Signal};
+use serde_json::Value;
+
+use crate::framing::{Frame, FrameError};
+use crate::protocol::Severity;
+use outbox::Outbox;
+use session::Session;
+
+/// What reaches a session thread: the UI's asks, and its run's pipe threads' news, which
+/// name the run so that an earlier run's are told apart.
+enum Event {
+    Restart(Box<(Start, Gate)>),
+    ShutDown,
+    Quit,
+    Frame(u64, Frame),
+    ReadEnd(u64, Option<FrameError>),
+    WriteFailed(u64, io::ErrorKind),
+}
+
+/// What to start, and what to tell it.
+#[derive(Debug, Clone)]
+pub struct Start {
+    /// The entry's name, which names the server in `*LSP*` and the echo area.
+    pub name: String,
+    /// A number of its own among the servers, for its threads' names (`oso-lsp-1`).
+    pub number: usize,
+    /// The program's arguments; the program is what the [`Gate`] finds.
+    pub args: Vec<OsString>,
+    /// The project's root: where it runs, its only workspace folder, and what is left out of
+    /// its `PATH`.
+    pub root: PathBuf,
+    /// The names of variables it takes from oso's environment, beyond the process module's
+    /// allowlist.
+    pub inherit: Vec<String>,
+    /// The section of the settings its `workspace/configuration` asks for (`rust-analyzer`).
+    pub section: Option<String>,
+    /// Its settings, sent as `initializationOptions` and in answer to
+    /// `workspace/configuration`.
+    pub options: Option<Value>,
+}
+
+/// Whether the server may start now, and the program to start, run on its session thread
+/// before each start: `Err` says why not, for a person. The tip crate checks the project's
+/// trust and root here, and finds the program.
+pub type Gate = Box<dyn Fn() -> Result<Executable, String> + Send>;
+
+/// Wakes the UI thread, which then calls [`Server::take_report`].
+pub type Wake = Box<dyn Fn() + Send>;
+
+/// Where a server is in its life, for the modeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum State {
+    /// Being started, until `initialize` is answered.
+    Starting,
+    /// Running, with no work reported.
+    Ready,
+    /// Running, reporting work, done to this percentage if it says.
+    Working(Option<u8>),
+    /// Waiting to start again after a crash.
+    Waiting,
+    /// Stopped for the session: three crashes, or it could not start. `lsp-restart` tries
+    /// again ([`Server::restart`]).
+    Stopped,
+    /// Shut down: the session thread has ended.
+    Ended,
+}
+
+/// A message for the person, for the echo area and `*Messages*`, without the server's name,
+/// which the caller puts first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shown {
+    pub severity: Severity,
+    pub text: String,
+}
+
+/// What the session thread reported since the last [`Server::take_report`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Report {
+    pub state: State,
+    /// Lines for `*LSP*`, oldest first: method names, ids, sizes, timings and the standard
+    /// error, never a document's text.
+    pub log: Vec<String>,
+    /// Messages for the person.
+    pub shown: Vec<Shown>,
+}
+
+/// A server's session thread, and what the UI shares with it.
+#[derive(Debug)]
+pub struct Server {
+    events: Sender<Event>,
+    outbox: Arc<Outbox>,
+    /// The running process, shared so that a quit can end it at once.
+    child: Arc<Mutex<Option<Child>>>,
+}
+
+impl Server {
+    /// Starts the session thread, which starts the server. Never waits on the server.
+    ///
+    /// # Errors
+    ///
+    /// When the thread cannot be started.
+    pub fn start(start: Start, gate: Gate, wake: Wake) -> io::Result<Server> {
+        let (events, receiver) = mpsc::channel();
+        let outbox = Arc::new(Outbox::default());
+        let child = Arc::new(Mutex::new(None));
+        let name = format!("oso-lsp-{}", start.number);
+        let session = Session::new(
+            start,
+            gate,
+            outbox::Reporter::new(Arc::clone(&outbox), wake),
+            receiver,
+            events.clone(),
+            Arc::clone(&child),
+        );
+        thread::Builder::new()
+            .name(name)
+            .spawn(move || session.run())?;
+        Ok(Server {
+            events,
+            outbox,
+            child,
+        })
+    }
+
+    /// What was reported since the last call, `None` if nothing.
+    pub fn take_report(&self) -> Option<Report> {
+        self.outbox.take()
+    }
+
+    /// Stops the server as [`Server::shut_down`] does, if it runs, forgets its crashes, and
+    /// starts it again with `start` and `gate`: `lsp-restart`.
+    pub fn restart(&self, start: Start, gate: Gate) {
+        let _ = self.events.send(Event::Restart(Box::new((start, gate))));
+    }
+
+    /// Stops the server: `shutdown`, `exit`, then `SIGTERM` and `SIGKILL` to its group, each
+    /// after a wait, on the session thread, which then ends: `lsp-shutdown`, or an untrust.
+    pub fn shut_down(&self) {
+        let _ = self.events.send(Event::ShutDown);
+    }
+
+    /// Ends the server as oso quits: `SIGTERM` to its group now, and its standard input
+    /// closed, with no wait.
+    pub fn quit(&self) {
+        if let Some(child) = self
+            .child
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+        {
+            let _ = child.signal_group(Signal::Terminate);
+        }
+        let _ = self.events.send(Event::Quit);
+    }
+}
+
+impl Drop for Server {
+    /// A server no one holds is stopped as [`Server::shut_down`] stops it, on its thread.
+    fn drop(&mut self) {
+        let _ = self.events.send(Event::ShutDown);
+    }
+}

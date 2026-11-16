@@ -312,7 +312,8 @@ fn m_x(app: &mut App, command: &str) {
 fn trust_project_asks_records_the_root_beside_the_config_and_untrust_removes_it() {
     let scratch = Scratch::new("projects-trust");
     set_mode(scratch.path(), 0o700);
-    let config = scratch.write("config.toml", b"");
+    // No language server of the machine's starts in the trusted project (ADR 0138).
+    let config = scratch.write("config.toml", b"[lsp]\nstart = \"manual\"\n");
     set_mode(&config, 0o644);
     let record = scratch.path().join("trusted-projects");
     let main = scratch.write("proj-trust/src/main.rs", b"fn main() {}\n");

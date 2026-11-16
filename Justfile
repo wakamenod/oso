@@ -221,9 +221,8 @@ release-safety:
     # `oso-restart`, whose pair has names of its own (ADR 0133).
     markers="oso-dev-control-socket oso-dev-supervisor send-keys export-state"
     markers="$markers export-text import-state hand-over-terminals import-terminals"
-    # The dev hook that stops an `oso-restart` short for end-to-end flows, and the stand-in for
-    # what opening and saving start (ADR 0138, step 1).
-    markers="$markers OSO_DEV_RESTART_FAIL OSO_DEV_STARTS"
+    # The dev hook that stops an `oso-restart` short for end-to-end flows.
+    markers="$markers OSO_DEV_RESTART_FAIL"
     # On macOS, the window layer's dev-only Carbon import, for the dev socket's secure input
     # check (ADR 0070, ADR 0073).
     if [ "$(uname -s)" = Darwin ]; then markers="$markers IsSecureEventInputEnabled"; fi
@@ -265,6 +264,18 @@ release-safety:
             echo "error: the release binary contains the dev marker $marker"; fail=1
         fi
     done
+
+    # The fake language server is a binary of dev builds only (ADR 0138, step 3): a dev build
+    # makes it, and the release build makes no such executable.
+    executables() {
+        cargo build --locked --message-format=json-render-diagnostics "$@" \
+            | sed -n 's|.*"executable":"\([^"]*\)".*|\1|p'
+    }
+    grep -q '/fake-lsp-server$' <<<"$(executables -p oso --features dev)" \
+        || { echo "error: the dev build made no fake-lsp-server; fix this check"; exit 1; }
+    if grep '/fake-lsp-server$' <<<"$(executables --workspace --release)"; then
+        echo "error: the release build makes the fake language server (above)"; fail=1
+    fi
 
     if [ "$fail" -eq 0 ]; then echo "release safety: ok ($release_bin)"; fi
     exit "$fail"

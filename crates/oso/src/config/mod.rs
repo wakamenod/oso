@@ -24,6 +24,7 @@ mod git;
 mod in_force;
 mod indentation;
 mod keys;
+mod lsp;
 mod menus;
 mod outcome;
 mod paths;
@@ -50,6 +51,7 @@ pub use checked::read_checked;
 pub use git::GitSettings;
 pub use in_force::{AgentStarts, InForce, JUMP_TIMEOUT, Look};
 pub use indentation::MODES;
+pub use lsp::{Entry as LspEntry, Lsp, StartWhen};
 pub use outcome::{group_writes_note, outcome};
 pub use paths::expand;
 pub use problems::Problem;
@@ -228,6 +230,7 @@ fn apply(
             "sessions" => settings.sessions = settings::sessions(value, found),
             "terminal" => settings.terminal = terminal::terminal(value, found),
             "spaces" => settings.spaces = spaces::spaces(value, found),
+            "lsp" => settings.lsp = lsp::lsp(value, found),
             "git" => settings.git = git::git(value, found),
             other => found.at(
                 name.span().start,
@@ -310,6 +313,8 @@ impl fmt::Display for TableName<'_> {
 mod jump_tests;
 #[cfg(test)]
 mod keys_tests;
+#[cfg(test)]
+mod lsp_tests;
 #[cfg(test)]
 mod menus_tests;
 #[cfg(test)]

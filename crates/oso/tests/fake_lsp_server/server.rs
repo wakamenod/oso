@@ -1,11 +1,13 @@
-//! oso's fake language server, for tests only (ADR 0138, step 2): it reads messages on its
-//! standard input with `oso-lsp`'s framing and does what the script named by its first
-//! argument says, misbehaviour included. An example, so it never ships.
+//! oso's fake language server, for tests only (ADR 0138, steps 2 and 3): it reads messages on
+//! its standard input with `oso-lsp`'s framing and does what the script named by its first
+//! argument says, misbehaviour included. A binary of dev builds only, so it never ships
+//! (`just release-safety`). Not `main.rs`, so that cargo does not take its directory for a
+//! test.
 //!
 //! Must not depend on: anything of the client's but `framing`; its replies are written by
 //! hand, so a test of the client can check the client.
 //!
-//! Run as `fake-server <script.json>`. A message that is not JSON, or a broken stream, ends
+//! Run as `fake-lsp-server <script.json>`. A message that is not JSON, or a broken stream, ends
 //! it with 2; a script it cannot read, with 64.
 
 mod script;

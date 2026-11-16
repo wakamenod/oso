@@ -378,3 +378,60 @@ fn a_terminal_that_is_another_sessions_fails_the_start() {
     master.write(b"\n").unwrap();
     assert!(first.wait().unwrap().success());
 }
+
+/// Waits up to 10 s for `done`.
+fn eventually(mut done: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        if done() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+}
+
+#[test]
+fn a_look_at_an_ended_child_leaves_it_to_be_waited_for() {
+    let sh = sh();
+    let args = ["-c".into(), "exit 7".into()];
+    let mut child = spawn(&request(&sh, &args)).unwrap();
+    assert!(eventually(|| child.exited().unwrap()));
+    assert!(child.exited().unwrap(), "a second look says the same");
+    assert_eq!(child.wait().unwrap().code(), Some(7), "it was not reaped");
+    assert!(child.exited().unwrap());
+}
+
+#[test]
+fn a_running_child_has_not_exited_and_its_group_is_reached_until_it_is_reaped() {
+    let sh = sh();
+    let args = ["-c".into(), "sleep 60 & echo $!; wait".into()];
+    let mut start = request(&sh, &args);
+    start.stdout = Sink::Piped;
+    start.own_process_group = true;
+    let mut child = spawn(&start).unwrap();
+    let mut line = Vec::new();
+    let mut stdout = child.stdout.take().unwrap();
+    let mut byte = [0];
+    while stdout.read(&mut byte).unwrap() == 1 && byte[0] != b'\n' {
+        line.push(byte[0]);
+    }
+    let grandchild: libc::pid_t = String::from_utf8(line).unwrap().trim().parse().unwrap();
+    assert!(!child.exited().unwrap(), "it runs");
+    // SAFETY: `kill` with these numbers ends the child alone; the grandchild stays.
+    unsafe { libc::kill(child.id().cast_signed(), libc::SIGKILL) };
+    assert!(eventually(|| child.exited().unwrap()), "the child ended");
+    // Not reaped by the look: what it left in its group can still be reached.
+    assert!(alive(grandchild), "the grandchild still runs");
+    child
+        .signal_group(crate::process::Signal::Terminate)
+        .unwrap();
+    assert!(eventually(|| !alive(grandchild)), "the grandchild ended");
+    child.wait().unwrap();
+}
+
+/// Whether a process `pid` is there to be signalled.
+fn alive(pid: libc::pid_t) -> bool {
+    // SAFETY: `kill` with signal 0 sends nothing; it takes and returns plain numbers.
+    unsafe { libc::kill(pid, 0) == 0 }
+}

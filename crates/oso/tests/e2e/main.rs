@@ -29,6 +29,7 @@ mod indent;
 mod isearch;
 mod jump;
 mod kill;
+mod lsp;
 mod macros;
 mod mark;
 mod menus;

@@ -210,6 +210,8 @@ impl App {
     /// running now may or may not finish, and nobody can tell, so its buffer gets a copy too.
     pub(super) fn ending(&self) {
         self.emergency.on_exit();
+        // Servers end with oso, with no wait (ADR 0138).
+        self.quit_servers();
         // git's runs end with oso, a hook and what it started too (ADR 0127, Q7).
         self.end_git_runs();
     }

@@ -118,6 +118,20 @@ impl core::fmt::Debug for oso_core::buffer::Runs
 pub fn oso_core::buffer::Runs::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::buffer::Runs
 impl core::marker::StructuralPartialEq for oso_core::buffer::Runs
+pub enum oso_core::buffer::ServerMark
+pub oso_core::buffer::ServerMark::Ready
+pub oso_core::buffer::ServerMark::Starting
+pub oso_core::buffer::ServerMark::Stopped
+pub oso_core::buffer::ServerMark::Working(core::option::Option<u8>)
+impl core::clone::Clone for oso_core::buffer::ServerMark
+pub fn oso_core::buffer::ServerMark::clone(&self) -> oso_core::buffer::ServerMark
+impl core::cmp::Eq for oso_core::buffer::ServerMark
+impl core::cmp::PartialEq for oso_core::buffer::ServerMark
+pub fn oso_core::buffer::ServerMark::eq(&self, &oso_core::buffer::ServerMark) -> bool
+impl core::fmt::Debug for oso_core::buffer::ServerMark
+pub fn oso_core::buffer::ServerMark::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::buffer::ServerMark
+impl core::marker::StructuralPartialEq for oso_core::buffer::ServerMark
 pub enum oso_core::buffer::Start
 pub oso_core::buffer::Start::ServerOpen
 pub oso_core::buffer::Start::ServerSave
@@ -252,6 +266,9 @@ pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::naming(&self) -> u32
 pub fn oso_core::buffer::Buffer::project(&self) -> core::option::Option<oso_core::project::ProjectId>
+impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::server(&self) -> core::option::Option<oso_core::buffer::ServerMark>
+pub fn oso_core::buffer::Buffer::set_server(&mut self, core::option::Option<oso_core::buffer::ServerMark>)
 pub struct oso_core::buffer::BufferId(_)
 impl oso_core::buffer::BufferId
 pub const fn oso_core::buffer::BufferId::get(self) -> u64
@@ -1733,6 +1750,34 @@ pub fn oso_core::editor::SendTo::eq(&self, &oso_core::editor::SendTo) -> bool
 impl core::fmt::Debug for oso_core::editor::SendTo
 pub fn oso_core::editor::SendTo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::SendTo
+pub enum oso_core::editor::ServerFace
+pub oso_core::editor::ServerFace::Dim
+pub oso_core::editor::ServerFace::Plain
+pub oso_core::editor::ServerFace::Warning
+impl core::clone::Clone for oso_core::editor::ServerFace
+pub fn oso_core::editor::ServerFace::clone(&self) -> oso_core::editor::ServerFace
+impl core::cmp::Eq for oso_core::editor::ServerFace
+impl core::cmp::PartialEq for oso_core::editor::ServerFace
+pub fn oso_core::editor::ServerFace::eq(&self, &oso_core::editor::ServerFace) -> bool
+impl core::default::Default for oso_core::editor::ServerFace
+pub fn oso_core::editor::ServerFace::default() -> oso_core::editor::ServerFace
+impl core::fmt::Debug for oso_core::editor::ServerFace
+pub fn oso_core::editor::ServerFace::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::ServerFace
+impl core::marker::StructuralPartialEq for oso_core::editor::ServerFace
+pub enum oso_core::editor::ServerRequest
+pub oso_core::editor::ServerRequest::Restart(oso_core::buffer::BufferId)
+pub oso_core::editor::ServerRequest::ShutDown(oso_core::buffer::BufferId)
+pub oso_core::editor::ServerRequest::Start(oso_core::buffer::BufferId)
+impl core::clone::Clone for oso_core::editor::ServerRequest
+pub fn oso_core::editor::ServerRequest::clone(&self) -> oso_core::editor::ServerRequest
+impl core::cmp::Eq for oso_core::editor::ServerRequest
+impl core::cmp::PartialEq for oso_core::editor::ServerRequest
+pub fn oso_core::editor::ServerRequest::eq(&self, &oso_core::editor::ServerRequest) -> bool
+impl core::fmt::Debug for oso_core::editor::ServerRequest
+pub fn oso_core::editor::ServerRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::ServerRequest
+impl core::marker::StructuralPartialEq for oso_core::editor::ServerRequest
 pub enum oso_core::editor::SessionRequest
 pub oso_core::editor::SessionRequest::Adopt(alloc::string::String)
 pub oso_core::editor::SessionRequest::AgentStarts(bool)
@@ -2085,6 +2130,7 @@ pub fn oso_core::editor::Editor::echo_withheld(&self) -> bool
 pub fn oso_core::editor::Editor::end_command(&mut self)
 pub fn oso_core::editor::Editor::keys_withheld(&self) -> bool
 pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<alloc::string::String>)
+pub fn oso_core::editor::Editor::message_unlogged(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::messages_buffer(&self) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::note(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::place_behind_internal_of(&self, oso_core::window::WindowId) -> core::option::Option<(oso_core::buffer::BufferId, &oso_core::selection::SelectionSet, oso_core::window::Scroll)>
@@ -2429,6 +2475,11 @@ pub fn oso_core::editor::Editor::replace_answer(&mut self, oso_core::editor::Rep
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::replace_continue(&mut self)
 pub fn oso_core::editor::Editor::replace_works(&self) -> bool
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::request_server(&mut self, oso_core::editor::ServerRequest)
+pub fn oso_core::editor::Editor::server_log<'a>(&mut self, &str, impl core::iter::traits::collect::IntoIterator<Item = &'a str>, usize)
+pub fn oso_core::editor::Editor::server_log_shown(&self) -> bool
+pub fn oso_core::editor::Editor::take_server_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ServerRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::review_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut oso_core::editor::ReviewCells)
 impl oso_core::editor::Editor
@@ -2851,6 +2902,8 @@ pub struct oso_core::editor::Status
 pub oso_core::editor::Status::agent: &'static str
 pub oso_core::editor::Status::agent_connected: bool
 pub oso_core::editor::Status::echo: alloc::string::String
+pub oso_core::editor::Status::lsp: alloc::string::String
+pub oso_core::editor::Status::lsp_face: oso_core::editor::ServerFace
 pub oso_core::editor::Status::name: alloc::string::String
 pub oso_core::editor::Status::project: alloc::string::String
 pub oso_core::editor::Status::restricted: &'static str
