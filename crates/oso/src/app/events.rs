@@ -172,6 +172,7 @@ impl App {
         self.show_jump_labels_if_due();
         self.diagnostic_at_point_if_due();
         self.xrefs_if_due();
+        self.completion_if_due();
         self.quit_if_idle(event_loop);
         // Last, once every deadline is known.
         self.set_wake(event_loop);
@@ -272,6 +273,7 @@ impl App {
             self.jump_timer.next_wake(),
             self.diagnostic_at_point_deadline(),
             self.xrefs_deadline(),
+            self.completion_deadline(),
             self.reload_deadline(),
             self.quiet_walk_deadline(),
             self.slice_deadline(),

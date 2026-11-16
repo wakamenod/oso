@@ -317,10 +317,13 @@ fn pop(editor: &mut Editor, labels: &[&str]) {
             filter: None,
             text: (*label).into(),
             range: None,
+            extra: Vec::new(),
         })
         .collect();
     let at = editor.ask_at();
     let answer = CompletionPopupAnswer {
+        serial: 1,
+        incomplete: false,
         at,
         revision: at.revision,
         items,
@@ -412,4 +415,27 @@ fn an_agent_s_command_or_a_key_nothing_binds_closes_the_popup() {
         editor.completion_popup().is_none(),
         "an undefined key closes it"
     );
+}
+
+#[test]
+fn only_the_person_s_typing_is_noted_for_completion() {
+    use super::args::Given;
+    use oso_core::command::Reach;
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    send(&mut d, &mut editor, "a b c");
+    let at = editor.take_completion_typed().expect("the person typed");
+    let typed = editor.completion_typed(at).unwrap();
+    assert_eq!((typed.last, typed.word_clusters), ('c', 3));
+    // Moving is no typing.
+    send(&mut d, &mut editor, "C-f");
+    assert!(editor.take_completion_typed().is_none());
+    // The agent types through the channel's `change`, never this command.
+    let ran = d.run_for_agent(
+        &mut editor,
+        "self-insert-command",
+        Given::Text("d"),
+        Reach::Change,
+    );
+    assert!(ran.is_err(), "{ran:?}");
+    assert!(editor.take_completion_typed().is_none());
 }

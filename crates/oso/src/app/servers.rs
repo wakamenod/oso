@@ -52,6 +52,8 @@ pub(super) struct Servers {
     listing: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// The list of a server's places, built or shown (step 8b).
     xrefs: xrefs::Lists,
+    /// Where the person's typing asks for completions once it has rested, and when (step 9b).
+    typing_rest: Option<(oso_core::editor::AskAt, std::time::Instant)>,
 }
 
 /// `path` in the form a server's URI of it reads back as, as the places and reports of servers
@@ -83,6 +85,8 @@ struct Running {
     joined: places::Joined,
     /// The reports of files no document open with it holds, for `M-g d` (step 6b).
     files: diagnostics::Files,
+    /// What it said of its completions once initialized (step 9b).
+    completing: Option<oso_lsp::protocol::Completing>,
 }
 
 impl Servers {
@@ -169,6 +173,7 @@ impl App {
                     asked: HashMap::new(),
                     joined: places::Joined::default(),
                     files: diagnostics::Files::default(),
+                    completing: None,
                 });
                 // Its project's buffers go to it, once it is ready, but the agent's
                 // (ADR 0118).
@@ -213,6 +218,8 @@ impl App {
                 }
             }
         }
+        // After the edits went to the server: what the person typed may ask by itself.
+        self.complete_as_typed();
     }
 
     /// `lsp-start`, or `lsp-restart` if `again`.
@@ -352,6 +359,7 @@ impl App {
                 said = true;
             }
             answers.extend(report.answers.into_iter().map(|answer| (index, answer)));
+            running.completing = report.completing.or(running.completing.take());
             if report.state == State::Ended {
                 ended.push(index);
             }

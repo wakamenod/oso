@@ -4,8 +4,9 @@
 //! the diagnostics at point (step 6), and the list of a project's (`M-g d`, step 6b,
 //! `diagnostics_list`, sharing `listed` with the list of an answer's places); the jumps an
 //! answer leads to, and back (step 8, `jumps`), and the list of an answer's places (step 8b,
-//! `xref_list`); the completion popup (step 9, `popup`); and the description of what is at
-//! point in a float there (step 10, `hover`).
+//! `xref_list`); the completion popup (step 9, `popup`), with what it takes after it opened
+//! and what the person typed (step 9b); and the description of what is at point in a float
+//! there (step 10, `hover`).
 //!
 //! Must not depend on: the host's servers, threads or I/O; a command asks, and the host takes
 //! the request after the command and acts on the server.
@@ -27,7 +28,7 @@ pub use jumps::AskAt;
 pub use listed::{ListedAt, ListedHit};
 pub use popup::{
     COMPLETION_POPUP_COLUMNS, COMPLETION_POPUP_ROWS, CompletionPopup, CompletionPopupAnswer,
-    CompletionPopupItem,
+    CompletionPopupItem, CompletionTyped,
 };
 pub use xref_list::{XrefKind, XrefRow, XrefRows};
 
@@ -47,6 +48,10 @@ pub(super) struct Servers {
     pub(super) xrefs: xref_list::XrefList,
     /// The completion popup at point (step 9).
     popup: Option<popup::CompletionPopup>,
+    /// An item inserted before its resolve came, whose other edits may still come (step 9b).
+    inserted: Option<popup::Inserted>,
+    /// Where the person last typed, for the host to judge whether to complete (step 9b).
+    typed: Option<AskAt>,
     /// The description shown at point, `C-c C-d` (step 10).
     pub(super) hover: hover::Hover,
     log: Option<BufferId>,

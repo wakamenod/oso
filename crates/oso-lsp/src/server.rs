@@ -39,7 +39,8 @@ use oso_platform::process::{Child, Executable, Signal};
 use serde_json::Value;
 
 pub use asks::{
-    Answer, Answered, Ask, AskFailure, AskKind, Completion, Completions, Location, Target,
+    Answer, Answered, Ask, AskContext, AskFailure, AskKind, Completion, Completions, Location,
+    Resolved, Target,
 };
 
 use crate::framing::{Frame, FrameError};
@@ -206,6 +207,9 @@ pub struct Report {
     pub diagnostics: Vec<Diagnosed>,
     /// Answers to [`Server::ask`], the latest of each document and kind (step 8).
     pub answers: Vec<Answer>,
+    /// What the server said of its completions in its run's `initialize`, until the UI took
+    /// it: nothing of it for a server that does not complete (step 9b).
+    pub completing: Option<crate::protocol::Completing>,
 }
 
 /// A server's session thread, and what the UI shares with it.
