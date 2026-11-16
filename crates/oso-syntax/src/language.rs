@@ -42,6 +42,7 @@ impl Language {
             | Mode::Terminal
             | Mode::Directory
             | Mode::GitStatus
+            | Mode::GitGraph
             | Mode::GitCommit
             | Mode::GitLog
             | Mode::GitDiscarded

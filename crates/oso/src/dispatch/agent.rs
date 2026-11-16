@@ -329,6 +329,7 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::Terminal
         | Mode::Directory
         | Mode::GitStatus
+        | Mode::GitGraph
         | Mode::GitCommit
         | Mode::GitLog
         | Mode::GitDiscarded

@@ -163,7 +163,8 @@ fn small_file(path: &Path) -> Option<Vec<u8>> {
 /// `vcs/hooks` under `state`, made private if missing, and checked to be empty: git is told the
 /// hooks are there, so that none runs, `post-index-change` neither (ADR 0127, step 1a).
 pub(super) fn hooks_dir(state: Option<&Path>) -> Result<PathBuf, String> {
-    let state = state.ok_or("oso has no state directory, so it runs no git for a status")?;
+    let state =
+        state.ok_or("oso has no state directory, so it runs no git for a status or a graph")?;
     crate::git::empty_hooks(state, "vcs")
 }
 

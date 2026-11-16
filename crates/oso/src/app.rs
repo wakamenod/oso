@@ -154,6 +154,8 @@ pub enum UserEvent {
     Review(reviews::ReviewEvent),
     /// A git status buffer's thread reported (ADR 0127).
     Git(vcs::GitEvent),
+    /// A graph buffer's thread reported (ADR 0127, step 4).
+    Graph(vcs::GraphEvent),
     /// A language server's thread reported (ADR 0138).
     Servers,
     /// A repository's thread for git's long runs reported (ADR 0127, step 1b).

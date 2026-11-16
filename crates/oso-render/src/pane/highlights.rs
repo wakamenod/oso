@@ -56,6 +56,15 @@ impl Face {
             Highlight::GitHash => Self::GitHash,
             Highlight::GitDetail => Self::GitDetail,
             Highlight::GitCommitOverlong => Self::GitCommitOverlong,
+            Highlight::GitLane0 => Self::GitLane0,
+            Highlight::GitLane1 => Self::GitLane1,
+            Highlight::GitLane2 => Self::GitLane2,
+            Highlight::GitLane3 => Self::GitLane3,
+            Highlight::GitLane4 => Self::GitLane4,
+            Highlight::GitLane5 => Self::GitLane5,
+            Highlight::GitLane6 => Self::GitLane6,
+            Highlight::GitLane7 => Self::GitLane7,
+            Highlight::GitTag => Self::GitTag,
         }
     }
 

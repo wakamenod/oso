@@ -126,4 +126,16 @@ pub enum Highlight {
     /// summary's characters past 50, a body line's past 72, and a second line that is not
     /// empty. Only the host gives these; no parser does.
     GitCommitOverlong,
+    /// A graph's lanes (ADR 0127, step 4), coloured in turn: the lane at index `i` takes the
+    /// `i % 8`th. Only the host's graph buffers give these.
+    GitLane0,
+    GitLane1,
+    GitLane2,
+    GitLane3,
+    GitLane4,
+    GitLane5,
+    GitLane6,
+    GitLane7,
+    /// A tag's name on a graph's row.
+    GitTag,
 }

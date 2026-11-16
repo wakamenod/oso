@@ -661,6 +661,11 @@ The UI thread never blocks on I/O or parsing:
   says when a step is refused, pure functions; the status's thread reads it (`vcs/read.rs`) and
   the head shows it; `vcs/run/sequence.rs` continues, skips and aborts on `oso-vcs-run`,
   judging it again first, and `app/vcs/sequence.rs` asks the questions.
+- The graph (step 4): `vcs/graph.rs` reads `git log`'s records into commits and their labels,
+  `vcs/graph/lanes.rs` lays out the lanes, a pure function, `vcs/graph/write.rs` the text, and
+  `vcs/graph/work.rs` runs the reads, a page at a time, on `oso-vcs-graph`, one thread per graph
+  buffer; `app/vcs/graph.rs` keeps the buffers, asks the next page as point nears the end and
+  carries out the keys.
 - Stashes and branches (step 3b): `vcs/stash.rs` reads the stash list into the Stashes section
   and `vcs/branch.rs` holds what branches need that runs no git; `vcs/run/stash.rs` and
   `vcs/run/branch.rs` run them on `oso-vcs-run`, finding a stash again by its id and planning a
