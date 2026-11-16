@@ -2101,6 +2101,16 @@ pub fn oso_core::editor::Crossing::left(&self) -> usize
 pub fn oso_core::editor::Crossing::redo(&self) -> bool
 impl core::fmt::Debug for oso_core::editor::Crossing
 pub fn oso_core::editor::Crossing::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::DiagnosticCells
+pub oso_core::editor::DiagnosticCells::deprecated: alloc::vec::Vec<oso_core::frame::CellRect>
+pub oso_core::editor::DiagnosticCells::error: alloc::vec::Vec<oso_core::frame::CellRect>
+pub oso_core::editor::DiagnosticCells::information: alloc::vec::Vec<oso_core::frame::CellRect>
+pub oso_core::editor::DiagnosticCells::unnecessary: alloc::vec::Vec<oso_core::frame::CellRect>
+pub oso_core::editor::DiagnosticCells::warning: alloc::vec::Vec<oso_core::frame::CellRect>
+impl core::default::Default for oso_core::editor::DiagnosticCells
+pub fn oso_core::editor::DiagnosticCells::default() -> oso_core::editor::DiagnosticCells
+impl core::fmt::Debug for oso_core::editor::DiagnosticCells
+pub fn oso_core::editor::DiagnosticCells::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::Editor
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_buffer(&mut self, oso_core::buffer::Buffer) -> oso_core::buffer::BufferId
@@ -2385,6 +2395,8 @@ pub fn oso_core::editor::Editor::server_log<'a>(&mut self, &str, impl core::iter
 pub fn oso_core::editor::Editor::server_log_shown(&self) -> bool
 pub fn oso_core::editor::Editor::take_server_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ServerRequest>
 pub fn oso_core::editor::Editor::to_diagnostic(&mut self, bool) -> core::result::Result<bool, &'static str>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::diagnostic_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut oso_core::editor::DiagnosticCells)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::directory_answer_waits(&self) -> bool
 impl oso_core::editor::Editor
@@ -2689,6 +2701,7 @@ pub fn oso_core::editor::GitShown::fmt(&self, &mut core::fmt::Formatter<'_>) -> 
 pub struct oso_core::editor::Gutter
 impl oso_core::editor::Gutter
 pub fn oso_core::editor::Gutter::rows(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&str, bool)>
+pub fn oso_core::editor::Gutter::signs(&self) -> &[core::option::Option<oso_core::diagnostic::Severity>]
 impl core::default::Default for oso_core::editor::Gutter
 pub fn oso_core::editor::Gutter::default() -> oso_core::editor::Gutter
 impl core::fmt::Debug for oso_core::editor::Gutter
@@ -3028,6 +3041,7 @@ pub oso_core::editor::Status::agent_connected: bool
 pub oso_core::editor::Status::counts: oso_core::diagnostic::Counts
 pub oso_core::editor::Status::echo: alloc::string::String
 pub oso_core::editor::Status::lsp: alloc::string::String
+pub oso_core::editor::Status::lsp_counts: alloc::string::String
 pub oso_core::editor::Status::lsp_face: oso_core::editor::ServerFace
 pub oso_core::editor::Status::name: alloc::string::String
 pub oso_core::editor::Status::project: alloc::string::String
@@ -3038,6 +3052,7 @@ pub oso_core::editor::Status::state: alloc::string::String
 pub oso_core::editor::Status::waits: alloc::string::String
 pub oso_core::editor::Status::warnings: alloc::string::String
 impl oso_core::editor::Status
+pub fn oso_core::editor::Status::count_parts(&self) -> [(&str, oso_core::diagnostic::Severity); 3]
 pub fn oso_core::editor::Status::echo_warnings(&self) -> &str
 pub fn oso_core::editor::Status::modeline(&self) -> alloc::string::String
 impl core::clone::Clone for oso_core::editor::Status
