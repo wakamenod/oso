@@ -168,6 +168,53 @@ impl App {
         }
     }
 
+    /// The agent channel's `state`, with each buffer's language server named (step 11).
+    pub(in crate::app) fn agent_state(
+        &mut self,
+        buffer_offset: usize,
+    ) -> crate::channel::server::Reply {
+        self.agent_log_often("state");
+        Ok(crate::channel::state::state_with(
+            &self.editor,
+            self.dispatcher.menu_name(),
+            buffer_offset,
+            &|id| self.server_name(id),
+        ))
+    }
+
+    /// The name of the language server that follows buffer `id`.
+    fn server_name(&self, id: BufferId) -> Option<String> {
+        let index = self.running_for(id)?;
+        Some(self.servers.running[index].entry.name.clone())
+    }
+
+    /// The agent channel's `diagnostics` (step 11), from the editor and the servers' reports of
+    /// files no buffer holds.
+    pub(in crate::app) fn agent_diagnostics(
+        &mut self,
+        of: crate::channel::protocol::DiagnosticsOf,
+    ) -> crate::channel::server::Reply {
+        self.agent_log_often("diagnostics");
+        let files = self.file_reports();
+        crate::channel::diagnostics::diagnostics(&self.editor, &files, of)
+    }
+
+    /// The servers' reports of files no buffer holds, shared, so none is copied.
+    fn file_reports(&self) -> Vec<crate::channel::diagnostics::FileReport<'_>> {
+        (self.servers.running.iter())
+            .flat_map(|running| {
+                running.files.iter().map(|(path, (report, encoding))| {
+                    crate::channel::diagnostics::FileReport {
+                        path,
+                        report,
+                        encoding: *encoding,
+                        server: &running.entry.name,
+                    }
+                })
+            })
+            .collect()
+    }
+
     /// The rows of `M-g d`'s list came: the editor shows them, if they are for its list.
     pub(in crate::app) fn diagnostics_listed(&mut self, rows: DiagnosticRows) {
         self.editor.diagnostics_listed(rows);

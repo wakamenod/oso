@@ -593,6 +593,77 @@ fn diagnostics_are_listed_previewed_and_gone_to() {
     });
 }
 
+/// An agent reads a buffer's diagnostics through the channel's `diagnostics`, hints left out,
+/// and `state` gives the buffer's server and its counts (step 11).
+#[cfg(unix)]
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_agent_reads_the_diagnostics_and_the_counts() {
+    let scratch = Scratch::new("lsp-agent-diagnostics");
+    set_mode(scratch.path(), 0o700);
+    let root = project(&scratch, "proj-lsp", &["main.rs"]);
+    let uri = oso_lsp::uri::from_path(&root.join("src/main.rs")).unwrap();
+    let range = |start: u32, end: u32| json!({"start": {"line": 0, "character": start}, "end": {"line": 0, "character": end}});
+    let rules = json!([
+        {"method": "initialize", "do": [{"reply": {"capabilities": {
+            "positionEncoding": "utf-8",
+            "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+        }}}]},
+        {"method": "textDocument/didOpen", "nth": 1, "do": [
+            {"notify": {"method": "textDocument/publishDiagnostics", "params": {
+                "uri": uri,
+                "version": 1,
+                "diagnostics": [
+                    {"range": range(0, 2), "severity": 2, "message": "unused"},
+                    {"range": range(3, 7), "severity": 1, "message": "mismatched\u{202e} types"},
+                    {"range": range(8, 9), "severity": 4, "message": "a hint"},
+                ],
+            }}}
+        ]},
+        {"method": "shutdown", "do": [{"reply": null}]},
+    ]);
+    let config = config(&scratch, &rules);
+    let record = scratch.write("conf/trusted-projects", record_line(&root).as_bytes());
+    set_mode(&record, 0o600);
+    let mut app = App::start_with_file_config_and_env(
+        &root.join("src/main.rs"),
+        scratch.path(),
+        &config,
+        &[],
+    );
+    app.wait_until_ready();
+    modeline_has(&mut app, "the counts", "proj-lsp  lsp E1 W1  ");
+    let mut agent = super::agent::let_in(&mut app);
+
+    let answer = agent.call("diagnostics", None).unwrap();
+    let entries = answer["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 2, "no hint: {answer}");
+    assert_eq!(
+        (&entries[0]["severity"], &entries[0]["column"]),
+        (&json!("warning"), &json!(1))
+    );
+    assert_eq!(
+        entries[1]["message"], "mismatched\\u{202e} types",
+        "escaped for the agent"
+    );
+    assert_eq!(entries[1]["server"], "rust-analyzer");
+    assert_eq!(answer["more"], 0);
+
+    let state = agent.call("state", None).unwrap();
+    assert_eq!(state["version"], 3);
+    let buffer = state["buffers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|buffer| buffer["name"] == "main.rs")
+        .unwrap();
+    assert_eq!(buffer["server"]["name"], "rust-analyzer");
+    assert_eq!(
+        buffer["diagnostics"],
+        json!({ "errors": 1, "warnings": 1, "information": 0 })
+    );
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins() {

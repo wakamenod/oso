@@ -518,6 +518,7 @@ Every bound lives in `oso-lsp`'s `limits`:
 | `C-M-n`, `C-M-p` | `Look` | moves |
 | `M-g d`, `C-M-i`, `C-c C-d`, `C-h .` | `Person` | an interactive float for the keyboard |
 | `diagnostics` tool on `oso mcp` | read, like `text` | reads the reports oso holds |
+| `session-send-diagnostics`, `session-fix-error` (step 11) | `Person` | the person's paste into a session, as `session-send` |
 
 - **A definition the agent asks for opens as the channel's `open` does:** a target whose name
   matches the secret patterns is refused, a file is shown only once judged ordinary, it counts
@@ -1712,3 +1713,42 @@ with nothing asked (Q7); and the public items below (Q8).
 - **Left for 8b:** the float with a preview for several definitions, `M-?`
   (`lsp-find-references`), its rows read on a worker, and the excerpt reader made to read any
   absolute path.
+
+### Step 11: agents
+
+The author answered step 11's questions on 2026-11-16, all with the first choice:
+- **Q1:** the tool takes `buffer`, by default the selected one, and `project: true`.
+- **Q2:** `M-g d`'s order, with no hints, at most 500 entries and `more` for the rest.
+- **Q3:** a file no buffer holds gives the server's column with its `column_unit`; an open buffer's column is in characters.
+- **Q4:** a message is at most 2 KiB, cut at a character. Its line breaks are kept, and every other control, bidi or invisible character is written as `\u{…}`. Each entry names its server.
+- **Q5:** `state` gains each followed buffer's `server` and `diagnostics`, and `STATE_VERSION` goes 2→3.
+- **Q6:** two `Person` commands: `session-send-diagnostics` on `C-c a !` and `session-fix-error` on `C-c a x`.
+- **Q7:** the public items below.
+
+- **The channel's `diagnostics`** (`channel/diagnostics.rs`), and the `oso mcp` tool of that name, is a read tool like `text`. It reads a buffer's diagnostics, or with `project`, its project's, from every server:
+  - Sources: the open buffers' sets, then the reports the servers keep of files no buffer holds (6b), which the app shares by `Arc`.
+  - Order: the buffer's own first, by place, then each file's by path and line. Hints are left out.
+  - Bound: at most `MAX_ENTRIES` (500), the rest counted in `more`.
+  - Each entry gives the path, the line and column from 1, the severity, the message, the source, the code and the server. An open buffer's column is in characters, counted in O(log n) by a slice of the rope. A file's column is the server's own, with `column_unit`.
+  - Text: the server's text goes to the agent as Q4 has it, the message cut at 2 KiB.
+  - Refusals: a buffer that may hold secrets, or one withheld from agents, gives none, worded as `text` words it, and is left out of a project's. A buffer in no project gives no project's.
+- **`state`** (`STATE_VERSION` 3):
+  - Each buffer a server follows gets `server`: the server's name, which the app gives, its state (`starting`, `ready`, `working` with `progress`, or `stopped`).
+  - It also gets `diagnostics`: its counts of errors, warnings and information, hints left out.
+  - The `state` tool's description says so.
+- **ADR 0121's deferred forms** (its Q5) are two more kinds of `SendPart`, composed in `sessions/send.rs`:
+  - `session-send-diagnostics` (`C-c a !`, the Agents menu's Talk group) sends the buffer's diagnostics, or the region's, one line each, `path:line: severity: message`. The message's first line goes, its blanks as one, hints left out.
+  - `session-fix-error` (`C-c a x`) sends the most severe diagnostic at point:
+    - `path:line:column: severity:` and its message, its line breaks kept;
+    - the 10 lines either side of it, as `@region` gives lines;
+    - "Fix this error."
+  - Both are `Person`, pasted and not submitted, at most 256 KiB, with the controls in a message written out as in a path.
+- **Public API:** `oso-core`: `editor::SendPart::{Diagnostics, FixError}` and `editor::SendDiagnostic`. The channel's and the commands' items are the tip crate's own.
+- **Tests:**
+  - the channel's answer: a buffer's, a project's with files, the order, the columns, the bound and `more`, the refusals, and the escaping;
+  - the protocol's parameters and the MCP tool's mapping;
+  - `state`'s new fields;
+  - the two parts as a send composes them;
+  - the two commands through the dispatcher;
+  - the end-to-end flow `lsp.rs` (`an_agent_reads_the_diagnostics_and_the_counts`).
+

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use super::Editor;
 use crate::buffer::BufferId;
 use crate::complete::Candidate;
+use crate::diagnostic::Severity;
 
 mod side;
 mod trees;
@@ -201,6 +202,31 @@ pub enum SendPart {
     Note(String),
     /// Lines of a buffer: `@region` with their text, `@file:L-L` without it.
     Excerpt(SendExcerpt),
+    /// A language server's diagnostics of a buffer or its region, `@diagnostics`, one line each
+    /// (ADR 0121, ADR 0138, step 11).
+    Diagnostics(Vec<SendDiagnostic>),
+    /// The diagnostic at point, its lines around and the words that ask to fix it
+    /// (`session-fix-error`, ADR 0121, ADR 0138, step 11).
+    FixError {
+        diagnostic: SendDiagnostic,
+        around: SendExcerpt,
+    },
+}
+
+/// A language server's diagnostic of a buffer, as a send gives it: where it starts, its line
+/// and column from 1, the column in characters, its severity and its message (ADR 0138,
+/// step 11).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SendDiagnostic {
+    /// The file the buffer visits; `None` for a buffer that visits none.
+    pub path: Option<PathBuf>,
+    /// The buffer's name.
+    pub buffer: String,
+    pub line: usize,
+    pub column: usize,
+    pub severity: Severity,
+    /// The server's whole message, which a send cuts and escapes.
+    pub message: String,
 }
 
 /// Lines `first..=last`, counted from 1, of a buffer (ADR 0121).

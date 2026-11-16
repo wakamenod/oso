@@ -1255,6 +1255,8 @@ through the coordinator:
 - **`@diagnostics` and `session-fix-error` are deferred (Q5)** to the language-server step: oso
   has no diagnostics yet. They will be one more kind of `SendPart`, composed in
   `sessions::send` beside the others.
+  Built in [ADR 0138](0138-language-servers.md)'s step 11: `session-send-diagnostics` (`C-c a !`)
+  and `session-fix-error` (`C-c a x`).
 - **A message's sender (Q6)** sets "message from NAME" on the receiving session's row until the
   session is seen, and `session-follow-message` (`Person`, `C-x a f`) shows the sender. It
   selects the sender's terminal, which then takes the person's keys, so the agent channel

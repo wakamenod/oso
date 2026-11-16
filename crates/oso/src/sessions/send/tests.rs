@@ -225,3 +225,38 @@ fn a_full_screen_view_is_refused_but_a_dialog_behind_it_says_what_it_asks() {
         Some("api is asking for permission; answer it first")
     );
 }
+
+fn diagnostic(line: usize, message: &str) -> oso_core::editor::SendDiagnostic {
+    oso_core::editor::SendDiagnostic {
+        path: Some(PathBuf::from("/work/repo/src/a.rs")),
+        buffer: "a.rs".to_owned(),
+        line,
+        column: 5,
+        severity: oso_core::diagnostic::Severity::Error,
+        message: message.to_owned(),
+    }
+}
+
+#[test]
+fn diagnostics_go_a_line_each_their_first_lines_with_blanks_as_one() {
+    let part = SendPart::Diagnostics(vec![
+        diagnostic(3, "mismatched   types\nexpected u8"),
+        diagnostic(9, "unused\u{202e} import"),
+    ]);
+    assert_eq!(
+        sent(&[part]),
+        "src/a.rs:3: error: mismatched types\nsrc/a.rs:9: error: unused\\u{202e} import"
+    );
+}
+
+#[test]
+fn a_fix_error_is_the_diagnostic_its_lines_and_the_ask() {
+    let part = SendPart::FixError {
+        diagnostic: diagnostic(3, "mismatched types\nexpected u8"),
+        around: excerpt(Some("/work/repo/src/a.rs"), 1, 4, Some("a\nb\nc\nd\n")),
+    };
+    assert_eq!(
+        sent(&[part]),
+        "src/a.rs:3:5: error: mismatched types\nexpected u8\nsrc/a.rs:1-4\n```\na\nb\nc\nd\n```\n\nFix this error."
+    );
+}

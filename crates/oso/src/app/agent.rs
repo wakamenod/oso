@@ -388,14 +388,8 @@ impl App {
     /// Answers a request of a connection the person let in.
     fn agent_op(&mut self, connection: Connection, op: Op) -> Reply {
         match op {
-            Op::State { buffer_offset } => {
-                self.agent_log_often("state");
-                Ok(channel::state::state(
-                    &self.editor,
-                    self.dispatcher.menu_name(),
-                    buffer_offset,
-                ))
-            }
+            Op::State { buffer_offset } => self.agent_state(buffer_offset),
+            Op::Diagnostics(of) => self.agent_diagnostics(of),
             Op::Commands => {
                 self.agent_log_often("commands");
                 Ok(channel::state::commands(self.dispatcher.commands()))

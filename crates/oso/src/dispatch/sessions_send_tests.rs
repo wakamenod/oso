@@ -258,3 +258,86 @@ fn the_agent_channel_cannot_send_mention_or_follow_a_message() {
     assert!(editor.take_session_requests().is_empty());
     assert_eq!(editor.current().1.text().to_string(), "one\ntwo\nthree\n");
 }
+
+/// An editor on a buffer of four lines, which a server reported an error on line 2 and a hint
+/// on line 3 of.
+fn reported() -> Editor {
+    use oso_core::diagnostic::{Diagnostics, New, Severity, Tags};
+    let mut editor = editor(Buffer::from_text("a.rs", "one\ntwo two\nthree\nfour\n"));
+    let id = editor.window().buffer();
+    let buffer = editor.buffer_mut(id).unwrap();
+    buffer.set_followed(true);
+    let new = |start: usize, severity, message| New {
+        range: start..start + 3,
+        severity,
+        tags: Tags::default(),
+        source: "rustc",
+        code: "",
+        message,
+    };
+    let set = Diagnostics::new(
+        "fake",
+        [
+            new(8, Severity::Error, "mismatched types"),
+            new(12, Severity::Hint, "a hint"),
+        ],
+        buffer.text().len(),
+    );
+    let revision = buffer.revision();
+    assert!(buffer.take_diagnostics(revision, set));
+    editor
+}
+
+#[test]
+fn c_c_a_bang_sends_the_buffer_s_diagnostics_but_its_hints() {
+    use oso_core::diagnostic::Severity;
+    use oso_core::editor::SendDiagnostic;
+    let (mut d, mut editor) = (Dispatcher::new(), reported());
+    send(&mut d, &mut editor, "C-c a !");
+    assert!(
+        editor
+            .prompt()
+            .unwrap()
+            .label()
+            .starts_with("Send diagnostics to session:")
+    );
+    send(&mut d, &mut editor, "RET");
+    let diagnostic = SendDiagnostic {
+        path: None,
+        buffer: "a.rs".to_owned(),
+        line: 2,
+        column: 5,
+        severity: Severity::Error,
+        message: "mismatched types".to_owned(),
+    };
+    assert_eq!(
+        editor.take_session_requests(),
+        [sent(API, vec![SendPart::Diagnostics(vec![diagnostic])])]
+    );
+    // A region with none in it sends nothing.
+    send(&mut d, &mut editor, "M-< C-SPC C-e C-c a ! RET");
+    assert!(editor.take_session_requests().is_empty());
+    assert!(messages(&editor).contains("No diagnostics in the region"));
+}
+
+#[test]
+fn c_c_a_x_sends_the_error_at_point_its_lines_and_the_ask() {
+    let (mut d, mut editor) = (Dispatcher::new(), reported());
+    send(&mut d, &mut editor, "C-c a x RET");
+    assert!(messages(&editor).contains("No diagnostic at point"));
+    send(&mut d, &mut editor, "C-n C-f C-f C-f C-f C-f C-c a x RET");
+    let requests = editor.take_session_requests();
+    let [SessionRequest::Send { parts, .. }] = &requests[..] else {
+        panic!("one send: {requests:?}");
+    };
+    let [SendPart::FixError { diagnostic, around }] = &parts[..] else {
+        panic!("a fix: {parts:?}");
+    };
+    assert_eq!((diagnostic.line, diagnostic.column), (2, 5));
+    assert_eq!(
+        (around.first, around.last),
+        (1, 4),
+        "the lines either side, to the text's end"
+    );
+    assert_eq!(around.text.as_deref(), Some("one\ntwo two\nthree\nfour\n"));
+}
