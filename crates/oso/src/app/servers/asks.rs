@@ -81,7 +81,12 @@ impl App {
             return;
         };
         let who = agent.map_or(Who::Person, Who::Agent);
-        self.send_ask(index, (at, kind, AskContext::None), who);
+        // The person's `C-M-i` invokes completions; places take no context.
+        let context = match kind {
+            AskKind::Completion => AskContext::Completion(oso_lsp::protocol::Invoked::Invoked),
+            AskKind::Definition | AskKind::References | AskKind::Resolve => AskContext::None,
+        };
+        self.send_ask(index, (at, kind, context), who);
     }
 
     /// Sends server `index` the ask of `kind` at `at` with `context`, and keeps `who` asked.
