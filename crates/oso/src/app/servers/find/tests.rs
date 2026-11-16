@@ -52,19 +52,27 @@ fn a_missing_program_says_where_it_was_looked_for() {
 
 #[test]
 fn go_s_bin_is_gobin_then_gopath_then_home() {
-    let home = Some(PathBuf::from("/home/p"));
+    // Absolute paths on this system: a drive starts one on Windows.
+    let at = |path: &str| {
+        if cfg!(windows) {
+            PathBuf::from(format!("C:{path}"))
+        } else {
+            PathBuf::from(path)
+        }
+    };
+    let home = Some(at("/home/p"));
     assert_eq!(
         go_bin_of(
-            Some("/opt/gobin".into()),
-            Some("/g1:/g2".into()),
+            Some(at("/opt/gobin").into()),
+            Some(env::join_paths([at("/g1"), at("/g2")]).unwrap()),
             home.clone()
         ),
-        Some(PathBuf::from("/opt/gobin"))
+        Some(at("/opt/gobin"))
     );
-    let paths: OsString = env::join_paths(["/g1", "/g2"]).unwrap();
+    let paths: OsString = env::join_paths([at("/g1"), at("/g2")]).unwrap();
     assert_eq!(
         go_bin_of(None, Some(paths), home.clone()),
-        Some(PathBuf::from("/g1/bin"))
+        Some(at("/g1").join("bin"))
     );
     assert_eq!(
         go_bin_of(
@@ -72,7 +80,7 @@ fn go_s_bin_is_gobin_then_gopath_then_home() {
             Some("also/relative".into()),
             home.clone()
         ),
-        Some(PathBuf::from("/home/p/go/bin")),
+        Some(at("/home/p").join("go").join("bin")),
         "relative entries are not taken"
     );
     assert_eq!(go_bin_of(None, None, None), None);
