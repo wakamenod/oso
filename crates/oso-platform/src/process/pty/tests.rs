@@ -37,6 +37,7 @@ fn request<'a>(
         stdout: Sink::Inherit,
         stderr: Sink::Inherit,
         own_process_group: false,
+        own_session: false,
         set,
         terminal,
         pass_fd: None,
@@ -279,6 +280,7 @@ fn a_child_in_a_terminal_takes_no_other_streams_or_group() {
         },
         Spawn {
             own_process_group: true,
+            own_session: false,
             ..base
         },
         Spawn {
@@ -471,6 +473,7 @@ mod passed {
             stdout: Sink::Null,
             stderr: Sink::Null,
             own_process_group: false,
+            own_session: false,
             set: &[],
             terminal: None,
             pass_fd: Some(PassedFd::new(writer.as_fd())),

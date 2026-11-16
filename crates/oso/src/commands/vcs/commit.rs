@@ -51,6 +51,16 @@ pub const COMMANDS: &[Command] = &[
         commit_reword
     ),
     command!(
+        "git-commit-fixup",
+        "In a git status, make a `fixup!` commit of what is staged for the commit at the primary cursor, in the unpushed or recent commits (the commit menu's `f`).\n\nIt runs at once, with the repository's hooks. oso does not rebase: `git rebase -i --autosquash` in a shell, or a squash merge, folds it in.",
+        commit_fixup
+    ),
+    command!(
+        "git-commit-squash",
+        "In a git status, write the message of a `squash!` commit of what is staged for the commit at the primary cursor, in the unpushed or recent commits (the commit menu's `s`).\n\nWhat you write follows git's `squash!` line; `C-c C-c` commits it, and `git rebase -i --autosquash` in a shell folds it in.",
+        commit_squash
+    ),
+    command!(
         "git-commit-finish",
         "In a commit's message, commit with it (`C-c C-c`).\n\nLines starting with `#` are left out. git runs the repository's hooks, with no time limit; the echo area says how long it has run, and `$` in the status shows what it wrote. A commit that fails keeps the message here.",
         commit_finish
@@ -136,10 +146,12 @@ fn commit_of(ctx: &mut Ctx<'_>, kind: CommitKind) -> Result<(), CommandError> {
     super::super::not_in_prompt(ctx)?;
     let buffer = status(ctx)?;
     let switches = switches(ctx);
+    let line = super::point_line(ctx);
     ctx.editor.request_git(GitRequest::Commit {
         buffer,
         kind,
         switches,
+        line,
     });
     ctx.request_redraw();
     Ok(())
@@ -159,6 +171,14 @@ fn commit_extend(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn commit_reword(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     commit_of(ctx, CommitKind::Reword)
+}
+
+fn commit_fixup(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    commit_of(ctx, CommitKind::Fixup)
+}
+
+fn commit_squash(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    commit_of(ctx, CommitKind::Squash)
 }
 
 fn commit_finish(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -233,4 +253,4 @@ fn stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

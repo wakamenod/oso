@@ -1,6 +1,7 @@
 //! A status buffer's text, highlights, outline and row table (ADR 0127), in magit's order: the
 //! head, then unmerged paths, untracked files, unstaged changes and staged changes, each a
-//! section that folds, with a file's hunks under it when it is open.
+//! section that folds, with a file's hunks under it when it is open; then the commits unpushed
+//! to the upstream and unpulled from it, and the recent ones (step 2).
 //!
 //! Must not depend on: `app`, `dispatch`, `commands`, git or the file system; [`lay_out`] is a
 //! pure function of what was read.
@@ -13,6 +14,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
+use super::history::{Commit, Log};
 use super::patch::Patch;
 use super::status::{Branch, Counts, Entry, Kind, Status};
 
@@ -30,23 +32,37 @@ pub(crate) enum Section {
     Untracked,
     Unstaged,
     Staged,
+    /// Commits of `HEAD` the upstream does not have (step 2).
+    Unpushed,
+    /// Commits of the upstream `HEAD` does not have.
+    Unpulled,
+    Recent,
 }
 
 impl Section {
-    pub(crate) const ALL: [Section; 4] = [
+    /// The sections of files.
+    pub(crate) const FILES: [Section; 4] = [
         Section::Unmerged,
         Section::Untracked,
         Section::Unstaged,
         Section::Staged,
     ];
 
-    /// Its heading, as magit's.
+    /// Whether it lists files, not commits.
+    pub(crate) fn holds_files(self) -> bool {
+        Section::FILES.contains(&self)
+    }
+
+    /// Its heading, as magit's; the unpushed and unpulled ones name the upstream after it.
     fn heading(self) -> &'static str {
         match self {
             Section::Unmerged => "Unmerged paths",
             Section::Untracked => "Untracked files",
             Section::Unstaged => "Unstaged changes",
             Section::Staged => "Staged changes",
+            Section::Unpushed => "Unpushed to",
+            Section::Unpulled => "Unpulled from",
+            Section::Recent => "Recent commits",
         }
     }
 }
@@ -81,7 +97,7 @@ pub(crate) fn sections(
     staged: &HashMap<Vec<u8>, Counts>,
     secret: &dyn Fn(&[u8]) -> bool,
 ) -> Vec<(Section, Vec<File>)> {
-    let mut lists: Vec<(Section, Vec<File>)> = Section::ALL
+    let mut lists: Vec<(Section, Vec<File>)> = Section::FILES
         .iter()
         .map(|section| (*section, Vec::new()))
         .collect();
@@ -174,11 +190,16 @@ pub(crate) enum Hunks {
     Whole(&'static str),
 }
 
-/// What the head shows: the branch, and the subject of `HEAD`'s commit with its short id.
+/// What the head shows: the branch, the subject of `HEAD`'s commit with its short id, and the
+/// push target where it is not the upstream; and the commit sections (step 2).
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Head {
     pub(crate) branch: Branch,
     pub(crate) commit: Option<(String, Vec<u8>)>,
+    /// `@{push}`, as `REMOTE/BRANCH`, if it is not the upstream.
+    pub(crate) push: Option<Vec<u8>>,
+    /// The unpushed, unpulled and recent commits, each section read.
+    pub(crate) logs: Vec<(Section, Log)>,
 }
 
 /// What is folded and open: sections hidden, and files whose hunks show.
@@ -273,13 +294,20 @@ pub(crate) enum Row {
     },
     /// The count of a section's files not shown.
     More(Section),
+    /// The `commit`th commit of a section of commits (step 2).
+    Commit {
+        section: Section,
+        commit: usize,
+    },
 }
 
 impl Row {
     fn section(self) -> Option<Section> {
         match self {
             Row::Other => None,
-            Row::Heading(section) | Row::More(section) => Some(section),
+            Row::Heading(section) | Row::More(section) | Row::Commit { section, .. } => {
+                Some(section)
+            }
             Row::File { section, .. }
             | Row::Detail { section, .. }
             | Row::Hunk { section, .. }
@@ -293,7 +321,7 @@ impl Row {
             | Row::Detail { file, .. }
             | Row::Hunk { file, .. }
             | Row::Line { file, .. } => Some(file),
-            Row::Other | Row::Heading(_) | Row::More(_) => None,
+            Row::Other | Row::Heading(_) | Row::More(_) | Row::Commit { .. } => None,
         }
     }
 
@@ -312,6 +340,8 @@ pub(crate) struct Built {
     /// is made from (step 1b).
     pub(crate) branch: Branch,
     pub(crate) sections: Vec<(Section, Vec<File>)>,
+    /// The commit sections shown (step 2).
+    pub(crate) logs: Vec<(Section, Log)>,
     /// The patches of the open files shown, by section and file.
     pub(crate) patches: HashMap<(Section, usize), Arc<Patch>>,
     pub(crate) rows: Vec<Row>,
@@ -352,6 +382,15 @@ impl Built {
         self.files(section).get(file)
     }
 
+    /// The commit `line` is on, and its section, if any (step 2).
+    pub(crate) fn commit_at(&self, line: usize) -> Option<(Section, &Commit)> {
+        let Some(Row::Commit { section, commit }) = self.rows.get(line).copied() else {
+            return None;
+        };
+        let (_, log) = self.logs.iter().find(|(of, _)| *of == section)?;
+        Some((section, log.commits.get(commit)?))
+    }
+
     /// What `RET` on `line` at `column` visits: the file's path, and for a hunk's header or line
     /// the line of the file it shows, from 1, and the column, from 0; or why there is none.
     pub(crate) fn visit(&self, line: usize, column: usize) -> Result<Visit<'_>, &'static str> {
@@ -382,11 +421,16 @@ impl Built {
     pub(crate) fn place(&self, line: usize) -> Place {
         let row = self.rows.get(line).copied().unwrap_or(Row::Other);
         let section = row.section();
-        let file = row.file();
-        let path = section
+        let mut file = row.file();
+        let mut path = section
             .zip(file)
             .and_then(|(section, file)| self.file(section, file))
             .map(|file| file.path.clone());
+        // A commit is found again by its id, as a file by its path.
+        if let (Row::Commit { commit, .. }, Some((_, found))) = (row, self.commit_at(line)) {
+            file = Some(commit);
+            path = Some(found.id.clone().into_bytes());
+        }
         let line_in_hunk = match row {
             Row::Line { line, .. } => Some(line),
             _ => None,

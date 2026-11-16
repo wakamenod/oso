@@ -210,6 +210,7 @@ fn quoted_text_reaches_the_shell_as_it_is() {
             stdout: Sink::Piped,
             stderr: Sink::Null,
             own_process_group: false,
+            own_session: false,
             set: &[],
             terminal: None,
             pass_fd: None,

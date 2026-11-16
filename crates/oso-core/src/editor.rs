@@ -94,7 +94,8 @@ pub use crossing::Crossing;
 pub use cursors::{CursorError, Toward};
 pub use files::Looked;
 pub use git::{
-    CommitKind, CommitSwitches, GitHeading, GitLines, GitRequest, GitShown, MAX_GIT_LOG,
+    CommitKind, CommitSwitches, FetchFrom, GitHeading, GitLines, GitRequest, GitShown, MAX_GIT_LOG,
+    PushSwitches, PushTarget,
 };
 pub use gutter::Gutter;
 pub use indent::{IndentError, Shift};

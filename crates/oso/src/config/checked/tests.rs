@@ -83,6 +83,7 @@ fn a_pipe_or_a_link_to_one_is_refused_without_waiting() {
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,
+        own_session: false,
         set: &[],
         terminal: None,
         pass_fd: None,

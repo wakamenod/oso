@@ -1,5 +1,6 @@
 //! git's long runs in the app (ADR 0127, step 1b): each repository's run thread, its log,
-//! what the thread reports, stopping a run, and what quitting ends.
+//! what the thread reports, stopping a run, and what quitting ends. A run is a commit, or from
+//! step 2 a push, a pull or a fetch, whose progress the echo area shows too.
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here runs git or waits for
 //! it: each repository's run thread, `oso-vcs-run`, does, and reports here.
@@ -65,6 +66,8 @@ pub(super) struct Repo {
     pub(super) subjects_for: Option<BufferId>,
     /// The last commit that failed with its message buffer open, for a fix request (step 6a).
     pub(super) failed: Option<Failure>,
+    /// The pushes waiting for their plan, prompt or question (step 2).
+    pub(super) pushes: super::remote::Pushes,
 }
 
 /// A commit that failed, as a fix request names it.
@@ -83,15 +86,22 @@ const MAX_RUN_OUTPUT: usize = 2 * crate::vcs::agent::MAX_FIX_BYTES;
 
 /// A run under way.
 pub(super) struct Running {
-    pub(super) kind: CommitKind,
-    started: Instant,
+    /// The commit it makes, or `None` for a push, a pull or a fetch.
+    pub(super) kind: Option<CommitKind>,
+    /// What the log and the echo area call it.
+    pub(super) title: String,
+    /// What the echo area says once a remote's run went well.
+    pub(super) done: String,
+    pub(super) started: Instant,
     /// What the echo area last said of it.
-    echoed: String,
+    pub(super) echoed: String,
+    /// The progress a remote's run showed last.
+    pub(super) progress: Option<String>,
     /// The message it commits, for the ring once it is in, and the buffer that holds it.
     pub(super) message: Option<String>,
     pub(super) draft: Option<BufferId>,
     /// What it wrote, as [`Failure::output`] keeps it.
-    output: String,
+    pub(super) output: String,
 }
 
 /// A commit asked for that waits for the message it starts from.
@@ -103,26 +113,21 @@ pub(super) struct Pending {
 
 impl App {
     /// Starts the commit `kind` in the repository at `index`, with `message` if it takes one,
-    /// held by `draft`.
+    /// held by `draft`; a fixup or a squash for the commit `target`.
     pub(super) fn run_commit(
         &mut self,
         index: usize,
-        kind: CommitKind,
-        switches: CommitSwitches,
+        (kind, switches): (CommitKind, CommitSwitches),
         message: Option<String>,
         draft: Option<BufferId>,
+        target: Option<String>,
     ) {
-        let pass = self
-            .configuration
-            .git()
-            .pass_env
-            .clone()
-            .unwrap_or_default();
         let request = RunRequest::Commit {
             kind,
             switches,
             message: message.clone().map(String::into_bytes),
-            pass,
+            pass: self.pass_env(),
+            target,
         };
         if !self.ask_runner(index, request) {
             return;
@@ -134,9 +139,12 @@ impl App {
         let repo = &mut self.gits.commits.repos[index];
         repo.failed = None;
         repo.run = Some(Running {
-            kind,
+            kind: Some(kind),
+            title: commit::title(kind).to_owned(),
+            done: String::new(),
             started: Instant::now(),
             echoed,
+            progress: None,
             message,
             draft,
             output: String::new(),
@@ -177,7 +185,7 @@ impl App {
         let repo = &self.gits.commits.repos[index];
         if let (Some(run), Some(runner)) = (&repo.run, &repo.runner) {
             runner.stop();
-            let title = commit::title(run.kind);
+            let title = &run.title;
             self.editor.message(format!(
                 "Stopping {title}: SIGTERM now, SIGKILL in {} s",
                 crate::git::GRACE.as_secs()
@@ -227,18 +235,33 @@ impl App {
                     return;
                 }
             }
-            RunReport::Elapsed(seconds) => {
-                if let Some(run) = self.gits.commits.repos[index].run.as_mut() {
-                    let now = format!("{}… {seconds} s", commit::title(run.kind));
-                    self.editor.echo_unless_news(&run.echoed, now.clone());
-                    run.echoed = now;
-                }
-            }
+            RunReport::Elapsed(seconds) => self.echo_run(index, Some(seconds), None),
+            RunReport::Progress(progress) => self.echo_run(index, None, Some(progress)),
+            RunReport::Planned(planned) => self.push_planned(index, planned),
             RunReport::Ended(end) => self.run_ended(index, end),
             RunReport::Discarded(read) => self.discarded_read(index, read),
             RunReport::Restored(done) => self.restored(index, done),
         }
         self.request_redraw();
+    }
+
+    /// Says in the echo area how the run under way in the repository at `index` goes: its
+    /// title, its `progress` if it has new, and the `seconds` it has taken, unless something
+    /// was said since.
+    fn echo_run(&mut self, index: usize, seconds: Option<u64>, progress: Option<String>) {
+        let Some(run) = self.gits.commits.repos[index].run.as_mut() else {
+            return;
+        };
+        if progress.is_some() {
+            run.progress = progress;
+        }
+        let seconds = seconds.unwrap_or_else(|| run.started.elapsed().as_secs());
+        let now = match &run.progress {
+            Some(progress) => format!("{}… {progress} {seconds} s", run.title),
+            None => format!("{}… {seconds} s", run.title),
+        };
+        self.editor.echo_unless_news(&run.echoed, now.clone());
+        run.echoed = now;
     }
 
     /// A run in the repository at `index` ended as `end`.
@@ -257,11 +280,13 @@ impl App {
         self.editor.clear_echo_saying(&run.echoed);
         let seconds = run.started.elapsed().as_secs();
         let (said, ended) = match end {
+            RunEnd::Done if run.kind.is_none() => ("done", run.done.clone()),
             RunEnd::Done => ("done", self.commit_done(&run)),
+            RunEnd::Failed { said, .. } if run.kind.is_none() => ("failed", said),
             RunEnd::Failed { said, hooks } => {
                 ("failed", self.commit_failed(index, run, said, hooks))
             }
-            RunEnd::Stopped => ("stopped", format!("{} stopped", commit::title(run.kind))),
+            RunEnd::Stopped => ("stopped", format!("{} stopped", run.title)),
             RunEnd::Refused(why) => ("not run", format!("git: {why}")),
         };
         self.editor
@@ -379,15 +404,17 @@ impl App {
             reading: None,
             subjects_for: None,
             failed: None,
+            pushes: super::remote::Pushes::default(),
         });
         self.gits.commits.repos.len() - 1
     }
 
-    /// Whether a commit runs, or waits for its message, in `project`'s repository.
-    pub(super) fn commit_runs(&self, project: ProjectId) -> bool {
+    /// Whether git runs in `project`'s repository, or a commit waits for its message or a push for
+    /// its plan.
+    pub(super) fn repo_busy(&self, project: ProjectId) -> bool {
         (self.repo_of(project)).is_some_and(|index| {
             let repo = &self.gits.commits.repos[index];
-            repo.run.is_some() || repo.reading.is_some()
+            repo.run.is_some() || repo.reading.is_some() || repo.pushes.planning.is_some()
         })
     }
 
@@ -441,7 +468,7 @@ impl App {
 
     /// The log of the repository at `index`, made if it has none: withheld from the agent
     /// channel, as a hook may print anything.
-    fn git_log(&mut self, index: usize) -> BufferId {
+    pub(super) fn git_log(&mut self, index: usize) -> BufferId {
         let repo = &self.gits.commits.repos[index];
         if let Some(log) = repo.log.filter(|log| self.editor.buffer(*log).is_some()) {
             return log;

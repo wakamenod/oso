@@ -192,6 +192,7 @@ impl<'a> Running<'a> {
             stdout: Sink::Inherit,
             stderr: Sink::Inherit,
             own_process_group: false,
+            own_session: false,
             terminal: Some(&slave),
             pass_fd: None,
         })?;

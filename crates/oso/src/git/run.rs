@@ -28,7 +28,8 @@
 //!   open, and the caller does not wait for it. A write that must not be cut short runs with
 //!   no limit instead, in a group of its own that can be stopped (`long`).
 //! - A run may let the repository's own hooks run ([`Git::with_own_hooks`]), for a commit,
-//!   with the variables a hook needs.
+//!   with the variables a hook needs; a push, a pull or a fetch gets the proxies too, and runs
+//!   with no controlling terminal ([`Git::for_remote`]).
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -65,6 +66,18 @@ const INHERIT: [&str; 1] = ["XDG_CONFIG_HOME"];
 /// What a hook may need besides, for the person's own agents: an SSH key's, and GnuPG's, as a
 /// hook or a signature asks them (ADR 0127, step 1b).
 const HOOK_INHERIT: [&str; 3] = ["SSH_AUTH_SOCK", "GNUPGHOME", "GPG_AGENT_INFO"];
+/// What a push, a pull or a fetch may need besides: the proxies git and `curl` take, in both
+/// cases (ADR 0127, step 2, Q5).
+const REMOTE_INHERIT: [&str; 8] = [
+    "HTTPS_PROXY",
+    "https_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+    "NO_PROXY",
+    "no_proxy",
+];
 /// How often a run whose output has ended is asked whether it has exited.
 const EXIT_POLL: Duration = Duration::from_millis(1);
 
@@ -141,6 +154,9 @@ pub(crate) struct Git {
     /// `GIT_DIR` and `GIT_WORK_TREE` of a linked worktree whose claim was checked, so that git
     /// finds no repository of its own (ADR 0121).
     worktree: Option<(OsString, OsString)>,
+    /// It talks to a remote: it gets the proxies, and a long run starts in a session of its
+    /// own with no controlling terminal (ADR 0127, step 2).
+    remote: bool,
 }
 
 impl Git {
@@ -164,6 +180,7 @@ impl Git {
             hooks: Some(hooks_path),
             pass: Vec::new(),
             worktree: None,
+            remote: false,
         })
     }
 
@@ -178,6 +195,17 @@ impl Git {
             hooks: None,
             pass: pass.to_vec(),
             ..self.clone()
+        }
+    }
+
+    /// The same git with its own hooks, for a push, a pull or a fetch: it gets the proxies too,
+    /// and a long run starts in a session of its own with no controlling terminal, so that no
+    /// `ssh` or credential helper it starts can ask on the terminal oso was started from, where
+    /// git would wait unseen until stopped; one fails instead (ADR 0127, step 2, Q3, Q5).
+    pub(crate) fn for_remote(&self, pass: &[String]) -> Git {
+        Git {
+            remote: true,
+            ..self.with_own_hooks(pass)
         }
     }
 
@@ -223,7 +251,8 @@ impl Git {
     }
 
     /// [`Git::start`], in a process group of its own if `group`, so that ending the group
-    /// ends what git started too.
+    /// ends what git started too; for a remote, in a session of its own instead, which leads
+    /// such a group.
     pub(super) fn spawn_with(
         &self,
         args: &[&OsStr],
@@ -260,6 +289,9 @@ impl Git {
             inherit.extend(HOOK_INHERIT);
             inherit.extend(self.pass.iter().map(String::as_str));
         }
+        if self.remote {
+            inherit.extend(REMOTE_INHERIT);
+        }
         if !self.ceiling.is_empty() {
             variables.push(("GIT_CEILING_DIRECTORIES", &self.ceiling));
         }
@@ -277,7 +309,8 @@ impl Git {
             stdin,
             stdout: Sink::Piped,
             stderr,
-            own_process_group: group,
+            own_process_group: group && !self.remote,
+            own_session: group && self.remote,
             set: &variables,
             terminal: None,
             pass_fd: None,

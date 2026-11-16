@@ -45,9 +45,12 @@ pub(crate) fn draft_request(
     id: &str,
 ) -> String {
     let what = match kind {
-        CommitKind::New | CommitKind::Extend => {
+        CommitKind::New | CommitKind::Extend | CommitKind::Fixup => {
             format!("the staged changes in {worktree} (`git diff --cached`)")
         }
+        CommitKind::Squash => format!(
+            "the staged changes in {worktree} (`git diff --cached`), which squash into an earlier commit"
+        ),
         CommitKind::Amend => format!(
             "the last commit and the staged changes in {worktree} (`git show HEAD`, `git diff --cached`)"
         ),

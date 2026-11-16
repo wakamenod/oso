@@ -645,6 +645,13 @@ The UI thread never blocks on I/O or parsing:
   hook that ignores `SIGTERM` goes too. Quitting sends each run's group `SIGTERM`, then `SIGKILL`,
   and waits for nothing
   ([ADR 0127](adr/0127-source-control-and-github.md), step 1b).
+- Pushes, pulls and fetches run on the same thread (`vcs/run/remotes.rs`, glue in
+  `app/vcs/remote.rs`): a push is planned there first from `for-each-ref`, and with no target
+  the host gives the remotes to a prompt it opens as its keys would
+  (`Dispatcher::run_from_host`); a forced push asks first. `vcs/run/stream.rs` streams every
+  long run, a remote's progress too, and `vcs/remote.rs` holds what needs no git. The status's
+  thread reads the unpushed, unpulled and recent commits (`vcs/history.rs`) with the rest
+  ([ADR 0127](adr/0127-source-control-and-github.md), step 2).
 - What a commit asks of the worktree's agent session (step 6a): `vcs/agent.rs` writes the
   requests, a draft's and a failed commit's fix, as pure functions; `app/vcs/agent.rs` reads the
   last subjects on `oso-vcs-run` and pastes the requests through `send_to_session`; and

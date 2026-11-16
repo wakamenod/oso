@@ -527,6 +527,7 @@ pub oso_platform::process::Spawn::cwd: core::option::Option<&'a std::path::Path>
 pub oso_platform::process::Spawn::executable: &'a oso_platform::process::Executable
 pub oso_platform::process::Spawn::inherit: &'a [&'a str]
 pub oso_platform::process::Spawn::own_process_group: bool
+pub oso_platform::process::Spawn::own_session: bool
 pub oso_platform::process::Spawn::pass_fd: core::option::Option<oso_platform::process::PassedFd<'a>>
 pub oso_platform::process::Spawn::project: core::option::Option<&'a std::path::Path>
 pub oso_platform::process::Spawn::set: &'a [(&'a str, &'a std::ffi::os_str::OsStr)]

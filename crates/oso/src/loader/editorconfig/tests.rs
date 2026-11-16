@@ -399,6 +399,7 @@ fn a_fifo_is_not_waited_on() {
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,
+        own_session: false,
         set: &[],
         terminal: None,
         pass_fd: None,

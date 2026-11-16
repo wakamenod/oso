@@ -263,6 +263,7 @@ fn an_ignore_file_that_is_a_pipe_does_not_hold_the_walk() {
             stdout: Sink::Null,
             stderr: Sink::Null,
             own_process_group: false,
+            own_session: false,
             set: &[],
             terminal: None,
             pass_fd: None,

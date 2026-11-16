@@ -352,6 +352,8 @@ planned.
     instructions, directory and name, and closing and reopening.
   - `commit` on `c` in a git status (ADR 0127): its switches and kinds; see
     [Committing](#committing).
+  - `push` on `P`, `pull` on `F` and `fetch` on `f` in a git status (ADR 0127, step 2); see
+    [Remotes](#remotes).
   - `agents` on `C-c a` ([ADR 0143](adr/0143-agent-keys-on-c-c-a-and-an-agents-menu.md)), in
     every buffer and every terminal: the agent session commands, in groups Start (`c w r a`),
     Go to (`s b n d f`), Talk (`m @ e`), Space (`j z O`, `S` the space menu) and Session
@@ -465,10 +467,13 @@ status buffer ([ADR 0127](adr/0127-source-control-and-github.md), step 1a). It r
 a trusted project; a restricted one says "The status runs git, which this project is not trusted
 to run: M-x trust-project".
 
-- The first lines are the head, `Head:     main 1a2b3c4 Subject`, and the upstream with ahead and
-  behind. Then the sections in magit's order, each `Heading (N)`: unmerged paths, untracked
-  files, unstaged changes and staged changes. A file's row is its status letter, its path (a
-  rename as `old -> new`) and its lines added and removed.
+- The first lines are the head, `Head:     main 1a2b3c4 Subject`, the upstream with ahead and
+  behind, and `Push:` when git pushes elsewhere. Then the sections in magit's order, each
+  `Heading (N)`: unmerged paths, untracked files, unstaged changes and staged changes. A file's
+  row is its status letter, its path (a rename as `old -> new`) and its lines added and removed.
+  Then the commits (step 2): `Unpushed to origin/main`, `Unpulled from origin/main`, at most
+  256 each, and the 10 `Recent commits`, each row a short id and a subject; `RET` on one opens
+  its review. They are read from what the last fetch left: a refresh fetches nothing.
 - `TAB` on a file shows its hunks under it, as git's patch has them, in the diff faces; on a
   section's heading it folds the section (`…`); on a hunk it hides its file's hunks. A file that
   may hold secrets, an untracked or unmerged file and a submodule show why they have no hunks
@@ -502,7 +507,10 @@ to run: M-x trust-project".
 
 `c` in a status opens the commit menu (step 1b): `- n` `--no-verify`, `- s` `--signoff` and
 `- e` `--allow-empty` flip their switches, then `c` commits, `a` amends, `e` extends the last
-commit with what is staged and keeps its message, and `w` rewords it alone.
+commit with what is staged and keeps its message, and `w` rewords it alone. With point on a
+commit of Unpushed or Recent commits, `f` makes a `fixup!` commit of what is staged for it at
+once, and `s` opens a message for a `squash!` one (step 2); oso does not rebase, so `git rebase
+-i --autosquash` in a shell folds them in.
 
 - A commit, an amend and a reword open `*commit: NAME*`: the message, then `#` lines with the
   branch and the staged files, which are left out. Past 50 characters on the summary, past 72
@@ -526,6 +534,24 @@ commit with what is staged and keeps its message, and `w` rewords it alone.
   `GPG_AGENT_INFO`,
   and the names `[git] pass_env` lists, passed on from oso's own environment; `PATH`, `LD_*`,
   `DYLD_*` and git's own `GIT_*` are refused there.
+
+### Remotes
+
+From a status (step 2), each run as a commit's: no time limit, the repository's hooks, `$` for
+its output and `C-g` to stop it, one at a time; the echo area shows git's progress, and the
+status is read again after.
+
+- `P` opens the push menu: `- f` pushes with `--force-with-lease`, after a question that names
+  the commits it would drop there, and `- n` skips the pre-push hook; then `p` pushes the branch
+  to where git pushes it (`@{push}`), `u` to its upstream, and `e` elsewhere, read as
+  `REMOTE/BRANCH`. With no push target or no upstream, a prompt asks for the remote, and `u`
+  sets the one picked as the upstream. Never a plain `--force`.
+- `F u` pulls the upstream, fast-forward only; a branch gone apart from it is refused. `f u`
+  fetches the upstream's remote and `f a` every remote, pruning what each deleted.
+- git runs with no terminal: a password, a passphrase or a key it cannot get fails at once, and
+  the echo area says to set up a credential helper or `ssh-agent`, or to push from a terminal.
+  The proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`, either case) are
+  passed on.
 
 ## Echo area
 

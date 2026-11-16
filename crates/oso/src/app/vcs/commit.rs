@@ -56,6 +56,8 @@ pub(super) struct Draft {
     lit: Option<u64>,
     /// The newest draft request sent for it, which alone `draft_set` may answer (step 6a).
     pub(super) asked: Option<super::agent::Asked>,
+    /// The commit a squash is for (step 2).
+    target: Option<String>,
 }
 
 impl App {
@@ -66,7 +68,8 @@ impl App {
                 buffer,
                 kind,
                 switches,
-            } => self.start_commit(buffer, kind, switches),
+                line,
+            } => self.start_commit(buffer, (kind, switches), line),
             GitRequest::CommitFinish { buffer } => self.finish_commit(buffer),
             GitRequest::CommitCancel { buffer } => self.cancel_commit(buffer),
             GitRequest::CommitRing { buffer, older } => self.walk_ring(buffer, older),
@@ -85,6 +88,7 @@ impl App {
             GitRequest::ShowDiscarded { buffer } => self.show_discarded(buffer),
             GitRequest::DraftMessage { buffer } => self.draft_message(buffer),
             GitRequest::FixWithAgent { buffer } => self.fix_with_agent(buffer),
+            // The others are not a commit's (`requests::concern`).
             _ => {}
         }
     }
@@ -103,9 +107,32 @@ impl App {
         Some((open.project, open.root.clone(), Arc::clone(&open.built)))
     }
 
-    fn start_commit(&mut self, status: BufferId, kind: CommitKind, switches: CommitSwitches) {
+    fn start_commit(
+        &mut self,
+        status: BufferId,
+        (kind, switches): (CommitKind, CommitSwitches),
+        line: usize,
+    ) {
         let Some((project, root, built)) = self.trusted_status(status) else {
             return;
+        };
+        let target = if commit::needs_target(kind) {
+            match built.commit_at(line) {
+                Some((Section::Unpushed | Section::Recent, found)) => Some(found.id.clone()),
+                Some(_) => {
+                    return self.editor.message(
+                        "That commit is not under HEAD: f and s act on one in Unpushed or \
+                         Recent commits",
+                    );
+                }
+                None => {
+                    return self
+                        .editor
+                        .message("f and s act on a commit in Unpushed or Recent commits");
+                }
+            }
+        } else {
+            None
         };
         let drafts = &self.gits.commits.drafts;
         if let Some(draft) = drafts.iter().find(|draft| draft.project == project) {
@@ -116,7 +143,7 @@ impl App {
                 .message("A commit's message is open here: C-c C-c commits, C-c C-k drops it");
         }
         let index = self.git_repo(project, &root);
-        if self.commit_runs(project) {
+        if self.repo_busy(project) {
             return self.editor.message(RUNNING);
         }
         if kind != CommitKind::New && built.branch.oid.is_none() {
@@ -125,15 +152,25 @@ impl App {
                 .message("Nothing to amend: the repository has no commit yet");
         }
         let nothing = built.files(Section::Staged).is_empty();
-        let needs_staged = matches!(kind, CommitKind::New | CommitKind::Extend);
+        let needs_staged = matches!(
+            kind,
+            CommitKind::New | CommitKind::Extend | CommitKind::Fixup | CommitKind::Squash
+        );
         if needs_staged && nothing && !switches.allow_empty {
             return self.editor.message(
                 "Nothing staged: s stages a change, or -e in the commit menu commits nothing",
             );
         }
         match kind {
-            CommitKind::Extend => self.run_commit(index, kind, switches, None, None),
-            CommitKind::New => self.open_draft(project, kind, switches, ""),
+            CommitKind::Extend | CommitKind::Fixup => {
+                self.run_commit(index, (kind, switches), None, None, target);
+            }
+            CommitKind::New | CommitKind::Squash => {
+                self.open_draft(project, kind, switches, "");
+                if let Some(draft) = self.gits.commits.drafts.last_mut() {
+                    draft.target = target;
+                }
+            }
             CommitKind::Amend | CommitKind::Reword => {
                 if self.ask_runner(index, RunRequest::Message) {
                     self.gits.commits.repos[index].reading = Some(Pending { kind, switches });
@@ -178,6 +215,7 @@ impl App {
             ring_at: None,
             lit: None,
             asked: None,
+            target: None,
         });
         self.highlight_drafts();
         self.editor
@@ -195,7 +233,8 @@ impl App {
             return self.editor.message(TOO_LONG);
         };
         let message = commit::message_of(&text);
-        if message.is_empty() {
+        // A squash's message may be empty: git's `squash!` line is its subject.
+        if message.is_empty() && self.gits.commits.drafts[at].kind != CommitKind::Squash {
             return self
                 .editor
                 .message("The message is empty: write one, or C-c C-k cancels");
@@ -206,13 +245,14 @@ impl App {
             switches,
             ..
         } = self.gits.commits.drafts[at];
+        let target = self.gits.commits.drafts[at].target.clone();
         let Some(index) = self.repo_of(project) else {
             return self.editor.message(RESTRICTED);
         };
         if self.gits.commits.repos[index].run.is_some() {
             return self.editor.message(RUNNING);
         }
-        self.run_commit(index, kind, switches, Some(message), Some(buffer));
+        self.run_commit(index, (kind, switches), Some(message), Some(buffer), target);
     }
 
     fn cancel_commit(&mut self, buffer: BufferId) {
@@ -282,7 +322,10 @@ impl App {
         if let Some(draft) = run.draft {
             self.drop_draft(draft);
         }
+        let fold = "git rebase -i --autosquash in a shell folds it in";
         match &run.message {
+            _ if run.kind == Some(CommitKind::Fixup) => format!("Made a fixup! commit: {fold}"),
+            _ if run.kind == Some(CommitKind::Squash) => format!("Made a squash! commit: {fold}"),
             Some(message) => {
                 let summary = one_line(commit::summary(message), 80);
                 self.gits.commits.ring.keep(message.clone());

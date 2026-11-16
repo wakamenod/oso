@@ -162,6 +162,7 @@ impl NewInstance {
             stdout: Sink::Inherit,
             stderr: Sink::Inherit,
             own_process_group: true,
+            own_session: false,
             set: &[],
             terminal: None,
             pass_fd: Some(PassedFd::new(theirs.as_fd())),

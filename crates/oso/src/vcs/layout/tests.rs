@@ -1,5 +1,5 @@
 //! The status's layout: its sections and rows as a text grid, folding, opening a file, the
-//! limits, and finding a place again in another text.
+//! limits, finding a place again in another text, and the commit sections (step 2).
 //!
 //! Must not depend on: `app`, `dispatch` or winit; these are pure functions' tests.
 
@@ -9,6 +9,7 @@ use std::sync::Arc;
 use oso_core::syntax::Highlight;
 
 use super::{Head, Hunks, Laid, Row, SECRET, Section, View, lay_out, sections};
+use crate::vcs::history::{Commit, Log};
 use crate::vcs::patch;
 use crate::vcs::status::{self, Branch};
 
@@ -62,6 +63,7 @@ fn head() -> Head {
             ahead_behind: Some((2, 0)),
         },
         commit: Some(("1111111".into(), b"Add the first file".to_vec())),
+        ..Head::default()
     }
 }
 
@@ -97,6 +99,7 @@ fn grid(laid: &Laid) -> String {
             Some(Row::Hunk { .. }) => "hunk",
             Some(Row::Line { .. }) => "line",
             Some(Row::More(_)) => "more",
+            Some(Row::Commit { .. }) => "commit",
             None => "end",
         };
         let marks: String = line
@@ -181,6 +184,7 @@ fn the_head_says_detached_and_no_commits_yet() {
     let head = Head {
         branch: Branch::default(),
         commit: None,
+        ..Head::default()
     };
     let laid = lay_out(&head, &[], Vec::new(), &HashMap::new(), &View::default());
     assert_eq!(
@@ -410,4 +414,103 @@ fn a_changed_word_of_a_paired_line_is_refined() {
     assert_eq!(at(added + 20), Some(Highlight::DiffRefineAdded));
     assert_eq!(at(removed + 13), Some(Highlight::DiffRefineRemoved));
     assert_eq!(laid.highlights.len(), text.len());
+}
+
+/// A commit of the commit sections, its id from `n`.
+fn commit(n: u8, subject: &[u8]) -> Commit {
+    let id = format!("{n:x}").repeat(40);
+    Commit {
+        short: id[..7].to_owned(),
+        id,
+        subject: subject.to_vec(),
+    }
+}
+
+/// The head with two unpushed commits, one unpulled, the recent ones and a push target.
+fn head_with_logs(unpushed: Vec<Commit>) -> Head {
+    let mut head = head();
+    head.push = Some(b"fork/main".to_vec());
+    head.logs = vec![
+        (
+            Section::Unpushed,
+            Log {
+                commits: unpushed.clone(),
+                more: false,
+            },
+        ),
+        (
+            Section::Unpulled,
+            Log {
+                commits: vec![commit(3, b"theirs")],
+                more: true,
+            },
+        ),
+        (
+            Section::Recent,
+            Log {
+                commits: [unpushed, vec![commit(4, b"first")]].concat(),
+                more: false,
+            },
+        ),
+    ];
+    head
+}
+
+#[test]
+fn grid_tests_status_commit_sections_follow_the_files() {
+    let unpushed = vec![
+        commit(1, b"second"),
+        commit(2, "a\u{202e}rtl\nsubject".as_bytes()),
+    ];
+    let head = head_with_logs(unpushed);
+    let laid = lay_out(&head, &[], Vec::new(), &HashMap::new(), &View::default());
+    insta::assert_snapshot!("git_status_commits", grid(&laid));
+    let text = laid.text.text().to_string();
+    assert!(text.contains("Push:     fork/main\n"), "{text}");
+    assert!(text.contains("Unpushed to origin/main (2)\n"), "{text}");
+    assert!(text.contains("Unpulled from origin/main (1+)\n"), "{text}");
+    assert!(text.contains("Recent commits (3)\n"), "{text}");
+    // A subject never makes a row of its own: each line is one row.
+    assert_eq!(text.lines().count(), laid.built.rows.len());
+    let line = text
+        .lines()
+        .position(|line| line.starts_with("2222222"))
+        .unwrap();
+    let (section, found) = laid.built.commit_at(line).unwrap();
+    assert_eq!(section, Section::Unpushed);
+    assert_eq!(found.id, "2".repeat(40));
+    assert!(laid.built.commit_at(0).is_none());
+    // `s` and `k` find nothing to act on in a commit section.
+    assert!(laid.built.visit(line, 0).is_err());
+}
+
+#[test]
+fn a_commit_is_found_again_by_its_id_and_its_section_folds() {
+    let before = head_with_logs(vec![commit(1, b"second")]);
+    let laid = lay_out(&before, &[], Vec::new(), &HashMap::new(), &View::default());
+    let text = laid.text.text().to_string();
+    let line = text
+        .lines()
+        .position(|line| line.starts_with("1111111"))
+        .unwrap();
+    let place = laid.built.place(line);
+    // A new commit above it moves it down a row.
+    let after = head_with_logs(vec![commit(5, b"new"), commit(1, b"second")]);
+    let again = lay_out(&after, &[], Vec::new(), &HashMap::new(), &View::default());
+    let moved = again.built.line_of(&place);
+    assert_eq!(again.built.commit_at(moved).unwrap().1.id, "1".repeat(40));
+    let mut view = View::default();
+    let heading = (again.built.rows.iter())
+        .position(|row| *row == Row::Heading(Section::Unpushed))
+        .unwrap();
+    assert!(view.toggle(&again.built, heading));
+    let folded = lay_out(&after, &[], Vec::new(), &HashMap::new(), &view);
+    let text = folded.text.text().to_string();
+    assert!(text.contains("Unpushed to origin/main (2)…"), "{text}");
+    assert!(!text.contains("…\n5555555"), "{text}");
+    // TAB on a commit does nothing.
+    let row = (again.built.rows.iter())
+        .position(|row| matches!(row, Row::Commit { .. }))
+        .unwrap();
+    assert!(!View::default().toggle(&again.built, row));
 }

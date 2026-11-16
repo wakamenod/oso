@@ -168,7 +168,12 @@ impl App {
     }
 
     /// Opens a review of `scope` in `project`, or shows the one open and reads it again.
-    fn open_review(&mut self, project: ProjectId, kind: ScopeKind, revision: Option<String>) {
+    pub(super) fn open_review(
+        &mut self,
+        project: ProjectId,
+        kind: ScopeKind,
+        revision: Option<String>,
+    ) {
         if kind == ScopeKind::Branch && revision.is_none() {
             // The base is not known yet: it is found first, and the review opens with it.
             return self.find_branch_base(project);

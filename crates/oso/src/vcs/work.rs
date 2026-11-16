@@ -35,7 +35,7 @@ use std::thread;
 
 use super::layout::Built;
 use super::layout::{self, Head, Hunks, Laid, Section, View};
-use super::read::{MAX_LIST, args, find, head_commit, hooks_dir, numstat, read_patch, set};
+use super::read::{MAX_LIST, args, find, head_commit, hooks_dir, logs, numstat, read_patch, set};
 use super::stage::{self, Op, Target};
 use super::status::{self, Status};
 use super::write::run;
@@ -358,14 +358,21 @@ impl State {
         cached.push(OsStr::new("--cached"));
         self.staged = numstat(&git, &cached).unwrap_or_default();
         still()?;
+        let (push, logs) = logs(&git, &self.status.branch);
+        // The newest recent commit is `HEAD`'s: one run of git fewer.
+        let newest = (logs.iter())
+            .find(|(section, _)| *section == Section::Recent)
+            .and_then(|(_, log)| log.commits.first())
+            .map(|commit| (commit.short.clone(), commit.subject.clone()));
+        let commit = newest.or_else(|| {
+            let has_one = self.status.branch.oid.is_some();
+            has_one.then(|| head_commit(&git)).flatten()
+        });
         self.head = Head {
             branch: self.status.branch.clone(),
-            commit: self
-                .status
-                .branch
-                .oid
-                .as_ref()
-                .and_then(|_| head_commit(&git)),
+            commit,
+            push,
+            logs,
         };
         Ok(())
     }
