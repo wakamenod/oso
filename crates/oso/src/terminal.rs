@@ -7,6 +7,7 @@
 //! crate.
 
 pub(crate) mod colors;
+pub(crate) mod directory;
 pub(crate) mod grid;
 pub(crate) mod hosted;
 pub(crate) mod paste;

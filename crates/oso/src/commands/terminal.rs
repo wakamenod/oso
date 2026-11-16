@@ -17,7 +17,7 @@ use oso_core::kill::FromClipboard;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "terminal",
-        doc: "Switch to the last terminal still running, or start one.\n\nWith a prefix argument, always start a new one. It starts `[terminal] shell` from `config.toml`, else `$SHELL`, else the account's shell, else `/bin/sh`, as a login shell unless `[terminal] login` is false, in the project's root, else the buffer's directory, else the home directory. It opens in a restricted project too: what runs in it is the person's.",
+        doc: "Switch to the last terminal still running, or start one.\n\nWith a prefix argument, always start a new one. It starts `[terminal] shell` from `config.toml`, else `$SHELL`, else the account's shell, else `/bin/sh`, as a login shell unless `[terminal] login` is false, in the project's root, else the directory the buffer stands in (from a terminal, the one it started in), else the home directory. It opens in a restricted project too: what runs in it is the person's.",
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: terminal,

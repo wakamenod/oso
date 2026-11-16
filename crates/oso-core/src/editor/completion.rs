@@ -286,6 +286,17 @@ impl Editor {
         if self.searches_project() {
             return Ok(());
         }
+        // With what is typed selected, a path's first name goes in, as vertico's `TAB` puts
+        // the first candidate in from the prompt (ADR 0141).
+        if self.reads_path() {
+            self.match_completion();
+            if let Some((candidates, _)) = self.completion_mut()
+                && candidates.on_input()
+                && !candidates.is_empty()
+            {
+                candidates.select(0);
+            }
+        }
         let text = self.selected_completion()?;
         // A path goes in whole, the segments it expanded too, as `~/` from the home directory.
         let text = self.selected_file().map_or(text, |(_, form)| form);

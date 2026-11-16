@@ -45,6 +45,9 @@ pub(super) struct Host {
     pub(super) hidden_due: Option<Instant>,
     /// The mouse, as presses, drags and reports follow it (step 4b-2).
     pub(super) pointer: mouse::Pointing,
+    /// The machine's name, read once, which tells a program's directory on it from one on
+    /// another machine (ADR 0141).
+    pub(super) host_name: Option<String>,
 }
 
 impl Host {
@@ -58,6 +61,7 @@ impl Host {
             focused: true,
             hidden_due: None,
             pointer: mouse::Pointing::default(),
+            host_name: oso_platform::host::name(),
         }
     }
 }

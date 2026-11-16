@@ -135,6 +135,22 @@ fn the_root_is_the_projects_else_the_files_directory_but_never_home_or_the_top()
 }
 
 #[test]
+fn a_buffer_with_no_file_lists_the_directory_it_stands_in() {
+    // `*scratch*` stands where oso started, and a terminal where the host says (ADR 0141).
+    let mut editor = Editor::default();
+    editor.set_home(Some(PathBuf::from("/home/me")));
+    editor.set_start_directory(PathBuf::from("/w/notes"));
+    assert_eq!(
+        editor.project_files_root(),
+        Ok((PathBuf::from("/w/notes"), "notes".to_owned()))
+    );
+    let terminal = editor.add_terminal_buffer("*terminal*");
+    editor.set_buffer_directory(terminal, PathBuf::from("/home/me"));
+    editor.show(terminal);
+    assert_eq!(editor.project_files_root(), Err(NotInProject), "never home");
+}
+
+#[test]
 fn the_listing_opens_empty_and_pending_and_asks_for_one_walk() {
     let mut editor = in_project();
     let id = editor

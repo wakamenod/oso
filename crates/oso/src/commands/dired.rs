@@ -31,7 +31,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "dired-jump",
-        doc: "List the directory of the buffer's file, with point on the file.\n\nIn a listing, it goes up to the directory above, as `^` does. A buffer with no file lists the directory oso started in.",
+        doc: "List the directory of the buffer's file, with point on the file.\n\nIn a listing, it goes up to the directory above, as `^` does. A buffer with no file lists the directory it stands in: a terminal's, a session's, a git status's root, else the one it was made in.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: dired_jump,
@@ -190,8 +190,9 @@ fn dired_jump(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
                 point: None,
             },
         },
+        // A terminal's, a session's, `*scratch*`'s: where the buffer stands (ADR 0141).
         None => ListingRequest::Open {
-            directory: ctx.editor.start_directory().to_path_buf(),
+            directory: ctx.editor.default_directory(ctx.editor.window().buffer()),
             point: None,
         },
     };
