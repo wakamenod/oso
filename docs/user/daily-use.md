@@ -66,8 +66,10 @@ and marksman. One that is not installed is said once. The modeline says `lsp` af
 the servers did. `M-x lsp-restart` starts the buffer's server again, `M-x lsp-shutdown` stops it
 until `M-x lsp-start`, and untrusting the project stops it. In a buffer a server follows,
 `M-.` goes to the definition at point, `M-,` goes back, and `C-M-,` forward again; each window
-keeps its own history. A file outside any project that `M-.` leads to, such as the standard
-library's, joins the server until its buffer is killed. The rest comes in later steps.
+keeps its own history. With several definitions, and for `M-?`, the references, a list opens,
+each row `path:line: text` with a preview of its place; `RET` goes there. A file outside any
+project that they lead to, such as the standard library's, joins the server until its buffer is
+killed. The rest comes in later steps.
 
 A server can be changed in `config.toml`:
 
@@ -383,6 +385,10 @@ project must be trusted.
 | `C-c C-s` / `C-c C-k` | Skip the commit it stopped at, or abort it, after a question |
 | `z` | The stash menu: `z` stash, `a` apply, `p` pop, `k` drop the stash at point; `- u` takes untracked files |
 | `b` | The branch menu: `b` check out, `c` make and check out, `n` make, `m` rename, `k` delete |
+| `l` | The log menu: `l` the graph of the branch, `a` of every ref, `o` of another; `C-x v l` from anywhere |
+
+In the graph, `RET` reviews the commit at point, `w` copies its id, `a` shows every ref or the
+branch again, `g` reads it again, `n` and `p` move a line, and `q` leaves it.
 | `f u` / `f a` | Fetch the upstream's remote, or every remote |
 | `RET` | Visit the file, or review the commit at point |
 | `$` | Show what git's runs wrote; `C-g` stops one |

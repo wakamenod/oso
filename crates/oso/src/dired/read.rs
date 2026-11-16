@@ -426,12 +426,12 @@ fn shown_name(name: Option<String>, id: u32) -> String {
 
 /// The local zone's offset, asked once for each hour of time.
 #[derive(Default)]
-struct Offsets {
+pub(crate) struct Offsets {
     by_hour: HashMap<i64, i32>,
 }
 
 impl Offsets {
-    fn at(&mut self, time: SystemTime) -> i32 {
+    pub(crate) fn at(&mut self, time: SystemTime) -> i32 {
         let hour = match time.duration_since(SystemTime::UNIX_EPOCH) {
             Ok(after) => i64::try_from(after.as_secs() / 3600).unwrap_or(i64::MAX),
             Err(before) => -i64::try_from(before.duration().as_secs() / 3600).unwrap_or(i64::MAX),

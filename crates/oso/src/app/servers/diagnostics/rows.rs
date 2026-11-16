@@ -22,7 +22,7 @@ use std::path::PathBuf;
 
 use oso_core::buffer::BufferId;
 use oso_core::diagnostic::{Diagnostics, Severity};
-use oso_core::editor::{DiagnosticRow, DiagnosticRowAt, DiagnosticRows, VisitColumn};
+use oso_core::editor::{DiagnosticRow, DiagnosticRows, ListedAt, VisitColumn};
 use oso_core::rope::Rope;
 use oso_lsp::limits::DIAGNOSTIC_ROWS_MAX;
 use oso_lsp::position::Encoding;
@@ -136,7 +136,7 @@ pub(crate) fn build(snapshot: &Snapshot, live: &dyn Fn() -> bool) -> Option<Diag
                 if open.buffer == snapshot.current {
                     selected = (rows.rows[first..].iter())
                         .position(|row| {
-                            matches!(row.at, DiagnosticRowAt::Open { offset, .. }
+                            matches!(row.at, ListedAt::Open { offset, .. }
                                 if offset >= snapshot.cursor)
                         })
                         .map(|at| first + at);
@@ -172,7 +172,7 @@ fn push_open(rows: &mut Rows<'_>, path: &str, open: &OpenSet) {
         rows.rows.push(DiagnosticRow {
             path: path.into(),
             line: open.text.offset_to_point(offset).row + 1,
-            at: DiagnosticRowAt::Open {
+            at: ListedAt::Open {
                 buffer: open.buffer,
                 offset,
                 revision: open.revision,
@@ -201,7 +201,7 @@ fn push_file(rows: &mut Rows<'_>, path: &str, report: &Published, encoding: Enco
         rows.rows.push(DiagnosticRow {
             path: path.into(),
             line: reported.start.line as usize + 1,
-            at: DiagnosticRowAt::File {
+            at: ListedAt::File {
                 column: match encoding {
                     Encoding::Utf8 => VisitColumn::Utf8(character),
                     Encoding::Utf16 => VisitColumn::Utf16(character),

@@ -109,7 +109,12 @@ network features.
   ended without a limit found, at most 16 MiB of them with their paths,
   counted as they are found, stay on `oso-grep` for a search that narrows it.
   The next search that ends replaces them, and they go once no search came for
-  30 s.
+  30 s. The rows of a list of a language server's places (`M-.`'s several,
+  `M-?`'s) read each file's lines the same way, on `oso-xrefs`, within 64 MiB
+  of a file and 256 MiB of a list, and show nothing of a file that may hold
+  secrets; a file outside the server's root is reached from its own directory,
+  so one right in a directory that is or holds the home directory is not read
+  (ADR 0138, step 8b).
 - The walk reads the project's ignore files itself, as patterns only: only a
   regular file that is not a link, opened without waiting, of at most 1 MiB.
   The person's global excludes may be a link but must be such a file too. They
@@ -227,6 +232,15 @@ network features.
   refused if the branch moved since; the question and the prompts take an answer only for the
   status they were asked over, and one closed without it is forgotten. Subjects are shown
   escaped on one line, and the server's own lines stay out of the echo area.
+- The graph (ADR 0127, step 4) runs only reads, with a read's git, in a trusted project, on a
+  thread of its own: every page bounded, its records parsed as untrusted bytes, ids checked as
+  hex, and subjects, authors and ref names escaped on one line. Its commands are `Person`: they
+  run git, open a review or write the clipboard. A ref typed for `l o` must not read as an
+  option; one picked goes to git as the full ref listed. Its next page is read only for a
+  person's key in it, never for an agent's command that moved point, and a project no longer
+  trusted has the graph's root revoked at once, so that nothing queued on its thread runs git.
+  An agent may read a graph's rows over the channel, as a status's: commit metadata, no file's
+  text, but subjects, authors and ref names are anyone's words, and reach it as data.
 - Stashes and branches from a git status (ADR 0127, step 3b) are the person's acts, `Person`,
   with the repository's hooks: a checkout runs `post-checkout` and the filters, as git's own
   does in a trusted project. A stash is named by its commit's id: an apply gives git the id, and

@@ -494,7 +494,7 @@ fn trim_break(line: &[u8]) -> &[u8] {
 
 /// The text built so far, with its runs of highlights.
 #[derive(Default)]
-struct Out {
+pub(in crate::vcs) struct Out {
     bytes: Vec<u8>,
     builder: Option<Builder>,
     runs: Vec<(usize, Option<Highlight>)>,
@@ -502,7 +502,7 @@ struct Out {
 }
 
 impl Out {
-    fn part(&mut self, bytes: &[u8], face: Option<Highlight>) {
+    pub(in crate::vcs) fn part(&mut self, bytes: &[u8], face: Option<Highlight>) {
         // A part is never a line break of its own but through `end_line`, so that every line of
         // the text is one row of the table.
         let len = decoded_len(bytes);
@@ -517,7 +517,7 @@ impl Out {
         }
     }
 
-    fn end_line(&mut self) {
+    pub(in crate::vcs) fn end_line(&mut self) {
         self.bytes.push(b'\n');
         self.len += 1;
         match self.runs.last_mut() {
@@ -534,7 +534,7 @@ impl Out {
         }
     }
 
-    fn finish(mut self) -> (LoadSnapshot, Highlights) {
+    pub(in crate::vcs) fn finish(mut self) -> (LoadSnapshot, Highlights) {
         let mut builder = self
             .builder
             .take()

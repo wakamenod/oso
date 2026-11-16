@@ -3,7 +3,7 @@
 //! file and hunk. Committing and the log of git's runs are [`commit`]'s (step 1b), discarding
 //! and the list of what it kept [`discard`]'s (step 1c), remotes [`remote`]'s (step 2), and
 //! going on with what is stopped [`sequence`]'s (step 3a), and stashes [`stash`]'s and branches
-//! [`branch`]'s (step 3b).
+//! [`branch`]'s (step 3b), and the graph [`graph`]'s (step 4).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host, which runs git on the status's thread. What a line names is the host's: a
@@ -20,6 +20,7 @@ use oso_core::selection::Selection;
 pub mod branch;
 pub mod commit;
 pub mod discard;
+pub mod graph;
 pub mod remote;
 pub mod sequence;
 pub mod stash;
@@ -170,13 +171,25 @@ pub const KEYS: &[(&str, &str)] = &[
     ("?", "git-status-keys"),
 ];
 
-/// The project `C-x g` shows: the status's when the selected window shows one, else the project
-/// of the buffer it shows.
+/// The project `C-x g` and `C-x v l` show: the status's or the graph's when the selected window
+/// shows one, else the project of the buffer it shows.
 pub(crate) fn status_project(editor: &Editor) -> Option<ProjectId> {
     let buffer = editor.tiled().0.buffer();
-    editor
-        .git_status_of(buffer)
+    (editor.git_status_of(buffer))
+        .or_else(|| editor.git_graph_of(buffer))
         .or_else(|| editor.buffer(buffer)?.project())
+}
+
+/// Whether the prompt over `list`, one of source control's, keeps the host's order.
+pub fn listed_in_given_order(list: &str) -> bool {
+    branch::listed_in_given_order(list) || list == graph::GRAPH_REFS_LIST
+}
+
+/// Whether the prompt over `list`, one of source control's, takes what is typed.
+pub fn listed_takes_input(list: &str) -> bool {
+    remote::listed_takes_input(list)
+        || branch::listed_takes_input(list)
+        || graph::listed_takes_input(list)
 }
 
 /// The status buffer the selected window shows, or why the command means nothing here.
@@ -474,6 +487,7 @@ pub const MENUS: &[(&str, &str)] = &[
     ("P", "push"),
     ("F", "pull"),
     ("f", "fetch"),
+    ("l", "log"),
     ("z", "stash"),
 ];
 
@@ -482,7 +496,7 @@ fn summary_of(name: &str) -> Option<&'static str> {
     let all = COMMANDS.iter().chain(commit::COMMANDS);
     let all = all.chain(discard::COMMANDS).chain(remote::COMMANDS);
     let all = all.chain(sequence::COMMANDS).chain(stash::COMMANDS);
-    let mut all = all.chain(branch::COMMANDS);
+    let mut all = all.chain(branch::COMMANDS).chain(graph::COMMANDS);
     let found = all.find(|command| command.name == name)?;
     found.doc.lines().next()
 }

@@ -505,7 +505,7 @@ impl Built {
     }
 }
 
-mod write;
+pub(crate) mod write;
 
 pub(crate) use write::{Laid, lay_out};
 

@@ -10,7 +10,7 @@ use super::*;
 use crate::buffer::{Baseline, Buffer, FileStamp};
 use crate::display_map::TabWidth;
 use crate::editor::edit_tests::edit;
-use crate::editor::{FilePreviewRead, PreviewAt};
+use crate::editor::{FilePreviewRead, PreviewAt, VisitColumn};
 use crate::frame::FrameSize;
 use crate::load::decode_all;
 
@@ -46,7 +46,7 @@ fn listing(text: &str) -> (Editor, DiagnosticsRequest) {
     (editor, request)
 }
 
-fn row(path: &str, line: usize, at: DiagnosticRowAt, message: &str) -> DiagnosticRow {
+fn row(path: &str, line: usize, at: ListedAt, message: &str) -> DiagnosticRow {
     DiagnosticRow {
         path: path.into(),
         line,
@@ -58,8 +58,8 @@ fn row(path: &str, line: usize, at: DiagnosticRowAt, message: &str) -> Diagnosti
     }
 }
 
-fn file(column: VisitColumn) -> DiagnosticRowAt {
-    DiagnosticRowAt::File { column }
+fn file(column: VisitColumn) -> ListedAt {
+    ListedAt::File { column }
 }
 
 /// The texts of the rows shown, in order.
@@ -158,7 +158,7 @@ fn a_row_of_an_open_buffer_previews_and_goes_where_its_edits_since_moved_it() {
     let (mut editor, request) = listing("let x = 1;\nlet y = 2;\n");
     let buffer = request.buffer;
     let revision = editor.buffer(buffer).unwrap().revision();
-    let at = DiagnosticRowAt::Open {
+    let at = ListedAt::Open {
         buffer,
         offset: 15,
         revision,
@@ -184,7 +184,7 @@ fn a_row_of_an_open_buffer_previews_and_goes_where_its_edits_since_moved_it() {
     editor.submit_prompt().unwrap();
     assert_eq!(
         editor.take_diagnostic_hit(),
-        Some(DiagnosticHit::Buffer {
+        Some(ListedHit::Buffer {
             id: buffer,
             offset: 18
         })
@@ -223,7 +223,7 @@ fn a_row_of_a_file_no_buffer_holds_is_read_by_its_line_and_goes_there() {
     editor.submit_prompt().unwrap();
     assert_eq!(
         editor.take_diagnostic_hit(),
-        Some(DiagnosticHit::File {
+        Some(ListedHit::File {
             path: PathBuf::from("/w/oso/src/b.rs"),
             line: 7,
             column: VisitColumn::Utf16(3)
@@ -252,7 +252,7 @@ fn an_open_buffer_s_row_goes_by_its_line_once_its_log_no_longer_reaches_the_list
     let (mut editor, request) = listing("let x = 1;\nlet y = 2;\n");
     let buffer = request.buffer;
     let revision = editor.buffer(buffer).unwrap().revision();
-    let at = DiagnosticRowAt::Open {
+    let at = ListedAt::Open {
         buffer,
         offset: 15,
         revision,
@@ -276,7 +276,7 @@ fn an_open_buffer_s_row_goes_by_its_line_once_its_log_no_longer_reaches_the_list
     editor.submit_prompt().unwrap();
     assert_eq!(
         editor.take_diagnostic_hit(),
-        Some(DiagnosticHit::File {
+        Some(ListedHit::File {
             path: PathBuf::from("/w/oso/a.rs"),
             line: 2,
             column: VisitColumn::Chars(0)

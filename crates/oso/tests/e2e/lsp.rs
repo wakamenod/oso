@@ -664,10 +664,11 @@ fn an_agent_reads_the_diagnostics_and_the_counts() {
     );
 }
 
-#[test]
-#[ignore = "opens windows; run with `just e2e`"]
-fn a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins() {
-    let scratch = Scratch::new("lsp-definition");
+/// A project whose `main.rs` the fake server follows, scripted with definitions and references
+/// in it and in `lib/std.rs`, outside any project; the app on `main.rs`, its server following
+/// it, and the file outside's URI.
+fn answering_places(name: &str) -> (Scratch, App, String) {
+    let scratch = Scratch::new(name);
     set_mode(scratch.path(), 0o700);
     let root = project(&scratch, "proj-lsp", &["main.rs"]);
     // Outside any project: no `.git` above it in the scratch directory.
@@ -690,6 +691,16 @@ fn a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins() {
             {"method": "textDocument/definition", "nth": 3, "do": [
                 {"sleep_ms": 800},
                 {"reply": {"uri": there, "range": range(1, 7)}}
+            ]},
+            {"method": "textDocument/references", "nth": 1, "do": [
+                {"reply": [
+                    {"uri": here, "range": range(0, 3)},
+                    {"uri": there, "range": range(1, 7)},
+                    {"uri": here, "range": range(0, 0)},
+                ]}
+            ]},
+            {"method": "textDocument/references", "nth": 2, "do": [
+                {"reply": [{"uri": here, "range": range(0, 3)}]}
             ]},
             {"method": "shutdown", "do": [{"reply": null}]},
         ],
@@ -716,6 +727,13 @@ fn a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins() {
     );
     app.wait_until_ready();
     lsp_log_with(&mut app, "main.rs", "stderr: doc ", 1);
+    (scratch, app, there)
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins() {
+    let (_scratch, mut app, there) = answering_places("lsp-definition");
 
     // One answer: there, then back and forward again.
     app.send_keys("C-e M-.");
@@ -725,15 +743,27 @@ fn a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins() {
     app.send_keys("C-M-,");
     app.wait_for("forward", |state| state["cursor"]["column"] == 3);
 
-    // Two answers: the first, outside the project, which joins the server.
+    // Two answers: listed, in the server's order, the file outside the project read for its
+    // row and its preview; `RET` on it goes there, and it joins the server.
     app.send_keys("M-.");
+    let state = app.wait_for("the list of definitions", |state| {
+        state["prompts"][0]["completion"]["count"] == 2
+    });
+    let prompt = &state["prompts"][0];
+    assert_eq!(prompt["prompt"], "Definitions:");
+    let rows = prompt["completion"]["rows"].clone();
+    let first = rows[0].as_str().unwrap_or_default();
+    assert!(first.ends_with("std.rs:2: pub fn main() {}"), "{rows}");
+    assert_eq!(rows[1], "src/main.rs:1: fn main() {}", "{rows}");
+    app.wait_for("the file's excerpt", |state| {
+        state["prompts"][0]["completion"]["preview_kind"] == "excerpt"
+    });
+    app.send_keys("RET");
     app.wait_for("the file outside", |state| {
         state["buffer"]["name"] == "std.rs"
             && state["cursor"]["row"] == 1
             && state["cursor"]["column"] == 7
     });
-    let echo = app.state()["echo"].as_str().unwrap_or_default().to_owned();
-    assert_eq!(echo, "1 of 2");
     let log = lsp_log_with(&mut app, "std.rs", "stderr: doc ", 2);
     assert!(log.contains(&format!("stderr: doc {there} v1")), "{log}");
     assert!(log.contains("asked textDocument/definition 0:3"), "{log}");
@@ -754,4 +784,44 @@ fn a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins() {
     let state = app.state();
     assert_eq!(state["buffer"]["name"], "main.rs");
     assert_eq!(state["cursor"]["column"], 12);
+}
+
+/// `M-?` lists the references grouped by file, in the order the server first named each; `RET`
+/// goes to the one picked in a file no buffer holds, `M-,` comes back, and one reference is gone
+/// to at once.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn references_are_listed_by_file_and_one_is_gone_to_at_once() {
+    let (_scratch, mut app, _) = answering_places("lsp-references");
+    app.send_keys("C-e");
+    app.wait_for("the line's end", |state| state["cursor"]["column"] == 12);
+
+    app.send_keys("M-?");
+    let state = app.wait_for("the list of references", |state| {
+        state["prompts"][0]["completion"]["count"] == 3
+    });
+    let prompt = &state["prompts"][0];
+    assert_eq!(prompt["prompt"], "References:");
+    let rows = prompt["completion"]["rows"].clone();
+    assert_eq!(rows[0], "src/main.rs:1: fn main() {}", "{rows}");
+    assert_eq!(rows[1], "src/main.rs:1: fn main() {}", "{rows}");
+    let last = rows[2].as_str().unwrap_or_default();
+    assert!(last.ends_with("std.rs:2: pub fn main() {}"), "{rows}");
+    assert_eq!(prompt["completion"]["preview_kind"], "buffer");
+    app.send_keys("C-n C-n RET");
+    app.wait_for("the reference outside", |state| {
+        state["buffer"]["name"] == "std.rs"
+            && state["cursor"]["row"] == 1
+            && state["cursor"]["column"] == 7
+    });
+    app.send_keys("M-,");
+    app.wait_for("back in main.rs", |state| {
+        state["buffer"]["name"] == "main.rs" && state["cursor"]["column"] == 12
+    });
+
+    // One reference is gone to at once.
+    app.send_keys("M-?");
+    app.wait_for("the one reference", |state| {
+        state["cursor"]["column"] == 3 && state["echo"] == "1 reference"
+    });
 }
