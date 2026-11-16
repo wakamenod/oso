@@ -96,7 +96,7 @@ fn shown_under_its_worktree(app: &mut App) {
     assert!(!has_row(&state, "○ outside"), "{}", list(&state));
 
     // TAB on the worktree's row shows it there.
-    app.send_keys("C-x a s");
+    app.send_keys("C-c a s");
     let state = app.wait_for("the list selected", |state| {
         state["buffer"]["name"] == "*Spaces*"
     });
@@ -123,7 +123,7 @@ fn shown_under_its_worktree(app: &mut App) {
 fn the_tree_shows_the_project_its_worktrees_and_their_sessions() {
     let flow = Flow::new("sessions-tree", "");
     let (mut app, _) = flow.start();
-    app.send_keys("C-x a c");
+    app.send_keys("C-c a c");
     app.wait_for("the project and its main checkout", |state| {
         has_row(state, "▾ repo") && list(state).lines().any(|row| row.contains("main  primary"))
     });
@@ -185,9 +185,9 @@ fn the_tree_shows_the_project_its_worktrees_and_their_sessions() {
     flow.exit_with(0);
 }
 
-/// Selects `*Spaces*` with `C-x a s`, from the tree's window.
+/// Selects `*Spaces*` with `C-c a s`, from the tree's window.
 fn select_list(app: &mut App) -> Value {
-    app.send_keys("C-x a s");
+    app.send_keys("C-c a s");
     app.wait_for("the list selected", |state| {
         state["buffer"]["name"] == "*Spaces*"
     })
@@ -280,7 +280,7 @@ fn keys_on_a_new_worktree(app: &mut App) {
 fn the_trees_keys_and_clicks_start_and_enter_worktrees() {
     let flow = Flow::new("sessions-tree-keys", "");
     let (mut app, _) = flow.start();
-    app.send_keys("C-x a c");
+    app.send_keys("C-c a c");
     app.wait_for("the project and its main checkout", |state| {
         has_row(state, "▾ repo") && list(state).lines().any(|row| row.contains("main  primary"))
     });
@@ -360,7 +360,7 @@ fn side_columns(state: &Value) -> Option<u64> {
 fn the_pane_starts_at_pane_width_and_takes_4_columns_a_step_down_to_24() {
     let flow = Flow::new("sessions-tree-width", "pane_width = 30\n");
     let (mut app, _) = flow.start();
-    app.send_keys("C-x a c");
+    app.send_keys("C-c a c");
     app.wait_for("the pane at pane_width", |state| {
         side_columns(state) == Some(30)
     });

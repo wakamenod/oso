@@ -76,8 +76,8 @@ impl App {
         None
     }
 
-    /// `C-x a s` (Q1): hidden, it shows and is selected; shown, it is selected; selected, the
-    /// tree's window selected last is (ADR 0140). `C-u C-x a s` hides it, in the command.
+    /// `C-c a s` (Q1): hidden, it shows and is selected; shown, it is selected; selected, the
+    /// tree's window selected last is (ADR 0140). `C-u C-c a s` hides it, in the command.
     fn toggle_sessions_list(&mut self) {
         if !self.sessions_list_shown() {
             self.show_sessions_side();
@@ -309,7 +309,15 @@ impl App {
             RowAction::Show => self.show_session(key),
             RowAction::Fold => {}
             RowAction::Pin => self.change_session(key, |session| session.pinned ^= true),
-            RowAction::Archive => self.change_session(key, |session| session.archived ^= true),
+            RowAction::Archive => {
+                self.change_session(key, |session| session.archived ^= true);
+                // Its images go with it (ADR 0142); brought back, it has none.
+                if let Some(session) = self.hosting.table().get(key)
+                    && session.archived
+                {
+                    self.drop_session_images(session.id.clone());
+                }
+            }
             RowAction::Resume => match self.hosting.table().get(key).and_then(|s| s.buffer) {
                 Some(buffer) => self.resume_session(buffer),
                 None => self

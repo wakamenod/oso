@@ -53,6 +53,9 @@ pub(super) struct View {
     bands: SpaceBands,
     /// How deep the tree showed open, as last rendered, for `S-TAB`.
     pub(super) open_to: u8,
+    /// The keys of `sessions` its modeline names, as bound when last asked (ADR 0143), until
+    /// the user's keys or menus change.
+    enter_keys: Option<String>,
 }
 
 impl super::Watch {
@@ -298,10 +301,19 @@ impl App {
             return;
         };
         let selected = self.editor.tiled().0.id() == side;
-        let note = self.watch.list.modeline_note(selected);
+        // From any buffer, terminals among them: the global keys and the user's.
+        let dispatcher = &self.dispatcher;
+        let enter = (self.watch.view.enter_keys)
+            .get_or_insert_with(|| dispatcher.where_is_anywhere("sessions"));
+        let note = self.watch.list.modeline_note(selected, enter);
         if (self.editor.buffer(buffer)).is_some_and(|b| b.mode_note() != note) {
-            self.editor.set_mode_note(buffer, note.to_owned());
+            self.editor.set_mode_note(buffer, note);
         }
+    }
+
+    /// Forgets the keys the pane's modeline names, as the user's keys or menus changed.
+    pub(in crate::app) fn forget_pane_keys(&mut self) {
+        self.watch.view.enter_keys = None;
     }
 
     /// What line `line` of `*Spaces*` shows, as last rendered.

@@ -7,7 +7,7 @@
 use oso_core::command::Effects;
 use oso_core::kill::{self, Fingerprint, FromClipboard};
 use oso_core::rope::Rope;
-use oso_platform::clipboard::{self, Clipboard, Contents, Event, Source};
+use oso_platform::clipboard::{self, Clipboard, Contents, Event, ImageContents, Source};
 
 use super::shell::{Loop, Waker};
 use super::{App, UserEvent};
@@ -19,6 +19,8 @@ pub enum ClipboardEvent {
     Written { id: u64, fingerprint: Fingerprint },
     /// The answer to a read.
     Read(FromClipboard),
+    /// The answer to an image read, for `session-yank-image` (ADR 0142).
+    Image(ImageContents),
     /// A read did not return, and the clipboard was started anew.
     NotAnswering,
 }
@@ -37,6 +39,7 @@ pub(super) fn start(source: Source, waker: Waker) -> Option<Clipboard> {
                 fingerprint: fingerprint(of),
             },
             Event::Read(contents) => ClipboardEvent::Read(answer(contents)),
+            Event::Image(contents) => ClipboardEvent::Image(contents),
             Event::NotAnswering => ClipboardEvent::NotAnswering,
         };
         waker.send(UserEvent::Clipboard(event));
@@ -80,17 +83,17 @@ fn answer(contents: Contents) -> FromClipboard {
 /// Whether a yank may read `clipboard`: always for the person's own keys, and for input
 /// from the dev socket only from a clipboard in memory, so that no client reads the
 /// person's clipboard through oso (ADR 0074).
-fn may_read(from_socket: bool, in_memory: bool) -> bool {
+pub(super) fn may_read(from_socket: bool, in_memory: bool) -> bool {
     !from_socket || in_memory
 }
 
 #[cfg(feature = "dev")]
-fn is_memory(clipboard: &Clipboard) -> bool {
+pub(super) fn is_memory(clipboard: &Clipboard) -> bool {
     clipboard.memory().is_some()
 }
 
 #[cfg(not(feature = "dev"))]
-fn is_memory(_: &Clipboard) -> bool {
+pub(super) fn is_memory(_: &Clipboard) -> bool {
     false
 }
 
@@ -140,6 +143,7 @@ impl App {
                     .clipboard_answered(&mut self.editor, &answer);
                 self.apply(event_loop, effects);
             }
+            ClipboardEvent::Image(contents) => self.clipboard_image(contents),
             ClipboardEvent::NotAnswering => {
                 self.editor.message("The clipboard is not answering");
                 self.request_redraw();

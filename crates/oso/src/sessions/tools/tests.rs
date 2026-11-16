@@ -49,6 +49,8 @@ fn the_tools_and_their_reach() {
                 true,
                 false
             ),
+            // It writes only the caller's worktree's message, for oso's request (ADR 0127).
+            ("draft_set", Reach::Change, Asks::No, true, false),
         ]
     );
     let destructive: Vec<_> = TOOLS
@@ -244,17 +246,18 @@ fn a_start_says_what_started_without_asking() {
             "/r/.claude/worktrees/x",
             "x",
             Branch::New { from: "main" },
-            42
+            42,
+            "C-c a e"
         ),
-        "session \"api\" is starting a session in a new worktree \"/r/.claude/worktrees/x\" on new branch \"x\" from \"main\", without asking (brief: 42 lines; C-x a e explains)"
+        "session \"api\" is starting a session in a new worktree \"/r/.claude/worktrees/x\" on new branch \"x\" from \"main\", without asking (brief: 42 lines; C-c a e explains)"
     );
     assert_eq!(
-        start_started("api", "/r", None),
-        "session \"api\" is starting a session in \"/r\", without asking (no brief; C-x a e explains)"
+        start_started("api", "/r", None, "C-c a e"),
+        "session \"api\" is starting a session in \"/r\", without asking (no brief; C-c a e explains)"
     );
     assert_eq!(
-        start_started("api", "/r", Some(1)),
-        "session \"api\" is starting a session in \"/r\", without asking (brief: 1 line; C-x a e explains)"
+        start_started("api", "/r", Some(1), "C-c C-e"),
+        "session \"api\" is starting a session in \"/r\", without asking (brief: 1 line; C-c C-e explains)"
     );
 }
 

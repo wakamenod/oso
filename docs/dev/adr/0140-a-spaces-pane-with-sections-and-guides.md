@@ -1,6 +1,6 @@
 # 0140. A spaces pane with sections and guides
 
-- Status: Accepted
+- Status: Accepted, amended by 0143
 - Date: 2026-11-16
 
 ## Context

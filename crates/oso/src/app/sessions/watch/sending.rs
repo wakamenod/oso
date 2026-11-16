@@ -2,7 +2,8 @@
 //! [`App::send_to_session`], which refuses a session that cannot take a paste, pastes as the
 //! person's bracketed paste, not submitted, and shows the session; the completions of
 //! `session-send` and `session-mention`; and who last messaged each session, for its row and
-//! `session-follow-message`.
+//! `session-follow-message`. `images` keeps its own state here: the session an image is read
+//! for, and the thread that keeps the images (ADR 0142).
 //!
 //! Must not depend on: how a frame is drawn, key presses, or the worker's thread. The text is
 //! put together by pure functions over the parts, and the paste is the terminal's own.
@@ -34,6 +35,11 @@ pub(in crate::app) struct Sending {
     /// rule matched the newest look, `None` while that look ran out of time: a send waits for
     /// a look judged in time, and a view that holds refuses it.
     judged: HashMap<SessionKey, Option<bool>>,
+    /// The session a `session-yank-image` reads the clipboard's image for, while the read or
+    /// the save is out: one at a time (ADR 0142).
+    pub(super) reading_image_for: Option<SessionKey>,
+    /// The thread that keeps and removes the sessions' images (ADR 0142).
+    pub(super) keeper: crate::sessions::images::Keeper,
 }
 
 impl App {
@@ -53,7 +59,10 @@ impl App {
         let (key, name) = (session.key, session.name.clone());
         let text = match send::compose(parts, &session.directory) {
             Ok(text) => text,
-            Err(TooLarge { bytes }) => return self.editor.message(too_large(bytes)),
+            Err(TooLarge { bytes }) => {
+                let send = self.dispatcher.where_is(&self.editor, "session-send");
+                return self.editor.message(too_large(bytes, &send));
+            }
         };
         if let Err(why) = self.send_to_session(key, text) {
             return self.editor.message(why);
@@ -89,6 +98,18 @@ impl App {
         key: SessionKey,
         text: String,
     ) -> Result<(), String> {
+        let buffer = self.paste_target(key)?;
+        self.paste(buffer, text);
+        self.show_session(key);
+        Ok(())
+    }
+
+    /// The terminal of hosted session `key`, if a paste may go there now; else why not, as
+    /// [`App::send_to_session`] refuses it.
+    pub(super) fn paste_target(
+        &self,
+        key: SessionKey,
+    ) -> Result<oso_core::buffer::BufferId, String> {
         let session = self
             .hosting
             .table()
@@ -123,12 +144,10 @@ impl App {
                 .is_some_and(crate::app::terminals::reads_a_password),
             held: judged == Some(true),
         };
-        if let Some(why) = send::refusal(&name, standing) {
-            return Err(why);
+        match send::refusal(&name, standing) {
+            Some(why) => Err(why),
+            None => Ok(buffer),
         }
-        self.paste(buffer, text);
-        self.show_session(key);
-        Ok(())
     }
 
     /// The worker judged session `key`'s newest look in time, a hold rule matching it or not,

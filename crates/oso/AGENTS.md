@@ -68,8 +68,10 @@ often, so it must rebuild within 2 s.
   (`registry`) and oso's record (`record`) are read off the UI thread, and a bridge's claim is
   judged by one pure function (`bridge`). `session-adopt` reads Claude Code's transcripts
   (`transcripts`) only for ids, names, times and directories, on its own
-  `oso-session-adopt-list` thread (`adopt`). `app/sessions.rs` and `app/sessions/` carry out
-  what the worker, the jobs and the start thread find.
+  `oso-session-adopt-list` thread (`adopt`). The clipboard's images a session is given
+  (`images`, ADR 0142) are written, converted by `sips` and removed on one `oso-images` thread,
+  never the worker's. `app/sessions.rs` and `app/sessions/` carry out what the worker, the jobs
+  and the start thread find.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
   a trusted project's root, and git only through `oso_platform::process`, with `src/git.rs`'s
   runner, `TrustedRoot` and secret-name check. `review/refine.rs` refines a change block's words,
@@ -98,7 +100,9 @@ often, so it must rebuild within 2 s.
   ring and log lines, is `commit`'s. Its keys are listed in `commands::vcs::KEYS` and
   `commands::vcs::commit`, the commit menu is built in, and `bindings/vcs.rs` binds them;
   `app/vcs.rs` carries out what its commands ask, with `app/vcs/commit.rs` (messages) and
-  `app/vcs/runs.rs` (runs and their log).
+  `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,
+  a draft and a fix, is written by `vcs/agent.rs` and pasted, and the session tool `draft_set`
+  answered, by `app/vcs/agent.rs` (step 6a).
 - `src/dired.rs` and `src/dired/` are the directory editor's listings (ADR 0134): read on the
   lister's threads (`lister.rs`) from the descriptor, following no link but to tell where one
   leads, ordered and built there into a rope, highlights and a table of what each row names. A

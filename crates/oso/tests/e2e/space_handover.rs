@@ -27,7 +27,7 @@ fn a_replaced_orchestrator_is_kept_and_its_successor_takes_over() {
     let old = space(&first, "fix-login").unwrap()["orchestrator"].clone();
 
     // No handoff.md: asked first; `y` replaces it.
-    app.send_keys("C-x a S");
+    app.send_keys("C-c a S");
     app.send_keys("O");
     app.wait_for("the question", |state| {
         asks(state).is_some_and(|prompt| prompt.starts_with("No handoff.md"))

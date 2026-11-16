@@ -1439,6 +1439,10 @@ pub oso_core::editor::GitRequest::Discard
 pub oso_core::editor::GitRequest::Discard::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Discard::confirmed: bool
 pub oso_core::editor::GitRequest::Discard::lines: alloc::vec::Vec<oso_core::editor::GitLines>
+pub oso_core::editor::GitRequest::DraftMessage
+pub oso_core::editor::GitRequest::DraftMessage::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::FixWithAgent
+pub oso_core::editor::GitRequest::FixWithAgent::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Refresh
 pub oso_core::editor::GitRequest::Refresh::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::RestoreDiscarded
@@ -1928,6 +1932,7 @@ pub oso_core::editor::SessionRequest::Worktree::branch: alloc::string::String
 pub oso_core::editor::SessionRequest::WorktreeList
 pub oso_core::editor::SessionRequest::WorktreeRemove(core::option::Option<std::path::PathBuf>)
 pub oso_core::editor::SessionRequest::WorktreeRemoveConfirmed
+pub oso_core::editor::SessionRequest::YankImage(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Zoom
 impl core::clone::Clone for oso_core::editor::SessionRequest
 pub fn oso_core::editor::SessionRequest::clone(&self) -> oso_core::editor::SessionRequest

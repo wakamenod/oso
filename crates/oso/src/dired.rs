@@ -24,6 +24,7 @@ use oso_core::load::LoadSnapshot;
 use oso_core::syntax::Highlights;
 
 pub(crate) use read::list;
+pub(crate) use rows::civil_from_days;
 
 /// The most entries a listing keeps; past them it says it is cut (ADR 0134).
 pub(crate) const MAX_ENTRIES: usize = 100_000;

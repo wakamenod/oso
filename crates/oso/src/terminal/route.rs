@@ -1,6 +1,7 @@
 //! Which keys in a terminal are oso's and which go to its program (ADR 0120, Q12): semi-char
-//! mode keeps `C-x`, `M-x`, the `C-c` prefix, `C-q` and `C-y`; char mode keeps only `C-c C-k`,
-//! which leaves it, and `C-c C-c`, which sends one `C-c` there too. Anything of oso's that is open, a prompt or a key sequence, takes every key.
+//! mode keeps `C-x`, `M-x`, the `C-c` prefix, `C-q`, `C-y` and every Super key (ADR 0143);
+//! char mode keeps only `C-c C-k`, which leaves it, and `C-c C-c`, which sends one `C-c` there
+//! too. Anything of oso's that is open, a prompt or a key sequence, takes every key.
 //! In a session's terminal, semi-char mode also keeps `C-z` from the program, which would
 //! suspend it with nothing to resume it (ADR 0132, Q7).
 //!
@@ -79,7 +80,9 @@ const C_Z: KeyPress = KeyPress {
 };
 
 /// The keys semi-char mode keeps for oso: `C-x` and `M-x`, the `C-c` prefix, `C-q`, which sends
-/// the next key as it is, and `C-y`, which pastes.
+/// the next key as it is, `C-y`, which pastes, and any key with Super, which few programs read, so
+/// that a key the user binds with Super, or a keyboard's Hyper, works in a terminal too
+/// (ADR 0143).
 fn oso_keeps(key: KeyPress) -> bool {
     let control = |c| {
         key == KeyPress {
@@ -92,7 +95,8 @@ fn oso_keeps(key: KeyPress) -> bool {
             modifiers: Modifiers::META,
             key: Key::Char('x'),
         };
-    control('x') || control('c') || control('q') || control('y') || meta_x
+    let sup = key.modifiers.contains(Modifiers::SUPER);
+    control('x') || control('c') || control('q') || control('y') || meta_x || sup
 }
 
 /// Where `key` goes. The caller clears `quoted` and `held_c_c` once a key was routed.
@@ -145,7 +149,10 @@ mod tests {
 
     #[test]
     fn semi_char_keeps_oso_s_few_keys_and_sends_the_rest() {
-        for name in ["C-x", "M-x", "C-c", "C-q", "C-y"] {
+        // Super, as Option on macOS gives it and a keyboard's Hyper (`C-M-s-A`) too (ADR 0143).
+        for name in [
+            "C-x", "M-x", "C-c", "C-q", "C-y", "s-a", "s-SPC", "C-M-s-A", "s-<up>",
+        ] {
             assert_eq!(route(semi(), key(name)), Route::Oso, "{name}");
         }
         for name in [
@@ -232,7 +239,7 @@ mod tests {
 
     #[test]
     fn char_mode_sends_every_key_but_c_c_c_k() {
-        for name in ["C-x", "M-x", "C-q", "C-y", "a", "C-g"] {
+        for name in ["C-x", "M-x", "C-q", "C-y", "a", "C-g", "s-a", "C-M-s-A"] {
             assert_eq!(
                 route(char_mode(), key(name)),
                 Route::Send(vec![key(name)]),
