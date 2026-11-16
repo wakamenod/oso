@@ -48,7 +48,7 @@ asked, through the coordinator, for two changes on 2026-11-16:
   person goes to it.
 - **A `y` counts too:** the person answers the question from wherever they were working.
 - **The person's own starts still show their session,** because the key asked for it:
-  `session-start` (`C-x a c`), `session-worktree` (`C-x a w`), `session-resume`, `session-fork`,
+  `claude` (`C-c a c`), `session-worktree` (`C-c a w`), `session-resume`, `session-fork`,
   `session-adopt`, an orchestrator's start, and the `y` to starting where another session runs.
 - **Which starts are an agent's:** the session's origin (ADR 0135, Q10). `answered` and `unasked`
   come only from the tools, so `begin_session` shows the terminal only for `person`. A resumed
@@ -111,7 +111,7 @@ Each passage stays in its ADR as written; what holds now follows it.
   The loop guard already bounds a run.
 - **Background only for unasked starts:** a `y` is answered from where the person works, and
   taking them away after it is the same cost.
-- **Background for the person's own keys too:** `C-x a c` and `C-x a w` are asked for to work in
+- **Background for the person's own keys too:** `C-c a c` and `C-c a w` are asked for to work in
   the new session. Showing it is what the key is for.
 - **A `[sessions]` setting for showing agent starts:** nobody asked for the old behaviour. The
   pane row and `C-x b` reach a session in one step.

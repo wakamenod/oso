@@ -58,7 +58,7 @@ fn rows(state: &Value) -> Vec<String> {
 fn adopt(app: &mut App, name: &str) {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
-        app.send_keys("C-x a a");
+        app.send_keys("C-c a a");
         let state = app.wait_for("the prompt", |state| {
             state["prompts"][0]["completion"].is_object()
         });

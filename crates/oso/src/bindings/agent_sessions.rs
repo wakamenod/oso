@@ -1,61 +1,34 @@
-//! Default key bindings of the agent session commands (ADR 0121, Q7): `C-x a` and a key, the
-//! keys of `*Spaces*`, and session mode's `C-c` and a key in a session's terminal (ADR 0132).
-//! `C-x a O` makes an issue space and `C-x a S` opens the space menu (ADR 0136). `C-x a o` comes
-//! with its command, in a later step.
+//! Default key bindings of the agent session commands (ADR 0143): the Agents menu on `C-c a`
+//! everywhere, which `bindings/menus.rs` defines, the keys of `*Spaces*`, and session mode's
+//! `C-c C-<letter>` in a session's terminal (ADR 0132, ADR 0143).
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
-/// Key sequences and the commands they run.
-pub const BINDINGS: &[(&str, &str)] = &[
-    ("C-x a c", "claude"),
-    ("C-x a O", "space-new"),
-    ("C-x a r", "session-resume"),
-    ("C-x a a", "session-adopt"),
-    ("C-x a w", "session-worktree"),
-    ("C-x a s", "sessions"),
-    ("C-x a b", "session-switch"),
-    ("C-x a n", "session-next-waiting"),
-    ("C-x a d", "session-next-done"),
-    ("C-x a j", "space-switch"),
-    ("C-x a z", "space-zoom"),
-    ("C-x a e", "session-explain"),
-    ("C-x a m", "session-send"),
-    ("C-x a @", "session-mention"),
-    ("C-x a f", "session-follow-message"),
-];
-
 /// Session mode's keys, in a terminal's buffer that hosts a session, with the terminal's own
-/// (ADR 0132): `C-c` and a key runs what `C-x a` and the same key runs elsewhere, and the
-/// commands on the session itself take capitals and punctuation. `C-c` and a control key stays
-/// the terminal's, but `C-c C-u`, as `C-u` goes to the program.
+/// (ADR 0143): `C-c C-<letter>` runs the Agents menu's head of that letter, where the terminal and
+/// Emacs leave `C-<letter>` free, and signs keep their `C-c` keys. The menu's other heads are
+/// `C-c a` and the letter, as anywhere. `C-c C-c`, `C-c C-k`, `C-c C-j`, `C-c RET` and `C-c C-s`
+/// stay the terminal's. `C-c C-u` and `C-c C-y`, which yanks the clipboard's image into the
+/// session as `C-y` yanks text (ADR 0142), are session mode's own, with no head.
 pub const SESSION: &[(&str, &str)] = &[
-    ("C-c c", "claude"),
-    ("C-c O", "space-new"),
-    ("C-c r", "session-resume"),
-    ("C-c a", "session-adopt"),
-    ("C-c w", "session-worktree"),
-    ("C-c s", "sessions"),
-    ("C-c b", "session-switch"),
-    ("C-c n", "session-next-waiting"),
-    ("C-c d", "session-next-done"),
-    ("C-c j", "space-switch"),
-    ("C-c z", "space-zoom"),
-    ("C-c e", "session-explain"),
-    ("C-c m", "session-send"),
+    ("C-c C-n", "session-next-waiting"),
+    ("C-c C-d", "session-next-done"),
+    ("C-c C-b", "session-switch"),
+    ("C-c C-p", "sessions"),
+    ("C-c C-r", "session-resume"),
+    ("C-c C-a", "session-adopt"),
+    ("C-c C-w", "session-worktree"),
+    ("C-c C-e", "session-explain"),
+    ("C-c C-f", "session-follow-message"),
+    ("C-c C-z", "space-zoom"),
+    ("C-c C-v", "review-session"),
     ("C-c @", "session-mention"),
-    ("C-c f", "session-follow-message"),
-    ("C-c K", "session-stop"),
-    ("C-c P", "session-pin"),
-    ("C-c A", "session-archive"),
-    ("C-c v", "review-session"),
     ("C-c +", "terminal-allow-agent-read"),
     ("C-c -", "terminal-deny-agent-read"),
     ("C-c ?", "session-help"),
     ("C-c C-u", "universal-argument"),
+    ("C-c C-y", "session-yank-image"),
 ];
-
-/// Session mode's menu keys (ADR 0117, ADR 0132): the review menu, as `C-x v r` elsewhere.
-pub const SESSION_MENUS: &[(&str, &str)] = &[("C-c V", "review"), ("C-c S", "space")];
 
 /// The keys of `*Spaces*`, above the global ones in it.
 pub const LIST: &[(&str, &str)] = &[

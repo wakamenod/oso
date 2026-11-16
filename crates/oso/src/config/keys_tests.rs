@@ -301,7 +301,7 @@ fn too_many_entries_bind_none_of_them() {
 #[test]
 fn a_sequence_has_at_most_max_keys() {
     let f = Fixture::new();
-    let fits = format!("C-c{}", " a".repeat(MAX_KEYS - 1));
+    let fits = format!("C-c{}", " z".repeat(MAX_KEYS - 1));
     let over = format!("C-d{}", " a".repeat(MAX_KEYS));
     let loaded = f.parse(&format!(
         "[keys.global]\n\"{fits}\" = \"undo\"\n\"{over}\" = \"undo\"\n\"C-d\" = false\n"

@@ -144,6 +144,9 @@ pub enum SessionRequest {
     /// Show the session that sent the newest message to the session whose terminal is this
     /// buffer (`session-follow-message`).
     FollowMessage(BufferId),
+    /// Keep the clipboard's image in a file and paste an `@` reference to it into the session
+    /// whose terminal is this buffer, not submitted (`session-yank-image`, ADR 0142).
+    YankImage(BufferId),
     /// Act on the issue spaces (ADR 0136).
     Spaces(SpaceRequest),
 }

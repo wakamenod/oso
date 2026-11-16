@@ -138,6 +138,12 @@ pub(in crate::app) struct Creating {
 }
 
 impl App {
+    /// The keys of `session-explain` as bound now, which the echo after a start without asking
+    /// names (ADR 0143).
+    fn explain_key(&self) -> String {
+        self.dispatcher.where_is(&self.editor, "session-explain")
+    }
+
     /// `start_worktree_session` from `caller`: a job resolves the branch and its start before
     /// the person is asked.
     pub(super) fn tool_start_worktree(
@@ -295,7 +301,8 @@ impl App {
                 let from = start.as_ref().map(|(_, name)| name.as_str());
                 let start = from.map_or(Branch::Existing, |from| Branch::New { from });
                 let paths: Vec<PathBuf> = with.iter().map(|(_, dir)| dir.clone()).collect();
-                let words = worktree_words(&caller.name, (&place, &branch, start), &brief, &paths);
+                let at: (&Path, &str, Branch<'_>) = (&place, &branch, start);
+                let words = worktree_words(&caller.name, at, &brief, &paths, &self.explain_key());
                 // The job that makes it resolves the start again, as the question named it: the
                 // base given, else the caller's `HEAD`.
                 let order = Order {
@@ -365,7 +372,9 @@ impl App {
             shared,
         );
         let details = details(&caller.name, &label, brief.unwrap_or("(no brief)"));
-        let said = rules::start_started(&caller.name, &shown(&directory), brief.map(rules::lines));
+        let lines = brief.map(rules::lines);
+        let said =
+            rules::start_started(&caller.name, &shown(&directory), lines, &self.explain_key());
         let reads = App::reads_of(begin.space.as_ref());
         let (label, said) = (
             rules::also_reads(label, &reads),
@@ -547,17 +556,18 @@ impl App {
 /// What `?` shows for a question: who asks, what, and the whole brief.
 /// What a worktree session's question says, what `?` shows, and what the echo area says of
 /// its start without asking: `caller` starts one at `place` on `branch` from `start`, with
-/// `brief`, also reading `reads`.
+/// `brief`, also reading `reads`; `explain` is the keys of `session-explain`.
 fn worktree_words(
     caller: &str,
     (place, branch, start): (&Path, &str, Branch<'_>),
     brief: &str,
     reads: &[PathBuf],
+    explain: &str,
 ) -> Words {
     let (place, lines) = (shown(place), rules::lines(brief));
     let label = rules::worktree_question(caller, &place, branch, start, lines);
     let label = rules::also_reads(label, reads);
-    let said = rules::worktree_started(caller, &place, branch, start, lines);
+    let said = rules::worktree_started(caller, &place, branch, start, lines, explain);
     let said = rules::also_reads(said, reads);
     let details = details(caller, &label, brief);
     Words(label, details, said)
