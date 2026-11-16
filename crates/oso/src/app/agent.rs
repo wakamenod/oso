@@ -468,9 +468,13 @@ impl App {
             *bytes += text.len();
         }
         let newest = self.editor.prompts().last().map(|prompt| prompt.id());
+        // An ask it makes of a language server is answered later: the answer opens for it.
+        self.servers.asking_agent = Some(connection);
         let ran = self
             .dispatcher
             .run_for_agent(&mut self.editor, name, given, reach);
+        self.sync_servers();
+        self.servers.asking_agent = None;
         let (effects, result) = match ran {
             Ok(ran) => ran,
             Err(refused) => {

@@ -492,3 +492,84 @@ fn diagnostics_are_counted_moved_to_and_said_at_point() {
     let modeline = app.state()["modeline"].as_str().unwrap().to_owned();
     assert!(modeline.contains("lsp E1 W1  "), "{modeline}");
 }
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins() {
+    let scratch = Scratch::new("lsp-definition");
+    set_mode(scratch.path(), 0o700);
+    let root = project(&scratch, "proj-lsp", &["main.rs"]);
+    // Outside any project: no `.git` above it in the scratch directory.
+    let outside = scratch.write("lib/std.rs", b"// std\npub fn main() {}\n");
+    let here = oso_lsp::uri::from_path(&root.join("src/main.rs")).unwrap();
+    let there = oso_lsp::uri::from_path(&outside).unwrap();
+    let range = |line: u32, character: u32| json!({"start": {"line": line, "character": character}, "end": {"line": line, "character": character + 4}});
+    let script = json!({
+        "rules": [
+            {"method": "initialize", "do": [{"reply": {"capabilities": {
+                "positionEncoding": "utf-8",
+                "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+            }}}]},
+            {"method": "textDocument/definition", "nth": 1, "do": [
+                {"reply": {"uri": here, "range": range(0, 3)}}
+            ]},
+            {"method": "textDocument/definition", "nth": 2, "do": [
+                {"reply": [{"uri": there, "range": range(1, 7)}, {"uri": here, "range": range(0, 3)}]}
+            ]},
+            {"method": "shutdown", "do": [{"reply": null}]},
+        ],
+        "log_documents": true,
+        "log_positions": true,
+        "encoding": "utf-8",
+    });
+    let script = scratch.write("conf/fake-lsp.json", script.to_string().as_bytes());
+    let toml = format!(
+        "[lsp.servers.rust-analyzer]\ncommand = [{:?}, {:?}]\n",
+        env!("CARGO_BIN_EXE_fake-lsp-server"),
+        script.to_str().expect("a UTF-8 scratch path"),
+    );
+    let config = scratch.write("conf/config.toml", toml.as_bytes());
+    set_mode(&scratch.path().join("conf"), 0o700);
+    set_mode(&config, 0o644);
+    let record = scratch.write("conf/trusted-projects", record_line(&root).as_bytes());
+    set_mode(&record, 0o600);
+    let mut app = App::start_with_file_config_and_env(
+        &root.join("src/main.rs"),
+        scratch.path(),
+        &config,
+        &[],
+    );
+    app.wait_until_ready();
+    lsp_log_with(&mut app, "main.rs", "stderr: doc ", 1);
+
+    // One answer: there, then back and forward again.
+    app.send_keys("C-e M-.");
+    app.wait_for("the definition", |state| state["cursor"]["column"] == 3);
+    app.send_keys("M-,");
+    app.wait_for("back", |state| state["cursor"]["column"] == 12);
+    app.send_keys("C-M-,");
+    app.wait_for("forward", |state| state["cursor"]["column"] == 3);
+
+    // Two answers: the first, outside the project, which joins the server.
+    app.send_keys("M-.");
+    app.wait_for("the file outside", |state| {
+        state["buffer"]["name"] == "std.rs"
+            && state["cursor"]["row"] == 1
+            && state["cursor"]["column"] == 7
+    });
+    let echo = app.state()["echo"].as_str().unwrap_or_default().to_owned();
+    assert_eq!(echo, "1 of 2");
+    let log = lsp_log_with(&mut app, "std.rs", "stderr: doc ", 2);
+    assert!(log.contains(&format!("stderr: doc {there} v1")), "{log}");
+    assert!(log.contains("asked textDocument/definition 0:3"), "{log}");
+    modeline_has(&mut app, "the server follows it", "lsp");
+
+    // Back to main.rs; killing std.rs closes it with the server.
+    app.send_keys("M-,");
+    app.wait_for("back in main.rs", |state| {
+        state["buffer"]["name"] == "main.rs"
+    });
+    app.send_keys(&format!("C-x k {} RET", super::typing("std.rs")));
+    let log = lsp_log_with(&mut app, "main.rs", "stderr: closed ", 1);
+    assert!(log.contains(&format!("stderr: closed {there}")), "{log}");
+}

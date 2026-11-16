@@ -137,7 +137,7 @@ fn bodies_are_json_rpc() {
 }
 
 #[test]
-fn initialize_claims_only_what_step_3_uses() {
+fn initialize_claims_only_what_the_steps_use() {
     let options = json!({"cargo": {"targetDir": true}});
     let params = initialize_params(&Initialize {
         root_uri: "file:///w/oso",
@@ -158,6 +158,8 @@ fn initialize_claims_only_what_step_3_uses() {
             "workspace": {"configuration": true},
             "textDocument": {
                 "synchronization": {"didSave": true},
+                "definition": {"linkSupport": true},
+                "references": {},
                 "publishDiagnostics": {
                     "versionSupport": true,
                     "tagSupport": {"valueSet": [1, 2]},

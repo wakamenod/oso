@@ -46,7 +46,7 @@ const OPEN_WITHIN: std::time::Duration = std::time::Duration::from_secs(8);
 impl App {
     /// Starts visiting `path` for `connection`, unshown; the reply goes once it is shown or
     /// dropped.
-    pub(super) fn agent_open(
+    pub(in crate::app) fn agent_open(
         &mut self,
         connection: Connection,
         path: PathBuf,

@@ -82,12 +82,18 @@ fn may_be_sent(buffer: &Buffer) -> bool {
 /// server's project and mode. Its URI, if so.
 fn fits(buffer: &Buffer, running: &Running) -> Option<String> {
     let fits = may_be_sent(buffer)
-        && buffer.project() == Some(running.project)
+        && belongs(buffer, running)
         && running.entry.modes.contains(&buffer.mode());
     if !fits {
         return None;
     }
     oso_lsp::uri::from_path(buffer.path()?)
+}
+
+/// Whether `buffer` is the server's to have, by where its file is: in its project, or outside
+/// any and joined to it by a jump (step 8).
+fn belongs(buffer: &Buffer, running: &Running) -> bool {
+    buffer.project() == Some(running.project) || super::places::joins(buffer, &running.joined)
 }
 
 /// Whether the agent opened `buffer`, and the person has not let its open go (ADR 0118): only
@@ -97,12 +103,11 @@ fn the_agents(buffer: &Buffer) -> bool {
 }
 
 impl App {
-    /// The server running for `id`'s project and mode, by its place.
-    fn running_for(&self, id: BufferId) -> Option<usize> {
+    /// The server running for `id`'s project and mode, or that it joined, by its place.
+    pub(super) fn running_for(&self, id: BufferId) -> Option<usize> {
         let buffer = self.editor.buffer(id)?;
-        let project = buffer.project()?;
         self.servers.running.iter().position(|running| {
-            running.project == project && running.entry.modes.contains(&buffer.mode())
+            belongs(buffer, running) && running.entry.modes.contains(&buffer.mode())
         })
     }
 
@@ -229,6 +234,7 @@ impl App {
             let mut gone = Vec::new();
             let mut seen = 0;
             for (id, buffer) in editor.buffers() {
+                let belongs = belongs(buffer, running);
                 let Some(open) = running.documents.get_mut(&id) else {
                     continue;
                 };
@@ -246,7 +252,7 @@ impl App {
                     gone.push(id);
                     continue;
                 }
-                if no_longer_fits(buffer, running.project, &running.entry.modes) {
+                if no_longer_fits(buffer, belongs, &running.entry.modes) {
                     gone.push(id);
                     continue;
                 }
@@ -275,7 +281,10 @@ impl App {
                 );
             }
             for id in gone {
-                running.documents.remove(&id);
+                // A file that joined leaves with its document (step 8).
+                if let Some(open) = running.documents.remove(&id) {
+                    running.joined.remove(&open.path);
+                }
                 running.server.close(id.get());
                 unfollow.push(id);
             }
@@ -299,14 +308,14 @@ impl App {
 }
 
 /// Whether `buffer`, whose document a server has, no longer fits it: it may hold secrets now,
-/// is read-only for its bytes, or left the server's project or modes. Its size is the server
-/// thread's to judge, as it grows and shrinks.
-fn no_longer_fits(buffer: &Buffer, project: oso_core::project::ProjectId, modes: &[Mode]) -> bool {
+/// is read-only for its bytes, or left the server's project, `belongs` false, or modes. Its
+/// size is the server thread's to judge, as it grows and shrinks.
+fn no_longer_fits(buffer: &Buffer, belongs: bool, modes: &[Mode]) -> bool {
     buffer.is_secret()
         || matches!(
             buffer.read_only(),
             Some(ReadOnly::InvalidUtf8 | ReadOnly::Binary)
         )
-        || buffer.project() != Some(project)
+        || !belongs
         || !modes.contains(&buffer.mode())
 }

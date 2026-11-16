@@ -277,6 +277,18 @@ pub fn oso_lsp::protocol::Initialize<'a>::eq(&self, &oso_lsp::protocol::Initiali
 impl<'a> core::fmt::Debug for oso_lsp::protocol::Initialize<'a>
 pub fn oso_lsp::protocol::Initialize<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a> core::marker::StructuralPartialEq for oso_lsp::protocol::Initialize<'a>
+pub struct oso_lsp::protocol::Located
+pub oso_lsp::protocol::Located::end: oso_lsp::position::Position
+pub oso_lsp::protocol::Located::start: oso_lsp::position::Position
+pub oso_lsp::protocol::Located::uri: alloc::string::String
+impl core::clone::Clone for oso_lsp::protocol::Located
+pub fn oso_lsp::protocol::Located::clone(&self) -> oso_lsp::protocol::Located
+impl core::cmp::Eq for oso_lsp::protocol::Located
+impl core::cmp::PartialEq for oso_lsp::protocol::Located
+pub fn oso_lsp::protocol::Located::eq(&self, &oso_lsp::protocol::Located) -> bool
+impl core::fmt::Debug for oso_lsp::protocol::Located
+pub fn oso_lsp::protocol::Located::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_lsp::protocol::Located
 pub struct oso_lsp::protocol::NotRpc
 impl core::clone::Clone for oso_lsp::protocol::NotRpc
 pub fn oso_lsp::protocol::NotRpc::clone(&self) -> oso_lsp::protocol::NotRpc
@@ -336,16 +348,36 @@ pub fn oso_lsp::protocol::answer(&oso_lsp::protocol::RequestId, core::result::Re
 pub fn oso_lsp::protocol::answer_for(&str, &serde_json::value::Value, core::option::Option<&str>, &serde_json::value::Value) -> core::result::Result<serde_json::value::Value, (i64, &'static str)>
 pub fn oso_lsp::protocol::chosen_encoding(&serde_json::value::Value) -> core::option::Option<oso_lsp::position::Encoding>
 pub fn oso_lsp::protocol::classify(serde_json::value::Value) -> core::result::Result<oso_lsp::protocol::Incoming, oso_lsp::protocol::NotRpc>
+pub fn oso_lsp::protocol::definition_params(&str, oso_lsp::position::Position) -> serde_json::value::Value
 pub fn oso_lsp::protocol::initialize_params(&oso_lsp::protocol::Initialize<'_>) -> serde_json::value::Value
+pub fn oso_lsp::protocol::located(&serde_json::value::Value) -> (alloc::vec::Vec<oso_lsp::protocol::Located>, usize)
 pub fn oso_lsp::protocol::merge(&mut serde_json::value::Value, &serde_json::value::Value)
 pub fn oso_lsp::protocol::message(&serde_json::value::Value) -> core::option::Option<(oso_lsp::protocol::Severity, &str)>
 pub fn oso_lsp::protocol::notification(&str, serde_json::value::Value) -> alloc::vec::Vec<u8>
 pub fn oso_lsp::protocol::progress(&serde_json::value::Value) -> core::option::Option<(oso_lsp::protocol::Token, oso_lsp::protocol::Progress)>
 pub fn oso_lsp::protocol::published(&serde_json::value::Value) -> core::option::Option<oso_lsp::protocol::Published>
+pub fn oso_lsp::protocol::references_params(&str, oso_lsp::position::Position) -> serde_json::value::Value
 pub fn oso_lsp::protocol::request(i64, &str, serde_json::value::Value) -> alloc::vec::Vec<u8>
 pub fn oso_lsp::protocol::server_name(&serde_json::value::Value) -> core::option::Option<&str>
 pub fn oso_lsp::protocol::sync(&serde_json::value::Value) -> oso_lsp::protocol::Sync
 pub mod oso_lsp::server
+pub enum oso_lsp::server::AskKind
+pub oso_lsp::server::AskKind::Definition
+pub oso_lsp::server::AskKind::References
+impl oso_lsp::server::AskKind
+pub fn oso_lsp::server::AskKind::method(self) -> &'static str
+pub fn oso_lsp::server::AskKind::noun(self) -> &'static str
+impl core::clone::Clone for oso_lsp::server::AskKind
+pub fn oso_lsp::server::AskKind::clone(&self) -> oso_lsp::server::AskKind
+impl core::cmp::Eq for oso_lsp::server::AskKind
+impl core::cmp::PartialEq for oso_lsp::server::AskKind
+pub fn oso_lsp::server::AskKind::eq(&self, &oso_lsp::server::AskKind) -> bool
+impl core::fmt::Debug for oso_lsp::server::AskKind
+pub fn oso_lsp::server::AskKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_lsp::server::AskKind
+pub fn oso_lsp::server::AskKind::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_lsp::server::AskKind
+impl core::marker::StructuralPartialEq for oso_lsp::server::AskKind
 pub enum oso_lsp::server::Closed
 pub oso_lsp::server::Closed::LoneCarriageReturn
 pub oso_lsp::server::Closed::TooLarge
@@ -388,6 +420,50 @@ impl core::fmt::Debug for oso_lsp::server::State
 pub fn oso_lsp::server::State::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_lsp::server::State
 impl core::marker::StructuralPartialEq for oso_lsp::server::State
+pub enum oso_lsp::server::Target
+pub oso_lsp::server::Target::Lines
+pub oso_lsp::server::Target::Lines::encoding: oso_lsp::position::Encoding
+pub oso_lsp::server::Target::Lines::end: oso_lsp::position::Position
+pub oso_lsp::server::Target::Lines::start: oso_lsp::position::Position
+pub oso_lsp::server::Target::Open
+pub oso_lsp::server::Target::Open::document: u64
+pub oso_lsp::server::Target::Open::range: core::ops::range::Range<usize>
+pub oso_lsp::server::Target::Open::revision: u64
+impl core::clone::Clone for oso_lsp::server::Target
+pub fn oso_lsp::server::Target::clone(&self) -> oso_lsp::server::Target
+impl core::cmp::Eq for oso_lsp::server::Target
+impl core::cmp::PartialEq for oso_lsp::server::Target
+pub fn oso_lsp::server::Target::eq(&self, &oso_lsp::server::Target) -> bool
+impl core::fmt::Debug for oso_lsp::server::Target
+pub fn oso_lsp::server::Target::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_lsp::server::Target
+pub struct oso_lsp::server::Answer
+pub oso_lsp::server::Answer::document: u64
+pub oso_lsp::server::Answer::kind: oso_lsp::server::AskKind
+pub oso_lsp::server::Answer::outcome: core::result::Result<alloc::vec::Vec<oso_lsp::server::Location>, alloc::string::String>
+pub oso_lsp::server::Answer::revision: u64
+impl core::clone::Clone for oso_lsp::server::Answer
+pub fn oso_lsp::server::Answer::clone(&self) -> oso_lsp::server::Answer
+impl core::cmp::Eq for oso_lsp::server::Answer
+impl core::cmp::PartialEq for oso_lsp::server::Answer
+pub fn oso_lsp::server::Answer::eq(&self, &oso_lsp::server::Answer) -> bool
+impl core::fmt::Debug for oso_lsp::server::Answer
+pub fn oso_lsp::server::Answer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_lsp::server::Answer
+pub struct oso_lsp::server::Ask
+pub oso_lsp::server::Ask::document: u64
+pub oso_lsp::server::Ask::kind: oso_lsp::server::AskKind
+pub oso_lsp::server::Ask::offset: usize
+pub oso_lsp::server::Ask::revision: u64
+impl core::clone::Clone for oso_lsp::server::Ask
+pub fn oso_lsp::server::Ask::clone(&self) -> oso_lsp::server::Ask
+impl core::cmp::Eq for oso_lsp::server::Ask
+impl core::cmp::PartialEq for oso_lsp::server::Ask
+pub fn oso_lsp::server::Ask::eq(&self, &oso_lsp::server::Ask) -> bool
+impl core::fmt::Debug for oso_lsp::server::Ask
+pub fn oso_lsp::server::Ask::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_lsp::server::Ask
+impl core::marker::StructuralPartialEq for oso_lsp::server::Ask
 pub struct oso_lsp::server::Change
 pub oso_lsp::server::Change::after: oso_core::rope::Rope
 pub oso_lsp::server::Change::before: oso_core::rope::Rope
@@ -414,7 +490,19 @@ pub oso_lsp::server::Found::executable: oso_platform::process::Executable
 pub oso_lsp::server::Found::notes: alloc::vec::Vec<alloc::string::String>
 impl core::fmt::Debug for oso_lsp::server::Found
 pub fn oso_lsp::server::Found::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_lsp::server::Location
+pub oso_lsp::server::Location::path: std::path::PathBuf
+pub oso_lsp::server::Location::target: oso_lsp::server::Target
+impl core::clone::Clone for oso_lsp::server::Location
+pub fn oso_lsp::server::Location::clone(&self) -> oso_lsp::server::Location
+impl core::cmp::Eq for oso_lsp::server::Location
+impl core::cmp::PartialEq for oso_lsp::server::Location
+pub fn oso_lsp::server::Location::eq(&self, &oso_lsp::server::Location) -> bool
+impl core::fmt::Debug for oso_lsp::server::Location
+pub fn oso_lsp::server::Location::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_lsp::server::Location
 pub struct oso_lsp::server::Report
+pub oso_lsp::server::Report::answers: alloc::vec::Vec<oso_lsp::server::Answer>
 pub oso_lsp::server::Report::diagnostics: alloc::vec::Vec<oso_lsp::server::Diagnosed>
 pub oso_lsp::server::Report::documents: alloc::vec::Vec<(u64, core::option::Option<oso_lsp::server::Closed>)>
 pub oso_lsp::server::Report::log: alloc::vec::Vec<alloc::string::String>
@@ -430,6 +518,7 @@ pub fn oso_lsp::server::Report::fmt(&self, &mut core::fmt::Formatter<'_>) -> cor
 impl core::marker::StructuralPartialEq for oso_lsp::server::Report
 pub struct oso_lsp::server::Server
 impl oso_lsp::server::Server
+pub fn oso_lsp::server::Server::ask(&self, oso_lsp::server::Ask)
 pub fn oso_lsp::server::Server::change(&self, oso_lsp::server::Change)
 pub fn oso_lsp::server::Server::close(&self, u64)
 pub fn oso_lsp::server::Server::open(&self, oso_lsp::server::Document)

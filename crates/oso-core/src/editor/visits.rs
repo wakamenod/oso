@@ -14,7 +14,7 @@ use crate::buffer::{Buffer, BufferId};
 use crate::rope::Rope;
 
 /// A file to go to a place in once a visit shows it, with the line and column.
-pub(super) type VisitPlace = (PathBuf, usize, usize);
+pub(super) type VisitPlace = (PathBuf, usize, super::Column);
 
 impl Editor {
     /// Asks the host to visit `path` in the selected window, reading at most `limit` bytes, as a
@@ -69,6 +69,17 @@ impl Editor {
     /// does, and once it shows, to go to `line`, from 1, and `column`, in characters from 0,
     /// each as far as the text goes, with the place before on the mark ring.
     pub fn request_visit_at(&mut self, path: PathBuf, limit: u64, line: usize, column: usize) {
+        self.request_visit_at_column(path, limit, line, super::Column::Chars(column));
+    }
+
+    /// As [`Editor::request_visit_at`], with the column as `column` counts it (ADR 0138).
+    pub fn request_visit_at_column(
+        &mut self,
+        path: PathBuf,
+        limit: u64,
+        line: usize,
+        column: super::Column,
+    ) {
         self.request_visit(path.clone(), limit);
         self.visit_place = Some((path, line, column));
         let (_, buffer) = self.current();
@@ -103,7 +114,7 @@ impl Editor {
         if buffer.loading().is_some() && row + 1 >= text.line_count() {
             return;
         }
-        let offset = place_offset(text, row, *column);
+        let offset = super::servers::column_offset(text, row, *column);
         self.visit_place = None;
         let index = self.selected;
         if index >= self.tiled_count() || self.windows[index].buffer() != id {

@@ -114,7 +114,7 @@ pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use reviews::*;
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
-pub use servers::ServerRequest;
+pub use servers::{At, Column, ServerRequest};
 pub use sessions::*;
 pub use status::{ServerFace, Status};
 pub use switch::{KillRefused, Preview};
@@ -578,7 +578,7 @@ impl Editor {
             .iter()
             .find_map(|(index, set)| (*index == self.selected).then(|| set.clone()));
         let views = self.moved_views(id, &staged.display(), staged.steps(), staged.rewrap());
-
+        self.jumps_follow(id, staged.steps());
         // Nothing past this point can panic part way.
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.commit_edit(staged, opening, after);

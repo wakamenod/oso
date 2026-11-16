@@ -497,6 +497,7 @@ impl Editor {
         }
         for window in &mut self.windows {
             window.places_mut().forget(id);
+            window.jumps_mut().forget(id);
         }
         if self.kill_asked == Some(id) {
             self.kill_asked = None;

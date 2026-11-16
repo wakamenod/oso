@@ -1,11 +1,13 @@
 //! Commands of the language server that follows the current buffer (ADR 0138, step 3):
-//! starting it, starting it again, and stopping it; and moving to its diagnostics (step 6).
+//! starting it, starting it again, and stopping it; moving to its diagnostics (step 6); and
+//! going to a definition, and back and forward through the window's jumps (step 8).
 //!
 //! Must not depend on: winit, the GPU, `bindings` or the host's servers; a command asks the
 //! host through `Editor::request_server`, and the host acts on the server after it.
 //!
 //! Starting a server spawns a process, and stopping one manages the person's processes, so
-//! those are `Person`; the moves only move, so they are `Look` (ADR 0138, Q24).
+//! those are `Person`; the moves only move, and a definition asks a running server about a
+//! buffer it knows, so they are `Look` (ADR 0138, Q24).
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::ServerRequest;
@@ -52,6 +54,30 @@ pub const COMMANDS: &[Command] = &[
         run: previous_diagnostic,
         state: None,
     },
+    Command {
+        name: "lsp-find-definition",
+        doc: "Go to the definition of what is at point, as the language server finds it, as Eglot's `xref-find-definitions`.\n\nThe server is asked about the primary cursor; one cursor is left at the definition. With several, it goes to the first and says how many there are. The place left is kept in the window's history, which `lsp-go-back` goes back through, and on the mark ring. A file outside any project that it leads to joins the server, until its buffer is killed.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: find_definition,
+        state: None,
+    },
+    Command {
+        name: "lsp-go-back",
+        doc: "Go back to the place the last jump to a definition left, as Emacs's `xref-go-back`.\n\nEach window keeps its own history of 64 places; `lsp-go-forward` goes forward again.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: go_back,
+        state: None,
+    },
+    Command {
+        name: "lsp-go-forward",
+        doc: "Go forward again to the place the last `lsp-go-back` left, as Emacs's `xref-go-forward`.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: go_forward,
+        state: None,
+    },
 ];
 
 fn start(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -85,6 +111,34 @@ fn to_diagnostic(ctx: &mut Ctx<'_>, forward: bool) -> Result<(), CommandError> {
     if wrapped {
         ctx.editor.echo("Wrapped");
     }
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn find_definition(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    let buffer = ctx.editor.current().1;
+    if buffer.is_secret() {
+        return Err(CommandError::new(
+            "No server for a buffer that may hold secrets",
+        ));
+    }
+    // The host says whether a server follows it.
+    let at = ctx.editor.ask_at();
+    ctx.editor.request_server(ServerRequest::Definition(at));
+    Ok(())
+}
+
+fn go_back(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    ctx.editor.jump_back().map_err(CommandError::new)?;
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn go_forward(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    ctx.editor.jump_forward().map_err(CommandError::new)?;
     ctx.request_redraw();
     Ok(())
 }

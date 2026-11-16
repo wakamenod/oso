@@ -122,8 +122,13 @@ fn placed(value: &Value) -> Option<Severity> {
     )
 }
 
+/// The range under `value`'s `range`.
 fn range(value: &Value) -> Option<(Position, Position)> {
-    let range = value.get("range")?;
+    range_of(value.get("range")?)
+}
+
+/// A range's start and end, if both read.
+pub(super) fn range_of(range: &Value) -> Option<(Position, Position)> {
     let position = |value: Option<&Value>| -> Option<Position> {
         let value = value?;
         Some(Position::new(

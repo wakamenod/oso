@@ -121,6 +121,7 @@ impl Window {
             places,
             gutter_floor: self.gutter_floor,
             way_back: std::mem::take(&mut self.way_back),
+            jumps: std::mem::take(&mut self.jumps),
             ..Self::new(self.id, buffer)
         };
         place

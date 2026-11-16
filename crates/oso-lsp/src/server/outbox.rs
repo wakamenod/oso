@@ -16,7 +16,7 @@ use crate::limits::{
     REPORT_INTERVAL, REPORT_LOG_BYTES_MAX, REPORT_SHOWN_MAX, SHOW_MESSAGE_INTERVAL,
 };
 
-use super::{Closed, Diagnosed, Report, Severity, Shown, State, Wake};
+use super::{Answer, Closed, Diagnosed, Report, Severity, Shown, State, Wake};
 
 /// The box the session thread fills and the UI empties.
 #[derive(Debug, Default)]
@@ -34,6 +34,7 @@ struct Waiting {
     shown: Vec<Shown>,
     documents: Vec<(u64, Option<Closed>)>,
     diagnostics: Vec<Diagnosed>,
+    answers: Vec<Answer>,
 }
 
 impl Default for Waiting {
@@ -47,6 +48,7 @@ impl Default for Waiting {
             shown: Vec::new(),
             documents: Vec::new(),
             diagnostics: Vec::new(),
+            answers: Vec::new(),
         }
     }
 }
@@ -73,6 +75,7 @@ impl Outbox {
             shown: mem::take(&mut waiting.shown),
             documents: mem::take(&mut waiting.documents),
             diagnostics: mem::take(&mut waiting.diagnostics),
+            answers: mem::take(&mut waiting.answers),
         })
     }
 
@@ -196,6 +199,18 @@ impl Reporter {
 
     /// Wakes the UI if something waits and the interval has passed. Returns how long until it
     /// may, if something still waits.
+    /// An answer to an ask, which wakes the UI at once: a person waits for it. At most one of
+    /// each kind waits for each document, the latest, as a newer ask makes the older moot.
+    pub(super) fn answer(&mut self, answer: Answer) {
+        self.outbox.with(|waiting| {
+            waiting
+                .answers
+                .retain(|kept| (kept.document, kept.kind) != (answer.document, answer.kind));
+            waiting.answers.push(answer);
+        });
+        self.wake_now();
+    }
+
     pub(super) fn flush(&mut self, now: Instant) -> Option<Duration> {
         if !self.due {
             return None;
