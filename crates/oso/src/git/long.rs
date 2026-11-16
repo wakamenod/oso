@@ -7,9 +7,11 @@
 //! waits for nothing.
 //!
 //! - git starts in a process group of its own, so that stopping it stops a hook and what the
-//!   hook started too; on Windows git alone (ADR 0127, as built, Q6). A process the group's
-//!   leader left running once it was waited for is not followed: its group's ID may be
-//!   another's by then.
+//!   hook started too; on Windows git alone (ADR 0127, as built, Q6). A stopped run is reaped
+//!   only after its group gets `SIGKILL`, sent once git has ended but while it is not yet waited
+//!   for ([`Child::exited`]), so that its ID still holds the group's: a hook that ignores
+//!   `SIGTERM`, and what it started, go with git. Quitting sends `SIGTERM`, then `SIGKILL` at
+//!   once (the author's choice): oso does not wait as it goes.
 //! - Its standard output and error are read as one, in pieces, on threads of their own,
 //!   `oso-git-read`, as a terminal would show them; the caller bounds what it keeps. At most
 //!   [`PIECES`] pieces wait, so a hook that writes faster than they are taken waits on its
@@ -82,9 +84,12 @@ pub(crate) struct Long {
 pub(crate) struct Ender(Arc<Mutex<Child>>);
 
 impl Ender {
-    /// Sends the run's group `SIGTERM`; waits for nothing.
+    /// Sends the run's group `SIGTERM`, then `SIGKILL` at once, so that a hook that ignores the
+    /// first goes too; waits for nothing.
     pub(crate) fn end(&self) {
-        let _ = locked(&self.0).signal_group(Signal::Terminate);
+        let mut child = locked(&self.0);
+        let _ = child.signal_group(Signal::Terminate);
+        let _ = child.signal_group(Signal::Kill);
     }
 }
 
@@ -197,7 +202,7 @@ impl Long {
         }
         // Looked at after each piece too, so that what goes on writing after git has gone holds
         // up its end no longer than the drain.
-        let status = locked(&self.child).try_wait().map_err(GitError::Io)?;
+        let status = self.reap_ended().map_err(GitError::Io)?;
         let Some(status) = status else {
             return Ok(got.map_or(Next::Quiet, Next::Out));
         };
@@ -227,8 +232,21 @@ impl Long {
         self.next(Duration::ZERO)
     }
 
-    /// Asks the run to stop: `SIGTERM` to its group now, and `SIGKILL` once [`GRACE`] has
-    /// passed, as [`Long::next`] is called.
+    /// How the run ended, reaping it, or `None` while git runs. A stopped run's group gets
+    /// `SIGKILL` first, while git's ID still holds the group's, so that what ignored `SIGTERM`
+    /// goes too.
+    fn reap_ended(&mut self) -> io::Result<Option<ExitStatus>> {
+        let mut child = locked(&self.child);
+        if self.stopping.is_some() && child.exited()? {
+            // Nothing left in the group is no error: ESRCH, or EPERM on macOS.
+            let _ = child.signal_group(Signal::Kill);
+            self.killed = true;
+        }
+        child.try_wait()
+    }
+
+    /// Asks the run to stop: `SIGTERM` to its group now, and `SIGKILL` once git has ended or
+    /// [`GRACE`] has passed, as [`Long::next`] is called.
     pub(crate) fn stop(&mut self) {
         if self.stopping.is_none() && self.exited.is_none() {
             self.stopping = Some(Instant::now());
@@ -263,19 +281,19 @@ impl Drop for Long {
     }
 }
 
-/// Waits for a run that was asked to stop, killing its group after [`GRACE`].
+/// Waits for a run that was asked to stop, killing its group once git has ended, before it is
+/// reaped, or after [`GRACE`].
 fn reap(child: &Mutex<Child>) {
     let deadline = Instant::now() + GRACE;
     loop {
-        if !matches!(locked(child).try_wait(), Ok(None)) {
-            return;
-        }
-        if Instant::now() >= deadline {
-            let mut child = locked(child);
+        let mut child = locked(child);
+        let ended = !matches!(child.exited(), Ok(false));
+        if ended || Instant::now() >= deadline {
             let _ = child.signal_group(Signal::Kill);
             let _ = child.wait();
             return;
         }
+        drop(child);
         thread::sleep(POLL);
     }
 }

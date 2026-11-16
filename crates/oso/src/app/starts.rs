@@ -1,8 +1,8 @@
 //! What opening or saving a file starts, on the UI thread (ADR 0118, ADR 0138 steps 1 and 3):
 //! working out what would start for the person, asking the editor what runs now and what waits,
 //! letting go what the person's commands and saves release, and saying in `*Agent*` what was
-//! held, let go and run. An open starts its mode's language server, through `servers`; telling
-//! a server of an open or a save comes with ADR 0138's step 4.
+//! held, let go and run. An open starts its mode's language server and opens the file with it,
+//! and a save tells it, through `servers` (ADR 0138, steps 3 and 4).
 //!
 //! Must not depend on: processes or the channel's wire; the editor holds the marks, and this
 //! asks it. A server is started through `servers`, whose threads spawn it.
@@ -107,18 +107,23 @@ impl App {
     /// Runs, for the person, what each open mark their commands let go would start now
     /// (ADR 0118, Q3, Q4). After every input.
     pub(super) fn start_released(&mut self) {
-        for (id, held) in self.editor.take_released_starts() {
+        let released = self.editor.take_released_starts();
+        if released.is_empty() {
+            return;
+        }
+        for (id, held) in released {
             self.log_let_go(id, held);
             let would = self.would_start(id, false);
             let runs = self.editor.starts_on_open(id, would, Acted::Person);
             self.run_starts(id, runs);
         }
+        self.mark_servers();
     }
 
     /// A save of `id` ended: unless it failed, what it starts runs, or waits if it was the
     /// agent's; the person's lets go what an agent's save left waiting there.
     /// Returns who started it, a save no one here started being the agent's.
-    pub(super) fn save_starts(&mut self, id: BufferId, failed: bool) -> Acted {
+    pub(super) fn save_starts(&mut self, id: BufferId, failed: bool, elsewhere: bool) -> Acted {
         let by = self.starting.save_ended(id);
         if failed {
             return by;
@@ -127,7 +132,13 @@ impl App {
             .editor
             .buffer(id)
             .map_or(Starts::NONE, |b| b.save_waits());
-        let would = self.would_start(id, true);
+        // A write to another file tells the old document nothing: the new one's open is
+        // settled once its project is known.
+        let would = if elsewhere {
+            Starts::NONE
+        } else {
+            self.would_start(id, true)
+        };
         let runs = self.editor.starts_on_save(id, would, by);
         match by {
             Acted::Person if !held.is_empty() => self.log_let_go(id, held),
@@ -135,6 +146,7 @@ impl App {
             Acted::Agent => self.log_held(id, true),
         }
         self.run_starts(id, runs);
+        self.mark_servers();
         by
     }
 
@@ -158,16 +170,28 @@ impl App {
     }
 
     /// What would start for the person as `id` is opened, or saved if `save`, with the settings
-    /// as they are: on an open, its mode's server, when none runs for its project. Telling a
-    /// server of an open or a save comes with ADR 0138's step 4.
+    /// as they are: on an open, its mode's server when none runs for its project, and the open of
+    /// its document; on a save, telling the server that has it.
     fn would_start(&self, id: BufferId, save: bool) -> Starts {
-        if !save && self.would_start_server(id) {
-            return Starts::of(Start::ServerStart);
+        if save {
+            return if self.would_tell_a_save(id) {
+                Starts::of(Start::ServerSave)
+            } else {
+                Starts::NONE
+            };
         }
-        Starts::NONE
+        let mut starts = Starts::NONE;
+        if self.would_start_server(id) {
+            starts = starts.union(Starts::of(Start::ServerStart));
+        }
+        if self.would_open_document(id) {
+            starts = starts.union(Starts::of(Start::ServerOpen));
+        }
+        starts
     }
 
-    /// Starts what `runs` names for `id`, and says so in `*Agent*`.
+    /// Starts what `runs` names for `id`, and says so in `*Agent*`: the server, the open of its
+    /// document, and the save told to the server.
     fn run_starts(&mut self, id: BufferId, runs: Starts) {
         if runs.is_empty() {
             return;
@@ -175,9 +199,22 @@ impl App {
         if runs.iter().any(|start| start == Start::ServerStart) {
             self.start_server_for(id);
         }
+        if runs.iter().any(|start| start == Start::ServerOpen) {
+            self.open_document(id);
+        }
+        if runs.iter().any(|start| start == Start::ServerSave) {
+            self.tell_a_save(id);
+        }
         let kinds: Vec<&str> = runs.iter().map(Start::id).collect();
         let name = self.editor.buffer(id).map_or("", |b| b.name()).to_owned();
         self.agent_log(&format!("ran {} in {name}", kinds.join(", ")));
+    }
+
+    /// Forgets that `id`'s open was settled, as after `C-x C-w` to another file: the next
+    /// settling, once its project is known, starts what its open would.
+    pub(super) fn unsettle_open(&mut self, id: BufferId) {
+        self.starting.settled.remove(&id);
+        self.starting.ask();
     }
 
     /// Forgets that the opens of `project`'s buffers were settled, as when it is trusted now,

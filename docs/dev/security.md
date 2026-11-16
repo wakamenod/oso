@@ -207,7 +207,8 @@ network features.
   GnuPG's variables, and the names `[git] pass_env` lists, which take no `GIT_*` name, with
   `GIT_TERMINAL_PROMPT=0` and `GIT_EDITOR=:`. It has no time limit; git runs in a process group
   of its own, which `C-g` ends, as revoking the project's trust does, and which oso's exit sends
-  `SIGTERM`. A git status's writes to the index have no time limit either, still with no hook,
+  `SIGTERM`, then `SIGKILL`; once git has ended, its group gets `SIGKILL` before git is reaped,
+  so that a hook that ignores `SIGTERM` does not outlive it. A git status's writes to the index have no time limit either, still with no hook,
   and `C-g` stops them. What git and its hooks write goes to
   `*git log: NAME*`, escape sequences and control characters taken out, and that buffer is
   withheld from the agent channel. File names in a message's `#` lines are escaped on one line.

@@ -251,7 +251,9 @@ pub fn oso_core::buffer::Buffer::take_format_of_copy(&mut self, bool, oso_core::
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::can_highlight(&self) -> bool
 pub fn oso_core::buffer::Buffer::drop_highlights(&mut self)
+pub fn oso_core::buffer::Buffer::edits_since(&self, u64) -> core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
 pub fn oso_core::buffer::Buffer::highlights(&self) -> core::option::Option<&oso_core::syntax::Highlights>
+pub fn oso_core::buffer::Buffer::set_followed(&mut self, bool)
 pub fn oso_core::buffer::Buffer::splices_since(&self, u64) -> core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
 pub fn oso_core::buffer::Buffer::take_highlights(&mut self, u64, oso_core::syntax::Highlights) -> bool
 impl oso_core::buffer::Buffer

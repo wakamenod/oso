@@ -27,8 +27,12 @@ use super::{Event, Gate, Start, State};
 
 mod incoming;
 mod run;
+mod sync;
 
 use run::Run;
+
+/// How often the writer's queue is looked at while whole texts wait for room in it.
+const WAITING_POLL: Duration = Duration::from_millis(20);
 
 /// How often the end of a process is looked for while waiting for it.
 const POLL: Duration = Duration::from_millis(10);
@@ -81,6 +85,8 @@ pub(in crate::server) struct Session {
     child: Arc<Mutex<Option<Child>>>,
     crashes: Crashes,
     run: u64,
+    /// The documents the server knows, across its runs.
+    documents: super::documents::Documents,
 }
 
 impl Session {
@@ -101,6 +107,7 @@ impl Session {
             child,
             crashes: Crashes::default(),
             run: 0,
+            documents: super::documents::Documents::default(),
         }
     }
 
@@ -155,6 +162,11 @@ impl Session {
                 }
                 Event::ShutDown => return Next::Ended,
                 Event::Quit => return Next::Quit,
+                Event::Open(..) | Event::Change(..) | Event::Close(..) | Event::Save(..) => {
+                    if let Some(ask) = sync::Ask::of(event) {
+                        let _ = self.document(None, ask);
+                    }
+                }
                 // An earlier run's news.
                 Event::Frame(..) | Event::ReadEnd(..) | Event::WriteFailed(..) => {}
             }
@@ -179,6 +191,7 @@ impl Session {
             }
         };
         let end = self.drive(run);
+        self.documents.forget_sent();
         match end {
             End::Crashed(why) => {
                 self.reporter.log(format!("crashed: {why}"));
@@ -277,6 +290,12 @@ impl Session {
             diagnostics_dropped: 0,
             diagnostics_said: now,
             look_at: now + LIVENESS_INTERVAL,
+            encoding: crate::position::Encoding::Utf16,
+            sync: protocol::Sync {
+                open_close: false,
+                change: protocol::SyncKind::None,
+                save: false,
+            },
         };
         let root_uri = uri::from_path(&start.root).unwrap_or_default();
         let root_name = start
@@ -325,6 +344,13 @@ impl Session {
     /// What is due at `now`: the stderr's lines, the waits of requests and of a stop, and a
     /// look at whether the process ended.
     fn tick(&mut self, run: &mut Run, now: Instant) -> Option<End> {
+        // Whole texts that wait for room; while some do, the queue is looked at again soon.
+        if let Err(full) = self.send_waiting(run) {
+            return Some(End::Crashed(full));
+        }
+        if self.documents.waiting() {
+            run.look_at = run.look_at.min(now + WAITING_POLL);
+        }
         let (lines, dropped) = run.stderr.take();
         if dropped > 0 {
             self.reporter
@@ -389,6 +415,11 @@ impl Session {
             Event::Quit => {
                 self.signal(Signal::Terminate);
                 return Some(End::Quit);
+            }
+            Event::Open(..) | Event::Change(..) | Event::Close(..) | Event::Save(..) => {
+                if let Some(ask) = sync::Ask::of(event) {
+                    return self.document(Some(run), ask).err().map(End::Crashed);
+                }
             }
             Event::Frame(id, frame) if id == run.id => {
                 return self.frame(run, frame).err().map(End::Crashed);

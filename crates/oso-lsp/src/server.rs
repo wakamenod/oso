@@ -8,6 +8,7 @@
 //! Must not depend on: the tip crate, the configuration or the editor; the caller says what
 //! to start ([`Start`]), whether it may ([`Gate`]), and how to wake the UI.
 
+mod documents;
 mod outbox;
 mod pipes;
 mod policy;
@@ -22,6 +23,8 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 
+use oso_core::rope::Rope;
+use oso_core::syntax::Splice;
 use oso_platform::process::{Child, Executable, Signal};
 use serde_json::Value;
 
@@ -36,6 +39,10 @@ enum Event {
     Restart(Box<(Start, Gate)>),
     ShutDown,
     Quit,
+    Open(Box<Document>),
+    Change(Box<Change>),
+    Close(u64),
+    Save(u64),
     Frame(u64, Frame),
     ReadEnd(u64, Option<FrameError>),
     WriteFailed(u64, io::ErrorKind),
@@ -70,6 +77,38 @@ pub type Gate = Box<dyn Fn() -> Result<Executable, String> + Send>;
 
 /// Wakes the UI thread, which then calls [`Server::take_report`].
 pub type Wake = Box<dyn Fn() + Send>;
+
+/// A document to open with the server (ADR 0138, Document sync).
+#[derive(Debug, Clone)]
+pub struct Document {
+    /// The caller's id for it, which the other asks and the report name.
+    pub id: u64,
+    /// Its `file:` URI.
+    pub uri: String,
+    /// Its language, as the protocol names it (`rust`).
+    pub language_id: String,
+    pub text: Rope,
+}
+
+/// A batch of edits to an open document: the text as last given, the text now, and the
+/// splices from one to the other, if the caller has them; without them the whole text goes.
+#[derive(Debug, Clone)]
+pub struct Change {
+    pub id: u64,
+    pub before: Rope,
+    pub after: Rope,
+    pub splices: Option<Vec<Splice>>,
+}
+
+/// Why a document is kept from the server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Closed {
+    /// It holds a carriage return that ends no line, which oso and the server would count
+    /// differently.
+    LoneCarriageReturn,
+    /// It is larger than `limits::DOCUMENT_BYTES_MAX`.
+    TooLarge,
+}
 
 /// Where a server is in its life, for the modeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,6 +145,9 @@ pub struct Report {
     pub log: Vec<String>,
     /// Messages for the person.
     pub shown: Vec<Shown>,
+    /// Documents kept from the server since the last report, and why, or opened with it again
+    /// (`None`), in order.
+    pub documents: Vec<(u64, Option<Closed>)>,
 }
 
 /// A server's session thread, and what the UI shares with it.
@@ -149,6 +191,29 @@ impl Server {
     /// What was reported since the last call, `None` if nothing.
     pub fn take_report(&self) -> Option<Report> {
         self.outbox.take()
+    }
+
+    /// Opens `document` with the server, now or once it is ready, and with each run after.
+    /// One that holds a lone carriage return, or is too large, is kept from it, and the report
+    /// says so.
+    pub fn open(&self, document: Document) {
+        let _ = self.events.send(Event::Open(Box::new(document)));
+    }
+
+    /// Sends a batch of edits to an open document, worked out on the session thread.
+    pub fn change(&self, change: Change) {
+        let _ = self.events.send(Event::Change(Box::new(change)));
+    }
+
+    /// Closes document `id`.
+    pub fn close(&self, id: u64) {
+        let _ = self.events.send(Event::Close(id));
+    }
+
+    /// Tells the server the person saved document `id`, or opens it again if it was kept from
+    /// the server for a reason that no longer holds.
+    pub fn save(&self, id: u64) {
+        let _ = self.events.send(Event::Save(id));
     }
 
     /// Stops the server as [`Server::shut_down`] does, if it runs, forgets its crashes, and

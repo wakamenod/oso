@@ -204,8 +204,9 @@ impl Buffer {
         after: Option<SelectionSet>,
     ) {
         self.commit_edit(staged, opening, after);
-        // A report or a job from before a reload is dropped, not mapped (ADR 0111).
-        self.highlighting.forget_log();
+        // A report or a job from before a reload is dropped, not mapped (ADR 0111); a server
+        // that follows the buffer gets the reload as a batch (ADR 0138).
+        self.reloaded_highlighting(self.revision);
         self.info = snapshot.info;
         self.saved = self.content;
         self.reloaded();

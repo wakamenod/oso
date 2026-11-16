@@ -12,7 +12,7 @@
 //!   anything.
 //! - The time a run has taken is said in the echo area once a second, unless something was
 //!   said since.
-//! - Quitting oso sends each run's group `SIGTERM`, and waits for nothing.
+//! - Quitting oso sends each run's group `SIGTERM`, then `SIGKILL`, and waits for nothing.
 
 use std::time::Instant;
 
@@ -348,7 +348,8 @@ impl App {
         }
     }
 
-    /// As oso ends: each run's group is sent `SIGTERM`, with no wait (ADR 0127, Q7).
+    /// As oso ends: each run's group is sent `SIGTERM`, then `SIGKILL`, with no wait (ADR 0127,
+    /// Q7 and its follow-up).
     pub(in crate::app) fn end_git_runs(&self) {
         for repo in &self.gits.commits.repos {
             if let Some(runner) = &repo.runner {

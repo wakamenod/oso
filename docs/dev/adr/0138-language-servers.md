@@ -1142,3 +1142,101 @@ layers of `oso-lsp` below (Q8).
     `server-save`.
   - An agent's open in a project whose server already runs holds nothing until step 4's
     `server-open`.
+
+### Step 4: document sync
+
+The author answered step 4's questions on 2026-11-16, all with the first choice: a buffer a
+server follows keeps the same edit log as one highlighted, up to 8 MiB (Q1); a document kept
+from its server for a lone carriage return or its size opens again at the person's next save
+if it fits (Q2); the modeline's `lsp` shows only where a document is open (Q3); only the last
+text sent is kept, the 16 versions coming with step 6 (Q4); and the public items below (Q5).
+
+- **`oso-core`:** a buffer's batch log (`buffer/highlighting.rs`) is kept while the buffer can
+  be highlighted, as before, or while a server follows it (`Buffer::set_followed`), whatever
+  its mode or size; highlights still follow only the first. `Buffer::edits_since(revision)`
+  gives the batch from a revision to now, with the log's caps of 64 revisions and 4096
+  splices; past them, or after a load or reload, it gives none and the whole text goes. A
+  buffer that may hold secrets, or an internal one, keeps no log for a server whatever the
+  host says.
+- **`oso-lsp`:**
+  - `Server::{open, change, close, save}` take a `Document` (id, URI, language, text) and a
+    `Change` (the text as last given, the text now, the splices between, if known). The
+    session thread keeps each document across runs and opens it again after each
+    `initialize`; asks that come before the server is ready only change what it is opened
+    with.
+  - `server/documents.rs` builds each `didChange`: one change per splice, highest first, its
+    positions from the text before in the agreed encoding, its text from the text after. A
+    batch whose splices are not ascending and apart on character starts, or do not take one
+    length to the other, goes whole, as does every batch to a server that asks for full sync.
+    The version goes up by one for each open and each batch.
+  - A lone carriage return keeps a document from the server: at open by a scan of its text,
+    and after each batch by a look at each splice's bytes and the one around it, O(splices and
+    inserted bytes). So does a text over 8 MiB. Such a document gets `didClose`; `*LSP*` says
+    why, and the report's `documents` names it, `Closed::LoneCarriageReturn` or
+    `Closed::TooLarge`. Its edits are still taken in, and the person's next save opens it
+    again if it fits.
+  - `initialize` claims `textDocument.synchronization` with `didSave`, and
+    `protocol::sync` reads the server's `textDocumentSync`: opens and closes, the kind of
+    change, saves. A server that asks for none gets no document.
+- **The tip crate** (`app/servers/documents.rs`):
+  - A buffer fits its server when it is a file's, loaded and judged, not one that may hold
+    secrets, not read-only for invalid UTF-8 or binary, not internal or a terminal, in the
+    server's project and mode, at most 8 MiB, with a URI.
+  - ADR 0118's `server-open` and `server-save` run now. An open whose server runs opens the
+    buffer with it, the person's at once and the agent's once the person lets it go; one whose
+    server would start does both. A server that starts opens its project's buffers that fit,
+    but those the agent opened and the person has not let go. The person's save sends
+    `didSave`; the agent's waits for the person's next save.
+  - After every event, each document's buffer is looked at: one killed, or that no longer
+    fits (it may hold secrets now, or left the project or mode) is closed; one written to
+    another file or set to another mode is closed and opened again as it is, if it fits; one
+    whose revision moved hands over the text sent, the text now, both O(1) clones, and
+    `edits_since`. Undo, sliced undo, reload and query-replace are batches like any other.
+  - The modeline's `lsp` shows in buffers whose document is open and not kept from the
+    server.
+- **The fake server** keeps its own copy of each document with `"log_documents": true`,
+  applying each change with positions in the script's `"encoding"` by a scan of its own, and
+  writes `doc <uri> v<version> len=<bytes> hash=<FNV-1a 64>` after each open and change.
+- **Tests:** in `oso-lsp`, changes replayed by a scan of their own equal the text after for
+  random batches in both encodings, the check after a batch finds what a scan of the whole
+  text does (and fails when its window is narrowed by a byte), and a document's opens,
+  changes, saves, closes and reopening. In `oso-core`, the log of a followed buffer of any mode
+  or size, and none for one that may hold secrets. Against the fake server
+  (`tests/lsp_server.rs`): 150 random batches of multibyte characters, surrogate pairs and
+  `\r\n` keep its copy equal to the text in UTF-8 and in UTF-16, batches before the server is
+  ready go with its open, and a lone carriage return closes the document. End to end:
+  `starts.rs` has its save part back, and an agent's open where the server runs waits too;
+  `lsp.rs` types into a document and finds the fake server's copy, and `C-x C-w` and a kill
+  close it.
+- **Public API:** `oso-core`: `Buffer::{set_followed, edits_since}`. `oso-lsp`:
+  `server::{Document, Change, Closed}`, `Server::{open, change, close, save}`,
+  `Report::documents`, `protocol::{Sync, SyncKind, sync}`.
+- **From this step's reviews and its first end-to-end run:**
+  - A whole text, an open or a change of the whole text, waits for room: one is built and sent
+    at a time while the writer's queue is under half its bound, so opening many large
+    documents never fills it, and a whole text that waits goes as the latest. So a server that
+    wants the whole text at each change gets one at the pace it reads, and a save waits for the
+    text it follows.
+  - A batch is placed once, against the text the server has: that answer decides both the
+    carriage return check, near the splices or of the whole text, and what goes. A batch
+    before the server is ready is judged as one after it, so no open carries a text over the
+    bound or with a lone carriage return. Every open reports its state, so a report about an
+    earlier document of the same buffer never stands for a later one.
+  - A reload stays a batch for a server: the syntax worker gets a cut-off at its revision
+    instead of the log being dropped. A single batch since a revision is copied, not composed.
+  - After `C-x C-w` the document closes and the buffer's open is settled again once its
+    project is known, so ADR 0118's rules apply to the new file; the write tells the old
+    document of no save. A change of mode closes the document, and only a visit or
+    `lsp-start` opens it again, as the agent can set a mode; for the same reason a server that
+    starts opens only buffers in the mode their file's name gives.
+  - The UI looks at each server's documents in one pass over the buffers after an event, and
+    marks the modeline again only when a document closed.
+  - `protocol::sync` tells of saves only when the server asks without wanting the text, and
+    a bare sync kind asks for none.
+- **Left for later steps:**
+  - Steps 6, 8 and 9: a server that asked for no change notifications keeps the text it was
+    opened with, so its positions are not to be trusted.
+  - Step 8: a document's URI is its buffer's path as visited, not where a link leads, which
+    the project is found from.
+  - A test of the agent's open through `*LSP*` itself is not possible in the flows: visiting
+    `*LSP*` is the person's command, which lets the open go.

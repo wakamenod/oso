@@ -202,3 +202,67 @@ fn a_process_left_holding_the_pipes_holds_up_the_end_only_a_moment() {
     );
     long.stop();
 }
+
+/// A run of `commit` in `repo` whose pre-commit hook ignores `SIGTERM`, as a hook may, and
+/// marks `marker` after a while; git itself dies of `SIGTERM` and leaves the hook behind.
+#[cfg(unix)]
+fn deaf_commit(repo: &Repo, marker: &std::path::Path) -> super::Long {
+    use std::os::unix::fs::PermissionsExt;
+    repo.git(&["config", "user.name", "t"]);
+    repo.git(&["config", "user.email", "t@t"]);
+    repo.git(&["config", "commit.gpgsign", "false"]);
+    let hook = repo.root.join(".git/hooks/pre-commit");
+    let script = format!(
+        "#!/bin/sh\ntrap '' TERM\nsleep 2\ntouch '{}'\n",
+        marker.display()
+    );
+    std::fs::write(&hook, script).unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let words = ["commit", "--allow-empty", "-m", "x"].map(String::from);
+    let long = git(repo)
+        .with_own_hooks(&[])
+        .start_long(&os(&words), &[], None)
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    long
+}
+
+#[cfg(unix)]
+#[test]
+fn a_stop_ends_a_hook_that_ignores_sigterm_once_git_has_gone() {
+    let repo = Repo::new("long-deaf");
+    let marker = repo.dir.join("went-on");
+    let mut long = deaf_commit(&repo, &marker);
+    let asked = Instant::now();
+    long.stop();
+    let (_, status) = all_of(&mut long);
+    assert!(!status.success());
+    // git died of the SIGTERM; its group got SIGKILL before it was reaped, not after GRACE.
+    assert!(asked.elapsed() < super::GRACE, "{:?}", asked.elapsed());
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(!marker.exists(), "the hook went on");
+}
+
+#[cfg(unix)]
+#[test]
+fn quitting_ends_a_hook_that_ignores_sigterm_at_once() {
+    let repo = Repo::new("long-deaf-end");
+    let marker = repo.dir.join("went-on");
+    let mut long = deaf_commit(&repo, &marker);
+    long.ender().end();
+    let (_, status) = all_of(&mut long);
+    assert!(!status.success());
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(!marker.exists(), "the hook went on");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dropped_run_ends_a_hook_that_ignores_sigterm() {
+    let repo = Repo::new("long-deaf-drop");
+    let marker = repo.dir.join("went-on");
+    let long = deaf_commit(&repo, &marker);
+    drop(long);
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(!marker.exists(), "the hook went on");
+}

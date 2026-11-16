@@ -89,7 +89,7 @@ impl App {
         let failed = report.failed();
         let (buffer, confirmed) = (report.buffer(), report.reached_the_disk());
         // What the save starts is settled first, so that the agent's reply says what waits.
-        let by = self.save_starts(buffer, failed);
+        let by = self.save_starts(buffer, failed, report.elsewhere());
         self.agent_save_ended(&report);
         saver::apply(&mut self.editor, report);
         self.look_again_after_save(buffer);
