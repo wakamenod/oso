@@ -16,7 +16,9 @@
 //! whether they came through the dev socket, and the host reads the system clipboard only
 //! for a yank that did not (ADR 0074). If the selected window, its buffer or the open
 //! prompts change before the answer comes, the yank is dropped, as it would land somewhere
-//! else.
+//! else. `session-yank-image` reads the clipboard's image on the host, after it ran: where its
+//! input came from is noted when it runs, held input's origin included, for the host to take
+//! with its request (ADR 0142).
 
 use std::collections::VecDeque;
 
@@ -75,7 +77,45 @@ pub(super) struct Waiting {
     held: VecDeque<Held>,
 }
 
+/// The most origins of `session-yank-image` runs kept for the host: it takes each after the
+/// event that ran it, so more are never there but in tests that do not take them.
+const MAX_IMAGE_YANKS: usize = 64;
+
+/// Where each run of `session-yank-image` the host has not taken yet came from: `true` for the
+/// dev socket, oldest first (ADR 0142).
+pub(super) struct ImageYanks {
+    command: Option<CommandId>,
+    origins: VecDeque<bool>,
+}
+
+impl ImageYanks {
+    pub(super) fn new(registry: &oso_core::command::Registry) -> Self {
+        Self {
+            command: registry.lookup(crate::commands::agent_sessions::YANK_IMAGE),
+            origins: VecDeque::new(),
+        }
+    }
+
+    /// Notes that `id`, which ran without an error, came through the dev socket or not, if it
+    /// is `session-yank-image`.
+    pub(super) fn note(&mut self, id: CommandId, from_socket: bool) {
+        if Some(id) == self.command {
+            if self.origins.len() == MAX_IMAGE_YANKS {
+                self.origins.pop_front();
+            }
+            self.origins.push_back(from_socket);
+        }
+    }
+}
+
 impl Dispatcher {
+    /// Whether the oldest run of `session-yank-image` the host has not taken came through the
+    /// dev socket, which never reads the system's clipboard. With none noted, it says it did,
+    /// so that a request whose origin is lost reads nothing of the person's.
+    pub fn take_image_yank_origin(&mut self) -> bool {
+        self.image_yanks.origins.pop_front().unwrap_or(true)
+    }
+
     /// Keeps the command `id` waiting for the clipboard, with its arguments, what it
     /// knows of its key and where it came from. `run_or_read` decides that it waits, as it
     /// decides what a command reads in a prompt (ADR 0072).

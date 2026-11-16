@@ -292,7 +292,9 @@ impl App {
         let reloaded = match update {
             LoadUpdate::Reloaded(reloaded) => reloaded,
             // Gone between the look and the read: the next look says so, unless a person asked.
-            LoadUpdate::Failed(e @ (LoadError::NotFound | LoadError::NotAFile)) => {
+            LoadUpdate::Failed(
+                e @ (LoadError::NotFound | LoadError::NotAFile | LoadError::Directory),
+            ) => {
                 if asked {
                     self.editor.message(format!("Cannot reload: {e}: {name}"));
                 }

@@ -1,4 +1,5 @@
-//! Commands that open a file by its path and write a buffer under a new one (ADR 0087).
+//! Commands that open a file by its path, or list a directory named, and write a buffer under a
+//! new one (ADR 0087, ADR 0141).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys. The host lists directories, loads and saves.
@@ -6,7 +7,7 @@
 use std::path::PathBuf;
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::SaveRefused;
+use oso_core::editor::{ListingRequest, SaveRefused};
 use oso_core::minibuffer;
 
 /// How many cells of a file's name a question shows, so that its own words always do.
@@ -16,7 +17,7 @@ const NAME_CELLS: usize = 40;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "find-file",
-        doc: "Visit a file, its path read with completion by segments, from the buffer's directory.\n\nA file open already shows its buffer, and one that does not exist yet opens empty. A file of 2 GiB or more asks first.",
+        doc: "Visit a file, its path read with completion by segments, from the directory the buffer stands in.\n\nThat is its file's, a listing's, a terminal's or a session's, a git status's root, else the one it was made in. While what is typed names a directory, it is selected, so `RET` lists that directory, as dired does; `C-n` goes to its first name. A file open already shows its buffer, and one that does not exist yet opens empty. A file of 2 GiB or more asks first.",
         args: ArgSpec::File {
             prompt: "Find file:",
             history: "file",
@@ -56,8 +57,18 @@ pub const COMMANDS: &[Command] = &[
 
 fn find_file(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
-    let path = PathBuf::from(ctx.answer().unwrap_or_default());
-    visit(ctx, path)
+    let answer = ctx.answer().unwrap_or_default();
+    // A path that ends in `/` names a directory, which is listed, as Emacs's dired lists it
+    // (ADR 0141); one that does not is found to be one by the loader.
+    if answer.ends_with('/') {
+        ctx.editor.request_listing(ListingRequest::Open {
+            directory: PathBuf::from(answer),
+            point: None,
+        });
+        ctx.request_redraw();
+        return Ok(());
+    }
+    visit(ctx, PathBuf::from(answer))
 }
 
 /// Asks the host to visit `path`, through the loader's verdict, or asks first about a file a

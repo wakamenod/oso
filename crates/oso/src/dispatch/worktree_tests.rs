@@ -1,4 +1,4 @@
-//! The keys of worktree sessions (ADR 0121): `C-x a w` waits for the branches, `C-c C-c` and
+//! The keys of worktree sessions (ADR 0121): `C-c a w` waits for the branches, `C-c C-c` and
 //! `C-c C-k` in `*Brief*` send and drop the brief, and in the read-only `*Worktrees*` the
 //! letters `g` and `D` run their commands rather than type.
 //!
@@ -11,9 +11,9 @@ use super::Dispatcher;
 use super::motion_tests::send;
 
 #[test]
-fn c_x_a_w_waits_for_the_branches() {
+fn c_c_a_w_waits_for_the_branches() {
     let (mut d, mut editor) = (Dispatcher::new(), Editor::default());
-    send(&mut d, &mut editor, "C-x a w");
+    send(&mut d, &mut editor, "C-c a w");
     assert!(editor.prompt().is_none());
     assert!(d.take_branches_request());
     d.branches_answered(&mut editor, Ok(vec!["main".into()]));
@@ -70,7 +70,14 @@ fn m_x_offers_the_worktree_commands_outside_their_list() {
     let listed = |name: &str| items.iter().any(|item| item.text() == name);
     assert!(listed("worktree-list"));
     assert!(listed("worktree-remove"));
-    assert!(listed("session-worktree"));
+    // With the Agents menu's key and its head's (ADR 0143).
+    let binding = |name: &str| {
+        items
+            .iter()
+            .find(|item| item.text() == name)
+            .map(|item| item.binding())
+    };
+    assert_eq!(binding("session-worktree"), Some("C-c a w"));
     // The list's own keys are offered in the list alone.
     assert!(!listed("worktree-list-refresh"));
     assert!(!listed("worktree-list-remove"));

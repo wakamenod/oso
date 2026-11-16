@@ -363,7 +363,7 @@ fn skip_escape(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
 }
 
 /// Whether `c` reorders text or marks its direction: a log line must read as it was written.
-fn is_bidi_format(c: char) -> bool {
+pub(crate) fn is_bidi_format(c: char) -> bool {
     matches!(
         c,
         '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'

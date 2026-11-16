@@ -241,6 +241,12 @@ impl App {
                 let status = self.space_status(caller.as_ref());
                 pending.answer(status);
             }
+            (Call::DraftSet { id, text }, Some(caller)) => {
+                let set = self.admit_tool(&tool, &caller, &id).and_then(|()| {
+                    self.draft_set(caller.key, &caller.runs_in, &caller.name, &id, &text)
+                });
+                pending.answer(set);
+            }
             (
                 Call::StartWorktree {
                     branch,

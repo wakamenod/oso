@@ -1,6 +1,6 @@
 # 0135. Agents start sessions without asking
 
-- Status: Accepted, amended by 0136
+- Status: Accepted, amended by 0136 and 0143
 - Date: 2026-11-15
 
 ## Context

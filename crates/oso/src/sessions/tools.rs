@@ -73,7 +73,7 @@ const fn reads(name: &'static str) -> Tool {
 
 /// The tools, the reading ones first. A change here is a change of what an agent may do: the
 /// test below spells the table out, so that review sees it.
-pub const TOOLS: [Tool; 7] = [
+pub const TOOLS: [Tool; 8] = [
     reads("session_list"),
     reads("session_state"),
     // It runs git and `gh` with no question, as the author chose (ADR 0121, step 4).
@@ -102,6 +102,15 @@ pub const TOOLS: [Tool; 7] = [
         name: "session_start",
         reach: Reach::Change,
         asks: Asks::UnlessAllowed,
+        destructive: false,
+        outside: false,
+    },
+    // It writes only the person's message buffer of the caller's worktree, for oso's newest
+    // request there, and commits nothing (ADR 0127, step 6a).
+    Tool {
+        name: "draft_set",
+        reach: Reach::Change,
+        asks: Asks::No,
         destructive: false,
         outside: false,
     },
@@ -289,16 +298,17 @@ pub fn worktree_question(
 }
 
 /// What the echo area says of a `start_worktree_session` that started with no question
-/// (ADR 0135).
+/// (ADR 0135), with `explain` the keys of `session-explain` (ADR 0143).
 pub fn worktree_started(
     caller: &str,
     place: &str,
     branch: &str,
     start: Branch<'_>,
     brief_lines: usize,
+    explain: &str,
 ) -> String {
     format!(
-        "session {} is starting {}, without asking ({}; C-x a e explains)",
+        "session {} is starting {}, without asking ({}; {explain} explains)",
         quoted(caller),
         in_worktree(place, branch, start),
         brief_said(Some(brief_lines))
@@ -352,10 +362,16 @@ pub fn starts_without_asking(unasked: Unasked) -> bool {
         && unasked.live_unasked < usize::from(unasked.limit)
 }
 
-/// What the echo area says of a `session_start` that started with no question (ADR 0135).
-pub fn start_started(caller: &str, directory: &str, brief_lines: Option<usize>) -> String {
+/// What the echo area says of a `session_start` that started with no question (ADR 0135), with
+/// `explain` the keys of `session-explain` (ADR 0143).
+pub fn start_started(
+    caller: &str,
+    directory: &str,
+    brief_lines: Option<usize>,
+    explain: &str,
+) -> String {
     format!(
-        "session {} is starting a session in {}, without asking ({}; C-x a e explains)",
+        "session {} is starting a session in {}, without asking ({}; {explain} explains)",
         quoted(caller),
         quoted(directory),
         brief_said(brief_lines)

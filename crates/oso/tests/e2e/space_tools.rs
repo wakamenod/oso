@@ -19,7 +19,7 @@ use super::session_tools::{Bridge, FAKE, answer, run_in};
 use super::spaces::{PrivateRoot, answer as reply_with, space, trust_restricted};
 use super::worktrees::{Flow, asks};
 
-/// A space of the flow's repository and an untrusted `other` one, made with `C-x a O`, and its
+/// A space of the flow's repository and an untrusted `other` one, made with `C-c a O`, and its
 /// orchestrator started with `o`: the instance, the orchestrator's bridge and `other`.
 pub(super) fn orchestrated(
     flow: &Flow,
@@ -29,19 +29,19 @@ pub(super) fn orchestrated(
     fs::create_dir(&other).unwrap();
     flow.git(&other, &["init", "-q", "-b", "main"]);
     let (mut app, _) = flow.start();
-    app.send_keys("C-x a O");
+    app.send_keys("C-c a O");
     reply_with(&mut app, "New space for issue:", "Fix login");
     app.wait_for("the space's directory", |state| {
         space(state, "fix-login").is_some_and(|s| s["directory"].is_string())
     });
-    app.send_keys("C-x a S");
+    app.send_keys("C-c a S");
     app.send_keys("a");
     reply_with(&mut app, "Add repository:", other.to_str().unwrap());
     app.wait_for("its second repository, not trusted", |state| {
         space(state, "fix-login")
             .is_some_and(|s| s["members"].as_array().is_some_and(|m| m.len() == 2))
     });
-    app.send_keys("C-x a S");
+    app.send_keys("C-c a S");
     app.send_keys("o");
     let run = run_in(flow, &spaces.0.join("fix-login"));
     let bridge = Bridge::start(flow, &run);
@@ -149,7 +149,7 @@ fn an_orchestrator_works_through_the_repositories_of_its_space() {
     assert_eq!(sessions.len(), 2, "the worker is the space's: {status}");
 
     // Renamed, the space keeps its directory, and the orchestrator there its role.
-    app.send_keys("C-x a S");
+    app.send_keys("C-c a S");
     app.send_keys("n");
     reply_with(&mut app, "Space title:", "Login fix");
     app.wait_for("the new name", |state| space(state, "login-fix").is_some());

@@ -247,7 +247,10 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
 - **The clipboard** (`oso_platform::clipboard`) runs on two threads of its own: one owns
   the system's clipboard, and one answers each read within 500 ms. The host hands it what
   a command killed, joined there with line breaks, and `yank` waits for its read through
-  the dispatcher, which holds the keys that come meanwhile. oso reads it only on a yank.
+  the dispatcher, which holds the keys that come meanwhile. oso reads it only on a yank,
+  and reads an image only for `session-yank-image`, whose bytes the same worker copies and
+  `sessions::images` keeps in a private file under the cache
+  ([ADR 0142](adr/0142-attaching-the-clipboard-s-image-to-a-session.md)).
   macOS uses `NSPasteboard`; Linux and Windows have none until their window layers.
 - **Modified state** compares content ids. Each edit gets a new id, undo and redo
   restore the stored one, and a buffer is modified when its id differs from the
@@ -641,6 +644,11 @@ The UI thread never blocks on I/O or parsing:
   hook that ignores `SIGTERM` goes too. Quitting sends each run's group `SIGTERM`, then `SIGKILL`,
   and waits for nothing
   ([ADR 0127](adr/0127-source-control-and-github.md), step 1b).
+- What a commit asks of the worktree's agent session (step 6a): `vcs/agent.rs` writes the
+  requests, a draft's and a failed commit's fix, as pure functions; `app/vcs/agent.rs` reads the
+  last subjects on `oso-vcs-run` and pastes the requests through `send_to_session`; and
+  `app/vcs/draft.rs`, which pastes nothing, puts the draft `draft_set` gives back into the
+  message buffer. A run's own output is kept, its last 128 KiB, for the fix.
 - A prompt's list past 5000 candidates is built and matched on a thread of its own
   (`app/completions.rs`), from a job `oso_core::complete` makes over `Arc` snapshots, superseded
   by the next through a generation. The rows shown stay and the count says `…` until the result
@@ -723,7 +731,11 @@ The UI thread never blocks on I/O or parsing:
   the terminal's own paste, never submitted, and shows the session. Commands only describe
   what to send (`SessionRequest::Send`); the text is put together by pure functions
   (`sessions/send.rs::compose`). ADR 0122's review comments and ADR 0127's drafts call the
-  same path. The worker finds message lines' senders with `[[message]]` rules
+  same path, and so does `session-yank-image` (`C-c C-y`, ADR 0142), which checks the same
+  refusals first (`paste_target`), has the clipboard's worker read the image, and keeps it on
+  `sessions::images`' one `oso-images` thread, which also removes a session's images when it is
+  archived and sweeps old ones (`app/sessions/watch/images.rs`). The dispatcher notes whether
+  each run came through the dev socket. The worker finds message lines' senders with `[[message]]` rules
   (`sessions/messages.rs`) after each verdict, and tells the app when a session is first judged
   and when a hold rule starts or stops matching (`Out::Judged`).
 - Worktree sessions (`crates/oso/src/sessions/worktree/`, glue in `app/sessions/worktrees.rs`,
@@ -749,7 +761,8 @@ The UI thread never blocks on I/O or parsing:
 - The agents' session tools ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 6): the
   rules are `sessions::tools` (reach, the loop guard, refusals, the questions' wording), and
   `app/sessions/tools/` carries a call out with the hosted table, the start thread and the
-  worktree jobs. A call that asks is looked at first by a job (`worktree::prepare`), then its
+  worktree jobs; `draft_set` is handed on to `app/vcs/draft.rs` (ADR 0127, step 6a). A call
+  that asks is looked at first by a job (`worktree::prepare`), then its
   question waits for the person as the connection's own does, unless the person's
   configuration lets the caller start sessions without asking
   ([ADR 0135](adr/0135-agents-start-sessions-without-asking.md)):

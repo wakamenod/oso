@@ -53,6 +53,11 @@ pub(super) fn state_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<
         .filter(|path| path.is_absolute())
 }
 
+/// `%LOCALAPPDATA%`, if it is an absolute path: Windows keeps caches with local state.
+pub(super) fn cache_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    state_home_from(var)
+}
+
 /// `%APPDATA%\oso`, if `%APPDATA%` is an absolute path (ADR 0108).
 pub(super) fn config_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     var("APPDATA")

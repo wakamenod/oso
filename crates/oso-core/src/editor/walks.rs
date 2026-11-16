@@ -97,18 +97,22 @@ pub(super) struct ProjectFiles {
 
 impl Editor {
     /// The root and the name of the project whose files `C-x p f` lists: the current buffer's
-    /// project, or else the directory of its file, named after its last component.
+    /// project, or else the directory of its file, named after its last component, or for a
+    /// buffer with no file the directory it stands in (ADR 0141).
     ///
     /// # Errors
     ///
-    /// [`NotInProject`] for a buffer with no file, or whose file the loader has not found
-    /// yet, and where the directory would be the home directory, one that holds it, or the
-    /// root of the file system, which no one lists whole (ADR 0114). The directory is the one
-    /// the file's path leads to, as detection starts from it.
+    /// [`NotInProject`] for a buffer whose file the loader has not found yet, and where the
+    /// directory would be the home directory, one that holds it, or the root of the file
+    /// system, which no one lists whole (ADR 0114). The directory is the one the file's path
+    /// leads to, as detection starts from it.
     pub fn project_files_root(&self) -> Result<(PathBuf, String), NotInProject> {
-        let (_, buffer) = self.current();
+        let (window, buffer) = self.current();
         if let Some(project) = buffer.project().and_then(|id| self.project(id)) {
             return Ok((project.root().to_path_buf(), project.name().to_owned()));
+        }
+        if buffer.path().is_none() {
+            return self.listable_root(&self.default_directory(window.buffer()));
         }
         let directory = buffer
             .baseline()

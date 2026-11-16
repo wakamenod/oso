@@ -303,7 +303,7 @@ impl App {
 
     /// Where `claude` starts with no directory given: in `*Spaces*`, where the row at point
     /// is (ADR 0131, step 2b), and none on a row with no place, which the echo area says; else
-    /// the selected buffer's project root or directory, else the directory oso started in.
+    /// [`App::buffer_directory`], else the directory oso started in.
     fn session_directory_here(&mut self) -> Option<PathBuf> {
         match self.sessions_row_place() {
             Some(Ok(place)) => {
@@ -345,9 +345,12 @@ impl App {
     /// Asks before `begin` starts a session where another live one runs (ADR 0121).
     fn ask_shared(&mut self, begin: Begin) {
         self.hosting.shared = Some(begin);
-        let question = "Another session runs in this directory. A worktree keeps their changes \
-                        apart (C-x a w). Start here anyway?";
-        if let Err(e) = self.editor.ask(question, "session-start-shared") {
+        let worktree = self.dispatcher.where_is(&self.editor, "session-worktree");
+        let question = format!(
+            "Another session runs in this directory. A worktree keeps their changes apart \
+             ({worktree}). Start here anyway?"
+        );
+        if let Err(e) = self.editor.ask(&question, "session-start-shared") {
             self.hosting.shared = None;
             self.editor.message(e.to_string());
         }

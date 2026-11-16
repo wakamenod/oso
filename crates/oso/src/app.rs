@@ -133,6 +133,12 @@ pub enum UserEvent {
     AgentStarted(std::io::Result<crate::channel::Channel>),
     /// The sessions worker found something (ADR 0121).
     Sessions(crate::sessions::worker::Out),
+    /// The thread that keeps images kept the clipboard's image for this session, or could not
+    /// (ADR 0142).
+    ImageKept(
+        crate::sessions::worker::SessionKey,
+        Box<Result<crate::sessions::images::Kept, String>>,
+    ),
     /// A hosted session's start thread found something (ADR 0121).
     SessionStart(crate::sessions::start::Report),
     /// The list `session-adopt` completes over was made (ADR 0121).

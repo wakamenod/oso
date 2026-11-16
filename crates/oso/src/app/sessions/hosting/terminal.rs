@@ -192,7 +192,12 @@ impl App {
     /// `buffer`'s terminal has no program, and its modeline says `note`.
     /// Keeps the table within its cap: a buffer whose session went past it says so.
     pub(super) fn prune_sessions(&mut self) {
-        for buffer in self.hosting.table.prune() {
+        for (id, buffer) in self.hosting.table.prune() {
+            // The images of a session dropped go with it (ADR 0142).
+            self.drop_session_images(id);
+            let Some(buffer) = buffer else {
+                continue;
+            };
             self.show_stopped(buffer, FORGOTTEN);
             // No session to act on any more: a plain terminal's keys (ADR 0132).
             self.editor.set_hosts_session(buffer, false);
@@ -210,7 +215,7 @@ impl App {
     /// archived, as oso hangs their `claude` up, and do not come back at the next start
     /// (ADR 0121, Q3).
     pub(in crate::app) fn archive_killed_sessions(&mut self, buffers: &[BufferId]) {
-        let gone: Vec<(SessionKey, bool)> = self
+        let gone: Vec<(SessionKey, bool, crate::sessions::identity::SessionId)> = self
             .hosting
             .table
             .iter()
@@ -219,12 +224,14 @@ impl App {
                     .buffer
                     .is_some_and(|buffer| buffers.contains(&buffer))
             })
-            .map(|session| (session.key, session.runs()))
+            .map(|session| (session.key, session.runs(), session.id.clone()))
             .collect();
         if gone.is_empty() {
             return;
         }
-        for (key, ran) in gone {
+        for (key, ran, id) in gone {
+            // An archived session's images go (ADR 0142).
+            self.drop_session_images(id);
             if let Some(session) = self.hosting.table.get_mut(key) {
                 session.buffer = None;
                 session.archived = true;
