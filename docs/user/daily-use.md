@@ -375,6 +375,10 @@ project must be trusted.
 | `C-c C-s` / `C-c C-k` | Skip the commit it stopped at, or abort it, after a question |
 | `z` | The stash menu: `z` stash, `a` apply, `p` pop, `k` drop the stash at point; `- u` takes untracked files |
 | `b` | The branch menu: `b` check out, `c` make and check out, `n` make, `m` rename, `k` delete |
+| `l` | The log menu: `l` the graph of the branch, `a` of every ref, `o` of another; `C-x v l` from anywhere |
+
+In the graph, `RET` reviews the commit at point, `w` copies its id, `a` shows every ref or the
+branch again, `g` reads it again, `n` and `p` move a line, and `q` leaves it.
 | `f u` / `f a` | Fetch the upstream's remote, or every remote |
 | `RET` | Visit the file, or review the commit at point |
 | `$` | Show what git's runs wrote; `C-g` stops one |

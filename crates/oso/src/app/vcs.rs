@@ -36,6 +36,7 @@ mod branch;
 mod commit;
 mod discard;
 mod draft;
+mod graph;
 mod prompt;
 mod remote;
 mod requests;
@@ -44,6 +45,7 @@ mod sequence;
 mod stash;
 mod status;
 
+pub(crate) use graph::GraphEvent;
 pub(crate) use runs::RunEvent;
 
 /// The most characters of a failure the echo area shows.
@@ -78,6 +80,8 @@ pub(super) struct GitStatuses {
     selected: Option<BufferId>,
     /// The repositories git runs in, and the commits' messages (step 1b).
     commits: commit::Commits,
+    /// The graph buffers (step 4).
+    graphs: graph::Graphs,
 }
 
 /// A status buffer as the app knows it.
@@ -131,6 +135,9 @@ impl App {
         let agent = agent || self.gits.by_agent;
         // A key is the person's in a status when the status was selected as it was typed.
         let typed_in = self.gits.selected.replace(self.editor.window().buffer());
+        // A graph's next page is read only for a person's key in it, never for an agent's.
+        let keyed_graph = (key && !agent).then_some(typed_in).flatten();
+        self.sync_graphs(keyed_graph);
         for index in 0..self.gits.open.len() {
             let buffer = self.gits.open[index].buffer;
             let shown = self
@@ -173,6 +180,7 @@ impl App {
             requests::Concern::Sequence => self.git_sequence_request(request),
             requests::Concern::Stash => self.git_stash_request(request),
             requests::Concern::Branch => self.git_branch_request(request),
+            requests::Concern::Graph => self.git_graph_request(request),
             requests::Concern::Status => self.git_status_request(request),
         }
     }

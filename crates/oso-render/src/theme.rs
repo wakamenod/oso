@@ -602,7 +602,16 @@ pub(crate) mod tests {
             | Face::GitBranchRemote
             | Face::GitHash
             | Face::GitDetail
-            | Face::GitCommitOverlong => &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)],
+            | Face::GitCommitOverlong
+            | Face::GitLane0
+            | Face::GitLane1
+            | Face::GitLane2
+            | Face::GitLane3
+            | Face::GitLane4
+            | Face::GitLane5
+            | Face::GitLane6
+            | Face::GitLane7
+            | Face::GitTag => &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)],
             // A diagnostic's wavy line, a mark under text, on what is behind a line, its sign on
             // the gutter's background, and its count on a modeline (ADR 0138).
             Face::DiagnosticError | Face::DiagnosticWarning | Face::DiagnosticInfo => {

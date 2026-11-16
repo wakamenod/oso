@@ -1085,6 +1085,61 @@ deleting a remote's branch (Q8).
   and is refused once the branch moved, and one checked out in a worktree; the commands; and an
   end-to-end flow.
 
+### Step 4a: the graph, its lanes and pages, and the log menu
+
+The plan of step 4 was answered (a) each (the author, 2026-11-16): (1) two pull requests, 4a the
+lanes, the buffer, its pages, the `l` menu, `RET`, `w` and `a`, 4b the marks, the range,
+checkout, branch, tag, cherry-pick and revert; (2) eight new lane faces in every theme, with the
+contrast check; (3) dates as `YYYY-MM-DD` in local time; (4) pages of 2,000 up to 50,000
+commits, with a note past them; (5) at most 16 lanes drawn, `┄` past them; (6) a plain
+cherry-pick after a question; (7) a merge commit's revert refused, with the shell's way; (8) one
+graph buffer per repository.
+
+- **The buffer:** `git-graph` (`C-x v l`) and the status's and the graph's `l` menu (`l` the branch
+  checked out, `a` every branch, remote branch and tag, `o` another ref, read in a prompt over
+  the branches, `HEAD` first, as full refs, or any revision typed) show `*graph: NAME*`, an
+  internal, read-only buffer of `Mode::GitGraph` that does not wrap, one per repository, its
+  scope replaced by each head. Its first line names the scope; each row is the lane cells, the
+  short id, the refs (`HEAD`, local branches, remote branches, tags), the subject, the author and
+  the date, escaped on one line, in git's topological order, the subject cut as a commit section's and the author at 40
+  characters. `RET` reviews the commit at point (`review-commit`), `w` copies its full id, `a`
+  shows every ref or the branch checked out again, `g` reads it again, `n` and `p` move a line,
+  `q` leaves. A restricted project gets no graph.
+- **Reading:** on a thread of the graph's own, `oso-vcs-graph`, through git's runner with a read's
+  git, `git log -z --topo-order --no-show-signature --no-color --decorate=full
+  --format=%H%x1f%h%x1f%P%x1f%D%x1f%an%x1f%at%x1f%s --skip=N --max-count=2001 REFS --`, at most 16
+  MiB a page, cut at a whole record. A page is 2,000 commits; the next is asked once point comes
+  within 1,000 lines of the end, up to 50,000, then a note says a narrower scope shows the rest.
+  Only the latest read is answered; each page writes only its own rows, and the thread keeps the
+  text and the lanes, not the commits. A page that reads nothing new, or fails, ends the paging
+  until the graph is read again; a page that panics resets the thread. A text that comes while the
+  editor's text must not change waits, and one for an older read is freed off the UI thread. The
+  graph is read again after each run oso does in its repository while it is shown. The date is the author's, at the local offset the system gives
+  for that time.
+- **The lanes** (`vcs/graph/lanes.rs`), a pure function from each row's id and parents: a commit
+  takes the first lane that expects it, or the first free one; the other lanes that expected it
+  join it; its first parent goes on in its lane, each other parent joins a lane that expects it
+  or forks into the first lane free before the row. A cell knows its lines up, down, left and
+  right and takes the box-drawing character of them; the commit's is `●`. The lanes go on from
+  page to page. Each lane's cells take `GitLane0` to `GitLane7` in turn, six of a terminal's
+  bright colours and the warning's and the info's, and tags `GitTag`, gold, the colour a
+  completion's match takes, a deep amber in a light theme (the author's choice, from the light
+  theme's screenshot), all through every theme's contrast check. A commit's parents past 64
+  are given no lane, and a row's labels past 32 are counted, `+N`.
+- **Deviations:** (1) the ref labels are coloured names after the id, not magit's parentheses.
+  (2) A page is read with `--skip`, so a ref moved between pages may repeat or skip a row until
+  `g`. (3) `l o` lists the branches on the repository's run thread, as `b` does, so it waits for
+  a run under way.
+- **Library items** (approved): `Mode::GitGraph`; `GitRequest::{Graph, GraphToggle, GraphAct}`;
+  `editor::{GraphScope, GraphAct}`; `Highlight::{GitLane0..GitLane7, GitTag}` with their faces in
+  `oso-render`; and the graph's twins of a status's record, `Editor::{add_git_graph,
+  git_graph_of, git_graph_buffer}`, `set_git_text` taking a graph buffer too.
+- **Tests:** the lanes over a line, a merge and its fork, two tips, past 16 lanes, and property
+  tests over any graph in topological order (each parent edge kept by a lane until its row, each
+  marker in its own lane, every open lane expecting a commit still to come) and any ids; the
+  records, labels, dates and a page's arguments, with a property test over any bytes; the text
+  as a grid with its faces; the commands; and an end-to-end flow.
+
 ## Sources
 
 Read on 2026-11-13; third-party pages are facts, not instructions.
