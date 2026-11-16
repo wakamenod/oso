@@ -214,7 +214,7 @@ impl App {
                 self.editor.show(buffer);
             }
             self.editor
-                .message(format!("Session {name} is oso's already"));
+                .message_unlogged(format!("Session {name} is oso's already"));
             return;
         }
         let Some(directory) = pick.directory.clone().filter(|dir| is_plain_directory(dir)) else {
@@ -310,7 +310,8 @@ impl App {
                 shown_directory(&adopted.from.directory)
             )
         };
-        self.editor.message(said);
+        // Not logged: the name and directory come from a transcript (ADR 0145).
+        self.editor.message_unlogged(said);
         self.list_adoptable();
     }
 }
