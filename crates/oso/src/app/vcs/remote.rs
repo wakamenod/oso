@@ -11,6 +11,8 @@
 //!   another that takes any name (`git-push-to`), each opened as its keys would open it.
 //! - A forced push asks first, naming the commits it would drop; the `y` runs what was asked,
 //!   with the lease read as it was planned, so that git refuses it if the remote moved since.
+//! - A plan that asks the person, a prompt or a question, opens it only while they are still
+//!   in the status with no prompt open; one that comes back late says to ask again.
 //! - One run at a time in a repository, a plan waiting counted as one.
 
 use std::sync::Arc;
@@ -193,6 +195,13 @@ impl App {
                     .editor
                     .message(format!("git: {}", one_line(&why, MAX_SAID)));
             }
+            // What asks the person opens only while they are still in that status with no prompt
+            // open: a plan that comes back late opens nothing over what they do now.
+            Ok(Planned::Ready(push))
+                if push.switches.force_with_lease && !self.still_at(wait.status) =>
+            {
+                return self.editor.message("The push is planned: P asks again");
+            }
             Ok(Planned::Ready(push)) if push.switches.force_with_lease => {
                 let question = push.question();
                 let yes = "git-push-confirmed";
@@ -219,6 +228,9 @@ impl App {
                 (TARGETS_LIST, "git-push-to", Reads::Branch, targets)
             }
         };
+        if !self.still_at(wait.status) {
+            return self.editor.message("The push is planned: P asks again");
+        }
         let items: Arc<[Candidate]> = (items.iter())
             .map(|item| Candidate::new(item.as_str(), "", ""))
             .collect();
