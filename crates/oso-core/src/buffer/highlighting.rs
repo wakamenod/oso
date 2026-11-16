@@ -372,7 +372,7 @@ impl Buffer {
     }
 
     /// Shows `highlights`, which a host built with the text of a buffer it generates, as a
-    /// review's (ADR 0122) or `*Sessions*`' (ADR 0131), in place of a worker's. Nothing changes when they do not cover the
+    /// review's (ADR 0122) or `*Spaces*`' (ADR 0131), in place of a worker's. Nothing changes when they do not cover the
     /// text, or for a buffer of the person's: then they come back. The highlights before are
     /// dropped here; [`Buffer::take_generated_highlights`] takes them first.
     pub(crate) fn set_generated_highlights(
@@ -399,7 +399,7 @@ impl Buffer {
     }
 
     /// Whether the host generates this buffer's text and highlights: a review, or
-    /// `*Sessions*`, a directory's listing (ADR 0134) or a git status (ADR 0127), which are
+    /// `*Spaces*`, a directory's listing (ADR 0134) or a git status (ADR 0127), which are
     /// internal.
     fn generated(&self) -> bool {
         self.mode == Mode::Review

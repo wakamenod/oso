@@ -262,7 +262,7 @@ fn sessions_in_it_have_the_band_on_points_row_unselected_and_with_aids_off() {
     use crate::selection::SelectionSet;
     use crate::window::Screen;
     let (mut editor, list) = editor(100);
-    let sessions = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+    let sessions = editor.add_internal_buffer("*Spaces*", Mode::Sessions);
     editor.set_internal_text(sessions, "▾ Idle 2\n○ a  now\n○ b  now\n");
     editor.set_visual_aids(VisualAids {
         current_line: false,

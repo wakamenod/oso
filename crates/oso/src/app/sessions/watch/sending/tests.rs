@@ -20,6 +20,7 @@ fn entry(key: Key, name: &str, state: State, archived: bool) -> Entry {
         state,
         since: Instant::now(),
         recap: String::new(),
+        title: String::new(),
         pinned: false,
         archived,
         unasked: false,

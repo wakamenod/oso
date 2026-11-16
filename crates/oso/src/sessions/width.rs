@@ -1,4 +1,4 @@
-//! The width of `*Sessions*`' pane (ADR 0131, Q7): 44 columns unless `[sessions] pane_width`
+//! The width of `*Spaces*`' pane (ADR 0131, Q7): 44 columns unless `[sessions] pane_width`
 //! says otherwise, from 24 to 80, and `<` and `>` change it for this oso instance.
 //!
 //! Must not depend on: `app` or the frame; plain numbers.

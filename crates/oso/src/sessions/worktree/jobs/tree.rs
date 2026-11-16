@@ -1,4 +1,4 @@
-//! The worktrees the tree of `*Sessions*` shows (ADR 0131, step 2): one `git worktree list`
+//! The worktrees the tree of `*Spaces*` shows (ADR 0131, step 2): one `git worktree list`
 //! of a trusted repository on the pool, each worktree's path resolved, and when it was made
 //! and last changed, read from the repository's own files without running anything more.
 //!

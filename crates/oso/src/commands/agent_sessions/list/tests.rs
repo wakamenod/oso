@@ -1,4 +1,4 @@
-//! `*Sessions*`'s commands: each asks the host about the row point is on, only in that buffer
+//! `*Spaces*`'s commands: each asks the host about the row point is on, only in that buffer
 //! and not inside a prompt; moving between rows draws only when point moved.
 //!
 //! Must not depend on: `app`, winit or the GPU.
@@ -6,12 +6,13 @@
 use oso_core::buffer::Mode;
 use oso_core::command::Args;
 use oso_core::editor::{Editor, RowAction, SessionRequest};
+use oso_core::selection::SelectionSet;
 
 use crate::commands::tests::{editor, run};
 
 fn listing() -> Editor {
     let mut editor = editor("");
-    let list = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+    let list = editor.add_internal_buffer("*Spaces*", Mode::Sessions);
     editor.set_internal_text(list, "▾ Idle 1\n○ a  1m\n  oso\n  recap\n");
     editor.show(list);
     editor
@@ -52,7 +53,7 @@ fn help_says_the_marks_and_keys_in_the_list_only() {
     assert!(list.take_session_requests().is_empty());
     let mut elsewhere = editor("text");
     let refused = run(&mut elsewhere, "sessions-help", Args::NONE).0;
-    assert_eq!(refused, Err("Not in *Sessions*".to_owned()));
+    assert_eq!(refused, Err("Not in *Spaces*".to_owned()));
 }
 
 #[test]
@@ -66,14 +67,14 @@ fn outside_the_list_they_refuse_and_ask_nothing() {
         "sessions-next",
     ] {
         let (result, effects) = run(&mut editor, name, Args::NONE);
-        assert_eq!(result, Err("Not in *Sessions*".to_owned()), "{name}");
+        assert_eq!(result, Err("Not in *Spaces*".to_owned()), "{name}");
         assert!(!effects.redraw, "{name}");
     }
     // `session-stop` acts on a session's own terminal too (ADR 0132).
     let (result, _) = run(&mut editor, "session-stop", Args::NONE);
     assert_eq!(
         result,
-        Err("Not in *Sessions* or a session's buffer".to_owned())
+        Err("Not in *Spaces* or a session's buffer".to_owned())
     );
     assert!(editor.take_session_requests().is_empty());
 }
@@ -102,10 +103,10 @@ fn moving_draws_only_when_point_moves() {
     assert_eq!(editor.cursor_line(), 0);
 }
 
-/// `*Sessions*` showing `text`, point on its first line.
+/// `*Spaces*` showing `text`, point on its first line.
 fn showing(text: &str) -> Editor {
     let mut editor = editor("");
-    let list = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+    let list = editor.add_internal_buffer("*Spaces*", Mode::Sessions);
     editor.set_internal_text(list, text);
     editor.show(list);
     editor
@@ -123,38 +124,93 @@ fn stops(editor: &mut Editor, name: &str) -> Vec<usize> {
 #[test]
 fn headings_are_spaces_worktrees_and_groups_in_the_tree() {
     let tree = "\
-▾ oso                    ▶ 1
-  ▶ main  primary         now
-    ▶ api                 now
-      ○ fork              2m
-      waits for you
-  · side  side-branch      3d
-  ▾ 2 quiet
-  · old                   9d
-▾ Other projects           1
-  ▾ elsewhere (1)
-      ○ far               1h
-▾ Archived 1
-    ■ gone  oso           2d
+ Spaces                   ▶ 1
+ ▾ oso ──────────────── ▶ 1
+   ▾ main  primary    ▶  now
+     ├ ▶ api              now
+     │ └ ○ fork           2m
+     │     waits for you
+     └ ○ web              1h
+   ▸ side  side-branch     3d
+   ▾ 2 quiet
+     ▸ old                9d
+ ▾ Other projects ───────── 1
+   ▾ elsewhere (1)
+       ○ far              1h
+ ▾ Archived ─────────────── 1
+     ■ gone  oso          2d
 ";
     let mut editor = showing(tree);
     assert_eq!(
         stops(&mut editor, "sessions-next-heading"),
-        [1, 5, 6, 7, 8, 9, 11]
+        [1, 2, 7, 8, 9, 10, 11, 13]
     );
     let back = stops(&mut editor, "sessions-previous-heading");
-    assert_eq!(back, [9, 8, 7, 6, 5, 1, 0]);
+    assert_eq!(back, [11, 10, 9, 8, 7, 2, 1]);
     // `M-n` with a count, as `n` takes one.
+    let mut editor = showing(tree);
     assert_eq!(
         run(&mut editor, "sessions-next-heading", Args::numeric(3)).0,
         Ok(())
     );
-    assert_eq!(editor.cursor_line(), 6);
-    // `n` still stops at every row, the reason line excepted.
+    assert_eq!(editor.cursor_line(), 7);
+    // `n` stops at every row past its guides, the title and the reason line excepted.
     let mut editor = showing(tree);
     assert_eq!(
         stops(&mut editor, "sessions-next"),
-        [1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12]
+        [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+    );
+}
+
+#[test]
+fn left_folds_or_goes_to_the_row_above_and_right_opens_or_goes_in() {
+    let tree = "\
+ Spaces
+ ▾ oso ──────────────── ▶ 1
+   ▾ main  primary    ▶  now
+     ├ ▶ api              now
+     │ └ ○ fork           2m
+     └ ○ web              1h
+   ▸ side  side-branch     3d
+";
+    let mut editor = showing(tree);
+    let to = |editor: &mut Editor, line: usize| {
+        let offset = editor.current().1.text().line_start(line);
+        editor.current_mut().0.selections = SelectionSet::new(offset);
+    };
+    // On a nested session, the session it hangs from; on a session, its worktree.
+    to(&mut editor, 4);
+    assert_eq!(run(&mut editor, "sessions-close", Args::NONE).0, Ok(()));
+    assert_eq!(editor.cursor_line(), 3);
+    assert_eq!(run(&mut editor, "sessions-close", Args::NONE).0, Ok(()));
+    assert_eq!(editor.cursor_line(), 2);
+    // On an open row, a fold; on a folded one, the row above it.
+    assert_eq!(run(&mut editor, "sessions-close", Args::NONE).0, Ok(()));
+    to(&mut editor, 6);
+    assert_eq!(run(&mut editor, "sessions-close", Args::NONE).0, Ok(()));
+    assert_eq!(editor.cursor_line(), 1);
+    // `<right>` on an open row goes in; on a folded one, it opens it.
+    assert_eq!(run(&mut editor, "sessions-open", Args::NONE).0, Ok(()));
+    assert_eq!(editor.cursor_line(), 2);
+    to(&mut editor, 6);
+    assert_eq!(run(&mut editor, "sessions-open", Args::NONE).0, Ok(()));
+    assert_eq!(
+        run(&mut editor, "sessions-cycle-folds", Args::NONE).0,
+        Ok(())
+    );
+    assert_eq!(
+        editor.take_session_requests(),
+        [
+            SessionRequest::Row {
+                line: 2,
+                action: RowAction::Fold
+            },
+            SessionRequest::Row {
+                line: 6,
+                action: RowAction::Fold
+            },
+            SessionRequest::CycleFolds,
+        ]
     );
 }
 
@@ -172,7 +228,7 @@ fn by_state_the_headings_are_the_groups_not_nested_sessions() {
     assert_eq!(stops(&mut list, "sessions-next-heading"), [4]);
     let mut elsewhere = editor("text");
     let refused = run(&mut elsewhere, "sessions-next-heading", Args::NONE).0;
-    assert_eq!(refused, Err("Not in *Sessions*".to_owned()));
+    assert_eq!(refused, Err("Not in *Spaces*".to_owned()));
 }
 
 #[test]
@@ -197,29 +253,30 @@ fn wider_and_narrower_ask_for_4_columns_a_step() {
     );
     let mut elsewhere = editor("text");
     let refused = run(&mut elsewhere, "sessions-wider", Args::NONE).0;
-    assert_eq!(refused, Err("Not in *Sessions*".to_owned()));
+    assert_eq!(refused, Err("Not in *Spaces*".to_owned()));
 }
 
 #[test]
 fn in_a_space_of_several_repositories_their_rows_and_worktrees_are_headings() {
     let tree = "\
-▾ fix-login              ⚠ 1
-  ▾ backend
-    ▶ fix  fix/api        now
-      ▶ fix-api           now
-  ▾ frontend
-    ⚠ msg                 now
-      ⚠ msg               now
-        waits for you
-    ▾ 2 quiet
-    · old                 9d
-▸ oso                    ▶ 3
-▸ Archived spaces (1)
-  ■ gone  An old issue
+ ▾ fix-login ─────────── ⚠ 1
+   ● orchestrator         1m
+   ▾ backend/            ▶ 1
+     ▾ fix  fix/api    ▶  now
+       └ ▶ fix-api        now
+   ▾ frontend/           ⚠ 1
+     ▾ msg             ⚠  now
+       └ ⚠ msg            now
+           waits for you
+     ▾ 2 quiet
+       ▸ old              9d
+ ▸ oso ───────────────── ▶ 3
+ ▸ Archived spaces ────── 1
+   ■ gone  An old issue
 ";
     let mut editor = showing(tree);
     assert_eq!(
         stops(&mut editor, "sessions-next-heading"),
-        [1, 2, 4, 5, 8, 9, 10, 11, 12]
+        [2, 3, 5, 6, 9, 10, 11, 12]
     );
 }

@@ -99,7 +99,7 @@ pub struct Trust {
 /// What a job found.
 #[derive(Debug)]
 pub enum Report {
-    /// The worktrees of the repository at `root`, for the tree of `*Sessions*` (ADR 0131).
+    /// The worktrees of the repository at `root`, for the tree of `*Spaces*` (ADR 0131).
     Tree {
         root: PathBuf,
         result: Result<Vec<crate::sessions::list::Worktree>, String>,

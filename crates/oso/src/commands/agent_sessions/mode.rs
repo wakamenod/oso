@@ -1,5 +1,5 @@
 //! Session mode's commands on the session whose terminal is the current buffer (ADR 0132):
-//! pinning and archiving it, as `P` and `A` do on its row of `*Sessions*`, and saying session
+//! pinning and archiving it, as `P` and `A` do on its row of `*Spaces*`, and saying session
 //! mode's keys. `session-stop` is `list`'s, which acts on a session's buffer too.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; the dispatcher writes the keys
@@ -19,7 +19,7 @@ pub const SESSION_HELP: &str = "session-help";
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "session-pin",
-        doc: "Pin the session whose terminal is this buffer, or unpin it: pinned sessions come first in their group of `*Sessions*`.",
+        doc: "Pin the session whose terminal is this buffer, or unpin it: pinned sessions come first in their group of `*Spaces*`.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: pin,

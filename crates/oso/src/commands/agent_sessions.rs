@@ -1,7 +1,7 @@
 //! Commands for agent sessions (ADR 0121): starting a hosted `claude`, resuming and forking a
 //! stopped one, and explaining a saved screen with the rules in force, for writing a rule; and
-//! seeing what needs the person: `*Sessions*`, the switch float, the next session waiting or
-//! done, spaces and zoom, and a session's live explanation. `list` holds `*Sessions*`'s own
+//! seeing what needs the person: `*Spaces*`, the switch float, the next session waiting or
+//! done, spaces and zoom, and a session's live explanation. `list` holds `*Spaces*`'s own
 //! keys, `mode` session mode's commands on a session's own buffer (ADR 0132), and `send` sending
 //! to a session and mentioning one. `session.rs` beside it is the editing session's: cancelling and exiting.
 //!
@@ -9,7 +9,7 @@
 //! and asks the host, whose start thread and sessions worker do the work.
 //!
 //! What starts or resumes a session needs a person at the keyboard: a session runs a process.
-//! So does what puts a session's terminal or `*Sessions*` in front of the person's keys, as the
+//! So does what puts a session's terminal or `*Spaces*` in front of the person's keys, as the
 //! host selects the window after the command (the author's choice, 2026-11-13).
 //! `session-switch` and `session-explain` are `Look`: the first completes over a list the agent
 //! channel cannot answer, and the second shows only a buffer withheld from agents.
@@ -20,7 +20,7 @@ mod send;
 mod spaces;
 
 pub use list::COMMANDS as LIST_COMMANDS;
-pub use list::ROW_MARKS;
+pub use list::{FOLDS, GUIDES, ROW_MARKS, row_mark};
 pub use mode::{COMMANDS as MODE_COMMANDS, SESSION_HELP};
 pub use send::{
     COMMANDS as SEND_COMMANDS, MAX_SEND_BYTES, MENTION_LIST, SEND_LIST, YANK_IMAGE, too_large,
@@ -66,7 +66,7 @@ pub fn is_adopt_prompt(prompt: &oso_core::minibuffer::Prompt) -> bool {
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "claude",
-        doc: "Start a Claude Code session in a terminal buffer, `*claude: NAME*`.\n\nIt runs in the selected buffer's project root, else its file's directory, as a new terminal does, else the directory oso started in. In `*Sessions*`, it runs where the row at point is: a project's main checkout, a worktree, or a session's worktree (`c`). It is named after that directory, then `-2`, `-3` for more there. With `C-u`, a directory is read first, then a name. oso gives the session its id, its name and an `oso` MCP server for this instance, and no permission option: it starts in the mode your own Claude Code settings give it. It runs as your login shell would, or `[sessions] claude` names the executable. It turns the agent channel on, as the session's tools need it.",
+        doc: "Start a Claude Code session in a terminal buffer, `*claude: NAME*`.\n\nIt runs in the selected buffer's project root, else its file's directory, as a new terminal does, else the directory oso started in. In `*Spaces*`, it runs where the row at point is: a project's main checkout, a worktree, or a session's worktree (`c`). It is named after that directory, then `-2`, `-3` for more there. With `C-u`, a directory is read first, then a name. oso gives the session its id, its name and an `oso` MCP server for this instance, and no permission option: it starts in the mode your own Claude Code settings give it. It runs as your login shell would, or `[sessions] claude` names the executable. It turns the agent channel on, as the session's tools need it.",
         args: ArgSpec::DirectoryAndTextOnPrefix {
             directory: "Session in directory:",
             directory_history: "session-directory",
@@ -120,9 +120,9 @@ The list holds the sessions oso does not host: those Claude Code's registry says
     },
     Command {
         name: "sessions",
-        doc: "Show `*Sessions*` in the side window at the frame's left, and select it; select it if it is shown; hide it if it is selected.
+        doc: "Show `*Spaces*` in the side window at the frame's left, and select it; select it if it is shown; go back to the window selected last if it is selected. With a prefix argument, hide it.
 
-The list groups the sessions by state, most urgent first, or by space. `C-x o` passes the side window over, and `C-x 1` keeps it. Once hidden, it does not show by itself again until oso restarts.",
+It lists the spaces, their repositories, worktrees and sessions, or the sessions by state (`s`). `q` in it goes back too. `C-x o` passes the side window over, and `C-x 1` keeps it. Once hidden, it does not show by itself again until oso restarts.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: sessions,
@@ -194,8 +194,16 @@ Back, the window it was zoomed from shows what the zoomed window showed, where i
     },
 ];
 
-fn sessions(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+fn sessions(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
+    // `C-u C-x a s` hides it (ADR 0140): the host sees it gone, and keeps it hidden.
+    if args.raw().is_some() {
+        if !ctx.editor.hide_side_window() {
+            return Err(CommandError::new("*Spaces* is not shown"));
+        }
+        ctx.request_redraw();
+        return Ok(());
+    }
     ctx.editor.request_session(SessionRequest::ShowList);
     Ok(())
 }

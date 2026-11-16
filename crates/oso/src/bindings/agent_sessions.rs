@@ -1,5 +1,5 @@
 //! Default key bindings of the agent session commands (ADR 0121, Q7): `C-x a` and a key, the
-//! keys of `*Sessions*`, and session mode's `C-c` and a key in a session's terminal (ADR 0132).
+//! keys of `*Spaces*`, and session mode's `C-c` and a key in a session's terminal (ADR 0132).
 //! `C-x a O` makes an issue space and `C-x a S` opens the space menu (ADR 0136). `C-x a o` comes
 //! with its command, in a later step.
 //!
@@ -59,12 +59,16 @@ pub const SESSION: &[(&str, &str)] = &[
 /// Session mode's menu keys (ADR 0117, ADR 0132): the review menu, as `C-x v r` elsewhere.
 pub const SESSION_MENUS: &[(&str, &str)] = &[("C-c V", "review"), ("C-c S", "space")];
 
-/// The keys of `*Sessions*`, above the global ones in it.
+/// The keys of `*Spaces*`, above the global ones in it.
 pub const LIST: &[(&str, &str)] = &[
     ("RET", "sessions-show"),
     ("n", "sessions-next"),
     ("p", "sessions-previous"),
     ("TAB", "sessions-toggle-fold"),
+    ("S-TAB", "sessions-cycle-folds"),
+    ("<right>", "sessions-open"),
+    ("<left>", "sessions-close"),
+    ("q", "sessions"),
     ("g", "sessions-refresh"),
     ("s", "sessions-regroup"),
     ("P", "sessions-pin"),

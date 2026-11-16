@@ -23,7 +23,7 @@
 //! - `tools`: the agents' session tools: reach, questions, the loop guard and refusals.
 //! - `recap`: a session's one-line recap, from a rule's `recap` pattern or the title.
 //! - `attention`: when a session's state asks for the person's attention.
-//! - `list`: `*Sessions*`, grouped, nested and folded, rendered to a width; `width`: how wide
+//! - `list`: `*Spaces*`, grouped, nested and folded, rendered to a width; `width`: how wide
 //!   its pane is.
 //! - `spaces`: each project's window tree, zoom and last buffers.
 //! - `transcripts`: the ids, names, times and directories of Claude Code's conversations, and

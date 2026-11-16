@@ -1,4 +1,4 @@
-//! What the commands of ADR 0121 step 3 ask, carried out: `*Sessions*` and its rows, showing a
+//! What the commands of ADR 0121 step 3 ask, carried out: `*Spaces*` and its rows, showing a
 //! session (in its space, Q2), spaces and zoom, a live explain, and a stop that asks first
 //! while a session works or needs input (Q8); and step 5's sends and message follows, in
 //! `sending`. The question is the host's, as only the app
@@ -60,6 +60,11 @@ impl App {
                 }
             }
             SessionRequest::Regroup => self.watch.list.regroup(),
+            SessionRequest::CycleFolds => {
+                if !self.watch.list.cycle_folds(self.watch.view.open_to) {
+                    self.editor.message("S-TAB folds the tree; s shows it");
+                }
+            }
             SessionRequest::PaneWidth(columns) => self.change_pane_width(columns),
             SessionRequest::Refresh => self.relist_projects(),
             SessionRequest::Send { to, parts } => self.send_request(&to, &parts),
@@ -71,8 +76,8 @@ impl App {
         None
     }
 
-    /// `C-x a s` (Q1): hidden, it shows and is selected; shown, it is selected; selected, it
-    /// is hidden, and stays hidden until asked for again.
+    /// `C-x a s` (Q1): hidden, it shows and is selected; shown, it is selected; selected, the
+    /// tree's window selected last is (ADR 0140). `C-u C-x a s` hides it, in the command.
     fn toggle_sessions_list(&mut self) {
         if !self.sessions_list_shown() {
             self.show_sessions_side();
@@ -80,8 +85,10 @@ impl App {
         let Some(side) = self.editor.side_window() else {
             return;
         };
+        // Selected, it gives the keys back to the tree's window selected last, as `C-x o` does
+        // from it (ADR 0140); `C-u` hides it, in the command.
         if self.editor.window().id() == side {
-            self.hide_sessions_side();
+            self.editor.other_window(1);
         } else {
             self.editor.select_window(side);
         }
@@ -232,7 +239,7 @@ impl App {
         }
     }
 
-    /// A key of `*Sessions*` on line `line`.
+    /// A key of `*Spaces*` on line `line`.
     fn on_row(&mut self, line: usize, action: RowAction) {
         let Some(row) = self.sessions_line(line).cloned() else {
             return;
@@ -277,7 +284,7 @@ impl App {
                 }
                 return;
             }
-            Line::ClosedSpace(_) => return,
+            Line::ClosedSpace(_) | Line::Title => return,
             // A repository's row folds on `RET` too, as its worktrees are what it holds.
             Line::Space(_) | Line::Repository(..) | Line::Worktree(..) => {
                 if matches!(action, RowAction::Fold | RowAction::Show) {
@@ -388,7 +395,7 @@ impl App {
     }
 }
 
-/// The buffer the tree's window shows, never the side window's `*Sessions*`: from the side
+/// The buffer the tree's window shows, never the side window's `*Spaces*`: from the side
 /// window, the tree's window selected last is selected first, as the tree's commands do
 /// (ADR 0121). With a prompt open, the window beneath it.
 pub(super) fn tree_buffer(editor: &mut Editor) -> BufferId {

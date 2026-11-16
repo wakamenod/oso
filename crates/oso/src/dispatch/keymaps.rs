@@ -56,7 +56,7 @@ pub(super) struct Keymaps {
     /// A `*Brief*` buffer's own keys, and a `*Worktrees*` buffer's, above the global ones
     /// (ADR 0121).
     pub(super) worktrees: [Keymap; 2],
-    /// `*Sessions*`'s own keys, above the global ones in it (ADR 0121).
+    /// `*Spaces*`'s own keys, above the global ones in it (ADR 0121).
     pub(super) sessions: Keymap,
     /// A review buffer's own keys, above the global ones (ADR 0122).
     pub(super) review: Keymap,

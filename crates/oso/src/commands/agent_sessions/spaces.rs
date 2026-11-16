@@ -76,7 +76,7 @@ It is refused while a session of the space runs in it. Its worktrees stay.",
         name: "space-use-repo",
         doc: "Choose the repository of the space in front that commands needing a project use from its orchestrator's buffer, read with completion.
 
-The orchestrator runs in the space's own directory, in no repository: with one trusted repository the space needs no choice; with several, `session-worktree`, `worktree-list` and `worktree-remove` there use the one chosen here, which must be trusted. A buffer of that repository must be open, as for its row in `*Sessions*`.",
+The orchestrator runs in the space's own directory, in no repository: with one trusted repository the space needs no choice; with several, `session-worktree`, `worktree-list` and `worktree-remove` there use the one chosen here, which must be trusted. A buffer of that repository must be open, as for its row in `*Spaces*`.",
         args: ArgSpec::Listed {
             list: MEMBERS_LIST,
             prompt: "Use repository:",
