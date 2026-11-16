@@ -247,6 +247,12 @@ pub fn git_log_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, vcs::LOG).unwrap_or_default()
 }
 
+/// The keymap of the list of what discards kept, above the global one in it (ADR 0127, step
+/// 1c). Empty for a registry without its commands.
+pub fn git_discarded_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, vcs::DISCARDED).unwrap_or_default()
+}
+
 /// `*Sessions*`'s own keymap, above the global one in it (ADR 0121). Empty for a registry
 /// without its commands, as in tests that bring their own.
 pub fn sessions_keymap(registry: &Registry) -> Keymap {

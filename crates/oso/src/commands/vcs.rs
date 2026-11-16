@@ -15,6 +15,7 @@ use oso_core::project::ProjectId;
 use oso_core::selection::Selection;
 
 pub mod commit;
+pub mod discard;
 
 /// Why a restricted project gets no status (ADR 0127, "Restricted projects").
 pub(crate) const RESTRICTED: &str =
@@ -146,6 +147,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("u", "git-unstage"),
     ("S", "git-stage-all"),
     ("U", "git-unstage-all"),
+    ("k", "git-discard"),
     ("$", "git-show-log"),
     ("RET", "git-visit"),
     ("g", "git-refresh"),
@@ -168,7 +170,7 @@ pub(crate) fn status_project(editor: &Editor) -> Option<ProjectId> {
 }
 
 /// The status buffer the selected window shows, or why the command means nothing here.
-fn status(ctx: &Ctx<'_>) -> Result<BufferId, CommandError> {
+pub(super) fn status(ctx: &Ctx<'_>) -> Result<BufferId, CommandError> {
     let (window, buffer) = ctx.editor.current();
     if buffer.mode() != Mode::GitStatus || ctx.editor.git_status_of(window.buffer()).is_none() {
         return Err(CommandError::new("Not in a git status"));
@@ -187,7 +189,7 @@ fn point_line(ctx: &Ctx<'_>) -> usize {
 
 /// The lines each cursor of the selected window covers, in order: its region's while the mark
 /// is active, else its own line.
-fn cursor_lines(ctx: &Ctx<'_>) -> Vec<GitLines> {
+pub(super) fn cursor_lines(ctx: &Ctx<'_>) -> Vec<GitLines> {
     let (window, buffer) = ctx.editor.current();
     let text = buffer.text();
     let region = window.selections.mark_active().is_active();
@@ -258,7 +260,7 @@ fn unstage(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 /// Hides the region a command used, as Emacs does after one.
-fn deactivate_mark(ctx: &mut Ctx<'_>) {
+pub(super) fn deactivate_mark(ctx: &mut Ctx<'_>) {
     let (window, _) = ctx.editor.current_mut();
     if window.selections.mark_active().is_active() {
         window
@@ -445,13 +447,19 @@ fn status_keys(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 /// The menus a git status's keys open, as `(keys, menu)`.
 pub const MENUS: &[(&str, &str)] = &[("c", "commit")];
 
+/// The first line of the doc of the source-control command `name`, if it is one.
+fn summary_of(name: &str) -> Option<&'static str> {
+    let all = COMMANDS.iter().chain(commit::COMMANDS);
+    let mut all = all.chain(discard::COMMANDS);
+    let found = all.find(|command| command.name == name)?;
+    found.doc.lines().next()
+}
+
 /// What `*Git keys*` says: each key, and its command's name and summary.
 fn keys_text() -> String {
     let mut text = String::from("Keys in a git status\n\n");
     for (keys, name) in KEYS {
-        let summary = (COMMANDS.iter().chain(commit::COMMANDS))
-            .find(|command| command.name == *name)
-            .and_then(|command| command.doc.lines().next());
+        let summary = summary_of(name);
         // `q` is the buffers' own `quit-window`.
         let summary = match (*name, summary) {
             ("quit-window", _) => "Leave the status, showing the buffer shown before it.",

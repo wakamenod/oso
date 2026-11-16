@@ -19,3 +19,6 @@ pub const MESSAGE: &[(&str, &str)] = crate::commands::vcs::commit::MESSAGE_KEYS;
 
 /// Key sequences and the commands they run, in the log of git's runs.
 pub const LOG: &[(&str, &str)] = crate::commands::vcs::commit::LOG_KEYS;
+
+/// Key sequences and the commands they run, in the list of what discards kept.
+pub const DISCARDED: &[(&str, &str)] = crate::commands::vcs::discard::LIST_KEYS;

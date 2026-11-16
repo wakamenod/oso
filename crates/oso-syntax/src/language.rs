@@ -37,6 +37,7 @@ impl Language {
             | Mode::GitStatus
             | Mode::GitCommit
             | Mode::GitLog
+            | Mode::GitDiscarded
             | Mode::Sessions => None,
         }
     }

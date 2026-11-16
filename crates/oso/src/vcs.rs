@@ -21,6 +21,9 @@
 
 pub(crate) mod commit;
 pub(crate) mod cut;
+pub(crate) mod discard;
+pub(crate) mod discarded;
+pub(crate) mod keep;
 pub(crate) mod layout;
 pub(crate) mod patch;
 pub(crate) mod read;

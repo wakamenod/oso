@@ -115,6 +115,7 @@ impl Offer {
             | Mode::GitStatus
             | Mode::GitCommit
             | Mode::GitLog
+            | Mode::GitDiscarded
             | Mode::Sessions => None,
             Mode::CopyList => {
                 let index = line.checked_sub(HEADER_ROWS)?;

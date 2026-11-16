@@ -121,6 +121,7 @@ const TABLES: &[&[Command]] = &[
     theme::COMMANDS,
     vcs::COMMANDS,
     vcs::commit::COMMANDS,
+    vcs::discard::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
     windows::COMMANDS,
@@ -406,6 +407,9 @@ mod tests {
         "git-commit-next-message",
         "git-commit-previous-message",
         "git-commit-reword",
+        "git-discard",
+        "git-discarded",
+        "git-restore-discarded",
         "git-show-log",
         "git-stop",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).

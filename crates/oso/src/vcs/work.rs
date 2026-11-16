@@ -38,6 +38,7 @@ use super::read::{MAX_LIST, args, find, head_commit, hooks_dir, numstat, read_pa
 use super::stage::{self, Op, Target};
 use super::status::{self, Status};
 use super::write::run;
+use super::{discard, keep};
 use crate::git::{Git, GitError};
 use crate::git::{TrustedRoot, may_hold_secrets};
 
@@ -57,6 +58,14 @@ pub(crate) enum Request {
         stage: bool,
         view: View,
     },
+    /// Discard `targets`, which name what `built` shows, keeping copies first, then read the
+    /// status again (step 1c).
+    Discard {
+        generation: u64,
+        built: Arc<Built>,
+        targets: Vec<Target>,
+        view: View,
+    },
 }
 
 impl Request {
@@ -64,13 +73,17 @@ impl Request {
         match self {
             Self::Read { generation, .. }
             | Self::Layout { generation, .. }
-            | Self::Stage { generation, .. } => *generation,
+            | Self::Stage { generation, .. }
+            | Self::Discard { generation, .. } => *generation,
         }
     }
 
     fn view(&self) -> &View {
         match self {
-            Self::Read { view, .. } | Self::Layout { view, .. } | Self::Stage { view, .. } => view,
+            Self::Read { view, .. }
+            | Self::Layout { view, .. }
+            | Self::Stage { view, .. }
+            | Self::Discard { view, .. } => view,
         }
     }
 }
@@ -242,6 +255,20 @@ impl State {
                         read = true;
                         match self.run_all(&ops, trusted) {
                             Ok(()) => out.push(Report::Ran { said }),
+                            Err(why) => out.push(Report::Failed { why }),
+                        }
+                    }
+                    Err(why) => out.push(Report::Refused { why }),
+                },
+                Request::Discard { built, targets, .. } => match discard::plan(&built, &targets) {
+                    Ok(plan) => {
+                        read = true;
+                        let (state, stop) = (self.state_dir.clone(), Arc::clone(&self.stop));
+                        let ran = self.git(trusted.path()).cloned().and_then(|git| {
+                            keep::discard(&git, trusted, &plan, state.as_deref(), &stop)
+                        });
+                        match ran {
+                            Ok(()) => out.push(Report::Ran { said: plan.said }),
                             Err(why) => out.push(Report::Failed { why }),
                         }
                     }

@@ -220,6 +220,7 @@ impl Buffer {
             | Mode::Directory
             | Mode::GitStatus
             | Mode::GitLog
+            | Mode::GitDiscarded
             | Mode::Sessions => false,
         };
         language && !self.internal && !self.is_secret()

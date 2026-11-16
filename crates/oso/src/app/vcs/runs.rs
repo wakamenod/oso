@@ -209,6 +209,8 @@ impl App {
                 }
             }
             RunReport::Ended(end) => self.run_ended(index, end),
+            RunReport::Discarded(read) => self.discarded_read(index, read),
+            RunReport::Restored(done) => self.restored(index, done),
         }
         self.request_redraw();
     }

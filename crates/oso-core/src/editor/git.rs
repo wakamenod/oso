@@ -118,6 +118,23 @@ pub enum GitRequest {
     ShowLog { buffer: BufferId },
     /// Stop what git runs in the repository of `buffer`, a status or its log (`C-g`, `k`).
     Stop { buffer: BufferId },
+    /// Discard what each of `lines` is on in the status `buffer` (`k`), after the person's
+    /// `y` to the question it asks (`confirmed`), keeping a copy first (step 1c).
+    Discard {
+        buffer: BufferId,
+        lines: Vec<GitLines>,
+        confirmed: bool,
+    },
+    /// Write back the copy at `line` of the list of what discards kept, `buffer` (`RET`), after
+    /// the person's `y` (`confirmed`).
+    RestoreDiscarded {
+        buffer: BufferId,
+        line: usize,
+        confirmed: bool,
+    },
+    /// Show what discards kept in the repository of `buffer`: a status, that list, or a
+    /// buffer of the project (`M-x git-discarded`, `g` in the list).
+    ShowDiscarded { buffer: BufferId },
 }
 
 /// A status buffer's record.
