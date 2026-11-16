@@ -8,14 +8,15 @@
 //!   remote's address gives it, so it never runs git in the repository. It is asked only about
 //!   `github.com`, or the host `GH_HOST` names.
 //! - It gets by name the token for that host alone, its configuration and the proxy variables,
-//!   is told to ask nothing and print no colour, and is killed after 10 s.
+//!   is told to ask nothing and print no colour, and is killed past the time its caller gives.
 
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
+use std::time::Duration;
 
 use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 
-use super::{GitError, RUN_LIMIT, collect, printable, read_at_most};
+use super::{GitError, collect_within, printable, read_at_most};
 
 /// The most bytes of `gh`'s answer read.
 pub(crate) const MAX_GH: usize = 256 * 1024;
@@ -143,19 +144,19 @@ impl Gh {
     }
 
     /// Runs `gh` with `args` about `repo`, in `cwd`, an empty private directory, and gives its
-    /// standard output, at most `limit` bytes.
+    /// answer, at most `limit` bytes of it; a run past `within` is killed.
     ///
     /// # Errors
     ///
-    /// Why `gh` gave no answer: it could not run, failed, ran past 10 s, or said more than
-    /// `limit`.
+    /// Why `gh` gave no answer: it could not run, ran past `within`, or said more than `limit`.
+    /// A `gh` that ran and failed is an answer, with its exit code and words.
     pub(crate) fn run(
         &self,
         repo: &GhRepo,
         args: &[&str],
         cwd: &Path,
-        limit: usize,
-    ) -> Result<Vec<u8>, String> {
+        (limit, within): (usize, Duration),
+    ) -> Result<GhAnswer, String> {
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
         let set: Vec<(&str, &OsStr)> = GH_SET
             .iter()
@@ -177,25 +178,49 @@ impl Gh {
             pass_fd: None,
         })
         .map_err(|e| format!("cannot run gh: {e}"))?;
-        let out = collect(child, None, move |stdout| read_at_most(stdout, limit))
-            .map_err(|e| gh_said(&e))?;
+        let read = move |stdout| read_at_most(stdout, limit);
+        let out = collect_within(child, None, read, within).map_err(|e| gh_said(&e, within))?;
         if out.cut {
             return Err("gh said more than oso reads".to_owned());
         }
-        if !out.status.success() {
-            let why = printable(out.stderr.trim(), 300);
-            return Err(format!("gh failed: {why}"));
+        Ok(GhAnswer {
+            code: out.status.code(),
+            stdout: out.stdout,
+            stderr: printable(out.stderr.trim(), 300),
+        })
+    }
+}
+
+/// What `gh` answered: its exit code, what it wrote, and the start of its words on standard
+/// error, escaped.
+#[derive(Debug)]
+pub(crate) struct GhAnswer {
+    pub(crate) code: Option<i32>,
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: String,
+}
+
+impl GhAnswer {
+    /// What it wrote, if it succeeded; else its words.
+    ///
+    /// # Errors
+    ///
+    /// `gh failed: …` with its words, if it exited other than 0.
+    pub(crate) fn ok(self) -> Result<Vec<u8>, String> {
+        if self.code == Some(0) {
+            Ok(self.stdout)
+        } else {
+            Err(format!("gh failed: {}", self.stderr))
         }
-        Ok(out.stdout)
     }
 }
 
 /// Text for the echo area from a failed `gh` run, in `gh`'s words.
-fn gh_said(error: &GitError) -> String {
+fn gh_said(error: &GitError, within: Duration) -> String {
     let said = match error {
         GitError::Spawn(e) => format!("cannot run gh: {e}"),
         GitError::Io(e) => format!("cannot talk to gh: {e}"),
-        GitError::TimedOut => format!("gh took more than {} s", RUN_LIMIT.as_secs()),
+        GitError::TimedOut => format!("gh took more than {} s", within.as_secs()),
         GitError::TooLong => "gh said more than oso reads".to_owned(),
         GitError::Failed { stderr, .. } => format!("gh failed: {}", stderr.trim()),
         GitError::Stopped => "gh was stopped".to_owned(),

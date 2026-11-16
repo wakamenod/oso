@@ -113,7 +113,9 @@ often, so it must rebuild within 2 s.
   `commands::vcs::branch` (step 3b). The graph is `graph`'s: its records, `graph/lanes`, the
   text `graph/write` and its thread `graph/work`, `oso-vcs-graph`, with `app/vcs/graph.rs` and
   `commands::vcs::graph` (step 4); what its keys do with a commit is `app/vcs/graph/acts.rs`,
-  run on the run thread (`run/graph`) (step 4b). Its keys are listed in `commands::vcs::KEYS` and
+  run on the run thread (`run/graph`) (step 4b). Pull requests are `pr`'s: `gh`'s answers read,
+  their texts `pr/write` and the repository's `gh` thread `pr/work`, `oso-vcs-gh`, through
+  `git::Gh`, with `app/vcs/pr.rs` and `commands::vcs::pr` (step 5a). Its keys are listed in `commands::vcs::KEYS` and
   `commands::vcs::commit`, the commit menu is built in, and `bindings/vcs.rs` binds them;
   `app/vcs.rs` carries out what its commands ask, with `app/vcs/status.rs` (the status's own
   requests), `app/vcs/commit.rs` (messages) and `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,

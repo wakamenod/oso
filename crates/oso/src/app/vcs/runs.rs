@@ -289,6 +289,8 @@ impl App {
         };
         self.editor.clear_echo_saying(&run.echoed);
         let seconds = run.started.elapsed().as_secs();
+        // A push changes the pull request's head, so its `PR:` line is read again (step 5a).
+        let pushed = matches!(end, RunEnd::Done) && run.title.starts_with("git push");
         let (said, ended) = match end {
             RunEnd::Done if run.kind.is_none() => ("done", run.done.clone()),
             RunEnd::Done => ("done", self.commit_done(&run)),
@@ -309,6 +311,9 @@ impl App {
             self.git_ask(status, Ask::Read);
         }
         self.graph_after_run(project);
+        if pushed {
+            self.ask_pr_head(project, true);
+        }
     }
 
     /// Keeps `text` as what the run under way in the repository at `index` wrote, its last

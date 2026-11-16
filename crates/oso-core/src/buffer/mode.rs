@@ -54,6 +54,11 @@ pub enum Mode {
     /// A repository's commits as a graph of lanes, `*graph: NAME*`, as magit's log buffer
     /// (ADR 0127, step 4).
     GitGraph,
+    /// A pull request, `*pr: #N*`: its state, checks, review threads and conversation, as `gh`
+    /// gives them (ADR 0127, step 5a).
+    GitPr,
+    /// A repository's open pull requests, `*pull requests: REPO*` (ADR 0127, step 5a).
+    GitPrList,
     /// A commit's message being written, `*commit: NAME*`, as magit's `git-commit-mode`
     /// (ADR 0127, step 1b).
     GitCommit,
@@ -124,6 +129,8 @@ impl Mode {
             Self::Directory => "Dired",
             Self::GitStatus => "Git",
             Self::GitGraph => "Git Graph",
+            Self::GitPr => "Git PR",
+            Self::GitPrList => "Git PRs",
             Self::GitCommit => "Git Commit",
             Self::GitLog => "Git Log",
             Self::GitDiscarded => "Git Discarded",
@@ -165,6 +172,8 @@ impl Mode {
             | Self::Directory
             | Self::GitStatus
             | Self::GitGraph
+            | Self::GitPr
+            | Self::GitPrList
             | Self::GitLog
             | Self::GitDiscarded
             | Self::Sessions => None,

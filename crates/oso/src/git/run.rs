@@ -45,7 +45,7 @@ use super::id::{Id, trim_line};
 mod collect;
 
 pub(super) use collect::write_away;
-pub(crate) use collect::{collect, read_at_most, stop};
+pub(crate) use collect::{collect, collect_within, read_at_most, stop};
 
 /// How long one run of git may take before it is killed.
 pub(crate) const RUN_LIMIT: Duration = Duration::from_secs(10);

@@ -10,7 +10,7 @@ use std::io::{self, Read, Write};
 use std::process::{ChildStdout, ExitStatus};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use oso_platform::process::Child;
 
@@ -21,11 +21,22 @@ use super::{EXIT_POLL, GitError, MAX_STDERR, Output, RUN_LIMIT};
 /// whether it cut it, and the start of its standard error. A cut run is killed; a run past
 /// [`RUN_LIMIT`] is killed and left. `gh` is run this way too (ADR 0121).
 pub(crate) fn collect(
-    mut child: Child,
+    child: Child,
     input: Option<Vec<u8>>,
     read: impl FnOnce(ChildStdout) -> io::Result<(Vec<u8>, bool)> + Send + 'static,
 ) -> Result<Output, GitError> {
-    let deadline = Instant::now() + RUN_LIMIT;
+    collect_within(child, input, read, RUN_LIMIT)
+}
+
+/// As [`collect`], a run past `within` killed and left: `gh`'s reads of a pull request take
+/// 30 s (ADR 0127, step 5a).
+pub(crate) fn collect_within(
+    mut child: Child,
+    input: Option<Vec<u8>>,
+    read: impl FnOnce(ChildStdout) -> io::Result<(Vec<u8>, bool)> + Send + 'static,
+    within: Duration,
+) -> Result<Output, GitError> {
+    let deadline = Instant::now() + within;
     let streams = (child.stdout.take(), child.stderr.take());
     let (Some(stdout), Some(stderr)) = streams else {
         stop(&mut child);

@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::porcelain::{self, Listed};
-use crate::git::{Gh, GhRepo, Git, GitError, MAX_GH, MAX_SHORT};
+use crate::git::{Gh, GhRepo, Git, GitError, MAX_GH, MAX_SHORT, RUN_LIMIT};
 use crate::project::linked_worktree;
 
 /// The most bytes of a listing read: worktrees, branches, refs, paths.
@@ -204,7 +204,7 @@ pub fn merged_pulls(
         "--limit",
         GH_LIMIT,
     ];
-    let out = gh.run(repo, &args, cwd, MAX_GH)?;
+    let out = gh.run(repo, &args, cwd, (MAX_GH, RUN_LIMIT))?.ok()?;
     parse_merged(&out).ok_or_else(|| "gh gave an unexpected answer".to_owned())
 }
 

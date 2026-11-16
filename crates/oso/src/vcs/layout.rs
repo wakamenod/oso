@@ -219,6 +219,8 @@ pub(crate) struct View {
     pub(crate) withheld: BTreeSet<Vec<u8>>,
     /// Each section's open files, by path, so that a file is looked up without a copy of it.
     open: BTreeMap<Section, BTreeSet<Vec<u8>>>,
+    /// The branch's pull request, as `gh` last gave it, for the head's `PR:` line (step 5a).
+    pub(crate) pr: Option<std::sync::Arc<crate::vcs::pr::PrHead>>,
 }
 
 impl View {

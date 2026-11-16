@@ -42,6 +42,9 @@ pub(crate) fn lay_out(
     };
     let mut outline = Vec::new();
     head_lines(&mut out, &mut built.rows, head);
+    if let Some(pr) = &view.pr {
+        pr_line(&mut out, &mut built.rows, head, pr);
+    }
     for note in notes {
         out.part(note.as_bytes(), None);
         out.end_line();
@@ -292,6 +295,18 @@ fn head_lines(out: &mut Out, rows: &mut Vec<Row>, head: &Head) {
     if let Some(stop) = &head.stop {
         stop_lines(out, rows, stop);
     }
+}
+
+/// The branch's pull request, as `PR:       #12 TITLE  open, approved  ✓ 12 ✗ 1 ● 2`, with
+/// `stale` when its head is not the commit checked out (step 5a).
+fn pr_line(out: &mut Out, rows: &mut Vec<Row>, head: &Head, pr: &crate::vcs::pr::PrHead) {
+    out.part(b"PR:       ", None);
+    let tip = head.commit.as_ref().map(|(id, _)| id.as_str());
+    for (text, face) in crate::vcs::pr::write::head_parts(pr, tip) {
+        out.part(text.as_bytes(), face);
+    }
+    out.end_line();
+    rows.push(Row::Other);
 }
 
 /// What is stopped, as `Rebasing: main onto abc1234, 2 of 5; stopped at def5678 SUBJECT`, and

@@ -120,6 +120,8 @@ impl Offer {
             | Mode::Directory
             | Mode::GitStatus
             | Mode::GitGraph
+            | Mode::GitPr
+            | Mode::GitPrList
             | Mode::GitCommit
             | Mode::GitLog
             | Mode::GitDiscarded

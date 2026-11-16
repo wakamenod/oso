@@ -257,6 +257,8 @@ impl Buffer {
             | Mode::Directory
             | Mode::GitStatus
             | Mode::GitGraph
+            | Mode::GitPr
+            | Mode::GitPrList
             | Mode::GitLog
             | Mode::GitDiscarded
             | Mode::Sessions => false,
@@ -424,7 +426,12 @@ impl Buffer {
         self.mode == Mode::Review
             || (matches!(
                 self.mode,
-                Mode::Sessions | Mode::Directory | Mode::GitStatus | Mode::GitGraph
+                Mode::Sessions
+                    | Mode::Directory
+                    | Mode::GitStatus
+                    | Mode::GitGraph
+                    | Mode::GitPr
+                    | Mode::GitPrList
             ) && self.internal)
     }
 

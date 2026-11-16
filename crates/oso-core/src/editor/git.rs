@@ -117,6 +117,30 @@ impl Editor {
             .map(|(id, _)| *id)
     }
 
+    /// Adds an empty pull request's buffer, of [`Mode::GitPr`], or a list of them, of
+    /// [`Mode::GitPrList`], for `project`, named `name`, shown in no window yet, which does not
+    /// wrap (step 5a). Any other mode is taken as [`Mode::GitPr`].
+    pub fn add_git_view(
+        &mut self,
+        project: ProjectId,
+        name: impl Into<String>,
+        mode: Mode,
+    ) -> BufferId {
+        let mode = if mode == Mode::GitPrList {
+            mode
+        } else {
+            Mode::GitPr
+        };
+        self.add_git_buffer(project, name.into(), mode)
+    }
+
+    /// The project of the pull request's buffer, or list of them, `buffer`, if it is one and is
+    /// still there.
+    pub fn git_view_of(&self, buffer: BufferId) -> Option<ProjectId> {
+        is_git_view(self.buffer(buffer)?).then_some(())?;
+        self.git_record(buffer).map(|status| status.project)
+    }
+
     /// Adds an internal buffer of `mode` for `project`, named `name`, told apart from another of
     /// that name by `<2>`, `<3>`…, which does not wrap, and its record.
     fn add_git_buffer(&mut self, project: ProjectId, name: String, mode: Mode) -> BufferId {
@@ -189,7 +213,9 @@ impl Editor {
         if self.git_record(id).is_none() {
             return Some(highlights);
         }
-        let fits = |buffer: &&mut Buffer| is_git_status(buffer) || is_git_graph(buffer);
+        let fits = |buffer: &&mut Buffer| {
+            is_git_status(buffer) || is_git_graph(buffer) || is_git_view(buffer)
+        };
         let Some(buffer) = self.buffer_mut(id).filter(fits) else {
             return Some(highlights);
         };
@@ -305,6 +331,11 @@ pub(super) fn is_git_status(buffer: &Buffer) -> bool {
 /// Whether `buffer` is a graph buffer (step 4).
 pub(super) fn is_git_graph(buffer: &Buffer) -> bool {
     buffer.is_internal() && buffer.mode() == Mode::GitGraph
+}
+
+/// Whether `buffer` is a pull request's buffer or a list of them (step 5a).
+pub(super) fn is_git_view(buffer: &Buffer) -> bool {
+    buffer.is_internal() && matches!(buffer.mode(), Mode::GitPr | Mode::GitPrList)
 }
 
 /// Whether `buffer` is a log of git's runs, which `C-x b` lists and `C-x k` kills as a status.

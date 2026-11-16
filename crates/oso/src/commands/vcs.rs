@@ -21,6 +21,7 @@ pub mod branch;
 pub mod commit;
 pub mod discard;
 pub mod graph;
+pub mod pr;
 pub mod remote;
 pub mod sequence;
 pub mod stash;
@@ -177,6 +178,7 @@ pub(crate) fn status_project(editor: &Editor) -> Option<ProjectId> {
     let buffer = editor.tiled().0.buffer();
     (editor.git_status_of(buffer))
         .or_else(|| editor.git_graph_of(buffer))
+        .or_else(|| editor.git_view_of(buffer))
         .or_else(|| editor.buffer(buffer)?.project())
 }
 
@@ -490,6 +492,7 @@ pub const MENUS: &[(&str, &str)] = &[
     ("F", "pull"),
     ("f", "fetch"),
     ("l", "log"),
+    ("N", "pull-request"),
     ("z", "stash"),
 ];
 
@@ -498,7 +501,8 @@ fn summary_of(name: &str) -> Option<&'static str> {
     let all = COMMANDS.iter().chain(commit::COMMANDS);
     let all = all.chain(discard::COMMANDS).chain(remote::COMMANDS);
     let all = all.chain(sequence::COMMANDS).chain(stash::COMMANDS);
-    let mut all = all.chain(branch::COMMANDS).chain(graph::COMMANDS);
+    let all = all.chain(branch::COMMANDS).chain(graph::COMMANDS);
+    let mut all = all.chain(pr::COMMANDS);
     let found = all.find(|command| command.name == name)?;
     found.doc.lines().next()
 }
