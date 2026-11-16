@@ -74,6 +74,24 @@ fn lsp_log(app: &mut App, back: &str) -> String {
         .join("\n")
 }
 
+/// The rows of `*LSP*` once `count` of them hold `part`, which must exist. The modeline's
+/// `lsp` reads the same while a server starts as when it is ready, so a flow waits on what it
+/// reads.
+fn lsp_log_with(app: &mut App, back: &str, part: &str, count: usize) -> String {
+    let started = Instant::now();
+    loop {
+        let log = lsp_log(app, back);
+        if log.matches(part).count() >= count {
+            return log;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "no {count} of {part:?} in *LSP*:\n{log}"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 /// The process the log says the server started as, the last one.
 fn server_pid(log: &str) -> u32 {
     let line = log
@@ -145,7 +163,7 @@ fn a_server_starts_on_a_visit_stops_when_asked_and_ends_with_oso() {
     app.wait_for("its message", |state| {
         state["echo"].as_str() == Some("rust-analyzer: hello")
     });
-    let log = lsp_log(&mut app, "main.rs");
+    let log = lsp_log_with(&mut app, "main.rs", "] initialized as fake in", 1);
     assert!(
         log.contains("[rust-analyzer proj-lsp] initialized as fake in"),
         "{log}"
@@ -169,7 +187,12 @@ fn a_server_starts_on_a_visit_stops_when_asked_and_ends_with_oso() {
     // lsp-start does.
     app.run_command("lsp-start", None).unwrap();
     modeline_has(&mut app, "the server is ready again", "proj-lsp  lsp  ");
-    let second = server_pid(&lsp_log(&mut app, "lib.rs"));
+    let second = server_pid(&lsp_log_with(
+        &mut app,
+        "lib.rs",
+        "] initialized as fake in",
+        2,
+    ));
     assert_ne!(first, second);
 
     // Untrusting the project stops it.
@@ -189,8 +212,17 @@ fn a_server_starts_on_a_visit_stops_when_asked_and_ends_with_oso() {
 #[ignore = "opens windows; run with `just e2e`"]
 fn quitting_oso_ends_its_servers() {
     let (_scratch, _root, mut app) = started("lsp-quit", &answering());
-    modeline_has(&mut app, "the server is ready", "proj-lsp  lsp  ");
-    let pid = server_pid(&lsp_log(&mut app, "main.rs"));
+    // Its message comes after `initialize`, in a report that made `*LSP*`: `C-x b` before that
+    // would make a buffer of that name of the person's.
+    app.wait_for("its message", |state| {
+        state["echo"].as_str() == Some("rust-analyzer: hello")
+    });
+    let pid = server_pid(&lsp_log_with(
+        &mut app,
+        "main.rs",
+        "] initialized as fake in",
+        1,
+    ));
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
     until_gone(pid);
@@ -216,7 +248,7 @@ fn a_server_that_keeps_crashing_stops_after_three_crashes() {
         echo.starts_with("rust-analyzer: stopped after crashing 3 times"),
         "{echo}"
     );
-    let log = lsp_log(&mut app, "main.rs");
+    let log = lsp_log_with(&mut app, "main.rs", "] crashed: ", 3);
     assert_eq!(log.matches("] crashed: ").count(), 3, "{log}");
     // lsp-restart tries again.
     app.run_command("lsp-restart", None).unwrap();
