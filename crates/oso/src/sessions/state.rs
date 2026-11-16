@@ -140,6 +140,9 @@ pub struct Tracker {
     pending: Option<Pending>,
     /// A verdict the grace period kept out, to try again when it ends.
     held_back: bool,
+    /// Its state was told once: a session that starts idle and stays so tells it with the
+    /// first idle verdict after its grace, else nothing would say it was judged.
+    told: bool,
 }
 
 impl Tracker {
@@ -152,6 +155,7 @@ impl Tracker {
             started: now,
             pending: None,
             held_back: false,
+            told: false,
         }
     }
 
@@ -217,7 +221,7 @@ impl Tracker {
     fn idle(&mut self, visible: bool, now: Instant) -> Option<Change> {
         if !matches!(self.state, State::Working | State::NeedsInput(_)) {
             self.pending = None;
-            return None;
+            return self.first_word();
         }
         if !visible {
             let pending = self.pending.get_or_insert(Pending {
@@ -286,6 +290,7 @@ impl Tracker {
         if next == self.state {
             return None;
         }
+        self.told = true;
         let turn_ended = self.state == State::Working
             && matches!(next, State::NeedsInput(_) | State::Done | State::Idle);
         self.state = next;
@@ -294,6 +299,19 @@ impl Tracker {
             state: next,
             since: now,
             turn_ended,
+        })
+    }
+
+    /// The state it started in, as a change, if no change has told one yet: an idle start
+    /// is judged too, and its time in the state counts from the start.
+    fn first_word(&mut self) -> Option<Change> {
+        if std::mem::replace(&mut self.told, true) {
+            return None;
+        }
+        Some(Change {
+            state: self.state,
+            since: self.since,
+            turn_ended: false,
         })
     }
 }
