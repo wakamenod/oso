@@ -559,13 +559,16 @@ fn a_description_shows_at_point_scrolls_and_goes_with_the_next_key() {
         shown.differs_in(&before, rows.clone()) > 0,
         "the float is drawn"
     );
-    // `C-v` scrolls it, not the buffer.
+    // `C-v` scrolls it, not the buffer. Only macOS draws text so far (ADR 0036): elsewhere
+    // the float's rows look the same scrolled, and the state alone is checked.
     app.send_keys("C-v");
     app.wait_for("its next page", |state| state["hover"]["top"] == 18);
-    assert!(
-        app.screenshot().differs_in(&shown, rows) > 0,
-        "the float shows its next rows"
-    );
+    if cfg!(target_os = "macos") {
+        assert!(
+            app.screenshot().differs_in(&shown, rows) > 0,
+            "the float shows its next rows"
+        );
+    }
     // The next key closes it and moves the cursor as ever.
     app.send_keys("C-f");
     app.wait_for("it closed and the key ran", |state| {
