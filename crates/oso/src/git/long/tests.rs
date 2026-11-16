@@ -193,7 +193,8 @@ fn a_process_left_holding_the_pipes_holds_up_the_end_only_a_moment() {
     let started = Instant::now();
     let (out, status) = all_of(&mut long);
     assert!(status.success());
-    assert!(out.starts_with("gone\n"), "{out}");
+    // The writer left behind may print before git's own line, under load.
+    assert!(out.lines().any(|line| line == "gone"), "{out}");
     assert!(
         started.elapsed() < Duration::from_secs(5),
         "{:?}",
