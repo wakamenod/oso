@@ -323,3 +323,35 @@ fn an_excerpt_of_a_file_open_in_a_buffer_that_may_hold_secrets_is_withheld() {
     editor.preview_screen(&mut screen);
     assert!(screen.rows().is_empty(), "nothing of it is laid out");
 }
+
+#[test]
+fn a_wrapped_excerpt_breaks_at_words_and_keeps_the_match() {
+    let text = "‹ one two three four five six seven eight nine ten";
+    let excerpt = Excerpt::wrapped(text, 20, (0, 30));
+    let shown = excerpt.text.to_string();
+    let lines: Vec<&str> = shown.lines().collect();
+    assert!(lines.len() > 1, "{shown}");
+    assert!(
+        lines.iter().skip(1).all(|line| line.starts_with("  ")),
+        "{shown}"
+    );
+    assert!(
+        lines.iter().all(|line| line.chars().count() <= 20),
+        "{shown}"
+    );
+    assert!(shown[excerpt.cursor..].starts_with("seven"), "{shown}");
+    // Wide characters take two cells each.
+    let wide = Excerpt::wrapped(&"あ".repeat(30), 20, (0, 0));
+    assert!(
+        wide.text
+            .to_string()
+            .lines()
+            .next()
+            .unwrap()
+            .chars()
+            .count()
+            <= 10
+    );
+    // An empty text is one empty line.
+    assert_eq!(Excerpt::wrapped("", 20, (0, 0)).text.to_string(), "");
+}

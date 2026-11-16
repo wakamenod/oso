@@ -316,6 +316,7 @@ const AGENTS: BuiltInMenu = BuiltInMenu {
                 exit("n", "session-next-waiting", "next waiting"),
                 exit("d", "session-next-done", "next done"),
                 exit("f", "session-follow-message", "message's sender"),
+                exit("/", "session-search", "search conversations\u{2026}"),
             ],
         ),
         (

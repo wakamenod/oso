@@ -252,6 +252,10 @@ impl Dispatcher {
             ) => {
                 return self.read_listed(editor, id, args.raw(), spec);
             }
+            // A search of conversations' prompt (ADR 0145).
+            Some(spec @ ArgSpec::ConversationSearch { .. }) => {
+                return self.read_listed(editor, id, args.raw(), spec);
+            }
             _ => return self.execute(editor, id, args, invocation, Step::MayJoin),
         };
         let (prompt, kind) = kind;

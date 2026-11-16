@@ -38,6 +38,9 @@ impl Dispatcher {
             ArgSpec::ProjectSearch { history } => {
                 self.read_project(editor, id, prefix, ProjectPrompt::Search { history })
             }
+            ArgSpec::ConversationSearch { history } => {
+                self.read_conversations(editor, id, prefix, history)
+            }
             _ => self.execute(
                 editor,
                 id,
@@ -128,6 +131,29 @@ impl Dispatcher {
         match editor.project_files_root() {
             Ok((root, name)) => self.open_project(editor, id, project, root, &name),
             Err(not) => editor.message(not.to_string()),
+        }
+        (redraw(), Ok(()))
+    }
+
+    /// Opens the prompt that searches Claude Code's past conversations for the command `id`
+    /// (ADR 0145): every conversation's, or with `C-u` the next scope's, the space in front's
+    /// else the project's.
+    fn read_conversations(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+        history: &'static str,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        if let Some(refused) = refused_in_a_prompt(editor) {
+            return refused;
+        }
+        let scopes = editor.conversation_scopes();
+        let at = usize::from(matches!(prefix, Some(Prefix::Universal(_))) && scopes.len() > 1);
+        match editor.open_conversation_search(scopes, at, history) {
+            Ok(prompt) => self.reading.push(Reading::run(id, None, prompt)),
+            Err(PromptError::Invalid) => editor.message("A search is open already"),
+            Err(error) => editor.prompt_says(error.to_string()),
         }
         (redraw(), Ok(()))
     }

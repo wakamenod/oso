@@ -318,6 +318,7 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     | ArgSpec::Target { .. }
                     | ArgSpec::ProjectFile { .. }
                     | ArgSpec::ProjectSearch { .. }
+                    | ArgSpec::ConversationSearch { .. }
                     | ArgSpec::KillEntry { .. }
                     | ArgSpec::Replace { .. }
                     | ArgSpec::BranchAndBaseOnPrefix { .. }

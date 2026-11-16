@@ -392,6 +392,7 @@ impl App {
         let gone_from: Vec<u32> = before.keys().copied().collect();
         self.watch.externals = externals;
         self.watch.stale = true;
+        self.note_elsewhere(&live);
         self.adoptable_externals(&gone_from, &live);
     }
 

@@ -147,6 +147,12 @@ pub enum ArgSpec {
     /// whole path with [`Ctx::answer`](super::Ctx::answer) and the line with
     /// [`Editor::take_search_hit`](crate::editor::Editor::take_search_hit).
     ProjectSearch { history: &'static str },
+    /// A message of Claude Code's past conversations, read in a prompt whose input is searched
+    /// for in them, the rows coming as they are found, and kept in the history named `history`
+    /// (ADR 0145). It searches every conversation; with `C-u`, it starts in the space in
+    /// front's, else the project's. The command reads the conversation with
+    /// [`Editor::take_conversation_hit`](crate::editor::Editor::take_conversation_hit).
+    ConversationSearch { history: &'static str },
     /// A menu's name, read in a prompt that says `prompt` and completes over every menu, kept in
     /// the history named `history` (ADR 0117). The dispatcher opens the menu named in place of
     /// running the command, as it runs the command `Command` names, since the open menus are

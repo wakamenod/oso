@@ -28,6 +28,8 @@
 //! - `spaces`: each project's window tree, zoom and last buffers.
 //! - `transcripts`: the ids, names, times and directories of Claude Code's conversations, and
 //!   `adopt`: what `session-adopt` offers, found on a thread of its own.
+//! - `history`: what was said in them, held and searched for `session-search` on a thread of
+//!   its own (ADR 0145).
 //! - `messages`: who sent a session a message, from its screen.
 //! - `send`: what the person sends to a session, and why a send is refused.
 //! - `images`: the clipboard's images kept for a session, and the `@path` pasted for one.
@@ -38,6 +40,7 @@ pub mod bridge;
 pub mod command;
 pub mod engine;
 pub mod explain;
+pub mod history;
 pub mod hosted;
 pub mod identity;
 pub mod images;

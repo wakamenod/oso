@@ -51,6 +51,8 @@ pub(in crate::app) struct Hosting {
     fork_offered: Vec<(PromptId, ForkFrom)>,
     /// What `session-adopt` lists, and the adoptions being started.
     pub(in crate::app) adopting: Adopting,
+    /// What `session-search`'s rows are of (ADR 0145).
+    pub(in crate::app) searching: super::conversations::Searching,
     /// What the space commands wait for (ADR 0136).
     pub(in crate::app) spaces: super::spaces::SpaceWork,
     /// The internal `*Session explain*` buffer, once there is one. Kept by its id, never found
@@ -104,6 +106,7 @@ impl Hosting {
             unsaved: false,
             fork_offered: Vec::new(),
             adopting: Adopting::default(),
+            searching: super::conversations::Searching::default(),
             spaces: super::spaces::SpaceWork::default(),
             explain: None,
             parents: HashMap::new(),

@@ -118,6 +118,8 @@ pub enum UserEvent {
     Walked(crate::walk::Walked),
     /// A project's search found rows, or ended (ADR 0114).
     Grepped(crate::grep::Found),
+    /// A search of conversations found rows, or ended, or the preview's text came (ADR 0145).
+    History(crate::sessions::history::Report),
     /// The lines around a search's row were read for its preview, or could not be (ADR 0114).
     Previewed(crate::grep::Previewed),
     /// The record of trusted projects was read, or written and read back (ADR 0114).
@@ -264,6 +266,8 @@ pub struct App {
     grep: crate::grep::Grep,
     /// The thread that reads a search's row's file for its preview (ADR 0114).
     previewer: crate::grep::Previewer,
+    /// The thread that holds and searches past conversations for `session-search` (ADR 0145).
+    history: crate::sessions::history::History,
     /// The thread that reads and writes the record of trusted projects, if there is one.
     trust_file: Option<crate::config::TrustFile>,
     /// The sessions worker, which judges hosted sessions' screens (ADR 0121).
@@ -388,6 +392,8 @@ impl App {
             editor,
             dispatcher,
             modifiers: Held::NONE,
+            // Before the waker moves in.
+            history: sessions::history(&waker),
             waker,
             loads: Vec::new(),
             disk,

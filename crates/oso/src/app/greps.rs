@@ -48,6 +48,8 @@ impl App {
         if let Some(request) = self.editor.take_search_request() {
             self.grep.search(request);
         }
+        // A search of conversations, in the same prompt (ADR 0145).
+        self.start_conversation_search();
     }
 
     /// A search sent rows: the prompt takes them in, if the search is still its newest, and
@@ -65,6 +67,7 @@ impl App {
         if let Some(request) = self.editor.take_preview_request() {
             self.previewer.read(request);
         }
+        self.start_conversation_search();
     }
 
     /// The preview's read came: the editor shows it, if it is still the newest.

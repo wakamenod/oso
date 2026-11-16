@@ -32,6 +32,8 @@ use crate::rope::Rope;
 use crate::sum_tree::Bias;
 use crate::window::Screen;
 
+mod conversation;
+
 /// The most bytes of a line an excerpt keeps, cut at characters. The host's reader reads no
 /// more than this and a line break of each line after the row's (`PER_ROW` in the `oso`
 /// crate's `grep/preview.rs`); the two must change together.
@@ -271,6 +273,9 @@ impl Editor {
     /// float has no room for a preview. A row an open buffer showed is read once that buffer
     /// has gone.
     pub fn take_preview_request(&mut self) -> Option<ProjectPreviewRequest> {
+        if self.project_search.conversations.is_some() {
+            return None;
+        }
         let key = self.selected_search_row()?;
         let preview = &self.project_search.preview;
         if preview.asked == Some(key)
@@ -335,7 +340,9 @@ impl Editor {
             return Some(Preview::Withheld);
         }
         let (line, column) = (place.line, place.column);
-        if let Some(id) = self.find_open_buffer_at(path) {
+        // A conversation's row is never a file's (ADR 0145).
+        let conversation = place.session.is_some();
+        if !conversation && let Some(id) = self.find_open_buffer_at(path) {
             return self.buffer_preview(id, line, column);
         }
         let preview = &self.project_search.preview;
