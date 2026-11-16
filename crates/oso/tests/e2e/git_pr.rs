@@ -1,4 +1,5 @@
-//! Pull requests in a running instance (ADR 0127, step 5a), against a stand-in `gh` on `PATH`:
+//! Pull requests in a running instance (ADR 0127, step 5a), against a stand-in `gh` a dev build
+//! takes from `OSO_DEV_GH`:
 //! the status's `PR:` line, `N v` showing the branch's pull request with its checks and review
 //! threads, `N l` the open ones, `RET` there one of them, and every run of `gh` asked about the
 //! remote's repository, outside the project.
@@ -89,11 +90,9 @@ fn a_status_shows_the_branch_s_pull_request_and_its_buffer_and_list_read_through
     let config = scratch.write("conf/config.toml", b"[lsp]\nstart = \"manual\"\n");
     set_mode(&scratch.path().join("conf"), 0o700);
     set_mode(&config, 0o644);
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    let mut on_path = bin.clone().into_os_string();
-    on_path.push(":");
-    on_path.push(&path);
-    let env: [(&str, &OsStr); 1] = [("PATH", &on_path)];
+    // `PATH` is the platform's own: a dev build takes its stand-in `gh` by name.
+    let gh = bin.join("gh");
+    let env: [(&str, &OsStr); 1] = [("OSO_DEV_GH", gh.as_os_str())];
     let mut app = App::start_with_file_config_and_env(&file, scratch.path(), &config, &env);
     app.wait_until_ready();
     app.send_keys(&format!("M-x {} RET y", typing("trust-project")));

@@ -143,7 +143,7 @@ pub(crate) struct Gh {
 impl Gh {
     /// `gh` from `PATH`, leaving out `project` and what is under it, there and in its children's.
     pub(crate) fn find(project: &Path) -> Option<Gh> {
-        let executable = Executable::from_path("gh", Some(project)).ok()?;
+        let executable = dev_gh().or_else(|| Executable::from_path("gh", Some(project)).ok())?;
         Some(Gh {
             executable,
             project: Some(project.to_owned()),
@@ -206,6 +206,18 @@ impl Gh {
             stderr: printable(out.stderr.trim(), 300),
         })
     }
+}
+
+/// A dev build's end-to-end flow's stand-in `gh`, at the absolute path `OSO_DEV_GH` names, as
+/// `PATH` is the platform's own and cannot be given to an instance.
+#[cfg(feature = "dev")]
+fn dev_gh() -> Option<Executable> {
+    Executable::absolute(std::env::var_os("OSO_DEV_GH")?).ok()
+}
+
+#[cfg(not(feature = "dev"))]
+fn dev_gh() -> Option<Executable> {
+    None
 }
 
 /// What `gh` answered: its exit code, what it wrote, and the start of its words on standard
