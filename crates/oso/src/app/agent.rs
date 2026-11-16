@@ -28,8 +28,8 @@ mod admit;
 mod open;
 pub(super) use open::TOO_LARGE_FOR_THE_AGENT;
 mod questions;
+mod reads;
 mod saving;
-mod servers;
 mod undoing;
 
 use super::App;
@@ -194,22 +194,6 @@ impl App {
             self.agent.on_for_sessions || (self.agent.starting && self.agent.started_for_a_session);
         if for_sessions && !needed && self.agent.connected.is_empty() {
             self.stop_agent_channel();
-        }
-    }
-
-    /// The channel's `text`: checked here, and the rows copied on a thread of its own.
-    fn agent_text(
-        &mut self,
-        of: channel::protocol::TextOf,
-        reply: std::sync::mpsc::Sender<channel::server::Reply>,
-    ) {
-        self.agent_log_often("text");
-        let screen = |id, ask| self.terminal_screen(id, ask);
-        match channel::text::start(&self.editor, &screen, of) {
-            Ok(job) => job.spawn(reply),
-            Err(why) => {
-                let _ = reply.send(Err(why));
-            }
         }
     }
 
@@ -536,7 +520,8 @@ impl App {
             searching: self.editor.isearch().is_some()
                 || self.editor.jump().is_some()
                 || self.editor.replace().is_some()
-                || self.editor.indent_rigidly_layer(),
+                || self.editor.indent_rigidly_layer()
+                || self.editor.hover().is_some(),
             macro_running: self.editor.macro_recording() || self.editor.macro_replaying(),
             undoing: self.editor.crossing().is_some(),
             since_typed: self.agent.person_typed.map(|at| at.elapsed()),

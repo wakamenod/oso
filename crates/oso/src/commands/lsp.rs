@@ -1,17 +1,19 @@
 //! Commands of the language server that follows the current buffer (ADR 0138, step 3):
 //! starting it, starting it again, and stopping it; moving to its diagnostics (step 6), and
-//! the list of the project's (step 6b); and going to a definition, and back and forward
-//! through the window's jumps (step 8), and to the references or one of several definitions,
-//! through their list (step 8b); and completion at point (step 9).
+//! the list of the project's (step 6b); going to a definition, and back and forward through
+//! the window's jumps (step 8), and to the references or one of several definitions, through
+//! their list (step 8b); completion at point (step 9); and describing what is at point in a
+//! float, which its own keys scroll and close (step 10).
 //!
 //! Must not depend on: winit, the GPU, `bindings` or the host's servers; a command asks the
 //! host through `Editor::request_server`, and the host acts on the server after it.
 //!
 //! Starting a server spawns a process, and stopping one manages the person's processes, so
 //! those are `Person`; the moves only move, and a definition asks a running server about a
-//! buffer it knows, so they are `Look`; the lists are interactive floats for the keyboard, so
-//! `M-g d` and the row a list of places takes are `Person`, and the agent's `M-?`, which only
-//! lists, is refused (ADR 0138, Q24, step 8's Q5).
+//! buffer it knows, so they are `Look`; the lists and the description are interactive floats
+//! for the keyboard, so `M-g d`, the row a list of places takes, the description and its keys
+//! are `Person`, and the agent's `M-?`, which only lists, is refused (ADR 0138, Q24, step 8's
+//! Q5).
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{ListedHit, ServerRequest, VisitColumn};
@@ -66,6 +68,38 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Person,
         run: diagnostics,
+        state: None,
+    },
+    Command {
+        name: "lsp-describe-at-point",
+        doc: "Describe what is at point, as the language server sees it, as Eglot's `eglot-help-at-point`.\n\nThe server's text shows in a float right below the cursor's line, or above it with more room there, at most 80 columns by 20 rows, Markdown highlighted with Rust in its code. `C-v` and `M-v` scroll it, `C-g` closes it, and any other key closes it and does what it always does. It shows only if nothing moved while the server answered. A buffer that may hold secrets is never described.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: describe_at_point,
+        state: None,
+    },
+    Command {
+        name: "lsp-describe-scroll-up",
+        doc: "Scroll the description at point forward by its rows, less two, as `C-v` scrolls a window.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: describe_scroll_up,
+        state: None,
+    },
+    Command {
+        name: "lsp-describe-scroll-down",
+        doc: "Scroll the description at point back by its rows, less two, as `M-v` scrolls a window.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: describe_scroll_down,
+        state: None,
+    },
+    Command {
+        name: "lsp-describe-close",
+        doc: "Close the description at point, and nothing more.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: describe_close,
         state: None,
     },
     Command {
@@ -235,6 +269,53 @@ fn complete_at_point(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 fn go_to_xref(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
     ctx.editor.request_server(ServerRequest::GoToXref);
+    ctx.request_redraw();
+    Ok(())
+}
+
+/// Asks the server about the primary cursor's place; its answer shows in a float there.
+fn describe_at_point(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    if ctx.editor.current().1.is_secret() {
+        return Err(CommandError::new(
+            "No server for a buffer that may hold secrets",
+        ));
+    }
+    // The host says whether a server follows it.
+    let at = ctx.editor.ask_at();
+    ctx.editor.request_server(ServerRequest::Describe(at));
+    Ok(())
+}
+
+fn describe_scroll_up(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    scroll_description(ctx, true)
+}
+
+fn describe_scroll_down(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    scroll_description(ctx, false)
+}
+
+/// Scrolls the description a page, `forward` or back, saying so at either end, as a window's
+/// scroll does.
+fn scroll_description(ctx: &mut Ctx<'_>, forward: bool) -> Result<(), CommandError> {
+    if ctx.editor.hover().is_none() {
+        return Err(CommandError::new("No description at point"));
+    }
+    let page = isize::try_from(ctx.editor.hover_page()).unwrap_or(isize::MAX);
+    if !ctx.editor.scroll_hover(if forward { page } else { -page }) {
+        let end = if forward {
+            "End of the description"
+        } else {
+            "Start of the description"
+        };
+        return Err(CommandError::new(end));
+    }
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn describe_close(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    ctx.editor.close_hover();
     ctx.request_redraw();
     Ok(())
 }

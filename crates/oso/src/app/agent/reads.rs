@@ -1,6 +1,6 @@
-//! The agent channel's answers about language servers (ADR 0138, step 11): `state`, with each
-//! buffer's server named, and `diagnostics`, checked and snapshotted here and answered on a
-//! thread of its own.
+//! The agent channel's reads (ADR 0085): `state`, with each buffer's language server named
+//! (ADR 0138, step 11), and `text` and `diagnostics`, each checked and snapshotted here and
+//! answered on a thread of its own.
 //!
 //! Must not depend on: sockets or threads, which stay behind the channel's requests; the
 //! servers are read through the servers' accessors. The judge of files it hands the job
@@ -12,11 +12,23 @@ use std::sync::mpsc::Sender;
 use oso_core::buffer::Buffer;
 
 use super::super::App;
-use crate::channel::protocol::DiagnosticsOf;
+use crate::channel::protocol::{DiagnosticsOf, TextOf};
 use crate::channel::server::Reply;
 use crate::loader::Resolved;
 
 impl App {
+    /// The channel's `text`: checked here, and the rows copied on a thread of its own.
+    pub(in crate::app) fn agent_text(&mut self, of: TextOf, reply: Sender<Reply>) {
+        self.agent_log_often("text");
+        let screen = |id, ask| self.terminal_screen(id, ask);
+        match crate::channel::text::start(&self.editor, &screen, of) {
+            Ok(job) => job.spawn(reply),
+            Err(why) => {
+                let _ = reply.send(Err(why));
+            }
+        }
+    }
+
     /// The agent channel's `state`, with each buffer's language server named.
     pub(in crate::app) fn agent_state(&mut self, buffer_offset: usize) -> Reply {
         self.agent_log_often("state");

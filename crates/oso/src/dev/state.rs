@@ -100,6 +100,9 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         "popup": popup::popup_state(editor),
         "isearch": isearch_state(editor),
         "jump": jump_state(editor),
+        // A server's description at point, by the row it shows first, never its text
+        // (ADR 0138).
+        "hover": editor.hover().map(|shown| json!({ "top": shown.top() })),
         "replace": replace_state(editor),
         "undoing": crate::channel::state::undoing_state(editor),
         "macro": { "recording": editor.macro_recording(), "replaying": editor.macro_replaying() },
@@ -786,6 +789,7 @@ mod tests {
                 "popup": null,
                 "isearch": null,
                 "jump": null,
+                "hover": null,
                 "replace": null,
                 "undoing": null,
                 "macro": { "recording": false, "replaying": false },

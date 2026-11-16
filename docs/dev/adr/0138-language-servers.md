@@ -349,7 +349,7 @@ Every bound lives in `oso-lsp`'s `limits`:
 | A URI | 16 KiB, checked before it is decoded |
 | A completion answer | 5000 items, the rest dropped |
 | A label, a detail, a diagnostic's message | 1 KiB, 4 KiB, 8 KiB |
-| Hover or documentation text | 64 KiB |
+| Hover or documentation text | 64 KiB; a hover's `MarkedString`s 256, a fenced block's language 32 bytes (step 10) |
 | A diagnostic's source, and its code | 256 bytes each (step 6) |
 | Diagnostics of one document | 2000, the most severe first |
 | Documents with diagnostics | 10,000; the oldest unopened goes first |
@@ -517,6 +517,7 @@ Every bound lives in `oso-lsp`'s `limits`:
 | `M-.`, `M-?`, `M-,`, `C-M-,` | `Look` | moves and opens; asks a running server about a buffer it knows |
 | `C-M-n`, `C-M-p` | `Look` | moves |
 | `M-g d`, `C-M-i`, `C-c C-d`, `C-h .` | `Person` | an interactive float for the keyboard |
+| `lsp-describe-scroll-up`, `-down`, `-close` (step 10) | `Person` | the description's own keys |
 | `diagnostics` tool on `oso mcp` | read, like `text` | reads the reports oso holds |
 | `session-send-diagnostics`, `session-fix-error` (step 11) | `Person` | the person's paste into a session, as `session-send` |
 
@@ -854,11 +855,14 @@ gains `amended by 0138`.
 - [ADR 0088](0088-switching-and-killing-buffers.md), "`previous-buffer` on `M-,`": in a buffer a
   language server follows, `M-,` is `lsp-go-back`, through the `lsp` minor mode layer. Everywhere
   else it is still `previous-buffer`.
-- [ADR 0008](0008-floating-ui.md), "completion popups … [are] buffers shown in floating windows
-  … Editing commands … work in them unchanged": the completion popup is no buffer: it is the
-  editor's state of the items a server offered, drawn as a float at point, and typing goes on
-  into the buffer beneath, narrowing it; `C-n`, `C-p`, `TAB`, `C-g`, and `RET` once the
-  selection was moved, are its keys, and any other command closes it first (step 9).
+- [ADR 0008](0008-floating-ui.md), "completion popups and hover documentation [are buffers]
+  shown in floating windows … Editing commands … work in them unchanged": a server's
+  description at point is a buffer shown in a float with no window of its own. Only `C-v` and
+  `M-v` scroll it and `C-g` closes it; any other key closes it and does what it always does in
+  the window beneath (step 10, Q3). The completion popup is no buffer: it is the editor's state
+  of the items a server offered, drawn as a float at point, and typing goes on into the buffer
+  beneath, narrowing it; `C-n`, `C-p`, `TAB`, `C-g`, and `RET` once the selection was moved,
+  are its keys, and any other command closes it first (step 9).
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), the channel's methods and `oso mcp`'s tools: and
   `diagnostics`, a read tool like `text`; `state` gains each followed buffer's `server` and
   `diagnostics`, and its version goes to 3, as ADR 0118 bumped it for a buffer's new field
@@ -1894,6 +1898,64 @@ and the public items below (Q9).
   placed in bytes; and the end-to-end flow `completion_at_point_pops_up_narrows_and_inserts`.
 - **Left for 9b:** the automatic trigger, the ask again of an incomplete answer, `resolve` and
   `additionalTextEdits`, and the echo of a line they change out of view.
+
+### Step 10: hover
+
+The author answered step 10's questions on 2026-11-16, all with the first choice:
+- **Q1:** the text in an internal Markdown buffer, drawn as the preview draws a buffer.
+- **Q2:** the float below the cursor's row, above it with more room, sized to the text, at most 80×20.
+- **Q3:** `C-v` and `M-v` scroll it, `C-g` closes it, and any other key closes it and runs; a click closes it and the wheel scrolls it.
+- **Q4:** a late answer is shown only if nothing moved since the ask, otherwise dropped silently, and nothing shows while waiting.
+- **Q5:** the ADR's three echo messages, never logged.
+- **Q6:** Markdown mode for a markdown answer, none for plaintext, and `MarkedString` pieces joined with fences and `---`.
+- **Q7:** `C-h .` only in the `lsp` layer.
+- **Q8:** the public items below.
+
+- **`oso-lsp`:**
+  - `AskKind::Hover` asks `textDocument/hover` on 8a's path, with one in flight for each document, a newer one cancelling the older. `AskKind::wait` gives it 3 s (`COMPLETION_WAIT`); a definition still waits 10.
+  - `initialize` claims `hover` with `contentFormat` Markdown, then plain text.
+  - `protocol::hover` reads `contents` as one text of at most `HOVER_BYTES_MAX` (64 KiB), cut at a character with `…`; once it is full, nothing more of the answer is looked at:
+    - a `MarkupContent` is its value, Markdown unless its kind is plain text;
+    - `MarkedString`s, at most `HOVER_PIECES_MAX` (256), are Markdown, joined by `---` lines;
+    - a `{language, value}` becomes a fenced block. Its fence is longer than any run of backticks in the part of the value that is kept, and its language keeps only the characters a name is spelled with, at most `HOVER_LANGUAGE_BYTES_MAX` (32).
+    - `\r\n` reads as `\n`. An answer of `null`, or only blanks, describes nothing.
+  - `Answered::Hover` carries it. `*LSP*` gets its size and timing, never the text.
+- **`oso-core`** (`editor/servers/hover.rs`):
+  - `Editor::show_hover` puts the text in a buffer of its own from `Buffer::described`, below a first row naming the server, which the float draws faded and which scrolls away with the rest, so that no server's text passes as oso's (the author's answer to the review's question, Q1 (a)). It is internal, so no list shows it, nothing saves or hands it over, and the agent channel never reads it. Unlike other internal buffers it is highlighted as its mode says: Markdown, with Rust in fenced code through ADR 0111's injection, or none for plain text.
+  - The display model boxes its controls and invisibles, as any buffer's.
+  - It shows only if the selected window, its buffer, the revision and the primary cursor are as asked, the buffer may hold no secrets, and no prompt, isearch, jump, query-replace or `C-x TAB` layer is open. `Editor::hover` gives it only while that still holds and the cursor is in view. One that something moved away from is closed after the next command, and an undefined key, a menu or a prompt closes it at once, so it never comes back as the place does.
+  - `frame::at_point` places it in the selected window's text area, from an anchor and the text's rows and columns:
+    - right below the anchor's row, or above it when fewer rows fit below;
+    - never over that row;
+    - its left edge at the anchor's column, moved left to fit, with a column of padding at each side.
+    - Step 9's popup shares it.
+  - The float is as wide as the widest line and as tall as its wrapped rows, at most 80 by 20, cut to the window's text area. Widths are measured for at most 256 lines, a seek each; a longer text takes the widest float.
+  - The syntax host gives its buffer a job while it shows, the one internal buffer it does, with its whole text as a shown range, and a report for it asks for a frame.
+  - Its rows are wrapped at that width once each command and each scroll, from the row shown first.
+  - `Editor::scroll_hover` moves it by rows, stopping at its ends, and `hover_page` gives the float's rows less 2. `hover_layout` and `hover_screen` give its regions and rows for drawing.
+  - `Editor::close_hover` empties its buffer.
+- **The tip crate:**
+  - `lsp-describe-at-point` (`Person`) is on `C-c C-d` and `C-h .` in the `lsp` layer. It refuses a buffer that may hold secrets, and asks through `ServerRequest::Describe`.
+  - The answer goes through 8a's check that nothing moved (`app/servers/hover.rs`). An empty one says `rust-analyzer: nothing to describe here`, an error `rust-analyzer: description failed: …`, and a wait past 3 s `rust-analyzer did not answer`, each with no log line.
+  - A failure is typed (Q2 (a)): `AskFailure::Overdue` for a wait that ended, `AskFailure::Other` with the reason otherwise, in place of 8a's text. A definition or references past its 10 s now says `rust-analyzer did not answer` too, as the bounds above say.
+  - While the float shows, its keys take the place of `C-x TAB`'s layer ([ADR 0115](0115-indentation.md)): `C-v` and `M-v` (`lsp-describe-scroll-up`, `-down`) and `C-g` (`lsp-describe-close`). Any other command closes it first and then runs; an undefined key and a menu close it too. An answer that comes while a menu is open shows nothing.
+  - A press of a mouse button closes it, and the wheel over it scrolls it; the wheel elsewhere closes it.
+  - It is drawn as a framed panel with the buffer's rows in it, highlighted, with no cursor (`app/draw/float/hover.rs`).
+  - The agent channel waits while it shows, as the ADR says. `get-state` gives `hover` as the row shown first, never the text.
+- **Public API:**
+  - `oso-lsp`: `AskKind::{Hover, wait}`, `Answered::Hover`, `protocol::{Hover, hover}`, and `server::AskFailure`, which `Answer::outcome`'s error now is (8a's `String` before). `server::Hovered` of the plan became `protocol::Hover` itself.
+  - `oso-core`: `ServerRequest::Describe`, `Editor::{show_hover, close_hover, hover, scroll_hover, hover_page, hover_layout, hover_screen}`, `editor::HoverShown` with `buffer`, `top` and `label`. `show_hover` takes the server's name. `frame::at_point` is the crate's own, for step 9's popup too.
+  - `oso-lsp`'s `limits` gains `HOVER_PIECES_MAX` and `HOVER_LANGUAGE_BYTES_MAX`.
+  - The commands say "describe", after Eglot's `eglot-help-at-point` and `C-h`'s describe commands; the editor's API says "hover", after the protocol.
+- **From this step's reviews:** the syntax host highlights the description, which it had left out with every internal buffer; a float put away never comes back, and every key, menu, wheel or press that should close it does; a buffer that came to may hold secrets shows none; the width is measured for a bounded number of lines; the reader stops once full and fences only what it keeps; its bounds moved to `limits`; ADR 0008's floats for hover are amended.
+- **Tests:**
+  - each shape of an answer, the fences, the bounds at and past them, a huge piece, and a fuzz test of any contents;
+  - `at_point`'s placement, and the float's buffer, size, scroll and close, a buffer that came to may hold secrets, and one put away that stays away;
+  - the syntax host's job for the description, and its drop once closed;
+  - the keys through the dispatcher;
+  - against the fake server, the ask at its position, the text never logged, a null answer and the 3 s wait;
+  - the text-grid snapshot `hover`, and the end-to-end flow `lsp.rs` (`a_description_shows_at_point_scrolls_and_goes_with_the_next_key`).
+
 ### Step 11: agents
 
 The author answered step 11's questions on 2026-11-16, all with the first choice:
@@ -1907,7 +1969,7 @@ The author answered step 11's questions on 2026-11-16, all with the first choice
 
 - **The channel's `diagnostics`** (`channel/diagnostics.rs`), and the `oso mcp` tool of that name, is a read tool like `text`. It reads a buffer's diagnostics, or with `project`, its project's, from every server:
   - Sources: the open buffers' sets, then the reports the servers keep of files no buffer holds (6b), which the app shares by `Arc`.
-  - Where: the UI thread checks the buffer and takes a snapshot, the sets cloned and the texts and reports shared, O(the open buffers' entries); the answer is made on a thread of its own, `oso-agent-diagnostics`, as `text` copies its rows (`app/agent/servers.rs`).
+  - Where: the UI thread checks the buffer and takes a snapshot, the sets cloned and the texts and reports shared, O(the open buffers' entries); the answer is made on a thread of its own, `oso-agent-diagnostics`, as `text` copies its rows (`app/agent/reads.rs`).
   - Order: the buffer's own first, by place, then each file's by its path from the root and by line. One function, `channel::diagnostics::ordered`, gives this order to `M-g d`'s rows too, with its paths judged as a URI reads back and its bound on a path's length, so the two cannot drift apart. Hints are left out.
   - Bound: at most `MAX_ENTRIES` (500) and `ANSWER_BYTES` (512 KiB) of the entries' text, so that an answer fits a reply line; the rest are counted in `more`. Once full, an open set is counted from its counts and a file's reports without sorting them.
   - Each entry gives the path, the line and column from 1, the severity (`error`, `warning` or `info`, `Severity::word`), the message, the source, the code and the server. An open buffer's column is in characters, counted in O(log n) by a slice of the rope. A file's column is the server's own, with `column_unit`.

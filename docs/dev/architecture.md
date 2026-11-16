@@ -263,6 +263,8 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   inside that span a message around a secret buffer reaches only the echo area. `Editor::echo` reaches the
   echo area alone. `Editor::buffers` leaves internal buffers out, so whatever goes through
   a user's work does too ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
+  The one internal buffer highlighted is a server's description at point, which the syntax
+  host adds while it shows ([ADR 0138](adr/0138-language-servers.md)).
 
 ### Command registry
 
@@ -334,13 +336,14 @@ A panicking command is caught at the command boundary
   whole key sequence, or leaves it undefined, decides. So far the global layer exists, a
   minor mode layer of digits while a prefix argument is typed, another while the layer of
   `C-x TAB` is open, whose arrows shift the region until another key closes it
-  ([ADR 0115](adr/0115-indentation.md)), a major mode layer in the buffers that show emergency
+  ([ADR 0115](adr/0115-indentation.md)), or in its place while a server's description shows at
+  point, whose `C-v` and `M-v` scroll it ([ADR 0138](adr/0138-language-servers.md)), a major mode layer in the buffers that show emergency
   copies, in a prompt, in a Markdown buffer (`M-RET`), in a directory listing
   ([ADR 0134](adr/0134-a-directory-editor.md)), in a git status
   ([ADR 0127](adr/0127-source-control-and-github.md)) and in a terminal, whose keymap holds session
   mode's keys too in a terminal that hosts an agent session ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)), with the user's
   `[keys.session]` as a minor mode layer above it there, the `lsp` minor mode layer in a buffer a
-  language server follows (`C-M-n`, `C-M-p`, `M-g d`, `M-.`, `M-?`, `C-M-i`, [ADR 0138](adr/0138-language-servers.md)), above it while one is open the layer of `C-x TAB` or the completion popup's, which any other command closes, and a layer for the user's keys, which
+  language server follows (`C-M-n`, `C-M-p`, `M-g d`, `M-.`, `M-?`, `C-M-i`, `C-c C-d`, [ADR 0138](adr/0138-language-servers.md)), above it while one is open the layer of `C-x TAB`, the completion popup's or a description's, which any other command closes, and a layer for the user's keys, which
   the configuration file fills ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
   take the global layer's place, so that no other key reaches a command. While a jump is on, its
   keymap comes before every other but a question's ([ADR 0116](adr/0116-migemo-and-jumps.md)).
@@ -517,11 +520,13 @@ text command. The PTY is `oso-platform::process::pty`, spawned through the
 process module's rules ([ADR 0015](adr/0015-terminal.md),
 [ADR 0120](adr/0120-the-terminal.md)).
 
-The minibuffer and hover documentation are buffers shown in floating windows, and editing
-commands work inside them unchanged. See [ADR 0008](adr/0008-floating-ui.md). The completion popup
+The minibuffer is a buffer shown in a floating window, and editing
+commands work inside it unchanged. See [ADR 0008](adr/0008-floating-ui.md). The completion popup
 at point is no buffer: it is the editor's state of a server's items, drawn as a float under or
 over the cursor's row, and typing goes on into the buffer beneath
-([ADR 0138](adr/0138-language-servers.md), step 9). A menu (hydra/transient-style) is a float with no window or
+([ADR 0138](adr/0138-language-servers.md), step 9). A language server's description at point is
+a buffer in a float with no window, which `C-v` and `M-v` scroll and any other key closes
+(step 10). A menu (hydra/transient-style) is a float with no window or
 buffer, whose heads act on the window beneath ([ADR 0117](adr/0117-menus.md)). The open menus are
 the dispatcher's, a stack over the set the first came from, and their keys come first while one
 is open; the app draws the one on top over the tiled panes. A command never
@@ -1071,7 +1076,7 @@ Full details are in [`security.md`](security.md).
     size once loaded, is shown in that buffer instead, if the channel may show it
     (`dispatch::unshowable`, which `switch-to-buffer` asks too), and that buffer keeps its
     mark (ADR 0094). Until its open is done, a buffer the channel is opening is left out of
-    `state`, `text`, `switch-to-buffer` and the dev restart's handoff. `text` copies rows or the region off the UI thread (`channel::text`), and `diagnostics` makes its answer off it too, from the sets and the servers' reports the UI thread shared (`channel::diagnostics`, answered by `app/agent/servers.rs`); it never gives a buffer `text` refuses, nor the servers' reports of such a buffer's file. A buffer
+    `state`, `text`, `switch-to-buffer` and the dev restart's handoff. `text` copies rows or the region off the UI thread (`channel::text`), and `diagnostics` makes its answer off it too, from the sets and the servers' reports the UI thread shared (`channel::diagnostics`, answered by `app/agent/reads.rs`); it never gives a buffer `text` refuses, nor the servers' reports of such a buffer's file. A buffer
     the channel opened is marked, and `save-buffer` run for the agent asks the person before
     saving it. A save a command run for the agent queued, or the person's `y` to its question,
     goes through `saver::spawn_for_agent`, which refuses it on the saving thread, right before

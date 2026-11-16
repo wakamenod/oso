@@ -217,14 +217,17 @@ one layer:
   each command (not while a prompt is open) and each turn of the wheel, the other window goes
   to the aligned line, but never while either shows a buffer that may hold secrets.
 - Floating windows are positioned freely above the tree. They show the
-  minibuffer and hover documentation; menus and the completion popup at point are floats with
-  no window. Their placement is decided per feature, a float at point's by `frame::at_point`.
+  minibuffer. A server's description at point is a float with no window, showing a buffer
+  of its own; menus and the completion popup at point are floats with no window. Their
+  placement is decided per feature, a float at point's by `frame::at_point`.
 - `oso_core::frame` lays out a frame in whole cells: each window's text area and
   modeline, and the echo area. `frame::float_regions` places a float over the tiled area, outside the
   layout: a prompt's, attached to the top edge at the center, whose window goes after the tiled
   ones and is the selected one while it is open
   ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md),
-  [ADR 0075](adr/0075-a-float-as-a-panel-attached-to-the-top-edge.md)). Its panel, field and key
+  [ADR 0075](adr/0075-a-float-as-a-panel-attached-to-the-top-edge.md)); `frame::at_point` places
+  one at a cell of a window's text area, below its row or above it, as a server's description
+  is ([ADR 0138](adr/0138-language-servers.md)). Its panel, field and key
   chips are rounded boxes the renderer draws in pixels around those cells. `Editor` holds the layout,
   and a window's `ViewSize` is its text area, so scrolling and the cursor stop above
   the reserved rows ([ADR 0057](adr/0057-frame-layout.md)).

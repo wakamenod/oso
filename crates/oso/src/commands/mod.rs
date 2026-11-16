@@ -501,6 +501,10 @@ mod tests {
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).
         "load-theme",
+        "lsp-describe-at-point",
+        "lsp-describe-close",
+        "lsp-describe-scroll-down",
+        "lsp-describe-scroll-up",
         "lsp-diagnostics",
         "lsp-go-to-xref",
         "lsp-restart",

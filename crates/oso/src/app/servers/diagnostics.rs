@@ -5,7 +5,7 @@
 //! Once the cursor stays 300 ms on a diagnostic, the echo area says it (Q14). The reports of
 //! files no buffer holds are kept by path, shared with the server's thread, for `M-g d`, whose
 //! rows are built on a thread of their own from a snapshot (step 6b, `rows`), and for the agent
-//! channel's `diagnostics`, which `app/agent/servers.rs` answers with them and the servers'
+//! channel's `diagnostics`, which `app/agent/reads.rs` answers with them and the servers'
 //! names (step 11).
 //!
 //! Must not depend on: the window system or the drawing; nothing here waits on a server.

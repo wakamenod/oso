@@ -267,6 +267,45 @@ fn the_agent_s_m_question_is_refused_and_asks_nothing_and_its_m_dot_asks() {
     }
 }
 
+#[test]
+fn c_c_c_d_and_c_h_dot_ask_and_the_description_s_keys_scroll_close_or_pass_on() {
+    use oso_core::editor::ServerRequest;
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    editor.set_frame_size(oso_core::frame::FrameSize {
+        rows: 40,
+        columns: 120,
+    });
+    for keys in ["C-c C-d", "C-h ."] {
+        send(&mut d, &mut editor, keys);
+        let asked = editor.take_server_requests();
+        assert!(
+            matches!(asked[..], [ServerRequest::Describe(_)]),
+            "{keys}: {asked:?}"
+        );
+    }
+    let long: String = (0..60).map(|n| format!("line {n}\n")).collect();
+    let show = |editor: &mut Editor| {
+        let at = editor.ask_at();
+        assert!(editor.show_hover(at, "fake", &long, false));
+    };
+    show(&mut editor);
+    send(&mut d, &mut editor, "C-v");
+    assert_eq!(editor.hover().unwrap().top(), 18, "C-v scrolls it");
+    send(&mut d, &mut editor, "M-v");
+    assert_eq!(editor.hover().unwrap().top(), 0, "M-v scrolls it back");
+    assert_eq!(cursor(&editor), 0, "the buffer's cursor stays");
+    // Any other key closes it and does what it always does.
+    send(&mut d, &mut editor, "C-f");
+    assert!(editor.hover().is_none());
+    assert_eq!(cursor(&editor), 1);
+    // `C-g` closes it, and nothing more.
+    show(&mut editor);
+    send(&mut d, &mut editor, "C-g");
+    assert!(editor.hover().is_none());
+    // With none shown, `C-v` scrolls the window, as ever.
+    assert!(editor.take_server_requests().is_empty());
+}
+
 /// Opens the popup in `editor` over `labels`, at the primary cursor.
 fn pop(editor: &mut Editor, labels: &[&str]) {
     use oso_core::editor::{CompletionPopupAnswer, CompletionPopupItem};
