@@ -1103,7 +1103,10 @@ fn a_definition_is_asked_at_its_position_and_placed_in_the_open_text() {
         panic!("places")
     };
     assert_eq!(places.len(), 2, "the URI that is not a file's is left out");
-    assert_eq!(places[0].path, dir.join("a.rs"));
+    // As a URI reads back: on Windows, with no `\\?\` prefix, which `canonicalize` gives.
+    let read_back =
+        |name: &str| oso_lsp::uri::to_path(&oso_lsp::uri::from_path(&dir.join(name)).unwrap());
+    assert_eq!(Some(places[0].path.clone()), read_back("a.rs"));
     assert_eq!(
         places[0].target,
         Target::Open {
@@ -1114,7 +1117,7 @@ fn a_definition_is_asked_at_its_position_and_placed_in_the_open_text() {
             encoding: Encoding::Utf16,
         }
     );
-    assert_eq!(places[1].path, dir.join("b.rs"));
+    assert_eq!(Some(places[1].path.clone()), read_back("b.rs"));
     assert_eq!(
         places[1].target,
         Target::Lines {

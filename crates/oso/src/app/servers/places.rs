@@ -312,7 +312,13 @@ impl App {
             .copied()
             .find(|id| id.get() == document)?;
         let buffer = self.editor.buffer(id)?;
-        if buffer.path() != Some(place.path.as_path()) {
+        // In the form a URI reads back as, as the place's path is: on Windows the drive letter
+        // upper case and no `\\?\` prefix, however the buffer's path is written.
+        let read_back = buffer
+            .path()
+            .and_then(oso_lsp::uri::from_path)
+            .and_then(|uri| oso_lsp::uri::to_path(&uri));
+        if read_back.as_deref() != Some(place.path.as_path()) {
             return None;
         }
         let offset = if buffer.revision() == revision {
