@@ -321,12 +321,14 @@ impl App {
         if let Some(old) = self.dispatcher.set_user_keymap(keys) {
             self.freer.free(old);
         }
+        self.forget_pane_keys();
     }
 
     /// Drops on the freeing thread the user's keymaps that ones waiting for a prefix key replaced.
     pub(super) fn free_replaced_keymap(&mut self) {
         while let Some(old) = self.dispatcher.take_replaced_keymap() {
             self.freer.free(old);
+            self.forget_pane_keys();
         }
         while let Some(old) = self.dispatcher.take_replaced_menus() {
             self.freer.free(old);

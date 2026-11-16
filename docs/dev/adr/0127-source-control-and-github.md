@@ -811,7 +811,7 @@ last 200 lines; (6) one pull request.
 
 - **The session:** the hosted, running session whose directory is the repository's root, the
   one whose terminal was shown last if several are; none: "No agent session runs in this
-  worktree: C-x a c starts one". A request is pasted through `send_to_session`, the one delivery
+  worktree: C-c a c starts one" (the keys `claude` is on, as bound now). A request is pasted through `send_to_session`, the one delivery
   path, as the person's bracketed paste, not submitted, and refused as a send is while the
   session needs input; the session's terminal is shown.
 - **`C-c C-d`** (`git-draft-commit-message`, `Person`) reads the last 5 subjects on the

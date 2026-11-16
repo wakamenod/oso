@@ -12,18 +12,20 @@ use oso_core::key::KeySequence;
 use oso_core::menu::{Definition, Head, HeadAction, Note, Notes, Open, Stay};
 use oso_core::menu::{Describe, Menus};
 
+use crate::commands::agent_sessions::{ARCHIVE_LABEL, PIN_LABEL, agents_menu};
+
 /// The keys bound to built-in menus in the default global keymap, as `(keys, menu)`: the
-/// toggles (ADR 0117, Q25), the review menu (ADR 0122) and the space menu (ADR 0136); the rest
-/// are reached with
-/// `M-x open-menu` or a key in `config.toml`.
+/// toggles (ADR 0117, Q25), the review menu (ADR 0122) and the Agents menu (ADR 0143); the rest
+/// are reached from another menu, with `M-x open-menu` or a key in `config.toml`.
 pub const MENU_KEYS: &[(&str, &str)] = &[
     ("C-c t", "toggles"),
     ("C-x v r", "review"),
-    ("C-x a S", "space"),
+    ("C-c a", "agents"),
 ];
 
-/// One head of a built-in menu: its keys, command (or switch's name), label, whether it stays,
-/// a fixed count, and whether it flips a switch rather than run a command.
+/// One head of a built-in menu: its keys, command (or switch's or menu's name), label, whether
+/// it stays, a fixed count, and whether it flips a switch or opens a menu rather than run a
+/// command.
 struct BuiltInHead {
     keys: &'static str,
     command: &'static str,
@@ -31,6 +33,7 @@ struct BuiltInHead {
     stay: bool,
     count: Option<i16>,
     switch: bool,
+    menu: bool,
 }
 
 /// A head that closes the menu.
@@ -42,6 +45,15 @@ const fn exit(keys: &'static str, command: &'static str, label: &'static str) ->
         stay: false,
         count: None,
         switch: false,
+        menu: false,
+    }
+}
+
+/// A head that opens the built-in menu `name` over this one (ADR 0117, Q16).
+const fn open(keys: &'static str, name: &'static str, label: &'static str) -> BuiltInHead {
+    BuiltInHead {
+        menu: true,
+        ..exit(keys, name, label)
     }
 }
 
@@ -281,6 +293,62 @@ const SPACE: BuiltInMenu = BuiltInMenu {
     describe: None,
 };
 
+/// The agent sessions' commands (ADR 0143), on `C-c a`, with the letters `C-x a` had (ADR 0121,
+/// Q7, ADR 0136). Session mode's `C-c C-<letter>` runs the head of the same letter.
+const AGENTS: BuiltInMenu = BuiltInMenu {
+    name: "agents",
+    title: "Agents",
+    groups: &[
+        (
+            "Start",
+            &[
+                exit("c", "claude", "new session"),
+                exit("w", "session-worktree", "in a worktree\u{2026}"),
+                exit("r", "session-resume", "resume\u{2026}"),
+                exit("a", "session-adopt", "adopt\u{2026}"),
+            ],
+        ),
+        (
+            "Go to",
+            &[
+                exit("s", "sessions", "pane"),
+                exit("b", "session-switch", "session\u{2026}"),
+                exit("n", "session-next-waiting", "next waiting"),
+                exit("d", "session-next-done", "next done"),
+                exit("f", "session-follow-message", "message's sender"),
+            ],
+        ),
+        (
+            "Talk",
+            &[
+                exit("m", "session-send", "send\u{2026}"),
+                exit("@", "session-mention", "mention\u{2026}"),
+                exit("e", "session-explain", "explain"),
+            ],
+        ),
+        (
+            "Space",
+            &[
+                exit("j", "space-switch", "switch\u{2026}"),
+                exit("z", "space-zoom", "zoom"),
+                exit("O", "space-new", "new\u{2026}"),
+                open("S", "space", "space menu"),
+            ],
+        ),
+        (
+            "Session",
+            &[
+                exit("K", "session-stop", "stop"),
+                exit("P", "session-pin", PIN_LABEL),
+                exit("A", "session-archive", ARCHIVE_LABEL),
+                exit("v", "review-session", "review changes"),
+                open("V", "review", "review menu"),
+            ],
+        ),
+    ],
+    describe: Some(agents_menu),
+};
+
 /// Committing (ADR 0127, step 1b), from a git status's `c`, as magit's commit transient: its
 /// switches, then each kind, with fixup and squash onto the commit at point (step 2).
 const COMMIT: BuiltInMenu = BuiltInMenu {
@@ -377,8 +445,8 @@ const FETCH: BuiltInMenu = BuiltInMenu {
 };
 
 /// The built-in menus, in the order their ids are given.
-const BUILT_IN: [&BuiltInMenu; 10] = [
-    &TOGGLES, &WINDOWS, &JUMPS, &SEARCH, &REVIEW, &SPACE, &COMMIT, &PUSH, &PULL, &FETCH,
+const BUILT_IN: [&BuiltInMenu; 11] = [
+    &TOGGLES, &WINDOWS, &JUMPS, &SEARCH, &REVIEW, &SPACE, &COMMIT, &PUSH, &PULL, &FETCH, &AGENTS,
 ];
 
 /// The built-in menus over the commands in `registry`. A head whose command `registry` lacks is
@@ -395,7 +463,7 @@ pub fn built_in_menus(registry: &Registry) -> Menus {
         let id = menus
             .id(menu.name)
             .unwrap_or_else(|e| panic!("menu {}: {e}", menu.name));
-        let definition = definition(menu, registry);
+        let definition = definition(menu, registry, &mut menus);
         menus
             .define(id, definition)
             .unwrap_or_else(|e| panic!("menu {}: {e}", menu.name));
@@ -403,8 +471,9 @@ pub fn built_in_menus(registry: &Registry) -> Menus {
     menus
 }
 
-/// The definition of `menu`, with the heads whose commands `registry` has.
-fn definition(menu: &BuiltInMenu, registry: &Registry) -> Definition {
+/// The definition of `menu`, with the heads whose commands `registry` has; a head that opens a
+/// menu takes that menu's id from `menus`.
+fn definition(menu: &BuiltInMenu, registry: &Registry, menus: &mut Menus) -> Definition {
     let fail = |e: &dyn std::fmt::Display| -> ! { panic!("menu {}: {e}", menu.name) };
     let mut definition = Definition::new(menu.name, menu.title).unwrap_or_else(|e| fail(&e));
     if let Some(describe) = menu.describe {
@@ -417,6 +486,8 @@ fn definition(menu: &BuiltInMenu, registry: &Registry) -> Definition {
         for head in heads {
             let action = if head.switch {
                 HeadAction::Switch(head.command.to_owned())
+            } else if head.menu {
+                HeadAction::Menu(menus.id(head.command).unwrap_or_else(|e| fail(&e)))
             } else {
                 let Some(command) = registry.lookup(head.command) else {
                     continue;

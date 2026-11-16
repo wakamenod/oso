@@ -234,7 +234,7 @@ impl Bridge {
 /// instance and that session's bridge.
 fn hosted(flow: &Flow) -> (App, Bridge) {
     let (mut app, _) = flow.start();
-    app.send_keys("C-x a c");
+    app.send_keys("C-c a c");
     let run = run_in(flow, &flow.repo);
     app.wait_for("the session's terminal", |state| {
         terminal(state, "*claude: repo*").is_some()
@@ -394,7 +394,7 @@ fn a_worktree_session_starts_without_asking_up_to_the_limit_and_asks_past_it() {
         "{messages}"
     );
     assert!(messages.contains("without asking"), "{messages}");
-    let list = rows_after(&mut app, "C-x a s", "*Spaces*");
+    let list = rows_after(&mut app, "C-c a s", "*Spaces*");
     assert!(list.contains("unasked"), "{list}");
 
     // The limit is 1 and that session runs: the next start asks, and `n` refuses it.

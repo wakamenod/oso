@@ -26,9 +26,6 @@ use crate::commands::vcs::RESTRICTED;
 use crate::sessions::worker::SessionKey;
 use crate::vcs::agent::{draft_request, fix_request, one_line as escaped};
 
-/// What a request says with no session to ask.
-const NO_SESSION: &str = "No agent session runs in this worktree: C-x a c starts one";
-
 /// A draft request sent for a message buffer, and the session it was pasted into, which alone
 /// may answer it.
 pub(in crate::app) struct Asked {
@@ -38,6 +35,15 @@ pub(in crate::app) struct Asked {
 }
 
 impl App {
+    /// Says there is no session to ask, and the keys of `claude` as bound now, which starts
+    /// one (ADR 0143).
+    fn no_session(&mut self) {
+        let start = self.dispatcher.where_is(&self.editor, "claude");
+        self.editor.message(format!(
+            "No agent session runs in this worktree: {start} starts one"
+        ));
+    }
+
     /// The hosted session that runs in `root` with a terminal, the one shown last first.
     pub(super) fn worktree_session(&self, root: &Path) -> Option<SessionKey> {
         let order = self.editor.buffers_by_recency();
@@ -81,7 +87,7 @@ impl App {
         }
         let root = repo.root.path().to_path_buf();
         if self.worktree_session(&root).is_none() {
-            return self.editor.message(NO_SESSION);
+            return self.no_session();
         }
         if self.ask_runner(index, crate::vcs::run::RunRequest::Subjects) {
             self.gits.commits.repos[index].subjects_for = Some(buffer);
@@ -106,7 +112,7 @@ impl App {
         };
         let root = self.gits.commits.repos[index].root.path().to_path_buf();
         let Some(key) = self.worktree_session(&root) else {
-            return self.editor.message(NO_SESSION);
+            return self.no_session();
         };
         let id = match id {
             Ok(id) => id,
@@ -154,7 +160,7 @@ impl App {
         };
         let root = repo.root.path().to_path_buf();
         let Some(key) = self.worktree_session(&root) else {
-            return self.editor.message(NO_SESSION);
+            return self.no_session();
         };
         let worktree = escaped(&root.display().to_string(), 400);
         let (text, dropped) = fix_request(&worktree, &failed.hooks, &failed.output);

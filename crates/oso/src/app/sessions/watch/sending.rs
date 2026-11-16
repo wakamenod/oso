@@ -59,7 +59,10 @@ impl App {
         let (key, name) = (session.key, session.name.clone());
         let text = match send::compose(parts, &session.directory) {
             Ok(text) => text,
-            Err(TooLarge { bytes }) => return self.editor.message(too_large(bytes)),
+            Err(TooLarge { bytes }) => {
+                let send = self.dispatcher.where_is(&self.editor, "session-send");
+                return self.editor.message(too_large(bytes, &send));
+            }
         };
         if let Err(why) = self.send_to_session(key, text) {
             return self.editor.message(why);

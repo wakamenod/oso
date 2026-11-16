@@ -249,6 +249,11 @@ impl App {
             .map(|member| member.root.as_path())
             .collect();
         let chosen = self.hosting.spaces.used.get(&stored.id);
-        Some(repo::for_commands(&trusted, chosen.map(PathBuf::as_path)))
+        let use_repo = self.dispatcher.where_is(&self.editor, "space-use-repo");
+        Some(repo::for_commands(
+            &trusted,
+            chosen.map(PathBuf::as_path),
+            &use_repo,
+        ))
     }
 }

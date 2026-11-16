@@ -167,13 +167,14 @@ impl List {
     }
 
     /// What the pane's modeline says of it (ADR 0140): its name and grouping, then how to
-    /// enter it, or, while it is `selected`, how to leave it, fold and find its keys.
-    pub fn modeline_note(&self, selected: bool) -> &'static str {
+    /// enter it, by the keys `enter` of `sessions` as bound (ADR 0143), or, while it is
+    /// `selected`, how to leave it, fold and find its keys.
+    pub fn modeline_note(&self, selected: bool, enter: &str) -> String {
         match (self.grouping, selected) {
-            (Grouping::Tree, false) => "Spaces · C-x a s to enter",
-            (Grouping::Tree, true) => "Spaces · q back · TAB fold · ? keys",
-            (Grouping::State, false) => "Spaces by state · C-x a s to enter",
-            (Grouping::State, true) => "Spaces by state · q back · ? keys",
+            (Grouping::Tree, false) => format!("Spaces · {enter} to enter"),
+            (Grouping::Tree, true) => "Spaces · q back · TAB fold · ? keys".to_owned(),
+            (Grouping::State, false) => format!("Spaces by state · {enter} to enter"),
+            (Grouping::State, true) => "Spaces by state · q back · ? keys".to_owned(),
         }
     }
 

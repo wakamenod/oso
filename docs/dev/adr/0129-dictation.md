@@ -75,7 +75,7 @@ The forces:
 
 ### Dictating (Q2, Q3, Q4)
 
-- **`dictation-toggle` (`Person`, `C-x a v`, Q3)** starts the program and remembers the target: the
+- **`dictation-toggle` (`Person`, `C-c a t`, Q3)** starts the program and remembers the target: the
   selected window's buffer and its cursors, the minibuffer, or a terminal. Pressing it again, `RET`
   or `C-g` stops it.
 - **While it records:** the modeline shows a red `● REC` in every window, and a small float at the
@@ -93,7 +93,7 @@ The forces:
     paste, **not submitted**; a terminal whose program has echo off refuses it (a dictated password
     is still a password, and the rows are withheld).
   With `[dictation] confirm = false`, the text goes in at once, without the float's `RET`.
-- **Language (Q4):** `[dictation] language` is passed through `{lang}`; `C-u C-x a v` asks for one
+- **Language (Q4):** `[dictation] language` is passed through `{lang}`; `C-u C-c a t` asks for one
   for this dictation (`ja`, `en`, `auto`).
 - **Agents cannot dictate:** the command is `Person`, nothing in `oso mcp` starts it, and the channel
   cannot read the float.
@@ -150,11 +150,13 @@ For the author, the recommended option first.
    `confirm = false` skips the float.
    (b) Inserted at once when recording stops; undo removes it.
 3. **The key.**
-   (a) `C-x a v` to start and stop (works inside terminals, since `C-x` stays oso's). A hold-to-talk
-   key waits until the window layer reports key releases.
-   (b) A single chord outside `C-x a`, such as `s-d` (the author's Hyper key could map to it).
+   (a) `t` in the Agents menu, `C-c a t`, to start and stop (works inside terminals, which keep
+   `C-c a`; ADR 0143), and `C-c C-t` in a session. A hold-to-talk key waits until the window layer
+   reports key releases.
+   (b) A single chord outside the menu, such as `s-d` (a keyboard's Hyper key could map to it;
+   terminals keep Super keys for oso, ADR 0143).
 4. **The language.**
-   (a) `[dictation] language` (default `auto`), and `C-u C-x a v` asks for one this time.
+   (a) `[dictation] language` (default `auto`), and `C-u C-c a t` asks for one this time.
    (b) Always `auto`.
 5. **The microphone permission on macOS.**
    (a) Embed an Info.plist in oso's executable now, so dictation and Claude Code's `/voice` work in

@@ -105,7 +105,7 @@ fn hosted(flow: &Flow) -> (App, Bridge) {
     }
     fs::write(flow.repo.join("README.md"), "# e2e\nchanged\n").unwrap();
     let (mut app, _) = flow.start();
-    app.send_keys("C-x a c");
+    app.send_keys("C-c a c");
     let run = run_in(flow, &flow.repo);
     app.wait_for("the fake", |state| {
         terminal(state, "*claude: repo*").is_some_and(|terminal| {
