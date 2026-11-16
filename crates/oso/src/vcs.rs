@@ -1,6 +1,7 @@
 //! Source control (ADR 0127): a repository's status buffer, as magit's, with its sections,
-//! files and hunks, staging and unstaging by section, file and hunk (step 1a), and committing,
-//! with git's output in a log (step 1b).
+//! files and hunks, staging and unstaging by section, file and hunk (step 1a), committing,
+//! with git's output in a log (step 1b), and staging lines, refined words, and discarding with
+//! copies kept and written back (step 1c: [`cut`], [`discard`], [`keep`], [`discarded`]).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in
 //! and takes reports out, and supplies the wake-up.

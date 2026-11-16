@@ -392,7 +392,11 @@ fn a_changed_word_of_a_paired_line_is_refined() {
     let sections = sections(&status(), &counts(), &counts(), &|_| false);
     let hunks = HashMap::from([(
         (Section::Unstaged, b"src/a.rs".to_vec()),
-        Hunks::Patch(Arc::new(patch::parse(patch, false))),
+        Hunks::Patch(Arc::new({
+            let mut patch = patch::parse(patch, false);
+            patch.refine();
+            patch
+        })),
     )]);
     let laid = lay_out(&head(), &[], sections, &hunks, &view);
     let text = laid.text.text().to_string();

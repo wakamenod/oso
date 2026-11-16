@@ -90,6 +90,14 @@ impl App {
             Ok(targets) => targets,
             Err(why) => return self.editor.message(why),
         };
+        if let Some(why) = discard::too_many(&built, &targets) {
+            return self.editor.message(why);
+        }
+        // What the thread would refuse is said before the question, at most a thousand files'
+        // worth of work, as `too_many` let none past that.
+        if let Err(why) = discard::plan(&built, &targets) {
+            return self.editor.message(why);
+        }
         if let Some(name) = self.unsaved_among(index, &built, &targets) {
             return self
                 .editor
@@ -113,12 +121,15 @@ impl App {
     /// The name of a file `targets` of `built` name whose buffer has unsaved edits, if one has.
     fn unsaved_among(&self, index: usize, built: &Built, targets: &[Target]) -> Option<String> {
         let root = self.gits.open[index].root.path();
-        let edited: Vec<Vec<u8>> = (self.editor.buffers())
+        let edited: std::collections::HashSet<Vec<u8>> = (self.editor.buffers())
             .filter(|(_, buffer)| buffer.is_modified())
             .filter_map(|(_, buffer)| buffer.path()?.strip_prefix(root).ok())
             .filter_map(super::git_bytes)
             .collect();
-        let named = |path: &[u8]| edited.iter().any(|edited| edited == path);
+        if edited.is_empty() {
+            return None;
+        }
+        let named = |path: &[u8]| edited.contains(path);
         let hit = targets.iter().find_map(|target| {
             let (section, file) = match *target {
                 Target::Section(section) => {
@@ -229,8 +240,16 @@ impl App {
             if asked != buffer {
                 return;
             }
+            // A buffer of the file that may hold secrets keeps what it holds from any copy.
+            let secret = (self.editor.buffers()).any(|(_, shown)| {
+                shown.is_secret()
+                    && (shown.path())
+                        .and_then(|path| path.strip_prefix(root.path()).ok())
+                        .and_then(super::git_bytes)
+                        .is_some_and(|bytes| bytes == entry.path)
+            });
             let index = self.git_repo(project, &root);
-            self.ask_runner(index, RunRequest::Restore { entry });
+            self.ask_runner(index, RunRequest::Restore { entry, secret });
             return;
         }
         let Some(entry) = line

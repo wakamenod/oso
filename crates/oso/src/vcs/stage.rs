@@ -1,13 +1,14 @@
-//! What `s`, `u`, `S` and `U` mean in a status buffer (ADR 0127): the sections, files and hunks
-//! the cursors' lines name, and the git commands that stage or unstage them.
+//! What `s`, `u`, `S` and `U` mean in a status buffer (ADR 0127): the sections, files, hunks
+//! and hunks' lines the cursors' lines name, which `k` takes too, and the git commands that
+//! stage or unstage them.
 //!
 //! Must not depend on: `app`, `dispatch`, git or the file system; these are pure functions of
 //! the text shown and its table.
 //!
 //! - A cursor means what its line is on: a section's heading its files, a file's row the file,
 //!   a hunk's header or line the hunk. A region means every heading, file and hunk whose row it
-//!   holds; a region that holds a hunk's lines without its header would mean part of a hunk,
-//!   which is refused until lines can be staged (ADR 0127, step 1c).
+//!   holds; a region that holds a hunk's lines without its header means those lines (ADR 0127,
+//!   step 1c).
 //! - Files go to git as paths on standard input, never on the command line, so that any number
 //!   fit; hunks of one file go as one patch, its header once.
 

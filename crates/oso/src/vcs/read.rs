@@ -123,5 +123,7 @@ pub(super) fn read_patch(
         }
         .to_string());
     }
-    Ok(patch::parse(&out.stdout, out.cut))
+    let mut patch = patch::parse(&out.stdout, out.cut);
+    patch.refine();
+    Ok(patch)
 }

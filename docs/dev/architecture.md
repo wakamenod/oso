@@ -629,7 +629,8 @@ The UI thread never blocks on I/O or parsing:
   ([ADR 0127](adr/0127-source-control-and-github.md)). A region inside a hunk stages a patch cut
   to its lines (`vcs/cut.rs`), a hunk's words are refined there with `review/refine.rs`, which a
   review's view shares, and `k` discards after keeping copies (`vcs/discard.rs` plans it,
-  `vcs/keep.rs` runs it and writes copies back, `vcs/discarded.rs` is their record), step 1c.
+  `vcs/keep.rs` runs it and writes copies back, `vcs/discarded.rs` is their record, glue in
+  `app/vcs/discard.rs`; the record is read and copies written back on `oso-vcs-run`), step 1c.
 - A commit runs on its repository's thread, `oso-vcs-run` (`crates/oso/src/vcs/run.rs`, glue in
   `app/vcs/runs.rs` and `app/vcs/commit.rs`), with the repository's hooks and no time limit, in
   a process group of its own (`crate::git`'s `long`), which `C-g` sends `SIGTERM` and then

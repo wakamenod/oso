@@ -118,6 +118,7 @@ fn hunk_of(kinds: &[u8]) -> Hunk {
         new_start: 1,
         lines,
         whole: true,
+        refined: std::collections::HashMap::new(),
     }
 }
 

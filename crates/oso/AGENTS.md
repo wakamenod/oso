@@ -80,7 +80,8 @@ often, so it must rebuild within 2 s.
   buffer, `oso-vcs` (`work`), which runs git through `git`'s runner for a trusted root only,
   its reads in `read` and its writes to the index in `write`; staging lines cuts the patch
   (`cut`), and discarding is planned in `discard`, run in `keep`, which writes copies back too,
-  and recorded in `discarded`;
+  and recorded in `discarded`, with `app/vcs/discard.rs` and `commands::vcs::discard` (the list's
+  keys, `bindings::vcs::DISCARDED`);
   reads porcelain v2 and patches as untrusted bytes (`status`, `patch`), lays out the text with
   its outline and the table of what each line is about (`layout`), and turns the lines commands
   name into staging (`stage`). A commit runs on its repository's thread, `oso-vcs-run`

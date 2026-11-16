@@ -216,7 +216,9 @@ network features.
   secrets, as a loose object can be read more widely than a private file. The record of the
   copies, in oso's state directory, is private and holds ids and paths, never contents. Paths
   from git are deleted or written only as plain names under the project's root, through no
-  link, and writing a copy back keeps what the file held as another copy first.
+  link and through none of git's own directory, and writing a copy back makes its file there
+  with no link followed, and keeps what the file held as another copy first. A file with more
+  than one name, or for its owner's eyes only, is not discarded, as its copy could expose it.
 - Passphrase and credential prompts never enter minibuffer history, the kill
   ring or keyboard macros.
 

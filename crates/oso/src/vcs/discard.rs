@@ -24,12 +24,16 @@ use super::stage::Target;
 
 /// The most untracked files one discard deletes.
 pub(crate) const MAX_DELETED: usize = 100;
+/// The most files one discard keeps copies of: past it, nothing is planned.
+pub(crate) const MAX_COPIED: usize = 1000;
 
 /// One thing a discard runs, in order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Step {
-    /// `git apply -R` of `patch`, to the work tree, or with `index` to the index too.
-    Reverse { patch: Vec<u8>, index: bool },
+    /// `git apply -R` of `patch`, to the work tree, or with `cached` to the index alone: a
+    /// staged hunk goes from the index, then the work tree, as magit's does, so that unstaged
+    /// changes elsewhere in the file do not stop it.
+    Reverse { patch: Vec<u8>, cached: bool },
     /// `git restore --worktree` of these paths, from the index.
     Restore(Vec<Vec<u8>>),
     /// `git restore --staged --worktree --source=HEAD` of these paths.
@@ -118,6 +122,11 @@ pub(crate) fn plan(built: &Built, targets: &[Target]) -> Result<Plan, String> {
     if plan.steps.is_empty() {
         return Err("Nothing here to discard".to_owned());
     }
+    if copies.len() > MAX_COPIED {
+        return Err(format!(
+            "That keeps more than {MAX_COPIED} files: use a shell"
+        ));
+    }
     plan.copies = copies.into_iter().collect();
     plan.said = said(files, hunks, plan.copies.iter().any(|(_, secret)| !secret));
     Ok(plan)
@@ -146,9 +155,15 @@ fn reverses(
         };
         hunks += picks.len();
         copies.insert(found.path.clone(), found.whole_only == Some(SECRET));
+        if section == Section::Staged {
+            steps.push(Step::Reverse {
+                patch: bytes.clone(),
+                cached: true,
+            });
+        }
         steps.push(Step::Reverse {
             patch: bytes,
-            index: section == Section::Staged,
+            cached: false,
         });
     }
     hunks
@@ -222,19 +237,54 @@ fn said(files: usize, hunks: usize, kept: bool) -> String {
     format!("Discarded {}{back}", what.join(" and "))
 }
 
+/// Why discarding `targets` is refused before the question, if it is: an untracked section
+/// past [`MAX_DELETED`], which costs nothing to tell.
+pub(crate) fn too_many(built: &Built, targets: &[Target]) -> Option<String> {
+    let deleted: usize = (targets.iter())
+        .filter(|target| **target == Target::Section(Section::Untracked))
+        .map(|_| built.files(Section::Untracked).len())
+        .sum();
+    let sections: usize = (targets.iter())
+        .filter_map(|target| match target {
+            Target::Section(section) => Some(built.files(*section).len()),
+            _ => None,
+        })
+        .sum();
+    if deleted > MAX_DELETED {
+        Some(format!(
+            "That deletes more than {MAX_DELETED} files: use a shell"
+        ))
+    } else if sections > MAX_COPIED {
+        Some(format!(
+            "That keeps more than {MAX_COPIED} files: use a shell"
+        ))
+    } else {
+        None
+    }
+}
+
 /// What the question before discarding `targets` of `built` asks: what goes, with the one
 /// file's name if there is one, and a word on files that get no copy.
 pub(crate) fn question(built: &Built, targets: &[Target]) -> String {
     let mut files: BTreeSet<(Section, usize)> = BTreeSet::new();
     let (mut whole, mut hunks, mut lines, mut untracked) = (0usize, 0usize, 0usize, 0usize);
+    // A section's files are counted, not each put in the set: it may hold very many.
+    let (mut in_sections, mut secret) = (0usize, 0usize);
     for target in targets {
         match *target {
             Target::Section(section) => {
-                for index in 0..built.files(section).len() {
-                    files.insert((section, index));
-                    whole += 1;
-                    untracked += usize::from(section == Section::Untracked);
-                }
+                let all = built.files(section);
+                in_sections += all.len();
+                whole += all.len();
+                untracked += if section == Section::Untracked {
+                    all.len()
+                } else {
+                    0
+                };
+                secret += all
+                    .iter()
+                    .filter(|file| file.whole_only == Some(SECRET))
+                    .count();
             }
             Target::File { section, file } => {
                 files.insert((section, file));
@@ -254,12 +304,21 @@ pub(crate) fn question(built: &Built, targets: &[Target]) -> String {
     let named: Vec<&File> = (files.iter())
         .filter_map(|(section, index)| built.file(*section, *index))
         .collect();
-    let secret = named
-        .iter()
+    secret += (named.iter())
         .filter(|file| file.whole_only == Some(SECRET))
         .count();
     let name = |file: &File| oso_core::editor::row_text(&String::from_utf8_lossy(&file.path));
-    let one = (named.len() == 1).then(|| name(named[0]));
+    let one = (named.len() + in_sections == 1).then(|| {
+        named.first().map(|file| name(file)).unwrap_or_else(|| {
+            (targets.iter())
+                .find_map(|target| match target {
+                    Target::Section(section) => built.files(*section).first(),
+                    _ => None,
+                })
+                .map(name)
+                .unwrap_or_default()
+        })
+    });
     let mut ask = if untracked == whole && hunks + lines == 0 {
         match (&one, untracked) {
             (Some(one), 1) => format!("Delete untracked {one}"),
@@ -282,10 +341,11 @@ pub(crate) fn question(built: &Built, targets: &[Target]) -> String {
         let place = one.map_or_else(String::new, |one| format!(" in {one}"));
         format!("Discard {}{place}", what.join(" and "))
     };
-    if secret > 0 {
-        ask.push_str(", with no copy of what may hold secrets");
-    }
     ask.push('?');
+    // Said first, so that no name, however long, can push it out of sight.
+    if secret > 0 {
+        ask.insert_str(0, "No copy of what may hold secrets. ");
+    }
     ask
 }
 

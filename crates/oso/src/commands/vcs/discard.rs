@@ -35,6 +35,11 @@ pub const COMMANDS: &[Command] = &[
         show_discarded
     ),
     command!(
+        "git-discarded-refresh",
+        "In the list of what discards kept, read it again (`g`).",
+        refresh_discarded
+    ),
+    command!(
         "git-restore-discarded",
         "In the list of what discards kept, write the copy at point back to its file (`RET`), after a question; what the file holds then is kept too.",
         restore_discarded
@@ -44,7 +49,7 @@ pub const COMMANDS: &[Command] = &[
 /// The keys of the list of what discards kept.
 pub const LIST_KEYS: &[(&str, &str)] = &[
     ("RET", "git-restore-discarded"),
-    ("g", "git-discarded"),
+    ("g", "git-discarded-refresh"),
     ("q", "quit-window"),
 ];
 
@@ -64,12 +69,24 @@ fn discard(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn show_discarded(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::super::not_in_prompt(ctx)?;
-    let buffer = ctx.editor.window().buffer();
-    let shown = ctx.editor.current().1;
-    let in_list = shown.mode() == Mode::GitDiscarded;
+    // The tiled window's, as `M-x` runs it with the minibuffer selected.
+    let buffer = ctx.editor.tiled().0.buffer();
+    let in_list =
+        (ctx.editor.buffer(buffer)).is_some_and(|shown| shown.mode() == Mode::GitDiscarded);
     if !in_list && super::status_project(ctx.editor).is_none() {
         return Err(CommandError::new("Not in a project"));
     }
+    ctx.editor.request_git(GitRequest::ShowDiscarded { buffer });
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn refresh_discarded(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let (window, buffer) = ctx.editor.current();
+    if buffer.mode() != Mode::GitDiscarded {
+        return Err(CommandError::new("Not in the list of what discards kept"));
+    }
+    let buffer = window.buffer();
     ctx.editor.request_git(GitRequest::ShowDiscarded { buffer });
     ctx.request_redraw();
     Ok(())

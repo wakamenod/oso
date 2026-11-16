@@ -11,7 +11,9 @@
 //!   parse is skipped.
 //! - Entries older than [`KEEP`] go as the file is written, and past [`MAX_ENTRIES`] the oldest;
 //!   at most [`MAX_FILE`] bytes of it are read.
-//! - It is written whole to a file beside it, made private, then renamed over it.
+//! - It is written whole to a file beside it, made private, then renamed over it, under a lock
+//!   on a file beside it, as a status's thread and a run thread may write it at once; what is
+//!   written never passes what is read back, the oldest lines going first.
 
 use std::fs;
 use std::io::{self, Read, Write};
@@ -128,12 +130,21 @@ pub(crate) fn read(state: &Path) -> io::Result<Vec<Entry>> {
 /// Adds `added` to the record under `state`, pruned as of now, and writes it again: whole to a
 /// private file beside it, then renamed over it.
 pub(crate) fn add(state: &Path, added: Vec<Entry>) -> io::Result<()> {
-    let mut entries = read(state)?;
-    entries.extend(added);
-    let entries = pruned(entries, now());
     let path = file(state);
     let dir = path.parent().unwrap_or(state);
     fs::create_dir_all(dir)?;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let lock = options.open(dir.join(".discarded.lock"))?;
+    lock.lock()?;
+    let mut entries = read(state)?;
+    entries.extend(added);
+    let entries = pruned(entries, now());
     let next = dir.join(".discarded.next");
     let mut options = fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
@@ -143,10 +154,31 @@ pub(crate) fn add(state: &Path, added: Vec<Entry>) -> io::Result<()> {
         options.mode(0o600);
     }
     let mut out = options.open(&next)?;
-    out.write_all(&format(&entries))?;
+    // Its own, whatever a file left there before had.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        out.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    out.write_all(newest_within(&format(&entries)))?;
     out.sync_all()?;
     drop(out);
-    fs::rename(&next, &path)
+    let renamed = fs::rename(&next, &path);
+    drop(lock);
+    renamed
+}
+
+/// The end of `text` that fits in what is read back, from a line's start.
+fn newest_within(text: &[u8]) -> &[u8] {
+    let limit = usize::try_from(MAX_FILE).unwrap_or(usize::MAX);
+    if text.len() <= limit {
+        return text;
+    }
+    let from = text.len() - limit;
+    let from = (text[from..].iter())
+        .position(|&byte| byte == b'\n')
+        .map_or(text.len(), |at| from + at + 1);
+    &text[from..]
 }
 
 /// The entries of the repository at `root`, newest first.
@@ -162,9 +194,11 @@ pub(crate) fn is_id(id: &str) -> bool {
 }
 
 fn hex(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push_str(&format!("{byte:02x}"));
+    for &byte in bytes {
+        out.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        out.push(char::from(DIGITS[usize::from(byte & 0xf)]));
     }
     out
 }

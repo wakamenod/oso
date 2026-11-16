@@ -724,29 +724,51 @@ of `vcs/work.rs` its first commit.
     back through `git apply -R`.
   - Staged (Q2): a file is restored in the index and the work tree from `HEAD` (`git restore
     --staged --worktree --source=HEAD`), a new file taken out of the index (`git rm --cached`)
-    and deleted, a hunk or lines go back from both (`git apply --index -R`).
+    and deleted, a hunk or lines go back from the index (`git apply --cached -R`), then from the
+    work tree (`git apply -R`), as magit's do, so that unstaged changes elsewhere in the file do
+    not stop it.
   - Untracked files are deleted, at most 100 and 64 MiB, and the directories they leave empty.
-  - Refused: an unmerged path ("resolve it first"), a submodule ("use a shell", Q6), a staged
-    rename or copy ("u unstages it first"), a file whose buffer has unsaved edits (Q4), and a
-    discard while a commit runs.
-- **The copies:** before anything is discarded, each file touched is kept with `git hash-object
-  -w --no-filters`, its bytes as they are, on the status's thread with no time limit until
-  `C-g`, but one that may hold secrets, as the plan's Q4 had it; a link, a directory or a file
-  gone gets none. The record, `vcs/discarded` in oso's state directory, private, gets each copy
-  before anything runs: a line of the time, the root and the path in hexadecimal, and the id,
-  never the contents. Entries older than 14 days go as it is written, and past 10,000 the
-  oldest; at most 4 MiB of it is read.
+  - Refused, before the question: an unmerged path ("resolve it first"), a submodule ("use a
+    shell", Q6), a staged rename or copy ("u unstages it first"), a file whose buffer has unsaved
+    edits (Q4), more than 1000 files to keep, and a discard while a commit runs. On the thread,
+    before anything runs: more than 256 MiB to keep, 64 MiB to delete, a file with more than
+    one name (it could be another's under a harmless one), a file for its owner's eyes only
+    (its copy would be read more widely), and a name with a line break.
+- **The copies:** before anything is discarded, the files touched are kept in one `git
+  hash-object -w --no-filters --stdin-paths`, their bytes as they are, on the status's thread
+  with no time limit until `C-g`, but one that may hold secrets, as the plan's Q4 had it; a
+  link, a directory or a file gone gets none. The record, `vcs/discarded` in oso's state
+  directory, private, gets each copy before anything runs: a line of the time, the root and the
+  path in hexadecimal, and the id, never the contents. It is one file for every repository,
+  written whole under a lock beside it, as a status's thread and a run thread may write it at
+  once. Entries older than 14 days go as it is written, past 10,000 the oldest, and what is
+  written never passes the 4 MiB read back.
 - **Writing back:** `M-x git-discarded` (Q3) reads the record on the repository's run thread
   and shows `*git discarded: NAME*`, newest first: how long ago, the short id and the path,
   escaped. `RET` asks ("Write a.txt back as it was 3 min ago? What it holds now is kept too"),
   then reads the copy (`git cat-file blob`, at most 64 MiB), keeps what the file holds as
-  another copy (Q5), and writes the file beside itself, then renames it over, its mode kept.
+  another copy (Q5), refusing a file that may hold secrets now, and writes a new file beside
+  it, made there and through no link, with its mode set before anything is in it, then renames
+  it over; the path is looked at again just before.
   `g` reads the list again, `q` leaves it.
-- **Paths:** a path from git is followed only as plain names under the root, through no
-  directory that is a link, so that nothing is deleted or written elsewhere.
+- **Paths:** a path from git is followed only as plain names under the root, none of them git's
+  own directory however a file system folds its name, through no directory that is a link;
+  each is looked at again just before what it is deleted or written by.
+- **Refinement's cost:** a patch's words are refined once, as it is read, within 50 ms for the
+  whole patch, and a line with more than 64 refined spans stays plain, so that a layout and a
+  frame cost little whatever a file holds. A frame fills the refined runs of each row's own
+  part of its line.
 - **Deviations:** (1) A staged discard keeps the work tree's file, not the index's version
   where the two differ; the index's is an object already, which `git fsck --lost-found` finds.
-  (2) The question names the files' count, not each file, past one.
+  (2) The question names the files' count, not each file, past one. (3) Submodules are
+  refused, where the Decision has them discard whole (Q6). (4) The untracked limits are a
+  discard's, where the Decision has a directory's. (5) The record is one file for every
+  repository, where the plan's Q5 had one per repository; the list shows a repository's.
+  (6) `*git discarded: NAME*` shows short ids. (7) A discard and a write-back run on different
+  threads (the status's and the run thread); nothing orders them but the person's keys.
+  (8) Refinement runs on the status's thread as a patch is read, not on-screen first as ADR
+  0122 has a review's; ADR 0122's step 3c takes the refiner and its limits from here.
+  `vcs` uses `review` for it, which the layers allow.
 - **Library items** (approved): `Highlight::{DiffRefineAdded, DiffRefineRemoved}` on the
   review's refined faces; `Mode::GitDiscarded`; `GitRequest::{Discard, RestoreDiscarded,
   ShowDiscarded}`.

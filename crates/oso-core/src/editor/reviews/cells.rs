@@ -1,6 +1,7 @@
 //! The backgrounds of a review window's rows in view (ADR 0122, "The views"): added and
 //! removed lines, the words refinement marked in them, headers and cards, as cells for a
-//! frame.
+//! frame; and the refined words of a git status's rows in view, from its highlights (ADR 0127,
+//! step 1c).
 //!
 //! Must not depend on: `command` or `keymap`, or the renderer; this says which cells, and the
 //! renderer fills them.
@@ -149,17 +150,20 @@ impl Editor {
         let Some(highlights) = shown.highlights() else {
             return;
         };
-        let (area, display, text) = (regions.text, shown.display(), shown.text());
-        for (index, screen_row) in screen.rows().iter().enumerate().take(area.rows) {
-            let range = text.line_start(screen_row.line)..text.line_end(screen_row.line);
-            for (run, highlight) in highlights.runs(range) {
-                let list = match highlight {
-                    Some(Highlight::DiffRefineAdded) => &mut out.refine_added,
-                    Some(Highlight::DiffRefineRemoved) => &mut out.refine_removed,
-                    _ => continue,
-                };
-                frame::match_cells_on_row(area, (screen, index), &display, &run, list);
+        let (area, display) = (regions.text, shown.display());
+        // Each row's own part of its line only, in order, then one pass for each list.
+        let (mut added, mut removed) = (Vec::new(), Vec::new());
+        for screen_row in screen.rows().iter().take(area.rows) {
+            for (run, highlight) in highlights.runs(screen_row.start..screen_row.end) {
+                let run = run.start.max(screen_row.start)..run.end.min(screen_row.end);
+                match highlight {
+                    Some(Highlight::DiffRefineAdded) if !run.is_empty() => added.push(run),
+                    Some(Highlight::DiffRefineRemoved) if !run.is_empty() => removed.push(run),
+                    _ => {}
+                }
             }
         }
+        frame::match_cells(area, screen, &display, &added, &mut out.refine_added);
+        frame::match_cells(area, screen, &display, &removed, &mut out.refine_removed);
     }
 }

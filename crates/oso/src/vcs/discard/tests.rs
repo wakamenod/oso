@@ -109,10 +109,10 @@ fn a_hunk_and_lines_go_back_as_a_reverse_patch() {
     };
     let plan_of = |targets: &[Target]| plan(&built, targets).unwrap();
     let whole = plan_of(&[hunk]);
-    let [Step::Reverse { patch, index }] = whole.steps.as_slice() else {
+    let [Step::Reverse { patch, cached }] = whole.steps.as_slice() else {
         panic!("{:?}", whole.steps);
     };
-    assert!(!index);
+    assert!(!cached);
     assert!(String::from_utf8_lossy(patch).ends_with("-one\n+un\n two\n"));
     assert_eq!(whole.copies, [(b"a.rs".to_vec(), false)]);
     // `+un` alone: in reverse, the unchosen `-one` goes.
@@ -139,7 +139,7 @@ fn a_secret_file_gets_no_copy_and_the_question_says_so() {
     assert_eq!(plan.said, "Discarded a file");
     assert_eq!(
         question(&built, &targets),
-        "Discard the file's changes in .env, with no copy of what may hold secrets?"
+        "No copy of what may hold secrets. Discard the file's changes in .env?"
     );
 }
 

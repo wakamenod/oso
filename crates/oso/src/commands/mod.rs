@@ -409,6 +409,7 @@ mod tests {
         "git-commit-reword",
         "git-discard",
         "git-discarded",
+        "git-discarded-refresh",
         "git-restore-discarded",
         "git-show-log",
         "git-stop",

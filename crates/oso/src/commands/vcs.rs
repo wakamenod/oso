@@ -1,6 +1,7 @@
 //! Source control's commands (ADR 0127), step 1a: a repository's status buffer, as magit's,
 //! moving between its sections, showing a file's hunks, and staging and unstaging by section,
-//! file and hunk. Committing and the log of git's runs are [`commit`]'s (step 1b).
+//! file and hunk. Committing and the log of git's runs are [`commit`]'s (step 1b), discarding
+//! and the list of what it kept [`discard`]'s (step 1c).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host, which runs git on the status's thread. What a line names is the host's: a

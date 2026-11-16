@@ -1,5 +1,6 @@
 //! A repository's thread for git's long runs, `oso-vcs-run` (ADR 0127, step 1b): a commit with
-//! the repository's hooks, which has no time limit, and the message an amend starts from.
+//! the repository's hooks, which has no time limit, the message an amend starts from, and, from
+//! step 1c, reading the record of what discards kept and writing a copy back.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
 //! takes reports out, and supplies the wake-up.
@@ -47,8 +48,9 @@ pub(crate) enum RunRequest {
     Message,
     /// Read what discards in this repository kept (step 1c).
     Discarded,
-    /// Write the copy `entry` back to its file.
-    Restore { entry: Entry },
+    /// Write the copy `entry` back to its file; `secret` if a buffer of the file may hold
+    /// secrets, which no copy is kept of.
+    Restore { entry: Entry, secret: bool },
     /// Make the commit `kind` with `switches`, `message` on standard input if it takes one, and
     /// the names `pass` passes on to its hooks.
     Commit {
@@ -206,8 +208,8 @@ fn serve(
                     .map(|entries| discarded::of_root(entries, root));
                 vec![RunReport::Discarded(read)]
             }
-            (Ok(git), RunRequest::Restore { entry }) => {
-                let done = keep::restore(&git, root, &entry, state, watch.stop);
+            (Ok(git), RunRequest::Restore { entry, secret }) => {
+                let done = keep::restore(&git, root, (&entry, secret), state, watch.stop);
                 vec![RunReport::Restored(done)]
             }
             (Err(why), RunRequest::Commit { .. }) => vec![RunReport::Ended(RunEnd::Refused(why))],

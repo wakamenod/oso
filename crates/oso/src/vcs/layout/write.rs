@@ -274,12 +274,11 @@ fn file_hunks(
             file,
             hunk: index,
         });
-        let refined = refine_hunk(&hunk.lines);
         for (line_index, line) in hunk.lines.iter().enumerate() {
             hunk_line(
                 out,
                 line,
-                refined.get(&line_index).map_or(&[], Vec::as_slice),
+                hunk.refined.get(&line_index).map_or(&[], Vec::as_slice),
             );
             out.end_line();
             built.rows.push(Row::Line {
@@ -329,49 +328,6 @@ fn hunk_line(out: &mut Out, line: &[u8], refined: &[Range<usize>]) {
         at = to;
     }
     out.part(&line[at..], face);
-}
-
-/// The words refinement marks in each line of a hunk's `lines`, by the line's index, the spans
-/// from after its `+` or `-`: each change block's removed lines paired in order with its added
-/// ones (ADR 0122's refinement, `review::refine`).
-fn refine_hunk(lines: &[Vec<u8>]) -> HashMap<usize, Vec<Range<usize>>> {
-    let mut out = HashMap::new();
-    let mut at = 0;
-    while at < lines.len() {
-        let removed = at..at + count_marked(&lines[at..], b'-');
-        let added = removed.end..removed.end + count_marked(&lines[removed.end..], b'+');
-        if removed.is_empty() || added.is_empty() {
-            at = added.end.max(at + 1);
-            continue;
-        }
-        let old: Vec<&[u8]> = (lines[removed.clone()].iter())
-            .map(|line| body(line))
-            .collect();
-        let new: Vec<&[u8]> = (lines[added.clone()].iter())
-            .map(|line| body(line))
-            .collect();
-        let (old, new) = crate::review::refine::refine(&old, &new);
-        for (index, spans) in removed.clone().zip(old).chain(added.clone().zip(new)) {
-            if !spans.is_empty() {
-                out.insert(index, spans);
-            }
-        }
-        at = added.end;
-    }
-    out
-}
-
-/// A hunk line without its `+`, `-` or ` `.
-fn body(line: &[u8]) -> &[u8] {
-    line.get(1..).unwrap_or_default()
-}
-
-/// How many of `lines` from the first start with `mark`, a `\ No newline` between them counted.
-fn count_marked(lines: &[Vec<u8>], mark: u8) -> usize {
-    lines
-        .iter()
-        .take_while(|line| line.first() == Some(&mark) || line.first() == Some(&b'\\'))
-        .count()
 }
 
 /// A line without its line break, `\n` or `\r\n`.

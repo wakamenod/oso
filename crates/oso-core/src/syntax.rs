@@ -55,8 +55,9 @@ pub enum Highlight {
     /// Emphasis and strong text in Markdown, and its markers: of headings, lists and quotes,
     /// and thematic breaks.
     Markup,
-    /// A line a review's diff puts in, with its `+` (ADR 0122). Only the host's review view
-    /// gives these and the review faces below; no parser does.
+    /// A line a review's diff puts in, with its `+` (ADR 0122), or a git status's hunk (ADR
+    /// 0127). Only the host's review view and status give these and the review faces below; no
+    /// parser does.
     DiffAdded,
     /// A line a review's diff takes out, with its `-`.
     DiffRemoved,

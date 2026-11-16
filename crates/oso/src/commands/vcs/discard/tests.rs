@@ -55,8 +55,12 @@ fn ret_in_the_list_asks_to_write_its_line_back() {
             confirmed: false
         }]
     );
-    let (result, _) = run(&mut editor, "git-discarded", Args::NONE);
+    let (result, _) = run(&mut editor, "git-discarded-refresh", Args::NONE);
     assert!(result.is_ok(), "g in the list reads it again");
+    assert_eq!(
+        editor.take_git_requests(),
+        [GitRequest::ShowDiscarded { buffer: list }]
+    );
 }
 
 #[test]

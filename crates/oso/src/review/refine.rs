@@ -9,7 +9,7 @@
 //! - A word is a run of letters, digits, `_` and bytes past ASCII, so that a character of
 //!   several bytes stays whole; white space runs are words too, and any other byte is one.
 //! - Only blocks of at most [`MAX_SIDE`] lines a side, and lines of at most [`MAX_LINE`] bytes,
-//!   are refined, each pair within [`DEADLINE`]. A pair that shares no word but white space is
+//!   are refined, each pair within [`DEADLINE`] and with at most [`MAX_SPANS`] spans a line. A pair that shares no word but white space is
 //!   left plain: all of it changed, which its line's face says already.
 
 use std::ops::Range;
@@ -26,6 +26,9 @@ pub(crate) const MAX_SIDE: usize = 100;
 pub(crate) const MAX_LINE: usize = 1024;
 /// How long one pair of lines may take.
 pub(crate) const DEADLINE: Duration = Duration::from_millis(5);
+/// The most spans a line may have refined; one with more stays plain, so that a frame draws
+/// few of them a row.
+pub(crate) const MAX_SPANS: usize = 64;
 
 /// The spans of each removed and each added line that refinement marks, by byte from the line's
 /// start, a line's line break left out; an empty list for a line left plain.
@@ -56,13 +59,8 @@ fn pair(old: &[u8], new: &[u8]) -> Option<(Spans, Spans)> {
     }
     let (a, b) = (words(old), words(new));
     let deadline = Instant::now() + DEADLINE;
-    let texts = |line: &'_ [u8], spans: &[Range<usize>]| -> Vec<Vec<u8>> {
-        spans
-            .iter()
-            .map(|span| line[span.clone()].to_vec())
-            .collect()
-    };
-    let (ta, tb) = (texts(old, &a), texts(new, &b));
+    let ta: Vec<&[u8]> = a.iter().map(|span| &old[span.clone()]).collect();
+    let tb: Vec<&[u8]> = b.iter().map(|span| &new[span.clone()]).collect();
     let ops = capture_diff_slices_deadline(Algorithm::Myers, &ta, &tb, Some(deadline));
     if Instant::now() >= deadline {
         return None;
@@ -80,7 +78,8 @@ fn pair(old: &[u8], new: &[u8]) -> Option<(Spans, Spans)> {
         push(&mut out_old, &a, from);
         push(&mut out_new, &b, to);
     }
-    shared.then_some((out_old, out_new))
+    let few = out_old.len() <= MAX_SPANS && out_new.len() <= MAX_SPANS;
+    (shared && few).then_some((out_old, out_new))
 }
 
 /// Adds the bytes of the words `range` of `spans` to `out`, joined to the span before if they
@@ -149,6 +148,14 @@ mod tests {
         let (a, b) = refine(&[old], &[new]);
         assert_eq!(a[0].as_slice(), std::slice::from_ref(&(9..15)));
         assert_eq!(b[0].as_slice(), std::slice::from_ref(&(9..18)));
+    }
+
+    #[test]
+    fn a_line_changed_word_by_word_past_the_spans_limit_stays_plain() {
+        let old = "a.".repeat(100);
+        let new = "b.".repeat(100);
+        let (a, b) = refine(&[old.as_bytes()], &[new.as_bytes()]);
+        assert!(a[0].is_empty() && b[0].is_empty());
     }
 
     #[test]

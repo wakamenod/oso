@@ -1,5 +1,6 @@
 //! A status buffer's thread, `oso-vcs` (ADR 0127): it reads the status, the open files' hunks
-//! and the head, runs what `s` and `u` asked, and lays out the buffer's text.
+//! and the head, runs what `s`, `u` and `k` asked, keeping copies before a discard, and lays
+//! out the buffer's text.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
 //! takes reports out, and supplies the wake-up.
