@@ -10,34 +10,31 @@
 //!   Enter. The agent sees nothing else: the log stays withheld from the channel (Q1).
 //! - The session is the hosted one that runs in the repository's root, the one whose terminal
 //!   was shown last if several do.
-//! - A draft request names an id of 32 random bits. `draft_set` answers only the newest request
-//!   of a message buffer (Q3), within [`ASKED_FOR`], once, from a session in that buffer's
-//!   worktree; it writes the buffer and commits nothing.
+//! - A draft request names an id of 32 random bits, kept with the session it was pasted into;
+//!   `super::draft` answers `draft_set` with it, and no file that pastes takes a tool's call.
 
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use oso_core::buffer::{BufferId, Replacement};
+use oso_core::buffer::BufferId;
 use oso_core::project::same_place;
-use serde_json::{Value, json};
 
 use super::super::App;
-use super::commit::TOO_LONG;
 use super::runs::RUNNING;
 use crate::commands::review::one_line;
 use crate::commands::vcs::RESTRICTED;
 use crate::sessions::worker::SessionKey;
-use crate::vcs::agent::{cleaned, draft_request, fix_request, with_draft};
+use crate::vcs::agent::{draft_request, fix_request, one_line as escaped};
 
-/// How long a draft request may be answered.
-pub(super) const ASKED_FOR: Duration = Duration::from_secs(15 * 60);
 /// What a request says with no session to ask.
 const NO_SESSION: &str = "No agent session runs in this worktree: C-x a c starts one";
 
-/// A draft request sent for a message buffer.
+/// A draft request sent for a message buffer, and the session it was pasted into, which alone
+/// may answer it.
 pub(in crate::app) struct Asked {
-    id: String,
-    at: Instant,
+    pub(super) id: String,
+    pub(super) at: Instant,
+    pub(super) session: SessionKey,
 }
 
 impl App {
@@ -76,6 +73,9 @@ impl App {
             return self.editor.message(RESTRICTED);
         };
         let repo = &self.gits.commits.repos[index];
+        if repo.root.revoked() || !self.editor.project_trusted(project) {
+            return self.editor.message(RESTRICTED);
+        }
         if repo.run.is_some() || repo.subjects_for.is_some() {
             return self.editor.message(RUNNING);
         }
@@ -111,13 +111,14 @@ impl App {
                     .message(format!("Cannot make a request id: {e}"));
             }
         };
-        let worktree = one_line(&root.display().to_string(), 400);
+        let worktree = escaped(&root.display().to_string(), 400);
         let kind = self.gits.commits.drafts[at].kind;
         let text = draft_request(kind, &worktree, subjects, &id);
         if self.ask_session(key, text, "a draft; it comes back to this message") {
             self.gits.commits.drafts[at].asked = Some(Asked {
                 id,
                 at: Instant::now(),
+                session: key,
             });
         }
     }
@@ -151,11 +152,11 @@ impl App {
                 .message("No failed commit with its message open here");
         };
         let root = repo.root.path().to_path_buf();
-        let worktree = one_line(&root.display().to_string(), 400);
-        let text = fix_request(&worktree, &failed.hooks, &failed.output);
         let Some(key) = self.worktree_session(&root) else {
             return self.editor.message(NO_SESSION);
         };
+        let worktree = escaped(&root.display().to_string(), 400);
+        let text = fix_request(&worktree, &failed.hooks, &failed.output);
         let _ = self.ask_session(key, text, "a fix; C-c C-c commits again once it is done");
     }
 
@@ -163,10 +164,11 @@ impl App {
     /// whether it was.
     fn ask_session(&mut self, key: SessionKey, text: String, then: &str) -> bool {
         let name = (self.hosting.table().get(key)).map_or_else(String::new, |s| s.name.clone());
+        let lines = text.lines().count();
         match self.send_to_session(key, text) {
             Ok(()) => {
                 self.editor.message(format!(
-                    "Asked {} for {then}: press Enter there",
+                    "Asked {} for {then}, in {lines} lines: read them, then press Enter there",
                     one_line(&name, 40)
                 ));
                 true
@@ -175,94 +177,6 @@ impl App {
                 self.editor.message(why);
                 false
             }
-        }
-    }
-
-    /// The session tool `draft_set` from the session `name` that runs in `runs_in`: puts
-    /// `text` in the message whose newest request named `id`, keeping the person's own text
-    /// below it as `#` lines (Q2).
-    pub(in crate::app) fn draft_set(
-        &mut self,
-        runs_in: &Path,
-        name: &str,
-        id: &str,
-        text: &str,
-    ) -> Result<Value, String> {
-        let draft = cleaned(text)?;
-        let at = (self.gits.commits.drafts.iter())
-            .position(|draft| draft.asked.as_ref().is_some_and(|asked| asked.id == id))
-            .ok_or(
-                "no commit message waits for a draft with that id: a newer request replaced it, it was answered, or the message is gone",
-            )?;
-        let (buffer, project) = {
-            let draft = &self.gits.commits.drafts[at];
-            (draft.buffer, draft.project)
-        };
-        let index = self.repo_of(project).ok_or(RESTRICTED)?;
-        let repo = &self.gits.commits.repos[index];
-        let found = Found {
-            same_worktree: same_place(repo.root.path(), runs_in),
-            trusted: !repo.root.revoked() && self.editor.project_trusted(project),
-            runs: repo.run.is_some(),
-            age: (self.gits.commits.drafts[at].asked.as_ref()).map(|asked| asked.at.elapsed()),
-        };
-        if let Err(why) = found.check() {
-            // An answer from the right worktree uses the request up, whatever it says.
-            if found.same_worktree {
-                self.gits.commits.drafts[at].asked = None;
-            }
-            return Err(why.into());
-        }
-        self.gits.commits.drafts[at].asked = None;
-        let now = self.message_text(buffer).ok_or(TOO_LONG)?;
-        let (end, put) = with_draft(&now, &draft, name);
-        let edit = Replacement {
-            range: 0..end,
-            text: &put,
-        };
-        self.editor
-            .apply_edits(buffer, &[edit])
-            .map_err(|e| format!("cannot put it in: {e}"))?;
-        self.gits.commits.drafts[at].ring_at = None;
-        self.highlight_drafts();
-        let shown = (self.editor.buffer(buffer)).map_or_else(String::new, |b| b.name().to_owned());
-        self.editor.message(format!(
-            "A draft from {} is in {}: C-c C-c commits it, C-/ takes it back",
-            one_line(name, 40),
-            one_line(&shown, 80)
-        ));
-        self.request_redraw();
-        Ok(json!({ "buffer": shown, "committed": false }))
-    }
-}
-
-/// What `draft_set` found of the message its id named.
-#[derive(Clone, Copy)]
-struct Found {
-    /// Whether the caller runs in the message's worktree.
-    same_worktree: bool,
-    trusted: bool,
-    /// Whether a commit runs in the repository.
-    runs: bool,
-    /// How long ago the request was sent.
-    age: Option<Duration>,
-}
-
-impl Found {
-    /// Why the draft may not be put in, if it may not.
-    fn check(self) -> Result<(), &'static str> {
-        if !self.same_worktree {
-            return Err("that commit message is another worktree's");
-        }
-        if !self.trusted {
-            return Err(RESTRICTED);
-        }
-        if self.runs {
-            return Err("its commit runs now; nothing was changed");
-        }
-        match self.age {
-            Some(age) if age <= ASKED_FOR => Ok(()),
-            _ => Err("that request is older than 15 minutes: the person asks again"),
         }
     }
 }

@@ -6,7 +6,8 @@
 //!
 //! - A commit's message is a buffer of the person's, `*commit: NAME*`, in `GitCommit` mode,
 //!   highlighted here as it changes. The agent channel reads it, but its keys are the
-//!   person's and the channel changes nothing in it (Q6).
+//!   person's and the channel's commands change nothing in it (Q6); only the session tool
+//!   `draft_set` puts a draft in, for the request the person pasted (step 6a, `super::draft`).
 //! - What git would refuse anyway is refused before it runs, so that a hook is never blamed for
 //!   it: nothing staged, an amend before the first commit, an empty message, a second message
 //!   for the repository, and a run while another goes.

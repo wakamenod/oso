@@ -639,6 +639,11 @@ The UI thread never blocks on I/O or parsing:
   (`Editor::append_git_log`, the last 4 MiB), and the echo area counts the seconds. Quitting
   sends each run's group `SIGTERM` and waits for nothing
   ([ADR 0127](adr/0127-source-control-and-github.md), step 1b).
+- What a commit asks of the worktree's agent session (step 6a): `vcs/agent.rs` writes the
+  requests, a draft's and a failed commit's fix, as pure functions; `app/vcs/agent.rs` reads the
+  last subjects on `oso-vcs-run` and pastes the requests through `send_to_session`; and
+  `app/vcs/draft.rs`, which pastes nothing, puts the draft `draft_set` gives back into the
+  message buffer. A run's own output is kept, its last 128 KiB, for the fix.
 - A prompt's list past 5000 candidates is built and matched on a thread of its own
   (`app/completions.rs`), from a job `oso_core::complete` makes over `Arc` snapshots, superseded
   by the next through a generation. The rows shown stay and the count says `…` until the result
@@ -746,10 +751,9 @@ The UI thread never blocks on I/O or parsing:
     (`sync_branch_wait`), and the listing goes ahead of other jobs.
 - The agents' session tools ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 6): the
   rules are `sessions::tools` (reach, the loop guard, refusals, the questions' wording), and
-  `draft_set` is carried out by `app/vcs/agent.rs` with the commit's message buffers (ADR 0127,
-  step 6a), its texts `vcs::agent`'s; and
   `app/sessions/tools/` carries a call out with the hosted table, the start thread and the
-  worktree jobs. A call that asks is looked at first by a job (`worktree::prepare`), then its
+  worktree jobs; `draft_set` is handed on to `app/vcs/draft.rs` (ADR 0127, step 6a). A call
+  that asks is looked at first by a job (`worktree::prepare`), then its
   question waits for the person as the connection's own does, unless the person's
   configuration lets the caller start sessions without asking
   ([ADR 0135](adr/0135-agents-start-sessions-without-asking.md)):

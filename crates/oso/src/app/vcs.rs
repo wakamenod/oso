@@ -34,6 +34,7 @@ use crate::vcs::{Built, Report, Request, View, Worker};
 mod agent;
 mod commit;
 mod discard;
+mod draft;
 mod runs;
 
 pub(crate) use runs::RunEvent;

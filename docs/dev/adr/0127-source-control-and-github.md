@@ -800,21 +800,32 @@ last 200 lines; (6) one pull request.
   id is 32 random bits as 8 hex digits, kept with the message buffer; a new request replaces it.
 - **`draft_set`** (a session tool, `Change`, no question, counted by the loop guard) takes
   `kind` (`commit` only), `id` and `text` (at most 16 KiB). It writes only the message whose
-  newest request named the id, from a session that runs in that message's worktree, of a trusted
-  project, while no commit runs there, within 15 minutes; an answer from the right worktree uses
+  newest request named the id, from the session the request was pasted into, in that message's
+  worktree of a trusted project, while no commit runs there, within 15 minutes; an answer from the right worktree uses
   the request up, refused or not. The text is cleaned as a paste is: line breaks made `\n`,
   control and bidirectional characters but tabs taken out. It goes in as one edit, which `C-/`
-  takes back, and the echo area names the session. It commits nothing.
+  takes back, and the echo area names the session. It commits nothing. A message holding more
+  than 64 KiB of the person's own text refuses it, and says so, so that a crafted message never
+  doubles past what git is given.
 - **Fix with AI:** a failed commit whose message buffer is open keeps the run's own output, as
   the log took it (escape sequences and control characters out), its last 128 KiB, and the hooks
   that may have made it. The echo area adds "; C-c C-f asks the session to fix it" when the
   worktree has a session. `C-c C-f` in that message buffer, or `F` in the log, pastes the
   Decision's text with the output's last 200 lines and 64 KiB, in a fence longer than any run
-  of backticks in it. A new commit forgets the failure.
+  of backticks in it; a run past 15 backticks is cut to 15, so that the fence stays short. A new
+  commit forgets the failure.
 - **Deviations:** (1) With several sessions in the worktree, the one shown last is asked, with
-  no completion. (2) `F` works anywhere in the log, as the log has no entries yet (Q4). (3) The
-  person's text is kept as `#` lines under a line naming the draft's session, not below a `#
-  draft from NAME` line (Q2). (4) The pull request's `kind: pr` waits for step 3.
+  no completion (the author accepted it, 2026-11-16). (2) `F` works anywhere in the log, as the
+  log has no entries yet (Q4). (3) The person's text is kept as `#` lines under a line naming
+  the draft's session, not below a `# draft from NAME` line (Q2). (4) The pull request's
+  `kind: pr` waits for step 3. (5) The draft request names what an amend (`git show HEAD`, `git
+  diff --cached`) and a reword (`git show HEAD`) are about, and puts the subjects as `- `
+  lines, `- (none yet)` before the first commit, in a fence named as the repository's text. (6)
+  Only the session the request was pasted into may answer it, where the Decision has any session
+  of the worktree. (7) A fix request cuts runs of backticks past 15. (8) A draft is refused over
+  64 KiB of the person's own text, and its blank runs are one, its invisible characters out
+  but the joiners and variation selectors of an emoji. (9) The echo area says how many lines
+  each paste holds.
 - **Library items** (approved): `GitRequest::{DraftMessage, FixWithAgent}`; the session tool
   `draft_set`.
 - **Tests:** the requests' texts, the fence, the end of a long output, a draft cleaned and put

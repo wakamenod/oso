@@ -282,13 +282,7 @@ impl App {
             return;
         };
         run.output.push_str(text);
-        if run.output.len() > MAX_RUN_OUTPUT {
-            let cut = run
-                .output
-                .ceil_char_boundary(run.output.len() - MAX_RUN_OUTPUT);
-            let cut = run.output[cut..].find('\n').map_or(cut, |at| cut + at + 1);
-            run.output.drain(..cut);
-        }
+        crate::vcs::agent::keep_end(&mut run.output, MAX_RUN_OUTPUT);
     }
 
     /// What a commit in the repository at `index` that failed leaves: with its message buffer

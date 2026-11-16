@@ -8,8 +8,8 @@ use oso_core::editor::CommitKind;
 use proptest::prelude::*;
 
 use super::{
-    MAX_DRAFT, MAX_FIX_BYTES, MAX_FIX_LINES, cleaned, draft_request, fence_for, fix_request,
-    last_lines, with_draft,
+    MAX_DRAFT, MAX_FIX_BYTES, MAX_FIX_LINES, MAX_KEPT, cleaned, draft_request, fence_for,
+    fix_request, keep_end, last_lines, with_draft,
 };
 use crate::vcs::commit::{message_end, message_of};
 
@@ -19,6 +19,18 @@ fn a_draft_request_names_the_worktree_the_subjects_and_the_id() {
     let text = draft_request(CommitKind::New, "/w/oso", &subjects, "1a2b3c4d");
     assert!(text.starts_with("Draft a commit message for the staged changes in /w/oso"));
     assert!(text.contains("- Fix b\n"));
+    assert!(
+        text.contains("the repository's text, are:\n```\n- Add a"),
+        "{text}"
+    );
+    // A worktree or subject that would reorder the request is escaped.
+    let path = draft_request(
+        CommitKind::New,
+        &super::one_line("/w/\u{202e}x", 400),
+        &[],
+        "ab",
+    );
+    assert!(!path.contains('\u{202e}'), "{path}");
     // Five subjects, each on one line with its control characters escaped.
     assert!(!text.contains("- f\n"), "{text}");
     assert!(!text.contains('\u{1b}'), "{text}");
@@ -51,6 +63,21 @@ fn the_fence_is_longer_than_any_run_of_backticks() {
     assert_eq!(fence_for("plain"), "```");
     assert_eq!(fence_for("a ``` b"), "````");
     assert_eq!(fence_for("`````"), "``````");
+    // A crafted run is cut in the request, so that its fence stays short.
+    let text = fix_request("/w", &[], &"`".repeat(64 * 1024));
+    assert!(text.len() < 400, "{}", text.len());
+    assert!(text.contains(&format!("\n{}\n", "`".repeat(16))), "{text}");
+}
+
+#[test]
+fn the_end_kept_of_a_run_is_whole_lines_or_one_long_lines_end() {
+    let mut kept = "one\ntwo\nthree\n".to_owned();
+    keep_end(&mut kept, 10);
+    assert_eq!(kept, "three\n");
+    let mut long = format!("x\n{}\n", "y".repeat(300));
+    keep_end(&mut long, 100);
+    assert_eq!(long.len(), 100);
+    assert!(long.ends_with("yy\n"));
 }
 
 #[test]
@@ -74,15 +101,23 @@ fn a_draft_is_cleaned_as_a_paste_and_bounded() {
         "Fix it\n\nBody\tok"
     );
     assert!(cleaned(" \n\u{1b}\n").is_err());
+    // Nothing hides below the screen or between the letters; an emoji keeps its joiners.
+    assert_eq!(
+        cleaned("\n\nFix\n\n \n\t\n\n\nhid\u{200b}den\u{e0041}\n").unwrap(),
+        "Fix\n\nhidden"
+    );
+    assert_eq!(
+        cleaned("👩\u{200d}💻\u{fe0f}").unwrap(),
+        "👩\u{200d}💻\u{fe0f}"
+    );
     assert!(cleaned(&"x".repeat(MAX_DRAFT + 1)).is_err());
     assert!(cleaned(&"x".repeat(MAX_DRAFT)).is_ok());
-    assert_eq!(MAX_DRAFT, crate::channel::protocol::sessions::MAX_DRAFT);
 }
 
 #[test]
 fn a_draft_takes_the_place_of_the_text_and_keeps_the_persons_as_comments() {
     let now = "My own words\nmore\n\n# Please enter the message\n# On branch x\n";
-    let (end, put) = with_draft(now, "Fix the parser", "api\u{1b}");
+    let (end, put) = with_draft(now, "Fix the parser", "api\u{1b}").unwrap();
     assert_eq!(end, "My own words\nmore\n\n".len());
     assert_eq!(
         put,
@@ -91,8 +126,13 @@ fn a_draft_takes_the_place_of_the_text_and_keeps_the_persons_as_comments() {
     let after = format!("{put}{}", &now[end..]);
     // The person's words are not committed unless taken back.
     assert_eq!(message_of(&after), "Fix the parser\n");
-    let (end, put) = with_draft("\n\n# Please enter\n", "Fix", "api");
+    let (end, put) = with_draft("\n\n# Please enter\n", "Fix", "api").unwrap();
     assert_eq!((end, put.as_str()), (2, "Fix\n\n"));
+    // Past 64 KiB of the person's own text, a draft is refused, so that nothing doubles.
+    let crafted = format!("{}# Please enter\n", "a\n".repeat(MAX_KEPT));
+    assert!(with_draft(&crafted, "Fix", "api").is_err());
+    let kept = format!("{}\n# Please enter\n", "a".repeat(MAX_KEPT));
+    assert!(with_draft(&kept, "Fix", "api").is_ok());
 }
 
 proptest! {
@@ -124,7 +164,7 @@ proptest! {
     ) {
         let now = format!("{mine}\n# Please enter\n");
         let Ok(draft) = cleaned(&draft) else { return Ok(()); };
-        let (end, put) = with_draft(&now, &draft, "s");
+        let (end, put) = with_draft(&now, &draft, "s").unwrap();
         let after = format!("{put}{}", &now[end..]);
         prop_assert!(after.starts_with(&draft));
         prop_assert_eq!(message_end(&after) >= draft.len(), true);

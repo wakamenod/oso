@@ -242,9 +242,9 @@ impl App {
                 pending.answer(status);
             }
             (Call::DraftSet { id, text }, Some(caller)) => {
-                let set = self
-                    .admit_tool(&tool, &caller, &id)
-                    .and_then(|()| self.draft_set(&caller.runs_in, &caller.name, &id, &text));
+                let set = self.admit_tool(&tool, &caller, &id).and_then(|()| {
+                    self.draft_set(caller.key, &caller.runs_in, &caller.name, &id, &text)
+                });
                 pending.answer(set);
             }
             (

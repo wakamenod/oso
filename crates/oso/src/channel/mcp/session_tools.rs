@@ -125,7 +125,7 @@ pub(super) fn acting() -> Vec<Value> {
         ),
         tool(
             "draft_set",
-            "Give oso the draft it asked you for: the commit message whose request named this id. It goes into the person's commit message buffer, their own text kept below it as comment lines; nothing is committed, the person reads it and commits. Only your worktree's message, and only for oso's newest request there, within 15 minutes, once.",
+            "Give oso the draft it asked you for: the commit message whose request named this id. It goes into the person's commit message buffer, their own text kept below it as comment lines; nothing is committed, the person reads it and commits. Only the message whose request oso pasted into your session, its newest, within 15 minutes, once.",
             json!({
                 "kind": { "type": "string", "enum": ["commit"], "description": "What the draft is: a commit message." },
                 "id": { "type": "string", "description": "The id oso's request named." },

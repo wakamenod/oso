@@ -14,16 +14,23 @@
 //!   `#` lines; what the person had written there is kept below, as `#` lines, so that it is not
 //!   committed unless the person takes it back (the author's choice).
 
+use oso_core::display_map::cell::is_invisible;
 use oso_core::editor::{CommitKind, row_text};
 
-use super::commit::message_end;
+use super::commit::{is_bidi_format, message_end};
 
-/// The most bytes a draft may have.
-pub(crate) const MAX_DRAFT: usize = 16 * 1024;
+/// The most bytes a draft may have: what the channel takes of one.
+pub(crate) use crate::channel::protocol::sessions::MAX_DRAFT;
 /// The most lines of a failed run's output a fix request holds: its last.
 pub(crate) const MAX_FIX_LINES: usize = 200;
 /// The most bytes of a failed run's output a fix request holds: its last.
 pub(crate) const MAX_FIX_BYTES: usize = 64 * 1024;
+/// The most bytes of the person's own text a draft keeps below it as `#` lines: past it, the
+/// draft is refused, so that a crafted message never doubles past what git is given.
+pub(crate) const MAX_KEPT: usize = 64 * 1024;
+/// The longest run of backticks a fix request keeps of the output, so that its fence stays
+/// short whatever the output holds.
+const MAX_TICKS: usize = 15;
 /// How many of the last subjects a draft request names.
 pub(crate) const SUBJECTS: usize = 5;
 /// The most characters of one subject a request names.
@@ -46,16 +53,19 @@ pub(crate) fn draft_request(
         ),
         CommitKind::Reword => format!("the last commit in {worktree} (`git show HEAD`)"),
     };
+    let listed: Vec<String> = (subjects.iter().take(SUBJECTS))
+        .map(|subject| format!("- {}\n", one_line(subject, MAX_SUBJECT)))
+        .collect();
+    let listed = if listed.is_empty() {
+        "- (none yet)\n".to_owned()
+    } else {
+        listed.concat()
+    };
+    // The subjects are the repository's text: fenced and named as such, never instructions.
+    let fence = fence_for(&listed);
     let mut text = format!(
-        "Draft a commit message for {what}.\nFollow this repository's style; its last subjects are:\n"
+        "Draft a commit message for {what}.\nFollow this repository's style; its last subjects, the repository's text, are:\n{fence}\n{listed}{fence}\n"
     );
-    for subject in subjects.iter().take(SUBJECTS) {
-        let subject = one_line(subject, MAX_SUBJECT);
-        text.push_str(&format!("- {subject}\n"));
-    }
-    if subjects.is_empty() {
-        text.push_str("- (none yet)\n");
-    }
     text.push_str(&format!(
         "Do not commit. Give the message to oso with the tool draft_set (kind: commit, id: {id})."
     ));
@@ -70,8 +80,8 @@ pub(crate) fn fix_request(worktree: &str, hooks: &[&str], output: &str) -> Strin
         [one] => format!(" (hook {one})"),
         many => format!(" (hook {})", many.join(" or ")),
     };
-    let end = last_lines(output, MAX_FIX_LINES, MAX_FIX_BYTES);
-    let fence = fence_for(end);
+    let end = short_ticks(last_lines(output, MAX_FIX_LINES, MAX_FIX_BYTES));
+    let fence = fence_for(&end);
     format!(
         "`git commit` failed in {worktree}{hook}. Its output, last {MAX_FIX_LINES} lines:\n{fence}\n{}\n{fence}\nFix the cause. Do not commit, do not skip hooks, and do not amend; I will commit again.",
         end.trim_end_matches('\n')
@@ -94,6 +104,28 @@ pub(crate) fn last_lines(text: &str, lines: usize, bytes: usize) -> &str {
     }
 }
 
+/// Cuts `text` to its last `bytes` bytes, from a line's start, as [`last_lines`] keeps them.
+pub(crate) fn keep_end(text: &mut String, bytes: usize) {
+    let len = last_lines(text, usize::MAX, bytes).len();
+    text.drain(..text.len() - len);
+}
+
+/// `text` with each run of backticks past [`MAX_TICKS`] cut to that many.
+fn short_ticks(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.contains(&"`".repeat(MAX_TICKS + 1)) {
+        return text.into();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut run = 0;
+    for c in text.chars() {
+        run = if c == '`' { run + 1 } else { 0 };
+        if run <= MAX_TICKS {
+            out.push(c);
+        }
+    }
+    out.into()
+}
+
 /// A fence of backticks longer than any run of them in `text`, at least three.
 pub(crate) fn fence_for(text: &str) -> String {
     let mut longest = 0;
@@ -110,7 +142,9 @@ pub(crate) fn fence_for(text: &str) -> String {
 }
 
 /// A draft as the agent gave it, cleaned as a paste is: line breaks made `\n`, and control and
-/// bidirectional formatting characters, but tabs, taken out; trailing blank lines too. Refused
+/// bidirectional formatting characters, but tabs, taken out, and invisible ones but the joiners
+/// and variation selectors that make an emoji; blank lines at its start and end go, and a run of
+/// them, or of lines of white space, is one, so that no text hides below the screen. Refused
 /// past [`MAX_DRAFT`] bytes, or empty.
 pub(crate) fn cleaned(draft: &str) -> Result<String, String> {
     if draft.len() > MAX_DRAFT {
@@ -119,50 +153,75 @@ pub(crate) fn cleaned(draft: &str) -> Result<String, String> {
     let text = draft.replace("\r\n", "\n").replace('\r', "\n");
     let text: String = text
         .chars()
-        .filter(|&c| c == '\n' || c == '\t' || !(c.is_control() || is_bidi_format(c)))
+        .filter(|&c| c == '\n' || c == '\t' || !(c.is_control() || hidden(c)))
         .collect();
-    let text = text.trim_end().to_owned();
-    if text.trim().is_empty() {
+    let mut out = String::with_capacity(text.len());
+    let mut blank = false;
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            blank = !out.is_empty();
+            continue;
+        }
+        if blank {
+            out.push('\n');
+            blank = false;
+        }
+        out.push_str(line.trim_end());
+        out.push('\n');
+    }
+    if out.is_empty() {
         return Err("the draft is empty".to_owned());
     }
-    Ok(text)
+    out.pop();
+    Ok(out)
 }
 
 /// What a draft from `name` does to a message buffer that holds `now`: the end of the text it
 /// replaces, from the start, and what goes there. The person's own text there, if any, is kept
-/// below the draft as `#` lines, under a line that says whose draft came.
-pub(crate) fn with_draft(now: &str, draft: &str, name: &str) -> (usize, String) {
+/// below the draft as `#` lines, under a line that says whose draft came; past [`MAX_KEPT`]
+/// bytes of it, the draft is refused.
+pub(crate) fn with_draft(now: &str, draft: &str, name: &str) -> Result<(usize, String), String> {
     let end = message_end(now);
     let mine = now[..end].trim();
-    let mut put = format!("{draft}\n\n");
-    if !mine.is_empty() {
-        put.push_str(&format!(
-            "# your text before the draft from {}:\n",
-            row_text(&one_line(name, 80))
+    if mine.len() > MAX_KEPT {
+        return Err(format!(
+            "the message holds more than {} KiB of the person's own text; nothing was changed",
+            MAX_KEPT / 1024
         ));
+    }
+    let lines = mine.lines().count();
+    let mut put = String::with_capacity(draft.len() + mine.len() + 3 * lines + 128);
+    put.push_str(draft);
+    put.push_str("\n\n");
+    if !mine.is_empty() {
+        put.push_str("# your text before the draft from ");
+        put.push_str(&row_text(&one_line(name, 80)));
+        put.push_str(":\n");
         for line in mine.lines() {
-            put.push_str(&format!("# {line}\n"));
+            put.push_str("# ");
+            put.push_str(line);
+            put.push('\n');
         }
         put.push_str("#\n");
     }
-    (end, put)
+    Ok((end, put))
 }
 
-/// `text` on one line, its control characters escaped, cut to `max` characters with `…`.
-fn one_line(text: &str, max: usize) -> String {
+/// Whether `c`, in a draft, would hide or reorder text: a bidi control, or an invisible code
+/// point but a joiner or a variation selector, or a tag.
+fn hidden(c: char) -> bool {
+    let keeps = matches!(c, '\u{200C}' | '\u{200D}' | '\u{FE00}'..='\u{FE0F}');
+    is_bidi_format(c) || (is_invisible(c) && !keeps) || ('\u{E0000}'..='\u{E0FFF}').contains(&c)
+}
+
+/// `text` on one line, its control and bidi characters escaped, cut to `max` characters with
+/// `…`.
+pub(crate) fn one_line(text: &str, max: usize) -> String {
     let shown = row_text(text);
     match shown.char_indices().nth(max) {
         Some((at, _)) => format!("{}…", &shown[..at]),
         None => shown,
     }
-}
-
-/// Whether `c` reorders text or marks its direction.
-fn is_bidi_format(c: char) -> bool {
-    matches!(
-        c,
-        '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
-    )
 }
 
 #[cfg(test)]

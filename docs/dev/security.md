@@ -506,7 +506,8 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     and again at the person's `y`, so a project the person no longer trusts runs nothing.
   - `draft_set` ([ADR 0127](adr/0127-source-control-and-github.md), step 6a) asks nothing: it
     writes only the commit message whose newest request, pasted by the person's `C-c C-d`,
-    named its 32-bit id, from a session in that message's worktree of a trusted project,
+    named its 32-bit id, from the session it was pasted into, in that worktree of a trusted
+    project,
     within 15 minutes, once, at most 16 KiB cleaned as a paste is, and commits nothing. The
     requests oso pastes into a session are the person's, read before Enter; a fix request holds
     the failed run's output, which the log withholds from the channel, so only the person's
