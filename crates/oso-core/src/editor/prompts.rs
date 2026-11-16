@@ -63,6 +63,8 @@ impl Editor {
         self.isearch_abandon();
         self.replace_abandon();
         self.jump_end();
+        // And it closes a server's description at point for good (ADR 0138).
+        self.close_hover();
         self.close_completion_popup();
         let depth = self.prompts.len() + 1;
         let from_agent = self.runs_for_agent();
@@ -483,7 +485,7 @@ impl Editor {
 
     /// Closes the innermost prompt, with its window and its buffer, and selects the window it
     /// came from again.
-    fn close_innermost(&mut self) -> Option<Prompt> {
+    pub(super) fn close_innermost(&mut self) -> Option<Prompt> {
         // A passphrase's prompt is a buffer that may hold secrets going off the screen, so a
         // command running now says nothing more (ADR 0063).
         if self.prompts.last()?.kind == Kind::Passphrase {

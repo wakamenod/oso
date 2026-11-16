@@ -20,6 +20,7 @@ use crate::process;
 use crate::report::{Gpu, Report, max, median, percentile};
 
 mod compose;
+mod conversations;
 mod dired;
 mod edits;
 mod finding;
@@ -161,6 +162,7 @@ pub fn run_all(exe: &Path, scale: &Scale) -> Result<Report, String> {
     review::review(exe, scale.key_runs, scale.keys, &mut report)?;
     git_status::git_status(exe, scale.key_runs, scale.keys, &mut report)?;
     sessions::sessions(exe, scale.key_runs, &mut report)?;
+    conversations::conversations(exe, scale.key_runs, scale.keys, &mut report)?;
 
     log_step("opening a large file");
     let open = dir.file("open.txt");

@@ -28,6 +28,7 @@ mod admit;
 mod open;
 pub(super) use open::TOO_LARGE_FOR_THE_AGENT;
 mod questions;
+mod reads;
 mod saving;
 mod undoing;
 
@@ -250,22 +251,11 @@ impl App {
                 }
                 match op {
                     // These reply later: once the text is copied, or the file shown.
-                    Op::Text(of) => {
-                        self.agent_log_often("text");
-                        match channel::text::start(
-                            &self.editor,
-                            &|id, ask| self.terminal_screen(id, ask),
-                            of,
-                        ) {
-                            Ok(job) => job.spawn(reply),
-                            Err(why) => {
-                                let _ = reply.send(Err(why));
-                            }
-                        }
-                    }
+                    Op::Text(of) => self.agent_text(of, reply),
                     Op::Open { path, line } => {
                         self.agent_open(connection, path, line, false, reply)
                     }
+                    Op::Diagnostics(of) => self.agent_diagnostics(of, reply),
                     // Each replies when it can: at once, after a job, or after the person's
                     // answer and what it started (ADR 0121, step 6).
                     Op::Session(call) => self.session_tool(connection, call, reply),
@@ -388,14 +378,7 @@ impl App {
     /// Answers a request of a connection the person let in.
     fn agent_op(&mut self, connection: Connection, op: Op) -> Reply {
         match op {
-            Op::State { buffer_offset } => {
-                self.agent_log_often("state");
-                Ok(channel::state::state(
-                    &self.editor,
-                    self.dispatcher.menu_name(),
-                    buffer_offset,
-                ))
-            }
+            Op::State { buffer_offset } => self.agent_state(buffer_offset),
             Op::Commands => {
                 self.agent_log_often("commands");
                 Ok(channel::state::commands(self.dispatcher.commands()))
@@ -414,9 +397,11 @@ impl App {
                 }
             }
             // Answered where they come in, as they reply later.
-            Op::Text(_) | Op::Open { .. } | Op::Run { .. } | Op::Session(_) => {
-                Err("not here".into())
-            }
+            Op::Text(_)
+            | Op::Diagnostics(_)
+            | Op::Open { .. }
+            | Op::Run { .. }
+            | Op::Session(_) => Err("not here".into()),
         }
     }
 
@@ -535,7 +520,8 @@ impl App {
             searching: self.editor.isearch().is_some()
                 || self.editor.jump().is_some()
                 || self.editor.replace().is_some()
-                || self.editor.indent_rigidly_layer(),
+                || self.editor.indent_rigidly_layer()
+                || self.editor.hover().is_some(),
             macro_running: self.editor.macro_recording() || self.editor.macro_replaying(),
             undoing: self.editor.crossing().is_some(),
             since_typed: self.agent.person_typed.map(|at| at.elapsed()),

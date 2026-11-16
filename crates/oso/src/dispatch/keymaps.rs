@@ -57,6 +57,10 @@ pub(super) struct Keymaps {
     pub(super) popup: [Keymap; 2],
     /// The commands the popup stays open for: its own, and typing.
     pub(super) popup_commands: Vec<CommandId>,
+    /// The keys of a server's description at point, in the layer's place while it shows
+    /// (ADR 0138, Hover), and the commands it runs rather than closes for.
+    pub(super) hover: Keymap,
+    pub(super) hover_commands: Vec<CommandId>,
     /// Markdown's own keys, above the global ones in a Markdown buffer.
     pub(super) markdown: Keymap,
     /// A `*Brief*` buffer's own keys, and a `*Worktrees*` buffer's, above the global ones
@@ -74,6 +78,8 @@ pub(super) struct Keymaps {
     pub(super) git_commit: Keymap,
     /// The log of git's runs' own keys, above the global ones.
     pub(super) git_log: Keymap,
+    /// `session-search`'s prompt's, then `*conversation: NAME*`'s (ADR 0145).
+    pub(super) conversations: [Keymap; 2],
     /// The list of what discards kept's own keys (ADR 0127, step 1c).
     pub(super) git_discarded: Keymap,
     /// A graph's own keys, above the global ones (ADR 0127, step 4).
@@ -119,6 +125,8 @@ impl Keymaps {
             rigid_commands: bindings::rigid_commands(registry),
             popup,
             popup_commands,
+            hover: bindings::hover_keymap(registry),
+            hover_commands: bindings::hover_commands(registry),
             markdown: bindings::markdown_keymap(registry),
             worktrees: bindings::worktree_keymaps(registry),
             sessions: bindings::sessions_keymap(registry),
@@ -127,6 +135,7 @@ impl Keymaps {
             git: bindings::git_status_keymap(registry),
             git_commit: bindings::git_commit_keymap(registry),
             git_log: bindings::git_log_keymap(registry),
+            conversations: bindings::conversation_keymaps(registry),
             git_discarded: bindings::git_discarded_keymap(registry),
             git_graph: bindings::git_graph_keymap(registry),
             git_pr: bindings::git_pr_keymap(registry),
@@ -140,7 +149,7 @@ impl Keymaps {
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 32] {
+    pub(super) fn all(&self) -> [&Keymap; 35] {
         let Self {
             global,
             user,
@@ -157,6 +166,8 @@ impl Keymaps {
             rigid_commands: _,
             popup: [popup, popup_moved],
             popup_commands: _,
+            hover,
+            hover_commands: _,
             markdown,
             worktrees: [brief, worktrees],
             sessions,
@@ -165,6 +176,7 @@ impl Keymaps {
             git,
             git_commit,
             git_log,
+            conversations: [searching, conversation],
             git_discarded,
             git_graph,
             git_pr,
@@ -191,6 +203,7 @@ impl Keymaps {
             rigid,
             popup,
             popup_moved,
+            hover,
             markdown,
             brief,
             worktrees,
@@ -200,6 +213,8 @@ impl Keymaps {
             git,
             git_commit,
             git_log,
+            searching,
+            conversation,
             git_discarded,
             git_graph,
             git_pr,
@@ -222,9 +237,11 @@ impl Keymaps {
         } else {
             &self.lsp
         };
-        // One place for a layer a key opens for a while: the popup's or `C-x TAB`'s.
+        // One place for a layer a key opens for a while: the popup's, a description's or
+        // `C-x TAB`'s.
         let transient = match editor.completion_popup() {
             Some(popup) => &self.popup[usize::from(popup.moved())],
+            None if editor.hover().is_some() => &self.hover,
             None => &self.rigid,
         };
         [&self.prefix[1], &self.prefix[0], minor, transient, minor]
@@ -271,13 +288,20 @@ impl Keymaps {
         let minor: &[&Keymap] = match prefix {
             Some(prefix) if prefix.reads_minus() => &reading[..2 + minor_len],
             Some(prefix) if prefix.reads_digits() => &reading[1..2 + minor_len],
-            _ if editor.indent_rigidly_layer() || editor.completion_popup().is_some() => {
+            _ if editor.indent_rigidly_layer()
+                || editor.completion_popup().is_some()
+                || editor.hover().is_some() =>
+            {
                 &reading[3..4 + minor_len]
             }
             _ => &reading[2..2 + minor_len],
         };
         let major = if let Some(prompt) = editor.prompt() {
             match prompt.kind() {
+                // `session-search`'s own keys over completion's (ADR 0145).
+                Kind::Complete { .. } if editor.searches_conversations() => {
+                    Some(&self.conversations[0])
+                }
                 Kind::Complete { .. } => Some(&self.completing),
                 // `RET` breaks a line in a draft, which `C-c C-c` keeps (ADR 0122).
                 Kind::Draft => Some(&self.draft),
@@ -299,6 +323,7 @@ impl Keymaps {
                 Mode::GitStatus => Some(&self.git),
                 Mode::GitCommit => Some(&self.git_commit),
                 Mode::GitLog => Some(&self.git_log),
+                Mode::Conversation => Some(&self.conversations[1]),
                 Mode::GitDiscarded => Some(&self.git_discarded),
                 Mode::GitGraph => Some(&self.git_graph),
                 Mode::GitPr | Mode::GitPrList => Some(&self.git_pr),

@@ -323,8 +323,10 @@ impl Editor {
     /// wheel scrolls the window beneath it and leaves its cursors (ADR 0072); they follow once
     /// it closes.
     pub fn follow_cursor(&mut self) -> bool {
-        // So does the preview's wrap, which a command may have moved (ADR 0100).
+        // So does the preview's wrap, which a command may have moved (ADR 0100), and a
+        // description's (ADR 0138).
         self.fit_preview();
+        self.fit_hover();
         let mut moved = self.follow_window(self.selected);
         if self.prompts.is_empty() && !self.moved_windows.is_empty() {
             // By position, so the list keeps its room from command to command.

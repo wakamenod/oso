@@ -2,7 +2,9 @@
 //! into a session as the person's bracketed paste, not submitted; `session-mention` gives
 //! another session's name as `@NAME`; `session-follow-message` shows who sent a session its
 //! newest message; `session-yank-image` keeps the clipboard's image in a file and pastes an `@`
-//! reference to it into the session (ADR 0142).
+//! reference to it into the session (ADR 0142); `session-send-diagnostics` pastes a language
+//! server's diagnostics of the buffer or the region, and `session-fix-error` the one at point
+//! with its lines around and the ask to fix it (ADR 0138, step 11).
 //!
 //! Must not depend on: winit, the GPU, `bindings` or `sessions`; a command reads the window's
 //! selections and its buffer, and asks the host, which knows each session's directory and
@@ -15,7 +17,8 @@
 
 use oso_core::buffer::Buffer;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::{SendExcerpt, SendPart, SendTo, SessionRequest};
+use oso_core::diagnostic::Severity;
+use oso_core::editor::{SendDiagnostic, SendExcerpt, SendPart, SendTo, SessionRequest};
 
 use super::super::edit::insert_at_cursors;
 
@@ -59,6 +62,30 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Person,
         run: session_send,
+        state: None,
+    },
+    Command {
+        name: "session-send-diagnostics",
+        doc: "Paste the language server's diagnostics of this buffer, or of the region, into an agent session, read with completion.\n\nEach goes as a line, `path:line: severity: message`, the path relative to the session's directory and the message's first line; hints are left out. The paste is not submitted: you read it in the session's input box and press Enter. At most 256 KiB.",
+        args: ArgSpec::Listed {
+            list: SEND_LIST,
+            prompt: "Send diagnostics to session:",
+            history: "session",
+        },
+        reach: Reach::Person,
+        run: session_send_diagnostics,
+        state: None,
+    },
+    Command {
+        name: "session-fix-error",
+        doc: "Ask an agent session, read with completion, to fix the diagnostic at the primary cursor.\n\nIt pastes the diagnostic, `path:line:column: severity`, the server's message in a fence under a line saying a language server wrote it, the 10 lines either side of it in a fence, and \"Fix this error.\". Of several there, the most severe goes; hints never do. The paste is not submitted: you read it in the session's input box and press Enter.",
+        args: ArgSpec::Listed {
+            list: SEND_LIST,
+            prompt: "Fix the error with session:",
+            history: "session",
+        },
+        reach: Reach::Person,
+        run: session_fix_error,
         state: None,
     },
     Command {
@@ -185,6 +212,135 @@ fn excerpt(buffer: &Buffer, range: std::ops::Range<usize>, text: Option<String>)
         first: start.row + 1,
         last: last + 1,
         text,
+    }
+}
+
+/// The lines either side of a diagnostic `session-fix-error` sends.
+const AROUND: usize = 10;
+
+/// Sends the buffer's diagnostics, or the region's, hints left out (ADR 0138, step 11).
+fn session_send_diagnostics(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::super::not_in_prompt(ctx)?;
+    let session = super::answer(ctx, "No session")?;
+    let (window, buffer) = ctx.editor.current();
+    let set = diagnosed(buffer)?;
+    let mut regions: Vec<_> = window
+        .selections
+        .iter()
+        .map(|selection| selection.range())
+        .filter(|range| !range.is_empty())
+        .collect();
+    regions.sort_unstable_by_key(|range| range.start);
+    // A diagnostic in a region, found by a binary search of the regions, which meet no other.
+    let meets = |range: std::ops::Range<usize>| {
+        let after = regions.partition_point(|region| region.end <= range.start);
+        regions.is_empty()
+            || regions
+                .get(after)
+                .is_some_and(|region| region.start <= range.start)
+    };
+    let mut diagnostics: Vec<SendDiagnostic> = Vec::new();
+    let mut bytes = 0;
+    for diagnostic in (set.iter())
+        .filter(|diagnostic| diagnostic.severity() != Severity::Hint)
+        .filter(|diagnostic| meets(diagnostic.range()))
+    {
+        // Its first line only, as the line sends, and no column, which it shows none of.
+        let mut sent = send_diagnostic(buffer, &diagnostic, false);
+        sent.message = oso_core::diagnostic::first_line(&sent.message).to_owned();
+        bytes += sent.message.len() + sent.buffer.len() + 32;
+        if bytes > MAX_SEND_BYTES {
+            return Err(CommandError::new(too_large(
+                bytes,
+                "M-x session-send-diagnostics",
+            )));
+        }
+        diagnostics.push(sent);
+    }
+    if diagnostics.is_empty() {
+        return Err(CommandError::new(if regions.is_empty() {
+            "No diagnostics to send"
+        } else {
+            "No diagnostics in the region"
+        }));
+    }
+    ctx.editor.request_session(SessionRequest::Send {
+        to: SendTo::Named(session),
+        parts: vec![SendPart::Diagnostics(diagnostics)],
+    });
+    Ok(())
+}
+
+/// Sends the most severe diagnostic at the primary cursor, its lines around and "Fix this error." (ADR 0121,
+/// ADR 0138, step 11).
+fn session_fix_error(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::super::not_in_prompt(ctx)?;
+    let session = super::answer(ctx, "No session")?;
+    let (window, buffer) = ctx.editor.current();
+    let set = diagnosed(buffer)?;
+    let cursor = window.selections.primary().cursor;
+    let Some(diagnostic) = set
+        .at(cursor)
+        .filter(|diagnostic| diagnostic.severity() != Severity::Hint)
+        .min_by_key(|diagnostic| diagnostic.severity())
+    else {
+        return Err(CommandError::new("No diagnostic at point"));
+    };
+    let text = buffer.text();
+    let row = text.offset_to_point(diagnostic.range().start).row;
+    let first = row.saturating_sub(AROUND);
+    let last = (row + AROUND).min(text.line_count().saturating_sub(1));
+    let range = text.line_start(first)..text.line_end(last);
+    if range.len() > MAX_SEND_BYTES {
+        return Err(CommandError::new(too_large(
+            range.len(),
+            "M-x session-fix-error",
+        )));
+    }
+    let lines = text.slice(range.clone()).to_string();
+    let around = excerpt(buffer, range, Some(lines));
+    ctx.editor.request_session(SessionRequest::Send {
+        to: SendTo::Named(session),
+        parts: vec![SendPart::FixError {
+            diagnostic: send_diagnostic(buffer, &diagnostic, true),
+            around,
+        }],
+    });
+    Ok(())
+}
+
+/// The set of diagnostics of `buffer`, or why there is none to send.
+fn diagnosed(buffer: &Buffer) -> Result<&oso_core::diagnostic::Diagnostics, CommandError> {
+    if buffer.is_secret() {
+        return Err(CommandError::new(
+            "No server for a buffer that may hold secrets",
+        ));
+    }
+    buffer
+        .diagnostics()
+        .ok_or_else(|| CommandError::new("No language server reported on this buffer"))
+}
+
+/// `diagnostic` of `buffer` as a send gives it, its message cut to what a send keeps, and its
+/// column in characters if `column`, else 0.
+fn send_diagnostic(
+    buffer: &Buffer,
+    diagnostic: &oso_core::diagnostic::Diagnostic<'_>,
+    column: bool,
+) -> SendDiagnostic {
+    let text = buffer.text();
+    let start = diagnostic.range().start;
+    let point = text.offset_to_point(start);
+    let column = column.then(|| text.slice(text.line_start(point.row)..start).char_count() + 1);
+    let message = diagnostic.message();
+    let kept = &message[..message.floor_char_boundary(crate::channel::diagnostics::MESSAGE_BYTES)];
+    SendDiagnostic {
+        path: buffer.path().map(std::path::Path::to_path_buf),
+        buffer: buffer.name().to_owned(),
+        line: point.row + 1,
+        column: column.unwrap_or(0),
+        severity: diagnostic.severity(),
+        message: kept.to_owned(),
     }
 }
 

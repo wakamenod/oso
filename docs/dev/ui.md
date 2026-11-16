@@ -1119,7 +1119,10 @@ a switch made with its command stands until that setting changes in the file
   name, the place (`repository/worktree`, `(gone)` once its directory is), the age, and `›` for
   a prompt or `‹` for a reply. Rows come newest conversation first, at most 50 a conversation.
   The preview shows the messages around the row, wrapped. `RET` shows a session oso hosts and
-  adopts any other, as `C-c a a` does; one whose directory is gone is not resumed. Only prompts
+  adopts any other, as `C-c a a` does; one whose directory is gone is not resumed. `C-RET`
+  reads the row's conversation whole in `*conversation: NAME*`, read-only and withheld from
+  agents, where `n` and `p` go from message to message, `r` goes to the session, `f` forks it,
+  `g` reads it again and `q` quits; `M-RET` forks it at once. Only prompts
   and replies are searched, never tool inputs or results, thinking or attachments. What was
   read is held in memory only, for 5 minutes after the last search, and no agent gets it.
 - `config.toml`:

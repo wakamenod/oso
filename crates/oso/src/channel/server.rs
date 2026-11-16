@@ -7,7 +7,8 @@
 //!   uncounted: probes, such as the stale-socket cleanup, connect and send nothing.
 //! - Its first request asks the person, through the UI thread, and is answered only once
 //!   they agree. One connection waits at a time, at most [`MAX_ASKS`] ask a minute, and none
-//!   for [`REFUSED_FOR`] after the person says no.
+//!   for [`REFUSED_FOR`] after the person says no. The next may ask by the time the UI hears
+//!   that a waiting client went.
 //! - Every connection counts toward [`MAX_ACCEPTS`] a minute, and at most [`MAX_CLIENTS`]
 //!   are open at once, so no process can hold the slots or churn connections unseen.
 //! - A first request that is `version` naming a session asks the UI thread first whether the
@@ -337,16 +338,7 @@ where
             )?;
             return Ok(());
         };
-        if let Err(why) = gate(shared).may_ask(Instant::now()) {
-            writeln!(writer, "{}", failure(&first_id, why))?;
-            return Ok(());
-        }
-        let asked = ask(&peer, connection, &lines, &mut writer, shared, send);
-        // Only the person's own `n` holds others off: a client that goes, or a channel that
-        // stops, is no refusal.
-        let refused = matches!(&asked, Err(Asked::Refused(why)) if why == REFUSED_BY_THE_PERSON);
-        gate(shared).answered(refused, Instant::now());
-        match asked {
+        match ask(&peer, connection, (&lines, &mut writer, shared), send) {
             Ok(()) => {}
             Err(Asked::Refused(why)) => {
                 writeln!(writer, "{}", failure(&first_id, &why))?;
@@ -466,20 +458,21 @@ enum Asked {
     Gone,
 }
 
-/// Asks the person, through the UI thread, whether this connection may drive the editor,
-/// and waits as long as they take. Tells the UI if the client goes or the channel stops
-/// meanwhile, so that the question closes.
+/// Asks the person, through the UI thread, whether this connection may drive the editor, if
+/// it may take the turn to ask now, and waits as long as they take. However it ends, it gives
+/// the turn back first, holding new connections off only after the person's `n`; then, if the
+/// client went or the channel stopped, it tells the UI, so that the question closes.
 fn ask<S>(
     peer: &Peer,
     connection: Connection,
-    lines: &mpsc::Receiver<Line>,
-    writer: &mut ControlStream,
-    shared: &Shared,
+    (lines, writer, shared): (&mpsc::Receiver<Line>, &mut ControlStream, &Shared),
     send: &S,
 ) -> Result<(), Asked>
 where
     S: Fn(Request) -> bool,
 {
+    let waiting =
+        Waiting::take(shared, Instant::now()).map_err(|why| Asked::Refused(why.into()))?;
     let (reply, replied) = mpsc::channel();
     let asks = Request {
         connection,
@@ -487,9 +480,16 @@ where
         reply: Some(reply),
     };
     if !send(asks) {
+        waiting.answered(false);
         return Err(Asked::Refused("the editor is shutting down".into()));
     }
-    match held::watching(&replied, None, held::PERSON, (lines, writer, shared)) {
+    let waited = held::watching(&replied, None, held::PERSON, (lines, writer, shared));
+    // The turn is given back before the UI is told the client went, so that an agent that
+    // connects once the question closed is not told another one waits. Only the person's own
+    // `n` holds others off: a client that goes, or a channel that stops, is no refusal.
+    let refused = matches!(&waited, Waited::Replied(Ok(Err(why))) if why == REFUSED_BY_THE_PERSON);
+    waiting.answered(refused);
+    match waited {
         Waited::Replied(Ok(Ok(_))) => Ok(()),
         Waited::Replied(Ok(Err(why))) => Err(Asked::Refused(why)),
         Waited::Replied(Err(why)) => Err(Asked::Refused(why.into())),
@@ -586,7 +586,7 @@ mod held;
 mod limits;
 
 use held::Waited;
-use limits::{Gate, Rate, Slot, gate};
+use limits::{Gate, Rate, Slot, Waiting, gate};
 
 // The tests need a socket, which only Unix has (ADR 0032).
 #[cfg(all(test, unix))]

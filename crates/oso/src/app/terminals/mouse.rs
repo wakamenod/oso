@@ -1,4 +1,5 @@
-//! The mouse in the app (ADR 0120, step 4b-2; ADR 0112). A press selects the window under it,
+//! The mouse in the app (ADR 0120, step 4b-2; ADR 0112). A press closes a server's description
+//! at point (ADR 0138), and selects the window under it,
 //! and the first press on a window not selected does only that; point never moves in a text
 //! buffer. `*Spaces*` in the side window takes a left press itself (ADR 0131). In the selected window's terminal, a program that asked for mouse reports gets them,
 //! but never while it reads a password; otherwise, or with Shift held, a drag selects cells,
@@ -139,6 +140,11 @@ impl App {
     }
 
     fn mouse_pressed(&mut self, button: MouseButton, at: Position, held: Held) {
+        // A press anywhere closes a server's description at point (ADR 0138).
+        if self.editor.hover().is_some() {
+            self.request_redraw();
+        }
+        self.editor.close_hover();
         // One button at a time: a press during a drag ends it and begins its own, so a
         // release that never came cannot hold a drag on.
         self.end_drag();

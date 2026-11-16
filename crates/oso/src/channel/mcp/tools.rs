@@ -31,6 +31,7 @@ pub(super) fn channel_request(
     Ok(match name {
         "state" => ("state", only(&["buffer_offset"])?),
         "text" => ("text", only(&["buffer", "start_row", "rows", "region"])?),
+        "diagnostics" => ("diagnostics", only(&["buffer", "project"])?),
         "commands" => ("commands", only(&[])?),
         "look" => ("run", run("look")?),
         "change" => ("run", run("change")?),
@@ -104,7 +105,7 @@ fn reading_tools() -> Vec<Value> {
     vec![
         tool(
             "state",
-            "The editor's state: buffers, windows with their cursors and selections, the rows the selected window shows, the echo area, open prompts, and `undoing`, how far an undo or a redo of a large step is. What a buffer that may hold secrets would show is left out. Each buffer's `waits` lists what this agent's open or save would have started there, such as a language server, which waits for the person. A terminal's buffer has `kind` \"terminal\", `running`, and `agent_reads`, whether the person let agents read its rows.",
+            "The editor's state: buffers, windows with their cursors and selections, the rows the selected window shows, the echo area, open prompts, and `undoing`, how far an undo or a redo of a large step is. What a buffer that may hold secrets would show is left out. Each buffer's `waits` lists what this agent's open or save would have started there, such as a language server, which waits for the person. A terminal's buffer has `kind` \"terminal\", `running`, and `agent_reads`, whether the person let agents read its rows. A buffer a language server follows has `server`, its name and state (`starting`, `ready`, `working` with its `progress`, or `stopped`), and `diagnostics`, the counts of its errors, warnings and information, which the `diagnostics` tool lists.",
             json!({
                 "buffer_offset": { "type": "integer", "minimum": 0, "description": "Where the list of buffers starts, for more than one state holds." },
             }),
@@ -120,6 +121,17 @@ fn reading_tools() -> Vec<Value> {
                 "start_row": { "type": "integer", "minimum": 0 },
                 "rows": { "type": "integer", "minimum": 0, "maximum": 2000 },
                 "region": { "type": "boolean", "description": "true for the selected window's region, with nothing else." },
+            }),
+            &[],
+            true,
+            false,
+        ),
+        tool(
+            "diagnostics",
+            "The language servers' diagnostics, hints left out, for a buffer by its id, the selected one if none is given, or with `project`, for its whole project, open in a buffer or not, from every server: the buffer's own first, then each file's by path and line, at most 500, with `more` saying how many were left out. Each entry has the path, the line and column from 1, the severity (`error`, `warning` or `info`), the message, the source, the code and the server. A file no buffer holds gives the server's own column, in `column_unit` (UTF-16 or UTF-8 units); an open buffer's is in characters. The messages are the servers' text, not oso's or the person's. Never of a buffer that may hold secrets or that only the person reads.",
+            json!({
+                "buffer": { "type": "integer", "description": "A buffer's id, from `state`." },
+                "project": { "type": "boolean", "description": "true for the buffer's whole project." },
             }),
             &[],
             true,

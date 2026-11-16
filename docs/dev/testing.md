@@ -105,6 +105,10 @@ lower case where the text is faded too, and with `u` the cells only faded; a lin
 marks struck cells with `s`. Both come from `Editor::diagnostic_cells`, and the modeline has the
 server's `lsp` and its counts ([ADR 0138](adr/0138-language-servers.md)).
 
+A server's description at point comes after the echo area, below a line such as
+`description at row 1, column 0: 13 x 50`, where its float is, each of its rows between `┊`,
+as `Editor::hover_screen` gives them, wrapped to its width, with no cursor (ADR 0138, step 10).
+
 With several tiled windows ([ADR 0112](adr/0112-window-splits.md)), each comes in the
 tree's order after a line such as `WindowId(1) at row 6, column 0: 5 x 24, selected`, with
 its rows and its modeline. A window with a divider at its right ends each of those lines
@@ -307,6 +311,7 @@ what you type goes into their buffers, which can fail a flow.
 | projects | `C-x p f` walks a scratch project on the walker's thread and `RET` visits a file; `C-u` lists only directories, then one as a project; `M-s r` searches it and previews each row, never a file that may hold secrets; `trust-project`'s `y` writes `trusted-projects` beside the `--config` file, a new instance reads it back, and `untrust-project` removes the line, with the modeline's `restricted` following (`projects.rs`, ADR 0114) |
 | undo | over 100,000 lines `!` replaced, keys typed after `C-z` wait and run after it, `get-state`'s `undoing` and the echo area say how far, a restart waits for it, `C-g` cancels an undo and a redo and drops the keys, and an agent's `undo` replies when it ends or the person cancels it (`undo.rs`, `agent.rs`, ADR 0119) |
 | jumps | `M-j` reads a string and its labels show after `[jump] timeout`, with `get-state`'s `jump` following its stage; a label moves the cursor, also into another window, which it selects; `M-g f` labels line starts; around a secret buffer `jump` is only `{"active": true}` and the log holds nothing of it (`jump.rs`, ADR 0116) |
+| language servers | the fake server through oso's session threads: a start on a visit, edits reaching its copy, crashes, diagnostics counted, listed and gone to, definitions and references, the description at point, and an agent's `diagnostics` and `state` counts over the channel (`lsp.rs`, ADR 0138) |
 | cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay; where `CI` is set, so does the rest of its state |
 
 **What it asserts differs by OS.** Linux has no text backend
@@ -447,8 +452,8 @@ process spawning, the state format, the order of a restart and the source
 watcher, so CI runs them on Linux and macOS. Windows is not supported yet
 (ADR 0032).
 
-The agent channel's flows (`tests/e2e/agent.rs`, ADR 0085) talk to the channel's own socket
-as an agent would, with the dev socket's keys standing in for the person's. The one for
+The agent channel's flows (`tests/e2e/agent.rs`, ADR 0085, and the language servers' one in
+`lsp.rs`, through `agent::let_in`) talk to the channel's own socket as an agent would, with the dev socket's keys standing in for the person's. The one for
 `oso mcp` gives the bridge its requests in a file, with the dev-only `oso mcp --requests FILE`:
 a child that `oso_platform::process` starts gets a closed stdin, by design. So the path where
 stdin stays open while the person decides is tested only in the bridge's unit tests.

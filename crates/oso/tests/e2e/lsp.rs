@@ -510,6 +510,72 @@ fn diagnostics_are_counted_moved_to_and_said_at_point() {
     assert!(modeline.contains("lsp E1 W1  "), "{modeline}");
 }
 
+/// `C-c C-d` shows the server's description in a float at point, `C-v` scrolls it, and the next
+/// key closes it and does what it always does.
+#[cfg(unix)]
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_description_shows_at_point_scrolls_and_goes_with_the_next_key() {
+    let scratch = Scratch::new("lsp-hover");
+    set_mode(scratch.path(), 0o700);
+    let root = project(&scratch, "proj-lsp", &["main.rs"]);
+    let lines: String = (1..=40)
+        .map(|n| format!("Line {n} of the docs.\n\n"))
+        .collect();
+    let rules = json!([
+        {"method": "initialize", "do": [{"reply": {"capabilities": {
+            "positionEncoding": "utf-8",
+            "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+            "hoverProvider": true,
+        }}}]},
+        {"method": "textDocument/hover", "do": [{"reply": {"contents": {
+            "kind": "markdown",
+            "value": format!("```rust\nfn main()\n```\n\n{lines}"),
+        }}}]},
+        {"method": "shutdown", "do": [{"reply": null}]},
+    ]);
+    let config = config(&scratch, &rules);
+    let record = scratch.write("conf/trusted-projects", record_line(&root).as_bytes());
+    set_mode(&record, 0o600);
+    let mut app = App::start_with_file_config_and_env(
+        &root.join("src/main.rs"),
+        scratch.path(),
+        &config,
+        &[],
+    );
+    app.wait_until_ready();
+    modeline_has(&mut app, "the server is ready", "proj-lsp  lsp  ");
+    // `lsp` reads the same while the server starts; it is ready once `*LSP*` says so.
+    lsp_log_with(&mut app, "main.rs", "] initialized in ", 1);
+
+    let before = app.screenshot();
+    app.send_keys("C-c C-d");
+    app.wait_for("the description", |state| state["hover"]["top"] == 0);
+    let shown = app.screenshot();
+    // The whole frame, as the float sits below the first line, past the topmost block of text
+    // that `foreground` reads.
+    let rows = 0..shown.height;
+    assert!(
+        shown.differs_in(&before, rows.clone()) > 0,
+        "the float is drawn"
+    );
+    // `C-v` scrolls it, not the buffer. Only macOS draws text so far (ADR 0036): elsewhere
+    // the float's rows look the same scrolled, and the state alone is checked.
+    app.send_keys("C-v");
+    app.wait_for("its next page", |state| state["hover"]["top"] == 18);
+    if cfg!(target_os = "macos") {
+        assert!(
+            app.screenshot().differs_in(&shown, rows) > 0,
+            "the float shows its next rows"
+        );
+    }
+    // The next key closes it and moves the cursor as ever.
+    app.send_keys("C-f");
+    app.wait_for("it closed and the key ran", |state| {
+        state["hover"].is_null() && state["cursor"]["column"] == 1
+    });
+}
+
 /// `M-g d` lists the project's diagnostics, the current buffer's first, then a file no buffer
 /// holds, whose row previews its place read from the file; `RET` visits it at that place.
 #[cfg(unix)]
@@ -591,6 +657,77 @@ fn diagnostics_are_listed_previewed_and_gone_to() {
             && state["cursor"]["row"] == 2
             && state["cursor"]["column"] == 7
     });
+}
+
+/// An agent reads a buffer's diagnostics through the channel's `diagnostics`, hints left out,
+/// and `state` gives the buffer's server and its counts (step 11).
+#[cfg(unix)]
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_agent_reads_the_diagnostics_and_the_counts() {
+    let scratch = Scratch::new("lsp-agent-diagnostics");
+    set_mode(scratch.path(), 0o700);
+    let root = project(&scratch, "proj-lsp", &["main.rs"]);
+    let uri = oso_lsp::uri::from_path(&root.join("src/main.rs")).unwrap();
+    let range = |start: u32, end: u32| json!({"start": {"line": 0, "character": start}, "end": {"line": 0, "character": end}});
+    let rules = json!([
+        {"method": "initialize", "do": [{"reply": {"capabilities": {
+            "positionEncoding": "utf-8",
+            "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+        }}}]},
+        {"method": "textDocument/didOpen", "nth": 1, "do": [
+            {"notify": {"method": "textDocument/publishDiagnostics", "params": {
+                "uri": uri,
+                "version": 1,
+                "diagnostics": [
+                    {"range": range(0, 2), "severity": 2, "message": "unused"},
+                    {"range": range(3, 7), "severity": 1, "message": "mismatched\u{202e} types"},
+                    {"range": range(8, 9), "severity": 4, "message": "a hint"},
+                ],
+            }}}
+        ]},
+        {"method": "shutdown", "do": [{"reply": null}]},
+    ]);
+    let config = config(&scratch, &rules);
+    let record = scratch.write("conf/trusted-projects", record_line(&root).as_bytes());
+    set_mode(&record, 0o600);
+    let mut app = App::start_with_file_config_and_env(
+        &root.join("src/main.rs"),
+        scratch.path(),
+        &config,
+        &[],
+    );
+    app.wait_until_ready();
+    modeline_has(&mut app, "the counts", "proj-lsp  lsp E1 W1  ");
+    let mut agent = super::agent::let_in(&mut app);
+
+    let answer = agent.call("diagnostics", None).unwrap();
+    let entries = answer["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 2, "no hint: {answer}");
+    assert_eq!(
+        (&entries[0]["severity"], &entries[0]["column"]),
+        (&json!("warning"), &json!(1))
+    );
+    assert_eq!(
+        entries[1]["message"], "mismatched\\u{202e} types",
+        "escaped for the agent"
+    );
+    assert_eq!(entries[1]["server"], "rust-analyzer");
+    assert_eq!(answer["more"], 0);
+
+    let state = agent.call("state", None).unwrap();
+    assert_eq!(state["version"], 3);
+    let buffer = state["buffers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|buffer| buffer["name"] == "main.rs")
+        .unwrap();
+    assert_eq!(buffer["server"]["name"], "rust-analyzer");
+    assert_eq!(
+        buffer["diagnostics"],
+        json!({ "errors": 1, "warnings": 1, "information": 0 })
+    );
 }
 
 /// A project whose `main.rs` the fake server follows, scripted with definitions and references

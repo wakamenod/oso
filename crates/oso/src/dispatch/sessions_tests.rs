@@ -162,3 +162,45 @@ fn the_adopt_float_keeps_the_order_the_host_gave() {
         [SessionRequest::Switch("old".to_owned())]
     );
 }
+
+#[test]
+fn session_searchs_prompt_has_its_own_keys_over_completions() {
+    let mut d = Dispatcher::new();
+    let mut editor = editor();
+    send(&mut d, &mut editor, "C-c a /");
+    assert_eq!(
+        editor.prompt().map(|prompt| prompt.label().to_owned()),
+        Some("Search conversations (all):".to_owned())
+    );
+    send(&mut d, &mut editor, "n e e d l e");
+    let request = editor.take_conversation_search_request().unwrap();
+    let row = oso_core::editor::ConversationRow {
+        session: "6c1b5d1e-2f3a-4b5c-8d9e-0f1a2b3c4d5e".into(),
+        label: "◌ x · y · 1m ›".into(),
+        message: 2,
+        line: 0,
+        column: 0,
+        text: "needle".into(),
+    };
+    editor.conversation_rows_found(request.generation, vec![row], None);
+    // With only every conversation's scope, `C-c C-s` stays in it.
+    send(&mut d, &mut editor, "C-c C-s");
+    assert!(editor.searches_conversations());
+    // `M-RET` forks, in place of completion's exit with the input.
+    send(&mut d, &mut editor, "M-RET");
+    assert!(editor.prompt().is_none());
+    assert_eq!(
+        editor.take_session_requests(),
+        [SessionRequest::ForkConversation {
+            session: "6c1b5d1e-2f3a-4b5c-8d9e-0f1a2b3c4d5e".into(),
+        }]
+    );
+    // Elsewhere, `C-c C-s` is no prompt's key.
+    send(&mut d, &mut editor, "M-x");
+    send(&mut d, &mut editor, "C-c C-s");
+    assert!(
+        editor
+            .prompt()
+            .is_some_and(|prompt| prompt.label() == "M-x")
+    );
+}

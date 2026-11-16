@@ -4,7 +4,9 @@
 //! document kept from its server loses its set, which no longer follows what the server has.
 //! Once the cursor stays 300 ms on a diagnostic, the echo area says it (Q14). The reports of
 //! files no buffer holds are kept by path, shared with the server's thread, for `M-g d`, whose
-//! rows are built on a thread of their own from a snapshot (step 6b, `rows`).
+//! rows are built on a thread of their own from a snapshot (step 6b, `rows`), and for the agent
+//! channel's `diagnostics`, which `app/agent/reads.rs` answers with them and the servers'
+//! names (step 11).
 //!
 //! Must not depend on: the window system or the drawing; nothing here waits on a server.
 
@@ -132,11 +134,7 @@ impl App {
         // Only the servers of this project, or of one inside it or around it; the paths are
         // judged on the thread, against the root as a server's URI reads back.
         let root = &request.root;
-        let files = (self.servers.running.iter())
-            .filter(|running| running.root.starts_with(root) || root.starts_with(&running.root))
-            .flat_map(|running| running.files.iter())
-            .map(|(path, (report, encoding))| (Arc::clone(path), Arc::clone(report), *encoding))
-            .collect();
+        let files = self.file_reports(root);
         let snapshot = rows::Snapshot {
             generation: request.generation,
             root: request.root,
@@ -166,6 +164,36 @@ impl App {
             let empty = DiagnosticRows::new(request.generation, Vec::new(), None, false);
             self.editor.diagnostics_listed(empty);
         }
+    }
+
+    /// The name of the language server that follows buffer `id`.
+    pub(in crate::app) fn server_name(&self, id: BufferId) -> Option<String> {
+        let index = self.running_for(id)?;
+        Some(self.servers.running[index].entry.name.clone())
+    }
+
+    /// The reports of files no buffer holds, of the servers whose root is `root`, inside it or
+    /// around it, shared, so none is copied; the job keeps those under the root.
+    pub(in crate::app) fn file_reports(
+        &self,
+        root: &Path,
+    ) -> Vec<crate::channel::diagnostics::FileReport> {
+        let mut reports = Vec::new();
+        for running in &self.servers.running {
+            if !(running.root.starts_with(root) || root.starts_with(&running.root)) {
+                continue;
+            }
+            let server: Arc<str> = Arc::from(running.entry.name.as_str());
+            reports.extend(running.files.iter().map(|(path, (report, encoding))| {
+                crate::channel::diagnostics::FileReport {
+                    path: Arc::clone(path),
+                    report: Arc::clone(report),
+                    encoding: *encoding,
+                    server: Arc::clone(&server),
+                }
+            }));
+        }
+        reports
     }
 
     /// The rows of `M-g d`'s list came: the editor shows them, if they are for its list.

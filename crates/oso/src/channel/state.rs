@@ -10,7 +10,7 @@
 
 use std::ops::Range;
 
-use oso_core::buffer::{Buffer, BufferId};
+use oso_core::buffer::{Buffer, BufferId, ServerMark};
 use oso_core::command::{ArgSpec, BufferPurpose, Command, Reach};
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
 use oso_core::editor::{Editor, Status};
@@ -20,9 +20,11 @@ use oso_core::sum_tree::Bias;
 use oso_core::window::Window;
 use serde_json::{Value, json};
 
-/// The state's version. Bump it on incompatible changes. 2 added each buffer's `waits`
-/// (ADR 0118, Q6).
-pub const STATE_VERSION: u32 = 2;
+/// The state's version. Bumped on incompatible changes and, since ADR 0118, on new fields of
+/// each buffer's, which an agent may check before it reads them; new fields of a window's
+/// keep it. 2 added each buffer's `waits` (ADR 0118, Q6); 3 each buffer's `server` and
+/// `diagnostics` (ADR 0138, step 11).
+pub const STATE_VERSION: u32 = 3;
 
 /// The most text of the selected window's rows the state holds, in bytes.
 pub const MAX_VISIBLE_TEXT: usize = 64 * 1024;
@@ -42,8 +44,14 @@ pub fn unreadable(buffer: &Buffer) -> bool {
 
 /// The state: every buffer the person has, every tiled window, the selected window's rows,
 /// the echo area, the prompts open, the outermost first, and `menu`, the name of the menu the
-/// person has open, or null (ADR 0117).
-pub fn state(editor: &Editor, menu: Option<&str>, buffer_offset: usize) -> Value {
+/// person has open, or null (ADR 0117). `server_of` names the language server that follows a
+/// buffer, for each buffer's `server` (ADR 0138, step 11).
+pub fn state(
+    editor: &Editor,
+    menu: Option<&str>,
+    buffer_offset: usize,
+    server_of: &dyn Fn(BufferId) -> Option<String>,
+) -> Value {
     let shows_secret = editor.shows_secret();
     let (window, buffer) = editor.tiled();
     let mut state = json!({
@@ -55,7 +63,7 @@ pub fn state(editor: &Editor, menu: Option<&str>, buffer_offset: usize) -> Value
             .filter(|(_, buffer)| !buffer.agent_pending())
             .skip(buffer_offset)
             .take(MAX_BUFFERS)
-            .map(|(id, buffer)| buffer_state(id, buffer, shows_secret))
+            .map(|(id, buffer)| buffer_state(id, buffer, shows_secret, server_of))
             .collect::<Vec<_>>(),
         "buffer_offset": buffer_offset,
         "buffer_count": editor.buffers().filter(|(_, b)| !b.agent_pending()).count(),
@@ -147,7 +155,12 @@ pub(crate) fn begin_a_large_undo(editor: &mut Editor) {
 /// let agents read it, and nothing of its title or rows (ADR 0120, Q16). It leaves out
 /// `secret` and `wrapped`, which follow a password prompt there, so that no agent learns when
 /// one opens in a terminal not shown or how long it stays (Q17).
-fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
+fn buffer_state(
+    id: BufferId,
+    buffer: &Buffer,
+    shows_secret: bool,
+    server_of: &dyn Fn(BufferId) -> Option<String>,
+) -> Value {
     let shown = !(buffer.is_secret() && shows_secret);
     let mut state = json!({
         "id": id.get(),
@@ -160,6 +173,33 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
         // What an agent's open or save would have started, waiting for the person (ADR 0118).
         "waits": buffer.waits().shown().collect::<Vec<_>>(),
     });
+    // The language server that follows it, and the counts of what it reported, hints left out
+    // (ADR 0138, step 11): never of a buffer the channel may not read, as `diagnostics`
+    // refuses it.
+    if !unreadable(buffer)
+        && let Some(mark) = buffer.server()
+    {
+        let (state_word, progress) = match mark {
+            ServerMark::Starting => ("starting", None),
+            ServerMark::Ready => ("ready", None),
+            ServerMark::Working(progress) => ("working", progress),
+            ServerMark::Stopped => ("stopped", None),
+        };
+        state["server"] = json!({
+            "name": server_of(id),
+            "state": state_word,
+            "progress": progress,
+        });
+        let counts = buffer
+            .diagnostics()
+            .map(|set| set.counts())
+            .unwrap_or_default();
+        state["diagnostics"] = json!({
+            "errors": counts.errors,
+            "warnings": counts.warnings,
+            "information": counts.information,
+        });
+    }
     if buffer.is_terminal() {
         if let Some(fields) = state.as_object_mut() {
             fields.remove("secret");
@@ -175,8 +215,8 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
 /// A tiled window, in the tree's order (ADR 0112): its id, its cells, gutter, text and
 /// modeline together, so that a secret buffer's gutter says nothing of its lines (ADR 0097),
 /// and its positions only if what it shows may hold no secrets. The selected one is the
-/// selected tiled window, also beneath a prompt. New fields keep the state's version
-/// (ADR 0085).
+/// selected tiled window, also beneath a prompt. New fields of a window's keep the state's
+/// version (ADR 0085), as [`STATE_VERSION`] says.
 fn window_state(
     editor: &Editor,
     window: &Window,
@@ -334,12 +374,17 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_VISIBLE_TEXT, begin_a_large_undo, commands, state};
+    use super::{MAX_VISIBLE_TEXT, STATE_VERSION, begin_a_large_undo, commands};
     use oso_core::buffer::Buffer;
     use oso_core::editor::Editor;
     use oso_core::window::ViewSize;
     use serde_json::json;
     use std::path::PathBuf;
+
+    /// The state with no language server named.
+    fn state(editor: &Editor, menu: Option<&str>, buffer_offset: usize) -> serde_json::Value {
+        super::state(editor, menu, buffer_offset, &|_| None)
+    }
 
     fn editor(text: &str) -> Editor {
         let mut editor = Editor::with_buffer(Buffer::from_text("notes.md", text));
@@ -362,6 +407,57 @@ mod tests {
             .collect();
         assert!(!names.contains(&json!("plain.txt")), "{names:?}");
         assert_eq!(state["buffer_count"], names.len());
+    }
+
+    #[test]
+    fn a_buffer_a_server_follows_says_its_server_and_counts() {
+        use oso_core::buffer::ServerMark;
+        use oso_core::diagnostic::{Diagnostics, New, Severity, Tags};
+        let mut editor = editor("let x = 1;\n");
+        let id = editor.tiled().0.buffer();
+        let plain = state(&editor, None, 0);
+        assert_eq!(plain["version"], 3);
+        assert!(
+            plain["buffers"][0].get("server").is_none(),
+            "none follows it"
+        );
+        let buffer = editor.buffer_mut(id).unwrap();
+        buffer.set_followed(true);
+        buffer.set_server(Some(ServerMark::Working(Some(40))));
+        let new = |severity| New {
+            range: 0..1,
+            severity,
+            tags: Tags::default(),
+            source: "",
+            code: "",
+            message: "m",
+        };
+        let set = Diagnostics::new(
+            "fake",
+            [
+                new(Severity::Error),
+                new(Severity::Warning),
+                new(Severity::Hint),
+            ],
+            11,
+        );
+        let revision = buffer.revision();
+        assert!(buffer.take_diagnostics(revision, set));
+        let state = super::state(&editor, None, 0, &|_| Some("rust-analyzer".into()));
+        let shown = &state["buffers"][0];
+        assert_eq!(
+            shown["server"],
+            json!({ "name": "rust-analyzer", "state": "working", "progress": 40 })
+        );
+        assert_eq!(
+            shown["diagnostics"],
+            json!({ "errors": 1, "warnings": 1, "information": 0 })
+        );
+        // One the channel may not read says neither, as `diagnostics` refuses it.
+        editor.buffer_mut(id).unwrap().withhold_from_agents();
+        let state = super::state(&editor, None, 0, &|_| Some("rust-analyzer".into()));
+        let shown = &state["buffers"][0];
+        assert!(shown.get("server").is_none() && shown.get("diagnostics").is_none());
     }
 
     #[test]
@@ -396,7 +492,7 @@ mod tests {
     #[test]
     fn shows_buffers_windows_and_the_rows_in_view() {
         let state = state(&editor("one\ntwo"), None, 0);
-        assert_eq!(state["version"], 2);
+        assert_eq!(state["version"], STATE_VERSION);
         assert_eq!(state["buffers"][0]["name"], "notes.md");
         assert_eq!(state["buffers"][0]["waits"], json!([]));
         assert_eq!(state["buffers"][0]["secret"], false);
@@ -441,7 +537,10 @@ mod tests {
             state(&editor, None, 0)
         };
         let state = shown(3);
-        assert_eq!(state["version"], 2, "new fields keep the version");
+        assert_eq!(
+            state["version"], STATE_VERSION,
+            "the windows' fields keep the version"
+        );
         let windows = state["windows"].as_array().unwrap();
         assert_eq!(windows.len(), 2);
         assert_eq!(
@@ -609,8 +708,8 @@ mod tests {
         let id = editor.add_terminal_buffer("*terminal*");
         editor.set_running(id, true);
         editor.set_mode_note(id, "\u{201c}a title\u{201d}".to_owned());
-        let state = state(&editor, None, 0);
-        let listed = state["buffers"]
+        let first = state(&editor, None, 0);
+        let listed = first["buffers"]
             .as_array()
             .unwrap()
             .iter()
@@ -623,8 +722,8 @@ mod tests {
         assert!(!listed.to_string().contains("a title"), "{listed}");
         assert!(listed.get("secret").is_none(), "{listed}");
         editor.set_agent_reads(id, true);
-        let state = super::state(&editor, None, 0);
-        assert!(state.to_string().contains("\"agent_reads\":true"));
+        let again = state(&editor, None, 0);
+        assert!(again.to_string().contains("\"agent_reads\":true"));
     }
 
     #[test]

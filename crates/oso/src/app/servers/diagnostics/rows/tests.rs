@@ -14,7 +14,8 @@ use oso_core::rope::Rope;
 use oso_lsp::position::{Encoding, Position};
 use oso_lsp::protocol::{Published, Reported};
 
-use super::{OpenSet, ROW_PATH_BYTES_MAX, ROWS_BYTES_MAX, Snapshot, build};
+use super::{OpenSet, ROWS_BYTES_MAX, Snapshot, build};
+use crate::channel::diagnostics::{FileReport, PATH_BYTES_MAX as ROW_PATH_BYTES_MAX};
 
 /// An editor showing a buffer of `/w/oso/z.rs`, whose list of diagnostics is open, the first,
 /// and another buffer's id.
@@ -84,7 +85,12 @@ fn snapshot(
         open,
         files: files
             .into_iter()
-            .map(|(path, report, encoding)| (Arc::<Path>::from(path), report, encoding))
+            .map(|(path, report, encoding)| FileReport {
+                path: Arc::<Path>::from(path),
+                report,
+                encoding,
+                server: Arc::from("fake"),
+            })
             .collect(),
     }
 }
