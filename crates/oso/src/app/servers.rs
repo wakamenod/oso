@@ -1,4 +1,4 @@
-//! The language servers the app runs (ADR 0138, steps 3 and 4), on the UI thread: which server a
+//! The language servers the app runs (ADR 0138, steps 3, 4 and 6), on the UI thread: which server a
 //! buffer's open would start, starting one for a project's root and entry, what the commands
 //! ask, what each server's thread reports, the modeline's marks, and the ends that trust, the
 //! configuration and a quit bring. One server runs per root and entry. The UI thread never
@@ -280,8 +280,12 @@ impl App {
                     }
                 }
             }
-            diagnosed |=
-                diagnostics::take(&mut self.editor, &running.documents, report.diagnostics);
+            diagnosed |= diagnostics::take(
+                &mut self.editor,
+                &running.documents,
+                report.diagnostics,
+                &self.freer,
+            );
             for shown in report.shown {
                 // The server's name first, so that no server passes as oso. Its text may
                 // quote what it read, so the log gets only its size.

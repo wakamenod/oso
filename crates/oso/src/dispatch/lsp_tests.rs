@@ -73,3 +73,18 @@ fn a_prefix_argument_keeps_the_layer() {
     send(&mut d, &mut editor, "C-u C-M-n");
     assert_eq!(cursor(&editor), 4);
 }
+
+#[test]
+fn the_layer_of_c_x_tab_comes_before_the_lsp_layer_while_it_is_open() {
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    send(&mut d, &mut editor, "C-SPC C-e C-x TAB");
+    assert!(editor.indent_rigidly_layer());
+    let reading = d.keymaps.reading(&editor);
+    let layers = d.keymaps.active(&reading, None, &editor);
+    assert_eq!(layers.minor.len(), 2);
+    assert!(
+        std::ptr::eq(layers.minor[0], &d.keymaps.rigid),
+        "C-x TAB's first"
+    );
+    assert!(std::ptr::eq(layers.minor[1], &d.keymaps.lsp));
+}

@@ -65,13 +65,6 @@ pub struct Counts {
     pub information: u32,
 }
 
-impl Counts {
-    /// Whether nothing is counted.
-    pub fn is_empty(&self) -> bool {
-        *self == Self::default()
-    }
-}
-
 /// One entry, its strings as ranges of the arena.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Entry {
@@ -152,10 +145,14 @@ impl<'a> Diagnostic<'a> {
         self.set.string(self.entry.message)
     }
 
-    /// Its message's first line.
+    /// Its message's first line, up to any line break: `\n`, `\r`, NEL, or the line and
+    /// paragraph separators, so that no text after one reads as another line.
     pub fn first_line(&self) -> &'a str {
         let message = self.message();
-        message.lines().next().unwrap_or(message)
+        message
+            .split(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}'])
+            .next()
+            .unwrap_or(message)
     }
 }
 
@@ -262,31 +259,31 @@ impl Diagnostics {
         self.in_range(offset..offset)
     }
 
-    /// The index of the first diagnostic that is not a hint and starts after `offset`.
-    pub fn next_after(&self, offset: usize) -> Option<usize> {
-        let first = self.entries.partition_point(|entry| entry.start <= offset);
-        (first..self.entries.len()).find(|&index| self.entries[index].severity != Severity::Hint)
-    }
-
-    /// The index of the last diagnostic that is not a hint and starts before `offset`.
-    pub fn before(&self, offset: usize) -> Option<usize> {
-        let end = self.entries.partition_point(|entry| entry.start < offset);
-        (0..end)
-            .rev()
-            .find(|&index| self.entries[index].severity != Severity::Hint)
-    }
-
-    /// The index of the first diagnostic that is not a hint, and of the last, for a move that
-    /// wraps.
-    pub fn ends(&self) -> Option<(usize, usize)> {
+    /// Where a move from `offset` goes, as `C-M-n` and `C-M-p` do (Q15): the first diagnostic
+    /// that is not a hint and starts after it, `forward`, or the last that starts before it;
+    /// past either end, the first or the last, with `true` for the wrap. `None` with only
+    /// hints, or none. O(log n), plus the hints passed.
+    pub fn step(&self, offset: usize, forward: bool) -> Option<(Diagnostic<'_>, bool)> {
         let counted = |index: &usize| self.entries[*index].severity != Severity::Hint;
-        let first = (0..self.entries.len()).find(counted)?;
-        let last = (0..self.entries.len()).rev().find(counted)?;
-        Some((first, last))
+        let len = self.entries.len();
+        let found = if forward {
+            let first = self.entries.partition_point(|entry| entry.start <= offset);
+            (first..len).find(counted)
+        } else {
+            let end = self.entries.partition_point(|entry| entry.start < offset);
+            (0..end).rev().find(counted)
+        };
+        let (index, wrapped) = match found {
+            Some(index) => (index, false),
+            None if forward => ((0..len).find(counted)?, true),
+            None => ((0..len).rev().find(counted)?, true),
+        };
+        self.get(index).map(|diagnostic| (diagnostic, wrapped))
     }
 
-    /// Follows a batch of edits, as [`Splice`] says, in its offsets before the batch. O(entries ×
-    /// log splices). Each start and end moves by itself, as a mark does; see the module's rules.
+    /// Follows a batch of edits, as [`Splice`] says, in its offsets before the batch, in place.
+    /// O(entries × log splices), allocating only the shift before each splice. Each start and
+    /// end moves by itself, as a mark does; see the module's rules.
     pub fn splice(&mut self, splices: &[Splice]) {
         if splices.is_empty() || self.entries.is_empty() {
             return;
@@ -305,14 +302,17 @@ impl Diagnostics {
             entry.end = end.max(start);
         }
         // The starts kept their order, as each moves as its offset's place does; a tie may
-        // have changed which comes first only among equal starts.
-        self.entries
-            .sort_by_key(|entry| (entry.start, entry.severity, entry.end));
+        // have changed which comes first only among equal starts, so they are sorted only then,
+        // and a sorted set allocates nothing.
+        let key = |entry: &Entry| (entry.start, entry.severity, entry.end);
+        if !self.entries.is_sorted_by_key(key) {
+            self.entries.sort_by_key(key);
+        }
         self.reach_again();
     }
 
     /// Whether every range ends within a text of `len` bytes.
-    pub fn fits(&self, len: usize) -> bool {
+    pub(crate) fn fits(&self, len: usize) -> bool {
         self.reach.last().is_none_or(|&reach| reach <= len)
     }
 

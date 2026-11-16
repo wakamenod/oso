@@ -74,36 +74,14 @@ fn previous_diagnostic(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     to_diagnostic(ctx, false)
 }
 
-/// Moves the primary cursor, alone, to the start of the next diagnostic after it, or the
-/// previous before it, wrapping past the end (ADR 0138, Q15).
+/// Moves the primary cursor, alone, to the next diagnostic or the previous one, wrapping past
+/// the end (ADR 0138, Q15); the editor works out where.
 fn to_diagnostic(ctx: &mut Ctx<'_>, forward: bool) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
-    let (window, buffer) = ctx.editor.current();
-    if buffer.is_secret() {
-        return Err(CommandError::new(
-            "No server for a buffer that may hold secrets",
-        ));
-    }
-    let Some(set) = buffer.diagnostics() else {
-        return Err(CommandError::new("No diagnostics"));
-    };
-    let offset = window.selections.primary().cursor;
-    let found = if forward {
-        set.next_after(offset)
-    } else {
-        set.before(offset)
-    };
-    let (index, wrapped) = match (found, set.ends()) {
-        (Some(index), _) => (index, false),
-        (None, Some((first, last))) => (if forward { first } else { last }, true),
-        (None, None) => return Err(CommandError::new("No diagnostics")),
-    };
-    let Some(target) = set.get(index).map(|diagnostic| diagnostic.range().start) else {
-        return Err(CommandError::new("No diagnostics"));
-    };
-    let selections = &mut ctx.editor.current_mut().0.selections;
-    selections.keep_primary();
-    selections.move_primary(target);
+    let wrapped = ctx
+        .editor
+        .to_diagnostic(forward)
+        .map_err(CommandError::new)?;
     if wrapped {
         ctx.editor.echo("Wrapped");
     }

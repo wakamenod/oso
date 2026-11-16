@@ -5,6 +5,9 @@
 //!
 //! Must not depend on: `server`, threads or processes; this reads values, and the session
 //! thread judges the path and places the ranges against a text.
+//!
+//! The list is counted by severity first, with nothing allocated, so that only the entries kept
+//! are read, and the list holds room for no more than them.
 
 use oso_core::diagnostic::{Severity, Tags};
 use serde_json::Value;
@@ -18,9 +21,6 @@ use crate::position::Position;
 /// The most tags read of one diagnostic: the protocol has two.
 const TAGS_MAX: usize = 8;
 
-/// A bytes' cost counted for each entry beside its strings, so that empty ones count too.
-const ENTRY_COST: usize = 64;
-
 /// One server's report of a document's diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Published {
@@ -28,7 +28,7 @@ pub struct Published {
     pub uri: String,
     /// The version of the document it was made for, if it names one.
     pub version: Option<i32>,
-    /// The diagnostics, the most severe kept, in no order.
+    /// The diagnostics, the most severe kept, each severity's in the order they came.
     pub diagnostics: Vec<Reported>,
 }
 
@@ -56,25 +56,21 @@ impl std::fmt::Debug for Reported {
 }
 
 impl Published {
-    /// What it costs to keep, for [`crate::limits::DIAGNOSTICS_BYTES_MAX`].
-    pub fn bytes(&self) -> usize {
-        self.uri.len()
-            + self
-                .diagnostics
-                .iter()
-                .map(|reported| {
-                    ENTRY_COST
-                        + reported.source.len()
-                        + reported.code.len()
-                        + reported.message.len()
-                })
-                .sum::<usize>()
+    /// What it costs to keep, for [`crate::limits::DIAGNOSTICS_BYTES_MAX`]: its list as
+    /// allocated, and each string.
+    pub(crate) fn bytes(&self) -> usize {
+        let strings: usize = self
+            .diagnostics
+            .iter()
+            .map(|reported| reported.source.len() + reported.code.len() + reported.message.len())
+            .sum();
+        self.uri.len() + self.diagnostics.capacity() * std::mem::size_of::<Reported>() + strings
     }
 }
 
 /// `publishDiagnostics`' parameters, or `None` if they have no URI or no list. A diagnostic
 /// with no range that reads is left out; one with no severity is an error, as other clients
-/// read it. Past [`DIAGNOSTICS_MAX`], the most severe are kept.
+/// read it. Past [`DIAGNOSTICS_MAX`], the most severe are kept, each severity's first ones.
 pub fn published(params: &Value) -> Option<Published> {
     let uri = params.get("uri")?.as_str()?;
     if uri.len() > URI_BYTES_MAX {
@@ -82,10 +78,29 @@ pub fn published(params: &Value) -> Option<Published> {
     }
     let version = params.get("version").and_then(integer);
     let list = params.get("diagnostics")?.as_array()?;
-    let mut diagnostics: Vec<Reported> = list.iter().filter_map(reported).collect();
-    if diagnostics.len() > DIAGNOSTICS_MAX {
-        diagnostics.select_nth_unstable_by_key(DIAGNOSTICS_MAX - 1, |reported| reported.severity);
-        diagnostics.truncate(DIAGNOSTICS_MAX);
+    let mut counts = [0usize; 4];
+    for value in list {
+        if let Some(severity) = placed(value) {
+            counts[severity as usize] += 1;
+        }
+    }
+    // How many of each severity are kept, the most severe first.
+    let mut left = DIAGNOSTICS_MAX;
+    let mut quotas = counts.map(|count| {
+        let quota = count.min(left);
+        left -= quota;
+        quota
+    });
+    let mut diagnostics = Vec::with_capacity(quotas.iter().sum());
+    for value in list {
+        let Some(severity) = placed(value) else {
+            continue;
+        };
+        let quota = &mut quotas[severity as usize];
+        if *quota > 0 {
+            *quota -= 1;
+            diagnostics.extend(reported(value, severity));
+        }
     }
     Some(Published {
         uri: uri.to_owned(),
@@ -94,7 +109,20 @@ pub fn published(params: &Value) -> Option<Published> {
     })
 }
 
-fn reported(value: &Value) -> Option<Reported> {
+/// The severity of `value` if it has a range that reads, which a diagnostic must.
+fn placed(value: &Value) -> Option<Severity> {
+    range(value)?;
+    Some(
+        match value.get("severity").and_then(|v| integer_in(v, 1..=4)) {
+            Some(2) => Severity::Warning,
+            Some(3) => Severity::Information,
+            Some(4) => Severity::Hint,
+            _ => Severity::Error,
+        },
+    )
+}
+
+fn range(value: &Value) -> Option<(Position, Position)> {
     let range = value.get("range")?;
     let position = |value: Option<&Value>| -> Option<Position> {
         let value = value?;
@@ -103,13 +131,11 @@ fn reported(value: &Value) -> Option<Reported> {
             uinteger(value.get("character")?)?,
         ))
     };
-    let (start, end) = (position(range.get("start"))?, position(range.get("end"))?);
-    let severity = match value.get("severity").and_then(|v| integer_in(v, 1..=4)) {
-        Some(2) => Severity::Warning,
-        Some(3) => Severity::Information,
-        Some(4) => Severity::Hint,
-        _ => Severity::Error,
-    };
+    Some((position(range.get("start"))?, position(range.get("end"))?))
+}
+
+fn reported(value: &Value, severity: Severity) -> Option<Reported> {
+    let (start, end) = range(value)?;
     let mut tags = Tags::default();
     for tag in value
         .get("tags")

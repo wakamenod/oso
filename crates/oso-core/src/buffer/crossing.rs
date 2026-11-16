@@ -205,6 +205,7 @@ impl Buffer {
         let display = mem::replace(&mut self.display, staged.display);
         self.revision += 1;
         self.edited = edited;
+        self.follow_diagnostics(highlighting.batch(), &[]);
         let highlights = self.highlighting.commit(self.revision, highlighting);
         let (group, evicted) = self.history.cross(staged.direction, crossed);
         self.note_crossing();

@@ -250,13 +250,11 @@ pub fn oso_core::buffer::Buffer::set_own_spelling(&mut self, std::path::PathBuf)
 pub fn oso_core::buffer::Buffer::take_format_of_copy(&mut self, bool, oso_core::decode::LineEnding, bool)
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::can_highlight(&self) -> bool
-pub fn oso_core::buffer::Buffer::diagnostics(&self) -> core::option::Option<&oso_core::diagnostic::Diagnostics>
 pub fn oso_core::buffer::Buffer::drop_highlights(&mut self)
 pub fn oso_core::buffer::Buffer::edits_since(&self, u64) -> core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
 pub fn oso_core::buffer::Buffer::highlights(&self) -> core::option::Option<&oso_core::syntax::Highlights>
 pub fn oso_core::buffer::Buffer::set_followed(&mut self, bool)
 pub fn oso_core::buffer::Buffer::splices_since(&self, u64) -> core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
-pub fn oso_core::buffer::Buffer::take_diagnostics(&mut self, u64, oso_core::diagnostic::Diagnostics) -> bool
 pub fn oso_core::buffer::Buffer::take_highlights(&mut self, u64, oso_core::syntax::Highlights) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::carry_open_let_go(&mut self)
@@ -265,6 +263,9 @@ pub fn oso_core::buffer::Buffer::open_let_go(&self) -> bool
 pub fn oso_core::buffer::Buffer::open_waits(&self) -> oso_core::buffer::Starts
 pub fn oso_core::buffer::Buffer::save_waits(&self) -> oso_core::buffer::Starts
 pub fn oso_core::buffer::Buffer::waits(&self) -> oso_core::buffer::Starts
+impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::diagnostics(&self) -> core::option::Option<&oso_core::diagnostic::Diagnostics>
+pub fn oso_core::buffer::Buffer::take_diagnostics(&mut self, u64, oso_core::diagnostic::Diagnostics) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
 impl oso_core::buffer::Buffer
@@ -817,8 +818,6 @@ pub struct oso_core::diagnostic::Counts
 pub oso_core::diagnostic::Counts::errors: u32
 pub oso_core::diagnostic::Counts::information: u32
 pub oso_core::diagnostic::Counts::warnings: u32
-impl oso_core::diagnostic::Counts
-pub fn oso_core::diagnostic::Counts::is_empty(&self) -> bool
 impl core::clone::Clone for oso_core::diagnostic::Counts
 pub fn oso_core::diagnostic::Counts::clone(&self) -> oso_core::diagnostic::Counts
 impl core::cmp::Eq for oso_core::diagnostic::Counts
@@ -849,19 +848,16 @@ impl<'a> core::marker::Copy for oso_core::diagnostic::Diagnostic<'a>
 pub struct oso_core::diagnostic::Diagnostics
 impl oso_core::diagnostic::Diagnostics
 pub fn oso_core::diagnostic::Diagnostics::at(&self, usize) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::diagnostic::Diagnostic<'_>>
-pub fn oso_core::diagnostic::Diagnostics::before(&self, usize) -> core::option::Option<usize>
 pub fn oso_core::diagnostic::Diagnostics::counts(&self) -> oso_core::diagnostic::Counts
-pub fn oso_core::diagnostic::Diagnostics::ends(&self) -> core::option::Option<(usize, usize)>
-pub fn oso_core::diagnostic::Diagnostics::fits(&self, usize) -> bool
 pub fn oso_core::diagnostic::Diagnostics::get(&self, usize) -> core::option::Option<oso_core::diagnostic::Diagnostic<'_>>
 pub fn oso_core::diagnostic::Diagnostics::in_range(&self, core::ops::range::Range<usize>) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::diagnostic::Diagnostic<'_>>
 pub fn oso_core::diagnostic::Diagnostics::is_empty(&self) -> bool
 pub fn oso_core::diagnostic::Diagnostics::iter(&self) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::diagnostic::Diagnostic<'_>>
 pub fn oso_core::diagnostic::Diagnostics::len(&self) -> usize
 pub fn oso_core::diagnostic::Diagnostics::new<'a>(&str, impl core::iter::traits::collect::IntoIterator<Item = oso_core::diagnostic::New<'a>>, usize) -> Self
-pub fn oso_core::diagnostic::Diagnostics::next_after(&self, usize) -> core::option::Option<usize>
 pub fn oso_core::diagnostic::Diagnostics::server(&self) -> &str
 pub fn oso_core::diagnostic::Diagnostics::splice(&mut self, &[oso_core::syntax::Splice])
+pub fn oso_core::diagnostic::Diagnostics::step(&self, usize, bool) -> core::option::Option<(oso_core::diagnostic::Diagnostic<'_>, bool)>
 impl core::clone::Clone for oso_core::diagnostic::Diagnostics
 pub fn oso_core::diagnostic::Diagnostics::clone(&self) -> oso_core::diagnostic::Diagnostics
 impl core::cmp::Eq for oso_core::diagnostic::Diagnostics
@@ -2371,6 +2367,7 @@ pub fn oso_core::editor::Editor::request_server(&mut self, oso_core::editor::Ser
 pub fn oso_core::editor::Editor::server_log<'a>(&mut self, &str, impl core::iter::traits::collect::IntoIterator<Item = &'a str>, usize)
 pub fn oso_core::editor::Editor::server_log_shown(&self) -> bool
 pub fn oso_core::editor::Editor::take_server_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::ServerRequest>
+pub fn oso_core::editor::Editor::to_diagnostic(&mut self, bool) -> core::result::Result<bool, &'static str>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::directory_answer_waits(&self) -> bool
 impl oso_core::editor::Editor

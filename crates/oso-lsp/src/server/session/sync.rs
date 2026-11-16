@@ -99,7 +99,6 @@ impl Session {
         // on save does: placed against the text it opened with.
         for path in self.documents.take_opened() {
             if let Some(report) = self.diagnosed.get(&path).filter(|r| r.version.is_none()) {
-                let report = report.clone();
                 self.deliver_diagnostics(&path, &report, run.encoding);
             }
         }

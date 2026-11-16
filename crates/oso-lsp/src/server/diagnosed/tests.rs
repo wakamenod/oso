@@ -52,7 +52,10 @@ fn a_report_replaces_its_document_s_last_and_an_empty_one_forgets_it() {
             .len(),
         1
     );
-    assert_eq!(store.bytes(), report("file:///w/a.rs", 1, 10).bytes());
+    assert_eq!(
+        store.bytes(),
+        report("file:///w/a.rs", 1, 10).bytes() + 2 * "file:///w/a.rs".len()
+    );
     store.put(
         PathBuf::from("file:///w/a.rs"),
         report("file:///w/a.rs", 0, 0),

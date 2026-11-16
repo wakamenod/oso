@@ -54,7 +54,8 @@ often, so it must rebuild within 2 s.
   on `oso-lsp`'s threads, started from an open (`app/starts.rs`), the `lsp-*` commands
   (`commands/lsp.rs`), trust and the configuration (`config/lsp.rs`, the built-in table and
   `[lsp]`). Its `Gate` checks `git::TrustedRoot` and finds the program (`servers/find.rs`) on
-  the server's thread. The fake server the tests run against is the dev-only binary
+  the server's thread. A server's diagnostics go into its buffers, and the message at point
+  waits 300 ms there (`servers/diagnostics.rs`). The fake server the tests run against is the dev-only binary
   `fake-lsp-server` (`tests/fake_lsp_server/`), which `just release-safety` keeps out of
   release builds.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a

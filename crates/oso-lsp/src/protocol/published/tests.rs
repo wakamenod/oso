@@ -138,7 +138,16 @@ fn past_the_bound_the_most_severe_are_kept() {
             .iter()
             .all(|reported| reported.severity != Severity::Hint)
     );
-    assert!(report.bytes() >= DIAGNOSTICS_MAX * ENTRY_COST);
+    assert!(report.bytes() >= DIAGNOSTICS_MAX * std::mem::size_of::<Reported>());
+}
+
+#[test]
+fn a_long_list_keeps_no_room_past_what_is_kept() {
+    let many: Vec<Value> = (0..100_000).map(|_| item(1, "")).collect();
+    let report = published(&json!({"uri": "file:///a", "diagnostics": many})).unwrap();
+    assert_eq!(report.diagnostics.len(), DIAGNOSTICS_MAX);
+    assert!(report.diagnostics.capacity() <= DIAGNOSTICS_MAX);
+    assert!(report.bytes() >= report.diagnostics.capacity() * std::mem::size_of::<Reported>());
 }
 
 fn any_json() -> impl Strategy<Value = Value> {

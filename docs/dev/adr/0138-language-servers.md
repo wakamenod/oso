@@ -350,8 +350,10 @@ Every bound lives in `oso-lsp`'s `limits`:
 | A completion answer | 5000 items, the rest dropped |
 | A label, a detail, a diagnostic's message | 1 KiB, 4 KiB, 8 KiB |
 | Hover or documentation text | 64 KiB |
+| A diagnostic's source, and its code | 256 bytes each (step 6) |
 | Diagnostics of one document | 2000, the most severe first |
 | Documents with diagnostics | 10,000; the oldest unopened goes first |
+| Diagnostics kept in all | 64 MiB a server, the oldest unopened document's going first (step 6) |
 | Locations in one answer | 1000 |
 | Edits in a completion's `additionalTextEdits` | 16, at most 64 KiB of text, none overlapping the main edit |
 | Queued for the writer | 64 MiB |
@@ -608,7 +610,7 @@ Each step is one pull request. No step spawns anything before step 1 has merged.
    installed.
 6. **Diagnostics, model and keys:** `oso_core::diagnostic`, reports mapped forward, the counts in
    the modeline, the message at point, the `lsp` minor mode layer, `C-M-n` and `C-M-p`, and
-   `M-g d` with its preview.
+   `M-g d` with its preview. Two pull requests: 6a without `M-g d`, 6b with it.
 7. **Diagnostics, drawing:** the wavy underline and dim `Unnecessary` ranges in `oso-render`, the
    faces in the three themes with their contrast check, and the sign column. Text-grid snapshots
    cover both.
@@ -1240,3 +1242,119 @@ text sent is kept, the 16 versions coming with step 6 (Q4); and the public items
     the project is found from.
   - A test of the agent's open through `*LSP*` itself is not possible in the flows: visiting
     `*LSP*` is the person's command, which lets the open go.
+
+### Step 6a: diagnostics, model and keys
+
+The author answered step 6's questions on 2026-11-16, all with the first choice: two pull
+requests, this one without `M-g d`, and 6b with `M-g d` and its preview (Q1); bounds beyond
+the table, 64 MiB of diagnostics a server in all, the oldest unopened document's going first,
+256 bytes for a source and for a code, and at most 100,000 rows in `M-g d`, matched on a
+worker past 5000 (Q2); `C-M-n` and `C-M-p` skip hints, leave one cursor at the start and push
+no mark, as Flycheck does (Q3); the counts plain until step 7 gives them their faces (Q4);
+`M-g d` previews a file that is not open with the project search's excerpt reader (Q5); a
+report for a file outside the server's root dropped, and only counted in `*LSP*` (Q6); the
+message at point in the echo area only, not in `*Messages*` (Q7); and the public items below,
+the `revision` fields of step 4's `Document` and `Change` among them (Q8).
+
+- **`oso_core::diagnostic`** (`guardrails/layers.txt`: `load selection diagnostic`):
+  `Diagnostics`, a buffer's set, sorted by start, then the most severe first, its strings in
+  one arena of the set, so a clone copies at most 2000 small entries. `in_range` finds what
+  meets a range by binary search over a running maximum of the ends, O(log n) to the first,
+  though a long early range makes it walk the entries before the range's end, so drawing
+  asks it once for the view; `at` serves the message at point, and `step` the moves, skipping
+  hints and wrapping. `splice` follows a batch in place, each start and end as a mark: text
+  inserted at either edge stays outside, inside grows it, and a deletion around it leaves an
+  empty range where it was. It sorts only when a tie changed order, so it allocates only the
+  shift before each splice. An empty range is kept. `Counts` leaves hints out. `Debug` gives
+  counts, never a message. A message's first line ends at any line break: `\n`, `\r`, NEL or
+  the line and paragraph separators.
+- **A buffer's set is its own** (`buffer/diagnosed.rs`), beside its highlights, and follows
+  each edit in place as it commits, O(entries × log splices): an edit, an undo, a reload and
+  a recovery are one step, which it follows however many splices it has; a sliced undo's
+  crossing follows its composed batch, and one past the log's bound drops the set until the
+  next report. A load, unfollowing, or a verdict that it may hold secrets drops it.
+  `Buffer::take_diagnostics(revision, set)` maps a set through the edits since `revision`, and
+  refuses one the log no longer reaches, or that does not fit the text: the set it had followed
+  the edits. A set with no entries is a report of none.
+- **The modeline** shows the counts that are not zero after `lsp`: `lsp E2 W5 I1`, in the
+  `lsp` face, and `Status::counts` gives them for step 7's faces.
+- **`oso-lsp`:**
+  - `initialize` claims `textDocument.publishDiagnostics` with `versionSupport` and
+    `tagSupport` (`Unnecessary`, `Deprecated`).
+  - `protocol::published` reads a report: a URI of at most 16 KiB, the version if it names
+    one, and its diagnostics, each with a range that reads (others are left out), a severity
+    (an error when it names none, as other clients read it), its tags, and its source and code
+    cut to 256 bytes and its message to 8 KiB, at character boundaries. The list is counted by
+    severity first, with nothing allocated, and only the 2000 kept are read, the most severe,
+    each severity's first ones, so the list holds room for no more than them.
+  - The session thread reads each report's URI as a path, and drops it, only counting it in
+    `*LSP*` once a second, when the path is outside the server's root or its name may hold
+    secrets. Paths are compared as `uri` reads them back, the root too, so that on Windows a
+    drive letter in either case and a `\\?\` root match.
+  - `server/diagnosed.rs` keeps each document's last report by path, so that a document opened
+    later gets one that names no version, placed against the text it opened with, shared
+    rather than copied. At most 10,000 documents and 64 MiB, counting each list as allocated,
+    its strings and its path, which is held twice; past either, the oldest reports of
+    documents not open go first, in one pass, then the oldest of any.
+    A run's end forgets them, as the next run reports again.
+  - Each document keeps the 16 texts it was given last (`documents/history.rs`), with the
+    splices from the one before, when they placed, the caller's revision and the version each
+    went as. A whole text lets those before it go, and a document kept from the server or not
+    sent yet keeps only its latest, as no report could use the others. A report naming a
+    version is placed against that text, O(log n) a position, and mapped through the batches
+    since, composed into one; one naming no version, against the latest sent. A version no
+    longer kept, or one a whole text came after, is past: `*LSP*` says so, and the next report
+    puts it right. A versioned report lets the texts before its version go.
+  - `Report::diagnostics` holds the latest set of each open document, `Diagnosed::Open`, with
+    the caller's revision it was mapped to, and wakes the UI at most each 50 ms, as progress
+    does.
+- **The tip crate:**
+  - `app/servers/diagnostics.rs` takes each set into its buffer, which maps it through the
+    edits since; the set it had goes to the freeing thread, as its strings can take 16 MiB. A
+    document kept from its server, for a lone carriage return or its size, has its set emptied.
+  - Once the primary cursor has stayed 300 ms on a diagnostic, the echo area says the most
+    severe there, the server's name first, its runs of blanks as one, and `+2` when two more
+    cover it: `rust-analyzer: mismatched types +2`. It replaces only an empty echo area or its
+    own last message, and goes to neither `*Messages*` nor the log.
+  - The `lsp` minor mode layer (`bindings/lsp.rs`) binds `C-M-n` and `C-M-p` to
+    `lsp-next-diagnostic` and `lsp-previous-diagnostic` (`Look`), which call
+    `Editor::to_diagnostic`: the primary cursor alone goes to a display cluster's start, past
+    a diagnostic that starts inside its own cluster, and a move past the last wraps and says
+    `Wrapped`. The layer is on while the buffer's modeline mark says a server follows it and
+    has not stopped for the session, so a server waiting to start again after a crash keeps
+    it. It shares the minor mode place of the user's `[keys.session]`, as a session's terminal
+    is never a buffer a server follows, and comes after the layer of `C-x TAB` while that is
+    open ([ADR 0115](0115-indentation.md)).
+- **Public API:** `oso-core`: `diagnostic` (`Severity`, `Tags`, `New`, `Counts`,
+  `Diagnostics`, `Diagnostic`), `Buffer::{diagnostics, take_diagnostics}`,
+  `Editor::{diagnostic_at_point, to_diagnostic}`, `Status::counts`. `oso-lsp`:
+  `server::Diagnosed`, `Report::diagnostics`, `Document::revision`, `Change::revision`,
+  `protocol::{Published, Reported, published}` (`Reported` is the type of the approved
+  `Published`'s list), `limits::{DIAGNOSTICS_BYTES_MAX, DIAGNOSTIC_LABEL_BYTES_MAX}`.
+- **From this step's reviews:** the set moved out of the syntax layer's state into its own,
+  and follows each edit in place rather than on a copy, also one too large for the log; the
+  moves went into `oso-core` with the cluster clip, as one `Diagnostics::step`; the `lsp`
+  layer went after the layer of `C-x TAB`; a report's list holds room for only what it keeps,
+  and every byte the store holds is counted; texts no report can use are let go; a replaced
+  set is freed off the UI thread; the batches since a version are composed before mapping.
+  `protocol::Severity`, the severity of `window/showMessage`, keeps its name, though
+  `Reported`'s severity is `oso_core::diagnostic::Severity`.
+- **Tests:** in `oso-core`, a set's order, strings and bounds, `in_range` and `at` against a
+  scan, the moves, and a property test that each start and end follows a batch as a naive
+  re-map does; a followed buffer's set through edits, undo, a load, a secret verdict and
+  unfollowing; the modeline's counts and the message at point. In `oso-lsp`, each bound of a
+  report at it and past it with a fuzz target over any JSON; the store's bounds; placing and
+  mapping by version, with no version, past a whole text and past the 16 texts, and a property
+  test that a range no batch touched covers the same text after random batches in both
+  encodings. Against the fake server (`tests/lsp_server.rs`): a report for the first version,
+  sent after 12 random batches from the editor, lands on its word once the buffer takes it, in
+  UTF-8 and UTF-16; reports outside the root, in a sibling whose name the root's begins,
+  through `..`, or for `.env` are dropped and counted, never named; one for a file not open
+  goes to the UI once it opens. Dispatcher tests of the layer,
+  and the end-to-end flow `lsp.rs` (`diagnostics_are_counted_moved_to_and_said_at_point`).
+- **Left for 6b:** `M-g d` (`lsp-diagnostics`) with its preview, and the diagnostics of files
+  not open in the UI (`Diagnosed::File`).
+- **Left for step 7:** drawing: the wavy underline, dim `Unnecessary` ranges, the sign column,
+  and the counts each in its severity's face, `Status::lsp` then holding only the state.
+- **Left for step 12:** the `just perf` metrics: typing with 2000 diagnostics at 1 and 1000
+  cursors, and a 2000-entry report applied while typing.

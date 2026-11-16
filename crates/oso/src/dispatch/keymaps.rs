@@ -189,17 +189,19 @@ impl Keymaps {
         ]
     }
 
-    /// The prefix argument's keymaps, the user's session keys in a session's terminal or the
-    /// `lsp` minor mode's keys elsewhere, and the layer of `C-x TAB`, as [`Keymaps::active`]
-    /// takes them: in this order, so that each set it makes active is one slice. A session's
-    /// terminal is never a buffer a server follows, so the two share a place.
-    pub(super) fn reading(&self, editor: &Editor) -> [&Keymap; 4] {
+    /// The prefix argument's keymaps, the buffer's minor mode keys, the layer of `C-x TAB` and
+    /// the minor mode keys again, as [`Keymaps::active`] takes them: in this order, so that each
+    /// set it makes active is one slice, the layer of `C-x TAB` first among the minor modes
+    /// while it is open (ADR 0115). The minor mode keys are the user's session keys in a
+    /// session's terminal and the `lsp` layer's elsewhere: a session's terminal is never a
+    /// buffer a server follows, so the two share a place.
+    pub(super) fn reading(&self, editor: &Editor) -> [&Keymap; 5] {
         let minor = if editor.current().1.hosts_session() {
             &self.user_session
         } else {
             &self.lsp
         };
-        [&self.prefix[1], &self.prefix[0], minor, &self.rigid]
+        [&self.prefix[1], &self.prefix[0], minor, &self.rigid, minor]
     }
 
     /// The keymaps active now. A question's keys take the global keymap's place, so that
@@ -207,12 +209,12 @@ impl Keymaps {
     /// with them (ADR 0076), and a draft's in their place (ADR 0122). So do isearch's, and a
     /// key they do not bind ends the search first (ADR 0082). The user's keys go just above
     /// the global ones, so neither a question nor a search under way sees them (ADR 0108), and
-    /// the user's session keys above a session's terminal's (ADR 0132). `reading` holds the
-    /// keymaps of a prefix argument, the user's session keys, then the layer of `C-x TAB`, first
-    /// while it is open and no prefix argument reads.
+    /// the user's session keys above a session's terminal's (ADR 0132), or the `lsp` layer in a
+    /// buffer a server follows (ADR 0138). `reading` holds them as [`Keymaps::reading`] gives
+    /// them.
     pub(super) fn active<'a>(
         &'a self,
-        reading: &'a [&'a Keymap; 4],
+        reading: &'a [&'a Keymap; 5],
         prefix: Option<Prefix>,
         editor: &Editor,
     ) -> Layers<'a> {
@@ -239,12 +241,12 @@ impl Keymaps {
         } else {
             lsp_on(buffer)
         };
-        let session = usize::from(minor_on && editor.prompt().is_none());
+        let minor_len = usize::from(minor_on && editor.prompt().is_none());
         let minor: &[&Keymap] = match prefix {
-            Some(prefix) if prefix.reads_minus() => &reading[..2 + session],
-            Some(prefix) if prefix.reads_digits() => &reading[1..2 + session],
-            _ if editor.indent_rigidly_layer() => &reading[3 - session..],
-            _ => &reading[2..2 + session],
+            Some(prefix) if prefix.reads_minus() => &reading[..2 + minor_len],
+            Some(prefix) if prefix.reads_digits() => &reading[1..2 + minor_len],
+            _ if editor.indent_rigidly_layer() => &reading[3..4 + minor_len],
+            _ => &reading[2..2 + minor_len],
         };
         let major = if let Some(prompt) = editor.prompt() {
             match prompt.kind() {

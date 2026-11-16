@@ -962,8 +962,9 @@ fn a_report_for_the_first_version_lands_on_the_word_in_utf_16() {
     }
 }
 
-/// A report for a file outside the project, or whose name may hold secrets, is dropped and
-/// counted in `*LSP*`; one for a file not open is kept, and goes to the UI once it opens.
+/// A report for a file outside the project, in a sibling whose name the root's is the start of,
+/// through `..`, or whose name may hold secrets, is dropped and counted in `*LSP*`; one for a
+/// file not open is kept, and goes to the UI once it opens.
 #[test]
 fn reports_outside_the_project_or_for_secrets_are_dropped_and_a_kept_one_follows_an_open() {
     use oso_lsp::server::{Diagnosed, Document};
@@ -979,17 +980,23 @@ fn reports_outside_the_project_or_for_secrets_are_dropped_and_a_kept_one_follows
     // The directory `started` makes for this test, so that the URIs can name files in it.
     let dir = scratch("diagnosed-dropped");
     let inside = |name: &str| oso_lsp::uri::from_path(&dir.join(name)).unwrap();
+    let mut sibling = dir.clone().into_os_string();
+    sibling.push("x");
+    let sibling = oso_lsp::uri::from_path(&PathBuf::from(sibling).join("a.rs")).unwrap();
+    let through = format!("{}/../a.rs", inside("src"));
     let mut script = syncing("utf-8");
     script["rules"].as_array_mut().unwrap().insert(
         0,
         json!({"method": "initialized", "do": [
             report("file:///elsewhere/a.rs"),
+            report(&sibling),
+            report(&through),
             report(&inside(".env")),
             report(&inside("later.rs")),
         ]}),
     );
     let mut seen = started("diagnosed-dropped", &script, open());
-    seen.until(LIMIT, |seen| seen.logged("dropped 2 diagnostics reports"));
+    seen.until(LIMIT, |seen| seen.logged("dropped 4 diagnostics reports"));
     assert!(seen.diagnosed.is_empty());
     seen.server.open(Document {
         id: 4,

@@ -122,8 +122,8 @@ fn in_range_finds_overlapping_and_empty_entries_past_a_long_one() {
 }
 
 #[test]
-fn moves_skip_hints_and_find_the_ends() {
-    let set = set(
+fn a_step_skips_hints_and_wraps_past_either_end() {
+    let all = set(
         &[
             (2..3, Severity::Hint),
             (5..6, Severity::Error),
@@ -132,17 +132,38 @@ fn moves_skip_hints_and_find_the_ends() {
         ],
         20,
     );
-    assert_eq!(set.next_after(0), Some(1));
-    assert_eq!(set.next_after(5), Some(2));
-    assert_eq!(set.next_after(9), None);
-    assert_eq!(set.before(9), Some(1));
-    assert_eq!(set.before(5), None);
-    assert_eq!(set.before(20), Some(2));
-    assert_eq!(set.ends(), Some((1, 2)));
+    let step = |offset, forward| {
+        all.step(offset, forward)
+            .map(|(diagnostic, wrapped)| (diagnostic.range().start, wrapped))
+    };
+    assert_eq!(step(0, true), Some((5, false)));
+    assert_eq!(step(5, true), Some((9, false)));
+    assert_eq!(step(9, true), Some((5, true)), "past the last, the first");
+    assert_eq!(step(9, false), Some((5, false)));
     assert_eq!(
-        super::super::diagnostic::Diagnostics::new("s", [], 0).ends(),
-        None
+        step(5, false),
+        Some((9, true)),
+        "before the first, the last"
     );
+    assert_eq!(step(20, false), Some((9, false)));
+    let hints = set(&[(1..2, Severity::Hint)], 5);
+    assert!(hints.step(0, true).is_none());
+    assert!(Diagnostics::new("s", [], 0).step(0, false).is_none());
+}
+
+#[test]
+fn a_first_line_ends_at_any_line_break() {
+    for (message, line) in [
+        ("a\nb", "a"),
+        ("a\rb", "a"),
+        ("a\u{85}b", "a"),
+        ("a\u{2028}b", "a"),
+        ("a\u{2029}b", "a"),
+        ("", ""),
+    ] {
+        let set = Diagnostics::new("s", [new(0..1, Severity::Error, message)], 1);
+        assert_eq!(set.get(0).unwrap().first_line(), line, "{message:?}");
+    }
 }
 
 #[test]

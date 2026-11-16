@@ -1,6 +1,6 @@
 //! Tests of placing a diagnostics report against the text it names and mapping it to the latest
 //! text given: versions, a report that names none, ones that are past, the bound on the texts
-//! kept, and random batches against a scan of their own.
+//! kept and what lets them go, and random batches against a scan of their own.
 //!
 //! Must not depend on: the session's loop or a process.
 
@@ -16,9 +16,10 @@ use proptest::prelude::*;
 use std::path::{Path, PathBuf};
 
 use super::*;
-use crate::position::Position;
+use crate::position::{Encoding, Position};
 use crate::protocol::Reported;
 use crate::server::Document;
+use crate::server::documents::Documents;
 
 fn open(documents: &mut Documents, text: &str) {
     documents.open(
@@ -359,7 +360,7 @@ proptest! {
             return Err(TestCaseError::fail("not placed"));
         };
         prop_assert_eq!(revision, 10 + batches.len() as u64);
-        prop_assert!(diagnostics.fits(text.len()));
+        prop_assert!(diagnostics.iter().all(|d| d.range().end <= text.len()));
         let mut expected: Vec<&str> = ranges
             .iter()
             .zip(&followed)
@@ -376,4 +377,25 @@ proptest! {
             got.remove(at.unwrap_or_default());
         }
     }
+}
+
+#[test]
+fn a_whole_text_or_a_document_kept_from_the_server_keeps_only_its_latest() {
+    let mut documents = Documents::default();
+    open(&mut documents, "a");
+    let mut text = "a".to_owned();
+    for n in 0..17 {
+        let before = text.clone();
+        text.push('b');
+        change(&mut documents, 11 + n, &before, &text, None);
+    }
+    assert_eq!(documents.given(1), 1, "whole texts");
+    // Kept from the server: too large, then edits past it.
+    let large = "x".repeat(crate::limits::DOCUMENT_BYTES_MAX + 1);
+    change(&mut documents, 40, &text, &large, None);
+    for n in 0..5 {
+        let before = large.clone();
+        change(&mut documents, 41 + n, &before, &large, Some(&[]));
+    }
+    assert_eq!(documents.given(1), 1, "a document kept from the server");
 }

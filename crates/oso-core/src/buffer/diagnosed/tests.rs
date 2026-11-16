@@ -1,5 +1,5 @@
-//! Tests of a followed buffer's diagnostics through edits, undo, loads, unfollowing and secrets
-//! (ADR 0138, step 6).
+//! Tests of a followed buffer's diagnostics through edits, undo, loads, unfollowing, secrets and
+//! an edit past the log's bound (ADR 0138, step 6).
 //!
 //! Must not depend on: `window`, `editor` or `command`.
 
@@ -103,4 +103,20 @@ fn a_load_and_a_secret_verdict_drop_them() {
     assert!(secret.treat_as_secret());
     assert_eq!(ranges(&secret), None);
     assert!(!secret.take_diagnostics(secret.revision(), report(&[0..1], 3)));
+}
+
+#[test]
+fn an_edit_past_the_log_s_bound_still_moves_them() {
+    let mut buffer = followed(&"x".repeat(10_000));
+    assert!(buffer.take_diagnostics(buffer.revision(), report(&[9000..9001], 10_000)));
+    // 5000 insertions in one step: more splices than the log holds.
+    let edits: Vec<Replacement<'_>> = (0..5000)
+        .map(|n| Replacement {
+            range: n..n,
+            text: "y",
+        })
+        .collect();
+    let staged = buffer.stage_edits(&edits).unwrap().unwrap();
+    buffer.commit_edit(staged, Opening::New(None), None);
+    assert_eq!(ranges(&buffer), Some(vec![14_000..14_001]));
 }

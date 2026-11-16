@@ -92,6 +92,36 @@ impl Editor {
         self.servers.log
     }
 
+    /// Moves the selected window's primary cursor, alone, to the start of the next diagnostic
+    /// after it, `forward`, or the previous before it, on a display cluster's start, as
+    /// `C-M-n` and `C-M-p` do (Q15): hints are skipped, no mark is pushed, and past either end
+    /// it wraps, which `Ok(true)` says. `Err` says why it did not move.
+    pub fn to_diagnostic(&mut self, forward: bool) -> Result<bool, &'static str> {
+        let (window, buffer) = self.current();
+        if buffer.is_secret() {
+            return Err("No server for a buffer that may hold secrets");
+        }
+        let set = buffer.diagnostics().ok_or("No diagnostics")?;
+        let display = buffer.display();
+        let offset = window.selections.primary().cursor;
+        let (mut from, mut wrapped, mut target) = (offset, false, offset);
+        // A start inside the cursor's own cluster clips back to it: the next one is looked for.
+        for _ in 0..=set.len() {
+            let (diagnostic, wraps) = set.step(from, forward).ok_or("No diagnostics")?;
+            wrapped |= wraps;
+            let start = diagnostic.range().start;
+            target = crate::motion::cluster_start(&display, start);
+            if target != offset || (wraps && from != offset) {
+                break;
+            }
+            from = start;
+        }
+        let selections = &mut self.current_mut().0.selections;
+        selections.keep_primary();
+        selections.move_primary(target);
+        Ok(wrapped)
+    }
+
     /// What the echo area says of the diagnostics at the selected window's primary cursor, as
     /// Flymake does with ElDoc (Q14): the server's name, then the most severe one's first line,
     /// and `+2` when two more cover that place. Hints too (Q16). `None` where none is, and in a
@@ -109,6 +139,8 @@ impl Editor {
             }
         }
         let (_, line) = shown?;
+        // Runs of blanks are one, so that no text the server pads out passes as oso's own.
+        let line = line.split_whitespace().collect::<Vec<_>>().join(" ");
         let mut text = format!("{}: {line}", diagnostics.server());
         if covering > 1 {
             text.push_str(&format!(" +{}", covering - 1));
@@ -170,6 +202,39 @@ mod tests {
             None,
             "none in a buffer that may hold secrets"
         );
+    }
+
+    #[test]
+    fn a_move_lands_on_a_cluster_s_start_and_passes_one_inside_the_cursor_s() {
+        use crate::diagnostic::{Diagnostics, New, Severity, Tags};
+        // `e` with a combining accent: a range from the accent starts inside the cluster.
+        let text = "ae\u{301}xyz";
+        let mut editor = Editor::with_buffer(Buffer::from_text("t.rs", text));
+        let id = editor.window().buffer();
+        let new = |range| New {
+            range,
+            severity: Severity::Error,
+            tags: Tags::default(),
+            source: "",
+            code: "",
+            message: "m",
+        };
+        let buffer = editor.buffer_mut(id).unwrap();
+        buffer.set_followed(true);
+        let revision = buffer.revision();
+        let set = Diagnostics::new("fake", [new(2..4), new(5..6)], text.len());
+        assert!(buffer.take_diagnostics(revision, set));
+        let cursor = |editor: &Editor| editor.window().selections.primary().cursor;
+        assert_eq!(editor.to_diagnostic(true), Ok(false));
+        assert_eq!(cursor(&editor), 1, "the cluster's start, not the accent's");
+        assert_eq!(editor.to_diagnostic(true), Ok(false));
+        assert_eq!(
+            cursor(&editor),
+            5,
+            "past the one inside the cursor's cluster"
+        );
+        assert_eq!(editor.to_diagnostic(true), Ok(true));
+        assert_eq!(cursor(&editor), 1, "wrapped");
     }
 
     #[test]

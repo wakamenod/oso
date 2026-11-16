@@ -15,15 +15,17 @@ use oso_core::editor::Editor;
 use oso_core::window::WindowId;
 use oso_lsp::server::Diagnosed;
 
-use super::super::App;
+use super::super::{App, Freer};
 use super::documents::Open;
 
 /// Takes `diagnosed` into the buffers of `documents` whose document is open with the server.
-/// Returns whether a buffer took a set, for a frame.
+/// The set a buffer had goes to `freer`: its strings can take 16 MiB, which the UI thread does
+/// not free. Returns whether a buffer took a set, for a frame.
 pub(super) fn take(
     editor: &mut Editor,
     documents: &HashMap<BufferId, Open>,
     diagnosed: Vec<Diagnosed>,
+    freer: &Freer,
 ) -> bool {
     let mut taken = false;
     for Diagnosed::Open {
@@ -39,7 +41,10 @@ pub(super) fn take(
             continue;
         };
         if let Some(buffer) = editor.buffer_mut(buffer) {
+            // A clone shares the strings, so the old set's last owner is the freeing thread's.
+            let old = buffer.diagnostics().cloned();
             taken |= buffer.take_diagnostics(revision, diagnostics);
+            freer.free(old);
         }
     }
     taken
@@ -119,7 +124,8 @@ fn place(editor: &Editor) -> Option<Place> {
 
 impl App {
     /// Before the loop waits: once the cursor has stayed 300 ms on a diagnostic, the echo area
-    /// says it, unless it says something else (Q14). Never logged, as ElDoc's are not (Q7).
+    /// says it, unless it says something else (Q14). Never logged, as ElDoc's are not (step 6's
+    /// Q7).
     pub(in crate::app) fn diagnostic_at_point_if_due(&mut self) {
         let now = Instant::now();
         let at_point = &mut self.servers.at_point;

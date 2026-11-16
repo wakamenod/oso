@@ -32,6 +32,7 @@ mod agent;
 mod baseline;
 mod carried;
 mod crossing;
+mod diagnosed;
 mod edit;
 mod edited;
 mod highlighting;
@@ -248,6 +249,8 @@ pub struct Buffer {
     edited: EditedLines,
     /// What the syntax worker reported, and the edits since (ADR 0111).
     highlighting: highlighting::Highlighting,
+    /// What the server that follows it last reported, mapped through the edits since (ADR 0138).
+    diagnosed: Option<crate::diagnostic::Diagnostics>,
 }
 
 impl Buffer {
@@ -309,6 +312,7 @@ impl Buffer {
             history: History::default(),
             edited: EditedLines::default(),
             highlighting: highlighting::Highlighting::default(),
+            diagnosed: None,
         }
     }
 
@@ -347,8 +351,9 @@ impl Buffer {
         self.info = snapshot.info;
         self.loading = (!snapshot.done).then_some(snapshot.progress);
         self.revision += 1;
-        // A report or a job from before a load is dropped, not mapped (ADR 0111).
+        // A report or a job from before a load is dropped, not mapped (ADR 0111, ADR 0138).
         self.highlighting.forget();
+        self.diagnosed = None;
         self.content = self.new_content();
         self.saved = self.content;
         self.clear_edited();

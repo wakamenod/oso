@@ -293,8 +293,6 @@ pub struct oso_lsp::protocol::Published
 pub oso_lsp::protocol::Published::diagnostics: alloc::vec::Vec<oso_lsp::protocol::Reported>
 pub oso_lsp::protocol::Published::uri: alloc::string::String
 pub oso_lsp::protocol::Published::version: core::option::Option<i32>
-impl oso_lsp::protocol::Published
-pub fn oso_lsp::protocol::Published::bytes(&self) -> usize
 impl core::clone::Clone for oso_lsp::protocol::Published
 pub fn oso_lsp::protocol::Published::clone(&self) -> oso_lsp::protocol::Published
 impl core::cmp::Eq for oso_lsp::protocol::Published
