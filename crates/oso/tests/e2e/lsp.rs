@@ -61,7 +61,14 @@ fn modeline_has(app: &mut App, what: &str, part: &'static str) -> Value {
 }
 
 /// The rows of `*LSP*`, read in the selected window, which then shows `back` again.
+/// The rows of `*LSP*`, once the servers have made it with their first row: `C-x b` before
+/// then would make a buffer of that name, empty, and the log would go to another.
 fn lsp_log(app: &mut App, back: &str) -> String {
+    app.wait_for("the servers' log", |state| {
+        state["buffers"]
+            .as_array()
+            .is_some_and(|buffers| buffers.iter().any(|buffer| buffer["name"] == "*LSP*"))
+    });
     app.send_keys(&format!("C-x b {} RET", super::typing("*LSP*")));
     let text = app.call("get-text", Some(json!({ "start_row": 0, "rows": 2000 })));
     app.send_keys(&format!("C-x b {} RET", super::typing(back)));
