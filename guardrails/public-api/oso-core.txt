@@ -2237,6 +2237,29 @@ impl core::fmt::Debug for oso_core::editor::CommitSwitches
 pub fn oso_core::editor::CommitSwitches::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::CommitSwitches
 impl core::marker::StructuralPartialEq for oso_core::editor::CommitSwitches
+pub struct oso_core::editor::CompletionPopup
+impl oso_core::editor::CompletionPopup
+pub fn oso_core::editor::CompletionPopup::highlights(&self, &oso_core::complete::Candidate, &mut alloc::vec::Vec<core::ops::range::Range<usize>>)
+pub fn oso_core::editor::CompletionPopup::is_empty(&self) -> bool
+pub fn oso_core::editor::CompletionPopup::len(&self) -> usize
+pub fn oso_core::editor::CompletionPopup::moved(&self) -> bool
+pub fn oso_core::editor::CompletionPopup::rows(&self) -> impl core::iter::traits::iterator::Iterator<Item = (bool, &oso_core::complete::Candidate)>
+impl core::fmt::Debug for oso_core::editor::CompletionPopup
+pub fn oso_core::editor::CompletionPopup::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::CompletionPopupAnswer
+pub oso_core::editor::CompletionPopupAnswer::at: oso_core::editor::AskAt
+pub oso_core::editor::CompletionPopupAnswer::items: alloc::vec::Vec<oso_core::editor::CompletionPopupItem>
+pub oso_core::editor::CompletionPopupAnswer::revision: u64
+impl core::fmt::Debug for oso_core::editor::CompletionPopupAnswer
+pub fn oso_core::editor::CompletionPopupAnswer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::CompletionPopupItem
+pub oso_core::editor::CompletionPopupItem::annotation: alloc::boxed::Box<str>
+pub oso_core::editor::CompletionPopupItem::filter: core::option::Option<alloc::boxed::Box<str>>
+pub oso_core::editor::CompletionPopupItem::label: alloc::boxed::Box<str>
+pub oso_core::editor::CompletionPopupItem::range: core::option::Option<core::ops::range::Range<usize>>
+pub oso_core::editor::CompletionPopupItem::text: alloc::boxed::Box<str>
+impl core::fmt::Debug for oso_core::editor::CompletionPopupItem
+pub fn oso_core::editor::CompletionPopupItem::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::CompletionStyle
 pub oso_core::editor::CompletionStyle::given_order: bool
 pub oso_core::editor::CompletionStyle::preview: bool
@@ -2512,13 +2535,13 @@ pub fn oso_core::editor::Editor::take_clipboard_write(&mut self) -> core::option
 pub fn oso_core::editor::Editor::take_from_clipboard(&mut self, oso_core::rope::Rope, bool, oso_core::kill::Fingerprint)
 pub fn oso_core::editor::Editor::yank(&mut self, usize, bool) -> core::result::Result<(), oso_core::editor::YankError>
 impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::close_popup(&mut self)
-pub fn oso_core::editor::Editor::follow_popup(&mut self)
-pub fn oso_core::editor::Editor::open_popup(&mut self, oso_core::editor::PopupAnswer) -> core::result::Result<(), core::option::Option<&'static str>>
-pub fn oso_core::editor::Editor::popup(&self) -> core::option::Option<&oso_core::editor::Popup>
-pub fn oso_core::editor::Editor::popup_insert(&mut self) -> core::result::Result<(), core::option::Option<oso_core::buffer::EditError>>
-pub fn oso_core::editor::Editor::popup_move(&mut self, isize)
-pub fn oso_core::editor::Editor::popup_regions(&self, &oso_core::window::Screen) -> core::option::Option<oso_core::frame::FloatRegions>
+pub fn oso_core::editor::Editor::close_completion_popup(&mut self)
+pub fn oso_core::editor::Editor::completion_popup(&self) -> core::option::Option<&oso_core::editor::CompletionPopup>
+pub fn oso_core::editor::Editor::completion_popup_insert(&mut self) -> core::result::Result<(), core::option::Option<oso_core::buffer::EditError>>
+pub fn oso_core::editor::Editor::completion_popup_move(&mut self, isize)
+pub fn oso_core::editor::Editor::completion_popup_regions(&self, &oso_core::window::Screen) -> core::option::Option<oso_core::frame::FloatRegions>
+pub fn oso_core::editor::Editor::follow_completion_popup(&mut self)
+pub fn oso_core::editor::Editor::open_completion_popup(&mut self, oso_core::editor::CompletionPopupAnswer) -> core::result::Result<(), core::option::Option<&'static str>>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::completion_failed(&mut self)
 pub fn oso_core::editor::Editor::completion_pending(&self) -> bool
@@ -3053,29 +3076,6 @@ pub fn oso_core::editor::Over::eq(&self, &oso_core::editor::Over) -> bool
 impl core::fmt::Debug for oso_core::editor::Over
 pub fn oso_core::editor::Over::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::Over
-pub struct oso_core::editor::Popup
-impl oso_core::editor::Popup
-pub fn oso_core::editor::Popup::highlights(&self, &oso_core::complete::Candidate, &mut alloc::vec::Vec<core::ops::range::Range<usize>>)
-pub fn oso_core::editor::Popup::is_empty(&self) -> bool
-pub fn oso_core::editor::Popup::len(&self) -> usize
-pub fn oso_core::editor::Popup::moved(&self) -> bool
-pub fn oso_core::editor::Popup::rows(&self) -> impl core::iter::traits::iterator::Iterator<Item = (bool, &oso_core::complete::Candidate)>
-impl core::fmt::Debug for oso_core::editor::Popup
-pub fn oso_core::editor::Popup::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct oso_core::editor::PopupAnswer
-pub oso_core::editor::PopupAnswer::at: oso_core::editor::AskAt
-pub oso_core::editor::PopupAnswer::items: alloc::vec::Vec<oso_core::editor::PopupItem>
-pub oso_core::editor::PopupAnswer::revision: u64
-impl core::fmt::Debug for oso_core::editor::PopupAnswer
-pub fn oso_core::editor::PopupAnswer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct oso_core::editor::PopupItem
-pub oso_core::editor::PopupItem::annotation: alloc::boxed::Box<str>
-pub oso_core::editor::PopupItem::filter: core::option::Option<alloc::boxed::Box<str>>
-pub oso_core::editor::PopupItem::label: alloc::boxed::Box<str>
-pub oso_core::editor::PopupItem::range: core::option::Option<core::ops::range::Range<usize>>
-pub oso_core::editor::PopupItem::text: alloc::boxed::Box<str>
-impl core::fmt::Debug for oso_core::editor::PopupItem
-pub fn oso_core::editor::PopupItem::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::ProjectRequest
 pub oso_core::editor::ProjectRequest::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::ProjectRequest::location: std::path::PathBuf
@@ -3406,11 +3406,11 @@ impl oso_core::editor::XrefRows
 pub fn oso_core::editor::XrefRows::new(u64, alloc::vec::Vec<oso_core::editor::XrefRow>, bool) -> Self
 impl core::fmt::Debug for oso_core::editor::XrefRows
 pub fn oso_core::editor::XrefRows::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const oso_core::editor::COMPLETION_POPUP_COLUMNS: usize
+pub const oso_core::editor::COMPLETION_POPUP_ROWS: usize
 pub const oso_core::editor::MAX_GIT_LOG: usize
 pub const oso_core::editor::MAX_MACRO_EVENTS: usize
 pub const oso_core::editor::MAX_MACRO_TEXT: usize
-pub const oso_core::editor::POPUP_COLUMNS: usize
-pub const oso_core::editor::POPUP_ROWS: usize
 pub const oso_core::editor::SCRATCH: &str
 pub fn oso_core::editor::row_text(&str) -> alloc::string::String
 pub mod oso_core::editorconfig

@@ -13,7 +13,7 @@ mod published;
 #[cfg(test)]
 mod tests;
 
-pub use completion::{Completed, Offered, completed, completion_params, kind_name, plain};
+pub use completion::{CompletionList, Offered, completed, completion_params, kind_name, plain};
 pub use located::{Located, located, position_params, references_params};
 pub use published::{Published, Reported, published};
 use serde_json::{Map, Value, json};

@@ -851,6 +851,11 @@ gains `amended by 0138`.
 - [ADR 0088](0088-switching-and-killing-buffers.md), "`previous-buffer` on `M-,`": in a buffer a
   language server follows, `M-,` is `lsp-go-back`, through the `lsp` minor mode layer. Everywhere
   else it is still `previous-buffer`.
+- [ADR 0008](0008-floating-ui.md), "completion popups … [are] buffers shown in floating windows
+  … Editing commands … work in them unchanged": the completion popup is no buffer: it is the
+  editor's state of the items a server offered, drawn as a float at point, and typing goes on
+  into the buffer beneath, narrowing it; `C-n`, `C-p`, `TAB`, `C-g`, and `RET` once the
+  selection was moved, are its keys, and any other command closes it first (step 9).
 
 ## Consequences
 
@@ -1812,7 +1817,8 @@ and the public items below (Q9).
   ask path with its own wait, 3 s (`AskKind::wait`); its answer, `Answered::Completion`, holds
   the items with their ranges placed in bytes of the text the server has, and that text's
   revision.
-- **`oso-core`:** `editor/servers/popup.rs`. `Editor::open_popup` takes the host's answer while
+- **`oso-core`:** `editor/servers/popup.rs`. `Editor::open_completion_popup` takes the host's
+  answer while
   nothing moved since the ask; the word starts where the server's first edit does, else at the
   identifier characters before the cursor, whole grapheme clusters whose first character is
   alphanumeric or `_` (an approximation of `XID_Continue` that needs no new dependency). The
@@ -1821,7 +1827,8 @@ and the public items below (Q9).
   The word and the items' ranges follow every edit, as the jump history does; a reload closes
   the popup. After each command the word is matched again, and the popup closes once the cursor
   leaves the word, another window or buffer shows, a prompt opens, or nothing matches.
-  `Editor::popup_insert` replaces the word, and what the server's range covers past it, at the
+  `Editor::completion_popup_insert` replaces the word, and what the server's range covers past
+  it, at the
   primary cursor, and the word at each other cursor whose word before it is the same, in one
   edit. `frame::at_point` places a float at point: under the anchor's row, or over it when fewer
   rows fit below, never over it, its text at the anchor's column moved left to fit, with a
@@ -1838,11 +1845,19 @@ and the public items below (Q9).
   rows. The dev state's `popup` gives its rows for end-to-end flows; the agent's state has none
   of it.
 - **Public API:** `oso-lsp`: `server::{Completion, Completions}`, `AskKind::{Completion, wait}`,
-  `Answered::Completion`, `protocol::{Completed, Offered, completed, completion_params,
+  `Answered::Completion`, `protocol::{CompletionList, Offered, completed, completion_params,
   kind_name, plain}`, `limits::{SORT_TEXT_BYTES_MAX, INSERT_TEXT_BYTES_MAX}`. `oso-core`:
-  `editor::{Popup, PopupAnswer, PopupItem, POPUP_ROWS, POPUP_COLUMNS}`, `Editor::{popup,
-  open_popup, popup_move, popup_insert, close_popup, follow_popup, popup_regions}`,
+  `editor::{CompletionPopup, CompletionPopupAnswer, CompletionPopupItem, COMPLETION_POPUP_ROWS,
+  COMPLETION_POPUP_COLUMNS}`, `Editor::{completion_popup, open_completion_popup,
+  completion_popup_move, completion_popup_insert, close_completion_popup,
+  follow_completion_popup, completion_popup_regions}`,
   `ServerRequest::Complete`. `frame::at_point` is the crate's own, as `completion_regions` is.
+- **The author's answers to the reviews (2026-11-16), all the first choice:** the popup's names
+  say it completes (`CompletionPopup`, `Editor::completion_popup` and the rest), as "the popup"
+  is ADR 0076's centred float elsewhere, and the parsed answer is `protocol::CompletionList`
+  (R1); ADR 0008 amended, below, for this popup and step 10's hover (R2); and with no word typed
+  the item goes in at the primary cursor only, as inserting at every cursor for nothing typed
+  would surprise (R3). The identifier stays the grapheme clusters' stand-in for `XID_Continue`.
 - **From this step's reviews:** a server's range is kept only on the asked line and around the
   asked place, checked on the session thread against the text asked about, and in the editor
   on the cursor's line within 256 bytes of it, so that no answer edits text out of view; an

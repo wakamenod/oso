@@ -47,19 +47,19 @@ pub const COMMANDS: &[Command] = &[
 ];
 
 fn next(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    ctx.editor.popup_move(1);
+    ctx.editor.completion_popup_move(1);
     ctx.request_redraw();
     Ok(())
 }
 
 fn previous(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    ctx.editor.popup_move(-1);
+    ctx.editor.completion_popup_move(-1);
     ctx.request_redraw();
     Ok(())
 }
 
 fn insert(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    let inserted = ctx.editor.popup_insert();
+    let inserted = ctx.editor.completion_popup_insert();
     ctx.request_redraw();
     match inserted {
         Ok(()) => Ok(()),
@@ -69,7 +69,7 @@ fn insert(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    ctx.editor.close_popup();
+    ctx.editor.close_completion_popup();
     ctx.request_redraw();
     Ok(())
 }

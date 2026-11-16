@@ -58,26 +58,26 @@ impl Offered {
 /// What an answer offers, whether it says the list is incomplete, so that typing asks again,
 /// and how many it left out.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Completed {
+pub struct CompletionList {
     pub items: Vec<Offered>,
     pub incomplete: bool,
     pub left: usize,
 }
 
 /// The items `result` offers. `null` offers none.
-pub fn completed(result: &Value) -> Completed {
+pub fn completed(result: &Value) -> CompletionList {
     let (items, incomplete) = match result {
         Value::Array(_) => (result, false),
         Value::Object(list) => (
             list.get("items").unwrap_or(&Value::Null),
             list.get("isIncomplete") == Some(&Value::Bool(true)),
         ),
-        _ => return Completed::default(),
+        _ => return CompletionList::default(),
     };
     let Some(given) = items.as_array() else {
-        return Completed {
+        return CompletionList {
             incomplete,
-            ..Completed::default()
+            ..CompletionList::default()
         };
     };
     let kept = array(items, COMPLETION_ITEMS_MAX).unwrap_or_default();
@@ -89,7 +89,7 @@ pub fn completed(result: &Value) -> Completed {
         let b = b.as_deref().unwrap_or(&second.label);
         a.cmp(b)
     });
-    Completed {
+    CompletionList {
         items: read.into_iter().map(|(_, item)| item).collect(),
         incomplete,
         left,

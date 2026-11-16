@@ -1,6 +1,6 @@
 //! The completion popup at point (ADR 0138, Completion in the buffer, step 9), as Corfu's: the
 //! completions a server offered for the word before the selected window's primary cursor,
-//! matched against that word as it is typed, at most [`POPUP_ROWS`] shown under or over its
+//! matched against that word as it is typed, at most [`COMPLETION_POPUP_ROWS`] shown under or over its
 //! row, and the selected one inserted at the cursors that share the word.
 //!
 //! Must not depend on: `command` or `keymap`, or the host's servers, threads or I/O; the host
@@ -42,22 +42,22 @@ use super::super::Editor;
 use super::jumps::AskAt;
 
 /// The most rows of completions the popup shows.
-pub const POPUP_ROWS: usize = 10;
+pub const COMPLETION_POPUP_ROWS: usize = 10;
 
 /// The most columns of text the popup shows, and no more than half the window's.
-pub const POPUP_COLUMNS: usize = 60;
+pub const COMPLETION_POPUP_COLUMNS: usize = 60;
 
 /// The longest word before the cursor looked at, and the farthest a server's range reaches
 /// from the cursor, in bytes.
 const WORD_BYTES_MAX: usize = 256;
 
-/// The most bytes of a label or an annotation a row keeps: more than [`POPUP_COLUMNS`] show.
-const SHOWN_BYTES_MAX: usize = 4 * POPUP_COLUMNS;
+/// The most bytes of a label or an annotation a row keeps: more than [`COMPLETION_POPUP_COLUMNS`] show.
+const SHOWN_BYTES_MAX: usize = 4 * COMPLETION_POPUP_COLUMNS;
 
 /// A completion as the popup shows and inserts it: its label, its kind and detail as one
 /// annotation, what is matched, the text it inserts, and the range of the answer's text it
 /// replaces, if the server gave one. `Debug` says nothing of it.
-pub struct PopupItem {
+pub struct CompletionPopupItem {
     pub label: Box<str>,
     pub annotation: Box<str>,
     pub filter: Option<Box<str>>,
@@ -65,26 +65,27 @@ pub struct PopupItem {
     pub range: Option<Range<usize>>,
 }
 
-impl fmt::Debug for PopupItem {
+impl fmt::Debug for CompletionPopupItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PopupItem").finish_non_exhaustive()
+        f.debug_struct("CompletionPopupItem")
+            .finish_non_exhaustive()
     }
 }
 
 /// What the host hands over of an answer: where it was asked, the revision of the text its
 /// items' ranges are in, and its items in the server's order.
 #[derive(Debug)]
-pub struct PopupAnswer {
+pub struct CompletionPopupAnswer {
     pub at: AskAt,
     pub revision: u64,
-    pub items: Vec<PopupItem>,
+    pub items: Vec<CompletionPopupItem>,
 }
 
 /// What an item inserts, and the range it replaces as places in the offsets followed.
 type Insert = (Box<str>, Option<(usize, usize)>);
 
 /// The open popup. `Debug` gives counts.
-pub struct Popup {
+pub struct CompletionPopup {
     window: WindowId,
     buffer: BufferId,
     /// The offsets the popup follows through each edit, ascending and each once: where the
@@ -104,16 +105,16 @@ pub struct Popup {
     moved: bool,
 }
 
-impl fmt::Debug for Popup {
+impl fmt::Debug for CompletionPopup {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Popup")
+        f.debug_struct("CompletionPopup")
             .field("items", &self.inserts.len())
             .field("matches", &self.matched.len())
             .finish_non_exhaustive()
     }
 }
 
-impl Popup {
+impl CompletionPopup {
     /// How many items match the word.
     pub fn len(&self) -> usize {
         self.matched.len()
@@ -129,12 +130,12 @@ impl Popup {
         self.moved
     }
 
-    /// The rows shown, at most [`POPUP_ROWS`] from the first in view: each item's label and
+    /// The rows shown, at most [`COMPLETION_POPUP_ROWS`] from the first in view: each item's label and
     /// annotation, and whether it is selected.
     pub fn rows(&self) -> impl Iterator<Item = (bool, &Candidate)> {
         let selected = self.matched.selected();
         self.matched
-            .shown(POPUP_ROWS)
+            .shown(COMPLETION_POPUP_ROWS)
             .filter_map(move |(place, _)| {
                 let item = self.matched.item_at(place)?;
                 Some((selected == Some(place), self.shown.get(item)?))
@@ -149,7 +150,7 @@ impl Popup {
 
 impl Editor {
     /// The completion popup, while one is open.
-    pub fn popup(&self) -> Option<&Popup> {
+    pub fn completion_popup(&self) -> Option<&CompletionPopup> {
         self.servers.popup.as_ref()
     }
 
@@ -161,8 +162,11 @@ impl Editor {
     ///
     /// `Some("No completions")` with nothing to show, or `None` for a stale answer, which says
     /// nothing.
-    pub fn open_popup(&mut self, answer: PopupAnswer) -> Result<(), Option<&'static str>> {
-        self.close_popup();
+    pub fn open_completion_popup(
+        &mut self,
+        answer: CompletionPopupAnswer,
+    ) -> Result<(), Option<&'static str>> {
+        self.close_completion_popup();
         let (window, buffer) = self.current();
         let cursor = window.selections.primary().cursor;
         let stale = window.buffer() != answer.at.buffer
@@ -222,7 +226,7 @@ impl Editor {
             ));
         }
         let (ident, start) = (place(ident), place(start));
-        let mut popup = Popup {
+        let mut popup = CompletionPopup {
             window: window_id,
             buffer: buffer_id,
             ident,
@@ -245,7 +249,7 @@ impl Editor {
 
     /// Moves the popup's selection `by` rows, from the last to the first and back, as
     /// `corfu-cycle` does.
-    pub fn popup_move(&mut self, by: isize) {
+    pub fn completion_popup_move(&mut self, by: isize) {
         let Some(popup) = &mut self.servers.popup else {
             return;
         };
@@ -257,12 +261,12 @@ impl Editor {
         let len = isize::try_from(len).unwrap_or(isize::MAX);
         let to = (isize::try_from(at).unwrap_or(0) + by).rem_euclid(len);
         popup.matched.select(usize::try_from(to).unwrap_or(0));
-        popup.matched.keep_in_view(POPUP_ROWS);
+        popup.matched.keep_in_view(COMPLETION_POPUP_ROWS);
         popup.moved = true;
     }
 
     /// Closes the popup, if one is open; what it held is freed on the completion worker.
-    pub fn close_popup(&mut self) {
+    pub fn close_completion_popup(&mut self) {
         if let Some(popup) = self.servers.popup.take() {
             self.free_on_the_worker(Box::new(popup));
         }
@@ -276,15 +280,18 @@ impl Editor {
     ///
     /// The edit's [`crate::buffer::EditError`], or `None` with no popup open or nothing
     /// selected.
-    pub fn popup_insert(&mut self) -> Result<(), Option<crate::buffer::EditError>> {
-        self.follow_popup();
+    pub fn completion_popup_insert(&mut self) -> Result<(), Option<crate::buffer::EditError>> {
+        self.follow_completion_popup();
         let popup = self.servers.popup.take().ok_or(None)?;
         let result = self.insert_selected(&popup);
         self.free_on_the_worker(Box::new(popup));
         result
     }
 
-    fn insert_selected(&mut self, popup: &Popup) -> Result<(), Option<crate::buffer::EditError>> {
+    fn insert_selected(
+        &mut self,
+        popup: &CompletionPopup,
+    ) -> Result<(), Option<crate::buffer::EditError>> {
         let item = popup.matched.selected_item().ok_or(None)?;
         let (insert, range) = popup.inserts.get(item).ok_or(None)?;
         let (window, buffer) = self.current();
@@ -321,7 +328,7 @@ impl Editor {
     /// After a command: the popup follows the identifier as it is typed, matching it again, and
     /// closes once the cursor is not at its end, another window or buffer shows, a prompt
     /// opened, or nothing matches.
-    pub fn follow_popup(&mut self) {
+    pub fn follow_completion_popup(&mut self) {
         let Some(popup) = &self.servers.popup else {
             return;
         };
@@ -337,7 +344,7 @@ impl Editor {
                     && word_start(buffer.text(), cursor) == ident
             });
         let (true, Some(ident)) = (kept, ident) else {
-            self.close_popup();
+            self.close_completion_popup();
             return;
         };
         let word = text_of(buffer.text(), ident..cursor);
@@ -346,17 +353,17 @@ impl Editor {
         };
         popup.matched.set_input_with(&word, None);
         if popup.matched.is_empty() {
-            self.close_popup();
+            self.close_completion_popup();
         }
     }
 
     /// Where the popup goes over the selected window's text area, as `screen` shows the window
     /// ([`Editor::screen`]): under or over the cursor's row, its text from where the replaced
     /// text starts while that is on the cursor's row, as many rows as match, at most
-    /// [`POPUP_ROWS`], and as wide as the rows shown need, at most [`POPUP_COLUMNS`] and half
+    /// [`COMPLETION_POPUP_ROWS`], and as wide as the rows shown need, at most [`COMPLETION_POPUP_COLUMNS`] and half
     /// the area.
-    pub fn popup_regions(&self, screen: &Screen) -> Option<FloatRegions> {
-        let popup = self.popup()?;
+    pub fn completion_popup_regions(&self, screen: &Screen) -> Option<FloatRegions> {
+        let popup = self.completion_popup()?;
         let (window, buffer) = self.current();
         let area = self.tiled_regions().text;
         let display = buffer.display();
@@ -381,14 +388,18 @@ impl Editor {
             })
             .max()
             .unwrap_or(0);
-        let columns = widest.clamp(1, POPUP_COLUMNS.min((area.columns / 2).max(1)));
-        let rows = popup.len().min(POPUP_ROWS);
+        let columns = widest.clamp(1, COMPLETION_POPUP_COLUMNS.min((area.columns / 2).max(1)));
+        let rows = popup.len().min(COMPLETION_POPUP_ROWS);
         at_point(area, (cursor.row, column), (rows, columns))
     }
 
     /// Moves the popup's word and its items' ranges in `buffer` through an edit's `steps`, as
     /// the cursors move: each offset once a step.
-    pub(in crate::editor) fn popup_follows(&mut self, buffer: BufferId, steps: &[Vec<OffsetEdit>]) {
+    pub(in crate::editor) fn completion_popup_follows(
+        &mut self,
+        buffer: BufferId,
+        steps: &[Vec<OffsetEdit>],
+    ) {
         let Some(popup) = &mut self.servers.popup else {
             return;
         };
@@ -401,9 +412,12 @@ impl Editor {
     }
 
     /// `buffer` was read again: a popup over it no longer knows its word, and closes.
-    pub(in crate::editor) fn popup_reloaded(&mut self, buffer: BufferId) {
-        if self.popup().is_some_and(|popup| popup.buffer == buffer) {
-            self.close_popup();
+    pub(in crate::editor) fn completion_popup_reloaded(&mut self, buffer: BufferId) {
+        if self
+            .completion_popup()
+            .is_some_and(|popup| popup.buffer == buffer)
+        {
+            self.close_completion_popup();
         }
     }
 }

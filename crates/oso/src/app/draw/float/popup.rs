@@ -31,8 +31,8 @@ impl<'a> PopupSpans<'a> {
     /// The open popup's rows, placed over the selected window as `screen` shows it, the frame's
     /// own rows of that window, if it has room.
     pub(in crate::app::draw) fn of(editor: &'a Editor, screen: &Screen) -> Option<Self> {
-        let popup = editor.popup()?;
-        let regions = editor.popup_regions(screen)?;
+        let popup = editor.completion_popup()?;
+        let regions = editor.completion_popup_regions(screen)?;
         let text = regions.inner;
         let named = popup.rows().map(|(_, row)| (row.text(), row.binding()));
         let column = minibuffer::annotation_column(named, text.columns);

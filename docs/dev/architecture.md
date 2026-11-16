@@ -517,9 +517,11 @@ text command. The PTY is `oso-platform::process::pty`, spawned through the
 process module's rules ([ADR 0015](adr/0015-terminal.md),
 [ADR 0120](adr/0120-the-terminal.md)).
 
-The minibuffer, completion popups and hover documentation are buffers shown in
-floating windows, and editing commands work inside them unchanged. See
-[ADR 0008](adr/0008-floating-ui.md). A menu (hydra/transient-style) is a float with no window or
+The minibuffer and hover documentation are buffers shown in floating windows, and editing
+commands work inside them unchanged. See [ADR 0008](adr/0008-floating-ui.md). The completion popup
+at point is no buffer: it is the editor's state of a server's items, drawn as a float under or
+over the cursor's row, and typing goes on into the buffer beneath
+([ADR 0138](adr/0138-language-servers.md), step 9). A menu (hydra/transient-style) is a float with no window or
 buffer, whose heads act on the window beneath ([ADR 0117](adr/0117-menus.md)). The open menus are
 the dispatcher's, a stack over the set the first came from, and their keys come first while one
 is open; the app draws the one on top over the tiled panes. A command never

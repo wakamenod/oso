@@ -6,7 +6,7 @@
 //! window.
 
 use oso_core::buffer::{Buffer, ServerMark};
-use oso_core::editor::{Editor, PopupAnswer, PopupItem};
+use oso_core::editor::{CompletionPopupAnswer, CompletionPopupItem, Editor};
 use oso_core::frame::FrameSize;
 use oso_core::selection::SelectionSet;
 
@@ -29,7 +29,7 @@ fn popped(text: &str, (rows, columns): (usize, usize), at: usize, labels: &[&str
     editor.current_mut().0.selections = SelectionSet::new(at);
     let items = labels
         .iter()
-        .map(|label| PopupItem {
+        .map(|label| CompletionPopupItem {
             label: (*label).into(),
             annotation: "function fn()".into(),
             filter: None,
@@ -38,24 +38,24 @@ fn popped(text: &str, (rows, columns): (usize, usize), at: usize, labels: &[&str
         })
         .collect();
     let at = editor.ask_at();
-    let answer = PopupAnswer {
+    let answer = CompletionPopupAnswer {
         at,
         revision: at.revision,
         items,
     };
-    editor.open_popup(answer).unwrap();
+    editor.open_completion_popup(answer).unwrap();
     editor
 }
 
 /// The completion popup, if one is open: where it is, then its rows, the selected one with `>`
 /// beside it and what matched marked `*` below (ADR 0138, step 9).
 pub(super) fn draw_popup(editor: &Editor, lines: &mut Vec<String>) {
-    let Some(popup) = editor.popup() else {
+    let Some(popup) = editor.completion_popup() else {
         return;
     };
     let mut screen = Screen::default();
     editor.screen(&mut screen);
-    let Some(regions) = editor.popup_regions(&screen) else {
+    let Some(regions) = editor.completion_popup_regions(&screen) else {
         lines.push("popup with no room".to_owned());
         return;
     };

@@ -63,7 +63,7 @@ impl Editor {
         self.isearch_abandon();
         self.replace_abandon();
         self.jump_end();
-        self.close_popup();
+        self.close_completion_popup();
         let depth = self.prompts.len() + 1;
         let from_agent = self.runs_for_agent();
         let mut label = label.into();

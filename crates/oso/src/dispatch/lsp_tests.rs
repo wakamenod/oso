@@ -269,10 +269,10 @@ fn the_agent_s_m_question_is_refused_and_asks_nothing_and_its_m_dot_asks() {
 
 /// Opens the popup in `editor` over `labels`, at the primary cursor.
 fn pop(editor: &mut Editor, labels: &[&str]) {
-    use oso_core::editor::{PopupAnswer, PopupItem};
+    use oso_core::editor::{CompletionPopupAnswer, CompletionPopupItem};
     let items = labels
         .iter()
-        .map(|label| PopupItem {
+        .map(|label| CompletionPopupItem {
             label: (*label).into(),
             annotation: "".into(),
             filter: None,
@@ -281,12 +281,12 @@ fn pop(editor: &mut Editor, labels: &[&str]) {
         })
         .collect();
     let at = editor.ask_at();
-    let answer = PopupAnswer {
+    let answer = CompletionPopupAnswer {
         at,
         revision: at.revision,
         items,
     };
-    editor.open_popup(answer).unwrap();
+    editor.open_completion_popup(answer).unwrap();
 }
 
 fn text(editor: &Editor) -> String {
@@ -311,7 +311,7 @@ fn c_m_i_asks_for_completions_and_the_popup_s_keys_move_insert_and_close() {
     // Typing narrows; `RET` before a move closes it and breaks the line.
     pop(&mut editor, &["foo", "format"]);
     send(&mut d, &mut editor, "r RET");
-    assert!(editor.popup().is_none());
+    assert!(editor.completion_popup().is_none());
     assert_eq!(text(&editor), "for\n");
     // After a move, `RET` inserts.
     pop(&mut editor, &["alpha", "beta"]);
@@ -320,10 +320,10 @@ fn c_m_i_asks_for_completions_and_the_popup_s_keys_move_insert_and_close() {
     // `C-g` closes, and so does any other command, which then runs.
     pop(&mut editor, &["betamax"]);
     send(&mut d, &mut editor, "C-g");
-    assert!(editor.popup().is_none());
+    assert!(editor.completion_popup().is_none());
     pop(&mut editor, &["betamax"]);
     send(&mut d, &mut editor, "C-a");
-    assert!(editor.popup().is_none());
+    assert!(editor.completion_popup().is_none());
     assert_eq!(cursor(&editor), 4, "C-a ran");
 }
 
@@ -363,8 +363,14 @@ fn an_agent_s_command_or_a_key_nothing_binds_closes_the_popup() {
     pop(&mut editor, &["xfoo"]);
     let ran = d.run_for_agent(&mut editor, "forward-char", Given::Nothing, Reach::Look);
     assert!(ran.is_ok());
-    assert!(editor.popup().is_none(), "the agent's command closes it");
+    assert!(
+        editor.completion_popup().is_none(),
+        "the agent's command closes it"
+    );
     pop(&mut editor, &["xfoo"]);
     send(&mut d, &mut editor, "C-x C-M-z");
-    assert!(editor.popup().is_none(), "an undefined key closes it");
+    assert!(
+        editor.completion_popup().is_none(),
+        "an undefined key closes it"
+    );
 }

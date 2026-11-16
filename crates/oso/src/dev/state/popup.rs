@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 /// The completion popup's rows, the selected one, the matches, whether it moved (ADR 0138);
 /// only that it is open while a buffer that may hold secrets shows. The agent's has none.
 pub(super) fn popup_state(editor: &Editor) -> Value {
-    editor.popup().map_or(Value::Null, |popup| {
+    editor.completion_popup().map_or(Value::Null, |popup| {
         if editor.shows_secret() {
             return json!({ "open": true });
         }

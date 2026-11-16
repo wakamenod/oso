@@ -33,10 +33,10 @@ fn a_list_or_an_array_is_read_in_the_order_of_its_sort_text() {
     let array = completed_of(json!([{"label": "x", "insertText": "x()"}]));
     assert!(!array.incomplete);
     assert_eq!(array.items[0].text, "x()");
-    assert_eq!(completed_of(json!(null)), Completed::default());
+    assert_eq!(completed_of(json!(null)), CompletionList::default());
 }
 
-fn completed_of(value: serde_json::Value) -> Completed {
+fn completed_of(value: serde_json::Value) -> CompletionList {
     completed(&value)
 }
 

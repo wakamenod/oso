@@ -214,7 +214,7 @@ impl Keymaps {
             &self.lsp
         };
         // One place for a layer a key opens for a while: the popup's or `C-x TAB`'s.
-        let transient = match editor.popup() {
+        let transient = match editor.completion_popup() {
             Some(popup) => &self.popup[usize::from(popup.moved())],
             None => &self.rigid,
         };
@@ -262,7 +262,7 @@ impl Keymaps {
         let minor: &[&Keymap] = match prefix {
             Some(prefix) if prefix.reads_minus() => &reading[..2 + minor_len],
             Some(prefix) if prefix.reads_digits() => &reading[1..2 + minor_len],
-            _ if editor.indent_rigidly_layer() || editor.popup().is_some() => {
+            _ if editor.indent_rigidly_layer() || editor.completion_popup().is_some() => {
                 &reading[3..4 + minor_len]
             }
             _ => &reading[2..2 + minor_len],

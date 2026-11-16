@@ -13,7 +13,7 @@ use super::{Dispatcher, Step};
 /// or a press or a wheel turn of the mouse.
 pub(super) fn close_all(editor: &mut Editor) {
     editor.set_indent_rigidly_layer(false);
-    editor.close_popup();
+    editor.close_completion_popup();
 }
 
 impl Dispatcher {
@@ -24,10 +24,10 @@ impl Dispatcher {
         if step == Step::Apart || !self.keymaps.rigid_commands.contains(&id) {
             editor.set_indent_rigidly_layer(false);
         }
-        if editor.popup().is_some()
+        if editor.completion_popup().is_some()
             && (step == Step::Apart || !self.keymaps.popup_commands.contains(&id))
         {
-            editor.close_popup();
+            editor.close_completion_popup();
         }
     }
 }

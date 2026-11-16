@@ -11,7 +11,7 @@
 //! - A stale answer goes to the freeing thread; the editor frees one it drops, and a popup's
 //!   items once it closes, on its worker.
 
-use oso_core::editor::{PopupAnswer, PopupItem};
+use oso_core::editor::{CompletionPopupAnswer, CompletionPopupItem};
 use oso_lsp::protocol::kind_name;
 use oso_lsp::server::Completions;
 
@@ -49,7 +49,7 @@ impl App {
                 annotation.push_str(item.kind.map_or("", kind_name));
                 annotation.push(' ');
                 annotation.push_str(detail);
-                PopupItem {
+                CompletionPopupItem {
                     label: item.label.into(),
                     annotation: annotation.into(),
                     filter: item.filter.map(Into::into),
@@ -59,12 +59,12 @@ impl App {
             })
             .collect();
         // Where it was asked: the editor judges the answer against it too.
-        let answer = PopupAnswer {
+        let answer = CompletionPopupAnswer {
             at: asker.at(asked),
             revision,
             items,
         };
-        if let Err(Some(why)) = self.editor.open_popup(answer) {
+        if let Err(Some(why)) = self.editor.open_completion_popup(answer) {
             self.editor.message(why);
         }
         self.request_redraw();

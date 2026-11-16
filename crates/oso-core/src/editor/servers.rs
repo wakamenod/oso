@@ -22,7 +22,10 @@ pub use super::visits::VisitColumn;
 pub use diagnostics_list::{DiagnosticRow, DiagnosticRows, DiagnosticsRequest};
 pub use jumps::AskAt;
 pub use listed::{ListedAt, ListedHit};
-pub use popup::{POPUP_COLUMNS, POPUP_ROWS, Popup, PopupAnswer, PopupItem};
+pub use popup::{
+    COMPLETION_POPUP_COLUMNS, COMPLETION_POPUP_ROWS, CompletionPopup, CompletionPopupAnswer,
+    CompletionPopupItem,
+};
 pub use xref_list::{XrefKind, XrefRow, XrefRows};
 
 use super::Editor;
@@ -40,7 +43,7 @@ pub(super) struct Servers {
     /// The list of a server's places, `M-.`'s and `M-?`'s (step 8b).
     pub(super) xrefs: xref_list::XrefList,
     /// The completion popup at point (step 9).
-    popup: Option<popup::Popup>,
+    popup: Option<popup::CompletionPopup>,
     log: Option<BufferId>,
 }
 
@@ -88,14 +91,14 @@ impl Editor {
         steps: &[Vec<crate::selection::OffsetEdit>],
     ) {
         self.follow_jump_history(buffer, steps);
-        self.popup_follows(buffer, steps);
+        self.completion_popup_follows(buffer, steps);
     }
 
     /// `buffer` was read again, its offsets moved through `map`: the jumps' places move, and
     /// the popup, which no longer knows its word, closes.
     pub(super) fn answers_reloaded(&mut self, buffer: BufferId, map: impl FnMut(usize) -> usize) {
         self.map_jump_history(buffer, map);
-        self.popup_reloaded(buffer);
+        self.completion_popup_reloaded(buffer);
     }
 
     /// What commands asked about servers since the host last looked, oldest first.

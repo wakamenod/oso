@@ -269,20 +269,20 @@ pub fn oso_lsp::protocol::Token::fmt(&self, &mut core::fmt::Formatter<'_>) -> co
 impl core::hash::Hash for oso_lsp::protocol::Token
 pub fn oso_lsp::protocol::Token::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::StructuralPartialEq for oso_lsp::protocol::Token
-pub struct oso_lsp::protocol::Completed
-pub oso_lsp::protocol::Completed::incomplete: bool
-pub oso_lsp::protocol::Completed::items: alloc::vec::Vec<oso_lsp::protocol::Offered>
-pub oso_lsp::protocol::Completed::left: usize
-impl core::clone::Clone for oso_lsp::protocol::Completed
-pub fn oso_lsp::protocol::Completed::clone(&self) -> oso_lsp::protocol::Completed
-impl core::cmp::Eq for oso_lsp::protocol::Completed
-impl core::cmp::PartialEq for oso_lsp::protocol::Completed
-pub fn oso_lsp::protocol::Completed::eq(&self, &oso_lsp::protocol::Completed) -> bool
-impl core::default::Default for oso_lsp::protocol::Completed
-pub fn oso_lsp::protocol::Completed::default() -> oso_lsp::protocol::Completed
-impl core::fmt::Debug for oso_lsp::protocol::Completed
-pub fn oso_lsp::protocol::Completed::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for oso_lsp::protocol::Completed
+pub struct oso_lsp::protocol::CompletionList
+pub oso_lsp::protocol::CompletionList::incomplete: bool
+pub oso_lsp::protocol::CompletionList::items: alloc::vec::Vec<oso_lsp::protocol::Offered>
+pub oso_lsp::protocol::CompletionList::left: usize
+impl core::clone::Clone for oso_lsp::protocol::CompletionList
+pub fn oso_lsp::protocol::CompletionList::clone(&self) -> oso_lsp::protocol::CompletionList
+impl core::cmp::Eq for oso_lsp::protocol::CompletionList
+impl core::cmp::PartialEq for oso_lsp::protocol::CompletionList
+pub fn oso_lsp::protocol::CompletionList::eq(&self, &oso_lsp::protocol::CompletionList) -> bool
+impl core::default::Default for oso_lsp::protocol::CompletionList
+pub fn oso_lsp::protocol::CompletionList::default() -> oso_lsp::protocol::CompletionList
+impl core::fmt::Debug for oso_lsp::protocol::CompletionList
+pub fn oso_lsp::protocol::CompletionList::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_lsp::protocol::CompletionList
 pub struct oso_lsp::protocol::Initialize<'a>
 pub oso_lsp::protocol::Initialize::options: core::option::Option<&'a serde_json::value::Value>
 pub oso_lsp::protocol::Initialize::root_name: &'a str
@@ -382,7 +382,7 @@ pub fn oso_lsp::protocol::answer(&oso_lsp::protocol::RequestId, core::result::Re
 pub fn oso_lsp::protocol::answer_for(&str, &serde_json::value::Value, core::option::Option<&str>, &serde_json::value::Value) -> core::result::Result<serde_json::value::Value, (i64, &'static str)>
 pub fn oso_lsp::protocol::chosen_encoding(&serde_json::value::Value) -> core::option::Option<oso_lsp::position::Encoding>
 pub fn oso_lsp::protocol::classify(serde_json::value::Value) -> core::result::Result<oso_lsp::protocol::Incoming, oso_lsp::protocol::NotRpc>
-pub fn oso_lsp::protocol::completed(&serde_json::value::Value) -> oso_lsp::protocol::Completed
+pub fn oso_lsp::protocol::completed(&serde_json::value::Value) -> oso_lsp::protocol::CompletionList
 pub fn oso_lsp::protocol::completion_params(&str, oso_lsp::position::Position) -> serde_json::value::Value
 pub fn oso_lsp::protocol::initialize_params(&oso_lsp::protocol::Initialize<'_>) -> serde_json::value::Value
 pub fn oso_lsp::protocol::kind_name(u8) -> &'static str
