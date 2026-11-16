@@ -140,8 +140,9 @@ letter, the user's space, to `C-c` and a control key, as eat and vterm put a ter
 - A key that types in a session other than those keeps ADR 0132's rule: `C-c` and a key no layer
   binds is undefined, and nothing goes to Claude Code. `C-c` and a letter is free for the user's
   `[keys.session]`.
-- `C-c C-y` (attaching an image from the clipboard) is being built at the same time and joins this
-  table on its own ADR.
+- `C-c C-y` (attaching an image from the clipboard,
+  [ADR 0142](0142-attaching-the-clipboard-s-image-to-a-session.md)) is session mode's own key,
+  as `C-c C-u` is: it has no head in the Agents menu.
 
 ### `C-x a` is given back
 
@@ -264,3 +265,11 @@ the layers active in the current buffer, a menu's key and its head's key include
   it; the snippet above brings it back.
 - **An `H-` notation:** needs a modifier oso does not have; left until a keyboard sends a real
   Hyper.
+
+## As built
+
+- `C-c C-y` came with ADR 0142 while this was built, and joined the session table as session mode's
+  own key, beside `C-c C-u`, `C-c ?` and the agent channel's reads; the test that ties each
+  `C-c C-<letter>` to the Agents menu's head of that letter lists it among those.
+- The source control flow merged meanwhile (ADR 0127, step 6a) said "`C-x a c` starts one" when no
+  session runs in a worktree; it names the keys of `claude` as bound, as the other messages do.
