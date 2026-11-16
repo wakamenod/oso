@@ -45,6 +45,7 @@ mod cursors;
 mod diagnostics;
 mod directories;
 mod excerpt;
+mod file_preview;
 mod files;
 mod follow;
 mod git;
@@ -94,6 +95,7 @@ pub use copies::RecoveryAction;
 pub use crossing::Crossing;
 pub use cursors::{CursorError, Toward};
 pub use diagnostics::DiagnosticCells;
+pub use file_preview::{Excerpt, FilePreviewRead, FilePreviewRequest, PreviewAt};
 pub use files::Looked;
 pub use git::{
     CommitKind, CommitSwitches, FetchFrom, GitHeading, GitLines, GitRequest, GitShown, MAX_GIT_LOG,
@@ -108,17 +110,14 @@ pub use listings::{Listing, ListingOrder, ListingRequest, ListingShown, RowMark}
 pub use macros::{MAX_MACRO_EVENTS, MAX_MACRO_TEXT, MacroError, MacroEvent};
 pub use messages::row_text;
 pub use pairs::NoPair;
-pub use project_search::{
-    Excerpt, ProjectPreviewRead, ProjectPreviewRequest, ProjectSearchHit, ProjectSearchRequest,
-    ProjectSearchRow,
-};
+pub use project_search::{ProjectSearchHit, ProjectSearchRequest, ProjectSearchRow};
 pub use projects::{ProjectRequest, TrustRefused};
 pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use reviews::*;
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
-pub use servers::{AskAt, ServerRequest, VisitColumn};
+pub use servers::*;
 pub use sessions::*;
 pub use status::{ServerFace, Status};
 pub use switch::{KillRefused, Preview};

@@ -1425,11 +1425,91 @@ the `revision` fields of step 4's `Document` and `Change` among them (Q8).
   goes to the UI once it opens. Dispatcher tests of the layer,
   and the end-to-end flow `lsp.rs` (`diagnostics_are_counted_moved_to_and_said_at_point`).
 - **Left for 6b:** `M-g d` (`lsp-diagnostics`) with its preview, and the diagnostics of files
-  not open in the UI (`Diagnosed::File`).
+  not open in the UI (`Diagnosed::File`); built in step 6b below.
 - **Left for step 7:** drawing: the wavy underline, dim `Unnecessary` ranges, the sign column,
   and the counts each in its severity's face, `Status::lsp` then holding only the state.
 - **Left for step 12:** the `just perf` metrics: typing with 2000 diagnostics at 1 and 1000
   cursors, and a 2000-entry report applied while typing.
+
+### Step 6b: the list of diagnostics
+
+The author answered 6b's questions on 2026-11-16, all with the first choice: the project
+search's preview reader shared with step 8b's float, its two types renamed (Q1); a line a
+server gives found within 64 MiB of the file's start (Q2); the list over the current buffer's
+project, from every server, hints left out, the buffer's own first (Q3); rows
+`path:line: severity: message` with the source and the code as the annotation (Q4); the first
+diagnostic at or after point selected (Q5); the list a snapshot while it is open (Q6); and the
+public items below (Q7), with the prompt opened through an argument spec of its own.
+
+- **The preview of a list's files** (`oso-core` `editor/file_preview.rs`, from ADR 0114's
+  search): `FilePreviewRequest` and `FilePreviewRead` in place of `ProjectPreviewRequest` and
+  `ProjectPreviewRead`, and `PreviewAt`, a place by the offset of its line, as a search found
+  it, or by its line alone, as a server gives it, with its column as a `VisitColumn`.
+  `Excerpt::new` takes that column and finds it on the row's line in characters, UTF-8 bytes or
+  UTF-16 units, an invalid byte one of each, past the line's end at its end. Each list keeps a
+  `FilePreview` of its own: the search, `M-g d`, and step 8b's float. Its rules stay ADR
+  0114's: nothing of a secret file is asked for, an open buffer of the file shows instead, and
+  one of the same device and inode replaces a read excerpt, or withholds it. A diagnostic's
+  row is judged by its name, as the server's thread judged its report, and the reader judges
+  every file again as the search does.
+- **The reader** (`grep/preview.rs`, `oso-preview`) reaches the file as before. For a place by
+  line, it counts `\n` from the file's start, as a buffer counts lines, a 64 KiB part at a time
+  with the generation asked before each, at most `SCAN_MAX`, 64 MiB; a line past them, or past
+  the file's end, shows nothing.
+- **`oso-lsp`:** a report for a file no document open with the server holds goes to the UI as
+  `Diagnosed::File`, the report the session keeps, shared, with its positions' encoding; one
+  with no diagnostics forgets the file's. `Store::put` gives the paths its bounds let go, and
+  each goes as an empty report, so the UI never holds more than the store. A document that
+  opens makes the file's go, its set being the document's now, and one that closes makes its
+  kept report a file's again, or forgets it. A run's end sends `Diagnosed::Forgotten`. The
+  outbox keeps the latest of each document and each file, in place, by an index;
+  `Forgotten` replaces every file's that waits. The paths of the open documents are gathered
+  once for a report that reaches the store's bounds.
+- **The tip crate** keeps each server's file reports by path, the paths shared too, the old
+  ones freed together off the UI thread. `lsp-diagnostics` (`M-g d` in the `lsp` layer,
+  `Person`) reads through `ArgSpec::Diagnostics`: the prompt opens at once over the current
+  buffer's project, waiting, and its request goes to a thread, `oso-diagnostics`, with a
+  snapshot of the open buffers' sets and texts and the file reports of the servers whose root
+  is the project's, inside it or around it, each a shared pointer, so the UI thread copies no
+  path. The thread judges the reports' paths against the root as a URI reads back, as the
+  server's thread does. The rows are the current buffer's by place, then each other file's by
+  path and line, open in a buffer or not, from every server: another server's report of a file
+  a buffer holds shows beside the buffer's set. The sources are sorted before any row is made,
+  so no more than `DIAGNOSTIC_ROWS_MAX`, 100,000, are ever made, nor more than 32 MiB of paths
+  and messages, as a server names any path and each row holds its own; a path from the root
+  longer than 4096 bytes gives no row. The count says `+` past them. A newer list stops the
+  build of an older one. A row copies at most 1 KiB of the message, and keeps at most 512
+  bytes of its first line, its blanks as one, as the source and the code have theirs.
+  `DiagnosticRows::new` makes the candidates on that thread. What was typed while they came is
+  matched against them; past 5000 rows the completion worker matches.
+  `DIAGNOSTIC_ROWS_MAX` is in `oso-lsp`'s `limits` with the other bounds of the table above,
+  though the tip crate keeps it.
+- **A row of an open buffer** goes to its place moved through the buffer's edits since the
+  list opened, as the cursors move, clipped to its text, worked out once for each of the
+  buffer's revisions, and previews the buffer there; once its log no longer reaches the list's
+  revision, the row goes by its line, as a file's. A row of a file previews what the reader
+  read at its line, or the open buffer of it. `RET` visits the place with `request_visit_at_column`,
+  with the place before on the mark ring, through the loader's verdict for a large file.
+- **Public API:** `oso-core`: `editor::{FilePreviewRequest, FilePreviewRead, PreviewAt}` (in
+  place of the `ProjectPreview` pair), `Excerpt::new` with a `VisitColumn`,
+  `command::ArgSpec::Diagnostics`, `Editor::{open_diagnostics_list, take_diagnostics_request,
+  diagnostics_listed, take_diagnostic_hit}`, `editor::{DiagnosticsRequest, DiagnosticRow,
+  DiagnosticRowAt, DiagnosticRows, DiagnosticHit}`. `oso-lsp`: `server::Diagnosed::{File,
+  Forgotten}`, `limits::DIAGNOSTIC_ROWS_MAX`.
+- **From this step's reviews:** the snapshot copies no path and takes only the project's
+  servers; the reports' paths are judged against the root in the servers' spelling; a file's
+  report goes from the UI once its document opens; the rows have a bound in bytes and on a
+  path's length; a newer list stops an older build; an open buffer's place is worked out once
+  a revision and goes by line past the log; the outbox replaces in place; the reader counts a
+  part's breaks at once; the source and the code have their blanks as one.
+- **Tests:** an excerpt's column in each count; the list's request, rows, selection, a stale
+  list, typing while the rows come, the annotation's blanks, and the preview and `RET` of both
+  kinds of row, with an edit moving an open buffer's and one past its log; the rows' order,
+  hints, another server's, the root, both bounds, a long path and a stale build; the reader's
+  line scan, a lone `\r`, past the end and past `SCAN_MAX`; the outbox's coalescing and the
+  store's victims; against the fake server, a file's report, its set once open with the file's
+  forgotten, a file's again once closed, and `Forgotten` at the end; the dispatcher's `M-g d`;
+  and the end-to-end flow `lsp.rs` (`diagnostics_are_listed_previewed_and_gone_to`).
 
 ### Step 7: diagnostics, drawing
 

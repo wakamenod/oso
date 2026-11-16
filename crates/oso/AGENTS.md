@@ -56,7 +56,8 @@ often, so it must rebuild within 2 s.
   (`commands/lsp.rs`), trust and the configuration (`config/lsp.rs`, the built-in table and
   `[lsp]`). Its `Gate` checks `git::TrustedRoot` and finds the program (`servers/find.rs`) on
   the server's thread. A server's diagnostics go into its buffers, and the message at point
-  waits 300 ms there (`servers/diagnostics.rs`). The fake server the tests run against is the dev-only binary
+  waits 300 ms there (`servers/diagnostics.rs`); its reports of files no buffer holds are kept
+  there for `M-g d`, whose rows are built on `oso-diagnostics` (`servers/diagnostics/rows.rs`). The fake server the tests run against is the dev-only binary
   `fake-lsp-server` (`tests/fake_lsp_server/`), which `just release-safety` keeps out of
   release builds.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a
@@ -119,7 +120,8 @@ often, so it must rebuild within 2 s.
 - `src/walk.rs` walks a project's files on `oso-walk` (ADR 0114). Only it and
   `sessions/worktree/include.rs`, which matches `.worktreeinclude` (ADR 0121), use `ignore`,
   which review keeps: no guard test checks it. `src/grep.rs` searches them on `oso-grep` over the same
-  walk, and `src/grep/preview.rs` reads a row's file for the preview on `oso-preview`.
+  walk, and `src/grep/preview.rs` reads a row's file for the preview on `oso-preview`, for the
+  search and for `M-g d` (ADR 0138).
 - Keep logic that can be tested without a window in `oso-core`. This crate
   translates events and wires things together.
 - Dev-only code (the control socket, `oso ctl`, `oso dev`, timings) stays

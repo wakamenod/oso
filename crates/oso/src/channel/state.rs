@@ -313,6 +313,7 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     | ArgSpec::Menu { .. }
                     | ArgSpec::Buffer { .. }
                     | ArgSpec::Mark { .. }
+                    | ArgSpec::Diagnostics { .. }
                     | ArgSpec::File { .. }
                     | ArgSpec::Directory { .. }
                     | ArgSpec::Target { .. }

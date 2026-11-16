@@ -19,14 +19,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use super::file_preview::FilePreview;
 use super::migemo::Cache;
 use super::{CompletionStyle, Editor, WalkEnd};
 use crate::complete::{Candidate, Candidates, MAX_INPUT_BYTES, WORKER_PAST};
 use crate::minibuffer::{PromptError, PromptId};
 use crate::project::{LineQuery, MAX_ROWS};
 pub(in crate::editor) use preview::PreviewCellsKey;
-use preview::SearchPreview;
-pub use preview::{Excerpt, ProjectPreviewRead, ProjectPreviewRequest};
 
 mod preview;
 
@@ -136,7 +135,7 @@ pub(super) struct ProjectSearch {
     /// The row `RET` took, for the command.
     hit: Option<ProjectSearchHit>,
     /// The selected row's preview.
-    preview: SearchPreview,
+    pub(super) preview: FilePreview,
 }
 
 impl Editor {

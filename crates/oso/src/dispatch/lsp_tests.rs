@@ -129,3 +129,53 @@ fn echo(editor: &Editor) -> String {
     editor.status_into(editor.tiled().0.id(), &mut status);
     status.echo
 }
+
+#[test]
+fn m_g_d_lists_the_project_s_diagnostics_and_ret_goes_to_the_one_picked() {
+    use oso_core::buffer::Baseline;
+    use oso_core::editor::{DiagnosticRow, DiagnosticRowAt, DiagnosticRows};
+    let path = std::path::PathBuf::from("/w/oso/t.rs");
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.apply_load(oso_core::load::decode_all(
+        b"let x = 1;\nlet y = 2;\n",
+        oso_core::display_map::TabWidth::default(),
+    ));
+    buffer.set_baseline(Baseline {
+        location: path,
+        file: None,
+    });
+    buffer.set_server(Some(ServerMark::Ready));
+    let mut editor = Editor::with_buffer(buffer);
+    let id = editor.window().buffer();
+    let revision = editor.buffer(id).unwrap().revision();
+    let mut d = Dispatcher::new();
+    send(&mut d, &mut editor, "M-g d");
+    assert_eq!(editor.prompt().unwrap().label(), "Diagnostics in oso:");
+    let request = editor.take_diagnostics_request().unwrap();
+    let row = DiagnosticRow {
+        path: "t.rs".into(),
+        line: 2,
+        at: DiagnosticRowAt::Open {
+            buffer: id,
+            offset: 15,
+            revision,
+        },
+        severity: Severity::Error,
+        message: "m".into(),
+        source: "".into(),
+        code: "".into(),
+    };
+    editor.diagnostics_listed(DiagnosticRows::new(
+        request.generation,
+        vec![row],
+        Some(0),
+        false,
+    ));
+    send(&mut d, &mut editor, "RET");
+    assert!(editor.prompt().is_none());
+    assert_eq!(cursor(&editor), 15);
+    // With no server, `M-g d` is not bound.
+    let (mut d, mut editor) = followed(None);
+    send(&mut d, &mut editor, "M-g d");
+    assert!(editor.prompt().is_none());
+}

@@ -103,7 +103,7 @@ impl Editor {
                 let display = buffer.display();
                 let revision = buffer.revision();
                 let wrap = self.preview_wrap_of(id, revision, region.columns);
-                let left = if wrap.is_none() && self.searches_project() {
+                let left = if wrap.is_none() && self.previewing().is_some() {
                     Self::preview_left(&display, cursor, region.columns)
                 } else {
                     0

@@ -11,7 +11,7 @@
 //! Step 6 reads its diagnostics reports: the session thread drops those for a file outside the
 //! project or whose name may hold secrets, keeps each document's last within the bounds, and
 //! hands the UI a set for each open document, placed against the text the report names and
-//! mapped forward ([`Diagnosed`]).
+//! mapped forward, and each other file's report as it is kept, shared ([`Diagnosed`], 6b).
 //!
 //! Step 8 asks it about documents ([`Server::ask`]) and hands back its answers ([`Answer`]).
 
@@ -41,7 +41,8 @@ use serde_json::Value;
 pub use asks::{Answer, Answered, Ask, AskKind, Location, Target};
 
 use crate::framing::{Frame, FrameError};
-use crate::protocol::Severity;
+use crate::position::Encoding;
+use crate::protocol::{Published, Severity};
 use outbox::Outbox;
 use session::Session;
 
@@ -134,6 +135,17 @@ pub enum Diagnosed {
         revision: u64,
         diagnostics: Diagnostics,
     },
+    /// Those of the file at `path`, which no document open with the server holds, as the server
+    /// reported them, its positions counted in `encoding` (step 6b). The report is the one the
+    /// session keeps, shared; one with no diagnostics forgets the file's, as does one the
+    /// session's bounds let go.
+    File {
+        path: PathBuf,
+        report: Arc<Published>,
+        encoding: Encoding,
+    },
+    /// The run ended: every file's diagnostics from it go, as the next run reports again.
+    Forgotten,
 }
 
 /// Why a document is kept from the server.
