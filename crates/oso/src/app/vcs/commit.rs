@@ -30,13 +30,13 @@ use crate::vcs::layout::Section;
 use crate::vcs::run::RunRequest;
 
 /// Why a message's text is not taken.
-const TOO_LONG: &str = "The message is longer than git is given: 1 MiB";
+pub(super) const TOO_LONG: &str = "The message is longer than git is given: 1 MiB";
 
 /// The repositories git runs in, the messages being written, and the ring.
 #[derive(Default)]
 pub(in crate::app) struct Commits {
     pub(super) repos: Vec<Repo>,
-    drafts: Vec<Draft>,
+    pub(super) drafts: Vec<Draft>,
     ring: Ring,
     pub(super) serial: u64,
     /// The discards asked about, and the lists of what they kept (step 1c).
@@ -44,15 +44,17 @@ pub(in crate::app) struct Commits {
 }
 
 /// A commit's message being written.
-struct Draft {
-    buffer: BufferId,
-    project: ProjectId,
-    kind: CommitKind,
+pub(super) struct Draft {
+    pub(super) buffer: BufferId,
+    pub(super) project: ProjectId,
+    pub(super) kind: CommitKind,
     switches: CommitSwitches,
     /// Which message of the ring it shows, `None` for the person's own.
-    ring_at: Option<usize>,
+    pub(super) ring_at: Option<usize>,
     /// The revision its highlights were made for.
     lit: Option<u64>,
+    /// The newest draft request sent for it, which alone `draft_set` may answer (step 6a).
+    pub(super) asked: Option<super::agent::Asked>,
 }
 
 impl App {
@@ -80,6 +82,8 @@ impl App {
                 confirmed,
             } => self.restore_discarded(buffer, line, confirmed),
             GitRequest::ShowDiscarded { buffer } => self.show_discarded(buffer),
+            GitRequest::DraftMessage { buffer } => self.draft_message(buffer),
+            GitRequest::FixWithAgent { buffer } => self.fix_with_agent(buffer),
             _ => {}
         }
     }
@@ -171,6 +175,7 @@ impl App {
             switches,
             ring_at: None,
             lit: None,
+            asked: None,
         });
         self.highlight_drafts();
         self.editor
@@ -300,7 +305,7 @@ impl App {
 
     /// Highlights each message buffer whose text changed since, as git-commit mode does, or
     /// drops its highlights while highlighting is off.
-    fn highlight_drafts(&mut self) {
+    pub(super) fn highlight_drafts(&mut self) {
         let on = self.editor.font_lock();
         for at in 0..self.gits.commits.drafts.len() {
             let id = self.gits.commits.drafts[at].buffer;
@@ -349,12 +354,12 @@ impl App {
 
     /// The text of `buffer`, unless it is gone or longer than git is given a message: its length
     /// is looked at before anything is copied.
-    fn message_text(&self, buffer: BufferId) -> Option<String> {
+    pub(super) fn message_text(&self, buffer: BufferId) -> Option<String> {
         let shown = self.editor.buffer(buffer)?;
         (shown.text().len() <= commit::MAX_MESSAGE).then(|| shown.text().to_string())
     }
 
-    fn draft_index(&self, buffer: BufferId) -> Option<usize> {
+    pub(super) fn draft_index(&self, buffer: BufferId) -> Option<usize> {
         (self.gits.commits.drafts.iter()).position(|draft| draft.buffer == buffer)
     }
 }

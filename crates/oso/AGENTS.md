@@ -96,7 +96,9 @@ often, so it must rebuild within 2 s.
   ring and log lines, is `commit`'s. Its keys are listed in `commands::vcs::KEYS` and
   `commands::vcs::commit`, the commit menu is built in, and `bindings/vcs.rs` binds them;
   `app/vcs.rs` carries out what its commands ask, with `app/vcs/commit.rs` (messages) and
-  `app/vcs/runs.rs` (runs and their log).
+  `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,
+  a draft and a fix, is written by `vcs/agent.rs` and pasted, and the session tool `draft_set`
+  answered, by `app/vcs/agent.rs` (step 6a).
 - `src/dired.rs` and `src/dired/` are the directory editor's listings (ADR 0134): read on the
   lister's threads (`lister.rs`) from the descriptor, following no link but to tell where one
   leads, ordered and built there into a rope, highlights and a table of what each row names. A

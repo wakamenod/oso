@@ -70,6 +70,16 @@ pub const COMMANDS: &[Command] = &[
         next_message
     ),
     command!(
+        "git-draft-commit-message",
+        "In a commit's message, ask the agent session of the repository's worktree for a draft of it (`C-c C-d`).\n\nThe request is pasted into the session, not submitted: it names the worktree, what the commit holds and the last five subjects, and you press Enter there. The session gives the draft back with its tool `draft_set`; it replaces the text above the `#` lines, and what you had written there is kept below as `#` lines. Nothing is committed: `C-c C-c` does that. Only the newest request may be answered, within 15 minutes, once.",
+        draft_message
+    ),
+    command!(
+        "git-fix-with-agent",
+        "Ask the agent session of the repository's worktree to fix what made the last commit fail (`C-c C-f` in its message, `F` in the log).\n\nThe request is pasted into the session, not submitted: it names the worktree and the hooks, and holds the failed run's output, its last 200 lines, which you read before you press Enter there. The session is told not to commit, skip hooks or amend; you commit again with `C-c C-c` once it is done. It works while the failed commit's message is open.",
+        fix_with_agent
+    ),
+    command!(
         "git-show-log",
         "In a git status, show what git's long runs in its repository wrote, in `*git log: NAME*` (`$`), as magit's process buffer.\n\nIt keeps the last 4 MiB. `k` or `C-g` there stops a run under way.",
         show_log
@@ -87,10 +97,16 @@ pub const MESSAGE_KEYS: &[(&str, &str)] = &[
     ("C-c C-k", "git-commit-cancel"),
     ("M-p", "git-commit-previous-message"),
     ("M-n", "git-commit-next-message"),
+    ("C-c C-d", "git-draft-commit-message"),
+    ("C-c C-f", "git-fix-with-agent"),
 ];
 
 /// The keys of the log of git's runs and their commands.
-pub const LOG_KEYS: &[(&str, &str)] = &[("k", "git-stop"), ("q", "quit-window")];
+pub const LOG_KEYS: &[(&str, &str)] = &[
+    ("k", "git-stop"),
+    ("F", "git-fix-with-agent"),
+    ("q", "quit-window"),
+];
 
 /// The status buffer the selected window shows, or why the command means nothing here.
 fn status(ctx: &Ctx<'_>) -> Result<BufferId, CommandError> {
@@ -175,6 +191,24 @@ fn next_message(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         older: false,
     });
     ctx.request_redraw();
+    Ok(())
+}
+
+fn draft_message(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let buffer = message(ctx)?;
+    ctx.editor.request_git(GitRequest::DraftMessage { buffer });
+    Ok(())
+}
+
+fn fix_with_agent(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let (window, buffer) = ctx.editor.current();
+    if !matches!(buffer.mode(), Mode::GitCommit | Mode::GitLog) {
+        return Err(CommandError::new(
+            "Not in a commit's message or the log of git's runs",
+        ));
+    }
+    let buffer = window.buffer();
+    ctx.editor.request_git(GitRequest::FixWithAgent { buffer });
     Ok(())
 }
 

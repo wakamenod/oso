@@ -1,7 +1,9 @@
 //! Source control (ADR 0127): a repository's status buffer, as magit's, with its sections,
 //! files and hunks, staging and unstaging by section, file and hunk (step 1a), committing,
-//! with git's output in a log (step 1b), and staging lines, refined words, and discarding with
-//! copies kept and written back (step 1c: [`cut`], [`discard`], [`keep`], [`discarded`]).
+//! with git's output in a log (step 1b), staging lines, refined words, and discarding with
+//! copies kept and written back (step 1c: [`cut`], [`discard`], [`keep`], [`discarded`]), and
+//! asking the worktree's agent session for a message's draft or a failed commit's fix (step
+//! 6a: [`agent`]).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in
 //! and takes reports out, and supplies the wake-up.
@@ -20,6 +22,7 @@
 //!   repository's hooks and no time limit, until it ends or the person stops it; what needs no
 //!   git, its arguments, its message and the log's lines, is [`commit`]'s.
 
+pub(crate) mod agent;
 pub(crate) mod commit;
 pub(crate) mod cut;
 pub(crate) mod discard;

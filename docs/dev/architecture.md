@@ -746,6 +746,8 @@ The UI thread never blocks on I/O or parsing:
     (`sync_branch_wait`), and the listing goes ahead of other jobs.
 - The agents' session tools ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 6): the
   rules are `sessions::tools` (reach, the loop guard, refusals, the questions' wording), and
+  `draft_set` is carried out by `app/vcs/agent.rs` with the commit's message buffers (ADR 0127,
+  step 6a), its texts `vcs::agent`'s; and
   `app/sessions/tools/` carries a call out with the hosted table, the start thread and the
   worktree jobs. A call that asks is looked at first by a job (`worktree::prepare`), then its
   question waits for the person as the connection's own does, unless the person's

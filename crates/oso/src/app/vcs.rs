@@ -31,6 +31,7 @@ use crate::vcs::layout::{Laid, Row};
 use crate::vcs::stage::{self, Target};
 use crate::vcs::{Built, Report, Request, View, Worker};
 
+mod agent;
 mod commit;
 mod discard;
 mod runs;

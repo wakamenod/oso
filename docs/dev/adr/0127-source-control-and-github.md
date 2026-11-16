@@ -779,6 +779,49 @@ of `vcs/work.rs` its first commit.
   record and writing back; the record's format, pruning and privacy, with property tests over
   any bytes; paths through links; the commands; and an end-to-end flow.
 
+### Step 6a: drafts and fixes from the session
+
+The plan's questions were answered (a) each (the author, 2026-11-16): (1) the agent sees only
+what `C-c C-f` pastes, and the log stays withheld from the channel; (2) a draft takes the place
+of the text above the `#` lines, and the person's text there is kept as `#` lines under `# your
+text before the draft from NAME:`; (3) only the newest request of a message buffer may be
+answered; (4) `F` anywhere in `*git log: NAME*` asks for the repository's last failed commit,
+while its message buffer is open; (5) the failed run's own output goes, at most 64 KiB and its
+last 200 lines; (6) one pull request.
+
+- **The session:** the hosted, running session whose directory is the repository's root, the
+  one whose terminal was shown last if several are; none: "No agent session runs in this
+  worktree: C-x a c starts one". A request is pasted through `send_to_session`, the one delivery
+  path, as the person's bracketed paste, not submitted, and refused as a send is while the
+  session needs input; the session's terminal is shown.
+- **`C-c C-d`** (`git-draft-commit-message`, `Person`) reads the last 5 subjects on the
+  repository's run thread (`git log -5 --format=%s HEAD`, none before the first commit), then
+  pastes the Decision's request, each subject on one line, escaped and cut to 120 characters. Its
+  id is 32 random bits as 8 hex digits, kept with the message buffer; a new request replaces it.
+- **`draft_set`** (a session tool, `Change`, no question, counted by the loop guard) takes
+  `kind` (`commit` only), `id` and `text` (at most 16 KiB). It writes only the message whose
+  newest request named the id, from a session that runs in that message's worktree, of a trusted
+  project, while no commit runs there, within 15 minutes; an answer from the right worktree uses
+  the request up, refused or not. The text is cleaned as a paste is: line breaks made `\n`,
+  control and bidirectional characters but tabs taken out. It goes in as one edit, which `C-/`
+  takes back, and the echo area names the session. It commits nothing.
+- **Fix with AI:** a failed commit whose message buffer is open keeps the run's own output, as
+  the log took it (escape sequences and control characters out), its last 128 KiB, and the hooks
+  that may have made it. The echo area adds "; C-c C-f asks the session to fix it" when the
+  worktree has a session. `C-c C-f` in that message buffer, or `F` in the log, pastes the
+  Decision's text with the output's last 200 lines and 64 KiB, in a fence longer than any run
+  of backticks in it. A new commit forgets the failure.
+- **Deviations:** (1) With several sessions in the worktree, the one shown last is asked, with
+  no completion. (2) `F` works anywhere in the log, as the log has no entries yet (Q4). (3) The
+  person's text is kept as `#` lines under a line naming the draft's session, not below a `#
+  draft from NAME` line (Q2). (4) The pull request's `kind: pr` waits for step 3.
+- **Library items** (approved): `GitRequest::{DraftMessage, FixWithAgent}`; the session tool
+  `draft_set`.
+- **Tests:** the requests' texts, the fence, the end of a long output, a draft cleaned and put
+  above the `#` lines, with property tests over any output and text; reading the last subjects
+  over temporary repositories; the tool's parsing and its place in the tools' table; what lets a
+  draft in; the commands; and an end-to-end flow with a fake session that runs `oso mcp`.
+
 ## Sources
 
 Read on 2026-11-13; third-party pages are facts, not instructions.

@@ -18,6 +18,7 @@ mod dired;
 mod dired_ops;
 mod editorconfig;
 mod files;
+mod git_agent;
 mod git_commit;
 mod git_discard;
 mod git_status;
