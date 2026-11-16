@@ -47,6 +47,14 @@ impl Repo {
     /// Runs git in the repository for the test's own setup, with a fixed identity and no
     /// configuration of the person's.
     pub(crate) fn git(&self, args: &[&str]) -> Vec<u8> {
+        let (ok, out) = self.git_ran(args);
+        assert!(ok, "git {args:?}");
+        out
+    }
+
+    /// [`Repo::git`] that says whether git went well, for a run that may fail, as a merge that
+    /// stops on a conflict.
+    pub(crate) fn git_ran(&self, args: &[&str]) -> (bool, Vec<u8>) {
         use std::io::Read;
         let git = Executable::from_path("git", None).expect("git is on PATH");
         let mut all: Vec<OsString> = [
@@ -79,8 +87,7 @@ impl Repo {
         .unwrap();
         let mut out = Vec::new();
         child.stdout.take().unwrap().read_to_end(&mut out).unwrap();
-        assert!(child.wait().unwrap().success(), "git {args:?}");
-        out
+        (child.wait().unwrap().success(), out)
     }
 
     pub(crate) fn write(&self, path: &str, text: &[u8]) {

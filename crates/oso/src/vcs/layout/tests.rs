@@ -1,5 +1,6 @@
 //! The status's layout: its sections and rows as a text grid, folding, opening a file, the
-//! limits, finding a place again in another text, and the commit sections (step 2).
+//! limits, finding a place again in another text, the commit sections (step 2), and what is
+//! stopped (step 3a).
 //!
 //! Must not depend on: `app`, `dispatch` or winit; these are pure functions' tests.
 
@@ -454,6 +455,53 @@ fn head_with_logs(unpushed: Vec<Commit>) -> Head {
         ),
     ];
     head
+}
+
+#[test]
+fn grid_tests_status_stopped_rebase_under_the_head() {
+    use crate::vcs::sequence::{Doing, Stop};
+    let mut head = head();
+    head.stop = Some(Stop {
+        doing: Doing::Rebase,
+        branch: Some(b"main".to_vec()),
+        onto: Some("2".repeat(40)),
+        at: Some("3".repeat(40)),
+        progress: Some((2, 5)),
+        orig: None,
+        commits: vec![
+            commit(2, b"base"),
+            commit(3, "mine\u{202e}\nnext".as_bytes()),
+        ],
+    });
+    let laid = lay_out(&head, &[], Vec::new(), &HashMap::new(), &View::default());
+    insta::assert_snapshot!("git_status_stopped", grid(&laid));
+    assert_eq!(laid.built.stop, head.stop);
+    let mut merged = super::Head {
+        stop: Some(Stop {
+            doing: Doing::Merge,
+            branch: None,
+            onto: None,
+            at: Some("4".repeat(40)),
+            progress: None,
+            orig: None,
+            commits: Vec::new(),
+        }),
+        ..self::head()
+    };
+    let text = |head: &Head| {
+        let laid = lay_out(head, &[], Vec::new(), &HashMap::new(), &View::default());
+        laid.text.text().to_string()
+    };
+    let shown = text(&merged);
+    assert!(shown.contains("Merging:  4444444\n"), "{shown}");
+    assert!(
+        shown.contains("C-c C-c continues, C-c C-k aborts\n"),
+        "{shown}"
+    );
+    merged.stop.as_mut().unwrap().doing = Doing::Bisect;
+    let shown = text(&merged);
+    assert!(shown.contains("Bisecting: git bisect reset"), "{shown}");
+    assert!(!shown.contains("C-c C-c"), "{shown}");
 }
 
 #[test]

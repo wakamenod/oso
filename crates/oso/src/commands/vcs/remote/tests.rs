@@ -6,7 +6,8 @@
 use oso_core::command::Args;
 use oso_core::editor::{Editor, FetchFrom, GitRequest, PushSwitches, PushTarget};
 
-use super::{FORCE_WITH_LEASE, PUSH_NO_VERIFY, TARGETS_LIST, listed_takes_input};
+use super::listed_takes_input;
+use super::{FORCE_WITH_LEASE, PULL_MERGE, PULL_REBASE, PUSH_NO_VERIFY, TARGETS_LIST};
 use crate::commands::tests::{editor, run};
 use crate::commands::vcs::commit::tests::run_with;
 
@@ -60,7 +61,10 @@ fn pull_and_fetch_ask_for_their_kind() {
     assert_eq!(
         editor.take_git_requests(),
         [
-            GitRequest::Pull { buffer },
+            GitRequest::Pull {
+                buffer,
+                how: oso_core::editor::PullHow::FfOnly,
+            },
             GitRequest::Fetch {
                 buffer,
                 from: FetchFrom::Upstream,
@@ -68,6 +72,28 @@ fn pull_and_fetch_ask_for_their_kind() {
             GitRequest::Fetch {
                 buffer,
                 from: FetchFrom::All,
+            },
+        ]
+    );
+}
+
+#[test]
+fn the_pull_switches_choose_how_and_both_are_refused() {
+    use oso_core::editor::PullHow;
+    let (mut editor, buffer) = in_status();
+    run_with(&mut editor, "git-pull", &[PULL_REBASE]).unwrap();
+    run_with(&mut editor, "git-pull", &[PULL_MERGE]).unwrap();
+    assert!(run_with(&mut editor, "git-pull", &[PULL_REBASE, PULL_MERGE]).is_err());
+    assert_eq!(
+        editor.take_git_requests(),
+        [
+            GitRequest::Pull {
+                buffer,
+                how: PullHow::Rebase,
+            },
+            GitRequest::Pull {
+                buffer,
+                how: PullHow::Merge,
             },
         ]
     );

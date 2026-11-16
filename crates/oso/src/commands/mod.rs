@@ -125,6 +125,7 @@ const TABLES: &[&[Command]] = &[
     vcs::commit::COMMANDS,
     vcs::discard::COMMANDS,
     vcs::remote::COMMANDS,
+    vcs::sequence::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
     windows::COMMANDS,
@@ -433,6 +434,13 @@ mod tests {
         "git-push-to",
         "git-push-to-remote",
         "git-push-upstream",
+        // Continuing, skipping and aborting what is stopped, with the repository's hooks
+        // (step 3a).
+        "git-abort",
+        "git-abort-confirmed",
+        "git-continue",
+        "git-skip",
+        "git-skip-confirmed",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).

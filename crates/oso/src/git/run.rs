@@ -188,8 +188,8 @@ impl Git {
     /// them: for a commit (ADR 0011, ADR 0127). Such a run gets the variables a hook or a
     /// signature may need, the SSH agent's and GnuPG's, and the names in `pass`, and none of
     /// the reads' own (`GIT_OPTIONAL_LOCKS`, `GIT_NO_LAZY_FETCH`, `GIT_NO_REPLACE_OBJECTS`),
-    /// which the git a hook runs would take from it. `GIT_EDITOR=:` keeps any editor from
-    /// opening.
+    /// which the git a hook runs would take from it. `GIT_EDITOR=:` and `GIT_SEQUENCE_EDITOR=:`
+    /// keep any editor from opening.
     pub(crate) fn with_own_hooks(&self, pass: &[String]) -> Git {
         Git {
             hooks: None,
@@ -282,6 +282,8 @@ impl Git {
             vec![
                 ("GIT_TERMINAL_PROMPT", OsStr::new("0")),
                 ("GIT_EDITOR", OsStr::new(":")),
+                // `sequence.editor` would open one for a todo list (ADR 0127, step 3a).
+                ("GIT_SEQUENCE_EDITOR", OsStr::new(":")),
             ]
         };
         let mut inherit: Vec<&str> = INHERIT.to_vec();

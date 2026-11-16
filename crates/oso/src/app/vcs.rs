@@ -38,6 +38,7 @@ mod draft;
 mod remote;
 mod requests;
 mod runs;
+mod sequence;
 
 pub(crate) use runs::RunEvent;
 
@@ -119,6 +120,7 @@ impl App {
             self.git_request(request);
         }
         self.forget_closed_pushes();
+        self.forget_closed_sequence_questions();
         self.sync_commits();
         let agent = agent || self.gits.by_agent;
         // A key is the person's in a status when the status was selected as it was typed.
@@ -162,6 +164,7 @@ impl App {
         match requests::concern(&request) {
             requests::Concern::Commit => return self.git_commit_request(request),
             requests::Concern::Remote => return self.git_remote_request(request),
+            requests::Concern::Sequence => return self.git_sequence_request(request),
             requests::Concern::Status => {}
         }
         match request {

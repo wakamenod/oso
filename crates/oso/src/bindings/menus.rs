@@ -419,14 +419,24 @@ const PUSH: BuiltInMenu = BuiltInMenu {
     describe: None,
 };
 
-/// Pulling (ADR 0127, step 2), from a git status's `F`: fast-forward only for now.
+/// Pulling (ADR 0127, step 2), from a git status's `F`: fast-forward only, unless `-r` rebases
+/// or `-m` merges (step 3a).
 const PULL: BuiltInMenu = BuiltInMenu {
     name: "pull",
     title: "Pull",
-    groups: &[(
-        "Pull into the branch, fast-forward only, from",
-        &[exit("u", "git-pull", "its upstream")],
-    )],
+    groups: &[
+        (
+            "Arguments",
+            &[
+                switch("- r", crate::commands::vcs::remote::PULL_REBASE, "rebase"),
+                switch("- m", crate::commands::vcs::remote::PULL_MERGE, "merge"),
+            ],
+        ),
+        (
+            "Pull into the branch from",
+            &[exit("u", "git-pull", "its upstream")],
+        ),
+    ],
     describe: None,
 };
 

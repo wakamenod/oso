@@ -1,5 +1,5 @@
 //! A status buffer's thread, `oso-vcs` (ADR 0127): it reads the status, the open files' hunks
-//! and the head, runs what `s`, `u` and `k` asked, keeping copies before a discard, and lays
+//! and the head, with what is stopped (step 3a), runs what `s`, `u` and `k` asked, keeping copies before a discard, and lays
 //! out the buffer's text.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
@@ -36,6 +36,7 @@ use std::thread;
 use super::layout::Built;
 use super::layout::{self, Head, Hunks, Laid, Section, View};
 use super::read::{MAX_LIST, args, find, head_commit, hooks_dir, logs, numstat, read_patch, set};
+use super::read::{git_dir, stopped};
 use super::stage::{self, Op, Target};
 use super::status::{self, Status};
 use super::write::run;
@@ -220,6 +221,9 @@ struct State {
     /// oso's own directory in the per-user state directory.
     state_dir: Option<PathBuf>,
     git: Option<Git>,
+    /// The work tree's own directory in the repository, once looked for (step 3a): not looked
+    /// for again if git could not say.
+    git_dir: Option<Option<PathBuf>>,
     head: Head,
     notes: Vec<String>,
     status: Status,
@@ -368,11 +372,14 @@ impl State {
             let has_one = self.status.branch.oid.is_some();
             has_one.then(|| head_commit(&git)).flatten()
         });
+        let dir = self.git_dir.get_or_insert_with(|| git_dir(&git));
+        let stop = dir.as_deref().and_then(|dir| stopped(&git, dir));
         self.head = Head {
             branch: self.status.branch.clone(),
             commit,
             push,
             logs,
+            stop,
         };
         Ok(())
     }

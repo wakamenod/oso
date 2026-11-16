@@ -103,7 +103,9 @@ often, so it must rebuild within 2 s.
   ring and log lines, is `commit`'s. Pushes, pulls and fetches run there too (`run/remotes`,
   streamed by `run/stream`), what they need that runs no git is `remote`'s, and the commit
   sections are read by `history` (step 2), with `app/vcs/remote.rs` and
-  `commands::vcs::remote`. Its keys are listed in `commands::vcs::KEYS` and
+  `commands::vcs::remote`. What is stopped, a merge, rebase, pick, revert or `git am` (a
+  sequence, in the code), is judged by `sequence`, continued, skipped and aborted on the run
+  thread (`run/sequence`), with `app/vcs/sequence.rs` and `commands::vcs::sequence` (step 3a). Its keys are listed in `commands::vcs::KEYS` and
   `commands::vcs::commit`, the commit menu is built in, and `bindings/vcs.rs` binds them;
   `app/vcs.rs` carries out what its commands ask, with `app/vcs/commit.rs` (messages) and
   `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,

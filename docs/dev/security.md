@@ -232,6 +232,20 @@ network features.
   refused if the branch moved since; the question and the prompts take an answer only for the
   status they were asked over, and one closed without it is forgotten. Subjects are shown
   escaped on one line, and the server's own lines stay out of the echo area.
+- What is stopped in a repository (ADR 0127, step 3a) is read from the files git keeps in the
+  work tree's own directory, each a regular file of at most 4 KiB, opened following no link and
+  waiting for no writer, as untrusted bytes: an id must be a whole one, 40 or 64 hex digits, and
+  nothing read reaches a command line but those ids. The questions escape what git gave on one
+  line, as the head does. The reads around a run are a read's (no hook, no lazy fetch, no
+  proxy).
+  Continuing, skipping and aborting are the person's acts, `Person`, with the repository's
+  hooks, `GIT_EDITOR=:` and `GIT_SEQUENCE_EDITOR=:`. A skip or an abort asks first, naming what
+  goes; its `y` runs only for the status it was asked over, and the run thread refuses it
+  unless what is stopped is the one asked about: its kind, commit, branch, start, progress and
+  where it goes back to. A continue runs what the person's own todo list
+  holds, `exec` lines too, as `git rebase --continue` in a terminal would. A pull's `-r` and
+  `-m` say how in whole (`--rebase`, `--no-rebase --ff --no-edit`), so that no configuration
+  makes either interactive.
 - Discarding in a git status (ADR 0127, step 1c) asks first, and keeps each file as an
   unreachable object first (`git hash-object -w --no-filters`), but a file that may hold
   secrets, as a loose object can be read more widely than a private file. The record of the

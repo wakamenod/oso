@@ -664,6 +664,11 @@ The UI thread never blocks on I/O or parsing:
   long run, a remote's progress too, and `vcs/remote.rs` holds what needs no git. The status's
   thread reads the unpushed, unpulled and recent commits (`vcs/history.rs`) with the rest
   ([ADR 0127](adr/0127-source-control-and-github.md), step 2).
+- A stopped merge, rebase, pick, revert or `git am`, a sequence in the code as magit calls it
+  (step 3a): `vcs/sequence.rs` judges it from the files in the work tree's git directory and
+  says when a step is refused, pure functions; the status's thread reads it (`vcs/read.rs`) and
+  the head shows it; `vcs/run/sequence.rs` continues, skips and aborts on `oso-vcs-run`,
+  judging it again first, and `app/vcs/sequence.rs` asks the questions.
 - What a commit asks of the worktree's agent session (step 6a): `vcs/agent.rs` writes the
   requests, a draft's and a failed commit's fix, as pure functions; `app/vcs/agent.rs` reads the
   last subjects on `oso-vcs-run` and pastes the requests through `send_to_session`; and

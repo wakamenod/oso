@@ -1,0 +1,13 @@
+---
+source: crates/oso/src/vcs/layout/tests.rs
+expression: grid(&laid)
+---
+other   |Head:     main 1111111 Add the first file
+        |          bbbb hhhhhhh
+other   |Upstream: origin/main  ahead 2, behind 0
+        |          rrrrrrrrrrrccccccccccccccccccc
+other   |Rebasing: main onto 2222222, 2 of 5; stopped at 3333333 mine‮\nnext
+        |          bbbb      hhhhhhhcccccccc             hhhhhhh
+other   |          C-c C-c continues, C-c C-s skips, C-c C-k aborts
+        |          cccccccccccccccccccccccccccccccccccccccccccccccc
+end     |

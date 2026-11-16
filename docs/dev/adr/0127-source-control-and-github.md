@@ -950,6 +950,68 @@ controlling terminal, so that `ssh` cannot ask on the terminal oso was started f
   a pull, fixup and squash, and a key's failure through `core.sshCommand`; the commands; and an
   end-to-end flow.
 
+### Step 3a: what is stopped, and pulls that rebase or merge
+
+The plan for step 3 was answered (a) each (the author, 2026-11-16): (1) two pull requests, 3a
+what is stopped with continue, skip and abort and the pull's `-r` and `-m`, 3b stashes and
+branches; (2) an abort asks, naming what goes, its answer bound to the status and the prompt;
+(3) `C-c C-s` skips, after a question naming the commit it drops; (4) `-m` is `--no-rebase --ff
+--no-edit`; (5) stashes, in 3b, show all, each acted on by its id; (6) while something is
+stopped, the commit menu, a pull, and from 3b checking out and applying or popping a stash are
+refused; (7) no merge or rebase menus now; (8) no deleting a remote's branch now.
+
+- **What is stopped**, a sequence in the code as magit calls it, apart from a run `C-g` stops, is
+  judged by `vcs/sequence.rs` from the files git keeps in the work tree's own directory
+  (`rev-parse --absolute-git-dir`, looked for once per status thread), in git's own order:
+  `rebase-merge/` or `rebase-apply/` (`git am` when `applying` is there), then `MERGE_HEAD`,
+  `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `sequencer/` (its todo list's next command says pick or
+  revert), and `BISECT_LOG`. Each is a regular file read to at most 4 KiB, opened following no
+  link and waiting for no writer (`file_meta::open_regular_here`), and a directory that is a
+  link is as missing; an id must be a whole one, 40 or 64 hex digits, as a short one could name
+  a branch, else it is as missing. The commits it names
+  (where it stopped, onto, where an abort goes back to) are read in one `git log --no-walk`.
+- **The head** shows it under `Upstream:` and `Push:`: `Rebasing: main onto 1a2b3c4, 2 of 5;
+  stopped at 5d6e7f8 SUBJECT`, `Merging:  ID SUBJECT`, `Picking:`, `Reverting:`, `Applying:
+  patches, 2 of 5`, or `Bisecting: git bisect reset in a shell ends it`, then a line naming the
+  keys. Subjects and branches are escaped on one line, as the commit sections' are, in the
+  questions too.
+- **`C-c C-c` (`git-continue`)** runs `git rebase --continue` and the like on the run thread, as a
+  remote's run is: no time limit, `C-g`, the log, the repository's hooks, and `GIT_EDITOR=:` and
+  `GIT_SEQUENCE_EDITOR=:` (now on every run with the repository's hooks), so that git's message
+  is kept. It is refused while unmerged paths are left, naming `s`. **`C-c C-s` (`git-skip`)**
+  and **`C-c C-k` (`git-abort`)** ask first; the `y` (`git-skip-confirmed`,
+  `git-abort-confirmed`) runs only for the status it was asked over, and a question closed
+  without it is forgotten, as a forced push's is. The run thread judges what is stopped again
+  before git runs, with the plain git of a read, and `sequence::refusal` decides: a step for
+  something no longer stopped is refused, and a skip or an abort unless the stop is the one
+  its question was asked over, by kind, commit, branch, start, progress and where it goes back
+  to, which tells two stops apart where git keeps no commit (`git am`, a rebase at `break`). A
+  merge has no skip, and a bisect no step.
+- **Pulls:** the pull menu gets `- r` (`git pull --rebase --progress`) and `- m` (`git pull
+  --no-rebase --ff --no-edit --progress`), both on refused; each says how in whole, so that
+  neither `pull.rebase` nor `pull.ff` changes it. A failure that left something stopped with a
+  conflict says "stopped on a conflict: resolve each file, s stages it, C-c C-c continues, C-c
+  C-k aborts"; a continue with nothing left to commit names `C-c C-s`. Only git's own lines
+  are looked at for these, not a hook's. The read after such a failure is a read's.
+- **Refused while stopped (Q6):** the commit menu's heads and a pull, naming `C-c C-c` and
+  `C-c C-k`; a bisect refuses neither.
+- **Deviations:** (1) a rebase stopped at `edit` cannot be amended from the commit menu, which
+  Q6 refuses while stopped: `C-c C-c` goes on, or a terminal amends. (2) The abort's question
+  says where `HEAD` goes back to only where git keeps it (a rebase's `orig-head`, the
+  sequencer's `head`); a merge's says it stays. (3) A continue's failure names no hook.
+- **Library items** (approved): `editor::PullHow::{FfOnly, Rebase, Merge}`, `GitRequest::Pull`'s
+  `how`, and `GitRequest::{Continue, Skip, Abort}`.
+- **Tests:** the judge over each kind and git's order, ids that are not hex, counts, the
+  questions, the flags and the failures' words, with a property test over any bytes; the head's
+  lines as a text grid; the status's thread showing a stopped pick and its unmerged path; the run
+  thread over temporary repositories: a rebasing pull stopped on a conflict, an abort refused for
+  another commit and then run, a continue once resolved, a merging pull past `pull.ff=only`, a
+  pick skipped, a merge that cannot skip and continues with git's message while
+  `core.editor` and `sequence.editor` would leave a mark, steps refused when nothing or
+  something else is stopped, and a link in the git directory not followed; when a skip or
+  an abort is refused, over stops with no commit to tell them apart; the questions escaped;
+  the commands and their keys; and an end-to-end flow.
+
 ## Sources
 
 Read on 2026-11-13; third-party pages are facts, not instructions.
