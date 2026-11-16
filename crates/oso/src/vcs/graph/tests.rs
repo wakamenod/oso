@@ -94,3 +94,33 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn a_graph_s_runs_name_their_commits_in_full() {
+    use super::GraphRun;
+    let tag = GraphRun::Tag {
+        name: "v1".into(),
+        at: A.into(),
+        message: None,
+    };
+    assert_eq!(
+        tag.args(),
+        (vec!["tag".into(), "v1".into(), A.into()], None)
+    );
+    let annotated = GraphRun::Tag {
+        name: "v1".into(),
+        at: A.into(),
+        message: Some("First".into()),
+    };
+    let (words, input) = annotated.args();
+    assert_eq!(words, ["tag", "--annotate", "--file=-", "v1", A]);
+    assert_eq!(input.as_deref(), Some(&b"First"[..]));
+    let pick = GraphRun::Pick {
+        ids: vec![B.into(), A.into()],
+    };
+    assert_eq!(pick.args().0, ["cherry-pick", B, A]);
+    assert_eq!(pick.done(), "Picked 2 commits");
+    let revert = GraphRun::Revert { id: C.into() };
+    assert_eq!(revert.args().0, ["revert", "--no-edit", C]);
+    assert_eq!(revert.ids(), [C]);
+}

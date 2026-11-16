@@ -56,8 +56,9 @@ pub(super) fn concern(request: &GitRequest) -> Concern {
         }
         GitRequest::Stash { .. } => Concern::Stash,
         GitRequest::Branch { .. } => Concern::Branch,
-        GitRequest::Graph { .. } | GitRequest::GraphToggle { .. } | GitRequest::GraphAct { .. } => {
-            Concern::Graph
-        }
+        GitRequest::Graph { .. }
+        | GitRequest::GraphToggle { .. }
+        | GitRequest::GraphAct { .. }
+        | GitRequest::GraphAnswer { .. } => Concern::Graph,
     }
 }

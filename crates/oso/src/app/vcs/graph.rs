@@ -16,6 +16,8 @@
 //! - A text waits while the editor's text must not change, as a status's does; one that comes
 //!   for an older request, or for a graph gone, is freed off the UI thread.
 //! - It is read again after each run oso does in its repository while it is shown, and on `g`.
+//! - What its keys do with a commit is `acts`' (step 4b); `RET` with two commits marked reviews
+//!   the range between them, the older first.
 
 use std::sync::Arc;
 
@@ -28,6 +30,8 @@ use crate::commands::vcs::graph::RESTRICTED;
 use crate::git::TrustedRoot;
 use crate::vcs::graph::work::{GraphReport, GraphRequest, GraphWorker};
 use crate::vcs::graph::write::{Built, Laid};
+
+mod acts;
 
 /// How near the end point comes before the next page is read.
 const NEARS_END: usize = 1000;
@@ -97,6 +101,10 @@ struct Graph {
     built: Arc<Built>,
     /// The newest text, held while the editor's text must not change.
     waiting: Option<Laid>,
+    /// The commits marked, by id (step 4b).
+    marks: Vec<String>,
+    /// A prompt or a question its keys opened, waiting for its answer.
+    wait: Option<acts::Prompted>,
 }
 
 /// The graph buffers the app keeps.
@@ -136,6 +144,11 @@ impl App {
                 self.show_graph(graph.project, shows);
             }
             GitRequest::GraphAct { buffer, act, line } => self.graph_act(buffer, act, line),
+            GitRequest::GraphAnswer { buffer, text } => {
+                if let Some(index) = self.graph_index(buffer) {
+                    self.graph_answered(index, &text);
+                }
+            }
             // The others are not a graph's (`requests::concern`).
             _ => {}
         }
@@ -168,8 +181,12 @@ impl App {
                 stopped: false,
                 built: Arc::default(),
                 waiting: None,
+                marks: Vec::new(),
+                wait: None,
             });
-            self.gits.graphs.open.len() - 1
+            let index = self.gits.graphs.open.len() - 1;
+            self.set_graph_note(index);
+            index
         });
         let graph = &mut self.gits.graphs.open[index];
         if graph.root.revoked() {
@@ -316,24 +333,30 @@ impl App {
         let Some(index) = self.graph_index(buffer) else {
             return;
         };
-        if act == GraphAct::Refresh {
-            return self.read_graph(index);
+        match act {
+            GraphAct::Refresh => return self.read_graph(index),
+            GraphAct::Confirmed => return self.graph_confirmed(index),
+            GraphAct::Review if self.gits.graphs.open[index].marks.len() == 2 => {
+                return self.review_marked(index);
+            }
+            _ => {}
         }
         let graph = &self.gits.graphs.open[index];
-        let Some(id) = graph.built.commit_at(line).map(str::to_owned) else {
+        let Some(commit) = graph.built.line(line).cloned() else {
             return self.editor.message("No commit on this line");
         };
         match act {
             GraphAct::Review => {
                 let project = graph.project;
-                self.open_review(project, oso_core::editor::ScopeKind::Commit, Some(id));
+                let id = Some(commit.id);
+                self.open_review(project, oso_core::editor::ScopeKind::Commit, id);
             }
             GraphAct::CopyId => {
-                self.editor.kill_new(&id, false);
+                self.editor.kill_new(&commit.id, false);
                 self.write_clipboard();
-                self.editor.message(format!("Copied {id}"));
+                self.editor.message(format!("Copied {}", commit.id));
             }
-            GraphAct::Refresh => {}
+            act => self.graph_commit_act(index, act, commit),
         }
     }
 
@@ -353,6 +376,7 @@ impl App {
             let graph = self.gits.graphs.open.remove(index);
             // What is queued on its thread finds the root revoked, and runs no git.
             graph.root.revoke();
+            self.editor.set_mode_note(graph.buffer, String::new());
             self.freer.free((graph.built, graph.waiting));
         }
         if !self.editor.reload_waits() {
@@ -362,6 +386,12 @@ impl App {
                     self.request_redraw();
                 }
             }
+        }
+        // A prompt or a question a graph's key opened is forgotten once it closed unanswered.
+        let editor = &self.editor;
+        let open = |id| editor.prompts().iter().any(|prompt| prompt.id() == id);
+        for graph in &mut self.gits.graphs.open {
+            graph.wait.take_if(|wait| !open(wait.prompt));
         }
         let Some(selected) = keyed.filter(|buffer| *buffer == self.editor.window().buffer()) else {
             return;

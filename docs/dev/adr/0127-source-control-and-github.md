@@ -1140,6 +1140,47 @@ graph buffer per repository.
   records, labels, dates and a page's arguments, with a property test over any bytes; the text
   as a grid with its faces; the commands; and an end-to-end flow.
 
+### Step 4b: what the graph's keys do with its commits
+
+The rest of step 4's plan (Q10), on the answers of step 4a: a plain cherry-pick after a question
+(Q6), a merge's revert refused (Q7).
+
+- **Marks:** `m` marks or unmarks the commit at point, by its id, and the graph's modeline says
+  how many are marked; `RET` with two marked reviews the range between them, the older first
+  (`review-range`'s `FROM..TO`), and with any other number the commit at point.
+- **`c`** checks out the branch whose label is on the commit's line: one at once, several read
+  in a prompt over them (`git-graph-label`), a remote's as a local branch that tracks it, as
+  `b b` does; with none, the commit itself, `git switch --detach ID`, after a question.
+- **`b`** makes a branch at the commit, its name read in a prompt (`git-graph-branch-name`), and
+  checks nothing out; **`t`** a tag (`git-graph-tag-name`), `git tag NAME ID`, and `C-u t` an
+  annotated one, its message read after (`git-graph-tag-message`), `git tag --annotate --file=-`.
+- **`C`** cherry-picks the marked commits, oldest first, or the one at point, after a question
+  naming them, `git cherry-pick ID…`, and the marks go; **`V`** reverts the commit at point,
+  `git revert --no-edit ID`, after a question. A merge's revert is refused, naming `git revert
+  -m 1` in a shell (Q7).
+- **The runs** are the repository's run thread's, with its own hooks, as a commit's: a branch's
+  through step 3b's runs (a new `BranchRun::Detach`), a tag, a pick and a revert through
+  `GraphRun`. Ids go to git whole, as the graph's lines give them, and a tag's name passes the
+  branch's filter. While a merge, rebase, pick, revert or `git am` is stopped, a checkout, a
+  pick and a revert are refused, judged on the run thread, as a graph has no status to tell
+  from (Q6), and when oso cannot tell where git keeps what is stopped. Only a branch label the
+  push's filter takes is offered to `c`. A pick's question counts the commits. A pick or a
+  revert that stops on a conflict says so, and the status's `C-c C-c` and
+  `C-c C-k` go on with it; the status and the graph are read again after each run.
+- **Prompts and questions** count only for the graph they were asked over; one closed without
+  its answer is forgotten.
+- **Deviations:** (1) a mark shows in the modeline and the echo area, not on its row. (2) `c`
+  checks out a remote's label as a local branch tracking it, as `b b` does.
+- **Library items:** `GraphAct::{Mark, Checkout, Branch, Tag { annotated }, CherryPick, Revert,
+  Confirmed}` and `GitRequest::GraphAnswer`, beside step 4a's approved `GraphAct` and
+  `GitRequest::GraphAct`; the requests move to `editor/git/request.rs`, a private module whose
+  items `editor` re-exports as before, as `editor/git.rs` neared the size limit.
+- **Tests:** a graph's runs' arguments and a detached checkout; the run thread over temporary
+  repositories: a tag plain and annotated and a name refused, two commits picked oldest first, a
+  revert, a detached checkout, a pick that conflicts saying so, then a revert and a checkout
+  refused while it is stopped; the commands, `C-u t` annotating, and a prompt's answer; and an
+  end-to-end flow.
+
 ## Sources
 
 Read on 2026-11-13; third-party pages are facts, not instructions.

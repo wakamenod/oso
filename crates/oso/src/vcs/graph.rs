@@ -1,5 +1,6 @@
 //! A repository's commits as a graph (ADR 0127, step 4): what `git log` gives for each commit,
-//! read into rows, the refs it names as labels, its date, and the arguments that read a page.
+//! read into rows, the refs it names as labels, its date, and the arguments that read a page;
+//! and what a graph's keys run (`GraphRun`, step 4b): a tag, a cherry-pick and a revert.
 //!
 //! Must not depend on: `app`, `dispatch`, git or the file system; these are pure functions of a
 //! child's output, which is untrusted: a record that does not parse is skipped, and nothing
@@ -27,6 +28,78 @@ const MAX_AUTHOR: usize = 40;
 /// The `git log` format each record is read with: the full id, the short one, the parents, the
 /// refs, the author, the time and the subject.
 const FORMAT: &str = "--format=%H%x1f%h%x1f%P%x1f%D%x1f%an%x1f%at%x1f%s";
+
+/// What a graph's key runs, with the repository's own hooks (step 4b).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum GraphRun {
+    /// Make the tag `name` at `at`, annotated with `message` if there is one.
+    Tag {
+        name: String,
+        at: String,
+        message: Option<String>,
+    },
+    /// Cherry-pick `ids`, oldest first.
+    Pick { ids: Vec<String> },
+    /// Revert `id`, with git's message.
+    Revert { id: String },
+}
+
+impl GraphRun {
+    /// git's arguments after oso's own, and what goes on standard input.
+    pub(crate) fn args(&self) -> (Vec<String>, Option<Vec<u8>>) {
+        let words = |words: &[&str]| words.iter().map(|word| (*word).to_owned()).collect();
+        match self {
+            Self::Tag {
+                name,
+                at,
+                message: None,
+            } => (words(&["tag", name, at]), None),
+            Self::Tag {
+                name,
+                at,
+                message: Some(message),
+            } => (
+                words(&["tag", "--annotate", "--file=-", name, at]),
+                Some(message.clone().into_bytes()),
+            ),
+            Self::Pick { ids } => {
+                let mut out: Vec<String> = words(&["cherry-pick"]);
+                out.extend(ids.iter().cloned());
+                (out, None)
+            }
+            Self::Revert { id } => (words(&["revert", "--no-edit", id]), None),
+        }
+    }
+
+    /// What the log and the echo area call it.
+    pub(crate) fn title(&self) -> String {
+        match self {
+            Self::Tag { name, .. } => format!("git tag {name}"),
+            Self::Pick { ids } if ids.len() == 1 => "git cherry-pick".into(),
+            Self::Pick { ids } => format!("git cherry-pick of {} commits", ids.len()),
+            Self::Revert { .. } => "git revert".into(),
+        }
+    }
+
+    /// What the echo area says once it went well.
+    pub(crate) fn done(&self) -> String {
+        match self {
+            Self::Tag { name, at, .. } => format!("Tagged {} as {name}", at.get(..7).unwrap_or(at)),
+            Self::Pick { ids } if ids.len() == 1 => "Picked the commit".into(),
+            Self::Pick { ids } => format!("Picked {} commits", ids.len()),
+            Self::Revert { .. } => "Reverted the commit".into(),
+        }
+    }
+
+    /// The ids it names, which must be whole.
+    pub(crate) fn ids(&self) -> Vec<&str> {
+        match self {
+            Self::Tag { at, .. } => vec![at.as_str()],
+            Self::Pick { ids } => ids.iter().map(String::as_str).collect(),
+            Self::Revert { id } => vec![id.as_str()],
+        }
+    }
+}
 
 /// What a ref's label is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

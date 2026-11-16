@@ -1534,6 +1534,9 @@ pub oso_core::editor::GitRequest::GraphAct
 pub oso_core::editor::GitRequest::GraphAct::act: oso_core::editor::GraphAct
 pub oso_core::editor::GitRequest::GraphAct::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::GraphAct::line: usize
+pub oso_core::editor::GitRequest::GraphAnswer
+pub oso_core::editor::GitRequest::GraphAnswer::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::GraphAnswer::text: alloc::string::String
 pub oso_core::editor::GitRequest::GraphToggle
 pub oso_core::editor::GitRequest::GraphToggle::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Pull
@@ -1590,9 +1593,17 @@ impl core::fmt::Debug for oso_core::editor::GitRequest
 pub fn oso_core::editor::GitRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::GitRequest
 pub enum oso_core::editor::GraphAct
+pub oso_core::editor::GraphAct::Branch
+pub oso_core::editor::GraphAct::Checkout
+pub oso_core::editor::GraphAct::CherryPick
+pub oso_core::editor::GraphAct::Confirmed
 pub oso_core::editor::GraphAct::CopyId
+pub oso_core::editor::GraphAct::Mark
 pub oso_core::editor::GraphAct::Refresh
+pub oso_core::editor::GraphAct::Revert
 pub oso_core::editor::GraphAct::Review
+pub oso_core::editor::GraphAct::Tag
+pub oso_core::editor::GraphAct::Tag::annotated: bool
 impl core::clone::Clone for oso_core::editor::GraphAct
 pub fn oso_core::editor::GraphAct::clone(&self) -> oso_core::editor::GraphAct
 impl core::cmp::Eq for oso_core::editor::GraphAct

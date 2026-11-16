@@ -235,7 +235,13 @@ network features.
   person's key in it, never for an agent's command that moved point, and a project no longer
   trusted has the graph's root revoked at once, so that nothing queued on its thread runs git.
   An agent may read a graph's rows over the channel, as a status's: commit metadata, no file's
-  text, but subjects, authors and ref names are anyone's words, and reach it as data.
+  text, but subjects, authors and ref names are anyone's words, and reach it as data. Its keys
+  that change the repository (step 4b) run on the run thread with the repository's hooks: a
+  detached checkout, a pick and a revert ask first, bound to the graph and its prompt; ids go to
+  git whole and a tag's name passes the branch's filter; a checkout, a pick and a revert are
+  refused while something is stopped, judged on the run thread, and when oso cannot tell. Only
+  a label the push's filter takes is offered to check out. These runs honour `refs/replace/`,
+  as the person's own git does, where the graph's reads do not.
 - Stashes and branches from a git status (ADR 0127, step 3b) are the person's acts, `Person`,
   with the repository's hooks: a checkout runs `post-checkout` and the filters, as git's own
   does in a trusted project. A stash is named by its commit's id: an apply gives git the id, and

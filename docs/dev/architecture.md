@@ -667,7 +667,9 @@ The UI thread never blocks on I/O or parsing:
   `vcs/graph/lanes.rs` lays out the lanes, a pure function, `vcs/graph/write.rs` the text, and
   `vcs/graph/work.rs` runs the reads, a page at a time, on `oso-vcs-graph`, one thread per graph
   buffer; `app/vcs/graph.rs` keeps the buffers, asks the next page as point nears the end and
-  carries out the keys.
+  carries out the keys, and `app/vcs/graph/acts.rs` what they do with a commit (step 4b): its
+  tags, picks and reverts run on `oso-vcs-run` (`vcs/run/graph.rs`), its checkouts and branches
+  through the branches' runs.
 - Stashes and branches (step 3b): `vcs/stash.rs` reads the stash list into the Stashes section
   and `vcs/branch.rs` holds what branches need that runs no git; `vcs/run/stash.rs` and
   `vcs/run/branch.rs` run them on `oso-vcs-run`, finding a stash again by its id and planning a

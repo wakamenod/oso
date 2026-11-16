@@ -2,7 +2,7 @@
 //! output, a hook that fails and the name the failure gives, `--no-verify`, the message an
 //! amend starts from, a stop that ends a hook and leaves no lock, and a root it refuses; with a
 //! remote (`remote`), over what is stopped (`sequence`, step 3a), and over stashes (`stash`)
-//! and branches (`branch`, step 3b).
+//! and branches (`branch`, step 3b), and a graph's runs (`graph`, step 4b).
 //!
 //! Must not depend on: `app`, `dispatch` or winit.
 
@@ -16,6 +16,7 @@ use crate::git::TrustedRoot;
 use crate::review::tests::Repo;
 
 mod branch;
+mod graph;
 mod remote;
 mod sequence;
 mod stash;

@@ -42,6 +42,18 @@ pub(super) fn step(
     })
 }
 
+/// Why a run that moves `HEAD` is refused, if it is: something is stopped (Q6), or git cannot
+/// say where its files are, which is taken as stopped. Judged here, just before git runs, as a
+/// graph has no status to tell from.
+pub(super) fn refused_while_stopped(git: &Git) -> Result<(), String> {
+    let dir =
+        git_dir(git).ok_or("oso could not tell whether something is stopped: g, then again")?;
+    match sequence::stopped_refusal(judged(&dir).as_ref()) {
+        Some(why) => Err(why),
+        None => Ok(()),
+    }
+}
+
 /// What is stopped in the repository now, judged from its files alone, with `git`, a read's.
 pub(super) fn stopped_now(git: &Git) -> Option<Stop> {
     git_dir(git).and_then(|dir| judged(&dir))

@@ -376,13 +376,16 @@ project must be trusted.
 | `z` | The stash menu: `z` stash, `a` apply, `p` pop, `k` drop the stash at point; `- u` takes untracked files |
 | `b` | The branch menu: `b` check out, `c` make and check out, `n` make, `m` rename, `k` delete |
 | `l` | The log menu: `l` the graph of the branch, `a` of every ref, `o` of another; `C-x v l` from anywhere |
-
-In the graph, `RET` reviews the commit at point, `w` copies its id, `a` shows every ref or the
-branch again, `g` reads it again, `n` and `p` move a line, and `q` leaves it.
 | `f u` / `f a` | Fetch the upstream's remote, or every remote |
 | `RET` | Visit the file, or review the commit at point |
 | `$` | Show what git's runs wrote; `C-g` stops one |
 | `g` / `q` / `?` | Read it again, leave it, list the keys |
+
+In the graph, `RET` reviews the commit at point, `w` copies its id, `a` shows every ref or the
+branch again, `g` reads it again, `n` and `p` move a line, and `q` leaves it. `m` marks a commit,
+and `RET` with two marked reviews the range; `c` checks out the branch on the line, `b` makes a
+branch there, `t` a tag, `C` cherry-picks the marked commits or the one at point, and `V`
+reverts it, asking first where it matters.
 
 When a merge or a rebase stops on a conflict, the status says so under its head and lists the
 files under Unmerged paths: resolve each, `s` stages it, and `C-c C-c` goes on. Commits run the

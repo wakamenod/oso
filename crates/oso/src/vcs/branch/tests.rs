@@ -84,3 +84,19 @@ fn a_branch_used_by_another_worktree_points_at_worktree_remove() {
     );
     assert!(said.contains("worktree-remove"), "{said}");
 }
+
+#[test]
+fn a_detached_checkout_moves_head_and_a_branch_made_alone_does_not() {
+    use super::{BranchRun, detach_args};
+    let id = "a".repeat(40);
+    assert_eq!(detach_args(&id), ["switch", "--detach", id.as_str()]);
+    let detach = BranchRun::Detach { id: id.clone() };
+    assert!(detach.checks_out());
+    assert_eq!(detach.done(), "Checked out aaaaaaa, detached");
+    let made = BranchRun::Create {
+        name: "x".into(),
+        start: id,
+        checkout: false,
+    };
+    assert!(!made.checks_out());
+}

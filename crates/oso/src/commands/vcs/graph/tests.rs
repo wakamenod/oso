@@ -107,3 +107,60 @@ fn the_ref_prompt_s_answer_asks_for_that_ref_and_an_empty_one_is_refused() {
         }]
     );
 }
+
+#[test]
+fn the_keys_of_4b_ask_for_their_acts_and_c_u_t_annotates() {
+    let (mut editor, buffer, _) = in_graph();
+    for name in [
+        "git-graph-mark",
+        "git-graph-checkout",
+        "git-graph-branch",
+        "git-graph-tag",
+        "git-graph-cherry-pick",
+        "git-graph-revert",
+    ] {
+        let (result, _) = run(&mut editor, name, Args::NONE);
+        assert!(result.is_ok(), "{name}");
+    }
+    let (result, _) = run(&mut editor, "git-graph-tag", Args::numeric(4));
+    assert!(result.is_ok());
+    let act = |act| GitRequest::GraphAct {
+        buffer,
+        act,
+        line: 0,
+    };
+    assert_eq!(
+        editor.take_git_requests(),
+        [
+            act(GraphAct::Mark),
+            act(GraphAct::Checkout),
+            act(GraphAct::Branch),
+            act(GraphAct::Tag { annotated: false }),
+            act(GraphAct::CherryPick),
+            act(GraphAct::Revert),
+            act(GraphAct::Tag { annotated: true }),
+        ]
+    );
+    let (result, _) = run(&mut editor, "git-graph-confirmed", Args::NONE);
+    assert!(result.is_err());
+}
+
+#[test]
+fn a_graph_prompt_s_answer_goes_to_the_host_as_read() {
+    let (mut editor, buffer, _) = in_graph();
+    let registry = crate::commands::registry();
+    let id = registry.lookup("git-graph-tag-name").unwrap();
+    let invocation = oso_core::command::Invocation {
+        answer: Some("v1"),
+        ..oso_core::command::Invocation::default()
+    };
+    let mut ctx = oso_core::command::Ctx::invoked(&mut editor, invocation);
+    assert!(registry.execute(id, &mut ctx, Args::NONE).is_ok());
+    assert_eq!(
+        editor.take_git_requests(),
+        [GitRequest::GraphAnswer {
+            buffer,
+            text: "v1".into(),
+        }]
+    );
+}
