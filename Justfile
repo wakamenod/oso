@@ -532,12 +532,13 @@ health-report out="target/design-health.md":
         cargo test --locked -q -p oso --test architecture \
         -- --ignored --exact design_health_report >/dev/null
     # Clippy lists every function over 40 lines. Functions with an
-    # #[expect(clippy::too_many_lines)] are listed separately below.
+    # #[expect(clippy::too_many_lines)] are listed separately below. The top 15
+    # are cut with sed, not head: under pipefail, head's early exit kills sort.
     sed 's/^too-many-lines-threshold = .*/too-many-lines-threshold = 40/' clippy.toml >"$tmp/clippy.toml"
     { CLIPPY_CONF_DIR="$tmp" cargo clippy --locked --workspace --all-targets --all-features \
         --message-format=short -- -W clippy::too_many_lines 2>&1 || true; } \
         | sed -n 's|^\([^:]*:[0-9]*\):[0-9]*: .*too many lines (\([0-9]*\)/40).*|\2 \1|p' \
-        | sort -rn | head -n 15 >"$tmp/functions"
+        | sort -rn | sed -n '1,15p' >"$tmp/functions"
     {
         echo "# Design health report"
         echo
