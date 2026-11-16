@@ -12,14 +12,14 @@
 //!   need it. A newer listing stops an older one between rows.
 //! - A removal runs every check again, in the same job as `git worktree remove`. Once they hold,
 //!   it asks the app to clear the worktree (stop its idle sessions) and waits for the app's
-//!   word before git removes it.
+//!   word before git removes it. git then runs with no time limit, on a thread of its own
+//!   (`remove`).
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{self, SyncSender};
-use std::time::Duration;
+use std::sync::mpsc::SyncSender;
 
 use super::checks::{self, Check, Depth, Held, HostedSession, Looked};
 use super::create::{self, Created, Order, Step};
@@ -36,9 +36,6 @@ use crate::sessions::spaces::Member;
 /// Why a job refuses a repository whose main checkout is not trusted.
 pub const MAIN_UNTRUSTED: &str =
     "Worktree sessions need the main repository trusted: trust-project it first";
-
-/// How long a removal whose checks hold waits for the app's word to go on.
-const CLEAR_WAIT: Duration = Duration::from_secs(10);
 
 /// What the UI thread holds when a job is asked for, for every worktree it may meet: buffers
 /// with unsaved changes, unsent briefs and hosted sessions, by path.
@@ -183,6 +180,8 @@ pub struct Jobs {
     gh_host: Option<String>,
     /// The newest listing's number: an older listing stops.
     listing: Arc<AtomicU64>,
+    /// The removals asked for and not yet ended.
+    removals: remove::Removals,
     send: Arc<dyn Fn(Report) + Send + Sync>,
 }
 
@@ -204,6 +203,7 @@ impl Jobs {
             state,
             gh_host,
             listing: Arc::default(),
+            removals: remove::Removals::default(),
             send: Arc::new(send),
         }
     }
@@ -332,6 +332,7 @@ impl Jobs {
     /// trust: each is checked as that repository's root or one of its linked worktrees.
     pub fn prepare(&self, token: u64, trust: Trust, what: Prepare, with: Vec<(Trust, PathBuf)>) {
         let state = self.state.clone();
+        let removals = self.removals.clone();
         self.on_repo(
             trust,
             true,
@@ -340,6 +341,12 @@ impl Jobs {
                     .map(|(trust, dir)| readable_in(trust, dir, state.as_deref()))
                     .collect::<Result<Vec<Member>, String>>();
                 let result = prepare::prepare(repo, &what).and_then(|prepared| {
+                    // git may be deleting it: a session started there would lose its files.
+                    if let Prepared::Directory(directory) = &prepared
+                        && let Some(why) = removals.running_under(directory)
+                    {
+                        return Err(why);
+                    }
                     let trusted = match &prepared {
                         // The root itself keeps the identity its check just held.
                         Prepared::Directory(directory) if directory == root.path() => {
@@ -365,11 +372,15 @@ impl Jobs {
     pub fn check(&self, token: u64, trust: Trust, path: PathBuf, snapshot: Snapshot) {
         let failed_path = path.clone();
         let gh_host = self.gh_host.clone();
+        let removals = self.removals.clone();
         self.on_repo(
             trust,
             false,
             move |_, repo, send| {
-                let result = check(repo, gh_host.as_deref(), &path, &snapshot);
+                let result = match removals.running_at(&path) {
+                    Some(why) => Err(Check::Unknown(why)),
+                    None => check(repo, gh_host.as_deref(), &path, &snapshot),
+                };
                 send(Report::Checked {
                     token,
                     path,
@@ -380,47 +391,6 @@ impl Jobs {
                 token,
                 path: failed_path,
                 result: Err(Check::Unknown(why)),
-            },
-        );
-    }
-
-    /// Runs every check of a removal of the worktree at `path` again, then, once the app has
-    /// cleared it and said [`Go`], removes it, never with `--force`, unless a check fails or git
-    /// ignores more there than the `asked` names the question was asked about.
-    pub fn remove(
-        &self,
-        token: u64,
-        trust: Trust,
-        path: PathBuf,
-        snapshot: Snapshot,
-        asked: Asked,
-    ) {
-        let failed_path = path.clone();
-        let gh_host = self.gh_host.clone();
-        self.on_repo(
-            trust,
-            false,
-            move |_, repo, send| {
-                let result = match (check(repo, gh_host.as_deref(), &path, &snapshot), asked) {
-                    (Err(check), _) => Err(check.why()),
-                    (Ok(ignored), Asked::Named(named)) if ignored.len() > named => Err(
-                        "git ignores more there than the question named: run worktree-remove again"
-                            .to_owned(),
-                    ),
-                    (Ok(ignored), _) => cleared(token, &path, send)
-                        .and_then(|()| checks::remove(repo, &path))
-                        .map(|()| ignored),
-                };
-                send(Report::Removed {
-                    token,
-                    path,
-                    result,
-                });
-            },
-            move |why| Report::Removed {
-                token,
-                path: failed_path,
-                result: Err(why),
             },
         );
     }
@@ -564,19 +534,7 @@ fn check(
     checks::removable(&looked, &held).map(|()| looked.ignored)
 }
 
-/// Asks the app to clear the worktree at `path` and waits for its word, at most
-/// [`CLEAR_WAIT`].
-fn cleared(token: u64, path: &Path, send: &dyn Fn(Report)) -> Result<(), String> {
-    let (go, word) = mpsc::sync_channel(1);
-    send(Report::Clear {
-        token,
-        path: path.to_owned(),
-        go: Go(go),
-    });
-    word.recv_timeout(CLEAR_WAIT)
-        .map_err(|_| "the removal was called off".to_owned())
-}
-
+mod remove;
 mod tree;
 
 #[cfg(test)]

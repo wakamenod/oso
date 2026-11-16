@@ -1,6 +1,7 @@
 //! The threads that run worktree jobs, `oso-sessions-git` (ADR 0121, "One sessions worker"): at
 //! most [`MAX_THREADS`] at once, each git or `gh` call on them bounded to 10 s, so a slow
-//! repository delays other jobs, never the UI or the sessions worker's rules.
+//! repository delays other jobs, never the UI or the sessions worker's rules. A removal's
+//! `git worktree remove`, which has no time limit, runs on a thread of its own instead.
 //!
 //! Must not depend on: `app`, `dispatch` or the UI thread.
 //!

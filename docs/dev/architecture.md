@@ -795,7 +795,10 @@ The UI thread never blocks on I/O or parsing:
     worktree add`, `.worktreeinclude`'s copies), list worktrees row by row (`checks::look`,
     rendered by `list.rs`), and check and remove one (`checks.rs`, `merged.rs`).
   - Every git run is the shared runner (`crate::git`, ADR 0127 as built); `gh` runs through
-    its bounded collector.
+    its bounded collector. A removal's `git worktree remove` alone has no time limit and runs
+    on a thread of its own, `oso-sessions-remove`, so that a kill never leaves a worktree half
+    removed (ADR 0121, "Worktree removal, as fixed"). A removal holds its worktree until git
+    ends, and at most 4 run at once.
   - Each job takes the project's trust when it is asked for (`jobs::Trust`), checks it again
     before it runs, and refuses a repository whose main checkout is not trusted too. What
     touches the disk, the new worktree's trust included, is made on the job's thread.

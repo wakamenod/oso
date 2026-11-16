@@ -51,8 +51,8 @@ const MAX_ID: usize = 64;
 pub const MAX_WITH_DIRS: usize = 8;
 
 /// How long the app lets a worktree listing or a removal run before it replies with what it
-/// has: their jobs run git, and `gh` for a listing, each call bounded, and may wait for a
-/// thread (ADR 0121).
+/// has: their jobs run git, and `gh` for a listing, each call bounded but a removal's own
+/// `git worktree remove`, and may wait for a thread (ADR 0121).
 pub const JOB_ANSWER_WITHIN: Duration = Duration::from_secs(60);
 /// How long the server waits for that reply: the app's limit and a margin.
 pub const JOB_REPLY_WITHIN: Duration = Duration::from_secs(JOB_ANSWER_WITHIN.as_secs() + 5);
