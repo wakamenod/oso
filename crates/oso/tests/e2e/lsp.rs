@@ -885,9 +885,9 @@ fn completion_at_point_pops_up_narrows_and_inserts() {
     let text = app.call("get-text", Some(json!({ "start_row": 0, "rows": 3 })));
     assert!(text.to_string().contains("format!()"), "{text}");
     // Last: showing the log closes a popup.
-    let log = lsp_log(&mut app, "main.rs");
-    assert!(log.contains("asked textDocument/completion 1:2"), "{log}");
-    assert!(log.contains("answered with 3 completions"), "{log}");
+    // The fake server's stderr comes in its own time: waited for, as each line below.
+    lsp_log_with(&mut app, "main.rs", "asked textDocument/completion 1:2", 1);
+    lsp_log_with(&mut app, "main.rs", "answered with 3 completions", 1);
 }
 
 /// The person's typing asks by itself: a trigger character at once, three identifier
@@ -961,6 +961,5 @@ fn typing_opens_the_completion_popup_and_a_resolved_use_line_goes_in_with_it() {
     assert_eq!(state["popup"]["rows"], json!(["abcdef"]), "{state}");
     app.send_keys("C-g");
     app.wait_for("closed", |state| state["popup"].is_null());
-    let log = lsp_log(&mut app, "main.rs");
-    assert!(log.contains("resolved with 1 more edits"), "{log}");
+    lsp_log_with(&mut app, "main.rs", "resolved with 1 more edits", 1);
 }
