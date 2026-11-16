@@ -628,6 +628,13 @@ topological order, children before their parents, one row each (ADR 0127, step 4
   ref, read in a prompt over the branches, `HEAD` first, or any revision typed.
 - In a graph: `RET` reviews the commit at point, `w` copies its id, `a` shows every ref or the
   branch again, `g` reads it again, `n` and `p` move a line, `q` leaves it.
+- What a graph's keys do with a commit (step 4b): `m` marks it, and `RET` with two marked reviews
+  the range between them; `c` checks out the branch on its line, asking which if there are
+  several, or the commit, detached, after a question; `b` makes a branch there and `t` a tag,
+  `C-u t` an annotated one; `C` cherry-picks the marked commits, oldest first, or the one at
+  point, and `V` reverts it, each after a question. A merge's revert is refused. While
+  something is stopped, `c`, `C` and `V` are refused, and a pick or a revert that stops is the
+  status's to go on with.
 - It reads 2,000 commits at a time, the next as point nears the end, up to 50,000, then says a
   narrower scope shows the rest. At most 16 lanes are drawn, `┄` past them.
 

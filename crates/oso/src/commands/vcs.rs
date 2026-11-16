@@ -182,7 +182,9 @@ pub(crate) fn status_project(editor: &Editor) -> Option<ProjectId> {
 
 /// Whether the prompt over `list`, one of source control's, keeps the host's order.
 pub fn listed_in_given_order(list: &str) -> bool {
-    branch::listed_in_given_order(list) || list == graph::GRAPH_REFS_LIST
+    branch::listed_in_given_order(list)
+        || list == graph::GRAPH_REFS_LIST
+        || list == graph::GRAPH_LABELS_LIST
 }
 
 /// Whether the prompt over `list`, one of source control's, takes what is typed.

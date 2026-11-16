@@ -385,11 +385,7 @@ impl App {
     /// Starts `run` in the repository at `index`; one that checks out is refused while `built`
     /// shows something stopped.
     fn run_branch(&mut self, index: usize, built: &Built, run: BranchRun) {
-        let checks_out = matches!(
-            run,
-            BranchRun::Checkout { .. } | BranchRun::Create { checkout: true, .. }
-        );
-        if checks_out && self.refused_while_stopped(built) {
+        if run.checks_out() && self.refused_while_stopped(built) {
             return;
         }
         let (title, done) = (run.title(), run.done());
