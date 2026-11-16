@@ -1,5 +1,5 @@
 //! Which part of the app carries out each git request (ADR 0127): the status's own, a commit's
-//! and its log's, or a remote's. One match over every request, so that a new one is placed
+//! and its log's, a remote's, or a stopped run's. One match over every request, so that a new one is placed
 //! here before it builds, never dropped at run time.
 //!
 //! Must not depend on: key presses, how a frame is drawn, or git; this only sorts requests.
@@ -15,6 +15,9 @@ pub(super) enum Concern {
     Commit,
     /// Pushing, pulling and fetching (step 2).
     Remote,
+    /// Continuing, skipping and aborting what is stopped, a sequence as magit calls it (step
+    /// 3a); not `GitRequest::Stop`, which stops a run and is a commit's.
+    Sequence,
 }
 
 /// Where `request` is carried out.
@@ -41,6 +44,9 @@ pub(super) fn concern(request: &GitRequest) -> Concern {
         | GitRequest::FixWithAgent { .. } => Concern::Commit,
         GitRequest::Push { .. } | GitRequest::Pull { .. } | GitRequest::Fetch { .. } => {
             Concern::Remote
+        }
+        GitRequest::Continue { .. } | GitRequest::Skip { .. } | GitRequest::Abort { .. } => {
+            Concern::Sequence
         }
     }
 }

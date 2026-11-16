@@ -210,8 +210,21 @@ fn the_keys_list_names_every_key_with_its_commands_summary() {
             .chain(super::commit::COMMANDS)
             .chain(super::discard::COMMANDS)
             .chain(super::remote::COMMANDS)
+            .chain(super::sequence::COMMANDS)
             .any(|command| command.name == *name);
         assert!(own || *name == "quit-window", "{name} has no summary");
+    }
+}
+
+#[test]
+fn the_keys_of_what_is_stopped_are_those_its_messages_name() {
+    use crate::vcs::sequence::Step;
+    for (step, name) in [
+        (Step::Continue, "git-continue"),
+        (Step::Skip, "git-skip"),
+        (Step::Abort, "git-abort"),
+    ] {
+        assert!(super::KEYS.contains(&(step.key(), name)), "{name}");
     }
 }
 
@@ -222,6 +235,7 @@ fn each_command_has_the_reach_it_needs() {
         .chain(super::commit::COMMANDS)
         .chain(super::discard::COMMANDS)
         .chain(super::remote::COMMANDS)
+        .chain(super::sequence::COMMANDS)
     {
         let looks = matches!(
             command.name,

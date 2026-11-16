@@ -1,6 +1,7 @@
 //! git's long runs in the app (ADR 0127, step 1b): each repository's run thread, its log,
-//! what the thread reports, stopping a run, and what quitting ends. A run is a commit, or from
-//! step 2 a push, a pull or a fetch, whose progress the echo area shows too.
+//! what the thread reports, stopping a run, and what quitting ends. A run is a commit, from
+//! step 2 a push, a pull or a fetch, whose progress the echo area shows too, and from step 3a a
+//! continue, a skip or an abort of what is stopped.
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here runs git or waits for
 //! it: each repository's run thread, `oso-vcs-run`, does, and reports here.
@@ -68,6 +69,8 @@ pub(super) struct Repo {
     pub(super) failed: Option<Failure>,
     /// The pushes waiting for their plan, prompt or question (step 2).
     pub(super) pushes: super::remote::Pushes,
+    /// A skip or an abort waiting for its question's answer (step 3a).
+    pub(super) sequence_asked: Option<super::sequence::SequenceAsked>,
 }
 
 /// A commit that failed, as a fix request names it.
@@ -86,11 +89,11 @@ const MAX_RUN_OUTPUT: usize = 2 * crate::vcs::agent::MAX_FIX_BYTES;
 
 /// A run under way.
 pub(super) struct Running {
-    /// The commit it makes, or `None` for a push, a pull or a fetch.
+    /// The commit it makes, or `None` for a remote's run or a step of what is stopped.
     pub(super) kind: Option<CommitKind>,
     /// What the log and the echo area call it.
     pub(super) title: String,
-    /// What the echo area says once a remote's run went well.
+    /// What the echo area says once a run that makes no commit went well.
     pub(super) done: String,
     pub(super) started: Instant,
     /// What the echo area last said of it.
@@ -383,6 +386,29 @@ impl App {
         }
     }
 
+    /// A run that makes no commit, called `title`, began in the repository at `index`: a
+    /// remote's (step 2), or a step of what is stopped (step 3a); `done` is what the echo area
+    /// says once it went well.
+    pub(super) fn run_began(&mut self, index: usize, title: String, done: String) {
+        let echoed = format!("{title}…");
+        self.editor.echo(echoed.clone());
+        let log = self.git_log(index);
+        self.editor.set_git_running(log, true);
+        let repo = &mut self.gits.commits.repos[index];
+        repo.run = Some(Running {
+            kind: None,
+            title,
+            done,
+            started: Instant::now(),
+            echoed,
+            progress: None,
+            message: None,
+            draft: None,
+            output: String::new(),
+        });
+        self.request_redraw();
+    }
+
     /// The index of `project`'s repository, made if it has none, with `root` as its root when
     /// the one it had was revoked.
     pub(super) fn git_repo(&mut self, project: ProjectId, root: &TrustedRoot) -> usize {
@@ -405,6 +431,7 @@ impl App {
             subjects_for: None,
             failed: None,
             pushes: super::remote::Pushes::default(),
+            sequence_asked: None,
         });
         self.gits.commits.repos.len() - 1
     }

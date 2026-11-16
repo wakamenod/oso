@@ -24,7 +24,13 @@ pub(crate) const MAX_LOOKED: usize = 16 * 1024;
 const MAX_PROGRESS: usize = 60;
 
 /// What the log and the echo area call a pull.
-pub(crate) const PULL: &str = "git pull --ff-only";
+pub(crate) fn pull_title(how: oso_core::editor::PullHow) -> &'static str {
+    match how {
+        oso_core::editor::PullHow::FfOnly => "git pull --ff-only",
+        oso_core::editor::PullHow::Rebase => "git pull --rebase",
+        oso_core::editor::PullHow::Merge => "git pull --no-rebase",
+    }
+}
 
 /// What the log and the echo area call a fetch from `from`.
 pub(crate) fn fetch_title(from: oso_core::editor::FetchFrom) -> &'static str {

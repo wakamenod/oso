@@ -5,7 +5,8 @@
 //! asking the worktree's agent session for a message's draft or a failed commit's fix (step
 //! 6a: [`agent`]); and from step 2 the unpushed, unpulled and recent commits ([`history`]),
 //! fixup and squash, and pushes, pulls and fetches on [`run`], with what they need that runs no
-//! git in [`remote`].
+//! git in [`remote`]; and from step 3a a stopped merge, rebase, pick, revert or `git am`
+//! ([`sequence`]), which the head shows and `C-c C-c`, `C-c C-s` and `C-c C-k` go on with.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in
 //! and takes reports out, and supplies the wake-up.
@@ -36,6 +37,7 @@ pub(crate) mod patch;
 pub(crate) mod read;
 pub(crate) mod remote;
 pub(crate) mod run;
+pub(crate) mod sequence;
 pub(crate) mod stage;
 pub(crate) mod status;
 pub(crate) mod work;

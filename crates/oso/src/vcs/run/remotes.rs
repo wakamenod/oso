@@ -13,17 +13,21 @@
 //!   its lease, and the commits that tip holds and `HEAD` does not, for the question.
 //! - Each run gets the repository's own hooks (`pre-push`, `post-merge`, the reference
 //!   transaction's), the proxies and no controlling terminal ([`Git::for_remote`]).
+//! - A pull fast-forwards only, unless the menu's `-r` rebases or `-m` merges (step 3a); one
+//!   that stops on a conflict says so, and the status shows it stopped.
 
 use std::ffi::OsStr;
 
-use oso_core::editor::{FetchFrom, PushSwitches, row_text};
+use oso_core::editor::{FetchFrom, PullHow, PushSwitches, row_text};
 
+use super::sequence::stopped_now;
 use super::stream::stream;
 use super::{RunEnd, RunReport, Watch};
 use crate::git::{Git, MAX_SHORT, trim_line};
 use crate::vcs::remote::{
-    self, MAX_DROPPED, PULL, Push, Tracking, check_branch, fetch_title, split_target,
+    self, MAX_DROPPED, Push, Tracking, check_branch, fetch_title, pull_title, split_target,
 };
+use crate::vcs::sequence;
 
 /// The most remotes, or remote branches, a prompt is given: the most a completion opens with on
 /// the UI thread before its list is built on the worker (`complete::WORKER_PAST`).
@@ -170,12 +174,14 @@ pub(super) fn push(
         &push.title(),
         watch,
         send,
+        None,
     )
 }
 
-/// Pulls the upstream, fast-forward only, with the names `pass` passes on to its hooks.
+/// Pulls the upstream as `how` says, with the names `pass` passes on to its hooks.
 pub(super) fn pull(
     git: &Git,
+    how: PullHow,
     pass: &[String],
     watch: &Watch<'_>,
     send: &mut impl FnMut(RunReport) -> bool,
@@ -187,9 +193,25 @@ pub(super) fn pull(
     if tracking(git, &branch).upstream.is_none() {
         return RunEnd::Refused(format!("{branch} has no upstream: P u sets one"));
     }
-    // `--no-rebase` so that `pull.rebase` cannot make it rebase: only a fast-forward goes in.
-    let words = ["pull", "--ff-only", "--no-rebase", "--progress"].map(str::to_owned);
-    run(&git.for_remote(pass), &words, PULL, watch, send)
+    // Each says how in whole, so that neither `pull.rebase` nor `pull.ff` changes it:
+    // `--no-rebase` keeps a fast-forward from rebasing, an explicit `--rebase` is never
+    // interactive, and `--ff` merges where `pull.ff=only` would refuse.
+    let words: &[&str] = match how {
+        PullHow::FfOnly => &["pull", "--ff-only", "--no-rebase", "--progress"],
+        PullHow::Rebase => &["pull", "--rebase", "--progress"],
+        PullHow::Merge => &["pull", "--no-rebase", "--ff", "--no-edit", "--progress"],
+    };
+    let words: Vec<String> = words.iter().map(|word| (*word).to_owned()).collect();
+    // A rebase or a merge may stop: the read after it is a read's, with the plain git.
+    let reads = (how != PullHow::FfOnly).then_some(git);
+    run(
+        &git.for_remote(pass),
+        &words,
+        pull_title(how),
+        watch,
+        send,
+        reads,
+    )
 }
 
 /// Fetches from `from`, pruning, with the names `pass` passes on to its hooks.
@@ -224,16 +246,19 @@ pub(super) fn fetch(
         fetch_title(from),
         watch,
         send,
+        None,
     )
 }
 
-/// Runs a remote's `words`, called `title`, to its end.
+/// Runs a remote's `words`, called `title`, to its end; one that may leave a rebase or a merge
+/// stopped is given `reads`, the plain git, to tell after a failure, which then names it.
 fn run(
     git: &Git,
     words: &[String],
     title: &str,
     watch: &Watch<'_>,
     send: &mut impl FnMut(RunReport) -> bool,
+    reads: Option<&Git>,
 ) -> RunEnd {
     let streamed = match stream(git, words, None, watch, send, true) {
         Ok(streamed) => streamed,
@@ -243,7 +268,12 @@ fn run(
         _ if streamed.stopped => RunEnd::Stopped,
         Ok(status) if status.success() => RunEnd::Done,
         Ok(_) => RunEnd::Failed {
-            said: remote::failed(title, &streamed.tail),
+            said: match reads {
+                Some(reads) => {
+                    sequence::failed(title, &streamed.tail, stopped_now(reads).is_some())
+                }
+                None => remote::failed(title, &streamed.tail),
+            },
             hooks: Vec::new(),
         },
         Err(why) => RunEnd::Failed {

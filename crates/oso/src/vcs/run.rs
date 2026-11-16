@@ -1,7 +1,8 @@
 //! A repository's thread for git's long runs, `oso-vcs-run` (ADR 0127, step 1b): a commit with
 //! the repository's hooks, which has no time limit, the message an amend starts from, and, from
 //! step 1c, reading the record of what discards kept and writing a copy back; from step 2,
-//! pushes, pulls and fetches (`remotes`), and planning where a push goes.
+//! pushes, pulls and fetches (`remotes`), and planning where a push goes; from step 3a,
+//! continuing, skipping and aborting what is stopped (`sequence`).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
 //! takes reports out, and supplies the wake-up.
@@ -30,7 +31,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
-use oso_core::editor::{CommitKind, CommitSwitches, FetchFrom, PushSwitches};
+use oso_core::editor::{CommitKind, CommitSwitches, FetchFrom, PullHow, PushSwitches};
 
 use super::commit;
 use super::discarded::{self, Entry};
@@ -40,6 +41,7 @@ use super::remote::Push;
 use crate::git::{Ender, Git, MAX_SHORT, TrustedRoot, os_path, trim_line};
 
 mod remotes;
+mod sequence;
 mod stream;
 
 pub(crate) use remotes::{Planned, Want};
@@ -73,6 +75,12 @@ pub(crate) enum RunRequest {
     },
     /// A push's plan, or a push, a pull or a fetch (step 2).
     Remote(RemoteRun),
+    /// Continue, skip or abort what is stopped, as `want` says, with the names `pass` passes on
+    /// to the hooks (step 3a).
+    Step {
+        want: super::sequence::Want,
+        pass: Vec<String>,
+    },
 }
 
 /// What a remote's request asks for, with the names `pass` passes on to the hooks of a run.
@@ -81,8 +89,8 @@ pub(crate) enum RemoteRun {
     Plan { want: Want, switches: PushSwitches },
     /// Run `push`, planned.
     Push { push: Push, pass: Vec<String> },
-    /// Pull the upstream, fast-forward only.
-    Pull { pass: Vec<String> },
+    /// Pull the upstream as `how` says.
+    Pull { how: PullHow, pass: Vec<String> },
     /// Fetch from `from`, pruning.
     Fetch { from: FetchFrom, pass: Vec<String> },
 }
@@ -261,8 +269,13 @@ fn serve(
             (Err(why), RunRequest::Remote(RemoteRun::Plan { .. })) => {
                 vec![RunReport::Planned(Err(why))]
             }
-            (Err(why), RunRequest::Commit { .. } | RunRequest::Remote(_)) => {
-                vec![RunReport::Ended(RunEnd::Refused(why))]
+            (
+                Err(why),
+                RunRequest::Commit { .. } | RunRequest::Remote(_) | RunRequest::Step { .. },
+            ) => vec![RunReport::Ended(RunEnd::Refused(why))],
+            (Ok(git), RunRequest::Step { want, pass }) => {
+                let end = sequence::step(&git, &want, &pass, watch, &mut send);
+                vec![ended(watch, end)]
             }
             (Ok(git), RunRequest::Remote(request)) => {
                 vec![remote(&git, request, watch, &mut send)]
@@ -309,7 +322,7 @@ fn remote(
             return RunReport::Planned(remotes::plan(git, want, switches));
         }
         RemoteRun::Push { push, pass } => remotes::push(git, &push, &pass, watch, send),
-        RemoteRun::Pull { pass } => remotes::pull(git, &pass, watch, send),
+        RemoteRun::Pull { how, pass } => remotes::pull(git, how, &pass, watch, send),
         RemoteRun::Fetch { from, pass } => remotes::fetch(git, from, &pass, watch, send),
     };
     ended(watch, end)

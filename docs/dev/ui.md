@@ -352,8 +352,8 @@ planned.
     instructions, directory and name, and closing and reopening.
   - `commit` on `c` in a git status (ADR 0127): its switches and kinds; see
     [Committing](#committing).
-  - `push` on `P`, `pull` on `F` and `fetch` on `f` in a git status (ADR 0127, step 2); see
-    [Remotes](#remotes).
+  - `push` on `P`, `pull` on `F` (with `- r` and `- m` from step 3a) and `fetch` on `f` in a
+    git status (ADR 0127, step 2); see [Remotes](#remotes).
   - `agents` on `C-c a` ([ADR 0143](adr/0143-agent-keys-on-c-c-a-and-an-agents-menu.md)), in
     every buffer and every terminal: the agent session commands, in groups Start (`c w r a`),
     Go to (`s b n d f`), Talk (`m @ e`), Space (`j z O`, `S` the space menu) and Session
@@ -468,7 +468,10 @@ a trusted project; a restricted one says "The status runs git, which this projec
 to run: M-x trust-project".
 
 - The first lines are the head, `Head:     main 1a2b3c4 Subject`, the upstream with ahead and
-  behind, and `Push:` when git pushes elsewhere. Then the sections in magit's order, each
+  behind, and `Push:` when git pushes elsewhere; then, while a merge, rebase, cherry-pick,
+  revert or `git am` is stopped (step 3a), what it is, such as `Rebasing: main onto 1a2b3c4, 2
+  of 5; stopped at 5d6e7f8 Subject`, and a line naming its keys (see
+  [What is stopped](#what-is-stopped)). Then the sections in magit's order, each
   `Heading (N)`: unmerged paths, untracked files, unstaged changes and staged changes. A file's
   row is its status letter, its path (a rename as `old -> new`) and its lines added and removed.
   Then the commits (step 2): `Unpushed to origin/main`, `Unpulled from origin/main`, at most
@@ -546,12 +549,35 @@ status is read again after.
   to where git pushes it (`@{push}`), `u` to its upstream, and `e` elsewhere, read as
   `REMOTE/BRANCH`. With no push target or no upstream, a prompt asks for the remote, and `u`
   sets the one picked as the upstream. Never a plain `--force`.
-- `F u` pulls the upstream, fast-forward only; a branch gone apart from it is refused. `f u`
-  fetches the upstream's remote and `f a` every remote, pruning what each deleted.
+- `F u` pulls the upstream, fast-forward only; a branch gone apart from it is refused. With the
+  pull menu's `- r` it rebases onto the upstream (`git pull --rebase`), and with `- m` merges
+  it, a fast-forward when it can be and else a merge commit with git's message (`git pull
+  --no-rebase --ff --no-edit`); both on is refused (step 3a). A pull that stops on a conflict
+  says so, and the status shows it stopped. `f u` fetches the upstream's remote and `f a`
+  every remote, pruning what each deleted.
 - git runs with no terminal: a password, a passphrase or a key it cannot get fails at once, and
   the echo area says to set up a credential helper or `ssh-agent`, or to push from a terminal.
   The proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`, either case) are
   passed on.
+
+### What is stopped
+
+While a merge, rebase, cherry-pick, revert or `git am` is stopped (step 3a), from a pull or a
+terminal, the head says what and where, and the conflicted files are under Unmerged paths:
+`RET` visits one with its markers, and `s` stages it once resolved.
+
+- `C-c C-c` (`git-continue`) goes on: `git rebase --continue` and the like, with the
+  repository's hooks and the message git prepared, as a run of its own. It is refused while
+  unmerged paths are left, naming `s`.
+- `C-c C-s` (`git-skip`) skips the commit it stopped at, or `git am`'s patch, after a
+  question that names the commit; a merge has no skip.
+- `C-c C-k` (`git-abort`) aborts, after a question that says what goes and where `HEAD` goes
+  back to.
+- A `y` runs only for the status it was asked over, and only if what is stopped is still what
+  the question was asked over: the same commit, branch, start and step.
+- A bisect is shown only: `git bisect reset` in a shell ends it.
+- While one is stopped, the commit menu's heads and a pull are refused, naming `C-c C-c` and
+  `C-c C-k`; staging, discarding, pushing and fetching stay.
 
 ## Echo area
 

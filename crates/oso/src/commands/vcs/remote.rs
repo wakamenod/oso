@@ -1,17 +1,22 @@
 //! Source control's commands for remotes (ADR 0127, step 2): the push menu's heads, which read
 //! its switches, the prompts a push opens when it has no target, the question before a forced
-//! one, pulling and fetching.
+//! one, pulling, with the pull menu's `-r` and `-m` from step 3a, and fetching.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command asks the host, which runs git on
 //! the repository's own thread. Every command here is `Person`: each makes the host run git,
 //! which talks to a remote (ADR 0085).
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::{FetchFrom, GitRequest, PushSwitches, PushTarget};
+
+use super::request;
+use oso_core::editor::{FetchFrom, GitRequest, PullHow, PushSwitches, PushTarget};
 
 /// The push menu's switches, by name, as its heads flip them.
 pub const FORCE_WITH_LEASE: &str = "push-force-with-lease";
 pub const PUSH_NO_VERIFY: &str = "push-no-verify";
+/// The pull menu's switches (step 3a).
+pub const PULL_REBASE: &str = "pull-rebase";
+pub const PULL_MERGE: &str = "pull-merge";
 
 /// The list of a repository's remotes the host gives a push with no target to pick from.
 pub const REMOTES_LIST: &str = "git-remotes";
@@ -84,7 +89,7 @@ pub const COMMANDS: &[Command] = &[
     ),
     command!(
         "git-pull",
-        "In a git status, pull the upstream into the branch checked out, fast-forward only (the pull menu's `u`).\n\nIt runs `git pull --ff-only`, with the repository's hooks and no time limit; a branch that has gone apart from its upstream is refused by git, and stays as it was.",
+        "In a git status, pull the upstream into the branch checked out (the pull menu's `u`): fast-forward only, unless the menu's `-r` rebases or `-m` merges.\n\nIt runs `git pull --ff-only`, with the repository's hooks and no time limit; a branch that has gone apart from its upstream is refused by git, and stays as it was. With `-r` it runs `git pull --rebase`, and with `-m` `git pull --no-rebase --ff --no-edit`, a merge commit with git's message when it cannot fast-forward; either may stop on a conflict, which the status shows, with `C-c C-c` to continue and `C-c C-k` to abort. It is refused while something is stopped.",
         ArgSpec::None,
         pull
     ),
@@ -108,17 +113,6 @@ fn switches(ctx: &Ctx<'_>) -> PushSwitches {
         force_with_lease: ctx.switch(FORCE_WITH_LEASE),
         no_verify: ctx.switch(PUSH_NO_VERIFY),
     }
-}
-
-fn request(
-    ctx: &mut Ctx<'_>,
-    make: impl FnOnce(oso_core::buffer::BufferId) -> GitRequest,
-) -> Result<(), CommandError> {
-    super::super::not_in_prompt(ctx)?;
-    let buffer = super::status(ctx)?;
-    ctx.editor.request_git(make(buffer));
-    ctx.request_redraw();
-    Ok(())
 }
 
 fn push_to(ctx: &mut Ctx<'_>, target: PushTarget) -> Result<(), CommandError> {
@@ -160,7 +154,17 @@ fn push_confirmed(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn pull(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    request(ctx, |buffer| GitRequest::Pull { buffer })
+    let how = match (ctx.switch(PULL_REBASE), ctx.switch(PULL_MERGE)) {
+        (true, true) => {
+            return Err(CommandError::new(
+                "Both -r and -m are on: a pull rebases or merges, not both",
+            ));
+        }
+        (true, false) => PullHow::Rebase,
+        (false, true) => PullHow::Merge,
+        (false, false) => PullHow::FfOnly,
+    };
+    request(ctx, |buffer| GitRequest::Pull { buffer, how })
 }
 
 fn fetch(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
