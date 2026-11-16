@@ -1048,7 +1048,9 @@ Full details are in [`security.md`](security.md).
   - The connection question names the process as it reports itself, and its parent, from
     `ControlStream::peer`.
 - **Dev profile:** dependencies are optimized and oso is not, to keep the
-  tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
+  tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)). oso keeps
+  line tables only, so backtraces keep file:line
+  ([ADR 0139](adr/0139-line-tables-and-pruning-build-outputs.md)).
 
 Hot reload and the control socket are behind cargo features (`dev` in each
 crate that has dev-only code, enabled through `oso/dev`) that release builds never enable. The agent channel is not:
