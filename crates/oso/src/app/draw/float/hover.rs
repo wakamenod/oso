@@ -12,8 +12,9 @@ use oso_render::{
     Bands, CursorStyle, Layer, Pane, PaneContent, PaneId, Panel, TextMarks, TextView,
 };
 
-/// The base of the description's panes, past every other float's.
-const HOVER_PANES: u32 = 1 << 22;
+/// The base of the description's panes, a range of its own past the menus' and the
+/// completion popup's.
+const HOVER_PANES: u32 = 1 << 23;
 
 /// Adds the description's panes to `list`, if one shows: its panel over the tiled panes, and
 /// its text as `screen` holds it, with `named`, the cells of the server's name, faded.

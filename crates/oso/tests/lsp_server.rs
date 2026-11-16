@@ -1285,7 +1285,10 @@ fn a_description_is_asked_at_its_position_and_its_text_is_never_logged() {
     );
     let offset = "fn a() {}\nlet é = ".len();
     ask(&seen, AskKind::Hover, offset);
-    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    // The server's line of where it was asked may come after the answer.
+    seen.until(LIMIT, |seen| {
+        !seen.answers.is_empty() && seen.logged("stderr: asked textDocument/hover")
+    });
     assert!(
         seen.logged("asked textDocument/hover 1:8"),
         "{:?}",

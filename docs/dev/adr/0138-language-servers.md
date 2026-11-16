@@ -851,11 +851,14 @@ gains `amended by 0138`.
 - [ADR 0088](0088-switching-and-killing-buffers.md), "`previous-buffer` on `M-,`": in a buffer a
   language server follows, `M-,` is `lsp-go-back`, through the `lsp` minor mode layer. Everywhere
   else it is still `previous-buffer`.
-- [ADR 0008](0008-floating-ui.md), "hover documentation [is a buffer] shown in floating windows
-  … Editing commands … work in them unchanged": a server's description at point is a buffer
-  shown in a float with no window of its own. Only `C-v` and `M-v` scroll it and `C-g` closes
-  it; any other key closes it and does what it always does in the window beneath (step 10,
-  Q3).
+- [ADR 0008](0008-floating-ui.md), "completion popups and hover documentation [are buffers]
+  shown in floating windows … Editing commands … work in them unchanged": a server's
+  description at point is a buffer shown in a float with no window of its own. Only `C-v` and
+  `M-v` scroll it and `C-g` closes it; any other key closes it and does what it always does in
+  the window beneath (step 10, Q3). The completion popup is no buffer: it is the editor's state
+  of the items a server offered, drawn as a float at point, and typing goes on into the buffer
+  beneath, narrowing it; `C-n`, `C-p`, `TAB`, `C-g`, and `RET` once the selection was moved,
+  are its keys, and any other command closes it first (step 9).
 
 ## Consequences
 
