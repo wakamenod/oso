@@ -96,7 +96,6 @@ impl GlyphInstance {
         self.uv
     }
 
-    #[cfg(test)]
     pub(crate) fn color(&self) -> [f32; 4] {
         self.color
     }

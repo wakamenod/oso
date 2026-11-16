@@ -34,6 +34,8 @@ pub(super) enum Name {
     Azure,
     /// A completion's count and label.
     Teal,
+    /// Information a language server reports (ADR 0138), a blue read on the modelines too.
+    FgInfo,
     Hairline,
     Border,
     Shadow,
@@ -156,6 +158,7 @@ pub(super) fn dark(name: Name) -> Color {
         Gold => rgb(0xf7c96e),
         Slate => rgb(0x9fabd2),
         Azure => rgb(0x6cc4ff),
+        FgInfo => rgb(0x6cc4ff),
         Teal => rgb(0x5ad6ae),
         FgWhitespace => rgb(0x9aa0b8),
         BgTrailing => rgb(0x3a1b22),
@@ -231,6 +234,7 @@ pub(super) fn light(name: Name) -> Color {
         Gold => rgb(0x623c00),
         Slate => rgb(0x46507a),
         Azure => rgb(0x0058b0),
+        FgInfo => rgb(0x004c99),
         Teal => rgb(0x006b52),
         FgWhitespace => rgb(0x5f6577),
         BgTrailing => rgb(0xf5d6d6),
@@ -307,6 +311,7 @@ pub(super) fn dusk(name: Name) -> Color {
         Gold => rgb(0xffce7c),
         Slate => rgb(0xaeb8de),
         Azure => rgb(0x4fc3ff),
+        FgInfo => rgb(0xa8dcff),
         Teal => rgb(0x5fd7af),
         FgWhitespace => rgb(0xa3a7bd),
         BgTrailing => rgb(0x5d3a46),

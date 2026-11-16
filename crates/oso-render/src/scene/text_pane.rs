@@ -1,6 +1,7 @@
 //! What a pane shows of a buffer: its screen rows, each from its own line's column, with the
 //! wrap mark on those that continue, the cursor box's cells and a preedit's underlines on each
-//! row it takes (ADR 0069, ADR 0100, ADR 0104).
+//! row it takes (ADR 0069, ADR 0100, ADR 0104), and its text faded where a server says it is
+//! unnecessary (ADR 0138).
 //!
 //! Must not depend on: `capture`, `paint` or a font backend.
 
@@ -10,7 +11,8 @@ use oso_core::frame::{self, CellRect, PixelRect};
 use oso_core::motion;
 use oso_platform::text::{CellMetrics, TextSystem};
 
-use super::{Covered, Draws, GlyphSource, RowFaces, line_width};
+use super::marks::draw_marks;
+use super::{Covered, Draws, Fade, GlyphSource, RowFaces, line_width};
 use crate::pane::{CursorStyle, Face, Pane, PaneContent, TextView};
 use crate::rows::Rows;
 use crate::text::Layout;
@@ -86,6 +88,27 @@ pub(super) fn underline_preedit(
     }
 }
 
+/// Fills what is behind `view`'s boxes and glyphs, in `layout`, the pane's unscrolled one: its
+/// fills back to front, so the text keeps its face, then the flash, then a server's marks over
+/// them and under the glyphs and the cursor box (ADR 0138).
+pub(super) fn draw_fills(
+    draws: &mut Draws,
+    view: &TextView<'_>,
+    layout: &Layout,
+    metrics: CellMetrics,
+) {
+    for &(face, cells) in view.fills {
+        for cells in cells {
+            draws.fill(layout.frame_cells(*cells), face);
+        }
+    }
+    if let Some(flash) = view.flash {
+        let cells = layout.frame_cells(flash.cells);
+        draws.fill_faded(cells, Face::Flash, flash.strength);
+    }
+    draw_marks(draws, &view.marks, layout, metrics);
+}
+
 /// Draws a window's view of a buffer in `layout`: the rows of its region, its plain text in
 /// the faces of its highlights (ADR 0111), but where a jump's labels cover it (ADR 0116).
 pub(super) fn draw_text<G: GlyphSource>(
@@ -113,7 +136,9 @@ pub(super) fn draw_text<G: GlyphSource>(
     };
     rows.will_draw(shown.iter().map(|row| (row.line, columns_of(row).start)));
     let mut plain = std::mem::take(&mut draws.plain);
-    if view.highlights.is_some() {
+    let mut faded = std::mem::take(&mut draws.faded);
+    faded.read_cells(view.marks.faded.iter(), pane.region);
+    if view.highlights.is_some() || !faded.is_empty() {
         plain.read(view, pane.region);
     }
     for (index, row) in shown.iter().enumerate() {
@@ -129,12 +154,21 @@ pub(super) fn draw_text<G: GlyphSource>(
         let frame_row = row_layout.frame_cell(index, 0)[0];
         let faces = (view.highlights)
             .map(|highlights| RowFaces::new(highlights, &shaped_row.clusters, &plain, frame_row));
-        let faces = (faces, Covered::on(view.labels, frame_row));
+        let fade = (!faded.is_empty()).then(|| Fade {
+            faded: faded.on(frame_row),
+            plain: plain.on(frame_row),
+        });
+        let faces = (
+            faces,
+            Covered::on(view.labels, frame_row),
+            fade.unwrap_or_default(),
+        );
         if !draws.row((&row_layout, index), shaped_row, faces, system, glyphs) {
             break;
         }
     }
     draws.plain = plain;
+    draws.faded = faded;
     if let (Some(first), Some(last)) = (shown.first(), shown.last()) {
         let near = first.line.saturating_sub(shown.len())..=last.line.saturating_add(shown.len());
         rows.evict(shown.len(), near);

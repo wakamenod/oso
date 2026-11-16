@@ -156,6 +156,9 @@ pub struct Theme {
     kind: Kind,
     foreground: [[f32; 4]; FACES.len()],
     background: [[f32; 4]; FACES.len()],
+    /// Each foreground faded toward the text's background, for code a server says is
+    /// unnecessary (ADR 0138).
+    faded: [[f32; 4]; FACES.len()],
     panel: PanelStyle,
     text: TextGamma,
     terminal: TerminalPalette,
@@ -179,6 +182,12 @@ impl Theme {
     /// The colour of `face`'s coverage glyphs.
     pub(crate) fn foreground(&self, face: Face) -> [f32; 4] {
         self.foreground[index(face)]
+    }
+
+    /// The colour of `face`'s coverage glyphs where a server says the code is unnecessary
+    /// (ADR 0138): [`FADED`] of the way to the text's background, in sRGB, as VS Code fades it.
+    pub(crate) fn faded(&self, face: Face) -> [f32; 4] {
+        self.faded[index(face)]
     }
 
     /// The colour of `face`'s rectangles.
@@ -224,10 +233,12 @@ impl Theme {
             cursor: bytes(Face::Cursor, |(_, bg)| bg),
             ansi: TERMINAL.map(|face| bytes(face, |(fg, _)| fg)),
         };
+        let faded = FACES.map(|face| faded(source, face));
         Self {
             name: source.name,
             kind: source.kind,
             foreground: colors(|(fg, _)| fg),
+            faded,
             background: colors(|(_, bg)| bg),
             panel: PanelStyle {
                 shadow: palette(Name::Shadow),
@@ -239,6 +250,52 @@ impl Theme {
         }
     }
 }
+
+/// How far toward the text's background unnecessary code is faded, in sRGB (ADR 0138), at most:
+/// about VS Code's opacity of 0.67.
+pub(crate) const FADED: f32 = 0.35;
+
+/// `face`'s foreground faded toward the text's background in sRGB, [`FADED`] of the way or less,
+/// as far as keeps it at [`FADED_FLOOR`] on the background and the current line's band, in
+/// linear RGB (ADR 0138). A face already near its floor, such as a comment, fades less.
+fn faded(source: &Source, face: Face) -> [f32; 4] {
+    let color = |name| (source.palette)(name);
+    let ink = color((source.faces)(face).0);
+    let paper = color((source.faces)(Face::Text).1);
+    let toward = |amount: f32| {
+        let mix = |ink: u8, paper: u8| {
+            let (ink, paper) = (f32::from(ink), f32::from(paper));
+            decode((ink + (paper - ink) * amount) / 255.0)
+        };
+        let ([r, g, b], [pr, pg, pb]) = (ink.bytes(), paper.bytes());
+        [mix(r, pr), mix(g, pg), mix(b, pb), ink.alpha]
+    };
+    let papers = [paper, color((source.faces)(Face::CurrentLine).1)].map(Color::linear);
+    let reads = |amount| {
+        let faded = toward(amount);
+        papers
+            .iter()
+            .all(|&paper| contrast(faded, paper) >= FADED_FLOOR)
+    };
+    // The furthest that reads, by halves: the ratio falls as the colour nears the paper.
+    let (mut near, mut far) = (0.0, FADED);
+    if reads(far) {
+        return toward(far);
+    }
+    for _ in 0..12 {
+        let middle = (near + far) / 2.0;
+        if reads(middle) {
+            near = middle;
+        } else {
+            far = middle;
+        }
+    }
+    toward(near)
+}
+
+/// The ratio faded text keeps on the background and the current line's band: a label's
+/// (ADR 0089), the author's choice for unnecessary code (ADR 0138).
+const FADED_FLOOR: f32 = 4.5;
 
 /// The fills a syntax face is drawn on, besides the background. On every other fill, and
 /// under the flash, highlighted text keeps [`Face::Text`]'s colour, so a syntax face is checked
@@ -308,6 +365,12 @@ pub(crate) fn luminance(color: [f32; 4]) -> f32 {
     0.2126 * color[0] + 0.7152 * color[1] + 0.0722 * color[2]
 }
 
+/// WCAG's contrast ratio of two linear colours.
+fn contrast(a: [f32; 4], b: [f32; 4]) -> f32 {
+    let (a, b) = (luminance(a) + 0.05, luminance(b) + 0.05);
+    a.max(b) / a.min(b)
+}
+
 /// The coverage that, blended in linear light, gives what `coverage` blended in sRGB gives,
 /// for text of luminance `ink` on a background of luminance `paper`, at `gamma`'s strength.
 /// The text shader does the same (`text.wgsl`), and the tests compare the two.
@@ -324,12 +387,6 @@ pub(crate) fn corrected_coverage(coverage: f32, ink: f32, paper: f32, gamma: Tex
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-
-    /// WCAG's contrast ratio of two linear colours.
-    fn contrast(a: [f32; 4], b: [f32; 4]) -> f32 {
-        let (a, b) = (luminance(a) + 0.05, luminance(b) + 0.05);
-        a.max(b) / a.min(b)
-    }
 
     /// `color` laid over the opaque `under`, as the GPU blends it.
     fn over(color: [f32; 4], under: [f32; 4]) -> [f32; 4] {
@@ -417,6 +474,18 @@ pub(crate) mod tests {
         (Face::DiffRefineRemoved, 3.0),
         (Face::DiffFileHeader, 3.0),
         (Face::ReviewCommentPerson, 3.0),
+    ];
+
+    /// A diagnostic's wavy line is a mark to notice under text, on the fills a line of a buffer
+    /// a server follows can have; its count is a modeline's label (ADR 0138).
+    const DIAGNOSTIC_PAIRS: [(Face, f32); 7] = [
+        (Face::Text, 3.0),
+        (Face::CurrentLine, 3.0),
+        (Face::Region, 3.0),
+        (Face::SearchMatch, 3.0),
+        (Face::SearchCurrent, 3.0),
+        (Face::Modeline, 4.5),
+        (Face::ModelineInactive, 4.5),
     ];
 
     /// What each face's foreground must reach on which background (ADR 0089). A match with no
@@ -533,6 +602,11 @@ pub(crate) mod tests {
             | Face::GitHash
             | Face::GitDetail
             | Face::GitCommitOverlong => &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)],
+            // A diagnostic's wavy line, a mark under text, on what is behind a line, its sign on
+            // the gutter's background, and its count on a modeline (ADR 0138).
+            Face::DiagnosticError | Face::DiagnosticWarning | Face::DiagnosticInfo => {
+                &DIAGNOSTIC_PAIRS
+            }
             // A terminal's colours are read on the text's background, as highlighted text is,
             // but its blacks, greys and whites, which programs draw on one another (ADR 0120).
             Face::TerminalColor1
@@ -1034,6 +1108,60 @@ pub(crate) mod tests {
                     let apart = distance(fill(label), colour);
                     assert!(apart >= 0.09, "{name}: {label:?} and {what} {apart:.3}");
                 }
+            }
+        }
+    }
+
+    /// Code a server says is unnecessary is faded, syntax colours kept, and stays read at 4.5:1
+    /// on the background and the current line's band (ADR 0138, the author's choice).
+    #[test]
+    fn faded_text_is_read_on_the_background_and_the_band() {
+        let read = [
+            Face::Text,
+            Face::SyntaxComment,
+            Face::SyntaxString,
+            Face::SyntaxKeyword,
+            Face::SyntaxType,
+            Face::SyntaxFunction,
+            Face::SyntaxConstant,
+            Face::SyntaxProperty,
+            Face::SyntaxMacro,
+            Face::SyntaxHeading,
+            Face::SyntaxLink,
+            Face::SyntaxMarkup,
+        ];
+        for theme in &themes() {
+            for face in read {
+                for behind in [Face::Text, Face::CurrentLine] {
+                    let paper = theme.background(behind);
+                    let ratio = contrast(theme.faded(face), paper);
+                    assert!(
+                        ratio >= 4.5,
+                        "{}: {face:?} faded on {behind:?} {ratio:.2}",
+                        theme.name()
+                    );
+                    // Faded is dimmer than it was, so it reads as faded.
+                    assert!(ratio < contrast(theme.foreground(face), paper));
+                }
+            }
+        }
+    }
+
+    /// An error, a warning and information are told apart by their colour, in the text, the
+    /// gutter and the modeline, and an error from the warning face's `lsp!` (ADR 0138).
+    #[test]
+    fn a_diagnostics_severities_are_told_apart() {
+        for theme in &themes() {
+            let name = theme.name();
+            let ink = |face| theme.foreground(face);
+            for (a, b) in [
+                (Face::DiagnosticError, Face::DiagnosticWarning),
+                (Face::DiagnosticWarning, Face::DiagnosticInfo),
+                (Face::DiagnosticError, Face::DiagnosticInfo),
+                (Face::DiagnosticError, Face::Warning),
+            ] {
+                let apart = distance(ink(a), ink(b));
+                assert!(apart >= 0.09, "{name}: {a:?} and {b:?} {apart:.3}");
             }
         }
     }

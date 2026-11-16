@@ -22,7 +22,8 @@ pub use capture::{Capture, CaptureError, GpuInfo, Image};
 use paint::Painter;
 pub use pane::{
     Bands, CursorStyle, Face, FlashFill, GridCell, GridColor, GridCursor, GridCursorShape, GridRow,
-    GridStyle, GridView, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextView,
+    GridStyle, GridView, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextMarks,
+    TextView,
 };
 use theme::{Theme, themes};
 

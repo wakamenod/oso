@@ -4,9 +4,13 @@
 //!
 //! Must not depend on: key presses or commands; a frame only reads the editor's state.
 
+use oso_core::buffer::BufferId;
+use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
 use oso_core::editor::{Editor, Preview};
 use oso_core::frame::CellRect;
-use oso_render::{Bands, CursorStyle, Layer, Pane, PaneContent, PaneId, TextView};
+use oso_core::syntax::Highlights;
+use oso_core::window::Screen;
+use oso_render::{Bands, CursorStyle, Face, Layer, Pane, PaneContent, PaneId, TextMarks, TextView};
 
 use super::{Lines, Parts, Screens};
 
@@ -61,22 +65,9 @@ pub(super) fn preview_panes<'a>(
             };
             let cursor = display.offset_to_display_point(cursor);
             // Its rows are shaped in a pane of their own, so the prompt's id only names them.
-            let view = TextView {
-                display,
-                buffer: prompt.buffer(),
-                revision,
-                screen,
-                cursor,
-                cursor_style: CursorStyle::Hollow,
-                others: &[],
-                preedit: None,
-                fills: screens.preview_fills,
-                labels: &[],
-                whitespace: false,
-                flash: None,
-                // An excerpt is not parsed, so it shows uncoloured.
-                highlights: None,
-            };
+            // An excerpt is not parsed, so it shows uncoloured.
+            let shown = (prompt.buffer(), revision, cursor);
+            let view = hollow(display, screen, shown, (screens.preview_fills, None));
             pane(EXCERPT_PANE, preview, PaneContent::Text(view))
         }
         Some(Preview::Buffer { id, cursor, .. }) => {
@@ -87,22 +78,9 @@ pub(super) fn preview_panes<'a>(
             let cursor = display.offset_to_display_point(cursor);
             // From the row that holds the start, wrapped at the preview's width while the
             // buffer wraps (ADR 0100).
-            let view = TextView {
-                display,
-                buffer: id,
-                revision: buffer.revision(),
-                screen,
-                cursor,
-                cursor_style: CursorStyle::Hollow,
-                others: &[],
-                preedit: None,
-                fills: screens.preview_fills,
-                labels: &[],
-                // Floats have no visual aids (ADR 0097).
-                whitespace: false,
-                flash: None,
-                highlights: buffer.highlights(),
-            };
+            let shown = (id, buffer.revision(), cursor);
+            let fills = screens.preview_fills;
+            let view = hollow(display, screen, shown, (fills, buffer.highlights()));
             let number = u32::try_from(id.get()).unwrap_or(u32::MAX);
             pane(
                 PREVIEW_PANES.saturating_add(number),
@@ -112,4 +90,31 @@ pub(super) fn preview_panes<'a>(
         }
     };
     list.push(content);
+}
+
+/// A preview's view of a buffer's `display` as `screen` shows it: the buffer, its revision and
+/// its cursor in `shown`, hollow and read-only, with `fills` behind its text and `highlights`.
+/// Floats have no visual aids (ADR 0097), and a preview no diagnostics.
+fn hollow<'a>(
+    display: DisplaySnapshot,
+    screen: &'a Screen,
+    (buffer, revision, cursor): (BufferId, u64, DisplayPoint),
+    (fills, highlights): (&'a [(Face, &'a [CellRect])], Option<&'a Highlights>),
+) -> TextView<'a> {
+    TextView {
+        display,
+        buffer,
+        revision,
+        screen,
+        cursor,
+        cursor_style: CursorStyle::Hollow,
+        others: &[],
+        preedit: None,
+        fills,
+        labels: &[],
+        whitespace: false,
+        flash: None,
+        highlights,
+        marks: TextMarks::NONE,
+    }
 }

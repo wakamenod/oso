@@ -447,6 +447,7 @@ mod tests {
                             PaneContent::Text(_)
                             | PaneContent::Masked(_)
                             | PaneContent::Grid(_)
+                            | PaneContent::Signs(_)
                             | PaneContent::Divider => Vec::new(),
                             PaneContent::Lines(lines) => lines[0]
                                 .iter()
@@ -509,6 +510,7 @@ mod tests {
                         PaneContent::Divider => "divider".to_owned(),
                         PaneContent::Masked(_) => String::new(),
                         PaneContent::Grid(_) => "grid".to_owned(),
+                        PaneContent::Signs(signs) => format!("signs {signs:?}"),
                     };
                     (pane.id, pane.region, pane.background, what)
                 })

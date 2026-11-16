@@ -53,6 +53,7 @@ fn view<'a>(buffer: &Buffer, revision: u64, look: Look<'a>) -> PaneContent<'a> {
         whitespace: look.whitespace,
         flash: look.flash,
         highlights: look.highlights,
+        marks: crate::pane::TextMarks::NONE,
     })
 }
 
@@ -335,6 +336,7 @@ fn a_box_and_the_wrap_mark_keep_their_faces_inside_a_highlight() {
         whitespace: false,
         flash: None,
         highlights: Some(&runs),
+        marks: crate::pane::TextMarks::NONE,
     });
     let mut scene = Scene::new(LIMITS, theme());
     build(

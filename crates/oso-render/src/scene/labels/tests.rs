@@ -34,6 +34,7 @@ fn view<'a>(
         whitespace: false,
         flash: None,
         highlights: None,
+        marks: crate::pane::TextMarks::NONE,
     })
 }
 

@@ -18,7 +18,7 @@ use oso_core::frame::{CellRect, WindowRegions};
 use oso_core::window::{Screen, WindowId};
 use oso_render::{
     Bands, CursorStyle, Face, FlashFill, GridRow, GridView, Layer, Pane, PaneContent, PaneId, Span,
-    TextView,
+    TextMarks, TextView,
 };
 
 use super::spaces::SpacesFills;
@@ -516,6 +516,7 @@ fn text<'a>(
         flash,
         // None while font-lock is off, and in a buffer that may hold secrets (ADR 0111).
         highlights: buffer.highlights(),
+        marks: TextMarks::NONE,
     })
 }
 

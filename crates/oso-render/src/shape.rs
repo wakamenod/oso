@@ -1,6 +1,7 @@
 //! Filled rectangles under the text: panes' backgrounds, the boxes of invisible
 //! characters and the cursor box. Also rounded boxes with an outline and a soft shadow,
-//! such as a float's panel, in a second pipeline of one instanced quad each (ADR 0075).
+//! such as a float's panel, in a second pipeline of one instanced quad each (ADR 0075), and
+//! wavy lines, such as a diagnostic's, in a third (ADR 0138).
 //!
 //! Must not depend on: `atlas`, `grid`, `text` or anything else about text; it
 //! knows pixels and colors.
@@ -81,6 +82,36 @@ impl Rounded {
 /// The most rounded boxes in one frame: a float needs four.
 pub(crate) const MAX_ROUNDED: usize = 64;
 
+/// A wavy line as the GPU takes it: four `vec4`s (see `wave.wgsl`). One quad draws a run of
+/// cells' line, a sine that swings between the top and the bottom of its band, its phase from
+/// the frame's left so that runs side by side join (ADR 0138).
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
+pub(crate) struct Wave {
+    /// The band's x, y, width and height, in pixels.
+    pub(crate) rect: [f32; 4],
+    /// Linear RGBA, straight alpha.
+    pub(crate) color: [f32; 4],
+    /// The line's thickness and its period, in pixels. The rest is unused.
+    pub(crate) params: [f32; 4],
+    /// The quad drawn, already cut to its pane on the CPU: left, top, right and bottom.
+    pub(crate) bounds: [f32; 4],
+}
+
+impl Wave {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        const ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4];
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Wave>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &ATTRIBUTES,
+        }
+    }
+}
+
+/// The most wavy lines in one frame: one a run of cells of one severity, a few a row.
+pub(crate) const MAX_WAVES: usize = 4096;
+
 // ---- Uniforms (orthographic projection matrix) -----------------------------
 
 /// CPU-side mirror of the WGSL `Uniforms` struct.
@@ -133,6 +164,9 @@ pub struct ShapeRenderer {
     rounded_pipeline: wgpu::RenderPipeline,
     /// Holds [`MAX_ROUNDED`] boxes, written only in a frame that has some.
     rounded_buffer: wgpu::Buffer,
+    /// The wavy lines' pipeline, and a buffer of [`MAX_WAVES`] of them, written only in a frame
+    /// that has some.
+    waves: (wgpu::RenderPipeline, wgpu::Buffer),
 }
 
 /// A filled rectangle: its top-left corner, size and color, in pixels.
@@ -160,9 +194,6 @@ impl ShapeRenderer {
         width: f32,
         height: f32,
     ) -> Self {
-        // Compile the WGSL shader module.
-        let shader = device.create_shader_module(wgpu::include_wgsl!("cursor.wgsl"));
-
         // Uniform buffer (orthographic projection matrix).
         let uniforms = Uniforms::new(width, height);
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -203,10 +234,36 @@ impl ShapeRenderer {
             immediate_size: 0,
         });
 
-        // Render pipeline.
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = Self::rect_pipeline(device, format, &pipeline_layout);
+        let rounded_pipeline = Self::rounded_pipeline(device, format, &pipeline_layout);
+        Self {
+            pipeline,
+            rounded_pipeline,
+            waves: Self::waves(device, format, &pipeline_layout),
+            rounded_buffer: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Rounded Instance Buffer"),
+                size: (std::mem::size_of::<Rounded>() * MAX_ROUNDED) as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            vertex_buffer: Self::vertex_buffer(device, INITIAL_RECTS),
+            capacity: INITIAL_RECTS,
+            vertices: Vec::with_capacity(INITIAL_RECTS * RECT_VERTICES),
+            uniform_buffer,
+            bind_group,
+        }
+    }
+
+    /// The pipeline of filled rectangles: two triangles each, in straight alpha.
+    fn rect_pipeline(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        layout: &wgpu::PipelineLayout,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::include_wgsl!("cursor.wgsl"));
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Shape Pipeline"),
-            layout: Some(&pipeline_layout),
+            layout: Some(layout),
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
@@ -234,24 +291,7 @@ impl ShapeRenderer {
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
             cache: None,
-        });
-
-        let rounded_pipeline = Self::rounded_pipeline(device, format, &pipeline_layout);
-        Self {
-            pipeline,
-            rounded_pipeline,
-            rounded_buffer: device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Rounded Instance Buffer"),
-                size: (std::mem::size_of::<Rounded>() * MAX_ROUNDED) as u64,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
-            vertex_buffer: Self::vertex_buffer(device, INITIAL_RECTS),
-            capacity: INITIAL_RECTS,
-            vertices: Vec::with_capacity(INITIAL_RECTS * RECT_VERTICES),
-            uniform_buffer,
-            bind_group,
-        }
+        })
     }
 
     /// The pipeline of rounded boxes: instanced quads, premultiplied (ADR 0075).
@@ -291,6 +331,51 @@ impl ShapeRenderer {
         })
     }
 
+    /// The pipeline of wavy lines, instanced quads, premultiplied, and the buffer of their
+    /// instances (ADR 0138).
+    fn waves(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        layout: &wgpu::PipelineLayout,
+    ) -> (wgpu::RenderPipeline, wgpu::Buffer) {
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Wave Instance Buffer"),
+            size: (std::mem::size_of::<Wave>() * MAX_WAVES) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let shader = device.create_shader_module(wgpu::include_wgsl!("wave.wgsl"));
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Wave Pipeline"),
+            layout: Some(layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Wave::desc()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        (pipeline, buffer)
+    }
+
     fn vertex_buffer(device: &wgpu::Device, rects: usize) -> wgpu::Buffer {
         device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Shape Vertex Buffer"),
@@ -306,19 +391,24 @@ impl ShapeRenderer {
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
     }
 
-    /// Uploads this frame's rectangles, at most [`MAX_RECTS`] of them. Must be
-    /// called before the render pass begins.
+    /// Uploads this frame's rectangles, at most [`MAX_RECTS`] of them, its rounded boxes and its
+    /// wavy lines. Must be called before the render pass begins.
     pub(crate) fn prepare(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         rects: &[Rect],
-        rounded: &[Rounded],
+        (rounded, waves): (&[Rounded], &[Wave]),
     ) {
         // A frame with no float writes nothing here.
         if !rounded.is_empty() {
             let rounded = &rounded[..rounded.len().min(MAX_ROUNDED)];
             queue.write_buffer(&self.rounded_buffer, 0, bytemuck::cast_slice(rounded));
+        }
+        // Nor one with no diagnostic in view.
+        if !waves.is_empty() {
+            let waves = &waves[..waves.len().min(MAX_WAVES)];
+            queue.write_buffer(&self.waves.1, 0, bytemuck::cast_slice(waves));
         }
         self.vertices.clear();
         for rect in rects {
@@ -355,6 +445,17 @@ impl ShapeRenderer {
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         let vertices = RECT_VERTICES as u32;
         pass.draw(range.start * vertices..range.end * vertices, 0..1);
+    }
+
+    /// Records the wavy lines in `range`, in order: one quad each.
+    pub(crate) fn render_waves(&self, pass: &mut wgpu::RenderPass<'_>, range: Range<u32>) {
+        if range.is_empty() {
+            return;
+        }
+        pass.set_pipeline(&self.waves.0);
+        pass.set_bind_group(0, &self.bind_group, &[]);
+        pass.set_vertex_buffer(0, self.waves.1.slice(..));
+        pass.draw(0..4, range);
     }
 
     /// Records the rounded boxes in `range`, in order: one quad each.
