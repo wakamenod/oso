@@ -349,6 +349,37 @@ fn a_merged_branch_is_removed_and_kept() {
 }
 
 #[test]
+fn a_removal_past_the_time_limit_is_not_cut_short() {
+    let s = Scratch::new("slow-remove");
+    let made = s.create("slow").unwrap();
+    // git's own clean check before it deletes re-reads a.txt through this filter: 2 s, past
+    // the 1 s every other run here gets.
+    s.git(&["config", "filter.slow.clean", "sleep 2; cat"]);
+    fs::write(s.root.join(".git/info/attributes"), "a.txt filter=slow\n").unwrap();
+    fs::write(made.path.join("a.txt"), "a\n").unwrap();
+    // A file system monitor the repository names does not run for the removal either.
+    let marker = s.dir.join("fsmonitor-ran");
+    let monitor = s.dir.join("fsmonitor");
+    fs::write(
+        &monitor,
+        format!("#!/bin/sh\ntouch '{}'\n", marker.display()),
+    )
+    .unwrap();
+    fs::set_permissions(&monitor, fs::Permissions::from_mode(0o755)).unwrap();
+    s.git(&["config", "core.fsmonitor", monitor.to_str().unwrap()]);
+    let limit = std::time::Duration::from_secs(1);
+    let started = std::time::Instant::now();
+    checks::remove(&s.repo().with_limit(limit), &made.path).unwrap();
+    assert!(started.elapsed() > limit);
+    assert!(!made.path.exists(), "all of it went");
+    assert!(!marker.exists(), "the repository's monitor did not run");
+    assert!(
+        !s.git(&["branch", "--list", "slow"]).is_empty(),
+        "the branch is kept"
+    );
+}
+
+#[test]
 fn git_refuses_a_worktree_that_changed_after_its_checks() {
     let s = Scratch::new("late");
     let made = s.create("late").unwrap();

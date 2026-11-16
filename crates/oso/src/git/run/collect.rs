@@ -1,6 +1,6 @@
 //! Reading a run of git's output, bounded (ADR 0122, ADR 0127): waiting for a child with its
 //! standard output and error read on threads of their own, `oso-git-read`, and its input
-//! written on another, `oso-git-write`, a run past [`RUN_LIMIT`] killed and left, and the reads'
+//! written on another, `oso-git-write`, a run past its limit, [`RUN_LIMIT`](super::RUN_LIMIT), killed and left, and the reads'
 //! limits.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs on the threads that
@@ -10,22 +10,24 @@ use std::io::{self, Read, Write};
 use std::process::{ChildStdout, ExitStatus};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use oso_platform::process::Child;
 
-use super::{EXIT_POLL, GitError, MAX_STDERR, Output, RUN_LIMIT};
+use super::{EXIT_POLL, GitError, MAX_STDERR, Output};
 
 /// Waits for `child`, started with piped standard output and error, writing `input` to its
 /// standard input if there is one, and keeping what `read` keeps of its output, which says
 /// whether it cut it, and the start of its standard error. A cut run is killed; a run past
-/// [`RUN_LIMIT`] is killed and left. `gh` is run this way too (ADR 0121).
+/// `limit`, [`RUN_LIMIT`](super::RUN_LIMIT) but in a test, is killed and left. `gh` is run this way too (ADR
+/// 0121).
 pub(crate) fn collect(
     mut child: Child,
     input: Option<Vec<u8>>,
     read: impl FnOnce(ChildStdout) -> io::Result<(Vec<u8>, bool)> + Send + 'static,
+    limit: Duration,
 ) -> Result<Output, GitError> {
-    let deadline = Instant::now() + RUN_LIMIT;
+    let deadline = Instant::now() + limit;
     let streams = (child.stdout.take(), child.stderr.take());
     let (Some(stdout), Some(stderr)) = streams else {
         stop(&mut child);

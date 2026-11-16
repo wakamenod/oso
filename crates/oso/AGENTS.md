@@ -63,7 +63,7 @@ often, so it must rebuild within 2 s.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a
   hosted session's state from its screen, the tracker, the `oso-sessions` worker, and worktree
   sessions (`sessions/worktree/`), whose git and `gh` jobs run on `oso-sessions-git`, beside the
-  worker. Their patterns use `regex`, compiled with size limits; the screen is untrusted text.
+  worker; a removal's `git worktree remove` runs on `oso-sessions-remove`, with no time limit. Their patterns use `regex`, compiled with size limits; the screen is untrusted text.
   Hosted sessions get ready and start their terminal on `oso-session-start` (`start`), with a
   command line built by pure functions (`command`, `launch`); Claude Code's registry
   (`registry`) and oso's record (`record`) are read off the UI thread, and a bridge's claim is

@@ -1499,6 +1499,48 @@ coordinator approved these points:
   The end-to-end flow checks the command line, the directory and the record with step 1's fake
   `claude`.
 
+## Worktree removal, as fixed
+
+Fixed on 2026-11-17, with the author's approval through the coordinator. Two agent removals of
+finished, merged, clean worktrees, each with a large ignored `target/`, said "kept: git took
+more than 10 s". About 1,400 tracked files were gone from each, and a retry was refused, as
+check 2 saw them as changes. The 10 s limit had killed `git worktree remove` partway through its
+deletion.
+
+- **The removal's own `git worktree remove` runs with no time limit,** for the person's
+  `worktree-remove` and an agent's `worktree_remove` alike. This is an exception to "a time
+  limit of 10 s each" above and to step 4's "every git run for worktrees is ADR 0122's runner
+  … 10 s". It sits beside ADR 0126's exception for `worktree-create`'s fetch and `git worktree
+  add`. Once git runs, every check has held and git may be deleting. So oso never asks it to
+  stop: not on a time limit, `C-g`, revoking the project's trust or quitting oso. Only an error
+  reading the run, or a panic of its thread, ends it, as it ends any long run. It runs on ADR
+  0127's long runner with the same arguments and environment as every other run, but in a
+  session of its own with no controlling terminal, as a remote's run is: a filter that opens
+  the terminal fails instead of stopping. Unlike ADR 0127's long runs, it is not the person's
+  act to stop, and it keeps no `Ender`. On Windows, git gets no group or session of its own
+  (ADR 0127, Q6). Every other git and `gh` run of a check or a listing keeps its 10 s.
+- **It runs on a thread of its own, `oso-sessions-remove`,** once the checks held and the app
+  cleared the worktree. The job's pool thread is then free, so two large removals do not hold up
+  the listings. If no thread can start, git does not run and the worktree is kept.
+- **A removal holds its worktree from its job's start until git ends.** Meanwhile a second
+  removal of it and its checks are refused with "a removal of it still runs", and so is a
+  session started in it. At most 4 removals run at once; a fifth is refused until one ends.
+- **Quitting oso leaves git to finish.** No `Ender` is kept for it, and its session gets no
+  signal from oso's exit. An agent's reply still says that the removal goes on after 60 s.
+  While oso runs, the echo area says how it ended, and the space forgets the worktree, even
+  when the person has gone on to another `worktree-remove`. A restart while git deletes loses
+  that report: the next listing shows the worktree gone, but its space still lists it as a
+  member.
+- **Not built:**
+  - deleting what git ignores first in a step of oso's own. oso would need a recursive
+    deletion of its own, and git's deletion of the tracked files could still be slow;
+  - finishing a half-removed worktree. git finishes one only with `--force`, which this ADR
+    keeps from agents; ADR 0126's planned `C-u` removal, the person's, after typing `yes`, is
+    the way to finish one. With the fix, oso leaves no worktree half removed in its own
+    removals;
+  - a longer limit. oso cannot tell from outside when git starts deleting, so any limit could
+    stop it partway.
+
 ## Consequences
 
 - A session needs no hook and no change to Claude Code's settings; its identity and MCP server come

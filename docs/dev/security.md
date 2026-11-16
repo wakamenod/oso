@@ -584,13 +584,20 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     how many. `app/vcs/draft.rs` is one of the tools' files the guard test keeps from
     terminals, and none of them may call `send_to_session`.
 - Worktree sessions run git and `gh` only for a trusted project whose main repository is
-  trusted too, on `oso-sessions-git`, through `oso-platform::process`
+  trusted too, on `oso-sessions-git` (a removal's `git worktree remove` on
+  `oso-sessions-remove`), through `oso-platform::process`
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 4).
   - Each job checks the project's trust when it runs, and a worktree being made between its
     steps: a project no longer trusted, or whose root is no longer the directory that was
     trusted, runs no git.
   - Every git run has no hook and no file system monitor of the repository's, as a review's
-    has, `git worktree add` included. It fetches nothing and is killed after 10 s.
+    has, `git worktree add` included. It fetches nothing and is killed after 10 s, except a
+    removal's `git worktree remove`: it runs only after every check held, has no time limit,
+    and oso never stops it, as a kill would leave the worktree half removed. Revoking the
+    project's trust does not end it either. It runs in a session of its own with no
+    controlling terminal, so what it starts cannot wait on the terminal oso was started from.
+    While it runs, its worktree is held: a second removal of it, its checks and a session
+    started in it are refused, and at most 4 removals run at once.
   - A linked worktree is run in only once its claim and the main repository's record of it
     hold, with `GIT_DIR` and `GIT_WORK_TREE` given.
   - `gh` runs in an empty private directory and names the repository with `--repo`, so it runs

@@ -2,7 +2,8 @@
 //! on the UI thread. `session-worktree` lists the project's branches, opens `*Brief*`, and on
 //! `C-c C-c` makes the worktree and starts its session. `worktree-list` fills `*Worktrees*` row
 //! by row. `worktree-remove` checks first, asks, and removes only a worktree nothing would be
-//! lost from. Every git and `gh` call is a job on the `oso-sessions-git` threads. A made
+//! lost from. Every git and `gh` call is a job on the `oso-sessions-git` threads, but a
+//! removal's `git worktree remove`, which runs on `oso-sessions-remove`. A made
 //! worktree is held by the issue space that made it, where its session joins (ADR 0136).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
