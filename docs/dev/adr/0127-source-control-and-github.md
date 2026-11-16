@@ -814,6 +814,15 @@ last 200 lines; (6) one pull request.
   Decision's text with the output's last 200 lines and 64 KiB, in a fence longer than any run
   of backticks in it; a run past 15 backticks is cut to 15, so that the fence stays short. A new
   commit forgets the failure.
+- **What a fix request leaves out** (the author's choice, 2026-11-16): lines of the output
+  shaped like a key or a token (`vcs/agent/withhold.rs`): a private key's armour and every line
+  to its end, well-known token prefixes, JSON web tokens, an assignment to a word such as
+  `password` or `token`, and a run of 32 base64 characters mixing cases and digits; a commit id
+  is kept. The request and the echo area say how many lines went, so that a hook that prints
+  what it found, as a secret scanner does, gives the agent none of it.
+- **The guard:** `app/vcs/draft.rs`, which carries `draft_set` out, is one of the session
+  tools' files the architecture test keeps from terminals and processes, and `send_to_session`
+  is banned there with the rest (the author's approval, 2026-11-16).
 - **Deviations:** (1) With several sessions in the worktree, the one shown last is asked, with
   no completion (the author accepted it, 2026-11-16). (2) `F` works anywhere in the log, as the
   log has no entries yet (Q4). (3) The person's text is kept as `#` lines under a line naming
@@ -825,7 +834,8 @@ last 200 lines; (6) one pull request.
   of the worktree. (7) A fix request cuts runs of backticks past 15. (8) A draft is refused over
   64 KiB of the person's own text, and its blank runs are one, its invisible characters out
   but the joiners and variation selectors of an emoji. (9) The echo area says how many lines
-  each paste holds.
+  each paste holds. (10) A fix request leaves out lines shaped like secrets, which the Decision
+  does not have.
 - **Library items** (approved): `GitRequest::{DraftMessage, FixWithAgent}`; the session tool
   `draft_set`.
 - **Tests:** the requests' texts, the fence, the end of a long output, a draft cleaned and put

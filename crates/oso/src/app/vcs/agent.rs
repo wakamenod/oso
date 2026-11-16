@@ -114,7 +114,7 @@ impl App {
         let worktree = escaped(&root.display().to_string(), 400);
         let kind = self.gits.commits.drafts[at].kind;
         let text = draft_request(kind, &worktree, subjects, &id);
-        if self.ask_session(key, text, "a draft; it comes back to this message") {
+        if self.ask_session(key, text, "a draft; it comes back to this message", "") {
             self.gits.commits.drafts[at].asked = Some(Asked {
                 id,
                 at: Instant::now(),
@@ -156,19 +156,25 @@ impl App {
             return self.editor.message(NO_SESSION);
         };
         let worktree = escaped(&root.display().to_string(), 400);
-        let text = fix_request(&worktree, &failed.hooks, &failed.output);
-        let _ = self.ask_session(key, text, "a fix; C-c C-c commits again once it is done");
+        let (text, dropped) = fix_request(&worktree, &failed.hooks, &failed.output);
+        let note = match dropped {
+            0 => String::new(),
+            1 => "; 1 line that may hold a secret was left out".to_owned(),
+            n => format!("; {n} lines that may hold secrets were left out"),
+        };
+        let then = "a fix; C-c C-c commits again once it is done";
+        let _ = self.ask_session(key, text, then, &note);
     }
 
-    /// Pastes `text` into session `key`, saying what comes of it, or why nothing was pasted;
-    /// whether it was.
-    fn ask_session(&mut self, key: SessionKey, text: String, then: &str) -> bool {
+    /// Pastes `text` into session `key`, saying what comes of it and `note`, or why nothing was
+    /// pasted; whether it was.
+    fn ask_session(&mut self, key: SessionKey, text: String, then: &str, note: &str) -> bool {
         let name = (self.hosting.table().get(key)).map_or_else(String::new, |s| s.name.clone());
         let lines = text.lines().count();
         match self.send_to_session(key, text) {
             Ok(()) => {
                 self.editor.message(format!(
-                    "Asked {} for {then}, in {lines} lines: read them, then press Enter there",
+                    "Asked {} for {then}, in {lines} lines: read them, then press Enter there{note}",
                     one_line(&name, 40)
                 ));
                 true

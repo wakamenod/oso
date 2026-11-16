@@ -48,14 +48,75 @@ fn a_draft_request_names_the_worktree_the_subjects_and_the_id() {
 
 #[test]
 fn a_fix_request_holds_the_output_in_a_fence_and_names_the_hook() {
-    let text = fix_request("/w", &["pre-commit"], "$ git commit\nlint: a.rs:3 bad\n");
+    let text = fix_request("/w", &["pre-commit"], "$ git commit\nlint: a.rs:3 bad\n").0;
     assert_eq!(
         text,
         "`git commit` failed in /w (hook pre-commit). Its output, last 200 lines:\n```\n$ git commit\nlint: a.rs:3 bad\n```\nFix the cause. Do not commit, do not skip hooks, and do not amend; I will commit again."
     );
-    let two = fix_request("/w", &["pre-commit", "commit-msg"], "x\n");
+    let two = fix_request("/w", &["pre-commit", "commit-msg"], "x\n").0;
     assert!(two.contains("(hook pre-commit or commit-msg)"), "{two}");
-    assert!(fix_request("/w", &[], "x").starts_with("`git commit` failed in /w. Its"));
+    assert!(
+        fix_request("/w", &[], "x")
+            .0
+            .starts_with("`git commit` failed in /w. Its")
+    );
+}
+
+#[test]
+fn lines_shaped_like_secrets_are_left_out_of_a_fix_request_and_counted() {
+    // Made from pieces, so that no secret scanner takes this file for one.
+    let piece = |parts: &[&str]| parts.concat();
+    let key = piece(&["PRIVATE", " KEY-----"]);
+    let output = [
+        "$ git commit\n".to_owned(),
+        piece(&["gitleaks: Finding: AWS_KEY=", "AKIA", "ABCDEFGHIJKLMNOP\n"]),
+        piece(&[
+            "tok",
+            "en = \"",
+            "ghp_",
+            "0123456789abcdefghijABCDEFGHIJ012345\"\n",
+        ]),
+        piece(&["-----BEGIN OPENSSH ", &key, "\n"]),
+        "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\n".to_owned(),
+        piece(&["-----END OPENSSH ", &key, "\n"]),
+        piece(&["pass", "word: ", "hunter2hunter2\n"]),
+        piece(&[
+            "Authorization: ",
+            "eyJ",
+            "hbGciOiJIUzI1NiJ9.",
+            "eyJ",
+            "zdWIiOiIxMjM0NSJ9.c2lnbmF0dXJl\n",
+        ]),
+        "lint: a.rs:3 bad\n".to_owned(),
+        "commit 3f0e91cbd2c1a0ffe1e2d3c4b5a69788a0b1c2d3 is fine\n".to_owned(),
+        piece(&["aB3dE5fG7hJ9", "kL1mN3pQ5rS7tU9vW1xY3z\n"]),
+    ]
+    .concat();
+    let (text, dropped) = fix_request("/w", &["pre-commit"], &output);
+    assert_eq!(dropped, 8, "{text}");
+    assert!(
+        text.contains("$ git commit\nlint: a.rs:3 bad\ncommit 3f0e91cb"),
+        "{text}"
+    );
+    for secret in [
+        "AKIA",
+        "ghp_",
+        "PRIVATE KEY",
+        "b3BlbnNz",
+        "hunter2",
+        "eyJhbG",
+        "aB3dE5",
+    ] {
+        assert!(!text.contains(secret), "{secret} in {text}");
+    }
+    assert!(
+        text.contains("```\n8 lines that may hold secrets were left out.\nFix"),
+        "{text}"
+    );
+    assert!(super::withhold::pattern().is_some());
+    let (plain, none) = fix_request("/w", &[], "error: tests failed\n");
+    assert_eq!(none, 0);
+    assert!(!plain.contains("left out"), "{plain}");
 }
 
 #[test]
@@ -64,7 +125,7 @@ fn the_fence_is_longer_than_any_run_of_backticks() {
     assert_eq!(fence_for("a ``` b"), "````");
     assert_eq!(fence_for("`````"), "``````");
     // A crafted run is cut in the request, so that its fence stays short.
-    let text = fix_request("/w", &[], &"`".repeat(64 * 1024));
+    let text = fix_request("/w", &[], &"`".repeat(64 * 1024)).0;
     assert!(text.len() < 400, "{}", text.len());
     assert!(text.contains(&format!("\n{}\n", "`".repeat(16))), "{text}");
 }
@@ -138,7 +199,7 @@ fn a_draft_takes_the_place_of_the_text_and_keeps_the_persons_as_comments() {
 proptest! {
     #[test]
     fn no_output_ends_the_fence_early(output in "[`a\\n]{0,80}") {
-        let text = fix_request("/w", &[], &output);
+        let text = fix_request("/w", &[], &output).0;
         let fence = fence_for(last_lines(&output, MAX_FIX_LINES, MAX_FIX_BYTES));
         // The fence opens and closes the output, and no line of the output is the fence.
         prop_assert_eq!(text.matches(&format!("\n{fence}\n")).count(), 2);

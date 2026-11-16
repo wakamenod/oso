@@ -511,7 +511,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     within 15 minutes, once, at most 16 KiB cleaned as a paste is, and commits nothing. The
     requests oso pastes into a session are the person's, read before Enter; a fix request holds
     the failed run's output, which the log withholds from the channel, so only the person's
-    paste gives it to the agent.
+    paste gives it to the agent, and leaves out its lines shaped like a key or a token, saying
+    how many. `app/vcs/draft.rs` is one of the tools' files the guard test keeps from
+    terminals, and none of them may call `send_to_session`.
 - Worktree sessions run git and `gh` only for a trusted project whose main repository is
   trusted too, on `oso-sessions-git`, through `oso-platform::process`
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 4).

@@ -73,19 +73,27 @@ pub(crate) fn draft_request(
 }
 
 /// The request to fix a commit in `worktree` that failed, naming `hooks`, with the end of
-/// `output`, what the run wrote.
-pub(crate) fn fix_request(worktree: &str, hooks: &[&str], output: &str) -> String {
+/// `output`, what the run wrote, less its lines that may hold a secret; and how many of those
+/// went.
+pub(crate) fn fix_request(worktree: &str, hooks: &[&str], output: &str) -> (String, usize) {
     let hook = match hooks {
         [] => String::new(),
         [one] => format!(" (hook {one})"),
         many => format!(" (hook {})", many.join(" or ")),
     };
-    let end = short_ticks(last_lines(output, MAX_FIX_LINES, MAX_FIX_BYTES));
+    let (kept, dropped) = withhold::withheld(last_lines(output, MAX_FIX_LINES, MAX_FIX_BYTES));
+    let end = short_ticks(&kept);
     let fence = fence_for(&end);
-    format!(
-        "`git commit` failed in {worktree}{hook}. Its output, last {MAX_FIX_LINES} lines:\n{fence}\n{}\n{fence}\nFix the cause. Do not commit, do not skip hooks, and do not amend; I will commit again.",
+    let left_out = match dropped {
+        0 => String::new(),
+        1 => "\n1 line that may hold a secret was left out.".to_owned(),
+        n => format!("\n{n} lines that may hold secrets were left out."),
+    };
+    let text = format!(
+        "`git commit` failed in {worktree}{hook}. Its output, last {MAX_FIX_LINES} lines:\n{fence}\n{}\n{fence}{left_out}\nFix the cause. Do not commit, do not skip hooks, and do not amend; I will commit again.",
         end.trim_end_matches('\n')
-    )
+    );
+    (text, dropped)
 }
 
 /// The last `lines` lines of `text`, at most `bytes` of them, from a line's start: a line
@@ -223,6 +231,8 @@ pub(crate) fn one_line(text: &str, max: usize) -> String {
         None => shown,
     }
 }
+
+mod withhold;
 
 #[cfg(test)]
 mod tests;
