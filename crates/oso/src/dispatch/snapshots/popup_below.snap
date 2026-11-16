@@ -1,0 +1,104 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: fn main() {\\n    let x = fo\\n}\\n"
+---
+keys: none
+│ ┆fn main() {                                      │
+│ ┆    let x = fo                                   │
+:                ^                                  :
+│ ┆}                                                │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+=-- t.rs  lsp  2:14  Fundamental  UTF-8 LF         =
+"                                                  "
+popup at row 2, column 12: 3 x 25
+│>foo       function fn() │
+: **                      :
+│ format    function fn() │
+: **                      :
+│ for_each  function fn() │
+: **                      :
+
+keys: C-p
+│ ┆fn main() {                                      │
+│ ┆    let x = fo                                   │
+:                ^                                  :
+│ ┆}                                                │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+=-- t.rs  lsp  2:14  Fundamental  UTF-8 LF         =
+"                                                  "
+popup at row 2, column 12: 3 x 25
+│ foo       function fn() │
+: **                      :
+│ format    function fn() │
+: **                      :
+│>for_each  function fn() │
+: **                      :
+
+keys: C-n
+│ ┆fn main() {                                      │
+│ ┆    let x = fo                                   │
+:                ^                                  :
+│ ┆}                                                │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+=-- t.rs  lsp  2:14  Fundamental  UTF-8 LF         =
+"                                                  "
+popup at row 2, column 12: 3 x 25
+│>foo       function fn() │
+: **                      :
+│ format    function fn() │
+: **                      :
+│ for_each  function fn() │
+: **                      :
+
+keys: r
+│ ┆fn main() {                                      │
+│ ┆    let x = for                                  │
+:                 ^                                 :
+│ ┆}                                                │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+=** t.rs  lsp  2:15  Fundamental  UTF-8 LF         =
+"                                                  "
+popup at row 2, column 12: 2 x 25
+│>format    function fn() │
+: ***                     :
+│ for_each  function fn() │
+: ***                     :
+
+keys: TAB
+│ ┆fn main() {                                      │
+│ ┆    let x = format                               │
+:                    ^                              :
+│ ┆}                                                │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+│ ┆                                                 │
+=** t.rs  lsp  2:18  Fundamental  UTF-8 LF         =
+"                                                  "

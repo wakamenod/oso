@@ -3,7 +3,7 @@
 //! what servers did, which keeps the last bytes the host says; and what the echo area says of
 //! the diagnostics at point (step 6), and the list of a project's (`M-g d`, step 6b,
 //! `diagnostics_list`, sharing `listed` with the list of an answer's places); the jumps an answer leads to, and back (step 8, `jumps`), and the list
-//! of an answer's places (step 8b, `xref_list`).
+//! of an answer's places (step 8b, `xref_list`); and the completion popup (step 9, `popup`).
 //!
 //! Must not depend on: the host's servers, threads or I/O; a command asks, and the host takes
 //! the request after the command and acts on the server.
@@ -11,6 +11,7 @@
 mod diagnostics_list;
 mod jumps;
 mod listed;
+mod popup;
 mod xref_list;
 
 use crate::buffer::{Buffer, BufferId};
@@ -20,6 +21,7 @@ pub use super::visits::VisitColumn;
 pub use diagnostics_list::{DiagnosticRow, DiagnosticRows, DiagnosticsRequest};
 pub use jumps::AskAt;
 pub use listed::{ListedAt, ListedHit};
+pub use popup::{POPUP_COLUMNS, POPUP_ROWS, Popup, PopupAnswer, PopupItem};
 pub use xref_list::{XrefKind, XrefRow, XrefRows};
 
 use super::Editor;
@@ -36,6 +38,8 @@ pub(super) struct Servers {
     pub(super) list: diagnostics_list::DiagnosticsList,
     /// The list of a server's places, `M-.`'s and `M-?`'s (step 8b).
     pub(super) xrefs: xref_list::XrefList,
+    /// The completion popup at point (step 9).
+    popup: Option<popup::Popup>,
     log: Option<BufferId>,
 }
 
@@ -52,6 +56,8 @@ pub enum ServerRequest {
     Definition(AskAt),
     /// `lsp-find-references` (step 8).
     References(AskAt),
+    /// `completion-at-point`: ask for the completions at the primary cursor (step 9).
+    Complete(AskAt),
     /// `lsp-go-to-xref`: go to the row the list of a server's places took
     /// ([`Editor::take_xref_hit`]), as an answer's jump goes (step 8b).
     GoToXref,

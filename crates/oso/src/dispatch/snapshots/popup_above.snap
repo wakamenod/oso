@@ -1,0 +1,34 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: a\\nb\\nc\\nd\\nfo\\n"
+---
+keys: none
+│ ┆a                                      │
+│ ┆b                                      │
+│ ┆c                                      │
+│ ┆d                                      │
+│ ┆fo                                     │
+:    ^                                    :
+│ ┆                                       │
+=-- t.rs  lsp  5:2  Fundamental  UTF-8 LF=
+"                                        "
+popup at row 0, column 1: 4 x 21
+│>foo      function   │
+: **                  :
+│ format   function   │
+: **                  :
+│ for_each  function  │
+: **                  :
+│ fold     function   │
+: **                  :
+
+keys: C-g
+│ ┆a                                      │
+│ ┆b                                      │
+│ ┆c                                      │
+│ ┆d                                      │
+│ ┆fo                                     │
+:    ^                                    :
+│ ┆                                       │
+=-- t.rs  lsp  5:2  Fundamental  UTF-8 LF=
+"                                        "

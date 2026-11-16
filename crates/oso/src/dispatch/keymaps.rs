@@ -52,6 +52,11 @@ pub(super) struct Keymaps {
     pub(super) rigid: Keymap,
     /// The commands the layer runs rather than closes for.
     pub(super) rigid_commands: Vec<CommandId>,
+    /// The completion popup's keys while it is open, before its selection was moved and
+    /// after, in the place of `C-x TAB`'s (ADR 0138, step 9).
+    pub(super) popup: [Keymap; 2],
+    /// The commands the popup stays open for: its own, and typing.
+    pub(super) popup_commands: Vec<CommandId>,
     /// Markdown's own keys, above the global ones in a Markdown buffer.
     pub(super) markdown: Keymap,
     /// A `*Brief*` buffer's own keys, and a `*Worktrees*` buffer's, above the global ones
@@ -94,6 +99,7 @@ impl Keymaps {
         let (list, copy) = bindings::recovery_keymaps(registry);
         let [minibuffer, question, completing, draft] = bindings::prompt_keymaps(registry);
         let session = bindings::session_keymap(registry);
+        let (popup, popup_commands) = bindings::popup_keymaps(registry);
         Self {
             global,
             user: Keymap::new(),
@@ -108,6 +114,8 @@ impl Keymaps {
             replace: bindings::replace_keymap(registry),
             rigid: bindings::rigid_keymap(registry),
             rigid_commands: bindings::rigid_commands(registry),
+            popup,
+            popup_commands,
             markdown: bindings::markdown_keymap(registry),
             worktrees: bindings::worktree_keymaps(registry),
             sessions: bindings::sessions_keymap(registry),
@@ -127,7 +135,7 @@ impl Keymaps {
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 28] {
+    pub(super) fn all(&self) -> [&Keymap; 30] {
         let Self {
             global,
             user,
@@ -142,6 +150,8 @@ impl Keymaps {
             replace,
             rigid,
             rigid_commands: _,
+            popup: [popup, popup_moved],
+            popup_commands: _,
             markdown,
             worktrees: [brief, worktrees],
             sessions,
@@ -172,6 +182,8 @@ impl Keymaps {
             jump,
             replace,
             rigid,
+            popup,
+            popup_moved,
             markdown,
             brief,
             worktrees,
@@ -201,7 +213,12 @@ impl Keymaps {
         } else {
             &self.lsp
         };
-        [&self.prefix[1], &self.prefix[0], minor, &self.rigid, minor]
+        // One place for a layer a key opens for a while: the popup's or `C-x TAB`'s.
+        let transient = match editor.popup() {
+            Some(popup) => &self.popup[usize::from(popup.moved())],
+            None => &self.rigid,
+        };
+        [&self.prefix[1], &self.prefix[0], minor, transient, minor]
     }
 
     /// The keymaps active now. A question's keys take the global keymap's place, so that
@@ -245,7 +262,9 @@ impl Keymaps {
         let minor: &[&Keymap] = match prefix {
             Some(prefix) if prefix.reads_minus() => &reading[..2 + minor_len],
             Some(prefix) if prefix.reads_digits() => &reading[1..2 + minor_len],
-            _ if editor.indent_rigidly_layer() => &reading[3..4 + minor_len],
+            _ if editor.indent_rigidly_layer() || editor.popup().is_some() => {
+                &reading[3..4 + minor_len]
+            }
             _ => &reading[2..2 + minor_len],
         };
         let major = if let Some(prompt) = editor.prompt() {

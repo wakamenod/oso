@@ -111,7 +111,8 @@ impl App {
         }
         let kind = match kind {
             AskKind::Definition => XrefKind::Definitions,
-            AskKind::References => XrefKind::References,
+            // Completions are no places; they never come here.
+            AskKind::References | AskKind::Completion => XrefKind::References,
         };
         if let Some(old) = self.servers.xrefs.stop() {
             self.freer.free(old);

@@ -104,7 +104,9 @@ impl Editor {
         Ok(())
     }
 
-    /// Moves the places in `buffer` of every window's history through an edit's `steps`.
+    /// Moves the places in `buffer` of every window's history through an edit's `steps`, and
+    /// the completion popup's word with them (step 9): what an answer led to or offered follows
+    /// the text as the cursors do.
     pub(in crate::editor) fn follow_jump_history(
         &mut self,
         buffer: BufferId,
@@ -113,6 +115,7 @@ impl Editor {
         for window in &mut self.windows {
             window.jumps_mut().follow(buffer, steps);
         }
+        self.popup_follows(buffer, steps);
     }
 
     /// Moves the places in `buffer` through what a sliced undo's step did since `before`, as
@@ -137,7 +140,7 @@ impl Editor {
     }
 
     /// Moves the places in `buffer` of every window's history through `map`, as a reload
-    /// moves the cursors.
+    /// moves the cursors, and closes a popup over it.
     pub(in crate::editor) fn map_jump_history(
         &mut self,
         buffer: BufferId,
@@ -145,6 +148,10 @@ impl Editor {
     ) {
         for window in &mut self.windows {
             window.jumps_mut().map(buffer, &mut map);
+        }
+        // A popup over a buffer read again no longer knows its word (step 9).
+        if self.popup().is_some_and(|popup| popup.buffer == buffer) {
+            self.close_popup();
         }
     }
 

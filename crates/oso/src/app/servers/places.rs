@@ -170,6 +170,14 @@ impl App {
         let taken = self.take_asker(index, serial, document, kind);
         let places = match outcome {
             Ok(Answered::Places(places)) => places,
+            Ok(Answered::Completion(completions)) => {
+                if let Some(taken) = taken {
+                    self.completed(taken, completions);
+                } else {
+                    self.freer.free(completions);
+                }
+                return;
+            }
             // A kind a later step asks for.
             Ok(_) => return,
             Err(why) => {
@@ -242,7 +250,7 @@ impl App {
         let Some(first) = places.first() else {
             self.editor.message(match kind {
                 AskKind::Definition => "No definition found",
-                AskKind::References => "No references found",
+                AskKind::References | AskKind::Completion => "No references found",
             });
             return;
         };

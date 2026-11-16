@@ -1,14 +1,13 @@
 //! What the UI asks a server about a document, and what comes back (ADR 0138, Go to definition
-//! and back, step 8): the definitions or references at a byte offset. Steps 9 and 10 add their
-//! kinds here.
+//! and back, step 8): the definitions or references at a byte offset, and the completions there
+//! (step 9). Step 10 adds its kind here.
 //!
 //! Must not depend on: the session's loop or the pipes; these are the values that cross
 //! between the UI and the session thread.
 //!
 //! - One ask of each kind for each document is in flight; a newer one cancels the older with
 //!   `$/cancelRequest`, and the older gets no answer.
-//! - Each waits at most [`DEFINITION_WAIT`](crate::limits::DEFINITION_WAIT); a run that ends
-//!   fails what waits.
+//! - Each waits at most its kind's wait ([`AskKind::wait`]); a run that ends fails what waits.
 //! - An answer wakes the UI at once.
 
 use std::ops::Range;
@@ -23,6 +22,8 @@ pub enum AskKind {
     Definition,
     /// `textDocument/references`, the declaration included.
     References,
+    /// `textDocument/completion`, as the person asked (step 9).
+    Completion,
 }
 
 impl AskKind {
@@ -31,6 +32,15 @@ impl AskKind {
         match self {
             Self::Definition => "textDocument/definition",
             Self::References => "textDocument/references",
+            Self::Completion => "textDocument/completion",
+        }
+    }
+
+    /// How long its answer is waited for (ADR 0138's table).
+    pub fn wait(self) -> std::time::Duration {
+        match self {
+            Self::Definition | Self::References => crate::limits::DEFINITION_WAIT,
+            Self::Completion => crate::limits::COMPLETION_WAIT,
         }
     }
 
@@ -39,6 +49,7 @@ impl AskKind {
         match self {
             Self::Definition => "definition",
             Self::References => "references",
+            Self::Completion => "completion",
         }
     }
 }
@@ -67,13 +78,49 @@ pub struct Answer {
     pub outcome: Result<Answered, String>,
 }
 
-/// What a server answered, by what was asked. Steps 9 and 10 add theirs.
+/// What a server answered, by what was asked. Steps 9b and 10 add theirs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Answered {
     /// Definitions or references: at most [`LOCATIONS_MAX`](crate::limits::LOCATIONS_MAX)
     /// places, in the server's order.
     Places(Vec<Location>),
+    /// Completions (step 9).
+    Completion(Completions),
+}
+
+/// The completions an answer offers, at most
+/// [`COMPLETION_ITEMS_MAX`](crate::limits::COMPLETION_ITEMS_MAX), in the server's order; whether
+/// it said the list is incomplete; and the caller's revision of the text their ranges are in.
+/// `Debug` gives the counts only: an item can quote the person's text.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Completions {
+    pub revision: u64,
+    pub items: Vec<Completion>,
+    pub incomplete: bool,
+}
+
+impl std::fmt::Debug for Completions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Completions")
+            .field("revision", &self.revision)
+            .field("items", &self.items.len())
+            .field("incomplete", &self.incomplete)
+            .finish()
+    }
+}
+
+/// One completion: its label, kind (1 to 25) and detail as the popup shows them, what the typed
+/// word is matched against, the text it inserts, plain, and the byte range of the text of
+/// [`Completions::revision`] that the text replaces, if the server gave one.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Completion {
+    pub label: String,
+    pub kind: Option<u8>,
+    pub detail: String,
+    pub filter: Option<String>,
+    pub text: String,
+    pub range: Option<Range<usize>>,
 }
 
 /// A place an answer names: a file, by the path its `file:` URI reads as, and where in it.

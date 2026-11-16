@@ -31,6 +31,7 @@ mod messages;
 mod minibuffer;
 mod modes;
 mod motion;
+mod popup;
 mod prefix;
 mod projects;
 mod recovery;
@@ -96,6 +97,7 @@ const TABLES: &[&[Command]] = &[
     jump::COMMANDS,
     kill::COMMANDS,
     lsp::COMMANDS,
+    popup::COMMANDS,
     macros::COMMANDS,
     mark::COMMANDS,
     menus::COMMANDS,
@@ -302,6 +304,12 @@ mod tests {
         "review-fold-agents",
         // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
         "consult-mark",
+        // The completion popup is a float for the keyboard (ADR 0138, step 9).
+        "completion-at-point",
+        "completion-popup-insert",
+        "completion-popup-next",
+        "completion-popup-previous",
+        "completion-popup-quit",
         // Opening and writing files by a path the person typed (ADR 0087); the channel has
         // its own `open`. `dired` reads its directory in the same prompt, and the listing's
         // commands that open a file, show a buffer or write the clipboard do so in the host,

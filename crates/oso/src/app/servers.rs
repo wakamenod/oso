@@ -1,4 +1,4 @@
-//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8 and 8b), on the UI thread: which server a
+//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8, 8b and 9), on the UI thread: which server a
 //! buffer's open would start, starting one for a project's root and entry, what the commands
 //! ask, what each server's thread reports, the modeline's marks, and the ends that trust, the
 //! configuration and a quit bring. One server runs per root and entry. The UI thread never
@@ -8,6 +8,7 @@
 //! Must not depend on: the window system or the drawing; this keeps the servers and tells the
 //! editor what to show.
 
+mod complete;
 mod diagnostics;
 mod documents;
 mod find;
@@ -201,6 +202,9 @@ impl App {
                     self.lsp_find(at, oso_lsp::server::AskKind::References, agent);
                 }
                 ServerRequest::GoToXref => self.go_to_xref(),
+                ServerRequest::Complete(at) => {
+                    self.lsp_find(at, oso_lsp::server::AskKind::Completion, agent);
+                }
             }
         }
     }

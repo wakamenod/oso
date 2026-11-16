@@ -9,12 +9,11 @@ use std::time::Instant;
 
 use serde_json::json;
 
-use crate::limits::DEFINITION_WAIT;
 use crate::position;
 use crate::protocol::{self, Outcome};
 use crate::uri;
 
-use super::super::{Answer, Answered, Ask, AskKind, Location, Target};
+use super::super::{Answer, Answered, Ask, AskKind, Completion, Completions, Location, Target};
 use super::run::Run;
 use super::{Asked, Session};
 
@@ -47,6 +46,7 @@ impl Session {
         let params = match ask.kind {
             AskKind::Definition => protocol::position_params(uri, at),
             AskKind::References => protocol::references_params(uri, at),
+            AskKind::Completion => protocol::completion_params(uri, at),
         };
         // The older of its kind for the document is moot.
         let older = run.pending.iter().find_map(|(id, (asked, _))| match asked {
@@ -66,7 +66,7 @@ impl Session {
             ask.kind.method(),
             run.next_id
         ));
-        run.request(Asked::Ask(ask), ask.kind.method(), params, DEFINITION_WAIT)
+        run.request(Asked::Ask(ask), ask.kind.method(), params, ask.kind.wait())
     }
 
     /// The answer to `ask`, request `id`, which was due by `deadline`.
@@ -78,7 +78,7 @@ impl Session {
         deadline: Instant,
         now: Instant,
     ) {
-        let took = (now + DEFINITION_WAIT)
+        let took = (now + ask.kind.wait())
             .saturating_duration_since(deadline)
             .as_millis();
         let result = match outcome {
@@ -96,6 +96,10 @@ impl Session {
                 return;
             }
         };
+        if ask.kind == AskKind::Completion {
+            self.completed(run, (id, ask), &result, took);
+            return;
+        }
         let (located, left) = protocol::located(&result);
         drop(result);
         let mut locations = Vec::with_capacity(located.len());
@@ -144,15 +148,68 @@ impl Session {
         });
     }
 
+    /// The completions `result` offers for `ask`, request `id`, their ranges placed in the text
+    /// the server has of the document.
+    fn completed(
+        &mut self,
+        run: &Run,
+        (id, ask): (i64, Ask),
+        result: &serde_json::Value,
+        took: u128,
+    ) {
+        let completed = protocol::completed(result);
+        let Some((revision, text)) = self.documents.sent(ask.document) else {
+            self.fail(ask, "the document is no longer open with it".to_owned());
+            return;
+        };
+        let items: Vec<Completion> = (completed.items.into_iter())
+            .map(|offered| Completion {
+                range: offered
+                    .range
+                    .map(|(start, end)| position::to_range(text, start, end, run.encoding)),
+                label: offered.label,
+                kind: offered.kind,
+                detail: offered.detail,
+                filter: offered.filter,
+                text: offered.text,
+            })
+            .collect();
+        self.reporter.log(format!(
+            "request {id} answered with {} completions in {took} ms{}{}",
+            items.len(),
+            if completed.incomplete {
+                ", incomplete"
+            } else {
+                ""
+            },
+            if completed.left > 0 {
+                format!(", {} more left out", completed.left)
+            } else {
+                String::new()
+            }
+        ));
+        self.reporter.answer(Answer {
+            serial: ask.serial,
+            document: ask.document,
+            kind: ask.kind,
+            revision: ask.revision,
+            outcome: Ok(Answered::Completion(Completions {
+                revision,
+                items,
+                incomplete: completed.incomplete,
+            })),
+        });
+    }
+
     /// An ask whose wait ended: cancelled, and failed.
     pub(super) fn overdue_ask(&mut self, run: &Run, id: i64, ask: Ask) -> Result<(), String> {
         self.reporter.log(format!(
             "request {id} not answered within {} s, cancelled",
-            DEFINITION_WAIT.as_secs()
+            ask.kind.wait().as_secs()
         ));
         self.fail(
             ask,
-            format!("no answer within {} s", DEFINITION_WAIT.as_secs()),
+            format!("no answer within {} s", ask.kind.wait().as_secs()),
         );
         run.send(&protocol::notification(
             "$/cancelRequest",
