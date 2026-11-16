@@ -12,9 +12,10 @@
 //! command the user left without a key is listed with none (ADR 0108, ADR 0110).
 //!
 //! [`Dispatcher::where_is`] names the key a message tells the person to press, the same way, and
-//! through the menus those layers open too (ADR 0143).
+//! through the menus those layers open too (ADR 0143), which `M-x` lists as well.
 
 use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::sync::Arc;
 
 use oso_core::command::{ArgSpec, CommandId, Prefix};
@@ -35,29 +36,14 @@ impl Dispatcher {
         let mut shortest: HashMap<CommandId, (usize, String)> = HashMap::new();
         for keymap in layers.iter() {
             keymap.bindings(|keys, id| {
-                if !reaches(&layers, keys, Binding::Command(id)) {
-                    return;
-                }
-                let text = display_keys(keys).to_string();
-                let rank = |len: usize, text: &str| (len, text.len(), text.to_owned());
-                let better = shortest
-                    .get(&id)
-                    .is_none_or(|(len, other)| rank(keys.len(), &text) < rank(*len, other));
-                if better {
-                    shortest.insert(id, (keys.len(), text));
+                if reaches(&layers, keys, Binding::Command(id)) {
+                    keep_shortest(&mut shortest, id, keys);
                 }
             });
         }
         // A command a menu's head runs is listed with that key, as one a key binds (ADR 0143).
         for (keys, id) in self.menu_heads(&layers) {
-            let text = display_keys(&keys).to_string();
-            let rank = |len: usize, text: &str| (len, text.len(), text.to_owned());
-            let better = shortest
-                .get(&id)
-                .is_none_or(|(len, other)| rank(keys.len(), &text) < rank(*len, other));
-            if better {
-                shortest.insert(id, (keys.len(), text));
-            }
+            keep_shortest(&mut shortest, id, &keys);
         }
         let mut bound = HashSet::new();
         let over_global = Layers {
@@ -93,16 +79,8 @@ impl Dispatcher {
         let mut shortest: HashMap<MenuId, (usize, String)> = HashMap::new();
         for keymap in layers.iter() {
             keymap.menu_bindings(|keys, id| {
-                if !reaches(&layers, keys, Binding::Menu(id)) {
-                    return;
-                }
-                let text = display_keys(keys).to_string();
-                let rank = |len: usize, text: &str| (len, text.len(), text.to_owned());
-                let better = shortest
-                    .get(&id)
-                    .is_none_or(|(len, other)| rank(keys.len(), &text) < rank(*len, other));
-                if better {
-                    shortest.insert(id, (keys.len(), text));
+                if reaches(&layers, keys, Binding::Menu(id)) {
+                    keep_shortest(&mut shortest, id, keys);
                 }
             });
         }
@@ -128,21 +106,20 @@ impl Dispatcher {
         };
         let reading = self.keymaps.reading();
         let layers = self.keymaps.active(&reading, None, editor);
-        let mut found: Vec<Vec<KeyPress>> = Vec::new();
+        let mut shortest = HashMap::new();
         for keymap in layers.iter() {
             keymap.bindings(|keys, id| {
                 if id == target && reaches(&layers, keys, Binding::Command(id)) {
-                    found.push(keys.to_vec());
+                    keep_shortest(&mut shortest, (), keys);
                 }
             });
         }
-        let heads = self.menu_heads(&layers).into_iter();
-        found.extend(heads.filter(|(_, id)| *id == target).map(|(keys, _)| keys));
-        found
-            .into_iter()
-            .map(|keys| (keys.len(), display_keys(&keys).to_string()))
-            .min_by(|(a, x), (b, y)| (a, x.len(), x).cmp(&(b, y.len(), y)))
-            .map_or_else(fallback, |(_, text)| text)
+        for (keys, id) in self.menu_heads(&layers) {
+            if id == target {
+                keep_shortest(&mut shortest, (), &keys);
+            }
+        }
+        shortest.remove(&()).map_or_else(fallback, |(_, text)| text)
     }
 
     /// The keys of each command a menu's head runs, from the menus a key in `layers` opens and
@@ -160,6 +137,12 @@ impl Dispatcher {
         let in_force = self.menus_in_force();
         let (mut seen, mut heads) = (HashSet::new(), Vec::new());
         for _ in 0..MAX_MENU_DEPTH {
+            // A menu is opened from its shortest key, the first of the order `keep_shortest`
+            // keeps, so its heads are named through that key.
+            menus.sort_by_cached_key(|(keys, _)| {
+                let text = display_keys(keys).to_string();
+                (keys.len(), text.len(), text)
+            });
             let mut next = Vec::new();
             for (keys, id) in menus {
                 let Some(definition) = in_force.get(id).filter(|_| seen.insert(id)) else {
@@ -179,31 +162,6 @@ impl Dispatcher {
         heads
     }
 
-    /// `text` with each `\[name]` in it, for `name` a registered command, replaced by
-    /// [`Dispatcher::where_is`] of `name`, as Emacs's `substitute-command-keys` does, so that a
-    /// command's error can name a key it cannot look up itself (ADR 0143). Anything else stays as
-    /// it is, so a file's name an error quotes is shown as written unless it spells a command.
-    pub(super) fn substitute_keys(&self, editor: &Editor, text: &str) -> String {
-        let mut out = String::with_capacity(text.len());
-        let mut rest = text;
-        while let Some(start) = rest.find("\\[") {
-            let after = &rest[start + 2..];
-            let Some(len) = after.find(']') else {
-                break;
-            };
-            let name = &after[..len];
-            out.push_str(&rest[..start]);
-            if self.registry.lookup(name).is_some() {
-                out.push_str(&self.where_is(editor, name));
-            } else {
-                out.push_str(&rest[start..start + 3 + len]);
-            }
-            rest = &rest[start + 3 + len..];
-        }
-        out.push_str(rest);
-        out
-    }
-
     /// Whether `M-x` lists the command named `name`, of those it could: in a test that gave
     /// only some, whether it is one of them.
     #[cfg(test)]
@@ -214,6 +172,26 @@ impl Dispatcher {
     #[cfg(not(test))]
     fn lists(&self, _: &str) -> bool {
         true
+    }
+}
+
+/// Keeps `keys` for `id` in `shortest` if they are the shortest yet: the fewest keys, then the
+/// fewest characters spelled out, then the first in order. Keys longer than the best are not
+/// spelled out at all.
+fn keep_shortest<K: Hash + Eq>(
+    shortest: &mut HashMap<K, (usize, String)>,
+    id: K,
+    keys: &[KeyPress],
+) {
+    if shortest.get(&id).is_some_and(|(len, _)| keys.len() > *len) {
+        return;
+    }
+    let text = display_keys(keys).to_string();
+    let better = shortest
+        .get(&id)
+        .is_none_or(|(len, other)| (keys.len(), text.len(), &text) < (*len, other.len(), other));
+    if better {
+        shortest.insert(id, (keys.len(), text));
     }
 }
 
@@ -282,27 +260,20 @@ mod tests {
         // Through the space menu the Agents menu opens.
         assert_eq!(where_is("space-use-repo"), "C-c a S u");
         assert_eq!(where_is("no-such-command"), "M-x no-such-command");
+        // A longer key of the user's to the same menu does not win.
+        let mut dispatcher = Dispatcher::new();
+        let registry = crate::commands::registry();
+        let agents = crate::bindings::built_in_menus(&registry)
+            .lookup("agents")
+            .unwrap();
+        let mut user = Keymap::new();
+        let keys: oso_core::key::KeySequence = "C-c x y".parse().unwrap();
+        user.bind_menu(&keys.0, agents).unwrap();
+        dispatcher.set_user_keymap(user);
+        assert_eq!(dispatcher.where_is(&editor, "session-explain"), "C-c a e");
         let (session, editor) = crate::dispatch::terminal_tests::in_session();
         assert_eq!(session.where_is(&editor, "session-explain"), "C-c C-e");
         assert_eq!(session.where_is(&editor, "session-send"), "C-c a m");
-    }
-
-    #[test]
-    fn a_command_s_error_names_keys_as_bound() {
-        let dispatcher = Dispatcher::new();
-        let editor = Editor::with_buffer(Buffer::from_text("test", "text"));
-        let substitute = |text| dispatcher.substitute_keys(&editor, text);
-        assert_eq!(
-            substitute("C-u \\[session-send] sends the place"),
-            "C-u C-c a m sends the place"
-        );
-        // Only a command's name is replaced.
-        assert_eq!(
-            substitute("\\[save-buffer] or \\[nothing]."),
-            "C-x C-s or \\[nothing]."
-        );
-        assert_eq!(substitute("no keys \\[ here"), "no keys \\[ here");
-        assert_eq!(substitute("[save-buffer]"), "[save-buffer]");
     }
 
     #[test]

@@ -160,7 +160,7 @@ fn a_region_past_256_kib_is_refused_with_the_place_only_way() {
     assert!(editor.take_session_requests().is_empty());
     assert!(
         messages(&editor)
-            .contains("That is 300 KiB; at most 256 KiB goes to a session. C-u C-c a m"),
+            .contains("That is 300 KiB; at most 256 KiB goes to a session. C-u M-x session-send"),
         "{}",
         messages(&editor)
     );

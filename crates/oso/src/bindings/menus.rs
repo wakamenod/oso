@@ -12,7 +12,7 @@ use oso_core::key::KeySequence;
 use oso_core::menu::{Definition, Head, HeadAction, Note, Notes, Open, Stay};
 use oso_core::menu::{Describe, Menus};
 
-use crate::commands::agent_sessions::NO_SESSION;
+use crate::commands::agent_sessions::{ARCHIVE_LABEL, PIN_LABEL, agents_menu};
 
 /// The keys bound to built-in menus in the default global keymap, as `(keys, menu)`: the
 /// toggles (ADR 0117, Q25), the review menu (ADR 0122) and the Agents menu (ADR 0143); the rest
@@ -293,11 +293,6 @@ const SPACE: BuiltInMenu = BuiltInMenu {
     describe: None,
 };
 
-/// The labels of the Agents menu's heads on the session in front, which its describe function
-/// finds them by (ADR 0143).
-const PIN_LABEL: &str = "pin";
-const ARCHIVE_LABEL: &str = "archive";
-
 /// The agent sessions' commands (ADR 0143), on `C-c a`, with the letters `C-x a` had (ADR 0121,
 /// Q7, ADR 0136). Session mode's `C-c C-<letter>` runs the head of the same letter.
 const AGENTS: BuiltInMenu = BuiltInMenu {
@@ -351,7 +346,7 @@ const AGENTS: BuiltInMenu = BuiltInMenu {
             ],
         ),
     ],
-    describe: Some(describe_agents),
+    describe: Some(agents_menu),
 };
 
 /// Committing (ADR 0127, step 1b), from a git status's `c`, as magit's commit transient: its
@@ -451,33 +446,6 @@ fn definition(menu: &BuiltInMenu, registry: &Registry, menus: &mut Menus) -> Def
         }
     }
     definition
-}
-
-/// The Agents menu's notes (ADR 0143): outside a session's terminal, pinning and archiving the
-/// session in front are dim, as there is none; stopping stays, as it also stops the session on a
-/// row of the pane.
-fn describe_agents(editor: &Editor, open: &Open) -> Notes {
-    if editor.current().1.hosts_session() {
-        return Notes::default();
-    }
-    let heads = open
-        .definition()
-        .heads()
-        .iter()
-        .enumerate()
-        .filter(|(_, head)| [PIN_LABEL, ARCHIVE_LABEL].contains(&head.label.as_str()))
-        .map(|(index, _)| {
-            let note = Note {
-                unavailable: Some(NO_SESSION.to_owned()),
-                ..Note::default()
-            };
-            (index, note)
-        })
-        .collect();
-    Notes {
-        heads,
-        ..Notes::default()
-    }
 }
 
 /// The toggles' notes: the theme head shows the theme drawn now, padded to the longest theme's

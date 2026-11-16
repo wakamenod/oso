@@ -212,16 +212,7 @@ pub fn git_status_keymap(registry: &Registry) -> Keymap {
     let Ok(mut keymap) = Keymap::from_table(registry, vcs::STATUS) else {
         return Keymap::default();
     };
-    let built_in = built_in_menus(registry);
-    for (keys, name) in vcs::STATUS_MENUS {
-        let sequence: KeySequence = keys.parse().unwrap_or_else(|e| panic!("{keys}: {e}"));
-        let Some(id) = built_in.lookup(name) else {
-            panic!("no built-in menu {name} for {keys}");
-        };
-        keymap
-            .bind_menu(&sequence.0, id)
-            .unwrap_or_else(|e| panic!("{keys}: {e}"));
-    }
+    bind_menus(&mut keymap, registry, vcs::STATUS_MENUS);
     keymap
 }
 

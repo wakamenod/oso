@@ -33,7 +33,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "terminal-char-mode",
-        doc: "Switch the terminal between semi-char and char mode.\n\nIn semi-char mode, `C-x`, `M-x`, the `C-c` prefix, `C-q` and `C-y` stay oso's and every other key goes to the program. In char mode every key goes to the program but `C-c C-k`, which comes back.",
+        doc: "Switch the terminal between semi-char and char mode.\n\nIn semi-char mode, `C-x`, `M-x`, the `C-c` prefix, `C-q`, `C-y` and every key with Super stay oso's and every other key goes to the program. In char mode every key goes to the program but `C-c C-k`, which comes back.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: char_mode,

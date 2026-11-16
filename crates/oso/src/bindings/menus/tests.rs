@@ -13,10 +13,8 @@ use oso_core::keymap::Binding;
 use oso_core::menu::{Definition, HeadAction, Open, Stay};
 use oso_core::minibuffer::cells_of;
 
-use super::{
-    ARCHIVE_LABEL, BUILT_IN, MENU_KEYS, PIN_LABEL, THEME_LABEL, THEME_NOTE_CELLS, built_in_menus,
-    describe_agents, describe_toggles,
-};
+use super::{BUILT_IN, MENU_KEYS, THEME_LABEL, THEME_NOTE_CELLS, built_in_menus, describe_toggles};
+use crate::commands::agent_sessions::{ARCHIVE_LABEL, PIN_LABEL, agents_menu};
 use crate::{bindings, commands};
 
 fn built_in<'m>(menus: &'m oso_core::menu::Menus, name: &str) -> &'m Arc<Definition> {
@@ -169,7 +167,7 @@ fn the_agents_menu_dims_the_session_s_own_heads_with_no_session_in_front() {
     let registry = commands::registry();
     let menus = built_in_menus(&registry);
     let open = Open::new(Arc::clone(built_in(&menus, "agents")));
-    let notes = describe_agents(&Editor::default(), &open);
+    let notes = agents_menu(&Editor::default(), &open);
     let dim: Vec<&str> = open
         .definition()
         .heads()

@@ -177,8 +177,10 @@ too large) name the key that reaches the command now, as where-is would: the sho
 the layers active in the current buffer, a menu's key and its head's key included (`C-c a e`, or
 `C-c C-e` in a session), or `M-x` and the name when none does. A rebinding in `config.toml` shows.
 
-- A command's own error, which cannot look up keys, writes `\[name]`, and the dispatcher replaces
-  it as it shows the error, as Emacs's `substitute-command-keys` does.
+- A command's own error, which cannot look up keys, names the command as where-is does one bound
+  nowhere: `C-u M-x session-send` for a region too large to send. A substitution of `\[name]`
+  in errors, as Emacs's `substitute-command-keys` does, was left out: errors quote the person's
+  text, which it would rewrite, at a cost per name.
 - **`M-x` lists a command a menu's head runs with that key** (`session-worktree  C-c a w`), as it
   lists one a key binds ([ADR 0076](0076-completion-and-m-x.md)). Without it, a command reached
   only from a menu and a session's keys would leave `M-x` in every other buffer.
@@ -220,11 +222,12 @@ the layers active in the current buffer, a menu's key and its head's key include
 - `[keys.global] "C-c a" = false` removes the key outside terminals; a terminal keeps it, as the
   user's global keys do not apply after `C-c` there (ADR 0132). `[keys.session]` can unbind it in a
   session. A Super key bound instead works everywhere.
-- **Work:** `bindings/agent_sessions.rs` (no global table; the session table above; the terminal's
-  menu key), `bindings/menus.rs` (the `agents` menu, a head that opens a menu, the describe
-  function, `MENU_KEYS`), `terminal/route.rs` (Super), a where-is over keymaps and menus in
-  `dispatch`, which `M-x` uses too, the four messages, the user guide, `ui.md`, `agent-rules.md`, and the e2e tests that
-  type `C-x a`. No new crate, crate edge, public trait or module.
+- **Work:** `bindings/agent_sessions.rs` (no global table; the session table above),
+  `bindings/terminal.rs` (the terminal's menu key), `bindings/menus.rs` (the `agents` menu, a head
+  that opens a menu, `MENU_KEYS`), the menu's describe function beside the session commands,
+  `terminal/route.rs` (Super), a where-is over keymaps and menus in `dispatch`, which `M-x` uses
+  too, the four messages, the user guide, `ui.md`, `agent-rules.md`, and the e2e tests that type
+  `C-x a`. No new crate, crate edge, public trait or module.
 - **Follow-up:** ADR 0140 (the pane, pull request open on this date) names `C-x a s` and `C-c s`;
   whichever lands second makes them `C-c a s` and `C-c C-p`, and its modeline hint names the key as
   bound.

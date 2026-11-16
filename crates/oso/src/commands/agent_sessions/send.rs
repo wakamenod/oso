@@ -28,8 +28,8 @@ pub const MENTION_LIST: &str = "session-mention";
 /// any text is copied, and the host checks the whole text it pastes.
 pub const MAX_SEND_BYTES: usize = 256 << 10;
 
-/// What a send of `bytes` past [`MAX_SEND_BYTES`] says, with `send` the keys of `session-send`,
-/// or `\[session-send]` in a command's error, which the dispatcher replaces (ADR 0143).
+/// What a send of `bytes` past [`MAX_SEND_BYTES`] says, with `send` the keys of `session-send`
+/// (ADR 0143).
 pub fn too_large(bytes: usize, send: &str) -> String {
     format!(
         "That is {} KiB; at most {} KiB goes to a session. C-u {send} sends the path and \
@@ -123,7 +123,9 @@ fn regions(ctx: &Ctx<'_>, place_only: bool) -> Result<Vec<SendPart>, CommandErro
     if with_text {
         let bytes: usize = ranges.iter().map(std::ops::Range::len).sum();
         if bytes > MAX_SEND_BYTES {
-            return Err(CommandError::new(too_large(bytes, "\\[session-send]")));
+            // A command cannot look up keys: it names itself, as where-is does a command bound
+            // nowhere (ADR 0143).
+            return Err(CommandError::new(too_large(bytes, "M-x session-send")));
         }
     }
     Ok(ranges

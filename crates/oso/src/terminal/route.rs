@@ -1,6 +1,7 @@
 //! Which keys in a terminal are oso's and which go to its program (ADR 0120, Q12): semi-char
-//! mode keeps `C-x`, `M-x`, the `C-c` prefix, `C-q`, `C-y` and every Super key (ADR 0143); char mode keeps only `C-c C-k`,
-//! which leaves it, and `C-c C-c`, which sends one `C-c` there too. Anything of oso's that is open, a prompt or a key sequence, takes every key.
+//! mode keeps `C-x`, `M-x`, the `C-c` prefix, `C-q`, `C-y` and every Super key (ADR 0143);
+//! char mode keeps only `C-c C-k`, which leaves it, and `C-c C-c`, which sends one `C-c` there
+//! too. Anything of oso's that is open, a prompt or a key sequence, takes every key.
 //! In a session's terminal, semi-char mode also keeps `C-z` from the program, which would
 //! suspend it with nothing to resume it (ADR 0132, Q7).
 //!
