@@ -372,7 +372,10 @@ pub(super) fn run<'tree>(
     }
 }
 
-/// The lines a batch of splices left in `after`, ascending.
+/// The lines a batch of splices left in `after`, ascending, from the byte before each splice's
+/// new text: a node the splice cut short at its end, such as a fence's content, now ends there,
+/// and a piece widens only to the nodes it overlaps. So at a line's start, the line before is
+/// highlighted again too.
 pub(super) fn edited<'a>(
     after: &'a Rope,
     splices: &'a [Splice],
@@ -382,7 +385,11 @@ pub(super) fn edited<'a>(
     splices.iter().map(move |splice| {
         let start = splice.start.saturating_add_signed(delta);
         delta += splice.new_len as isize - splice.old_len as isize;
-        lines(after, start..start + splice.new_len, max_piece)
+        lines(
+            after,
+            start.saturating_sub(1)..start + splice.new_len,
+            max_piece,
+        )
     })
 }
 

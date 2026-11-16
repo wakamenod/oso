@@ -533,12 +533,17 @@ decision above. The options not taken are listed with their trade-offs.
   on a long line waits only for its part; the pending ranges within a piece's reach join it, so
   a command at many cursors costs a piece a reach, not a piece a cursor. 64 KiB pieces cost
   Markdown a quarter more slices, as a piece the slice stops runs again from its start.
-- **What is highlighted again:** the lines each edit touched, and the ranges each parse
-  changed, mapped through the edits that waited for it. In the property tests, the edited lines
-  never mattered beside `changed_ranges`, which counts a token lexed again; they are kept, as
-  they cost a line each. In Markdown, a piece widens to the whole inline nodes it meets: an
-  edit can change a paragraph's inline text past its line (a backtick that opens a code span)
-  while the block tree's ranges stay the same, which the property test found.
+- **What is highlighted again:** the lines each edit touched, from the byte before it, and the
+  ranges each parse changed, mapped through the edits that waited for it. In Markdown, a piece
+  widens to the whole inline nodes it meets: an edit can change a paragraph's inline text past
+  its line (a backtick that opens a code span) while the block tree's ranges stay the same,
+  which the property test found. The edited lines matter beside `changed_ranges`, which counts
+  a token lexed again: lines deleted at the end of a fence's content leave it shorter but no
+  different in the block tree, ending where the edit is, and a piece widens only to the nodes
+  it overlaps; so an edit at a line's start takes the line before in too, and the fence with
+  it (found by the property tests, 2026-11-16). The first key at the start of the line after a
+  fence so costs what a key inside it does: about 8 ms on the worker for a Rust fence near the
+  16 KiB cap, in a release build.
 - **Limits** (the author's choice, after the review found that some crafted texts make every
   query slow): a query past 256 matches in progress leaves its piece plain, and a predicate
   reads at most 1 KiB of a node, so a longer name matches none. A piece the slice stops stays

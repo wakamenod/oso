@@ -155,6 +155,20 @@ fn edits_inside_and_around_a_fence_highlight_it_again() {
     edit_matches_fresh(text, 4, 0, "```\n");
 }
 
+/// Lines deleted at the end of a fence's content, or a key that ends its list item, leave it
+/// ending where the edit is, outside the lines the edit touched: the line before is highlighted again, and with it the fence. The
+/// property tests found this one in a list item, whose fence ends where the item does.
+#[test]
+fn a_fence_cut_short_at_its_end_is_highlighted_again() {
+    // `f` is called, and then only a name.
+    let open = "```rust\nf\n();\n";
+    edit_matches_fresh(open, open.find('(').unwrap(), 4, "");
+    let listed = "- a\n\n  ```rust\n  f\n  ();\nb\n";
+    edit_matches_fresh(listed, listed.find("  (").unwrap(), 6, "");
+    // A key at the start of a line in the item ends the item there, and the fence with it.
+    edit_matches_fresh(listed, listed.find("  (").unwrap(), 0, "x");
+}
+
 #[test]
 fn a_fence_grown_past_the_cap_is_plain_again() {
     let text = "```rust\nfn f() {}\n```\n";
