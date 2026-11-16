@@ -32,7 +32,6 @@ use crate::sessions::attention::Attention;
 use crate::sessions::hosted::{Hosted, Run};
 use crate::sessions::identity::SessionId;
 use crate::sessions::list::{Entry, Key, List};
-use crate::sessions::recap::{clean, without_spinner};
 use crate::sessions::screen::Evidence;
 use crate::sessions::spaces::Spaces;
 use crate::sessions::state::{Change, State};
@@ -446,10 +445,7 @@ impl App {
                     state,
                     since,
                     recap: self.row_recap(session.key),
-                    title: (session.buffer)
-                        .and_then(|id| self.terminals.map.get(id))
-                        .map(|terminal| clean(without_spinner(&terminal.title)))
-                        .unwrap_or_default(),
+                    title: self.row_title(session),
                     pinned: session.pinned,
                     archived: session.archived,
                     unasked: session.origin == crate::sessions::identity::Origin::Unasked,

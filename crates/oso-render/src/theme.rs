@@ -501,6 +501,7 @@ pub(crate) mod tests {
                 (Face::Modeline, LABEL),
                 (Face::ModelineInactive, LABEL),
                 (Face::SessionHeader, LABEL),
+                (Face::SessionFrontTint, LABEL),
                 (Face::SessionPoint, LABEL),
             ],
             Face::SessionWorking
@@ -511,10 +512,9 @@ pub(crate) mod tests {
                 (Face::Text, LABEL),
                 (Face::CurrentLine, LABEL),
                 (Face::SessionHeader, LABEL),
+                (Face::SessionFrontTint, LABEL),
                 (Face::SessionPoint, LABEL),
             ],
-            // The bar at point, on its own fill, as a jump's label is.
-            Face::SessionPointBar => &[(Face::SessionPointBar, LABEL)],
             // A listing's header is read as highlighted text is; its names in a terminal's
             // colours, and its details, as a session's marks and quiet text are (ADR 0134).
             Face::DiredHeader => &SYNTAX_PAIRS,
@@ -567,7 +567,8 @@ pub(crate) mod tests {
             | Face::DiffRefineRemoved
             | Face::SessionHeader
             | Face::SessionFrontTint
-            | Face::SessionPoint => &[],
+            | Face::SessionPoint
+            | Face::SessionPointBar => &[],
         }
     }
 
@@ -720,9 +721,28 @@ pub(crate) mod tests {
                 (Face::ReviewCommentPerson, behind_text),
                 (Face::DiffRefineAdded, theme.background(Face::DiffAdded)),
                 (Face::DiffRefineRemoved, theme.background(Face::DiffRemoved)),
+                // The spaces pane's bands, and point's on a section's or the front's (ADR 0140).
+                (Face::SessionHeader, behind_text),
+                (Face::SessionFrontTint, behind_text),
+                (Face::SessionPoint, behind_text),
+                (Face::SessionPoint, theme.background(Face::SessionHeader)),
+                (Face::SessionPoint, theme.background(Face::SessionFrontTint)),
             ] {
                 let step = (oklab(theme.background(face))[0] - oklab(behind)[0]).abs();
                 assert!(step >= 0.02, "{}: {face:?} {step:.3}", theme.name());
+            }
+        }
+    }
+
+    /// The bar at point in the spaces pane is a mark on the point's band and beside the text's
+    /// background, at 3:1 (ADR 0140).
+    #[test]
+    fn the_spaces_bar_stands_out_on_the_points_band() {
+        for theme in &themes() {
+            let bar = theme.background(Face::SessionPointBar);
+            for behind in [Face::SessionPoint, Face::Text] {
+                let ratio = contrast(bar, theme.background(behind));
+                assert!(ratio >= 3.0, "{}: on {behind:?} {ratio:.2}", theme.name());
             }
         }
     }

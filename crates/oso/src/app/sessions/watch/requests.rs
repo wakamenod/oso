@@ -60,7 +60,11 @@ impl App {
                 }
             }
             SessionRequest::Regroup => self.watch.list.regroup(),
-            SessionRequest::CycleFolds => self.watch.list.cycle_folds(),
+            SessionRequest::CycleFolds => {
+                if !self.watch.list.cycle_folds(self.watch.view.open_to) {
+                    self.editor.message("S-TAB folds the tree; s shows it");
+                }
+            }
             SessionRequest::PaneWidth(columns) => self.change_pane_width(columns),
             SessionRequest::Refresh => self.relist_projects(),
             SessionRequest::Send { to, parts } => self.send_request(&to, &parts),
@@ -72,8 +76,8 @@ impl App {
         None
     }
 
-    /// `C-x a s` (Q1): hidden, it shows and is selected; shown, it is selected; selected, it
-    /// is hidden, and stays hidden until asked for again.
+    /// `C-x a s` (Q1): hidden, it shows and is selected; shown, it is selected; selected, the
+    /// tree's window selected last is (ADR 0140). `C-u C-x a s` hides it, in the command.
     fn toggle_sessions_list(&mut self) {
         if !self.sessions_list_shown() {
             self.show_sessions_side();

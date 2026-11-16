@@ -29,6 +29,9 @@ pub const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦'
 /// The marks a row of the list begins with, after its indent: `n` and `p` move between them.
 pub use crate::commands::agent_sessions::ROW_MARKS as MARKS;
 
+/// What a row of the list may have before its mark: the guides of a session's row (ADR 0140).
+pub use crate::commands::agent_sessions::GUIDES;
+
 /// The fewest cells a place is shown in after a name; with less room it is left out.
 const PLACE_FROM: usize = 6;
 
@@ -118,12 +121,15 @@ pub struct Rendered {
     /// The lines whose mark spins.
     pub spinning: Vec<usize>,
     /// The lines drawn on a band (ADR 0140).
-    pub bands: PaneBands,
+    pub bands: SpaceBands,
+    /// How deep the tree shows open: 0 its spaces, 1 down to its worktrees, 2 a worktree's
+    /// sessions too, from which `S-TAB` goes on (ADR 0140).
+    pub open_to: u8,
 }
 
 /// The lines of the list drawn on a band (ADR 0140), by line from 0, in order.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct PaneBands {
+pub struct SpaceBands {
     /// A section's row: a space's, `Other projects`', `Archived`'s.
     pub sections: Vec<usize>,
     /// The front worktree's rows.
@@ -144,9 +150,6 @@ pub struct List {
     /// Folds `S-TAB` set, whatever their default: folded or open (ADR 0140). `TAB` turns one
     /// over.
     set: HashMap<Fold, bool>,
-    /// How deep the tree was open when last made: 0 its spaces, 1 down to its worktrees, 2
-    /// a worktree's sessions too (ADR 0140).
-    open_to: std::cell::Cell<u8>,
     /// The spinner's frame, while working marks spin.
     spin: Option<usize>,
     /// What the tree shows besides sessions.
@@ -251,15 +254,14 @@ impl List {
         }
     }
 
-    /// Notes that the tree shows open to `depth`, as [`List::open_to`] counts.
-    fn opened(&self, depth: u8) {
-        self.open_to.set(self.open_to.get().max(depth));
-    }
-
     /// `S-TAB` (ADR 0140): the tree folded to its spaces, then open down to its worktrees,
-    /// then everything, in turn, from the deepest level it showed open when last made.
-    pub fn cycle_folds(&mut self) {
-        let next = (self.open_to.get() + 1) % 3;
+    /// then everything, in turn, from `open_to`, how deep it showed open when last rendered
+    /// ([`Rendered::open_to`]). False, and nothing folds, while the list is by state.
+    pub fn cycle_folds(&mut self, open_to: u8) -> bool {
+        if self.grouping != Grouping::Tree {
+            return false;
+        }
+        let next = (open_to + 1) % 3;
         for space in &self.tree.spaces {
             self.chosen.insert(space.id.clone(), next == 0);
             if next == 0 {
@@ -274,7 +276,7 @@ impl List {
                 }
             }
         }
-        self.open_to.set(next);
+        true
     }
 
     /// The list of `entries` for a window `width` cells wide, ages as of `now`: the tree, or

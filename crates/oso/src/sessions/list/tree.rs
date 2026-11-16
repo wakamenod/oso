@@ -34,9 +34,9 @@ use crate::sessions::state::State;
 /// How long a worktree with no session stays unchanged before it goes in the quiet row.
 pub const QUIET_AFTER: Duration = Duration::from_secs(7 * 86_400);
 
-/// The indents of the tree's rows, by depth, past the bar's cell ([`LEAD`]): a space's, a
-/// repository's or a one-repository space's worktree's, a worktree's of a space of several, and
-/// their sessions', whose guides follow (ADR 0140).
+/// The indents of the tree's rows, by depth, each beginning with the bar's cell ([`LEAD`]): a
+/// space's, a repository's or a one-repository space's worktree's, a worktree's of a space of
+/// several, and their sessions', whose guides follow (ADR 0140).
 const INDENT: [&str; 5] = [" ", "   ", "     ", "       ", "         "];
 
 /// The indent of an archived session's row, and of one in `Other projects`.
@@ -122,7 +122,6 @@ impl List {
     /// The tree of `entries` for a window `width` cells wide, ages as of `now`.
     pub(super) fn render_tree(&self, entries: &[Entry], width: usize, now: Instant) -> Rendered {
         let mut out = Rendered::default();
-        self.open_to.set(0);
         let spaces = &self.tree.spaces;
         let mut orchestrators: Vec<Vec<&Entry>> = vec![Vec::new(); spaces.len()];
         let mut placed: Vec<Placed<'_>> = spaces

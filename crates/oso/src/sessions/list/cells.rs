@@ -5,7 +5,7 @@
 
 use oso_core::display_map::cell::classify;
 
-use super::MARKS;
+use super::{GUIDES, MARKS};
 
 /// How many cells `text` takes, each character as oso draws it alone: a cluster of several
 /// characters takes at most this, so that a line cut by it never runs past its width.
@@ -18,10 +18,13 @@ fn char_cells(c: char) -> usize {
     classify(c.encode_utf8(&mut buffer)).1
 }
 
-/// `text` without what it begins with that could pass for a row's start: blanks, marks and
-/// characters that take no cell.
+/// `text` without what it begins with that could pass for a row's start: blanks, the guides
+/// that hang a session's row (ADR 0140), marks and characters that take no cell. Every rule that
+/// reads a row from the list's text skips blanks and guides, then reads a mark.
 pub fn unmarked(text: &str) -> &str {
-    text.trim_start_matches(|c: char| c.is_whitespace() || MARKS.contains(c) || char_cells(c) == 0)
+    text.trim_start_matches(|c: char| {
+        c.is_whitespace() || GUIDES.contains(c) || MARKS.contains(c) || char_cells(c) == 0
+    })
 }
 
 /// `text` cut to `width` cells, ending in `…` if cut; a line break ends it.

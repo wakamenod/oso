@@ -117,8 +117,8 @@ columns:
   shown, and go back to the tree's window selected last when it is selected, as `C-x o` does from
   it. `q` in the pane goes back too. **`C-u C-x a s` hides the pane.**
 - **The selected pane (Q4)** draws the point's row in an accent band (`Face::SessionPoint`) and a
-  `▌` in the row's first cell (`Face::SessionPointBar`). **The pane not selected** draws no band
-  for point; only the front worktree's tint shows.
+  `▌` in the row's first cell (`Face::SessionPointBar`; as built, a one-cell fill). **The pane
+  not selected** draws no band for point; only the front worktree's tint shows.
 - **Modeline:** the pane's says `Spaces` and the grouping, then the hints: `C-x a s to enter`
   while not selected, `q back · TAB fold · ? keys` while selected. It no longer says the buffer's
   name or `%%`, as ADR 0131 meant: its note is all it shows.
@@ -178,6 +178,26 @@ toggles focus, `q` returns, `C-u C-x a s` hides (Q3); an accent band and `▌` w
 band otherwise, and modeline hints (Q4); a click on the pane not selected selects and moves point
 (Q5); `S-TAB` and `<left>`/`<right>` (Q6); `*Spaces*` (Q7); the `sessions-*` names kept (Q8).
 
+## As built
+
+Built on 2026-11-16 in one pull request with this ADR. The author approved each point below that
+differs from the decision, through the coordinator, after seeing the pane in the running app.
+
+- **The bar at point is a one-cell fill** in an accent (`Face::SessionPointBar`, the palette's
+  azure), not a `▌` glyph: a window's labels draw ASCII keys only, and a fill needs no change to
+  the renderer. Every row still leaves its first cell to it.
+- **The selected pane's modeline** says `Spaces · q back · TAB fold · ? keys`; beside the
+  `Agent` marks a 44-column modeline cuts its end, so `q back` comes first.
+- **Where it is built:** the rows in `sessions/list/row.rs` (a session's), `list/tree.rs` (the
+  title and sections), `tree/worktree.rs` (a worktree's row and its hung sessions) and
+  `tree/space.rs`; the bands in `app/draw/spaces.rs`, beside `tiled.rs`; the note in
+  `app/sessions/watch/view.rs`, set before each frame. `oso-render`'s map from highlights to
+  faces moved to a private `pane/highlights.rs`, to keep `pane.rs` under 600 lines.
+- **A session's title** for its label is its terminal's, cleaned as a recap is and without its
+  spinner, read when the list is made.
+- Verified in a dev build: the guides and rules are one cell wide in the default font, and the
+  rows stay aligned.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it.
@@ -193,7 +213,7 @@ Each passage stays in its ADR as written; what holds now follows it.
 - ADR 0131, "**The pane's modeline** names the grouping and the help key, `Sessions · tree · ?
   keys`": `Spaces`, the grouping and the hints for entering or leaving, by whether it is selected.
 - ADR 0131, "**The row at point is highlighted** across the pane's width": only while the pane is
-  selected, in the point's accent face, with a `▌` in the row's first cell.
+  selected, in the point's accent face, with an accent bar in the row's first cell.
 - ADR 0131, "**The space in front** … has a faint background": built, on the front worktree's
   rows.
 - ADR 0131, "Keys and mouse", `M-n`/`M-p` "next / previous worktree or project row": the next

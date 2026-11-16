@@ -21,8 +21,8 @@ use oso_render::{
     TextView,
 };
 
-use super::pane::PaneCells;
-use crate::sessions::list::PaneBands;
+use super::spaces::SpacesFills;
+use crate::sessions::list::SpaceBands;
 use crate::terminal::hosted::Terminals;
 
 /// The first pane id of the windows': the echo area's and the floats' are below it.
@@ -64,14 +64,14 @@ pub(super) struct WindowCells {
     trailing: Vec<CellRect>,
     review: ReviewCells,
     /// `*Spaces*`' bands, in the side window (ADR 0140).
-    pane: PaneCells,
+    pane: SpacesFills,
     screen: Screen,
     gutter: Gutter,
 }
 
 impl WindowCells {
     /// Fills in what the window `id` draws now; `bands` are `*Spaces*`' (ADR 0140).
-    fn fill(&mut self, editor: &Editor, bands: &PaneBands, id: WindowId) {
+    fn fill(&mut self, editor: &Editor, bands: &SpaceBands, id: WindowId) {
         editor.screen_of(id, &mut self.screen);
         let screen = &self.screen;
         editor.region_cells(id, screen, &mut self.region);
@@ -92,7 +92,7 @@ impl WindowCells {
 
 /// Fills in what every tiled window draws, in the tree's order, into `cells`, which keeps a
 /// window's room for the next frame; `bands` are `*Spaces*`' (ADR 0140).
-pub(super) fn fill(editor: &Editor, bands: &PaneBands, cells: &mut Vec<WindowCells>) {
+pub(super) fn fill(editor: &Editor, bands: &SpaceBands, cells: &mut Vec<WindowCells>) {
     let windows = editor.frame().windows();
     cells.resize_with(windows.len(), WindowCells::default);
     for (cells, (id, _)) in cells.iter_mut().zip(windows) {
@@ -174,7 +174,8 @@ fn modeline_face(status: &Status) -> Face {
     }
 }
 
-/// The fills behind a window's text, from the back: the current line's band, a review's bands
+/// The fills behind a window's text, from the back: `*Spaces*`' bands, in the side window only
+/// (ADR 0140), the current line's band, a review's bands
 /// (added and removed lines, their refined words, file headers and comment cards), trailing
 /// whitespace, then the current match first, so that it always has room, a jump's matches as
 /// isearch's others (ADR 0116), and the regions over the matches.
@@ -184,6 +185,7 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
         (Face::SessionHeader, &cells.pane.sections[..]),
         (Face::SessionFrontTint, &cells.pane.tint[..]),
         (Face::SessionPoint, &cells.pane.point[..]),
+        (Face::SessionPointBar, &cells.pane.bar[..]),
         (Face::CurrentLine, &cells.band[..]),
         (Face::DiffAdded, &cells.review.added[..]),
         (Face::DiffRemoved, &cells.review.removed[..]),
@@ -199,26 +201,13 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
     ]
 }
 
-/// The bar in the first cell of `*Spaces*`' row at point, while it is selected (ADR 0140).
-const BAR: &str = "▌";
-
 /// How many lists of cells a window fills behind its text.
-const FILLS: usize = 15;
+const FILLS: usize = 16;
 
 /// A jump's labels in a window over its text: each label's first key in [`Face::JumpLabel`],
 /// and the keys after it in [`Face::JumpLabelNext`], in the order the editor gives them, by
 /// row and then column (ADR 0116).
 fn labels_of<'a>(cells: &'a WindowCells, out: &mut Vec<(CellRect, Span<'a>)>) {
-    // The bar at point in `*Spaces*` while it is selected (ADR 0140).
-    if let Some(bar) = cells.pane.bar {
-        out.push((
-            bar,
-            Span {
-                text: BAR,
-                face: Face::SessionPointBar,
-            },
-        ));
-    }
     let jump = &cells.jump;
     for label in &jump.labels {
         let text = &jump.text[label.keys.clone()];
@@ -254,8 +243,7 @@ fn labels_of<'a>(cells: &'a WindowCells, out: &mut Vec<(CellRect, Span<'a>)>) {
 /// How many entries [`labels_of`] gives for a window.
 fn label_runs(cells: &WindowCells) -> usize {
     let labels = &cells.jump.labels;
-    usize::from(cells.pane.bar.is_some())
-        + labels.len()
+    labels.len()
         + labels
             .iter()
             .filter(|label| label.cells.columns > 1)

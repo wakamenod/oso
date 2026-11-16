@@ -13,13 +13,7 @@ use oso_core::window::WindowId;
 use oso_platform::window::Position;
 
 use crate::app::App;
-
-/// The folds' marks, which begin a space's, a repository's, a worktree's, a group's and a
-/// quiet row's line.
-const FOLDS: [char; 2] = ['▾', '▸'];
-
-/// What a session's row has before its mark (ADR 0140).
-const GUIDES: [char; 3] = ['│', '├', '└'];
+use crate::commands::agent_sessions::{FOLDS, row_mark};
 
 impl App {
     /// A left press at `at` on `window`. True if it fell on the text of `*Spaces*` in the side
@@ -60,17 +54,11 @@ impl App {
             return true;
         }
         let (start, end) = (lines.line_start(line), lines.line_end(line));
-        let mut chars = lines.chunks_in_range(start..end).flat_map(str::chars);
-        let indent = chars
-            .by_ref()
-            .take_while(|c| *c == ' ' || GUIDES.contains(c))
-            .count();
-        let first = lines
-            .chunks_in_range(start..end)
-            .flat_map(str::chars)
-            .nth(indent);
-        let on_fold = column - text.column + shown.scroll().left == indent
-            && first.is_some_and(|mark| FOLDS.contains(&mark));
+        // As the keys read a row: its mark past its indent and guides.
+        let row = row_mark(lines.chunks_in_range(start..end).flat_map(str::chars));
+        let on_fold = row.is_some_and(|(indent, mark)| {
+            column - text.column + shown.scroll().left == indent && FOLDS.contains(&mark)
+        });
         self.editor.current_mut().0.selections = SelectionSet::new(start);
         self.editor.follow_cursor();
         let action = if on_fold {

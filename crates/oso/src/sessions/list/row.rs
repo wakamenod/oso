@@ -100,10 +100,14 @@ impl<'e> Row<'e> {
         let spans = if external {
             vec![(0..text.len(), Highlight::SessionQuiet)]
         } else {
-            let mut spans = vec![
-                (0..at, Highlight::SessionQuiet),
-                (at..at + mark.len_utf8(), face(entry.state)),
-            ];
+            // The guides quiet, where there are any: a span over blanks would cost a tick for
+            // nothing.
+            let guided = self.indent.trim_start().len();
+            let mut spans = Vec::with_capacity(4);
+            if guided > 0 {
+                spans.push((at - guided..at, Highlight::SessionQuiet));
+            }
+            spans.push((at..at + mark.len_utf8(), face(entry.state)));
             spans.extend(place.map(|place| (place, Highlight::SessionQuiet)));
             spans.push((age_at, Highlight::SessionQuiet));
             spans
@@ -126,9 +130,10 @@ impl<'e> Row<'e> {
             .under
             .map_or_else(|| format!("{}  ", self.indent), str::to_owned);
         let text = cut(&format!("{under}{}", unmarked(&reason)), width);
-        // The guides, then the reason, each quiet.
+        // The guides, if any, then the reason, each quiet.
+        let guided = under.trim_start().len();
         let quiet = [
-            (0..under.len(), Highlight::SessionQuiet),
+            (under.len() - guided..under.len(), Highlight::SessionQuiet),
             (under.len()..text.len(), Highlight::SessionQuiet),
         ];
         out.push_drawn(&text, line, &quiet);

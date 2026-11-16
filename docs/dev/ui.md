@@ -1003,7 +1003,7 @@ a switch made with its command stands until that setting changes in the file
   amber, ready for review and done green, idle and stopped grey; a working mark of a session
   oso hosts turns through ten Braille frames, 8 a second, while it is in view, unless
   `[sessions] spinner = false`. While the pane is selected, the row at point has an accent
-  band and a `▌` in its first cell, which every row leaves free; while it is not, no band
+  band and an accent bar in its first cell, which every row leaves free; while it is not, no band
   marks point ([ADR 0140](adr/0140-a-spaces-pane-with-sections-and-guides.md)). Its modeline
   says `Spaces`, the grouping, and `C-x a s to enter` or `q back · TAB fold · ? keys`. The
   list is a tree ([ADR 0131](adr/0131-an-orca-style-sessions-pane.md), ADR 0140) under a

@@ -1782,6 +1782,7 @@ pub enum oso_core::editor::SessionRequest
 pub oso_core::editor::SessionRequest::Adopt(alloc::string::String)
 pub oso_core::editor::SessionRequest::AgentStarts(bool)
 pub oso_core::editor::SessionRequest::CancelBrief(oso_core::buffer::BufferId)
+pub oso_core::editor::SessionRequest::CycleFolds
 pub oso_core::editor::SessionRequest::Explain(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::ExplainFile(std::path::PathBuf)
 pub oso_core::editor::SessionRequest::FollowMessage(oso_core::buffer::BufferId)
@@ -5229,6 +5230,8 @@ pub oso_core::syntax::Highlight::SessionAlert
 pub oso_core::syntax::Highlight::SessionDone
 pub oso_core::syntax::Highlight::SessionFront
 pub oso_core::syntax::Highlight::SessionQuiet
+pub oso_core::syntax::Highlight::SessionRepository
+pub oso_core::syntax::Highlight::SessionSpace
 pub oso_core::syntax::Highlight::SessionWorking
 pub oso_core::syntax::Highlight::String
 pub oso_core::syntax::Highlight::Type

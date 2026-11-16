@@ -18,7 +18,8 @@ use oso_core::selection::SelectionSet;
 use oso_core::syntax::Highlights;
 
 use crate::app::App;
-use crate::sessions::list::{Entry, Key, Line, PaneBands, Rendered};
+use crate::sessions::list::{Entry, Key, Line, Rendered, SpaceBands};
+use crate::sessions::recap::{clean, without_spinner};
 use crate::sessions::spinner::Spinner;
 use crate::sessions::width;
 
@@ -49,13 +50,15 @@ pub(super) struct View {
     /// `[sessions] pane_width` in force.
     configured: Option<usize>,
     /// Its lines on a band, as last rendered, for the frame.
-    bands: PaneBands,
+    bands: SpaceBands,
+    /// How deep the tree showed open, as last rendered, for `S-TAB`.
+    pub(super) open_to: u8,
 }
 
 impl super::Watch {
     /// The lines of the list drawn on a band, as last rendered (ADR 0140): a method of the
     /// watch alone, so that a frame borrows it beside the app's view.
-    pub(in crate::app) fn pane_bands(&self) -> &PaneBands {
+    pub(in crate::app) fn pane_bands(&self) -> &SpaceBands {
         &self.view.bands
     }
 
@@ -97,11 +100,11 @@ impl App {
             let edge = if columns > 0 { "widest" } else { "narrowest" };
             return self
                 .editor
-                .message(format!("The sessions pane is at its {edge}, {to} columns"));
+                .message(format!("*Spaces* is at its {edge}, {to} columns"));
         }
         self.watch.view.columns = Some(to);
         self.refit_sessions_side();
-        self.editor.message(format!("Sessions pane: {to} columns"));
+        self.editor.message(format!("*Spaces*: {to} columns"));
     }
 
     /// The side window at the width in force while it shows `*Spaces*`, rendered again.
@@ -244,6 +247,7 @@ impl App {
                 .buffer(buffer)
                 .is_some_and(|kept| kept.text().len() == rendered.text.len());
         self.watch.view.bands = std::mem::take(&mut rendered.bands);
+        self.watch.view.open_to = rendered.open_to;
         if same {
             self.watch.view.lines = rendered.lines;
             return false;
@@ -253,7 +257,12 @@ impl App {
             .set_internal_highlights(buffer, highlights_of(&rendered));
         let line = was
             .and_then(|was| rendered.lines.iter().position(|line| *line == was))
-            .or(on.filter(|&line| line < rendered.lines.len()));
+            .or(on.filter(|&line| line < rendered.lines.len()))
+            // Not on the title, where no key acts: on the first row under it (ADR 0140).
+            .map(|line| match rendered.lines.get(line) {
+                Some(Line::Title) if rendered.lines.len() > 1 => line + 1,
+                _ => line,
+            });
         if let Some(line) = line {
             let offset: usize = rendered
                 .text
@@ -267,6 +276,19 @@ impl App {
         self.watch.view.lines = rendered.lines;
         self.watch.view.text = rendered.text;
         true
+    }
+
+    /// Session `session`'s terminal's title as its row may show it (ADR 0140, Q2): cleaned as a
+    /// recap is, without its spinner, and with no braille blank, which draws as nothing and so
+    /// could pad a label. Empty while it has no terminal.
+    pub(super) fn row_title(&self, session: &crate::sessions::hosted::Hosted) -> String {
+        (session.buffer)
+            .and_then(|id| self.terminals.map.get(id))
+            .map(|terminal| {
+                let title = without_spinner(&terminal.title).replace('\u{2800}', " ");
+                clean(&title)
+            })
+            .unwrap_or_default()
     }
 
     /// Says on the pane's modeline how to enter it, or, while it is selected, how to leave it

@@ -112,7 +112,7 @@ fn drawn(d: &Dispatcher, editor: &Editor) -> Drawn {
         (
             editor,
             &terminals,
-            &crate::sessions::list::PaneBands::default(),
+            &crate::sessions::list::SpaceBands::default(),
         ),
         menu.as_ref(),
         &statuses,

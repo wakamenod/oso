@@ -322,12 +322,13 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         // The spaces pane's levels (ADR 0140): a space's name as a heading, a repository's in a
         // terminal's blue as a listing's directories; a space's row on a review's header band,
         // the front worktree's on the current line's, and the row at point, while the pane is
-        // selected, on a selected candidate's, with its bar in the text's colour.
+        // selected, on a selected candidate's, with a bar in an accent in its first cell.
         Face::SessionSpace => (SynHeading, BgMain),
         Face::SessionRepository => (Terminal(12), BgMain),
         Face::SessionHeader => (FgMain, BgHeader),
         Face::SessionFrontTint => (FgMain, BgCurrentLine),
-        Face::SessionPoint | Face::SessionPointBar => (FgMain, BgSelected),
+        Face::SessionPoint => (FgMain, BgSelected),
+        Face::SessionPointBar => (Azure, Azure),
         // A listing's names in a terminal's colours as `ls --color` gives them, which every
         // theme has apart from its text, even one with few syntax colours; its header as a
         // heading and its details as quiet as a session's (ADR 0134).

@@ -252,7 +252,8 @@ fn prompt(state: &Value) -> (String, String) {
 /// starts a session there, which shows under it.
 fn keys_on_a_new_worktree(app: &mut App) {
     let state = select_list(app);
-    point_at(app, 0);
+    // The space's row, under the title's (ADR 0140).
+    point_at(app, 1);
     let main = line_of(&state, |row| row.contains("main  primary"));
     let side = line_of(&state, worktree_row("side"));
     app.send_keys("M-n");
@@ -366,15 +367,14 @@ fn the_pane_starts_at_pane_width_and_takes_4_columns_a_step_down_to_24() {
     select_list(&mut app);
     app.send_keys(">");
     app.wait_for("4 columns wider", |state| {
-        side_columns(state) == Some(34)
-            && state["echo"].as_str() == Some("Sessions pane: 34 columns")
+        side_columns(state) == Some(34) && state["echo"].as_str() == Some("*Spaces*: 34 columns")
     });
     // Three steps narrower, kept at the narrowest.
     app.send_keys("C-u 3 <");
     app.wait_for("at 24", |state| side_columns(state) == Some(24));
     app.send_keys("<");
     app.wait_for("said to be the narrowest", |state| {
-        state["echo"].as_str() == Some("The sessions pane is at its narrowest, 24 columns")
+        state["echo"].as_str() == Some("*Spaces* is at its narrowest, 24 columns")
     });
     assert_eq!(side_columns(&app.state()), Some(24));
     flow.exit_with(0);

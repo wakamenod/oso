@@ -305,6 +305,54 @@ fn a_recap_or_space_that_begins_with_a_mark_never_reads_as_a_row() {
     );
     let first = rows[2].chars().find(|c| *c != ' ').unwrap();
     assert!(!super::MARKS.contains(first), "{}", rows[2]);
+    // Nor past a guide, which the rules that read a row skip (ADR 0140): in the tree and by
+    // state, a reason that begins with one is no row.
+    for recap in [
+        "└ ▾ deploy  primary",
+        "├ ⚠ Fix the login redirect",
+        "│ │ ⠹ x",
+    ] {
+        let mut asking = entry(3, "oso", ASK, now);
+        asking.recap = recap.into();
+        asking.title = recap.into();
+        let mut failed = entry(4, "oso-2", State::Failed, now);
+        failed.recap = recap.into();
+        let entries = [asking, failed];
+        let mut list = List::default();
+        list.set_tree(super::Tree::of_projects(vec![super::Project {
+            root: PathBuf::from("/w/oso"),
+            name: "oso".to_owned(),
+            worktrees: vec![super::Worktree {
+                path: PathBuf::from("/w/oso"),
+                primary: true,
+                ..super::Worktree::default()
+            }],
+        }]));
+        for shown in [
+            list.render(&entries, 44, now),
+            List::by_state().render(&entries, 44, now),
+        ] {
+            let mut seen = Vec::new();
+            for (row, line) in shown.text.lines().zip(&shown.lines) {
+                // A session's second line is its reason.
+                let reason = matches!(line, Line::Session(_)) && seen.contains(&line);
+                seen.push(line);
+                let first = row
+                    .chars()
+                    .find(|c| *c != ' ' && !super::GUIDES.contains(*c));
+                assert!(
+                    !reason || first.is_none_or(|c| !super::MARKS.contains(c)),
+                    "{recap:?} reads as a row: {row:?}\n{}",
+                    shown.text
+                );
+            }
+            assert!(
+                shown.text.contains("deploy")
+                    || shown.text.contains("Fix")
+                    || shown.text.contains(" x")
+            );
+        }
+    }
 }
 
 #[test]

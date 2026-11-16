@@ -156,7 +156,7 @@ band behind its rows.
 
 `C-x a s` (or `C-c s` in a session's terminal) moves you into the pane; pressing it again, or
 `q`, takes you back to the window you came from, and `C-u C-x a s` hides the pane. While the
-pane has your keys, the row at point has an accent band and a `▌` at its left edge, and the
+pane has your keys, the row at point has an accent band and an accent bar at its left edge, and the
 pane's modeline says `q back · TAB fold · ? keys`; otherwise it says `C-x a s to enter`. A
 click on the pane moves you into it at that row; a second click, or `RET`, acts on the row. A
 click on a `▾` or `▸` folds.
@@ -190,12 +190,8 @@ In `*Spaces*`:
 | `e` | Explain its state. |
 | `?` | Say what the marks mean, and these keys. |
 
-A click on a row does what `RET` does there, even when the list is not selected; a click on a
-`▾` or `▸` folds. `C-x a c` and `C-x a w` in the list work as `c` and `w`.
-The list's modeline says how it is grouped and that `?` gives the keys.
-
-`C-x o` skips the list, and `C-x a s` hides it when it is selected. `C-x k` in a session's
-buffer stops and archives the session.
+`C-x a c` and `C-x a w` in the list work as `c` and `w`. `C-x o` skips the list. `C-x k` in a
+session's buffer stops and archives the session.
 
 ### Spaces
 

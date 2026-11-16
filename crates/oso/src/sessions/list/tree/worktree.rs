@@ -109,26 +109,24 @@ impl List {
         if folded {
             return;
         }
-        self.opened(2);
+        out.open_to = 2;
         self.hung(out, (worktree, depth + 1, front), sessions, width, now);
     }
 
     /// The sessions of `worktree`, hung from its row by guides at `depth`, each family's
     /// nested sessions under the session that started them unless that one is folded; on the
     /// front worktree's tint when it is `front`.
-    fn hung(
+    fn hung<'e>(
         &self,
         out: &mut Rendered,
         (worktree, depth, front): (&Worktree, usize, bool),
-        sessions: &[&Entry],
+        sessions: &[&'e Entry],
         width: usize,
         now: Instant,
     ) {
         let families = families(sessions);
-        let label_of = |entry: &Entry| -> Option<String> {
-            let named_after = entry.name == dir_name(&worktree.path);
-            (named_after && !entry.title.is_empty()).then(|| entry.title.clone())
-        };
+        let dir = dir_name(&worktree.path);
+        let label_of = |entry: &'e Entry| label(entry, &dir);
         let at = INDENT[depth];
         for (n, (top, nested)) in families.iter().enumerate() {
             let last = n + 1 == families.len();
@@ -143,7 +141,7 @@ impl List {
             let first = out.lines.len();
             let row = Row {
                 under: Some(&under),
-                label: label.as_deref(),
+                label,
                 ..Row::new(top, &indent, self.spin, waiting)
             };
             row.render(out, width, now);
@@ -155,7 +153,7 @@ impl List {
                     let label = label_of(entry);
                     let row = Row {
                         under: Some(&under),
-                        label: label.as_deref(),
+                        label,
                         ..Row::new(entry, &indent, self.spin, 0)
                     };
                     row.render(out, width, now);
@@ -176,10 +174,25 @@ impl List {
                 .wall
                 .zip(worktree.active)
                 .and_then(|(wall, active)| wall.duration_since(active).ok())
-                .map(age_of)
+                // `now` under a minute, as a session's age (ADR 0131, Q6).
+                .map(|ago| {
+                    if ago.as_secs() < 60 {
+                        "now".to_owned()
+                    } else {
+                        age_of(ago)
+                    }
+                })
                 .unwrap_or_default(),
         }
     }
+}
+
+/// What session `entry` is called on its row under the worktree whose directory is `dir`: its
+/// title when its name is the worktree's (ADR 0140, Q2), else `None`, its name. Only oso's own
+/// sessions: another program's has no title it could take a name from.
+fn label<'e>(entry: &'e Entry, dir: &str) -> Option<&'e str> {
+    let named_after = matches!(entry.key, Key::Hosted(_)) && entry.name == dir;
+    (named_after && !entry.title.is_empty()).then_some(entry.title.as_str())
 }
 
 /// What a worktree's row names: the main checkout's branch, marked `primary`, or a linked
@@ -229,4 +242,13 @@ fn families<'e>(sessions: &[&'e Entry]) -> Vec<(&'e Entry, Vec<&'e Entry>)> {
         }
     }
     families
+}
+
+#[cfg(test)]
+#[test]
+fn the_guides_drawn_are_those_a_row_is_read_past() {
+    for guide in [BRANCH, LAST, STEM] {
+        let first = guide.chars().next().unwrap();
+        assert!(super::super::GUIDES.contains(first), "{guide:?}");
+    }
 }

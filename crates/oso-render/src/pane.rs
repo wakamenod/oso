@@ -166,7 +166,7 @@ pub enum Face {
     SessionFrontTint,
     /// The band of the row at point while `*Spaces*` is selected (ADR 0140): a fill.
     SessionPoint,
-    /// The bar in the first cell of that row, drawn over it on a fill of its own.
+    /// The bar in the first cell of that row, a fill in an accent.
     SessionPointBar,
     /// A directory listing's header, its path (ADR 0134), as a heading.
     DiredHeader,

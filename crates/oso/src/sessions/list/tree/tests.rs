@@ -263,19 +263,34 @@ fn twenty_worktrees_forty_sessions_and_three_hundred_folded_externals_render_in_
             worktrees,
         }])
         .spaces,
-        front: None,
         wall: Some(wall()),
         ..Default::default()
     };
+    let front_space = tree.spaces[0].id.clone();
+    let tree = Tree {
+        front_space: Some(front_space),
+        front: Some(PathBuf::from("/w/oso/.claude/worktrees/wt-1")),
+        ..tree
+    };
+    // Half named after their worktree, so their titles label them; every fifth nested; the
+    // front worktree tinted (ADR 0140): every path of a row is taken.
     let mut entries: Vec<Entry> = (0..40)
         .map(|n| {
             let dir = format!("/w/oso/.claude/worktrees/wt-{}", n % 20);
-            session(
+            let name = if n % 2 == 0 {
+                format!("wt-{}", n % 20)
+            } else {
+                format!("session-{n}")
+            };
+            let mut entry = session(
                 n,
-                &format!("session-{n}"),
+                &name,
                 [ASK, State::Working, State::Idle][n as usize % 3],
                 &dir,
-            )
+            );
+            entry.title = "t".repeat(80);
+            entry.parent = (n % 5 == 4 && n >= 20).then(|| Key::Hosted(n - 20));
+            entry
         })
         .collect();
     entries.extend((0..300).map(|n| external(10_000 + n, "x", &format!("/x/p{}", n % 30), None)));

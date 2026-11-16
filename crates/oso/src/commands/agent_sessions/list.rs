@@ -31,7 +31,21 @@ pub const PANE_STEP: isize = 4;
 
 /// The folds' marks, which begin a space's, a repository's, a worktree's, a group's and a
 /// quiet row's line (ADR 0140).
-const FOLDS: [char; 2] = ['▾', '▸'];
+pub const FOLDS: [char; 2] = ['▾', '▸'];
+
+/// The row `line`, a line of the list's text, begins, if it begins one: its indent in cells
+/// past its guides, and its mark (ADR 0140). The one rule the keys and the mouse read rows by.
+pub fn row_mark(line: impl IntoIterator<Item = char>) -> Option<(usize, char)> {
+    let mut indent = 0;
+    let first = line.into_iter().find(|c| {
+        let lead = *c == ' ' || GUIDES.contains(*c);
+        indent += usize::from(lead);
+        !lead
+    });
+    first
+        .filter(|c| ROW_MARKS.contains(*c))
+        .map(|c| (indent, c))
+}
 
 /// The commands of `*Spaces*`.
 pub const COMMANDS: &[Command] = &[
@@ -281,16 +295,7 @@ fn row_at(ctx: &Ctx<'_>, line: usize) -> Option<(usize, char)> {
         return None;
     }
     let (start, end) = (text.line_start(line), text.line_end(line));
-    let mut chars = text.chunks_in_range(start..end).flat_map(str::chars);
-    let mut indent = 0;
-    let first = chars.find(|c| {
-        let lead = *c == ' ' || GUIDES.contains(*c);
-        indent += usize::from(lead);
-        !lead
-    });
-    first
-        .filter(|c| ROW_MARKS.contains(*c))
-        .map(|c| (indent, c))
+    row_mark(text.chunks_in_range(start..end).flat_map(str::chars))
 }
 
 /// Puts point at the start of line `line` of the selected buffer, in view.

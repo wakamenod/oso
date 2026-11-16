@@ -2,8 +2,9 @@
 //! area and a prompt's float (ADR 0112).
 //!
 //! Must not depend on: key presses or commands. Before a frame it takes in what
-//! has loaded and fits the gutter to it, as a load is no input; otherwise a frame only
-//! reads the editor's state.
+//! has loaded and fits the gutter to it, as a load is no input, and sets `*Spaces*`' modeline
+//! note for whether the side window is selected (ADR 0140), as any key may have changed that;
+//! otherwise a frame only reads the editor's state.
 //!
 //! Whatever changes the modeline or the echo area gets a frame in one place
 //! ([`App::ask_for_a_frame_if_status_changed`]), so a failed command, a message from a
@@ -20,13 +21,13 @@ use oso_render::{
 use super::App;
 use super::shell::{Loop, Window};
 use crate::dispatch::OpenMenu;
-use crate::sessions::list::PaneBands;
+use crate::sessions::list::SpaceBands;
 use crate::terminal::hosted::Terminals;
 use crate::text;
 
 mod float;
 mod menu;
-mod pane;
+mod spaces;
 mod tiled;
 
 pub(super) use tiled::statuses_into;
@@ -77,14 +78,14 @@ pub(super) fn with_panes<R>(
     draw: impl FnOnce(&[Pane<'_>]) -> R,
 ) -> R {
     let terminals = Terminals::default();
-    let bands = PaneBands::default();
+    let bands = SpaceBands::default();
     with_frame((editor, &terminals, &bands), None, statuses, cells, draw)
 }
 
 /// As [`with_panes`], with the open menu's float over the tiled panes, if one is open
 /// (ADR 0117).
 pub(super) fn with_frame<R>(
-    (editor, terminals, bands): (&Editor, &Terminals, &PaneBands),
+    (editor, terminals, bands): (&Editor, &Terminals, &SpaceBands),
     open_menu: Option<&OpenMenu<'_>>,
     statuses: &[(WindowId, Status)],
     cells: &mut Cells,
