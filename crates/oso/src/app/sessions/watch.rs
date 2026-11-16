@@ -9,6 +9,7 @@
 mod alerts;
 #[cfg(feature = "dev")]
 mod dev_state;
+mod images;
 mod pane;
 mod placing;
 mod requests;

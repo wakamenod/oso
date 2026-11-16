@@ -8,7 +8,8 @@
 /// (ADR 0143): `C-c C-<letter>` runs the Agents menu's head of that letter, where the terminal and
 /// Emacs leave `C-<letter>` free, and signs keep their `C-c` keys. The menu's other heads are
 /// `C-c a` and the letter, as anywhere. `C-c C-c`, `C-c C-k`, `C-c C-j`, `C-c RET` and `C-c C-s`
-/// stay the terminal's.
+/// stay the terminal's. `C-c C-u` and `C-c C-y`, which yanks the clipboard's image into the
+/// session as `C-y` yanks text (ADR 0142), are session mode's own, with no head.
 pub const SESSION: &[(&str, &str)] = &[
     ("C-c C-n", "session-next-waiting"),
     ("C-c C-d", "session-next-done"),
@@ -26,6 +27,7 @@ pub const SESSION: &[(&str, &str)] = &[
     ("C-c -", "terminal-deny-agent-read"),
     ("C-c ?", "session-help"),
     ("C-c C-u", "universal-argument"),
+    ("C-c C-y", "session-yank-image"),
 ];
 
 /// The keys of `*Spaces*`, above the global ones in it.

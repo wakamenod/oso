@@ -30,6 +30,7 @@
 //!   `adopt`: what `session-adopt` offers, found on a thread of its own.
 //! - `messages`: who sent a session a message, from its screen.
 //! - `send`: what the person sends to a session, and why a send is refused.
+//! - `images`: the clipboard's images kept for a session, and the `@path` pasted for one.
 
 pub mod adopt;
 pub mod attention;
@@ -39,6 +40,7 @@ pub mod engine;
 pub mod explain;
 pub mod hosted;
 pub mod identity;
+pub mod images;
 pub mod launch;
 pub mod list;
 pub mod messages;

@@ -930,7 +930,9 @@ a switch made with its command stands until that setting changes in the file
   `C-c C-d`, `C-c C-b`, `C-c C-r`, `C-c C-a`, `C-c C-w`, `C-c C-e`, `C-c C-f`, `C-c C-z` and
   `C-c C-v`, with `C-c C-p` for the pane (`s`), as `C-c C-s` is the live search. `C-c a` opens the
   menu, for `c`, `m`, `j`, `O`, `S`, `K`, `P`, `A` and `V`. `C-c @` mentions, `C-c +` and `C-c -`
-  allow and deny the agent channel's reads, `C-c C-u` is a prefix argument and `C-c ?` says the
+  allow and deny the agent channel's reads, `C-c C-u` is a prefix argument, `C-c C-y` pastes an
+  `@` reference to the clipboard's image, kept in a private file
+  ([ADR 0142](adr/0142-attaching-the-clipboard-s-image-to-a-session.md)), and `C-c ?` says the
   keys in the echo area. After `C-c`, only the session's and
   the terminal's keys are read, and the user's `[keys.session]` over them, never the global keys
   or `[keys.global]`; any other key, or one `[keys.session]` sets to `false`, says

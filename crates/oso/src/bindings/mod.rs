@@ -449,14 +449,16 @@ mod tests {
                     assert_eq!(action, HeadAction::Command(id), "{keys}");
                     twins += 1;
                 }
-                // Only session mode's own keys have no head: help, reading and `C-c C-u`; and
-                // the pane, `s` in the menu, is `C-c C-p`, as `C-c C-s` is the live search.
+                // Only session mode's own keys have no head: help, reading, `C-c C-u` and the
+                // clipboard's image (ADR 0142); and the pane, `s` in the menu, is `C-c C-p`, as
+                // `C-c C-s` is the live search.
                 None => assert!(
                     [
                         "session-help",
                         "terminal-allow-agent-read",
                         "terminal-deny-agent-read",
                         "universal-argument",
+                        "session-yank-image",
                         "sessions",
                     ]
                     .contains(name),
