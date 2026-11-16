@@ -13,7 +13,9 @@ use crate::position;
 use crate::protocol::{self, Outcome};
 use crate::uri;
 
-use super::super::{Answer, Answered, Ask, AskKind, Completion, Completions, Location, Target};
+use super::super::{
+    Answer, Answered, Ask, AskContext, AskKind, Completion, Completions, Location, Resolved, Target,
+};
 use super::run::Run;
 use super::{Asked, Session};
 
@@ -43,10 +45,33 @@ impl Session {
             return Ok(());
         };
         let at = position::from_offset(text, ask.offset, run.encoding);
-        let params = match ask.kind {
-            AskKind::Definition => protocol::position_params(uri, at),
-            AskKind::References => protocol::references_params(uri, at),
-            AskKind::Completion => protocol::completion_params(uri, at),
+        let params = match (ask.kind, ask.context) {
+            (AskKind::Definition, _) => protocol::position_params(uri, at),
+            (AskKind::References, _) => protocol::references_params(uri, at),
+            (AskKind::Completion, context) => {
+                let invoked = match context {
+                    AskContext::Character(c) => protocol::Invoked::Character(c),
+                    AskContext::Incomplete => protocol::Invoked::Incomplete,
+                    AskContext::Plain | AskContext::Item { .. } => protocol::Invoked::Asked,
+                };
+                protocol::completion_params(uri, at, invoked)
+            }
+            // The item as the server gave it, if it is one of its last completions'.
+            (AskKind::Resolve, context) => {
+                let item = match (context, &run.given) {
+                    (AskContext::Item { answer, index }, Some((document, serial, given)))
+                        if (*document, *serial) == (ask.document, answer) =>
+                    {
+                        given.get(index).cloned()
+                    }
+                    _ => None,
+                };
+                let Some(item) = item else {
+                    self.fail(ask, "its completions are gone".to_owned());
+                    return Ok(());
+                };
+                item
+            }
         };
         // The older of its kind for the document is moot.
         let older = run.pending.iter().find_map(|(id, (asked, _))| match asked {
@@ -72,7 +97,7 @@ impl Session {
     /// The answer to `ask`, request `id`, which was due by `deadline`.
     pub(super) fn answered(
         &mut self,
-        run: &Run,
+        run: &mut Run,
         (id, ask): (i64, Ask),
         outcome: Outcome,
         deadline: Instant,
@@ -96,9 +121,10 @@ impl Session {
                 return;
             }
         };
-        if ask.kind == AskKind::Completion {
-            self.completed(run, (id, ask), &result, took);
-            return;
+        match ask.kind {
+            AskKind::Completion => return self.completed(run, (id, ask), &result, took),
+            AskKind::Resolve => return self.resolved(run, (id, ask), &result, took),
+            AskKind::Definition | AskKind::References => {}
         }
         let (located, left) = protocol::located(&result);
         drop(result);
@@ -152,7 +178,7 @@ impl Session {
     /// the server has of the document.
     fn completed(
         &mut self,
-        run: &Run,
+        run: &mut Run,
         (id, ask): (i64, Ask),
         result: &serde_json::Value,
         took: u128,
@@ -165,10 +191,14 @@ impl Session {
         // A range is kept only around the position asked about, in the text asked about.
         let at = (revision == ask.revision)
             .then(|| position::from_offset(text, ask.offset, run.encoding));
+        let encoding = run.encoding;
         let items: Vec<Completion> = (completed.items.into_iter())
             .map(|offered| Completion {
                 range: (at.and_then(|at| offered.range_around(at)))
-                    .map(|(start, end)| position::to_range(text, start, end, run.encoding)),
+                    .map(|(start, end)| position::to_range(text, start, end, encoding)),
+                extra: (offered.extra.into_iter())
+                    .map(|(start, end, new)| (position::to_range(text, start, end, encoding), new))
+                    .collect(),
                 label: offered.label,
                 kind: offered.kind,
                 detail: offered.detail,
@@ -176,6 +206,10 @@ impl Session {
                 text: offered.text,
             })
             .collect();
+        // Kept for their resolve, while they are the document's last.
+        run.given = run
+            .resolves
+            .then_some((ask.document, ask.serial, completed.given));
         self.reporter.log(format!(
             "request {id} answered with {} completions in {took} ms{}{}",
             items.len(),
@@ -199,6 +233,43 @@ impl Session {
                 revision,
                 items,
                 incomplete: completed.incomplete,
+            })),
+        });
+    }
+
+    /// An item's edits besides its own, which `result` resolves for `ask`, request `id`, their
+    /// ranges placed in the text the server has of the document.
+    fn resolved(
+        &mut self,
+        run: &Run,
+        (id, ask): (i64, Ask),
+        result: &serde_json::Value,
+        took: u128,
+    ) {
+        let AskContext::Item { answer, index } = ask.context else {
+            return;
+        };
+        let Some((revision, text)) = self.documents.sent(ask.document) else {
+            self.fail(ask, "the document is no longer open with it".to_owned());
+            return;
+        };
+        let extra: Vec<(std::ops::Range<usize>, String)> = (protocol::resolved(result).into_iter())
+            .map(|(start, end, new)| (position::to_range(text, start, end, run.encoding), new))
+            .collect();
+        self.reporter.log(format!(
+            "request {id} resolved with {} more edits in {took} ms",
+            extra.len()
+        ));
+        self.reporter.answer(Answer {
+            serial: ask.serial,
+            document: ask.document,
+            kind: ask.kind,
+            revision: ask.revision,
+            outcome: Ok(Answered::Resolved(Resolved {
+                answer,
+                index,
+                revision,
+                extra,
             })),
         });
     }

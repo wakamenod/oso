@@ -7,6 +7,7 @@ use proptest::prelude::*;
 use serde_json::{Value, json};
 
 use super::*;
+use crate::limits::{ADDITIONAL_EDITS_BYTES_MAX, ADDITIONAL_EDITS_MAX};
 
 #[test]
 fn a_list_or_an_array_is_read_in_the_order_of_its_sort_text() {
@@ -90,8 +91,15 @@ fn a_snippet_is_read_as_plain_text() {
 
 #[test]
 fn the_request_asks_as_the_person_invoked_it() {
-    let params = completion_params("file:///a.rs", Position::new(2, 5));
+    let params = completion_params("file:///a.rs", Position::new(2, 5), Invoked::Asked);
     assert_eq!(params["context"]["triggerKind"], 1);
+    let typed = completion_params("file:///a.rs", Position::new(2, 5), Invoked::Character('.'));
+    assert_eq!(
+        typed["context"],
+        json!({"triggerKind": 2, "triggerCharacter": "."})
+    );
+    let again = completion_params("file:///a.rs", Position::new(2, 5), Invoked::Incomplete);
+    assert_eq!(again["context"]["triggerKind"], 3);
     assert_eq!(params["position"]["character"], 5);
     assert_eq!(kind_name(22), "struct");
     assert_eq!(kind_name(99), "");
@@ -107,6 +115,7 @@ fn a_range_is_kept_only_on_the_asked_line_and_around_the_asked_place() {
         filter: None,
         range: Some((Position::new(start.0, start.1), Position::new(end.0, end.1))),
         text: "x".into(),
+        extra: Vec::new(),
     };
     assert!(offered((4, 2), (4, 6)).range_around(at).is_some());
     assert!(offered((4, 6), (4, 9)).range_around(at).is_some());
@@ -208,4 +217,49 @@ proptest! {
         let plain = plain(&snippet);
         prop_assert!(plain.len() <= snippet.len());
     }
+}
+
+#[test]
+fn the_server_s_trigger_characters_and_resolve_are_read() {
+    let result = json!({"capabilities": {"completionProvider": {
+        "triggerCharacters": [".", ":", "::", " ", "\u{7}"],
+        "resolveProvider": true,
+    }}});
+    let read = completing(&result).unwrap();
+    assert_eq!(read.triggers, ['.', ':'], "one printable character each");
+    assert!(read.resolves);
+    assert_eq!(completing(&json!({"capabilities": {}})), None);
+}
+
+#[test]
+fn extra_edits_are_read_within_their_bounds_or_not_at_all() {
+    let edit = |line: u32, text: &str| json!({"range": {"start": {"line": line, "character": 0}, "end": {"line": line, "character": 0}}, "newText": text});
+    let answer = json!([{"label": "x", "additionalTextEdits": [edit(0, "use a::x;\n")]}]);
+    let item = &completed(&answer).items[0];
+    assert_eq!(
+        item.extra,
+        [(
+            Position::new(0, 0),
+            Position::new(0, 0),
+            "use a::x;\n".to_owned()
+        )]
+    );
+    let many: Vec<_> = (0..=ADDITIONAL_EDITS_MAX as u32)
+        .map(|line| edit(line, "a"))
+        .collect();
+    assert!(
+        extra_edits(Some(&json!(many))).is_empty(),
+        "past the most edits"
+    );
+    let big = "a".repeat(ADDITIONAL_EDITS_BYTES_MAX + 1);
+    assert!(
+        extra_edits(Some(&json!([edit(0, &big)]))).is_empty(),
+        "past the most bytes"
+    );
+    assert!(
+        extra_edits(Some(&json!([edit(0, "a\u{1b}")]))).is_empty(),
+        "a control character"
+    );
+    let resolved_item = json!({"label": "x", "additionalTextEdits": [edit(2, "b")]});
+    assert_eq!(resolved(&resolved_item).len(), 1);
 }

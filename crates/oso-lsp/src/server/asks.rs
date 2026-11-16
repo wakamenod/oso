@@ -22,8 +22,10 @@ pub enum AskKind {
     Definition,
     /// `textDocument/references`, the declaration included.
     References,
-    /// `textDocument/completion`, as the person asked (step 9).
+    /// `textDocument/completion`, as the person asked or typed (step 9).
     Completion,
+    /// `completionItem/resolve` of an item of the last completions (step 9b).
+    Resolve,
 }
 
 impl AskKind {
@@ -33,6 +35,7 @@ impl AskKind {
             Self::Definition => "textDocument/definition",
             Self::References => "textDocument/references",
             Self::Completion => "textDocument/completion",
+            Self::Resolve => "completionItem/resolve",
         }
     }
 
@@ -40,7 +43,7 @@ impl AskKind {
     pub fn wait(self) -> std::time::Duration {
         match self {
             Self::Definition | Self::References => crate::limits::DEFINITION_WAIT,
-            Self::Completion => crate::limits::COMPLETION_WAIT,
+            Self::Completion | Self::Resolve => crate::limits::COMPLETION_WAIT,
         }
     }
 
@@ -50,6 +53,7 @@ impl AskKind {
             Self::Definition => "definition",
             Self::References => "references",
             Self::Completion => "completion",
+            Self::Resolve => "resolve",
         }
     }
 }
@@ -64,6 +68,23 @@ pub struct Ask {
     pub kind: AskKind,
     pub revision: u64,
     pub offset: usize,
+    pub context: AskContext,
+}
+
+/// What more an ask says (step 9b): for completions, why they are asked for; for a resolve,
+/// which item of which answer, by the completions' ask's serial and the item's place in its
+/// answer. Definitions and references take [`AskContext::Plain`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AskContext {
+    /// Asked for by the person.
+    #[default]
+    Plain,
+    /// The person typed this trigger character of the server's.
+    Character(char),
+    /// The person typed on in a list the server said is incomplete.
+    Incomplete,
+    /// The item `index` of the answer to the completions' ask `answer`.
+    Item { answer: u64, index: usize },
 }
 
 /// The answer to an [`Ask`], with its serial: what the server answered, or why there is
@@ -87,6 +108,28 @@ pub enum Answered {
     Places(Vec<Location>),
     /// Completions (step 9).
     Completion(Completions),
+    /// A resolved item's edits besides its own (step 9b).
+    Resolved(Resolved),
+}
+
+/// What an item's `completionItem/resolve` gave: the item, by its answer's serial and its place
+/// in it, and its edits besides its own, their ranges in bytes of the caller's text of
+/// `revision`. `Debug` gives the counts only.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Resolved {
+    pub answer: u64,
+    pub index: usize,
+    pub revision: u64,
+    pub extra: Vec<(Range<usize>, String)>,
+}
+
+impl std::fmt::Debug for Resolved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Resolved")
+            .field("index", &self.index)
+            .field("extra", &self.extra.len())
+            .finish_non_exhaustive()
+    }
 }
 
 /// The completions an answer offers, at most
@@ -121,6 +164,8 @@ pub struct Completion {
     pub filter: Option<String>,
     pub text: String,
     pub range: Option<Range<usize>>,
+    /// Its edits besides its own, if the answer gave them, in bytes of the same text (9b).
+    pub extra: Vec<(Range<usize>, String)>,
 }
 
 /// A place an answer names: a file, by the path its `file:` URI reads as, and where in it.

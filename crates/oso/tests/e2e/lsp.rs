@@ -823,3 +823,78 @@ fn completion_at_point_pops_up_narrows_and_inserts() {
     assert!(log.contains("asked textDocument/completion 1:2"), "{log}");
     assert!(log.contains("answered with 3 completions"), "{log}");
 }
+
+/// The person's typing asks by itself: a trigger character at once, three identifier
+/// characters once the typing rests. The selected item is resolved, and `TAB` inserts it with
+/// the `use` line its resolve gave, as one step.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn typing_opens_the_completion_popup_and_a_resolved_use_line_goes_in_with_it() {
+    let scratch = Scratch::new("lsp-completion-typed");
+    set_mode(scratch.path(), 0o700);
+    let root = project(&scratch, "proj-lsp", &["main.rs"]);
+    let at = |line: u32, character: u32| json!({"line": line, "character": character});
+    let script = json!({
+        "rules": [
+            {"method": "initialize", "do": [{"reply": {"capabilities": {
+                "positionEncoding": "utf-8",
+                "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+                "completionProvider": {"triggerCharacters": ["."], "resolveProvider": true},
+            }}}]},
+            {"method": "textDocument/completion", "do": [{"reply": [
+                {"label": "len", "kind": 2, "data": 1},
+                {"label": "abcdef", "kind": 3, "data": 2},
+            ]}]},
+            {"method": "completionItem/resolve", "do": [{"reply": {
+                "label": "len",
+                "additionalTextEdits": [{"range": {"start": at(0, 0), "end": at(0, 0)}, "newText": "use std::fmt;\n"}],
+            }}]},
+            {"method": "shutdown", "do": [{"reply": null}]},
+        ],
+        "log_documents": true,
+        "encoding": "utf-8",
+    });
+    let script = scratch.write("conf/fake-lsp.json", script.to_string().as_bytes());
+    let toml = format!(
+        "[lsp.servers.rust-analyzer]\ncommand = [{:?}, {:?}]\n",
+        env!("CARGO_BIN_EXE_fake-lsp-server"),
+        script.to_str().expect("a UTF-8 scratch path"),
+    );
+    let config = scratch.write("conf/config.toml", toml.as_bytes());
+    set_mode(&scratch.path().join("conf"), 0o700);
+    set_mode(&config, 0o644);
+    let record = scratch.write("conf/trusted-projects", record_line(&root).as_bytes());
+    set_mode(&record, 0o600);
+    let mut app = App::start_with_file_config_and_env(
+        &root.join("src/main.rs"),
+        scratch.path(),
+        &config,
+        &[],
+    );
+    app.wait_until_ready();
+    lsp_log_with(&mut app, "main.rs", "stderr: doc ", 1);
+
+    // A trigger character asks at once; the first row is resolved.
+    app.send_keys("M-> x .");
+    let state = app.wait_for("the popup", |state| !state["popup"].is_null());
+    assert_eq!(state["popup"]["rows"], json!(["len", "abcdef"]), "{state}");
+    // Its resolve's edit comes with it: wait for it to be asked and answered, then insert.
+    std::thread::sleep(Duration::from_millis(400));
+    app.send_keys("TAB");
+    app.wait_for("inserted", |state| state["popup"].is_null());
+    let text = app.call("get-text", Some(json!({ "start_row": 0, "rows": 4 })));
+    let rows = text["rows"].clone();
+    assert_eq!(rows[0], "use std::fmt;", "{text}");
+    assert_eq!(rows[2], "x.len", "{text}");
+
+    // Three identifier characters ask once the typing rests.
+    app.send_keys("RET a b c");
+    let state = app.wait_for("the popup after the rest", |state| {
+        !state["popup"].is_null()
+    });
+    assert_eq!(state["popup"]["rows"], json!(["abcdef"]), "{state}");
+    app.send_keys("C-g");
+    app.wait_for("closed", |state| state["popup"].is_null());
+    let log = lsp_log(&mut app, "main.rs");
+    assert!(log.contains("resolved with 1 more edits"), "{log}");
+}

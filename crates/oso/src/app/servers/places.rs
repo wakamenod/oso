@@ -85,7 +85,9 @@ impl App {
             self.editor.message(match kind {
                 AskKind::Definition => "No definition found",
                 // Completions never come here (`asks`).
-                AskKind::References | AskKind::Completion => "No references found",
+                AskKind::References | AskKind::Completion | AskKind::Resolve => {
+                    "No references found"
+                }
             });
             return;
         };

@@ -17,6 +17,17 @@ pub(super) fn close_all(editor: &mut Editor) {
 }
 
 impl Dispatcher {
+    /// After command `id` ran: the completion popup follows the word, and the person's own
+    /// typing is noted, which may ask for completions (ADR 0138, step 9b): never the agent's, a
+    /// replayed macro's or a host's.
+    pub(super) fn after_command(&self, editor: &mut Editor, id: CommandId) {
+        editor.follow_completion_popup();
+        let typed = !self.not_input && !editor.macro_replaying() && !editor.runs_for_agent();
+        if typed && self.registry.lookup("self-insert-command") == Some(id) {
+            editor.note_completion_typed();
+        }
+    }
+
     /// Before command `id` runs: each layer it is not one of the commands of closes, and a
     /// command run apart closes both.
     pub(super) fn close_transient_layers(&self, editor: &mut Editor, id: CommandId, step: Step) {

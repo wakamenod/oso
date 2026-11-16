@@ -15,7 +15,7 @@
 use oso_core::buffer::BufferId;
 use oso_core::editor::AskAt;
 use oso_core::window::WindowId;
-use oso_lsp::server::{Answer, Answered, Ask, AskKind, State};
+use oso_lsp::server::{Answer, Answered, Ask, AskContext, AskKind, State};
 
 use super::super::App;
 use crate::channel::Connection;
@@ -28,12 +28,20 @@ pub(super) struct Asker {
     revision: u64,
     offset: usize,
     agent: Option<Connection>,
+    /// The host asked by itself, for the person's typing: nothing is said of no answer or a
+    /// failed one (step 9b).
+    quiet: bool,
 }
 
 impl Asker {
     /// The ask's serial, which numbers the list of its places too.
     pub(super) fn serial(&self) -> u64 {
         self.serial
+    }
+
+    /// Whether the host asked by itself, so that nothing is said of no answer.
+    pub(super) fn quiet(&self) -> bool {
+        self.quiet
     }
 
     /// The agent's connection whose command asked, if the agent's did.
@@ -63,8 +71,19 @@ impl App {
         let Some(index) = self.server_to_ask(at.buffer) else {
             return;
         };
+        self.send_ask(index, (at, kind, AskContext::Plain), (agent, false));
+    }
+
+    /// Sends server `index` the ask of `kind` at `at` with `context`, and keeps who asked: the
+    /// agent's `connection` or the person, and whether the host asked by itself (`quiet`).
+    pub(super) fn send_ask(
+        &mut self,
+        index: usize,
+        (at, kind, context): (AskAt, AskKind, AskContext),
+        (agent, quiet): (Option<Connection>, bool),
+    ) {
         // A newer ask for places stops the list that waits for its rows (step 8b).
-        if kind != AskKind::Completion
+        if matches!(kind, AskKind::Definition | AskKind::References)
             && let Some(old) = self.servers.xrefs.stop_waiting()
         {
             self.freer.free(old);
@@ -78,6 +97,7 @@ impl App {
             kind,
             revision: at.revision,
             offset: at.offset,
+            context,
         });
         let asker = Asker {
             serial,
@@ -85,6 +105,7 @@ impl App {
             revision: at.revision,
             offset: at.offset,
             agent,
+            quiet,
         };
         self.servers.running[index]
             .asked
@@ -137,8 +158,14 @@ impl App {
             Ok(Answered::Places(places)) => places,
             Ok(Answered::Completion(completions)) => {
                 match taken {
-                    Some(taken) => self.completed(taken, completions),
+                    Some(taken) => self.completed(index, taken, completions),
                     None => self.freer.free(completions),
+                }
+                return;
+            }
+            Ok(Answered::Resolved(resolved)) => {
+                if taken.is_some() {
+                    self.resolved(resolved);
                 }
                 return;
             }
@@ -146,6 +173,7 @@ impl App {
             Ok(_) => return,
             Err(why) => {
                 if let Some((asked, asker)) = taken
+                    && !asker.quiet
                     && self.still_there(asked, &asker)
                 {
                     let name = self.servers.running[index].entry.name.clone();

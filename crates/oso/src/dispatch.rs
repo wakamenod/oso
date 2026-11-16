@@ -435,7 +435,7 @@ impl Dispatcher {
         // What the command typed in a prompt that completes is matched once, now (ADR 0076), and
         // in the word the popup completes (ADR 0138).
         editor.match_completion();
-        editor.follow_completion_popup();
+        self.after_command(editor, id);
         if let Err(error @ ExecuteError::Panicked { .. }) = &result {
             // This names the command and nothing else (ADR 0028).
             editor.message(error.to_string());

@@ -24,7 +24,7 @@ pub use jumps::AskAt;
 pub use listed::{ListedAt, ListedHit};
 pub use popup::{
     COMPLETION_POPUP_COLUMNS, COMPLETION_POPUP_ROWS, CompletionPopup, CompletionPopupAnswer,
-    CompletionPopupItem,
+    CompletionPopupItem, CompletionTyped,
 };
 pub use xref_list::{XrefKind, XrefRow, XrefRows};
 
@@ -44,6 +44,10 @@ pub(super) struct Servers {
     pub(super) xrefs: xref_list::XrefList,
     /// The completion popup at point (step 9).
     popup: Option<popup::CompletionPopup>,
+    /// An item inserted before its resolve came, whose other edits may still come (step 9b).
+    inserted: Option<popup::Inserted>,
+    /// What the person last typed, for the host to judge whether to complete (step 9b).
+    typed: Option<popup::CompletionTyped>,
     log: Option<BufferId>,
 }
 

@@ -45,6 +45,11 @@ pub(super) struct Run {
     pub(super) encoding: crate::position::Encoding,
     /// How the server wants documents synced, once `initialize` said.
     pub(super) sync: protocol::Sync,
+    /// It resolves completions, as `initialize` said (step 9b).
+    pub(super) resolves: bool,
+    /// The items of the last completions it gave, as it gave them, for their resolve: the
+    /// document's id, the ask's serial, and the items (step 9b).
+    pub(super) given: Option<(u64, u64, Vec<Value>)>,
 }
 
 impl Run {
