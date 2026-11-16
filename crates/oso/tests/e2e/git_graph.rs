@@ -141,7 +141,12 @@ fn a_graph_tags_marks_a_range_picks_after_a_question_and_refuses_a_merge_s_rever
     });
     app.send_keys(&typing("v9"));
     app.send_keys("RET");
-    wait_echo_starting(&mut app, "the tag", "Tagged v9");
+    // The echo names the commit tagged, then the tag.
+    app.wait_for("the tag", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.starts_with("Tagged ") && echo.ends_with(" as v9"))
+    });
     let shown = rows_until(&mut app, |rows| rows.iter().any(|row| row.contains(" v9 ")));
     // `m` on two commits and `RET` reviews the range between them.
     app.send_keys(&format!("{}m", at(line(&shown, " base "))));
