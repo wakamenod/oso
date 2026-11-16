@@ -94,6 +94,9 @@ impl Session {
                     .ok_or("chose a position encoding oso did not offer")?;
                 run.send(&protocol::notification("initialized", json!({})))?;
                 run.ready = true;
+                run.encoding = encoding;
+                run.sync = protocol::sync(&result);
+                self.open_documents(run)?;
                 let name = protocol::server_name(&result)
                     .map(|name| format!(" as {name}"))
                     .unwrap_or_default();

@@ -1,10 +1,11 @@
-//! What an agent's open starts in the running app (ADR 0118, ADR 0138 steps 1 and 3): the
-//! person's open starts the project's language server at once, the agent's open of a file in
-//! another project waits in the buffer for the person, the modeline says `waits: server`, the
-//! person's first key there lets it go and starts that project's server, and a restricted
-//! project holds nothing. The server is the fake one, named by the configuration as
-//! rust-analyzer's command; `*Agent*` says what ran. What a save starts waits for ADR 0138's
-//! step 4, which tells a server of a save. The dev socket's keys stand in for the person's.
+//! What an agent's open or save starts in the running app (ADR 0118, ADR 0138 steps 1, 3 and
+//! 4): the person's open starts the project's language server and opens the file with it at
+//! once; the agent's open of a file in another project, or of another file where the server
+//! runs, waits in the buffer for the person, the modeline says `waits: server`, and the
+//! person's first key there lets it go; the agent's save of a file the server has waits for the
+//! person's next save; and a restricted project holds nothing. The server is the fake one,
+//! named by the configuration as rust-analyzer's command; `*Agent*` says what ran. The dev
+//! socket's keys stand in for the person's.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The rules
 //! themselves have unit tests in the editor.
@@ -36,7 +37,10 @@ pub(super) fn fake_server_config(scratch: &Scratch) -> std::path::PathBuf {
     let script = scratch.write(
         "conf/fake-lsp.json",
         json!({"rules": [
-            {"method": "initialize", "do": [{"reply": {"capabilities": {"positionEncoding": "utf-8"}}}]},
+            {"method": "initialize", "do": [{"reply": {"capabilities": {
+                "positionEncoding": "utf-8",
+                "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+            }}}]},
             {"method": "shutdown", "do": [{"reply": null}]},
         ]})
         .to_string()
@@ -132,7 +136,7 @@ fn what_an_agents_open_starts_waits_for_the_person_and_a_restricted_project_hold
     let config = fake_server_config(&scratch);
     set_mode(&scratch.path().join("conf"), 0o700);
     set_mode(&config, 0o644);
-    let trusted = project(&scratch, "proj-starts", &["main.rs"]);
+    let trusted = project(&scratch, "proj-starts", &["main.rs", "more.rs"]);
     let other = project(&scratch, "proj-other", &["lib.rs"]);
     project(&scratch, "proj-free", &["free.rs"]);
     let lines = record_line(&trusted) + &record_line(&other);
@@ -147,7 +151,7 @@ fn what_an_agents_open_starts_waits_for_the_person_and_a_restricted_project_hold
         &mut app,
         &mut agent,
         "the person's open ran",
-        |app, agent| agent_log(app, agent).contains("ran server-start in main.rs"),
+        |app, agent| agent_log(app, agent).contains("ran server-start, server-open in main.rs"),
     );
     assert_eq!(waits(&mut agent, "main.rs"), json!([]));
     app.wait_for("the server is ready", |state| {
@@ -156,6 +160,12 @@ fn what_an_agents_open_starts_waits_for_the_person_and_a_restricted_project_hold
             .is_some_and(|modeline| modeline.contains("proj-starts  lsp  "))
     });
     an_agents_open_waits_for_the_persons_key(&mut app, &mut agent, &other.join("src/lib.rs"));
+    an_agents_open_where_the_server_runs_waits_too(
+        &mut app,
+        &mut agent,
+        &trusted.join("src/more.rs"),
+    );
+    an_agents_save_waits_for_the_persons_save(&mut app, &mut agent, &main);
     a_restricted_project_holds_nothing(
         &mut app,
         &mut agent,
@@ -186,12 +196,75 @@ fn an_agents_open_waits_for_the_persons_key(app: &mut App, agent: &mut Agent, li
     });
     let log = agent_log(app, agent);
     assert!(log.contains("the person let go: server in lib.rs"), "{log}");
-    assert!(log.contains("ran server-start in lib.rs"), "{log}");
+    assert!(
+        log.contains("ran server-start, server-open in lib.rs"),
+        "{log}"
+    );
     app.wait_for("lib.rs's server is ready", |state| {
         state["modeline"]
             .as_str()
             .is_some_and(|modeline| modeline.contains("proj-other  lsp  "))
     });
+    thread::sleep(AFTER_TYPING);
+}
+
+/// The agent's open of `more`, in the project whose server runs, waits too: opening it with
+/// the server does (`server-open`), until the person's key there.
+fn an_agents_open_where_the_server_runs_waits_too(app: &mut App, agent: &mut Agent, more: &Path) {
+    let opened = agent.call("open", Some(json!({ "path": more }))).unwrap();
+    assert_eq!(opened["name"], "more.rs");
+    wait_until(app, agent, "more.rs's open waits", |_, agent| {
+        waits(agent, "more.rs") == json!(["server"])
+    });
+    let modeline = app.state()["modeline"].as_str().unwrap().to_owned();
+    assert!(
+        modeline.contains("proj-starts  waits: server  "),
+        "held, so no lsp: {modeline}"
+    );
+    app.send_keys("C-f");
+    wait_until(app, agent, "more.rs's open let go", |_, agent| {
+        waits(agent, "more.rs") == json!([])
+    });
+    let log = agent_log(app, agent);
+    assert!(log.contains("ran server-open in more.rs"), "{log}");
+    app.wait_for("more.rs is open with the server", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("proj-starts  lsp  "))
+    });
+    thread::sleep(AFTER_TYPING);
+}
+
+/// The agent's save of `main`, which the person visited and the server has, waits for the
+/// person's next save before the server is told of it: `C-x C-s` in the unmodified buffer.
+fn an_agents_save_waits_for_the_persons_save(app: &mut App, agent: &mut Agent, main: &Path) {
+    let opened = agent.call("open", Some(json!({ "path": main }))).unwrap();
+    assert_eq!(opened.get("waits"), None, "already open: {opened}");
+    let inserted = agent.call(
+        "run",
+        Some(json!({ "name": "insert", "arg": "// a\n", "reach": "change" })),
+    );
+    assert!(inserted.is_ok(), "{inserted:?}");
+    let saved = agent.run("save-buffer", None, "change");
+    let waiting = saved.as_ref().ok().and_then(|reply| reply.get("waiting"));
+    assert!(waiting.is_none(), "main.rs is the person's: {saved:?}");
+    let saved = saved.unwrap();
+    assert_eq!(
+        saved["waits"], "server waits for the person in main.rs",
+        "{saved}"
+    );
+    assert_eq!(waits(agent, "main.rs"), json!(["server"]));
+    assert!(!agent_log(app, agent).contains("ran server-save"));
+    app.send_keys("C-x C-s");
+    wait_until(app, agent, "main.rs's save let go", |_, agent| {
+        waits(agent, "main.rs") == json!([])
+    });
+    let log = agent_log(app, agent);
+    assert!(
+        log.contains("the person let go: server in main.rs"),
+        "{log}"
+    );
+    assert!(log.contains("ran server-save in main.rs"), "{log}");
     thread::sleep(AFTER_TYPING);
 }
 

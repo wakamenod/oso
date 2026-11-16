@@ -37,6 +37,11 @@ pub(super) struct Writer {
 }
 
 impl Writer {
+    /// How many bytes wait to be written.
+    pub(super) fn queued(&self) -> usize {
+        self.queued.load(Ordering::SeqCst)
+    }
+
     /// Queues `body`, framed.
     pub(super) fn send(&self, body: &[u8]) -> Result<(), QueueFull> {
         let frame = framing::encode(body);
