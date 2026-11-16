@@ -227,13 +227,14 @@ impl App {
             });
             return;
         };
-        let gone = match asker.agent {
+        // Said before the jump: said once a file not judged yet shows, it would go with it.
+        if places.len() > 1 {
+            self.editor.echo(format!("1 of {}", places.len()));
+        }
+        match asker.agent {
             Some(connection) => self.agent_jump(index, connection, first),
             None => self.person_jump(index, first),
         };
-        if gone && places.len() > 1 {
-            self.editor.echo(format!("1 of {}", places.len()));
-        }
     }
 
     /// Goes to `place` for the person; whether it went.
@@ -258,6 +259,8 @@ impl App {
             start.line as usize + 1,
             column,
         );
+        // An answer comes on a server's report, not after a command: the visit starts here.
+        self.serve_files();
         true
     }
 
@@ -398,12 +401,17 @@ impl App {
         }
     }
 
-    /// Whether buffer `id` joined a server, so its open is settled as a project's file's is.
-    pub(in crate::app) fn joined_a_server(&self, id: BufferId) -> bool {
+    /// The project of the server buffer `id` joined, if it joined one: its open is settled as
+    /// that project's files' are, with that project's trust.
+    pub(in crate::app) fn joined_project(
+        &self,
+        id: BufferId,
+    ) -> Option<oso_core::project::ProjectId> {
         self.servers
             .running
             .iter()
-            .any(|running| running.joined.has(id))
+            .find(|running| running.joined.has(id))
+            .map(|running| running.project)
     }
 }
 

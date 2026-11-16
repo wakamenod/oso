@@ -121,6 +121,32 @@ fn a_buffer_in_no_project_holds_nothing() {
 }
 
 #[test]
+fn a_file_that_joined_a_server_opens_with_its_projects_trust() {
+    const OPEN: Starts = Starts::of(Start::ServerOpen);
+    for trusted in [true, false] {
+        let (mut editor, in_project) = in_oso(trusted);
+        let project = editor.buffer(in_project).unwrap().project().unwrap();
+        // The standard library's file, in no project, joined the server of `/w/oso`.
+        let id = editor.add_buffer(visited(&at("std/lib.rs")));
+        let person = editor.starts_on_open_in(id, OPEN, Acted::Person, project);
+        let agent = editor.starts_on_open_in(id, OPEN, Acted::Agent, project);
+        if trusted {
+            assert_eq!(person, OPEN);
+            assert_eq!(agent, Starts::NONE, "the agent's waits for the person");
+            assert_eq!(editor.buffer(id).unwrap().open_waits(), OPEN);
+        } else {
+            assert_eq!((person, agent), (Starts::NONE, Starts::NONE));
+            assert!(editor.buffer(id).unwrap().waits().is_empty());
+        }
+        assert_eq!(
+            editor.starts_on_open(id, OPEN, Acted::Person),
+            Starts::NONE,
+            "by its own project, none"
+        );
+    }
+}
+
+#[test]
 fn the_persons_command_in_the_buffer_lets_an_open_go() {
     let (mut editor, id) = in_oso(true);
     editor.starts_on_open(id, SERVER, Acted::Agent);

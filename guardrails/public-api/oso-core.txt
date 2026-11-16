@@ -2588,6 +2588,7 @@ pub fn oso_core::editor::Editor::newline(&mut self, &str, usize, bool, usize) ->
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::note_persons_command(&mut self)
 pub fn oso_core::editor::Editor::starts_on_open(&mut self, oso_core::buffer::BufferId, oso_core::buffer::Starts, oso_core::buffer::Acted) -> oso_core::buffer::Starts
+pub fn oso_core::editor::Editor::starts_on_open_in(&mut self, oso_core::buffer::BufferId, oso_core::buffer::Starts, oso_core::buffer::Acted, oso_core::project::ProjectId) -> oso_core::buffer::Starts
 pub fn oso_core::editor::Editor::starts_on_save(&mut self, oso_core::buffer::BufferId, oso_core::buffer::Starts, oso_core::buffer::Acted) -> oso_core::buffer::Starts
 pub fn oso_core::editor::Editor::take_released_starts(&mut self) -> alloc::vec::Vec<(oso_core::buffer::BufferId, oso_core::buffer::Starts)>
 impl oso_core::editor::Editor

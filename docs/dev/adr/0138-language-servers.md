@@ -1490,6 +1490,10 @@ with nothing asked (Q7); and the public items below (Q8).
     makes in its own way, as the agent's. `request_visit_at_column` visits at a column in
     characters, UTF-8 bytes or UTF-16 units (`editor::VisitColumn`, with the visits), so a line and
     column of the server's land once the file has loaded.
+  - `Editor::starts_on_open_in(id, would, by, project)` is `starts_on_open` with the trust
+    judged on `project`, the project whose server a file outside any joined: such a file has
+    no project of its own to trust, so the person's open runs what would start, and the
+    agent's waits for the person, as [ADR 0118](0118-what-an-agents-open-or-save-starts.md) holds any other.
   - `ServerRequest::{Definition, References}` carry `AskAt`: the buffer, its revision, the primary
     cursor, and whether the agent's command asked (`Editor::ask_at`).
 - **The tip crate:**
@@ -1529,7 +1533,7 @@ with nothing asked (Q7); and the public items below (Q8).
 - **Public API:** `oso-core`: `window::{Jumps, JUMPS_MAX}`, `Window::jumps`,
   `Editor::{ask_at, xref_to_place, xref_visit, xref_back, xref_forward, keep_xref_start,
   request_visit_at_column}`, `editor::{AskAt, VisitColumn}`, `ServerRequest::{Definition,
-  References}`, `Jumps::counts`. `oso-lsp`: `server::{Ask, AskKind, Answer, Answered,
+  References}`, `Jumps::counts`, `Editor::starts_on_open_in`. `oso-lsp`: `server::{Ask, AskKind, Answer, Answered,
   Location, Target}`, `Server::ask`, `Report::answers`, `protocol::{Located, located,
   position_params, references_params}`.
 - **Tests:** in `oso-lsp`, the three shapes of an answer, the bound and what is left out, and
@@ -1545,6 +1549,11 @@ with nothing asked (Q7); and the public items below (Q8).
   `definition_params` (R1); places under an automount left out (R2); and the names
   `Editor::xref_*`, `editor::{AskAt, VisitColumn}` and `Jumps::counts`, as `jump_*` is avy's
   (R3).
+- **From this step's end-to-end flow:** a visit an answer asks for starts at once
+  (`App::serve_files`), as an answer comes on a server's report and not after a command;
+  `1 of 3` is said before the jump, as said once a file not judged yet shows it would go with
+  the window; and a joined file's open is settled with its server's project's trust
+  (`starts_on_open_in`, the author's choice).
 - **From this step's reviews:** the history follows undos and reloads, in one pass; the
   mark ring follows avy's rule; stale answers, and an agent's whose connection went, are
   dropped; joining goes by buffer, once its project is known to be none, through the settling
