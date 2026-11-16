@@ -238,6 +238,19 @@ impl core::fmt::Debug for oso_lsp::protocol::Severity
 pub fn oso_lsp::protocol::Severity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_lsp::protocol::Severity
 impl core::marker::StructuralPartialEq for oso_lsp::protocol::Severity
+pub enum oso_lsp::protocol::SyncKind
+pub oso_lsp::protocol::SyncKind::Full
+pub oso_lsp::protocol::SyncKind::Incremental
+pub oso_lsp::protocol::SyncKind::None
+impl core::clone::Clone for oso_lsp::protocol::SyncKind
+pub fn oso_lsp::protocol::SyncKind::clone(&self) -> oso_lsp::protocol::SyncKind
+impl core::cmp::Eq for oso_lsp::protocol::SyncKind
+impl core::cmp::PartialEq for oso_lsp::protocol::SyncKind
+pub fn oso_lsp::protocol::SyncKind::eq(&self, &oso_lsp::protocol::SyncKind) -> bool
+impl core::fmt::Debug for oso_lsp::protocol::SyncKind
+pub fn oso_lsp::protocol::SyncKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_lsp::protocol::SyncKind
+impl core::marker::StructuralPartialEq for oso_lsp::protocol::SyncKind
 pub enum oso_lsp::protocol::Token
 pub oso_lsp::protocol::Token::Number(i64)
 pub oso_lsp::protocol::Token::Text(alloc::string::String)
@@ -274,6 +287,19 @@ impl core::fmt::Display for oso_lsp::protocol::NotRpc
 pub fn oso_lsp::protocol::NotRpc::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_lsp::protocol::NotRpc
 impl core::marker::StructuralPartialEq for oso_lsp::protocol::NotRpc
+pub struct oso_lsp::protocol::Sync
+pub oso_lsp::protocol::Sync::change: oso_lsp::protocol::SyncKind
+pub oso_lsp::protocol::Sync::open_close: bool
+pub oso_lsp::protocol::Sync::save: bool
+impl core::clone::Clone for oso_lsp::protocol::Sync
+pub fn oso_lsp::protocol::Sync::clone(&self) -> oso_lsp::protocol::Sync
+impl core::cmp::Eq for oso_lsp::protocol::Sync
+impl core::cmp::PartialEq for oso_lsp::protocol::Sync
+pub fn oso_lsp::protocol::Sync::eq(&self, &oso_lsp::protocol::Sync) -> bool
+impl core::fmt::Debug for oso_lsp::protocol::Sync
+pub fn oso_lsp::protocol::Sync::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_lsp::protocol::Sync
+impl core::marker::StructuralPartialEq for oso_lsp::protocol::Sync
 pub const oso_lsp::protocol::INVALID_PARAMS: i64
 pub const oso_lsp::protocol::METHOD_NOT_FOUND: i64
 pub fn oso_lsp::protocol::answer(&oso_lsp::protocol::RequestId, core::result::Result<serde_json::value::Value, (i64, &str)>) -> alloc::vec::Vec<u8>
@@ -287,7 +313,20 @@ pub fn oso_lsp::protocol::notification(&str, serde_json::value::Value) -> alloc:
 pub fn oso_lsp::protocol::progress(&serde_json::value::Value) -> core::option::Option<(oso_lsp::protocol::Token, oso_lsp::protocol::Progress)>
 pub fn oso_lsp::protocol::request(i64, &str, serde_json::value::Value) -> alloc::vec::Vec<u8>
 pub fn oso_lsp::protocol::server_name(&serde_json::value::Value) -> core::option::Option<&str>
+pub fn oso_lsp::protocol::sync(&serde_json::value::Value) -> oso_lsp::protocol::Sync
 pub mod oso_lsp::server
+pub enum oso_lsp::server::Closed
+pub oso_lsp::server::Closed::LoneCarriageReturn
+pub oso_lsp::server::Closed::TooLarge
+impl core::clone::Clone for oso_lsp::server::Closed
+pub fn oso_lsp::server::Closed::clone(&self) -> oso_lsp::server::Closed
+impl core::cmp::Eq for oso_lsp::server::Closed
+impl core::cmp::PartialEq for oso_lsp::server::Closed
+pub fn oso_lsp::server::Closed::eq(&self, &oso_lsp::server::Closed) -> bool
+impl core::fmt::Debug for oso_lsp::server::Closed
+pub fn oso_lsp::server::Closed::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_lsp::server::Closed
+impl core::marker::StructuralPartialEq for oso_lsp::server::Closed
 pub enum oso_lsp::server::State
 pub oso_lsp::server::State::Ended
 pub oso_lsp::server::State::Ready
@@ -304,7 +343,26 @@ impl core::fmt::Debug for oso_lsp::server::State
 pub fn oso_lsp::server::State::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_lsp::server::State
 impl core::marker::StructuralPartialEq for oso_lsp::server::State
+pub struct oso_lsp::server::Change
+pub oso_lsp::server::Change::after: oso_core::rope::Rope
+pub oso_lsp::server::Change::before: oso_core::rope::Rope
+pub oso_lsp::server::Change::id: u64
+pub oso_lsp::server::Change::splices: core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
+impl core::clone::Clone for oso_lsp::server::Change
+pub fn oso_lsp::server::Change::clone(&self) -> oso_lsp::server::Change
+impl core::fmt::Debug for oso_lsp::server::Change
+pub fn oso_lsp::server::Change::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_lsp::server::Document
+pub oso_lsp::server::Document::id: u64
+pub oso_lsp::server::Document::language_id: alloc::string::String
+pub oso_lsp::server::Document::text: oso_core::rope::Rope
+pub oso_lsp::server::Document::uri: alloc::string::String
+impl core::clone::Clone for oso_lsp::server::Document
+pub fn oso_lsp::server::Document::clone(&self) -> oso_lsp::server::Document
+impl core::fmt::Debug for oso_lsp::server::Document
+pub fn oso_lsp::server::Document::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_lsp::server::Report
+pub oso_lsp::server::Report::documents: alloc::vec::Vec<(u64, core::option::Option<oso_lsp::server::Closed>)>
 pub oso_lsp::server::Report::log: alloc::vec::Vec<alloc::string::String>
 pub oso_lsp::server::Report::shown: alloc::vec::Vec<oso_lsp::server::Shown>
 pub oso_lsp::server::Report::state: oso_lsp::server::State
@@ -318,8 +376,12 @@ pub fn oso_lsp::server::Report::fmt(&self, &mut core::fmt::Formatter<'_>) -> cor
 impl core::marker::StructuralPartialEq for oso_lsp::server::Report
 pub struct oso_lsp::server::Server
 impl oso_lsp::server::Server
+pub fn oso_lsp::server::Server::change(&self, oso_lsp::server::Change)
+pub fn oso_lsp::server::Server::close(&self, u64)
+pub fn oso_lsp::server::Server::open(&self, oso_lsp::server::Document)
 pub fn oso_lsp::server::Server::quit(&self)
 pub fn oso_lsp::server::Server::restart(&self, oso_lsp::server::Start, oso_lsp::server::Gate)
+pub fn oso_lsp::server::Server::save(&self, u64)
 pub fn oso_lsp::server::Server::shut_down(&self)
 pub fn oso_lsp::server::Server::start(oso_lsp::server::Start, oso_lsp::server::Gate, oso_lsp::server::Wake) -> std::io::error::Result<oso_lsp::server::Server>
 pub fn oso_lsp::server::Server::take_report(&self) -> core::option::Option<oso_lsp::server::Report>

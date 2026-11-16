@@ -154,6 +154,11 @@ pub struct SaveReport {
 }
 
 impl SaveReport {
+    /// Whether the text went to a new place, not where the buffer's file was (`C-x C-w`).
+    pub fn elsewhere(&self) -> bool {
+        self.elsewhere
+    }
+
     /// Whether the text this was meant to put on disk is not there.
     pub fn failed(&self) -> bool {
         self.outcome.is_err()

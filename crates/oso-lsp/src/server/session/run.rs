@@ -41,6 +41,10 @@ pub(super) struct Run {
     /// When `*LSP*` last said how many were dropped: at most once a second.
     pub(super) diagnostics_said: Instant,
     pub(super) look_at: Instant,
+    /// The encoding positions are in, once `initialize` said.
+    pub(super) encoding: crate::position::Encoding,
+    /// How the server wants documents synced, once `initialize` said.
+    pub(super) sync: protocol::Sync,
 }
 
 impl Run {
@@ -56,6 +60,11 @@ impl Run {
         self.next_id += 1;
         self.pending.insert(id, (asked, Instant::now() + wait));
         self.send(&protocol::request(id, method, params))
+    }
+
+    /// How many bytes wait for the writer, none once it is gone.
+    pub(super) fn queued(&self) -> usize {
+        self.writer.as_ref().map_or(0, Writer::queued)
     }
 
     pub(super) fn send(&self, body: &[u8]) -> Result<(), String> {

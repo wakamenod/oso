@@ -1,5 +1,6 @@
 //! A buffer's highlights, and the batches of edits since recent revisions, for the syntax
-//! worker's jobs and reports (ADR 0111). An edit maps the highlights on the clones it is made
+//! worker's jobs and reports (ADR 0111), and for a language server that follows the buffer,
+//! whose document is sent as those batches (ADR 0138, step 4). An edit maps the highlights on the clones it is made
 //! on (ADR 0053), and an undo staged over several turns slice by slice on its own copy
 //! (ADR 0119). A report made for an older revision is mapped through the batches since.
 //!
@@ -29,6 +30,12 @@ pub(super) struct Highlighting {
     /// How many times the highlights were taken from a report or dropped, ever, so that an
     /// undo staged meanwhile takes them too.
     changes: u64,
+    /// A language server follows the buffer, so the log is kept whatever its mode or size, as
+    /// the host says (ADR 0138).
+    followed: bool,
+    /// The first revision the syntax worker may map from: a reload is kept in the log for a
+    /// server, but the worker parses from nothing after one (ADR 0111).
+    syntax_floor: u64,
 }
 
 /// Highlighting followed a slice at a time on a copy, as an undo staged over several turns
@@ -72,14 +79,16 @@ impl FollowedHighlighting {
     /// What it all does to `now`, the buffer's highlighting, to commit, if the buffer can be
     /// highlighted afterwards (`keep`). Highlights a report brought meanwhile are taken too,
     /// mapped through the batch; past the log, the copy stays, as when the report comes after.
-    pub(super) fn staged(self, now: &Highlighting, keep: bool) -> StagedHighlighting {
-        if !keep {
+    pub(super) fn staged(self, now: &Highlighting, keep: Keep) -> StagedHighlighting {
+        if !keep.log {
             return StagedHighlighting {
                 batch: None,
                 highlights: None,
             };
         }
-        let highlights = if now.changes == self.changes {
+        let highlights = if !keep.highlights {
+            None
+        } else if now.changes == self.changes {
             self.highlights
         } else {
             match (&now.highlights, &self.batch) {
@@ -99,6 +108,15 @@ impl FollowedHighlighting {
     }
 }
 
+/// What a buffer keeps through an edit: its highlights, which a buffer that can be highlighted
+/// keeps, and its log, which such a buffer and one a server follows keep. A buffer that keeps
+/// highlights keeps a log.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Keep {
+    highlights: bool,
+    log: bool,
+}
+
 /// What an edit, an undo or a redo made on clones does to highlighting, to commit with it.
 #[derive(Debug)]
 pub(crate) struct StagedHighlighting {
@@ -113,19 +131,20 @@ impl Highlighting {
     /// buffer can be highlighted afterwards (`keep`). Steps that do not compose leave no batch,
     /// and no highlights. A batch past [`LOG_SPLICES`], which the log could not hold, stops
     /// composing and leaves no batch, but the highlights follow it.
-    fn stage(&self, steps: &[Vec<OffsetEdit>], keep: bool) -> StagedHighlighting {
+    fn stage(&self, steps: &[Vec<OffsetEdit>], keep: Keep) -> StagedHighlighting {
         let mut followed = self.follow(keep);
-        if keep {
+        if keep.log {
             steps.iter().for_each(|step| followed.follow(step));
         }
         followed.staged(self, keep)
     }
 
-    /// A copy to follow edits on, slice by slice, if the buffer can be highlighted (`may`).
-    fn follow(&self, may: bool) -> FollowedHighlighting {
+    /// A copy to follow edits on, slice by slice: the highlights if the buffer can be
+    /// highlighted, and the batch if it keeps a log (`may`).
+    fn follow(&self, may: Keep) -> FollowedHighlighting {
         FollowedHighlighting {
-            highlights: self.highlights.clone().filter(|_| may),
-            batch: may.then(Vec::new),
+            highlights: self.highlights.clone().filter(|_| may.highlights),
+            batch: may.log.then(Vec::new),
             too_large: false,
             changes: self.changes,
         }
@@ -176,6 +195,10 @@ impl Highlighting {
             .log
             .iter()
             .position(|(made, _)| *made == revision + 1)?;
+        // One batch, as after each command: copied, not composed.
+        if first + 1 == self.log.len() {
+            return Some(self.log[first].1.clone());
+        }
         self.log
             .range(first..)
             .try_fold(Vec::new(), |batch, (_, next)| compose(&batch, next))
@@ -226,9 +249,28 @@ impl Buffer {
         language && !self.internal && !self.is_secret()
     }
 
+    /// What a buffer of `len` bytes keeps through an edit.
+    fn keeps(&self, len: usize) -> Keep {
+        let highlights = self.highlightable(len);
+        Keep {
+            highlights,
+            log: highlights || self.followed_now(),
+        }
+    }
+
+    /// Whether a server follows it now: one never follows a buffer that may hold secrets, nor
+    /// an internal one.
+    fn followed_now(&self) -> bool {
+        self.highlighting.followed && !self.internal && !self.is_secret()
+    }
+
     /// A copy of the highlighting to follow an undo staged over several turns (ADR 0119).
     pub(super) fn follow_highlighting(&self) -> FollowedHighlighting {
-        self.highlighting.follow(self.may_highlight())
+        let highlights = self.may_highlight();
+        self.highlighting.follow(Keep {
+            highlights,
+            log: highlights || self.followed_now(),
+        })
     }
 
     /// What a crossing that followed `followed` and leaves `len` bytes does to highlighting.
@@ -237,7 +279,7 @@ impl Buffer {
         followed: FollowedHighlighting,
         len: usize,
     ) -> StagedHighlighting {
-        followed.staged(&self.highlighting, self.highlightable(len))
+        followed.staged(&self.highlighting, self.keeps(len))
     }
 
     /// What an edit's steps, which leave `len` bytes, do to highlighting, made on clones while
@@ -247,15 +289,48 @@ impl Buffer {
         steps: &[Vec<OffsetEdit>],
         len: usize,
     ) -> StagedHighlighting {
-        self.highlighting.stage(steps, self.highlightable(len))
+        self.highlighting.stage(steps, self.keeps(len))
     }
 
     /// Drops the highlights and the log if the buffer can no longer be highlighted, after its
     /// verdict, its mode or its text changed otherwise than by an edit.
     pub(super) fn recheck_highlighting(&mut self) {
-        if !self.highlightable(self.text.len()) {
+        let keep = self.keeps(self.text.len());
+        if !keep.log {
             self.highlighting.forget();
+        } else if !keep.highlights && self.highlighting.highlights.is_some() {
+            self.highlighting.highlights = None;
+            self.highlighting.changes += 1;
         }
+    }
+
+    /// A reload came in as `revision`: no report or job from before it is mapped for the syntax
+    /// worker, which parses from nothing (ADR 0111); a server that follows the buffer still
+    /// gets the reload's batch.
+    pub(super) fn reloaded_highlighting(&mut self, revision: u64) {
+        if self.followed_now() {
+            self.highlighting.syntax_floor = revision;
+        } else {
+            self.highlighting.forget_log();
+        }
+    }
+
+    /// Keeps the log of edits for a language server that follows the buffer, or stops, as the
+    /// host says (ADR 0138). A buffer that may hold secrets, or an internal one, keeps none for
+    /// it whatever this says.
+    pub fn set_followed(&mut self, followed: bool) {
+        self.highlighting.followed = followed;
+        self.recheck_highlighting();
+    }
+
+    /// One batch that takes the text at `revision` to the text now, for a server that follows
+    /// the buffer, or `None` if the log no longer reaches it, or the buffer keeps none: then the
+    /// whole text goes. As [`Buffer::splices_since`], with no limit of its own on the size.
+    pub fn edits_since(&self, revision: u64) -> Option<Vec<Splice>> {
+        if !self.keeps(self.text.len()).log {
+            return None;
+        }
+        self.highlighting.since(revision, self.revision)
     }
 
     /// What the text is, run by run, as the syntax worker last reported and the edits since
@@ -273,6 +348,9 @@ impl Buffer {
     /// reaches that revision, or the highlights do not cover the text.
     pub fn take_highlights(&mut self, revision: u64, mut highlights: Highlights) -> bool {
         if !self.highlightable(self.text.len()) {
+            return false;
+        }
+        if revision < self.highlighting.syntax_floor {
             return false;
         }
         let Some(batch) = self.highlighting.since(revision, self.revision) else {
@@ -341,7 +419,7 @@ impl Buffer {
     /// `None` if the log no longer reaches it, the buffer cannot be highlighted, or a load or a
     /// reload came since, so that the worker must parse from nothing.
     pub fn splices_since(&self, revision: u64) -> Option<Vec<Splice>> {
-        if !self.highlightable(self.text.len()) {
+        if !self.highlightable(self.text.len()) || revision < self.highlighting.syntax_floor {
             return None;
         }
         self.highlighting.since(revision, self.revision)
