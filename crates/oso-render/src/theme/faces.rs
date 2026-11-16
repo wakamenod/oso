@@ -7,7 +7,7 @@ use super::palettes::Name;
 use crate::pane::Face;
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-pub(super) const FACES: [Face; 103] = [
+pub(super) const FACES: [Face; 112] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -111,6 +111,15 @@ pub(super) const FACES: [Face; 103] = [
     Face::DiagnosticError,
     Face::DiagnosticWarning,
     Face::DiagnosticInfo,
+    Face::GitLane0,
+    Face::GitLane1,
+    Face::GitLane2,
+    Face::GitLane3,
+    Face::GitLane4,
+    Face::GitLane5,
+    Face::GitLane6,
+    Face::GitLane7,
+    Face::GitTag,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -224,6 +233,15 @@ pub(super) const fn index(face: Face) -> usize {
         Face::DiagnosticError => 100,
         Face::DiagnosticWarning => 101,
         Face::DiagnosticInfo => 102,
+        Face::GitLane0 => 103,
+        Face::GitLane1 => 104,
+        Face::GitLane2 => 105,
+        Face::GitLane3 => 106,
+        Face::GitLane4 => 107,
+        Face::GitLane5 => 108,
+        Face::GitLane6 => 109,
+        Face::GitLane7 => 110,
+        Face::GitTag => 111,
     }
 }
 
@@ -356,6 +374,19 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         // What a commit's line holds past its length, as magit's overlong summary, in the
         // warning's colour.
         Face::GitCommitOverlong => (Warning, BgMain),
+        // A graph's lanes in a terminal's bright colours, which every theme has apart from its
+        // text, as `git log --graph --color` draws them, then the warning's and the info's; a tag
+        // in gold, as magit's, the completion match's colour, which each theme makes dark enough
+        // on its own background, a light one's a deep amber (step 4).
+        Face::GitLane0 => (Terminal(12), BgMain),
+        Face::GitLane1 => (Terminal(10), BgMain),
+        Face::GitLane2 => (Terminal(13), BgMain),
+        Face::GitLane3 => (Terminal(14), BgMain),
+        Face::GitLane4 => (Terminal(11), BgMain),
+        Face::GitLane5 => (Terminal(9), BgMain),
+        Face::GitLane6 => (Warning, BgMain),
+        Face::GitLane7 => (FgInfo, BgMain),
+        Face::GitTag => (Gold, BgMain),
         // A language server's diagnostics (ADR 0138): a wavy line, a sign and a count, each in
         // the foreground, in red, amber and blue, as Flymake and VS Code draw them. A
         // warning's is the warning face's amber.

@@ -11,7 +11,7 @@ use std::sync::PoisonError;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use super::{FLUSH, MAX_FLUSH, RunReport, Watch};
+use super::{FLUSH, MAX_FLUSH, RunEnd, RunReport, Watch};
 use crate::git::{Git, Next};
 use crate::vcs::{commit, remote};
 
@@ -24,6 +24,28 @@ pub(super) struct Streamed {
     /// The end of what it wrote, as the log shows it: at most [`remote::MAX_LOOKED`] bytes,
     /// from a line's start, which a failure's message is read from.
     pub(super) tail: String,
+}
+
+/// How a run called `title` that `streamed` ended: stopped, done, or failed with what `failed`
+/// makes of the end of its output, or git's status unread. What every run but a commit's
+/// shares; a commit names its hooks too.
+pub(super) fn ended_as(
+    streamed: Streamed,
+    title: &str,
+    failed: impl FnOnce(&str) -> String,
+) -> RunEnd {
+    match streamed.status {
+        _ if streamed.stopped => RunEnd::Stopped,
+        Ok(status) if status.success() => RunEnd::Done,
+        Ok(_) => RunEnd::Failed {
+            said: failed(&streamed.tail),
+            hooks: Vec::new(),
+        },
+        Err(why) => RunEnd::Failed {
+            said: format!("{title} failed: {why}"),
+            hooks: Vec::new(),
+        },
+    }
 }
 
 /// Runs git with `words` after oso's own, `input` on standard input if any, sending what it

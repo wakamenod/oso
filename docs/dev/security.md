@@ -232,6 +232,29 @@ network features.
   refused if the branch moved since; the question and the prompts take an answer only for the
   status they were asked over, and one closed without it is forgotten. Subjects are shown
   escaped on one line, and the server's own lines stay out of the echo area.
+- The graph (ADR 0127, step 4) runs only reads, with a read's git, in a trusted project, on a
+  thread of its own: every page bounded, its records parsed as untrusted bytes, ids checked as
+  hex, and subjects, authors and ref names escaped on one line. Its commands are `Person`: they
+  run git, open a review or write the clipboard. A ref typed for `l o` must not read as an
+  option; one picked goes to git as the full ref listed. Its next page is read only for a
+  person's key in it, never for an agent's command that moved point, and a project no longer
+  trusted has the graph's root revoked at once, so that nothing queued on its thread runs git.
+  An agent may read a graph's rows over the channel, as a status's: commit metadata, no file's
+  text, but subjects, authors and ref names are anyone's words, and reach it as data.
+- Stashes and branches from a git status (ADR 0127, step 3b) are the person's acts, `Person`,
+  with the repository's hooks: a checkout runs `post-checkout` and the filters, as git's own
+  does in a trusted project. A stash is named by its commit's id: an apply gives git the id, and
+  a pop or a drop reads git's own `stash@{N}` for it again, with a read's git, just before git
+  runs, as stashes are shared by every worktree and agent session of the repository; a prompt's
+  answer names a stash the prompt listed. The milliseconds between that read and git's run are
+  left open. A branch name typed or picked passes the push's filter before git sees it, which
+  refuses invisible characters too, a branch or a start picked goes to git as the full ref
+  listed, so that no tag of the same name stands in for it, and a start typed must not read as
+  an option. A list the run thread gives late opens no prompt unless the person is still in that
+  status. Dropping a stash and deleting a branch that is not merged ask
+  first, escaped on one line; a forced delete runs only while the branch is on the commit the
+  question saw, and only for the status it was asked over. A branch checked out in a worktree
+  is never deleted.
 - What is stopped in a repository (ADR 0127, step 3a) is read from the files git keeps in the
   work tree's own directory, each a regular file of at most 4 KiB, opened following no link and
   waiting for no writer, as untrusted bytes: an id must be a whole one, 40 or 64 hex digits, and

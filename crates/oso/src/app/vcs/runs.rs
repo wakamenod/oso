@@ -1,7 +1,7 @@
 //! git's long runs in the app (ADR 0127, step 1b): each repository's run thread, its log,
 //! what the thread reports, stopping a run, and what quitting ends. A run is a commit, from
-//! step 2 a push, a pull or a fetch, whose progress the echo area shows too, and from step 3a a
-//! continue, a skip or an abort of what is stopped.
+//! step 2 a push, a pull or a fetch, whose progress the echo area shows too, from step 3a a
+//! continue, a skip or an abort of what is stopped, and from step 3b a stash's and a branch's.
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here runs git or waits for
 //! it: each repository's run thread, `oso-vcs-run`, does, and reports here.
@@ -71,6 +71,10 @@ pub(super) struct Repo {
     pub(super) pushes: super::remote::Pushes,
     /// A skip or an abort waiting for its question's answer (step 3a).
     pub(super) sequence_asked: Option<super::sequence::SequenceAsked>,
+    /// A stash's prompt and question waiting (step 3b).
+    pub(super) stashes: super::stash::Stashes,
+    /// A branch head's list, plan, prompt and question waiting (step 3b).
+    pub(super) branches: super::branch::Branching,
 }
 
 /// A commit that failed, as a fix request names it.
@@ -89,7 +93,8 @@ const MAX_RUN_OUTPUT: usize = 2 * crate::vcs::agent::MAX_FIX_BYTES;
 
 /// A run under way.
 pub(super) struct Running {
-    /// The commit it makes, or `None` for a remote's run or a step of what is stopped.
+    /// The commit it makes, or `None` for a remote's run, a step of what is stopped, a stash's or
+    /// a branch's.
     pub(super) kind: Option<CommitKind>,
     /// What the log and the echo area call it.
     pub(super) title: String,
@@ -241,6 +246,8 @@ impl App {
             RunReport::Elapsed(seconds) => self.echo_run(index, Some(seconds), None),
             RunReport::Progress(progress) => self.echo_run(index, None, Some(progress)),
             RunReport::Planned(planned) => self.push_planned(index, planned),
+            RunReport::Branches(read) => self.branches_listed(index, read),
+            RunReport::DeletePlanned { name, plan } => self.delete_planned(index, name, plan),
             RunReport::Ended(end) => self.run_ended(index, end),
             RunReport::Discarded(read) => self.discarded_read(index, read),
             RunReport::Restored(done) => self.restored(index, done),
@@ -301,6 +308,7 @@ impl App {
         if let Some(status) = (self.gits.open.iter()).position(|open| open.project == project) {
             self.git_ask(status, Ask::Read);
         }
+        self.graph_after_run(project);
     }
 
     /// Keeps `text` as what the run under way in the repository at `index` wrote, its last
@@ -432,16 +440,21 @@ impl App {
             failed: None,
             pushes: super::remote::Pushes::default(),
             sequence_asked: None,
+            stashes: super::stash::Stashes::default(),
+            branches: super::branch::Branching::default(),
         });
         self.gits.commits.repos.len() - 1
     }
 
-    /// Whether git runs in `project`'s repository, or a commit waits for its message or a push for
-    /// its plan.
+    /// Whether git runs in `project`'s repository, or a commit waits for its message, a push for
+    /// its plan, or a branch's head for its list or its delete's plan (step 3b).
     pub(super) fn repo_busy(&self, project: ProjectId) -> bool {
         (self.repo_of(project)).is_some_and(|index| {
             let repo = &self.gits.commits.repos[index];
-            repo.run.is_some() || repo.reading.is_some() || repo.pushes.planning.is_some()
+            repo.run.is_some()
+                || repo.reading.is_some()
+                || repo.pushes.planning.is_some()
+                || repo.branches.planning()
         })
     }
 

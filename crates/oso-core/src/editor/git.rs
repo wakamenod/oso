@@ -17,6 +17,8 @@
 //! - What git's long runs wrote is a log of [`Mode::GitLog`], which the host adds to at its
 //!   end and which keeps the last [`MAX_GIT_LOG`] bytes, in whole lines. The host notes while
 //!   git runs, so that quitting names it.
+//! - A repository's commits show as a graph, an internal buffer of [`Mode::GitGraph`] that the
+//!   host fills as a status, one per project, `*graph: NAME*` (step 4).
 
 use super::Editor;
 use crate::buffer::{Buffer, BufferId, Mode};
@@ -119,6 +121,71 @@ pub enum PullHow {
     Merge,
 }
 
+/// What the stash menu's head asks, or what a prompt or a question it opened gave back (ADR
+/// 0127, step 3b).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StashAction {
+    /// Stash the changes, untracked files too if `untracked` (`z z`); a message is read first.
+    Push { untracked: bool },
+    /// The message the prompt `Push` opened read, empty for git's own.
+    Message(String),
+    /// Apply the stash at point, keeping it (`z a`).
+    Apply,
+    /// Apply the stash at point and drop it (`z p`).
+    Pop,
+    /// Drop the stash at point, after a question (`z k`).
+    Drop,
+    /// The stash the prompt one of the others opened read, as `stash@{N}`.
+    Picked(String),
+    /// What the question before dropping asked about, after the person's `y`.
+    Confirmed,
+}
+
+/// What the branch menu's head asks, or what a prompt or a question it opened gave back (ADR
+/// 0127, step 3b).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BranchAction {
+    /// Check out a branch read in a prompt, local or a remote's (`b b`).
+    Checkout,
+    /// Make a branch at a revision and name read in prompts, checking it out if `checkout`
+    /// (`b c`, `b n`).
+    Create { checkout: bool },
+    /// Rename a branch read in a prompt (`b m`).
+    Rename,
+    /// Delete a branch read in a prompt, asking first if it is not merged (`b k`).
+    Delete,
+    /// The branch or revision the prompt one of the others opened read.
+    Picked(String),
+    /// The new name the prompt one of the others opened read.
+    Named(String),
+    /// What the question before a forced delete asked about, after the person's `y`.
+    Confirmed,
+}
+
+/// Which commits a graph shows (ADR 0127, step 4).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GraphScope {
+    /// The branch checked out, or `HEAD` (`l l`, `C-x v l`).
+    Current,
+    /// Every branch, remote branch and tag (`l a`).
+    All,
+    /// A ref read in a prompt over the branches, `HEAD` first (`l o`).
+    Pick,
+    /// What that prompt read: a ref it listed, or any revision typed.
+    Named(String),
+}
+
+/// What a key asks of the commit on a graph's line, or of the whole graph (ADR 0127, step 4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GraphAct {
+    /// Review the commit, read-only (`RET`).
+    Review,
+    /// Copy its full id (`w`).
+    CopyId,
+    /// Read the graph again (`g`).
+    Refresh,
+}
+
 /// What a command asks of the host for git (ADR 0127).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GitRequest {
@@ -212,9 +279,35 @@ pub enum GitRequest {
     /// Abort what is stopped, after the person's `y` to the question it asks (`confirmed`)
     /// (`C-c C-k`, step 3a).
     Abort { buffer: BufferId, confirmed: bool },
+    /// What the stash menu's head `action` asks in the repository of the status `buffer`, for
+    /// the stash on `line`, point's (step 3b).
+    Stash {
+        buffer: BufferId,
+        action: StashAction,
+        line: usize,
+    },
+    /// What the branch menu's head `action` asks in the repository of the status `buffer`
+    /// (step 3b).
+    Branch {
+        buffer: BufferId,
+        action: BranchAction,
+    },
+    /// Show the graph of `project`'s commits that `scope` names, in its graph buffer (step 4).
+    Graph {
+        project: ProjectId,
+        scope: GraphScope,
+    },
+    /// Show every ref in the graph `buffer`, or the branch checked out again (`a`).
+    GraphToggle { buffer: BufferId },
+    /// What `act` asks of the commit on `line` of the graph `buffer`.
+    GraphAct {
+        buffer: BufferId,
+        act: GraphAct,
+        line: usize,
+    },
 }
 
-/// A status buffer's record.
+/// A status buffer's record, or a graph buffer's (step 4): which it is, its buffer's mode says.
 #[derive(Debug)]
 struct Status {
     project: ProjectId,
@@ -256,30 +349,50 @@ impl Editor {
     /// Adds an empty status buffer for `project`, named `name`, shown in no window yet, which
     /// does not wrap.
     pub fn add_git_status(&mut self, project: ProjectId, name: impl Into<String>) -> BufferId {
-        let name = name.into();
+        self.add_git_buffer(project, name.into(), Mode::GitStatus)
+    }
+
+    /// Adds an empty graph buffer for `project`, named `name`, shown in no window yet, which
+    /// does not wrap (step 4).
+    pub fn add_git_graph(&mut self, project: ProjectId, name: impl Into<String>) -> BufferId {
+        self.add_git_buffer(project, name.into(), Mode::GitGraph)
+    }
+
+    /// The project of the graph buffer `buffer`, if it is one and is still there.
+    pub fn git_graph_of(&self, buffer: BufferId) -> Option<ProjectId> {
+        is_git_graph(self.buffer(buffer)?).then_some(())?;
+        self.git_record(buffer).map(|status| status.project)
+    }
+
+    /// The graph buffer of `project`, if one is open.
+    pub fn git_graph_buffer(&self, project: ProjectId) -> Option<BufferId> {
+        (self.git.records.iter())
+            .filter(|(id, _)| self.buffer(*id).is_some_and(is_git_graph))
+            .find(|(_, status)| status.project == project)
+            .map(|(id, _)| *id)
+    }
+
+    /// Adds an internal buffer of `mode` for `project`, named `name`, told apart from another of
+    /// that name by `<2>`, `<3>`…, which does not wrap, and its record.
+    fn add_git_buffer(&mut self, project: ProjectId, name: String, mode: Mode) -> BufferId {
         let mut unique = name.clone();
         let mut n = 1;
         while self.buffer_named(&unique).is_some() {
             n += 1;
             unique = format!("{name}<{n}>");
         }
-        let id = self.add_internal_buffer(unique, Mode::GitStatus);
+        let id = self.add_internal_buffer(unique, mode);
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.set_wraps(false);
         }
-        self.git.records.push((
-            id,
-            Status {
-                project,
-                outline: Vec::new(),
-            },
-        ));
+        let outline = Vec::new();
+        (self.git.records).push((id, Status { project, outline }));
         id
     }
 
     /// The project of the status buffer `buffer`, if it is one and is still there.
     pub fn git_status_of(&self, buffer: BufferId) -> Option<ProjectId> {
-        self.buffer(buffer)?;
+        is_git_status(self.buffer(buffer)?).then_some(())?;
         self.git_record(buffer).map(|status| status.project)
     }
 
@@ -293,7 +406,7 @@ impl Editor {
     /// Every status buffer still there, with its project.
     pub fn git_statuses(&self) -> impl Iterator<Item = (BufferId, ProjectId)> {
         (self.git.records.iter())
-            .filter(|(id, _)| self.buffer(*id).is_some())
+            .filter(|(id, _)| self.buffer(*id).is_some_and(is_git_status))
             .map(|(id, status)| (*id, status.project))
     }
 
@@ -310,7 +423,8 @@ impl Editor {
         self.cursor_rows(id)
     }
 
-    /// Puts in the whole text of the status buffer `id`, built off the UI thread, with its
+    /// Puts in the whole text of the status buffer `id`, or of a graph buffer, built off the UI
+    /// thread, with its
     /// outline and highlights. O(1) for the text: each window that shows it has its cursor at
     /// the start of the line `lines` gives for it, else of `line`, and a window that will come
     /// back to it at `line` too. No undo. The host keeps the highlights given back, which the
@@ -330,7 +444,8 @@ impl Editor {
         if self.git_record(id).is_none() {
             return Some(highlights);
         }
-        let Some(buffer) = self.buffer_mut(id).filter(|buffer| is_git_status(buffer)) else {
+        let fits = |buffer: &&mut Buffer| is_git_status(buffer) || is_git_graph(buffer);
+        let Some(buffer) = self.buffer_mut(id).filter(fits) else {
             return Some(highlights);
         };
         // Taken first, as the load would drop them here, on the UI thread.
@@ -440,6 +555,11 @@ impl Editor {
 /// Whether `buffer` is a status buffer.
 pub(super) fn is_git_status(buffer: &Buffer) -> bool {
     buffer.is_internal() && buffer.mode() == Mode::GitStatus
+}
+
+/// Whether `buffer` is a graph buffer (step 4).
+pub(super) fn is_git_graph(buffer: &Buffer) -> bool {
+    buffer.is_internal() && buffer.mode() == Mode::GitGraph
 }
 
 /// Whether `buffer` is a log of git's runs, which `C-x b` lists and `C-x k` kills as a status.

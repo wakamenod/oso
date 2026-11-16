@@ -23,8 +23,8 @@
 //!   or holds a control character, then resolved to an object id; only ids go further.
 //! - What git writes is read as bytes, up to a limit per run; past it the run is killed.
 //!   Standard error is kept up to [`MAX_STDERR`] for the message a failure gives.
-//! - Its output is read on threads of their own, `oso-git-read` and `oso-git-write`, and a run
-//!   past [`RUN_LIMIT`] is killed and left: a process git started may still hold its output
+//! - Its output is read on threads of their own, `oso-git-read` and `oso-git-write` (`collect`),
+//!   and a run past [`RUN_LIMIT`] is killed and left: a process git started may still hold its output
 //!   open, and the caller does not wait for it. A write that must not be cut short runs with
 //!   no limit instead, in a group of its own that can be stopped (`long`).
 //! - A run may let the repository's own hooks run ([`Git::with_own_hooks`]), for a commit,
@@ -33,16 +33,19 @@
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
-use std::io::{self, Read, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdout, ExitStatus};
-use std::sync::mpsc;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use oso_platform::process::{Child, Executable, Sink, Source, Spawn, spawn};
 
 use super::id::{Id, trim_line};
+
+mod collect;
+
+pub(super) use collect::write_away;
+pub(crate) use collect::{collect, read_at_most, stop};
 
 /// How long one run of git may take before it is killed.
 pub(crate) const RUN_LIMIT: Duration = Duration::from_secs(10);
@@ -399,124 +402,6 @@ impl Git {
     }
 }
 
-/// Waits for `child`, started with piped standard output and error, writing `input` to its
-/// standard input if there is one, and keeping what `read` keeps of its output, which says
-/// whether it cut it, and the start of its standard error. A cut run is killed; a run past
-/// [`RUN_LIMIT`] is killed and left. `gh` is run this way too (ADR 0121).
-pub(crate) fn collect(
-    mut child: Child,
-    input: Option<Vec<u8>>,
-    read: impl FnOnce(ChildStdout) -> io::Result<(Vec<u8>, bool)> + Send + 'static,
-) -> Result<Output, GitError> {
-    let deadline = Instant::now() + RUN_LIMIT;
-    let streams = (child.stdout.take(), child.stderr.take());
-    let (Some(stdout), Some(stderr)) = streams else {
-        stop(&mut child);
-        return Err(GitError::Unexpected("no output streams"));
-    };
-    if let Some(input) = input
-        && let Err(e) = write_away(&mut child, input)
-    {
-        stop(&mut child);
-        return Err(e);
-    }
-    let (sent, got) = mpsc::channel();
-    let sent_too = sent.clone();
-    let started = reader(move || Stream::Out(read(stdout)), sent).and_then(|()| {
-        reader(
-            move || Stream::Err(keep_start(stderr, MAX_STDERR)),
-            sent_too,
-        )
-    });
-    if let Err(e) = started {
-        stop(&mut child);
-        return Err(GitError::Io(e));
-    }
-    let (mut out, mut err) = (None, None);
-    while out.is_none() || err.is_none() {
-        match got.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            Ok(Stream::Out(read)) => {
-                if matches!(read, Ok((_, true))) {
-                    let _ = child.kill();
-                }
-                out = Some(read);
-            }
-            Ok(Stream::Err(kept)) => err = Some(kept),
-            Err(_) => {
-                stop(&mut child);
-                return Err(GitError::TimedOut);
-            }
-        }
-    }
-    let status = exited(&mut child, deadline)?;
-    let (stdout, cut) = out
-        .unwrap_or_else(|| Ok((Vec::new(), false)))
-        .map_err(GitError::Io)?;
-    Ok(Output {
-        stdout,
-        cut,
-        status,
-        stderr: String::from_utf8_lossy(&err.unwrap_or_default()).into_owned(),
-    })
-}
-
-/// What one of a run's reading threads read.
-enum Stream {
-    Out(io::Result<(Vec<u8>, bool)>),
-    Err(Vec<u8>),
-}
-
-/// Reads on a thread of its own, sending what it read; a run that is given up on leaves it to
-/// end when the stream does.
-fn reader(
-    read: impl FnOnce() -> Stream + Send + 'static,
-    sent: mpsc::Sender<Stream>,
-) -> io::Result<()> {
-    thread::Builder::new()
-        .name("oso-git-read".into())
-        .spawn(move || {
-            let _ = sent.send(read());
-        })
-        .map(drop)
-}
-
-/// Writes `input` to `child`'s standard input on a thread of its own, and closes it after: a
-/// run that is given up on leaves the thread to end when the pipe does.
-pub(super) fn write_away(child: &mut Child, input: Vec<u8>) -> Result<(), GitError> {
-    let mut writer = child
-        .stdin
-        .take()
-        .ok_or(GitError::Unexpected("no input stream"))?;
-    thread::Builder::new()
-        .name("oso-git-write".into())
-        .spawn(move || {
-            let _ = writer.write_all(&input);
-        })
-        .map(drop)
-        .map_err(GitError::Io)
-}
-
-/// Kills `child` and reaps it; one that has gone already is no error.
-pub(crate) fn stop(child: &mut Child) {
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-/// The status of `child`, whose output has ended, once it exits, or `TimedOut` if it is still
-/// running at `deadline`, when it is killed.
-fn exited(child: &mut Child, deadline: Instant) -> Result<ExitStatus, GitError> {
-    loop {
-        if let Some(status) = child.try_wait().map_err(GitError::Io)? {
-            return Ok(status);
-        }
-        if Instant::now() >= deadline {
-            stop(child);
-            return Err(GitError::TimedOut);
-        }
-        thread::sleep(EXIT_POLL);
-    }
-}
-
 /// `path` as git can take it: on Windows, without the verbatim `\\?\` prefix that
 /// `canonicalize` gives, which git cannot open a lock beside; elsewhere as it is.
 pub(crate) fn for_git(path: &Path) -> PathBuf {
@@ -561,31 +446,6 @@ pub(crate) fn check_revision(revision: &str) -> Result<(), GitError> {
         return Err(GitError::BadRevision);
     }
     Ok(())
-}
-
-/// Reads `from` to its end, keeping at most `limit` bytes. `true` if there was more.
-pub(crate) fn read_at_most(mut from: impl Read, limit: usize) -> io::Result<(Vec<u8>, bool)> {
-    let mut kept = Vec::new();
-    let cap = u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1);
-    (&mut from).take(cap).read_to_end(&mut kept)?;
-    let cut = kept.len() > limit;
-    kept.truncate(limit);
-    Ok((kept, cut))
-}
-
-/// The first `limit` bytes of `from`, reading the rest away so that the writer never waits.
-fn keep_start(mut from: impl Read, limit: usize) -> Vec<u8> {
-    let mut kept = Vec::new();
-    let mut piece = [0; 8192];
-    loop {
-        match from.read(&mut piece) {
-            Ok(0) | Err(_) => return kept,
-            Ok(n) => {
-                let room = limit.saturating_sub(kept.len()).min(n);
-                kept.extend_from_slice(&piece[..room]);
-            }
-        }
-    }
 }
 
 #[cfg(test)]
