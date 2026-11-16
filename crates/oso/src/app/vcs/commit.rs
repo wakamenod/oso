@@ -39,6 +39,8 @@ pub(in crate::app) struct Commits {
     drafts: Vec<Draft>,
     ring: Ring,
     pub(super) serial: u64,
+    /// The discards asked about, and the lists of what they kept (step 1c).
+    pub(super) discards: super::discard::Discards,
 }
 
 /// A commit's message being written.
@@ -67,6 +69,17 @@ impl App {
             GitRequest::CommitRing { buffer, older } => self.walk_ring(buffer, older),
             GitRequest::ShowLog { buffer } => self.show_git_log(buffer),
             GitRequest::Stop { buffer } => self.stop_git(buffer),
+            GitRequest::Discard {
+                buffer,
+                lines,
+                confirmed,
+            } => self.discard_git(buffer, &lines, confirmed),
+            GitRequest::RestoreDiscarded {
+                buffer,
+                line,
+                confirmed,
+            } => self.restore_discarded(buffer, line, confirmed),
+            GitRequest::ShowDiscarded { buffer } => self.show_discarded(buffer),
             _ => {}
         }
     }

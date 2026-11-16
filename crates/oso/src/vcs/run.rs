@@ -1,5 +1,6 @@
 //! A repository's thread for git's long runs, `oso-vcs-run` (ADR 0127, step 1b): a commit with
-//! the repository's hooks, which has no time limit, and the message an amend starts from.
+//! the repository's hooks, which has no time limit, the message an amend starts from, and, from
+//! step 1c, reading the record of what discards kept and writing a copy back.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
 //! takes reports out, and supplies the wake-up.
@@ -30,7 +31,9 @@ use std::time::{Duration, Instant};
 use oso_core::editor::{CommitKind, CommitSwitches};
 
 use super::commit;
-use super::work::{find, hooks_dir};
+use super::discarded::{self, Entry};
+use super::keep;
+use super::read::{find, hooks_dir};
 use crate::git::{Ender, Git, MAX_SHORT, Next, TrustedRoot, os_path, trim_line};
 
 /// How often what a run wrote is sent on.
@@ -43,6 +46,11 @@ pub(crate) const MAX_FLUSH: usize = 256 * 1024;
 pub(crate) enum RunRequest {
     /// Read `HEAD`'s message, which amending and rewording start from.
     Message,
+    /// Read what discards in this repository kept (step 1c).
+    Discarded,
+    /// Write the copy `entry` back to its file; `secret` if a buffer of the file may hold
+    /// secrets, which no copy is kept of.
+    Restore { entry: Entry, secret: bool },
     /// Make the commit `kind` with `switches`, `message` on standard input if it takes one, and
     /// the names `pass` passes on to its hooks.
     Commit {
@@ -69,6 +77,10 @@ pub(crate) enum RunEnd {
 pub(crate) enum RunReport {
     /// `HEAD`'s message, or why it could not be read.
     Message(Result<String, String>),
+    /// What discards in this repository kept, newest first, or why it could not be read.
+    Discarded(Result<Vec<Entry>, String>),
+    /// A copy was written back: what the echo area says, or why not.
+    Restored(Result<String, String>),
     /// A run began: the command line the log shows.
     Began { line: String },
     /// What it wrote, as the log shows it.
@@ -83,6 +95,8 @@ impl std::fmt::Debug for RunReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Message(_) => f.write_str("Message"),
+            Self::Discarded(_) => f.write_str("Discarded"),
+            Self::Restored(_) => f.write_str("Restored"),
             Self::Began { .. } => f.write_str("Began"),
             Self::Output(text) => write!(f, "Output({} bytes)", text.len()),
             Self::Elapsed(seconds) => write!(f, "Elapsed({seconds})"),
@@ -184,6 +198,20 @@ fn serve(
         });
         let reports = match (found, request) {
             (Err(why), RunRequest::Message) => vec![RunReport::Message(Err(why))],
+            (Err(why), RunRequest::Discarded) => vec![RunReport::Discarded(Err(why))],
+            (Err(why), RunRequest::Restore { .. }) => vec![RunReport::Restored(Err(why))],
+            (Ok(_), RunRequest::Discarded) => {
+                let root = root.path().as_os_str().as_encoded_bytes();
+                let read = state
+                    .ok_or_else(|| "oso has no state directory".to_owned())
+                    .and_then(|state| discarded::read(state).map_err(|e| e.to_string()))
+                    .map(|entries| discarded::of_root(entries, root));
+                vec![RunReport::Discarded(read)]
+            }
+            (Ok(git), RunRequest::Restore { entry, secret }) => {
+                let done = keep::restore(&git, root, (&entry, secret), state, watch.stop);
+                vec![RunReport::Restored(done)]
+            }
             (Err(why), RunRequest::Commit { .. }) => vec![RunReport::Ended(RunEnd::Refused(why))],
             (Ok(git), RunRequest::Message) => vec![RunReport::Message(message(&git))],
             (

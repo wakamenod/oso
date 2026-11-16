@@ -465,8 +465,19 @@ to run: M-x trust-project".
 - `s` stages and `u` unstages what each cursor is on: a section's files, a file, or a hunk alone;
   a region stages each heading it holds. `S` stages every unstaged change of tracked files,
   `U` unstages every staged one. A write to the index has no time limit, and `C-g` stops it; it
-  is refused while a commit runs. `$` shows the log of git's runs. Part of a hunk is refused, and so is a hunk git no longer accepts, which reads the
-  status again and says so.
+  is refused while a commit runs. `$` shows the log of git's runs. A region inside a hunk
+  stages or unstages only the lines it holds (step 1c). A hunk git no longer accepts is
+  refused, which reads the status again and says so. A hunk's changed lines mark the words that
+  changed, on the refined backgrounds.
+- `k` discards what each cursor is on, lines too, after a question that names it: unstaged
+  changes from the work tree, staged ones from the index and the work tree, untracked files
+  deleted (at most 100 files and 64 MiB). Each file is kept first as one of git's objects for
+  two weeks, but one that may hold secrets, which the question says; `M-x git-discarded` lists
+  them in `*git discarded: NAME*`, where `RET` writes one back after a question, keeping what
+  the file holds then; `g` reads the list again and `q` leaves it. An unmerged path, a
+  submodule, a staged rename, a file with unsaved edits, a file with more than one name or for
+  its owner's eyes only, more than 1000 files kept, and a discard while a commit runs are
+  refused, before the question.
 - `n`/`p` go to the next and previous heading, `M-n`/`M-p` to the next and previous of the same
   depth, `^` to the section holding point's. `RET` visits the file, at the line a hunk's line
   shows. `g` reads it again, `q` shows the buffer before, `?` lists the keys. `C-x k` kills a

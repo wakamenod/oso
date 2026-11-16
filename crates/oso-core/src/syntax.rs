@@ -55,8 +55,9 @@ pub enum Highlight {
     /// Emphasis and strong text in Markdown, and its markers: of headings, lists and quotes,
     /// and thematic breaks.
     Markup,
-    /// A line a review's diff puts in, with its `+` (ADR 0122). Only the host's review view
-    /// gives these and the review faces below; no parser does.
+    /// A line a review's diff puts in, with its `+` (ADR 0122), or a git status's hunk (ADR
+    /// 0127). Only the host's review view and status give these and the review faces below; no
+    /// parser does.
     DiffAdded,
     /// A line a review's diff takes out, with its `-`.
     DiffRemoved,
@@ -64,6 +65,11 @@ pub enum Highlight {
     DiffFileHeader,
     /// A hunk's header in a review, `@@ -40,3 +40,7 @@`.
     DiffHunkHeader,
+    /// The words of an added line that refinement marks, in a git status (ADR 0127, step 1c):
+    /// drawn on the refined background, as a review's are.
+    DiffRefineAdded,
+    /// The words of a removed line that refinement marks.
+    DiffRefineRemoved,
     /// The label of the person's comment in a review.
     CommentPerson,
     /// The label of an agent's comment in a review.

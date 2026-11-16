@@ -28,6 +28,9 @@ impl Face {
             Highlight::DiffRemoved => Self::DiffRemoved,
             Highlight::DiffFileHeader => Self::DiffFileHeader,
             Highlight::DiffHunkHeader => Self::DiffHunkHeader,
+            // Their background comes from the cells refinement marks; the text is as its line's.
+            Highlight::DiffRefineAdded => Self::DiffAdded,
+            Highlight::DiffRefineRemoved => Self::DiffRemoved,
             Highlight::CommentPerson => Self::ReviewCommentPerson,
             Highlight::CommentAgent => Self::ReviewCommentAgent,
             Highlight::Outdated => Self::ReviewOutdated,

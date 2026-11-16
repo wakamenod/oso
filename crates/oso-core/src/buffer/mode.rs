@@ -45,6 +45,8 @@ pub enum Mode {
     /// What git's long runs in a repository wrote, `*git log: NAME*`, as magit's process
     /// buffer.
     GitLog,
+    /// What discards in a repository kept, `*git discarded: NAME*` (ADR 0127, step 1c).
+    GitDiscarded,
 }
 
 impl Mode {
@@ -90,6 +92,7 @@ impl Mode {
             Self::GitStatus => "Git",
             Self::GitCommit => "Git Commit",
             Self::GitLog => "Git Log",
+            Self::GitDiscarded => "Git Discarded",
         }
     }
 
@@ -119,6 +122,7 @@ impl Mode {
             | Self::Directory
             | Self::GitStatus
             | Self::GitLog
+            | Self::GitDiscarded
             | Self::Sessions => None,
         }
     }

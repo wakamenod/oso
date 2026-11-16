@@ -1,6 +1,7 @@
 //! The backgrounds of a review window's rows in view (ADR 0122, "The views"): added and
 //! removed lines, the words refinement marked in them, headers and cards, as cells for a
-//! frame.
+//! frame; and the refined words of a git status's rows in view, from its highlights (ADR 0127,
+//! step 1c).
 //!
 //! Must not depend on: `command` or `keymap`, or the renderer; this says which cells, and the
 //! renderer fills them.
@@ -14,6 +15,7 @@ use crate::editor::Editor;
 use crate::frame::{self, CellRect};
 use crate::review::{RowKind, Side};
 use crate::sum_tree::Bias;
+use crate::syntax::Highlight;
 use crate::window::{Screen, WindowId};
 
 /// The backgrounds a review window's rows in view take, for a frame, kept from frame to frame
@@ -77,7 +79,7 @@ impl Editor {
             return;
         };
         let Some(review) = self.review_of(shown_window.buffer()) else {
-            return;
+            return self.git_refined_cells(window, screen, out);
         };
         let Some(rows) = self.review_rows(review) else {
             return;
@@ -133,5 +135,35 @@ impl Editor {
         }
         spans.clear();
         out.spans = spans;
+    }
+
+    /// The words refinement marked in the rows in view of a git status the window `id` shows
+    /// (ADR 0127, step 1c), from its highlights, into `out`'s refined lists: a status's lines
+    /// keep their text's colours and no band, and only the words take a background.
+    fn git_refined_cells(&self, window: WindowId, screen: &Screen, out: &mut ReviewCells) {
+        let Some((shown_window, shown, regions)) = self.window_in_tree(window) else {
+            return;
+        };
+        if self.git_status_of(shown_window.buffer()).is_none() {
+            return;
+        }
+        let Some(highlights) = shown.highlights() else {
+            return;
+        };
+        let (area, display) = (regions.text, shown.display());
+        // Each row's own part of its line only, in order, then one pass for each list.
+        let (mut added, mut removed) = (Vec::new(), Vec::new());
+        for screen_row in screen.rows().iter().take(area.rows) {
+            for (run, highlight) in highlights.runs(screen_row.start..screen_row.end) {
+                let run = run.start.max(screen_row.start)..run.end.min(screen_row.end);
+                match highlight {
+                    Some(Highlight::DiffRefineAdded) if !run.is_empty() => added.push(run),
+                    Some(Highlight::DiffRefineRemoved) if !run.is_empty() => removed.push(run),
+                    _ => {}
+                }
+            }
+        }
+        frame::match_cells(area, screen, &display, &added, &mut out.refine_added);
+        frame::match_cells(area, screen, &display, &removed, &mut out.refine_removed);
     }
 }

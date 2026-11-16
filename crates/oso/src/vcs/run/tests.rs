@@ -47,7 +47,10 @@ fn until_end(got: &mpsc::Receiver<RunReport>) -> (RunEnd, String, bool) {
                 output.push_str(&line);
             }
             RunReport::Output(text) => output.push_str(&text),
-            RunReport::Elapsed(_) | RunReport::Message(_) => {}
+            RunReport::Elapsed(_)
+            | RunReport::Message(_)
+            | RunReport::Discarded(_)
+            | RunReport::Restored(_) => {}
             RunReport::Ended(end) => return (end, output, began),
         }
     }

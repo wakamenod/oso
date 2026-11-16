@@ -94,10 +94,11 @@ pub(crate) fn sections(
         let hidden =
             secret(&entry.path) || matches!(&entry.kind, Kind::Moved { from, .. } if secret(from));
         let reason = |own: Option<&'static str>| {
-            if hidden {
-                Some(SECRET)
-            } else if entry.submodule {
+            // A submodule is said first, so that discarding refuses it whatever its name.
+            if entry.submodule {
                 Some("a submodule")
+            } else if hidden {
+                Some(SECRET)
             } else {
                 own
             }

@@ -59,6 +59,7 @@ pub oso_core::buffer::Mode::CopyView
 pub oso_core::buffer::Mode::Directory
 pub oso_core::buffer::Mode::Fundamental
 pub oso_core::buffer::Mode::GitCommit
+pub oso_core::buffer::Mode::GitDiscarded
 pub oso_core::buffer::Mode::GitLog
 pub oso_core::buffer::Mode::GitStatus
 pub oso_core::buffer::Mode::Markdown
@@ -1322,8 +1323,18 @@ pub oso_core::editor::GitRequest::CommitFinish::buffer: oso_core::buffer::Buffer
 pub oso_core::editor::GitRequest::CommitRing
 pub oso_core::editor::GitRequest::CommitRing::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::CommitRing::older: bool
+pub oso_core::editor::GitRequest::Discard
+pub oso_core::editor::GitRequest::Discard::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Discard::confirmed: bool
+pub oso_core::editor::GitRequest::Discard::lines: alloc::vec::Vec<oso_core::editor::GitLines>
 pub oso_core::editor::GitRequest::Refresh
 pub oso_core::editor::GitRequest::Refresh::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::RestoreDiscarded
+pub oso_core::editor::GitRequest::RestoreDiscarded::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::RestoreDiscarded::confirmed: bool
+pub oso_core::editor::GitRequest::RestoreDiscarded::line: usize
+pub oso_core::editor::GitRequest::ShowDiscarded
+pub oso_core::editor::GitRequest::ShowDiscarded::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::ShowLog
 pub oso_core::editor::GitRequest::ShowLog::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Stage
@@ -5188,6 +5199,8 @@ pub oso_core::syntax::Highlight::Constant
 pub oso_core::syntax::Highlight::DiffAdded
 pub oso_core::syntax::Highlight::DiffFileHeader
 pub oso_core::syntax::Highlight::DiffHunkHeader
+pub oso_core::syntax::Highlight::DiffRefineAdded
+pub oso_core::syntax::Highlight::DiffRefineRemoved
 pub oso_core::syntax::Highlight::DiffRemoved
 pub oso_core::syntax::Highlight::DiredBrokenSymlink
 pub oso_core::syntax::Highlight::DiredDetails
