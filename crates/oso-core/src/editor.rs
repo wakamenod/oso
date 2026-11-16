@@ -110,7 +110,8 @@ pub use listings::{Listing, ListingOrder, ListingRequest, ListingShown, RowMark}
 pub use macros::{MAX_MACRO_EVENTS, MAX_MACRO_TEXT, MacroError, MacroEvent};
 pub use messages::row_text;
 pub use pairs::NoPair;
-pub use project_search::{ProjectSearchHit, ProjectSearchRequest, ProjectSearchRow};
+// A project's search and a search of conversations (ADR 0114, ADR 0145).
+pub use project_search::*;
 pub use projects::{ProjectRequest, TrustRefused};
 pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};

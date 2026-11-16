@@ -20,6 +20,11 @@ use super::harness::{App, FAKE_SECRET, Scratch};
 /// How long the app takes no answer to the agent's question after a key, and a moment more.
 const QUIET: Duration = Duration::from_millis(700);
 
+/// How long the app takes no answer to the agent's question once it opened: the app's
+/// `app::agent::QUIET`. A key within it, from when the question could first have opened, is
+/// refused.
+const APP_QUIET: Duration = Duration::from_millis(500);
+
 /// How long the channel waits after the person's last key, and a moment more.
 const AFTER_TYPING: Duration = Duration::from_millis(1200);
 
@@ -121,7 +126,9 @@ fn answer_after_quiet(app: &mut App, key: &str, asked: Instant) {
 }
 
 /// Turns the channel on as the person would, connects, and lets the agent in with `y` after a
-/// quiet moment, checking on the way that a hasty `y` does not answer.
+/// quiet moment, checking on the way that a hasty `y` does not answer. The question opens no
+/// sooner than the agent connects: a `y` answered within [`APP_QUIET`] of that must be refused,
+/// and one later may be taken, on a slow runner, which then lets the agent in.
 pub(super) fn let_in(app: &mut App) -> Agent {
     app.run_command("agent-channel-start", None).unwrap();
     let state = app.wait_for("the channel", |state| {
@@ -130,6 +137,7 @@ pub(super) fn let_in(app: &mut App) -> Agent {
             .is_some_and(|modeline| modeline.starts_with("Agent  "))
     });
     assert!(state["modeline"].is_string());
+    let called = Instant::now();
     let mut agent = Agent::connect(app);
     let version = thread::spawn(move || {
         let result = agent.call("version", None);
@@ -138,16 +146,28 @@ pub(super) fn let_in(app: &mut App) -> Agent {
     let state = app.wait_for("the question", |state| {
         state["prompts"].as_array().is_some_and(|p| !p.is_empty())
     });
+    // At once, before anything else: the question is as young as this flow can make it.
+    let hasty = app.try_call("send-keys", Some(json!({ "keys": "y" })));
+    let answered_within = called.elapsed();
     let label = state["prompts"][0]["prompt"].as_str().unwrap().to_owned();
     assert!(
         label.starts_with("Agent: let a process that reports itself as"),
         "{label}"
     );
     assert!(!label.contains("oso mcp"), "the test is not oso: {label}");
-    let hasty = app.try_call("send-keys", Some(json!({ "keys": "y" })));
-    let refused = Instant::now();
-    assert!(hasty.unwrap_err().contains("takes no answer yet"));
-    answer_after_quiet(app, "y", refused);
+    match hasty {
+        Err(why) => {
+            assert!(why.contains("takes no answer yet"), "{why}");
+            answer_after_quiet(app, "y", Instant::now());
+        }
+        // Too slow to tell: the question may have been past its quiet time, and `y` let the
+        // agent in.
+        Ok(_) => assert!(
+            answered_within >= APP_QUIET,
+            "a `y` {} ms after the agent connected was taken",
+            answered_within.as_millis()
+        ),
+    }
     let (agent, result) = version.join().unwrap();
     assert_eq!(result.unwrap()["protocol"], 2);
     thread::sleep(AFTER_TYPING);

@@ -54,17 +54,17 @@ pub const HEAD: u64 = 64 * 1024;
 pub const TAIL: u64 = 128 * 1024;
 
 /// The longest name kept, in bytes.
-const MAX_TITLE: usize = 256;
+pub(super) const MAX_TITLE: usize = 256;
 
 /// The longest directory kept, in bytes.
-const MAX_CWD: usize = 4096;
+pub(super) const MAX_CWD: usize = 4096;
 
 /// The longest title line looked at.
 const MAX_TITLE_LINE: usize = 4096;
 
 /// What a title line starts with, the field that holds its name, and its rank: the name the
 /// person gave first, then the agent's name, then the title Claude Code made itself.
-const TITLES: [(&str, &str); 3] = [
+pub(super) const TITLES: [(&str, &str); 3] = [
     ("{\"type\":\"custom-title\"", "customTitle"),
     ("{\"type\":\"agent-name\"", "agentName"),
     ("{\"type\":\"ai-title\"", "aiTitle"),

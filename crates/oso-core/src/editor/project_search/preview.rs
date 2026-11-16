@@ -25,7 +25,7 @@ const AROUND_DRAWN: usize = 1024;
 impl Editor {
     /// The row of the innermost prompt selected, if it searches a project: its search's
     /// generation and its item.
-    fn selected_search_row(&self) -> Option<(u64, usize)> {
+    pub(in crate::editor) fn selected_search_row(&self) -> Option<(u64, usize)> {
         if !self.searches_project() {
             return None;
         }
@@ -39,21 +39,33 @@ impl Editor {
         let candidates = self.prompts.last()?.candidates()?;
         let text = candidates.get(candidates.selected()?)?.text();
         let place = self.project_search.places.get(key.1)?;
+        // A conversation's row has no file (ADR 0145).
+        let super::To::File {
+            path,
+            offset,
+            secret,
+        } = place.to
+        else {
+            return None;
+        };
         Some(Wanted {
             key,
             root: &self.project_search.root,
-            path: Path::new(text.get(..place.path)?),
+            path: Path::new(text.get(..path)?),
             at: PreviewAt::Offset {
-                offset: place.offset,
+                offset,
                 line: place.line,
                 column: place.column,
             },
-            secret: place.secret,
+            secret,
         })
     }
 
     /// What the preview of the innermost prompt's selected row shows, if it searches a project.
     pub(in crate::editor) fn search_preview(&self) -> Option<Preview> {
+        if self.project_search.conversations.is_some() {
+            return self.conversation_preview();
+        }
         self.file_row_preview(Lister::Search)
     }
 
@@ -191,6 +203,8 @@ pub(in crate::editor) struct PreviewCellsKey {
     top: Option<(usize, usize)>,
     rows: usize,
 }
+
+mod conversation;
 
 #[cfg(test)]
 mod tests;

@@ -324,6 +324,14 @@ impl LineQuery {
         first
     }
 
+    /// Where the first match of `text`, a whole message of several lines, is, if it matches:
+    /// every component that is not excluded matches somewhere in it, and no excluded one
+    /// does, in any order (ADR 0145). `^` and `$` are a line's start and end in it, as in a
+    /// block, and no match crosses a line break unless its expression says so.
+    pub fn matches_message(&self, text: &[u8]) -> Option<Range<usize>> {
+        self.matches_line(text)
+    }
+
     /// The lines of `block` that match, in order, each handed to `hit`, and how many line
     /// breaks the block holds. A `\r` before a line's end is not part of it.
     ///

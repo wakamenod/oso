@@ -522,6 +522,7 @@ impl App {
         self.editor.set_listed(REPOSITORIES_LIST, known);
         self.editor.set_listed(MEMBERS_LIST, members);
         self.editor.set_listed(ARCHIVED_LIST, archived);
+        self.keep_space_scope(true);
     }
 
     /// The repositories oso knows, by path, with their names: the open spaces', the

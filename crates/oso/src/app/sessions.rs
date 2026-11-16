@@ -11,12 +11,14 @@ use std::sync::{Arc, Mutex, PoisonError};
 use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::editor::{Editor, SessionRequest};
 
+mod conversations;
 mod feed;
 mod hosting;
 mod spaces;
 mod tools;
 mod watch;
 mod worktrees;
+pub(super) use conversations::conversations;
 pub(super) use hosting::Hosting;
 pub(super) use watch::Watch;
 
@@ -81,6 +83,11 @@ impl App {
                     self.adopt_session(&pick);
                     continue;
                 }
+                // The message is for step 2's read-only view (ADR 0145).
+                SessionRequest::GoToConversation { session, .. } => {
+                    self.go_to_conversation(&session);
+                    continue;
+                }
                 SessionRequest::Worktree { .. }
                 | SessionRequest::SendBrief(_)
                 | SessionRequest::CancelBrief(_)
@@ -113,6 +120,8 @@ impl App {
         // stop still asked.
         self.drop_unasked_stop();
         self.forget_unanswered_space();
+        // A space entered gives `session-search` its scope (ADR 0145).
+        self.keep_space_scope(false);
         self.notice_trust();
         self.forget_unanswered_offer();
         self.sync_seen();

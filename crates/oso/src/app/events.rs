@@ -98,6 +98,7 @@ impl App {
             UserEvent::Walked(walked) => self.walked(event_loop, walked),
             UserEvent::Grepped(found) => self.grepped(event_loop, found),
             UserEvent::Previewed(read) => self.previewed(read),
+            UserEvent::Conversations(report) => self.conversations_reported(event_loop, report),
             UserEvent::DiagnosticsListed(rows) => self.diagnostics_listed(rows),
             UserEvent::XrefsListed(generation, rows) => self.xrefs_listed(generation, rows),
             UserEvent::Trust => self.trust_reported(),

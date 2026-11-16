@@ -25,8 +25,14 @@ use super::{CompletionStyle, Editor, WalkEnd};
 use crate::complete::{Candidate, Candidates, MAX_INPUT_BYTES, WORKER_PAST};
 use crate::minibuffer::{PromptError, PromptId};
 use crate::project::{LineQuery, MAX_ROWS};
+pub use conversations::{
+    ConversationHit, ConversationPreviewRequest, ConversationRow, ConversationScope,
+    ConversationSearchRequest,
+};
+use conversations::{Conversations, Request};
 pub(in crate::editor) use preview::PreviewCellsKey;
 
+mod conversations;
 mod preview;
 
 /// What a row of a file that may hold secrets says in place of its text (ADR 0114).
@@ -95,18 +101,45 @@ impl fmt::Debug for ProjectSearchHit {
     }
 }
 
-/// What a row keeps beside its candidate: where it leads, and how much of its text is its
-/// path and line. The path itself is read from the candidate's text, which starts with it.
+/// What a row keeps beside its candidate: where it leads, the line and column of its match,
+/// and how much of its text is its prefix, drawn in the annotation's face.
 struct Place {
-    /// The bytes of the path at the start of the candidate's text.
-    path: usize,
+    /// The line, from 1 in a file and from 0 in a message.
     line: usize,
-    /// The offset of the line in its file, as the search found it.
-    offset: u64,
     column: usize,
-    /// The bytes of `path:line: `, or the whole text for a file that may hold secrets.
+    /// The bytes of `path:line: `, or the whole text for a file that may hold secrets, or a
+    /// conversation's row's label and the space after it.
     prefix: usize,
-    secret: bool,
+    to: To,
+}
+
+/// Where a row leads.
+enum To {
+    /// A project's file: the bytes of its path at the start of the candidate's text, which
+    /// starts with it, and the offset of the line in it, as the search found it.
+    File {
+        path: usize,
+        offset: u64,
+        secret: bool,
+    },
+    /// A conversation's message (ADR 0145): its session's id and the message's index in what
+    /// the host holds.
+    Message { session: Box<str>, message: usize },
+}
+
+impl Place {
+    /// Whether the row is of a file that may hold secrets, whose text never shows.
+    fn secret(&self) -> bool {
+        matches!(self.to, To::File { secret: true, .. })
+    }
+
+    /// The bytes of the file's path at the start of the row's text; none for a message.
+    fn path(&self) -> usize {
+        match self.to {
+            To::File { path, .. } => path,
+            To::Message { .. } => 0,
+        }
+    }
 }
 
 /// What the prompt that searches a project keeps beside its rows.
@@ -119,7 +152,11 @@ pub(super) struct ProjectSearch {
     /// The newest search's generation, shared with the host, which stops once it moves on.
     live: Arc<AtomicU64>,
     /// The search to start, until the host takes it.
-    request: Option<ProjectSearchRequest>,
+    request: Option<Request>,
+    /// What it searches past a project's files: conversations, in which scope (ADR 0145).
+    conversations: Option<Conversations>,
+    /// The scope of the space in front, as the host keeps it, which outlives each prompt.
+    space_scope: Option<ConversationScope>,
     /// The search has not ended.
     running: bool,
     /// It stopped at a limit.
@@ -134,6 +171,8 @@ pub(super) struct ProjectSearch {
     places: Vec<Place>,
     /// The row `RET` took, for the command.
     hit: Option<ProjectSearchHit>,
+    /// The conversation's row `RET` took, for the command.
+    conversation_hit: Option<ConversationHit>,
     /// The selected row's preview.
     pub(super) preview: FilePreview,
 }
@@ -165,22 +204,42 @@ impl Editor {
         };
         let id =
             self.open_completion_as(format!("Search {name}:"), history, Arc::from([]), style)?;
+        self.start_search_prompt(id, root, None);
+        Ok(id)
+    }
+
+    /// Makes the search's state that of the new prompt `id`, of the project at `root` or of
+    /// `conversations`.
+    fn start_search_prompt(
+        &mut self,
+        id: PromptId,
+        root: PathBuf,
+        conversations: Option<Conversations>,
+    ) {
         let live = Arc::clone(&self.project_search.live);
         let mut preview = std::mem::take(&mut self.project_search.preview);
         preview.reset();
+        let space_scope = self.project_search.space_scope.take();
         self.project_search = ProjectSearch {
             prompt: Some(id),
             root,
             live,
             preview,
+            conversations,
+            space_scope,
             ..ProjectSearch::default()
         };
-        Ok(id)
     }
 
-    /// The search the host should start, once.
+    /// The search of a project's files the host should start, once.
     pub fn take_search_request(&mut self) -> Option<ProjectSearchRequest> {
-        self.project_search.request.take()
+        match self.project_search.request.take() {
+            Some(Request::Files(request)) => Some(request),
+            other => {
+                self.project_search.request = other;
+                None
+            }
+        }
     }
 
     /// Takes in rows the search `generation` found, and with `end`, that it ended. They go
@@ -193,16 +252,17 @@ impl Editor {
         end: Option<WalkEnd>,
     ) {
         let search = &mut self.project_search;
-        let Some(id) = search
+        let Some(room) = search
             .prompt
             .filter(|_| generation == search.generation && search.running)
+            .filter(|_| search.conversations.is_none())
+            .map(|_| MAX_ROWS.saturating_sub(search.places.len()))
         else {
             if rows.len() > WORKER_PAST {
                 self.free_on_the_worker(Box::new(rows));
             }
             return;
         };
-        let room = MAX_ROWS.saturating_sub(search.places.len());
         let cut_here = rows.len() > room;
         let mut added = Vec::with_capacity(rows.len().min(room));
         for row in rows.into_iter().take(room) {
@@ -218,15 +278,28 @@ impl Editor {
                 )
             };
             search.places.push(Place {
-                path: row.path.len(),
                 line: row.line,
-                offset: row.offset,
                 column: row.column,
                 prefix,
-                secret: row.secret,
+                to: To::File {
+                    path: row.path.len(),
+                    offset: row.offset,
+                    secret: row.secret,
+                },
             });
             added.push(candidate);
         }
+        self.add_search_rows(added, end, cut_here);
+    }
+
+    /// Puts `added` after the search's rows shown, whose places are kept already, and with
+    /// `end`, ends the search; `cut_here` says more came than a search keeps.
+    fn add_search_rows(&mut self, added: Vec<Candidate>, end: Option<WalkEnd>, cut_here: bool) {
+        let search = &mut self.project_search;
+        let Some(id) = search.prompt else {
+            return;
+        };
+        let generation = search.generation;
         if let Some(end) = end {
             search.running = false;
             search.cut = end.cut;
@@ -312,16 +385,24 @@ impl Editor {
         let places = std::mem::take(&mut search.places);
         search.cut = false;
         search.running = query.starts();
-        search.request = search.running.then(|| ProjectSearchRequest {
-            generation: search.generation,
-            root: search.root.clone(),
-            query: Arc::clone(&query),
-            live: Arc::clone(&search.live),
-            narrow: search
-                .last_whole
-                .as_ref()
-                .filter(|(_, before)| query.narrows(before))
-                .map(|(generation, _)| *generation),
+        search.request = search.running.then(|| match &search.conversations {
+            Some(conversations) => Request::Conversations(ConversationSearchRequest {
+                generation: search.generation,
+                scope: conversations.scope().clone(),
+                query: Arc::clone(&query),
+                live: Arc::clone(&search.live),
+            }),
+            None => Request::Files(ProjectSearchRequest {
+                generation: search.generation,
+                root: search.root.clone(),
+                query: Arc::clone(&query),
+                live: Arc::clone(&search.live),
+                narrow: search
+                    .last_whole
+                    .as_ref()
+                    .filter(|(_, before)| query.narrows(before))
+                    .map(|(generation, _)| *generation),
+            }),
         });
         search.query = Some(query);
         if places.len() > WORKER_PAST {
@@ -365,7 +446,15 @@ impl Editor {
         let text = candidates.get(candidates.selected()?)?.text();
         let search = &mut self.project_search;
         let place = search.places.get(item)?;
-        let path = search.root.join(text.get(..place.path)?);
+        if let To::Message { session, message } = &place.to {
+            search.conversation_hit = Some(ConversationHit {
+                session: session.clone(),
+                message: *message,
+            });
+            let input = search.input.clone().flatten().unwrap_or_default();
+            return Some((session.to_string(), Some(input.trim().to_owned())));
+        }
+        let path = search.root.join(text.get(..place.path())?);
         let answer = path.to_str()?.to_owned();
         search.hit = Some(ProjectSearchHit {
             path,
@@ -373,7 +462,7 @@ impl Editor {
             column: place.column,
         });
         let input = search.input.clone().flatten().unwrap_or_default();
-        let recorded = (!place.secret).then(|| input.trim().to_owned());
+        let recorded = (!place.secret()).then(|| input.trim().to_owned());
         Some((answer, recorded))
     }
 
@@ -399,7 +488,7 @@ impl Editor {
         let item = self.prompts.last()?.candidates()?.item_at(place)?;
         let row = self.project_search.places.get(item)?;
         let prefix = row.prefix.min(text.len());
-        if row.secret || !text.is_char_boundary(prefix) {
+        if row.secret() || !text.is_char_boundary(prefix) {
             return Some(prefix);
         }
         if let Some(query) = &self.project_search.query {
@@ -418,11 +507,15 @@ impl Editor {
             self.project_search.live.fetch_add(1, Ordering::Relaxed);
             let live = Arc::clone(&self.project_search.live);
             let hit = self.project_search.hit.take();
+            let conversation_hit = self.project_search.conversation_hit.take();
+            let space_scope = self.project_search.space_scope.take();
             let mut preview = std::mem::take(&mut self.project_search.preview);
             preview.reset();
             self.project_search = ProjectSearch {
                 live,
                 hit,
+                conversation_hit,
+                space_scope,
                 preview,
                 ..ProjectSearch::default()
             };

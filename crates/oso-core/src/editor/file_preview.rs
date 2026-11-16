@@ -261,6 +261,34 @@ impl FilePreview {
         self.covered = false;
         self.read = None;
     }
+
+    /// The row asked for last, by its list's generation and its item.
+    pub(super) fn asked(&self) -> Option<(u64, usize)> {
+        self.asked
+    }
+
+    /// Asks afresh for the row `key`, of a list whose rows are no file (ADR 0145): the read
+    /// before stops, and this gives the new read's generation and the counter the host reads.
+    pub(super) fn ask(&mut self, key: (u64, usize)) -> (u64, Arc<AtomicU64>) {
+        self.reset();
+        self.asked = Some(key);
+        (self.live.load(Ordering::Relaxed), Arc::clone(&self.live))
+    }
+
+    /// What was read for the row `key`, as the preview shows it, once it came.
+    pub(super) fn shown(&self, key: (u64, usize)) -> Option<Preview> {
+        if self.asked != Some(key) {
+            return None;
+        }
+        match &self.read {
+            Some((FilePreviewRead::Text(excerpt), revision)) => Some(Preview::Excerpt {
+                revision: *revision,
+                cursor: excerpt.cursor,
+            }),
+            Some((FilePreviewRead::Withheld, _)) => Some(Preview::Withheld),
+            Some((FilePreviewRead::Unreadable, _)) | None => None,
+        }
+    }
 }
 
 /// The lists that preview their rows' files.
@@ -445,7 +473,11 @@ impl Editor {
     /// unless an open buffer of the same file shows in its place.
     pub(in crate::editor) fn read_excerpt(&self) -> Option<&Excerpt> {
         let lister = self.previewing()?;
-        let key = self.wanted_row(lister)?.key;
+        // A search's row of a conversation has no file, but has an excerpt (ADR 0145).
+        let key = match lister {
+            Lister::Search => self.selected_search_row()?,
+            Lister::Diagnostics | Lister::Xrefs => self.wanted_row(lister)?.key,
+        };
         let preview = self.file_preview(lister);
         if preview.asked != Some(key) {
             return None;
@@ -504,6 +536,8 @@ impl Editor {
         }
     }
 }
+
+mod wrapped;
 
 #[cfg(test)]
 mod tests;
