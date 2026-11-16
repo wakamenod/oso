@@ -319,6 +319,7 @@ impl Git {
             set: &variables,
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .map_err(GitError::Spawn)
     }

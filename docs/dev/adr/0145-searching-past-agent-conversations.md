@@ -232,6 +232,21 @@ agent tool.
 2. The read-only view on `C-RET`, the fork on `M-RET`, and a `just perf` flow over a generated
    2 GiB tree with the budgets above.
 
+## Follow-up: what a session's start logs
+
+The window run of step 2 found that a session adopted or forked from a transcript took its name
+from the transcript's title, which then reached the log twice: in "Started session NAME" and in
+the spawn's log line, with its `--name`. The author chose (2026-11-17, through the coordinator):
+
+- **"Started session NAME with SHELL in DIR" goes to `*Messages*` only,** with no log line
+  (`Editor::note_unlogged`), and `session-adopt`'s "Adopted NAME from DIR" and "Session NAME is
+  oso's already" are unlogged messages. The name stays the session's buffer's.
+- **`oso_platform::process::Spawn` gains `args_logged`.** With it false, the spawn's log line
+  and `Debug` give the executable, how many arguments there are and the directory, never their
+  text. A hosted session's start sets it false, through `oso_term::Start::args_logged`: its
+  arguments carry its name, its brief and the project's instructions. Every other spawn keeps
+  its arguments in the log. The public field is approved by the author, with no ADR of its own.
+
 ## Changes to accepted ADRs
 
 - **[ADR 0121](0121-agent-sessions-and-spaces.md), "The bridge and the channel":** the row

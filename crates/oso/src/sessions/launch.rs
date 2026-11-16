@@ -204,6 +204,7 @@ mod tests {
             set: &set,
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .unwrap();
         child.wait().unwrap().success()

@@ -446,6 +446,7 @@ fn runs(pid: u32) -> bool {
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })
     .unwrap();
     let out = ps.wait_with_output().unwrap();

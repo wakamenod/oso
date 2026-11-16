@@ -236,13 +236,32 @@ pub struct Spawn<'a> {
     pub terminal: Option<&'a pty::Slave>,
     /// A descriptor the child gets as its descriptor 3. Not with `terminal`.
     pub pass_fd: Option<PassedFd<'a>>,
+    /// Whether the spawn's log line and `Debug` give the arguments' text. False for a child
+    /// whose arguments carry what came from outside oso or what a person wrote, such as a
+    /// hosted agent session's name taken from a transcript, its brief or its instructions
+    /// (ADR 0145): then they give only how many there are.
+    pub args_logged: bool,
+}
+
+/// A spawn's arguments as its log line and `Debug` give them: their text, or with
+/// [`Spawn::args_logged`] false, only their count.
+struct LoggedArgs<'a>(&'a Spawn<'a>);
+
+impl fmt::Debug for LoggedArgs<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.args_logged {
+            fmt::Debug::fmt(self.0.args, f)
+        } else {
+            write!(f, "[{} arguments not logged]", self.0.args.len())
+        }
+    }
 }
 
 impl fmt::Debug for Spawn<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Spawn")
             .field("executable", self.executable)
-            .field("args", &self.args)
+            .field("args", &LoggedArgs(self))
             .field("cwd", &self.cwd)
             .field("project", &self.project)
             .field("inherit", &self.inherit)
@@ -257,6 +276,7 @@ impl fmt::Debug for Spawn<'_> {
             )
             .field("terminal", &self.terminal)
             .field("pass_fd", &self.pass_fd)
+            .field("args_logged", &self.args_logged)
             .finish()
     }
 }
@@ -273,7 +293,7 @@ pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
     log::info!(
         "{SPAWN_MARKER}: {} {:?} in {:?}{}{}{} with PATH and {:?}",
         request.executable.path().display(),
-        request.args,
+        LoggedArgs(request),
         request.cwd,
         if request.terminal.is_some() {
             " in a terminal"
@@ -574,6 +594,7 @@ mod tests {
                 set: &[],
                 terminal: None,
                 pass_fd: None,
+                args_logged: true,
             })
             .unwrap()
         };
@@ -628,6 +649,7 @@ mod tests {
             set: &[],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .unwrap();
         let out = child.wait_with_output().unwrap();
@@ -663,6 +685,7 @@ mod tests {
             set: &[],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         });
         assert!(refused.is_err_and(|e| e.kind() == std::io::ErrorKind::InvalidInput));
     }
@@ -685,6 +708,7 @@ mod tests {
             set: &[],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .unwrap()
     }
@@ -707,6 +731,7 @@ mod tests {
             set: &[],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .unwrap();
         let out = ps.wait_with_output().unwrap();
@@ -901,6 +926,7 @@ mod tests {
             set: &[],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .unwrap();
         let mut output = String::new();
@@ -953,6 +979,7 @@ mod tests {
             set: &[],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .unwrap();
         let mut input = child.stdin.take().unwrap();
@@ -1027,6 +1054,7 @@ mod tests {
             set: &[],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         };
         let (_reader, writer) = std::io::pipe().unwrap();
         let size = pty::Size {
@@ -1049,6 +1077,7 @@ mod tests {
         };
         let passed = Spawn {
             pass_fd: Some(PassedFd::new(writer.as_fd())),
+            args_logged: true,
             ..plain
         };
         let in_terminal = Spawn {
@@ -1068,5 +1097,40 @@ mod tests {
         // Only a child's own `TIOCSCTTY` gives macOS a controlling terminal (ADR 0137).
         let expected = u32::from(cfg!(target_os = "macos"));
         assert_eq!(forks(in_terminal), expected, "in a terminal");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_spawn_whose_arguments_are_not_logged_gives_only_their_count() {
+        use super::{LoggedArgs, Sink, Source, Spawn};
+        let sh = Executable::absolute("/bin/sh").unwrap();
+        let args = ["--name=Fix the login".into(), "a brief".into()];
+        let quiet = Spawn {
+            executable: &sh,
+            args: &args,
+            cwd: None,
+            project: None,
+            inherit: &[],
+            stdin: Source::Closed,
+            stdout: Sink::Null,
+            stderr: Sink::Null,
+            own_process_group: false,
+            own_session: false,
+            set: &[],
+            terminal: None,
+            pass_fd: None,
+            args_logged: false,
+        };
+        let shown = format!("{quiet:?} {:?}", LoggedArgs(&quiet));
+        assert!(
+            !shown.contains("Fix the login") && !shown.contains("brief"),
+            "{shown}"
+        );
+        assert!(shown.contains("[2 arguments not logged]"), "{shown}");
+        let loud = Spawn {
+            args_logged: true,
+            ..quiet
+        };
+        assert!(format!("{:?}", LoggedArgs(&loud)).contains("Fix the login"));
     }
 }

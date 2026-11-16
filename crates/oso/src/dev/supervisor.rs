@@ -328,6 +328,7 @@ impl Running {
             set: &[],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })?;
         Ok(Self {
             child,
@@ -497,6 +498,7 @@ fn build(cargo: &Executable, root: &Path) -> io::Result<Build> {
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })?;
     let mut artifact = None;
     let mut errors = Vec::new();
@@ -617,6 +619,7 @@ mod tests {
                 set: &[],
                 terminal: None,
                 pass_fd: None,
+                args_logged: true,
             })
             .unwrap();
             Running {
@@ -735,6 +738,7 @@ mod tests {
                 set: &[],
                 terminal: None,
                 pass_fd: None,
+                args_logged: true,
             })
             .unwrap();
             let mut group = String::new();

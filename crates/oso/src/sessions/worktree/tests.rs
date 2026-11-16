@@ -103,6 +103,7 @@ impl Scratch {
             set: &[("HOME", home), ("GIT_CONFIG_NOSYSTEM", "1".as_ref())],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .unwrap();
         let mut out = Vec::new();

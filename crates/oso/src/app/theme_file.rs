@@ -365,6 +365,7 @@ mod tests {
             set: &[],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .and_then(|mut child| child.wait())
         .expect("cannot run mkfifo");

@@ -328,6 +328,7 @@ fn fork_when_live(flow: &Flow, app: &mut App, id: &str) -> String {
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })
     .unwrap();
     let sessions = flow.home.join(".claude/sessions");
