@@ -141,7 +141,7 @@ impl Keymaps {
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 31] {
+    pub(super) fn all(&self) -> [&Keymap; 33] {
         let Self {
             global,
             user,
