@@ -119,7 +119,7 @@ pub(super) fn with_frame<R>(
     let drawn = tiled::Drawn {
         terminals: tiled::Grids::new(terminals, &grid_rows, &grids),
         cells: &cells.windows,
-        fills: &spans.2,
+        behind: &spans.2,
         labels: &spans.3,
         modelines: &rows.0,
         gutters: &rows.1,
@@ -971,9 +971,9 @@ mod tests {
                 assert_eq!(
                     lines,
                     [
-                        (Face::DiagnosticInfo, 0),
+                        (Face::DiagnosticError, 1),
                         (Face::DiagnosticWarning, 1),
-                        (Face::DiagnosticError, 1)
+                        (Face::DiagnosticInfo, 0)
                     ]
                 );
                 let modeline = panes

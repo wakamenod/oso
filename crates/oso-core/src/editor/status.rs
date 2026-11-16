@@ -144,11 +144,15 @@ impl Status {
     /// the gap after it, which no face shows. A count that is zero is empty.
     pub fn count_parts(&self) -> [(&str, Severity); 3] {
         let [warnings, information] = self.count_starts;
-        let text = &self.lsp_counts;
+        // Nothing, rather than a panic, if the text was changed since it was made.
+        let part = |range: std::ops::Range<usize>| self.lsp_counts.get(range).unwrap_or_default();
         [
-            (&text[..warnings], Severity::Error),
-            (&text[warnings..information], Severity::Warning),
-            (&text[information..], Severity::Information),
+            (part(0..warnings), Severity::Error),
+            (part(warnings..information), Severity::Warning),
+            (
+                part(information..self.lsp_counts.len()),
+                Severity::Information,
+            ),
         ]
     }
 

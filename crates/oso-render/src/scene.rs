@@ -4,9 +4,9 @@
 //!
 //! Must not depend on: `capture`, `paint` or a font backend.
 //!
-//! - Each layer is one range of rectangles, one of rounded boxes and one of quads,
-//!   drawn back to front in that order, so a frame costs one draw per layer per
-//!   pipeline, however many panes and glyphs it has. A layer with no rounded box
+//! - Each layer is one range of rectangles, one of wavy lines, one of rounded boxes and one of
+//!   quads, drawn back to front in that order, so a frame costs one draw per layer per
+//!   pipeline, however many panes and glyphs it has. A layer with no wavy line or rounded box
 //!   draws none.
 //! - Panes are built front to back, the reverse of how they are drawn. The caps
 //!   on quads and rectangles and the budget of new glyphs then run out behind
@@ -93,6 +93,9 @@ struct Draws {
     plain: CellRows,
     /// Where its text is faded, as unnecessary code is (ADR 0138).
     faded: CellRows,
+    /// The frame's cells of the cursor box of the text pane being drawn, while it is filled:
+    /// glyphs there are in the box's colours, and never faded.
+    cursor_box: Option<CellRect>,
     /// The glyphs of a jump's label keys (ADR 0116).
     keys: Keys,
     /// What the labels of the layer being built draw, held back to go over all of it.
@@ -155,7 +158,7 @@ impl Draws {
         &mut self,
         (layout, row): (&Layout, usize),
         shaped: &ShapedRow,
-        (mut faces, mut covered, mut fade): (Option<RowFaces<'_>>, Covered<'_>, Fade<'_>),
+        (mut faces, mut covered, mut fade): (Option<RowFaces<'_>>, Covered<'_>, Option<Fade<'_>>),
         system: &mut dyn TextSystem,
         glyphs: &mut G,
     ) -> bool {
@@ -202,9 +205,8 @@ impl Draws {
                 glyph.face = faces.face(glyph.column, cells.clone());
             }
             if let Some(mut quad) = layout.quad(row, &glyph, &entry, &self.theme) {
-                // Only text, and not under the cursor box, whose colour the quad then has.
-                let ink = self.theme.foreground(glyph.face);
-                if text && fade.covers(&cells) && quad.color() == ink {
+                // Only text, and not under the cursor box, which keeps its colours.
+                if text && fade.as_mut().is_some_and(|fade| fade.covers(&cells)) {
                     let face = glyph.face;
                     quad = quad.inked(self.theme.faded(face), self.theme.background(face));
                 }
@@ -242,6 +244,7 @@ impl Scene {
                 theme,
                 plain: CellRows::default(),
                 faded: CellRows::default(),
+                cursor_box: None,
                 keys: Keys::default(),
                 over: Over::default(),
                 decode: Decode::default(),
@@ -430,7 +433,8 @@ fn draw_pane<G: GlyphSource>(
     draw_panel(draws, pane, metrics);
     match &pane.content {
         PaneContent::Text(view) => {
-            draw_fills(draws, view, &unscrolled, metrics);
+            draw_fills(draws, view, (&unscrolled, cursor), metrics);
+            draws.cursor_box = cursor.filter(|_| !hollow);
             let left = view.screen.left();
             let mut layout = unscrolled.with_left(left).with_bands(pane.bands);
             if let Some(cells) = cursor.filter(|_| !hollow) {
@@ -438,6 +442,7 @@ fn draw_pane<G: GlyphSource>(
                 layout = layout.with_cursor(cells);
             }
             draw_text(draws, view, pane, &layout, rows, system, glyphs);
+            draws.cursor_box = None;
             draws.held -= held;
             outline_others(draws, view, &layout, metrics);
             underline_preedit(draws, view, &layout, metrics);
@@ -525,7 +530,7 @@ fn draw_lines<G: GlyphSource>(
     let end = layout.columns().end;
     for (row, spans) in lines.iter().enumerate().take(shown) {
         let shaped = rows.line(row, spans, end, system);
-        let looks = (None, Covered::NONE, Fade::default());
+        let looks = (None, Covered::NONE, None);
         if !draws.row((layout, row), shaped, looks, system, glyphs) {
             break;
         }

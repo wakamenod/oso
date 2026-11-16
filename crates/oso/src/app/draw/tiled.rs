@@ -1,6 +1,6 @@
-//! Each tiled window's part of a frame (ADR 0112): its text, gutter, modeline and divider
-//! panes, the cells its text fills, and the pane ids that keep each window's shaped rows
-//! from frame to frame.
+//! Each tiled window's part of a frame (ADR 0112): its text, gutter, sign column, modeline and
+//! divider panes, the cells its text fills and its diagnostics mark (ADR 0138), and the pane ids
+//! that keep each window's shaped rows from frame to frame.
 //!
 //! Must not depend on: key presses or commands; a frame only reads the editor's state.
 //!
@@ -13,6 +13,7 @@
 //! region and band (ADR 0072, ADR 0097). The editor's cells and status already say all this.
 
 use oso_core::buffer::{BufferId, Mode};
+use oso_core::diagnostic::Severity;
 use oso_core::editor::{
     DiagnosticCells, Editor, Gutter, JumpCells, MatchCells, ReviewCells, Status,
 };
@@ -29,7 +30,7 @@ use crate::terminal::hosted::Terminals;
 
 mod modeline;
 
-use modeline::{MODELINE_SPANS, modeline_face, modeline_spans, severity_face};
+use modeline::{MODELINE_SPANS, modeline_face, modeline_spans};
 
 /// The first pane id of the windows': the echo area's and the floats' are below it.
 const FIRST: u32 = 16;
@@ -137,13 +138,25 @@ pub(super) fn tiled_status<'a>(
         .find_map(|(id, status)| (*id == tiled).then_some(status))
 }
 
-/// A window's diagnostics' wavy lines, the most severe last, so that it goes over (ADR 0138).
+/// The face a diagnostic of `severity` is drawn in, its line, its sign and its count: none for
+/// a hint (ADR 0138, Q16).
+pub(super) fn severity_face(severity: Severity) -> Option<Face> {
+    match severity {
+        Severity::Error => Some(Face::DiagnosticError),
+        Severity::Warning => Some(Face::DiagnosticWarning),
+        Severity::Information => Some(Face::DiagnosticInfo),
+        Severity::Hint => None,
+    }
+}
+
+/// A window's diagnostics' wavy lines, which do not meet, the most severe first, so that it keeps
+/// its room if a frame runs out of it (ADR 0138).
 fn underlines_of(cells: &WindowCells) -> [(Face, &[CellRect]); UNDERLINES] {
     let found = &cells.diagnostics;
     [
-        (Face::DiagnosticInfo, &found.information[..]),
-        (Face::DiagnosticWarning, &found.warning[..]),
         (Face::DiagnosticError, &found.error[..]),
+        (Face::DiagnosticWarning, &found.warning[..]),
+        (Face::DiagnosticInfo, &found.information[..]),
     ]
 }
 
@@ -240,7 +253,7 @@ pub(super) struct Room {
     modeline_rows: Vec<[&'static [Span<'static>]; 1]>,
     numbers: Vec<[Span<'static>; 1]>,
     gutters: Vec<&'static [Span<'static>]>,
-    fills: Vec<Behind<'static>>,
+    behind: Vec<Behind<'static>>,
     labels: Vec<(CellRect, Span<'static>)>,
 }
 
@@ -286,8 +299,8 @@ pub(super) fn spans_of<'a>(
             [Span { text, face }]
         }));
     }
-    let mut fills: Vec<Behind<'a>> = super::reuse(std::mem::take(&mut room.fills));
-    fills.extend(cells.iter().map(|cells| Behind {
+    let mut behind: Vec<Behind<'a>> = super::reuse(std::mem::take(&mut room.behind));
+    behind.extend(cells.iter().map(|cells| Behind {
         fills: fills_of(cells),
         underlines: underlines_of(cells),
     }));
@@ -295,7 +308,7 @@ pub(super) fn spans_of<'a>(
     for window in cells {
         labels_of(window, &mut labels);
     }
-    (modelines, numbers, fills, labels)
+    (modelines, numbers, behind, labels)
 }
 
 /// Every window's modeline spans, gutter numbers and fills, as [`spans_of`] makes them.
@@ -330,10 +343,10 @@ pub(super) fn give_back_rows(
 }
 
 /// Gives back the spans and fills a frame took of `room`.
-pub(super) fn give_back_spans(room: &mut Room, (modelines, numbers, fills, labels): Spans<'_>) {
+pub(super) fn give_back_spans(room: &mut Room, (modelines, numbers, behind, labels): Spans<'_>) {
     room.modelines = super::reuse(modelines);
     room.numbers = super::reuse(numbers);
-    room.fills = super::reuse(fills);
+    room.behind = super::reuse(behind);
     room.labels = super::reuse(labels);
 }
 
@@ -363,7 +376,8 @@ impl<'a> Grids<'a> {
 pub(super) struct Drawn<'a> {
     pub(super) terminals: Grids<'a>,
     pub(super) cells: &'a [WindowCells],
-    pub(super) fills: &'a [Behind<'a>],
+    /// What each window draws behind its glyphs.
+    pub(super) behind: &'a [Behind<'a>],
     /// Every window's jump labels, one window's after another's in the tree's order.
     pub(super) labels: &'a [(CellRect, Span<'a>)],
     pub(super) modelines: &'a [[&'a [Span<'a>]; 1]],
@@ -374,9 +388,9 @@ pub(super) struct Drawn<'a> {
 }
 
 /// Pushes every tiled window's panes onto `list`: all their texts, the selected one's last
-/// among them, then their gutters, modelines and dividers, as later panes come first if a
-/// frame runs out of room, so no amount of text can take their place, nor another window's
-/// text the selected one's (ADR 0061).
+/// among them, then their sign columns and gutters, modelines and dividers, as later panes come
+/// first if a frame runs out of room, so no amount of text can take their place, nor another
+/// window's text the selected one's (ADR 0061).
 pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pane<'a>>) {
     let windows = editor.frame().windows();
     let empty = Status::default();
@@ -513,7 +527,7 @@ fn text<'a>(
         // (ADR 0104).
         preedit: editor.preedit().filter(|_| screen.preedit().is_some()),
         fills: drawn
-            .fills
+            .behind
             .get(index)
             .map_or(&[][..], |behind| &behind.fills[..]),
         labels: drawn.labels.get(labels).unwrap_or_default(),
@@ -523,7 +537,7 @@ fn text<'a>(
         highlights: buffer.highlights(),
         marks: TextMarks {
             underlines: drawn
-                .fills
+                .behind
                 .get(index)
                 .map_or(&[][..], |behind| &behind.underlines[..]),
             faded: &cells.diagnostics.unnecessary,

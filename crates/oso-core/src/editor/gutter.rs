@@ -19,8 +19,8 @@ use crate::window::{Screen, Window, WindowId};
 const MIN_DIGITS: usize = 3;
 
 /// The gutter's rows in view, from the window's top: each a line's number, right-aligned
-/// with a cell of space after it, or blank, after its sign if the gutter has a sign column.
-/// Reused from frame to frame.
+/// with a cell of space after it, or blank, and apart from the text, its sign if the gutter has a
+/// sign column. Reused from frame to frame.
 #[derive(Debug, Default)]
 pub struct Gutter {
     text: String,

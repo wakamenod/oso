@@ -4,9 +4,11 @@
 //!
 //! Must not depend on: `capture`, `paint` or a font backend.
 //!
-//! - The lines are drawn over the fills and under the glyphs and the cursor box, each run of
-//!   cells as one quad of the wave pipeline, within [`MAX_WAVES`], so a frame costs as many as
-//!   the runs in view, never the buffer's diagnostics.
+//! - The lines are drawn over the fills and under the glyphs, but in the cursor's cells, which
+//!   its box or a hollow one's sides keep, each run of cells as one quad of the wave pipeline,
+//!   within [`MAX_WAVES`], so a frame costs as many as the runs in view, never the buffer's
+//!   diagnostics. The caller gives the most severe first, so it keeps its room.
+//! - Strikes and bars are rectangles, under the glyphs, as a terminal's strikes are.
 //! - A wave's phase counts from the frame's left, so runs side by side join, and its size
 //!   follows the cell's: a thin line's thickness, swinging over three of them, a period of twice
 //!   that.
@@ -16,6 +18,7 @@ use std::ops::Range;
 use oso_core::frame::{CellRect, PixelRect};
 use oso_platform::text::CellMetrics;
 
+use super::boxes::through;
 use super::highlight::RowCells;
 use super::{Draws, line_width};
 use crate::pane::{Face, TextMarks};
@@ -23,11 +26,12 @@ use crate::shape::{MAX_WAVES, Wave};
 use crate::text::Layout;
 
 /// Where one row's text is faded: in the faded cells, but where it keeps [`Face::Text`]'s
-/// colour, on a fill or under the flash, as a syntax face does (ADR 0111). None by default.
-#[derive(Clone, Copy, Default)]
+/// colour, on a fill or under the flash, as a syntax face does (ADR 0111), and under the cursor
+/// box, whose colours its glyphs take: the frame's columns of the box on the row.
 pub(super) struct Fade<'a> {
     pub(super) faded: RowCells<'a>,
     pub(super) plain: RowCells<'a>,
+    pub(super) cursor: Option<Range<i64>>,
 }
 
 impl Fade<'_> {
@@ -35,7 +39,9 @@ impl Fade<'_> {
     pub(super) fn covers(&mut self, cells: &Range<i64>) -> bool {
         let faded = self.faded.meets(cells);
         let plain = self.plain.meets(cells);
-        faded && !plain
+        let boxed = (self.cursor.as_ref())
+            .is_some_and(|cursor| cursor.start < cells.end && cells.start < cursor.end);
+        faded && !plain && !boxed
     }
 }
 
@@ -53,7 +59,6 @@ impl Draws {
             rect: [rect.x, y, rect.width, band],
             color: self.theme.foreground(face),
             params: [thickness, 2.0 * band, 0.0, 0.0],
-            bounds: [rect.x, y, rect.x + rect.width, y + band],
         });
     }
 }
@@ -72,25 +77,43 @@ fn rows_of(cells: &CellRect) -> impl Iterator<Item = CellRect> + '_ {
 pub(super) fn draw_marks(
     draws: &mut Draws,
     marks: &TextMarks<'_>,
-    layout: &Layout,
+    (layout, cursor): (&Layout, Option<CellRect>),
     metrics: CellMetrics,
 ) {
     for &(face, cells) in marks.underlines {
         for cells in cells.iter().flat_map(rows_of) {
-            draws.wave(layout.frame_cells(cells), face, metrics);
+            // Not over the cursor's cells: its box, or a hollow one's sides, stays whole.
+            for cells in around(cells, cursor).into_iter().flatten() {
+                draws.wave(layout.frame_cells(cells), face, metrics);
+            }
         }
     }
     let line = line_width(metrics);
     let ink = draws.theme.foreground(Face::Text);
     for cells in marks.struck.iter().flat_map(rows_of) {
-        // Through the middle of the cells, as a terminal's strike is drawn (ADR 0120).
-        let rect = layout.frame_cells(cells).map(|rect| PixelRect {
-            y: (rect.y + (rect.height - line) / 2.0).round(),
-            height: line,
-            ..rect
-        });
+        let rect = layout.frame_cells(cells).map(|rect| through(rect, line));
         draws.fill_color(rect, ink);
     }
+}
+
+/// What is left of `cells`, one row's, around `cut`: the cells before it and those after it.
+fn around(cells: CellRect, cut: Option<CellRect>) -> [Option<CellRect>; 2] {
+    let Some(cut) = cut.filter(|cut| (cut.row..cut.row + cut.rows).contains(&cells.row)) else {
+        return [Some(cells), None];
+    };
+    let (start, end) = (cells.column, cells.column + cells.columns);
+    let (cut_start, cut_end) = (cut.column, cut.column + cut.columns);
+    if cut_end <= start || end <= cut_start {
+        return [Some(cells), None];
+    }
+    let part = |from: usize, to: usize| {
+        (from < to).then_some(CellRect {
+            column: from,
+            columns: to - from,
+            ..cells
+        })
+    };
+    [part(start, cut_start), part(cut_end, end)]
 }
 
 /// Draws a sign column's bars from `region`'s top row: each a third of a cell wide, at least a

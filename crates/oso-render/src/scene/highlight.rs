@@ -1,5 +1,6 @@
 //! The faces a buffer's plain text takes from its highlights (ADR 0111). They are picked after
 //! shaping, glyph by glyph, as the glyph instances are built, so a report shapes nothing again.
+//! The rows of cells they give way to, [`CellRows`], also say where text is faded (ADR 0138).
 //!
 //! Must not depend on: `capture`, `paint` or a font backend.
 //!

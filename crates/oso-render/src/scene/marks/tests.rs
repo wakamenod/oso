@@ -93,16 +93,6 @@ fn a_wave_is_a_band_at_the_bottom_of_each_row_of_its_cells_in_its_faces_colour()
         "back to front, the most severe last"
     );
     assert_eq!(scene.layers()[0].waves, 0..3);
-    assert!(
-        scene.waves().iter().all(|wave| wave.bounds
-            == [
-                wave.rect[0],
-                wave.rect[1],
-                wave.rect[0] + wave.rect[2],
-                wave.rect[1] + wave.rect[3]
-            ]),
-        "each quad its band"
-    );
 }
 
 #[test]
@@ -238,4 +228,20 @@ fn a_sign_is_a_bar_a_third_of_its_cell_at_its_left_in_its_faces_colour() {
         ]
     );
     assert!(scene.quads().is_empty());
+}
+
+#[test]
+fn a_wave_leaves_the_cursors_cells_whole() {
+    let buffer = Buffer::from_text("t", "let x = 1;");
+    let error = [rect(0, 2, 1, 5)];
+    let underlines = [(Face::DiagnosticError, &error[..])];
+    let marks = TextMarks {
+        underlines: &underlines,
+        ..TextMarks::NONE
+    };
+    // The cursor on column 4, inside the run of columns 2 to 6.
+    let cursor = Some(DisplayPoint::new(0, 4));
+    let scene = scene_of(view(&buffer, marks, (&[], cursor, None)));
+    let rects: Vec<_> = scene.waves().iter().map(|wave| wave.rect).collect();
+    assert_eq!(rects, [[28.0, 25.0, 20.0, 3.0], [58.0, 25.0, 20.0, 3.0]]);
 }

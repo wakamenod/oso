@@ -185,7 +185,8 @@ impl Theme {
     }
 
     /// The colour of `face`'s coverage glyphs where a server says the code is unnecessary
-    /// (ADR 0138): [`FADED`] of the way to the text's background, in sRGB, as VS Code fades it.
+    /// (ADR 0138): at most [`FADED`] of the way to the text's background, in sRGB, as VS Code
+    /// fades it, and less where that would take it under its floor.
     pub(crate) fn faded(&self, face: Face) -> [f32; 4] {
         self.faded[index(face)]
     }

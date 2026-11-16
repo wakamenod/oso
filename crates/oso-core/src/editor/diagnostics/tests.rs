@@ -256,3 +256,76 @@ fn a_range_that_starts_above_the_view_has_its_cells_and_no_sign_in_it() {
     let signs = gutter(&editor).signs().to_vec();
     assert_eq!(signs, [None, Some(Severity::Warning), None, None]);
 }
+
+#[test]
+fn subtracting_keeps_what_no_cut_covers_and_a_cut_can_reach_over_two_ranges() {
+    let mut ranges = vec![0..4, 6..10, 12..14];
+    let mut out = Vec::new();
+    subtract(&mut ranges, &[1..2, 3..7, 8..9, 13..20], &mut out);
+    assert_eq!(ranges, [0..1, 2..3, 7..8, 9..10, 12..13]);
+    let mut ranges = vec![0..3, 4..5];
+    subtract(&mut ranges, &[5..6, 7..8], &mut out);
+    assert_eq!(ranges, [0..3, 4..5]);
+}
+
+#[test]
+fn a_range_on_a_wrapped_lines_first_row_marks_nothing_on_its_later_rows() {
+    let text = "word word word word word word";
+    let mut editor = followed(text, (5, 21));
+    let id = editor.window().buffer();
+    assert!(editor.set_wraps(id, true));
+    crate::editor::wrap_tests::settle(&mut editor);
+    report(
+        &mut editor,
+        &[(
+            0..4,
+            Severity::Error,
+            Tags {
+                unnecessary: true,
+                deprecated: true,
+            },
+        )],
+    );
+    let [error, warning, information, unnecessary, deprecated] = cells(&editor);
+    for list in [error, unnecessary, deprecated] {
+        assert_eq!(list, [(0, 0, 4)], "row 0 alone");
+    }
+    assert!(warning.is_empty() && information.is_empty());
+}
+
+#[test]
+fn an_empty_range_gets_its_line_but_is_never_faded_or_struck() {
+    let mut editor = followed("x = 1\n", (3, 20));
+    let tags = Tags {
+        unnecessary: true,
+        deprecated: true,
+    };
+    report(&mut editor, &[(5..5, Severity::Warning, tags)]);
+    let [_, warning, _, unnecessary, deprecated] = cells(&editor);
+    assert_eq!(warning, [(0, 5, 1)]);
+    assert!(unnecessary.is_empty() && deprecated.is_empty());
+}
+
+#[test]
+fn a_preedits_cells_get_nothing_and_what_follows_it_moves_with_it() {
+    use crate::display_map::Preedit;
+    let mut editor = followed("abcdef", (3, 20));
+    report(&mut editor, &[(0..6, Severity::Error, PLAIN)]);
+    // Two cells of kana composed after `ab`.
+    editor.current_mut().0.selections = crate::selection::SelectionSet::new(2);
+    editor.set_preedit(Some(Preedit::new("か".into(), None)));
+    let [error, ..] = cells(&editor);
+    assert_eq!(error, [(0, 0, 2), (0, 4, 4)]);
+}
+
+#[test]
+fn a_view_scrolled_sideways_has_the_cells_in_its_columns() {
+    let text = format!("{}x\n", "a".repeat(40));
+    let mut editor = followed(&text, (3, 21));
+    report(&mut editor, &[(38..41, Severity::Error, PLAIN)]);
+    let id = editor.tiled().0.id();
+    assert!(editor.scroll_view_sideways(id, 30));
+    let left = editor.window().scroll().left;
+    let [error, ..] = cells(&editor);
+    assert_eq!(error, [(0, 38 - left, 3)]);
+}

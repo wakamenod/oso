@@ -90,11 +90,11 @@ pub(super) fn underline_preedit(
 
 /// Fills what is behind `view`'s boxes and glyphs, in `layout`, the pane's unscrolled one: its
 /// fills back to front, so the text keeps its face, then the flash, then a server's marks over
-/// them and under the glyphs and the cursor box (ADR 0138).
+/// them and under the glyphs, but in the `cursor`'s cells (ADR 0138).
 pub(super) fn draw_fills(
     draws: &mut Draws,
     view: &TextView<'_>,
-    layout: &Layout,
+    (layout, cursor): (&Layout, Option<CellRect>),
     metrics: CellMetrics,
 ) {
     for &(face, cells) in view.fills {
@@ -106,7 +106,7 @@ pub(super) fn draw_fills(
         let cells = layout.frame_cells(flash.cells);
         draws.fill_faded(cells, Face::Flash, flash.strength);
     }
-    draw_marks(draws, &view.marks, layout, metrics);
+    draw_marks(draws, &view.marks, (layout, cursor), metrics);
 }
 
 /// Draws a window's view of a buffer in `layout`: the rows of its region, its plain text in
@@ -157,12 +157,11 @@ pub(super) fn draw_text<G: GlyphSource>(
         let fade = (!faded.is_empty()).then(|| Fade {
             faded: faded.on(frame_row),
             plain: plain.on(frame_row),
+            cursor: (draws.cursor_box)
+                .filter(|cells| cells.row as i64 == frame_row)
+                .map(|cells| cells.column as i64..(cells.column + cells.columns) as i64),
         });
-        let faces = (
-            faces,
-            Covered::on(view.labels, frame_row),
-            fade.unwrap_or_default(),
-        );
+        let faces = (faces, Covered::on(view.labels, frame_row), fade);
         if !draws.row((&row_layout, index), shaped_row, faces, system, glyphs) {
             break;
         }

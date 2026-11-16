@@ -16,8 +16,6 @@ struct Instance {
     @location(1) color: vec4<f32>,
     // The line's thickness and its period, in pixels.
     @location(2) params: vec4<f32>,
-    // The quad, cut to its pane on the CPU: x0, y0, x1, y1.
-    @location(3) bounds: vec4<f32>,
 }
 
 struct VertexOutput {
@@ -32,7 +30,8 @@ struct VertexOutput {
 fn vs_main(@builtin(vertex_index) index: u32, instance: Instance) -> VertexOutput {
     // 0: (0, 0), 1: (1, 0), 2: (0, 1), 3: (1, 1)
     let corner = vec2<f32>(f32(index & 1u), f32(index >> 1u));
-    let point = mix(instance.bounds.xy, instance.bounds.zw, corner);
+    // The band is the quad, cut to its pane on the CPU.
+    let point = instance.rect.xy + instance.rect.zw * corner;
     var out: VertexOutput;
     out.clip_position = uniforms.ortho * vec4<f32>(point, 0.0, 1.0);
     out.point = point;

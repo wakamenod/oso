@@ -1,6 +1,6 @@
 //! The cursor boxes, outlines and thin lines a pane draws: the primary cursor's box, or a hollow
-//! one's sides, the other cursors' outlines (ADR 0091), a masked prompt's cursor cell and the
-//! divider between side by side windows (ADR 0112).
+//! one's sides, the other cursors' outlines (ADR 0091), a masked prompt's cursor cell, the
+//! divider between side by side windows (ADR 0112) and a strike's line.
 //!
 //! Must not depend on: `capture`, `paint` or a font backend.
 
@@ -100,4 +100,14 @@ pub(super) fn masked_cursor(masked: &Masked<'_>, region: CellRect) -> Option<Cel
         rows: 1,
         columns: 1,
     })
+}
+
+/// A line `line` thick through the middle of `rect`, on a whole pixel: a strike, a terminal's
+/// (ADR 0120) or deprecated code's (ADR 0138).
+pub(super) fn through(rect: PixelRect, line: f32) -> PixelRect {
+    PixelRect {
+        y: (rect.y + (rect.height - line) / 2.0).round(),
+        height: line,
+        ..rect
+    }
 }

@@ -82,7 +82,8 @@ impl Rounded {
 /// The most rounded boxes in one frame: a float needs four.
 pub(crate) const MAX_ROUNDED: usize = 64;
 
-/// A wavy line as the GPU takes it: four `vec4`s (see `wave.wgsl`). One quad draws a run of
+/// A wavy line as the GPU takes it: three `vec4`s (see `wave.wgsl`), its quad its band, cut to
+/// its pane already. One quad draws a run of
 /// cells' line, a sine that swings between the top and the bottom of its band, its phase from
 /// the frame's left so that runs side by side join (ADR 0138).
 #[repr(C)]
@@ -94,13 +95,12 @@ pub(crate) struct Wave {
     pub(crate) color: [f32; 4],
     /// The line's thickness and its period, in pixels. The rest is unused.
     pub(crate) params: [f32; 4],
-    /// The quad drawn, already cut to its pane on the CPU: left, top, right and bottom.
-    pub(crate) bounds: [f32; 4],
 }
 
 impl Wave {
     fn desc() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4];
+        const ATTRIBUTES: [wgpu::VertexAttribute; 3] =
+            wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4];
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Wave>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
@@ -166,7 +166,10 @@ pub struct ShapeRenderer {
     rounded_buffer: wgpu::Buffer,
     /// The wavy lines' pipeline, and a buffer of [`MAX_WAVES`] of them, written only in a frame
     /// that has some.
-    waves: (wgpu::RenderPipeline, wgpu::Buffer),
+    waves: Option<(wgpu::RenderPipeline, wgpu::Buffer)>,
+    /// What the wave pipeline is made with, the first frame that has a wave: none is made at
+    /// start-up.
+    made_with: (wgpu::TextureFormat, wgpu::PipelineLayout),
 }
 
 /// A filled rectangle: its top-left corner, size and color, in pixels.
@@ -239,7 +242,8 @@ impl ShapeRenderer {
         Self {
             pipeline,
             rounded_pipeline,
-            waves: Self::waves(device, format, &pipeline_layout),
+            waves: None,
+            made_with: (format, pipeline_layout),
             rounded_buffer: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Rounded Instance Buffer"),
                 size: (std::mem::size_of::<Rounded>() * MAX_ROUNDED) as u64,
@@ -408,7 +412,10 @@ impl ShapeRenderer {
         // Nor one with no diagnostic in view.
         if !waves.is_empty() {
             let waves = &waves[..waves.len().min(MAX_WAVES)];
-            queue.write_buffer(&self.waves.1, 0, bytemuck::cast_slice(waves));
+            let (format, layout) = &self.made_with;
+            let (_, buffer) =
+                (self.waves).get_or_insert_with(|| Self::waves(device, *format, layout));
+            queue.write_buffer(buffer, 0, bytemuck::cast_slice(waves));
         }
         self.vertices.clear();
         for rect in rects {
@@ -452,9 +459,13 @@ impl ShapeRenderer {
         if range.is_empty() {
             return;
         }
-        pass.set_pipeline(&self.waves.0);
+        // Made in `prepare` for a frame that has some.
+        let Some((pipeline, buffer)) = &self.waves else {
+            return;
+        };
+        pass.set_pipeline(pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
-        pass.set_vertex_buffer(0, self.waves.1.slice(..));
+        pass.set_vertex_buffer(0, buffer.slice(..));
         pass.draw(0..4, range);
     }
 

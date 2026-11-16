@@ -119,8 +119,9 @@ pub struct TextView<'a> {
 /// frame's cells, as `Editor::diagnostic_cells` gives them. Hints are in none of them.
 #[derive(Clone, Copy, Default)]
 pub struct TextMarks<'a> {
-    /// Cells with a wavy line under them, each list in its face's foreground, back to front, so
-    /// that the most severe goes last: over the fills and under the glyphs.
+    /// Cells with a wavy line under them, each list in its face's foreground: over the fills and
+    /// under the glyphs, but in the cursor's cells. The lists should not meet, the most severe
+    /// first, as it keeps its room if a frame runs out of it.
     pub underlines: &'a [(Face, &'a [CellRect])],
     /// Cells whose text is faded toward the background, its syntax colours kept: code the server
     /// says is unnecessary. On a fill other than the current line's band, and under the flash,

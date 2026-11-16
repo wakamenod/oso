@@ -92,8 +92,8 @@ under each one's first key and `j` under the keys after it, over every other mar
 between `@` below gives the keys at their cells
 ([ADR 0116](adr/0116-migemo-and-jumps.md)). A jump's matches and labels show in every window.
 
-With line numbers on, each of a window's rows begins with the gutter's text, from
-`Editor::gutter_into`, then `┆`, and the lines of marks below it are shifted by as much
+With line numbers on, or a sign column, each of a window's rows begins with the gutter's text,
+from `Editor::gutter_into`, then `┆`, and the lines of marks below it are shifted by as much
 ([ADR 0097](adr/0097-visual-aids.md)).
 
 In a buffer a language server follows, the gutter's first cell is its sign column, with `E`,

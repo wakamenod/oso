@@ -190,11 +190,8 @@ impl Draws {
         });
         let strike = has(GridStyle::STRIKE);
         let through = |row: &RowDraw<'_, '_>, columns| {
-            row.cells_at(columns).map(|rect| PixelRect {
-                y: (rect.y + (rect.height - line) / 2.0).round(),
-                height: line,
-                ..rect
-            })
+            row.cells_at(columns)
+                .map(|rect| super::boxes::through(rect, line))
         };
         self.fill_runs(row, strike, |ink| Some(ink.fg), through);
     }
