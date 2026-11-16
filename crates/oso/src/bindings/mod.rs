@@ -50,7 +50,6 @@ use oso_core::keymap::Keymap;
 /// key does: a key bound twice fails to build the keymap, whichever comes first.
 #[rustfmt::skip]
 const TABLES: &[&[(&str, &str)]] = &[
-    agent_sessions::BINDINGS,
     complete::BINDINGS,
     cursors::BINDINGS,
     dired::BINDINGS,
@@ -101,16 +100,7 @@ pub fn global_keymap(registry: &Registry) -> Keymap {
     keymap.set_text_command(typing);
     // The built-in menus' keys, by the ids `built_in_menus` gives them, which every set built
     // from them keeps (ADR 0117).
-    let built_in = built_in_menus(registry);
-    for (keys, name) in menus::MENU_KEYS {
-        let sequence: KeySequence = keys.parse().unwrap_or_else(|e| panic!("{keys}: {e}"));
-        let Some(id) = built_in.lookup(name) else {
-            panic!("no built-in menu {name} for {keys}");
-        };
-        keymap
-            .bind_menu(&sequence.0, id)
-            .unwrap_or_else(|e| panic!("{keys}: {e}"));
-    }
+    bind_menus(&mut keymap, registry, menus::MENU_KEYS);
     keymap
 }
 
@@ -275,7 +265,11 @@ pub fn worktree_keymaps(registry: &Registry) -> [Keymap; 2] {
 /// A terminal's own keymap, above the global one in a terminal's buffer (ADR 0120). Empty for
 /// a registry without its commands, as in tests that bring their own.
 pub fn terminal_keymap(registry: &Registry) -> Keymap {
-    Keymap::from_table(registry, terminal::TERMINAL).unwrap_or_default()
+    let Ok(mut keymap) = Keymap::from_table(registry, terminal::TERMINAL) else {
+        return Keymap::default();
+    };
+    bind_menus(&mut keymap, registry, terminal::TERMINAL_MENUS);
+    keymap
 }
 
 /// The keymap of a terminal's buffer that hosts an agent session (ADR 0132): the terminal's own
@@ -289,8 +283,20 @@ pub fn session_keymap(registry: &Registry) -> Keymap {
     ) else {
         return Keymap::default();
     };
+    bind_menus(&mut keymap, registry, terminal::TERMINAL_MENUS);
+    keymap
+}
+
+/// Binds each `(keys, menu)` of `table` in `keymap` to the built-in menu of that name, by the id
+/// `built_in_menus` gives it.
+///
+/// # Panics
+///
+/// If a row does not parse, names no built-in menu or does not bind; the tests build every
+/// keymap that calls this, so such a mistake cannot ship.
+fn bind_menus(keymap: &mut Keymap, registry: &Registry, table: &[(&str, &str)]) {
     let built_in = built_in_menus(registry);
-    for (keys, name) in agent_sessions::SESSION_MENUS {
+    for (keys, name) in table {
         let sequence: KeySequence = keys.parse().unwrap_or_else(|e| panic!("{keys}: {e}"));
         let Some(id) = built_in.lookup(name) else {
             panic!("no built-in menu {name} for {keys}");
@@ -299,7 +305,6 @@ pub fn session_keymap(registry: &Registry) -> Keymap {
             .bind_menu(&sequence.0, id)
             .unwrap_or_else(|e| panic!("{keys}: {e}"));
     }
-    keymap
 }
 
 /// The commands the layer of `C-x TAB` runs rather than closes for.
@@ -328,8 +333,10 @@ mod tests {
         worktrees,
     };
     use crate::commands;
-    use oso_core::key::KeySequence;
+    use oso_core::command::Registry;
+    use oso_core::key::{KeyPress, KeySequence, Modifiers};
     use oso_core::keymap::{Binding, Keymap};
+    use oso_core::menu::HeadAction;
 
     #[test]
     fn the_keys_of_the_emergency_copies_resolve_to_their_commands() {
@@ -393,6 +400,7 @@ mod tests {
             };
             assert_eq!(registry.get(id).unwrap().name, *name);
         }
+        assert_opens_its_menus(&keymap, &registry, terminal::TERMINAL_MENUS);
     }
 
     #[test]
@@ -406,29 +414,66 @@ mod tests {
             };
             assert_eq!(registry.get(id).unwrap().name, name);
         }
-        for (keys, _) in agent_sessions::SESSION_MENUS {
+        assert_opens_its_menus(&keymap, &registry, terminal::TERMINAL_MENUS);
+    }
+
+    /// Each `(keys, menu)` of `table` opens the built-in menu of that name in `keymap`.
+    fn assert_opens_its_menus(keymap: &Keymap, registry: &Registry, table: &[(&str, &str)]) {
+        let menus = super::built_in_menus(registry);
+        for (keys, name) in table {
             let keys: KeySequence = keys.parse().unwrap();
-            assert!(
-                matches!(keymap.lookup(&keys.0), Some(Binding::Menu(_))),
+            assert_eq!(
+                keymap.lookup(&keys.0),
+                Some(Binding::Menu(menus.lookup(name).unwrap())),
                 "{keys}"
             );
         }
     }
 
-    /// In a session, `C-c` and a key runs what `C-x a` and the same key runs elsewhere
-    /// (ADR 0132, Q1), so the two tables cannot drift apart.
+    /// In a session, `C-c C-<letter>` runs the Agents menu's head of that letter (ADR 0143), so
+    /// the two tables cannot drift apart; signs keep their `C-c` key, and the head of that sign
+    /// runs the same.
     #[test]
-    fn every_c_x_a_key_has_its_c_c_twin_in_a_session() {
-        let twin = |keys: &str| {
-            agent_sessions::SESSION
+    fn every_session_key_runs_the_agents_menu_s_head_of_its_letter() {
+        let registry = commands::registry();
+        let menus = super::built_in_menus(&registry);
+        let agents = menus.get(menus.lookup("agents").unwrap()).unwrap();
+        let head = |key: KeyPress| {
+            agents
+                .heads()
                 .iter()
-                .find(|(session, _)| *session == keys)
-                .map(|(_, name)| *name)
+                .find(|head| head.keys.0 == [key])
+                .map(|head| head.action.clone())
         };
-        for (keys, name) in agent_sessions::BINDINGS {
-            let key = keys.strip_prefix("C-x a ").unwrap();
-            assert_eq!(twin(&format!("C-c {key}")), Some(*name), "{keys}");
+        let mut twins = 0;
+        for (keys, name) in agent_sessions::SESSION {
+            let keys: KeySequence = keys.parse().unwrap();
+            let [_, key] = keys.0[..] else {
+                panic!("{keys} is not C-c and one key");
+            };
+            let plain = KeyPress::new(key.modifiers.without(Modifiers::CONTROL), key.key).unwrap();
+            let id = registry.lookup(name).unwrap();
+            match head(plain) {
+                Some(action) => {
+                    assert_eq!(action, HeadAction::Command(id), "{keys}");
+                    twins += 1;
+                }
+                // Only session mode's own keys have no head: help, reading and `C-c C-u`; and
+                // the pane, `s` in the menu, is `C-c C-p`, as `C-c C-s` is the live search.
+                None => assert!(
+                    [
+                        "session-help",
+                        "terminal-allow-agent-read",
+                        "terminal-deny-agent-read",
+                        "universal-argument",
+                        "sessions",
+                    ]
+                    .contains(name),
+                    "{keys} {name} has no head in the Agents menu"
+                ),
+            }
         }
+        assert!(twins > 10, "{twins}");
     }
 
     #[test]

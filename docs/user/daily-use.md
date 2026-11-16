@@ -84,39 +84,57 @@ A session is Claude Code running in an oso terminal, in a buffer named `*claude:
 tracks its state (needs input, working, done, stopped and so on), and gives it oso's own tools
 through `oso mcp`.
 
+`C-c a` opens the Agents menu, in every buffer and in every terminal. Press the key of a head;
+`q` closes the menu, and `C-u` before `C-c a`, or inside the menu, goes to the head you press.
+
 | Key | Command | What it does |
 |---|---|---|
-| `C-x a c` | `claude` | Start a session in the current project. With `C-u`, it asks for a directory and a name. |
-| `C-x a w` | `session-worktree` | Start a session in a new git worktree (see below). |
-| `C-x a a` | `session-adopt` | Bring a session started outside oso into oso. |
-| `C-x a r` | `session-resume` | Resume the stopped session whose buffer this is. |
-| `C-x a s` | `sessions` | Show, select or hide the `*Sessions*` list. |
-| `C-x a b` | `session-switch` | Show a session, picked by name. |
-| `C-x a n` | `session-next-waiting` | Show the session that has waited for input longest. |
-| `C-x a d` | `session-next-done` | Show the session that has been done longest. |
-| `C-x a m` | `session-send` | Paste the region, or a note, into a session. |
-| `C-x a @` | `session-mention` | Insert a session's name as `@NAME`. |
-| `C-x a f` | `session-follow-message` | Show the session that sent this one its newest message. |
-| `C-x a j` | `space-switch` | Switch to another space. |
-| `C-x a O` | `space-new` | Make a space for an issue, of the selected buffer's repository. |
-| `C-x a S` | the space menu | Add or remove a repository, instructions, directory, rename, close, reopen. |
-| `C-x a z` | `space-zoom` | Show the selected window alone, and back. |
-| `C-x a e` | `session-explain` | Explain why this session has the state it shows. |
+| `c` | `claude` | Start a session in the current project. With `C-u`, it asks for a directory and a name. |
+| `w` | `session-worktree` | Start a session in a new git worktree (see below). |
+| `r` | `session-resume` | Resume the stopped session whose buffer this is. |
+| `a` | `session-adopt` | Bring a session started outside oso into oso. |
+| `s` | `sessions` | Show, select or hide the `*Sessions*` list. |
+| `b` | `session-switch` | Show a session, picked by name. |
+| `n` | `session-next-waiting` | Show the session that has waited for input longest. |
+| `d` | `session-next-done` | Show the session that has been done longest. |
+| `f` | `session-follow-message` | Show the session that sent this one its newest message. |
+| `m` | `session-send` | Paste the region, or a note, into a session. |
+| `@` | `session-mention` | Insert a session's name as `@NAME`. |
+| `e` | `session-explain` | Explain why this session has the state it shows. |
+| `j` | `space-switch` | Switch to another space. |
+| `z` | `space-zoom` | Show the selected window alone, and back. |
+| `O` | `space-new` | Make a space for an issue, of the selected buffer's repository. |
+| `S` | the space menu | Add or remove a repository, instructions, directory, rename, close, reopen. |
+| `K` | `session-stop` | Stop this session. It asks first while the session works or needs input. |
+| `P` | `session-pin` | Pin or unpin this session; dim outside a session's buffer. |
+| `A` | `session-archive` | Archive this session, or bring it back; dim outside a session's buffer. |
+| `v` | `review-session` | Review what changed in this project since its baseline. |
+| `V` | the review menu | The same menu as `C-x v r`. |
 
-`C-x a` stays oso's inside a terminal, so these keys work from a session's own buffer too.
+So `C-c a r` resumes a session, and `C-c a S` opens the space menu.
 
-Inside a session's own buffer, the modeline says `Session`, and `C-c` and a key does what
-`C-x a` and the same key does: `C-c n` is `C-x a n`. A few keys act on that session itself:
+Inside a session's own buffer, the modeline says `Session`, and the most used heads are `C-c` and
+the head's letter with Control, `C-c C-n` for `n`:
 
 | Key | What it does |
 |---|---|
-| `C-c K` | Stop it. It asks first while the session works or needs input. |
-| `C-c P` | Pin or unpin it. |
-| `C-c A` | Archive it, or bring it back. |
-| `C-c v` | Review what changed in its project since its baseline. `C-c V` opens the review menu. |
+| `C-c a` | The Agents menu, as anywhere. |
+| `C-c C-n`, `C-c C-d` | The session that waited longest, the one done longest. |
+| `C-c C-b` | Show a session, picked by name. |
+| `C-c C-p` | The `*Sessions*` pane (`s` in the menu; `C-c C-s` is kept for the terminal's search). |
+| `C-c C-r`, `C-c C-a` | Resume, adopt. |
+| `C-c C-w` | Start a session in a new worktree of this session's project. |
+| `C-c C-e`, `C-c C-f` | Explain this session's state; show who sent it its newest message. |
+| `C-c C-z` | Zoom the selected window. |
+| `C-c C-v` | Review what changed in its project since its baseline. |
+| `C-c @` | Insert a session's name as `@NAME`. |
 | `C-c +`, `C-c -` | Let the agent channel read its screen, or take that back. |
-| `C-c C-u` | A prefix argument for the next key, as `C-u` elsewhere: `C-c C-u C-c m` sends the place only. |
+| `C-c C-u` | A prefix argument for the next key, as `C-u` elsewhere: `C-c C-u C-c a m` sends the place only. |
 | `C-c ?` | Say these keys in the echo area. |
+
+The other heads have no such key, as the terminal or Emacs keeps theirs: `C-c a c` starts another
+session, `C-c a m` sends, `C-c a j` switches spaces, and `C-c a K`, `C-c a P` and `C-c a A` stop,
+pin and archive this session.
 
 `C-c C-c` sends Claude Code a `Ctrl-C`, and `C-c C-k` switches char mode, where every key goes to
 Claude Code. Any other `C-c` key that is not listed here sends nothing. To change these keys, see
@@ -125,8 +143,19 @@ Claude Code with nothing to resume it, so oso keeps it back; `C-q C-z` sends it.
 Claude Code uses reaches it as you type it, but `C-x` and `C-y`, which stay oso's: `C-q C-x C-e`
 sends Claude Code's `Ctrl-X Ctrl-E`, and `C-q C-y` its own yank.
 
+In any terminal, `C-c a` is oso's, and so is every key with Super (Option on macOS, the logo key elsewhere), which programs
+rarely read; `C-q` and the key sends it to the program. So a key of your own with Option, or with
+a keyboard's Hyper key, works in terminals too. Hyper (Shift, Command, Control and Option
+together) reads as `C-M-s-` and an upper-case letter:
+
+```toml
+[keys.global]
+"C-M-s-A" = { menu = "agents" }    # Hyper-a opens the Agents menu
+"C-x a" = { menu = "agents" }      # C-x a, as oso had it before
+```
+
 A session's buffer belongs to the project its session runs in, so `C-x v r`, `C-x p f` and
-`C-x a w` work from it.
+`C-c a w` work from it.
 
 A session starts in the mode your own Claude Code settings give it: oso passes no permission
 option. It starts the agent channel, which its tools need.
@@ -164,7 +193,7 @@ In `*Sessions*`:
 | `a` | Add a repository to the space in front. |
 | `c` | Start a session in this row's worktree: a project's main checkout, the worktree, or the session's worktree. |
 | `w` | Start a session in a new worktree of this row's project. From a worktree, the new branch starts at its branch; from a session, it is also that session's child. |
-| `/` | Switch to a session by name, as `C-x a b`. |
+| `/` | Switch to a session by name, as `C-c a b`. |
 | `<`, `>` | The pane 4 columns narrower or wider, from 24 to 80, for this oso. |
 | `g` | Refresh. |
 | `s` | The tree, or grouped by state. |
@@ -176,16 +205,16 @@ In `*Sessions*`:
 | `?` | Say what the marks mean, and these keys. |
 
 A click on a row does what `RET` does there, even when the list is not selected; a click on a
-`▾` or `▸` folds. `C-x a c` and `C-x a w` in the list work as `c` and `w`.
+`▾` or `▸` folds. `C-c a c` and `C-c a w` in the list work as `c` and `w`.
 The list's modeline says how it is grouped and that `?` gives the keys.
 
-`C-x o` skips the list, and `C-x a s` hides it when it is selected. `C-x k` in a session's
+`C-x o` skips the list, and `C-c a s` hides it when it is selected. `C-x k` in a session's
 buffer stops and archives the session.
 
 ### Spaces
 
 A space is the workplace of one issue: its repositories, the worktrees made in it, their
-sessions, and its own windows. oso keeps spaces from one start to the next. `C-x a j` switches
+sessions, and its own windows. oso keeps spaces from one start to the next. `C-c a j` switches
 spaces, and the windows of the space you leave are kept for when you come back. Showing a
 session of another space switches to that space. A worktree made in a space stays in it. A
 session started in a repository joins the space in front when that space has the repository,
@@ -193,13 +222,13 @@ else the space you were in last that has it, else a new space of that repository
 repository you used before spaces came becomes a space of its own. The modeline names the
 space.
 
-`C-x a O` makes a space for an issue: type its title, and the space is named after it, with the
+`C-c a O` makes a space for an issue: type its title, and the space is named after it, with the
 selected buffer's repository; with none, it asks for one. Each space gets a directory of its
 own, `~/spaces/<name>` (set `[spaces] root` in `config.toml` to put them elsewhere), where its
 orchestrator will work. oso makes it readable by you alone, and refuses a root that other users
 can write.
 
-`C-x a S` (`C-c S` in a session) opens the space menu for the space in front:
+`C-c a S` opens the space menu for the space in front:
 
 | Key | Command | What it does |
 |---|---|---|
@@ -229,17 +258,17 @@ one of its worktrees; the question you answer lists them.
 
 ### Send work to a session
 
-Select a region and press `C-x a m`, then pick the session. The region goes as its path, its
+Select a region and press `C-c a m`, then pick the session. The region goes as its path, its
 lines and its text. With `C-u`, only the path and lines go (`path:10-20`), and the agent reads
 the file itself. With no region, oso asks for a one-line note. The paste is not submitted:
 oso shows the session, and you read the paste and press Enter. A session that is asking a
 question is refused until you answer it.
 
-`C-x a @` gives a session's name as `@NAME`, which an agent uses to message that session.
+`C-c a @` gives a session's name as `@NAME`, which an agent uses to message that session.
 
 ### Adopt a session started elsewhere
 
-`C-x a a` lists the Claude Code sessions oso does not host: those still running elsewhere, then
+`C-c a a` lists the Claude Code sessions oso does not host: those still running elsewhere, then
 those of the last 30 days. Pick one, and oso resumes it in a new session buffer. Stop it in the
 other program first: oso cannot move a running process, so it refuses a live one and offers a
 fork instead. If the session was in the middle of a turn when it stopped, ask it to go on.
@@ -249,7 +278,7 @@ fork instead. If the session was in the middle of a turn when it stopped, ask it
 A worktree session works on its own branch in its own directory, so parallel sessions do not
 change the same files. The project must be trusted, and so must its main repository.
 
-1. With a file of the project selected, press `C-x a w`.
+1. With a file of the project selected, press `C-c a w`.
 2. Give a branch: an existing local one, or a new name. A new branch starts at `HEAD`. With
    `C-u`, oso asks for its base too.
 3. Write the task in `*Brief*`. `C-c C-c` sends it, and `C-c C-k` drops it.
@@ -288,7 +317,7 @@ sessions there, never forces, and never deletes the branch.
 | `B` | Take a new baseline now |
 
 Each is a command too, such as `M-x review-uncommitted`. Reviews run git, so the project must
-be trusted. `C-x a c` takes a baseline when it starts a session at the root of a trusted
+be trusted. `C-c a c` takes a baseline when it starts a session at the root of a trusted
 project, so `D` shows what that session changed.
 
 In a review buffer:
@@ -376,7 +405,7 @@ The `[sessions.notify]` values shown are the defaults.
 through `start_worktree_session` and `session_start` without asking you, in a trusted project
 only, up to `agents_start_limit` running sessions each; past that it asks again. A session started
 this way asks for its own. Each start is said in the echo area and `*Messages*`, its row in
-`*Sessions*` says `unasked`, and `C-x a e` on it shows who started it and its brief, until oso
+`*Sessions*` says `unasked`, and `C-c a e` on it shows who started it and its brief, until oso
 restarts. `M-x agent-starts-ask` brings the question back until oso restarts, and
 `M-x agent-starts-allow` takes that back. The setting is read when oso starts, so a change applies
 from the next start, and it does not apply from a file other users in a group can change. Each new
@@ -387,7 +416,7 @@ session still asks you for its own permissions, as your Claude Code settings say
 ```toml
 [keys.session]
 "C-c g" = "sessions"                 # C-c g shows the list
-"C-c s" = false                      # C-c s does nothing
+"C-c C-p" = false                    # C-c C-p does nothing
 "C-c R" = { menu = "review" }        # C-c R opens the review menu
 ```
 
@@ -430,4 +459,4 @@ The running oso keeps the old binary. Quit it and start `oso` again when conveni
 
 Quitting ends oso's terminals and its sessions' `claude` processes. The next start brings each
 session back stopped, with its buffer and its place in `*Sessions*`, and starts nothing. Press
-`C-x a r` in its buffer, or `r` on its row, to resume it. A session you archived stays away.
+`C-c a r` in its buffer, or `r` on its row, to resume it. A session you archived stays away.

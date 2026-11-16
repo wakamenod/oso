@@ -145,8 +145,8 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
     });
     assert!(modeline(&state).contains("● 1"), "{}", modeline(&state));
 
-    // `C-x a d` shows it; 2 s in front of the person and it is seen.
-    app.send_keys("C-x a d");
+    // `C-c a d` shows it; 2 s in front of the person and it is seen.
+    app.send_keys("C-c a d");
     let state = app.wait_for("shown", |state| state["buffer"]["name"] == "*claude: proj*");
     assert!(state["windows"].as_array().unwrap().len() >= 2);
     // A display with no window manager, as Xvfb on CI, may say the window lost the keyboard
@@ -156,8 +156,8 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
         state_of(state, "proj").as_deref() == Some("idle")
     });
 
-    // `C-x a s` selects the list, then hides it, and it stays hidden.
-    app.send_keys("C-x a s");
+    // `C-c a s` selects the list, then hides it, and it stays hidden.
+    app.send_keys("C-c a s");
     app.wait_for("the list selected", |state| {
         state["buffer"]["name"] == "*Sessions*"
     });
@@ -168,7 +168,7 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
             .as_str()
             .is_some_and(|echo| echo.starts_with("⚠ needs input"))
     });
-    app.send_keys("C-x a s");
+    app.send_keys("C-c a s");
     app.wait_for("the list hidden", |state| sessions(state)["side"].is_null());
     print(&flow, WORKING);
     app.wait_for("working again", |state| {
@@ -201,7 +201,7 @@ fn spins(app: &mut App) {
 
 /// `k` on a working session asks; `y` hangs it up, and it is stopped.
 fn stop_asks_first(app: &mut App) {
-    app.send_keys("C-x a s");
+    app.send_keys("C-c a s");
     app.wait_for("the list selected", |state| {
         state["buffer"]["name"] == "*Sessions*"
     });

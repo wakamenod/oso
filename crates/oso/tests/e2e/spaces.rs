@@ -156,7 +156,7 @@ fn remembered_sessions_become_spaces_of_one_repository_that_a_restart_keeps() {
 
     // `space-switch` to the other repository's space, and back.
     for name in ["other", "repo"] {
-        app.send_keys(&format!("C-x a j {} RET", keys(name)));
+        app.send_keys(&format!("C-c a j {} RET", keys(name)));
         app.wait_for("the space in front", |state| {
             state["sessions"]["space"] == name
         });
@@ -212,18 +212,18 @@ pub(super) fn answer(app: &mut crate::harness::App, label: &str, text: &str) {
 /// idle: the session is stopped and the space archived.
 fn close_with_its_idle_session(app: &mut crate::harness::App) {
     // A session of the first space, idle, is stopped when the space closes.
-    app.send_keys(&format!("C-x a j {} RET", keys("fix-login-error")));
+    app.send_keys(&format!("C-c a j {} RET", keys("fix-login-error")));
     app.wait_for("the first space", |state| {
         state["sessions"]["space"] == "fix-login-error"
     });
-    app.send_keys("C-x a c");
+    app.send_keys("C-c a c");
     app.wait_for("its session", |state| {
         state["sessions"]["sessions"].as_array().is_some_and(|s| {
             s.iter()
                 .any(|s| s["space"] == "fix-login-error" && s["state"] == "idle")
         })
     });
-    app.send_keys("C-x a S");
+    app.send_keys("C-c a S");
     app.send_keys("c");
     app.wait_for("the session stopped and the space closed", |state| {
         space(state, "fix-login-error").is_some_and(|s| s["archived"] == true)
@@ -244,7 +244,7 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
     let root = flow.home.join("spaces");
 
     // A space for an issue, of the selected buffer's repository, made with its directory.
-    app.send_keys("C-x a O");
+    app.send_keys("C-c a O");
     answer(&mut app, "New space for issue:", "Fix login error");
     let state = app.wait_for("the new space and its directory", |state| {
         space(state, "fix-login-error").is_some_and(|s| s["directory"].is_string())
@@ -260,7 +260,7 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
     assert_eq!(mode, 0o700);
 
     // Another repository, by its path.
-    app.send_keys("C-x a S");
+    app.send_keys("C-c a S");
     app.send_keys("a");
     answer(&mut app, "Add repository:", other.to_str().unwrap());
     app.wait_for("the second repository", |state| {
@@ -270,20 +270,20 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
 
     // A root others can write: the space is made, its directory refused and said why.
     fs::set_permissions(&root, fs::Permissions::from_mode(0o770)).unwrap();
-    app.send_keys("C-x a O");
+    app.send_keys("C-c a O");
     answer(&mut app, "New space for issue:", "Second");
     let state = app.wait_for("the refusal", |state| echo(state).contains("[spaces] root"));
     assert!(space(&state, "second").is_some_and(|s| s["directory"].is_null()));
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
 
     // Closing the space in front enters the one entered last; reopening brings it back.
-    app.send_keys("C-x a S");
+    app.send_keys("C-c a S");
     app.send_keys("c");
     app.wait_for("the space closed", |state| {
         space(state, "second").is_some_and(|s| s["archived"] == true)
             && state["sessions"]["space"] == "fix-login-error"
     });
-    app.send_keys("C-x a S");
+    app.send_keys("C-c a S");
     app.send_keys("R");
     answer(&mut app, "Reopen space:", "second");
     app.wait_for("the space open again", |state| {
@@ -292,7 +292,7 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
     });
 
     // Renaming makes the name from the title.
-    app.send_keys("C-x a S");
+    app.send_keys("C-c a S");
     app.send_keys("n");
     answer(&mut app, "Space title:", "Third title");
     app.wait_for("the new name", |state| {
@@ -335,17 +335,17 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     let (mut app, _) = flow.start();
 
     // A space of two repositories, with a session in the first.
-    app.send_keys("C-x a O");
+    app.send_keys("C-c a O");
     answer(&mut app, "New space for issue:", "Fix login");
     app.wait_for("the space", |state| space(state, "fix-login").is_some());
-    app.send_keys("C-x a S");
+    app.send_keys("C-c a S");
     app.send_keys("a");
     answer(&mut app, "Add repository:", other.to_str().unwrap());
     app.wait_for("its second repository", |state| {
         space(state, "fix-login")
             .is_some_and(|s| s["members"].as_array().is_some_and(|m| m.len() == 2))
     });
-    app.send_keys("C-x a c");
+    app.send_keys("C-c a c");
     let state = app.wait_for("space, repositories, worktree and session", |state| {
         line_starting(state, "▾ fix-login").is_some()
             && line_starting(state, "  ▾ repo").is_some()
@@ -364,12 +364,12 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     );
 
     // Another space in front: the first, quiet, is folded, and RET on its row enters it.
-    app.send_keys("C-x a O");
+    app.send_keys("C-c a O");
     answer(&mut app, "New space for issue:", "Second");
     let state = app.wait_for("the first folded", |state| {
         state["sessions"]["space"] == "second" && line_starting(state, "▸ fix-login").is_some()
     });
-    app.send_keys("C-x a s");
+    app.send_keys("C-c a s");
     app.wait_for("the list selected", |state| {
         state["buffer"]["name"] == "*Sessions*"
     });
@@ -381,7 +381,7 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     });
 
     // `a` in the list reads a repository for the space in front.
-    app.send_keys("C-x a s");
+    app.send_keys("C-c a s");
     app.wait_for("the list selected", |state| {
         state["buffer"]["name"] == "*Sessions*"
     });
@@ -392,11 +392,11 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     app.send_keys("C-g");
 
     // A closed space goes in `Archived spaces`.
-    app.send_keys(&format!("C-x a j {} RET", keys("second")));
+    app.send_keys(&format!("C-c a j {} RET", keys("second")));
     app.wait_for("the second space", |state| {
         state["sessions"]["space"] == "second"
     });
-    app.send_keys("C-x a S");
+    app.send_keys("C-c a S");
     app.send_keys("c");
     app.wait_for("the closed space listed", |state| {
         line_starting(state, "▸ Archived spaces (1)").is_some()
@@ -426,12 +426,12 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
     flow.git(&other, &["init", "-q", "-b", "main"]);
     fs::write(other.join("notes.md"), "# other\n").unwrap();
     let (mut app, _) = flow.start();
-    app.send_keys("C-x a O");
+    app.send_keys("C-c a O");
     answer(&mut app, "New space for issue:", "Fix login");
     app.wait_for("the space's directory", |state| {
         space(state, "fix-login").is_some_and(|s| s["directory"].is_string())
     });
-    app.send_keys("C-x a S");
+    app.send_keys("C-c a S");
     app.send_keys("a");
     answer(&mut app, "Add repository:", other.to_str().unwrap());
     app.wait_for("its second repository, not trusted", |state| {
@@ -440,7 +440,7 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
     });
 
     // `o` starts it in the space's directory, given the trusted repository alone.
-    app.send_keys("C-x a S");
+    app.send_keys("C-c a S");
     app.send_keys("o");
     let runs = flow.wait_for_runs(1);
     let (cwd, args) = run_named(&runs, "fix-login").expect("the orchestrator's run");
@@ -485,11 +485,11 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
     again.wait_for("the orchestrator listed", |state| {
         list(state).lines().any(|row| row.contains("orchestrator"))
     });
-    again.send_keys(&format!("C-x a b {} RET", keys("*claude: fix-login*")));
+    again.send_keys(&format!("C-c a b {} RET", keys("*claude: fix-login*")));
     again.wait_for("its buffer", |state| {
         state["buffer"]["name"] == "*claude: fix-login*"
     });
-    again.send_keys("C-x a r");
+    again.send_keys("C-c a r");
     let runs = flow.wait_for_runs(2);
     let (_, args) = runs
         .iter()

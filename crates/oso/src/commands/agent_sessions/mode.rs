@@ -15,6 +15,10 @@ use oso_core::editor::{RowAction, SessionRequest};
 /// The name of the command that says session mode's keys, which the dispatcher answers.
 pub const SESSION_HELP: &str = "session-help";
 
+/// What a command on the session in front says in a buffer that hosts none, and what the Agents
+/// menu's heads for them say there (ADR 0143).
+pub const NO_SESSION: &str = "This buffer holds no session";
+
 /// Session mode's commands.
 pub const COMMANDS: &[Command] = &[
     Command {
@@ -48,7 +52,7 @@ pub(super) fn session_buffer(ctx: &Ctx<'_>) -> Result<BufferId, CommandError> {
     super::super::not_in_prompt(ctx)?;
     let (window, buffer) = ctx.editor.current();
     if !buffer.hosts_session() {
-        return Err(CommandError::new("This buffer holds no session"));
+        return Err(CommandError::new(NO_SESSION));
     }
     Ok(window.buffer())
 }

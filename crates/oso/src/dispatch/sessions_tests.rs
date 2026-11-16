@@ -1,4 +1,4 @@
-//! The keys of agent sessions through a dispatcher (ADR 0121, step 3): `C-x a` and a key asks
+//! The keys of agent sessions through a dispatcher (ADR 0121, step 3): `C-c a` and a key asks
 //! the host, the switch floats complete over what the host listed, and `*Sessions*`'s own keys
 //! act on the row point is on.
 //!
@@ -46,13 +46,13 @@ const LIST: &str = "\
 ";
 
 #[test]
-fn c_x_a_keys_ask_the_host() {
+fn c_c_a_keys_ask_the_host() {
     let (mut d, mut editor) = (Dispatcher::new(), editor());
     let buffer = editor.window().buffer();
     send(
         &mut d,
         &mut editor,
-        "C-x a s C-x a n C-x a d C-x a z C-x a e",
+        "C-c a s C-c a n C-c a d C-c a z C-c a e",
     );
     assert_eq!(
         editor.take_session_requests(),
@@ -74,7 +74,7 @@ fn the_switch_floats_complete_over_what_the_host_listed() {
         Candidate::new("*claude: fix*", "", "needs input · oso · main"),
     ]);
     editor.set_listed("sessions", sessions);
-    send(&mut d, &mut editor, "C-x a b");
+    send(&mut d, &mut editor, "C-c a b");
     let prompt = editor.prompt().expect("the float");
     assert!(prompt.label().starts_with("Session:"), "{}", prompt.label());
     send(&mut d, &mut editor, "f i x RET");
@@ -82,7 +82,7 @@ fn the_switch_floats_complete_over_what_the_host_listed() {
         "spaces",
         Arc::from([Candidate::new("oso/fix-1", "", "/src/oso-wt/fix-1")]),
     );
-    send(&mut d, &mut editor, "C-x a j RET");
+    send(&mut d, &mut editor, "C-c a j RET");
     assert_eq!(
         editor.take_session_requests(),
         [
@@ -95,7 +95,7 @@ fn the_switch_floats_complete_over_what_the_host_listed() {
 #[test]
 fn a_switch_over_nothing_asks_nothing() {
     let (mut d, mut editor) = (Dispatcher::new(), editor());
-    send(&mut d, &mut editor, "C-x a b RET");
+    send(&mut d, &mut editor, "C-c a b RET");
     assert!(editor.take_session_requests().is_empty());
 }
 
@@ -143,7 +143,7 @@ fn the_adopt_float_keeps_the_order_the_host_gave() {
         Candidate::new("old", "", "3d ago · /p/oso"),
     ]);
     editor.set_listed(crate::commands::agent_sessions::ADOPT_LIST, adoptable);
-    send(&mut d, &mut editor, "C-x a a RET");
+    send(&mut d, &mut editor, "C-c a a RET");
     assert_eq!(
         editor.take_session_requests(),
         [SessionRequest::Adopt("a-longer-newest-name".to_owned())]
@@ -156,7 +156,7 @@ fn the_adopt_float_keeps_the_order_the_host_gave() {
             Candidate::new("old", "", ""),
         ]),
     );
-    send(&mut d, &mut editor, "C-x a b RET");
+    send(&mut d, &mut editor, "C-c a b RET");
     assert_eq!(
         editor.take_session_requests(),
         [SessionRequest::Switch("old".to_owned())]

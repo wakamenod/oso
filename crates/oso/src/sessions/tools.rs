@@ -289,16 +289,17 @@ pub fn worktree_question(
 }
 
 /// What the echo area says of a `start_worktree_session` that started with no question
-/// (ADR 0135).
+/// (ADR 0135), with `explain` the keys of `session-explain` (ADR 0143).
 pub fn worktree_started(
     caller: &str,
     place: &str,
     branch: &str,
     start: Branch<'_>,
     brief_lines: usize,
+    explain: &str,
 ) -> String {
     format!(
-        "session {} is starting {}, without asking ({}; C-x a e explains)",
+        "session {} is starting {}, without asking ({}; {explain} explains)",
         quoted(caller),
         in_worktree(place, branch, start),
         brief_said(Some(brief_lines))
@@ -352,10 +353,16 @@ pub fn starts_without_asking(unasked: Unasked) -> bool {
         && unasked.live_unasked < usize::from(unasked.limit)
 }
 
-/// What the echo area says of a `session_start` that started with no question (ADR 0135).
-pub fn start_started(caller: &str, directory: &str, brief_lines: Option<usize>) -> String {
+/// What the echo area says of a `session_start` that started with no question (ADR 0135), with
+/// `explain` the keys of `session-explain` (ADR 0143).
+pub fn start_started(
+    caller: &str,
+    directory: &str,
+    brief_lines: Option<usize>,
+    explain: &str,
+) -> String {
     format!(
-        "session {} is starting a session in {}, without asking ({}; C-x a e explains)",
+        "session {} is starting a session in {}, without asking ({}; {explain} explains)",
         quoted(caller),
         quoted(directory),
         brief_said(brief_lines)

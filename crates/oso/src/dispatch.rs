@@ -416,7 +416,9 @@ impl Dispatcher {
             }
             Err(ExecuteError::Failed { error, .. }) => {
                 editor.end_undo_group();
-                editor.message(error.message());
+                // An error may name a command's keys as `\[name]` (ADR 0143).
+                let message = self.substitute_keys(editor, error.message());
+                editor.message(message);
             }
             Err(ExecuteError::Panicked { .. }) => editor.end_undo_group_after_panic(),
             Err(error @ ExecuteError::UnknownId(_)) => {

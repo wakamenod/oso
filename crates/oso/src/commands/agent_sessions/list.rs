@@ -200,7 +200,7 @@ fn resume(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     on_row(ctx, RowAction::Resume)
 }
 
-/// On a row of `*Sessions*`, or in a session's own terminal (`C-c K`, ADR 0132).
+/// On a row of `*Sessions*`, or in a session's own terminal (`C-c a K`, ADR 0143).
 fn stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     if ctx.editor.current().1.mode() == Mode::Sessions {
         return on_row(ctx, RowAction::Stop);

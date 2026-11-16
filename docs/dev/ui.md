@@ -341,10 +341,14 @@ planned.
   - `search`: `f` a project's file, `r` the project's lines.
   - `review` on `C-x v r` (ADR 0122): a review of each scope and the session's baseline, with
     each scope's count of files; see [Reviews](#reviews).
-  - `space` on `C-x a S` (ADR 0136): the space in front's repositories, instructions,
-    directory and name, and closing and reopening.
+  - `space` on `S` in the Agents menu (ADR 0136): the space in front's repositories,
+    instructions, directory and name, and closing and reopening.
   - `commit` on `c` in a git status (ADR 0127): its switches and kinds; see
     [Committing](#committing).
+  - `agents` on `C-c a` ([ADR 0143](adr/0143-agent-keys-on-c-c-a-and-an-agents-menu.md)), in
+    every buffer and every terminal: the agent session commands, in groups Start (`c w r a`),
+    Go to (`s b n d f`), Talk (`m @ e`), Space (`j z O`, `S` the space menu) and Session
+    (`K P A v`, `V` the review menu). Outside a session's buffer, `P` and `A` are dim.
   `windows`, `jumps` and `search` have no key: `M-x open-menu` opens them, or a key in
   `config.toml`.
 - `[menus.<name>]` in `config.toml` adds a menu, replaces a built-in one of the same name whole,
@@ -781,9 +785,9 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   library frees them a page at a time, so a few hundred fewer may be kept. The wheel scrolls
   them; the next key sent to the program goes back to the bottom.
 - **Semi-char mode**, the default, sends every key to the program but `C-x` and `M-x`, the
-  `C-c` prefix, `C-q` and `C-y`, and every key while a prompt, a search or a key sequence of
-  oso's is open. `C-c C-c` sends `C-c`; `C-c C-k` switches to char mode; `C-c` and any other key
-  sends both, the global and the user's `C-c` bindings among them: in a terminal, `C-c` is the
+  `C-c` prefix, `C-q`, `C-y` and every key with Super (ADR 0143), and every key while a prompt, a
+  search or a key sequence of oso's is open. `C-c C-c` sends `C-c`; `C-c C-k` switches to char
+  mode; `C-c a` opens the Agents menu; `C-c` and any other key sends both, the global and the user's `C-c` bindings among them: in a terminal, `C-c` is the
   terminal's. `C-q` sends the next key as it is, oso's own among them. Text the input method
   commits goes as a key does.
 - **Char mode** sends every key but `C-c C-k`, which comes back to semi-char mode; `C-c C-c`
@@ -890,36 +894,39 @@ a switch made with its command stands until that setting changes in the file
 
 ## Agent sessions
 
-- `C-x a c` (`claude`) starts Claude Code's own TUI in a terminal buffer, `*claude: NAME*`, in
+- `C-c a c` (`claude`) starts Claude Code's own TUI in a terminal buffer, `*claude: NAME*`, in
   the selected buffer's project root, else its file's directory, as a new terminal does, else the
   directory oso started in. NAME is the directory's
-  name, then `-2`, `-3` for more sessions there. `C-u C-x a c` asks for the directory, then the
+  name, then `-2`, `-3` for more sessions there. `C-u C-c a c` asks for the directory, then the
   name. The agent channel turns on if it was off, and the echo area says so: the session's own
   oso tools connect without asking, and any other agent still asks
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
 - oso remembers its sessions. At the next start, each comes back as a buffer with no process,
   `stopped: session-resume to continue`; nothing runs until the person asks.
-- `C-x a r` (`session-resume`), in a stopped session's buffer, continues its conversation in the
+- `C-c a r` (`session-resume`), in a stopped session's buffer, continues its conversation in the
   same buffer. If Claude Code runs that conversation elsewhere, it refuses, names the process and
   its directory, and asks whether to fork instead; `y` forks that session, whichever buffer is
   selected by then. `session-fork` copies the conversation into a
   new session and buffer.
 - `C-x k` on a session's buffer archives the session: it is not brought back at the next start.
 - A session's buffer has session mode ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)):
-  its modeline says `Session` in place of `Terminal`, and `C-c` and a key runs what `C-x a` and
-  the key runs elsewhere. `C-c K`, `C-c P` and `C-c A` stop, pin and archive the session, `C-c v`
-  and `C-c V` review it, `C-c +` and `C-c -` allow and deny the agent channel's reads, `C-c C-u` is
-  a prefix argument and `C-c ?` says the keys in the echo area. After `C-c`, only the session's and
+  its modeline says `Session` in place of `Terminal`, and `C-c C-<letter>` runs the Agents menu's
+  head of that letter where the terminal and Emacs leave `C-<letter>` free (ADR 0143): `C-c C-n`,
+  `C-c C-d`, `C-c C-b`, `C-c C-r`, `C-c C-a`, `C-c C-w`, `C-c C-e`, `C-c C-f`, `C-c C-z` and
+  `C-c C-v`, with `C-c C-p` for the pane (`s`), as `C-c C-s` is the live search. `C-c a` opens the
+  menu, for `c`, `m`, `j`, `O`, `S`, `K`, `P`, `A` and `V`. `C-c @` mentions, `C-c +` and `C-c -`
+  allow and deny the agent channel's reads, `C-c C-u` is a prefix argument and `C-c ?` says the
+  keys in the echo area. After `C-c`, only the session's and
   the terminal's keys are read, and the user's `[keys.session]` over them, never the global keys
   or `[keys.global]`; any other key, or one `[keys.session]` sets to `false`, says
   `C-c g is undefined (C-c C-c sends C-c)` and sends nothing. `C-z` says
   `C-z would suspend Claude Code, and nothing here resumes it; C-q C-z sends it`. In char mode
   every key but `C-c C-k` goes to Claude Code, as in any terminal. The buffer is in the project
   of its session's directory, whose name its modeline shows.
-- `C-x a w` (`session-worktree`), in a trusted project whose main repository is trusted too,
+- `C-c a w` (`session-worktree`), in a trusted project whose main repository is trusted too,
   starts a session in a new git worktree.
   - It reads a branch, completing the project's local branches; a new name is a new branch from
-    `HEAD`, or from a base that `C-u C-x a w` reads after it. The echo area says "Listing
+    `HEAD`, or from a base that `C-u C-c a w` reads after it. The echo area says "Listing
     branches…" until they come; another command, or `C-g`, drops the prompt.
   - The brief is written in `*Brief*`: `C-c C-c` sends it, `C-c C-k` drops it.
   - The worktree goes in `.claude/worktrees/<branch's slug>`. The files that `.worktreeinclude`
@@ -946,7 +953,7 @@ a switch made with its command stands until that setting changes in the file
   It then asks, naming what git ignores there and will delete with it, such as `target/`. `y`
   runs every check again before it removes the worktree. It never uses `--force`, and the branch
   is kept.
-- `C-x a a` (`session-adopt`) brings a session started outside oso into oso. It completes over
+- `C-c a a` (`session-adopt`) brings a session started outside oso into oso. It completes over
   the sessions oso does not host: those Claude Code says run (`runs as process N: stop it there
   first`), then those that stopped in the last 30 days, newest first, each with its age and
   directory. A picked one is resumed in a new buffer, `*claude: NAME*`, in the directory it ran
@@ -958,7 +965,7 @@ a switch made with its command stands until that setting changes in the file
   [sessions]
   claude = "/usr/local/bin/claude"   # absolute; else the login shell finds it on PATH
   env = ["HTTPS_PROXY", "NODE_EXTRA_CA_CERTS"]
-  steer_worktrees = true             # sessions oso starts are steered to C-x a w
+  steer_worktrees = true             # sessions oso starts are steered to C-c a w
   pane_width = 44                    # *Sessions*' pane, 24 to 80 columns
   ```
 
@@ -967,7 +974,7 @@ a switch made with its command stands until that setting changes in the file
   names at most 64 more variables a session takes from oso's environment; `PATH`, `LD_*` and
   `DYLD_*` are refused. A session never gets a permission option: it starts in the mode Claude
   Code's own settings give it. With `steer_worktrees`, a session oso starts gets a hook that
-  denies Claude's own `EnterWorktree` and `git worktree add`, pointing it to `C-x a w`; nothing
+  denies Claude's own `EnterWorktree` and `git worktree add`, pointing it to `C-c a w`; nothing
   is written into Claude Code's settings files.
 - A session gets oso's `CLAUDE_CONFIG_DIR`. If a login profile sets its own, set the same value
   where oso starts too: oso reads Claude Code's registry there to refuse resuming a session that
@@ -1017,8 +1024,8 @@ a switch made with its command stands until that setting changes in the file
   repository. Archived sessions come last, folded. `s` shows the list grouped by state
   instead, pinned ones first, and back. The list is withheld from agents: while it is shown,
   the agent channel's commands answer in the echo area only.
-  - `C-x a s` (`sessions`): shows and selects the list if hidden, selects it if shown, hides it
-    if selected. Hidden by the person, by `C-x a s` or `C-x 0`, it stays hidden until asked
+  - `C-c a s` (`sessions`): shows and selects the list if hidden, selects it if shown, hides it
+    if selected. Hidden by the person, by `C-c a s` or `C-x 0`, it stays hidden until asked
     for again. `C-x o` skips it, and so does `C-x 0` in another window; a click or
     `windmove-left` reaches it. While it is selected, `C-x 2`, `C-x 3`, `C-x 1`, `M-,`, `M-/`,
     `*Messages*` and showing a buffer act on the window selected before it, and select it.
@@ -1034,7 +1041,7 @@ a switch made with its command stands until that setting changes in the file
     space is there; on a project's or a group's row it folds; `k` says that `worktree-remove`
     removes worktrees.
   - `c` (`claude`) and `w` (`session-worktree`) take the row at point for where they are, as
-    do `C-x a c` and `C-x a w` while the list is selected: a project's row is its main
+    do `C-c a c` and `C-c a w` while the list is selected: a project's row is its main
     checkout and `HEAD`; a worktree's row is that worktree and its branch, or `HEAD` and a note
     when it is on none; a session's row is its worktree, and `w` makes it the new session's
     parent. `w` reads the branch of the row's repository, under the trust of a buffer in it.
@@ -1042,22 +1049,22 @@ a switch made with its command stands until that setting changes in the file
     whether the list was selected or not; on a fold's mark it folds. Presses wait while a prompt
     or a key sequence holds input, as everywhere. The modeline says `tree · ? keys` or
     `by state · ? keys`.
-- `C-x a b` (`session-switch`) completes over sessions by buffer name; their state, space and
-  recap are searched too, so `&needs` finds those that need input. `C-x a n` shows the session
-  that has needed input longest, `C-x a d` the one done longest, `C-x a e` explains the shown
+- `C-c a b` (`session-switch`) completes over sessions by buffer name; their state, space and
+  recap are searched too, so `&needs` finds those that need input. `C-c a n` shows the session
+  that has needed input longest, `C-c a d` the one done longest, `C-c a e` explains the shown
   session's state in `*Session explain*`.
 - With `[sessions] agents_start_without_asking`, a session the person started starts sessions with
   no question in a trusted project, up to `agents_start_limit` each
   ([ADR 0135](adr/0135-agents-start-sessions-without-asking.md)). Once its start is under way, the
   echo area says `Agent: session "repo" is starting a session in a new worktree … without asking
-  (brief: 1 line; C-x a e explains)`, the row's place ends in `· unasked` (alone under its worktree in the tree), and
+  (brief: 1 line; C-c a e explains)`, the row's place ends in `· unasked` (alone under its worktree in the tree), and
   `*Session explain*` starts with who started it and ends with its brief, or says that the brief
   is not kept across a restart. `agent-starts-ask` and `agent-starts-allow` turn the question back on and off
   until oso restarts.
-- A space is a project with its sessions, and keeps its own windows. `C-x a j` (`space-switch`)
+- A space is a project with its sessions, and keeps its own windows. `C-c a j` (`space-switch`)
   switches to another; showing a session of another space switches to it first. A space
   entered for the first time shows its last file and its last session side by side.
-  `C-x a z` (`space-zoom`) shows the selected window alone, and back. Under `oso dev`, a
+  `C-c a z` (`space-zoom`) shows the selected window alone, and back. Under `oso dev`, a
   restart keeps only the windows in front: the other spaces' windows go, and a zoomed
   window stays alone.
 - The selected window's modeline counts `⚠ N` sessions that need input and `● N` done or
@@ -1067,10 +1074,10 @@ a switch made with its command stands until that setting changes in the file
 - Sessions of Claude Code run outside oso, from its registry, are listed too, as working or
   idle, their whole row grey and their marks still, aged from when the registry says their
   status last changed; they are never shown.
-- `C-x a m` (`session-send`) pastes the region into a session read with completion, the
+- `C-c a m` (`session-send`) pastes the region into a session read with completion, the
   session of this space shown last first. Each region goes as its path relative to the
   session's directory, its lines and its text in a fence. With no region it reads a one-line
-  note and sends that. `C-u C-x a m` sends the place only, `path:10-20`, which the agent reads
+  note and sends that. `C-u C-c a m` sends the place only, `path:10-20`, which the agent reads
   itself; with no region, each cursor's line, then the note if one is typed. A buffer that may
   hold secrets sends its place only. A region over 256 KiB is refused, and the echo area
   suggests `C-u`.
@@ -1080,11 +1087,11 @@ a switch made with its command stands until that setting changes in the file
     person answers it, as a paste could choose an option. So are a session that has not
     started yet, one showing a full-screen view such as a picker or the settings, and one at
     a password prompt.
-- `C-x a @` (`session-mention`) reads a live session's name, hosted or external, and gives it as
+- `C-c a @` (`session-mention`) reads a live session's name, hosted or external, and gives it as
   `@NAME`: inserted at each cursor in an oso buffer such as `*Brief*`, or pasted into the session
   whose terminal is selected. An agent addresses that session by the name with Claude Code's
   own `SendMessage`.
 - When a session receives a message from another, its `*Sessions*` row says "message from NAME"
-  until the session is seen. `C-x a f` (`session-follow-message`), in that session's terminal,
+  until the session is seen. `C-c a f` (`session-follow-message`), in that session's terminal,
   shows the sender. The sender is read from the screen, so it points to a session but does not
   prove who wrote.

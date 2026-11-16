@@ -1,7 +1,7 @@
 //! The row at point in `*Sessions*` as a place (ADR 0131, step 2b): where `claude` starts from
 //! it, the repository `session-worktree` makes a worktree of, the base that worktree starts at,
 //! the session it is a child of, and the space it is in (ADR 0136, step 2), from a space's,
-//! repository's, worktree's or session's row. `C-x a c` and `C-x a w` there take it as `c` and
+//! repository's, worktree's or session's row. `C-c a c` and `C-c a w` there take it as `c` and
 //! `w` do (the author, 2026-11-15).
 //!
 //! Must not depend on: key presses or how a frame is drawn.

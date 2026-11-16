@@ -71,7 +71,7 @@ impl App {
         None
     }
 
-    /// `C-x a s` (Q1): hidden, it shows and is selected; shown, it is selected; selected, it
+    /// `C-c a s` (Q1): hidden, it shows and is selected; shown, it is selected; selected, it
     /// is hidden, and stays hidden until asked for again.
     fn toggle_sessions_list(&mut self) {
         if !self.sessions_list_shown() {
