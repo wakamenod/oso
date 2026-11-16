@@ -1,4 +1,4 @@
-//! A session's recap (ADR 0121, step 3): one line of what it is about, for `*Sessions*` and the
+//! A session's recap (ADR 0121, step 3): one line of what it is about, for `*Spaces*` and the
 //! switch float. Needs input: the line the matched rule's `recap` pattern finds, the dialog's
 //! question. Working: the line a working rule's `recap` finds, the TUI's status line. Otherwise
 //! the title.
@@ -100,8 +100,8 @@ pub fn recap(
 }
 
 /// `title` without the Braille spinner a CLI puts before it while it works: it turns several
-/// times a second, and a recap that changed with it would draw `*Sessions*` again each time.
-fn without_spinner(title: &str) -> &str {
+/// times a second, and a recap that changed with it would draw `*Spaces*` again each time.
+pub(crate) fn without_spinner(title: &str) -> &str {
     title.trim_start_matches(|c: char| ('\u{2800}'..='\u{28FF}').contains(&c))
 }
 

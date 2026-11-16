@@ -1,4 +1,4 @@
-//! The row at point in `*Sessions*` as a place (ADR 0131, step 2b): where `claude` starts from
+//! The row at point in `*Spaces*` as a place (ADR 0131, step 2b): where `claude` starts from
 //! it, the repository `session-worktree` makes a worktree of, the base that worktree starts at,
 //! the session it is a child of, and the space it is in (ADR 0136, step 2), from a space's,
 //! repository's, worktree's or session's row. `C-c a c` and `C-c a w` there take it as `c` and
@@ -30,7 +30,7 @@ pub(in crate::app) enum Base {
     Detached,
 }
 
-/// The place a row of `*Sessions*` stands for.
+/// The place a row of `*Spaces*` stands for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::app) struct RowPlace {
     /// Where a session started from it runs: a project's main checkout, a worktree, a session's
@@ -67,7 +67,7 @@ impl RowPlace {
 }
 
 impl App {
-    /// The place of the row at point while `*Sessions*` is selected, `None` elsewhere.
+    /// The place of the row at point while `*Spaces*` is selected, `None` elsewhere.
     pub(in crate::app) fn sessions_row_place(&self) -> Option<Result<RowPlace, &'static str>> {
         if self.editor.current().1.mode() != Mode::Sessions {
             return None;
@@ -87,7 +87,7 @@ impl App {
         }
     }
 
-    /// The place of line `line` of `*Sessions*`.
+    /// The place of line `line` of `*Spaces*`.
     pub(in crate::app) fn row_place(&self, line: usize) -> Option<RowPlace> {
         let hosted = |key: SessionKey| Some(self.hosting.table().get(key)?.directory.clone());
         let external = |key: &Key| {
@@ -159,7 +159,7 @@ fn place_of(
             session: None,
             space: None,
         }),
-        Line::Header(_) => None,
+        Line::Header(_) | Line::Title => None,
     }
 }
 

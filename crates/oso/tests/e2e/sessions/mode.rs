@@ -122,7 +122,7 @@ fn a_session_s_c_c_keys_are_oso_s_and_claude_code_gets_the_rest() {
     // `C-c C-p` shows the list and sends nothing (ADR 0143).
     app.send_keys("C-c C-p");
     app.wait_for("the list selected", |state| {
-        state["buffer"]["name"] == "*Sessions*"
+        state["buffer"]["name"] == "*Spaces*"
     });
     app.send_keys("C-c a s");
     app.wait_for("the session again", |state| {
@@ -163,7 +163,7 @@ fn a_session_s_keys_from_the_configuration_apply_and_go_with_it() {
     // `C-c g` runs what the file binds it to, and `C-c C-p`, which it unbinds, is undefined.
     app.send_keys("C-c g");
     app.wait_for("the list selected", |state| {
-        state["buffer"]["name"] == "*Sessions*"
+        state["buffer"]["name"] == "*Spaces*"
     });
     app.send_keys("C-c a s");
     app.wait_for("the session again", |state| {

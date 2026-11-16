@@ -82,7 +82,7 @@ copy mode. Each row is cut at 1 KiB, and control characters become spaces.
 
 ### Recaps
 
-`session-switch` shows each session's recap, and `*Sessions*` shows it under a session that
+`session-switch` shows each session's recap, and `*Spaces*` shows it under a session that
 needs input or failed ([ADR 0131](adr/0131-an-orca-style-sessions-pane.md)).
 - A session that needs input shows what the matched rule's `recap` finds: the dialog's question.
 - A working session shows what the matched rule's `recap` finds, or else the first other working
@@ -105,7 +105,7 @@ it gets 5 ms of its own after the rules' verdict; past that, the recap stays as 
 
 When another session's `SendMessage` arrives, the TUI shows a line such as
 `› Message from @api-fix: …`. A `[[message]]` table finds that line and its sender, so that
-the receiving session's row in `*Sessions*` says "message from api-fix" until you see the
+the receiving session's row in `*Spaces*` says "message from api-fix" until you see the
 session, and `C-c a f` (`session-follow-message`) shows the sender:
 
 ```toml

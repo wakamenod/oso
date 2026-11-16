@@ -205,6 +205,9 @@ the layers active in the current buffer, a menu's key and its head's key include
   and the same key; the echo after a start without asking names the key as bound.
 - **[ADR 0120](0120-the-terminal.md), "Input (Q12)":** semi-char mode also keeps Super keys, and a
   terminal's keymap binds `C-c a`.
+- **[ADR 0140](0140-a-spaces-pane-with-sections-and-guides.md), Q3:** `C-x a s` and session
+  mode's `C-c s` are `C-c a s` and `C-c C-p`; `C-u C-c a s` hides the pane. Its modeline's
+  "`C-x a s` to enter" names the keys of `sessions` as bound.
 - **[ADR 0076](0076-completion-and-m-x.md):** `M-x` also lists a command that a menu's head runs,
   from a menu a key in the active layers opens, with the menu's key and the head's as its binding.
 - [ADR 0129](0129-dictation.md) is still proposed; its key is now `C-c a t` (Q3), changed in place.
@@ -228,9 +231,14 @@ the layers active in the current buffer, a menu's key and its head's key include
   `terminal/route.rs` (Super), a where-is over keymaps and menus in `dispatch`, which `M-x` uses
   too, the four messages, the user guide, `ui.md`, `agent-rules.md`, and the e2e tests that type
   `C-x a`. No new crate, crate edge, public trait or module.
-- **Follow-up:** ADR 0140 (the pane, pull request open on this date) names `C-x a s` and `C-c s`;
-  whichever lands second makes them `C-c a s` and `C-c C-p`, and its modeline hint names the key as
-  bound.
+- **[ADR 0140](0140-a-spaces-pane-with-sections-and-guides.md)'s `C-x a s` and `C-c s`** are
+  `C-c a s` and `C-c C-p`, and the pane's modeline names the keys of `sessions` as bound in every
+  buffer (the user's over the global ones), looked up once and again after the user's keys or
+  menus change, not each frame.
+- **Follow-up:** `s-SPC` in a terminal runs `insert-full-width-space`, which refuses in a
+  terminal's buffer; before, the program got Super-Space. The author chose on 2026-11-16 to keep
+  it so here, and to make `s-SPC` send a full-width space (U+3000) to the program as text in a
+  later change.
 
 ## Alternatives considered
 

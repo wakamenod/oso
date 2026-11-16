@@ -19,7 +19,7 @@ pub enum Mode {
     CopyList,
     /// The text of one emergency copy, or how it differs from its file.
     CopyView,
-    /// The list of agent sessions, `*Sessions*` (ADR 0121).
+    /// The list of agent sessions, `*Spaces*` (ADR 0121).
     Sessions,
     /// Rust source.
     Rust,

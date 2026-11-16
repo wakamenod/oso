@@ -1,5 +1,5 @@
 //! The buffers that show emergency copies, and putting a copy's text in a buffer (ADR 0064);
-//! the text of the host's internal buffers, and `*Sessions*'` highlights (ADR 0131). The way
+//! the text of the host's internal buffers, and `*Spaces*'` highlights (ADR 0131). The way
 //! back from them is the one in `messages`, which all internal buffers share.
 //!
 //! Must not depend on: `command`, `keymap`, or the host's window, threads or I/O. The host
@@ -822,7 +822,7 @@ mod tests {
     fn the_sessions_list_alone_takes_the_hosts_highlights_and_only_whole() {
         use crate::syntax::{Highlight, Highlights};
         let mut editor = Editor::default();
-        let list = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+        let list = editor.add_internal_buffer("*Spaces*", Mode::Sessions);
         editor.set_internal_text(list, "⚠ ask\n");
         let mut marks = Highlights::new("⚠ ask\n".len());
         marks.replace(0..3, [(3, Some(Highlight::SessionAlert))]);

@@ -347,9 +347,9 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     });
     app.send_keys("C-c a c");
     let state = app.wait_for("space, repositories, worktree and session", |state| {
-        line_starting(state, "▾ fix-login").is_some()
-            && line_starting(state, "  ▾ repo").is_some()
-            && line_starting(state, "  ▾ other").is_some()
+        line_starting(state, " ▾ fix-login ").is_some()
+            && line_starting(state, "   ▾ repo/").is_some()
+            && line_starting(state, "   ▾ other/").is_some()
             && list(state)
                 .lines()
                 .any(|row| row.starts_with("    ") && row.contains("main  primary"))
@@ -358,7 +358,7 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
                 .any(|row| row.starts_with("      ") && row.contains("repo"))
     });
     assert!(
-        line_starting(&state, "  ▾ repo") < line_starting(&state, "  ▾ other"),
+        line_starting(&state, "   ▾ repo/") < line_starting(&state, "   ▾ other/"),
         "{}",
         list(&state)
     );
@@ -367,13 +367,13 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     app.send_keys("C-c a O");
     answer(&mut app, "New space for issue:", "Second");
     let state = app.wait_for("the first folded", |state| {
-        state["sessions"]["space"] == "second" && line_starting(state, "▸ fix-login").is_some()
+        state["sessions"]["space"] == "second" && line_starting(state, " ▸ fix-login ").is_some()
     });
     app.send_keys("C-c a s");
     app.wait_for("the list selected", |state| {
-        state["buffer"]["name"] == "*Sessions*"
+        state["buffer"]["name"] == "*Spaces*"
     });
-    let row = line_starting(&state, "▸ fix-login").unwrap();
+    let row = line_starting(&state, " ▸ fix-login ").unwrap();
     super::sessions_tree::point_at(&mut app, row);
     app.send_keys("RET");
     app.wait_for("the first space entered", |state| {
@@ -383,7 +383,7 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     // `a` in the list reads a repository for the space in front.
     app.send_keys("C-c a s");
     app.wait_for("the list selected", |state| {
-        state["buffer"]["name"] == "*Sessions*"
+        state["buffer"]["name"] == "*Spaces*"
     });
     app.send_keys("a");
     app.wait_for("the repository prompt", |state| {
@@ -399,7 +399,7 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     app.send_keys("C-c a S");
     app.send_keys("c");
     app.wait_for("the closed space listed", |state| {
-        line_starting(state, "▸ Archived spaces (1)").is_some()
+        line_starting(state, " ▸ Archived spaces ─").is_some()
     });
     flow.exit_with(0);
 }
@@ -465,7 +465,7 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
                 .any(|row| row.starts_with("  ") && row.contains("orchestrator"))
     });
     assert!(
-        line_starting(&state, "▾ fix-login").is_some(),
+        line_starting(&state, " ▾ fix-login ").is_some(),
         "{}",
         list(&state)
     );

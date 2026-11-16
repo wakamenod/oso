@@ -77,17 +77,21 @@ pub enum Highlight {
     /// A comment whose line went, or what says so.
     Outdated,
     /// A session's mark that needs the person: needs input or failed (ADR 0131). Only the
-    /// host's `*Sessions*` gives these four; no parser does.
+    /// host's `*Spaces*` gives these; no parser does.
     SessionAlert,
     /// A working session's mark.
     SessionWorking,
     /// The mark of a session done or ready for review.
     SessionDone,
-    /// What is said quietly in `*Sessions*`: an idle or stopped session's mark, a place, a
+    /// What is said quietly in `*Spaces*`: an idle or stopped session's mark, a place, a
     /// reason, and a whole row of a session run outside oso.
     SessionQuiet,
     /// The name of the worktree whose space is in front.
     SessionFront,
+    /// A space's name in `*Spaces*` (ADR 0140).
+    SessionSpace,
+    /// A repository's name in `*Spaces*` (ADR 0140).
+    SessionRepository,
     /// A directory listing's header line, its path (ADR 0134). Only the host's listings give
     /// these seven; no parser does.
     DiredHeader,

@@ -156,10 +156,10 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
         state_of(state, "proj").as_deref() == Some("idle")
     });
 
-    // `C-c a s` selects the list, then hides it, and it stays hidden.
+    // `C-c a s` selects the list; `C-u C-c a s` hides it, and it stays hidden (ADR 0140).
     app.send_keys("C-c a s");
     app.wait_for("the list selected", |state| {
-        state["buffer"]["name"] == "*Sessions*"
+        state["buffer"]["name"] == "*Spaces*"
     });
     // `?` says what the marks mean.
     app.send_keys("?");
@@ -168,7 +168,7 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
             .as_str()
             .is_some_and(|echo| echo.starts_with("⚠ needs input"))
     });
-    app.send_keys("C-c a s");
+    app.send_keys("C-u C-c a s");
     app.wait_for("the list hidden", |state| sessions(state)["side"].is_null());
     print(&flow, WORKING);
     app.wait_for("working again", |state| {
@@ -187,9 +187,9 @@ fn spins(app: &mut App) {
             .as_str()
             .unwrap_or_default()
             .to_owned();
-        // The session's row, and its worktree's, which spins with it.
+        // The session's row, past the guide that hangs it from its worktree's (ADR 0140).
         list.lines()
-            .filter_map(|row| row.trim_start().chars().next())
+            .filter_map(|row| row.trim_start_matches([' ', '│', '├', '└']).chars().next())
             .find(|c| SPINNER.contains(*c))
     };
     let first = app.wait_for("a spinning mark", |state| mark(state).is_some());
@@ -203,13 +203,14 @@ fn spins(app: &mut App) {
 fn stop_asks_first(app: &mut App) {
     app.send_keys("C-c a s");
     app.wait_for("the list selected", |state| {
-        state["buffer"]["name"] == "*Sessions*"
+        state["buffer"]["name"] == "*Spaces*"
     });
-    // Point to the session's row, under its project's and its worktree's, which spin with it.
+    // Point to the session's row, past its guide, under its worktree's, whose roll-up spins at
+    // its right (ADR 0140).
     let working = |state: &Value| {
         let rows: Vec<&str> = sessions(state)["list"].as_str()?.lines().collect();
         rows.iter().rposition(|row| {
-            row.trim_start()
+            row.trim_start_matches([' ', '│', '├', '└'])
                 .chars()
                 .next()
                 .is_some_and(|c| SPINNER.contains(c))
@@ -274,7 +275,8 @@ fn another_programs_session_in_the_registry_is_listed() {
     let list = sessions(&state)["list"].as_str().unwrap().to_owned();
     let row = list.lines().find(|row| row.contains("elsewhere")).unwrap();
     assert!(
-        row.trim_start().starts_with("▶ elsewhere")
+        row.trim_start_matches([' ', '│', '├', '└'])
+            .starts_with("▶ elsewhere")
             && (row.ends_with(" 5m") || row.ends_with(" 6m")),
         "{list}"
     );

@@ -159,7 +159,7 @@ fn zoom_is_kept_per_space_and_back_keeps_the_zoomed_windows_place() {
 #[test]
 fn zoom_from_the_side_window_acts_on_the_tree() {
     let mut editor = editor();
-    let list = editor.add_buffer(Buffer::from_text("*Sessions*", "s"));
+    let list = editor.add_buffer(Buffer::from_text("*Spaces*", "s"));
     let side = editor.show_side_window(list, 32);
     editor.select_window(side);
     let mut spaces = Spaces::default();

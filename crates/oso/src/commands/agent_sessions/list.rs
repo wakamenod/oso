@@ -1,4 +1,4 @@
-//! The keys of `*Sessions*` (ADR 0121, Q6, step 3): moving between its rows, and acting on the
+//! The keys of `*Spaces*` (ADR 0121, Q6, step 3; ADR 0140): moving between its rows, and acting on the
 //! row point is on. Each asks the host, which knows what each line shows.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
@@ -14,21 +14,40 @@ use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{RowAction, SessionRequest};
 use oso_core::selection::SelectionSet;
 
-/// The marks a row of `*Sessions*` begins with, after its indent: a group's fold, then each
-/// state's, a worktree's with no session, then the frames of a working mark that spins
-/// (ADR 0131). The list draws them, and never begins another line with one.
-pub const ROW_MARKS: &str = "▾▸⚠✗▶◆●○■·⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+/// The marks a row of `*Spaces*` begins with, after its indent and guides: a fold, which every
+/// space, repository, worktree and group has (ADR 0140), then each state's, then the frames of
+/// a working mark that spins (ADR 0131). The list draws them, and never begins another line
+/// with one.
+pub const ROW_MARKS: &str = "▾▸⚠✗▶◆●○■⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 
-/// What `?` says in `*Sessions*` (ADR 0131): the marks, then the keys.
-pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  M-n/M-p headings  TAB fold  c new  w worktree  a add repo  / switch  s group  </> width  k stop  e explain";
+/// The guides that hang a session's row from its worktree's (ADR 0140), before its mark.
+pub const GUIDES: &str = "│├└";
+
+/// What `?` says in `*Spaces*` (ADR 0131, ADR 0140): the marks, then the keys.
+pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  M-n/M-p headings  TAB fold  S-TAB fold all  ←/→ close/open  q back  c new  w worktree  a add repo  / switch  s group  </> width  k stop  e explain";
 
 /// How many columns `<` and `>` take from or give to the pane, once each (ADR 0131).
 pub const PANE_STEP: isize = 4;
 
-/// The folds' marks, which begin a space's, a repository's, a group's and a quiet row's line.
-const FOLDS: [char; 2] = ['▾', '▸'];
+/// The folds' marks, which begin a space's, a repository's, a worktree's, a group's and a
+/// quiet row's line (ADR 0140).
+pub const FOLDS: [char; 2] = ['▾', '▸'];
 
-/// The commands of `*Sessions*`.
+/// The row `line`, a line of the list's text, begins, if it begins one: its indent in cells
+/// past its guides, and its mark (ADR 0140). The one rule the keys and the mouse read rows by.
+pub fn row_mark(line: impl IntoIterator<Item = char>) -> Option<(usize, char)> {
+    let mut indent = 0;
+    let first = line.into_iter().find(|c| {
+        let lead = *c == ' ' || GUIDES.contains(*c);
+        indent += usize::from(lead);
+        !lead
+    });
+    first
+        .filter(|c| ROW_MARKS.contains(*c))
+        .map(|c| (indent, c))
+}
+
+/// The commands of `*Spaces*`.
 pub const COMMANDS: &[Command] = &[
     row(
         "sessions-show",
@@ -38,7 +57,7 @@ pub const COMMANDS: &[Command] = &[
     ),
     Command {
         name: "sessions-next",
-        doc: "Move to the next row of `*Sessions*`: a session or a group.",
+        doc: "Move to the next row of `*Spaces*`: a session, a space, a repository, a worktree or a group.",
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: next,
@@ -46,7 +65,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "sessions-previous",
-        doc: "Move to the previous row of `*Sessions*`: a session or a group.",
+        doc: "Move to the previous row of `*Spaces*`: a session, a space, a repository, a worktree or a group.",
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: previous,
@@ -54,7 +73,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "sessions-next-heading",
-        doc: "Move to the next project, worktree or group row of `*Sessions*`.\n\nIn the list by state, the next group.",
+        doc: "Move to the next space, repository, worktree or group row of `*Spaces*`.\n\nIn the list by state, the next group.",
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: next_heading,
@@ -62,7 +81,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "sessions-previous-heading",
-        doc: "Move to the previous project, worktree or group row of `*Sessions*`.\n\nIn the list by state, the previous group.",
+        doc: "Move to the previous space, repository, worktree or group row of `*Spaces*`.\n\nIn the list by state, the previous group.",
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: previous_heading,
@@ -70,7 +89,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "sessions-wider",
-        doc: "Make the `*Sessions*` pane 4 columns wider, times the count, up to 80.\n\nFor this oso: `[sessions] pane_width` gives the width it starts at.",
+        doc: "Make the `*Spaces*` pane 4 columns wider, times the count, up to 80.\n\nFor this oso: `[sessions] pane_width` gives the width it starts at.",
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: wider,
@@ -78,7 +97,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "sessions-narrower",
-        doc: "Make the `*Sessions*` pane 4 columns narrower, times the count, down to 24.\n\nFor this oso: `[sessions] pane_width` gives the width it starts at.",
+        doc: "Make the `*Spaces*` pane 4 columns narrower, times the count, down to 24.\n\nFor this oso: `[sessions] pane_width` gives the width it starts at.",
         args: ArgSpec::Count,
         reach: Reach::Look,
         run: narrower,
@@ -86,13 +105,31 @@ pub const COMMANDS: &[Command] = &[
     },
     row(
         "sessions-toggle-fold",
-        "Fold or open the group on this row, or the sessions nested under the session on it.",
+        "Fold or open the space, repository, worktree or group on this row, or the sessions nested under the session on it.",
         Reach::Look,
         fold,
     ),
+    row(
+        "sessions-cycle-folds",
+        "Fold `*Spaces*` to its spaces, then open it down to its worktrees, then everything, in turn.\n\nIt starts from the deepest level an open row shows.",
+        Reach::Look,
+        cycle_folds,
+    ),
+    row(
+        "sessions-open",
+        "Open the folded row at point; on an open one, move to the first row under it.",
+        Reach::Look,
+        open,
+    ),
+    row(
+        "sessions-close",
+        "Fold the open row at point; on a session or a folded row, move to the row it is under.",
+        Reach::Look,
+        close,
+    ),
     Command {
         name: "sessions-refresh",
-        doc: "Render `*Sessions*` again, its ages as of now.",
+        doc: "Render `*Spaces*` again, its ages as of now.",
         args: ArgSpec::None,
         reach: Reach::Look,
         run: refresh,
@@ -100,7 +137,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "sessions-regroup",
-        doc: "Group `*Sessions*` by state, or by space.",
+        doc: "Group `*Spaces*` by state, or by space.",
         args: ArgSpec::None,
         reach: Reach::Look,
         run: regroup,
@@ -126,13 +163,13 @@ pub const COMMANDS: &[Command] = &[
     ),
     row(
         "session-stop",
-        "Hang up the terminal of the session on this row of `*Sessions*`, or of the session whose terminal is this buffer.\n\nIt asks first while the session works or needs input.",
+        "Hang up the terminal of the session on this row of `*Spaces*`, or of the session whose terminal is this buffer.\n\nIt asks first while the session works or needs input.",
         Reach::Person,
         stop,
     ),
     Command {
         name: "sessions-help",
-        doc: "Say what the marks of `*Sessions*` mean, and its keys, in the echo area.",
+        doc: "Say what the marks of `*Spaces*` mean, and its keys, in the echo area.",
         args: ArgSpec::None,
         reach: Reach::Look,
         run: help,
@@ -175,7 +212,7 @@ fn on_row(ctx: &mut Ctx<'_>, action: RowAction) -> Result<(), CommandError> {
 fn in_list(ctx: &Ctx<'_>) -> Result<(), CommandError> {
     super::super::not_in_prompt(ctx)?;
     if ctx.editor.current().1.mode() != Mode::Sessions {
-        return Err(CommandError::new("Not in *Sessions*"));
+        return Err(CommandError::new("Not in *Spaces*"));
     }
     Ok(())
 }
@@ -200,13 +237,13 @@ fn resume(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     on_row(ctx, RowAction::Resume)
 }
 
-/// On a row of `*Sessions*`, or in a session's own terminal (`C-c a K`, ADR 0143).
+/// On a row of `*Spaces*`, or in a session's own terminal (`C-c a K`, ADR 0143).
 fn stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     if ctx.editor.current().1.mode() == Mode::Sessions {
         return on_row(ctx, RowAction::Stop);
     }
     let buffer = super::mode::session_buffer(ctx)
-        .map_err(|_| CommandError::new("Not in *Sessions* or a session's buffer"))?;
+        .map_err(|_| CommandError::new("Not in *Spaces* or a session's buffer"))?;
     ctx.editor
         .request_session(SessionRequest::OnBuffer(buffer, RowAction::Stop));
     Ok(())
@@ -214,6 +251,59 @@ fn stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn explain(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     on_row(ctx, RowAction::Explain)
+}
+
+fn cycle_folds(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    in_list(ctx)?;
+    ctx.editor.request_session(SessionRequest::CycleFolds);
+    Ok(())
+}
+
+fn open(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    in_list(ctx)?;
+    match row_at(ctx, ctx.editor.cursor_line()) {
+        Some((_, '▸')) => on_row(ctx, RowAction::Fold),
+        Some((_, '▾')) => step(ctx, 1, Stop::Row),
+        _ => Ok(()),
+    }
+}
+
+fn close(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    in_list(ctx)?;
+    let line = ctx.editor.cursor_line();
+    match row_at(ctx, line) {
+        Some((_, '▾')) => on_row(ctx, RowAction::Fold),
+        Some((indent, _)) => {
+            // The nearest row above that is further out: the one this one is under.
+            let parent = (0..line)
+                .rev()
+                .find(|&above| row_at(ctx, above).is_some_and(|(outer, _)| outer < indent));
+            if let Some(parent) = parent {
+                go_to(ctx, parent);
+            }
+            Ok(())
+        }
+        None => Ok(()),
+    }
+}
+
+/// Line `line` of the selected buffer's indent, in cells past its guides, and its first mark,
+/// if it begins a row.
+fn row_at(ctx: &Ctx<'_>, line: usize) -> Option<(usize, char)> {
+    let text = ctx.editor.current().1.text();
+    if line >= text.line_count() {
+        return None;
+    }
+    let (start, end) = (text.line_start(line), text.line_end(line));
+    row_mark(text.chunks_in_range(start..end).flat_map(str::chars))
+}
+
+/// Puts point at the start of line `line` of the selected buffer, in view.
+fn go_to(ctx: &mut Ctx<'_>, line: usize) {
+    let offset = ctx.editor.current().1.text().line_start(line);
+    ctx.editor.current_mut().0.selections = SelectionSet::new(offset);
+    ctx.editor.follow_cursor();
+    ctx.request_redraw();
 }
 
 fn refresh(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -284,28 +374,10 @@ fn step(ctx: &mut Ctx<'_>, count: isize, stop: Stop) -> Result<(), CommandError>
     let text = buffer.text();
     let from = text.offset_to_point(window.selections.primary().cursor).row;
     let last = text.line_count().saturating_sub(1);
-    // A line's indent and its first mark, if it begins a row.
-    let row_at = |row: usize| {
-        let (start, end) = (text.line_start(row), text.line_end(row));
-        let mut chars = text.chunks_in_range(start..end).flat_map(str::chars);
-        let mut indent = 0;
-        let first = chars.find(|c| {
-            indent += usize::from(*c == ' ');
-            *c != ' '
-        });
-        first
-            .filter(|c| ROW_MARKS.contains(*c))
-            .map(|c| (indent, c))
-    };
-    let stops = |row: usize| match (stop, row_at(row)) {
+    let stops = |row: usize| match (stop, row_at(ctx, row)) {
         (_, None) => false,
         (Stop::Row, Some(_)) => true,
-        // The nearest row above with less indent: the fold row a worktree's row is under.
-        (Stop::Heading, Some((indent, mark))) => is_heading(indent, mark, || {
-            (0..row)
-                .rev()
-                .find_map(|r| row_at(r).filter(|(above, _)| *above < indent))
-        }),
+        (Stop::Heading, Some((_, mark))) => is_heading(mark),
     };
     let mut row = from;
     for _ in 0..count.unsigned_abs() {
@@ -319,23 +391,16 @@ fn step(ctx: &mut Ctx<'_>, count: isize, stop: Stop) -> Result<(), CommandError>
             None => break,
         }
     }
-    if row == from {
-        return Ok(());
+    if row != from {
+        go_to(ctx, row);
     }
-    let offset = text.line_start(row);
-    ctx.editor.current_mut().0.selections = SelectionSet::new(offset);
-    ctx.editor.follow_cursor();
-    ctx.request_redraw();
     Ok(())
 }
 
-/// Whether a row `indent` cells in that begins with `mark` is a heading: a fold's mark, or a
-/// worktree's row, two cells in from the fold row above it: a space's, or a repository's in a
-/// space of several (ADR 0136, step 2). `parent` gives the nearest row above with less indent,
-/// its indent and mark; a session is never two cells in from a fold row.
-fn is_heading(indent: usize, mark: char, parent: impl FnOnce() -> Option<(usize, char)>) -> bool {
+/// Whether a row that begins with `mark` is a heading: a fold's mark, which a space, a
+/// repository, a worktree and a group have and a session never does (ADR 0140).
+fn is_heading(mark: char) -> bool {
     FOLDS.contains(&mark)
-        || parent().is_some_and(|(above, mark)| above + 2 == indent && FOLDS.contains(&mark))
 }
 
 #[cfg(test)]

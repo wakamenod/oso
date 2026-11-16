@@ -100,21 +100,36 @@ impl Dispatcher {
     /// `config.toml` shows, and the heads a menu leaves out or dims still count, as they do once
     /// their reason goes.
     pub fn where_is(&self, editor: &Editor, name: &str) -> String {
+        let reading = self.keymaps.reading();
+        self.where_is_in(&self.keymaps.active(&reading, None, editor), name)
+    }
+
+    /// [`Dispatcher::where_is`] in the layers every buffer has, the user's keys over the global
+    /// ones, for a hint that holds wherever the person is, as the pane's modeline is (ADR 0143).
+    pub fn where_is_anywhere(&self, name: &str) -> String {
+        let layers = Layers {
+            user: self.keymaps.user(),
+            ..Layers::global(&self.keymaps.global)
+        };
+        self.where_is_in(&layers, name)
+    }
+
+    /// The shortest keys of the command named `name` in `layers`, through the menus they open,
+    /// else `M-x` and the name.
+    fn where_is_in(&self, layers: &Layers<'_>, name: &str) -> String {
         let fallback = || format!("M-x {name}");
         let Some(target) = self.registry.lookup(name) else {
             return fallback();
         };
-        let reading = self.keymaps.reading();
-        let layers = self.keymaps.active(&reading, None, editor);
         let mut shortest = HashMap::new();
         for keymap in layers.iter() {
             keymap.bindings(|keys, id| {
-                if id == target && reaches(&layers, keys, Binding::Command(id)) {
+                if id == target && reaches(layers, keys, Binding::Command(id)) {
                     keep_shortest(&mut shortest, (), keys);
                 }
             });
         }
-        for (keys, id) in self.menu_heads(&layers) {
+        for (keys, id) in self.menu_heads(layers) {
             if id == target {
                 keep_shortest(&mut shortest, (), &keys);
             }
@@ -260,6 +275,7 @@ mod tests {
         // Through the space menu the Agents menu opens.
         assert_eq!(where_is("space-use-repo"), "C-c a S u");
         assert_eq!(where_is("no-such-command"), "M-x no-such-command");
+        assert_eq!(dispatcher.where_is_anywhere("sessions"), "C-c a s");
         // A longer key of the user's to the same menu does not win.
         let mut dispatcher = Dispatcher::new();
         let registry = crate::commands::registry();

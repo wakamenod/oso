@@ -1,4 +1,4 @@
-//! What the lines of `*Sessions*` show and what `TAB` folds (ADR 0131, ADR 0136): groups,
+//! What the lines of `*Spaces*` show and what `TAB` folds (ADR 0131, ADR 0136): groups,
 //! sessions, spaces, their repositories and worktrees.
 //!
 //! Must not depend on: `app`, `dispatch` or `config`; plain data.
@@ -27,6 +27,9 @@ pub enum Group {
 /// What a line of the list shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Line {
+    /// The tree's first row: the pane's name and the states that ask for the person
+    /// (ADR 0140).
+    Title,
     Header(Group),
     Session(Key),
     /// An open space of the tree (ADR 0136).

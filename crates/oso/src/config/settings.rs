@@ -60,10 +60,10 @@ pub struct Sessions {
     /// `steer_worktrees`: a session oso starts gets a hook that denies Claude's own worktree
     /// tools and points it to `session-worktree` (ADR 0121, Q15). Off unless set.
     pub steer_worktrees: bool,
-    /// `spinner = false`: working marks in `*Sessions*` stand still (ADR 0131, Q14). They spin
+    /// `spinner = false`: working marks in `*Spaces*` stand still (ADR 0131, Q14). They spin
     /// unless set.
     pub no_spinner: bool,
-    /// `pane_width`: the columns of `*Sessions*`' pane, from 24 to 80; else 44 (ADR 0131, Q7).
+    /// `pane_width`: the columns of `*Spaces*`' pane, from 24 to 80; else 44 (ADR 0131, Q7).
     pub pane_width: Option<usize>,
     /// `[sessions.notify]`: which states ask for the person's attention (ADR 0121, step 3).
     pub notify: crate::sessions::attention::Toggles,

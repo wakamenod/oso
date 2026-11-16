@@ -1,5 +1,5 @@
 //! Session mode's commands on the session whose terminal is the current buffer (ADR 0132):
-//! pinning and archiving it, as `P` and `A` do on its row of `*Sessions*`, and saying session
+//! pinning and archiving it, as `P` and `A` do on its row of `*Spaces*`, and saying session
 //! mode's keys; and which of the Agents menu's heads need one (ADR 0143). `session-stop` is
 //! `list`'s, which acts on a session's buffer too.
 //!
@@ -30,7 +30,7 @@ pub const ARCHIVE_LABEL: &str = "archive";
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "session-pin",
-        doc: "Pin the session whose terminal is this buffer, or unpin it: pinned sessions come first in their group of `*Sessions*`.",
+        doc: "Pin the session whose terminal is this buffer, or unpin it: pinned sessions come first in their group of `*Spaces*`.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: pin,

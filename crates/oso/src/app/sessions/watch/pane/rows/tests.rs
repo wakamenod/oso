@@ -1,4 +1,4 @@
-//! The place of each kind of row of `*Sessions*`, for `c`, `w` and `RET`.
+//! The place of each kind of row of `*Spaces*`, for `c`, `w` and `RET`.
 //!
 //! Must not depend on: the app, a window or git.
 

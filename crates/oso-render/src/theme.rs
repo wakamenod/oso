@@ -247,12 +247,17 @@ impl Theme {
 /// A review's bands (ADR 0122) follow: behind its rows only its own faces are drawn until step 9
 /// of ADR 0122 highlights the sides, which checks the syntax faces on them too. Its refined
 /// words' bands are not here, so text on them is drawn in [`Face::Text`]'s colour.
-pub(crate) const SYNTAX_FILLS: [Face; 5] = [
+///
+/// The spaces pane's bands (ADR 0140) follow: its marks and names keep their colours on them.
+pub(crate) const SYNTAX_FILLS: [Face; 8] = [
     Face::CurrentLine,
     Face::DiffAdded,
     Face::DiffRemoved,
     Face::DiffFileHeader,
     Face::ReviewCommentPerson,
+    Face::SessionHeader,
+    Face::SessionFrontTint,
+    Face::SessionPoint,
 ];
 
 /// `name`'s theme, with text gamma off until its strength is picked beside the OS's text.
@@ -351,8 +356,11 @@ pub(crate) mod tests {
     }
 
     /// Plain text is read on every fill a line of it sits on, and on a selected candidate.
-    const TEXT: [(Face, f32); 10] = [
+    const TEXT: [(Face, f32); 12] = [
         (Face::Text, 7.0),
+        // The spaces pane's bands (ADR 0140).
+        (Face::SessionHeader, 7.0),
+        (Face::SessionPoint, 7.0),
         // A refined word's band, and a comment's text on its card (ADR 0122).
         (Face::DiffRefineAdded, 7.0),
         (Face::DiffRefineRemoved, 7.0),
@@ -485,15 +493,28 @@ pub(crate) mod tests {
             // A session's marks and quiet text, on the list's background and on the band of the
             // row at point, and the modeline's counts of those that need the person or are done
             // (ADR 0131).
+            // ADR 0140 adds the pane's bands: a space's row, the front worktree's (the current
+            // line's colour) and the row at point while the pane is selected.
             Face::SessionAlert | Face::SessionDone => &[
                 (Face::Text, LABEL),
                 (Face::CurrentLine, LABEL),
                 (Face::Modeline, LABEL),
                 (Face::ModelineInactive, LABEL),
+                (Face::SessionHeader, LABEL),
+                (Face::SessionFrontTint, LABEL),
+                (Face::SessionPoint, LABEL),
             ],
-            Face::SessionWorking | Face::SessionQuiet | Face::SessionFront => {
-                &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)]
-            }
+            Face::SessionWorking
+            | Face::SessionQuiet
+            | Face::SessionFront
+            | Face::SessionSpace
+            | Face::SessionRepository => &[
+                (Face::Text, LABEL),
+                (Face::CurrentLine, LABEL),
+                (Face::SessionHeader, LABEL),
+                (Face::SessionFrontTint, LABEL),
+                (Face::SessionPoint, LABEL),
+            ],
             // A listing's header is read as highlighted text is; its names in a terminal's
             // colours, and its details, as a session's marks and quiet text are (ADR 0134).
             Face::DiredHeader => &SYNTAX_PAIRS,
@@ -543,7 +564,11 @@ pub(crate) mod tests {
             | Face::CurrentLine
             | Face::Flash
             | Face::DiffRefineAdded
-            | Face::DiffRefineRemoved => &[],
+            | Face::DiffRefineRemoved
+            | Face::SessionHeader
+            | Face::SessionFrontTint
+            | Face::SessionPoint
+            | Face::SessionPointBar => &[],
         }
     }
 
@@ -696,9 +721,28 @@ pub(crate) mod tests {
                 (Face::ReviewCommentPerson, behind_text),
                 (Face::DiffRefineAdded, theme.background(Face::DiffAdded)),
                 (Face::DiffRefineRemoved, theme.background(Face::DiffRemoved)),
+                // The spaces pane's bands, and point's on a section's or the front's (ADR 0140).
+                (Face::SessionHeader, behind_text),
+                (Face::SessionFrontTint, behind_text),
+                (Face::SessionPoint, behind_text),
+                (Face::SessionPoint, theme.background(Face::SessionHeader)),
+                (Face::SessionPoint, theme.background(Face::SessionFrontTint)),
             ] {
                 let step = (oklab(theme.background(face))[0] - oklab(behind)[0]).abs();
                 assert!(step >= 0.02, "{}: {face:?} {step:.3}", theme.name());
+            }
+        }
+    }
+
+    /// The bar at point in the spaces pane is a mark on the point's band and beside the text's
+    /// background, at 3:1 (ADR 0140).
+    #[test]
+    fn the_spaces_bar_stands_out_on_the_points_band() {
+        for theme in &themes() {
+            let bar = theme.background(Face::SessionPointBar);
+            for behind in [Face::SessionPoint, Face::Text] {
+                let ratio = contrast(bar, theme.background(behind));
+                assert!(ratio >= 3.0, "{}: on {behind:?} {ratio:.2}", theme.name());
             }
         }
     }

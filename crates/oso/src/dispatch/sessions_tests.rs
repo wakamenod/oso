@@ -1,5 +1,5 @@
 //! The keys of agent sessions through a dispatcher (ADR 0121, step 3): `C-c a` and a key asks
-//! the host, the switch floats complete over what the host listed, and `*Sessions*`'s own keys
+//! the host, the switch floats complete over what the host listed, and `*Spaces*`'s own keys
 //! act on the row point is on.
 //!
 //! Must not depend on: `app` or winit; these drive a dispatcher and an editor alone.
@@ -22,10 +22,10 @@ fn editor() -> Editor {
     editor
 }
 
-/// An editor showing `*Sessions*` with `text`, point at its start.
+/// An editor showing `*Spaces*` with `text`, point at its start.
 fn listing(text: &str) -> Editor {
     let mut editor = editor();
-    let list = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+    let list = editor.add_internal_buffer("*Spaces*", Mode::Sessions);
     editor.set_internal_text(list, text);
     editor.show(list);
     editor

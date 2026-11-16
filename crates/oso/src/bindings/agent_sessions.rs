@@ -1,5 +1,5 @@
 //! Default key bindings of the agent session commands (ADR 0143): the Agents menu on `C-c a`
-//! everywhere, which `bindings/menus.rs` defines, the keys of `*Sessions*`, and session mode's
+//! everywhere, which `bindings/menus.rs` defines, the keys of `*Spaces*`, and session mode's
 //! `C-c C-<letter>` in a session's terminal (ADR 0132, ADR 0143).
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
@@ -28,12 +28,16 @@ pub const SESSION: &[(&str, &str)] = &[
     ("C-c C-u", "universal-argument"),
 ];
 
-/// The keys of `*Sessions*`, above the global ones in it.
+/// The keys of `*Spaces*`, above the global ones in it.
 pub const LIST: &[(&str, &str)] = &[
     ("RET", "sessions-show"),
     ("n", "sessions-next"),
     ("p", "sessions-previous"),
     ("TAB", "sessions-toggle-fold"),
+    ("S-TAB", "sessions-cycle-folds"),
+    ("<right>", "sessions-open"),
+    ("<left>", "sessions-close"),
+    ("q", "sessions"),
     ("g", "sessions-refresh"),
     ("s", "sessions-regroup"),
     ("P", "sessions-pin"),
