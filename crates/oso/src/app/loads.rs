@@ -642,7 +642,6 @@ mod tests {
 
     #[test]
     fn a_new_file_with_no_editorconfig_takes_the_configured_tab_width() {
-        use oso_core::buffer::Mode;
         use oso_core::indent::{Origin, Origins, Settings, Style};
 
         let (mut editor, id) = new_file();
@@ -652,7 +651,7 @@ mod tests {
             style: Origin::Configuration,
             tab_width: Origin::Configuration,
         };
-        let modes = [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental];
+        let modes = crate::config::MODES.map(|(_, mode)| mode);
         editor.set_mode_indents(modes.map(|mode| (mode, three, origins)));
         show_new_file(&mut editor, id, None);
         let buffer = editor.buffer(id).unwrap();

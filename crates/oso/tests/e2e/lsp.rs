@@ -353,3 +353,75 @@ fn edits_reach_the_servers_copy_and_a_write_or_a_kill_closes_it() {
         std::thread::sleep(Duration::from_millis(100));
     }
 }
+
+/// The built-in table's other servers start as rust-analyzer does: a Go file in a trusted
+/// project starts gopls, here the fake server named by `[lsp.servers.gopls] command`, which is
+/// told gopls's settings, and the modeline says nothing of a server that is not installed.
+#[cfg(unix)]
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_go_file_starts_gopls_with_its_settings_and_a_missing_server_shows_nothing() {
+    let scratch = Scratch::new("lsp-gopls");
+    set_mode(scratch.path(), 0o700);
+    let rules = json!([
+        {"method": "initialize", "do": [{"reply": {"capabilities": {}}}]},
+        {"method": "initialized", "do": [
+            {"request": {"method": "workspace/configuration", "params": {"items": [{"section": "gopls"}]}}}
+        ]},
+        {"method": "shutdown", "do": [{"reply": null}]},
+    ]);
+    let script = scratch.write(
+        "conf/fake-lsp.json",
+        json!({"rules": rules, "log_answers": true})
+            .to_string()
+            .as_bytes(),
+    );
+    // gopls is the fake server; marksman, for the README, is a program that is not there.
+    let toml = format!(
+        "[lsp.servers.gopls]\ncommand = [{:?}, {:?}]\n[lsp.servers.marksman]\ncommand = [\"oso-no-such-marksman\"]\n",
+        env!("CARGO_BIN_EXE_fake-lsp-server"),
+        script.to_str().unwrap(),
+    );
+    let config = scratch.write("conf/config.toml", toml.as_bytes());
+    set_mode(&scratch.path().join("conf"), 0o700);
+    set_mode(&config, 0o644);
+    scratch.write("proj-go/main.go", b"package main\n");
+    scratch.write("proj-go/README.md", b"# go\n");
+    scratch.write("proj-go/NOTES.md", b"# notes\n");
+    let root = project(&scratch, "proj-go", &[]);
+    let record = scratch.write("conf/trusted-projects", record_line(&root).as_bytes());
+    set_mode(&record, 0o600);
+    let mut app =
+        App::start_with_file_config_and_env(&root.join("main.go"), scratch.path(), &config, &[]);
+    app.wait_until_ready();
+    let state = modeline_has(&mut app, "gopls follows main.go", "proj-go  lsp  ");
+    assert!(
+        state["modeline"].as_str().unwrap().contains("Go"),
+        "{}",
+        state["modeline"]
+    );
+    let log = lsp_log_with(&mut app, "main.go", "stderr: answer: ", 1);
+    assert!(log.contains("[gopls proj-go] initialized"), "{log}");
+    assert!(log.contains(r#""usePlaceholders":true"#), "{log}");
+    assert!(log.contains(r#""matcher":"CaseSensitive""#), "{log}");
+
+    // A server that is not installed is said once, and the modeline says nothing of it.
+    app.open_file(&root.join("README.md"));
+    app.wait_for("marksman said not to be there", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.contains("oso-no-such-marksman is not installed"))
+    });
+    let modeline = app.state()["modeline"].as_str().unwrap().to_owned();
+    assert!(!modeline.contains("lsp"), "{modeline}");
+
+    // Another Markdown file of the project: not looked for, nor said, again.
+    app.open_file(&root.join("NOTES.md"));
+    std::thread::sleep(Duration::from_millis(500));
+    let log = lsp_log(&mut app, "NOTES.md");
+    assert_eq!(
+        log.matches("oso-no-such-marksman is not installed").count(),
+        1,
+        "{log}"
+    );
+}

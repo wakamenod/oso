@@ -27,6 +27,18 @@ pub enum Mode {
     Markdown,
     /// TOML.
     Toml,
+    /// Go source (ADR 0138: a mode for its language server, with no highlighting yet).
+    Go,
+    /// TypeScript.
+    TypeScript,
+    /// TypeScript with JSX, `.tsx`.
+    Tsx,
+    /// JavaScript, JSX among it.
+    JavaScript,
+    /// LaTeX.
+    Latex,
+    /// Swift.
+    Swift,
     /// `*Brief*`, a worktree session's brief being written (ADR 0121).
     Brief,
     /// `*Worktrees*`, a repository's linked worktrees (ADR 0121).
@@ -69,6 +81,18 @@ impl Mode {
             Self::Markdown
         } else if is("toml") {
             Self::Toml
+        } else if is("go") {
+            Self::Go
+        } else if is("ts") || is("mts") || is("cts") {
+            Self::TypeScript
+        } else if is("tsx") {
+            Self::Tsx
+        } else if is("js") || is("mjs") || is("cjs") || is("jsx") {
+            Self::JavaScript
+        } else if is("tex") || is("sty") || is("cls") || is("ltx") {
+            Self::Latex
+        } else if is("swift") {
+            Self::Swift
         } else {
             Self::Fundamental
         }
@@ -84,6 +108,12 @@ impl Mode {
             Self::Rust => "Rust",
             Self::Markdown => "Markdown",
             Self::Toml => "TOML",
+            Self::Go => "Go",
+            Self::TypeScript => "TypeScript",
+            Self::Tsx => "TSX",
+            Self::JavaScript => "JavaScript",
+            Self::Latex => "LaTeX",
+            Self::Swift => "Swift",
             Self::Brief => "Brief",
             Self::Worktrees => "Worktrees",
             Self::Review => "Review",
@@ -113,7 +143,16 @@ impl Mode {
             Self::Rust => Some(indent::rust),
             Self::Toml => Some(indent::toml),
             Self::Markdown => Some(indent::markdown),
-            Self::Fundamental | Self::Brief | Self::GitCommit => Some(indent::fundamental),
+            // The modes of ADR 0138 have no rules of their own yet: lines keep the one before's.
+            Self::Fundamental
+            | Self::Brief
+            | Self::GitCommit
+            | Self::Go
+            | Self::TypeScript
+            | Self::Tsx
+            | Self::JavaScript
+            | Self::Latex
+            | Self::Swift => Some(indent::fundamental),
             Self::CopyList
             | Self::CopyView
             | Self::Worktrees
@@ -133,6 +172,32 @@ mod tests {
     use std::path::Path;
 
     use super::Mode;
+
+    #[test]
+    fn the_modes_of_language_servers_come_from_names_too() {
+        let mode = |path: &str| Mode::for_path(Path::new(path));
+        for (path, expected) in [
+            ("/p/main.go", Mode::Go),
+            ("/p/a.ts", Mode::TypeScript),
+            ("/p/a.MTS", Mode::TypeScript),
+            ("/p/a.cts", Mode::TypeScript),
+            ("/p/view.tsx", Mode::Tsx),
+            ("/p/a.js", Mode::JavaScript),
+            ("/p/a.mjs", Mode::JavaScript),
+            ("/p/a.cjs", Mode::JavaScript),
+            ("/p/view.jsx", Mode::JavaScript),
+            ("/p/paper.tex", Mode::Latex),
+            ("/p/style.sty", Mode::Latex),
+            ("/p/a.cls", Mode::Latex),
+            ("/p/a.ltx", Mode::Latex),
+            ("/p/App.swift", Mode::Swift),
+            ("/p/go", Mode::Fundamental),
+        ] {
+            assert_eq!(mode(path), expected, "{path}");
+        }
+        assert_eq!(Mode::Latex.name(), "LaTeX");
+        assert_eq!(Mode::Tsx.name(), "TSX");
+    }
 
     #[test]
     fn a_files_name_decides_its_mode() {

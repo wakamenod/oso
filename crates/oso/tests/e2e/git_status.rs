@@ -79,7 +79,8 @@ fn started(scratch: &Scratch, file: &Path) -> App {
     // The configuration in a directory of its own: the agent never saves into it, and the
     // project is beside it.
     set_mode(scratch.path(), 0o700);
-    let config = scratch.write("conf/config.toml", b"");
+    // No language server of the machine's starts in the trusted repository (ADR 0138).
+    let config = scratch.write("conf/config.toml", b"[lsp]\nstart = \"manual\"\n");
     set_mode(&scratch.path().join("conf"), 0o700);
     set_mode(&config, 0o644);
     let mut app = App::start_with_config(Some(file), scratch.path(), &config);

@@ -91,7 +91,8 @@ impl Flow {
         );
         fs::set_permissions(&fake, fs::Permissions::from_mode(0o700)).unwrap();
         let config = format!(
-            "[terminal]\nshell = \"/bin/sh\"\nlogin = false\n\n[sessions]\nclaude = \"{}\"\n{sessions}",
+            // No language server of the machine's starts in the trusted repository (ADR 0138).
+            "[lsp]\nstart = \"manual\"\n\n[terminal]\nshell = \"/bin/sh\"\nlogin = false\n\n[sessions]\nclaude = \"{}\"\n{sessions}",
             fake.display()
         );
         let config = scratch.write("config.toml", config.as_bytes());

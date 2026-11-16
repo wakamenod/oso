@@ -28,13 +28,36 @@ pub(super) struct Open {
     pub(super) closed: Option<Closed>,
 }
 
-/// The language a buffer of `mode` holds, as the protocol names it.
-fn language_id(mode: Mode) -> &'static str {
+/// The language a buffer of `mode` visiting `path` holds, as the protocol names it: JSX is
+/// JavaScript's mode, and named by its file. A match with no wildcard, so that a new mode says.
+fn language_id(mode: Mode, path: &std::path::Path) -> &'static str {
+    let jsx = path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("jsx"));
     match mode {
+        Mode::JavaScript if jsx => "javascriptreact",
+        Mode::JavaScript => "javascript",
         Mode::Rust => "rust",
         Mode::Markdown => "markdown",
         Mode::Toml => "toml",
-        _ => "plaintext",
+        Mode::Go => "go",
+        Mode::TypeScript => "typescript",
+        Mode::Tsx => "typescriptreact",
+        Mode::Latex => "latex",
+        Mode::Swift => "swift",
+        Mode::Fundamental
+        | Mode::CopyList
+        | Mode::CopyView
+        | Mode::Sessions
+        | Mode::Brief
+        | Mode::Worktrees
+        | Mode::Review
+        | Mode::Terminal
+        | Mode::Directory
+        | Mode::GitStatus
+        | Mode::GitCommit
+        | Mode::GitLog
+        | Mode::GitDiscarded => "plaintext",
     }
 }
 
@@ -92,7 +115,10 @@ impl App {
         match self.running_for(id) {
             Some(index) => {
                 let running = &self.servers.running[index];
+                // A server that never started, as one not installed, holds nothing for the
+                // person: `lsp-restart` opens what fits once it starts (step 5's Q2).
                 !running.stopping
+                    && running.state != oso_lsp::server::State::NotStarted
                     && !running.documents.contains_key(&id)
                     && fits(buffer, running).is_some()
             }
@@ -157,7 +183,7 @@ impl App {
         running.server.open(Document {
             id: id.get(),
             uri,
-            language_id: language_id(mode).to_owned(),
+            language_id: language_id(mode, &path).to_owned(),
             text: text.clone(),
         });
         self.servers.running[index].documents.insert(
