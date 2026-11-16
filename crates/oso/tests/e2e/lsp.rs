@@ -254,3 +254,102 @@ fn a_server_that_keeps_crashing_stops_after_three_crashes() {
     app.run_command("lsp-restart", None).unwrap();
     modeline_has(&mut app, "it starts again", "proj-lsp  lsp  ");
 }
+
+/// FNV-1a, 64 bits, as the fake server hashes its copy of a document.
+fn fnv(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+fn listed(app: &mut App) {
+    app.wait_for("a listing", |state| {
+        state["prompts"][0]["completion"]["pending"] == false
+    });
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn edits_reach_the_servers_copy_and_a_write_or_a_kill_closes_it() {
+    let rules = json!([
+        {"method": "initialize", "do": [{"reply": {"capabilities": {
+            "positionEncoding": "utf-16",
+            "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+        }}}]},
+        {"method": "textDocument/didOpen", "nth": 1, "do": [
+            {"notify": {"method": "window/showMessage", "params": {"type": 3, "message": "opened"}}}
+        ]},
+        {"method": "shutdown", "do": [{"reply": null}]},
+    ]);
+    let scratch = Scratch::new("lsp-sync");
+    set_mode(scratch.path(), 0o700);
+    let script = scratch.write(
+        "conf/fake-lsp.json",
+        json!({"rules": rules, "log_documents": true, "encoding": "utf-16"})
+            .to_string()
+            .as_bytes(),
+    );
+    let toml = format!(
+        "[lsp.servers.rust-analyzer]\ncommand = [{:?}, {:?}]\n",
+        env!("CARGO_BIN_EXE_fake-lsp-server"),
+        script.to_str().unwrap(),
+    );
+    let config = scratch.write("conf/config.toml", toml.as_bytes());
+    set_mode(&scratch.path().join("conf"), 0o700);
+    set_mode(&config, 0o644);
+    let root = project(&scratch, "proj-lsp", &["main.rs"]);
+    let record = scratch.write("conf/trusted-projects", record_line(&root).as_bytes());
+    set_mode(&record, 0o600);
+    let mut app = App::start_with_file_config_and_env(
+        &root.join("src/main.rs"),
+        scratch.path(),
+        &config,
+        &[],
+    );
+    app.wait_until_ready();
+    // The server says so once main.rs is open with it.
+    app.wait_for("main.rs open with the server", |state| {
+        state["echo"].as_str() == Some("rust-analyzer: opened")
+    });
+
+    // A key's edit reaches the server's copy.
+    app.send_keys("é");
+    let typed = format!("hash={:016x}", fnv("éfn main() {}\n".as_bytes()));
+    lsp_log_with(&mut app, "main.rs", &typed, 1);
+
+    // `C-x C-w` closes main.rs's document and opens renamed.rs's.
+    app.send_keys("C-x C-w");
+    listed(&mut app);
+    app.send_keys(&super::typing("renamed.rs"));
+    listed(&mut app);
+    app.send_keys("RET");
+    app.wait_for("the write", |state| {
+        state["buffer"]["name"] == "renamed.rs" && state["buffer"]["modified"] == false
+    });
+    let log = lsp_log_with(&mut app, "renamed.rs", "/src/renamed.rs v", 1);
+    assert!(
+        log.lines()
+            .any(|row| row.contains("stderr: closed") && row.ends_with("/src/main.rs")),
+        "{log}"
+    );
+
+    // Killing the buffer closes its document.
+    app.send_keys("C-x k RET");
+    let back = app.state()["buffer"]["name"].as_str().unwrap().to_owned();
+    let started = Instant::now();
+    loop {
+        let log = lsp_log(&mut app, &back);
+        if log
+            .lines()
+            .any(|row| row.contains("stderr: closed") && row.ends_with("/src/renamed.rs"))
+        {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "no close of renamed.rs:\n{log}"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}

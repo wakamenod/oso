@@ -318,3 +318,55 @@ fn a_recovery_and_its_redo_drop_highlights_and_the_log() {
     cross(&mut buffer, Direction::Redo);
     assert_dropped(&buffer, before);
 }
+
+#[test]
+fn a_followed_buffer_keeps_its_log_whatever_its_mode_or_size() {
+    let mut buffer = Buffer::from_text("t", "abc");
+    buffer.set_followed(true);
+    let start = buffer.revision();
+    edit(&mut buffer, 1..2, "XY");
+    edit(&mut buffer, 0..0, "z");
+    let batch = buffer.edits_since(start).unwrap();
+    assert_eq!(
+        replay(&Rope::from("abc"), &batch, buffer.text()),
+        buffer.text().to_string()
+    );
+    assert_eq!(
+        buffer.splices_since(start),
+        None,
+        "not for the syntax worker"
+    );
+    assert!(buffer.highlights().is_none(), "and no highlights");
+
+    let mut large = rust(&"x".repeat(MAX_BYTES));
+    large.set_followed(true);
+    let start = large.revision();
+    edit(&mut large, 0..0, "y");
+    assert_eq!(
+        large.splices_since(start),
+        None,
+        "past highlighting's limit"
+    );
+    assert_eq!(large.edits_since(start).map(|b| b.len()), Some(1));
+
+    // Not followed any more: the log goes.
+    buffer.set_followed(false);
+    assert_eq!(buffer.edits_since(start), None);
+    let now = buffer.revision();
+    edit(&mut buffer, 0..0, "w");
+    assert_eq!(buffer.edits_since(now), None);
+}
+
+#[test]
+fn a_followed_buffer_that_may_hold_secrets_keeps_no_log() {
+    let mut buffer = rust("abc");
+    buffer.set_followed(true);
+    let start = buffer.revision();
+    edit(&mut buffer, 0..0, "x");
+    assert_eq!(buffer.edits_since(start).map(|b| b.len()), Some(1));
+    assert!(buffer.treat_as_secret());
+    assert_eq!(buffer.edits_since(start), None);
+    let now = buffer.revision();
+    edit(&mut buffer, 0..0, "y");
+    assert_eq!(buffer.edits_since(now), None, "nor of its edits");
+}
