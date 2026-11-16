@@ -15,7 +15,7 @@ use crate::limits::{
     REPORT_INTERVAL, REPORT_LOG_BYTES_MAX, REPORT_SHOWN_MAX, SHOW_MESSAGE_INTERVAL,
 };
 
-use super::{Report, Severity, Shown, State, Wake};
+use super::{Closed, Report, Severity, Shown, State, Wake};
 
 /// The box the session thread fills and the UI empties.
 #[derive(Debug, Default)]
@@ -31,6 +31,7 @@ struct Waiting {
     /// Lines that went for the bound before the UI took them.
     log_dropped: usize,
     shown: Vec<Shown>,
+    documents: Vec<(u64, Option<Closed>)>,
 }
 
 impl Default for Waiting {
@@ -42,6 +43,7 @@ impl Default for Waiting {
             log_bytes: 0,
             log_dropped: 0,
             shown: Vec::new(),
+            documents: Vec::new(),
         }
     }
 }
@@ -66,6 +68,7 @@ impl Outbox {
             state: waiting.state,
             log,
             shown: mem::take(&mut waiting.shown),
+            documents: mem::take(&mut waiting.documents),
         })
     }
 
@@ -158,6 +161,17 @@ impl Reporter {
             if waiting.shown.len() < REPORT_SHOWN_MAX {
                 waiting.shown.push(Shown { severity, text });
             }
+        });
+        self.wake_now();
+    }
+
+    /// Document `id` was kept from the server, and why, or opened with it again (`None`). The
+    /// UI is woken at once: the modeline follows it.
+    pub(super) fn document(&mut self, id: u64, closed: Option<Closed>) {
+        self.outbox.with(|waiting| {
+            // One entry per document at most: the latest.
+            waiting.documents.retain(|(kept, _)| *kept != id);
+            waiting.documents.push((id, closed));
         });
         self.wake_now();
     }

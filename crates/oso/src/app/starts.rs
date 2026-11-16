@@ -161,13 +161,25 @@ impl App {
     /// as they are: on an open, its mode's server, when none runs for its project. Telling a
     /// server of an open or a save comes with ADR 0138's step 4.
     fn would_start(&self, id: BufferId, save: bool) -> Starts {
-        if !save && self.would_start_server(id) {
-            return Starts::of(Start::ServerStart);
+        if save {
+            return if self.would_tell_a_save(id) {
+                Starts::of(Start::ServerSave)
+            } else {
+                Starts::NONE
+            };
         }
-        Starts::NONE
+        let mut starts = Starts::NONE;
+        if self.would_start_server(id) {
+            starts = starts.union(Starts::of(Start::ServerStart));
+        }
+        if self.would_open_document(id) {
+            starts = starts.union(Starts::of(Start::ServerOpen));
+        }
+        starts
     }
 
-    /// Starts what `runs` names for `id`, and says so in `*Agent*`.
+    /// Starts what `runs` names for `id`, and says so in `*Agent*`: the server, the open of its
+    /// document, and the save told to the server.
     fn run_starts(&mut self, id: BufferId, runs: Starts) {
         if runs.is_empty() {
             return;
@@ -175,6 +187,13 @@ impl App {
         if runs.iter().any(|start| start == Start::ServerStart) {
             self.start_server_for(id);
         }
+        if runs.iter().any(|start| start == Start::ServerOpen) {
+            self.open_document(id);
+        }
+        if runs.iter().any(|start| start == Start::ServerSave) {
+            self.tell_a_save(id);
+        }
+        self.mark_servers();
         let kinds: Vec<&str> = runs.iter().map(Start::id).collect();
         let name = self.editor.buffer(id).map_or("", |b| b.name()).to_owned();
         self.agent_log(&format!("ran {} in {name}", kinds.join(", ")));

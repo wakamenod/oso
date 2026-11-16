@@ -8,9 +8,10 @@
 //! Must not depend on: the window system or the drawing; this keeps the servers and tells the
 //! editor what to show.
 
+mod documents;
 mod find;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use oso_core::buffer::{BufferId, ServerMark};
@@ -49,6 +50,8 @@ struct Running {
     /// `lsp-start` or `lsp-restart` came while it stopped: once it has ended, this buffer's
     /// server starts again, as the ask cannot reach a thread that is ending.
     start_again: Option<BufferId>,
+    /// The documents opened with it, by buffer (step 4).
+    documents: HashMap<BufferId, documents::Open>,
 }
 
 impl Servers {
@@ -130,10 +133,15 @@ impl App {
                 state: State::Starting,
                 stopping: false,
                 start_again: None,
+                documents: HashMap::new(),
             }),
             Err(error) => self
                 .editor
                 .message(format!("{}: could not start: {error}", entry.name)),
+        }
+        // Its project's buffers go to it, once it is ready, but the agent's (ADR 0118).
+        if let Some(index) = self.servers.running.len().checked_sub(1) {
+            self.open_documents_of(index);
         }
         self.mark_servers();
     }
@@ -141,6 +149,7 @@ impl App {
     /// Carries out what `lsp-start`, `lsp-restart` and `lsp-shutdown` asked. After each event.
     pub(super) fn sync_servers(&mut self) {
         self.stop_untrusted_servers();
+        self.sync_documents();
         for request in self.editor.take_server_requests() {
             match request {
                 ServerRequest::Start(id) => self.lsp_start(id, false),
@@ -251,6 +260,16 @@ impl App {
                 );
                 logged = true;
             }
+            for (id, closed) in report.documents {
+                if let Some(open) = running
+                    .documents
+                    .iter_mut()
+                    .find_map(|(buffer, open)| (buffer.get() == id).then_some(open))
+                {
+                    open.closed = closed;
+                    changed = true;
+                }
+            }
             for shown in report.shown {
                 // The server's name first, so that no server passes as oso. Its text may
                 // quote what it read, so the log gets only its size.
@@ -269,7 +288,9 @@ impl App {
         }
         let mut again = Vec::new();
         for index in ended.into_iter().rev() {
-            again.extend(self.servers.running.remove(index).start_again);
+            let running = self.servers.running.remove(index);
+            again.extend(running.start_again);
+            self.unfollow(running.documents.into_keys());
         }
         for id in again {
             self.start_server_for(id);
@@ -282,21 +303,21 @@ impl App {
         }
     }
 
-    /// Sets each buffer's modeline mark from the server of its project and mode.
+    /// Sets each buffer's modeline mark from the server that has its document, open and not
+    /// kept from it (step 4's Q3): a buffer held for the person shows `waits: server` instead.
     pub(super) fn mark_servers(&mut self) {
         let running = &self.servers.running;
         let marks: Vec<(BufferId, Option<ServerMark>)> = self
             .editor
             .buffers()
             .filter_map(|(id, buffer)| {
-                let mark = buffer
-                    .path()
-                    .and(buffer.project())
-                    .and_then(|project| {
-                        running.iter().find(|running| {
-                            running.project == project
-                                && running.entry.modes.contains(&buffer.mode())
-                        })
+                let mark = running
+                    .iter()
+                    .find(|running| {
+                        running
+                            .documents
+                            .get(&id)
+                            .is_some_and(|open| open.closed.is_none())
                     })
                     .and_then(|running| mark(running.state));
                 (buffer.server() != mark).then_some((id, mark))

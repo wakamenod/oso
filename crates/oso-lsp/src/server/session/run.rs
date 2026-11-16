@@ -41,6 +41,10 @@ pub(super) struct Run {
     /// When `*LSP*` last said how many were dropped: at most once a second.
     pub(super) diagnostics_said: Instant,
     pub(super) look_at: Instant,
+    /// The encoding positions are in, once `initialize` said.
+    pub(super) encoding: crate::position::Encoding,
+    /// How the server wants documents synced, once `initialize` said.
+    pub(super) sync: protocol::Sync,
 }
 
 impl Run {

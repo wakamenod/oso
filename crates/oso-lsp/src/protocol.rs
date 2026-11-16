@@ -192,6 +192,7 @@ pub fn initialize_params(start: &Initialize<'_>) -> Value {
             "general": {"positionEncodings": Encoding::OFFERED},
             "window": {"workDoneProgress": true},
             "workspace": {"configuration": true},
+            "textDocument": {"synchronization": {"didSave": true}},
         },
     });
     if let (Some(options), Value::Object(fields)) = (start.options, &mut params) {
@@ -205,6 +206,65 @@ pub fn initialize_params(start: &Initialize<'_>) -> Value {
 pub fn chosen_encoding(result: &Value) -> Option<Encoding> {
     let chosen = result.get("capabilities")?.get("positionEncoding");
     Encoding::chosen(chosen.and_then(|value| string(value, KEYWORD_BYTES_MAX)))
+}
+
+/// How a server wants documents synced, as its `textDocumentSync` says (step 4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sync {
+    /// It is told of opens and closes.
+    pub open_close: bool,
+    /// How it is told of changes.
+    pub change: SyncKind,
+    /// It is told of saves.
+    pub save: bool,
+}
+
+/// How a server is told of a change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncKind {
+    /// Not at all.
+    None,
+    /// The whole text each time.
+    Full,
+    /// The ranges that changed.
+    Incremental,
+}
+
+/// The sync `initialize`'s result asks for. A bare kind, the protocol's older form, also asks
+/// for opens, closes and saves; nothing asks for none.
+pub fn sync(result: &Value) -> Sync {
+    let kind = |value: Option<&Value>| match value.and_then(|v| integer_in(v, 0..=2)) {
+        Some(1) => SyncKind::Full,
+        Some(2) => SyncKind::Incremental,
+        _ => SyncKind::None,
+    };
+    let given = result
+        .get("capabilities")
+        .and_then(|c| c.get("textDocumentSync"));
+    match given {
+        Some(Value::Object(options)) => Sync {
+            open_close: options.get("openClose") == Some(&Value::Bool(true)),
+            change: kind(options.get("change")),
+            save: match options.get("save") {
+                Some(Value::Bool(on)) => *on,
+                Some(Value::Object(_)) => true,
+                _ => false,
+            },
+        },
+        Some(number @ Value::Number(_)) => {
+            let change = kind(Some(number));
+            Sync {
+                open_close: change != SyncKind::None,
+                change,
+                save: change != SyncKind::None,
+            }
+        }
+        _ => Sync {
+            open_close: false,
+            change: SyncKind::None,
+            save: false,
+        },
+    }
 }
 
 /// The name the server gives itself, cut, for `*LSP*`.

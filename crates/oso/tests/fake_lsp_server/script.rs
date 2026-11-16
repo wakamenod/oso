@@ -18,7 +18,11 @@
 //!
 //! A rule matches a method, and with `nth` only its nth message, from 1; the first rule that
 //! matches is used. With `"log_answers": true`, each answer the client gives the server's
-//! requests is written to the standard error as a line, `answer: <JSON>`, for a test to read. A request no rule matches gets `MethodNotFound`, a notification nothing,
+//! requests is written to the standard error as a line, `answer: <JSON>`, for a test to read.
+//! With `"log_documents": true`, it keeps its own copy of each document the client opens,
+//! applying each change with positions in `"encoding"` (`"utf-8"`, or `"utf-16"` unless it says),
+//! and writes `doc <uri> v<version> len=<bytes> hash=<FNV-1a 64, hex>` after each open and
+//! change, and `closed <uri>` after a close. A request no rule matches gets `MethodNotFound`, a notification nothing,
 //! and `exit` ends the server with 0. The actions:
 //!
 //! - `reply`: the request's result; `error`: its error, `{"code", "message"}`;
@@ -79,6 +83,10 @@ pub struct Script {
     next_id: u64,
     /// Answers to the server's requests go to the standard error.
     log_answers: bool,
+    /// Each document's text, kept and logged.
+    log_documents: bool,
+    utf8: bool,
+    documents: std::collections::HashMap<String, String>,
 }
 
 impl Script {
@@ -104,6 +112,9 @@ impl Script {
             seen: Vec::new(),
             next_id: 1,
             log_answers: value.get("log_answers") == Some(&Value::Bool(true)),
+            log_documents: value.get("log_documents") == Some(&Value::Bool(true)),
+            utf8: value.get("encoding").and_then(Value::as_str) == Some("utf-8"),
+            documents: std::collections::HashMap::new(),
         })
     }
 
@@ -124,13 +135,14 @@ impl Script {
             }
             return Vec::new();
         };
+        let mut kept = self.keep(method, message);
         let nth = self.count(method);
         let steps = self
             .rules
             .iter()
             .find(|rule| rule.method == method && rule.nth.is_none_or(|n| n == nth))
             .map(|rule| rule.steps.clone());
-        match steps {
+        let mut actions = match steps {
             Some(steps) => self.run(&steps, id.as_ref()),
             None if method == "exit" => vec![Action::Exit(0)],
             None => match id {
@@ -141,7 +153,54 @@ impl Script {
                 })))],
                 None => Vec::new(),
             },
+        };
+        kept.append(&mut actions);
+        kept
+    }
+
+    /// Keeps the document a sync notification names as it says, if documents are kept, and
+    /// what to write of it.
+    fn keep(&mut self, method: &str, message: &Value) -> Vec<Action> {
+        if !self.log_documents {
+            return Vec::new();
         }
+        let params = &message["params"];
+        let uri = params["textDocument"]["uri"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let version = params["textDocument"]["version"].as_i64().unwrap_or(0);
+        match method {
+            "textDocument/didOpen" => {
+                let text = params["textDocument"]["text"].as_str().unwrap_or_default();
+                self.documents.insert(uri.clone(), text.to_owned());
+            }
+            "textDocument/didChange" => {
+                let utf8 = self.utf8;
+                let Some(text) = self.documents.get_mut(&uri) else {
+                    return vec![Action::Err(
+                        format!("change of no document {uri}\n").into_bytes(),
+                    )];
+                };
+                for change in params["contentChanges"].as_array().into_iter().flatten() {
+                    apply(text, change, utf8);
+                }
+            }
+            "textDocument/didClose" => {
+                self.documents.remove(&uri);
+                return vec![Action::Err(format!("closed {uri}\n").into_bytes())];
+            }
+            _ => return Vec::new(),
+        }
+        let text = &self.documents[&uri];
+        vec![Action::Err(
+            format!(
+                "doc {uri} v{version} len={} hash={:016x}\n",
+                text.len(),
+                fnv(text.as_bytes())
+            )
+            .into_bytes(),
+        )]
     }
 
     /// Counts a message of `method` and gives its number, from 1.
@@ -303,6 +362,39 @@ fn oversized(len: usize) -> Vec<u8> {
     let mut body = vec![b' '; len.saturating_sub(4)];
     body.extend(&b"null"[..len.min(4)]);
     oso_lsp::framing::encode(&body)
+}
+
+/// Applies one content change to `text`, finding its positions by a scan of the fake's own:
+/// lines end at `\n`, and a column counts bytes, or UTF-16 units unless `utf8`.
+fn apply(text: &mut String, change: &Value, utf8: bool) {
+    let new = change["text"].as_str().unwrap_or_default();
+    let Some(range) = change.get("range") else {
+        *text = new.to_owned();
+        return;
+    };
+    let at = |position: &Value| {
+        let line = position["line"].as_u64().unwrap_or(0) as usize;
+        let column = position["character"].as_u64().unwrap_or(0) as usize;
+        let start: usize = text.split_inclusive('\n').take(line).map(str::len).sum();
+        let start = start.min(text.len());
+        let mut units = 0;
+        for (index, c) in text[start..].char_indices() {
+            if units >= column || c == '\n' {
+                return start + index;
+            }
+            units += if utf8 { c.len_utf8() } else { c.len_utf16() };
+        }
+        text.len()
+    };
+    let (start, end) = (at(&range["start"]), at(&range["end"]));
+    text.replace_range(start..end.max(start), new);
+}
+
+/// FNV-1a, 64 bits, which the tests compute too.
+pub fn fnv(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 #[cfg(test)]

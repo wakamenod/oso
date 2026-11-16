@@ -24,6 +24,7 @@ struct Seen {
     states: Vec<State>,
     log: Vec<String>,
     shown: Vec<(Severity, String)>,
+    documents: Vec<(u64, Option<oso_lsp::server::Closed>)>,
     dir: PathBuf,
 }
 
@@ -77,6 +78,7 @@ fn started(name: &str, script: &Value, gate: Gate) -> Seen {
         states: Vec::new(),
         log: Vec::new(),
         shown: Vec::new(),
+        documents: Vec::new(),
         dir,
     }
 }
@@ -98,6 +100,7 @@ impl Seen {
         self.log.extend(report.log);
         self.shown
             .extend(report.shown.into_iter().map(|s| (s.severity, s.text)));
+        self.documents.extend(report.documents);
     }
 
     /// Waits up to `limit` for `done`, taking each report.
@@ -467,6 +470,7 @@ fn a_crash_ends_what_the_server_left_in_its_group() {
         states: Vec::new(),
         log: Vec::new(),
         shown: Vec::new(),
+        documents: Vec::new(),
         dir,
     };
     seen.until(LIMIT, |seen| {
@@ -488,5 +492,194 @@ fn a_crash_ends_what_the_server_left_in_its_group() {
         );
         std::thread::sleep(Duration::from_millis(20));
     }
+    seen.server.shut_down();
+}
+
+/// FNV-1a, 64 bits, as the fake server hashes its copy.
+fn fnv(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+/// A script that answers `initialize` with `encoding` and incremental sync, and keeps and logs
+/// documents in that encoding.
+fn syncing(encoding: &str) -> Value {
+    json!({
+        "rules": [
+            {"method": "initialize", "do": [{"reply": {"capabilities": {
+                "positionEncoding": encoding,
+                "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+            }}}]},
+            {"method": "shutdown", "do": [{"reply": null}]},
+        ],
+        "log_documents": true,
+        "encoding": encoding,
+    })
+}
+
+/// A small generator of its own, so that a failure can be run again from its seed.
+struct Lcg(u64);
+
+impl Lcg {
+    fn below(&mut self, n: usize) -> usize {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        ((self.0 >> 33) as usize) % n.max(1)
+    }
+}
+
+/// A random batch for `text`: ascending, apart splices on character starts, and the text after.
+/// Its pieces hold multibyte characters, surrogate pairs and `\r\n`, never a lone `\r`.
+fn random_batch(rng: &mut Lcg, text: &str) -> (Vec<oso_core::syntax::Splice>, String) {
+    const PIECES: [&str; 8] = [
+        "a",
+        "é",
+        "日",
+        "\u{1F600}",
+        "\n",
+        "\r\n",
+        " ",
+        "fn x() {}\n",
+    ];
+    let mut splices = Vec::new();
+    let mut after = String::new();
+    let mut at = 0;
+    for _ in 0..rng.below(4) + 1 {
+        let mut start = text.floor_char_boundary((at + rng.below(40)).min(text.len()));
+        // Never between a \r and its \n, which would leave a lone \r.
+        if start > 0 && text.as_bytes()[start - 1] == b'\r' {
+            start -= 1;
+        }
+        start = start.max(at);
+        let mut end = text.floor_char_boundary((start + rng.below(12)).min(text.len()));
+        if end > 0 && end < text.len() && text.as_bytes()[end - 1] == b'\r' {
+            end += 1;
+        }
+        let insert: String = (0..rng.below(5))
+            .map(|_| PIECES[rng.below(PIECES.len())])
+            .collect();
+        after.push_str(&text[at..start]);
+        after.push_str(&insert);
+        splices.push(oso_core::syntax::Splice {
+            start,
+            old_len: end - start,
+            new_len: insert.len(),
+        });
+        at = end;
+        if at >= text.len() {
+            break;
+        }
+    }
+    after.push_str(&text[at..]);
+    (splices, after)
+}
+
+/// Random batches keep the fake server's copy equal to the text, in `encoding`.
+fn the_server_s_copy_follows_random_batches(encoding: &str, seed: u64) {
+    use oso_core::rope::Rope;
+    use oso_lsp::server::{Change, Document};
+    let mut seen = started(&format!("sync-{encoding}"), &syncing(encoding), open());
+    let mut text = String::from("fn main() {\r\n    let é = \"日\u{1F600}\";\n}\n");
+    seen.server.open(Document {
+        id: 7,
+        uri: "file:///w/p/main.rs".into(),
+        language_id: "rust".into(),
+        text: Rope::from(text.as_str()),
+    });
+    let mut expected = vec![(1, fnv(text.as_bytes()))];
+    // Batches before the server is ready only change what it is opened with: one version.
+    seen.until(LIMIT, |seen| seen.logged(" v1 "));
+    let mut rng = Lcg(seed);
+    for version in 2..=150 {
+        let (splices, after) = random_batch(&mut rng, &text);
+        seen.server.change(Change {
+            id: 7,
+            before: Rope::from(text.as_str()),
+            after: Rope::from(after.as_str()),
+            splices: Some(splices),
+        });
+        text = after;
+        expected.push((version, fnv(text.as_bytes())));
+    }
+    seen.until(LIMIT, |seen| seen.logged(" v150 "));
+    for (version, hash) in expected {
+        let line = format!(" v{version} len=");
+        let logged = seen
+            .log
+            .iter()
+            .find(|row| row.contains(&line))
+            .unwrap_or_else(|| panic!("no version {version} in the log"));
+        assert!(
+            logged.ends_with(&format!("hash={hash:016x}")),
+            "version {version} (seed {seed}): {logged}"
+        );
+    }
+    seen.server.shut_down();
+}
+
+#[test]
+fn the_server_s_copy_follows_random_batches_in_utf_8() {
+    the_server_s_copy_follows_random_batches("utf-8", 1);
+}
+
+#[test]
+fn the_server_s_copy_follows_random_batches_in_utf_16() {
+    the_server_s_copy_follows_random_batches("utf-16", 2);
+}
+
+#[test]
+fn a_lone_carriage_return_closes_the_document() {
+    use oso_core::rope::Rope;
+    use oso_lsp::server::{Change, Closed, Document};
+    let mut seen = started("lone-cr", &syncing("utf-16"), open());
+    seen.server.open(Document {
+        id: 3,
+        uri: "file:///w/p/a.rs".into(),
+        language_id: "rust".into(),
+        text: Rope::from("a\r\nb"),
+    });
+    seen.until(LIMIT, |seen| seen.logged(" v1 "));
+    // The \n of the \r\n deleted.
+    seen.server.change(Change {
+        id: 3,
+        before: Rope::from("a\r\nb"),
+        after: Rope::from("a\rb"),
+        splices: Some(vec![oso_core::syntax::Splice {
+            start: 2,
+            old_len: 1,
+            new_len: 0,
+        }]),
+    });
+    seen.until(LIMIT, |seen| {
+        seen.logged("stderr: closed file:///w/p/a.rs") && !seen.documents.is_empty()
+    });
+    assert_eq!(seen.documents, [(3, Some(Closed::LoneCarriageReturn))]);
+    assert!(seen.logged("a document is not sent: it holds a carriage return that ends no line"));
+    seen.server.shut_down();
+}
+
+#[test]
+fn batches_before_the_server_is_ready_go_with_its_open() {
+    use oso_core::rope::Rope;
+    use oso_lsp::server::{Change, Document};
+    let mut seen = started("early", &syncing("utf-8"), open());
+    seen.server.open(Document {
+        id: 1,
+        uri: "file:///w/p/b.rs".into(),
+        language_id: "rust".into(),
+        text: Rope::from("a"),
+    });
+    seen.server.change(Change {
+        id: 1,
+        before: Rope::from("a"),
+        after: Rope::from("ab"),
+        splices: None,
+    });
+    seen.until(LIMIT, |seen| seen.logged(" v1 "));
+    let hash = format!("len=2 hash={:016x}", fnv(b"ab"));
+    assert!(seen.logged(&hash), "{:?}", seen.log);
     seen.server.shut_down();
 }

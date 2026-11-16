@@ -156,6 +156,7 @@ fn initialize_claims_only_what_step_3_uses() {
             "general": {"positionEncodings": ["utf-8", "utf-16"]},
             "window": {"workDoneProgress": true},
             "workspace": {"configuration": true},
+            "textDocument": {"synchronization": {"didSave": true}},
         })
     );
     let params = initialize_params(&Initialize {
@@ -353,4 +354,50 @@ proptest! {
         let _ = message(&value);
         let _ = chosen_encoding(&value);
     }
+}
+
+#[test]
+fn the_sync_a_server_asks_for_is_read() {
+    let sync_of = |given: Value| sync(&json!({"capabilities": {"textDocumentSync": given}}));
+    assert_eq!(
+        sync_of(json!({"openClose": true, "change": 2, "save": {"includeText": false}})),
+        Sync {
+            open_close: true,
+            change: SyncKind::Incremental,
+            save: true
+        }
+    );
+    assert_eq!(
+        sync_of(json!({"openClose": true, "change": 1})),
+        Sync {
+            open_close: true,
+            change: SyncKind::Full,
+            save: false
+        }
+    );
+    assert_eq!(
+        sync_of(json!(2)),
+        Sync {
+            open_close: true,
+            change: SyncKind::Incremental,
+            save: true
+        }
+    );
+    assert_eq!(
+        sync_of(json!(0)),
+        Sync {
+            open_close: false,
+            change: SyncKind::None,
+            save: false
+        }
+    );
+    assert_eq!(
+        sync(&json!({"capabilities": {}})),
+        Sync {
+            open_close: false,
+            change: SyncKind::None,
+            save: false
+        }
+    );
+    assert_eq!(sync_of(json!({"change": 9})).change, SyncKind::None);
 }
