@@ -1,4 +1,4 @@
-//! The tree of `*Sessions*` (ADR 0131, step 2), with worktree sessions' trusted repository and
+//! The tree of `*Spaces*` (ADR 0131, step 2), with worktree sessions' trusted repository and
 //! fake `claude`: the project, its main checkout and the session in it; a worktree made with
 //! git outside oso shows once the sessions worker sees it; an external session in it is
 //! counted on its folded row and listed under it after `TAB`, and one elsewhere in `Other
@@ -26,11 +26,14 @@ fn list(state: &Value) -> String {
         .to_owned()
 }
 
-/// Whether the list has a row that starts, past its indent, with `start`.
+/// A row past its indent and the guides that hang a session from its worktree (ADR 0140).
+fn bare(row: &str) -> &str {
+    row.trim_start_matches([' ', '│', '├', '└'])
+}
+
+/// Whether the list has a row that starts, past its indent and guides, with `start`.
 fn has_row(state: &Value, start: &str) -> bool {
-    list(state)
-        .lines()
-        .any(|row| row.trim_start().starts_with(start))
+    list(state).lines().any(|row| bare(row).starts_with(start))
 }
 
 /// The row point is on, in the selected buffer.
@@ -41,7 +44,7 @@ fn point_row(state: &Value) -> usize {
         .expect("a cursor row")
 }
 
-/// Moves point in `*Sessions*`, which is selected, to line `target` with `n` and `p`, a row
+/// Moves point in `*Spaces*`, which is selected, to line `target` with `n` and `p`, a row
 /// at a time, as a person would.
 pub(crate) fn point_at(app: &mut App, target: usize) {
     let mut at = point_row(&app.state());
@@ -81,25 +84,25 @@ fn sleeper() -> oso_platform::process::Child {
 }
 
 /// The external session in worktree `side`: counted on its row, which is folded as no session
-/// of oso's runs there, and listed under it once `TAB` there unfolds it. Leaves `*Sessions*`
+/// of oso's runs there, and listed under it once `TAB` there unfolds it. Leaves `*Spaces*`
 /// selected.
 fn shown_under_its_worktree(app: &mut App) {
     // Folded, as no session of oso's runs there: its row counts it.
     let state = app.wait_for("the external session in its worktree", |state| {
         list(state)
             .lines()
-            .any(|row| row.trim_start().starts_with("○ side") && row.contains("(1)"))
+            .any(|row| bare(row).starts_with("▸ side") && row.contains("(1)"))
     });
     assert!(!has_row(&state, "○ outside"), "{}", list(&state));
 
     // TAB on the worktree's row shows it there.
     app.send_keys("C-x a s");
     let state = app.wait_for("the list selected", |state| {
-        state["buffer"]["name"] == "*Sessions*"
+        state["buffer"]["name"] == "*Spaces*"
     });
     let side_row = list(&state)
         .lines()
-        .position(|row| row.trim_start().starts_with("○ side"))
+        .position(|row| bare(row).starts_with("▸ side"))
         .unwrap();
     point_at(app, side_row);
     app.send_keys("TAB");
@@ -110,9 +113,9 @@ fn shown_under_its_worktree(app: &mut App) {
     let rows: Vec<&str> = text.lines().collect();
     let at = rows
         .iter()
-        .position(|row| row.trim_start().starts_with("○ side"))
+        .position(|row| bare(row).starts_with("▾ side"))
         .unwrap();
-    assert!(rows[at + 1].starts_with("    ○ outside"), "{text}");
+    assert!(rows[at + 1].starts_with("     └ ○ outside"), "{text}");
 }
 
 #[test]
@@ -134,7 +137,7 @@ fn the_tree_shows_the_project_its_worktrees_and_their_sessions() {
         &["worktree", "add", "-q", "-b", "side-branch", side_text],
     );
     app.wait_for("the new worktree", |state| {
-        has_row(state, "· side  side-branch")
+        has_row(state, "▸ side  side-branch")
     });
 
     // An external session in it, and one elsewhere.
@@ -182,11 +185,11 @@ fn the_tree_shows_the_project_its_worktrees_and_their_sessions() {
     flow.exit_with(0);
 }
 
-/// Selects `*Sessions*` with `C-x a s`, from the tree's window.
+/// Selects `*Spaces*` with `C-x a s`, from the tree's window.
 fn select_list(app: &mut App) -> Value {
     app.send_keys("C-x a s");
     app.wait_for("the list selected", |state| {
-        state["buffer"]["name"] == "*Sessions*"
+        state["buffer"]["name"] == "*Spaces*"
     })
 }
 
@@ -198,22 +201,22 @@ fn line_of(state: &Value, wanted: impl Fn(&str) -> bool) -> usize {
         .unwrap_or_else(|| panic!("no such row: {}", list(state)))
 }
 
-/// A row of a session called `name`, under its worktree's.
+/// A row of a session called `name`, hung from its worktree's on a guide (ADR 0140).
 fn session_row(name: &str) -> impl Fn(&str) -> bool + '_ {
     move |row: &str| {
-        row.starts_with("    ")
-            && row
-                .trim_start()
+        row.trim_start().starts_with(['├', '└'])
+            && bare(row)
                 .split_once(' ')
                 .is_some_and(|(_, rest)| rest.starts_with(name))
     }
 }
 
-/// A worktree's row called `name`, past its mark.
+/// A worktree's row called `name`, past its fold: three cells in, past the bar's cell, in a
+/// space of one repository.
 fn worktree_row(name: &str) -> impl Fn(&str) -> bool + '_ {
     move |row: &str| {
-        row.starts_with("  ")
-            && !row.starts_with("   ")
+        row.starts_with("   ")
+            && !row.starts_with("    ")
             && row
                 .trim_start()
                 .split_once(' ')
@@ -249,7 +252,8 @@ fn prompt(state: &Value) -> (String, String) {
 /// starts a session there, which shows under it.
 fn keys_on_a_new_worktree(app: &mut App) {
     let state = select_list(app);
-    point_at(app, 0);
+    // The space's row, under the title's (ADR 0140).
+    point_at(app, 1);
     let main = line_of(&state, |row| row.contains("main  primary"));
     let side = line_of(&state, worktree_row("side"));
     app.send_keys("M-n");
@@ -294,7 +298,7 @@ fn the_trees_keys_and_clicks_start_and_enter_worktrees() {
         ],
     );
     app.wait_for("the new worktree", |state| {
-        has_row(state, "· side  side-branch")
+        has_row(state, "▸ side  side-branch")
     });
     keys_on_a_new_worktree(&mut app);
 
@@ -315,17 +319,28 @@ fn the_trees_keys_and_clicks_start_and_enter_worktrees() {
     });
     app.send_keys("C-g");
 
-    // A click on the list, not selected: the main checkout's session shows, and a click on the
-    // project's fold mark folds it.
+    // A click on the list, not selected, selects it and moves point there (ADR 0140, Q5); a
+    // second click shows the main checkout's session, and a click on the space's fold mark
+    // folds it, selected or not.
     app.send_keys("C-x o");
     let state = app.wait_for("the tree's window", |state| {
-        state["buffer"]["name"] != "*Sessions*"
+        state["buffer"]["name"] != "*Spaces*"
     });
-    click(&mut app, line_of(&state, session_row("repo")), 6);
+    let at = line_of(&state, session_row("repo"));
+    click(&mut app, at, 10);
+    let state = app.wait_for("the list selected by the click", |state| {
+        state["buffer"]["name"] == "*Spaces*"
+    });
+    assert_eq!(point_row(&state), at, "{}", list(&state));
+    click(&mut app, at, 10);
     app.wait_for("the main session shown", |state| {
         state["buffer"]["name"] == "*claude: repo*"
     });
-    click(&mut app, 0, 0);
+    click(
+        &mut app,
+        line_of(&state, |row| row.starts_with(" ▾ repo")),
+        1,
+    );
     app.wait_for("the project folded", |state| has_row(state, "▸ repo"));
     flow.exit_with(0);
 }
@@ -352,15 +367,14 @@ fn the_pane_starts_at_pane_width_and_takes_4_columns_a_step_down_to_24() {
     select_list(&mut app);
     app.send_keys(">");
     app.wait_for("4 columns wider", |state| {
-        side_columns(state) == Some(34)
-            && state["echo"].as_str() == Some("Sessions pane: 34 columns")
+        side_columns(state) == Some(34) && state["echo"].as_str() == Some("*Spaces*: 34 columns")
     });
     // Three steps narrower, kept at the narrowest.
     app.send_keys("C-u 3 <");
     app.wait_for("at 24", |state| side_columns(state) == Some(24));
     app.send_keys("<");
     app.wait_for("said to be the narrowest", |state| {
-        state["echo"].as_str() == Some("The sessions pane is at its narrowest, 24 columns")
+        state["echo"].as_str() == Some("*Spaces* is at its narrowest, 24 columns")
     });
     assert_eq!(side_columns(&app.state()), Some(24));
     flow.exit_with(0);

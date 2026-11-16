@@ -181,7 +181,7 @@ impl App {
     }
 
     /// A reply for a session, as `session_list` and `session_state` give it, with its state as
-    /// `*Sessions*` and `*Worktrees*` have it: the taxonomy's, or `starting` or `running` while
+    /// `*Spaces*` and `*Worktrees*` have it: the taxonomy's, or `starting` or `running` while
     /// its live state is not known. `now` is the time as an instant and in ms since the epoch.
     fn session_json(
         &self,

@@ -46,7 +46,7 @@ pub struct External {
 }
 
 impl External {
-    /// The name `*Sessions*` lists it by: the registry's, else `claude PID`.
+    /// The name `*Spaces*` lists it by: the registry's, else `claude PID`.
     pub fn listed_name(&self) -> String {
         self.name
             .clone()
@@ -62,7 +62,7 @@ impl External {
         Some(now.checked_sub(ago).unwrap_or(now))
     }
 
-    /// Its directory's last name, cleaned as its name is, as its place in `*Sessions*` when
+    /// Its directory's last name, cleaned as its name is, as its place in `*Spaces*` when
     /// no space of oso's holds it.
     pub fn directory_name(&self) -> String {
         let name = self.directory.as_deref().and_then(Path::file_name);
@@ -242,7 +242,7 @@ fn live<'a>(entries: impl Iterator<Item = &'a registry::Entry>) -> Vec<External>
     live
 }
 
-/// The name `*Sessions*` lists for `entry`, if it has one. It is the registry's text, so it is
+/// The name `*Spaces*` lists for `entry`, if it has one. It is the registry's text, so it is
 /// cleaned as a recap is, that it cannot reorder or break the line it is drawn on.
 /// Characters that draw nothing, or a blank, are dropped too: a name of them alone would show
 /// as no name, and among others they would make a copy of another session's name.
@@ -348,7 +348,7 @@ mod tests {
         };
         let shown = super::shown_name(&named(Some("fix\u{202E}txt.exe\tnow\nx")));
         assert_eq!(shown.as_deref(), Some("fixtxt.exe now x"));
-        // No name is left: `*Sessions*` lists it as `claude PID`.
+        // No name is left: `*Spaces*` lists it as `claude PID`.
         assert_eq!(super::shown_name(&named(Some("\u{2066}\t"))), None);
         assert_eq!(super::shown_name(&named(None)), None);
         let blank = named(Some("\u{200B}\u{2800}\u{3164}\u{FEFF}"));

@@ -253,7 +253,7 @@ pub fn git_discarded_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, vcs::DISCARDED).unwrap_or_default()
 }
 
-/// `*Sessions*`'s own keymap, above the global one in it (ADR 0121). Empty for a registry
+/// `*Spaces*`'s own keymap, above the global one in it (ADR 0121). Empty for a registry
 /// without its commands, as in tests that bring their own.
 pub fn sessions_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, agent_sessions::LIST).unwrap_or_default()

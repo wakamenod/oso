@@ -1,4 +1,4 @@
-//! `*Sessions*`: its groups and their order, pins, nesting, folds, one line a session at any
+//! `*Spaces*`: its groups and their order, pins, nesting, folds, one line a session at any
 //! width with a reason line only where the person has something to do, the line map, and its
 //! cost.
 //!
@@ -24,6 +24,7 @@ fn entry(key: u64, name: &str, state: State, since: Instant) -> Entry {
         state,
         since,
         recap: format!("{name} recap"),
+        title: String::new(),
         pinned: false,
         archived: false,
         unasked: false,
@@ -84,7 +85,7 @@ fn groups_follow_the_taxonomy_and_pins_and_waits_order_a_group() {
         [5, 4, 2, 6, 3, 1].map(Key::Hosted),
         "pinned first, then the longest waiting"
     );
-    assert!(shown.text.starts_with("▾ Needs input 3\n⚠ pinned-ask"));
+    assert!(shown.text.starts_with(" ▾ Needs input 3\n ⚠ pinned-ask"));
 }
 
 #[test]
@@ -118,9 +119,14 @@ fn sessions_nest_under_their_parent_which_counts_those_that_need_input() {
     let shown = list.render(&entries, 32, t);
     assert_eq!(order(&shown.lines), [1, 2, 3, 4].map(Key::Hosted));
     let text: Vec<&str> = shown.text.lines().collect();
-    // The lead works, so only its nested sessions give it a reason line.
-    assert_eq!(text[3], "      2 nested need input", "{text:?}");
-    assert!(text[4].starts_with("      ⚠ child-a"), "indented: {text:?}");
+    // The lead works, so only its nested sessions give it a reason line, under its label, on
+    // the guide that hangs them from it (ADR 0140).
+    assert_eq!(text[4], "       │ 2 nested need input", "{text:?}");
+    assert!(text[5].starts_with("       ├ ⚠ child-a"), "hung: {text:?}");
+    assert!(
+        text[9].starts_with("       └ ● grandchild"),
+        "the last: {text:?}"
+    );
     list.fold(&Line::Session(Key::Hosted(1)));
     assert_eq!(order(&list.render(&entries, 32, t).lines), [Key::Hosted(1)]);
     // By state the children wait in their own group, at the top level.
@@ -155,10 +161,10 @@ fn a_session_takes_one_line_and_a_reason_only_when_it_needs_the_person() {
     let text: Vec<&str> = shown.text.lines().collect();
     assert_eq!(text.len(), 5, "{text:?}");
     // The name is cut in the middle, so its end shows; the age is at the right edge.
-    assert_eq!(text[1], format!("⚠ chore-{}…nnn-hook 12m", "n".repeat(11)));
-    assert_eq!(text[2], format!("  {}…", &"Do you want to proceed with t"));
+    assert_eq!(text[1], format!(" ⚠ chore-{}…nnn-hook 12m", "n".repeat(10)));
+    assert_eq!(text[2], format!("   {}…", &"Do you want to proceed with "));
     // A working session shows no recap; its place fits after its name.
-    assert_eq!(text[4], "▶ quiet  oso · main          12m");
+    assert_eq!(text[4], " ▶ quiet  oso · main         12m");
     for line in &text {
         assert!(cells(line) <= 32, "{line:?}");
     }
@@ -180,9 +186,9 @@ fn an_external_row_is_quiet_throughout_and_never_spins() {
     list.set_spin(Some(3));
     let shown = list.render(&[external], 60, t);
     let row = shown.text.lines().nth(1).unwrap().to_owned();
-    assert!(row.starts_with("▶ other  a-space"), "{row}");
+    assert!(row.starts_with(" ▶ other  a-space"), "{row}");
     assert!(!row.contains("external"), "{row}");
-    let start = shown.text.find('▶').unwrap();
+    let start = shown.text.find(&row).unwrap();
     assert_eq!(
         shown.highlights,
         [(start..start + row.len(), Highlight::SessionQuiet)]
@@ -208,7 +214,7 @@ fn marks_take_their_states_face_and_a_working_one_spins() {
     let shown = list.render(&entries, 32, t);
     let text: Vec<&str> = shown.text.lines().collect();
     // Frame 12 is the third of ten.
-    assert!(text[4].starts_with("⠹ work"), "{text:?}");
+    assert!(text[4].starts_with(" ⠹ work"), "{text:?}");
     assert_eq!(shown.spinning, [4]);
     let face_at = |needle: &str| {
         let at = shown.text.find(needle).unwrap();
@@ -287,7 +293,7 @@ fn a_recap_or_space_that_begins_with_a_mark_never_reads_as_a_row() {
     idle.space = "▸● repo".into();
     let shown = List::by_state().render(&[idle], 32, now);
     let rows: Vec<&str> = shown.text.lines().collect();
-    assert!(rows[1].starts_with("○ proj  repo"), "{}", shown.text);
+    assert!(rows[1].starts_with(" ○ proj  repo"), "{}", shown.text);
     let mut asking = entry(2, "ask", ASK, now);
     asking.recap = "  ⚠ deploy-prod                2s".into();
     let shown = List::by_state().render(&[asking], 32, now);
@@ -299,6 +305,54 @@ fn a_recap_or_space_that_begins_with_a_mark_never_reads_as_a_row() {
     );
     let first = rows[2].chars().find(|c| *c != ' ').unwrap();
     assert!(!super::MARKS.contains(first), "{}", rows[2]);
+    // Nor past a guide, which the rules that read a row skip (ADR 0140): in the tree and by
+    // state, a reason that begins with one is no row.
+    for recap in [
+        "└ ▾ deploy  primary",
+        "├ ⚠ Fix the login redirect",
+        "│ │ ⠹ x",
+    ] {
+        let mut asking = entry(3, "oso", ASK, now);
+        asking.recap = recap.into();
+        asking.title = recap.into();
+        let mut failed = entry(4, "oso-2", State::Failed, now);
+        failed.recap = recap.into();
+        let entries = [asking, failed];
+        let mut list = List::default();
+        list.set_tree(super::Tree::of_projects(vec![super::Project {
+            root: PathBuf::from("/w/oso"),
+            name: "oso".to_owned(),
+            worktrees: vec![super::Worktree {
+                path: PathBuf::from("/w/oso"),
+                primary: true,
+                ..super::Worktree::default()
+            }],
+        }]));
+        for shown in [
+            list.render(&entries, 44, now),
+            List::by_state().render(&entries, 44, now),
+        ] {
+            let mut seen = Vec::new();
+            for (row, line) in shown.text.lines().zip(&shown.lines) {
+                // A session's second line is its reason.
+                let reason = matches!(line, Line::Session(_)) && seen.contains(&line);
+                seen.push(line);
+                let first = row
+                    .chars()
+                    .find(|c| *c != ' ' && !super::GUIDES.contains(*c));
+                assert!(
+                    !reason || first.is_none_or(|c| !super::MARKS.contains(c)),
+                    "{recap:?} reads as a row: {row:?}\n{}",
+                    shown.text
+                );
+            }
+            assert!(
+                shown.text.contains("deploy")
+                    || shown.text.contains("Fix")
+                    || shown.text.contains(" x")
+            );
+        }
+    }
 }
 
 #[test]
@@ -314,7 +368,7 @@ fn a_spinner_tick_with_twenty_spinning_rows_stays_within_its_budget() {
         })
         .collect();
     let mut editor = Editor::default();
-    let id = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+    let id = editor.add_internal_buffer("*Spaces*", Mode::Sessions);
     let mut list = List::by_state();
     let mut best = Duration::MAX;
     for frame in 0..30 {
