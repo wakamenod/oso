@@ -2,7 +2,7 @@
 //! (ADR 0138, step 3): `lsp-start`, `lsp-restart` and `lsp-shutdown`; and `*LSP*`, the log of
 //! what servers did, which keeps the last bytes the host says; and what the echo area says of
 //! the diagnostics at point (step 6), and the list of a project's (`M-g d`, step 6b,
-//! `diagnostics_list`); the jumps an answer leads to, and back (step 8, `jumps`), and the list
+//! `diagnostics_list`, sharing `listed` with the list of an answer's places); the jumps an answer leads to, and back (step 8, `jumps`), and the list
 //! of an answer's places (step 8b, `xref_list`).
 //!
 //! Must not depend on: the host's servers, threads or I/O; a command asks, and the host takes
@@ -10,16 +10,16 @@
 
 mod diagnostics_list;
 mod jumps;
+mod listed;
 mod xref_list;
 
 use crate::buffer::{Buffer, BufferId};
 
 /// Where on a line a server's place is: the host turns the server's encoding into one.
 pub use super::visits::VisitColumn;
-pub use diagnostics_list::{
-    DiagnosticHit, DiagnosticRow, DiagnosticRowAt, DiagnosticRows, DiagnosticsRequest,
-};
+pub use diagnostics_list::{DiagnosticRow, DiagnosticRows, DiagnosticsRequest};
 pub use jumps::AskAt;
+pub use listed::{ListedAt, ListedHit};
 pub use xref_list::{XrefKind, XrefRow, XrefRows};
 
 use super::Editor;

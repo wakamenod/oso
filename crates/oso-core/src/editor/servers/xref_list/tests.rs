@@ -49,7 +49,7 @@ fn listing(text: &str, kind: XrefKind) -> Editor {
     editor
 }
 
-fn row(shown: &str, path: &str, line: usize, at: DiagnosticRowAt, text: &str) -> XrefRow {
+fn row(shown: &str, path: &str, line: usize, at: ListedAt, text: &str) -> XrefRow {
     XrefRow {
         shown: shown.into(),
         path: PathBuf::from(path),
@@ -59,8 +59,8 @@ fn row(shown: &str, path: &str, line: usize, at: DiagnosticRowAt, text: &str) ->
     }
 }
 
-fn file(column: VisitColumn) -> DiagnosticRowAt {
-    DiagnosticRowAt::File { column }
+fn file(column: VisitColumn) -> ListedAt {
+    ListedAt::File { column }
 }
 
 /// The texts of the rows shown, in order.
@@ -172,7 +172,7 @@ fn a_row_of_an_open_buffer_previews_and_goes_where_its_edits_since_moved_it() {
     let mut editor = listing("let x = 1;\nlet y = 2;\n", XrefKind::Definitions);
     let buffer = editor.tiled().0.buffer();
     let revision = editor.buffer(buffer).unwrap().revision();
-    let at = DiagnosticRowAt::Open {
+    let at = ListedAt::Open {
         buffer,
         offset: 15,
         revision,
@@ -195,7 +195,7 @@ fn a_row_of_an_open_buffer_previews_and_goes_where_its_edits_since_moved_it() {
     editor.submit_prompt().unwrap();
     assert_eq!(
         editor.take_xref_hit(),
-        Some(DiagnosticHit::Buffer {
+        Some(ListedHit::Buffer {
             id: buffer,
             offset: 18
         })
@@ -245,7 +245,7 @@ fn a_file_under_the_root_is_read_from_it_and_one_outside_from_its_own_directory(
     editor.submit_prompt().unwrap();
     assert_eq!(
         editor.take_xref_hit(),
-        Some(DiagnosticHit::File {
+        Some(ListedHit::File {
             path: PathBuf::from("/h/.cargo/registry/c.rs"),
             line: 2,
             column: VisitColumn::Utf8(1)

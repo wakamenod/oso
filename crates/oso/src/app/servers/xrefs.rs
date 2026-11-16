@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use oso_core::buffer::BufferId;
-use oso_core::editor::{DiagnosticHit, XrefKind, XrefRows};
+use oso_core::editor::{ListedHit, XrefKind, XrefRows};
 use oso_core::minibuffer::PromptId;
 use oso_lsp::server::{AskKind, Location};
 
@@ -308,8 +308,8 @@ impl App {
         let index = (self.servers.xrefs.server.as_ref())
             .and_then(|(root, name)| self.servers.find(root, name));
         match hit {
-            DiagnosticHit::Buffer { id, offset } => self.editor.xref_to_place(id, offset),
-            DiagnosticHit::File { path, line, column } => {
+            ListedHit::Buffer { id, offset } => self.editor.xref_to_place(id, offset),
+            ListedHit::File { path, line, column } => {
                 self.visit_place(index, path, line, column);
             }
         }

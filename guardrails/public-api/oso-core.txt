@@ -1412,38 +1412,6 @@ impl core::fmt::Display for oso_core::editor::CursorError
 pub fn oso_core::editor::CursorError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::CursorError
 impl core::marker::StructuralPartialEq for oso_core::editor::CursorError
-pub enum oso_core::editor::DiagnosticHit
-pub oso_core::editor::DiagnosticHit::Buffer
-pub oso_core::editor::DiagnosticHit::Buffer::id: oso_core::buffer::BufferId
-pub oso_core::editor::DiagnosticHit::Buffer::offset: usize
-pub oso_core::editor::DiagnosticHit::File
-pub oso_core::editor::DiagnosticHit::File::column: oso_core::editor::VisitColumn
-pub oso_core::editor::DiagnosticHit::File::line: usize
-pub oso_core::editor::DiagnosticHit::File::path: std::path::PathBuf
-impl core::clone::Clone for oso_core::editor::DiagnosticHit
-pub fn oso_core::editor::DiagnosticHit::clone(&self) -> oso_core::editor::DiagnosticHit
-impl core::cmp::Eq for oso_core::editor::DiagnosticHit
-impl core::cmp::PartialEq for oso_core::editor::DiagnosticHit
-pub fn oso_core::editor::DiagnosticHit::eq(&self, &oso_core::editor::DiagnosticHit) -> bool
-impl core::fmt::Debug for oso_core::editor::DiagnosticHit
-pub fn oso_core::editor::DiagnosticHit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for oso_core::editor::DiagnosticHit
-pub enum oso_core::editor::DiagnosticRowAt
-pub oso_core::editor::DiagnosticRowAt::File
-pub oso_core::editor::DiagnosticRowAt::File::column: oso_core::editor::VisitColumn
-pub oso_core::editor::DiagnosticRowAt::Open
-pub oso_core::editor::DiagnosticRowAt::Open::buffer: oso_core::buffer::BufferId
-pub oso_core::editor::DiagnosticRowAt::Open::offset: usize
-pub oso_core::editor::DiagnosticRowAt::Open::revision: u64
-impl core::clone::Clone for oso_core::editor::DiagnosticRowAt
-pub fn oso_core::editor::DiagnosticRowAt::clone(&self) -> oso_core::editor::DiagnosticRowAt
-impl core::cmp::Eq for oso_core::editor::DiagnosticRowAt
-impl core::cmp::PartialEq for oso_core::editor::DiagnosticRowAt
-pub fn oso_core::editor::DiagnosticRowAt::eq(&self, &oso_core::editor::DiagnosticRowAt) -> bool
-impl core::fmt::Debug for oso_core::editor::DiagnosticRowAt
-pub fn oso_core::editor::DiagnosticRowAt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for oso_core::editor::DiagnosticRowAt
-impl core::marker::StructuralPartialEq for oso_core::editor::DiagnosticRowAt
 pub enum oso_core::editor::DraftFor
 pub oso_core::editor::DraftFor::Comment
 pub oso_core::editor::DraftFor::Comment::anchor: oso_core::review::Anchor
@@ -1608,6 +1576,38 @@ impl core::fmt::Debug for oso_core::editor::KillRefused
 pub fn oso_core::editor::KillRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::KillRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::KillRefused
+pub enum oso_core::editor::ListedAt
+pub oso_core::editor::ListedAt::File
+pub oso_core::editor::ListedAt::File::column: oso_core::editor::VisitColumn
+pub oso_core::editor::ListedAt::Open
+pub oso_core::editor::ListedAt::Open::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::ListedAt::Open::offset: usize
+pub oso_core::editor::ListedAt::Open::revision: u64
+impl core::clone::Clone for oso_core::editor::ListedAt
+pub fn oso_core::editor::ListedAt::clone(&self) -> oso_core::editor::ListedAt
+impl core::cmp::Eq for oso_core::editor::ListedAt
+impl core::cmp::PartialEq for oso_core::editor::ListedAt
+pub fn oso_core::editor::ListedAt::eq(&self, &oso_core::editor::ListedAt) -> bool
+impl core::fmt::Debug for oso_core::editor::ListedAt
+pub fn oso_core::editor::ListedAt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::ListedAt
+impl core::marker::StructuralPartialEq for oso_core::editor::ListedAt
+pub enum oso_core::editor::ListedHit
+pub oso_core::editor::ListedHit::Buffer
+pub oso_core::editor::ListedHit::Buffer::id: oso_core::buffer::BufferId
+pub oso_core::editor::ListedHit::Buffer::offset: usize
+pub oso_core::editor::ListedHit::File
+pub oso_core::editor::ListedHit::File::column: oso_core::editor::VisitColumn
+pub oso_core::editor::ListedHit::File::line: usize
+pub oso_core::editor::ListedHit::File::path: std::path::PathBuf
+impl core::clone::Clone for oso_core::editor::ListedHit
+pub fn oso_core::editor::ListedHit::clone(&self) -> oso_core::editor::ListedHit
+impl core::cmp::Eq for oso_core::editor::ListedHit
+impl core::cmp::PartialEq for oso_core::editor::ListedHit
+pub fn oso_core::editor::ListedHit::eq(&self, &oso_core::editor::ListedHit) -> bool
+impl core::fmt::Debug for oso_core::editor::ListedHit
+pub fn oso_core::editor::ListedHit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::ListedHit
 pub enum oso_core::editor::ListingOrder
 pub oso_core::editor::ListingOrder::Date
 pub oso_core::editor::ListingOrder::Name
@@ -2269,7 +2269,7 @@ pub fn oso_core::editor::DiagnosticCells::default() -> oso_core::editor::Diagnos
 impl core::fmt::Debug for oso_core::editor::DiagnosticCells
 pub fn oso_core::editor::DiagnosticCells::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::DiagnosticRow
-pub oso_core::editor::DiagnosticRow::at: oso_core::editor::DiagnosticRowAt
+pub oso_core::editor::DiagnosticRow::at: oso_core::editor::ListedAt
 pub oso_core::editor::DiagnosticRow::code: alloc::boxed::Box<str>
 pub oso_core::editor::DiagnosticRow::line: usize
 pub oso_core::editor::DiagnosticRow::message: alloc::boxed::Box<str>
@@ -2588,7 +2588,7 @@ pub fn oso_core::editor::Editor::diagnostic_cells(&self, oso_core::window::Windo
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::diagnostics_listed(&mut self, oso_core::editor::DiagnosticRows)
 pub fn oso_core::editor::Editor::open_diagnostics_list(&mut self, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
-pub fn oso_core::editor::Editor::take_diagnostic_hit(&mut self) -> core::option::Option<oso_core::editor::DiagnosticHit>
+pub fn oso_core::editor::Editor::take_diagnostic_hit(&mut self) -> core::option::Option<oso_core::editor::ListedHit>
 pub fn oso_core::editor::Editor::take_diagnostics_request(&mut self) -> core::option::Option<oso_core::editor::DiagnosticsRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::directory_answer_waits(&self) -> bool
@@ -2778,7 +2778,7 @@ pub fn oso_core::editor::Editor::take_search_hit(&mut self) -> core::option::Opt
 pub fn oso_core::editor::Editor::take_search_request(&mut self) -> core::option::Option<oso_core::editor::ProjectSearchRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::open_xref_list(&mut self, oso_core::editor::XrefKind, u64, std::path::PathBuf) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
-pub fn oso_core::editor::Editor::take_xref_hit(&mut self) -> core::option::Option<oso_core::editor::DiagnosticHit>
+pub fn oso_core::editor::Editor::take_xref_hit(&mut self) -> core::option::Option<oso_core::editor::ListedHit>
 pub fn oso_core::editor::Editor::xref_listed(&mut self, oso_core::editor::XrefRows)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::pair_of(&self, oso_core::window::WindowId) -> core::option::Option<oso_core::window::WindowId>
@@ -3362,7 +3362,7 @@ pub fn oso_core::editor::WindowTree::tiling(&self) -> oso_core::frame::Tiling
 impl core::fmt::Debug for oso_core::editor::WindowTree
 pub fn oso_core::editor::WindowTree::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::XrefRow
-pub oso_core::editor::XrefRow::at: oso_core::editor::DiagnosticRowAt
+pub oso_core::editor::XrefRow::at: oso_core::editor::ListedAt
 pub oso_core::editor::XrefRow::line: usize
 pub oso_core::editor::XrefRow::path: std::path::PathBuf
 pub oso_core::editor::XrefRow::shown: alloc::boxed::Box<str>

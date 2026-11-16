@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use oso_core::buffer::{Buffer, BufferId};
-use oso_core::editor::{DiagnosticRowAt, VisitColumn, XrefRow, XrefRows};
+use oso_core::editor::{ListedAt, VisitColumn, XrefRow, XrefRows};
 use oso_core::rope::Rope;
 
 use crate::grep::{Leads, RowLines, read_lines};
@@ -134,7 +134,7 @@ pub(super) fn build(
                         shown,
                         path: path.to_path_buf(),
                         line: line + 1,
-                        at: DiagnosticRowAt::Open {
+                        at: ListedAt::Open {
                             buffer: *buffer,
                             offset: *offset,
                             revision: *revision,
@@ -150,7 +150,7 @@ pub(super) fn build(
                         shown,
                         path: path.to_path_buf(),
                         line: *line,
-                        at: DiagnosticRowAt::File { column: *column },
+                        at: ListedAt::File { column: *column },
                         text: read,
                     }
                 }

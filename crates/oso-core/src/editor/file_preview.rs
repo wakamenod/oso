@@ -302,7 +302,7 @@ impl Editor {
     fn file_preview(&self, lister: Lister) -> &FilePreview {
         match lister {
             Lister::Search => &self.project_search.preview,
-            Lister::Diagnostics => &self.servers.list.preview,
+            Lister::Diagnostics => &self.servers.list.listed.preview,
             Lister::Xrefs => &self.servers.xrefs.preview,
         }
     }
@@ -310,7 +310,7 @@ impl Editor {
     fn file_preview_mut(&mut self, lister: Lister) -> &mut FilePreview {
         match lister {
             Lister::Search => &mut self.project_search.preview,
-            Lister::Diagnostics => &mut self.servers.list.preview,
+            Lister::Diagnostics => &mut self.servers.list.listed.preview,
             Lister::Xrefs => &mut self.servers.xrefs.preview,
         }
     }

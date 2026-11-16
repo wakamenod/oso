@@ -1495,7 +1495,8 @@ public items below (Q7), with the prompt opened through an argument spec of its 
   place of the `ProjectPreview` pair), `Excerpt::new` with a `VisitColumn`,
   `command::ArgSpec::Diagnostics`, `Editor::{open_diagnostics_list, take_diagnostics_request,
   diagnostics_listed, take_diagnostic_hit}`, `editor::{DiagnosticsRequest, DiagnosticRow,
-  DiagnosticRowAt, DiagnosticRows, DiagnosticHit}`. `oso-lsp`: `server::Diagnosed::{File,
+  DiagnosticRowAt, DiagnosticRows, DiagnosticHit}`, the place types since renamed
+  `editor::{ListedAt, ListedHit}` (step 8b's Q6). `oso-lsp`: `server::Diagnosed::{File,
   Forgotten}`, `limits::DIAGNOSTIC_ROWS_MAX`.
 - **From this step's reviews:** the snapshot copies no path and takes only the project's
   servers; the reports' paths are judged against the root in the servers' spelling; a file's
@@ -1724,7 +1725,7 @@ in the order each first comes, the first selected (Q2); one reference gone to at
 and the labels `Definitions:` and `References:` with the list's count (Q4, Q8); at most 64 MiB
 read of a file and 256 MiB of a list, over at most the answer's 1000 places, past them a row
 with no text, a newer ask or the list's end stopping the read (Q5); the place types shared
-with `M-g d` as `editor::{ListedAt, ListedHit}`, renamed once step 6b has merged (Q6); the
+with `M-g d` as `editor::{ListedAt, ListedHit}`, renamed once step 6b had merged (Q6); the
 agent's `M-?` refused with the words above (Q7); and the public items below (Q9).
 
 - **`oso-core`** (`editor/servers/xref_list.rs`, a twin of `M-g d`'s list):
@@ -1732,7 +1733,7 @@ agent's `M-?` refused with the words above (Q7); and the public items below (Q9)
   host's list `generation`; `Editor::xref_listed` takes its rows, dropped unless they are for the list
   open; `RET` keeps the row for the host, `Editor::take_xref_hit`. A row reads
   `path:line: text`. A row of an open buffer goes where its edits since moved it, as `M-g d`'s
-  rows go (the mapping now shared, `diagnostics_list::open_now`); any other goes to the
+  rows go; any other goes to the
   server's line and column. The preview is `FilePreview`'s, as `Lister::Xrefs`: a row of an
   open buffer shows from memory; a file under the server's root is reached from it, any other
   from its own directory, so one right in a directory that is or holds the home directory
@@ -1756,6 +1757,13 @@ agent's `M-?` refused with the words above (Q7); and the public items below (Q9)
     each invalid byte one U+FFFD, `…` where more follows.
   - The agent's `M-.` still goes to the first of several, saying `1 of 3`; its `M-?` asks
     nothing.
+- **What the two lists share** (`editor/servers/listed.rs`, done once step 6b had merged, as the
+  architecture review asked): `ListedAt` and `ListedHit`, renamed from `DiagnosticRowAt` and
+  `DiagnosticHit`; `Listed`, the state each list keeps beside its rows (its prompt, root,
+  generation, whether its rows came or were cut, their places, `RET`'s row and its preview),
+  with how it opens, takes its rows, maps an open buffer's row through the edits since and
+  closes; and `Editor::show_listed`, which shows the rows, what was typed meanwhile matched
+  against them. Each list keeps only its rows' form and its preview's choice of file.
 - **From this step's reviews:** a row never reads the file of an open buffer that withholds
   its text, by its path or its device and inode, as the preview never shows one; a place under
   `/dev`, `/proc` or `/sys` is left out with those under an automount, the jump's too; on
@@ -1766,7 +1774,8 @@ agent's `M-?` refused with the words above (Q7); and the public items below (Q9)
   list's server is kept until the next list, so `RET`'s row goes to it however late the host
   takes the row, as a command a macro replays runs before it looks; and what the list held is
   freed off the UI thread.
-- **Public API:** `oso-core`: `editor::{XrefKind, XrefRow, XrefRows}`, `Editor::{open_xref_list,
+- **Public API:** `oso-core`: `editor::{XrefKind, XrefRow, XrefRows, ListedAt, ListedHit}` (the
+  last two in place of `DiagnosticRowAt` and `DiagnosticHit`), `Editor::{open_xref_list,
   xref_listed, take_xref_hit}`, `ServerRequest::GoToXref`, `ArgSpec::Xref`. The tip's
   `Dispatcher::list_xrefs`.
 - **Tests:** in `oso-core`, the list's rows, a stale list, the open buffer's mapping, the

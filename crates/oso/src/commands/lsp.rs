@@ -14,7 +14,7 @@
 //! lists, is refused (ADR 0138, Q24, step 8's Q5).
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::{DiagnosticHit, ServerRequest, VisitColumn};
+use oso_core::editor::{ListedHit, ServerRequest, VisitColumn};
 
 /// The commands of language servers.
 pub const COMMANDS: &[Command] = &[
@@ -153,7 +153,7 @@ fn diagnostics(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         return Err(CommandError::new("No diagnostic was picked"));
     };
     let (path, line, column) = match hit {
-        DiagnosticHit::Buffer { id, offset } => {
+        ListedHit::Buffer { id, offset } => {
             let buffer = ctx.editor.buffer(id);
             let Some((buffer, path)) = buffer.and_then(|b| Some((b, b.path()?.to_path_buf())))
             else {
@@ -162,7 +162,7 @@ fn diagnostics(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
             let point = buffer.text().offset_to_point(offset);
             (path, point.row + 1, VisitColumn::Utf8(point.column))
         }
-        DiagnosticHit::File { path, line, column } => {
+        ListedHit::File { path, line, column } => {
             if ctx.editor.large_file(&path).is_some() {
                 return super::files::visit(ctx, path);
             }

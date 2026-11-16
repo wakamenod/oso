@@ -133,7 +133,7 @@ fn echo(editor: &Editor) -> String {
 #[test]
 fn m_g_d_lists_the_project_s_diagnostics_and_ret_goes_to_the_one_picked() {
     use oso_core::buffer::Baseline;
-    use oso_core::editor::{DiagnosticRow, DiagnosticRowAt, DiagnosticRows};
+    use oso_core::editor::{DiagnosticRow, DiagnosticRows, ListedAt};
     let path = std::path::PathBuf::from("/w/oso/t.rs");
     let mut buffer = Buffer::visiting(path.clone());
     buffer.apply_load(oso_core::load::decode_all(
@@ -155,7 +155,7 @@ fn m_g_d_lists_the_project_s_diagnostics_and_ret_goes_to_the_one_picked() {
     let row = DiagnosticRow {
         path: "t.rs".into(),
         line: 2,
-        at: DiagnosticRowAt::Open {
+        at: ListedAt::Open {
             buffer: id,
             offset: 15,
             revision,
@@ -182,7 +182,7 @@ fn m_g_d_lists_the_project_s_diagnostics_and_ret_goes_to_the_one_picked() {
 
 #[test]
 fn m_question_asks_for_references_and_ret_in_the_list_of_places_goes_to_the_row() {
-    use oso_core::editor::{DiagnosticHit, DiagnosticRowAt, ServerRequest, XrefKind, XrefRow};
+    use oso_core::editor::{ListedAt, ListedHit, ServerRequest, XrefKind, XrefRow};
     use oso_core::editor::{VisitColumn, XrefRows};
     let (mut d, mut editor) = followed(Some(ServerMark::Ready));
     let id = editor.window().buffer();
@@ -206,7 +206,7 @@ fn m_question_asks_for_references_and_ret_in_the_list_of_places_goes_to_the_row(
         shown: "b.rs".into(),
         path: "/w/b.rs".into(),
         line,
-        at: DiagnosticRowAt::File {
+        at: ListedAt::File {
             column: VisitColumn::Utf16(2),
         },
         text: "x".into(),
@@ -221,7 +221,7 @@ fn m_question_asks_for_references_and_ret_in_the_list_of_places_goes_to_the_row(
     );
     assert_eq!(
         editor.take_xref_hit(),
-        Some(DiagnosticHit::File {
+        Some(ListedHit::File {
             path: "/w/b.rs".into(),
             line: 9,
             column: VisitColumn::Utf16(2)

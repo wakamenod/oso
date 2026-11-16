@@ -11,23 +11,23 @@
 //!   directory as `~` outside it, and the line's text as the host read it, none for a file that
 //!   may hold secrets. The input matches it as any completion does.
 //! - A row of an open buffer goes to its place as the buffer's edits since have moved it, as
-//!   `M-g d`'s rows do; any other goes to the server's line and column.
+//!   every list of a server's work does (`listed`); any other goes to the server's line and
+//!   column.
 //! - A file outside the root is previewed from its own directory, so one right in a directory
 //!   that is or holds the home directory shows nothing, as the reader reads under no such root.
 //! - Nothing of a row reaches a log; `Debug` gives a generation at most.
 
-use std::cell::Cell;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::buffer::Buffer;
-use crate::complete::{Candidate, Candidates, WORKER_PAST};
-use crate::editor::file_preview::{FilePreview, Lister, PreviewAt, Wanted};
+use crate::complete::{Candidate, WORKER_PAST};
+use crate::editor::file_preview::{Lister, PreviewAt, Wanted};
 use crate::editor::{CompletionStyle, Editor, Preview};
 use crate::minibuffer::{PromptError, PromptId};
 
-use super::diagnostics_list::{DiagnosticHit, DiagnosticRowAt, file_column, open_now};
+use super::listed::{Listed, ListedAt, ListedHit, file_column};
 
 /// What a list of a server's places lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -54,7 +54,7 @@ pub struct XrefRow {
     pub shown: Box<str>,
     pub path: PathBuf,
     pub line: usize,
-    pub at: DiagnosticRowAt,
+    pub at: ListedAt,
     pub text: Box<str>,
 }
 
@@ -65,10 +65,10 @@ impl fmt::Debug for XrefRow {
 }
 
 /// What a row keeps beside its candidate.
-struct XrefPlace {
+pub(in crate::editor) struct XrefPlace {
     path: PathBuf,
     line: usize,
-    at: DiagnosticRowAt,
+    at: ListedAt,
 }
 
 /// The rows of a list of places, made into candidates where the host builds them, so the UI
@@ -118,35 +118,8 @@ impl XrefRows {
     }
 }
 
-/// What the list of places keeps beside its rows.
-#[derive(Default)]
-pub(in crate::editor) struct XrefList {
-    prompt: Option<PromptId>,
-    /// The root of the server whose answer it lists.
-    root: PathBuf,
-    /// The list the rows are for: the host's, moving with each list.
-    generation: u64,
-    /// The rows have not come.
-    pending: bool,
-    /// The answer was cut at its limit.
-    cut: bool,
-    /// Each row's place, by its index in the list.
-    places: Vec<XrefPlace>,
-    /// The row `RET` took, for the host.
-    hit: Option<DiagnosticHit>,
-    /// The selected row's preview of a file no buffer holds.
-    pub(in crate::editor) preview: FilePreview,
-    /// Where an open buffer's row was last found, as `M-g d`'s list keeps it.
-    moved: Cell<Option<(usize, u64, Option<usize>)>>,
-}
-
-impl fmt::Debug for XrefList {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("XrefList")
-            .field("generation", &self.generation)
-            .finish_non_exhaustive()
-    }
-}
+/// What the list of places keeps beside its rows: the server's root is its root.
+pub(in crate::editor) type XrefList = Listed<XrefPlace>;
 
 impl Editor {
     /// Opens the list of the places of `kind` of the host's list `generation`, from the server
@@ -171,27 +144,14 @@ impl Editor {
             ..CompletionStyle::default()
         };
         let id = self.open_completion_as(kind.label(), "lsp-xrefs", Arc::from([]), style)?;
-        let mut preview = std::mem::take(&mut self.servers.xrefs.preview);
-        preview.reset();
-        self.servers.xrefs = XrefList {
-            prompt: Some(id),
-            root,
-            generation,
-            pending: true,
-            preview,
-            ..XrefList::default()
-        };
+        self.servers.xrefs.open(id, generation, root);
         Ok(id)
     }
 
     /// Takes in the rows the host built: dropped, on the worker if many, unless they are for the
     /// list open now.
     pub fn xref_listed(&mut self, rows: XrefRows) {
-        let list = &mut self.servers.xrefs;
-        let open = list
-            .prompt
-            .filter(|_| list.pending && rows.generation == list.generation);
-        let Some(id) = open else {
+        let Some(id) = self.servers.xrefs.waiting_for(rows.generation) else {
             if rows.items.len() > WORKER_PAST {
                 self.free_on_the_worker(Box::new(rows));
             }
@@ -200,39 +160,13 @@ impl Editor {
         let XrefRows {
             items, places, cut, ..
         } = rows;
-        list.pending = false;
-        list.cut = cut;
-        list.places = places;
-        list.moved.set(None);
-        let typed = (self.prompts.iter().find(|prompt| prompt.id == id))
-            .and_then(|prompt| self.buffer(prompt.buffer))
-            .is_some_and(|buffer| !buffer.text().is_empty());
-        let completion = (self.prompts.iter_mut().find(|prompt| prompt.id == id))
-            .and_then(|prompt| prompt.completion.as_mut());
-        let Some((candidates, seen)) = completion else {
-            if items.len() > WORKER_PAST {
-                self.free_on_the_worker(Box::new(items));
-            }
-            return;
-        };
-        let mut listed = Candidates::in_given_order(items);
-        listed.show_preview();
-        if typed {
-            // What was typed while they came is matched against them, as a new input is.
-            *seen = u64::MAX;
-        }
-        let empty = std::mem::replace(candidates, listed);
-        self.free_candidates(empty);
-        self.match_completion();
-        self.relayout_prompt();
+        self.servers.xrefs.take(places, cut);
+        self.show_listed(id, items, None);
     }
 
     /// Whether the innermost prompt lists a server's places.
     pub(in crate::editor) fn lists_xrefs(&self) -> bool {
-        self.servers
-            .xrefs
-            .prompt
-            .is_some_and(|id| self.prompts.last().is_some_and(|prompt| prompt.id == id))
+        self.servers.xrefs.innermost(self)
     }
 
     /// Whether the innermost prompt lists a server's places and their rows have not come.
@@ -254,31 +188,23 @@ impl Editor {
         Some((item, self.servers.xrefs.places.get(item)?))
     }
 
-    /// Where the open buffer of the row `item` is now, as `M-g d`'s rows are found.
-    fn xref_open_place(
-        &self,
-        item: usize,
-        at: DiagnosticRowAt,
-    ) -> Option<(crate::buffer::BufferId, usize)> {
-        open_now(self, &self.servers.xrefs.moved, item, at)
-    }
-
     /// The selected row, as the preview of a file wants it: none for a row of an open buffer,
     /// which shows from memory. A file under the server's root is reached from it, any other
     /// from its own directory, as the host's rows read it (`reached_from` in the `oso` crate's
     /// `app/servers/xrefs/rows.rs`); the two must agree.
     pub(in crate::editor) fn xref_wanted(&self) -> Option<Wanted<'_>> {
         let (item, place) = self.selected_xref()?;
-        if self.xref_open_place(item, place.at).is_some() {
+        let list = &self.servers.xrefs;
+        if list.open_now(self, item, place.at).is_some() {
             return None;
         }
-        let root = self.servers.xrefs.root.as_path();
+        let root = list.root.as_path();
         let (root, path) = match place.path.strip_prefix(root) {
             Ok(path) if path.file_name().is_some() => (root, path),
             _ => (place.path.parent()?, Path::new(place.path.file_name()?)),
         };
         Some(Wanted {
-            key: (self.servers.xrefs.generation, item),
+            key: (list.generation, item),
             root,
             path,
             at: PreviewAt::Line {
@@ -294,7 +220,7 @@ impl Editor {
     /// places.
     pub(in crate::editor) fn xrefs_preview(&self) -> Option<Preview> {
         let (item, place) = self.selected_xref()?;
-        match self.xref_open_place(item, place.at) {
+        match self.servers.xrefs.open_now(self, item, place.at) {
             Some((id, offset)) => self.buffer_preview_at(id, offset),
             None => self.file_row_preview(Lister::Xrefs),
         }
@@ -305,41 +231,23 @@ impl Editor {
     pub(in crate::editor) fn xrefs_answer(&mut self) -> Option<String> {
         let (item, place) = self.selected_xref()?;
         let answer = place.path.to_str()?.to_owned();
-        let hit = match self.xref_open_place(item, place.at) {
-            Some((id, offset)) => DiagnosticHit::Buffer { id, offset },
-            None => DiagnosticHit::File {
-                path: place.path.clone(),
-                line: place.line,
-                column: file_column(place.at),
-            },
-        };
+        let (at, whole) = ((item, place.at), (place.path.clone(), place.line));
+        let hit = self.servers.xrefs.hit_of(self, at, whole);
         self.servers.xrefs.hit = Some(hit);
         Some(answer)
     }
 
     /// The row the last list of places' `RET` took, once.
-    pub fn take_xref_hit(&mut self) -> Option<DiagnosticHit> {
+    pub fn take_xref_hit(&mut self) -> Option<ListedHit> {
         self.servers.xrefs.hit.take()
     }
 
-    /// Forgets the list of places, once its prompt has closed.
+    /// Forgets the list of places, once its prompt has closed; its places, each with its path,
+    /// are freed off the UI thread.
     pub(in crate::editor) fn forget_xref_list(&mut self, closed: PromptId) {
-        let list = &mut self.servers.xrefs;
-        if list.prompt != Some(closed) {
-            return;
-        }
-        let mut preview = std::mem::take(&mut list.preview);
-        preview.reset();
-        let (generation, hit) = (list.generation, list.hit.take());
-        let places = std::mem::take(&mut list.places);
-        *list = XrefList {
-            generation,
-            hit,
-            preview,
-            ..XrefList::default()
-        };
-        // Up to the server's 1000 places, each with its path: freed off the UI thread.
-        if !places.is_empty() {
+        if let Some(places) = self.servers.xrefs.close(closed)
+            && !places.is_empty()
+        {
             self.free_on_the_worker(Box::new(places));
         }
     }
