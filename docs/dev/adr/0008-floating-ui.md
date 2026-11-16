@@ -1,6 +1,6 @@
 # 0008. Minibuffer, menus and popups as floating windows
 
-- Status: Accepted
+- Status: Accepted, amended by 0138
 - Date: 2026-11-03
 
 ## Context

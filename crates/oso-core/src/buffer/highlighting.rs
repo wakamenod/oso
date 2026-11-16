@@ -235,7 +235,8 @@ impl Buffer {
     }
 
     /// Whether the buffer can be highlighted at some length: a language mode, not an internal
-    /// buffer but a server's description, and not one that may hold secrets.
+    /// buffer unless made to be highlighted as its mode says, as a server's description at
+    /// point is (ADR 0138), and not one that may hold secrets.
     fn may_highlight(&self) -> bool {
         // A commit's message is highlighted by the host as it changes, not parsed (ADR 0127).
         let language = match self.mode {
@@ -260,7 +261,7 @@ impl Buffer {
             | Mode::GitDiscarded
             | Mode::Sessions => false,
         };
-        language && (!self.internal || self.described) && !self.is_secret()
+        language && (!self.internal || self.highlights_as_mode) && !self.is_secret()
     }
 
     /// What a buffer of `len` bytes keeps through an edit.

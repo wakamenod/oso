@@ -24,8 +24,10 @@ impl App {
         taken: Option<(BufferId, Asker)>,
         outcome: Result<Answered, String>,
     ) {
-        let Some((asked, asker)) = taken.filter(|(asked, asker)| self.still_there(*asked, asker))
-        else {
+        // Not over a menu either, which holds the keys a description's layer would take.
+        let Some((asked, asker)) = taken.filter(|(asked, asker)| {
+            self.still_there(*asked, asker) && !self.dispatcher.menu_open()
+        }) else {
             return;
         };
         let name = self.servers.running[index].entry.name.clone();

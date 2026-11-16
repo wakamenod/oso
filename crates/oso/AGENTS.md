@@ -57,7 +57,9 @@ often, so it must rebuild within 2 s.
   `[lsp]`). Its `Gate` checks `git::TrustedRoot` and finds the program (`servers/find.rs`) on
   the server's thread. A server's diagnostics go into its buffers, and the message at point
   waits 300 ms there (`servers/diagnostics.rs`); its reports of files no buffer holds are kept
-  there for `M-g d`, whose rows are built on `oso-diagnostics` (`servers/diagnostics/rows.rs`). The fake server the tests run against is the dev-only binary
+  there for `M-g d`, whose rows are built on `oso-diagnostics` (`servers/diagnostics/rows.rs`).
+  A server's description at point (`C-c C-d`) goes to its float from `servers/hover.rs`, drawn
+  by `draw/float/hover.rs`. The fake server the tests run against is the dev-only binary
   `fake-lsp-server` (`tests/fake_lsp_server/`), which `just release-safety` keeps out of
   release builds.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a

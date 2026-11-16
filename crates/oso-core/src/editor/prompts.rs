@@ -62,6 +62,8 @@ impl Editor {
         self.isearch_abandon();
         self.replace_abandon();
         self.jump_end();
+        // And it closes a server's description at point for good (ADR 0138).
+        self.close_hover();
         let depth = self.prompts.len() + 1;
         let from_agent = self.runs_for_agent();
         let mut label = label.into();

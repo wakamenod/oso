@@ -173,8 +173,8 @@ pub struct Buffer {
     internal: bool,
     /// An internal buffer that takes typing, as a prompt's does (ADR 0072).
     takes_typing: bool,
-    /// An internal buffer highlighted as its mode says, a server's description (ADR 0138).
-    described: bool,
+    /// An internal buffer highlighted as its mode says: a server's description (ADR 0138).
+    highlights_as_mode: bool,
     /// Edits keep no undo record, so that no copy of the text stays in one.
     no_history: bool,
     /// Which keys it takes.
@@ -282,7 +282,7 @@ impl Buffer {
             reload_failed: false,
             internal: false,
             takes_typing: false,
-            described: false,
+            highlights_as_mode: false,
             no_history: false,
             mode: Mode::Fundamental,
             indent: Settings::default(),

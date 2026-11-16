@@ -313,7 +313,12 @@ pub fn hover_keymap(registry: &Registry) -> Keymap {
 
 /// The commands a description's layer runs rather than closes for.
 pub fn hover_commands(registry: &Registry) -> Vec<oso_core::command::CommandId> {
-    lsp::HOVER
+    commands_of(registry, lsp::HOVER)
+}
+
+/// The commands `table` binds, of those `registry` has.
+fn commands_of(registry: &Registry, table: &[(&str, &str)]) -> Vec<oso_core::command::CommandId> {
+    table
         .iter()
         .filter_map(|&(_, name)| registry.lookup(name))
         .collect()
@@ -321,10 +326,7 @@ pub fn hover_commands(registry: &Registry) -> Vec<oso_core::command::CommandId> 
 
 /// The commands the layer of `C-x TAB` runs rather than closes for.
 pub fn rigid_commands(registry: &Registry) -> Vec<oso_core::command::CommandId> {
-    indent::RIGID
-        .iter()
-        .filter_map(|&(_, name)| registry.lookup(name))
-        .collect()
+    commands_of(registry, indent::RIGID)
 }
 
 /// The keymaps of the list of emergency copies and of a buffer showing one, above the global

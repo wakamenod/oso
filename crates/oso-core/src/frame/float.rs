@@ -1,6 +1,8 @@
 //! Where a float goes over the frame: a prompt's panel at the top of the tiled window, and a
 //! completion's list centred in it, both on the window's gutter and text together, so that
-//! line numbers never move one (ADR 0072, ADR 0075, ADR 0076, ADR 0097).
+//! line numbers never move one (ADR 0072, ADR 0075, ADR 0076, ADR 0097); and a float at a cell
+//! of a window's text area, below its row or above it, as a server's description at point is
+//! (ADR 0138).
 //!
 //! Must not depend on: `editor`, `command`, or any GPU or window-system type.
 
@@ -139,7 +141,7 @@ pub(crate) fn completion_regions(
 /// above. It never covers the anchor's row. A column of padding goes at each side; the rows
 /// are cut to the room, and the columns to `area`. Every other region is empty. `None` when
 /// no row or column fits.
-pub fn at_point(
+pub(crate) fn at_point(
     area: CellRect,
     (anchor_row, anchor_column): (usize, usize),
     (rows, columns): (usize, usize),

@@ -89,11 +89,12 @@ impl Editor {
     /// the ask, or the text is empty.
     pub fn show_hover(&mut self, at: AskAt, text: &str, markdown: bool) -> bool {
         let (window, buffer) = self.current();
+        // A buffer that came to may hold secrets since the ask shows none of what it was asked.
         let still = window.buffer() == at.buffer
             && buffer.revision() == at.revision
             && window.selections.primary().cursor == at.offset
-            && self.prompt().is_none()
-            && self.isearch().is_none();
+            && !buffer.is_secret()
+            && self.nothing_over_the_text();
         if !still || text.trim().is_empty() {
             return false;
         }
@@ -166,9 +167,21 @@ impl Editor {
             && window.buffer() == shown.asked
             && buffer.revision() == shown.revision
             && window.selections.primary().cursor == shown.offset
-            && self.prompt().is_none()
-            && self.isearch().is_none();
+            && !buffer.is_secret()
+            && self.nothing_over_the_text()
+            && self.cursor_cell().is_some();
         still.then_some(shown)
+    }
+
+    /// Whether nothing else takes the keys over the text: a prompt, isearch, a jump, a
+    /// query-replace or the layer of `C-x TAB`, which a description at point shares its place
+    /// with (ADR 0115).
+    fn nothing_over_the_text(&self) -> bool {
+        self.prompt().is_none()
+            && self.isearch().is_none()
+            && self.jump().is_none()
+            && self.replace().is_none()
+            && !self.indent_rigidly_layer()
     }
 
     /// Scrolls the description by `rows`, down for more than 0, stopping at its ends, as the
@@ -277,6 +290,12 @@ impl Editor {
         let Some(shown) = self.servers.hover.shown else {
             return;
         };
+        // One that something moved away from is gone for good, its text with it, so that it
+        // never comes back as the place does.
+        if self.hover().is_none() {
+            self.close_hover();
+            return;
+        }
         let Some(buffer) = self.buffer(shown.buffer) else {
             return;
         };
@@ -312,13 +331,25 @@ impl Editor {
     }
 }
 
-/// The cells of the widest line of `buffer`'s text, as its display lays them out.
+/// The most lines measured for the float's width; a text with more takes the widest float.
+const MEASURED_LINES: usize = 256;
+
+/// The cells of the widest line of `buffer`'s text, as its display lays them out, up to
+/// [`COLUMNS_MAX`]: a seek a line, for at most [`MEASURED_LINES`], as a text of thousands of
+/// short lines would otherwise take a frame's time. A longer text is taken as the widest.
 fn widest_line(buffer: &Buffer) -> usize {
     let (text, display) = (buffer.text(), buffer.display());
-    (0..text.line_count())
-        .map(|row| display.offset_to_display_point(text.line_end(row)).column)
-        .max()
-        .unwrap_or(0)
+    if text.line_count() > MEASURED_LINES {
+        return COLUMNS_MAX;
+    }
+    let mut widest = 0;
+    for row in 0..text.line_count() {
+        widest = widest.max(display.offset_to_display_point(text.line_end(row)).column);
+        if widest >= COLUMNS_MAX {
+            break;
+        }
+    }
+    widest
 }
 
 #[cfg(test)]

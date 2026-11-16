@@ -84,7 +84,7 @@ pub(super) fn joins(id: BufferId, buffer: &Buffer, running: &Running) -> bool {
 impl App {
     /// Asks the server following `at`'s buffer for `kind` there, or says why not. `agent` is
     /// the connection whose command asked, if the agent's did.
-    pub(super) fn lsp_find(&mut self, at: AskAt, kind: AskKind, agent: Option<Connection>) {
+    pub(super) fn lsp_ask(&mut self, at: AskAt, kind: AskKind, agent: Option<Connection>) {
         // An agent's ask whose connection is not known never passes as the person's.
         if at.agent && agent.is_none() {
             return;
@@ -226,11 +226,13 @@ impl App {
 
     fn go_to_answer(&mut self, index: usize, kind: AskKind, asker: Asker, places: &[Location]) {
         let Some(first) = places.first() else {
-            self.editor.message(match kind {
+            let none = match kind {
                 AskKind::Definition => "No definition found",
                 AskKind::References => "No references found",
-                AskKind::Hover => "Nothing to describe here",
-            });
+                // A description goes to its float, never here.
+                AskKind::Hover => return,
+            };
+            self.editor.message(none);
             return;
         };
         // Said before the jump: said once a file not judged yet shows, it would go with it.

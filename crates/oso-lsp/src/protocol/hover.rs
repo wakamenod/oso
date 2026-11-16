@@ -17,13 +17,7 @@
 use serde_json::Value;
 
 use crate::json::array;
-use crate::limits::HOVER_BYTES_MAX;
-
-/// The most pieces of a list of `MarkedString`s read.
-const PIECES_MAX: usize = 256;
-
-/// The longest language name a fenced block keeps.
-const LANGUAGE_BYTES_MAX: usize = 32;
+use crate::limits::{HOVER_BYTES_MAX, HOVER_LANGUAGE_BYTES_MAX, HOVER_PIECES_MAX};
 
 /// What a hover answered: its text, and whether it is Markdown.
 #[derive(Clone, PartialEq, Eq)]
@@ -53,7 +47,11 @@ pub fn hover(result: &Value) -> Option<Hover> {
             fields.get("kind").and_then(Value::as_str) != Some("plaintext")
         }
         Value::Array(_) => {
-            for (index, piece) in array(contents, PIECES_MAX)?.iter().enumerate() {
+            for (index, piece) in array(contents, HOVER_PIECES_MAX)?.iter().enumerate() {
+                // Once full, nothing more is read of what is left.
+                if text.cut {
+                    break;
+                }
                 if index > 0 {
                     text.push_str("\n\n---\n\n");
                 }
@@ -85,8 +83,11 @@ impl Text {
         }
     }
 
-    /// Adds `piece` as far as the bound lets it, at a character.
+    /// Adds `piece` as far as the bound lets it, at a character; nothing once it is full.
     fn push_str(&mut self, piece: &str) {
+        if self.cut {
+            return;
+        }
         let room = HOVER_BYTES_MAX.saturating_sub(self.text.len());
         if piece.len() > room {
             self.cut = true;
@@ -97,7 +98,9 @@ impl Text {
         }
     }
 
-    /// Adds a `MarkedString`: a string as it is, or a fenced block of its value.
+    /// Adds a `MarkedString`: a string as it is, or a fenced block of its value. Only the part
+    /// of the value that can still be kept is looked at, and its fence is longer than any run
+    /// of backticks in that part.
     fn marked(&mut self, piece: &Value) {
         match piece {
             Value::String(_) => self.push(piece),
@@ -105,16 +108,22 @@ impl Text {
                 let Some(value) = fields.get("value").and_then(Value::as_str) else {
                     return;
                 };
+                let room = HOVER_BYTES_MAX.saturating_sub(self.text.len());
+                let value = value.strip_suffix('\n').unwrap_or(value);
+                let kept = &value[..value.floor_char_boundary(room)];
                 let language: String = (fields.get("language").and_then(Value::as_str))
                     .unwrap_or_default()
                     .chars()
                     .filter(|c| c.is_ascii_alphanumeric() || "+-_.#".contains(*c))
-                    .take(LANGUAGE_BYTES_MAX)
+                    .take(HOVER_LANGUAGE_BYTES_MAX)
                     .collect();
-                let fence = "`".repeat(longest_backticks(value).max(2) + 1);
-                self.push_str(&format!("{fence}{language}\n"));
-                self.push_str(value.strip_suffix('\n').unwrap_or(value));
-                self.push_str(&format!("\n{fence}"));
+                let fence = "`".repeat(longest_backticks(kept).max(2) + 1);
+                self.push_str(&fence);
+                self.push_str(&language);
+                self.push_str("\n");
+                self.push_str(value);
+                self.push_str("\n");
+                self.push_str(&fence);
             }
             _ => {}
         }
@@ -130,11 +139,11 @@ impl Text {
     }
 }
 
-/// The longest run of backticks in `value`.
+/// The longest run of backticks in `value`, by its bytes, as a backtick is one.
 fn longest_backticks(value: &str) -> usize {
     let (mut longest, mut run) = (0, 0);
-    for c in value.chars() {
-        run = if c == '`' { run + 1 } else { 0 };
+    for &byte in value.as_bytes() {
+        run = if byte == b'`' { run + 1 } else { 0 };
         longest = longest.max(run);
     }
     longest

@@ -1,15 +1,16 @@
 //! Commands of the language server that follows the current buffer (ADR 0138, step 3):
 //! starting it, starting it again, and stopping it; moving to its diagnostics (step 6), and
-//! the list of the project's (step 6b); and going to a definition, and back and forward
-//! through the window's jumps (step 8).
+//! the list of the project's (step 6b); going to a definition, and back and forward through
+//! the window's jumps (step 8); and describing what is at point in a float, which its own keys
+//! scroll and close (step 10).
 //!
 //! Must not depend on: winit, the GPU, `bindings` or the host's servers; a command asks the
 //! host through `Editor::request_server`, and the host acts on the server after it.
 //!
 //! Starting a server spawns a process, and stopping one manages the person's processes, so
 //! those are `Person`; the moves only move, and a definition asks a running server about a
-//! buffer it knows, so they are `Look`; the list is an interactive float for the keyboard, so
-//! it is `Person` (ADR 0138, Q24).
+//! buffer it knows, so they are `Look`; the list and the description are interactive floats
+//! for the keyboard, so they and the description's keys are `Person` (ADR 0138, Q24).
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{DiagnosticHit, ServerRequest, VisitColumn};

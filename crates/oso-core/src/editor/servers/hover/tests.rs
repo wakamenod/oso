@@ -103,3 +103,44 @@ fn its_float_fits_its_text_at_most_80_by_20_and_scrolls_by_pages() {
     editor.close_hover();
     assert!(editor.hover().is_none());
 }
+
+#[test]
+fn a_buffer_that_may_hold_secrets_shows_none_and_one_put_away_never_comes_back() {
+    let (mut editor, at) = asked("fn main() {}\n");
+    let id = editor.window().buffer();
+    editor.buffer_mut(id).unwrap().judge_moved_secret();
+    assert!(
+        !editor.show_hover(at, "text", false),
+        "it may hold secrets now"
+    );
+    // Put away by a prompt, it stays gone once the prompt has closed.
+    let (mut editor, at) = asked("fn main() {}\n");
+    assert!(editor.show_hover(at, "text", false));
+    editor
+        .open_prompt(
+            "Go to line: ",
+            crate::minibuffer::Kind::Number { history: None },
+        )
+        .unwrap();
+    assert!(editor.hover().is_none());
+    editor.quit();
+    assert!(editor.hover().is_none(), "it does not come back");
+    // Put away by a move outside a command, the next command lets it go.
+    let (mut editor, at) = asked("fn main() {}\n");
+    assert!(editor.show_hover(at, "text", false));
+    editor.windows[0].selections = SelectionSet::new(3);
+    editor.follow_cursor();
+    editor.windows[0].selections = SelectionSet::new(0);
+    assert!(editor.hover().is_none(), "back at its place, it stays gone");
+}
+
+#[test]
+fn a_text_of_more_lines_than_are_measured_takes_the_widest_float() {
+    let text = "a\n".repeat(MEASURED_LINES);
+    let (mut editor, at) = asked("x\n");
+    assert!(editor.show_hover(at, &text, false));
+    assert_eq!(editor.hover_layout().unwrap().inner.columns, COLUMNS_MAX);
+    let (mut editor, at) = asked("x\n");
+    assert!(editor.show_hover(at, &"a\n".repeat(MEASURED_LINES - 2), false));
+    assert_eq!(editor.hover_layout().unwrap().inner.columns, 1);
+}

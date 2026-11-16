@@ -25,7 +25,7 @@ impl Buffer {
     pub(crate) fn described(name: impl Into<String>) -> Self {
         Self {
             internal: true,
-            described: true,
+            highlights_as_mode: true,
             withheld_from_agents: true,
             ..Self::new(name)
         }

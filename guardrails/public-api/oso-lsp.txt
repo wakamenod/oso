@@ -104,6 +104,8 @@ pub const oso_lsp::limits::HEADER_BYTES_MAX: usize
 pub const oso_lsp::limits::HEADER_LINES_MAX: usize
 pub const oso_lsp::limits::HEADER_LINE_BYTES_MAX: usize
 pub const oso_lsp::limits::HOVER_BYTES_MAX: usize
+pub const oso_lsp::limits::HOVER_LANGUAGE_BYTES_MAX: usize
+pub const oso_lsp::limits::HOVER_PIECES_MAX: usize
 pub const oso_lsp::limits::ID_BYTES_MAX: usize
 pub const oso_lsp::limits::INITIALIZE_WAIT: core::time::Duration
 pub const oso_lsp::limits::JSON_DEPTH_LIMIT: usize

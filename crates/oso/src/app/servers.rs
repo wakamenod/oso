@@ -1,4 +1,4 @@
-//! The language servers the app runs (ADR 0138, steps 3, 4, 6 and 8), on the UI thread: which server a
+//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8 and 10), on the UI thread: which server a
 //! buffer's open would start, starting one for a project's root and entry, what the commands
 //! ask, what each server's thread reports, the modeline's marks, and the ends that trust, the
 //! configuration and a quit bring. One server runs per root and entry. The UI thread never
@@ -186,14 +186,14 @@ impl App {
                 ServerRequest::Restart(id) => self.lsp_start(id, true),
                 ServerRequest::ShutDown(id) => self.lsp_shutdown(id),
                 ServerRequest::Definition(at) => {
-                    self.lsp_find(at, oso_lsp::server::AskKind::Definition, agent);
+                    self.lsp_ask(at, oso_lsp::server::AskKind::Definition, agent);
                 }
                 ServerRequest::References(at) => {
-                    self.lsp_find(at, oso_lsp::server::AskKind::References, agent);
+                    self.lsp_ask(at, oso_lsp::server::AskKind::References, agent);
                 }
                 // The person's only: the command is `Person` (step 10).
                 ServerRequest::Describe(at) => {
-                    self.lsp_find(at, oso_lsp::server::AskKind::Hover, None);
+                    self.lsp_ask(at, oso_lsp::server::AskKind::Hover, None);
                 }
             }
         }

@@ -13,6 +13,9 @@ late report against the version it names and map it forward (`server/documents.r
 hands the UI the kept report of each file no open document holds (`Diagnosed::File`, shared),
 with an empty one for each the store lets go, for a file once its document opens, and
 `Diagnosed::Forgotten` at a run's end; the outbox keeps the latest of each document and file.
+Step 8 asks about documents (`server/asks.rs`, `session/asks.rs`) and reads definitions
+(`protocol/located.rs`); step 10 asks for a description, `textDocument/hover`, and reads it
+within its bounds (`protocol/hover.rs`).
 
 - May depend on `oso-core` and `oso-platform` only; only the tip crate depends on it. Module
   layers are in `guardrails/layers.txt` (`[oso-lsp]`). No new dependency: JSON is

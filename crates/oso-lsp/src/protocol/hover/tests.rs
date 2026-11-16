@@ -64,3 +64,79 @@ fn null_blank_or_unreadable_describes_nothing() {
         assert!(hover(&result).is_none(), "{result}");
     }
 }
+
+#[test]
+fn pieces_and_a_language_name_are_read_to_their_bounds_and_no_further() {
+    use crate::limits::{HOVER_LANGUAGE_BYTES_MAX, HOVER_PIECES_MAX};
+    let pieces = |count: usize| {
+        let all: Vec<Value> = (0..count).map(|n| json!(format!("p{n}"))).collect();
+        hover(&json!({"contents": all})).unwrap().text
+    };
+    let last = format!("p{}", HOVER_PIECES_MAX - 1);
+    assert!(pieces(HOVER_PIECES_MAX).ends_with(&last));
+    assert!(
+        pieces(HOVER_PIECES_MAX + 1).ends_with(&last),
+        "the one past is not read"
+    );
+    let language = |bytes: usize| {
+        let piece = json!({"contents": {"language": "r".repeat(bytes), "value": "x"}});
+        let text = hover(&piece).unwrap().text;
+        text.lines().next().unwrap().trim_start_matches('`').len()
+    };
+    assert_eq!(language(HOVER_LANGUAGE_BYTES_MAX), HOVER_LANGUAGE_BYTES_MAX);
+    assert_eq!(
+        language(HOVER_LANGUAGE_BYTES_MAX + 1),
+        HOVER_LANGUAGE_BYTES_MAX
+    );
+}
+
+#[test]
+fn a_huge_piece_is_fenced_by_what_is_kept_of_it() {
+    // A value of backticks far past the bound: the fence is longer than any run kept, which
+    // is at most the bound, and nothing past it is looked at.
+    let value = "`".repeat(4 * HOVER_BYTES_MAX);
+    let hover = hover(&json!({"contents": {"language": "rust", "value": value}})).unwrap();
+    assert!(hover.text.len() <= HOVER_BYTES_MAX + '…'.len_utf8());
+    assert!(hover.text.ends_with('…'));
+}
+
+/// Pieces of text and backticks, as a hover's answer may hold them.
+fn piece() -> impl proptest::strategy::Strategy<Value = Value> {
+    use proptest::prelude::*;
+    let text = "[a-z` \n]{0,40}";
+    let kind = prop_oneof![Just("markdown"), Just("plaintext"), Just("other")];
+    prop_oneof![
+        text.prop_map(Value::from),
+        (text, "[a-z#+ ]{0,8}")
+            .prop_map(|(value, language)| json!({"language": language, "value": value})),
+        (text, kind).prop_map(|(value, kind)| json!({"kind": kind, "value": value})),
+        Just(Value::Null),
+        any::<i64>().prop_map(Value::from),
+    ]
+}
+
+proptest::proptest! {
+    /// Any contents read, or do not, within the bound and without a panic; and a fenced
+    /// block's value holds no run of backticks as long as its fence, so none ends it early.
+    #[test]
+    fn fuzz(
+        pieces in proptest::collection::vec(piece(), 0..8),
+        one in piece(),
+        value in "[a-z` \n]{0,60}",
+    ) {
+        for contents in [Value::from(pieces), one] {
+            if let Some(hover) = hover(&json!({"contents": contents})) {
+                proptest::prop_assert!(hover.text.len() <= HOVER_BYTES_MAX + '…'.len_utf8());
+            }
+        }
+        let Some(fenced) = hover(&json!({"contents": {"language": "rust", "value": value}}))
+        else {
+            return Ok(());
+        };
+        let first = fenced.text.lines().next().unwrap_or_default();
+        let fence = first.len() - first.trim_start_matches('`').len();
+        let body = &fenced.text[first.len()..fenced.text.len() - fence];
+        proptest::prop_assert!(fence >= 3);
+        proptest::prop_assert!(!body.contains(&"`".repeat(fence)), "{:?}", fenced.text);
+    }
+}

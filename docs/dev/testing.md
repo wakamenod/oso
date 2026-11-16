@@ -103,6 +103,10 @@ lower case where the text is faded too, and with `u` the cells only faded; a lin
 marks struck cells with `s`. Both come from `Editor::diagnostic_cells`, and the modeline has the
 server's `lsp` and its counts ([ADR 0138](adr/0138-language-servers.md)).
 
+A server's description at point comes after the echo area, below a line such as
+`description at row 1, column 0: 13 x 50`, where its float is, each of its rows between `┊`,
+as `Editor::hover_screen` gives them, wrapped to its width, with no cursor (ADR 0138, step 10).
+
 With several tiled windows ([ADR 0112](adr/0112-window-splits.md)), each comes in the
 tree's order after a line such as `WindowId(1) at row 6, column 0: 5 x 24, selected`, with
 its rows and its modeline. A window with a divider at its right ends each of those lines

@@ -360,6 +360,8 @@ impl Dispatcher {
         self.prefix = None;
         self.last = None;
         editor.set_indent_rigidly_layer(false);
+        // An undefined key closes a server's description at point too (ADR 0138).
+        editor.close_hover();
         editor.forget_kills();
     }
 
@@ -390,8 +392,9 @@ impl Dispatcher {
         if step == Step::Apart || !self.keymaps.rigid_commands.contains(&id) {
             editor.set_indent_rigidly_layer(false);
         }
-        // So does any but a description's own, which then runs as it always does (ADR 0138).
-        if editor.hover().is_some() && !self.keymaps.hover_commands.contains(&id) {
+        // So does any but a description's own, which then runs as it always does (ADR 0138);
+        // one already put away goes too.
+        if !self.keymaps.hover_commands.contains(&id) {
             editor.close_hover();
         }
         // The person's answer to the agent's question, `y`, `n` or `C-g`, lets nothing go

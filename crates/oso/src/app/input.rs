@@ -194,6 +194,11 @@ impl App {
             }
             return Some((window, moved));
         }
+        // Elsewhere it scrolls the view, which the description goes with.
+        if self.editor.hover().is_some() {
+            self.editor.close_hover();
+            self.request_redraw();
+        }
         // Over a terminal, the wheel scrolls its scrollback, on its thread (ADR 0120).
         if self.wheel_terminal(window, (rows, columns), at) {
             return Some((window, false));

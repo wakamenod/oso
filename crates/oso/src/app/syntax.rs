@@ -4,8 +4,9 @@
 //! Must not depend on: key presses or how a frame is drawn; it reads buffers and windows only.
 //!
 //! - A buffer gets a job only while `Buffer::can_highlight` holds: a language mode, not
-//!   internal, at most 2 MiB, and not one that may hold secrets, which includes one not judged
-//!   yet. Once it no longer does, or it is killed, the worker drops it at once.
+//!   internal but for a server's description at point while it shows (ADR 0138), at most
+//!   2 MiB, and not one that may hold secrets, which includes one not judged yet. Once it no
+//!   longer does, or it is killed, the worker drops it at once.
 //! - A job carries the splices since the last one, or none to start from nothing, an O(1)
 //!   snapshot of the text, and the ranges windows show. While a file loads, only its first
 //!   snapshot is sent, and then the loaded text.
@@ -18,7 +19,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
-use oso_core::buffer::{BufferId, Mode};
+use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::editor::{Editor, Preview};
 use oso_core::syntax::Highlights;
 use oso_core::window::{Scroll, ViewSize, Window, WindowId};
@@ -54,6 +55,23 @@ pub(super) struct Syntax {
     views: Vec<View>,
     /// Each buffer's mode and whether the worker may have it, reused between calls.
     present: HashMap<BufferId, (Mode, bool)>,
+    /// The description shown at point when `shown` was built, and its revision.
+    described: Option<(BufferId, u64)>,
+}
+
+/// The buffers the worker may have: every buffer of the user's, and a server's description
+/// at point while it shows, the one internal buffer highlighted (ADR 0138).
+fn highlightable(editor: &Editor) -> impl Iterator<Item = (BufferId, &Buffer)> {
+    let described = editor
+        .hover()
+        .and_then(|shown| Some((shown.buffer(), editor.buffer(shown.buffer())?)));
+    editor.buffers().chain(described)
+}
+
+/// The description shown at point and its revision, as `shown` follows it.
+fn described(editor: &Editor) -> Option<(BufferId, u64)> {
+    let id = editor.hover()?.buffer();
+    Some((id, editor.buffer(id)?.revision()))
 }
 
 /// How long a buffer whose highlighting stopped waits before a mode set again tries again, so
@@ -118,8 +136,7 @@ impl Syntax {
         }
         self.present.clear();
         self.present.extend(
-            editor
-                .buffers()
+            highlightable(editor)
                 .map(|(id, buffer)| (id, (buffer.mode(), allowed(editor, buffer)))),
         );
         let present = &self.present;
@@ -144,8 +161,7 @@ impl Syntax {
             drops: self.drops(editor),
             ..Orders::default()
         };
-        let mut wanted = editor
-            .buffers()
+        let mut wanted = highlightable(editor)
             .filter(|(id, buffer)| {
                 let revision = buffer.mode_revision();
                 let held = self.stopped.get(id).is_some_and(|(stopped, at)| {
@@ -242,7 +258,8 @@ impl Syntax {
                 window.wrap().is_some(),
             )
         };
-        let same = editor.windows().len() == self.views.len()
+        let same = self.described == described(editor)
+            && editor.windows().len() == self.views.len()
             && editor
                 .windows()
                 .map(key)
@@ -253,6 +270,7 @@ impl Syntax {
         }
         self.views.clear();
         self.views.extend(editor.windows().map(key));
+        self.described = described(editor);
         editor.shown_ranges(&mut self.shown);
     }
 
@@ -269,8 +287,11 @@ impl Syntax {
         sent.stamp = report.stamp;
         // Two seeks a window, with no row laid out.
         editor.shown_ranges(&mut self.drawn);
-        let previewed =
-            matches!(editor.preview(), Some(Preview::Buffer { id, .. }) if id == report.buffer);
+        // So does a server's description at point (ADR 0138).
+        let previewed = matches!(editor.preview(), Some(Preview::Buffer { id, .. }) if id == report.buffer)
+            || editor
+                .hover()
+                .is_some_and(|shown| shown.buffer() == report.buffer);
         let Some(buffer) = editor.buffer_mut(report.buffer) else {
             return Taken::default();
         };

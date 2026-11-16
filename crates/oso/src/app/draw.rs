@@ -1,5 +1,5 @@
 //! Drawing: the window and its renderer, and what a frame shows: every tiled window, the echo
-//! area and a prompt's float (ADR 0112).
+//! area, a server's description at point (ADR 0138) and a prompt's float (ADR 0112).
 //!
 //! Must not depend on: key presses or commands. Before a frame it takes in what
 //! has loaded and fits the gutter to it, as a load is no input, and sets `*Spaces*`' modeline

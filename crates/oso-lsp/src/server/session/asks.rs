@@ -1,7 +1,8 @@
-//! The UI's asks about documents on the session thread (ADR 0138, step 8): each becomes a
-//! request at the position its offset is in the text the server has, a newer one cancelling
-//! the older of its kind for the document, and each answer, or the end of its wait or of the
-//! run, becomes an [`Answer`] for the UI.
+//! The UI's asks about documents on the session thread (ADR 0138, steps 8 and 10): each becomes
+//! a request at the position its offset is in the text the server has, a newer one cancelling
+//! the older of its kind for the document, and each answer, the places of a definition or the
+//! text of a description, or the end of its wait or of the run, becomes an [`Answer`] for the
+//! UI.
 //!
 //! Must not depend on: the process or the pipes; the run sends, and the reporter hands over.
 
@@ -96,20 +97,7 @@ impl Session {
             }
         };
         if ask.kind == AskKind::Hover {
-            let hover = protocol::hover(&result);
-            drop(result);
-            // Its size only: the text may quote what the server read.
-            self.reporter.log(format!(
-                "request {id} answered with {} bytes of description in {took} ms",
-                hover.as_ref().map_or(0, |hover| hover.text.len())
-            ));
-            self.reporter.answer(Answer {
-                serial: ask.serial,
-                document: ask.document,
-                kind: ask.kind,
-                revision: ask.revision,
-                outcome: Ok(Answered::Hover(hover)),
-            });
+            self.answered_hover(id, ask, &result, took);
             return;
         }
         let (located, left) = protocol::located(&result);
@@ -157,6 +145,23 @@ impl Session {
             kind: ask.kind,
             revision: ask.revision,
             outcome: Ok(Answered::Places(locations)),
+        });
+    }
+
+    /// The answer to the description `ask`, request `id`, which took `took` ms: its text, which
+    /// only its size reaches `*LSP*`, as it may quote what the server read.
+    fn answered_hover(&mut self, id: i64, ask: Ask, result: &serde_json::Value, took: u128) {
+        let hover = protocol::hover(result);
+        self.reporter.log(format!(
+            "request {id} answered with {} bytes of description in {took} ms",
+            hover.as_ref().map_or(0, |hover| hover.text.len())
+        ));
+        self.reporter.answer(Answer {
+            serial: ask.serial,
+            document: ask.document,
+            kind: ask.kind,
+            revision: ask.revision,
+            outcome: Ok(Answered::Hover(hover)),
         });
     }
 
