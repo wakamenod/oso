@@ -7,10 +7,12 @@
 use std::ops::Range;
 
 use oso_core::buffer::BufferId;
-use oso_core::display_map::{CellStyle, DisplayPoint, DisplaySnapshot, Preedit};
+use oso_core::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
 use oso_core::frame::CellRect;
-use oso_core::syntax::{Highlight, Highlights};
+use oso_core::syntax::Highlights;
 use oso_core::window::Screen;
+
+mod highlights;
 
 /// What a piece of the screen means. The current theme gives it its colours (ADR 0089).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -149,11 +151,23 @@ pub enum Face {
     SessionWorking,
     /// The mark of a session done or ready for review, in green.
     SessionDone,
-    /// What `*Sessions*` says quietly: idle and stopped marks, places, reasons, and the rows
+    /// What `*Spaces*` says quietly: idle and stopped marks, places, reasons, and the rows
     /// of sessions run outside oso.
     SessionQuiet,
     /// The name of the worktree whose space is in front, in an accent of its own.
     SessionFront,
+    /// A space's name in `*Spaces*` (ADR 0140), as a heading.
+    SessionSpace,
+    /// A repository's name in `*Spaces*` (ADR 0140).
+    SessionRepository,
+    /// The band behind a space's row and the pane's other sections' (ADR 0140): a fill.
+    SessionHeader,
+    /// The faint band behind the front worktree's rows (ADR 0140): a fill.
+    SessionFrontTint,
+    /// The band of the row at point while `*Spaces*` is selected (ADR 0140): a fill.
+    SessionPoint,
+    /// The bar in the first cell of that row, a fill in an accent.
+    SessionPointBar,
     /// A directory listing's header, its path (ADR 0134), as a heading.
     DiredHeader,
     /// A directory's name in a listing.
@@ -219,66 +233,6 @@ pub enum Face {
     TerminalColor15,
 }
 
-impl Face {
-    /// The face text that is `highlight` is drawn in (ADR 0111).
-    pub fn of_highlight(highlight: Highlight) -> Self {
-        match highlight {
-            Highlight::Comment => Self::SyntaxComment,
-            Highlight::String => Self::SyntaxString,
-            Highlight::Keyword => Self::SyntaxKeyword,
-            Highlight::Type => Self::SyntaxType,
-            Highlight::Function => Self::SyntaxFunction,
-            Highlight::Constant => Self::SyntaxConstant,
-            Highlight::Property => Self::SyntaxProperty,
-            Highlight::Macro => Self::SyntaxMacro,
-            Highlight::Heading => Self::SyntaxHeading,
-            Highlight::Link => Self::SyntaxLink,
-            Highlight::Markup => Self::SyntaxMarkup,
-            Highlight::DiffAdded => Self::DiffAdded,
-            Highlight::DiffRemoved => Self::DiffRemoved,
-            Highlight::DiffFileHeader => Self::DiffFileHeader,
-            Highlight::DiffHunkHeader => Self::DiffHunkHeader,
-            // Their background comes from the cells refinement marks; the text is as its line's.
-            Highlight::DiffRefineAdded => Self::DiffAdded,
-            Highlight::DiffRefineRemoved => Self::DiffRemoved,
-            Highlight::CommentPerson => Self::ReviewCommentPerson,
-            Highlight::CommentAgent => Self::ReviewCommentAgent,
-            Highlight::Outdated => Self::ReviewOutdated,
-            Highlight::SessionAlert => Self::SessionAlert,
-            Highlight::SessionWorking => Self::SessionWorking,
-            Highlight::SessionDone => Self::SessionDone,
-            Highlight::SessionQuiet => Self::SessionQuiet,
-            Highlight::SessionFront => Self::SessionFront,
-            Highlight::DiredHeader => Self::DiredHeader,
-            Highlight::DiredDirectory => Self::DiredDirectory,
-            Highlight::DiredSymlink => Self::DiredSymlink,
-            Highlight::DiredBrokenSymlink => Self::DiredBrokenSymlink,
-            Highlight::DiredExecutable => Self::DiredExecutable,
-            Highlight::DiredSpecial => Self::DiredSpecial,
-            Highlight::DiredDetails => Self::DiredDetails,
-            Highlight::DiredMark => Self::DiredMark,
-            Highlight::DiredMarked => Self::DiredMarked,
-            Highlight::GitSectionHeading => Self::GitSectionHeading,
-            Highlight::GitBranchLocal => Self::GitBranchLocal,
-            Highlight::GitBranchRemote => Self::GitBranchRemote,
-            Highlight::GitHash => Self::GitHash,
-            Highlight::GitDetail => Self::GitDetail,
-            Highlight::GitCommitOverlong => Self::GitCommitOverlong,
-        }
-    }
-
-    /// The face of a run in `style` within text of this face. An escape looks
-    /// like an escape wherever it is.
-    pub(crate) fn of_run(self, style: CellStyle) -> Self {
-        match style {
-            CellStyle::Text => self,
-            CellStyle::Escape => Self::Escape,
-            CellStyle::Boxed => Self::Boxed,
-            CellStyle::Whitespace => Self::Whitespace,
-        }
-    }
-}
-
 /// Names a pane across frames, so that it keeps its own shaped rows. Each pane
 /// in a list needs its own. A pane missing from a frame's list loses them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -327,7 +281,7 @@ pub enum CursorStyle {
     /// the one beneath a prompt (ADR 0072).
     Hollow,
     /// No cursor at all: a list that marks the row at point with a band instead, as
-    /// `*Sessions*` in the side window (ADR 0131).
+    /// `*Spaces*` in the side window (ADR 0131).
     None,
 }
 
@@ -600,6 +554,8 @@ pub struct Pane<'a> {
 
 #[cfg(test)]
 mod tests {
+    use oso_core::display_map::CellStyle;
+
     use super::*;
 
     #[test]

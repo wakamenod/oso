@@ -1,6 +1,6 @@
 //! The mouse in the app (ADR 0120, step 4b-2; ADR 0112). A press selects the window under it,
 //! and the first press on a window not selected does only that; point never moves in a text
-//! buffer. `*Sessions*` in the side window takes a left press itself (ADR 0131). In the selected window's terminal, a program that asked for mouse reports gets them,
+//! buffer. `*Spaces*` in the side window takes a left press itself (ADR 0131). In the selected window's terminal, a program that asked for mouse reports gets them,
 //! but never while it reads a password; otherwise, or with Shift held, a drag selects cells,
 //! and the release copies them to the kill ring and the OS clipboard, as `M-w` does. The wheel
 //! is `wheel`'s. While oso holds input (a prompt, a menu, a key sequence and the rest that
@@ -151,7 +151,7 @@ impl App {
         let Some((window, in_text)) = self.window_under(at) else {
             return;
         };
-        // `*Sessions*` in the side window takes a left press itself (ADR 0131, step 2b).
+        // `*Spaces*` in the side window takes a left press itself (ADR 0131, step 2b).
         if button == MouseButton::Left && self.sessions_pressed(window, at) {
             self.terminals.pointer.begin(button, Drag::Nothing);
             return;

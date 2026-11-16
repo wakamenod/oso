@@ -42,6 +42,7 @@ enum Next {
     Start,
     After(Duration),
     Stopped,
+    NotStarted,
     Ended,
     Quit,
 }
@@ -131,6 +132,10 @@ impl Session {
                     self.reporter.state(State::Stopped);
                     self.idle(None)
                 }
+                Next::NotStarted => {
+                    self.reporter.state(State::NotStarted);
+                    self.idle(None)
+                }
                 Next::Ended => {
                     self.reporter.state(State::Ended);
                     return;
@@ -179,18 +184,21 @@ impl Session {
     /// One process's life, from the gate to its end.
     fn one_run(&mut self) -> Next {
         self.reporter.state(State::Starting);
-        let executable = match (self.gate)() {
-            Ok(executable) => executable,
+        let found = match (self.gate)() {
+            Ok(found) => found,
             Err(why) => {
                 self.say(format!("not started: {why}"));
-                return Next::Stopped;
+                return Next::NotStarted;
             }
         };
-        let run = match self.spawn(&executable) {
+        for note in found.notes {
+            self.reporter.log(note);
+        }
+        let run = match self.spawn(&found.executable, &found.args) {
             Ok(run) => run,
             Err(error) => {
                 self.say(format!("could not start: {error}"));
-                return Next::Stopped;
+                return Next::NotStarted;
             }
         };
         let end = self.drive(run);
@@ -234,12 +242,12 @@ impl Session {
     }
 
     /// Spawns the process and its pipe threads, and sends `initialize`.
-    fn spawn(&mut self, executable: &Executable) -> io::Result<Run> {
+    fn spawn(&mut self, executable: &Executable, args: &[std::ffi::OsString]) -> io::Result<Run> {
         let start = &self.start;
         let inherit: Vec<&str> = start.inherit.iter().map(String::as_str).collect();
         let mut child = process::spawn(&Spawn {
             executable,
-            args: &start.args,
+            args,
             cwd: Some(&start.root),
             project: Some(&start.root),
             inherit: &inherit,

@@ -1,6 +1,6 @@
 //! What the app keeps of agent sessions for ADR 0121 step 3, and what follows a change: the
 //! screen feed to the sessions worker, each session's state as the worker told it, and from
-//! that `*Sessions*`, the modeline's marks, the completions over sessions and spaces, the
+//! that `*Spaces*`, the modeline's marks, the completions over sessions and spaces, the
 //! session buffers' modelines and the person's attention. A change costs the UI thread one
 //! pass over the sessions, made once after the event that brought it (ADR 0121: 0.5 ms).
 //!
@@ -379,6 +379,7 @@ impl App {
                 state,
                 since,
                 recap: String::new(),
+                title: String::new(),
                 pinned: false,
                 archived: false,
                 unasked: false,
@@ -444,6 +445,7 @@ impl App {
                     state,
                     since,
                     recap: self.row_recap(session.key),
+                    title: self.row_title(session),
                     pinned: session.pinned,
                     archived: session.archived,
                     unasked: session.origin == crate::sessions::identity::Origin::Unasked,

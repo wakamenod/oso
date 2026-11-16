@@ -1,5 +1,5 @@
 //! Commands that set a buffer's major mode, which names its language, and turn highlighting on
-//! and off for every buffer (ADR 0111).
+//! and off for every buffer (ADR 0111). The modes of ADR 0138 have no grammar yet.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -40,6 +40,54 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
+        name: "go-mode",
+        doc: "Set the current buffer's major mode to Go.\n\nIt has no highlighting yet. In a trusted project its language server follows it once the buffer is visited again or `lsp-start` runs.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: go_mode,
+        state: None,
+    },
+    Command {
+        name: "typescript-mode",
+        doc: "Set the current buffer's major mode to TypeScript.\n\nIt has no highlighting yet. In a trusted project its language server follows it once the buffer is visited again or `lsp-start` runs.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: typescript_mode,
+        state: None,
+    },
+    Command {
+        name: "tsx-mode",
+        doc: "Set the current buffer's major mode to TSX.\n\nIt has no highlighting yet. In a trusted project its language server follows it once the buffer is visited again or `lsp-start` runs.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: tsx_mode,
+        state: None,
+    },
+    Command {
+        name: "javascript-mode",
+        doc: "Set the current buffer's major mode to JavaScript.\n\nIt has no highlighting yet. In a trusted project its language server follows it once the buffer is visited again or `lsp-start` runs.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: javascript_mode,
+        state: None,
+    },
+    Command {
+        name: "latex-mode",
+        doc: "Set the current buffer's major mode to LaTeX.\n\nIt has no highlighting yet. In a trusted project its language server follows it once the buffer is visited again or `lsp-start` runs.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: latex_mode,
+        state: None,
+    },
+    Command {
+        name: "swift-mode",
+        doc: "Set the current buffer's major mode to Swift.\n\nIt has no highlighting yet. In a trusted project its language server follows it once the buffer is visited again or `lsp-start` runs.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: swift_mode,
+        state: None,
+    },
+    Command {
         name: "fundamental-mode",
         doc: "Set the current buffer's major mode to Fundamental.\n\nIts text is not highlighted.",
         args: ArgSpec::None,
@@ -67,6 +115,30 @@ fn markdown_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn toml_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     set_mode(ctx, Mode::Toml)
+}
+
+fn go_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    set_mode(ctx, Mode::Go)
+}
+
+fn typescript_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    set_mode(ctx, Mode::TypeScript)
+}
+
+fn tsx_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    set_mode(ctx, Mode::Tsx)
+}
+
+fn javascript_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    set_mode(ctx, Mode::JavaScript)
+}
+
+fn latex_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    set_mode(ctx, Mode::Latex)
+}
+
+fn swift_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    set_mode(ctx, Mode::Swift)
 }
 
 fn fundamental_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use oso_core::buffer::{BufferId, ServerMark};
 use oso_core::editor::ServerRequest;
 use oso_core::project::ProjectId;
-use oso_lsp::server::{Gate, Server, Start, State};
+use oso_lsp::server::{Found, Gate, Server, Start, State};
 
 use super::{App, UserEvent};
 use crate::config::{LspEntry, StartWhen};
@@ -192,7 +192,7 @@ impl App {
             running.start_again = Some(id);
             return;
         }
-        if !again && !matches!(running.state, State::Stopped) {
+        if !again && !matches!(running.state, State::Stopped | State::NotStarted) {
             self.editor.message(format!(
                 "{} already runs for {}",
                 entry.name,
@@ -214,6 +214,8 @@ impl App {
             start_of(&running.root, &running.entry, number),
             gate(&running.trust, &running.entry, &running.root),
         );
+        // One that never started had no documents: they go to it now, once it is ready.
+        self.open_documents_of(index);
     }
 
     /// `lsp-shutdown`.
@@ -395,7 +397,10 @@ impl App {
                     running.server.shut_down();
                     running.stopping = true;
                 }
-                Some(entry) if *entry != running.entry && running.state == State::Stopped => {
+                Some(entry)
+                    if *entry != running.entry
+                        && matches!(running.state, State::Stopped | State::NotStarted) =>
+                {
                     running.entry = entry.clone();
                     again.push(index);
                 }
@@ -410,6 +415,7 @@ impl App {
                 start_of(&running.root, &running.entry, number),
                 gate(&running.trust, &running.entry, &running.root),
             );
+            self.open_documents_of(index);
         }
     }
 
@@ -428,7 +434,9 @@ fn mark(state: State) -> Option<ServerMark> {
         State::Ready => Some(ServerMark::Ready),
         State::Working(percent) => Some(ServerMark::Working(percent)),
         State::Stopped => Some(ServerMark::Stopped),
-        State::Ended => None,
+        // Said once that it is not installed, or could not start: the modeline says nothing of
+        // it (step 5's Q2).
+        State::Ended | State::NotStarted => None,
     }
 }
 
@@ -437,7 +445,6 @@ fn start_of(root: &std::path::Path, entry: &LspEntry, number: usize) -> Start {
     Start {
         name: entry.name.clone(),
         number,
-        args: entry.command.iter().skip(1).map(Into::into).collect(),
         root: root.to_owned(),
         inherit: entry.env.clone(),
         section: entry.section.clone(),
@@ -448,11 +455,27 @@ fn start_of(root: &std::path::Path, entry: &LspEntry, number: usize) -> Start {
 /// The gate the server's thread runs before each start: the trust, then the program.
 fn gate(trust: &TrustedRoot, entry: &LspEntry, root: &std::path::Path) -> Gate {
     let trust = trust.clone();
-    let program = entry.command.first().cloned().unwrap_or_default();
-    let in_cargo_bin = entry.in_cargo_bin;
+    let how = find::Where {
+        in_project: entry.in_project.clone(),
+        command: entry.command.clone(),
+        also_in: entry.also_in,
+    };
     let root = root.to_owned();
     Box::new(move || {
         trust.check()?;
-        find::program(&program, in_cargo_bin, &root)
+        let mut notes = Vec::new();
+        // With no choice left, why each program inside the project was passed over goes with
+        // the reason, so that it reaches `*LSP*` too.
+        let (executable, args) = find::program(&how, &root, &mut notes).map_err(|why| {
+            std::iter::once(why)
+                .chain(notes.iter().cloned())
+                .collect::<Vec<_>>()
+                .join("; ")
+        })?;
+        Ok(Found {
+            executable,
+            args,
+            notes,
+        })
     })
 }

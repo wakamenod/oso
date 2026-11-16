@@ -373,6 +373,7 @@ pub fn oso_lsp::server::Diagnosed::fmt(&self, &mut core::fmt::Formatter<'_>) -> 
 impl core::marker::StructuralPartialEq for oso_lsp::server::Diagnosed
 pub enum oso_lsp::server::State
 pub oso_lsp::server::State::Ended
+pub oso_lsp::server::State::NotStarted
 pub oso_lsp::server::State::Ready
 pub oso_lsp::server::State::Starting
 pub oso_lsp::server::State::Stopped
@@ -407,6 +408,12 @@ impl core::clone::Clone for oso_lsp::server::Document
 pub fn oso_lsp::server::Document::clone(&self) -> oso_lsp::server::Document
 impl core::fmt::Debug for oso_lsp::server::Document
 pub fn oso_lsp::server::Document::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_lsp::server::Found
+pub oso_lsp::server::Found::args: alloc::vec::Vec<std::ffi::os_str::OsString>
+pub oso_lsp::server::Found::executable: oso_platform::process::Executable
+pub oso_lsp::server::Found::notes: alloc::vec::Vec<alloc::string::String>
+impl core::fmt::Debug for oso_lsp::server::Found
+pub fn oso_lsp::server::Found::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_lsp::server::Report
 pub oso_lsp::server::Report::diagnostics: alloc::vec::Vec<oso_lsp::server::Diagnosed>
 pub oso_lsp::server::Report::documents: alloc::vec::Vec<(u64, core::option::Option<oso_lsp::server::Closed>)>
@@ -448,7 +455,6 @@ impl core::fmt::Debug for oso_lsp::server::Shown
 pub fn oso_lsp::server::Shown::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_lsp::server::Shown
 pub struct oso_lsp::server::Start
-pub oso_lsp::server::Start::args: alloc::vec::Vec<std::ffi::os_str::OsString>
 pub oso_lsp::server::Start::inherit: alloc::vec::Vec<alloc::string::String>
 pub oso_lsp::server::Start::name: alloc::string::String
 pub oso_lsp::server::Start::number: usize
@@ -459,7 +465,7 @@ impl core::clone::Clone for oso_lsp::server::Start
 pub fn oso_lsp::server::Start::clone(&self) -> oso_lsp::server::Start
 impl core::fmt::Debug for oso_lsp::server::Start
 pub fn oso_lsp::server::Start::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub type oso_lsp::server::Gate = alloc::boxed::Box<(dyn core::ops::function::Fn() -> core::result::Result<oso_platform::process::Executable, alloc::string::String> + core::marker::Send)>
+pub type oso_lsp::server::Gate = alloc::boxed::Box<(dyn core::ops::function::Fn() -> core::result::Result<oso_lsp::server::Found, alloc::string::String> + core::marker::Send)>
 pub type oso_lsp::server::Wake = alloc::boxed::Box<(dyn core::ops::function::Fn() + core::marker::Send)>
 pub mod oso_lsp::uri
 pub fn oso_lsp::uri::from_path(&std::path::Path) -> core::option::Option<alloc::string::String>

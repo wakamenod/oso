@@ -109,7 +109,11 @@ fn drawn(d: &Dispatcher, editor: &Editor) -> Drawn {
     let menu = d.menu();
     let terminals = crate::terminal::hosted::Terminals::default();
     with_frame(
-        (editor, &terminals),
+        (
+            editor,
+            &terminals,
+            &crate::sessions::list::SpaceBands::default(),
+        ),
         menu.as_ref(),
         &statuses,
         &mut Cells::default(),

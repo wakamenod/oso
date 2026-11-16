@@ -640,8 +640,9 @@ request.
 - **No time limit, and a stop:** git runs in a process group of its own (`Child::signal_group`
   in `oso-platform`, approved). `C-g` in the status or the log, or `k` in the log, sends the
   group `SIGTERM`, then `SIGKILL` after 5 s; on Windows git alone ends. Revoking the project's
-  trust stops it the same way, on the run's thread itself. A process the hook left running once
-  git was waited for is not followed, as its group's ID may be another's by then.
+  trust stops it the same way, on the run's thread itself. Once git has ended, its group gets
+  `SIGKILL` before git is reaped, so that a hook that ignores `SIGTERM` goes too (the
+  follow-up below).
 - **The log:** `*git log: NAME*` is an internal buffer in `GitLog` mode, listed by `C-x b` and
   killed by `C-x k` as a status, and withheld from the agent channel (Q5): a hook may print
   anything. `$` in a status shows it. Each run adds its command line, what git and its hooks
@@ -666,7 +667,8 @@ request.
   person's to write; ask the person"); `text` reads it. The log is unreadable to it.
 - **Quitting (Q7):** `C-x C-c` names "git runs in *git log: NAME*" with the turns and jobs and
   offers `w`; quitting when idle waits for git too; `oso-restart` asks "git runs in …; restart
-  anyway?". As oso ends, each run's group gets `SIGTERM`, and nothing waits for it.
+  anyway?". As oso ends, each run's group gets `SIGTERM`, then `SIGKILL` at once (the
+  follow-up below), and nothing waits for it.
 - **Deviations:** (1) `k` stops the run anywhere in the log, which has no entries to stand on
   yet. (2) The ADR's "C-c C-f asks the session to fix it" waits for step 6a (Q4). (3) A write
   to the index is not a run that quitting or a restart names, and a commit started while one
@@ -688,6 +690,24 @@ request.
   bytes and any text; the run thread's commit, failing hook and `--no-verify`, reword, stop
   that leaves no lock, and a revoked root; the commands, the agent's refusal, the restart's
   question and the exit's; the log's limit; and an end-to-end flow.
+
+### Follow-up of step 1b: a hook that ignores `SIGTERM`
+
+The author's answers (2026-11-16): (A) quitting sends `SIGTERM`, then `SIGKILL` at once; (B) one
+small pull request of its own.
+
+- **What changed:** a stopped run used to be reaped as soon as git ended. From then on its
+  group could not be signalled safely, as its ID could be another's, so the `SIGKILL` after 5 s
+  never came, and a hook that ignored `SIGTERM` went on, past `C-g`, a revoked trust and oso's
+  exit. Now a stopped run asks `Child::exited` (ADR 0138's, which does not reap), and once git
+  has ended, sends its group `SIGKILL` while git's ID still holds the group's, then reaps it.
+  A run dropped while it goes (`oso-git-reap`) does the same.
+- **Quitting (A):** `SIGTERM` then `SIGKILL` to each run's group at once, waiting for nothing,
+  so that nothing of a commit outlives oso. git may then leave its `index.lock`, which `git
+  status` names, as a kill always could.
+- **Tests:** a pre-commit hook that ignores `SIGTERM` and marks a file after 2 s: a stop, oso's
+  exit and a dropped run each end it, well within the grace; the stop's test fails with the old
+  order.
 
 ### Step 1c: discarding, staging lines and refinement
 

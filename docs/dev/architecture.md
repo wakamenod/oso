@@ -637,8 +637,10 @@ The UI thread never blocks on I/O or parsing:
   `app/vcs/runs.rs` and `app/vcs/commit.rs`), with the repository's hooks and no time limit, in
   a process group of its own (`crate::git`'s `long`), which `C-g` sends `SIGTERM` and then
   `SIGKILL`. What git writes streams, cleaned and in whole lines, into `*git log: NAME*`
-  (`Editor::append_git_log`, the last 4 MiB), and the echo area counts the seconds. Quitting
-  sends each run's group `SIGTERM` and waits for nothing
+  (`Editor::append_git_log`, the last 4 MiB), and the echo area counts the seconds. A stopped
+  run's group gets `SIGKILL` once git has ended, before git is reaped (`Child::exited`), so a
+  hook that ignores `SIGTERM` goes too. Quitting sends each run's group `SIGTERM`, then `SIGKILL`,
+  and waits for nothing
   ([ADR 0127](adr/0127-source-control-and-github.md), step 1b).
 - A prompt's list past 5000 candidates is built and matched on a thread of its own
   (`app/completions.rs`), from a job `oso_core::complete` makes over `Arc` snapshots, superseded
@@ -688,7 +690,7 @@ The UI thread never blocks on I/O or parsing:
   it against recorded screens, and `session-explain-file` explains a saved one in
   `*Session explain*`, a buffer the agent channel cannot read.
 - What follows a session's change is made once after the event that brought it
-  (`app/sessions/watch.rs`, ADR 0121 step 3): `*Sessions*` (`sessions/list.rs`, rendered only
+  (`app/sessions/watch.rs`, ADR 0121 step 3): `*Spaces*` (`sessions/list.rs`, rendered only
   while shown) in the side window, which oso-core keeps outside the window tree
   (`editor/sessions/side.rs`); the modeline's `SessionMarks`; the lists `ArgSpec::Listed`
   completes over (`Editor::set_listed`); the session buffers' modeline notes; and the

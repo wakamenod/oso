@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use std::{env, fs};
 
 use oso_lsp::protocol::Severity;
-use oso_lsp::server::{Gate, Report, Server, Start, State};
+use oso_lsp::server::{Found, Gate, Report, Server, Start, State};
 use oso_platform::process::Executable;
 use serde_json::{Value, json};
 
@@ -45,7 +45,6 @@ fn start_of(dir: &std::path::Path, script: &Value) -> Start {
     Start {
         name: "fake".into(),
         number: 1,
-        args: vec![path.into_os_string()],
         root: dir.to_owned(),
         inherit: Vec::new(),
         section: Some("fake".into()),
@@ -86,7 +85,14 @@ fn started(name: &str, script: &Value, gate: Gate) -> Seen {
 }
 
 fn open() -> Gate {
-    Box::new(|| Ok(fake()))
+    // The script is the one `start_of` wrote last into the directory the server runs in.
+    Box::new(|| {
+        Ok(Found {
+            executable: fake(),
+            args: vec!["script.json".into()],
+            notes: Vec::new(),
+        })
+    })
 }
 
 /// The fake server's program.
@@ -357,7 +363,7 @@ fn a_closed_gate_starts_nothing() {
         &script(json!([]), json!([])),
         Box::new(|| Err("the project is no longer trusted".into())),
     );
-    seen.until(LIMIT, |seen| seen.state() == Some(State::Stopped));
+    seen.until(LIMIT, |seen| seen.state() == Some(State::NotStarted));
     assert_eq!(
         seen.shown,
         [(
@@ -450,18 +456,21 @@ fn runs(pid: u32) -> bool {
 fn a_crash_ends_what_the_server_left_in_its_group() {
     let rules = json!([{"method": "initialized", "do": [{"exit": 3}]}]);
     let dir = scratch("survivor");
-    let mut start = start_of(&dir, &script(json!([]), rules));
-    let script_path = start.args[0].clone().into_string().unwrap();
+    let start = start_of(&dir, &script(json!([]), rules));
     let shell = format!(
-        "(trap '' TERM; exec sleep 60) & echo \"left $!\" >&2; exec '{}' '{}'",
+        "(trap '' TERM; exec sleep 60) & echo \"left $!\" >&2; exec '{}' script.json",
         env!("CARGO_BIN_EXE_fake-lsp-server"),
-        script_path
     );
-    start.args = vec!["-c".into(), shell.into()];
     let (wake, woken) = mpsc::channel();
     let server = Server::start(
         start,
-        Box::new(|| Ok(Executable::absolute("/bin/sh").unwrap())),
+        Box::new(move || {
+            Ok(Found {
+                executable: Executable::absolute("/bin/sh").unwrap(),
+                args: vec!["-c".into(), shell.clone().into()],
+                notes: Vec::new(),
+            })
+        }),
         Box::new(move || {
             let _ = wake.send(());
         }),

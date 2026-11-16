@@ -344,7 +344,7 @@ mod tests {
         "session-send",
         "session-stop",
         "sessions-resume",
-        // What puts a session's terminal or `*Sessions*` in front of the person's keys, and
+        // What puts a session's terminal or `*Spaces*` in front of the person's keys, and
         // what changes which sessions ask for them (ADR 0121, step 3).
         "sessions",
         "session-next-done",
