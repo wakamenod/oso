@@ -65,6 +65,7 @@ use super::motion_tests::drain;
 
 #[cfg(test)]
 mod diagnostics;
+mod hover;
 #[cfg(test)]
 mod jumps;
 mod popup;
@@ -141,6 +142,7 @@ fn flashing_grid(editor: &Editor, flashing: bool) -> String {
     let echo = [status.echo_warnings(), &status.echo[..]];
     draw_spans(&echo, regions.echo, '"', &mut lines);
     draw_float(editor, &mut lines);
+    hover::draw_hover(editor, &mut lines);
     popup::draw_popup(editor, &mut lines);
     lines.join("\n")
 }

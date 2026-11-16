@@ -503,3 +503,26 @@ fn a_report_for_a_buffer_only_previewed_asks_for_a_frame() {
     };
     assert!(syntax.take(&mut editor, report).redraw);
 }
+
+#[test]
+fn a_description_shown_at_point_gets_a_job_and_is_dropped_once_it_closes() {
+    let (mut editor, _) = editor_with(visited("/w/p/main.rs", "fn main() {}\n"));
+    let at = editor.ask_at();
+    assert!(editor.show_hover(at, "fake", "```rust\nfn main()\n```\nDocs", true));
+    let described = editor.hover().unwrap().buffer();
+    let mut syntax = Syntax::default();
+    let orders = syntax.orders(&editor);
+    assert!(
+        job_ids(&orders).contains(&described),
+        "{:?}",
+        job_ids(&orders)
+    );
+    let job = orders
+        .jobs
+        .iter()
+        .find(|job| job.buffer == described)
+        .unwrap();
+    assert_eq!(job.language, Language::Markdown);
+    editor.close_hover();
+    assert!(syntax.drops(&editor).contains(&described));
+}

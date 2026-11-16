@@ -35,15 +35,21 @@ impl Editor {
         window.screen_into(&buffer.display(), preedit, out);
     }
 
-    /// What each tiled window shows of its buffer, as the bytes of its rows in view, into
-    /// `out`, which is emptied first: the syntax worker highlights these first (ADR 0111). A
-    /// few seeks a window, with no row laid out.
+    /// What each tiled window shows of its buffer, as the bytes of its rows in view, and a
+    /// server's description at point, into `out`, which is emptied first: the syntax worker
+    /// highlights these first (ADR 0111). A few seeks a window, with no row laid out.
     pub fn shown_ranges(&self, out: &mut Vec<(BufferId, Range<usize>)>) {
         out.clear();
         for window in &self.windows {
             if let Some((window, buffer, _)) = self.window_in_tree(window.id()) {
                 out.push((window.buffer(), window.shown_bytes(&buffer.display())));
             }
+        }
+        // A server's description at point, whole, as at most 64 KiB (ADR 0138).
+        if let Some(shown) = self.hover()
+            && let Some(buffer) = self.buffer(shown.buffer())
+        {
+            out.push((shown.buffer(), 0..buffer.text().len()));
         }
     }
 

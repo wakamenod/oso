@@ -1,7 +1,7 @@
-//! The asks of a server about a buffer (ADR 0138, steps 8 and 9), on the UI thread: each sent
+//! The asks of a server about a buffer (ADR 0138, steps 8, 9 and 10), on the UI thread: each sent
 //! after the event's edits went to the server, who asked and where kept until its answer, and
 //! each answer routed by its kind: places to their jump or list (`places`, `xrefs`),
-//! completions to the popup (`complete`).
+//! completions to the popup (`complete`), and a description to its float (`hover`).
 //!
 //! Must not depend on: the window system or the drawing; nothing here waits on a server.
 //!
@@ -133,6 +133,11 @@ impl App {
             ..
         } = answer;
         let taken = self.take_asker(index, serial, document, kind);
+        // A description goes to its float (step 10).
+        if kind == AskKind::Hover {
+            self.lsp_described(index, taken, outcome);
+            return;
+        }
         let places = match outcome {
             Ok(Answered::Places(places)) => places,
             Ok(Answered::Completion(completions)) => {
@@ -151,7 +156,7 @@ impl App {
                     let name = self.servers.running[index].entry.name.clone();
                     // The server's text may quote what it read: shown, not logged.
                     self.editor
-                        .message_unlogged(format!("{name}: {} failed: {why}", kind.noun()));
+                        .message_unlogged(super::places::failed(&name, kind, &why));
                     self.request_redraw();
                 }
                 return;

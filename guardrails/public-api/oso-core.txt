@@ -2072,6 +2072,7 @@ impl core::marker::StructuralPartialEq for oso_core::editor::ServerFace
 pub enum oso_core::editor::ServerRequest
 pub oso_core::editor::ServerRequest::Complete(oso_core::editor::AskAt)
 pub oso_core::editor::ServerRequest::Definition(oso_core::editor::AskAt)
+pub oso_core::editor::ServerRequest::Describe(oso_core::editor::AskAt)
 pub oso_core::editor::ServerRequest::GoToXref
 pub oso_core::editor::ServerRequest::References(oso_core::editor::AskAt)
 pub oso_core::editor::ServerRequest::Restart(oso_core::buffer::BufferId)
@@ -2699,6 +2700,14 @@ pub fn oso_core::editor::Editor::completion_popup_regions(&self, &oso_core::wind
 pub fn oso_core::editor::Editor::follow_completion_popup(&mut self)
 pub fn oso_core::editor::Editor::open_completion_popup(&mut self, oso_core::editor::CompletionPopupAnswer) -> core::result::Result<(), core::option::Option<&'static str>>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::close_hover(&mut self)
+pub fn oso_core::editor::Editor::hover(&self) -> core::option::Option<&oso_core::editor::HoverShown>
+pub fn oso_core::editor::Editor::hover_layout(&self) -> core::option::Option<oso_core::frame::FloatRegions>
+pub fn oso_core::editor::Editor::hover_page(&self) -> usize
+pub fn oso_core::editor::Editor::hover_screen(&self, &mut oso_core::window::Screen)
+pub fn oso_core::editor::Editor::scroll_hover(&mut self, isize) -> bool
+pub fn oso_core::editor::Editor::show_hover(&mut self, oso_core::editor::AskAt, &str, &str, bool) -> bool
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::completion_failed(&mut self)
 pub fn oso_core::editor::Editor::completion_pending(&self) -> bool
 pub fn oso_core::editor::Editor::completion_reported(&mut self, oso_core::complete::CompletionReport) -> bool
@@ -3117,6 +3126,20 @@ impl core::default::Default for oso_core::editor::Gutter
 pub fn oso_core::editor::Gutter::default() -> oso_core::editor::Gutter
 impl core::fmt::Debug for oso_core::editor::Gutter
 pub fn oso_core::editor::Gutter::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::HoverShown
+impl oso_core::editor::HoverShown
+pub fn oso_core::editor::HoverShown::buffer(&self) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::HoverShown::label(&self) -> usize
+pub fn oso_core::editor::HoverShown::top(&self) -> usize
+impl core::clone::Clone for oso_core::editor::HoverShown
+pub fn oso_core::editor::HoverShown::clone(&self) -> oso_core::editor::HoverShown
+impl core::cmp::Eq for oso_core::editor::HoverShown
+impl core::cmp::PartialEq for oso_core::editor::HoverShown
+pub fn oso_core::editor::HoverShown::eq(&self, &oso_core::editor::HoverShown) -> bool
+impl core::fmt::Debug for oso_core::editor::HoverShown
+pub fn oso_core::editor::HoverShown::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::HoverShown
+impl core::marker::StructuralPartialEq for oso_core::editor::HoverShown
 pub struct oso_core::editor::Isearch
 impl oso_core::editor::Isearch
 pub fn oso_core::editor::Isearch::around_secret(&self) -> bool

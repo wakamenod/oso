@@ -20,6 +20,17 @@ impl Buffer {
         }
     }
 
+    /// An empty internal buffer for a server's description (ADR 0138, Hover): read-only, never
+    /// read by the agent channel, and highlighted as the mode it is given says.
+    pub(crate) fn described(name: impl Into<String>) -> Self {
+        Self {
+            internal: true,
+            highlights_as_mode: true,
+            withheld_from_agents: true,
+            ..Self::new(name)
+        }
+    }
+
     /// An empty internal buffer for a prompt, which takes typing. One that reads a
     /// passphrase may hold secrets and keeps no undo record (ADR 0072).
     pub(crate) fn prompt(name: impl Into<String>, passphrase: bool) -> Self {
