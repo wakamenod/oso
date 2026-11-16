@@ -30,9 +30,11 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use oso_core::display_map::TabWidth;
 use oso_core::editor::{
     ConversationPreviewRequest, ConversationSearchRequest, Excerpt, FilePreviewRead, WalkEnd,
 };
+use oso_core::load::LoadSnapshot;
 use oso_core::project::{LineQuery, MAX_ROWS, row_text};
 
 use crate::sessions::identity::SessionId;
@@ -126,7 +128,7 @@ pub enum Report {
 /// transcript could not be read. `Debug` gives counts only.
 pub struct Read {
     pub session: SessionId,
-    pub view: Option<(Arc<About>, String, usize)>,
+    pub view: Option<(Arc<About>, LoadSnapshot, usize)>,
 }
 
 impl fmt::Debug for Read {
@@ -330,6 +332,23 @@ fn run(projects: Option<&Path>, queue: &Receiver<Job>, send: &(dyn Fn(Report) + 
 /// it, its text, read whole from its transcript again, and the line its message `message`
 /// starts on.
 fn read_of(
+    hold: &Hold,
+    session: &SessionId,
+    message: usize,
+) -> Option<(Arc<About>, LoadSnapshot, usize)> {
+    let (_, text, line) = view_of(hold, session, message)?;
+    let about = hold
+        .conversations
+        .iter()
+        .find(|held| held.about.id == *session)
+        .map(|held| Arc::clone(&held.about))?;
+    // Its rope and display model are built here, so the UI thread takes them in O(1).
+    let snapshot = oso_core::load::decode_all(text.as_bytes(), TabWidth::default());
+    Some((about, snapshot, line))
+}
+
+/// The text of the read-only view [`read_of`] gives, and the line its message starts on.
+fn view_of(
     hold: &Hold,
     session: &SessionId,
     message: usize,

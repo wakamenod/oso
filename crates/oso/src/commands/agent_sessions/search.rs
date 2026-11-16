@@ -128,10 +128,6 @@ fn session_search_scope(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> 
     Ok(())
 }
 
-/// What starts a message's first line in a view (`sessions::history`'s preview marks): a
-/// prompt's or a reply's. Its other lines are indented, so no other line starts so.
-const MARKS: [&str; 2] = ["\u{203a} ", "\u{2039} "];
-
 /// What starts the view's line that names its session.
 const SESSION_LINE: &str = "session ";
 
@@ -145,10 +141,39 @@ fn line_head(text: &Rope, row: usize, bytes: usize) -> String {
     text.chunks_in_range(start..end).collect()
 }
 
-/// Whether the line `row` of `text` starts a message: it starts with a mark.
-fn is_message_start(text: &Rope, row: usize) -> bool {
-    let head = line_head(text, row, 4);
-    MARKS.iter().any(|mark| head.starts_with(mark))
+/// The offsets of the first lines of messages in `range` of `text`, each handed to `found`
+/// until it says to stop: a line break, then a prompt's or a reply's mark (`› `, `‹ `), which
+/// starts a message's first line only, as its other lines are indented. The text's chunks are read as bytes, once,
+/// with nothing allocated, so a key costs at most one pass over what lies between point and
+/// the message it goes to (ADR 0145, step 2).
+fn message_starts(
+    text: &Rope,
+    range: std::ops::Range<usize>,
+    mut found: impl FnMut(usize) -> bool,
+) {
+    // The bytes of the pattern matched so far: a line break, then a mark's three bytes and a
+    // space; the mark's last byte is one of two.
+    let mut matched = 0;
+    let mut at = range.start;
+    for chunk in text.chunks_in_range(range) {
+        for &byte in chunk.as_bytes() {
+            matched = match (matched, byte) {
+                (_, b'\n') => 1,
+                (1, 0xE2) => 2,
+                (2, 0x80) => 3,
+                (3, 0xB9 | 0xBA) => 4,
+                (4, b' ') => {
+                    // The line starts at the mark, four bytes back.
+                    if !found(at - 3) {
+                        return;
+                    }
+                    0
+                }
+                _ => 0,
+            };
+            at += 1;
+        }
+    }
 }
 
 /// Reads the selected row's conversation into its view, closing the prompt.
@@ -196,11 +221,14 @@ fn view(ctx: &Ctx<'_>) -> Result<(String, usize), CommandError> {
             id.split(' ').next().map(str::to_owned)
         })
         .ok_or_else(|| CommandError::new("This conversation names no session"))?;
-    let message = (0..=row)
-        .filter(|number| is_message_start(text, *number))
-        .count()
-        .saturating_sub(1);
-    Ok((session, message))
+    // The messages whose first line starts at or before point's line.
+    let line_end = text.line_end(row);
+    let mut starts = 0usize;
+    message_starts(text, 0..line_end, |_| {
+        starts += 1;
+        true
+    });
+    Ok((session, starts.saturating_sub(1)))
 }
 
 /// Moves point `count` messages on, back if negative, to a message's first line.
@@ -212,25 +240,41 @@ fn move_by_messages(ctx: &mut Ctx<'_>, count: isize) -> Result<(), CommandError>
     let text = buffer.text();
     let point = window.selections.primary().cursor;
     let row = text.offset_to_point(point).row;
-    let nth = count.unsigned_abs().saturating_sub(1);
+    let wanted = count.unsigned_abs().max(1);
     let target = if count >= 0 {
-        (row + 1..text.line_count())
-            .filter(|number| is_message_start(text, *number))
-            .nth(nth)
+        // From the end of point's line on, the `wanted`th.
+        let mut left = wanted;
+        let mut target = None;
+        message_starts(text, text.line_end(row)..text.len(), |start| {
+            left -= 1;
+            if left == 0 {
+                target = Some(start);
+            }
+            left > 0
+        });
+        target
     } else {
-        (0..row)
-            .rev()
-            .filter(|number| is_message_start(text, *number))
-            .nth(nth)
+        // Up to point's line, the `wanted`th from the last; a ring of them is kept.
+        let mut ring = std::collections::VecDeque::with_capacity(wanted);
+        let before = text.line_start(row).saturating_sub(1);
+        message_starts(text, 0..before, |start| {
+            if ring.len() == wanted {
+                ring.pop_front();
+            }
+            ring.push_back(start);
+            true
+        });
+        (ring.len() == wanted)
+            .then(|| ring.front().copied())
+            .flatten()
     };
-    let Some(target) = target else {
+    let Some(offset) = target else {
         return Err(CommandError::new(if count >= 0 {
             "No later message"
         } else {
             "No earlier message"
         }));
     };
-    let offset = text.line_start(target);
     let selections = &mut ctx.editor.current_mut().0.selections;
     selections.keep_primary();
     selections.move_primary(offset);

@@ -244,21 +244,31 @@ threshold, and no view carried over a restart.
   `C-c C-s` (`session-search-scope`), `C-RET` (`session-search-read`) and `M-RET`
   (`session-search-fork`), in place of completion's `M-RET`, as a search's input is no answer.
   `C-c C-s` is no longer bound in every prompt. With one scope only, it does nothing.
-- **`C-RET` reads the selected row's conversation** into `*conversation: NAME*`, an internal
-  buffer of a new mode, `Conversation`, one per conversation and read again when opened again:
+- **`C-RET` reads the selected row's conversation** into `*conversation: ID*`, named by its
+  session id's first 8 digits, never its title or prompt, as every buffer's name reaches the
+  agent channel's `state`. It is an internal buffer of a new mode, `Conversation`, one per
+  conversation and read again when opened again:
   - The history thread reads the transcript again whole, prompts and replies only, each
-    whole, up to 8 MiB counted as the hold counts them (`held::read_whole`), so a conversation
-    the search holds only part of is read in full.
+    whole, up to 8 MiB counted with 256 bytes a message and 16 a line, so a message of line
+    breaks alone cannot make millions of lines; the reading stops at that bound
+    (`held::read_whole`). A conversation the search holds only part of is read in full.
+  - The history thread also builds its rope and display model (`load::decode_all`), which the
+    UI thread takes in O(1) (`Buffer::apply_load`), as the emergency copies' list does.
   - A header names its directory whole, `(gone)`, or that oso cannot tell where it ran; its
     session's id, age and number of messages; what was left out past 8 MiB; and the view's
     keys. Then each message, its mark on its first line only, a blank line between. Point goes
     to the row's message.
   - It is withheld from agents (`Buffer::withhold_from_agents`), never saved, and, as an
     internal buffer, never handed over in a restart (ADR 0051). Nothing of it is logged.
-  - Its keys: `n` and `p` the next and previous message, found by the marks starting a line
-    (`Look`); `r` goes to the session as `RET` in the search does, `f` forks it, `g` reads it
-    again at the message point is in (`Person`); `q` quits the window. The session is read
-    from the header's `session` line, which oso wrote.
+  - Its keys: `n` and `p` the next and previous message (`Look`); `r` goes to the session as
+    `RET` in the search does, `f` forks it, `g` reads it again at the message point is in
+    (`Person`); `q` quits the window. Messages are found by a line break and a mark, read from
+    the rope's chunks as bytes once, with nothing allocated: a key costs one pass over what
+    lies between point and the message it goes to, and `r`, `f` and `g` one over what lies
+    before point, at most the view's 8 MiB. The session is read from the header's `session`
+    line, which oso wrote; a message's later lines are indented, so none can be taken for it.
+- **One conversation an id.** Two transcripts of one id would give a row of one and act on the
+  other; the listing keeps the newest only.
 - **`M-RET` and `f` fork** the conversation: `claude --resume ID --fork-session` as a new
   hosted session, through `session-fork`'s start. A hosted session forks as `session-fork`
   forks it; another in the directory its transcript is found from, refused when that is gone

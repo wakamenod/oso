@@ -10,8 +10,9 @@ use std::time::Duration;
 
 use oso_core::editor::ConversationScope;
 
+use super::held::{MAX_VIEW, VIEW_LINE_COST};
 use super::tests::{Scratch, id, prompt, request, search, tree};
-use super::{History, Hold, Report, read_of};
+use super::{History, Hold, Report, view_of};
 
 #[test]
 fn the_view_reads_the_transcript_whole_with_a_header_and_the_messages_line() {
@@ -28,7 +29,7 @@ fn the_view_reads_the_transcript_whole_with_a_header_and_the_messages_line() {
         &mut hold,
         &request("trust", ConversationScope::all()),
     );
-    let (about, text, line) = read_of(&hold, &older, 1).expect("a view");
+    let (about, text, line) = view_of(&hold, &older, 1).expect("a view");
     assert_eq!(about.id, older);
     let lines: Vec<&str> = text.lines().collect();
     assert!(lines[0].starts_with("in "), "{text}");
@@ -48,7 +49,7 @@ fn the_view_reads_the_transcript_whole_with_a_header_and_the_messages_line() {
         big.cut && big.messages.len() < 3000,
         "the search holds less"
     );
-    let (_, text, line) = read_of(&hold, &id(5), 2999).expect("a view");
+    let (_, text, line) = view_of(&hold, &id(5), 2999).expect("a view");
     assert!(
         text.lines().nth(1).unwrap().ends_with("3000 messages"),
         "read whole"
@@ -60,7 +61,7 @@ fn the_view_reads_the_transcript_whole_with_a_header_and_the_messages_line() {
             .starts_with("› message 2999")
     );
     assert!(
-        read_of(&hold, &id(6), 0).is_none(),
+        view_of(&hold, &id(6), 0).is_none(),
         "one the search does not know"
     );
 }
@@ -85,4 +86,33 @@ fn the_thread_reads_a_view() {
     assert_eq!(read.session, older);
     assert!(read.view.is_some());
     assert!(!format!("{read:?}").contains("trust"));
+}
+
+#[test]
+fn a_view_of_line_breaks_alone_stops_at_its_bound() {
+    let scratch = Scratch::new("view-bound");
+    // Replies of nothing but line breaks, which the view would make a line each.
+    let breaks = "\n".repeat(64 * 1024);
+    let lines: Vec<String> = (0..200)
+        .map(|n| {
+            if n == 0 {
+                prompt("/w/b", "start")
+            } else {
+                serde_json::json!({"type": "assistant", "message": {"content": [{"type": "text", "text": format!("x{breaks}y")}]}})
+                    .to_string()
+            }
+        })
+        .collect();
+    scratch.write("-w-b", &id(7), &lines, 5);
+    let mut hold = Hold::default();
+    search(
+        &scratch.0,
+        &mut hold,
+        &request("start", ConversationScope::all()),
+    );
+    let (_, text, _) = view_of(&hold, &id(7), 0).expect("a view");
+    assert!(text.contains("more was said than the view keeps"), "cut");
+    let rows = text.lines().count();
+    assert!(rows <= MAX_VIEW / VIEW_LINE_COST, "{rows} rows");
+    assert!(text.len() <= 2 * MAX_VIEW, "{} bytes", text.len());
 }

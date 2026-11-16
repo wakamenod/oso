@@ -110,11 +110,18 @@ struct Out {
 
 impl Out {
     fn line(&mut self, line: &str) {
+        self.line_of(&[line]);
+    }
+
+    /// Writes a line made of `parts`, with no allocation of its own.
+    fn line_of(&mut self, parts: &[&str]) {
         if !self.text.is_empty() {
             self.text.push('\n');
             self.lines += 1;
         }
-        self.text.push_str(line);
+        for part in parts {
+            self.text.push_str(part);
+        }
     }
 
     fn gap(&mut self) {
@@ -127,7 +134,7 @@ impl Out {
         let mark = if message.prompt { PROMPT } else { REPLY };
         let mut first = true;
         if skip > 0 {
-            self.line(&format!("{mark}{CUT}"));
+            self.line_of(&[mark, CUT]);
             first = false;
         }
         for (number, part) in message.text.split('\n').enumerate().skip(skip) {
@@ -136,19 +143,20 @@ impl Out {
             match hit {
                 Some((line, kept, left_out)) if line == number => {
                     let marks = INDENT.chars().count();
-                    let (shown, column) = if left_out > 0 {
+                    let column = if left_out > 0 {
                         let at = part
                             .char_indices()
                             .nth(left_out)
                             .map_or(part.len(), |(at, _)| at);
-                        (format!("{start}{CUT}{}", &part[at..]), marks + 1 + kept)
+                        self.line_of(&[start, CUT, &part[at..]]);
+                        marks + 1 + kept
                     } else {
-                        (format!("{start}{part}"), marks + kept)
+                        self.line_of(&[start, part]);
+                        marks + kept
                     };
-                    self.line(&shown);
                     self.hit = (self.lines, column);
                 }
-                _ => self.line(&format!("{start}{part}")),
+                _ => self.line_of(&[start, part]),
             }
         }
         if let Some((line, _, _)) = hit

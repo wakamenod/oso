@@ -1,8 +1,10 @@
 //! The search of past conversations' benchmark (ADR 0145, step 2), over a tree of transcripts
 //! of its own, 1,000 of 512 KiB each, about 1% of them prompts and replies, the rest tool
-//! results, as on the author's machine. `conversation_search_first_rows_ms`: from the key
-//! that starts the first search, cold, to its first rows. `conversation_search_cold_ms`: to
-//! its end, every transcript read. `conversation_search_warm_ms`: a search's end once the
+//! results, as on the author's machine. The query is a word in about 1% of messages, so each
+//! search looks through every conversation held. `conversation_search_first_rows_ms`: from
+//! the key that starts the first search, in a new process, to its first rows.
+//! `conversation_search_cold_ms`: to its end, every transcript read; the files were just
+//! written, so the page cache holds them, as for a person who searched a while ago. `conversation_search_warm_ms`: a search's end once the
 //! text is held. `conversation_search_key_p99_ms`: key to presented frame while typing into
 //! the float. Recorded, with no threshold yet.
 //!
@@ -34,11 +36,14 @@ const MESSAGES: usize = 40;
 /// The bytes of a tool result, the bulk of a transcript.
 const TOOL_RESULT: usize = 8 * 1024;
 
-/// Words the text is made of; `trust` is in some messages only.
+/// Words the text is made of.
 const WORDS: [&str; 12] = [
     "worktree", "session", "buffer", "render", "trust", "window", "search", "float", "agent",
     "review", "commit", "space",
 ];
+
+/// A word in about one message in a hundred, and in no other word, which the searches type.
+const RARE: &str = "zeppelin";
 
 /// How long a search may take to end.
 const WITHIN: Duration = Duration::from_secs(120);
@@ -76,7 +81,7 @@ pub(super) fn conversations(
         let mut app = App::start_with_env(exe, None, None, &env)?;
         settle(&mut app)?;
         app.send_keys("C-c a /")?;
-        app.send_keys("t r")?;
+        app.send_keys("z e")?;
         let typed = Instant::now();
         let mut first_rows = None;
         loop {
@@ -155,15 +160,21 @@ fn write_tree(claude: &Path) -> std::io::Result<()> {
         let mut written = 0;
         for message in 0..MESSAGES {
             let words = 20 + rng.below(40);
-            let text = sentence(&mut rng, words);
+            let mut text = sentence(&mut rng, words);
+            if rng.below(100) == 0 {
+                text.push(' ');
+                text.push_str(RARE);
+            }
             let line = if message % 2 == 0 {
                 json!({"type": "user", "cwd": directory, "message": {"role": "user", "content": text}})
             } else {
                 json!({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}})
             };
-            written += writeln_counted(&mut out, &line)?;
+            written += writeln_counted(&mut out, &line.to_string())?;
             let result = sentence(&mut rng, TOOL_RESULT / 7);
             let tool = json!({"type": "user", "message": {"content": [{"type": "tool_result", "content": result}]}});
+            // Serialized once, written as many times as the transcript's size asks.
+            let tool = tool.to_string();
             while written < TRANSCRIPT_BYTES * (message + 1) / MESSAGES {
                 written += writeln_counted(&mut out, &tool)?;
             }
@@ -174,10 +185,9 @@ fn write_tree(claude: &Path) -> std::io::Result<()> {
 }
 
 /// Writes `line` and a line break, and gives the bytes written.
-fn writeln_counted(out: &mut impl std::io::Write, line: &Value) -> std::io::Result<usize> {
-    let text = line.to_string();
-    writeln!(out, "{text}")?;
-    Ok(text.len() + 1)
+fn writeln_counted(out: &mut impl std::io::Write, line: &str) -> std::io::Result<usize> {
+    writeln!(out, "{line}")?;
+    Ok(line.len() + 1)
 }
 
 /// `words` words of [`WORDS`], spaced.

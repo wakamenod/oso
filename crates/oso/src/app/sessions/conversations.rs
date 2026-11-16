@@ -173,22 +173,17 @@ impl App {
     /// Shows what the history thread read for a view: `*conversation: NAME*`, made or read
     /// again, withheld from agents, its cursor on the asked message's line.
     fn show_conversation(&mut self, read: Read) {
-        let Some((about, text, line)) = read.view else {
+        let Some((about, snapshot, line)) = read.view else {
             return self.editor.message_unlogged(
                 "That conversation cannot be read now: run session-search again",
             );
         };
-        let name = match self.hosting.table().iter().find(|s| s.id == about.id) {
-            Some(session) => session.name.clone(),
-            None => conversation_name(&about),
-        };
         let kept = self.hosting.searching.views.get(&read.session).copied();
         let id = match kept.filter(|id| self.editor.buffer(*id).is_some_and(Buffer::is_internal)) {
             Some(id) => id,
-            None => self.editor.add_internal_buffer(
-                format!("*conversation: {}*", shown(&name, NAME)),
-                Mode::Conversation,
-            ),
+            None => self
+                .editor
+                .add_internal_buffer(view_name(&about.id), Mode::Conversation),
         };
         self.hosting.searching.views.insert(read.session, id);
         self.hosting
@@ -199,7 +194,7 @@ impl App {
             return;
         };
         buffer.withhold_from_agents();
-        self.editor.set_internal_text(id, &text);
+        buffer.apply_load(snapshot);
         self.editor.show(id);
         let row = line.min(
             self.editor
@@ -346,6 +341,14 @@ impl App {
     }
 }
 
+/// The name of a conversation's read-only view: its session's id's first 8 digits. Never its
+/// title or prompt: every buffer's name reaches the agent channel's `state`, and the view's
+/// text is withheld from agents (ADR 0145, step 2).
+fn view_name(id: &SessionId) -> String {
+    let short: String = id.as_str().chars().take(8).collect();
+    format!("*conversation: {short}*")
+}
+
 /// The name a row gives a conversation oso does not host: its title, else the first line of
 /// its first prompt, else its id's first 8 digits.
 fn conversation_name(about: &About) -> String {
@@ -375,6 +378,8 @@ mod tests {
         let said = shown("first · line\nsecond", 40);
         assert!(!said.contains('·'), "{said}");
         assert!(!said.contains('\n'), "{said}");
+        let id = SessionId::parse("6c1b5d1e-2f3a-4b5c-8d9e-0f1a2b3c4d5e").unwrap();
+        assert_eq!(view_name(&id), "*conversation: 6c1b5d1e*");
         let spoof = shown("fix\u{202e}gol\r\u{2066}x", 40);
         assert!(!spoof.contains(['\u{202e}', '\r', '\u{2066}']), "{spoof}");
     }

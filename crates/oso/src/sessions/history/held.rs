@@ -199,6 +199,10 @@ pub fn list(projects: &Path) -> Vec<Listed> {
         }
     }
     found.sort_by_key(|listed| std::cmp::Reverse(listed.changed));
+    // One conversation an id: two transcripts of one id would give a row of one and act on the
+    // other. The newest stands.
+    let mut seen = std::collections::HashSet::new();
+    found.retain(|listed| seen.insert(listed.id.clone()));
     found.truncate(MAX_FILES);
     found
 }
@@ -356,7 +360,10 @@ pub fn read(listed: &Listed, held: Option<Conversation>) -> Option<Conversation>
         _ => Conversation::new(listed.id.clone(), listed.path.clone()),
     };
     let from = conversation.file.read_to;
-    let take = |line| conversation.take(line);
+    let take = |line| {
+        conversation.take(line);
+        true
+    };
     let read_to = read_lines(&mut file, from, now.len, take).unwrap_or(from);
     conversation.file = FileState { read_to, ..now };
     let about = Arc::make_mut(&mut conversation.about);
@@ -373,7 +380,7 @@ fn read_lines(
     file: &mut File,
     from: u64,
     len: u64,
-    mut take: impl FnMut(scan::Line),
+    mut take: impl FnMut(scan::Line) -> bool,
 ) -> io::Result<u64> {
     file.seek(SeekFrom::Start(from))?;
     let mut reader = BufReader::with_capacity(256 * 1024, io::Read::take(file, len - from));
@@ -390,14 +397,20 @@ fn read_lines(
             return Ok(at);
         }
         at += taken;
-        if !skipped && !line.is_empty() {
-            take(scan::read(&line));
+        if !skipped && !line.is_empty() && !take(scan::read(&line)) {
+            return Ok(at);
         }
     }
 }
 
-/// The most bytes of text the read-only view of a conversation keeps (ADR 0145, step 2).
+/// The most bytes the read-only view of a conversation keeps (ADR 0145, step 2), its text and
+/// what the view adds to it counted: [`MESSAGE_COST`] a message and [`VIEW_LINE_COST`] a line.
 pub const MAX_VIEW: usize = 8 * 1024 * 1024;
+
+/// What each line of a message is counted as in the view, besides its text: its indent, and
+/// the rope's and display model's cost of a line. So a message of line breaks only cannot make
+/// a view of millions of lines.
+pub const VIEW_LINE_COST: usize = 16;
 
 /// A conversation read whole for its read-only view: its prompts and replies, and whether more
 /// was said than [`MAX_VIEW`] keeps. `Debug` gives counts only.
@@ -416,9 +429,8 @@ impl std::fmt::Debug for Whole {
 }
 
 /// Reads the transcript at `path` whole, as [`read`] reads one, for its read-only view: every
-/// prompt and reply, each whole, until [`MAX_VIEW`] bytes of text, each message counted with
-/// [`MESSAGE_COST`] too. None if it cannot be read as a regular file of this user's with one
-/// name.
+/// prompt and reply, each whole, until [`MAX_VIEW`] bytes, counted as it says; the reading
+/// stops there. None if it cannot be read as a regular file of this user's with one name.
 pub fn read_whole(path: &Path) -> Option<Whole> {
     let (mut file, meta) = file_meta::open_regular_here(path).ok().flatten()?;
     if !is_this_users(&meta) || !has_one_name(&meta) {
@@ -431,19 +443,22 @@ pub fn read_whole(path: &Path) -> Option<Whole> {
     let mut bytes = 0;
     let take = |line: scan::Line| {
         let Some((prompt, texts)) = line.message else {
-            return;
+            return true;
         };
         for text in texts {
-            if bytes + text.len() + MESSAGE_COST > MAX_VIEW {
+            let lines = text.bytes().filter(|&byte| byte == b'\n').count() + 1;
+            let cost = text.len() + MESSAGE_COST + lines * VIEW_LINE_COST;
+            if bytes + cost > MAX_VIEW {
                 whole.cut = true;
-                continue;
+                return false;
             }
-            bytes += text.len() + MESSAGE_COST;
+            bytes += cost;
             whole.messages.push(Message {
                 prompt,
                 text: text.into(),
             });
         }
+        true
     };
     read_lines(&mut file, 0, meta.len(), take).ok()?;
     Some(whole)
