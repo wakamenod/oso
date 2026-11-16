@@ -534,8 +534,8 @@ mod tests {
         let [left, right] = [first, second].map(|id| *editor.regions(id).unwrap());
         let ids: Vec<_> = panes.iter().map(|pane| pane.0.0).collect();
         // The texts, the selected one's last, then the gutters, the modelines, the divider and
-        // the echo area.
-        assert_eq!(ids, [20, 16, 17, 21, 18, 22, 19, ECHO.0]);
+        // the echo area. Each window has five ids, the fifth for its sign column.
+        assert_eq!(ids, [21, 16, 17, 22, 18, 23, 19, ECHO.0]);
         assert_eq!(panes[0].1, right.text);
         assert_eq!(panes[0].3, "Hollow", "the other");
         assert_eq!(panes[1].1, left.text);
@@ -558,7 +558,7 @@ mod tests {
         // Deleted, the first gives its cells to the second, which keeps its ids.
         editor.delete_window().unwrap();
         let ids: Vec<_> = split_panes(&editor).iter().map(|pane| pane.0.0).collect();
-        assert_eq!(ids, [20, 21, 22, ECHO.0]);
+        assert_eq!(ids, [21, 22, 23, ECHO.0]);
     }
 
     #[test]
@@ -575,7 +575,7 @@ mod tests {
         let panes = split_panes(&editor);
         let tiled: Vec<_> = panes.iter().filter(|pane| pane.0.0 >= 16).collect();
         // The window the prompt came from, the first, has its text last.
-        assert_eq!((tiled[0].0.0, tiled[1].0.0), (20, 16));
+        assert_eq!((tiled[0].0.0, tiled[1].0.0), (21, 16));
         assert_eq!(tiled[0].3, "Hollow");
         assert_eq!(tiled[1].3, "Hollow");
         assert_eq!(tiled[4].2, Some(Face::ModelineInactive));
@@ -898,5 +898,104 @@ mod tests {
                 assert!(!pane.bands.below, "{:?}", pane.region);
             }
         });
+    }
+
+    /// An editor on two lines of Rust that a server follows, with an error on `x` and a warning
+    /// on `fn`.
+    fn with_diagnostics() -> Editor {
+        use oso_core::buffer::ServerMark;
+        use oso_core::diagnostic::{Diagnostics, New, Severity, Tags};
+        let mut editor = Editor::with_buffer(Buffer::from_text("a.rs", "let x = 1;\nfn f() {}\n"));
+        editor.set_frame_size(FrameSize {
+            rows: 6,
+            columns: 40,
+        });
+        let id = editor.window().buffer();
+        let buffer = editor.buffer_mut(id).unwrap();
+        buffer.set_followed(true);
+        buffer.set_server(Some(ServerMark::Ready));
+        let new = |range, severity| New {
+            range,
+            severity,
+            tags: Tags::default(),
+            source: "",
+            code: "",
+            message: "m",
+        };
+        let set = Diagnostics::new(
+            "fake",
+            [new(4..5, Severity::Error), new(11..13, Severity::Warning)],
+            buffer.text().len(),
+        );
+        let revision = buffer.revision();
+        assert!(buffer.take_diagnostics(revision, set));
+        editor.fit_gutter();
+        editor
+    }
+
+    #[test]
+    fn a_buffer_a_server_follows_draws_its_signs_lines_and_counts_in_their_faces() {
+        let editor = with_diagnostics();
+        let regions = editor.tiled_regions();
+        assert_eq!(regions.gutter.columns, 1, "the sign column alone");
+        let window = editor.tiled().0.id();
+        with_panes(
+            &editor,
+            &statuses(&editor),
+            &mut Cells::default(),
+            |panes| {
+                let signs = panes
+                    .iter()
+                    .find(|pane| pane.id == tiled::pane_id(window, tiled::Part::Signs))
+                    .expect("a sign column");
+                assert_eq!(signs.region.columns, 1);
+                assert_eq!(signs.region.column, regions.gutter.column);
+                let PaneContent::Signs(shown) = &signs.content else {
+                    panic!("signs");
+                };
+                let (e, w) = (Some(Face::DiagnosticError), Some(Face::DiagnosticWarning));
+                assert_eq!(&shown[..2], [e, w]);
+                let text = panes
+                    .iter()
+                    .find(|pane| pane.id == tiled::pane_id(window, tiled::Part::Text))
+                    .unwrap();
+                let PaneContent::Text(view) = &text.content else {
+                    panic!("text");
+                };
+                let lines: Vec<_> = view
+                    .marks
+                    .underlines
+                    .iter()
+                    .map(|(face, cells)| (*face, cells.len()))
+                    .collect();
+                assert_eq!(
+                    lines,
+                    [
+                        (Face::DiagnosticInfo, 0),
+                        (Face::DiagnosticWarning, 1),
+                        (Face::DiagnosticError, 1)
+                    ]
+                );
+                let modeline = panes
+                    .iter()
+                    .find(|pane| pane.id == tiled::pane_id(window, tiled::Part::Modeline))
+                    .unwrap();
+                let PaneContent::Lines(rows) = &modeline.content else {
+                    panic!("modeline");
+                };
+                let counts: Vec<_> = rows[0]
+                    .iter()
+                    .filter(|span| span.text.contains(['E', 'W']) && span.text.starts_with(' '))
+                    .map(|span| (span.text, span.face))
+                    .collect();
+                assert_eq!(
+                    counts,
+                    [
+                        (" E1", Face::DiagnosticError),
+                        (" W1", Face::DiagnosticWarning)
+                    ]
+                );
+            },
+        );
     }
 }

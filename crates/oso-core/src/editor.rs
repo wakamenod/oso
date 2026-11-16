@@ -42,6 +42,7 @@ mod completion;
 mod copies;
 mod crossing;
 mod cursors;
+mod diagnostics;
 mod directories;
 mod excerpt;
 mod files;
@@ -92,6 +93,7 @@ pub use completion::CompletionStyle;
 pub use copies::RecoveryAction;
 pub use crossing::Crossing;
 pub use cursors::{CursorError, Toward};
+pub use diagnostics::DiagnosticCells;
 pub use files::Looked;
 pub use git::{
     CommitKind, CommitSwitches, GitHeading, GitLines, GitRequest, GitShown, MAX_GIT_LOG,
