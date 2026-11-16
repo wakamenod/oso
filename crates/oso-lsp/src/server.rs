@@ -55,8 +55,6 @@ pub struct Start {
     pub name: String,
     /// A number of its own among the servers, for its threads' names (`oso-lsp-1`).
     pub number: usize,
-    /// The program's arguments; the program is what the [`Gate`] finds.
-    pub args: Vec<OsString>,
     /// The project's root: where it runs, its only workspace folder, and what is left out of
     /// its `PATH`.
     pub root: PathBuf,
@@ -72,8 +70,17 @@ pub struct Start {
 
 /// Whether the server may start now, and the program to start, run on its session thread
 /// before each start: `Err` says why not, for a person. The tip crate checks the project's
-/// trust and root here, and finds the program.
-pub type Gate = Box<dyn Fn() -> Result<Executable, String> + Send>;
+/// trust and root here, and finds the program, which can differ from one start to the next.
+pub type Gate = Box<dyn Fn() -> Result<Found, String> + Send>;
+
+/// The program a [`Gate`] found, with its arguments, and lines for `*LSP*` on what it passed
+/// over, such as a program inside the project that did not pass its checks.
+#[derive(Debug, Clone)]
+pub struct Found {
+    pub executable: Executable,
+    pub args: Vec<OsString>,
+    pub notes: Vec<String>,
+}
 
 /// Wakes the UI thread, which then calls [`Server::take_report`].
 pub type Wake = Box<dyn Fn() + Send>;
@@ -121,9 +128,12 @@ pub enum State {
     Working(Option<u8>),
     /// Waiting to start again after a crash.
     Waiting,
-    /// Stopped for the session: three crashes, or it could not start. `lsp-restart` tries
-    /// again ([`Server::restart`]).
+    /// Stopped for the session after three crashes. `lsp-restart` tries again
+    /// ([`Server::restart`]).
     Stopped,
+    /// Never started: the gate said no, as for a program not installed, or the spawn failed.
+    /// The report said why once; `lsp-restart` tries again.
+    NotStarted,
     /// Shut down: the session thread has ended.
     Ended,
 }

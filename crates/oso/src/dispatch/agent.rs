@@ -333,7 +333,16 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::GitLog
         | Mode::GitDiscarded
         | Mode::Sessions => true,
-        Mode::Fundamental | Mode::Rust | Mode::Markdown | Mode::Toml => false,
+        Mode::Fundamental
+        | Mode::Rust
+        | Mode::Markdown
+        | Mode::Toml
+        | Mode::Go
+        | Mode::TypeScript
+        | Mode::Tsx
+        | Mode::JavaScript
+        | Mode::Latex
+        | Mode::Swift => false,
     }
 }
 

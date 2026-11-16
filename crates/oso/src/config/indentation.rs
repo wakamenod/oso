@@ -57,15 +57,21 @@ impl ModeIndent {
 }
 
 /// The modes `[modes]` can set, by the name their table has.
-pub const MODES: [(&str, Mode); 4] = [
+pub const MODES: [(&str, Mode); 10] = [
     ("rust", Mode::Rust),
     ("markdown", Mode::Markdown),
     ("toml", Mode::Toml),
+    ("go", Mode::Go),
+    ("typescript", Mode::TypeScript),
+    ("tsx", Mode::Tsx),
+    ("javascript", Mode::JavaScript),
+    ("latex", Mode::Latex),
+    ("swift", Mode::Swift),
     ("fundamental", Mode::Fundamental),
 ];
 
 /// `[modes]`: each mode's, in the order of [`MODES`].
-pub type Modes = [ModeIndent; 4];
+pub type Modes = [ModeIndent; 10];
 
 /// `[indent]`.
 pub(super) fn indent(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Indent {

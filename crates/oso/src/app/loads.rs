@@ -652,7 +652,18 @@ mod tests {
             style: Origin::Configuration,
             tab_width: Origin::Configuration,
         };
-        let modes = [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental];
+        let modes = [
+            Mode::Rust,
+            Mode::Markdown,
+            Mode::Toml,
+            Mode::Go,
+            Mode::TypeScript,
+            Mode::Tsx,
+            Mode::JavaScript,
+            Mode::Latex,
+            Mode::Swift,
+            Mode::Fundamental,
+        ];
         editor.set_mode_indents(modes.map(|mode| (mode, three, origins)));
         show_new_file(&mut editor, id, None);
         let buffer = editor.buffer(id).unwrap();

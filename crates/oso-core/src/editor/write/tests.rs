@@ -252,7 +252,18 @@ fn a_new_name_that_changes_the_mode_gives_the_modes_indentation() {
     let mut editor = Editor::with_buffer(Buffer::from_text("a", "x\n"));
     let id = editor.window().buffer();
     let two = Settings::new(2, Style::Spaces, 8).unwrap();
-    let modes = [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental];
+    let modes = [
+        Mode::Rust,
+        Mode::Markdown,
+        Mode::Toml,
+        Mode::Go,
+        Mode::TypeScript,
+        Mode::Tsx,
+        Mode::JavaScript,
+        Mode::Latex,
+        Mode::Swift,
+        Mode::Fundamental,
+    ];
     editor.set_mode_indents(modes.map(|mode| {
         (
             mode,

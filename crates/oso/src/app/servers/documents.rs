@@ -28,12 +28,23 @@ pub(super) struct Open {
     pub(super) closed: Option<Closed>,
 }
 
-/// The language a buffer of `mode` holds, as the protocol names it.
-fn language_id(mode: Mode) -> &'static str {
+/// The language a buffer of `mode` visiting `path` holds, as the protocol names it: JSX is
+/// JavaScript's mode, and named by its file.
+fn language_id(mode: Mode, path: &std::path::Path) -> &'static str {
+    let jsx = path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("jsx"));
     match mode {
+        Mode::JavaScript if jsx => "javascriptreact",
+        Mode::JavaScript => "javascript",
         Mode::Rust => "rust",
         Mode::Markdown => "markdown",
         Mode::Toml => "toml",
+        Mode::Go => "go",
+        Mode::TypeScript => "typescript",
+        Mode::Tsx => "typescriptreact",
+        Mode::Latex => "latex",
+        Mode::Swift => "swift",
         _ => "plaintext",
     }
 }
@@ -157,7 +168,7 @@ impl App {
         running.server.open(Document {
             id: id.get(),
             uri,
-            language_id: language_id(mode).to_owned(),
+            language_id: language_id(mode, &path).to_owned(),
             text: text.clone(),
         });
         self.servers.running[index].documents.insert(

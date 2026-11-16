@@ -171,6 +171,12 @@ impl Editor {
             | Mode::Rust
             | Mode::Markdown
             | Mode::Toml
+            | Mode::Go
+            | Mode::TypeScript
+            | Mode::Tsx
+            | Mode::JavaScript
+            | Mode::Latex
+            | Mode::Swift
             | Mode::Brief
             | Mode::Worktrees
             | Mode::Review

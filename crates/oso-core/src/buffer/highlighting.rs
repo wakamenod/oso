@@ -233,7 +233,14 @@ impl Buffer {
         // A commit's message is highlighted by the host as it changes, not parsed (ADR 0127).
         let language = match self.mode {
             Mode::Rust | Mode::Markdown | Mode::Toml | Mode::GitCommit => true,
+            // The modes of ADR 0138 have no grammar yet.
             Mode::Fundamental
+            | Mode::Go
+            | Mode::TypeScript
+            | Mode::Tsx
+            | Mode::JavaScript
+            | Mode::Latex
+            | Mode::Swift
             | Mode::CopyList
             | Mode::CopyView
             | Mode::Brief

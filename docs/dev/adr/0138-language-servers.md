@@ -1240,3 +1240,46 @@ text sent is kept, the 16 versions coming with step 6 (Q4); and the public items
     the project is found from.
   - A test of the agent's open through `*LSP*` itself is not possible in the flows: visiting
     `*LSP*` is the person's command, which lets the open go.
+
+### Step 5: the rest of the table
+
+The author answered step 5's questions on 2026-11-16, all with the first choice: each new mode
+has a `[modes.<name>]` table of its own (Q1); a server that is not installed shows nothing in
+the modeline (Q2); the flows and benches that trust a project of Markdown or TOML files set
+`[lsp] start = "manual"` (Q3); a `tsc` is run as the table says, with no look at its version
+first (Q4); the six modes (Q5); and the gate returns the program with its arguments (Q6).
+
+- **Six modes in `oso-core`,** chosen by the file's name: Go (`.go`), TypeScript (`.ts`,
+  `.mts`, `.cts`), TSX (`.tsx`), JavaScript (`.js`, `.mjs`, `.cjs`, `.jsx`), LaTeX (`.tex`,
+  `.sty`, `.cls`, `.ltx`) and Swift (`.swift`). They have no grammar, so no highlighting, and
+  indent as Fundamental does, a line keeping the one before's. Each has its `<name>-mode`
+  command and a `[modes.<name>]` table, at four spaces with tabs eight wide unless the file
+  says, under EditorConfig; `Editor::set_mode_indents` takes the ten modes. A document's
+  language is `go`, `typescript`, `typescriptreact`, `javascript` (`javascriptreact` for a
+  `.jsx`), `latex` or `swift`.
+- **The table** (`config/lsp.rs`): gopls with its settings, as `initializationOptions` and
+  under the section `gopls`; `typescript` for the TypeScript, TSX and JavaScript modes;
+  texlab, sourcekit-lsp, `taplo lsp stdio` and `marksman server`. An entry names programs
+  inside the project to try first (`InProject`), and where else to look after `PATH`
+  (`AlsoIn`). A `command` of the person's replaces both.
+- **Finding the program** (`app/servers/find.rs`), on the server's thread after the trust
+  check: the programs inside the project, then the command on `PATH`, then Cargo's `bin` for
+  rust-analyzer, or Go's for gopls: `$GOBIN`, the first `$GOPATH` entry's `bin`, `~/go/bin`. A
+  program in `node_modules/.bin` is used when the file it needs is there
+  (`node_modules/typescript/lib/tsserver.js` for `typescript-language-server`), the link
+  leads to a regular file under the root, owned by this user, that neither group nor others
+  can change. Otherwise the next choice is tried, and `*LSP*` says why. Only metadata is read.
+- **`oso-lsp`:** the gate returns `server::Found`: the program, its arguments, and lines for
+  `*LSP*` on what it passed over. `Start::args` is gone, so a restart picks again, and a
+  project's `node_modules` that came since is used. `State::NotStarted` is a server the gate
+  refused or that could not be spawned: said once, it shows nothing in the modeline, and
+  `lsp-restart` or a change to its entry tries again.
+- **Tests:** each mode's file names; the table's entries, the person's command replacing the
+  project's choices; Go's `bin` in order; each check of a program inside the project on files
+  in a scratch directory (a link out of the root, a file others can change, a directory, a
+  missing `tsserver.js`, the order of the choices). End to end, `lsp.rs`: a Go file starts the
+  fake server as gopls, which is told gopls's settings, and a server not installed is said once
+  and shows nothing in the modeline.
+- **Public API:** `oso-core`: `Mode::{Go, TypeScript, Tsx, JavaScript, Latex, Swift}`, and
+  `Editor::set_mode_indents` over ten modes. `oso-lsp`: `server::Found`, the `Gate` that
+  returns it, `State::NotStarted`, and no `Start::args`.

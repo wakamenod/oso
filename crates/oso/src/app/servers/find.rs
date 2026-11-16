@@ -1,38 +1,106 @@
-//! Finding a language server's program (ADR 0138, Which servers and Windows), on the server's
-//! thread before each start: an absolute path as it is, or a name on `PATH` without the
-//! project, then, for an entry that says so, in Cargo's `bin` directory, which is found from
-//! oso's own environment and home, never from the project. On Windows only an `.exe` starts.
+//! Finding a language server's program (ADR 0138, Which servers, A server inside the project
+//! and Windows), on the server's thread before each start, after the trust check: first the
+//! programs inside the project the entry names, each judged by its metadata alone; then an
+//! absolute path as it is, or a name on `PATH` without the project; then Cargo's or Go's `bin`
+//! directory, found from oso's own environment and home, never from the project. On Windows
+//! only an `.exe` starts.
 //!
-//! Must not depend on: the UI thread or the editor; this looks at the file system.
+//! Must not depend on: the UI thread or the editor; this looks at the file system, reading no
+//! file's contents.
 
 use std::env;
+use std::ffi::OsString;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use oso_platform::process::Executable;
 
-/// The program `program` names, or why it is not there, for a person.
+use crate::config::{AlsoIn, InProject};
+
+/// What an entry says of where its program is.
+#[derive(Debug, Clone)]
+pub(super) struct Where {
+    pub(super) in_project: Vec<InProject>,
+    /// The program and its arguments, after those inside the project.
+    pub(super) command: Vec<String>,
+    pub(super) also_in: AlsoIn,
+}
+
+/// The program `how` names for the project at `root`, with its arguments, or why there is
+/// none, for a person. Each program inside the project passed over says why in `passed`.
 pub(super) fn program(
-    program: &str,
-    in_cargo_bin: bool,
+    how: &Where,
     root: &Path,
-) -> Result<Executable, String> {
-    let found = if Path::new(program).is_absolute() {
-        Executable::absolute(program).map_err(|error| error.to_string())
-    } else {
-        Executable::from_path(program, Some(root)).or_else(|_| {
-            let cargo = cargo_bin().filter(|_| in_cargo_bin);
-            match cargo {
-                Some(dir) => Executable::absolute(dir.join(exe(program))).map_err(|_| {
-                    format!(
-                        "{program} is not installed (looked on PATH and in {})",
-                        dir.display()
-                    )
-                }),
-                None => Err(format!("{program} is not installed (looked on PATH)")),
+    passed: &mut Vec<String>,
+) -> Result<(Executable, Vec<OsString>), String> {
+    for choice in &how.in_project {
+        match in_project(choice, root) {
+            Ok(executable) => {
+                let args = choice.args.iter().map(OsString::from).collect();
+                return Ok((executable, args));
             }
-        })
+            Err(why) => passed.push(why),
+        }
+    }
+    let Some((name, args)) = how.command.split_first() else {
+        return Err("no command".into());
+    };
+    let found = if Path::new(name).is_absolute() {
+        Executable::absolute(name).map_err(|error| error.to_string())
+    } else {
+        Executable::from_path(name, Some(root)).or_else(|_| also_in(name, how.also_in))
     }?;
     only_exe(&found)?;
+    Ok((found, args.iter().map(OsString::from).collect()))
+}
+
+/// `name` in the directory `also` names, or that it is not installed, saying where it looked.
+fn also_in(name: &str, also: AlsoIn) -> Result<Executable, String> {
+    let dir = match also {
+        AlsoIn::Nowhere => None,
+        AlsoIn::CargoBin => cargo_bin(),
+        AlsoIn::GoBin => go_bin(),
+    };
+    match dir {
+        Some(dir) => Executable::absolute(dir.join(exe(name))).map_err(|_| {
+            format!(
+                "{name} is not installed (looked on PATH and in {})",
+                dir.display()
+            )
+        }),
+        None => Err(format!("{name} is not installed (looked on PATH)")),
+    }
+}
+
+/// The program `choice` names in the project's `node_modules/.bin`, if it may run: the file
+/// `choice` needs is there, the link is followed, and where it leads is a regular file under the
+/// root, owned by this user, that no one else can change.
+fn in_project(choice: &InProject, root: &Path) -> Result<Executable, String> {
+    let named = format!("node_modules/.bin/{}", choice.program);
+    let not = |why: &str| format!("the project's {named} is not used: {why}");
+    if let Some(needs) = choice.needs
+        && fs::metadata(root.join(needs)).is_err()
+    {
+        return Err(not(&format!("{needs} is not there")));
+    }
+    let root = fs::canonicalize(root).map_err(|_| not("the root cannot be read"))?;
+    let target = fs::canonicalize(root.join(&named)).map_err(|_| not("it is not there"))?;
+    if !target.starts_with(&root) {
+        return Err(not("it leads outside the project"));
+    }
+    let metadata = fs::metadata(&target).map_err(|_| not("it cannot be read"))?;
+    if !metadata.is_file() {
+        return Err(not("it is not a regular file"));
+    }
+    if !oso_platform::privacy::is_this_users(&metadata) {
+        return Err(not("another user owns it"));
+    }
+    #[cfg(unix)]
+    if std::os::unix::fs::PermissionsExt::mode(&metadata.permissions()) & 0o022 != 0 {
+        return Err(not("others can change it"));
+    }
+    let found = Executable::absolute(&target).map_err(|error| not(&error.to_string()))?;
+    only_exe(&found).map_err(|why| not(&why))?;
     Ok(found)
 }
 
@@ -45,6 +113,34 @@ fn cargo_bin() -> Option<PathBuf> {
         return Some(home.join("bin"));
     }
     oso_platform::privacy::home().map(|home| home.join(".cargo").join("bin"))
+}
+
+/// Go's `bin` directory: `$GOBIN`, else the first `$GOPATH` entry's `bin`, else `~/go/bin`,
+/// from oso's own environment.
+fn go_bin() -> Option<PathBuf> {
+    go_bin_of(
+        env::var_os("GOBIN"),
+        env::var_os("GOPATH"),
+        oso_platform::privacy::home(),
+    )
+}
+
+fn go_bin_of(
+    gobin: Option<OsString>,
+    gopath: Option<OsString>,
+    home: Option<PathBuf>,
+) -> Option<PathBuf> {
+    if let Some(gobin) = gobin.map(PathBuf::from).filter(|dir| dir.is_absolute()) {
+        return Some(gobin);
+    }
+    if let Some(first) = gopath
+        .as_deref()
+        .and_then(|paths| env::split_paths(paths).next())
+        .filter(|dir| dir.is_absolute())
+    {
+        return Some(first.join("bin"));
+    }
+    home.map(|home| home.join("go").join("bin"))
 }
 
 /// `name` as the file it is on this system.
@@ -75,51 +171,4 @@ fn is_exe(path: &Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_missing_program_says_where_it_was_looked_for() {
-        let root = env::temp_dir();
-        let error = program("oso-no-such-server", false, &root).unwrap_err();
-        assert_eq!(
-            error,
-            "oso-no-such-server is not installed (looked on PATH)"
-        );
-        let error = program("oso-no-such-server", true, &root).unwrap_err();
-        assert!(error.starts_with("oso-no-such-server is not installed (looked on PATH and in "));
-        assert!(
-            error.contains(".cargo") || env::var_os("CARGO_HOME").is_some(),
-            "{error}"
-        );
-    }
-
-    #[test]
-    fn only_an_exe_is_one() {
-        for exe in ["C:/ra/rust-analyzer.exe", "C:/ra/RA.EXE", "ra.Exe"] {
-            assert!(is_exe(Path::new(exe)), "{exe}");
-        }
-        for other in [
-            "C:/n/tsserver.cmd",
-            "C:/n/a.bat",
-            "C:/n/a.BAT",
-            "C:/n/a",
-            "a.exe.cmd",
-        ] {
-            assert!(!is_exe(Path::new(other)), "{other}");
-        }
-        assert_eq!(exe("rust-analyzer.EXE"), "rust-analyzer.EXE");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn an_absolute_path_or_a_name_on_path_is_found() {
-        let root = env::temp_dir();
-        assert_eq!(
-            program("/bin/sh", false, &root).unwrap().path(),
-            Path::new("/bin/sh")
-        );
-        assert!(program("sh", false, &root).is_ok());
-        assert!(program("/no/such/server", false, &root).is_err());
-    }
-}
+mod tests;

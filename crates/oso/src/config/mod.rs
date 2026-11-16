@@ -51,7 +51,7 @@ pub use checked::read_checked;
 pub use git::GitSettings;
 pub use in_force::{AgentStarts, InForce, JUMP_TIMEOUT, Look};
 pub use indentation::MODES;
-pub use lsp::{Entry as LspEntry, Lsp, StartWhen};
+pub use lsp::{AlsoIn, Entry as LspEntry, InProject, Lsp, StartWhen};
 pub use outcome::{group_writes_note, outcome};
 pub use paths::expand;
 pub use problems::Problem;

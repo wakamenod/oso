@@ -25,11 +25,50 @@ fn the_built_in_table_needs_no_configuration() {
     let rust = lsp.for_mode(Mode::Rust).unwrap();
     assert_eq!(rust.name, "rust-analyzer");
     assert_eq!(rust.command, ["rust-analyzer"]);
-    assert!(rust.in_cargo_bin);
+    assert_eq!(rust.also_in, super::lsp::AlsoIn::CargoBin);
     assert_eq!(rust.env, ["CARGO_HOME", "RUSTUP_HOME"]);
     assert_eq!(rust.section.as_deref(), Some("rust-analyzer"));
     assert_eq!(rust.options, Some(json!({"cargo": {"targetDir": true}})));
-    assert!(lsp.for_mode(Mode::Toml).is_none());
+    let go = lsp.for_mode(Mode::Go).unwrap();
+    assert_eq!(go.name, "gopls");
+    assert_eq!(go.also_in, super::lsp::AlsoIn::GoBin);
+    assert_eq!(go.section.as_deref(), Some("gopls"));
+    assert_eq!(
+        go.options,
+        Some(json!({
+            "usePlaceholders": true,
+            "gofumpt": true,
+            "staticcheck": true,
+            "completeUnimported": true,
+            "matcher": "CaseSensitive",
+        }))
+    );
+    for mode in [Mode::TypeScript, Mode::Tsx, Mode::JavaScript] {
+        let typescript = lsp.for_mode(mode).unwrap();
+        assert_eq!(typescript.name, "typescript");
+        assert_eq!(typescript.command, ["tsc", "--lsp", "--stdio"]);
+        let programs: Vec<&str> = typescript.in_project.iter().map(|p| p.program).collect();
+        assert_eq!(programs, ["typescript-language-server", "tsc"]);
+        assert_eq!(
+            typescript.in_project[0].needs,
+            Some("node_modules/typescript/lib/tsserver.js")
+        );
+    }
+    let command = |mode| lsp.for_mode(mode).unwrap().command.clone();
+    assert_eq!(command(Mode::Latex), ["texlab"]);
+    assert_eq!(command(Mode::Swift), ["sourcekit-lsp"]);
+    assert_eq!(command(Mode::Toml), ["taplo", "lsp", "stdio"]);
+    assert_eq!(command(Mode::Markdown), ["marksman", "server"]);
+    assert!(lsp.for_mode(Mode::Fundamental).is_none());
+}
+
+#[test]
+fn a_command_of_the_persons_replaces_the_projects_choices() {
+    let (lsp, said) = parsed("[lsp.servers.typescript]\ncommand = [\"tsserver-wrapper\"]\n");
+    assert!(said.is_empty(), "{said:?}");
+    let typescript = lsp.for_mode(Mode::TypeScript).unwrap();
+    assert_eq!(typescript.command, ["tsserver-wrapper"]);
+    assert!(typescript.in_project.is_empty());
 }
 
 #[test]
@@ -51,7 +90,7 @@ fn an_override_changes_only_the_keys_it_names() {
     let rust = lsp.for_mode(Mode::Rust).unwrap();
     assert_eq!(rust.command, [program]);
     assert!(
-        !rust.in_cargo_bin,
+        rust.also_in == super::lsp::AlsoIn::Nowhere,
         "a command of the person's is looked for where it says"
     );
     assert_eq!(rust.env, ["CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN"]);
@@ -76,7 +115,12 @@ fn an_entry_can_be_turned_off_or_added() {
     assert_eq!(mine.command, ["my-server", "--stdio"]);
     assert_eq!(mine.section.as_deref(), Some("my-server"));
     assert_eq!(lsp.for_mode(Mode::Rust).unwrap().name, "my-server");
-    assert_eq!(lsp.servers.len(), 1);
+    assert!(
+        !lsp.servers
+            .iter()
+            .any(|entry| entry.name == "rust-analyzer" || entry.name == "taplo"),
+        "one turned off, one that lost its only mode"
+    );
 }
 
 #[test]
@@ -111,12 +155,24 @@ fn bad_values_are_reported_and_left_out() {
         .iter()
         .map(|entry| entry.name.as_str())
         .collect();
-    assert_eq!(names, ["rust-analyzer"]);
+    assert_eq!(
+        names,
+        [
+            "rust-analyzer",
+            "gopls",
+            "typescript",
+            "texlab",
+            "sourcekit-lsp",
+            "taplo",
+            "marksman"
+        ],
+        "only the built-in table: none of the bad ones"
+    );
     let all = said.join("\n");
     for part in [
         "[lsp] start takes \"trusted\" or \"manual\", not \"always\"",
         "unknown name \"other\" in [lsp]",
-        "[lsp.servers.x] modes takes rust, markdown or toml, skipped",
+        "[lsp.servers.x] modes takes rust, markdown, toml, go, typescript, tsx, javascript, latex or swift, skipped",
         "[lsp.servers.x] needs a command and modes, skipped",
         "the program is a name on PATH or an absolute path",
         "from 1 to 64 words",

@@ -40,7 +40,18 @@ fn configure(editor: &mut Editor, tab_width: u32) {
         style: Origin::Configuration,
         tab_width: Origin::Configuration,
     };
-    let modes = [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental];
+    let modes = [
+        Mode::Rust,
+        Mode::Markdown,
+        Mode::Toml,
+        Mode::Go,
+        Mode::TypeScript,
+        Mode::Tsx,
+        Mode::JavaScript,
+        Mode::Latex,
+        Mode::Swift,
+        Mode::Fundamental,
+    ];
     editor.set_mode_indents(modes.map(|mode| (mode, two, origins)));
 }
 
