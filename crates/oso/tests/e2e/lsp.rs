@@ -61,15 +61,24 @@ fn modeline_has(app: &mut App, what: &str, part: &'static str) -> Value {
 }
 
 /// The rows of `*LSP*`, read in the selected window, which then shows `back` again.
-/// The rows of `*LSP*`, once the servers have made it with their first row: `C-x b` before
-/// then would make a buffer of that name, empty, and the log would go to another.
+/// The rows of `*LSP*`, the servers' own: until a server's first row has made it, `C-x b`
+/// makes an ordinary buffer of that name, which is killed, and asked for again. The state lists
+/// no internal buffer, so the one shown is told by its being read-only as one.
 fn lsp_log(app: &mut App, back: &str) -> String {
-    app.wait_for("the servers' log", |state| {
-        state["buffers"]
-            .as_array()
-            .is_some_and(|buffers| buffers.iter().any(|buffer| buffer["name"] == "*LSP*"))
-    });
-    app.send_keys(&format!("C-x b {} RET", super::typing("*LSP*")));
+    let started = Instant::now();
+    loop {
+        app.send_keys(&format!("C-x b {} RET", super::typing("*LSP*")));
+        if app.state()["buffer"]["read_only"] == "internal" {
+            break;
+        }
+        app.send_keys("C-x k RET");
+        app.send_keys(&format!("C-x b {} RET", super::typing(back)));
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "no *LSP* of the servers' after 30 s"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
     let text = app.call("get-text", Some(json!({ "start_row": 0, "rows": 2000 })));
     app.send_keys(&format!("C-x b {} RET", super::typing(back)));
     text["rows"]
