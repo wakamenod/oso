@@ -341,3 +341,30 @@ fn the_agent_cannot_complete_at_point() {
     assert!(ran.is_err(), "a Person command");
     assert!(editor.take_server_requests().is_empty());
 }
+
+#[test]
+fn c_m_i_in_a_buffer_that_may_hold_secrets_asks_nothing() {
+    let path = std::path::PathBuf::from("/tmp/.env");
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.judge_secret(Some(&[path]));
+    buffer.set_followed(true);
+    buffer.set_server(Some(ServerMark::Ready));
+    let mut editor = Editor::with_buffer(buffer);
+    let mut d = Dispatcher::new();
+    send(&mut d, &mut editor, "C-M-i");
+    assert!(editor.take_server_requests().is_empty());
+}
+
+#[test]
+fn an_agent_s_command_or_a_key_nothing_binds_closes_the_popup() {
+    use super::args::Given;
+    use oso_core::command::Reach;
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    pop(&mut editor, &["xfoo"]);
+    let ran = d.run_for_agent(&mut editor, "forward-char", Given::Nothing, Reach::Look);
+    assert!(ran.is_ok());
+    assert!(editor.popup().is_none(), "the agent's command closes it");
+    pop(&mut editor, &["xfoo"]);
+    send(&mut d, &mut editor, "C-x C-M-z");
+    assert!(editor.popup().is_none(), "an undefined key closes it");
+}

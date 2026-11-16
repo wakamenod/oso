@@ -6,15 +6,22 @@
 //! Must not depend on: `command` or `keymap`, or the host's servers, threads or I/O; the host
 //! asks the server and hands over the answer, and the popup's keys are the dispatcher's.
 //!
-//! - The word starts where the server's first edit does, else at the identifier characters
-//!   before the cursor: whole grapheme clusters whose first character is alphanumeric or `_`.
+//! - The identifier before the cursor is whole grapheme clusters whose first character is
+//!   alphanumeric or `_`; it is what is matched, and the popup closes once the cursor is no
+//!   longer at its end. What an item replaces starts where the server's first edit does, if
+//!   it is on the cursor's line and near it, else at the identifier.
 //! - What is matched is an item's `filterText`, else its label, by ADR 0076's matcher, in the
-//!   server's order; a row shows the label, then its kind and detail as its annotation.
-//! - The popup closes once the cursor leaves the word, another window or buffer is shown, a
-//!   prompt opens, or nothing matches; and on any command not its own (the dispatcher's).
-//! - Inserting replaces the word, and what the server's edit covers past it, with the item's
-//!   text, at the primary cursor and at each other cursor whose word before it is the same, in
-//!   one undo step.
+//!   server's order. A row shows the label, then its kind and detail as its annotation, each
+//!   cut to what a row can show, its runs of blanks as one, so that no server's text passes as
+//!   oso's own.
+//! - An item's range is kept only on the cursor's line, around it, and within
+//!   [`WORD_BYTES_MAX`] of it: a server's range elsewhere would edit text out of view.
+//! - The word and the ranges follow every edit (`Editor::answers_follow`), each offset once;
+//!   a reload closes the popup.
+//! - Inserting replaces what the item covers at the primary cursor, and the word at each other
+//!   cursor whose word before it is the same, in one edit. With no word typed, only the
+//!   primary's.
+//! - What a closed popup or a dropped answer held is freed on the completion worker.
 //! - Nothing of an item reaches a log; `Debug` gives counts.
 
 use std::fmt;
@@ -26,10 +33,10 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::buffer::{Buffer, BufferId, Replacement};
 use crate::complete::{Candidate, Candidates};
 use crate::frame::{FloatRegions, at_point};
-use crate::selection::{OffsetEdit, follow_offset};
+use crate::rope::Rope;
+use crate::selection::{OffsetEdit, follow_sorted};
 use crate::sum_tree::Bias;
-use crate::window::Screen;
-use crate::window::WindowId;
+use crate::window::{Screen, WindowId};
 
 use super::super::Editor;
 use super::jumps::AskAt;
@@ -40,8 +47,12 @@ pub const POPUP_ROWS: usize = 10;
 /// The most columns of text the popup shows, and no more than half the window's.
 pub const POPUP_COLUMNS: usize = 60;
 
-/// The longest word before the cursor looked at, in bytes: past it, the popup closes.
+/// The longest word before the cursor looked at, and the farthest a server's range reaches
+/// from the cursor, in bytes.
 const WORD_BYTES_MAX: usize = 256;
+
+/// The most bytes of a label or an annotation a row keeps: more than [`POPUP_COLUMNS`] show.
+const SHOWN_BYTES_MAX: usize = 4 * POPUP_COLUMNS;
 
 /// A completion as the popup shows and inserts it: its label, its kind and detail as one
 /// annotation, what is matched, the text it inserts, and the range of the answer's text it
@@ -69,14 +80,22 @@ pub struct PopupAnswer {
     pub items: Vec<PopupItem>,
 }
 
+/// What an item inserts, and the range it replaces as places in the offsets followed.
+type Insert = (Box<str>, Option<(usize, usize)>);
+
 /// The open popup. `Debug` gives counts.
 pub struct Popup {
     window: WindowId,
-    pub(in crate::editor) buffer: BufferId,
-    /// Where the word starts, followed through each edit, as the items' ranges are.
+    buffer: BufferId,
+    /// The offsets the popup follows through each edit, ascending and each once: where the
+    /// identifier and the replaced text start, and the items' ranges' ends.
+    followed: Vec<usize>,
+    /// Where the identifier starts and where an item with no range of its own replaces from,
+    /// as places in `followed`.
+    ident: usize,
     start: usize,
-    /// What each item inserts, and the range it replaces.
-    inserts: Vec<(Box<str>, Option<Range<usize>>)>,
+    /// What each item inserts, and its range as places in `followed`.
+    inserts: Vec<Insert>,
     /// What is matched, by item.
     matched: Candidates,
     /// What each row shows, by item.
@@ -135,14 +154,15 @@ impl Editor {
     }
 
     /// Opens the popup for `answer`, if nothing moved since it was asked: the selected window
-    /// shows its buffer at its revision with the primary cursor where it was, no prompt is
-    /// open, and the buffer does not hold secrets. `Err` says why it did not open: with nothing
-    /// to show, `No completions`; otherwise it is stale, and says nothing.
+    /// shows its buffer at the revision asked about with the primary cursor where it was, no
+    /// prompt is open, and the buffer does not hold secrets. A popup that was open closes.
     ///
     /// # Errors
     ///
-    /// `Some("No completions")`, or `None` for a stale answer.
+    /// `Some("No completions")` with nothing to show, or `None` for a stale answer, which says
+    /// nothing.
     pub fn open_popup(&mut self, answer: PopupAnswer) -> Result<(), Option<&'static str>> {
+        self.close_popup();
         let (window, buffer) = self.current();
         let cursor = window.selections.primary().cursor;
         let stale = window.buffer() != answer.at.buffer
@@ -150,47 +170,73 @@ impl Editor {
             || cursor != answer.at.offset
             || self.prompt().is_some()
             || buffer.is_secret();
-        if stale {
-            return Err(None);
-        }
-        if answer.items.is_empty() {
-            return Err(Some("No completions"));
+        if stale || answer.items.is_empty() {
+            self.free_on_the_worker(Box::new(answer.items));
+            return Err((!stale).then_some("No completions"));
         }
         let (window_id, buffer_id) = (window.id(), window.buffer());
-        // The items' ranges in the text now: a range that no longer maps is dropped.
-        let now = |range: Range<usize>| {
+        let text = buffer.text();
+        let ident = word_start(text, cursor);
+        let line = text.line_start(text.offset_to_point(cursor).row);
+        // A range of the answer's text in the text now, kept only on the cursor's line, around
+        // it and near it.
+        let near = |range: &Range<usize>| {
             let start = moved_to(buffer, answer.revision, range.start)?;
-            Some(start..moved_to(buffer, answer.revision, range.end)?.max(start))
+            let end = moved_to(buffer, answer.revision, range.end)?;
+            let around = line <= start
+                && start <= cursor
+                && cursor <= end
+                && cursor - start <= WORD_BYTES_MAX
+                && end - cursor <= WORD_BYTES_MAX
+                && !text_holds(text, start..end, '\n');
+            around.then_some((start, end))
         };
-        let start = answer
-            .items
-            .iter()
-            .find_map(|item| item.range.clone())
-            .and_then(now)
-            .map(|range| range.start)
-            .filter(|start| *start <= cursor && cursor - start <= WORD_BYTES_MAX)
-            .unwrap_or_else(|| word_start(buffer, cursor));
+        let ranges: Vec<Option<(usize, usize)>> = (answer.items.iter())
+            .map(|item| item.range.as_ref().and_then(near))
+            .collect();
+        let start = (ranges.iter().flatten().next())
+            .map_or(ident, |(start, _)| *start)
+            .min(ident);
+        let mut followed: Vec<usize> = [ident, start]
+            .into_iter()
+            .chain(
+                ranges
+                    .iter()
+                    .flatten()
+                    .flat_map(|(start, end)| [*start, *end]),
+            )
+            .collect();
+        followed.sort_unstable();
+        followed.dedup();
+        let place = |offset: usize| followed.binary_search(&offset).unwrap_or(0);
         let mut inserts = Vec::with_capacity(answer.items.len());
         let mut matched = Vec::with_capacity(answer.items.len());
         let mut shown = Vec::with_capacity(answer.items.len());
-        for item in answer.items {
-            let filter = item.filter.unwrap_or_else(|| item.label.clone());
-            matched.push(Candidate::new(filter, "", ""));
-            shown.push(Candidate::new(item.label, "", item.annotation));
-            inserts.push((item.text, item.range.and_then(now)));
+        for (item, range) in answer.items.into_iter().zip(ranges) {
+            let label = shown_text(&item.label);
+            matched.push(Candidate::new(item.filter.unwrap_or(item.label), "", ""));
+            shown.push(Candidate::unmatched(label, shown_text(&item.annotation)));
+            inserts.push((
+                item.text,
+                range.map(|(start, end)| (place(start), place(end))),
+            ));
         }
+        let (ident, start) = (place(ident), place(start));
         let mut popup = Popup {
             window: window_id,
             buffer: buffer_id,
+            ident,
             start,
+            followed,
             inserts,
             matched: Candidates::in_given_order(matched.into()),
             shown: shown.into(),
             moved: false,
         };
-        let word = word_text(buffer, start, cursor);
+        let word = text_of(text, popup.followed[popup.ident]..cursor);
         popup.matched.set_input_with(&word, None);
         if popup.matched.is_empty() {
+            self.free_on_the_worker(Box::new(popup));
             return Err(Some("No completions"));
         }
         self.servers.popup = Some(popup);
@@ -215,14 +261,16 @@ impl Editor {
         popup.moved = true;
     }
 
-    /// Closes the popup, if one is open.
+    /// Closes the popup, if one is open; what it held is freed on the completion worker.
     pub fn close_popup(&mut self) {
-        self.servers.popup = None;
+        if let Some(popup) = self.servers.popup.take() {
+            self.free_on_the_worker(Box::new(popup));
+        }
     }
 
-    /// Inserts the popup's selected item and closes it: the word, and what the item's edit
-    /// covers past it, replaced at the primary cursor, and the word at each other cursor whose
-    /// word before it is the same, in one edit.
+    /// Inserts the popup's selected item and closes it: what the item covers replaced at the
+    /// primary cursor, and the word at each other cursor whose word before it is the same, in
+    /// one edit.
     ///
     /// # Errors
     ///
@@ -231,20 +279,27 @@ impl Editor {
     pub fn popup_insert(&mut self) -> Result<(), Option<crate::buffer::EditError>> {
         self.follow_popup();
         let popup = self.servers.popup.take().ok_or(None)?;
+        let result = self.insert_selected(&popup);
+        self.free_on_the_worker(Box::new(popup));
+        result
+    }
+
+    fn insert_selected(&mut self, popup: &Popup) -> Result<(), Option<crate::buffer::EditError>> {
         let item = popup.matched.selected_item().ok_or(None)?;
-        let (text, range) = popup.inserts.get(item).ok_or(None)?;
+        let (insert, range) = popup.inserts.get(item).ok_or(None)?;
         let (window, buffer) = self.current();
+        let text = buffer.text();
         let cursor = window.selections.primary().cursor;
-        let start = popup.start;
-        let word = word_text(buffer, start, cursor);
-        // The server's range, and at least the word.
-        let (from, to) = range.as_ref().map_or((start, cursor), |range| {
-            (range.start.min(start), range.end.max(cursor))
-        });
+        let at = |place: usize| popup.followed.get(place).copied();
+        let (ident, start) = (at(popup.ident).ok_or(None)?, at(popup.start).ok_or(None)?);
+        let (from, to) = range
+            .and_then(|(from, to)| Some((at(from)?, at(to)?)))
+            .map_or((start, cursor), |(from, to)| (from, to.max(cursor)));
         let mut edits = vec![Replacement {
             range: from..to,
-            text,
+            text: insert,
         }];
+        let word = text_of(text, ident..cursor);
         let primary = window.selections.primary_index();
         for (index, selection) in window.selections.as_slice().iter().enumerate() {
             let at = selection.cursor;
@@ -252,10 +307,10 @@ impl Editor {
                 continue;
             }
             let before = at - word.len();
-            if word_text(buffer, before, at) == word && word_start(buffer, at) == before {
+            if text_is(text, before..at, &word) && word_start(text, at) == before {
                 edits.push(Replacement {
                     range: before..at,
-                    text,
+                    text: insert,
                 });
             }
         }
@@ -263,51 +318,60 @@ impl Editor {
         self.apply_edits(id, &edits).map_err(Some)
     }
 
-    /// After a command: the popup follows the word as it is typed, matching it again, and
-    /// closes once the cursor left it, another window or buffer shows, a prompt opened, or
-    /// nothing matches.
+    /// After a command: the popup follows the identifier as it is typed, matching it again, and
+    /// closes once the cursor is not at its end, another window or buffer shows, a prompt
+    /// opened, or nothing matches.
     pub fn follow_popup(&mut self) {
         let Some(popup) = &self.servers.popup else {
             return;
         };
         let (window, buffer) = self.current();
         let cursor = window.selections.primary().cursor;
-        let start = (window.id() == popup.window && window.buffer() == popup.buffer)
-            .then_some(popup.start)
-            .filter(|start| {
-                *start <= cursor
-                    && cursor - start <= WORD_BYTES_MAX
-                    && word_start(buffer, cursor) <= *start
+        let ident = popup.followed.get(popup.ident).copied();
+        let kept = window.id() == popup.window
+            && window.buffer() == popup.buffer
+            && self.prompt().is_none()
+            && ident.is_some_and(|ident| {
+                ident <= cursor
+                    && cursor - ident <= WORD_BYTES_MAX
+                    && word_start(buffer.text(), cursor) == ident
             });
-        let (Some(start), None) = (start, self.prompt()) else {
-            self.servers.popup = None;
+        let (true, Some(ident)) = (kept, ident) else {
+            self.close_popup();
             return;
         };
-        let word = word_text(buffer, start, cursor);
+        let word = text_of(buffer.text(), ident..cursor);
         let Some(popup) = &mut self.servers.popup else {
             return;
         };
         popup.matched.set_input_with(&word, None);
         if popup.matched.is_empty() {
-            self.servers.popup = None;
+            self.close_popup();
         }
     }
 
     /// Where the popup goes over the selected window's text area, as `screen` shows the window
-    /// ([`Editor::screen`]): under or over the word's row, its text from the word's start, as
-    /// many rows as match, at most [`POPUP_ROWS`], and as wide as the rows shown need, at most
-    /// [`POPUP_COLUMNS`] and half the area.
+    /// ([`Editor::screen`]): under or over the cursor's row, its text from where the replaced
+    /// text starts while that is on the cursor's row, as many rows as match, at most
+    /// [`POPUP_ROWS`], and as wide as the rows shown need, at most [`POPUP_COLUMNS`] and half
+    /// the area.
     pub fn popup_regions(&self, screen: &Screen) -> Option<FloatRegions> {
         let popup = self.popup()?;
         let (window, buffer) = self.current();
         let area = self.tiled_regions().text;
         let display = buffer.display();
-        let start = popup.start;
-        let anchor = |offset| {
+        let cell = |offset| {
             let point = display.offset_to_display_point(offset);
             crate::frame::cursor_rect(area, screen, point, 1)
         };
-        let at = anchor(start).or_else(|| anchor(window.selections.primary().cursor))?;
+        let cursor = cell(window.selections.primary().cursor)?;
+        let start = popup
+            .followed
+            .get(popup.start)
+            .and_then(|start| cell(*start));
+        let column = start
+            .filter(|start| start.row == cursor.row)
+            .map_or(cursor.column, |start| start.column);
         let widest = popup
             .rows()
             .map(|(_, row)| {
@@ -319,13 +383,11 @@ impl Editor {
             .unwrap_or(0);
         let columns = widest.clamp(1, POPUP_COLUMNS.min((area.columns / 2).max(1)));
         let rows = popup.len().min(POPUP_ROWS);
-        at_point(area, (at.row, at.column), (rows, columns))
+        at_point(area, (cursor.row, column), (rows, columns))
     }
-}
 
-impl Editor {
     /// Moves the popup's word and its items' ranges in `buffer` through an edit's `steps`, as
-    /// the cursors move.
+    /// the cursors move: each offset once a step.
     pub(in crate::editor) fn popup_follows(&mut self, buffer: BufferId, steps: &[Vec<OffsetEdit>]) {
         let Some(popup) = &mut self.servers.popup else {
             return;
@@ -333,14 +395,15 @@ impl Editor {
         if popup.buffer != buffer {
             return;
         }
-        let follow = |offset: usize, bias| {
-            (steps.iter()).fold(offset, |offset, edits| follow_offset(offset, edits, bias))
-        };
-        popup.start = follow(popup.start, Bias::Left);
-        for (_, range) in &mut popup.inserts {
-            if let Some(range) = range {
-                *range = follow(range.start, Bias::Left)..follow(range.end, Bias::Left);
-            }
+        for edits in steps {
+            follow_sorted(&mut popup.followed, edits, Bias::Left);
+        }
+    }
+
+    /// `buffer` was read again: a popup over it no longer knows its word, and closes.
+    pub(in crate::editor) fn popup_reloaded(&mut self, buffer: BufferId) {
+        if self.popup().is_some_and(|popup| popup.buffer == buffer) {
+            self.close_popup();
         }
     }
 }
@@ -348,11 +411,11 @@ impl Editor {
 /// `offset` in `buffer`'s text at `revision` moved through its edits since, as the cursors
 /// move; `None` once its log no longer reaches back there.
 fn moved_to(buffer: &Buffer, revision: u64, offset: usize) -> Option<usize> {
+    let len = buffer.text().len();
     if buffer.revision() == revision {
-        return Some(offset.min(buffer.text().len()));
+        return Some(offset.min(len));
     }
-    let splices = buffer.edits_since(revision)?;
-    let mut edits: Vec<OffsetEdit> = (splices.iter())
+    let mut edits: Vec<OffsetEdit> = (buffer.edits_since(revision)?.iter())
         .map(|splice| OffsetEdit {
             start: splice.start,
             old_len: splice.old_len,
@@ -360,14 +423,35 @@ fn moved_to(buffer: &Buffer, revision: u64, offset: usize) -> Option<usize> {
         })
         .collect();
     edits.sort_unstable_by_key(|edit| edit.start);
-    Some(follow_offset(offset, &edits, Bias::Left).min(buffer.text().len()))
+    let mut moved = [offset];
+    follow_sorted(&mut moved, &edits, Bias::Left);
+    Some(moved[0].min(len))
 }
 
-/// The text of `buffer` from `start` to `end`, at most [`WORD_BYTES_MAX`] of it.
-fn word_text(buffer: &Buffer, start: usize, end: usize) -> String {
-    let text = buffer.text();
-    let start = text.clip_offset(start.min(end), Bias::Left);
-    let end = text.clip_offset(end.min(start + WORD_BYTES_MAX), Bias::Left);
+/// `text` as a row shows it: its runs of blanks as one, at most [`SHOWN_BYTES_MAX`] of it, cut
+/// at a character.
+fn shown_text(text: &str) -> Box<str> {
+    let mut shown = String::with_capacity(text.len().min(SHOWN_BYTES_MAX));
+    for word in text.split_whitespace() {
+        if shown.len() >= SHOWN_BYTES_MAX {
+            break;
+        }
+        if !shown.is_empty() {
+            shown.push(' ');
+        }
+        shown.push_str(word);
+    }
+    if shown.len() > SHOWN_BYTES_MAX {
+        let end = shown.floor_char_boundary(SHOWN_BYTES_MAX);
+        shown.truncate(end);
+    }
+    shown.into()
+}
+
+/// The text of `range`, at most [`WORD_BYTES_MAX`] of it.
+fn text_of(text: &Rope, range: Range<usize>) -> String {
+    let start = text.clip_offset(range.start.min(range.end), Bias::Left);
+    let end = text.clip_offset(range.end.min(start + WORD_BYTES_MAX), Bias::Left);
     let mut word = String::with_capacity(end - start);
     for chunk in text.chunks_in_range(start..end) {
         word.push_str(chunk);
@@ -375,13 +459,32 @@ fn word_text(buffer: &Buffer, start: usize, end: usize) -> String {
     word
 }
 
+/// Whether the text of `range` is `word`, compared where it lies.
+fn text_is(text: &Rope, range: Range<usize>, word: &str) -> bool {
+    if range.len() != word.len() {
+        return false;
+    }
+    let mut rest = word.as_bytes();
+    for chunk in text.chunks_in_range(range) {
+        let Some(tail) = rest.strip_prefix(chunk.as_bytes()) else {
+            return false;
+        };
+        rest = tail;
+    }
+    rest.is_empty()
+}
+
+/// Whether the text of `range` holds `c`.
+fn text_holds(text: &Rope, range: Range<usize>, c: char) -> bool {
+    text.chunks_in_range(range).any(|chunk| chunk.contains(c))
+}
+
 /// Where the identifier before `cursor` starts: whole grapheme clusters whose first character
 /// is alphanumeric or `_`, within [`WORD_BYTES_MAX`] and the cursor's line.
-fn word_start(buffer: &Buffer, cursor: usize) -> usize {
-    let text = buffer.text();
+fn word_start(text: &Rope, cursor: usize) -> usize {
     let line = text.line_start(text.offset_to_point(cursor).row);
     let from = line.max(cursor.saturating_sub(WORD_BYTES_MAX));
-    let before = word_text(buffer, from, cursor);
+    let before = text_of(text, from..cursor);
     let kept: usize = before
         .graphemes(true)
         .rev()

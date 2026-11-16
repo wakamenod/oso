@@ -1,6 +1,7 @@
-//! Where a float goes over the frame: a prompt's panel at the top of the tiled window, a
-//! completion's list centred in it, and a float at point under or over the cursor's row, both on the window's gutter and text together, so that
-//! line numbers never move one (ADR 0072, ADR 0075, ADR 0076, ADR 0097).
+//! Where a float goes over the frame: a prompt's panel at the top of the tiled window and a
+//! completion's list centred in it, both on the window's gutter and text together, so that line
+//! numbers never move one (ADR 0072, ADR 0075, ADR 0076, ADR 0097); and a float at point under
+//! or over the cursor's row, in the window's text area (ADR 0138).
 //!
 //! Must not depend on: `editor`, `command`, or any GPU or window-system type.
 
@@ -11,8 +12,8 @@ use super::{CellRect, FrameLayout};
 pub struct FloatRegions {
     /// All of it: the cells its panel covers, padding included.
     pub outer: CellRect,
-    /// What it shows, inside the padding: the label's rows, the gap and the answer's row.
-    /// The same as `outer` where no padding fits.
+    /// What it shows, inside the padding: the label's rows, the gap and the answer's row, or
+    /// a float at point's rows ([`at_point`]). The same as `outer` where no padding fits.
     pub inner: CellRect,
     /// Whether a row of padding goes right above the answer's row: between the label and the
     /// answer, or at the top of a completion's float.
@@ -138,7 +139,7 @@ pub(crate) fn completion_regions(
 /// needs. It goes below the anchor's row, or above it when fewer rows fit below than above,
 /// and never covers that row; rows and columns are cut to the room. `None` when nothing fits,
 /// or the anchor is outside `area`. `candidates` and `preview` are empty.
-pub fn at_point(
+pub(crate) fn at_point(
     area: CellRect,
     (anchor_row, anchor_column): (usize, usize),
     (rows, columns): (usize, usize),

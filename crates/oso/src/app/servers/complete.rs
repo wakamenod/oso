@@ -6,16 +6,20 @@
 //!
 //! - An answer for another revision, cursor, window or buffer, or once a prompt opened, is
 //!   dropped: the editor judges it, as it opens the popup.
-//! - A row shows its label, then its kind's word and its detail's first line, its runs of
-//!   blanks as one, so that no server's text passes as oso's own.
-//! - The answer's items go to the freeing thread: 5000 are many to free on the UI thread.
+//! - A row shows its label, then its kind's word and its detail's first line, which the editor
+//!   cuts and makes the runs of blanks of one.
+//! - A stale answer goes to the freeing thread; the editor frees one it drops, and a popup's
+//!   items once it closes, on its worker.
 
 use oso_core::editor::{PopupAnswer, PopupItem};
 use oso_lsp::protocol::kind_name;
 use oso_lsp::server::Completions;
 
 use super::super::App;
-use super::places::Asker;
+
+/// The most bytes of a detail an annotation copies: more than a row shows.
+const DETAIL_SHOWN: usize = 256;
+use super::asks::Asker;
 
 impl App {
     /// Opens the popup for `completions`, which server `index` answered to `asker`'s ask
@@ -37,12 +41,14 @@ impl App {
         let items = items
             .into_iter()
             .map(|item| {
+                // The kind's word and the detail's first line, at most what a row shows; the
+                // editor makes its runs of blanks one.
                 let detail = item.detail.lines().next().unwrap_or_default();
-                let words = item.kind.map(kind_name).into_iter().chain([detail]);
-                let annotation = words
-                    .flat_map(str::split_whitespace)
-                    .collect::<Vec<_>>()
-                    .join(" ");
+                let detail = &detail[..detail.floor_char_boundary(DETAIL_SHOWN)];
+                let mut annotation = String::with_capacity(16 + detail.len());
+                annotation.push_str(item.kind.map_or("", kind_name));
+                annotation.push(' ');
+                annotation.push_str(detail);
                 PopupItem {
                     label: item.label.into(),
                     annotation: annotation.into(),
@@ -52,8 +58,9 @@ impl App {
                 }
             })
             .collect();
+        // Where it was asked: the editor judges the answer against it too.
         let answer = PopupAnswer {
-            at: self.editor.ask_at(),
+            at: asker.at(asked),
             revision,
             items,
         };

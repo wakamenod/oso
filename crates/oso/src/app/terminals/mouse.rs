@@ -127,6 +127,8 @@ impl App {
     pub(in crate::app) fn handle_mouse(&mut self, mouse: Mouse) -> bool {
         if !matches!(mouse.action, MouseAction::Moved) {
             self.person_typed("mouse");
+            // The completion popup takes no press: any closes it (ADR 0138, step 9).
+            self.editor.close_popup();
         }
         match mouse.action {
             MouseAction::Press(button) => self.mouse_pressed(button, mouse.at, mouse.held),

@@ -14,9 +14,11 @@ use oso_render::{Bands, Layer, Pane, PaneContent, PaneId, Panel, Span};
 
 use super::row::candidate_spans;
 
-/// The popup's panel's pane, and its rows', apart from every other float's.
-const PANEL: PaneId = PaneId(40);
-const ROWS: PaneId = PaneId(41);
+/// The popup's panes' ids, apart from the windows', the floats' and the menus' (`1 << 21`),
+/// as the menus' are: its panel's and its rows'.
+const POPUP_PANES: u32 = 1 << 22;
+const PANEL: PaneId = PaneId(POPUP_PANES);
+const ROWS: PaneId = PaneId(POPUP_PANES + 1);
 
 /// The popup's rows' spans, built once a frame, and where it goes.
 pub(in crate::app::draw) struct PopupSpans<'a> {
@@ -26,12 +28,11 @@ pub(in crate::app::draw) struct PopupSpans<'a> {
 }
 
 impl<'a> PopupSpans<'a> {
-    /// The open popup's rows, placed over the selected window as it shows now, if it has room.
-    pub(in crate::app::draw) fn of(editor: &'a Editor) -> Option<Self> {
+    /// The open popup's rows, placed over the selected window as `screen` shows it, the frame's
+    /// own rows of that window, if it has room.
+    pub(in crate::app::draw) fn of(editor: &'a Editor, screen: &Screen) -> Option<Self> {
         let popup = editor.popup()?;
-        let mut screen = Screen::default();
-        editor.screen(&mut screen);
-        let regions = editor.popup_regions(&screen)?;
+        let regions = editor.popup_regions(screen)?;
         let text = regions.inner;
         let named = popup.rows().map(|(_, row)| (row.text(), row.binding()));
         let column = minibuffer::annotation_column(named, text.columns);

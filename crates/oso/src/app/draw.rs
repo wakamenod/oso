@@ -147,7 +147,8 @@ pub(super) fn with_frame<R>(
         float::panes(editor, (parts, screens), lines, &mut list);
     }
     // The completion popup at point goes over the tiled panes too (ADR 0138, step 9).
-    let popup = float::popup::PopupSpans::of(editor);
+    let popup = tiled::selected_screen(editor, &cells.windows)
+        .and_then(|screen| float::popup::PopupSpans::of(editor, screen));
     let popup_lines = popup.as_ref().map(float::popup::PopupSpans::lines);
     if let (Some(popup), Some(lines)) = (&popup, &popup_lines) {
         popup.panes(editor, lines, &mut list);

@@ -10,7 +10,10 @@
 //! - oso claims no snippets (Q22); a snippet that still comes keeps its placeholders' text and
 //!   loses its markers.
 //! - A `textEdit` is read by its range, or an `InsertReplaceEdit` by its insert range, as the
-//!   person's text after the cursor is kept.
+//!   person's text after the cursor is kept; the session thread keeps a range only on the
+//!   asked position's line and around it ([`Offered::range_around`]).
+//! - An item whose text to insert holds a control character other than a tab or a line feed,
+//!   or a carriage return, is dropped: what it inserts shows nowhere before it goes in.
 
 use serde_json::{Value, json};
 
@@ -36,6 +39,20 @@ pub struct Offered {
     pub range: Option<(Position, Position)>,
     /// The text it inserts: its edit's, else its `insertText`, else its label.
     pub text: String,
+}
+
+impl Offered {
+    /// Its range, if it is on the line of `at`, the position asked about, and around it, as the
+    /// protocol says an edit's range must be: a range elsewhere is the server's mistake, and
+    /// following it would edit text the person never sees.
+    pub fn range_around(&self, at: Position) -> Option<(Position, Position)> {
+        let (start, end) = self.range?;
+        let around = start.line == at.line
+            && end.line == at.line
+            && start.character <= at.character
+            && at.character <= end.character;
+        around.then_some((start, end))
+    }
 }
 
 /// What an answer offers, whether it says the list is incomplete, so that typing asks again,
@@ -110,7 +127,11 @@ fn one(value: &Value) -> Option<(Option<String>, Offered)> {
         Some(edit) => text_of(edit.get("newText")).filter(|_| range.is_some())?,
         None => text_of(value.get("insertText")).unwrap_or(&label),
     };
-    if text.len() > INSERT_TEXT_BYTES_MAX {
+    if text.len() > INSERT_TEXT_BYTES_MAX
+        || text
+            .chars()
+            .any(|c| c.is_control() && c != '\t' && c != '\n')
+    {
         return None;
     }
     let text = if snippet {

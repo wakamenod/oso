@@ -3,7 +3,8 @@
 //!
 //! Must not depend on: `server`, threads or processes.
 
-use serde_json::json;
+use proptest::prelude::*;
+use serde_json::{Value, json};
 
 use super::*;
 
@@ -94,4 +95,117 @@ fn the_request_asks_as_the_person_invoked_it() {
     assert_eq!(params["position"]["character"], 5);
     assert_eq!(kind_name(22), "struct");
     assert_eq!(kind_name(99), "");
+}
+
+#[test]
+fn a_range_is_kept_only_on_the_asked_line_and_around_the_asked_place() {
+    let at = Position::new(4, 6);
+    let offered = |start: (u32, u32), end: (u32, u32)| Offered {
+        label: "x".into(),
+        kind: None,
+        detail: String::new(),
+        filter: None,
+        range: Some((Position::new(start.0, start.1), Position::new(end.0, end.1))),
+        text: "x".into(),
+    };
+    assert!(offered((4, 2), (4, 6)).range_around(at).is_some());
+    assert!(offered((4, 6), (4, 9)).range_around(at).is_some());
+    assert!(
+        offered((0, 0), (4, 6)).range_around(at).is_none(),
+        "from another line"
+    );
+    assert!(
+        offered((4, 2), (9, 0)).range_around(at).is_none(),
+        "to another line"
+    );
+    assert!(
+        offered((4, 7), (4, 9)).range_around(at).is_none(),
+        "past the place"
+    );
+    assert!(
+        offered((4, 0), (4, 3)).range_around(at).is_none(),
+        "before it"
+    );
+}
+
+#[test]
+fn an_item_that_would_insert_a_control_character_is_dropped() {
+    let answer = json!([
+        {"label": "a", "insertText": "a\u{1b}[2J"},
+        {"label": "b", "insertText": "b\rc"},
+        {"label": "c", "insertText": "c\n\td"},
+    ]);
+    let completed = completed(&answer);
+    let labels: Vec<_> = completed
+        .items
+        .iter()
+        .map(|item| item.label.as_str())
+        .collect();
+    assert_eq!(labels, ["c"]);
+}
+
+#[test]
+fn each_field_is_kept_to_its_bound() {
+    let sort = "s".repeat(SORT_TEXT_BYTES_MAX + 10);
+    let detail = "d".repeat(DETAIL_BYTES_MAX + 10);
+    let filter = "f".repeat(LABEL_BYTES_MAX + 10);
+    let text = "t".repeat(INSERT_TEXT_BYTES_MAX);
+    let answer = json!([{"label": "x", "sortText": sort, "detail": detail, "filterText": filter, "insertText": text}]);
+    let item = &completed(&answer).items[0];
+    assert_eq!(item.detail.len(), DETAIL_BYTES_MAX);
+    assert_eq!(item.filter.as_ref().map(String::len), Some(LABEL_BYTES_MAX));
+    assert_eq!(item.text.len(), INSERT_TEXT_BYTES_MAX, "kept at its bound");
+}
+
+fn any_json() -> impl Strategy<Value = Value> {
+    let leaf = prop_oneof![
+        Just(Value::Null),
+        any::<bool>().prop_map(Value::from),
+        any::<i64>().prop_map(Value::from),
+        ".{0,12}".prop_map(Value::from),
+    ];
+    leaf.prop_recursive(4, 64, 6, |inner| {
+        prop_oneof![
+            prop::collection::vec(inner.clone(), 0..6).prop_map(Value::from),
+            prop::collection::hash_map(
+                prop_oneof![
+                    Just("items".to_owned()),
+                    Just("isIncomplete".to_owned()),
+                    Just("label".to_owned()),
+                    Just("kind".to_owned()),
+                    Just("detail".to_owned()),
+                    Just("filterText".to_owned()),
+                    Just("sortText".to_owned()),
+                    Just("textEdit".to_owned()),
+                    Just("insertText".to_owned()),
+                    Just("insertTextFormat".to_owned()),
+                    Just("range".to_owned()),
+                    Just("insert".to_owned()),
+                    Just("newText".to_owned()),
+                    Just("start".to_owned()),
+                    Just("line".to_owned()),
+                    Just("character".to_owned()),
+                ],
+                inner,
+                0..6,
+            )
+            .prop_map(|map| Value::Object(map.into_iter().collect())),
+        ]
+    })
+}
+
+proptest! {
+    /// Any JSON reads within the bounds and without a panic, and any text as a snippet.
+    #[test]
+    fn fuzz(result in any_json(), snippet in ".{0,40}") {
+        let completed = completed(&result);
+        prop_assert!(completed.items.len() <= COMPLETION_ITEMS_MAX);
+        for item in &completed.items {
+            prop_assert!(item.label.len() <= LABEL_BYTES_MAX);
+            prop_assert!(item.detail.len() <= DETAIL_BYTES_MAX);
+            prop_assert!(item.text.len() <= INSERT_TEXT_BYTES_MAX);
+        }
+        let plain = plain(&snippet);
+        prop_assert!(plain.len() <= snippet.len());
+    }
 }

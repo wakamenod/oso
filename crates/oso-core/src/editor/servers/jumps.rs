@@ -104,9 +104,7 @@ impl Editor {
         Ok(())
     }
 
-    /// Moves the places in `buffer` of every window's history through an edit's `steps`, and
-    /// the completion popup's word with them (step 9): what an answer led to or offered follows
-    /// the text as the cursors do.
+    /// Moves the places in `buffer` of every window's history through an edit's `steps`.
     pub(in crate::editor) fn follow_jump_history(
         &mut self,
         buffer: BufferId,
@@ -115,11 +113,10 @@ impl Editor {
         for window in &mut self.windows {
             window.jumps_mut().follow(buffer, steps);
         }
-        self.popup_follows(buffer, steps);
     }
 
-    /// Moves the places in `buffer` through what a sliced undo's step did since `before`, as
-    /// the batch the buffer keeps says; a buffer that keeps none leaves them (ADR 0119).
+    /// Moves what answers left in `buffer` through what a sliced undo's step did since `before`,
+    /// as the batch the buffer keeps says; a buffer that keeps none leaves them (ADR 0119).
     pub(in crate::editor) fn jumps_cross(&mut self, buffer: BufferId, before: u64) {
         let Some(splices) = self
             .buffer(buffer)
@@ -136,11 +133,11 @@ impl Editor {
             })
             .collect();
         edits.sort_unstable_by_key(|edit| edit.start);
-        self.follow_jump_history(buffer, &[edits]);
+        self.answers_follow(buffer, &[edits]);
     }
 
     /// Moves the places in `buffer` of every window's history through `map`, as a reload
-    /// moves the cursors, and closes a popup over it.
+    /// moves the cursors.
     pub(in crate::editor) fn map_jump_history(
         &mut self,
         buffer: BufferId,
@@ -148,10 +145,6 @@ impl Editor {
     ) {
         for window in &mut self.windows {
             window.jumps_mut().map(buffer, &mut map);
-        }
-        // A popup over a buffer read again no longer knows its word (step 9).
-        if self.popup().is_some_and(|popup| popup.buffer == buffer) {
-            self.close_popup();
         }
     }
 

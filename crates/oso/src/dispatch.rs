@@ -360,7 +360,7 @@ impl Dispatcher {
         self.drop_branch_wait(editor);
         self.prefix = None;
         self.last = None;
-        editor.set_indent_rigidly_layer(false);
+        transient::close_all(editor);
         editor.forget_kills();
     }
 

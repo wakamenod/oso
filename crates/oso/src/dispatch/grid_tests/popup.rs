@@ -1,6 +1,6 @@
-//! The completion popup at point in the text grid, and its snapshots (ADR 0138, step 9): under the word's
-//! start, its rows with their annotations, the selection moving and wrapping, typing narrowing
-//! it, and over the word's row where too few rows fit below.
+//! The completion popup at point in the text grid, and its snapshots (ADR 0138, step 9): under
+//! the word's start, its rows with their annotations, the selection moving and wrapping, typing
+//! narrowing it, and over the word's row where too few rows fit below.
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU; these run on every OS with no
 //! window.

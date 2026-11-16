@@ -162,10 +162,12 @@ impl Session {
             self.fail(ask, "the document is no longer open with it".to_owned());
             return;
         };
+        // A range is kept only around the position asked about, in the text asked about.
+        let at = (revision == ask.revision)
+            .then(|| position::from_offset(text, ask.offset, run.encoding));
         let items: Vec<Completion> = (completed.items.into_iter())
             .map(|offered| Completion {
-                range: offered
-                    .range
+                range: (at.and_then(|at| offered.range_around(at)))
                     .map(|(start, end)| position::to_range(text, start, end, run.encoding)),
                 label: offered.label,
                 kind: offered.kind,

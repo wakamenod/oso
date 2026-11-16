@@ -325,6 +325,8 @@ pub oso_lsp::protocol::Offered::kind: core::option::Option<u8>
 pub oso_lsp::protocol::Offered::label: alloc::string::String
 pub oso_lsp::protocol::Offered::range: core::option::Option<(oso_lsp::position::Position, oso_lsp::position::Position)>
 pub oso_lsp::protocol::Offered::text: alloc::string::String
+impl oso_lsp::protocol::Offered
+pub fn oso_lsp::protocol::Offered::range_around(&self, oso_lsp::position::Position) -> core::option::Option<(oso_lsp::position::Position, oso_lsp::position::Position)>
 impl core::clone::Clone for oso_lsp::protocol::Offered
 pub fn oso_lsp::protocol::Offered::clone(&self) -> oso_lsp::protocol::Offered
 impl core::cmp::Eq for oso_lsp::protocol::Offered

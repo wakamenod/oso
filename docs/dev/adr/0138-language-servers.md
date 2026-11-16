@@ -1842,7 +1842,20 @@ and the public items below (Q9).
   kind_name, plain}`, `limits::{SORT_TEXT_BYTES_MAX, INSERT_TEXT_BYTES_MAX}`. `oso-core`:
   `editor::{Popup, PopupAnswer, PopupItem, POPUP_ROWS, POPUP_COLUMNS}`, `Editor::{popup,
   open_popup, popup_move, popup_insert, close_popup, follow_popup, popup_regions}`,
-  `ServerRequest::Complete`, `frame::at_point`.
+  `ServerRequest::Complete`. `frame::at_point` is the crate's own, as `completion_regions` is.
+- **From this step's reviews:** a server's range is kept only on the asked line and around the
+  asked place, checked on the session thread against the text asked about, and in the editor
+  on the cursor's line within 256 bytes of it, so that no answer edits text out of view; an
+  item whose text holds a control character other than a tab or a line feed, or a carriage
+  return, is dropped; a row's label and annotation are cut to what it can show and their runs
+  of blanks made one, in the editor; the stale check gets the place asked about; the word and
+  the ranges follow each edit once per offset (`Editor::answers_follow`, beside the jumps, and
+  `answers_reloaded`); the popup's memory, and a dropped answer's, go to the completion worker;
+  what is matched is the identifier before the cursor; a press, a wheel turn, a key no keymap
+  binds, a menu and a prompt close the popup, as they close `C-x TAB`'s layer
+  (`dispatch/transient.rs`); on a wrapped line the popup hangs from the cursor's row; its panes'
+  ids are a range of their own; the asks and their answers' routing moved to
+  `app/servers/asks.rs`, and a completion no longer stops a list of places that waits.
 - **Tests:** in `oso-lsp`, the answer's two shapes, the order, the bounds, both edits and
   snippets as plain text; in `oso-core`, a stale answer, the word, matching as it is typed,
   closing, the wrap, inserting with the server's range and at many cursors, and where the popup

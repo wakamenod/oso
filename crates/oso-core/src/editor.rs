@@ -583,7 +583,7 @@ impl Editor {
             .find_map(|(index, set)| (*index == self.selected).then(|| set.clone()));
         let views = self.moved_views(id, &staged.display(), staged.steps(), staged.rewrap());
         // Nothing past this point can panic part way.
-        self.follow_jump_history(id, staged.steps());
+        self.answers_follow(id, staged.steps());
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.commit_edit(staged, opening, after);
         }

@@ -216,7 +216,9 @@ impl App {
             Event::RedrawRequested => self.draw_frame(),
 
             // ---- Mouse wheel and trackpad ----
+            // The completion popup does not scroll: a wheel turn closes it (ADR 0138).
             Event::Wheel { delta, at } => {
+                self.editor.close_popup();
                 self.handle_wheel(delta, at);
             }
 

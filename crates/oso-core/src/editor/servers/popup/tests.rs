@@ -149,3 +149,87 @@ fn the_popup_goes_under_the_word_s_start() {
     assert_eq!(regions.inner.rows, 2);
     assert_eq!(regions.inner.columns, "format".len() + 2 + "function".len());
 }
+
+#[test]
+fn a_range_off_the_cursor_s_line_or_far_from_it_is_not_followed() {
+    let mut editor = editing("let a = 1;\nfo\n", 13);
+    // From the top of the file to the cursor: only the word is replaced.
+    editor
+        .open_popup(answer(&editor, vec![item("foo", Some(0..13))]))
+        .unwrap();
+    editor.popup_insert().unwrap();
+    assert_eq!(text(&editor), "let a = 1;\nfoo\n");
+    // Past the cursor, across the line's end.
+    let mut editor = editing("fo\nbar\n", 2);
+    editor
+        .open_popup(answer(&editor, vec![item("foo", Some(0..6))]))
+        .unwrap();
+    editor.popup_insert().unwrap();
+    assert_eq!(text(&editor), "foo\nbar\n");
+}
+
+#[test]
+fn a_buffer_that_may_hold_secrets_gets_no_popup() {
+    let path = std::path::PathBuf::from("/tmp/.env");
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.judge_secret(Some(&[path]));
+    let mut editor = Editor::with_buffer(buffer);
+    assert!(editor.current().1.is_secret());
+    let opened = editor.open_popup(answer(&editor, vec![item("TOKEN", None)]));
+    assert_eq!(opened, Err(None));
+    assert!(editor.popup().is_none());
+}
+
+#[test]
+fn with_no_word_typed_the_item_goes_in_at_the_primary_cursor_only() {
+    let mut editor = editing("a.\nb.\n", 2);
+    let cursors = vec![Selection::at(2), Selection::at(5)];
+    editor.current_mut().0.selections = SelectionSet::from_parts(cursors, 0).unwrap();
+    editor
+        .open_popup(answer(&editor, vec![item("len", None)]))
+        .unwrap();
+    editor.popup_insert().unwrap();
+    assert_eq!(text(&editor), "a.len\nb.\n");
+}
+
+#[test]
+fn a_prompt_closes_the_popup() {
+    let mut editor = editing("fo", 2);
+    editor
+        .open_popup(answer(&editor, vec![item("foo", None)]))
+        .unwrap();
+    editor
+        .open_prompt(
+            "Go to line:",
+            crate::minibuffer::Kind::Text { history: None },
+        )
+        .unwrap();
+    assert!(editor.popup().is_none());
+}
+
+#[test]
+fn on_a_wrapped_line_the_popup_hangs_from_the_cursor_s_row() {
+    // A narrow frame: the word starts on one screen row and the cursor is on the next.
+    let text = "abcdefghijklmnopqrst".to_owned();
+    let mut editor = Editor::with_buffer(Buffer::from_text("a.rs", &text));
+    editor.set_frame_size(FrameSize {
+        rows: 24,
+        columns: 12,
+    });
+    let id = editor.window().buffer();
+    editor.set_wraps(id, true);
+    editor.current_mut().0.selections = SelectionSet::new(text.len());
+    editor
+        .open_popup(answer(&editor, vec![item("abcdefghijklmnopqrstuv", None)]))
+        .unwrap();
+    let mut screen = Screen::default();
+    editor.screen(&mut screen);
+    let regions = editor.popup_regions(&screen).unwrap();
+    let display = editor.current().1.display();
+    let cursor = display.offset_to_display_point(text.len());
+    let start = display.offset_to_display_point(0);
+    let cursor_row = screen.row_of(cursor).unwrap();
+    assert_ne!(screen.row_of(start), Some(cursor_row), "the word wraps");
+    let area = editor.tiled_regions().text;
+    assert!(regions.outer.row > area.row + cursor_row, "{regions:?}");
+}
