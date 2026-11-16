@@ -161,8 +161,12 @@ are rounded.
 
 [ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md):
 
-- The centred float, `Find file:` (or `Write file:`), starting at the buffer's directory, the home
-  directory as `~/`. A worker lists directories; the count shows `…` until it answers.
+- The centred float, `Find file:` (or `Write file:`), starting at the directory the buffer stands
+  in, the home directory as `~/` ([ADR 0141](adr/0141-the-directory-a-buffer-stands-in.md)): its
+  file's, a listing's, a git status's or review's project root, a session's, a terminal's (where
+  it started, then what its program last said through OSC 7), the side pane's row at point, else
+  the one it was made in, else where oso started. A worker lists directories; the count shows `…`
+  until it answers.
 - Past 5000 names, a worker builds the list and matches each key; the rows shown stay and the
   count shows `…` until it answers, and `RET` or `TAB` meanwhile waits for it. Any other key
   drops that wait, a prefix too, and `C-g` then does nothing more
@@ -171,9 +175,12 @@ are rounded.
   `~/Projects/SideProjects/oso`. `~/` or `/` typed after a `/` starts over, the text before drawn dim.
   Names starting with `.` show only when the last segment starts with `.`.
 - A row is the name, `/` after a directory, then its mode, size and age, and `→ target` for a link.
-- `TAB` puts the selected path in the answer. `RET` enters a directory and opens a file, or the
-  typed path when nothing matches (`(New file)`). `M-RET`, or `C-p` from the first row, takes the text
-  as typed.
+- While what is typed names a directory (nothing after its last `/`), it is selected, as vertico's
+  default does: `RET` lists that directory, as dired does, so `C-x C-f RET` lists the buffer's.
+  `C-n` goes to the first name, `TAB` puts it in, and typing a name selects the first match.
+- `TAB` puts the selected path in the answer. `RET` on a row enters a directory and opens a file,
+  or the typed path when nothing matches (`(New file)`). `M-RET`, or `C-p` from the first row, takes
+  the text as typed.
 - A file already open shows its buffer. A file of 2 GiB or more asks
   `big.iso is 3.2 GiB, all held in memory; open it? (y or n)`.
 - `C-x C-w` writes the buffer under a new path, asking before it writes over a file, and the buffer
@@ -195,8 +202,8 @@ are rounded.
 
 - `project-find-file` opens the centred float, `Find file in oso:`, over the current buffer's
   project, its files as paths from the root. Outside a project the buffer's directory stands in,
-  named after its last component; a buffer with no file, the home directory and `/` say
-  `Not in a project`. From inside a prompt it says `Not in the minibuffer`.
+  named after its last component, the directory it stands in for a buffer with no file; the home
+  directory and `/` say `Not in a project`. From inside a prompt it says `Not in the minibuffer`.
 - `C-u C-x p f` asks `Find file in directory:` first, with `C-x C-f`'s completion from the
   buffer's directory, and lists that directory as a project, named after its last component.
   It lists only directories and links, as Emacs's `read-directory-name` does: `RET` on a row
@@ -765,8 +772,8 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   in char mode, `exited N` once the program ends, and then the program's title in quotes
   follow `Terminal` in the modeline. An ended terminal keeps its last screen.
 - It starts `[terminal] shell` (an absolute path), else `$SHELL` if absolute, else the account's
-  shell, else `/bin/sh`, in the selected buffer's project root, else its file's directory, else
-  the home directory. A restricted project opens one too: what runs in it is the person's.
+  shell, else `/bin/sh`, in the selected buffer's project root, else the directory it stands in
+  (from a terminal, the one that terminal started in), else the home directory. A restricted project opens one too: what runs in it is the person's.
   `*Messages*` says `Started <shell> in <dir>`.
 - `[terminal] login = true` (the default) starts it as a login shell (`-l`). With `false`, the
   shell is interactive but not a login shell, and starts with oso's own environment: from the
@@ -893,8 +900,8 @@ a switch made with its command stands until that setting changes in the file
 ## Agent sessions
 
 - `C-x a c` (`claude`) starts Claude Code's own TUI in a terminal buffer, `*claude: NAME*`, in
-  the selected buffer's project root, else its file's directory, as a new terminal does, else the
-  directory oso started in. NAME is the directory's
+  the selected buffer's project root, else the directory it stands in, as a new terminal does, else
+  the directory oso started in. NAME is the directory's
   name, then `-2`, `-3` for more sessions there. `C-u C-x a c` asks for the directory, then the
   name. The agent channel turns on if it was off, and the echo area says so: the session's own
   oso tools connect without asking, and any other agent still asks

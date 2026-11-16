@@ -274,6 +274,8 @@ pub fn oso_platform::file_meta::path_of_opened(&std::fs::File) -> std::io::error
 pub fn oso_platform::file_meta::seal(&std::fs::File) -> std::io::error::Result<()>
 pub fn oso_platform::file_meta::user_name(u32) -> core::option::Option<alloc::string::String>
 pub fn oso_platform::file_meta::utc_offset_at(std::time::SystemTime) -> core::option::Option<i32>
+pub mod oso_platform::host
+pub fn oso_platform::host::name() -> core::option::Option<alloc::string::String>
 pub mod oso_platform::notify
 pub enum oso_platform::notify::Kind
 pub oso_platform::notify::Kind::Done

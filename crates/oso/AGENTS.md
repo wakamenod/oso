@@ -40,7 +40,8 @@ often, so it must rebuild within 2 s.
   it.
 - `src/terminal.rs` and `src/terminal/` host terminals (ADR 0120): which keys go to a program
   (`route`), what a terminal starts (`shell`), the screen the UI keeps (`grid`, `colors`), the
-  mouse's selection on it (`selection`) and the start thread (`hosted`). A hosted session's
+  mouse's selection on it (`selection`), the start thread (`hosted`) and the local directory a
+  program says it is in (`directory`, ADR 0141). A hosted session's
   terminal finds its shell with `hosted::find_shell` and is put in its buffer by
   `app/terminals/start.rs`, as a terminal's. `oso-term` owns the PTY, the engine and the
   policy; the dispatcher holds each terminal's key-reading state (`dispatch/terminal.rs`), and

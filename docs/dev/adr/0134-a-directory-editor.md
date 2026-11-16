@@ -1,6 +1,6 @@
 # 0134. A directory editor
 
-- Status: Accepted
+- Status: Accepted, amended by 0141
 - Date: 2026-11-15
 
 ## Context

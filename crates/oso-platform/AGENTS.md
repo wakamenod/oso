@@ -21,7 +21,8 @@ sent `SIGTERM` or `SIGKILL` with what it started (`Child::signal_group`, ADR 012
 with `posix_spawn`, which gets only the descriptors its file actions name; a terminal's child on
 macOS still forks, through `pty/unix.rs`'s hook (ADR 0137). `notify` asks for the person's attention for agent
 sessions (ADR 0121). `random` reads the system's random bytes, for ids such as a hosted
-session's (ADR 0121). `window` holds the window layer's
+session's (ADR 0121). `host` gives the machine's name, for a terminal's OSC 7 directory
+(ADR 0141). `window` holds the window layer's
 events, which the tip crate's winit adapter builds too, and on macOS the window system itself, in `window/appkit/`
 (ADR 0070).
 

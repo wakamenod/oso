@@ -84,6 +84,7 @@ fn the_last_segment_is_matched_and_a_new_directory_is_asked_for() {
 #[test]
 fn tab_puts_the_whole_path_in_and_ret_on_a_directory_goes_into_it() {
     let mut editor = prompt();
+    // `~/` is selected, and `TAB` puts the first row in, as vertico's does.
     editor.insert_completion().unwrap();
     assert_eq!(answer(&editor), "~/notes/");
     assert_eq!(
@@ -96,6 +97,7 @@ fn tab_puts_the_whole_path_in_and_ret_on_a_directory_goes_into_it() {
         false,
     );
     assert_eq!(rows(&editor), ["plan.md"]);
+    editor.move_completion(1).unwrap();
     editor.submit_prompt().unwrap();
     let Some(Outcome::Answered { text, .. }) = editor.take_prompt_outcome() else {
         panic!("answered");
@@ -106,6 +108,7 @@ fn tab_puts_the_whole_path_in_and_ret_on_a_directory_goes_into_it() {
 #[test]
 fn ret_on_a_directory_goes_into_it_and_stays_open() {
     let mut editor = prompt();
+    editor.move_completion(1).unwrap();
     editor.submit_prompt().unwrap();
     assert!(editor.prompt().is_some());
     assert_eq!(answer(&editor), "~/notes/");
@@ -202,7 +205,7 @@ fn only_the_name_is_matched_beside_the_directories_that_tell_rows_apart() {
 #[test]
 fn a_listing_no_plan_waits_for_keeps_the_selection_where_it_is() {
     let mut editor = prompt();
-    editor.move_completion(1).unwrap();
+    editor.move_completion(2).unwrap();
     editor.file_listed(PathBuf::from("/elsewhere"), names(&[]), false);
     let candidates = editor.prompt().unwrap().candidates().unwrap();
     assert_eq!(
@@ -253,7 +256,7 @@ fn the_rows_shown_are_looked_at_once_and_their_annotations_fill_in() {
         )]
     );
     assert!(editor.take_file_looks().is_empty(), "once");
-    editor.move_completion(1).unwrap();
+    editor.move_completion(2).unwrap();
     let home = Path::new("/home/me");
     editor.file_looked(
         home,
@@ -290,6 +293,7 @@ fn a_link_looked_at_as_a_directory_is_gone_into() {
         ["to-dir/"],
         "a link to a directory reads as one"
     );
+    editor.move_completion(1).unwrap();
     editor.submit_prompt().unwrap();
     assert!(editor.prompt().is_some(), "went into it");
     assert_eq!(answer(&editor), "/r/to-dir/");
@@ -298,7 +302,7 @@ fn a_link_looked_at_as_a_directory_is_gone_into() {
 #[test]
 fn a_file_a_look_found_large_is_remembered_so_opening_it_asks() {
     let mut editor = prompt();
-    editor.move_completion(1).unwrap();
+    editor.move_completion(2).unwrap();
     let home = Path::new("/home/me");
     editor.file_looked(
         home,
@@ -354,4 +358,95 @@ fn a_buffer_that_loaded_the_file_another_has_is_found_by_its_identity() {
     assert!(editor.take_visits().is_empty(), "no second buffer");
     assert_eq!(editor.buffers().count(), count);
     assert_eq!(editor.window().buffer(), agents, "shown");
+}
+
+/// The answer the innermost prompt gave, which closed it.
+fn answered(editor: &mut Editor) -> String {
+    let Some(Outcome::Answered { text, .. }) = editor.take_prompt_outcome() else {
+        panic!("answered");
+    };
+    text
+}
+
+#[test]
+fn a_directory_typed_is_selected_so_ret_gives_it() {
+    // As vertico's `vertico-preselect` `directory`: `C-x C-f RET` gives the directory (ADR 0141).
+    let mut editor = prompt();
+    let candidates = editor.prompt().unwrap().candidates().unwrap();
+    assert!(candidates.on_input(), "~/ is selected");
+    assert_eq!(candidates.selected(), None);
+    editor.submit_prompt().unwrap();
+    let text = answered(&mut editor);
+    assert_eq!(PathBuf::from(&text), Path::new("/home/me"));
+    assert!(text.ends_with('/'), "{text}");
+}
+
+#[test]
+fn a_name_typed_selects_the_first_match_and_deleting_it_the_directory_again() {
+    let mut editor = prompt();
+    typing(&mut editor, "do");
+    let candidates = editor.prompt().unwrap().candidates().unwrap();
+    assert!(!candidates.on_input());
+    assert_eq!(
+        candidates.selected_candidate().map(|c| c.text()),
+        Some("todo.md")
+    );
+    let id = editor.prompt().unwrap().buffer();
+    let end = editor.buffer(id).unwrap().text().len();
+    editor.apply_edits(id, &[edit(end - 2..end, "")]).unwrap();
+    editor.match_completion();
+    assert!(editor.prompt().unwrap().candidates().unwrap().on_input());
+}
+
+#[test]
+fn c_n_from_the_directory_goes_to_its_first_name_and_c_p_back() {
+    let mut editor = prompt();
+    editor.move_completion(1).unwrap();
+    let candidates = editor.prompt().unwrap().candidates().unwrap();
+    assert_eq!(
+        candidates.selected_candidate().map(|c| c.text()),
+        Some("notes/")
+    );
+    editor.move_completion(-1).unwrap();
+    assert!(editor.prompt().unwrap().candidates().unwrap().on_input());
+}
+
+#[test]
+fn a_directory_gone_into_is_selected_too() {
+    let mut editor = prompt();
+    editor.move_completion(1).unwrap();
+    editor.submit_prompt().unwrap();
+    assert_eq!(answer(&editor), "~/notes/");
+    editor.take_file_requests();
+    editor.file_listed(
+        PathBuf::from("/home/me/notes"),
+        names(&[("plan.md", NameKind::File)]),
+        false,
+    );
+    assert!(editor.prompt().unwrap().candidates().unwrap().on_input());
+    editor.submit_prompt().unwrap();
+    assert_eq!(
+        PathBuf::from(answered(&mut editor)),
+        Path::new("/home/me/notes")
+    );
+}
+
+#[test]
+fn a_row_moved_to_stays_selected_when_the_listing_comes_again() {
+    let mut editor = Editor::default();
+    editor
+        .open_file_prompt("Find file:", "file", "/r/", PathBuf::from("/"))
+        .unwrap();
+    editor.take_file_requests();
+    use NameKind::File as F;
+    editor.file_listed(PathBuf::from("/r"), names(&[("a", F), ("b", F)]), false);
+    editor.move_completion(1).unwrap();
+    // A listing that grows the list builds it anew, which would select `/r/` again.
+    editor.file_listed(
+        PathBuf::from("/r"),
+        names(&[("a", F), ("b", F), ("c", F)]),
+        false,
+    );
+    let candidates = editor.prompt().unwrap().candidates().unwrap();
+    assert_eq!(candidates.selected_candidate().map(|c| c.text()), Some("a"));
 }
