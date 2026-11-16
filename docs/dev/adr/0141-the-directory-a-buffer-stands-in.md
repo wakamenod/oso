@@ -1,6 +1,6 @@
 # 0141. The directory a buffer stands in
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-16
 
 ## Context
