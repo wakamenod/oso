@@ -390,6 +390,10 @@ impl Dispatcher {
         if step == Step::Apart || !self.keymaps.rigid_commands.contains(&id) {
             editor.set_indent_rigidly_layer(false);
         }
+        // So does any but a description's own, which then runs as it always does (ADR 0138).
+        if editor.hover().is_some() && !self.keymaps.hover_commands.contains(&id) {
+            editor.close_hover();
+        }
         // The person's answer to the agent's question, `y`, `n` or `C-g`, lets nothing go
         // (ADR 0118, Q11).
         let answers_the_agent = editor.prompt().is_some_and(|prompt| prompt.from_agent());

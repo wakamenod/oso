@@ -510,6 +510,60 @@ fn diagnostics_are_counted_moved_to_and_said_at_point() {
     assert!(modeline.contains("lsp E1 W1  "), "{modeline}");
 }
 
+/// `C-c C-d` shows the server's description in a float at point, `C-v` scrolls it, and the next
+/// key closes it and does what it always does.
+#[cfg(unix)]
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_description_shows_at_point_scrolls_and_goes_with_the_next_key() {
+    let scratch = Scratch::new("lsp-hover");
+    set_mode(scratch.path(), 0o700);
+    let root = project(&scratch, "proj-lsp", &["main.rs"]);
+    let lines: String = (1..=40)
+        .map(|n| format!("Line {n} of the docs.\n\n"))
+        .collect();
+    let rules = json!([
+        {"method": "initialize", "do": [{"reply": {"capabilities": {
+            "positionEncoding": "utf-8",
+            "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+            "hoverProvider": true,
+        }}}]},
+        {"method": "textDocument/hover", "do": [{"reply": {"contents": {
+            "kind": "markdown",
+            "value": format!("```rust\nfn main()\n```\n\n{lines}"),
+        }}}]},
+        {"method": "shutdown", "do": [{"reply": null}]},
+    ]);
+    let config = config(&scratch, &rules);
+    let record = scratch.write("conf/trusted-projects", record_line(&root).as_bytes());
+    set_mode(&record, 0o600);
+    let mut app = App::start_with_file_config_and_env(
+        &root.join("src/main.rs"),
+        scratch.path(),
+        &config,
+        &[],
+    );
+    app.wait_until_ready();
+    modeline_has(&mut app, "the server is ready", "proj-lsp  lsp  ");
+
+    app.send_keys("C-c C-d");
+    app.wait_for("the description", |state| state["hover"]["top"] == 0);
+    let shown = app.screenshot().foreground().expect("the float is drawn");
+    // `C-v` scrolls it, not the buffer.
+    app.send_keys("C-v");
+    app.wait_for("its next page", |state| state["hover"]["top"] == 18);
+    assert_ne!(
+        app.screenshot().foreground().unwrap().pixels,
+        shown.pixels,
+        "the float shows its next rows"
+    );
+    // The next key closes it and moves the cursor as ever.
+    app.send_keys("C-f");
+    app.wait_for("it closed and the key ran", |state| {
+        state["hover"].is_null() && state["cursor"]["column"] == 1
+    });
+}
+
 /// `M-g d` lists the project's diagnostics, the current buffer's first, then a file no buffer
 /// holds, whose row previews its place read from the file; `RET` visits it at that place.
 #[cfg(unix)]

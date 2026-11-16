@@ -7,11 +7,13 @@
 //! Must not depend on: `server`, threads or processes; this builds and reads values, and the
 //! session thread sends and receives them.
 
+mod hover;
 mod located;
 mod published;
 #[cfg(test)]
 mod tests;
 
+pub use hover::{Hover, hover};
 pub use located::{Located, located, position_params, references_params};
 pub use published::{Published, Reported, published};
 use serde_json::{Map, Value, json};
@@ -205,6 +207,7 @@ pub fn initialize_params(start: &Initialize<'_>) -> Value {
                 },
                 "definition": {"linkSupport": true},
                 "references": {},
+                "hover": {"contentFormat": ["markdown", "plaintext"]},
             },
         },
     });

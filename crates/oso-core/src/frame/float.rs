@@ -132,6 +132,59 @@ pub(crate) fn completion_regions(
     }
 }
 
+/// Where a float of `want`, its rows and columns of text, goes at `anchor`, a cell's row and
+/// column, inside `area`, the text area of the window it is anchored in (ADR 0138, Hover and
+/// Completion in the buffer): right below the anchor's row, its left edge at the anchor's
+/// column, moved left as far as `area` needs; above the row when fewer rows fit below than
+/// above. It never covers the anchor's row. A column of padding goes at each side; the rows
+/// are cut to the room, and the columns to `area`. Every other region is empty. `None` when
+/// no row or column fits.
+pub fn at_point(
+    area: CellRect,
+    (anchor_row, anchor_column): (usize, usize),
+    (rows, columns): (usize, usize),
+) -> Option<FloatRegions> {
+    let (top, bottom) = (area.row, area.row + area.rows);
+    if !(top..bottom).contains(&anchor_row) {
+        return None;
+    }
+    let below = bottom - (anchor_row + 1);
+    let above = anchor_row - top;
+    let (row, rows) = if rows <= below || below >= above {
+        (anchor_row + 1, rows.min(below))
+    } else {
+        let rows = rows.min(above);
+        (anchor_row - rows, rows)
+    };
+    let outer_columns = (columns + 2).min(area.columns);
+    let side = usize::from(outer_columns >= 3);
+    let right = area.column + area.columns;
+    let column = anchor_column.clamp(area.column, right.saturating_sub(outer_columns));
+    let outer = CellRect {
+        row,
+        column,
+        rows,
+        columns: outer_columns,
+    };
+    let inner = CellRect {
+        column: column + side,
+        columns: outer_columns - 2 * side,
+        ..outer
+    };
+    let empty = CellRect {
+        rows: 0,
+        columns: 0,
+        ..inner
+    };
+    (rows > 0 && inner.columns > 0).then_some(FloatRegions {
+        outer,
+        inner,
+        gap: false,
+        candidates: empty,
+        preview: empty,
+    })
+}
+
 /// The columns of a float that takes `share` of `total` of the text area's `columns`, at least
 /// 40, and never closer than 2 to an edge.
 fn float_columns(columns: usize, share: usize, total: usize) -> usize {

@@ -44,8 +44,8 @@ pub(super) const JOINING_MAX: usize = 16;
 pub(super) struct Asker {
     serial: u64,
     window: WindowId,
-    revision: u64,
-    offset: usize,
+    pub(super) revision: u64,
+    pub(super) offset: usize,
     agent: Option<Connection>,
 }
 
@@ -156,6 +156,11 @@ impl App {
             ..
         } = answer;
         let taken = self.take_asker(index, serial, document, kind);
+        // A description goes to its float (step 10).
+        if kind == AskKind::Hover {
+            self.lsp_described(index, taken, outcome);
+            return;
+        }
         let places = match outcome {
             Ok(Answered::Places(places)) => places,
             // A kind a later step asks for.
@@ -184,7 +189,7 @@ impl App {
 
     /// Takes who asked server `index` the ask `kind` of the document `document`, if `serial`
     /// is that ask's: an answer to an earlier one, which a newer replaced, is no one's.
-    fn take_asker(
+    pub(super) fn take_asker(
         &mut self,
         index: usize,
         serial: u64,
@@ -206,7 +211,7 @@ impl App {
 
     /// Whether nothing moved since `asker` asked about `asked`, and an agent's connection is
     /// still let in.
-    fn still_there(&self, asked: BufferId, asker: &Asker) -> bool {
+    pub(super) fn still_there(&self, asked: BufferId, asker: &Asker) -> bool {
         let (window, buffer) = self.editor.current();
         window.id() == asker.window
             && window.buffer() == asked
@@ -224,6 +229,7 @@ impl App {
             self.editor.message(match kind {
                 AskKind::Definition => "No definition found",
                 AskKind::References => "No references found",
+                AskKind::Hover => "Nothing to describe here",
             });
             return;
         };

@@ -67,6 +67,38 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
+        name: "lsp-describe-at-point",
+        doc: "Describe what is at point, as the language server sees it, as Eglot's `eglot-help-at-point`.\n\nThe server's text shows in a float right below the cursor's line, or above it with more room there, at most 80 columns by 20 rows, Markdown highlighted with Rust in its code. `C-v` and `M-v` scroll it, `C-g` closes it, and any other key closes it and does what it always does. It shows only if nothing moved while the server answered. A buffer that may hold secrets is never described.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: describe_at_point,
+        state: None,
+    },
+    Command {
+        name: "lsp-describe-scroll-up",
+        doc: "Scroll the description at point forward by its rows, less two, as `C-v` scrolls a window.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: describe_scroll_up,
+        state: None,
+    },
+    Command {
+        name: "lsp-describe-scroll-down",
+        doc: "Scroll the description at point back by its rows, less two, as `M-v` scrolls a window.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: describe_scroll_down,
+        state: None,
+    },
+    Command {
+        name: "lsp-describe-close",
+        doc: "Close the description at point, and nothing more.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: describe_close,
+        state: None,
+    },
+    Command {
         name: "lsp-find-definition",
         doc: "Go to the definition of what is at point, as the language server finds it, as Eglot's `xref-find-definitions`.\n\nThe server is asked about the primary cursor; one cursor is left at the definition. With several, it goes to the first and says how many there are. The place left is kept in the window's history, which `lsp-go-back` goes back through, and on the mark ring. A file outside any project that it leads to joins the server, until its buffer is killed.",
         args: ArgSpec::None,
@@ -168,6 +200,53 @@ fn find_definition(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     // The host says whether a server follows it.
     let at = ctx.editor.ask_at();
     ctx.editor.request_server(ServerRequest::Definition(at));
+    Ok(())
+}
+
+/// Asks the server about the primary cursor's place; its answer shows in a float there.
+fn describe_at_point(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    if ctx.editor.current().1.is_secret() {
+        return Err(CommandError::new(
+            "No server for a buffer that may hold secrets",
+        ));
+    }
+    // The host says whether a server follows it.
+    let at = ctx.editor.ask_at();
+    ctx.editor.request_server(ServerRequest::Describe(at));
+    Ok(())
+}
+
+fn describe_scroll_up(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    scroll_description(ctx, true)
+}
+
+fn describe_scroll_down(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    scroll_description(ctx, false)
+}
+
+/// Scrolls the description a page, `forward` or back, saying so at either end, as a window's
+/// scroll does.
+fn scroll_description(ctx: &mut Ctx<'_>, forward: bool) -> Result<(), CommandError> {
+    if ctx.editor.hover().is_none() {
+        return Err(CommandError::new("No description at point"));
+    }
+    let page = isize::try_from(ctx.editor.hover_page()).unwrap_or(isize::MAX);
+    if !ctx.editor.scroll_hover(if forward { page } else { -page }) {
+        let end = if forward {
+            "End of the description"
+        } else {
+            "Start of the description"
+        };
+        return Err(CommandError::new(end));
+    }
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn describe_close(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    ctx.editor.close_hover();
+    ctx.request_redraw();
     Ok(())
 }
 

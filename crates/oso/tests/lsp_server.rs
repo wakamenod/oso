@@ -1258,3 +1258,60 @@ fn an_ask_with_no_server_running_is_answered_at_once() {
     seen.until(LIMIT, |seen| !seen.answers.is_empty());
     assert_eq!(seen.answers[0].outcome, Err("it does not run".into()));
 }
+
+/// A description is asked at its position and comes back as the text it held, never logged;
+/// one that waits past 3 s is cancelled and says so.
+#[test]
+fn a_description_is_asked_at_its_position_and_its_text_is_never_logged() {
+    use oso_lsp::server::{Answered, AskKind};
+    let script = asking(json!([
+        {"method": "textDocument/hover", "nth": 1, "do": [{"reply": {"contents": {
+            "kind": "markdown", "value": "```rust\nfn secret_name()\n```",
+        }}}]},
+        {"method": "textDocument/hover", "nth": 2, "do": [{"reply": null}]},
+        {"method": "textDocument/hover", "nth": 3, "do": [{"hang": true}]},
+    ]));
+    let mut seen = started("hover", &script, open());
+    opened(
+        &mut seen,
+        1,
+        "file:///w/p/a.rs",
+        "fn a() {}\nlet é = a();\n",
+    );
+    let offset = "fn a() {}\nlet é = ".len();
+    ask(&seen, AskKind::Hover, offset);
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert!(
+        seen.logged("asked textDocument/hover 1:8"),
+        "{:?}",
+        seen.log
+    );
+    let answer = seen.answers.pop().unwrap();
+    assert_eq!(answer.kind, AskKind::Hover);
+    let Ok(Answered::Hover(Some(hover))) = answer.outcome else {
+        panic!("a description");
+    };
+    assert_eq!(hover.text, "```rust\nfn secret_name()\n```");
+    assert!(hover.markdown);
+    assert!(seen.logged("bytes of description"));
+    assert!(
+        !seen.log.iter().any(|line| line.contains("secret_name")),
+        "the text is not logged"
+    );
+    ask(&seen, AskKind::Hover, 0);
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert_eq!(
+        seen.answers.pop().unwrap().outcome,
+        Ok(Answered::Hover(None))
+    );
+    let asked = Instant::now();
+    ask(&seen, AskKind::Hover, 0);
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert!(asked.elapsed() >= oso_lsp::limits::COMPLETION_WAIT);
+    assert!(asked.elapsed() < oso_lsp::limits::DEFINITION_WAIT);
+    assert_eq!(
+        seen.answers.pop().unwrap().outcome,
+        Err("no answer within 3 s".into())
+    );
+    seen.server.shut_down();
+}

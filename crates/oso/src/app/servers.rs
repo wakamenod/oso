@@ -11,6 +11,7 @@
 mod diagnostics;
 mod documents;
 mod find;
+mod hover;
 mod places;
 
 use std::collections::{HashMap, HashSet};
@@ -189,6 +190,10 @@ impl App {
                 }
                 ServerRequest::References(at) => {
                     self.lsp_find(at, oso_lsp::server::AskKind::References, agent);
+                }
+                // The person's only: the command is `Person` (step 10).
+                ServerRequest::Describe(at) => {
+                    self.lsp_find(at, oso_lsp::server::AskKind::Hover, None);
                 }
             }
         }

@@ -137,6 +137,11 @@ impl App {
     }
 
     fn mouse_pressed(&mut self, button: MouseButton, at: Position, held: Held) {
+        // A press anywhere closes a server's description at point (ADR 0138).
+        if self.editor.hover().is_some() {
+            self.editor.close_hover();
+            self.request_redraw();
+        }
         // One button at a time: a press during a drag ends it and begins its own, so a
         // release that never came cannot hold a drag on.
         self.end_drag();

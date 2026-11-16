@@ -2,12 +2,14 @@
 //! (ADR 0138, step 3): `lsp-start`, `lsp-restart` and `lsp-shutdown`; and `*LSP*`, the log of
 //! what servers did, which keeps the last bytes the host says; and what the echo area says of
 //! the diagnostics at point (step 6), and the list of a project's (`M-g d`, step 6b,
-//! `diagnostics_list`); the jumps an answer leads to, and back (step 8, `jumps`).
+//! `diagnostics_list`); the jumps an answer leads to, and back (step 8, `jumps`); and the
+//! description of what is at point in a float there (step 10, `hover`).
 //!
 //! Must not depend on: the host's servers, threads or I/O; a command asks, and the host takes
 //! the request after the command and acts on the server.
 
 mod diagnostics_list;
+mod hover;
 mod jumps;
 
 use crate::buffer::{Buffer, BufferId};
@@ -17,6 +19,7 @@ pub use super::visits::VisitColumn;
 pub use diagnostics_list::{
     DiagnosticHit, DiagnosticRow, DiagnosticRowAt, DiagnosticRows, DiagnosticsRequest,
 };
+pub use hover::HoverShown;
 pub use jumps::AskAt;
 
 use super::Editor;
@@ -31,6 +34,8 @@ pub(super) struct Servers {
     requests: Vec<ServerRequest>,
     /// The list of a project's diagnostics, `M-g d` (step 6b).
     pub(super) list: diagnostics_list::DiagnosticsList,
+    /// The description shown at point, `C-c C-d` (step 10).
+    pub(super) hover: hover::Hover,
     log: Option<BufferId>,
 }
 
@@ -47,6 +52,8 @@ pub enum ServerRequest {
     Definition(AskAt),
     /// `lsp-find-references` (step 8).
     References(AskAt),
+    /// `lsp-describe-at-point` (step 10).
+    Describe(AskAt),
 }
 
 impl Editor {

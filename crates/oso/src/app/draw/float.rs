@@ -21,8 +21,11 @@ use oso_render::{
     TextView,
 };
 
+mod hover;
 mod preview;
 mod row;
+
+pub(super) use hover::hover_panes;
 
 use preview::preview_panes;
 use row::{SPACES, candidate_spans};

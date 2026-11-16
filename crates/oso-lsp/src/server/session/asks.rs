@@ -9,7 +9,6 @@ use std::time::Instant;
 
 use serde_json::json;
 
-use crate::limits::DEFINITION_WAIT;
 use crate::position;
 use crate::protocol::{self, Outcome};
 use crate::uri;
@@ -45,7 +44,7 @@ impl Session {
         };
         let at = position::from_offset(text, ask.offset, run.encoding);
         let params = match ask.kind {
-            AskKind::Definition => protocol::position_params(uri, at),
+            AskKind::Definition | AskKind::Hover => protocol::position_params(uri, at),
             AskKind::References => protocol::references_params(uri, at),
         };
         // The older of its kind for the document is moot.
@@ -66,7 +65,7 @@ impl Session {
             ask.kind.method(),
             run.next_id
         ));
-        run.request(Asked::Ask(ask), ask.kind.method(), params, DEFINITION_WAIT)
+        run.request(Asked::Ask(ask), ask.kind.method(), params, ask.kind.wait())
     }
 
     /// The answer to `ask`, request `id`, which was due by `deadline`.
@@ -78,7 +77,7 @@ impl Session {
         deadline: Instant,
         now: Instant,
     ) {
-        let took = (now + DEFINITION_WAIT)
+        let took = (now + ask.kind.wait())
             .saturating_duration_since(deadline)
             .as_millis();
         let result = match outcome {
@@ -96,6 +95,23 @@ impl Session {
                 return;
             }
         };
+        if ask.kind == AskKind::Hover {
+            let hover = protocol::hover(&result);
+            drop(result);
+            // Its size only: the text may quote what the server read.
+            self.reporter.log(format!(
+                "request {id} answered with {} bytes of description in {took} ms",
+                hover.as_ref().map_or(0, |hover| hover.text.len())
+            ));
+            self.reporter.answer(Answer {
+                serial: ask.serial,
+                document: ask.document,
+                kind: ask.kind,
+                revision: ask.revision,
+                outcome: Ok(Answered::Hover(hover)),
+            });
+            return;
+        }
         let (located, left) = protocol::located(&result);
         drop(result);
         let mut locations = Vec::with_capacity(located.len());
@@ -148,11 +164,11 @@ impl Session {
     pub(super) fn overdue_ask(&mut self, run: &Run, id: i64, ask: Ask) -> Result<(), String> {
         self.reporter.log(format!(
             "request {id} not answered within {} s, cancelled",
-            DEFINITION_WAIT.as_secs()
+            ask.kind.wait().as_secs()
         ));
         self.fail(
             ask,
-            format!("no answer within {} s", DEFINITION_WAIT.as_secs()),
+            format!("no answer within {} s", ask.kind.wait().as_secs()),
         );
         run.send(&protocol::notification(
             "$/cancelRequest",

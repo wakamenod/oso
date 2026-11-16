@@ -43,6 +43,8 @@ pub(super) struct Cells {
     pub(super) flash: Option<f32>,
     answer: Screen,
     preview: Screen,
+    /// The rows of a server's description at point (ADR 0138).
+    hover: Screen,
     /// The matches a project search's preview shows (ADR 0114).
     preview_matches: MatchCells,
     /// Room for the spans and rows each frame lists, empty between frames.
@@ -94,8 +96,7 @@ pub(super) fn with_frame<R>(
     let menu_shown = cells.menu.update(editor, open_menu);
     tiled::fill(editor, bands, &mut cells.windows);
     editor.prompt_screen(&mut cells.answer);
-    editor.preview_screen(&mut cells.preview);
-    editor.preview_cells(&cells.preview, &mut cells.preview_matches);
+    fill_float_screens(editor, cells);
     let empty = Status::default();
     let status = tiled::tiled_status(editor, statuses).unwrap_or(&empty);
     let echo = [
@@ -148,6 +149,9 @@ pub(super) fn with_frame<R>(
         (Face::SearchCurrent, &cells.preview_matches.current[..]),
         (Face::SearchMatch, &cells.preview_matches.others[..]),
     ];
+    // A description at point goes over the tiled panes, under a prompt's float, which closes
+    // it anyway.
+    float::hover_panes(editor, &cells.hover, &mut list);
     if let (Some(parts), Some(lines)) = (&float, &lines) {
         let screens = float::Screens {
             answer: &cells.answer,
@@ -176,6 +180,14 @@ pub(super) fn with_frame<R>(
     tiled::give_back_spans(&mut room, spans);
     cells.room = room;
     result
+}
+
+/// The rows the floats over the windows show into `cells`: a prompt's preview with the matches
+/// of a search in it, and a server's description at point (ADR 0138).
+fn fill_float_screens(editor: &Editor, cells: &mut Cells) {
+    editor.preview_screen(&mut cells.preview);
+    editor.preview_cells(&cells.preview, &mut cells.preview_matches);
+    editor.hover_screen(&mut cells.hover);
 }
 
 /// Every terminal a window shows, its rows once however many windows show it, into `rows`,

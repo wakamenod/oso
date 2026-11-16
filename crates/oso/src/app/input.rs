@@ -178,6 +178,22 @@ impl App {
             };
         }
         let (rows, columns) = wheeling.remainder.add(rows, columns);
+        // Over a server's description at point, the wheel scrolls it (ADR 0138).
+        let over_hover =
+            (self.editor.hover_layout())
+                .zip(cell)
+                .is_some_and(|(regions, (row, column))| {
+                    let cells = regions.outer;
+                    (cells.row..cells.row + cells.rows).contains(&row)
+                        && (cells.column..cells.column + cells.columns).contains(&column)
+                });
+        if over_hover {
+            let moved = rows != 0 && self.editor.scroll_hover(rows);
+            if moved {
+                self.request_redraw();
+            }
+            return Some((window, moved));
+        }
         // Over a terminal, the wheel scrolls its scrollback, on its thread (ADR 0120).
         if self.wheel_terminal(window, (rows, columns), at) {
             return Some((window, false));

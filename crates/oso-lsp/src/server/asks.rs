@@ -1,20 +1,23 @@
 //! What the UI asks a server about a document, and what comes back (ADR 0138, Go to definition
-//! and back, step 8): the definitions or references at a byte offset. Steps 9 and 10 add their
-//! kinds here.
+//! and back, step 8): the definitions or references at a byte offset, and the description of
+//! what is there (Hover, step 10). Step 9 adds its kind here.
 //!
 //! Must not depend on: the session's loop or the pipes; these are the values that cross
 //! between the UI and the session thread.
 //!
 //! - One ask of each kind for each document is in flight; a newer one cancels the older with
 //!   `$/cancelRequest`, and the older gets no answer.
-//! - Each waits at most [`DEFINITION_WAIT`](crate::limits::DEFINITION_WAIT); a run that ends
-//!   fails what waits.
+//! - Each waits at most [`AskKind::wait`]: a definition or references
+//!   [`DEFINITION_WAIT`], a description [`COMPLETION_WAIT`]; a run that ends fails what waits.
 //! - An answer wakes the UI at once.
 
 use std::ops::Range;
 use std::path::PathBuf;
+use std::time::Duration;
 
+use crate::limits::{COMPLETION_WAIT, DEFINITION_WAIT};
 use crate::position::{Encoding, Position};
+use crate::protocol::Hover;
 
 /// What is asked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -23,6 +26,8 @@ pub enum AskKind {
     Definition,
     /// `textDocument/references`, the declaration included.
     References,
+    /// `textDocument/hover` (step 10).
+    Hover,
 }
 
 impl AskKind {
@@ -31,6 +36,15 @@ impl AskKind {
         match self {
             Self::Definition => "textDocument/definition",
             Self::References => "textDocument/references",
+            Self::Hover => "textDocument/hover",
+        }
+    }
+
+    /// How long its answer may take.
+    pub fn wait(self) -> Duration {
+        match self {
+            Self::Definition | Self::References => DEFINITION_WAIT,
+            Self::Hover => COMPLETION_WAIT,
         }
     }
 
@@ -39,6 +53,7 @@ impl AskKind {
         match self {
             Self::Definition => "definition",
             Self::References => "references",
+            Self::Hover => "description",
         }
     }
 }
@@ -74,6 +89,8 @@ pub enum Answered {
     /// Definitions or references: at most [`LOCATIONS_MAX`](crate::limits::LOCATIONS_MAX)
     /// places, in the server's order.
     Places(Vec<Location>),
+    /// A description: the hover's text, or `None` for one that describes nothing.
+    Hover(Option<Hover>),
 }
 
 /// A place an answer names: a file, by the path its `file:` URI reads as, and where in it.
