@@ -99,7 +99,7 @@ pub use file_preview::{Excerpt, FilePreviewRead, FilePreviewRequest, PreviewAt};
 pub use files::Looked;
 pub use git::{
     BranchAction, CommitKind, CommitSwitches, FetchFrom, GitHeading, GitLines, GitRequest,
-    GitShown, MAX_GIT_LOG, PullHow, PushSwitches, PushTarget, StashAction,
+    GitShown, GraphAct, GraphScope, MAX_GIT_LOG, PullHow, PushSwitches, PushTarget, StashAction,
 };
 pub use gutter::Gutter;
 pub use indent::{IndentError, Shift};

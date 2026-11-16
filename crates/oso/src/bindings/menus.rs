@@ -352,7 +352,7 @@ const AGENTS: BuiltInMenu = BuiltInMenu {
 };
 
 /// The built-in menus, in the order their ids are given.
-const BUILT_IN: [&BuiltInMenu; 13] = [
+const BUILT_IN: [&BuiltInMenu; 14] = [
     &TOGGLES,
     &WINDOWS,
     &JUMPS,
@@ -365,6 +365,7 @@ const BUILT_IN: [&BuiltInMenu; 13] = [
     &vcs::FETCH,
     &vcs::STASH,
     &vcs::BRANCH,
+    &vcs::LOG,
     &AGENTS,
 ];
 

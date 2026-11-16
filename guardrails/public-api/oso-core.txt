@@ -60,6 +60,7 @@ pub oso_core::buffer::Mode::Directory
 pub oso_core::buffer::Mode::Fundamental
 pub oso_core::buffer::Mode::GitCommit
 pub oso_core::buffer::Mode::GitDiscarded
+pub oso_core::buffer::Mode::GitGraph
 pub oso_core::buffer::Mode::GitLog
 pub oso_core::buffer::Mode::GitStatus
 pub oso_core::buffer::Mode::Go
@@ -1526,6 +1527,15 @@ pub oso_core::editor::GitRequest::Fetch::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Fetch::from: oso_core::editor::FetchFrom
 pub oso_core::editor::GitRequest::FixWithAgent
 pub oso_core::editor::GitRequest::FixWithAgent::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Graph
+pub oso_core::editor::GitRequest::Graph::project: oso_core::project::ProjectId
+pub oso_core::editor::GitRequest::Graph::scope: oso_core::editor::GraphScope
+pub oso_core::editor::GitRequest::GraphAct
+pub oso_core::editor::GitRequest::GraphAct::act: oso_core::editor::GraphAct
+pub oso_core::editor::GitRequest::GraphAct::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::GraphAct::line: usize
+pub oso_core::editor::GitRequest::GraphToggle
+pub oso_core::editor::GitRequest::GraphToggle::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Pull
 pub oso_core::editor::GitRequest::Pull::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Pull::how: oso_core::editor::PullHow
@@ -1579,6 +1589,32 @@ pub fn oso_core::editor::GitRequest::eq(&self, &oso_core::editor::GitRequest) ->
 impl core::fmt::Debug for oso_core::editor::GitRequest
 pub fn oso_core::editor::GitRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::GitRequest
+pub enum oso_core::editor::GraphAct
+pub oso_core::editor::GraphAct::CopyId
+pub oso_core::editor::GraphAct::Refresh
+pub oso_core::editor::GraphAct::Review
+impl core::clone::Clone for oso_core::editor::GraphAct
+pub fn oso_core::editor::GraphAct::clone(&self) -> oso_core::editor::GraphAct
+impl core::cmp::Eq for oso_core::editor::GraphAct
+impl core::cmp::PartialEq for oso_core::editor::GraphAct
+pub fn oso_core::editor::GraphAct::eq(&self, &oso_core::editor::GraphAct) -> bool
+impl core::fmt::Debug for oso_core::editor::GraphAct
+pub fn oso_core::editor::GraphAct::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::GraphAct
+impl core::marker::StructuralPartialEq for oso_core::editor::GraphAct
+pub enum oso_core::editor::GraphScope
+pub oso_core::editor::GraphScope::All
+pub oso_core::editor::GraphScope::Current
+pub oso_core::editor::GraphScope::Named(alloc::string::String)
+pub oso_core::editor::GraphScope::Pick
+impl core::clone::Clone for oso_core::editor::GraphScope
+pub fn oso_core::editor::GraphScope::clone(&self) -> oso_core::editor::GraphScope
+impl core::cmp::Eq for oso_core::editor::GraphScope
+impl core::cmp::PartialEq for oso_core::editor::GraphScope
+pub fn oso_core::editor::GraphScope::eq(&self, &oso_core::editor::GraphScope) -> bool
+impl core::fmt::Debug for oso_core::editor::GraphScope
+pub fn oso_core::editor::GraphScope::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::GraphScope
 pub enum oso_core::editor::IndentError
 pub oso_core::editor::IndentError::Edit(oso_core::buffer::EditError)
 pub oso_core::editor::IndentError::NoMark
@@ -2337,8 +2373,11 @@ pub fn oso_core::editor::Editor::window_by_id(&self, oso_core::window::WindowId)
 pub fn oso_core::editor::Editor::windows(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::window::Window>
 pub fn oso_core::editor::Editor::with_buffer(oso_core::buffer::Buffer) -> Self
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::add_git_graph(&mut self, oso_core::project::ProjectId, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::add_git_status(&mut self, oso_core::project::ProjectId, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::append_git_log(&mut self, oso_core::buffer::BufferId, &str)
+pub fn oso_core::editor::Editor::git_graph_buffer(&self, oso_core::project::ProjectId) -> core::option::Option<oso_core::buffer::BufferId>
+pub fn oso_core::editor::Editor::git_graph_of(&self, oso_core::buffer::BufferId) -> core::option::Option<oso_core::project::ProjectId>
 pub fn oso_core::editor::Editor::git_outline(&self, oso_core::buffer::BufferId) -> &[oso_core::editor::GitHeading]
 pub fn oso_core::editor::Editor::git_points(&self, oso_core::buffer::BufferId) -> alloc::vec::Vec<(oso_core::window::WindowId, usize)>
 pub fn oso_core::editor::Editor::git_runs(&self) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::buffer::BufferId> + '_
@@ -5592,7 +5631,16 @@ pub oso_core::syntax::Highlight::GitBranchRemote
 pub oso_core::syntax::Highlight::GitCommitOverlong
 pub oso_core::syntax::Highlight::GitDetail
 pub oso_core::syntax::Highlight::GitHash
+pub oso_core::syntax::Highlight::GitLane0
+pub oso_core::syntax::Highlight::GitLane1
+pub oso_core::syntax::Highlight::GitLane2
+pub oso_core::syntax::Highlight::GitLane3
+pub oso_core::syntax::Highlight::GitLane4
+pub oso_core::syntax::Highlight::GitLane5
+pub oso_core::syntax::Highlight::GitLane6
+pub oso_core::syntax::Highlight::GitLane7
 pub oso_core::syntax::Highlight::GitSectionHeading
+pub oso_core::syntax::Highlight::GitTag
 pub oso_core::syntax::Highlight::Heading
 pub oso_core::syntax::Highlight::Keyword
 pub oso_core::syntax::Highlight::Link

@@ -308,6 +308,7 @@ impl App {
         if let Some(status) = (self.gits.open.iter()).position(|open| open.project == project) {
             self.git_ask(status, Ask::Read);
         }
+        self.graph_after_run(project);
     }
 
     /// Keeps `text` as what the run under way in the repository at `index` wrote, its last
