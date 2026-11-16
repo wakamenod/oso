@@ -505,6 +505,16 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     new connection resets neither, and a branch's refusal by the name git resolved it to.
   - A tool's worktree jobs take the trust of the session's open project as it is at the call,
     and again at the person's `y`, so a project the person no longer trusts runs nothing.
+  - `draft_set` ([ADR 0127](adr/0127-source-control-and-github.md), step 6a) asks nothing: it
+    writes only the commit message whose newest request, pasted by the person's `C-c C-d`,
+    named its 32-bit id, from the session it was pasted into, in that worktree of a trusted
+    project,
+    within 15 minutes, once, at most 16 KiB cleaned as a paste is, and commits nothing. The
+    requests oso pastes into a session are the person's, read before Enter; a fix request holds
+    the failed run's output, which the log withholds from the channel, so only the person's
+    paste gives it to the agent, and leaves out its lines shaped like a key or a token, saying
+    how many. `app/vcs/draft.rs` is one of the tools' files the guard test keeps from
+    terminals, and none of them may call `send_to_session`.
 - Worktree sessions run git and `gh` only for a trusted project whose main repository is
   trusted too, on `oso-sessions-git`, through `oso-platform::process`
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 4).

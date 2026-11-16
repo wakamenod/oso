@@ -53,15 +53,33 @@ impl std::fmt::Debug for RunEvent {
 /// A repository as its runs know it.
 pub(super) struct Repo {
     pub(super) project: ProjectId,
-    root: TrustedRoot,
+    pub(super) root: TrustedRoot,
     /// Which start of the thread its reports must come from.
     serial: u64,
     runner: Option<Runner>,
-    log: Option<BufferId>,
+    pub(super) log: Option<BufferId>,
     pub(super) run: Option<Running>,
     /// A commit that waits for `HEAD`'s message.
     pub(super) reading: Option<Pending>,
+    /// The message buffer whose draft request waits for the last subjects (step 6a).
+    pub(super) subjects_for: Option<BufferId>,
+    /// The last commit that failed with its message buffer open, for a fix request (step 6a).
+    pub(super) failed: Option<Failure>,
 }
+
+/// A commit that failed, as a fix request names it.
+pub(super) struct Failure {
+    /// The message buffer it left.
+    pub(super) draft: BufferId,
+    pub(super) hooks: Vec<&'static str>,
+    /// What it wrote, its command line first, as the log took it: its last
+    /// [`MAX_RUN_OUTPUT`] bytes.
+    pub(super) output: String,
+}
+
+/// The most bytes of a run's own output kept for a fix request: twice what one sends, so that
+/// whole lines are left to cut from.
+const MAX_RUN_OUTPUT: usize = 2 * crate::vcs::agent::MAX_FIX_BYTES;
 
 /// A run under way.
 pub(super) struct Running {
@@ -72,6 +90,8 @@ pub(super) struct Running {
     /// The message it commits, for the ring once it is in, and the buffer that holds it.
     pub(super) message: Option<String>,
     pub(super) draft: Option<BufferId>,
+    /// What it wrote, as [`Failure::output`] keeps it.
+    output: String,
 }
 
 /// A commit asked for that waits for the message it starts from.
@@ -111,12 +131,15 @@ impl App {
         let echoed = format!("{}…", commit::title(kind));
         self.editor.echo(echoed.clone());
         self.editor.set_git_running(log, true);
-        self.gits.commits.repos[index].run = Some(Running {
+        let repo = &mut self.gits.commits.repos[index];
+        repo.failed = None;
+        repo.run = Some(Running {
             kind,
             started: Instant::now(),
             echoed,
             message,
             draft,
+            output: String::new(),
         });
         self.request_redraw();
     }
@@ -189,11 +212,14 @@ impl App {
                         .echo(format!("git: {}", one_line(&why, MAX_SAID))),
                 }
             }
+            RunReport::Subjects { subjects, id } => self.subjects_read(index, &subjects, id),
             RunReport::Began { line } => {
+                self.keep_output(index, &line);
                 let log = self.git_log(index);
                 self.editor.append_git_log(log, &line);
             }
             RunReport::Output(text) => {
+                self.keep_output(index, &text);
                 let log = self.git_log(index);
                 self.editor.append_git_log(log, &text);
                 // Only a log on screen needs a frame for it.
@@ -232,7 +258,9 @@ impl App {
         let seconds = run.started.elapsed().as_secs();
         let (said, ended) = match end {
             RunEnd::Done => ("done", self.commit_done(&run)),
-            RunEnd::Failed(why) => ("failed", why),
+            RunEnd::Failed { said, hooks } => {
+                ("failed", self.commit_failed(index, run, said, hooks))
+            }
             RunEnd::Stopped => ("stopped", format!("{} stopped", commit::title(run.kind))),
             RunEnd::Refused(why) => ("not run", format!("git: {why}")),
         };
@@ -244,6 +272,45 @@ impl App {
         // What git did, or a hook changed, is read: the person asked for the run.
         if let Some(status) = (self.gits.open.iter()).position(|open| open.project == project) {
             self.git_ask(status, Ask::Read);
+        }
+    }
+
+    /// Keeps `text` as what the run under way in the repository at `index` wrote, its last
+    /// [`MAX_RUN_OUTPUT`] bytes, from a line's start.
+    fn keep_output(&mut self, index: usize, text: &str) {
+        let Some(run) = self.gits.commits.repos[index].run.as_mut() else {
+            return;
+        };
+        run.output.push_str(text);
+        crate::vcs::agent::keep_end(&mut run.output, MAX_RUN_OUTPUT);
+    }
+
+    /// What a commit in the repository at `index` that failed leaves: with its message buffer
+    /// open, what a fix request names, and the echo area's word of `C-c C-f` when the worktree
+    /// has a session to ask.
+    fn commit_failed(
+        &mut self,
+        index: usize,
+        run: Running,
+        said: String,
+        hooks: Vec<&'static str>,
+    ) -> String {
+        let Some(draft) = run
+            .draft
+            .filter(|draft| self.editor.buffer(*draft).is_some())
+        else {
+            return said;
+        };
+        self.gits.commits.repos[index].failed = Some(Failure {
+            draft,
+            hooks,
+            output: run.output,
+        });
+        let root = self.gits.commits.repos[index].root.path().to_path_buf();
+        if self.worktree_session(&root).is_some() {
+            format!("{said}; C-c C-f asks the session to fix it")
+        } else {
+            said
         }
     }
 
@@ -310,6 +377,8 @@ impl App {
             log: None,
             run: None,
             reading: None,
+            subjects_for: None,
+            failed: None,
         });
         self.gits.commits.repos.len() - 1
     }
