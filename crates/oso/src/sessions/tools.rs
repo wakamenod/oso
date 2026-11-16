@@ -342,7 +342,7 @@ pub struct Unasked {
 }
 
 /// `[sessions] agents_start_limit`: how many live sessions one caller may have started without
-/// asking (ADR 0135, Q5, as amended 2026-11-16).
+/// asking (ADR 0135, Q5, and ADR 0144).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StartLimit {
     /// At most this many.
@@ -357,16 +357,6 @@ impl StartLimit {
         match self {
             Self::Most(most) => live < usize::from(most),
             Self::Unlimited => true,
-        }
-    }
-}
-
-impl std::fmt::Display for StartLimit {
-    /// As `config.toml` spells it.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Most(most) => write!(f, "{most}"),
-            Self::Unlimited => f.write_str("\"none\""),
         }
     }
 }

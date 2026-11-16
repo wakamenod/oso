@@ -21,7 +21,9 @@ pub(in crate::app) struct Begin {
     pub brief: Option<String>,
     /// The session that started it.
     pub parent: Option<SessionId>,
-    /// How it starts: by the person, unless an agent's tool starts it (ADR 0135).
+    /// How it starts: by the person, unless an agent's tool starts it (ADR 0135). One an agent's
+    /// tool starts, asked or not, starts behind what the person is doing: its terminal is not
+    /// shown (ADR 0144).
     pub origin: Origin,
     /// Whether to ask first when another live session runs in its directory.
     pub check_shared: bool,
@@ -29,9 +31,6 @@ pub(in crate::app) struct Begin {
     pub trusted: Option<TrustedRoot>,
     /// An issue space's orchestrator: what it starts with (ADR 0136, step 3).
     pub space: Option<crate::sessions::start::SpaceStart>,
-    /// It starts behind what the person is doing: an agent's tool started it, so its terminal
-    /// is not shown and the selected window keeps its buffer (ADR 0135, as amended 2026-11-16).
-    pub background: bool,
 }
 
 impl Default for Begin {
@@ -45,7 +44,6 @@ impl Default for Begin {
             check_shared: false,
             trusted: None,
             space: None,
-            background: false,
         }
     }
 }

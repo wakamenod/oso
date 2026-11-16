@@ -79,6 +79,14 @@ impl AgentStarts {
     }
 }
 
+/// `limit` as `config.toml` spells it.
+fn spelled(limit: StartLimit) -> String {
+    match limit {
+        StartLimit::Most(most) => most.to_string(),
+        StartLimit::Unlimited => "\"none\"".to_owned(),
+    }
+}
+
 /// When a look came.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Look {
@@ -274,7 +282,7 @@ impl InForce {
             (now.limit != then.limit).then(|| {
                 format!(
                     "{name}: [sessions] agents_start_limit = {} applies from the next start",
-                    now.limit
+                    spelled(now.limit)
                 )
             })
         };

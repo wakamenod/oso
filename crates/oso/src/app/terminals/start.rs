@@ -53,14 +53,17 @@ impl App {
     }
 
     /// Shows the terminal buffer `id`, already in the map, in the selected window unless not
-    /// `shown`, says it runs, and gives the size its terminal starts at: the selected window's.
-    /// One not shown starts behind what the person is doing (ADR 0135, as amended 2026-11-16):
-    /// no window owns its size until one shows it, and then it takes that window's.
+    /// `shown`, says it runs, and gives the size its terminal starts at: the selected tiled
+    /// window's, also beneath a prompt. One not shown starts behind what the person is doing
+    /// (ADR 0144): no window owns its size, and `terminal` does not take it for the one
+    /// selected last, until a window is selected on it.
     pub(in crate::app) fn prepare_terminal(&mut self, id: BufferId, shown: bool) -> Size {
-        let window = self.editor.window().id();
+        let window = self.editor.tiled().0.id();
         if shown {
             self.editor.show(id);
             self.terminals.map.selected(id, window);
+        } else {
+            self.terminals.map.behind(id);
         }
         // From now on, until it ends or fails: a restart or an exit started before the shell
         // is found would end the child about to start.

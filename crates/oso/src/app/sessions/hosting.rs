@@ -257,7 +257,9 @@ impl App {
             self.hosting.shared = Some(begin.clone());
         }
         self.turn_agent_channel_on_for_a_session();
-        let terminal = self.session_terminal(key, &name, None, !begin.background);
+        // An agent's tool's start stays behind what the person is doing (ADR 0144).
+        let shown = begin.origin == Origin::Person;
+        let terminal = self.session_terminal(key, &name, None, shown);
         let (trusted, root) = match begin.trusted.clone() {
             // A worktree just made, which no buffer opened yet: its own root and trust.
             Some(trusted) => (Some(trusted), Some(directory.clone())),

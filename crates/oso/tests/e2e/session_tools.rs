@@ -368,7 +368,7 @@ fn a_refused_worktree_session_is_refused_again_without_asking() {
 }
 
 /// The selected window and the name of the buffer it shows: what an agent's start leaves as it
-/// was (ADR 0135, as amended 2026-11-16).
+/// was (ADR 0144).
 fn selected(app: &mut App) -> (Value, Value) {
     let state = app.state();
     let window = state["windows"]
@@ -497,6 +497,7 @@ fn a_session_in_its_own_directory_starts_without_asking_until_the_project_is_unt
     let sessions = "agents_start_without_asking = true\n";
     let flow = Flow::with_fake("session-tools-own", sessions, FAKE);
     let (mut app, mut bridge) = hosted(&flow);
+    let before = selected(&mut app);
 
     let (started, error) = bridge.tool("session_start", json!({ "brief": "Look around" }));
     assert!(!error, "{started}");
@@ -509,6 +510,11 @@ fn a_session_in_its_own_directory_starts_without_asking_until_the_project_is_unt
     app.wait_for("the unasked session's terminal", |state| {
         terminal(state, &format!("*claude: {name}*")).is_some()
     });
+    assert_eq!(
+        selected(&mut app),
+        before,
+        "the start stayed in the background"
+    );
 
     // Once the person untrusts the project, which both sessions' buffers are in, the same call
     // asks.

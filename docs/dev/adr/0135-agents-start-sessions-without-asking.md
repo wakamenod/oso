@@ -1,6 +1,6 @@
 # 0135. Agents start sessions without asking
 
-- Status: Accepted, amended by 0136 and on 2026-11-16 (no limit, background starts)
+- Status: Accepted, amended by 0136
 - Date: 2026-11-15
 
 ## Context
@@ -70,8 +70,7 @@ What the question guards today, and what still guards it without one:
 ### Limits (Q5, Q9)
 
 - **At most 4 live sessions started without asking per caller (Q5),**
-  `[sessions] agents_start_limit` (1 to 8, read with the setting; or `"none"`, see "Amended
-  2026-11-16"). Past it, the call asks, as it
+  `[sessions] agents_start_limit` (1 to 8, read with the setting). Past it, the call asks, as it
   does with the setting off. A stopped or archived session no longer counts.
 - **The loop guard and the 60 s refusal are unchanged (Q9):** an unasked start counts as one of
   the 20 calls since the person last typed in the caller; a call that falls back to asking and
@@ -227,37 +226,6 @@ below and the oso-core variant.
   A caller that itself started without asking, which needs a second bridge, and the counts of
   sessions being got ready, are unit tests of the rule only.
 
-## Amended 2026-11-16
-
-The author asked, through the coordinator, for two changes: agents' starts should ask nothing
-at all, and a start should not take the person away from what they are doing.
-
-- **`agents_start_limit = "none"` (Q5):** no limit on a caller's live unasked sessions. The
-  setting still takes 1 to 8, and 4 stays the default, so the limit is lifted only where the
-  person writes `"none"`. `"none"` rather than `0`, which would read as "no unasked starts at all".
-  Every other rule is unchanged: the loop guard (Q9) bounds a run to 20 starts each time the
-  person types in the caller, a fall-back question refused is refused for 60 s, and the caller,
-  trust and checks hold as before. The value is read at oso's start like the rest (Q6); a later
-  change says `agents_start_limit = "none" applies from the next start`. Any other value, `"None"`
-  among them, is refused with "takes a number from 1 to 8, or "none"" and the default applies.
-  In code, `sessions::tools::StartLimit` (`Most(n)` or `Unlimited`) replaces the `u8`.
-- **An agent's start stays in the background:** a session that `start_worktree_session` or
-  `session_start` starts, without asking or on the person's `y`, gets its terminal buffer, its
-  row in the pane and its modeline marks as before. The selected window keeps its buffer, and
-  nothing shows the new terminal until the person goes to it. A `y` counts too, since the person
-  answers it from wherever they were working. Starts the person makes themselves still show
-  their session, because the key asked for it: `session-start` (`C-x a c`), `session-worktree`
-  (`C-x a w`), `session-resume`, `session-fork`, `session-adopt`, an orchestrator's start, and the
-  `y` to starting where another session runs. In code, `Begin::background` is set by the tools'
-  three starts and passed to `App::prepare_terminal`. That function then neither shows the buffer
-  nor makes the selected window own the terminal's size. The PTY starts at the selected window's
-  size, and the first window to show it resizes it, as for any terminal shown again (ADR 0120). A
-  session started this way is not seen (ADR 0121) until the person shows it, so its `done` or
-  `needs input` asks for attention as usual.
-- **e2e:** `session_tools::with_no_limit_worktree_sessions_start_without_asking` starts five with
-  `"none"` and no question. That test, the limit test and the `y` test check that the selected
-  window and its buffer did not change.
-
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it.
@@ -281,8 +249,8 @@ Each passage stays in its ADR as written; what holds now follows it.
   up to the limit, and each start is said where the person looks.
 - Every start still goes through the same checks, and each new session asks for its own
   permissions as before: the setting removes the question, not the new session's prompts.
-- A prompt injection in a session the person started can start up to the limit of sessions (with
-  `"none"`, 20 each time the person types in it) with briefs of its choosing, which cost tokens and work under the person's Claude Code permissions;
+- A prompt injection in a session the person started can start up to the limit of sessions with
+  briefs of its choosing, which cost tokens and work under the person's Claude Code permissions;
   the line in the echo area, the row's mark and `agent-starts-ask` are how the person sees and
   stops it.
 - An agent that writes `config.toml` changes nothing until the person restarts oso, and the
@@ -301,5 +269,4 @@ Each passage stays in its ADR as written; what holds now follows it.
 - **Apply a change at once**: a session that writes `config.toml` through `Bash` could lift the
   question for itself in the same oso.
 - **No limit**: one injected session could start sessions until the loop guard stops it, twenty
-  at a time. Kept as the default's reason; since 2026-11-16 the person may still choose it with
-  `"none"`.
+  at a time.

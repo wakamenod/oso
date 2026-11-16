@@ -31,7 +31,7 @@ fn buffer_name(name: &str) -> String {
 
 impl App {
     /// The terminal session `key`, named `name`, starts in: `reuse`'s buffer, started over, or
-    /// a new one. Either is shown, unless not `shown` (an agent's start, ADR 0135), and says it is
+    /// a new one. Either is shown, unless not `shown` (an agent's start, ADR 0144), and says it is
     /// starting until the start thread reports.
     pub(super) fn session_terminal(
         &mut self,

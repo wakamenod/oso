@@ -421,8 +421,6 @@ impl App {
             check_shared: false,
             trusted: Some(trusted),
             space: None,
-            // The person's own `C-x a w`: shown, as they asked for it.
-            background: false,
         });
     }
 

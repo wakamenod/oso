@@ -375,8 +375,8 @@ The `[sessions.notify]` values shown are the defaults.
 `agents_start_without_asking` lets a session you started, with a key or a `y`, start sessions
 through `start_worktree_session` and `session_start` without asking you, in a trusted project
 only, up to `agents_start_limit` running sessions each; past that it asks again. With
-`agents_start_limit = "none"` it never asks, but a session can still start at most 20 sessions
-each time you type in it. A session started this way asks for its own. A session an agent starts,
+`agents_start_limit = "none"` no limit makes it ask, but a session can still start at most 20
+sessions each time you type in it. A session started this way asks for its own. A session an agent starts,
 whether it asked or not, stays in the background: it appears in the pane and the modeline marks,
 and the window you are in keeps its buffer. Each start is said in the echo area and `*Messages*`, its row in
 `*Sessions*` says `unasked`, and `C-x a e` on it shows who started it and its brief, until oso
