@@ -1,7 +1,7 @@
 //! The directory editor in the running app (ADR 0134): `C-x C-j` and `C-x d` listing a real
 //! directory on the lister's threads, `RET` and `^` moving between directories in one buffer,
-//! opening a file, the watcher's refresh, `s` and `(`, a listing that may hold secrets, and a
-//! listing over a restart.
+//! opening a file, the watcher's refresh, `s` and `(`, a listing that may hold secrets, a
+//! listing over a restart, and `C-x C-f` listing a directory (ADR 0141).
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The rows' text,
 //! their order and the platform's listing have their own tests.
@@ -258,4 +258,31 @@ fn marks_show_stay_over_a_refresh_and_toggle() {
             .is_some_and(|modeline| modeline.ends_with("Dired by name"))
     });
     assert!(!rows(&mut app).iter().any(|row| row.starts_with('*')));
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn c_x_c_f_ret_lists_the_buffers_directory_and_a_directory_typed() {
+    let scratch = Scratch::new("dired-find-file");
+    let notes = scratch.write("notes.md", b"agenda\n");
+    scratch.write("sub/plan.md", b"budget\n");
+    let name = format!("{}/", scratch.path().file_name().unwrap().to_string_lossy());
+    let mut app = App::start(Some(&notes), scratch.path());
+    app.wait_until_ready();
+    let prompt_listed = |state: &Value| state["prompts"][0]["completion"]["pending"] == false;
+    app.send_keys("C-x C-f");
+    app.wait_for("the prompt's listing", prompt_listed);
+    app.send_keys("RET");
+    let state = listed(&mut app, &name, "notes.md");
+    assert_eq!(state["prompts"], json!([]));
+    // A directory typed without its `/` is found to be one by the loader, and listed too.
+    app.send_keys("C-x C-f");
+    app.wait_for("the prompt's listing", prompt_listed);
+    app.send_keys(&typing("sub"));
+    app.send_keys("M-RET");
+    let state = listed(&mut app, "sub/", "plan.md");
+    let names: Vec<&Value> = (state["buffers"].as_array().expect("buffers").iter())
+        .map(|buffer| &buffer["name"])
+        .collect();
+    assert!(!names.iter().any(|name| *name == "sub"), "{names:?}");
 }

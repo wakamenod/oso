@@ -31,6 +31,8 @@ mod newline;
 mod region;
 mod settings;
 
+#[cfg(test)]
+pub(in crate::editor) use settings::compiled_modes;
 pub(super) use settings::{ModeIndents, compiled_mode_indents};
 
 use newline::spots;

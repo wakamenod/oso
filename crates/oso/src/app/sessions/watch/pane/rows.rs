@@ -1,8 +1,9 @@
-//! The row at point in `*Sessions*` as a place (ADR 0131, step 2b): where `claude` starts from
+//! The row at point in `*Spaces*` as a place (ADR 0131, step 2b): where `claude` starts from
 //! it, the repository `session-worktree` makes a worktree of, the base that worktree starts at,
 //! the session it is a child of, and the space it is in (ADR 0136, step 2), from a space's,
 //! repository's, worktree's or session's row. `C-x a c` and `C-x a w` there take it as `c` and
-//! `w` do (the author, 2026-11-15).
+//! `w` do (the author, 2026-11-15). The pane stands in its directory, where `C-x C-f` starts
+//! (ADR 0141).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -30,7 +31,7 @@ pub(in crate::app) enum Base {
     Detached,
 }
 
-/// The place a row of `*Sessions*` stands for.
+/// The place a row of `*Spaces*` stands for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::app) struct RowPlace {
     /// Where a session started from it runs: a project's main checkout, a worktree, a session's
@@ -67,12 +68,36 @@ impl RowPlace {
 }
 
 impl App {
-    /// The place of the row at point while `*Sessions*` is selected, `None` elsewhere.
+    /// The place of the row at point while `*Spaces*` is selected, `None` elsewhere.
     pub(in crate::app) fn sessions_row_place(&self) -> Option<Result<RowPlace, &'static str>> {
         if self.editor.current().1.mode() != Mode::Sessions {
             return None;
         }
         Some(self.row_place(self.editor.cursor_line()).ok_or(NO_PLACE))
+    }
+
+    /// While the side pane is selected, it stands where the row at point is, else in the
+    /// directory of the space in front, so that `C-x C-f` and `C-x d` start there (ADR 0141).
+    pub(in crate::app) fn sync_pane_directory(&mut self) {
+        let (window, buffer) = self.editor.current();
+        if buffer.mode() != Mode::Sessions {
+            return;
+        }
+        let id = window.buffer();
+        let place = self.row_place(self.editor.cursor_line());
+        let Some(directory) = place.map(|place| place.directory).or_else(|| {
+            let spaces = self.watch.spaces();
+            spaces.stored(spaces.current()?)?.directory.clone()
+        }) else {
+            return;
+        };
+        let had = self
+            .editor
+            .buffer(id)
+            .and_then(oso_core::buffer::Buffer::directory);
+        if had != Some(directory.as_path()) {
+            self.editor.set_buffer_directory(id, directory);
+        }
     }
 
     /// Puts the space of the row `place` in front, so that a session or worktree started from
@@ -87,7 +112,7 @@ impl App {
         }
     }
 
-    /// The place of line `line` of `*Sessions*`.
+    /// The place of line `line` of `*Spaces*`.
     pub(in crate::app) fn row_place(&self, line: usize) -> Option<RowPlace> {
         let hosted = |key: SessionKey| Some(self.hosting.table().get(key)?.directory.clone());
         let external = |key: &Key| {
@@ -159,7 +184,7 @@ fn place_of(
             session: None,
             space: None,
         }),
-        Line::Header(_) => None,
+        Line::Header(_) | Line::Title => None,
     }
 }
 

@@ -385,6 +385,10 @@ where
 fn open(path: &Path) -> Result<(File, Metadata), LoadError> {
     match oso_platform::file_meta::open_for_reading(path) {
         Ok(Some(opened)) => Ok(opened),
+        // Read again only to tell a directory, which a person's visit lists, from the rest.
+        Ok(None) if std::fs::metadata(path).is_ok_and(|meta| meta.is_dir()) => {
+            Err(LoadError::Directory)
+        }
         Ok(None) => Err(LoadError::NotAFile),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Err(LoadError::NotFound),
         Err(e) => Err(LoadError::Io(e)),
@@ -707,7 +711,7 @@ mod tests {
         let directory = events(std::env::temp_dir());
         assert!(matches!(
             directory[..],
-            [LoadUpdate::Failed(LoadError::NotAFile)]
+            [LoadUpdate::Failed(LoadError::Directory)]
         ));
         #[cfg(unix)]
         {

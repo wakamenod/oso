@@ -218,7 +218,7 @@ fn each_mode_has_its_configured_indentation_or_the_default() {
     let (mut editor, _) = editor_in(Mode::Rust, "|");
     assert_eq!(editor.mode_indent(Mode::Rust), Settings::default());
     let two = Settings::new(2, Style::Spaces, 8).unwrap();
-    let mut indents = [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental]
+    let mut indents = crate::editor::indent::compiled_modes()
         .map(|mode| (mode, Settings::default(), Origins::default()));
     indents[1].1 = two;
     editor.set_mode_indents(indents);
@@ -238,7 +238,7 @@ fn tab_in_markdown_cycles_through_the_lists_columns() {
 fn a_new_mode_table_reaches_the_open_buffers_of_the_person() {
     let (mut editor, id) = editor_in(Mode::Rust, "|");
     let two = Settings::new(2, Style::Tabs, 8).unwrap();
-    let modes = [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental];
+    let modes = crate::editor::indent::compiled_modes();
     editor.set_mode_indents(modes.map(|mode| (mode, two, Origins::default())));
     assert_eq!(editor.buffer(id).unwrap().indent_settings(), two);
 }
@@ -394,7 +394,7 @@ fn breaks_with_no_indentation_reserve_nothing_for_it() {
 fn a_buffer_added_takes_its_modes_indentation() {
     let (mut editor, _) = editor_in(Mode::Rust, "|");
     let two = Settings::new(2, Style::Spaces, 8).unwrap();
-    let modes = [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental];
+    let modes = crate::editor::indent::compiled_modes();
     editor.set_mode_indents(modes.map(|mode| (mode, two, Origins::default())));
     let id = editor.add_buffer(Buffer::from_text("new", ""));
     assert_eq!(editor.buffer(id).unwrap().indent_settings(), two);

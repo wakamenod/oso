@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use oso_core::buffer::{Buffer, BufferId, Verdict};
-use oso_core::editor::Editor;
+use oso_core::editor::{Editor, ListingRequest};
 use oso_core::window;
 
 use super::{App, UserEvent};
@@ -292,12 +292,7 @@ impl App {
                 shown
             }
             LoadUpdate::Failed(e) => {
-                // The agent hears why its open stopped; the person's echo area stays as it was.
-                if !self.agent_load_failed(id, &e) {
-                    let name = self.editor.buffer(id).map_or("", Buffer::name);
-                    self.editor.message(format!("Cannot open: {e}: {name:?}"));
-                }
-                self.editor.kill_buffer(id);
+                self.first_load_failed(id, &e);
                 // What a notice waited on is over.
                 self.scan_for_copies = true;
                 // An internal buffer stays through that.
@@ -311,6 +306,30 @@ impl App {
             self.cannot_be_saved(id);
         }
         self.try_restore_positions() || redraw
+    }
+
+    /// The first load of `id` failed with `e`: the buffer goes, and the agent hears why its open
+    /// stopped, else the echo area says why, but a person's visit of a directory lists it, as
+    /// Emacs's dired does (ADR 0141).
+    fn first_load_failed(&mut self, id: BufferId, e: &LoadError) {
+        let path = (self.editor.buffer(id)).and_then(|buffer| buffer.path().map(PathBuf::from));
+        let listed = if self.agent_load_failed(id, e) {
+            None
+        } else if let (LoadError::Directory, Some(directory)) = (e, path) {
+            Some(directory)
+        } else {
+            let name = self.editor.buffer(id).map_or("", Buffer::name);
+            self.editor.message(format!("Cannot open: {e}: {name:?}"));
+            None
+        };
+        self.editor.kill_buffer(id);
+        if let Some(directory) = listed {
+            self.editor.request_listing(ListingRequest::Open {
+                directory,
+                point: None,
+            });
+            self.serve_listings();
+        }
     }
 
     /// Says that `id` cannot be saved, as where its file leads could not be told.
@@ -642,7 +661,6 @@ mod tests {
 
     #[test]
     fn a_new_file_with_no_editorconfig_takes_the_configured_tab_width() {
-        use oso_core::buffer::Mode;
         use oso_core::indent::{Origin, Origins, Settings, Style};
 
         let (mut editor, id) = new_file();
@@ -652,7 +670,7 @@ mod tests {
             style: Origin::Configuration,
             tab_width: Origin::Configuration,
         };
-        let modes = [Mode::Rust, Mode::Markdown, Mode::Toml, Mode::Fundamental];
+        let modes = crate::config::MODES.map(|(_, mode)| mode);
         editor.set_mode_indents(modes.map(|mode| (mode, three, origins)));
         show_new_file(&mut editor, id, None);
         let buffer = editor.buffer(id).unwrap();

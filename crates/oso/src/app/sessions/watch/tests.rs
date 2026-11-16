@@ -19,6 +19,7 @@ fn entry(key: u64, state: State, archived: bool) -> Entry {
         state,
         since: Instant::now(),
         recap: String::new(),
+        title: String::new(),
         pinned: false,
         archived,
         unasked: false,
@@ -74,7 +75,7 @@ fn a_space_left_from_the_side_window_keeps_the_tree_windows_buffer() {
         columns: 120,
     });
     let file = editor.window().buffer();
-    let list = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+    let list = editor.add_internal_buffer("*Spaces*", Mode::Sessions);
     let side = editor.show_side_window(list, 32);
     editor.select_window(side);
     assert_eq!(super::requests::tree_buffer(&mut editor), file);

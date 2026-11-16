@@ -58,6 +58,7 @@ impl App {
         self.gits.by_agent = false;
         self.sync_terminals();
         self.sync_servers();
+        self.sync_pane_directory();
         // Once for all the changes the event made to the sessions (ADR 0121).
         self.save_sessions();
         // At once, not at the next wait: a buffer that turned secret gets no slice after this.

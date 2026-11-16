@@ -56,7 +56,7 @@ pub(super) struct Keymaps {
     /// A `*Brief*` buffer's own keys, and a `*Worktrees*` buffer's, above the global ones
     /// (ADR 0121).
     pub(super) worktrees: [Keymap; 2],
-    /// `*Sessions*`'s own keys, above the global ones in it (ADR 0121).
+    /// `*Spaces*`'s own keys, above the global ones in it (ADR 0121).
     pub(super) sessions: Keymap,
     /// A review buffer's own keys, above the global ones (ADR 0122).
     pub(super) review: Keymap,
@@ -243,7 +243,15 @@ impl Keymaps {
             }
         } else {
             match buffer.mode() {
-                Mode::Fundamental | Mode::Rust | Mode::Toml => None,
+                Mode::Fundamental
+                | Mode::Rust
+                | Mode::Toml
+                | Mode::Go
+                | Mode::TypeScript
+                | Mode::Tsx
+                | Mode::JavaScript
+                | Mode::Latex
+                | Mode::Swift => None,
                 Mode::Review => Some(&self.review),
                 Mode::Directory => Some(&self.dired),
                 Mode::GitStatus => Some(&self.git),

@@ -130,6 +130,7 @@ fn initializes_without_connecting_and_lists_its_tools() {
             "worktree_remove",
             "start_worktree_session",
             "session_start",
+            "draft_set",
         ]
     );
     let hint = |name: &str, hint: &str| {

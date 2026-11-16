@@ -25,6 +25,10 @@ impl App {
         let project = self.terminal_project();
         let id = self.editor.add_terminal_buffer(NAME);
         self.terminals.map.add(id);
+        // It stands where it starts until its program says otherwise (ADR 0141).
+        if let Some(cwd) = &cwd {
+            self.editor.set_buffer_directory(id, cwd.clone());
+        }
         let size = self.prepare_terminal(id, true);
         let settings = self.terminal_settings();
         let request = Request {
@@ -126,17 +130,19 @@ impl App {
             .or_else(|| self.editor.home().map(std::path::Path::to_path_buf))
     }
 
-    /// The selected buffer's project root, else its file's directory: where a new terminal
-    /// starts, and a new session (ADR 0121).
+    /// Where a new terminal starts, and a new session (ADR 0121), from the selected buffer:
+    /// its project root, else the directory it stands in (ADR 0141). From a terminal that is
+    /// its own, where it started, as what its program says of its directory (OSC 7) never
+    /// chooses where a process starts.
     pub(in crate::app) fn buffer_directory(&self) -> Option<PathBuf> {
         if let Some(root) = self.terminal_project() {
             return Some(root);
         }
-        let buffer = self.editor.current().1;
-        buffer
-            .path()
-            .and_then(|path| path.parent())
-            .map(std::path::Path::to_path_buf)
+        let (window, buffer) = self.editor.current();
+        if buffer.is_terminal() && !buffer.hosts_session() {
+            return buffer.directory().map(std::path::Path::to_path_buf);
+        }
+        Some(self.editor.default_directory(window.buffer()))
     }
 
     fn terminal_project(&self) -> Option<PathBuf> {

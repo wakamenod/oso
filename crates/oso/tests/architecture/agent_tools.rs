@@ -10,15 +10,17 @@ use crate::lexer::{Tok, tokenize};
 
 /// The files of the session tools: their rules, the app's side, and the channel's methods and
 /// `oso mcp`'s descriptions of them.
-pub const TOOL_FILES: [&str; 4] = [
+pub const TOOL_FILES: [&str; 5] = [
     "crates/oso/src/sessions/tools",
     "crates/oso/src/app/sessions/tools",
     "crates/oso/src/channel/protocol/sessions",
     "crates/oso/src/channel/mcp/session_tools",
+    // What `draft_set` writes the commit's message with (ADR 0127, step 6a).
+    "crates/oso/src/app/vcs/draft",
 ];
 
 /// Names that write to a terminal, or reach processes, which no tool file may use.
-const BANNED: [&str; 9] = [
+const BANNED: [&str; 10] = [
     "oso_term",
     "Terminal",
     "input",
@@ -28,6 +30,8 @@ const BANNED: [&str; 9] = [
     "process",
     "spawn",
     "Spawn",
+    // The one path that pastes into a session's terminal (ADR 0121, step 5).
+    "send_to_session",
 ];
 
 /// Whether `at`, a path relative to the workspace, is a session tool's file.

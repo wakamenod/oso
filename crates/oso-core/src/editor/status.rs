@@ -192,6 +192,19 @@ fn marker(buffer: &Buffer) -> &'static str {
     }
 }
 
+/// Sets `out` to `buffer`'s `marker` and name, cut to `cells`, and a gap: nothing for the
+/// spaces pane, whose note names it and says its keys (ADR 0140).
+fn push_name(out: &mut String, buffer: &Buffer, marker: &str, cells: usize) {
+    out.clear();
+    if buffer.mode() == Mode::Sessions && !buffer.mode_note().is_empty() {
+        return;
+    }
+    out.push_str(marker);
+    out.push(' ');
+    push_cut(out, buffer.name(), cells);
+    out.push_str(GAP);
+}
+
 /// Adds `name` to `out`, ended by [`CUT`] if it would take more than `cells` cells.
 /// A cluster stays whole.
 fn push_cut(out: &mut String, name: &str, cells: usize) {
@@ -254,8 +267,8 @@ fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
         }
         return;
     }
-    // `*Sessions*` has no position worth saying: what the host notes, its grouping and its help
-    // key (ADR 0131).
+    // `*Spaces*` has no position worth saying: what the host notes, its name, grouping and
+    // keys (ADR 0131, ADR 0140).
     if buffer.mode() == Mode::Sessions && !buffer.mode_note().is_empty() {
         push_cut(out, buffer.mode_note(), NOTE_CELLS);
         return;
@@ -384,11 +397,7 @@ impl Editor {
             + status.state.len();
         let columns = regions.modeline.columns;
         let cells = columns.saturating_sub(others).max(MIN_NAME_CELLS);
-        status.name.clear();
-        status.name.push_str(marker);
-        status.name.push(' ');
-        push_cut(&mut status.name, buffer.name(), cells);
-        status.name.push_str(GAP);
+        push_name(&mut status.name, buffer, marker, cells);
 
         status.echo.clear();
         self.write_echo_line(&mut status.echo);
@@ -519,7 +528,7 @@ mod tests {
     #[test]
     fn the_sessions_list_says_what_the_host_notes_and_no_position() {
         let mut editor = Editor::default();
-        let list = editor.add_internal_buffer("*Sessions*", crate::buffer::Mode::Sessions);
+        let list = editor.add_internal_buffer("*Spaces*", crate::buffer::Mode::Sessions);
         editor.set_internal_text(list, "▾ oso\n");
         editor.show(list);
         assert!(status(&editor).state.starts_with("1:0"), "no note yet");

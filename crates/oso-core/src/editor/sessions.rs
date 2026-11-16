@@ -106,8 +106,8 @@ pub enum SessionRequest {
     /// says, or make every start ask until oso restarts (`agent-starts-allow`,
     /// `agent-starts-ask`).
     AgentStarts(bool),
-    /// Show `*Sessions*` in the side window and select it; select it if shown; hide it if
-    /// selected (`sessions`).
+    /// Show `*Spaces*` in the side window and select it; select it if shown; while it is
+    /// selected, select the tree's window selected last (`sessions`, ADR 0140).
     ShowList,
     /// Show the session whose buffer has this name, switching to its space (`session-switch`).
     Switch(String),
@@ -122,17 +122,20 @@ pub enum SessionRequest {
     /// Explain the last look at the screen of the session whose terminal is this buffer
     /// (`session-explain`).
     Explain(BufferId),
-    /// Act on what line `line` of `*Sessions*`, from 0, shows.
+    /// Act on what line `line` of `*Spaces*`, from 0, shows.
     Row { line: usize, action: RowAction },
     /// Act on the session whose terminal is this buffer, as on its row (`C-c K`, `C-c P`,
     /// `C-c A` in session mode, ADR 0132).
     OnBuffer(BufferId, RowAction),
-    /// Group `*Sessions*` by state, or by space.
+    /// Group `*Spaces*` by state, or by space.
     Regroup,
-    /// Make `*Sessions*`' pane this many columns wider, narrower if negative, for this oso
+    /// Fold `*Spaces*` to its spaces, then open it down to its worktrees, then everything, in
+    /// turn (`sessions-cycle-folds`, ADR 0140).
+    CycleFolds,
+    /// Make `*Spaces*`' pane this many columns wider, narrower if negative, for this oso
     /// instance (`sessions-wider`, `sessions-narrower`, ADR 0131).
     PaneWidth(isize),
-    /// Render `*Sessions*` again, with its ages as of now.
+    /// Render `*Spaces*` again, with its ages as of now.
     Refresh,
     /// Paste `parts` into a session as the person's bracketed paste, not submitted
     /// (`session-send`, `session-mention`). The host puts them together against the session's
@@ -211,7 +214,7 @@ pub struct SendExcerpt {
     pub text: Option<String>,
 }
 
-/// What a key of `*Sessions*` does to the row it is on.
+/// What a key of `*Spaces*` does to the row it is on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RowAction {
     /// Show the session in the tree's window selected last, and select that window.

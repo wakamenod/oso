@@ -60,6 +60,15 @@ pub struct Found {
     pub directory: bool,
 }
 
+/// Where in `found` the row for `path` is: at `hint` if it is there, as a build keeps the row
+/// selected when it started, else found by its bytes, comparing no more than it must.
+pub(crate) fn place_of_path(found: &[Found], hint: Option<usize>, path: &Path) -> Option<usize> {
+    let is = |index: &usize| {
+        (found.get(*index)).is_some_and(|row| row.path.as_os_str() == path.as_os_str())
+    };
+    hint.filter(is).or_else(|| (0..found.len()).find(is))
+}
+
 /// What expanding a plan came to.
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]

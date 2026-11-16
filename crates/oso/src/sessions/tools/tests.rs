@@ -50,6 +50,8 @@ fn the_tools_and_their_reach() {
                 true,
                 false
             ),
+            // It writes only the caller's worktree's message, for oso's request (ADR 0127).
+            ("draft_set", Reach::Change, Asks::No, true, false),
         ]
     );
     let destructive: Vec<_> = TOOLS

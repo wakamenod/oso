@@ -456,7 +456,7 @@ item notes when it must be settled.
   Linux a D-Bus notification client; oso has neither, so a notice is the echo area and the Dock
   bounce or the window's urgency for now. Also Desktop's coordinator routing, suggested threads
   and preset space layouts ([ADR 0121](adr/0121-agent-sessions-and-spaces.md)).
-- A row's branch in `*Sessions*`, which needs git on a trusted project off the UI thread; and
+- A row's branch in `*Spaces*`, which needs git on a trusted project off the UI thread; and
   finding a session's trusted project without one of its buffers open
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 3). [ADR
   0131](adr/0131-an-orca-style-sessions-pane.md) puts the branch on worktree rows from
