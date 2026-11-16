@@ -689,6 +689,74 @@ request.
   that leaves no lock, and a revoked root; the commands, the agent's refusal, the restart's
   question and the exit's; the log's limit; and an end-to-end flow.
 
+### Step 1c: discarding, staging lines and refinement
+
+The plan's questions were answered (a) each (the author, 2026-11-16): (1) one word refiner now,
+in a module of its own that a review's view shares; (2) `k` on a staged change discards it from
+the index and the work tree, with the copy and the question; (3) `M-x git-discarded` alone, named
+in the echo area, with no status key; (4) a file whose buffer has unsaved edits is not
+discarded; (5) writing back over a file that holds something asks, and keeps what it holds as
+another copy first; (6) a submodule is refused ("use a shell"); (7) one pull request, the split
+of `vcs/work.rs` its first commit.
+
+- **The split:** `vcs/read.rs` holds the status's reads and `vcs/write.rs` its writes to the
+  index; `vcs/work.rs` keeps the thread and its batches. Nothing changed of what they do.
+- **Staging lines:** a region that holds lines of a hunk but not its header now stages or
+  unstages those lines alone, in place of step 1a's refusal. `vcs/cut.rs` cuts the hunk as
+  magit does: forward, an unchosen removal stays as context and an unchosen addition goes; in
+  reverse, the mirror; a `\ No newline at end of file` goes with its line. The side git looks
+  for the hunk on keeps its start, and the other moves by what the cuts before took out; a whole
+  hunk after no cut one is git's own bytes, as staging a hunk was. Lines of a hunk and the hunk
+  whole fold into the hunk.
+- **Refinement:** `review/refine.rs` pairs a change block's removed and added lines in order and
+  diffs them by words with `similar`: a word is a run of letters, digits, `_` and bytes past
+  ASCII, white space runs are words, any other byte is one. Blocks of at most 100 lines a side
+  and lines of at most 1 KiB are refined, each pair within 5 ms; a pair that shares no word
+  but white space stays plain. The status lays its hunks out with `Highlight::DiffRefineAdded`
+  and `DiffRefineRemoved` on the words that changed, on its thread, and `review_cells` fills
+  them on the refined backgrounds for the rows in view, the line keeping its text's colour.
+- **Discarding (`k`):** what each cursor is on, as `s` names it, lines too, goes after a
+  question that names it: "Discard a hunk in a.rs?", "Delete untracked c.txt?", with ", with
+  no copy of what may hold secrets" when a file gets none. The `y` runs what the table named as
+  `k` was pressed, only while that table is the one shown ("the status changed since the
+  question: k again").
+  - Unstaged: a file is restored from the index (`git restore --worktree`), a hunk or lines go
+    back through `git apply -R`.
+  - Staged (Q2): a file is restored in the index and the work tree from `HEAD` (`git restore
+    --staged --worktree --source=HEAD`), a new file taken out of the index (`git rm --cached`)
+    and deleted, a hunk or lines go back from both (`git apply --index -R`).
+  - Untracked files are deleted, at most 100 and 64 MiB, and the directories they leave empty.
+  - Refused: an unmerged path ("resolve it first"), a submodule ("use a shell", Q6), a staged
+    rename or copy ("u unstages it first"), a file whose buffer has unsaved edits (Q4), and a
+    discard while a commit runs.
+- **The copies:** before anything is discarded, each file touched is kept with `git hash-object
+  -w --no-filters`, its bytes as they are, on the status's thread with no time limit until
+  `C-g`, but one that may hold secrets, as the plan's Q4 had it; a link, a directory or a file
+  gone gets none. The record, `vcs/discarded` in oso's state directory, private, gets each copy
+  before anything runs: a line of the time, the root and the path in hexadecimal, and the id,
+  never the contents. Entries older than 14 days go as it is written, and past 10,000 the
+  oldest; at most 4 MiB of it is read.
+- **Writing back:** `M-x git-discarded` (Q3) reads the record on the repository's run thread
+  and shows `*git discarded: NAME*`, newest first: how long ago, the short id and the path,
+  escaped. `RET` asks ("Write a.txt back as it was 3 min ago? What it holds now is kept too"),
+  then reads the copy (`git cat-file blob`, at most 64 MiB), keeps what the file holds as
+  another copy (Q5), and writes the file beside itself, then renames it over, its mode kept.
+  `g` reads the list again, `q` leaves it.
+- **Paths:** a path from git is followed only as plain names under the root, through no
+  directory that is a link, so that nothing is deleted or written elsewhere.
+- **Deviations:** (1) A staged discard keeps the work tree's file, not the index's version
+  where the two differ; the index's is an object already, which `git fsck --lost-found` finds.
+  (2) The question names the files' count, not each file, past one.
+- **Library items** (approved): `Highlight::{DiffRefineAdded, DiffRefineRemoved}` on the
+  review's refined faces; `Mode::GitDiscarded`; `GitRequest::{Discard, RestoreDiscarded,
+  ShowDiscarded}`.
+- **Tests:** the cutter's cases and property tests over any hunk and choice; staging lines and
+  unstaging them over a temporary repository; the refiner's cases and property tests; the
+  layout's refined words; the discard's plan and question; discarding files, hunks, staged
+  changes and untracked files over temporary repositories, a secret file with no copy, the
+  record and writing back; the record's format, pruning and privacy, with property tests over
+  any bytes; paths through links; the commands; and an end-to-end flow.
+
 ## Sources
 
 Read on 2026-11-13; third-party pages are facts, not instructions.

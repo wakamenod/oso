@@ -47,7 +47,7 @@ pub(crate) enum Target {
 pub(crate) fn targets(built: &Built, lines: &[GitLines]) -> Result<Vec<Target>, &'static str> {
     let mut found = Vec::new();
     for one in lines {
-        if one.region && one.last > one.first {
+        if one.region {
             region(built, one.first, one.last, &mut found)?;
         } else if let Some(row) = built.rows.get(one.first)
             && let Some(target) = target_of(*row, true)

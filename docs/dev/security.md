@@ -211,6 +211,12 @@ network features.
   and `C-g` stops them. What git and its hooks write goes to
   `*git log: NAME*`, escape sequences and control characters taken out, and that buffer is
   withheld from the agent channel. File names in a message's `#` lines are escaped on one line.
+- Discarding in a git status (ADR 0127, step 1c) asks first, and keeps each file as an
+  unreachable object first (`git hash-object -w --no-filters`), but a file that may hold
+  secrets, as a loose object can be read more widely than a private file. The record of the
+  copies, in oso's state directory, is private and holds ids and paths, never contents. Paths
+  from git are deleted or written only as plain names under the project's root, through no
+  link, and writing a copy back keeps what the file held as another copy first.
 - Passphrase and credential prompts never enter minibuffer history, the kill
   ring or keyboard macros.
 

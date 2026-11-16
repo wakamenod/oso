@@ -311,3 +311,19 @@ fn a_region_over_ten_thousand_rows_is_told_apart_quickly() {
     assert!(started.elapsed() < std::time::Duration::from_millis(500));
     assert_eq!(found.len(), 10_000);
 }
+
+#[test]
+fn a_region_inside_one_line_names_that_line() {
+    let built = built();
+    let at = line_of(&built, line(0, 1));
+    assert_eq!(
+        targets(&built, &[region(at, at)]).unwrap(),
+        [Target::Lines {
+            section: Section::Unstaged,
+            file: 0,
+            hunk: 0,
+            first: 1,
+            last: 1
+        }]
+    );
+}
