@@ -636,8 +636,10 @@ The UI thread never blocks on I/O or parsing:
   `app/vcs/runs.rs` and `app/vcs/commit.rs`), with the repository's hooks and no time limit, in
   a process group of its own (`crate::git`'s `long`), which `C-g` sends `SIGTERM` and then
   `SIGKILL`. What git writes streams, cleaned and in whole lines, into `*git log: NAME*`
-  (`Editor::append_git_log`, the last 4 MiB), and the echo area counts the seconds. Quitting
-  sends each run's group `SIGTERM` and waits for nothing
+  (`Editor::append_git_log`, the last 4 MiB), and the echo area counts the seconds. A stopped
+  run's group gets `SIGKILL` once git has ended, before git is reaped (`Child::exited`), so a
+  hook that ignores `SIGTERM` goes too. Quitting sends each run's group `SIGTERM`, then `SIGKILL`,
+  and waits for nothing
   ([ADR 0127](adr/0127-source-control-and-github.md), step 1b).
 - A prompt's list past 5000 candidates is built and matched on a thread of its own
   (`app/completions.rs`), from a job `oso_core::complete` makes over `Arc` snapshots, superseded
