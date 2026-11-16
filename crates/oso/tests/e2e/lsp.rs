@@ -545,16 +545,25 @@ fn a_description_shows_at_point_scrolls_and_goes_with_the_next_key() {
     );
     app.wait_until_ready();
     modeline_has(&mut app, "the server is ready", "proj-lsp  lsp  ");
+    // `lsp` reads the same while the server starts; it is ready once `*LSP*` says so.
+    lsp_log_with(&mut app, "main.rs", "] initialized in ", 1);
 
+    let before = app.screenshot();
     app.send_keys("C-c C-d");
     app.wait_for("the description", |state| state["hover"]["top"] == 0);
-    let shown = app.screenshot().foreground().expect("the float is drawn");
+    let shown = app.screenshot();
+    // The whole frame, as the float sits below the first line, past the topmost block of text
+    // that `foreground` reads.
+    let rows = 0..shown.height;
+    assert!(
+        shown.differs_in(&before, rows.clone()) > 0,
+        "the float is drawn"
+    );
     // `C-v` scrolls it, not the buffer.
     app.send_keys("C-v");
     app.wait_for("its next page", |state| state["hover"]["top"] == 18);
-    assert_ne!(
-        app.screenshot().foreground().unwrap().pixels,
-        shown.pixels,
+    assert!(
+        app.screenshot().differs_in(&shown, rows) > 0,
         "the float shows its next rows"
     );
     // The next key closes it and moves the cursor as ever.
