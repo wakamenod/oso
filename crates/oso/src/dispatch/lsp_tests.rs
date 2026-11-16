@@ -266,3 +266,111 @@ fn the_agent_s_m_question_is_refused_and_asks_nothing_and_its_m_dot_asks() {
         other => panic!("{other:?}"),
     }
 }
+
+/// Opens the popup in `editor` over `labels`, at the primary cursor.
+fn pop(editor: &mut Editor, labels: &[&str]) {
+    use oso_core::editor::{CompletionPopupAnswer, CompletionPopupItem};
+    let items = labels
+        .iter()
+        .map(|label| CompletionPopupItem {
+            label: (*label).into(),
+            annotation: "".into(),
+            filter: None,
+            text: (*label).into(),
+            range: None,
+        })
+        .collect();
+    let at = editor.ask_at();
+    let answer = CompletionPopupAnswer {
+        at,
+        revision: at.revision,
+        items,
+    };
+    editor.open_completion_popup(answer).unwrap();
+}
+
+fn text(editor: &Editor) -> String {
+    editor.current().1.text().to_string()
+}
+
+#[test]
+fn c_m_i_asks_for_completions_and_the_popup_s_keys_move_insert_and_close() {
+    use oso_core::editor::ServerRequest;
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    let id = editor.window().buffer();
+    let replace = oso_core::buffer::Replacement {
+        range: 0..20,
+        text: "fo",
+    };
+    editor.apply_edits(id, &[replace]).unwrap();
+    send(&mut d, &mut editor, "C-e C-M-i");
+    match editor.take_server_requests().as_slice() {
+        [ServerRequest::Complete(at)] => assert_eq!((at.buffer, at.offset), (id, 2)),
+        other => panic!("{other:?}"),
+    }
+    // Typing narrows; `RET` before a move closes it and breaks the line.
+    pop(&mut editor, &["foo", "format"]);
+    send(&mut d, &mut editor, "r RET");
+    assert!(editor.completion_popup().is_none());
+    assert_eq!(text(&editor), "for\n");
+    // After a move, `RET` inserts.
+    pop(&mut editor, &["alpha", "beta"]);
+    send(&mut d, &mut editor, "C-n RET");
+    assert_eq!(text(&editor), "for\nbeta");
+    // `C-g` closes, and so does any other command, which then runs.
+    pop(&mut editor, &["betamax"]);
+    send(&mut d, &mut editor, "C-g");
+    assert!(editor.completion_popup().is_none());
+    pop(&mut editor, &["betamax"]);
+    send(&mut d, &mut editor, "C-a");
+    assert!(editor.completion_popup().is_none());
+    assert_eq!(cursor(&editor), 4, "C-a ran");
+}
+
+#[test]
+fn the_agent_cannot_complete_at_point() {
+    use super::args::Given;
+    use oso_core::command::Reach;
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    let ran = d.run_for_agent(
+        &mut editor,
+        "completion-at-point",
+        Given::Nothing,
+        Reach::Look,
+    );
+    assert!(ran.is_err(), "a Person command");
+    assert!(editor.take_server_requests().is_empty());
+}
+
+#[test]
+fn c_m_i_in_a_buffer_that_may_hold_secrets_asks_nothing() {
+    let path = std::path::PathBuf::from("/tmp/.env");
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.judge_secret(Some(&[path]));
+    buffer.set_followed(true);
+    buffer.set_server(Some(ServerMark::Ready));
+    let mut editor = Editor::with_buffer(buffer);
+    let mut d = Dispatcher::new();
+    send(&mut d, &mut editor, "C-M-i");
+    assert!(editor.take_server_requests().is_empty());
+}
+
+#[test]
+fn an_agent_s_command_or_a_key_nothing_binds_closes_the_popup() {
+    use super::args::Given;
+    use oso_core::command::Reach;
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    pop(&mut editor, &["xfoo"]);
+    let ran = d.run_for_agent(&mut editor, "forward-char", Given::Nothing, Reach::Look);
+    assert!(ran.is_ok());
+    assert!(
+        editor.completion_popup().is_none(),
+        "the agent's command closes it"
+    );
+    pop(&mut editor, &["xfoo"]);
+    send(&mut d, &mut editor, "C-x C-M-z");
+    assert!(
+        editor.completion_popup().is_none(),
+        "an undefined key closes it"
+    );
+}

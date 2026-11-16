@@ -851,6 +851,11 @@ gains `amended by 0138`.
 - [ADR 0088](0088-switching-and-killing-buffers.md), "`previous-buffer` on `M-,`": in a buffer a
   language server follows, `M-,` is `lsp-go-back`, through the `lsp` minor mode layer. Everywhere
   else it is still `previous-buffer`.
+- [ADR 0008](0008-floating-ui.md), "completion popups … [are] buffers shown in floating windows
+  … Editing commands … work in them unchanged": the completion popup is no buffer: it is the
+  editor's state of the items a server offered, drawn as a float at point, and typing goes on
+  into the buffer beneath, narrowing it; `C-n`, `C-p`, `TAB`, `C-g`, and `RET` once the
+  selection was moved, are its keys, and any other command closes it first (step 9).
 
 ## Consequences
 
@@ -1786,3 +1791,92 @@ agent's `M-?` refused with the words above (Q7); and the public items below (Q9)
   `M-x lsp-go-to-xref`; and the end-to-end flows
   `a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins`, which now picks the
   place of two definitions in the list, and `references_are_listed_by_file_and_one_is_gone_to_at_once`.
+
+### Step 9a: completion at point, the popup
+
+The author answered step 9's questions on 2026-11-16, all with the first choice: two pull
+requests, this one with the ask and answer, `C-M-i`, the popup, its keys, matching and drawing,
+and inserting at one cursor and at many, and 9b with the automatic trigger, the ask again of an
+incomplete answer, `resolve` and `additionalTextEdits`, and the echo of a line out of view (Q1);
+the popup placed by `frame::at_point`, shared with step 10's hover (Q2), and its keys in one
+transient slot of the keymaps with `C-x TAB`'s and hover's (Q3); this ADR's limits table kept,
+with a `filterText` of at most 1 KiB, a `sortText` of 256 B and a text to insert of 16 KiB added
+(Q4); the word the server's first edit starts, else the identifier characters before the
+cursor (Q5); `resolve` on selection, a late `additionalTextEdits` joining the insertion's undo
+step only if nothing changed since (Q6, 9b); the popup opening by itself only on the person's
+own keys (Q7, 9b); `completion-at-point` `Person`, the agent seeing nothing of the popup (Q8);
+and the public items below (Q9).
+
+- **`oso-lsp`:** `initialize` claims `textDocument.completion`, with no snippets, insert and
+  replace edits, and the context. `protocol::completion` reads a `CompletionList` or a list of
+  items within the bounds: the label and `filterText` cut at 1 KiB, the detail at 4 KiB, the
+  `sortText` at 256 B, and an item whose text to insert is past 16 KiB dropped, as a cut one
+  would insert the wrong text; at most 5000 kept, in `sortText` order, then as they came. A
+  `textEdit` is read by its range, an insert-and-replace edit by its insert range; a snippet that
+  still comes is read as plain text (`protocol::plain`). `AskKind::Completion` goes on step 8's
+  ask path with its own wait, 3 s (`AskKind::wait`); its answer, `Answered::Completion`, holds
+  the items with their ranges placed in bytes of the text the server has, and that text's
+  revision.
+- **`oso-core`:** `editor/servers/popup.rs`. `Editor::open_completion_popup` takes the host's
+  answer while
+  nothing moved since the ask; the word starts where the server's first edit does, else at the
+  identifier characters before the cursor, whole grapheme clusters whose first character is
+  alphanumeric or `_` (an approximation of `XID_Continue` that needs no new dependency). The
+  items are matched against the word by ADR 0076's matcher on their `filterText` or label, in the
+  server's order; each row shows the label, then the kind's word and the detail's first line.
+  The word and the items' ranges follow every edit, as the jump history does; a reload closes
+  the popup. After each command the word is matched again, and the popup closes once the cursor
+  leaves the word, another window or buffer shows, a prompt opens, or nothing matches.
+  `Editor::completion_popup_insert` replaces the word, and what the server's range covers past
+  it, at the
+  primary cursor, and the word at each other cursor whose word before it is the same, in one
+  edit. `frame::at_point` places a float at point: under the anchor's row, or over it when fewer
+  rows fit below, never over it, its text at the anchor's column moved left to fit, with a
+  column of padding each side; the popup asks for as many rows as match, at most 10, and as many
+  columns as its rows shown need, at most 60 and half the window.
+- **The tip crate:** `completion-at-point` (`Person`) on `C-M-i` in the `lsp` layer asks the host
+  (`ServerRequest::Complete`), whose answer opens the popup (`app/servers/complete.rs`); one with
+  no item says `No completions`. The popup's commands, `completion-popup-next`,
+  `-previous`, `-insert` and `-quit` (`Person`), are on `C-n`, `C-p`, the arrows, `TAB` and `C-g`
+  in a layer above the buffer's, and `RET` only once the selection was moved, so until then
+  `RET` closes the popup and breaks the line. The layer takes the place of `C-x TAB`'s, and any
+  command but its own and typing (`self-insert-command`, `delete-backward-char`) closes it first
+  (`dispatch/transient.rs`). It draws in `app/draw/float/popup.rs` with the completion float's
+  rows. The dev state's `popup` gives its rows for end-to-end flows; the agent's state has none
+  of it.
+- **Public API:** `oso-lsp`: `server::{Completion, Completions}`, `AskKind::{Completion, wait}`,
+  `Answered::Completion`, `protocol::{CompletionList, Offered, completed, completion_params,
+  kind_name, plain}`, `limits::{SORT_TEXT_BYTES_MAX, INSERT_TEXT_BYTES_MAX}`. `oso-core`:
+  `editor::{CompletionPopup, CompletionPopupAnswer, CompletionPopupItem, COMPLETION_POPUP_ROWS,
+  COMPLETION_POPUP_COLUMNS}`, `Editor::{completion_popup, open_completion_popup,
+  completion_popup_move, completion_popup_insert, close_completion_popup,
+  follow_completion_popup, completion_popup_regions}`,
+  `ServerRequest::Complete`. `frame::at_point` is the crate's own, as `completion_regions` is.
+- **The author's answers to the reviews (2026-11-16), all the first choice:** the popup's names
+  say it completes (`CompletionPopup`, `Editor::completion_popup` and the rest), as "the popup"
+  is ADR 0076's centred float elsewhere, and the parsed answer is `protocol::CompletionList`
+  (R1); ADR 0008 amended, below, for this popup and step 10's hover (R2); and with no word typed
+  the item goes in at the primary cursor only, as inserting at every cursor for nothing typed
+  would surprise (R3). The identifier stays the grapheme clusters' stand-in for `XID_Continue`.
+- **From this step's reviews:** a server's range is kept only on the asked line and around the
+  asked place, checked on the session thread against the text asked about, and in the editor
+  on the cursor's line within 256 bytes of it, so that no answer edits text out of view; an
+  item whose text holds a control character other than a tab or a line feed, or a carriage
+  return, is dropped; a row's label and annotation are cut to what it can show and their runs
+  of blanks made one, in the editor; the stale check gets the place asked about; the word and
+  the ranges follow each edit once per offset (`Editor::answers_follow`, beside the jumps, and
+  `answers_reloaded`); the popup's memory, and a dropped answer's, go to the completion worker;
+  what is matched is the identifier before the cursor; a press, a wheel turn, a key no keymap
+  binds, a menu and a prompt close the popup, as they close `C-x TAB`'s layer
+  (`dispatch/transient.rs`); on a wrapped line the popup hangs from the cursor's row; its panes'
+  ids are a range of their own; the asks and their answers' routing moved to
+  `app/servers/asks.rs`, and a completion no longer stops a list of places that waits.
+- **Tests:** in `oso-lsp`, the answer's two shapes, the order, the bounds, both edits and
+  snippets as plain text; in `oso-core`, a stale answer, the word, matching as it is typed,
+  closing, the wrap, inserting with the server's range and at many cursors, and where the popup
+  and a float at point go; text-grid snapshots of the popup under and over the word; dispatcher
+  tests of `C-M-i`, `RET`'s two meanings, `C-g` and another command, and the agent refused;
+  against the fake server, the ask at a UTF-8 position past a two-byte character and the ranges
+  placed in bytes; and the end-to-end flow `completion_at_point_pops_up_narrows_and_inserts`.
+- **Left for 9b:** the automatic trigger, the ask again of an incomplete answer, `resolve` and
+  `additionalTextEdits`, and the echo of a line they change out of view.

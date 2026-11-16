@@ -116,6 +116,14 @@ pub(super) fn fill(editor: &Editor, bands: &SpaceBands, cells: &mut Vec<WindowCe
     }
 }
 
+/// The rows the selected tiled window shows this frame, as `fill` laid them out.
+pub(super) fn selected_screen<'a>(editor: &Editor, cells: &'a [WindowCells]) -> Option<&'a Screen> {
+    let selected = editor.window().id();
+    let windows = editor.frame().windows();
+    let index = windows.iter().position(|(id, _)| *id == selected)?;
+    cells.get(index).map(|cells| &cells.screen)
+}
+
 /// Every tiled window's status, in the tree's order, into `out`, reusing its strings.
 pub(in crate::app) fn statuses_into(editor: &Editor, out: &mut Vec<(WindowId, Status)>) {
     let windows = editor.frame().windows();

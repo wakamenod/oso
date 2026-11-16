@@ -124,7 +124,7 @@ impl Dispatcher {
         editor.isearch_exit();
         editor.replace_exit();
         editor.jump_end();
-        editor.set_indent_rigidly_layer(false);
+        super::transient::close_all(editor);
         self.menus.open(Stack {
             set: Arc::clone(set),
             levels: vec![Level {

@@ -25,6 +25,7 @@ mod menus;
 mod messages;
 mod minibuffer;
 mod motion;
+mod popup;
 mod prefix;
 mod projects;
 mod recovery;
@@ -268,6 +269,22 @@ pub fn worktree_keymaps(registry: &Registry) -> [Keymap; 2] {
 /// (ADR 0138). Empty for a registry without its commands, as in tests that bring their own.
 pub fn lsp_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, lsp::LSP).unwrap_or_default()
+}
+
+/// The completion popup's keymaps while it is open, before and after its selection was moved
+/// (ADR 0138, step 9), and the commands that keep it open: its own and typing. Empty for a
+/// registry without their commands, as in tests that bring their own.
+pub fn popup_keymaps(registry: &Registry) -> ([Keymap; 2], Vec<oso_core::command::CommandId>) {
+    let moved = [popup::POPUP, popup::POPUP_MOVED].concat();
+    let keymaps = [
+        Keymap::from_table(registry, popup::POPUP).unwrap_or_default(),
+        Keymap::from_table(registry, &moved).unwrap_or_default(),
+    ];
+    let commands = (moved.iter().map(|&(_, name)| name))
+        .chain(popup::TYPING.iter().copied())
+        .filter_map(|name| registry.lookup(name))
+        .collect();
+    (keymaps, commands)
 }
 
 /// A terminal's own keymap, above the global one in a terminal's buffer (ADR 0120). Empty for
