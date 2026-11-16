@@ -12,7 +12,10 @@
 //! project or whose name may hold secrets, keeps each document's last within the bounds, and
 //! hands the UI a set for each open document, placed against the text the report names and
 //! mapped forward ([`Diagnosed`]).
+//!
+//! Step 8 asks it about documents ([`Server::ask`]) and hands back its answers ([`Answer`]).
 
+mod asks;
 mod diagnosed;
 mod documents;
 mod outbox;
@@ -35,6 +38,8 @@ use oso_core::syntax::Splice;
 use oso_platform::process::{Child, Executable, Signal};
 use serde_json::Value;
 
+pub use asks::{Answer, Answered, Ask, AskKind, Location, Target};
+
 use crate::framing::{Frame, FrameError};
 use crate::protocol::Severity;
 use outbox::Outbox;
@@ -50,6 +55,7 @@ enum Event {
     Change(Box<Change>),
     Close(u64),
     Save(u64),
+    Ask(Ask),
     Frame(u64, Frame),
     ReadEnd(u64, Option<FrameError>),
     WriteFailed(u64, io::ErrorKind),
@@ -184,6 +190,8 @@ pub struct Report {
     pub documents: Vec<(u64, Option<Closed>)>,
     /// Diagnostics reported since the last report, the latest of each document.
     pub diagnostics: Vec<Diagnosed>,
+    /// Answers to [`Server::ask`], the latest of each document and kind (step 8).
+    pub answers: Vec<Answer>,
 }
 
 /// A server's session thread, and what the UI shares with it.
@@ -250,6 +258,12 @@ impl Server {
     /// the server for a reason that no longer holds.
     pub fn save(&self, id: u64) {
         let _ = self.events.send(Event::Save(id));
+    }
+
+    /// Asks the server about an open document: answered in a later report, at once if the
+    /// server does not run, or the document's text there is not the one `ask` names.
+    pub fn ask(&self, ask: Ask) {
+        let _ = self.events.send(Event::Ask(ask));
     }
 
     /// Stops the server as [`Server::shut_down`] does, if it runs, forgets its crashes, and

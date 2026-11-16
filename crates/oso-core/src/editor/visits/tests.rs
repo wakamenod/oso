@@ -47,3 +47,37 @@ fn a_visit_at_a_place_waits_for_its_file_to_show() {
     editor.request_visit(PathBuf::from("/w/oso/c.rs"), 1 << 20);
     assert!(editor.visit_place.is_none());
 }
+
+#[test]
+fn a_column_is_read_as_its_source_counts_it() {
+    // `é` is two bytes, one UTF-16 unit; `😀` four bytes, two units.
+    let text = crate::rope::Rope::from("x\né😀z\n");
+    let line = text.line_start(1);
+    assert_eq!(
+        super::column_offset(&text, 1, super::VisitColumn::Chars(2)),
+        line + 6
+    );
+    assert_eq!(
+        super::column_offset(&text, 1, super::VisitColumn::Utf8(6)),
+        line + 6
+    );
+    assert_eq!(
+        super::column_offset(&text, 1, super::VisitColumn::Utf8(3)),
+        line + 2,
+        "back to a character's start"
+    );
+    assert_eq!(
+        super::column_offset(&text, 1, super::VisitColumn::Utf16(3)),
+        line + 6
+    );
+    assert_eq!(
+        super::column_offset(&text, 1, super::VisitColumn::Utf16(99)),
+        line + 7,
+        "as far as the line goes"
+    );
+    assert_eq!(
+        super::column_offset(&text, 9, super::VisitColumn::Chars(0)),
+        text.len(),
+        "the last line"
+    );
+}

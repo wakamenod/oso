@@ -88,3 +88,44 @@ fn the_layer_of_c_x_tab_comes_before_the_lsp_layer_while_it_is_open() {
     );
     assert!(std::ptr::eq(layers.minor[1], &d.keymaps.lsp));
 }
+
+#[test]
+fn m_comma_goes_back_through_the_jumps_while_a_server_follows_and_walks_buffers_elsewhere() {
+    use oso_core::editor::ServerRequest;
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    let followed_id = editor.window().buffer();
+    // `M-.` asks the host, at the primary cursor.
+    send(&mut d, &mut editor, "C-f C-f M-.");
+    match editor.take_server_requests().as_slice() {
+        [ServerRequest::Definition(at)] => {
+            assert_eq!((at.buffer, at.offset, at.agent), (followed_id, 2, false));
+        }
+        other => panic!("{other:?}"),
+    }
+    // The host jumps; `M-,` and `C-M-,` walk the window's history.
+    editor.xref_to_place(followed_id, 15);
+    assert_eq!(cursor(&editor), 15);
+    send(&mut d, &mut editor, "M-,");
+    assert_eq!(cursor(&editor), 2);
+    send(&mut d, &mut editor, "C-M-,");
+    assert_eq!(cursor(&editor), 15);
+    send(&mut d, &mut editor, "C-M-,");
+    assert!(
+        echo(&editor).contains("No later place"),
+        "{}",
+        echo(&editor)
+    );
+    // In a buffer no server follows, `M-,` is `previous-buffer`.
+    let (mut d, mut editor) = followed(None);
+    let first = editor.window().buffer();
+    let second = editor.add_buffer(Buffer::from_text("u.rs", "y"));
+    editor.show(second);
+    send(&mut d, &mut editor, "M-,");
+    assert_eq!(editor.window().buffer(), first);
+}
+
+fn echo(editor: &Editor) -> String {
+    let mut status = oso_core::editor::Status::default();
+    editor.status_into(editor.tiled().0.id(), &mut status);
+    status.echo
+}

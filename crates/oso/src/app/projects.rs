@@ -121,9 +121,13 @@ impl App {
         if answers.is_empty() {
             return;
         }
+        let mut ids = Vec::with_capacity(answers.len());
         for (request, found) in answers {
+            ids.push(request.buffer);
             self.editor.project_found(&request, found);
         }
+        // A file a server's answer led to joins it once it is known to be in no project.
+        self.projects_known(&ids);
         self.starting.ask();
         self.settle_opens();
         self.request_redraw();

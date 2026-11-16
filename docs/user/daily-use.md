@@ -64,8 +64,10 @@ project's own TypeScript server in `node_modules`, or `tsc --lsp`, texlab, sourc
 and marksman. One that is not installed is said once. The modeline says `lsp` after the project's name: dim while it starts,
 `lsp 34%` while it indexes, `lsp!` if it stopped after crashing three times. `*LSP*` says what
 the servers did. `M-x lsp-restart` starts the buffer's server again, `M-x lsp-shutdown` stops it
-until `M-x lsp-start`, and untrusting the project stops it. Diagnostics and the rest come in
-later steps.
+until `M-x lsp-start`, and untrusting the project stops it. In a buffer a server follows,
+`M-.` goes to the definition at point, `M-,` goes back, and `C-M-,` forward again; each window
+keeps its own history. A file outside any project that `M-.` leads to, such as the standard
+library's, joins the server until its buffer is killed. The rest comes in later steps.
 
 A server can be changed in `config.toml`:
 

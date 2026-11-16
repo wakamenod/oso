@@ -7,10 +7,12 @@
 //! Must not depend on: `server`, threads or processes; this builds and reads values, and the
 //! session thread sends and receives them.
 
+mod located;
 mod published;
 #[cfg(test)]
 mod tests;
 
+pub use located::{Located, located, position_params, references_params};
 pub use published::{Published, Reported, published};
 use serde_json::{Map, Value, json};
 
@@ -183,8 +185,8 @@ pub struct Initialize<'a> {
 
 /// `initialize`'s parameters: oso's process, the root as the one workspace folder, the entry's
 /// settings, and the capabilities the steps so far use: positions in UTF-8 or UTF-16,
-/// progress, `workspace/configuration`, saves (step 4), and diagnostics with their versions and
-/// tags (step 6).
+/// progress, `workspace/configuration`, saves (step 4), diagnostics with their versions and
+/// tags (step 6), and definitions, with links, and references (step 8).
 pub fn initialize_params(start: &Initialize<'_>) -> Value {
     let mut params = json!({
         "processId": std::process::id(),
@@ -201,6 +203,8 @@ pub fn initialize_params(start: &Initialize<'_>) -> Value {
                     "versionSupport": true,
                     "tagSupport": {"valueSet": [1, 2]},
                 },
+                "definition": {"linkSupport": true},
+                "references": {},
             },
         },
     });

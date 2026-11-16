@@ -87,7 +87,7 @@ impl Session {
         outcome: Outcome,
         now: Instant,
     ) -> Result<(), String> {
-        let Some((asked, _)) = run.pending.remove(&id) else {
+        let Some((asked, deadline)) = run.pending.remove(&id) else {
             self.reporter
                 .log(format!("an answer to no request (id {id})"));
             return Ok(());
@@ -118,6 +118,7 @@ impl Session {
                 return Err(format!("refused initialize: {message} ({code})"));
             }
             (Asked::Shutdown, _) => run.exit(now),
+            (Asked::Ask(ask), outcome) => self.answered(run, (id, ask), outcome, deadline, now),
         }
         Ok(())
     }

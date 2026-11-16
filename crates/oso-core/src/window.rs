@@ -26,11 +26,13 @@ use crate::display_map::{DisplayPoint, DisplaySnapshot};
 use crate::motion::{self, Edge};
 use crate::selection::SelectionSet;
 
+mod jumps;
 mod places;
 mod row_map;
 mod rows;
 mod screen;
 
+pub use jumps::{JUMPS_MAX, Jumps};
 pub use places::Place;
 pub(crate) use places::{Places, Walk};
 pub use row_map::{BadRowMap, RowMap};
@@ -122,6 +124,8 @@ pub struct Window {
     /// The buffers it was on before each internal buffer it has gone to, the first first.
     /// Where it was in each is in its places (ADR 0088).
     way_back: Vec<BufferId>,
+    /// Its history of jumps (ADR 0138).
+    jumps: Jumps,
 }
 
 #[cfg(test)]
@@ -165,6 +169,7 @@ impl Window {
             wrap_revision: 0,
             gutter_floor: None,
             way_back: Vec::new(),
+            jumps: Jumps::default(),
         }
     }
 
@@ -187,6 +192,7 @@ impl Window {
             wrap_revision: self.wrap_revision,
             gutter_floor: self.gutter_floor,
             way_back: self.way_back.clone(),
+            jumps: self.jumps.clone(),
         }
     }
 

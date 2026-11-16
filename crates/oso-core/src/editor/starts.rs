@@ -6,7 +6,8 @@
 //! for the person, as its settings and the project's trust are, and starts what these return.
 
 use super::Editor;
-use crate::buffer::{Acted, BufferId, Starts};
+use crate::buffer::{Acted, Buffer, BufferId, Starts};
+use crate::project::ProjectId;
 
 impl Editor {
     /// What runs now as `id` is opened by `by`, when `would` is what would start for the
@@ -14,21 +15,41 @@ impl Editor {
     /// the programs are kept in the buffer's open mark. Nothing runs in a project that is not
     /// trusted, nor is anything kept (ADR 0118, Q7).
     pub fn starts_on_open(&mut self, id: BufferId, would: Starts, by: Acted) -> Starts {
-        self.starts(id, would, by, false)
+        let project = self.buffer(id).and_then(Buffer::project);
+        self.starts(id, would, by, false, project)
+    }
+
+    /// As [`Self::starts_on_open`], with the trust judged on `project` rather than on the
+    /// buffer's own: for a file outside any project that joined the server of `project`
+    /// (ADR 0138, step 8a). The agent's open is held there as anywhere.
+    pub fn starts_on_open_in(
+        &mut self,
+        id: BufferId,
+        would: Starts,
+        by: Acted,
+        project: ProjectId,
+    ) -> Starts {
+        self.starts(id, would, by, false, Some(project))
     }
 
     /// What runs now as a save of `id` by `by` ends, as [`Self::starts_on_open`] says for an
     /// open. The person's save also lets go what an agent's save left waiting there: what it
     /// would have started runs again only if it is in `would` (ADR 0118, Q4).
     pub fn starts_on_save(&mut self, id: BufferId, would: Starts, by: Acted) -> Starts {
-        self.starts(id, would, by, true)
+        let project = self.buffer(id).and_then(Buffer::project);
+        self.starts(id, would, by, true, project)
     }
 
-    fn starts(&mut self, id: BufferId, would: Starts, by: Acted, save: bool) -> Starts {
-        let trusted = self
-            .buffer(id)
-            .and_then(|buffer| buffer.project())
-            .is_some_and(|project| self.project_trusted(project));
+    /// What runs, the trust judged on `project`.
+    fn starts(
+        &mut self,
+        id: BufferId,
+        would: Starts,
+        by: Acted,
+        save: bool,
+        project: Option<ProjectId>,
+    ) -> Starts {
+        let trusted = project.is_some_and(|project| self.project_trusted(project));
         let Some(buffer) = self.buffer_mut(id) else {
             return Starts::NONE;
         };

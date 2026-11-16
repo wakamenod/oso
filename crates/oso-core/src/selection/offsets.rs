@@ -33,6 +33,15 @@ pub(crate) fn follow_offset(offset: usize, edits: &[OffsetEdit], bias: Bias) -> 
     Follow::new(edits, bias).map(offset)
 }
 
+/// Moves `offsets`, ascending, through `edits` as [`follow_offset`] moves each, in one pass:
+/// O(offsets + edits). They stay ascending.
+pub(crate) fn follow_sorted(offsets: &mut [usize], edits: &[OffsetEdit], bias: Bias) {
+    let mut follow = Follow::new(edits, bias);
+    for offset in offsets {
+        *offset = follow.map(*offset);
+    }
+}
+
 /// Where new text ends after `edits`, ascending. The edits are as in
 /// [`SelectionSet::follow_edits`](super::SelectionSet::follow_edits), and deletions have no new text.
 pub(crate) fn new_text_ends(edits: &[OffsetEdit]) -> impl Iterator<Item = usize> + '_ {

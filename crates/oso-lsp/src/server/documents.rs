@@ -27,6 +27,7 @@ use crate::uri;
 use super::{Closed, Document};
 
 mod history;
+mod sent;
 #[cfg(test)]
 mod tests;
 

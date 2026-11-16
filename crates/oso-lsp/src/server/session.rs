@@ -25,6 +25,7 @@ use super::pipes::{self};
 use super::policy::{Crashes, Flood};
 use super::{Event, Gate, Start, State};
 
+mod asks;
 mod incoming;
 mod run;
 mod sync;
@@ -66,6 +67,8 @@ enum After {
 enum Asked {
     Initialize,
     Shutdown,
+    /// An ask of the UI's about a document (step 8).
+    Ask(super::Ask),
 }
 
 /// Where a stop the person asked for is: waiting for `shutdown`'s answer, for the process to
@@ -175,6 +178,7 @@ impl Session {
                         let _ = self.document(None, ask);
                     }
                 }
+                Event::Ask(ask) => self.ask_idle(ask),
                 // An earlier run's news.
                 Event::Frame(..) | Event::ReadEnd(..) | Event::WriteFailed(..) => {}
             }
@@ -348,6 +352,7 @@ impl Session {
         };
         run.credit.close();
         drop(run.writer.take());
+        self.fail_asks(&mut run);
         if run.diagnostics_dropped > 0 {
             self.dropped_diagnostics(&mut run);
         }
@@ -378,9 +383,15 @@ impl Session {
             run.diagnostics_said = now;
             self.dropped_diagnostics(run);
         }
+        for (id, ask) in run.overdue_asks(now) {
+            if let Err(full) = self.overdue_ask(run, id, ask) {
+                return Some(End::Crashed(full));
+            }
+        }
         if let Some((asked, _)) = run.overdue(now) {
             run.pending.retain(|_, (_, deadline)| *deadline > now);
             match asked {
+                Asked::Ask(_) => {}
                 Asked::Initialize => {
                     return Some(End::Crashed(format!(
                         "did not answer initialize within {} s",
@@ -434,6 +445,7 @@ impl Session {
                     return self.document(Some(run), ask).err().map(End::Crashed);
                 }
             }
+            Event::Ask(ask) => return self.ask(run, ask).err().map(End::Crashed),
             Event::Frame(id, frame) if id == run.id => {
                 return self.frame(run, frame).err().map(End::Crashed);
             }

@@ -83,6 +83,22 @@ impl Run {
             .copied()
     }
 
+    /// The asks whose wait has ended, taken out of what is in flight.
+    pub(super) fn overdue_asks(&mut self, now: Instant) -> Vec<(i64, super::super::Ask)> {
+        let ids: Vec<i64> = self
+            .pending
+            .iter()
+            .filter(|(_, (asked, deadline))| matches!(asked, Asked::Ask(_)) && *deadline <= now)
+            .map(|(id, _)| *id)
+            .collect();
+        ids.into_iter()
+            .filter_map(|id| match self.pending.remove(&id) {
+                Some((Asked::Ask(ask), _)) => Some((id, ask)),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// The first moment something is due.
     pub(super) fn next_deadline(&self) -> Instant {
         let requests = self.pending.values().map(|(_, deadline)| *deadline);
