@@ -255,8 +255,9 @@ pub(crate) fn split_target<'a>(
 /// Refuses, before git sees it, a branch name that could be taken as anything else on a command
 /// line or that git's `check-ref-format --branch` refuses for its shape: empty, starting with `-`
 /// or `/`, ending with `/` or `.`, a part starting with `.` or ending with `.lock`, holding `..`,
-/// `@{`, `//`, white space, a control or bidirectional character or one of `~^:?*[\`, or `@`
-/// alone. It is a
+/// `@{`, `//`, white space, a control, bidirectional or invisible character (a zero-width one,
+/// a tag; step 3b) or one of `~^:?*[\`, or `@` alone, so that no name lists beside another
+/// that it looks the same as. It is a
 /// stricter filter than git's own, which still checks what it is given.
 pub(crate) fn check_branch(name: &str) -> Result<(), String> {
     let bad = name.is_empty()
@@ -271,9 +272,12 @@ pub(crate) fn check_branch(name: &str) -> Result<(), String> {
             .split('/')
             .any(|part| part.starts_with('.') || part.ends_with(".lock"))
         || !plain(name)
-        || name
-            .chars()
-            .any(|c| c.is_whitespace() || "~^:?*[\\".contains(c));
+        || name.chars().any(|c| {
+            c.is_whitespace()
+                || "~^:?*[\\".contains(c)
+                || oso_core::display_map::cell::is_invisible(c)
+                || ('\u{E0000}'..='\u{E0FFF}').contains(&c)
+        });
     if bad {
         return Err(format!(
             "Not a branch name git takes: {}",

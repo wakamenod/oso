@@ -20,7 +20,6 @@ use oso_core::minibuffer::PromptId;
 
 use super::super::App;
 use super::runs::RUNNING;
-use crate::commands::review::one_line;
 use crate::vcs::layout::{Built, Section};
 use crate::vcs::run::RunRequest;
 use crate::vcs::sequence::{self, Doing, Step, Want};
@@ -90,18 +89,13 @@ impl App {
                 ["abort", "keep"],
             ),
         };
-        let question = one_line(&question, 400);
-        match (self.editor).ask_with(format!("{question} (y or n)"), yes, verbs) {
-            Ok(prompt) => {
-                self.gits.commits.repos[index].sequence_asked = Some(SequenceAsked {
-                    status: buffer,
-                    prompt,
-                    want,
-                });
-            }
-            Err(e) => self.editor.message(format!("Cannot ask: {e}")),
+        if let Some(prompt) = self.ask_bound(&question, yes, verbs) {
+            self.gits.commits.repos[index].sequence_asked = Some(SequenceAsked {
+                status: buffer,
+                prompt,
+                want,
+            });
         }
-        self.request_redraw();
     }
 
     /// Starts `want` in the repository at `index`.

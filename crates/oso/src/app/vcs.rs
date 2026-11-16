@@ -20,25 +20,29 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use oso_core::buffer::{Acted, BufferId};
-use oso_core::editor::{GitLines, GitRequest, GitShown};
+use oso_core::editor::{GitRequest, GitShown};
 use oso_core::project::ProjectId;
 
 use super::{App, UserEvent};
 use crate::commands::review::{MAX_NAME, one_line};
 use crate::commands::vcs::RESTRICTED;
-use crate::git::{TrustedRoot, os_path};
+use crate::git::TrustedRoot;
 use crate::vcs::layout::{Laid, Row};
-use crate::vcs::stage::{self, Target};
+use crate::vcs::stage::Target;
 use crate::vcs::{Built, Report, Request, View, Worker};
 
 mod agent;
+mod branch;
 mod commit;
 mod discard;
 mod draft;
+mod prompt;
 mod remote;
 mod requests;
 mod runs;
 mod sequence;
+mod stash;
+mod status;
 
 pub(crate) use runs::RunEvent;
 
@@ -121,6 +125,8 @@ impl App {
         }
         self.forget_closed_pushes();
         self.forget_closed_sequence_questions();
+        self.forget_closed_stash_prompts();
+        self.forget_closed_branch_prompts();
         self.sync_commits();
         let agent = agent || self.gits.by_agent;
         // A key is the person's in a status when the status was selected as it was typed.
@@ -162,30 +168,12 @@ impl App {
 
     fn git_request(&mut self, request: GitRequest) {
         match requests::concern(&request) {
-            requests::Concern::Commit => return self.git_commit_request(request),
-            requests::Concern::Remote => return self.git_remote_request(request),
-            requests::Concern::Sequence => return self.git_sequence_request(request),
-            requests::Concern::Status => {}
-        }
-        match request {
-            GitRequest::Status { project } => self.open_git_status(project),
-            GitRequest::Refresh { buffer } => {
-                if let Some(index) = self.git_index(buffer) {
-                    self.git_ask(index, Ask::Read);
-                }
-            }
-            GitRequest::Toggle { buffer, line } => self.toggle_git(buffer, line),
-            GitRequest::Stage { buffer, lines } => self.stage_git(buffer, &lines, true),
-            GitRequest::Unstage { buffer, lines } => self.stage_git(buffer, &lines, false),
-            GitRequest::StageAll { buffer } => self.stage_git_all(buffer, true),
-            GitRequest::UnstageAll { buffer } => self.stage_git_all(buffer, false),
-            GitRequest::Visit {
-                buffer,
-                line,
-                column,
-            } => self.visit_git_line(buffer, line, column),
-            // Sorted out above.
-            _ => {}
+            requests::Concern::Commit => self.git_commit_request(request),
+            requests::Concern::Remote => self.git_remote_request(request),
+            requests::Concern::Sequence => self.git_sequence_request(request),
+            requests::Concern::Stash => self.git_stash_request(request),
+            requests::Concern::Branch => self.git_branch_request(request),
+            requests::Concern::Status => self.git_status_request(request),
         }
     }
 
@@ -323,70 +311,6 @@ impl App {
 
     fn git_index(&self, buffer: BufferId) -> Option<usize> {
         self.gits.open.iter().position(|open| open.buffer == buffer)
-    }
-
-    /// Folds or unfolds the section at `line`, or shows or hides the hunks of the file there;
-    /// on a hunk, hides its file's hunks.
-    fn toggle_git(&mut self, buffer: BufferId, line: usize) {
-        let Some(index) = self.git_index(buffer) else {
-            return;
-        };
-        let open = &mut self.gits.open[index];
-        if open.view.toggle(&open.built, line) {
-            self.git_ask(index, Ask::Layout);
-        }
-    }
-
-    fn stage_git(&mut self, buffer: BufferId, lines: &[GitLines], stage: bool) {
-        let Some(index) = self.git_index(buffer) else {
-            return;
-        };
-        match stage::targets(&self.gits.open[index].built, lines) {
-            Ok(targets) if targets.is_empty() => self.editor.message("Nothing here to stage"),
-            Ok(targets) => self.git_ask(index, Ask::Stage(targets, stage)),
-            Err(why) => self.editor.message(why),
-        }
-    }
-
-    fn stage_git_all(&mut self, buffer: BufferId, stage: bool) {
-        let Some(index) = self.git_index(buffer) else {
-            return;
-        };
-        match stage::all(&self.gits.open[index].built, stage) {
-            Ok(target) => self.git_ask(index, Ask::Stage(vec![target], stage)),
-            Err(why) => self.editor.message(why),
-        }
-    }
-
-    /// Visits the file `line` is about, at the line of it a hunk's line shows.
-    fn visit_git_line(&mut self, buffer: BufferId, line: usize, column: usize) {
-        let Some(index) = self.git_index(buffer) else {
-            return;
-        };
-        let open = &self.gits.open[index];
-        // A commit's row opens its review, read-only (step 2).
-        if let Some((_, commit)) = open.built.commit_at(line) {
-            let (project, id) = (open.project, commit.id.clone());
-            return self.open_review(project, oso_core::editor::ScopeKind::Commit, Some(id));
-        }
-        let visit = match open.built.visit(line, column) {
-            Ok(visit) => visit,
-            Err(why) => return self.editor.message(why),
-        };
-        let Ok(relative) = os_path(visit.path) else {
-            return self
-                .editor
-                .message("That file's name is not one this system can open");
-        };
-        let path = open.root.path().join(relative);
-        match visit.at {
-            Some((line, column)) => {
-                self.editor
-                    .request_visit_at(path, oso_core::load::UNASKED, line, column);
-            }
-            None => self.editor.request_visit(path, oso_core::load::UNASKED),
-        }
-        self.serve_files();
     }
 
     /// A status's thread reported.

@@ -196,7 +196,8 @@ impl Shown<'_> {
             section.heading().as_bytes(),
             Some(Highlight::GitSectionHeading),
         );
-        if let Some(upstream) = upstream.filter(|_| section != Section::Recent) {
+        let names_upstream = matches!(section, Section::Unpushed | Section::Unpulled);
+        if let Some(upstream) = upstream.filter(|_| names_upstream) {
             let mut name = b" ".to_vec();
             push_name(&mut name, upstream);
             out.part(&name, Some(Highlight::GitBranchRemote));

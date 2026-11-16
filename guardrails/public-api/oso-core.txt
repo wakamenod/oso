@@ -1329,6 +1329,23 @@ impl core::fmt::Debug for oso_core::editor::AgentChannel
 pub fn oso_core::editor::AgentChannel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::AgentChannel
 impl core::marker::StructuralPartialEq for oso_core::editor::AgentChannel
+pub enum oso_core::editor::BranchAction
+pub oso_core::editor::BranchAction::Checkout
+pub oso_core::editor::BranchAction::Confirmed
+pub oso_core::editor::BranchAction::Create
+pub oso_core::editor::BranchAction::Create::checkout: bool
+pub oso_core::editor::BranchAction::Delete
+pub oso_core::editor::BranchAction::Named(alloc::string::String)
+pub oso_core::editor::BranchAction::Picked(alloc::string::String)
+pub oso_core::editor::BranchAction::Rename
+impl core::clone::Clone for oso_core::editor::BranchAction
+pub fn oso_core::editor::BranchAction::clone(&self) -> oso_core::editor::BranchAction
+impl core::cmp::Eq for oso_core::editor::BranchAction
+impl core::cmp::PartialEq for oso_core::editor::BranchAction
+pub fn oso_core::editor::BranchAction::eq(&self, &oso_core::editor::BranchAction) -> bool
+impl core::fmt::Debug for oso_core::editor::BranchAction
+pub fn oso_core::editor::BranchAction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::BranchAction
 pub enum oso_core::editor::CannotResize
 pub oso_core::editor::CannotResize::Enlarge
 pub oso_core::editor::CannotResize::Shrink
@@ -1481,6 +1498,9 @@ pub enum oso_core::editor::GitRequest
 pub oso_core::editor::GitRequest::Abort
 pub oso_core::editor::GitRequest::Abort::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Abort::confirmed: bool
+pub oso_core::editor::GitRequest::Branch
+pub oso_core::editor::GitRequest::Branch::action: oso_core::editor::BranchAction
+pub oso_core::editor::GitRequest::Branch::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Commit
 pub oso_core::editor::GitRequest::Commit::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Commit::kind: oso_core::editor::CommitKind
@@ -1531,6 +1551,10 @@ pub oso_core::editor::GitRequest::Stage::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Stage::lines: alloc::vec::Vec<oso_core::editor::GitLines>
 pub oso_core::editor::GitRequest::StageAll
 pub oso_core::editor::GitRequest::StageAll::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Stash
+pub oso_core::editor::GitRequest::Stash::action: oso_core::editor::StashAction
+pub oso_core::editor::GitRequest::Stash::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Stash::line: usize
 pub oso_core::editor::GitRequest::Status
 pub oso_core::editor::GitRequest::Status::project: oso_core::project::ProjectId
 pub oso_core::editor::GitRequest::Stop
@@ -2092,6 +2116,23 @@ pub fn oso_core::editor::SpaceRequest::eq(&self, &oso_core::editor::SpaceRequest
 impl core::fmt::Debug for oso_core::editor::SpaceRequest
 pub fn oso_core::editor::SpaceRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::SpaceRequest
+pub enum oso_core::editor::StashAction
+pub oso_core::editor::StashAction::Apply
+pub oso_core::editor::StashAction::Confirmed
+pub oso_core::editor::StashAction::Drop
+pub oso_core::editor::StashAction::Message(alloc::string::String)
+pub oso_core::editor::StashAction::Picked(alloc::string::String)
+pub oso_core::editor::StashAction::Pop
+pub oso_core::editor::StashAction::Push
+pub oso_core::editor::StashAction::Push::untracked: bool
+impl core::clone::Clone for oso_core::editor::StashAction
+pub fn oso_core::editor::StashAction::clone(&self) -> oso_core::editor::StashAction
+impl core::cmp::Eq for oso_core::editor::StashAction
+impl core::cmp::PartialEq for oso_core::editor::StashAction
+pub fn oso_core::editor::StashAction::eq(&self, &oso_core::editor::StashAction) -> bool
+impl core::fmt::Debug for oso_core::editor::StashAction
+pub fn oso_core::editor::StashAction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::StashAction
 pub enum oso_core::editor::TerminalRequest
 pub oso_core::editor::TerminalRequest::Keys(alloc::vec::Vec<oso_core::key::KeyPress>)
 pub oso_core::editor::TerminalRequest::Open

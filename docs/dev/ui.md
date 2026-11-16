@@ -354,6 +354,8 @@ planned.
     [Committing](#committing).
   - `push` on `P`, `pull` on `F` (with `- r` and `- m` from step 3a) and `fetch` on `f` in a
     git status (ADR 0127, step 2); see [Remotes](#remotes).
+  - `stash` on `z` and `branch` on `b` in a git status (ADR 0127, step 3b); see
+    [Stashes and branches](#stashes-and-branches).
   - `agents` on `C-c a` ([ADR 0143](adr/0143-agent-keys-on-c-c-a-and-an-agents-menu.md)), in
     every buffer and every terminal: the agent session commands, in groups Start (`c w r a`),
     Go to (`s b n d f`), Talk (`m @ e`), Space (`j z O`, `S` the space menu) and Session
@@ -578,6 +580,39 @@ terminal, the head says what and where, and the conflicted files are under Unmer
 - A bisect is shown only: `git bisect reset` in a shell ends it.
 - While one is stopped, the commit menu's heads and a pull are refused, naming `C-c C-c` and
   `C-c C-k`; staging, discarding, pushing and fetching stay.
+
+### Stashes and branches
+
+From a status (step 3b), each run as a commit's, with the repository's hooks and `$` for its
+output.
+
+- **Stashes** show after the staged changes, `Stashes (N)`, each row `stash@{N} On BRANCH:
+  message`, every stash of the repository, as the worktrees share them. `RET` on one opens its
+  review, the changes it holds against where it was made. `z` opens the stash menu:
+  - `z` stashes the changes after a prompt for its message, empty for git's own, and `- u`
+    takes the untracked files too;
+  - `a` applies the stash at point and keeps it, `p` pops it, and `k` drops it after a question
+    that names it. With point on none, a prompt asks which.
+  - A stash is acted on by its id: an apply gives git that id, and a pop or a drop finds git's
+    own `stash@{N}` for it just before git runs, so that one another worktree pushed meanwhile
+    does not take its place; one gone is refused. A prompt's answer names a stash it listed. The
+    echo area names a stash by its subject. One that does not apply cleanly leaves its files
+    under Unmerged paths, and a pop keeps it.
+- **Branches:** `b` opens the branch menu, each head reading its branch in a prompt, local
+  branches before the remotes':
+  - `b` checks one out; a remote's makes a local branch that tracks it.
+  - `c` makes a branch and checks it out, and `n` makes one only: first where (`HEAD`, a branch,
+    or any revision typed), then its name.
+  - `m` renames one, the branch checked out first.
+  - `k` deletes one: a branch merged into its upstream, or `HEAD` with none, goes at once; one
+    that is not asks first, naming the commits only it holds, or saying oso could not tell, and
+    goes only if it has not moved since. One checked out in another worktree is refused, naming
+    `worktree-remove`; the one checked out here is not listed.
+  - A prompt opens only while the person is still in that status with no prompt open; else the
+    echo area says to ask again. A branch or a start picked goes to git as the ref listed, a
+    remote's in full.
+- While something is stopped, checking out, making a branch to check out, applying and popping
+  are refused, naming `C-c C-c` and `C-c C-k`.
 
 ## Echo area
 

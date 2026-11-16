@@ -663,6 +663,11 @@ The UI thread never blocks on I/O or parsing:
   says when a step is refused, pure functions; the status's thread reads it (`vcs/read.rs`) and
   the head shows it; `vcs/run/sequence.rs` continues, skips and aborts on `oso-vcs-run`,
   judging it again first, and `app/vcs/sequence.rs` asks the questions.
+- Stashes and branches (step 3b): `vcs/stash.rs` reads the stash list into the Stashes section
+  and `vcs/branch.rs` holds what branches need that runs no git; `vcs/run/stash.rs` and
+  `vcs/run/branch.rs` run them on `oso-vcs-run`, finding a stash again by its id and planning a
+  delete first; `app/vcs/stash.rs` and `app/vcs/branch.rs` open their prompts in turn and ask
+  the questions, as a push's do.
 - What a commit asks of the worktree's agent session (step 6a): `vcs/agent.rs` writes the
   requests, a draft's and a failed commit's fix, as pure functions; `app/vcs/agent.rs` reads the
   last subjects on `oso-vcs-run` and pastes the requests through `send_to_session`; and

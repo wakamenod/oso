@@ -2,7 +2,8 @@
 //! the repository's hooks, which has no time limit, the message an amend starts from, and, from
 //! step 1c, reading the record of what discards kept and writing a copy back; from step 2,
 //! pushes, pulls and fetches (`remotes`), and planning where a push goes; from step 3a,
-//! continuing, skipping and aborting what is stopped (`sequence`).
+//! continuing, skipping and aborting what is stopped (`sequence`); from step 3b, stashing
+//! (`stash`) and branches (`branch`).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
 //! takes reports out, and supplies the wake-up.
@@ -33,6 +34,7 @@ use std::time::Duration;
 
 use oso_core::editor::{CommitKind, CommitSwitches, FetchFrom, PullHow, PushSwitches};
 
+use super::branch::{BranchRead, BranchRun, Branches, DeletePlan};
 use super::commit;
 use super::discarded::{self, Entry};
 use super::keep;
@@ -40,11 +42,14 @@ use super::read::{find, hooks_dir};
 use super::remote::Push;
 use crate::git::{Ender, Git, MAX_SHORT, TrustedRoot, os_path, trim_line};
 
+mod branch;
 mod remotes;
 mod sequence;
+mod stash;
 mod stream;
 
 pub(crate) use remotes::{Planned, Want};
+pub(crate) use stash::StashRun;
 use stream::stream;
 
 /// How often what a run wrote is sent on.
@@ -81,6 +86,14 @@ pub(crate) enum RunRequest {
         want: super::sequence::Want,
         pass: Vec<String>,
     },
+    /// Push onto the stash, or apply, pop or drop a stash, as `run` says, with the names `pass`
+    /// passes on to the hooks (step 3b).
+    Stash { run: StashRun, pass: Vec<String> },
+    /// List the branches, or plan a delete, as `read` says, with the plain git (step 3b).
+    BranchRead(BranchRead),
+    /// Check out, create, rename or delete a branch, as `run` says, with the names `pass`
+    /// passes on to the hooks (step 3b).
+    Branch { run: BranchRun, pass: Vec<String> },
 }
 
 /// What a remote's request asks for, with the names `pass` passes on to the hooks of a run.
@@ -124,6 +137,13 @@ pub(crate) enum RunReport {
     Discarded(Result<Vec<Entry>, String>),
     /// Where a push goes, or why it goes nowhere (step 2).
     Planned(Result<Planned, String>),
+    /// The branches a branch's prompt lists, or why they could not be read (step 3b).
+    Branches(Result<Branches, String>),
+    /// Whether deleting `name` asks first, or why it is refused (step 3b).
+    DeletePlanned {
+        name: String,
+        plan: Result<DeletePlan, String>,
+    },
     /// The progress a remote's run shows now, as `Writing objects 42%`.
     Progress(String),
     /// A copy was written back: what the echo area says, or why not.
@@ -145,6 +165,8 @@ impl std::fmt::Debug for RunReport {
             Self::Subjects { subjects, .. } => write!(f, "Subjects({})", subjects.len()),
             Self::Discarded(_) => f.write_str("Discarded"),
             Self::Planned(_) => f.write_str("Planned"),
+            Self::Branches(_) => f.write_str("Branches"),
+            Self::DeletePlanned { .. } => f.write_str("DeletePlanned"),
             Self::Progress(_) => f.write_str("Progress"),
             Self::Restored(_) => f.write_str("Restored"),
             Self::Began { .. } => f.write_str("Began"),
@@ -254,14 +276,7 @@ fn serve(
             }],
             (Err(why), RunRequest::Discarded) => vec![RunReport::Discarded(Err(why))],
             (Err(why), RunRequest::Restore { .. }) => vec![RunReport::Restored(Err(why))],
-            (Ok(_), RunRequest::Discarded) => {
-                let root = root.path().as_os_str().as_encoded_bytes();
-                let read = state
-                    .ok_or_else(|| "oso has no state directory".to_owned())
-                    .and_then(|state| discarded::read(state).map_err(|e| e.to_string()))
-                    .map(|entries| discarded::of_root(entries, root));
-                vec![RunReport::Discarded(read)]
-            }
+            (Ok(_), RunRequest::Discarded) => vec![RunReport::Discarded(discards(root, state))],
             (Ok(git), RunRequest::Restore { entry, secret }) => {
                 let done = keep::restore(&git, root, (&entry, secret), state, watch.stop);
                 vec![RunReport::Restored(done)]
@@ -269,12 +284,19 @@ fn serve(
             (Err(why), RunRequest::Remote(RemoteRun::Plan { .. })) => {
                 vec![RunReport::Planned(Err(why))]
             }
-            (
-                Err(why),
-                RunRequest::Commit { .. } | RunRequest::Remote(_) | RunRequest::Step { .. },
-            ) => vec![RunReport::Ended(RunEnd::Refused(why))],
+            (found, RunRequest::BranchRead(read)) => vec![branch::read(found, read)],
+            // Every other run: it did not start.
+            (Err(why), _) => vec![RunReport::Ended(RunEnd::Refused(why))],
             (Ok(git), RunRequest::Step { want, pass }) => {
                 let end = sequence::step(&git, &want, &pass, watch, &mut send);
+                vec![ended(watch, end)]
+            }
+            (Ok(git), RunRequest::Stash { run, pass }) => {
+                let end = stash::run(&git, &run, &pass, watch, &mut send);
+                vec![ended(watch, end)]
+            }
+            (Ok(git), RunRequest::Branch { run, pass }) => {
+                let end = branch::run(&git, &run, &pass, watch, &mut send);
                 vec![ended(watch, end)]
             }
             (Ok(git), RunRequest::Remote(request)) => {
@@ -326,6 +348,16 @@ fn remote(
         RemoteRun::Fetch { from, pass } => remotes::fetch(git, from, &pass, watch, send),
     };
     ended(watch, end)
+}
+
+/// What discards in the repository at `root` kept, newest first, from the record under
+/// `state`.
+fn discards(root: &TrustedRoot, state: Option<&Path>) -> Result<Vec<Entry>, String> {
+    let root = root.path().as_os_str().as_encoded_bytes();
+    state
+        .ok_or_else(|| "oso has no state directory".to_owned())
+        .and_then(|state| discarded::read(state).map_err(|e| e.to_string()))
+        .map(|entries| discarded::of_root(entries, root))
 }
 
 /// The report of a run that ended as `end`, once its ender is let go.
