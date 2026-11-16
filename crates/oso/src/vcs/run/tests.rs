@@ -49,7 +49,7 @@ fn until_end(got: &mpsc::Receiver<RunReport>) -> (RunEnd, String, bool) {
             RunReport::Output(text) => output.push_str(&text),
             RunReport::Elapsed(_)
             | RunReport::Message(_)
-            | RunReport::Subjects(_)
+            | RunReport::Subjects { .. }
             | RunReport::Discarded(_)
             | RunReport::Restored(_) => {}
             RunReport::Ended(end) => return (end, output, began),
@@ -164,7 +164,12 @@ fn subjects_of(repo: &Repo) -> Vec<String> {
     let (thread, got) = runner(repo);
     thread.ask(RunRequest::Subjects);
     match got.recv_timeout(Duration::from_secs(30)).expect("a report") {
-        RunReport::Subjects(subjects) => subjects,
+        RunReport::Subjects { subjects, id } => {
+            if cfg!(unix) {
+                assert_eq!(id.map(|id| id.len()), Ok(8));
+            }
+            subjects
+        }
         other => panic!("{other:?}"),
     }
 }

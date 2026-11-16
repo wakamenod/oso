@@ -82,8 +82,12 @@ pub(crate) enum RunEnd {
 pub(crate) enum RunReport {
     /// `HEAD`'s message, or why it could not be read.
     Message(Result<String, String>),
-    /// The last subjects, newest first; none if they could not be read.
-    Subjects(Vec<String>),
+    /// The last subjects, newest first, none if they could not be read; and the request's id,
+    /// or why there is none.
+    Subjects {
+        subjects: Vec<String>,
+        id: Result<String, String>,
+    },
     /// What discards in this repository kept, newest first, or why it could not be read.
     Discarded(Result<Vec<Entry>, String>),
     /// A copy was written back: what the echo area says, or why not.
@@ -102,7 +106,7 @@ impl std::fmt::Debug for RunReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Message(_) => f.write_str("Message"),
-            Self::Subjects(subjects) => write!(f, "Subjects({})", subjects.len()),
+            Self::Subjects { subjects, .. } => write!(f, "Subjects({})", subjects.len()),
             Self::Discarded(_) => f.write_str("Discarded"),
             Self::Restored(_) => f.write_str("Restored"),
             Self::Began { .. } => f.write_str("Began"),
@@ -206,8 +210,10 @@ fn serve(
         });
         let reports = match (found, request) {
             (Err(why), RunRequest::Message) => vec![RunReport::Message(Err(why))],
-            (Err(_), RunRequest::Subjects) => vec![RunReport::Subjects(Vec::new())],
-            (Ok(git), RunRequest::Subjects) => vec![RunReport::Subjects(subjects(&git))],
+            (found, RunRequest::Subjects) => vec![RunReport::Subjects {
+                subjects: found.map(|git| subjects(&git)).unwrap_or_default(),
+                id: super::agent::request_id(),
+            }],
             (Err(why), RunRequest::Discarded) => vec![RunReport::Discarded(Err(why))],
             (Err(why), RunRequest::Restore { .. }) => vec![RunReport::Restored(Err(why))],
             (Ok(_), RunRequest::Discarded) => {

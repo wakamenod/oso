@@ -91,7 +91,12 @@ impl App {
 
     /// The repository at `index` read its last `subjects`: the draft request that waited for
     /// them goes to the session.
-    pub(super) fn subjects_read(&mut self, index: usize, subjects: &[String]) {
+    pub(super) fn subjects_read(
+        &mut self,
+        index: usize,
+        subjects: &[String],
+        id: Result<String, String>,
+    ) {
         let Some(buffer) = self.gits.commits.repos[index].subjects_for.take() else {
             return;
         };
@@ -103,13 +108,9 @@ impl App {
         let Some(key) = self.worktree_session(&root) else {
             return self.editor.message(NO_SESSION);
         };
-        let id = match request_id() {
+        let id = match id {
             Ok(id) => id,
-            Err(e) => {
-                return self
-                    .editor
-                    .message(format!("Cannot make a request id: {e}"));
-            }
+            Err(why) => return self.editor.message(why),
         };
         let worktree = escaped(&root.display().to_string(), 400);
         let kind = self.gits.commits.drafts[at].kind;
@@ -186,13 +187,3 @@ impl App {
         }
     }
 }
-
-/// A request id: 32 random bits, as 8 hex digits.
-fn request_id() -> std::io::Result<String> {
-    let mut bytes = [0u8; 4];
-    oso_platform::random::fill(&mut bytes)?;
-    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
-}
-
-#[cfg(test)]
-mod tests;

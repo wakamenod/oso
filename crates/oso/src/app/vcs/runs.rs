@@ -212,7 +212,7 @@ impl App {
                         .echo(format!("git: {}", one_line(&why, MAX_SAID))),
                 }
             }
-            RunReport::Subjects(subjects) => self.subjects_read(index, &subjects),
+            RunReport::Subjects { subjects, id } => self.subjects_read(index, &subjects, id),
             RunReport::Began { line } => {
                 self.keep_output(index, &line);
                 let log = self.git_log(index);

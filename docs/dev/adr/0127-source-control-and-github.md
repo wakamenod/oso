@@ -817,7 +817,10 @@ last 200 lines; (6) one pull request.
 - **`C-c C-d`** (`git-draft-commit-message`, `Person`) reads the last 5 subjects on the
   repository's run thread (`git log -5 --format=%s HEAD`, none before the first commit), then
   pastes the Decision's request, each subject on one line, escaped and cut to 120 characters. Its
-  id is 32 random bits as 8 hex digits, kept with the message buffer; a new request replaces it.
+  id is 32 random bits as 8 hex digits, made on the run thread with the subjects (the system's
+  source is a file), kept with the message buffer; a new request replaces it. Where oso has no
+  source of random bytes yet, Windows, `C-c C-d` says so and pastes nothing, as a hosted
+  session cannot get its own id there either.
 - **`draft_set`** (a session tool, `Change`, no question, counted by the loop guard) takes
   `kind` (`commit` only), `id` and `text` (at most 16 KiB). It writes only the message whose
   newest request named the id, from the session the request was pasted into, in that message's

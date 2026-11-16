@@ -93,12 +93,10 @@ fn lines_shaped_like_secrets_are_left_out_of_a_fix_request_and_counted() {
     ]
     .concat();
     let (text, dropped) = fix_request("/w", &["pre-commit"], &output);
-    assert_eq!(dropped, 8, "{text}");
-    assert!(
-        text.contains("$ git commit\nlint: a.rs:3 bad\ncommit 3f0e91cb"),
-        "{text}"
-    );
-    for secret in [
+    // No message names the text: it would print what looks like a secret.
+    assert_eq!(dropped, 8);
+    assert!(text.contains("$ git commit\nlint: a.rs:3 bad\ncommit 3f0e91cb"));
+    let found = [
         "AKIA",
         "ghp_",
         "PRIVATE KEY",
@@ -106,17 +104,32 @@ fn lines_shaped_like_secrets_are_left_out_of_a_fix_request_and_counted() {
         "hunter2",
         "eyJhbG",
         "aB3dE5",
-    ] {
-        assert!(!text.contains(secret), "{secret} in {text}");
-    }
-    assert!(
-        text.contains("```\n8 lines that may hold secrets were left out.\nFix"),
-        "{text}"
-    );
+    ]
+    .iter()
+    .filter(|shape| text.contains(*shape))
+    .count();
+    assert_eq!(found, 0);
+    assert!(text.contains("```\n8 lines that may hold secrets were left out.\nFix"));
     assert!(super::withhold::pattern().is_some());
     let (plain, none) = fix_request("/w", &[], "error: tests failed\n");
     assert_eq!(none, 0);
     assert!(!plain.contains("left out"), "{plain}");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_id_is_eight_hex_digits_and_they_differ() {
+    let (one, two) = (super::request_id().unwrap(), super::request_id().unwrap());
+    assert_eq!(one.len(), 8);
+    assert!(one.chars().all(|c| c.is_ascii_hexdigit()), "{one}");
+    assert_ne!(one, two);
+}
+
+#[cfg(not(unix))]
+#[test]
+fn an_id_is_refused_with_why_where_oso_has_no_random_bytes() {
+    let why = super::request_id().unwrap_err();
+    assert!(why.contains("only on Unix yet"), "{why}");
 }
 
 #[test]

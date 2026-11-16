@@ -118,6 +118,21 @@ pub(crate) fn keep_end(text: &mut String, bytes: usize) {
     text.drain(..text.len() - len);
 }
 
+/// A draft request's id: 32 random bits, as 8 hex digits. The system's source is a file, so
+/// this runs on the repository's run thread, never the UI's. Refused, with why, where oso has
+/// no source of random bytes yet (Windows), as a hosted session's own id is.
+pub(crate) fn request_id() -> Result<String, String> {
+    let mut bytes = [0u8; 4];
+    match oso_platform::random::fill(&mut bytes) {
+        Ok(()) => Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect()),
+        Err(e) if e.kind() == std::io::ErrorKind::Unsupported => Err(
+            "A draft request needs random bytes for its id, which oso has only on Unix yet"
+                .to_owned(),
+        ),
+        Err(e) => Err(format!("Cannot make a request id: {e}")),
+    }
+}
+
 /// `text` with each run of backticks past [`MAX_TICKS`] cut to that many.
 fn short_ticks(text: &str) -> std::borrow::Cow<'_, str> {
     if !text.contains(&"`".repeat(MAX_TICKS + 1)) {
