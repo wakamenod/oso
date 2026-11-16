@@ -485,7 +485,7 @@ impl Editor {
 
     /// Closes the innermost prompt, with its window and its buffer, and selects the window it
     /// came from again.
-    fn close_innermost(&mut self) -> Option<Prompt> {
+    pub(super) fn close_innermost(&mut self) -> Option<Prompt> {
         // A passphrase's prompt is a buffer that may hold secrets going off the screen, so a
         // command running now says nothing more (ADR 0063).
         if self.prompts.last()?.kind == Kind::Passphrase {

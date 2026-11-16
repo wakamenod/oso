@@ -54,8 +54,22 @@ impl App {
         file: Option<&Path>,
         config: Option<&Path>,
     ) -> Result<Self, String> {
+        Self::start_with_env(exe, file, config, &[])
+    }
+
+    /// Starts `exe` as [`App::start_with_config`] does, with the environment variables `env`
+    /// set too, such as `CLAUDE_CONFIG_DIR` for a tree of transcripts of its own (ADR 0145).
+    pub fn start_with_env(
+        exe: &Path,
+        file: Option<&Path>,
+        config: Option<&Path>,
+        env: &[(&str, &Path)],
+    ) -> Result<Self, String> {
         let config_home = config_home(config)?;
         let mut command = process::command(exe);
+        for (name, value) in env {
+            command.env(name, value);
+        }
         // Where `oso_platform::privacy::config_home` looks.
         let variable = if cfg!(windows) {
             "APPDATA"

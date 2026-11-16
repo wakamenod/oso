@@ -259,6 +259,7 @@ impl Buffer {
             | Mode::GitStatus
             | Mode::GitGraph
             | Mode::GitLog
+            | Mode::Conversation
             | Mode::GitDiscarded
             | Mode::Sessions => false,
         };

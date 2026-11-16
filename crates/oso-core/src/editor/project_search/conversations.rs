@@ -229,7 +229,7 @@ impl Editor {
     }
 
     /// Whether the innermost prompt searches conversations.
-    fn searches_conversations(&self) -> bool {
+    pub fn searches_conversations(&self) -> bool {
         self.searches_project() && self.project_search.conversations.is_some()
     }
 
@@ -253,6 +253,10 @@ impl Editor {
         let Some(conversations) = self.project_search.conversations.as_mut() else {
             return false;
         };
+        // With one scope, there is no other to search.
+        if conversations.scopes.len() < 2 {
+            return true;
+        }
         conversations.at = (conversations.at + 1) % conversations.scopes.len().max(1);
         let label = label(conversations.scope());
         if let Some(prompt) = self.prompts.last_mut() {
@@ -331,6 +335,31 @@ impl Editor {
             scopes.push(ConversationScope::within(label, roots, Vec::new()));
         }
         scopes
+    }
+
+    /// The selected row of the innermost prompt, if it searches conversations: its session
+    /// and message, which `C-RET` reads and `M-RET` forks (ADR 0145, step 2).
+    pub fn selected_conversation(&self) -> Option<ConversationHit> {
+        if !self.searches_conversations() {
+            return None;
+        }
+        let item = self.prompts.last()?.candidates()?.selected_item()?;
+        match &self.project_search.places.get(item)?.to {
+            To::Message { session, message } => Some(ConversationHit {
+                session: session.clone(),
+                message: *message,
+            }),
+            To::File { .. } => None,
+        }
+    }
+
+    /// Closes the innermost prompt if it searches conversations, as `C-g` would, and gives
+    /// its selected row, which `C-RET` reads and `M-RET` forks (ADR 0145, step 2). None, and
+    /// the prompt stays, with no row selected.
+    pub fn close_conversation_search(&mut self) -> Option<ConversationHit> {
+        let hit = self.selected_conversation()?;
+        self.close_innermost();
+        Some(hit)
     }
 
     /// The conversation's row the last search's `RET` took, once.

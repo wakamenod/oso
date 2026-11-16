@@ -258,6 +258,24 @@ pub fn markdown_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, markdown::MARKDOWN).unwrap_or_default()
 }
 
+/// The keymaps of `session-search`'s prompt, with every completing prompt's keys, and of a
+/// `*conversation: NAME*` buffer, above the global one there (ADR 0145). Empty for a registry
+/// without their commands, as in tests that bring their own.
+pub fn conversation_keymaps(registry: &Registry) -> [Keymap; 2] {
+    let keymap = |table: &[(&str, &str)]| Keymap::from_table(registry, table).unwrap_or_default();
+    let mut search: Vec<(&str, &str)> = [minibuffer::MINIBUFFER, complete::COMPLETION]
+        .concat()
+        .into_iter()
+        .filter(|(key, _)| {
+            !agent_sessions::CONVERSATION_SEARCH
+                .iter()
+                .any(|(ours, _)| ours == key)
+        })
+        .collect();
+    search.extend_from_slice(agent_sessions::CONVERSATION_SEARCH);
+    [keymap(&search), keymap(agent_sessions::CONVERSATION)]
+}
+
 /// The keymaps of a `*Brief*` buffer and of a `*Worktrees*` buffer, above the global one there
 /// (ADR 0121). Empty for a registry without their commands, as in tests that bring their own.
 pub fn worktree_keymaps(registry: &Registry) -> [Keymap; 2] {
@@ -413,6 +431,29 @@ mod tests {
         assert_eq!(rigid_keymap(&registry).len(), indent::RIGID.len());
         assert_eq!(markdown_keymap(&registry).len(), markdown::MARKDOWN.len());
         assert_eq!(rigid_commands(&registry).len(), indent::RIGID.len());
+    }
+
+    #[test]
+    fn the_conversation_keymaps_bind_their_rows_over_completions() {
+        let registry = commands::registry();
+        let [search, view] = super::conversation_keymaps(&registry);
+        let ours = [
+            (&search, agent_sessions::CONVERSATION_SEARCH),
+            (&view, agent_sessions::CONVERSATION),
+            (
+                &search,
+                &[("C-n", "next-completion"), ("RET", "exit-minibuffer")][..],
+            ),
+        ];
+        for (keymap, table) in ours {
+            for (keys, name) in table {
+                let keys: KeySequence = keys.parse().unwrap();
+                let Some(Binding::Command(id)) = keymap.lookup(&keys.0) else {
+                    panic!("{keys} is not bound to a command");
+                };
+                assert_eq!(registry.get(id).unwrap().name, *name);
+            }
+        }
     }
 
     #[test]

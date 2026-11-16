@@ -94,8 +94,8 @@ agent tool.
 
 - **Every conversation on this machine by default:** every transcript of this user under
   Claude Code's `projects` directory, of every project, open in oso or not.
-- **`C-c C-s` in the float cycles the scope** (`session-search-scope`, bound in every prompt,
-  where it says "Not searching conversations" elsewhere): all, then the space in front (if one is), then
+- **`C-c C-s` in the float cycles the scope** (`session-search-scope`, a key of the float's
+  own keymap, as built in step 2; step 1 bound it in every prompt): all, then the space in front (if one is), then
   the selected buffer's project (if it has one), then all again. The label names it:
   `Search conversations (space oso-2):`, `Search conversations (project oso):`. The input stays
   and the search starts again.
@@ -230,7 +230,61 @@ agent tool.
 
 1. The float, the scopes and `RET` (this ADR's first pull request).
 2. The read-only view on `C-RET`, the fork on `M-RET`, and a `just perf` flow over a generated
-   2 GiB tree with the budgets above.
+   2 GiB tree with the budgets above. As built, the flow's tree is 512 MiB (see "Step 2, as
+   built").
+
+## Step 2, as built
+
+The author chose the recommended answer to each question of the step's plan (2026-11-16,
+through the coordinator): a whole read for the view, a small mode of its own, a fork with no
+question, the directory kept in view by trimming rows, a 512 MiB tree recorded with no
+threshold, and no view carried over a restart.
+
+- **The float's own keymap.** `session-search`'s prompt has a keymap over completion's:
+  `C-c C-s` (`session-search-scope`), `C-RET` (`session-search-read`) and `M-RET`
+  (`session-search-fork`), in place of completion's `M-RET`, as a search's input is no answer.
+  `C-c C-s` is no longer bound in every prompt. With one scope only, it does nothing.
+- **`C-RET` reads the selected row's conversation** into `*conversation: ID*`, named by its
+  session id's first 8 digits, never its title or prompt, as every buffer's name reaches the
+  agent channel's `state`. It is an internal buffer of a new mode, `Conversation`, one per
+  conversation and read again when opened again:
+  - The history thread reads the transcript again whole, prompts and replies only, each
+    whole, up to 8 MiB counted with 256 bytes a message and 16 a line, so a message of line
+    breaks alone cannot make millions of lines; the reading stops at that bound
+    (`held::read_whole`). A conversation the search holds only part of is read in full.
+  - The history thread also builds its rope and display model (`load::decode_all`), which the
+    UI thread takes in O(1) (`Buffer::apply_load`), as the emergency copies' list does.
+  - A header names its directory whole, `(gone)`, or that oso cannot tell where it ran; its
+    session's id, age and number of messages; what was left out past 8 MiB; and the view's
+    keys. Then each message, its mark on its first line only, a blank line between. Point goes
+    to the row's message.
+  - It is withheld from agents (`Buffer::withhold_from_agents`), never saved, and, as an
+    internal buffer, never handed over in a restart (ADR 0051). Nothing of it is logged.
+  - Its keys: `n` and `p` the next and previous message (`Look`); `r` goes to the session as
+    `RET` in the search does, `f` forks it, `g` reads it again at the message point is in
+    (`Person`); `q` quits the window. Messages are found by a line break and a mark, read from
+    the rope's chunks as bytes once, with nothing allocated: a key costs one pass over what
+    lies between point and the message it goes to, and `r`, `f` and `g` one over what lies
+    before point, at most the view's 8 MiB. The session is read from the header's `session`
+    line, which oso wrote; a message's later lines are indented, so none can be taken for it.
+- **One conversation an id.** Two transcripts of one id would give a row of one and act on the
+  other; the listing keeps the newest only.
+- **`M-RET` and `f` fork** the conversation: `claude --resume ID --fork-session` as a new
+  hosted session, through `session-fork`'s start. A hosted session forks as `session-fork`
+  forks it; another in the directory its transcript is found from, refused when that is gone
+  or unknown. One that runs elsewhere is forked: the copy goes on apart. No question is asked.
+- **RET on a gone row** now says that `C-RET` reads it.
+- **The preview keeps its directory line in view:** `Excerpt::wrapped` takes the preview's rows
+  and how many lines to keep at its top, and leaves out whole rows after them, a `…` row in
+  their place, so that the match is at most halfway down and the preview starts at the top.
+- **`just perf`'s `conversations` flow** writes 1,000 transcripts of 512 KiB, about 1% of them
+  prompts and replies, and records `conversation_search_first_rows_ms`,
+  `conversation_search_cold_ms`, `conversation_search_warm_ms` and
+  `conversation_search_key_p99_ms`, with no threshold yet. Its registration is two lines of
+  `examples/perf/bench.rs`, approved by the author.
+- **New public items:** `SessionRequest::ReadConversation` and `ForkConversation`,
+  `Mode::Conversation`, `Editor::selected_conversation`, `close_conversation_search` and
+  `searches_conversations`; `Excerpt::wrapped` takes the rows and the lines kept.
 
 ## Changes to accepted ADRs
 

@@ -54,6 +54,38 @@ impl App {
                 }
             },
         };
+        self.fork_from(from);
+    }
+
+    /// Forks the conversation of `id` that `session-search` found (ADR 0145, step 2): a hosted
+    /// session's as `session-fork` forks it, else in `directory`, where its transcript is found,
+    /// placed by the open project that holds it, and named after `name` or the directory.
+    pub(in crate::app) fn fork_conversation(
+        &mut self,
+        id: SessionId,
+        directory: PathBuf,
+        name: Option<&str>,
+    ) {
+        let from = match self.hosting.table.iter().find(|session| session.id == id) {
+            Some(session) => ForkFrom::of(session),
+            None => {
+                let root = self
+                    .project_holding(&directory)
+                    .and_then(|project| self.editor.project(project))
+                    .map(|project| project.root().to_path_buf());
+                ForkFrom {
+                    id,
+                    name: super::adopt::base_of(name, &directory),
+                    directory,
+                    root,
+                }
+            }
+        };
+        self.fork_from(from);
+    }
+
+    /// Starts a new hosted session that resumes `from`'s conversation under a new id.
+    fn fork_from(&mut self, from: ForkFrom) {
         let ForkFrom {
             id: from,
             directory,

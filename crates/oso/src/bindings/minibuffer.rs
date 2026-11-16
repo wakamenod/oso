@@ -13,8 +13,6 @@ pub const MINIBUFFER: &[(&str, &str)] = &[
     ("M-n", "next-history-element"),
     // Right after a yank, the next older kill: no list opens over a prompt (ADR 0091).
     ("M-y", "yank-pop"),
-    // `session-search`'s next scope (ADR 0145); elsewhere it says it is not searching.
-    ("C-c C-s", "session-search-scope"),
 ];
 
 /// The keys of a review comment's draft, above the global keymap (ADR 0122): `RET` breaks a
