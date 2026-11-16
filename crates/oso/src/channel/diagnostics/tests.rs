@@ -18,6 +18,11 @@ use std::sync::Arc;
 
 use super::{ANSWER_BYTES, FileReport, MAX_ENTRIES, MESSAGE_BYTES, server_text, start};
 
+/// A judge of files that takes those named `conf.ts` to lead to a secret file, as a link may.
+fn secret_file(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| name == "conf.ts")
+}
+
 /// The answer to `of`, with `files` as the project's servers' reports.
 fn diagnostics(
     editor: &Editor,
@@ -35,7 +40,7 @@ fn diagnostics(
             })
             .collect()
     };
-    start(editor, &reports, of).map(|job| job.run())
+    start(editor, &reports, secret_file, of).map(|job| job.run())
 }
 use crate::channel::protocol::DiagnosticsOf;
 
@@ -315,4 +320,26 @@ fn a_project_s_leave_out_buffers_withheld_and_their_files_reports_and_escape_pat
     );
     assert!(!answer.to_string().contains("quoted"));
     assert_eq!(answer["more"], 0, "what is left out is not counted either");
+}
+
+#[test]
+fn a_file_whose_judge_says_it_may_hold_secrets_gives_nothing() {
+    let mut editor = Editor::with_buffer(visiting("/w/oso/a.rs", "x\n"));
+    let first = editor.tiled().0.buffer();
+    in_project(&mut editor, first);
+    let (linked, plain) = (
+        file_report(&[(0, 0, Severity::Error)]),
+        file_report(&[(1, 0, Severity::Error)]),
+    );
+    let files = [
+        ("/w/oso/src/conf.ts", &linked, Encoding::Utf16),
+        ("/w/oso/src/plain.ts", &plain, Encoding::Utf16),
+    ];
+    let of = DiagnosticsOf {
+        buffer: None,
+        project: true,
+    };
+    let answer = diagnostics(&editor, &files, of).unwrap();
+    assert_eq!(places(&answer), [("plain.ts".into(), 2, 1)]);
+    assert_eq!(answer["more"], 0);
 }

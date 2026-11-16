@@ -23,7 +23,10 @@
 //! - Never of a buffer that may hold secrets, or one withheld from agents or still opening, as
 //!   `text` refuses them; such buffers, and the servers' reports of their files, are left out of
 //!   a project's too. The servers' reports of files whose names may hold secrets were dropped
-//!   before they were kept (step 6a).
+//!   before they were kept (step 6a), by the name the server gave; the job's thread judges
+//!   where each file whose entries it gives really leads too, with the judge the app hands
+//!   over ([`SecretFile`]), and gives none of one that may hold secrets. The files counted
+//!   only, once the answer is full, are not judged: they give a count and nothing more.
 
 use std::collections::HashSet;
 use std::fmt::Write as _;
@@ -61,6 +64,11 @@ pub const PATH_BYTES_MAX: usize = 4096;
 /// Why a buffer that may hold secrets gives none, or one withheld from agents.
 const WITHHELD: &str = "the buffer may hold secrets, so its diagnostics stay in the editor";
 const PERSONS: &str = "only the person reads that buffer, so its diagnostics stay in the editor";
+
+/// Whether the file at a path may hold secrets, judged by where the path really leads, as the
+/// loader judges a buffer's: the app hands over its own, which this module, below the loader,
+/// does not name. It touches the file system, so only the job's thread calls it.
+pub type SecretFile = fn(&Path) -> bool;
 
 /// A server's report of a file no buffer holds, shared with the server's thread, with the
 /// encoding of its positions and the server's name.
@@ -133,11 +141,13 @@ pub struct DiagnosticsJob {
     /// The paths, as a URI reads back, of the open buffers the channel may not read, whose
     /// files' reports it leaves out.
     unread: HashSet<PathBuf>,
+    secret_file: SecretFile,
 }
 
 /// Checks what `of` asks for and takes a snapshot of it: the buffer's set, and with `project`
 /// the project's other open buffers' and what `files` gives of the reports of the project at a
-/// root. O(the open buffers' entries), with no answer made here.
+/// root. O(the open buffers' entries), with no answer made here: `secret_file` judges the
+/// files on the job's thread.
 ///
 /// # Errors
 ///
@@ -146,6 +156,7 @@ pub struct DiagnosticsJob {
 pub fn start(
     editor: &Editor,
     files: &dyn Fn(&Path) -> Vec<FileReport>,
+    secret_file: SecretFile,
     of: DiagnosticsOf,
 ) -> Result<DiagnosticsJob, String> {
     let (id, buffer) = match of.buffer {
@@ -166,6 +177,7 @@ pub fn start(
         open: Vec::new(),
         files: Vec::new(),
         unread: HashSet::new(),
+        secret_file,
     };
     if of.project {
         let root = buffer
@@ -249,7 +261,7 @@ impl DiagnosticsJob {
             for (_, source) in &sources {
                 match source {
                     Ordered::Open(open) => answer.open(open),
-                    Ordered::File(file) => answer.file(file),
+                    Ordered::File(file) => answer.file(file, self.secret_file),
                 }
             }
         } else if let Some(own) = &self.own {
@@ -322,11 +334,15 @@ impl Answer {
         }
     }
 
-    /// A file's entries, by line and column: once full, only counted.
-    fn file(&mut self, file: &FileReport) {
+    /// A file's entries, by line and column, none of a file `secret_file` says may hold
+    /// secrets: once full, only counted.
+    fn file(&mut self, file: &FileReport, secret_file: SecretFile) {
         let kept = || (file.report.diagnostics.iter()).filter(|r| r.severity != Severity::Hint);
         if self.full {
             self.total += kept().count();
+            return;
+        }
+        if secret_file(&file.path) {
             return;
         }
         let mut kept: Vec<_> = kept().collect();

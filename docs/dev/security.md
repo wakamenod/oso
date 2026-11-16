@@ -664,8 +664,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   escaped as above, the messages, sources and codes and the paths a server names alike, at most
   500 entries and 512 KiB, made off the UI thread. It refuses a buffer that may hold secrets or
   that only the person reads, as `text` does, and leaves such buffers, those an agent's open
-  still waits on, and the servers' reports of their files out of a project's. `state`'s
-  counts follow the same check.
+  still waits on, and the servers' reports of their files out of a project's. A file no buffer
+  holds is judged off the UI thread by where its path really leads, links and all, as the
+  loader judges a buffer's, so that a project's `conf.ts` linked to a credentials file gives
+  nothing. `state`'s counts follow the same check.
 - `*Session explain*` shows
   screen text and is withheld from the agent channel, which can neither read it nor switch to
   it; what the channel's commands say or kill while it is shown stays out of its reach.
