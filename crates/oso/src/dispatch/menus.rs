@@ -119,8 +119,9 @@ impl Dispatcher {
             return Effects::default();
         };
         log::debug!("menu {} opens", definition.name());
-        // Its key is one a search, a jump or the layer of `C-x TAB` does not bind, which ends
-        // them first (ADR 0117), so that the menu opens over none of them.
+        // Its key is one a search, a jump, the layer of `C-x TAB` or a server's description at
+        // point does not bind, which ends them first (ADR 0117), so that the menu opens over
+        // none of them.
         editor.isearch_exit();
         editor.replace_exit();
         editor.jump_end();

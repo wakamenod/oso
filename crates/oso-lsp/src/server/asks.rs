@@ -1,19 +1,24 @@
 //! What the UI asks a server about a document, and what comes back (ADR 0138, Go to definition
-//! and back, step 8): the definitions or references at a byte offset, and the completions there
-//! (step 9). Step 10 adds its kind here.
+//! and back, step 8): the definitions or references at a byte offset, the completions there
+//! (step 9), and the description of what is there (Hover, step 10).
 //!
 //! Must not depend on: the session's loop or the pipes; these are the values that cross
 //! between the UI and the session thread.
 //!
 //! - One ask of each kind for each document is in flight; a newer one cancels the older with
 //!   `$/cancelRequest`, and the older gets no answer.
-//! - Each waits at most its kind's wait ([`AskKind::wait`]); a run that ends fails what waits.
+//! - Each waits at most its kind's wait ([`AskKind::wait`]): a definition or references
+//!   [`DEFINITION_WAIT`], a completion or a description [`COMPLETION_WAIT`]; a run that ends
+//!   fails what waits.
 //! - An answer wakes the UI at once.
 
 use std::ops::Range;
 use std::path::PathBuf;
+use std::time::Duration;
 
+use crate::limits::{COMPLETION_WAIT, DEFINITION_WAIT};
 use crate::position::{Encoding, Position};
+use crate::protocol::Hover;
 
 /// What is asked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -22,8 +27,12 @@ pub enum AskKind {
     Definition,
     /// `textDocument/references`, the declaration included.
     References,
-    /// `textDocument/completion`, as the person asked (step 9).
+    /// `textDocument/completion`, as the person asked or typed (step 9).
     Completion,
+    /// `completionItem/resolve` of an item of the last completions (step 9b).
+    Resolve,
+    /// `textDocument/hover` (step 10).
+    Hover,
 }
 
 impl AskKind {
@@ -33,14 +42,16 @@ impl AskKind {
             Self::Definition => "textDocument/definition",
             Self::References => "textDocument/references",
             Self::Completion => "textDocument/completion",
+            Self::Resolve => "completionItem/resolve",
+            Self::Hover => "textDocument/hover",
         }
     }
 
     /// How long its answer is waited for (ADR 0138's table).
-    pub fn wait(self) -> std::time::Duration {
+    pub fn wait(self) -> Duration {
         match self {
-            Self::Definition | Self::References => crate::limits::DEFINITION_WAIT,
-            Self::Completion => crate::limits::COMPLETION_WAIT,
+            Self::Definition | Self::References => DEFINITION_WAIT,
+            Self::Completion | Self::Resolve | Self::Hover => COMPLETION_WAIT,
         }
     }
 
@@ -50,6 +61,8 @@ impl AskKind {
             Self::Definition => "definition",
             Self::References => "references",
             Self::Completion => "completion",
+            Self::Resolve => "resolve",
+            Self::Hover => "description",
         }
     }
 }
@@ -64,6 +77,21 @@ pub struct Ask {
     pub kind: AskKind,
     pub revision: u64,
     pub offset: usize,
+    pub context: AskContext,
+}
+
+/// What more an ask says (step 9b): nothing, for definitions and references; why completions
+/// are asked for; or, for a resolve, which item of which answer, by the completions' ask's
+/// serial and the item's place in its answer. A kind with the wrong context fails.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AskContext {
+    #[default]
+    None,
+    Completion(crate::protocol::Invoked),
+    Item {
+        answer: u64,
+        index: usize,
+    },
 }
 
 /// The answer to an [`Ask`], with its serial: what the server answered, or why there is
@@ -75,18 +103,53 @@ pub struct Answer {
     pub document: u64,
     pub kind: AskKind,
     pub revision: u64,
-    pub outcome: Result<Answered, String>,
+    pub outcome: Result<Answered, AskFailure>,
 }
 
-/// What a server answered, by what was asked. Steps 9b and 10 add theirs.
+/// Why an ask has no answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AskFailure {
+    /// No answer came within the kind's wait ([`AskKind::wait`]), and the ask was cancelled:
+    /// a person reads that the server did not answer.
+    Overdue,
+    /// Any other reason, as a person reads it. A server's own message may be in it: shown, never
+    /// logged.
+    Other(String),
+}
+
+/// What a server answered, by what was asked. Step 9b adds its own.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Answered {
     /// Definitions or references: at most [`LOCATIONS_MAX`](crate::limits::LOCATIONS_MAX)
     /// places, in the server's order.
     Places(Vec<Location>),
+    /// A description: the hover's text, or `None` for one that describes nothing.
+    Hover(Option<Hover>),
     /// Completions (step 9).
     Completion(Completions),
+    /// A resolved item's edits besides its own (step 9b).
+    Resolved(Resolved),
+}
+
+/// What an item's `completionItem/resolve` gave: the item, by its answer's serial and its place
+/// in it, and its edits besides its own, their ranges in bytes of the caller's text of
+/// `revision`. `Debug` gives the counts only.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Resolved {
+    pub answer: u64,
+    pub index: usize,
+    pub revision: u64,
+    pub extra: Vec<(Range<usize>, String)>,
+}
+
+impl std::fmt::Debug for Resolved {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Resolved")
+            .field("index", &self.index)
+            .field("extra", &self.extra.len())
+            .finish_non_exhaustive()
+    }
 }
 
 /// The completions an answer offers, at most
@@ -121,6 +184,8 @@ pub struct Completion {
     pub filter: Option<String>,
     pub text: String,
     pub range: Option<Range<usize>>,
+    /// Its edits besides its own, if the answer gave them, in bytes of the same text (9b).
+    pub extra: Vec<(Range<usize>, String)>,
 }
 
 /// A place an answer names: a file, by the path its `file:` URI reads as, and where in it.

@@ -118,6 +118,7 @@ fn initializes_without_connecting_and_lists_its_tools() {
         [
             "state",
             "text",
+            "diagnostics",
             "commands",
             "session_list",
             "session_state",
@@ -136,7 +137,7 @@ fn initializes_without_connecting_and_lists_its_tools() {
     let hint = |name: &str, hint: &str| {
         tools.iter().find(|tool| tool["name"] == name).unwrap()["annotations"][hint].clone()
     };
-    for read in ["state", "text", "commands"] {
+    for read in ["state", "text", "commands", "diagnostics"] {
         assert_eq!(hint(read, "readOnlyHint"), true, "{read}");
     }
     assert_eq!(hint("look", "readOnlyHint"), false);
@@ -191,6 +192,10 @@ fn tools_become_the_channels_methods_with_their_reach() {
     );
     response(&mut bridge, &call("state", &json!({})));
     response(&mut bridge, &call("cancel", &json!({})));
+    response(
+        &mut bridge,
+        &call("diagnostics", &json!({ "buffer": 2, "project": true })),
+    );
     let calls = asked.borrow().calls.clone();
     let run = |name: &str, arg: Value, reach: &str| {
         (
@@ -206,6 +211,13 @@ fn tools_become_the_channels_methods_with_their_reach() {
     );
     assert_eq!(calls[3].0, "state");
     assert_eq!(calls[4], ("cancel".to_owned(), json!({})));
+    assert_eq!(
+        calls[5],
+        (
+            "diagnostics".to_owned(),
+            json!({ "buffer": 2, "project": true })
+        )
+    );
     assert_eq!(asked.borrow().connects, 1, "one connection for all");
 }
 

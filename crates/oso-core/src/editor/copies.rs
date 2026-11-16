@@ -186,6 +186,7 @@ impl Editor {
             | Mode::GitGraph
             | Mode::GitCommit
             | Mode::GitLog
+            | Mode::Conversation
             | Mode::GitDiscarded
             | Mode::Sessions => {}
             Mode::CopyList => self.leave_internal(),

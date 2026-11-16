@@ -45,6 +45,7 @@ impl Language {
             | Mode::GitGraph
             | Mode::GitCommit
             | Mode::GitLog
+            | Mode::Conversation
             | Mode::GitDiscarded
             | Mode::Sessions => None,
         }

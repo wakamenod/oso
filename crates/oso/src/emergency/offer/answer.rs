@@ -122,6 +122,7 @@ impl Offer {
             | Mode::GitGraph
             | Mode::GitCommit
             | Mode::GitLog
+            | Mode::Conversation
             | Mode::GitDiscarded
             | Mode::Sessions => None,
             Mode::CopyList => {

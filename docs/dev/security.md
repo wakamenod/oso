@@ -584,13 +584,20 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     how many. `app/vcs/draft.rs` is one of the tools' files the guard test keeps from
     terminals, and none of them may call `send_to_session`.
 - Worktree sessions run git and `gh` only for a trusted project whose main repository is
-  trusted too, on `oso-sessions-git`, through `oso-platform::process`
+  trusted too, on `oso-sessions-git` (a removal's `git worktree remove` on
+  `oso-sessions-remove`), through `oso-platform::process`
   ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 4).
   - Each job checks the project's trust when it runs, and a worktree being made between its
     steps: a project no longer trusted, or whose root is no longer the directory that was
     trusted, runs no git.
   - Every git run has no hook and no file system monitor of the repository's, as a review's
-    has, `git worktree add` included. It fetches nothing and is killed after 10 s.
+    has, `git worktree add` included. It fetches nothing and is killed after 10 s, except a
+    removal's `git worktree remove`: it runs only after every check held, has no time limit,
+    and oso never stops it, as a kill would leave the worktree half removed. Revoking the
+    project's trust does not end it either. It runs in a session of its own with no
+    controlling terminal, so what it starts cannot wait on the terminal oso was started from.
+    While it runs, its worktree is held: a second removal of it, its checks and a session
+    started in it are refused, and at most 4 removals run at once.
   - A linked worktree is run in only once its claim and the main repository's record of it
     hold, with `GIT_DIR` and `GIT_WORK_TREE` given.
   - `gh` runs in an empty private directory and names the repository with `--repo`, so it runs
@@ -660,6 +667,20 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   - A message's sender is read from a line of the screen, which any program in the terminal
     can print. It only sets the row's note and the session `session-follow-message` shows, and
     authorises nothing.
+  - A language server's diagnostics go as its text, which a dependency's author may write to
+    steer the agent ([ADR 0138](adr/0138-language-servers.md), step 11): every control, bidi or
+    invisible character in it is written as `\u{…}`. `session-send-diagnostics` sends each
+    one's first line; `session-fix-error` puts the whole message, at most 2 KiB, in a fence of
+    its own under a line saying a language server wrote it, so that it cannot pass as the lines
+    or the ask that follow. Neither sends anything of a buffer that may hold secrets.
+- The agent channel's `diagnostics` (ADR 0138, step 11) gives the servers' text to the agent
+  escaped as above, the messages, sources and codes and the paths a server names alike, at most
+  500 entries and 512 KiB, made off the UI thread. It refuses a buffer that may hold secrets or
+  that only the person reads, as `text` does, and leaves such buffers, those an agent's open
+  still waits on, and the servers' reports of their files out of a project's. A file no buffer
+  holds is judged off the UI thread by where its path really leads, links and all, as the
+  loader judges a buffer's, so that a project's `conf.ts` linked to a credentials file gives
+  nothing. `state`'s counts follow the same check.
 - `*Session explain*` shows
   screen text and is withheld from the agent channel, which can neither read it nor switch to
   it; what the channel's commands say or kill while it is shown stays out of its reach.

@@ -1,4 +1,4 @@
-//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8, 8b and 9), on the UI thread: which server a
+//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8, 8b, 9 and 10), on the UI thread: which server a
 //! buffer's open would start, starting one for a project's root and entry, what the commands
 //! ask, what each server's thread reports, the modeline's marks, and the ends that trust, the
 //! configuration and a quit bring. One server runs per root and entry. The UI thread never
@@ -13,6 +13,7 @@ mod complete;
 mod diagnostics;
 mod documents;
 mod find;
+mod hover;
 mod places;
 mod xrefs;
 
@@ -51,6 +52,8 @@ pub(super) struct Servers {
     listing: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// The list of a server's places, built or shown (step 8b).
     xrefs: xrefs::Lists,
+    /// Where the person's typing asks for completions once it has rested, and when (step 9b).
+    typing_rest: Option<(oso_core::editor::AskAt, std::time::Instant)>,
 }
 
 /// `path` in the form a server's URI of it reads back as, as the places and reports of servers
@@ -82,6 +85,8 @@ struct Running {
     joined: places::Joined,
     /// The reports of files no document open with it holds, for `M-g d` (step 6b).
     files: diagnostics::Files,
+    /// What it said of its completions once initialized (step 9b).
+    completing: Option<oso_lsp::protocol::Completing>,
 }
 
 impl Servers {
@@ -168,6 +173,7 @@ impl App {
                     asked: HashMap::new(),
                     joined: places::Joined::default(),
                     files: diagnostics::Files::default(),
+                    completing: None,
                 });
                 // Its project's buffers go to it, once it is ready, but the agent's
                 // (ADR 0118).
@@ -202,12 +208,18 @@ impl App {
                 ServerRequest::References(at) => {
                     self.lsp_ask(at, oso_lsp::server::AskKind::References, agent);
                 }
+                // The person's only: the command is `Person` (step 10).
+                ServerRequest::Describe(at) => {
+                    self.lsp_ask(at, oso_lsp::server::AskKind::Hover, None);
+                }
                 ServerRequest::GoToXref => self.go_to_xref(),
                 ServerRequest::Complete(at) => {
                     self.lsp_ask(at, oso_lsp::server::AskKind::Completion, agent);
                 }
             }
         }
+        // After the edits went to the server: what the person typed may ask by itself.
+        self.complete_as_typed();
     }
 
     /// `lsp-start`, or `lsp-restart` if `again`.
@@ -347,6 +359,7 @@ impl App {
                 said = true;
             }
             answers.extend(report.answers.into_iter().map(|answer| (index, answer)));
+            running.completing = report.completing.or(running.completing.take());
             if report.state == State::Ended {
                 ended.push(index);
             }

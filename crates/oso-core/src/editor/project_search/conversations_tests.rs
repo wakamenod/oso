@@ -201,7 +201,12 @@ fn the_preview_asks_for_the_rows_conversation_once_and_shows_what_came() {
         editor.take_conversation_preview_request().is_none(),
         "once a row"
     );
-    let excerpt = Excerpt::wrapped("› find it\n  the needle is here", preview.columns, (1, 6));
+    let excerpt = Excerpt::wrapped(
+        "› find it\n  the needle is here",
+        preview.columns,
+        (preview.rows, 0),
+        (1, 6),
+    );
     editor.preview_read(preview.generation, FilePreviewRead::Text(excerpt));
     assert!(matches!(editor.preview(), Some(Preview::Excerpt { .. })));
 }

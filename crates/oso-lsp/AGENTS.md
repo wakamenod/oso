@@ -13,6 +13,9 @@ late report against the version it names and map it forward (`server/documents.r
 hands the UI the kept report of each file no open document holds (`Diagnosed::File`, shared),
 with an empty one for each the store lets go, for a file once its document opens, and
 `Diagnosed::Forgotten` at a run's end; the outbox keeps the latest of each document and file.
+Step 8 asks about documents (`server/asks.rs`, `session/asks.rs`) and reads definitions
+(`protocol/located.rs`); step 10 asks for a description, `textDocument/hover`, and reads it
+within its bounds (`protocol/hover.rs`).
 
 - May depend on `oso-core` and `oso-platform` only; only the tip crate depends on it. Module
   layers are in `guardrails/layers.txt` (`[oso-lsp]`). No new dependency: JSON is
@@ -27,10 +30,12 @@ with an empty one for each the store lets go, for a file once its document opens
 - A position a server sends is clamped, never trusted; a URI is read only if it names a
   local absolute path in normal form. The rules for Windows are plain functions of text, so
   macOS and Linux test them too.
-- The UI's asks (step 8's definitions and references, step 9's completions) go to one request
-  per document and kind, a newer one cancelling the older, each with its kind's wait
-  (`server/asks.rs`, `server/session/asks.rs`); an answer's places and ranges are placed in the
-  text the server has, and a completion's range is kept only around the place asked about.
+- The UI's asks (step 8's definitions and references, step 9's completions and resolves) go to
+  one request per document and kind, a newer one cancelling the older, each with its kind's
+  wait and its `AskContext` (`server/asks.rs`, `server/session/asks.rs`); an answer's places
+  and ranges are placed in the text the server has, a completion's range kept only around the
+  place asked about, and a resolve's edits in the text it was asked in. The last completions'
+  items are kept, as the server gave them, only while it resolves.
 - Nothing here writes a message's contents to a log line or the disk: errors say where and
   what kind, never what a message held.
 - A server spawns only through `oso-platform::process`, in a process group of its own, on its

@@ -253,8 +253,7 @@ impl Session {
         let pipes = match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
             (Some(stdin), Some(stdout), Some(stderr)) => (stdin, stdout, stderr),
             _ => {
-                let _ = child.kill();
-                let _ = child.wait();
+                reap(&mut child);
                 return Err(io::Error::other("the process has no pipes"));
             }
         };
@@ -263,8 +262,7 @@ impl Session {
         let (writer, credit, stderr) = match started {
             Ok(threads) => threads,
             Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                reap(&mut child);
                 return Err(error);
             }
         };
@@ -299,6 +297,8 @@ impl Session {
                 change: protocol::SyncKind::None,
                 save: false,
             },
+            resolves: false,
+            last_items: None,
         };
         let root_uri = uri::from_path(&start.root).unwrap_or_default();
         let root_name = start
@@ -555,4 +555,10 @@ fn spawn_server(
         pass_fd: None,
         args_logged: true,
     })
+}
+
+/// Ends a child whose start went no further, and waits for it.
+fn reap(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }

@@ -165,8 +165,7 @@ pub struct Buffer {
     save_over: Option<FileStamp>,
     /// The file was found gone, or no longer a file, and nothing has written it since.
     gone_from_disk: bool,
-    /// What was last seen of the file that differs from the baseline, and what came of it, so
-    /// that each thing seen is acted on once (ADR 0083).
+    /// What was last seen of the file unlike the baseline, and what came of it (ADR 0083).
     disk_acted: Option<(DiskState, reload::Noticed)>,
     /// The file could not be read again since it changed, and a new look tries again.
     reload_failed: bool,
@@ -174,6 +173,8 @@ pub struct Buffer {
     internal: bool,
     /// An internal buffer that takes typing, as a prompt's does (ADR 0072).
     takes_typing: bool,
+    /// An internal buffer highlighted as its mode says: a server's description (ADR 0138).
+    highlights_as_mode: bool,
     /// Edits keep no undo record, so that no copy of the text stays in one.
     no_history: bool,
     /// Which keys it takes.
@@ -198,8 +199,7 @@ pub struct Buffer {
     /// The directory a terminal's program last said it is in (OSC 7), which only a prompt for
     /// a path starts at: no buffer made from it and no process takes it (ADR 0141).
     reported_directory: Option<PathBuf>,
-    /// Changes whenever the name or the path does, so that what is kept of them elsewhere,
-    /// such as an emergency entry, can tell (ADR 0062, ADR 0087).
+    /// Changes whenever the name or the path does, for what keeps them (ADR 0062, ADR 0087).
     naming: u32,
     /// A copy's text was put in, until its copy has gone.
     recovery: Option<recovery::RecoveryMark>,
@@ -282,6 +282,7 @@ impl Buffer {
             reload_failed: false,
             internal: false,
             takes_typing: false,
+            highlights_as_mode: false,
             no_history: false,
             mode: Mode::Fundamental,
             indent: Settings::default(),

@@ -35,6 +35,16 @@ impl Documents {
         Some((kept.sent_revision()?, &kept.text))
     }
 
+    /// The text of document `id` the caller gave as `revision`, if it is still kept and the
+    /// server had it (step 9b: a resolve's ranges are placed against the text it was asked in).
+    pub(in crate::server) fn given_text(&self, id: u64, revision: u64) -> Option<&Rope> {
+        let kept = self.0.get(&id)?;
+        kept.sent_revision()?;
+        (kept.given.iter())
+            .find(|given| given.revision == revision && given.version.is_some())
+            .map(|given| &given.text)
+    }
+
     /// The documents whose text the server has, by path: each one's id, the caller's revision
     /// of that text, and the text.
     pub(in crate::server) fn sent_by_path(&self) -> HashMap<&Path, (u64, u64, &Rope)> {

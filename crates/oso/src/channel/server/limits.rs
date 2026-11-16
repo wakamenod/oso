@@ -36,7 +36,7 @@ impl Gate {
     }
 
     /// Whether a connection may ask now, and if so notes that it does.
-    pub(super) fn may_ask(&mut self, now: Instant) -> Result<(), &'static str> {
+    fn may_ask(&mut self, now: Instant) -> Result<(), &'static str> {
         self.prune(now);
         if self.refused_until.is_some_and(|until| now < until) {
             return Err("the person refused an agent a moment ago; try again later");
@@ -52,8 +52,9 @@ impl Gate {
         Ok(())
     }
 
-    /// The person answered the waiting connection, or it went.
-    pub(super) fn answered(&mut self, refused: bool, now: Instant) {
+    /// The waiting connection's question ended: the person answered, it went, or it could not
+    /// be asked.
+    fn answered(&mut self, refused: bool, now: Instant) {
         self.waiting = false;
         if refused {
             self.refused_until = Some(now + REFUSED_FOR);
@@ -63,6 +64,40 @@ impl Gate {
 
 pub(super) fn gate(shared: &Shared) -> MutexGuard<'_, Gate> {
     shared.gate.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The one connection's turn to wait for the person's answer (ADR 0085: one waits at a time).
+/// Only its holder gives it back, once: with whether the person refused, or, dropped on any
+/// other way out (a panic too), as no refusal.
+pub(super) struct Waiting<'a> {
+    shared: &'a Shared,
+    given_back: bool,
+}
+
+impl<'a> Waiting<'a> {
+    /// The turn, if a connection may ask now; else why not.
+    pub(super) fn take(shared: &'a Shared, now: Instant) -> Result<Self, &'static str> {
+        gate(shared).may_ask(now)?;
+        Ok(Self {
+            shared,
+            given_back: false,
+        })
+    }
+
+    /// Gives the turn back as the question ended: `refused` if the person said no, which holds
+    /// new connections off for a while.
+    pub(super) fn answered(mut self, refused: bool) {
+        self.given_back = true;
+        gate(self.shared).answered(refused, Instant::now());
+    }
+}
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        if !self.given_back {
+            gate(self.shared).answered(false, Instant::now());
+        }
+    }
 }
 
 /// One of a bounded number of slots, given back when dropped.

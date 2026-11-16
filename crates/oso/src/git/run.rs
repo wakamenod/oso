@@ -3,7 +3,8 @@
 //! run past [`RUN_LIMIT`] killed.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs on a review's
-//! thread, `oso-review`, on the worktree jobs' threads, `oso-sessions-git`, on a status's,
+//! thread, `oso-review`, on the worktree jobs' threads, `oso-sessions-git`, on a worktree
+//! removal's, `oso-sessions-remove`, on a status's,
 //! `oso-vcs`, and on a repository's run thread, `oso-vcs-run`, and waits for git.
 //!
 //! - Every run starts `git --no-pager -c core.quotePath=false -c core.fsmonitor=false
@@ -26,7 +27,9 @@
 //! - Its output is read on threads of their own, `oso-git-read` and `oso-git-write` (`collect`),
 //!   and a run past [`RUN_LIMIT`] is killed and left: a process git started may still hold its output
 //!   open, and the caller does not wait for it. A write that must not be cut short runs with
-//!   no limit instead, in a group of its own that can be stopped (`long`).
+//!   no limit instead, in a group of its own that can be stopped (`long`); a worktree's
+//!   removal runs that way in a session of its own ([`Git::detached`]), and oso never stops
+//!   it (ADR 0121, "Worktree removal, as fixed").
 //! - A run may let the repository's own hooks run ([`Git::with_own_hooks`]), for a commit,
 //!   with the variables a hook needs; a push, a pull or a fetch gets the proxies too, and runs
 //!   with no controlling terminal ([`Git::for_remote`]).
@@ -160,6 +163,11 @@ pub(crate) struct Git {
     /// It talks to a remote: it gets the proxies, and a long run starts in a session of its
     /// own with no controlling terminal (ADR 0127, step 2).
     remote: bool,
+    /// A long run starts in a session of its own with no controlling terminal, as a remote's
+    /// does, without the proxies: for a worktree's removal, which nothing stops (ADR 0121).
+    detached: bool,
+    /// How long a bounded run may take: [`RUN_LIMIT`], or less in a test.
+    limit: Duration,
 }
 
 impl Git {
@@ -184,6 +192,8 @@ impl Git {
             pass: Vec::new(),
             worktree: None,
             remote: false,
+            detached: false,
+            limit: RUN_LIMIT,
         })
     }
 
@@ -209,6 +219,25 @@ impl Git {
         Git {
             remote: true,
             ..self.with_own_hooks(pass)
+        }
+    }
+
+    /// The same git, whose long runs start in a session of their own with no controlling
+    /// terminal: what it starts that opens the terminal fails at once instead of stopping, and
+    /// closing the terminal oso was started from sends it nothing.
+    pub(crate) fn detached(&self) -> Git {
+        Git {
+            detached: true,
+            ..self.clone()
+        }
+    }
+
+    /// The same git, whose bounded runs are killed after `limit` instead of [`RUN_LIMIT`].
+    #[cfg(all(test, unix))]
+    pub(crate) fn with_limit(&self, limit: Duration) -> Git {
+        Git {
+            limit,
+            ..self.clone()
         }
     }
 
@@ -314,8 +343,8 @@ impl Git {
             stdin,
             stdout: Sink::Piped,
             stderr,
-            own_process_group: group && !self.remote,
-            own_session: group && self.remote,
+            own_process_group: group && !(self.remote || self.detached),
+            own_session: group && (self.remote || self.detached),
             set: &variables,
             terminal: None,
             pass_fd: None,
@@ -351,7 +380,7 @@ impl Git {
             Source::Closed
         };
         let child = self.start(args, set, stdin, Sink::Piped)?;
-        collect(child, input, read)
+        collect(child, input, read, self.limit)
     }
 
     /// Runs git and gives its output if it succeeded and fit in `limit`.

@@ -27,6 +27,7 @@ struct Seen {
     documents: Vec<(u64, Option<oso_lsp::server::Closed>)>,
     diagnosed: Vec<oso_lsp::server::Diagnosed>,
     answers: Vec<oso_lsp::server::Answer>,
+    completing: Option<oso_lsp::protocol::Completing>,
     dir: PathBuf,
 }
 
@@ -82,6 +83,7 @@ fn started(name: &str, script: &Value, gate: Gate) -> Seen {
         documents: Vec::new(),
         diagnosed: Vec::new(),
         answers: Vec::new(),
+        completing: None,
         dir,
     }
 }
@@ -113,6 +115,9 @@ impl Seen {
         self.documents.extend(report.documents);
         self.diagnosed.extend(report.diagnostics);
         self.answers.extend(report.answers);
+        if report.completing.is_some() {
+            self.completing = report.completing;
+        }
     }
 
     /// Waits up to `limit` for `done`, taking each report.
@@ -490,6 +495,7 @@ fn a_crash_ends_what_the_server_left_in_its_group() {
         documents: Vec::new(),
         diagnosed: Vec::new(),
         answers: Vec::new(),
+        completing: None,
         dir,
     };
     seen.until(LIMIT, |seen| {
@@ -1089,6 +1095,12 @@ fn ask(seen: &Seen, kind: oso_lsp::server::AskKind, offset: usize) {
         kind,
         revision: 7,
         offset,
+        context: match kind {
+            oso_lsp::server::AskKind::Completion => {
+                oso_lsp::server::AskContext::Completion(oso_lsp::protocol::Invoked::Invoked)
+            }
+            _ => oso_lsp::server::AskContext::None,
+        },
     });
 }
 
@@ -1218,6 +1230,81 @@ fn completions_are_asked_at_their_position_and_their_ranges_placed_in_the_open_t
 }
 
 #[test]
+fn an_item_is_resolved_as_the_server_gave_it_and_its_edits_placed_in_the_open_text() {
+    use oso_lsp::server::{Answered, AskContext, AskKind};
+    let dir = scratch("resolve");
+    let here = oso_lsp::uri::from_path(&dir.join("a.rs")).unwrap();
+    let at = |line: u32, character: u32| json!({"line": line, "character": character});
+    let script = json!({
+        "rules": [
+            {"method": "initialize", "do": [{"reply": {"capabilities": {
+                "positionEncoding": "utf-16",
+                "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+                "completionProvider": {"triggerCharacters": ["."], "resolveProvider": true},
+            }}}]},
+            {"method": "textDocument/completion", "do": [{"reply": [
+                {"label": "fmt", "data": {"id": 41}},
+            ]}]},
+            {"method": "completionItem/resolve", "do": [{"reply": {
+                "label": "fmt",
+                "additionalTextEdits": [{"range": {"start": at(0, 0), "end": at(0, 0)}, "newText": "use std::fmt;\n"}],
+            }}]},
+            {"method": "shutdown", "do": [{"reply": null}]},
+        ],
+        "log_documents": true,
+        "log_answers": false,
+        "encoding": "utf-16",
+    });
+    let mut seen = started("resolve", &script, open());
+    opened(&mut seen, 1, &here, "fn a() {}\nlet x = f\n");
+    seen.until(LIMIT, |seen| seen.completing.is_some());
+    let completing = seen.completing.clone().unwrap();
+    assert_eq!(completing.triggers, ['.']);
+    assert!(completing.resolves);
+    let offset = "fn a() {}\nlet x = f".len();
+    ask(&seen, AskKind::Completion, offset);
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    let answer = seen.answers.pop().unwrap();
+    assert!(matches!(answer.outcome, Ok(Answered::Completion(_))));
+    // Its resolve names the answer by its ask's serial, and the item by its place.
+    seen.server.ask(oso_lsp::server::Ask {
+        serial: 99,
+        document: 1,
+        kind: AskKind::Resolve,
+        revision: 7,
+        offset,
+        context: AskContext::Item {
+            answer: answer.serial,
+            index: 0,
+        },
+    });
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    let Ok(Answered::Resolved(resolved)) = seen.answers.pop().unwrap().outcome else {
+        panic!("resolved")
+    };
+    assert_eq!(
+        (resolved.answer, resolved.index, resolved.revision),
+        (answer.serial, 0, 7)
+    );
+    assert_eq!(resolved.extra, [(0..0, "use std::fmt;\n".to_owned())]);
+    // An item of an answer that is not the last is no one's to resolve.
+    seen.server.ask(oso_lsp::server::Ask {
+        serial: 100,
+        document: 1,
+        kind: AskKind::Resolve,
+        revision: 7,
+        offset,
+        context: AskContext::Item {
+            answer: answer.serial + 1,
+            index: 0,
+        },
+    });
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert!(seen.answers.pop().unwrap().outcome.is_err());
+    seen.server.shut_down();
+}
+
+#[test]
 fn a_newer_ask_cancels_the_older_and_only_it_is_answered() {
     use oso_lsp::server::AskKind;
     let script = asking(json!([
@@ -1249,7 +1336,7 @@ fn a_newer_ask_cancels_the_older_and_only_it_is_answered() {
 
 #[test]
 fn an_ask_fails_on_an_old_text_an_error_a_crash_and_a_long_wait() {
-    use oso_lsp::server::AskKind;
+    use oso_lsp::server::{AskFailure, AskKind};
     let script = asking(json!([
         {"method": "textDocument/references", "nth": 1, "do": [
             {"error": {"code": -32603, "message": "no index yet"}}
@@ -1265,17 +1352,20 @@ fn an_ask_fails_on_an_old_text_an_error_a_crash_and_a_long_wait() {
         kind: AskKind::Definition,
         revision: 6,
         offset: 0,
+        context: oso_lsp::server::AskContext::None,
     });
     seen.until(LIMIT, |seen| !seen.answers.is_empty());
     assert_eq!(
         seen.answers.pop().unwrap().outcome,
-        Err("the server does not have this text yet".into())
+        Err(AskFailure::Other(
+            "the server does not have this text yet".into()
+        ))
     );
     ask(&seen, AskKind::References, 0);
     seen.until(LIMIT, |seen| !seen.answers.is_empty());
     assert_eq!(
         seen.answers.pop().unwrap().outcome,
-        Err("no index yet".into())
+        Err(AskFailure::Other("no index yet".into()))
     );
     assert!(seen.logged("failed with error -32603"));
     assert!(
@@ -1289,7 +1379,7 @@ fn an_ask_fails_on_an_old_text_an_error_a_crash_and_a_long_wait() {
     assert!(asked.elapsed() >= oso_lsp::limits::DEFINITION_WAIT);
     assert_eq!(
         seen.answers.pop().unwrap().outcome,
-        Err("no answer within 10 s".into())
+        Err(AskFailure::Overdue)
     );
     seen.until(LIMIT, |seen| seen.logged("stderr: cancel"));
     // A crash fails what waits.
@@ -1297,14 +1387,14 @@ fn an_ask_fails_on_an_old_text_an_error_a_crash_and_a_long_wait() {
     seen.until(LIMIT, |seen| !seen.answers.is_empty());
     assert_eq!(
         seen.answers.pop().unwrap().outcome,
-        Err("it stopped before it answered".into())
+        Err(AskFailure::Other("it stopped before it answered".into()))
     );
     seen.server.shut_down();
 }
 
 #[test]
 fn an_ask_with_no_server_running_is_answered_at_once() {
-    use oso_lsp::server::AskKind;
+    use oso_lsp::server::{AskFailure, AskKind};
     let mut seen = started(
         "no-run",
         &script(json!([]), json!([])),
@@ -1313,5 +1403,68 @@ fn an_ask_with_no_server_running_is_answered_at_once() {
     seen.until(LIMIT, |seen| seen.state() == Some(State::NotStarted));
     ask(&seen, AskKind::Definition, 0);
     seen.until(LIMIT, |seen| !seen.answers.is_empty());
-    assert_eq!(seen.answers[0].outcome, Err("it does not run".into()));
+    assert_eq!(
+        seen.answers[0].outcome,
+        Err(AskFailure::Other("it does not run".into()))
+    );
+}
+
+/// A description is asked at its position and comes back as the text it held, never logged;
+/// one that waits past 3 s is cancelled and says so.
+#[test]
+fn a_description_is_asked_at_its_position_and_its_text_is_never_logged() {
+    use oso_lsp::server::{Answered, AskFailure, AskKind};
+    let script = asking(json!([
+        {"method": "textDocument/hover", "nth": 1, "do": [{"reply": {"contents": {
+            "kind": "markdown", "value": "```rust\nfn secret_name()\n```",
+        }}}]},
+        {"method": "textDocument/hover", "nth": 2, "do": [{"reply": null}]},
+        {"method": "textDocument/hover", "nth": 3, "do": [{"hang": true}]},
+    ]));
+    let mut seen = started("hover", &script, open());
+    opened(
+        &mut seen,
+        1,
+        "file:///w/p/a.rs",
+        "fn a() {}\nlet é = a();\n",
+    );
+    let offset = "fn a() {}\nlet é = ".len();
+    ask(&seen, AskKind::Hover, offset);
+    // The server's line of where it was asked may come after the answer.
+    seen.until(LIMIT, |seen| {
+        !seen.answers.is_empty() && seen.logged("stderr: asked textDocument/hover")
+    });
+    assert!(
+        seen.logged("asked textDocument/hover 1:8"),
+        "{:?}",
+        seen.log
+    );
+    let answer = seen.answers.pop().unwrap();
+    assert_eq!(answer.kind, AskKind::Hover);
+    let Ok(Answered::Hover(Some(hover))) = answer.outcome else {
+        panic!("a description");
+    };
+    assert_eq!(hover.text, "```rust\nfn secret_name()\n```");
+    assert!(hover.markdown);
+    assert!(seen.logged("bytes of description"));
+    assert!(
+        !seen.log.iter().any(|line| line.contains("secret_name")),
+        "the text is not logged"
+    );
+    ask(&seen, AskKind::Hover, 0);
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert_eq!(
+        seen.answers.pop().unwrap().outcome,
+        Ok(Answered::Hover(None))
+    );
+    let asked = Instant::now();
+    ask(&seen, AskKind::Hover, 0);
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert!(asked.elapsed() >= oso_lsp::limits::COMPLETION_WAIT);
+    assert!(asked.elapsed() < oso_lsp::limits::DEFINITION_WAIT);
+    assert_eq!(
+        seen.answers.pop().unwrap().outcome,
+        Err(AskFailure::Overdue)
+    );
+    seen.server.shut_down();
 }

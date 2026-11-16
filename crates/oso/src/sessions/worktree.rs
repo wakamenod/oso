@@ -2,8 +2,9 @@
 //! with a brief, copying `.worktreeinclude`'s files into it, listing a repository's linked
 //! worktrees, removing one only when nothing in it would be lost, and the hook that steers
 //! Claude away from its own worktree tools. Every `git` and `gh` call runs on the
-//! `oso-sessions-git` threads, through `oso-platform::process`, only for a trusted project
-//! whose main repository is trusted too.
+//! `oso-sessions-git` threads, but a removal's `git worktree remove`, which runs on
+//! `oso-sessions-remove`, through `oso-platform::process`, only for a trusted project whose
+//! main repository is trusted too.
 //!
 //! Must not depend on: `app`, `dispatch` or the UI thread; the app asks for jobs and
 //! carries out what they report.
@@ -20,7 +21,8 @@
 //! - `checks`: what is known of a worktree, and the five checks of a removal.
 //! - `create`: making a worktree for a session.
 //! - `prepare`: what an agent's session tool needs to know before the person is asked.
-//! - `pool`: the `oso-sessions-git` threads, and `jobs`: the jobs the app asks for on them.
+//! - `pool`: the `oso-sessions-git` threads, and `jobs`: the jobs the app asks for on them,
+//!   with a removal's own thread.
 //! - `list`: the text of `*Worktrees*`.
 
 pub mod brief;

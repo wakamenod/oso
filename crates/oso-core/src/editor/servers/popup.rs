@@ -17,10 +17,11 @@
 //! - An item's range is kept only on the cursor's line, around it, and within
 //!   [`WORD_BYTES_MAX`] of it: a server's range elsewhere would edit text out of view.
 //! - The word and the ranges follow every edit (`Editor::answers_follow`), each offset once;
-//!   a reload closes the popup.
+//!   a reload closes the popup. An item's edits besides its own are mapped only when it goes in.
 //! - Inserting replaces what the item covers at the primary cursor, and the word at each other
-//!   cursor whose word before it is the same, in one edit. With no word typed, only the
-//!   primary's.
+//!   cursor whose word before it is the same, with the item's edits besides its own, in one
+//!   edit. With no word typed, only the primary's. Those edits, from the answer or the item's
+//!   resolve (step 9b), are `extra`'s.
 //! - What a closed popup or a dropped answer held is freed on the completion worker.
 //! - Nothing of an item reaches a log; `Debug` gives counts.
 
@@ -28,12 +29,9 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
-use unicode_segmentation::UnicodeSegmentation;
-
 use crate::buffer::{Buffer, BufferId, Replacement};
 use crate::complete::{Candidate, Candidates};
 use crate::frame::{FloatRegions, at_point};
-use crate::rope::Rope;
 use crate::selection::{OffsetEdit, follow_sorted};
 use crate::sum_tree::Bias;
 use crate::window::{Screen, WindowId};
@@ -63,6 +61,8 @@ pub struct CompletionPopupItem {
     pub filter: Option<Box<str>>,
     pub text: Box<str>,
     pub range: Option<Range<usize>>,
+    /// Its edits besides its own, in the same text, such as an added `use` line (step 9b).
+    pub extra: Vec<(Range<usize>, Box<str>)>,
 }
 
 impl fmt::Debug for CompletionPopupItem {
@@ -72,17 +72,25 @@ impl fmt::Debug for CompletionPopupItem {
     }
 }
 
-/// What the host hands over of an answer: where it was asked, the revision of the text its
-/// items' ranges are in, and its items in the server's order.
+/// What the host hands over of an answer: its ask's serial, by which an item's resolve names
+/// it, where it was asked, the revision of the text its items' ranges are in, its items in the
+/// server's order, and whether the server said the list is incomplete, so that typing asks
+/// again (step 9b).
 #[derive(Debug)]
 pub struct CompletionPopupAnswer {
+    pub serial: u64,
     pub at: AskAt,
     pub revision: u64,
     pub items: Vec<CompletionPopupItem>,
+    pub incomplete: bool,
 }
 
 /// What an item inserts, and the range it replaces as places in the offsets followed.
 type Insert = (Box<str>, Option<(usize, usize)>);
+
+/// An item's edits besides its own, as given, in the text of the revision with them: mapped
+/// only when the item goes in, as only one item ever does.
+type Extras = Option<(u64, Vec<(Range<usize>, Box<str>)>)>;
 
 /// The open popup. `Debug` gives counts.
 pub struct CompletionPopup {
@@ -103,6 +111,13 @@ pub struct CompletionPopup {
     shown: Arc<[Candidate]>,
     /// The selection was moved, so that `RET` inserts.
     moved: bool,
+    /// The answer's ask's serial, and whether the answer said the list is incomplete.
+    serial: u64,
+    incomplete: bool,
+    /// Each item's edits besides its own, by item.
+    extras: Vec<Extras>,
+    /// The item whose resolve was asked for last.
+    resolving: Option<usize>,
 }
 
 impl fmt::Debug for CompletionPopup {
@@ -128,6 +143,11 @@ impl CompletionPopup {
     /// Whether the selection was moved since it opened, so that `RET` inserts it.
     pub fn moved(&self) -> bool {
         self.moved
+    }
+
+    /// Whether the server said its list is incomplete, so that typing asks again.
+    pub fn incomplete(&self) -> bool {
+        self.incomplete
     }
 
     /// The rows shown, at most [`COMPLETION_POPUP_ROWS`] from the first in view: each item's label and
@@ -178,65 +198,8 @@ impl Editor {
             self.free_on_the_worker(Box::new(answer.items));
             return Err((!stale).then_some("No completions"));
         }
-        let (window_id, buffer_id) = (window.id(), window.buffer());
+        let mut popup = popup_of(buffer, (window.id(), cursor), answer);
         let text = buffer.text();
-        let ident = word_start(text, cursor);
-        let line = text.line_start(text.offset_to_point(cursor).row);
-        // A range of the answer's text in the text now, kept only on the cursor's line, around
-        // it and near it.
-        let near = |range: &Range<usize>| {
-            let start = moved_to(buffer, answer.revision, range.start)?;
-            let end = moved_to(buffer, answer.revision, range.end)?;
-            let around = line <= start
-                && start <= cursor
-                && cursor <= end
-                && cursor - start <= WORD_BYTES_MAX
-                && end - cursor <= WORD_BYTES_MAX
-                && !text_holds(text, start..end, '\n');
-            around.then_some((start, end))
-        };
-        let ranges: Vec<Option<(usize, usize)>> = (answer.items.iter())
-            .map(|item| item.range.as_ref().and_then(near))
-            .collect();
-        let start = (ranges.iter().flatten().next())
-            .map_or(ident, |(start, _)| *start)
-            .min(ident);
-        let mut followed: Vec<usize> = [ident, start]
-            .into_iter()
-            .chain(
-                ranges
-                    .iter()
-                    .flatten()
-                    .flat_map(|(start, end)| [*start, *end]),
-            )
-            .collect();
-        followed.sort_unstable();
-        followed.dedup();
-        let place = |offset: usize| followed.binary_search(&offset).unwrap_or(0);
-        let mut inserts = Vec::with_capacity(answer.items.len());
-        let mut matched = Vec::with_capacity(answer.items.len());
-        let mut shown = Vec::with_capacity(answer.items.len());
-        for (item, range) in answer.items.into_iter().zip(ranges) {
-            let label = shown_text(&item.label);
-            matched.push(Candidate::new(item.filter.unwrap_or(item.label), "", ""));
-            shown.push(Candidate::unmatched(label, shown_text(&item.annotation)));
-            inserts.push((
-                item.text,
-                range.map(|(start, end)| (place(start), place(end))),
-            ));
-        }
-        let (ident, start) = (place(ident), place(start));
-        let mut popup = CompletionPopup {
-            window: window_id,
-            buffer: buffer_id,
-            ident,
-            start,
-            followed,
-            inserts,
-            matched: Candidates::in_given_order(matched.into()),
-            shown: shown.into(),
-            moved: false,
-        };
         let word = text_of(text, popup.followed[popup.ident]..cursor);
         popup.matched.set_input_with(&word, None);
         if popup.matched.is_empty() {
@@ -322,7 +285,23 @@ impl Editor {
             }
         }
         let id = window.buffer();
-        self.apply_edits(id, &edits).map_err(Some)
+        let main: Vec<Range<usize>> = edits.iter().map(|edit| edit.range.clone()).collect();
+        let extra = popup.extras.get(item).and_then(Option::as_ref);
+        let Some(extra) = self.extras_now(extra, &main) else {
+            return Err(None);
+        };
+        let began = self.buffer(id).map(Buffer::undo_mark);
+        let before = self.windows[self.selected].selections.clone();
+        edits.extend(extra.iter().map(|(range, text)| Replacement {
+            range: range.clone(),
+            text,
+        }));
+        let inserted = self.apply_edits(id, &edits).map_err(Some);
+        if inserted.is_ok() {
+            self.say_extra_changed(id, &edits, main.len());
+            self.note_inserted(popup, item, (began, before), &edits);
+        }
+        inserted
     }
 
     /// After a command: the popup follows the identifier as it is typed, matching it again, and
@@ -422,96 +401,100 @@ impl Editor {
     }
 }
 
-/// `offset` in `buffer`'s text at `revision` moved through its edits since, as the cursors
-/// move; `None` once its log no longer reaches back there.
-fn moved_to(buffer: &Buffer, revision: u64, offset: usize) -> Option<usize> {
-    let len = buffer.text().len();
-    if buffer.revision() == revision {
-        return Some(offset.min(len));
-    }
-    let mut edits: Vec<OffsetEdit> = (buffer.edits_since(revision)?.iter())
-        .map(|splice| OffsetEdit {
-            start: splice.start,
-            old_len: splice.old_len,
-            new_len: splice.new_len,
-        })
-        .collect();
-    edits.sort_unstable_by_key(|edit| edit.start);
-    let mut moved = [offset];
-    follow_sorted(&mut moved, &edits, Bias::Left);
-    Some(moved[0].min(len))
-}
+/// The ranges of `answer`'s items in `buffer`'s text now, each kept only on the line of
+/// `cursor`, around it and near it.
+type Spans = Vec<Option<(usize, usize)>>;
 
-/// `text` as a row shows it: its runs of blanks as one, at most [`SHOWN_BYTES_MAX`] of it, cut
-/// at a character.
-fn shown_text(text: &str) -> Box<str> {
-    let mut shown = String::with_capacity(text.len().min(SHOWN_BYTES_MAX));
-    for word in text.split_whitespace() {
-        if shown.len() >= SHOWN_BYTES_MAX {
-            break;
-        }
-        if !shown.is_empty() {
-            shown.push(' ');
-        }
-        shown.push_str(word);
-    }
-    if shown.len() > SHOWN_BYTES_MAX {
-        let end = shown.floor_char_boundary(SHOWN_BYTES_MAX);
-        shown.truncate(end);
-    }
-    shown.into()
-}
-
-/// The text of `range`, at most [`WORD_BYTES_MAX`] of it.
-fn text_of(text: &Rope, range: Range<usize>) -> String {
-    let start = text.clip_offset(range.start.min(range.end), Bias::Left);
-    let end = text.clip_offset(range.end.min(start + WORD_BYTES_MAX), Bias::Left);
-    let mut word = String::with_capacity(end - start);
-    for chunk in text.chunks_in_range(start..end) {
-        word.push_str(chunk);
-    }
-    word
-}
-
-/// Whether the text of `range` is `word`, compared where it lies.
-fn text_is(text: &Rope, range: Range<usize>, word: &str) -> bool {
-    if range.len() != word.len() {
-        return false;
-    }
-    let mut rest = word.as_bytes();
-    for chunk in text.chunks_in_range(range) {
-        let Some(tail) = rest.strip_prefix(chunk.as_bytes()) else {
-            return false;
-        };
-        rest = tail;
-    }
-    rest.is_empty()
-}
-
-/// Whether the text of `range` holds `c`.
-fn text_holds(text: &Rope, range: Range<usize>, c: char) -> bool {
-    text.chunks_in_range(range).any(|chunk| chunk.contains(c))
-}
-
-/// Where the identifier before `cursor` starts: whole grapheme clusters whose first character
-/// is alphanumeric or `_`, within [`WORD_BYTES_MAX`] and the cursor's line.
-fn word_start(text: &Rope, cursor: usize) -> usize {
+fn ranges_now(buffer: &Buffer, cursor: usize, answer: &CompletionPopupAnswer) -> Spans {
+    let text = buffer.text();
     let line = text.line_start(text.offset_to_point(cursor).row);
-    let from = line.max(cursor.saturating_sub(WORD_BYTES_MAX));
-    let before = text_of(text, from..cursor);
-    let kept: usize = before
-        .graphemes(true)
-        .rev()
-        .take_while(|cluster| {
-            cluster
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_alphanumeric() || c == '_')
-        })
-        .map(str::len)
-        .sum();
-    cursor - kept
+    // A range of the answer's text in the text now, kept only on the cursor's line, around
+    // it and near it.
+    let near = |range: &Range<usize>| {
+        let start = moved_to(buffer, answer.revision, range.start)?;
+        let end = moved_to(buffer, answer.revision, range.end)?;
+        let around = line <= start
+            && start <= cursor
+            && cursor <= end
+            && cursor - start <= WORD_BYTES_MAX
+            && end - cursor <= WORD_BYTES_MAX
+            && !text_holds(text, start..end, '\n');
+        around.then_some((start, end))
+    };
+    let ranges: Spans = (answer.items.iter())
+        .map(|item| item.range.as_ref().and_then(near))
+        .collect();
+    ranges
 }
+
+/// The popup over `answer` in `buffer`, shown by the window `window` with its primary cursor at
+/// `cursor`: the identifier and the replaced text's start, the items' ranges kept only on the
+/// cursor's line, around it and near it, their edits besides their own as given, and what is
+/// matched and shown of each.
+fn popup_of(
+    buffer: &Buffer,
+    (window, cursor): (WindowId, usize),
+    answer: CompletionPopupAnswer,
+) -> CompletionPopup {
+    let buffer_id = answer.at.buffer;
+    let text = buffer.text();
+    let ident = word_start(text, cursor);
+    let ranges = ranges_now(buffer, cursor, &answer);
+    let start = (ranges.iter().flatten().next())
+        .map_or(ident, |(start, _)| *start)
+        .min(ident);
+    let mut followed: Vec<usize> = [ident, start]
+        .into_iter()
+        .chain(
+            ranges
+                .iter()
+                .flatten()
+                .flat_map(|(start, end)| [*start, *end]),
+        )
+        .collect();
+    followed.sort_unstable();
+    followed.dedup();
+    let place = |offset: usize| followed.binary_search(&offset).unwrap_or(0);
+    let mut inserts = Vec::with_capacity(answer.items.len());
+    let mut matched = Vec::with_capacity(answer.items.len());
+    let mut shown = Vec::with_capacity(answer.items.len());
+    let mut extras_at = Vec::with_capacity(answer.items.len());
+    for (item, range) in answer.items.into_iter().zip(ranges) {
+        let label = shown_text(&item.label);
+        matched.push(Candidate::new(item.filter.unwrap_or(item.label), "", ""));
+        shown.push(Candidate::unmatched(label, shown_text(&item.annotation)));
+        inserts.push((
+            item.text,
+            range.map(|(start, end)| (place(start), place(end))),
+        ));
+        extras_at.push((!item.extra.is_empty()).then_some((answer.revision, item.extra)));
+    }
+    let (ident, start) = (place(ident), place(start));
+    CompletionPopup {
+        window,
+        buffer: buffer_id,
+        ident,
+        start,
+        followed,
+        inserts,
+        matched: Candidates::in_given_order(matched.into()),
+        shown: shown.into(),
+        moved: false,
+        serial: answer.serial,
+        incomplete: answer.incomplete,
+        extras: extras_at,
+        resolving: None,
+    }
+}
+
+mod extra;
+mod text;
+mod typed;
+
+use text::{moved_to, shown_text, text_holds, text_is, text_of, word_start};
+
+pub(in crate::editor) use extra::Inserted;
+pub use typed::CompletionTyped;
 
 #[cfg(test)]
 mod tests;

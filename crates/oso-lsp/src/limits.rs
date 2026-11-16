@@ -51,10 +51,19 @@ pub const DETAIL_BYTES_MAX: usize = 4 << 10;
 pub const SORT_TEXT_BYTES_MAX: usize = 256;
 /// The most bytes of text a completion inserts; an item with more is dropped (step 9).
 pub const INSERT_TEXT_BYTES_MAX: usize = 16 << 10;
+/// The most trigger characters of a server's kept (step 9b).
+pub const TRIGGERS_MAX: usize = 16;
+/// The most lines an edit besides a completion's own may replace; a list with one past it is
+/// dropped whole, as the person sees no more than which lines changed (step 9b).
+pub const EXTRA_EDIT_LINES_MAX: u32 = 8;
 /// The most bytes kept of a diagnostic's message (step 6).
 pub const DIAGNOSTIC_MESSAGE_BYTES_MAX: usize = 8 << 10;
 /// The most bytes kept of hover or documentation text (steps 9 and 10).
 pub const HOVER_BYTES_MAX: usize = 64 << 10;
+/// The most pieces of a hover's list of `MarkedString`s read (step 10).
+pub const HOVER_PIECES_MAX: usize = 256;
+/// The most bytes of the language a hover's fenced block names (step 10).
+pub const HOVER_LANGUAGE_BYTES_MAX: usize = 32;
 
 /// The most bytes kept of a diagnostic's source and of its code, each (step 6).
 pub const DIAGNOSTIC_LABEL_BYTES_MAX: usize = 256;

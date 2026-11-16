@@ -69,9 +69,11 @@ until `M-x lsp-start`, and untrusting the project stops it. In a buffer a server
 keeps its own history. With several definitions, and for `M-?`, the references, a list opens,
 each row `path:line: text` with a preview of its place; `RET` goes there. A file outside any
 project that they lead to, such as the standard library's, joins the server until its buffer is
-killed. `C-M-i` completes the word before point in a popup under it, as Corfu does: typing
+killed. `C-M-i` completes the word before point in a popup under it, as Corfu does, and so does
+typing three letters of a word and pausing, or one of the server's characters such as `.`: typing
 narrows it, `C-n` and `C-p` move (from the last back to the first), `TAB` inserts, `RET`
-inserts once you have moved, and `C-g` or any other key closes it. The rest comes in later
+inserts once you have moved, and `C-g` or any other key closes it. An item that needs a `use`
+line adds it as it goes in; when that line is out of view, the echo area says which it is. The rest comes in later
 steps.
 
 A server can be changed in `config.toml`:
@@ -108,6 +110,8 @@ through `oso mcp`.
 | `d` | `session-next-done` | Show the session that has been done longest. |
 | `f` | `session-follow-message` | Show the session that sent this one its newest message. |
 | `m` | `session-send` | Paste the region, or a note, into a session. |
+| `!` | `session-send-diagnostics` | Paste the language server's errors and warnings of the region, or of the buffer, into a session. |
+| `x` | `session-fix-error` | Ask a session to fix the error at point: its message, the 10 lines either side, and "Fix this error.". |
 | `@` | `session-mention` | Insert a session's name as `@NAME`. |
 | `e` | `session-explain` | Explain why this session has the state it shows. |
 | `j` | `space-switch` | Switch to another space. |
@@ -285,6 +289,12 @@ lines and its text. With `C-u`, only the path and lines go (`path:10-20`), and t
 the file itself. With no region, oso asks for a one-line note. The paste is not submitted:
 oso shows the session, and you read the paste and press Enter. A session that is asking a
 question is refused until you answer it.
+
+In a buffer a language server follows, `C-c a !` sends its errors, warnings and notes, one line
+each (`path:line: severity: message`): those in the region, or the whole buffer's. `C-c a x`
+sends the most severe one at point, the server's message in a fence of its own, its 10 lines
+either side and "Fix this error.". Hints never go, and neither does anything of a buffer that
+may hold secrets.
 
 `C-c a @` gives a session's name as `@NAME`, which an agent uses to message that session.
 

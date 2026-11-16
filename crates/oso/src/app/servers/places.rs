@@ -27,12 +27,21 @@ use oso_core::buffer::{Buffer, BufferId};
 use oso_core::editor::VisitColumn;
 use oso_core::syntax::Splice;
 use oso_lsp::position::{Encoding, Position};
-use oso_lsp::server::{AskKind, Location, Target};
+use oso_lsp::server::{AskFailure, AskKind, Location, Target};
 
 use super::super::App;
 use super::Running;
 use super::asks::Asker;
 use crate::channel::Connection;
+
+/// What the echo area says of an ask of `kind` to the server `name` that got no answer, the
+/// server named first: that it did not answer, as the ADR's bounds say, or why not.
+pub(super) fn failed(name: &str, kind: AskKind, why: &AskFailure) -> String {
+    match why {
+        AskFailure::Overdue => format!("{name} did not answer"),
+        AskFailure::Other(why) => format!("{name}: {} failed: {why}", kind.noun()),
+    }
+}
 
 /// The most buffers outside any project that join one server.
 pub(super) const JOINED_MAX: usize = 64;
@@ -82,11 +91,13 @@ impl App {
         places: &[Location],
     ) {
         let Some(first) = places.first() else {
-            self.editor.message(match kind {
+            let none = match kind {
                 AskKind::Definition => "No definition found",
-                // Completions never come here (`asks`).
-                AskKind::References | AskKind::Completion => "No references found",
-            });
+                AskKind::References => "No references found",
+                // Completions never come here (`asks`), and a description goes to its float.
+                AskKind::Completion | AskKind::Resolve | AskKind::Hover => return,
+            };
+            self.editor.message(none);
             return;
         };
         let Some(connection) = asker.agent() else {

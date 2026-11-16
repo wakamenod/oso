@@ -84,10 +84,6 @@ impl App {
                     continue;
                 }
                 // The message is for step 2's read-only view (ADR 0145).
-                SessionRequest::GoToConversation { session, .. } => {
-                    self.go_to_conversation(&session);
-                    continue;
-                }
                 SessionRequest::Worktree { .. }
                 | SessionRequest::SendBrief(_)
                 | SessionRequest::CancelBrief(_)
@@ -343,7 +339,7 @@ mod tests {
         assert!(show_explanation(&mut editor, &mut kept, "screen row\n"));
         let id = kept.unwrap();
         assert_eq!(editor.window().buffer(), id);
-        let state = crate::channel::state::state(&editor, None, 0);
+        let state = crate::channel::state::state(&editor, None, 0, &|_| None);
         assert!(state["text"].is_null(), "{state}");
         let window = &state["windows"][0];
         assert!(window["selections"].is_null(), "{window}");

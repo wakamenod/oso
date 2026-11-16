@@ -8,18 +8,28 @@
 //! - `@region` is the place, then the text in a fence longer than any run of backticks in it.
 //! - `@file:L-L` is the place only, `path:10-20`, which the agent reads itself.
 //! - A note is the person's text as written.
+//! - `@diagnostics` is a line for each of a language server's diagnostics,
+//!   `path:line: severity: message`, the message's first line with its blanks as one
+//!   (ADR 0138, step 11).
+//! - `session-fix-error`'s part is the diagnostic, `path:line:column: severity`, then its
+//!   message under a line that says a language server wrote it, in a fence of its own longer
+//!   than any run of backticks in it, so that no message can pass as the lines or the ask after
+//!   it, then its lines around as `@region` gives lines, then "Fix this error.".
 //!
 //! A path is relative to the session's directory when it is inside it, and absolute otherwise.
 //! Control, bidirectional and invisible characters in it are written as `\u{…}`, so that a file
-//! name can neither end a line of the form nor read as another. Language servers' diagnostics
-//! (`@diagnostics`, `session-fix-error`) would be one more kind of part, put together here
-//! too, once oso has them.
+//! name can neither end a line of the form nor read as another. So are they in a server's
+//! message, as the agent channel writes them (`channel::diagnostics::server_text`), but its
+//! line breaks, which `session-fix-error` keeps.
 
 use std::fmt::Write as _;
 use std::path::Path;
 
+use oso_core::diagnostic::first_line;
 use oso_core::display_map::cell::is_invisible;
-use oso_core::editor::{SendExcerpt, SendPart};
+use oso_core::editor::{SendDiagnostic, SendExcerpt, SendPart};
+
+use crate::channel::diagnostics::server_text;
 
 use super::state::{Reason, State};
 
@@ -42,16 +52,40 @@ pub fn compose(parts: &[SendPart], directory: &Path) -> Result<String, TooLarge>
         }
         match part {
             SendPart::Note(text) => out.push_str(text),
-            SendPart::Excerpt(excerpt) => {
-                out.push_str(&place(excerpt, directory));
-                if let Some(text) = &excerpt.text {
-                    let fence = fence(text);
-                    let _ = write!(out, "\n{fence}\n{text}");
-                    if !text.ends_with('\n') {
+            SendPart::Excerpt(excerpt) => push_excerpt(&mut out, excerpt, directory),
+            SendPart::Diagnostics(diagnostics) => {
+                for (index, diagnostic) in diagnostics.iter().enumerate() {
+                    if index > 0 {
                         out.push('\n');
                     }
-                    out.push_str(&fence);
+                    let first = first_line(&diagnostic.message).split_whitespace();
+                    let first = first.collect::<Vec<_>>().join(" ");
+                    let _ = write!(
+                        out,
+                        "{}:{}: {}: {}",
+                        named(diagnostic, directory),
+                        diagnostic.line,
+                        diagnostic.severity.word(),
+                        server_text(&first, false)
+                    );
+                    if out.len() > MAX_BYTES {
+                        return Err(TooLarge { bytes: out.len() });
+                    }
                 }
+            }
+            SendPart::FixError { diagnostic, around } => {
+                let message = server_text(&diagnostic.message, true);
+                let fence = fence(&message);
+                let _ = writeln!(
+                    out,
+                    "{}:{}:{}: {}\nThe language server says:\n{fence}\n{message}\n{fence}",
+                    named(diagnostic, directory),
+                    diagnostic.line,
+                    diagnostic.column,
+                    diagnostic.severity.word(),
+                );
+                push_excerpt(&mut out, around, directory);
+                out.push_str("\n\nFix this error.");
             }
         }
         if out.len() > MAX_BYTES {
@@ -59,6 +93,33 @@ pub fn compose(parts: &[SendPart], directory: &Path) -> Result<String, TooLarge>
         }
     }
     Ok(out)
+}
+
+/// Pushes `excerpt`: its place, then its text in a fence longer than any run of backticks in
+/// it, if it has its text.
+fn push_excerpt(out: &mut String, excerpt: &SendExcerpt, directory: &Path) {
+    out.push_str(&place(excerpt, directory));
+    if let Some(text) = &excerpt.text {
+        let fence = fence(text);
+        let _ = write!(out, "\n{fence}\n{text}");
+        if !text.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(&fence);
+    }
+}
+
+/// The file of `diagnostic`, relative to `directory` when inside it, or its buffer's name.
+fn named(diagnostic: &SendDiagnostic, directory: &Path) -> String {
+    match &diagnostic.path {
+        Some(path) => escaped(
+            &path
+                .strip_prefix(directory)
+                .unwrap_or(path)
+                .to_string_lossy(),
+        ),
+        None => format!("buffer {}", escaped(&diagnostic.buffer)),
+    }
 }
 
 /// Where `excerpt` is: `path:10-20`, or `path:10` for one line, the path relative to

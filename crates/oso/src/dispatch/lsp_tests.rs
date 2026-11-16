@@ -267,6 +267,45 @@ fn the_agent_s_m_question_is_refused_and_asks_nothing_and_its_m_dot_asks() {
     }
 }
 
+#[test]
+fn c_c_c_d_and_c_h_dot_ask_and_the_description_s_keys_scroll_close_or_pass_on() {
+    use oso_core::editor::ServerRequest;
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    editor.set_frame_size(oso_core::frame::FrameSize {
+        rows: 40,
+        columns: 120,
+    });
+    for keys in ["C-c C-d", "C-h ."] {
+        send(&mut d, &mut editor, keys);
+        let asked = editor.take_server_requests();
+        assert!(
+            matches!(asked[..], [ServerRequest::Describe(_)]),
+            "{keys}: {asked:?}"
+        );
+    }
+    let long: String = (0..60).map(|n| format!("line {n}\n")).collect();
+    let show = |editor: &mut Editor| {
+        let at = editor.ask_at();
+        assert!(editor.show_hover(at, "fake", &long, false));
+    };
+    show(&mut editor);
+    send(&mut d, &mut editor, "C-v");
+    assert_eq!(editor.hover().unwrap().top(), 18, "C-v scrolls it");
+    send(&mut d, &mut editor, "M-v");
+    assert_eq!(editor.hover().unwrap().top(), 0, "M-v scrolls it back");
+    assert_eq!(cursor(&editor), 0, "the buffer's cursor stays");
+    // Any other key closes it and does what it always does.
+    send(&mut d, &mut editor, "C-f");
+    assert!(editor.hover().is_none());
+    assert_eq!(cursor(&editor), 1);
+    // `C-g` closes it, and nothing more.
+    show(&mut editor);
+    send(&mut d, &mut editor, "C-g");
+    assert!(editor.hover().is_none());
+    // With none shown, `C-v` scrolls the window, as ever.
+    assert!(editor.take_server_requests().is_empty());
+}
+
 /// Opens the popup in `editor` over `labels`, at the primary cursor.
 fn pop(editor: &mut Editor, labels: &[&str]) {
     use oso_core::editor::{CompletionPopupAnswer, CompletionPopupItem};
@@ -278,10 +317,13 @@ fn pop(editor: &mut Editor, labels: &[&str]) {
             filter: None,
             text: (*label).into(),
             range: None,
+            extra: Vec::new(),
         })
         .collect();
     let at = editor.ask_at();
     let answer = CompletionPopupAnswer {
+        serial: 1,
+        incomplete: false,
         at,
         revision: at.revision,
         items,
@@ -373,4 +415,27 @@ fn an_agent_s_command_or_a_key_nothing_binds_closes_the_popup() {
         editor.completion_popup().is_none(),
         "an undefined key closes it"
     );
+}
+
+#[test]
+fn only_the_person_s_typing_is_noted_for_completion() {
+    use super::args::Given;
+    use oso_core::command::Reach;
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    send(&mut d, &mut editor, "a b c");
+    let at = editor.take_completion_typed().expect("the person typed");
+    let typed = editor.completion_typed(at).unwrap();
+    assert_eq!((typed.last, typed.word_clusters), ('c', 3));
+    // Moving is no typing.
+    send(&mut d, &mut editor, "C-f");
+    assert!(editor.take_completion_typed().is_none());
+    // The agent types through the channel's `change`, never this command.
+    let ran = d.run_for_agent(
+        &mut editor,
+        "self-insert-command",
+        Given::Text("d"),
+        Reach::Change,
+    );
+    assert!(ran.is_err(), "{ran:?}");
+    assert!(editor.take_completion_typed().is_none());
 }

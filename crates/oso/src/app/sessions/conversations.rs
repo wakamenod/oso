@@ -7,14 +7,17 @@
 //! history thread, never here, and nothing here logs what it found.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::SystemTime;
 
+use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::editor::{ConversationRow, ConversationScope};
+use oso_core::selection::SelectionSet;
 
 use crate::app::{App, Loop, UserEvent, Waker};
 use crate::sessions::adopt::{ANNOTATION_DOTS, Pick};
-use crate::sessions::history::{self, About, History, Hit, Report};
+use crate::sessions::history::{self, About, History, Hit, Read, Report};
 use crate::sessions::hosted::Run;
 use crate::sessions::identity::SessionId;
 use crate::sessions::list::{age_of, cut};
@@ -45,6 +48,8 @@ pub(in crate::app) struct Searching {
     /// The ids of sessions Claude Code's registry said run in other programs, as oso last
     /// looked.
     pub(in crate::app) elsewhere: HashSet<SessionId>,
+    /// The read-only views of conversations, by their session (ADR 0145, step 2).
+    views: HashMap<SessionId, BufferId>,
     /// The space in front the editor was last given the scope of, if any was.
     given: Option<Option<crate::sessions::spaces::SpaceId>>,
 }
@@ -97,6 +102,7 @@ impl App {
                 self.editor
                     .preview_read(previewed.generation, previewed.read);
             }
+            Report::Read(read) => self.show_conversation(read),
         }
         self.request_redraw();
     }
@@ -155,6 +161,85 @@ impl App {
         }
     }
 
+    /// Reads the conversation of `session` whole into its read-only view, at its message
+    /// `message` (ADR 0145, step 2), on the history thread.
+    pub(in crate::app) fn read_conversation(&mut self, session: &str, message: usize) {
+        match SessionId::parse(session) {
+            Some(id) => self.conversations.read(id, message),
+            None => self.editor.message("No such conversation"),
+        }
+    }
+
+    /// Shows what the history thread read for a view: `*conversation: NAME*`, made or read
+    /// again, withheld from agents, its cursor on the asked message's line.
+    fn show_conversation(&mut self, read: Read) {
+        let Some((about, snapshot, line)) = read.view else {
+            return self.editor.message_unlogged(
+                "That conversation cannot be read now: run session-search again",
+            );
+        };
+        let kept = self.hosting.searching.views.get(&read.session).copied();
+        let id = match kept.filter(|id| self.editor.buffer(*id).is_some_and(Buffer::is_internal)) {
+            Some(id) => id,
+            None => self
+                .editor
+                .add_internal_buffer(view_name(&about.id), Mode::Conversation),
+        };
+        self.hosting.searching.views.insert(read.session, id);
+        self.hosting
+            .searching
+            .abouts
+            .insert(about.id.as_str().to_owned(), about);
+        let Some(buffer) = self.editor.buffer_mut(id) else {
+            return;
+        };
+        buffer.withhold_from_agents();
+        buffer.apply_load(snapshot);
+        self.editor.show(id);
+        let row = line.min(
+            self.editor
+                .current()
+                .1
+                .text()
+                .line_count()
+                .saturating_sub(1),
+        );
+        let offset = self.editor.current().1.text().line_start(row);
+        self.editor.current_mut().0.selections = SelectionSet::new(offset);
+        self.request_redraw();
+    }
+
+    /// Forks the conversation of `session` (ADR 0145, step 2): one oso hosts as `session-fork`
+    /// forks it, any other in the directory its transcript is found from, unless that is gone
+    /// or unknown.
+    pub(in crate::app) fn fork_found(&mut self, session: &str) {
+        let Some(id) = SessionId::parse(session) else {
+            return self.editor.message("No such conversation");
+        };
+        if self.hosting.table().iter().any(|hosted| hosted.id == id) {
+            return self.fork_conversation(id, PathBuf::new(), None);
+        }
+        let Some(about) = self.hosting.searching.abouts.get(id.as_str()).cloned() else {
+            return self
+                .editor
+                .message("No such conversation now: run session-search again");
+        };
+        let directory = match &about.directory {
+            Some(_) if about.gone => {
+                return self.editor.message_unlogged(
+                    "Its directory is gone, so this conversation cannot be forked there",
+                );
+            }
+            Some(directory) => directory.clone(),
+            None => {
+                return self.editor.message_unlogged(
+                    "oso cannot tell where that conversation ran, so it cannot fork it",
+                );
+            }
+        };
+        self.fork_conversation(id, directory, about.title.as_deref());
+    }
+
     /// Keeps the ids of the sessions in `live`, Claude Code's registry's, that oso does not
     /// host, which `session-search` marks as running elsewhere.
     pub(in crate::app) fn note_elsewhere(&mut self, live: &[External]) {
@@ -190,7 +275,7 @@ impl App {
         // Text a transcript gave is never logged, and agents read `*Messages*`.
         if about.gone {
             return self.editor.message_unlogged(
-                "Its directory is gone, so this conversation cannot resume there",
+                "Its directory is gone, so this conversation cannot resume there; C-RET reads it",
             );
         }
         if about.directory.is_none() {
@@ -256,6 +341,14 @@ impl App {
     }
 }
 
+/// The name of a conversation's read-only view: its session's id's first 8 digits. Never its
+/// title or prompt: every buffer's name reaches the agent channel's `state`, and the view's
+/// text is withheld from agents (ADR 0145, step 2).
+fn view_name(id: &SessionId) -> String {
+    let short: String = id.as_str().chars().take(8).collect();
+    format!("*conversation: {short}*")
+}
+
 /// The name a row gives a conversation oso does not host: its title, else the first line of
 /// its first prompt, else its id's first 8 digits.
 fn conversation_name(about: &About) -> String {
@@ -285,6 +378,8 @@ mod tests {
         let said = shown("first · line\nsecond", 40);
         assert!(!said.contains('·'), "{said}");
         assert!(!said.contains('\n'), "{said}");
+        let id = SessionId::parse("6c1b5d1e-2f3a-4b5c-8d9e-0f1a2b3c4d5e").unwrap();
+        assert_eq!(view_name(&id), "*conversation: 6c1b5d1e*");
         let spoof = shown("fix\u{202e}gol\r\u{2066}x", 40);
         assert!(!spoof.contains(['\u{202e}', '\r', '\u{2066}']), "{spoof}");
     }

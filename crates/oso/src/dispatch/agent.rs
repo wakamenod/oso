@@ -332,6 +332,7 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::GitGraph
         | Mode::GitCommit
         | Mode::GitLog
+        | Mode::Conversation
         | Mode::GitDiscarded
         | Mode::Sessions => true,
         Mode::Fundamental

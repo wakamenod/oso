@@ -354,6 +354,11 @@ mod tests {
         // Every project's conversations, which no agent gets (ADR 0145).
         "session-search",
         "session-search-scope",
+        "session-search-read",
+        "session-search-fork",
+        "conversation-go",
+        "conversation-fork",
+        "conversation-revert",
         // Sending to a session is the person's typing into its terminal (ADR 0120, Q15).
         "session-follow-message",
         "session-mention",
@@ -361,6 +366,8 @@ mod tests {
         "session-yank-image",
         "session-resume",
         "session-send",
+        "session-send-diagnostics",
+        "session-fix-error",
         "session-stop",
         "sessions-resume",
         // What puts a session's terminal or `*Spaces*` in front of the person's keys, and
@@ -499,6 +506,10 @@ mod tests {
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).
         "load-theme",
+        "lsp-describe-at-point",
+        "lsp-describe-close",
+        "lsp-describe-scroll-down",
+        "lsp-describe-scroll-up",
         "lsp-diagnostics",
         "lsp-go-to-xref",
         "lsp-restart",
