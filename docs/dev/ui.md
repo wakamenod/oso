@@ -508,7 +508,13 @@ commit with what is staged and keeps its message, and `w` rewords it alone.
 - git runs the repository's hooks, with no time limit: the echo area counts the seconds, `$` in
   the status shows `*git log: NAME*` with what git and its hooks wrote, and `C-g` there or in the
   status, or `k` in the log, stops it (`SIGTERM`, then `SIGKILL` after 5 s). A commit that fails
-  keeps its message and says `commit failed (hook pre-commit): $ shows the output`.
+  keeps its message and says `commit failed (hook pre-commit): $ shows the output`, adding `;
+  C-c C-f asks the session to fix it` when an agent session runs in the worktree.
+- The worktree's agent session (step 6a): `C-c C-d` in the message pastes it a request for a
+  draft, which it gives back with `draft_set`, above the `#` lines, the person's own text kept
+  below as `#` lines. `C-c C-f` in a failed commit's message, or `F` in the log, pastes it the
+  failed run's output to fix. Each paste shows the session, not submitted: the person reads it
+  and presses Enter there.
 - Nothing staged, an amend before the first commit, an empty message, a second message while
   one is open, or a second commit while one runs, is refused before git runs. `C-x C-c` and
   `oso-restart` ask while git commits.

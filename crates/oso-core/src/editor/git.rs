@@ -135,6 +135,12 @@ pub enum GitRequest {
     /// Show what discards kept in the repository of `buffer`: a status, that list, or a
     /// buffer of the project (`M-x git-discarded`, `g` in the list).
     ShowDiscarded { buffer: BufferId },
+    /// Ask the agent session of the repository's worktree for a draft of the commit's message
+    /// `buffer`, which it gives back with the session tool `draft_set` (`C-c C-d`, step 6a).
+    DraftMessage { buffer: BufferId },
+    /// Ask the agent session of the repository's worktree to fix what made its last commit
+    /// fail, from `buffer`, that commit's message or the log (`C-c C-f`, `F`, step 6a).
+    FixWithAgent { buffer: BufferId },
 }
 
 /// A status buffer's record.

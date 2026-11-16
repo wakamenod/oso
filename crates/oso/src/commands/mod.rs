@@ -412,6 +412,8 @@ mod tests {
         "git-discard",
         "git-discarded",
         "git-discarded-refresh",
+        "git-draft-commit-message",
+        "git-fix-with-agent",
         "git-restore-discarded",
         "git-show-log",
         "git-stop",

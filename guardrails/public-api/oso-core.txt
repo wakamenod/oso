@@ -1336,6 +1336,10 @@ pub oso_core::editor::GitRequest::Discard
 pub oso_core::editor::GitRequest::Discard::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Discard::confirmed: bool
 pub oso_core::editor::GitRequest::Discard::lines: alloc::vec::Vec<oso_core::editor::GitLines>
+pub oso_core::editor::GitRequest::DraftMessage
+pub oso_core::editor::GitRequest::DraftMessage::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::FixWithAgent
+pub oso_core::editor::GitRequest::FixWithAgent::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Refresh
 pub oso_core::editor::GitRequest::Refresh::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::RestoreDiscarded

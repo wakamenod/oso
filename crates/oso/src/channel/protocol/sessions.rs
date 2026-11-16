@@ -17,6 +17,8 @@
 //! - `with_dirs`: at most [`MAX_WITH_DIRS`] absolute paths the new session also reads (ADR
 //!   0136, step 4b).
 //! - `space_status`: the caller's space, its repositories and its sessions.
+//! - `draft_set`: `{"kind": "commit", "id": "1a2b3c4d", "text": "…"}`, the draft of the commit
+//!   message oso asked for with `id` (ADR 0127, step 6a).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -26,7 +28,7 @@ use serde_json::{Map, Value};
 use super::{MAX_PATH, only, short};
 
 /// The methods of this module, as the tools that call them are named.
-pub const METHODS: [&str; 7] = [
+pub const METHODS: [&str; 8] = [
     "session_list",
     "session_state",
     "worktree_list",
@@ -34,12 +36,17 @@ pub const METHODS: [&str; 7] = [
     "start_worktree_session",
     "session_start",
     "space_status",
+    "draft_set",
 ];
 
 /// The longest brief a session takes, in bytes, as the person's `*Brief*` (ADR 0121).
 pub const MAX_BRIEF: usize = 64 * 1024;
 /// The longest branch, base or session name taken, in bytes.
 pub const MAX_NAME: usize = 255;
+/// The longest draft taken, in bytes (ADR 0127, step 6a).
+pub const MAX_DRAFT: usize = 16 * 1024;
+/// The longest request id taken, in bytes.
+const MAX_ID: usize = 64;
 /// The most directories a call's `with_dirs` names.
 pub const MAX_WITH_DIRS: usize = 8;
 
@@ -81,6 +88,11 @@ pub enum Call {
         with_dirs: Vec<PathBuf>,
     },
     SpaceStatus,
+    /// The draft of a commit's message, for the request `id` (`kind` is always `commit`).
+    DraftSet {
+        id: String,
+        text: String,
+    },
 }
 
 /// How long the server holds a call's reply for the UI.
@@ -106,20 +118,24 @@ impl Call {
             Self::StartWorktree { .. } => "start_worktree_session",
             Self::Start { .. } => "session_start",
             Self::SpaceStatus => "space_status",
+            Self::DraftSet { .. } => "draft_set",
         }
     }
 
     /// How long the server holds its reply.
     pub fn hold(&self) -> Hold {
         match self {
-            Self::List { .. } | Self::State { .. } | Self::SpaceStatus => Hold::Usual,
+            Self::List { .. } | Self::State { .. } | Self::SpaceStatus | Self::DraftSet { .. } => {
+                Hold::Usual
+            }
             Self::WorktreeList { .. } | Self::WorktreeRemove { .. } => Hold::Job(JOB_REPLY_WITHIN),
             Self::StartWorktree { .. } | Self::Start { .. } => Hold::Person,
         }
     }
 }
 
-/// Its `Debug` gives a brief's length only: a brief is the agent's text, and is never logged.
+/// Its `Debug` gives a brief's or a draft's length only: they are the agent's text, and are
+/// never logged.
 impl std::fmt::Debug for Call {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let brief = |brief: Option<&String>| brief.map(|text| format!("{} bytes", text.len()));
@@ -131,6 +147,10 @@ impl std::fmt::Debug for Call {
             Self::Start { brief: text, .. } => f
                 .debug_struct("Start")
                 .field("brief", &brief(text.as_ref()))
+                .finish_non_exhaustive(),
+            Self::DraftSet { text, .. } => f
+                .debug_struct("DraftSet")
+                .field("text", &brief(Some(text)))
                 .finish_non_exhaustive(),
             other => f.write_str(other.name()),
         }
@@ -154,6 +174,7 @@ pub fn parse(method: &str, params: &Map<String, Value>) -> Option<Result<Call, S
         "start_worktree_session" => parse_start_worktree(params),
         "session_start" => parse_start(params),
         "space_status" => only(params, method, &[]).map(|()| Call::SpaceStatus),
+        "draft_set" => parse_draft(params),
         _ => return None,
     })
 }
@@ -168,6 +189,18 @@ fn parse_list(params: &Map<String, Value>) -> Result<Call, String> {
             .ok_or("session_list's \"offset\" must be a whole number")?,
     };
     Ok(Call::List { offset })
+}
+
+fn parse_draft(params: &Map<String, Value>) -> Result<Call, String> {
+    let method = "draft_set";
+    only(params, method, &["kind", "id", "text"])?;
+    if text(params, method, "kind", MAX_NAME)? != "commit" {
+        return Err("draft_set's \"kind\" is \"commit\", the one kind oso asks for".to_owned());
+    }
+    Ok(Call::DraftSet {
+        id: text(params, method, "id", MAX_ID)?,
+        text: text(params, method, "text", MAX_DRAFT)?,
+    })
 }
 
 fn parse_start_worktree(params: &Map<String, Value>) -> Result<Call, String> {
@@ -323,11 +356,40 @@ mod tests {
             ),
             call("session_start", json!({})),
             call("space_status", json!({})),
+            call(
+                "draft_set",
+                json!({ "kind": "commit", "id": "1a2b3c4d", "text": "Fix it" }),
+            ),
         ];
         for (call, method) in calls.into_iter().zip(METHODS) {
             assert_eq!(call.unwrap().name(), method);
         }
         assert!(parse("state", &Map::new()).is_none());
+    }
+
+    #[test]
+    fn a_draft_is_a_commit_message_of_at_most_16_kib_with_its_id() {
+        let draft = |value: Value| call("draft_set", value);
+        let set = draft(json!({ "kind": "commit", "id": "ab", "text": "Fix it" })).unwrap();
+        assert_eq!(
+            set,
+            Call::DraftSet {
+                id: "ab".into(),
+                text: "Fix it".into()
+            }
+        );
+        assert_eq!(set.hold(), Hold::Usual);
+        // Its text is never logged.
+        assert!(!format!("{set:?}").contains("Fix it"));
+        assert!(draft(json!({ "kind": "pr", "id": "ab", "text": "x" })).is_err());
+        assert!(draft(json!({ "id": "ab", "text": "x" })).is_err());
+        assert!(draft(json!({ "kind": "commit", "text": "x" })).is_err());
+        assert!(draft(json!({ "kind": "commit", "id": "ab", "text": "" })).is_err());
+        assert!(draft(json!({ "kind": "commit", "id": "ab", "text": "x", "y": 1 })).is_err());
+        let long = "x".repeat(super::MAX_DRAFT + 1);
+        assert!(draft(json!({ "kind": "commit", "id": "ab", "text": long })).is_err());
+        let full = "x".repeat(super::MAX_DRAFT);
+        assert!(draft(json!({ "kind": "commit", "id": "ab", "text": full })).is_ok());
     }
 
     #[test]

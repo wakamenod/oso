@@ -337,6 +337,7 @@ tools besides oso's editing ones:
 | `worktree_list` | List the repository's worktrees, as `M-x worktree-list` does. |
 | `worktree_remove` | Remove a finished worktree, under the same rules as `M-x worktree-remove`. |
 | `space_status` | Read the session's issue space: its repositories, their trust, the orchestrator's name, its sessions. |
+| `draft_set` | Give back the commit message draft `C-c C-d` asked for. It goes in your message buffer; nothing is committed. |
 
 A tool that starts a session asks you in oso first. The question names the session that asks
 and what would start. `y` allows it, `n` or `C-g` refuses it, and `?` shows the whole brief. A refusal
