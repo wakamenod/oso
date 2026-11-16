@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 7004bfd89195b5392b7405bc4ab371da8121b41ae51ba8315ba88b7e1e9bf203 # shrinks to seed = 2, batches = [[(0, 70, [0]), (9702, 50, [19, 9, 0, 14]), (0, 76, [])], [(9910, 28, [])]], slices = [11, 355, 279, 135, 139, 227]
+cc 51077fc4397901d6cfe44067fb9a302e6597d3fa3608677f56c10f25de94ac7a # shrinks to seed = 2, batches = [[(1616, 22, [])], [(1630, 30, [0, 0, 20]), (1336, 57, []), (1621, 69, [])], [(1531, 53, []), (5749, 51, [8, 1, 4, 12])], [(7817, 1, [0]), (1592, 3, [2, 3, 3, 3, 8]), (5927, 60, [8, 7, 18, 19, 8])], [(1485, 45, []), (8378, 51, [3, 19, 11]), (8705, 65, [17, 15, 14, 13]), (3984, 27, [5, 18, 1])]], slices = [270, 11, 123, 182, 204, 25]
