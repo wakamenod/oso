@@ -158,7 +158,10 @@ impl Editor {
     /// listing, of a segment's directories or of the list, or of a project's walk or search
     /// (ADR 0114). The count says so with `+`.
     pub fn files_cut(&self) -> bool {
-        (self.reads_path() && self.file_list.cut) || self.project_files_cut() || self.search_cut()
+        (self.reads_path() && self.file_list.cut)
+            || self.project_files_cut()
+            || self.search_cut()
+            || self.diagnostics_cut()
     }
 
     /// Whether a prompt that reads a path is open, innermost or not.
@@ -173,6 +176,7 @@ impl Editor {
         (self.reads_path() && !self.file_list.asked.is_empty())
             || self.project_files_pending()
             || self.search_pending()
+            || self.diagnostics_pending()
     }
 
     /// The directory the innermost prompt's path reaches, for the control socket, if it reads

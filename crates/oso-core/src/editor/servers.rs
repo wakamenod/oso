@@ -7,12 +7,16 @@
 //! Must not depend on: the host's servers, threads or I/O; a command asks, and the host takes
 //! the request after the command and acts on the server.
 
+mod diagnostics_list;
 mod jumps;
 
 use crate::buffer::{Buffer, BufferId};
 
 /// Where on a line a server's place is: the host turns the server's encoding into one.
 pub use super::visits::VisitColumn;
+pub use diagnostics_list::{
+    DiagnosticHit, DiagnosticRow, DiagnosticRowAt, DiagnosticRows, DiagnosticsRequest,
+};
 pub use jumps::AskAt;
 
 use super::Editor;
@@ -25,6 +29,8 @@ pub(crate) const SERVER_LOG: &str = "*LSP*";
 #[derive(Debug, Default)]
 pub(super) struct Servers {
     requests: Vec<ServerRequest>,
+    /// The list of a project's diagnostics, `M-g d` (step 6b).
+    pub(super) list: diagnostics_list::DiagnosticsList,
     log: Option<BufferId>,
 }
 

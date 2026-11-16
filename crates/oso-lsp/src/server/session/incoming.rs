@@ -5,6 +5,8 @@
 //! Must not depend on: the process, or how the pipes' threads read; this reads what they
 //! handed over, and gives the reader its room back.
 
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use oso_core::buffer::Buffer;
@@ -156,7 +158,8 @@ impl Session {
 
     /// A diagnostics report (step 6). One for a file outside the project, or whose name may
     /// hold secrets, as a compiler's message can quote the file, is dropped and only counted;
-    /// the rest is kept, and an open document's goes to the UI.
+    /// the rest is kept, and goes to the UI: an open document's as its set, any other's as it
+    /// is kept (6b), with those the store's bounds let go.
     fn published(&mut self, run: &mut Run, params: &Value) {
         let Some(report) = protocol::published(params) else {
             self.reporter
@@ -174,19 +177,44 @@ impl Session {
             run.diagnostics_dropped += 1;
             return;
         };
-        self.deliver_diagnostics(&path, &report, run.encoding);
+        let open = self.deliver_diagnostics(&path, &report, run.encoding);
         let documents = &self.documents;
-        self.diagnosed
-            .put(path, report, |path| documents.has_path(path));
+        let gone = self
+            .diagnosed
+            .put(path.clone(), report, |path| documents.has_path(path));
+        if !open {
+            self.deliver_file(path, run.encoding);
+        }
+        for path in gone {
+            self.deliver_file(path, run.encoding);
+        }
     }
 
-    /// Hands the UI the set `report` gives the document open at `path`, if one is.
+    /// Hands the UI the report kept for the file at `path`, or an empty one if none is, for a
+    /// file no document open with the server holds.
+    pub(super) fn deliver_file(&mut self, path: PathBuf, encoding: Encoding) {
+        let report = self.diagnosed.get(&path).unwrap_or_else(|| {
+            Arc::new(Published {
+                uri: String::new(),
+                version: None,
+                diagnostics: Vec::new(),
+            })
+        });
+        self.reporter.diagnostics(Diagnosed::File {
+            path,
+            report,
+            encoding,
+        });
+    }
+
+    /// Hands the UI the set `report` gives the document open at `path`, if one is, and says
+    /// whether one is.
     pub(super) fn deliver_diagnostics(
         &mut self,
         path: &std::path::Path,
         report: &Published,
         encoding: Encoding,
-    ) {
+    ) -> bool {
         match self
             .documents
             .diagnose(path, report, &self.start.name, encoding)
@@ -200,12 +228,13 @@ impl Session {
                 revision,
                 diagnostics,
             }),
-            Diagnose::NotOpen => {}
+            Diagnose::NotOpen => return false,
             Diagnose::Stale => self.reporter.log(format!(
                 "a diagnostics report for version {} is past: a newer one follows",
                 report.version.unwrap_or_default()
             )),
         }
+        true
     }
 
     pub(super) fn dropped_diagnostics(&mut self, run: &mut Run) {

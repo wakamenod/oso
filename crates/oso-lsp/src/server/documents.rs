@@ -319,6 +319,11 @@ impl Documents {
         std::mem::take(&mut self.1)
     }
 
+    /// The path document `id`'s URI reads as, if it is kept and reads as one.
+    pub(super) fn path_of(&self, id: u64) -> Option<PathBuf> {
+        self.0.get(&id)?.path.clone()
+    }
+
     /// Whether a document open with the server, or waiting to be, is at `path`.
     pub(super) fn has_path(&self, path: &Path) -> bool {
         self.0

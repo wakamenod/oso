@@ -62,6 +62,9 @@ pub const DIAGNOSED_DOCUMENTS_MAX: usize = 10_000;
 /// cost for each entry; past it, the oldest unopened document's go first (step 6). Without
 /// it, the bounds above would allow some 160 GiB.
 pub const DIAGNOSTICS_BYTES_MAX: usize = 64 << 20;
+/// The most rows the list of a project's diagnostics shows, `M-g d`; past it, the count says
+/// `+` (step 6b).
+pub const DIAGNOSTIC_ROWS_MAX: usize = 100_000;
 /// The most locations kept of one answer (step 8).
 pub const LOCATIONS_MAX: usize = 1000;
 /// The most edits in a completion's `additionalTextEdits` (step 9).

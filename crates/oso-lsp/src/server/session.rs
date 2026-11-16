@@ -23,7 +23,7 @@ use crate::uri;
 use super::outbox::Reporter;
 use super::pipes::{self};
 use super::policy::{Crashes, Flood};
-use super::{Event, Gate, Start, State};
+use super::{Diagnosed, Event, Gate, Start, State};
 
 mod asks;
 mod incoming;
@@ -208,6 +208,7 @@ impl Session {
         let end = self.drive(run);
         self.documents.forget_sent();
         self.diagnosed.clear();
+        self.reporter.diagnostics(Diagnosed::Forgotten);
         match end {
             End::Crashed(why) => {
                 self.reporter.log(format!("crashed: {why}"));

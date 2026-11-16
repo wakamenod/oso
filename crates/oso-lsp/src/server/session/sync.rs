@@ -61,7 +61,16 @@ impl Session {
                 );
                 (change.id, out)
             }
-            Ask::Close(id) => (id, self.documents.close(id)),
+            Ask::Close(id) => {
+                // Its kept report, if any, is a file's again for the UI (step 6b).
+                if let (Some(path), Some(run)) = (self.documents.path_of(id), run.as_ref())
+                    && self.diagnosed.get(&path).is_some()
+                {
+                    let encoding = run.encoding;
+                    self.deliver_file(path, encoding);
+                }
+                (id, self.documents.close(id))
+            }
             Ask::Save(id) => (id, self.documents.save(id, live)),
         };
         match run.filter(|_| live) {

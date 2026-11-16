@@ -23,6 +23,7 @@ impl Dispatcher {
     ) -> (Effects, Result<(), ExecuteError>) {
         match spec {
             ArgSpec::Mark { prompt } => self.read_mark(editor, id, prefix, prompt),
+            ArgSpec::Diagnostics { prompt } => self.read_diagnostic(editor, id, prefix, prompt),
             ArgSpec::File { prompt, history } => {
                 self.read_file(editor, id, prefix, prompt, history, false)
             }
@@ -46,6 +47,28 @@ impl Dispatcher {
                 Step::MayJoin,
             ),
         }
+    }
+
+    /// Opens the list of the current buffer's project's diagnostics for the command `id`, unless
+    /// a prompt is selected (ADR 0138). Its rows come once the host has built them.
+    fn read_diagnostic(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+        prompt: &'static str,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        if let Some(refused) = refused_in_a_prompt(editor) {
+            return refused;
+        }
+        match editor.open_diagnostics_list(prompt) {
+            Ok(prompt) => self.reading.push(Reading::run(id, prefix, prompt)),
+            Err(PromptError::Invalid) => {
+                editor.message("No project here to list the diagnostics of");
+            }
+            Err(error) => editor.prompt_says(error.to_string()),
+        }
+        (redraw(), Ok(()))
     }
 
     /// Opens the prompt that reads a path for the command `id`, or a directory's if `directory`,

@@ -389,6 +389,8 @@ pub oso_core::command::ArgSpec::Command::history: &'static str
 pub oso_core::command::ArgSpec::Command::prompt: &'static str
 pub oso_core::command::ArgSpec::Count
 pub oso_core::command::ArgSpec::CountAndClipboard
+pub oso_core::command::ArgSpec::Diagnostics
+pub oso_core::command::ArgSpec::Diagnostics::prompt: &'static str
 pub oso_core::command::ArgSpec::Directory
 pub oso_core::command::ArgSpec::Directory::history: &'static str
 pub oso_core::command::ArgSpec::Directory::prompt: &'static str
@@ -1409,6 +1411,38 @@ impl core::fmt::Display for oso_core::editor::CursorError
 pub fn oso_core::editor::CursorError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::CursorError
 impl core::marker::StructuralPartialEq for oso_core::editor::CursorError
+pub enum oso_core::editor::DiagnosticHit
+pub oso_core::editor::DiagnosticHit::Buffer
+pub oso_core::editor::DiagnosticHit::Buffer::id: oso_core::buffer::BufferId
+pub oso_core::editor::DiagnosticHit::Buffer::offset: usize
+pub oso_core::editor::DiagnosticHit::File
+pub oso_core::editor::DiagnosticHit::File::column: oso_core::editor::VisitColumn
+pub oso_core::editor::DiagnosticHit::File::line: usize
+pub oso_core::editor::DiagnosticHit::File::path: std::path::PathBuf
+impl core::clone::Clone for oso_core::editor::DiagnosticHit
+pub fn oso_core::editor::DiagnosticHit::clone(&self) -> oso_core::editor::DiagnosticHit
+impl core::cmp::Eq for oso_core::editor::DiagnosticHit
+impl core::cmp::PartialEq for oso_core::editor::DiagnosticHit
+pub fn oso_core::editor::DiagnosticHit::eq(&self, &oso_core::editor::DiagnosticHit) -> bool
+impl core::fmt::Debug for oso_core::editor::DiagnosticHit
+pub fn oso_core::editor::DiagnosticHit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::DiagnosticHit
+pub enum oso_core::editor::DiagnosticRowAt
+pub oso_core::editor::DiagnosticRowAt::File
+pub oso_core::editor::DiagnosticRowAt::File::column: oso_core::editor::VisitColumn
+pub oso_core::editor::DiagnosticRowAt::Open
+pub oso_core::editor::DiagnosticRowAt::Open::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::DiagnosticRowAt::Open::offset: usize
+pub oso_core::editor::DiagnosticRowAt::Open::revision: u64
+impl core::clone::Clone for oso_core::editor::DiagnosticRowAt
+pub fn oso_core::editor::DiagnosticRowAt::clone(&self) -> oso_core::editor::DiagnosticRowAt
+impl core::cmp::Eq for oso_core::editor::DiagnosticRowAt
+impl core::cmp::PartialEq for oso_core::editor::DiagnosticRowAt
+pub fn oso_core::editor::DiagnosticRowAt::eq(&self, &oso_core::editor::DiagnosticRowAt) -> bool
+impl core::fmt::Debug for oso_core::editor::DiagnosticRowAt
+pub fn oso_core::editor::DiagnosticRowAt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::DiagnosticRowAt
+impl core::marker::StructuralPartialEq for oso_core::editor::DiagnosticRowAt
 pub enum oso_core::editor::DraftFor
 pub oso_core::editor::DraftFor::Comment
 pub oso_core::editor::DraftFor::Comment::anchor: oso_core::review::Anchor
@@ -1437,6 +1471,12 @@ impl core::fmt::Debug for oso_core::editor::FetchFrom
 pub fn oso_core::editor::FetchFrom::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::FetchFrom
 impl core::marker::StructuralPartialEq for oso_core::editor::FetchFrom
+pub enum oso_core::editor::FilePreviewRead
+pub oso_core::editor::FilePreviewRead::Text(oso_core::editor::Excerpt)
+pub oso_core::editor::FilePreviewRead::Unreadable
+pub oso_core::editor::FilePreviewRead::Withheld
+impl core::fmt::Debug for oso_core::editor::FilePreviewRead
+pub fn oso_core::editor::FilePreviewRead::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum oso_core::editor::GitRequest
 pub oso_core::editor::GitRequest::Commit
 pub oso_core::editor::GitRequest::Commit::buffer: oso_core::buffer::BufferId
@@ -1693,12 +1733,26 @@ impl core::fmt::Debug for oso_core::editor::Preview
 pub fn oso_core::editor::Preview::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::Preview
 impl core::marker::StructuralPartialEq for oso_core::editor::Preview
-pub enum oso_core::editor::ProjectPreviewRead
-pub oso_core::editor::ProjectPreviewRead::Text(oso_core::editor::Excerpt)
-pub oso_core::editor::ProjectPreviewRead::Unreadable
-pub oso_core::editor::ProjectPreviewRead::Withheld
-impl core::fmt::Debug for oso_core::editor::ProjectPreviewRead
-pub fn oso_core::editor::ProjectPreviewRead::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum oso_core::editor::PreviewAt
+pub oso_core::editor::PreviewAt::Line
+pub oso_core::editor::PreviewAt::Line::column: oso_core::editor::VisitColumn
+pub oso_core::editor::PreviewAt::Line::line: usize
+pub oso_core::editor::PreviewAt::Offset
+pub oso_core::editor::PreviewAt::Offset::column: usize
+pub oso_core::editor::PreviewAt::Offset::line: usize
+pub oso_core::editor::PreviewAt::Offset::offset: u64
+impl oso_core::editor::PreviewAt
+pub fn oso_core::editor::PreviewAt::column(self) -> oso_core::editor::VisitColumn
+pub fn oso_core::editor::PreviewAt::line(self) -> usize
+impl core::clone::Clone for oso_core::editor::PreviewAt
+pub fn oso_core::editor::PreviewAt::clone(&self) -> oso_core::editor::PreviewAt
+impl core::cmp::Eq for oso_core::editor::PreviewAt
+impl core::cmp::PartialEq for oso_core::editor::PreviewAt
+pub fn oso_core::editor::PreviewAt::eq(&self, &oso_core::editor::PreviewAt) -> bool
+impl core::fmt::Debug for oso_core::editor::PreviewAt
+pub fn oso_core::editor::PreviewAt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::PreviewAt
+impl core::marker::StructuralPartialEq for oso_core::editor::PreviewAt
 pub enum oso_core::editor::PushTarget
 pub oso_core::editor::PushTarget::Asked
 pub oso_core::editor::PushTarget::Elsewhere
@@ -2178,6 +2232,30 @@ impl core::default::Default for oso_core::editor::DiagnosticCells
 pub fn oso_core::editor::DiagnosticCells::default() -> oso_core::editor::DiagnosticCells
 impl core::fmt::Debug for oso_core::editor::DiagnosticCells
 pub fn oso_core::editor::DiagnosticCells::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::DiagnosticRow
+pub oso_core::editor::DiagnosticRow::at: oso_core::editor::DiagnosticRowAt
+pub oso_core::editor::DiagnosticRow::code: alloc::boxed::Box<str>
+pub oso_core::editor::DiagnosticRow::line: usize
+pub oso_core::editor::DiagnosticRow::message: alloc::boxed::Box<str>
+pub oso_core::editor::DiagnosticRow::path: alloc::boxed::Box<str>
+pub oso_core::editor::DiagnosticRow::severity: oso_core::diagnostic::Severity
+pub oso_core::editor::DiagnosticRow::source: alloc::boxed::Box<str>
+impl core::fmt::Debug for oso_core::editor::DiagnosticRow
+pub fn oso_core::editor::DiagnosticRow::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::DiagnosticRows
+impl oso_core::editor::DiagnosticRows
+pub fn oso_core::editor::DiagnosticRows::new(u64, alloc::vec::Vec<oso_core::editor::DiagnosticRow>, core::option::Option<usize>, bool) -> Self
+impl core::fmt::Debug for oso_core::editor::DiagnosticRows
+pub fn oso_core::editor::DiagnosticRows::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::DiagnosticsRequest
+pub oso_core::editor::DiagnosticsRequest::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::DiagnosticsRequest::cursor: usize
+pub oso_core::editor::DiagnosticsRequest::generation: u64
+pub oso_core::editor::DiagnosticsRequest::root: std::path::PathBuf
+impl core::clone::Clone for oso_core::editor::DiagnosticsRequest
+pub fn oso_core::editor::DiagnosticsRequest::clone(&self) -> oso_core::editor::DiagnosticsRequest
+impl core::fmt::Debug for oso_core::editor::DiagnosticsRequest
+pub fn oso_core::editor::DiagnosticsRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::Editor
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_buffer(&mut self, oso_core::buffer::Buffer) -> oso_core::buffer::BufferId
@@ -2472,6 +2550,11 @@ pub fn oso_core::editor::Editor::to_diagnostic(&mut self, bool) -> core::result:
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::diagnostic_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen, &mut oso_core::editor::DiagnosticCells)
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::diagnostics_listed(&mut self, oso_core::editor::DiagnosticRows)
+pub fn oso_core::editor::Editor::open_diagnostics_list(&mut self, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::take_diagnostic_hit(&mut self) -> core::option::Option<oso_core::editor::DiagnosticHit>
+pub fn oso_core::editor::Editor::take_diagnostics_request(&mut self) -> core::option::Option<oso_core::editor::DiagnosticsRequest>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::directory_answer_waits(&self) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::draft(&self) -> core::option::Option<(oso_core::editor::ReviewId, &oso_core::editor::DraftFor)>
@@ -2665,9 +2748,10 @@ pub fn oso_core::editor::Editor::turn_pair(&mut self, oso_core::window::WindowId
 pub fn oso_core::editor::Editor::unpair(&mut self, oso_core::window::WindowId) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::preview_cells(&self, &oso_core::window::Screen, &mut oso_core::editor::MatchCells)
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::preview_excerpt_display(&self) -> core::option::Option<oso_core::display_map::DisplaySnapshot>
-pub fn oso_core::editor::Editor::preview_read(&mut self, u64, oso_core::editor::ProjectPreviewRead)
-pub fn oso_core::editor::Editor::take_preview_request(&mut self) -> core::option::Option<oso_core::editor::ProjectPreviewRequest>
+pub fn oso_core::editor::Editor::preview_read(&mut self, u64, oso_core::editor::FilePreviewRead)
+pub fn oso_core::editor::Editor::take_preview_request(&mut self) -> core::option::Option<oso_core::editor::FilePreviewRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::preview_screen(&self, &mut oso_core::window::Screen)
 pub fn oso_core::editor::Editor::prompt_screen(&self, &mut oso_core::window::Screen)
@@ -2725,7 +2809,7 @@ pub fn oso_core::editor::Elsewhere::fmt(&self, &mut core::fmt::Formatter<'_>) ->
 impl core::marker::StructuralPartialEq for oso_core::editor::Elsewhere
 pub struct oso_core::editor::Excerpt
 impl oso_core::editor::Excerpt
-pub fn oso_core::editor::Excerpt::new(&[u8], usize, (usize, usize), core::option::Option<(u64, u64)>) -> Self
+pub fn oso_core::editor::Excerpt::new(&[u8], usize, (usize, oso_core::editor::VisitColumn), core::option::Option<(u64, u64)>) -> Self
 impl core::fmt::Debug for oso_core::editor::Excerpt
 pub fn oso_core::editor::Excerpt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::ExitRefused
@@ -2742,6 +2826,17 @@ impl core::fmt::Display for oso_core::editor::ExitRefused
 pub fn oso_core::editor::ExitRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::ExitRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::ExitRefused
+pub struct oso_core::editor::FilePreviewRequest
+pub oso_core::editor::FilePreviewRequest::at: oso_core::editor::PreviewAt
+pub oso_core::editor::FilePreviewRequest::generation: u64
+pub oso_core::editor::FilePreviewRequest::live: alloc::sync::Arc<core::sync::atomic::AtomicU64>
+pub oso_core::editor::FilePreviewRequest::path: alloc::boxed::Box<str>
+pub oso_core::editor::FilePreviewRequest::root: std::path::PathBuf
+pub oso_core::editor::FilePreviewRequest::rows: usize
+impl core::clone::Clone for oso_core::editor::FilePreviewRequest
+pub fn oso_core::editor::FilePreviewRequest::clone(&self) -> oso_core::editor::FilePreviewRequest
+impl core::fmt::Debug for oso_core::editor::FilePreviewRequest
+pub fn oso_core::editor::FilePreviewRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::GitHeading
 pub oso_core::editor::GitHeading::depth: u8
 pub oso_core::editor::GitHeading::line: usize
@@ -2909,19 +3004,6 @@ pub fn oso_core::editor::Over::eq(&self, &oso_core::editor::Over) -> bool
 impl core::fmt::Debug for oso_core::editor::Over
 pub fn oso_core::editor::Over::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::Over
-pub struct oso_core::editor::ProjectPreviewRequest
-pub oso_core::editor::ProjectPreviewRequest::column: usize
-pub oso_core::editor::ProjectPreviewRequest::generation: u64
-pub oso_core::editor::ProjectPreviewRequest::line: usize
-pub oso_core::editor::ProjectPreviewRequest::live: alloc::sync::Arc<core::sync::atomic::AtomicU64>
-pub oso_core::editor::ProjectPreviewRequest::offset: u64
-pub oso_core::editor::ProjectPreviewRequest::path: alloc::boxed::Box<str>
-pub oso_core::editor::ProjectPreviewRequest::root: std::path::PathBuf
-pub oso_core::editor::ProjectPreviewRequest::rows: usize
-impl core::clone::Clone for oso_core::editor::ProjectPreviewRequest
-pub fn oso_core::editor::ProjectPreviewRequest::clone(&self) -> oso_core::editor::ProjectPreviewRequest
-impl core::fmt::Debug for oso_core::editor::ProjectPreviewRequest
-pub fn oso_core::editor::ProjectPreviewRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::ProjectRequest
 pub oso_core::editor::ProjectRequest::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::ProjectRequest::location: std::path::PathBuf

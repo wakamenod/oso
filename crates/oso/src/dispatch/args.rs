@@ -69,6 +69,10 @@ pub fn map(
         (ArgSpec::Mark { .. }, _) => Err(format!(
             "{name} reads a mark, which only its prompt takes, from keys"
         )),
+        // The rows are shown only in its prompt, which the channel never sees (ADR 0138).
+        (ArgSpec::Diagnostics { .. }, _) => Err(format!(
+            "{name} reads a diagnostic, which only its prompt takes, from keys"
+        )),
         (ArgSpec::KillEntry { .. }, _) => Err(format!(
             "{name} reads a kill, which only its prompt takes, from keys"
         )),
@@ -247,6 +251,10 @@ mod tests {
             prompt: "Go to mark: ",
         };
         assert!(refused(mark, Given::Nothing).contains("mark"));
+        let diagnostics = ArgSpec::Diagnostics {
+            prompt: "Diagnostics",
+        };
+        assert!(refused(diagnostics, Given::Nothing).contains("diagnostic"));
         let theme = ArgSpec::Theme {
             prompt: "Load theme: ",
             history: "theme",

@@ -65,6 +65,8 @@ struct Running {
     asked: HashMap<(BufferId, oso_lsp::server::AskKind), places::Asker>,
     /// The buffers outside any project its answers led to, which join it (step 8).
     joined: places::Joined,
+    /// The reports of files no document open with it holds, for `M-g d` (step 6b).
+    files: diagnostics::Files,
 }
 
 impl Servers {
@@ -150,6 +152,7 @@ impl App {
                     documents: HashMap::new(),
                     asked: HashMap::new(),
                     joined: places::Joined::default(),
+                    files: diagnostics::Files::default(),
                 });
                 // Its project's buffers go to it, once it is ready, but the agent's
                 // (ADR 0118).
@@ -308,7 +311,7 @@ impl App {
             }
             diagnosed |= diagnostics::take(
                 &mut self.editor,
-                &running.documents,
+                (&running.documents, &mut running.files),
                 report.diagnostics,
                 &self.freer,
             );
@@ -335,7 +338,8 @@ impl App {
         }
         let mut again = Vec::new();
         for index in ended.into_iter().rev() {
-            let running = self.servers.running.remove(index);
+            let mut running = self.servers.running.remove(index);
+            self.freer.free(std::mem::take(&mut running.files));
             again.extend(running.start_again);
             self.unfollow(running.documents.into_keys());
         }

@@ -183,15 +183,17 @@ impl Reporter {
         self.wake_now();
     }
 
-    /// A document's diagnostics, in place of any of its own that wait: the UI is woken within
-    /// the interval.
+    /// A document's or a file's diagnostics, in place of any of its own that wait, or the
+    /// end of a run's, in place of every file's that waits: the UI is woken within the
+    /// interval.
     pub(super) fn diagnostics(&mut self, diagnosed: Diagnosed) {
-        let Diagnosed::Open { id, .. } = &diagnosed;
-        let id = *id;
         self.outbox.with(|waiting| {
-            waiting
-                .diagnostics
-                .retain(|Diagnosed::Open { id: kept, .. }| *kept != id);
+            waiting.diagnostics.retain(|kept| match (kept, &diagnosed) {
+                (Diagnosed::Open { id: kept, .. }, Diagnosed::Open { id, .. }) => kept != id,
+                (Diagnosed::File { path: kept, .. }, Diagnosed::File { path, .. }) => kept != path,
+                (Diagnosed::File { .. } | Diagnosed::Forgotten, Diagnosed::Forgotten) => false,
+                _ => true,
+            });
             waiting.diagnostics.push(diagnosed);
         });
         self.due = true;

@@ -2,38 +2,70 @@
 //! Diagnostics, step 6), on the UI thread: a set the server's thread placed and mapped to a
 //! revision is mapped through the edits since by the buffer, O(entries), and swapped in. A
 //! document kept from its server loses its set, which no longer follows what the server has.
-//! Once the cursor stays 300 ms on a diagnostic, the echo area says it (Q14).
+//! Once the cursor stays 300 ms on a diagnostic, the echo area says it (Q14). The reports of
+//! files no buffer holds are kept by path, shared with the server's thread, for `M-g d`, whose
+//! rows are built on a thread of their own from a snapshot (step 6b, `rows`).
 //!
 //! Must not depend on: the window system or the drawing; nothing here waits on a server.
 
+mod rows;
+
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use oso_core::buffer::BufferId;
 use oso_core::diagnostic::Diagnostics;
-use oso_core::editor::Editor;
+use oso_core::editor::{DiagnosticRows, Editor};
 use oso_core::window::WindowId;
+use oso_lsp::position::Encoding;
+use oso_lsp::protocol::Published;
 use oso_lsp::server::Diagnosed;
 
-use super::super::{App, Freer};
+use super::super::{App, Freer, UserEvent};
 use super::documents::Open;
 
-/// Takes `diagnosed` into the buffers of `documents` whose document is open with the server.
-/// The set a buffer had goes to `freer`: its strings can take 16 MiB, which the UI thread does
-/// not free. Returns whether a buffer took a set, for a frame.
+/// The reports of a server's files that no document open with it holds, by path, each with the
+/// encoding of its positions: the reports its thread keeps, shared, so they cost no more here.
+pub(super) type Files = HashMap<PathBuf, (Arc<Published>, Encoding)>;
+
+/// Takes `diagnosed` into the buffers of `documents` whose document is open with the server,
+/// and the reports of other files into `files`. What a buffer or `files` had goes to `freer`:
+/// its strings can take 16 MiB, which the UI thread does not free. Returns whether a buffer
+/// took a set, for a frame.
 pub(super) fn take(
     editor: &mut Editor,
-    documents: &HashMap<BufferId, Open>,
+    (documents, files): (&HashMap<BufferId, Open>, &mut Files),
     diagnosed: Vec<Diagnosed>,
     freer: &Freer,
 ) -> bool {
     let mut taken = false;
-    for Diagnosed::Open {
-        id,
-        revision,
-        diagnostics,
-    } in diagnosed
-    {
+    for diagnosed in diagnosed {
+        let (id, revision, diagnostics) = match diagnosed {
+            Diagnosed::Open {
+                id,
+                revision,
+                diagnostics,
+            } => (id, revision, diagnostics),
+            Diagnosed::File {
+                path,
+                report,
+                encoding,
+            } => {
+                let old = if report.diagnostics.is_empty() {
+                    files.remove(&path)
+                } else {
+                    files.insert(path, (report, encoding))
+                };
+                freer.free(old);
+                continue;
+            }
+            Diagnosed::Forgotten => {
+                freer.free(std::mem::take(files));
+                continue;
+            }
+        };
         let Some((&buffer, _)) = documents
             .iter()
             .find(|(buffer, open)| buffer.get() == id && open.closed.is_none())
@@ -62,6 +94,67 @@ pub(super) fn clear(editor: &mut Editor, id: BufferId) -> bool {
     let empty = Diagnostics::new(&server, [], buffer.text().len());
     let revision = buffer.revision();
     buffer.take_diagnostics(revision, empty)
+}
+
+impl App {
+    /// Starts building the rows `M-g d`'s list asked for, if it asked, on a thread of its own,
+    /// from the open buffers' sets and the files' reports of the servers as they are now. The
+    /// rows come back as [`UserEvent::DiagnosticsListed`]. If the thread cannot start, an
+    /// empty list comes at once.
+    pub(in crate::app) fn start_diagnostics_list(&mut self) {
+        let Some(request) = self.editor.take_diagnostics_request() else {
+            return;
+        };
+        let open = (self.editor.buffers())
+            .filter_map(|(buffer, held)| {
+                let set = held.diagnostics()?;
+                Some(rows::OpenSet {
+                    buffer,
+                    path: held.path()?.to_path_buf(),
+                    text: held.text().clone(),
+                    revision: held.revision(),
+                    set: set.clone(),
+                })
+            })
+            .collect();
+        // The root as a server's URI reads back, so that the files' paths start with it.
+        let root = oso_lsp::uri::from_path(&request.root)
+            .and_then(|uri| oso_lsp::uri::to_path(&uri))
+            .unwrap_or_else(|| request.root.clone());
+        let files = (self.servers.running.iter())
+            .flat_map(|running| running.files.iter())
+            .filter(|(path, _)| path.starts_with(&root))
+            .map(|(path, (report, encoding))| (path.clone(), Arc::clone(report), *encoding))
+            .collect();
+        let snapshot = rows::Snapshot {
+            generation: request.generation,
+            root: request.root,
+            current: request.buffer,
+            cursor: request.cursor,
+            open,
+            files,
+        };
+        let waker = self.waker.clone();
+        let spawned = std::thread::Builder::new()
+            .name("oso-diagnostics".into())
+            .spawn(move || {
+                let built = rows::build(&snapshot);
+                // The snapshot's sets and reports are freed here too.
+                drop(snapshot);
+                waker.send(UserEvent::DiagnosticsListed(built));
+            });
+        if spawned.is_err() {
+            log::warn!("the thread that lists diagnostics could not start");
+            let empty = DiagnosticRows::new(request.generation, Vec::new(), None, false);
+            self.editor.diagnostics_listed(empty);
+        }
+    }
+
+    /// The rows of `M-g d`'s list came: the editor shows them, if they are for its list.
+    pub(in crate::app) fn diagnostics_listed(&mut self, rows: DiagnosticRows) {
+        self.editor.diagnostics_listed(rows);
+        self.request_redraw();
+    }
 }
 
 /// How long the cursor stays on a diagnostic before the echo area says it (ADR 0138, Q14), as

@@ -886,11 +886,14 @@ fn a_report_for_the_first_version_lands_on_the_word_after_random_batches(
     }
     seen.server.save(9);
     seen.until(LIMIT, |seen| !seen.diagnosed.is_empty());
-    let Diagnosed::Open {
+    let Some(Diagnosed::Open {
         id: document,
         revision: reported,
         diagnostics,
-    } = seen.diagnosed.pop().unwrap();
+    }) = seen.diagnosed.pop()
+    else {
+        panic!("an open document's set");
+    };
     assert_eq!(document, 9);
     // A batch more before the buffer takes it, which the buffer maps it through.
     editor
@@ -978,7 +981,8 @@ fn a_report_for_the_first_version_lands_on_the_word_in_utf_16() {
 
 /// A report for a file outside the project, in a sibling whose name the root's is the start of,
 /// through `..`, or whose name may hold secrets, is dropped and counted in `*LSP*`; one for a
-/// file not open is kept, and goes to the UI once it opens.
+/// file not open is kept, goes to the UI as a file's, as its set once it opens and as a file's
+/// again once it closes, and the run's end forgets it.
 #[test]
 fn reports_outside_the_project_or_for_secrets_are_dropped_and_a_kept_one_follows_an_open() {
     use oso_lsp::server::{Diagnosed, Document};
@@ -1010,8 +1014,16 @@ fn reports_outside_the_project_or_for_secrets_are_dropped_and_a_kept_one_follows
         ]}),
     );
     let mut seen = started("diagnosed-dropped", &script, open());
-    seen.until(LIMIT, |seen| seen.logged("dropped 4 diagnostics reports"));
-    assert!(seen.diagnosed.is_empty());
+    seen.until(LIMIT, |seen| {
+        seen.logged("dropped 4 diagnostics reports") && !seen.diagnosed.is_empty()
+    });
+    let later = oso_lsp::uri::to_path(&inside("later.rs")).unwrap();
+    let file = |seen: &mut Seen| match seen.diagnosed.pop() {
+        Some(Diagnosed::File { path, report, .. }) => (path, report.diagnostics.len()),
+        other => panic!("a file's report, not {other:?}"),
+    };
+    assert_eq!(file(&mut seen), (later.clone(), 1));
+    assert!(seen.diagnosed.is_empty(), "only the one kept");
     seen.server.open(Document {
         id: 4,
         uri: inside("later.rs"),
@@ -1020,17 +1032,26 @@ fn reports_outside_the_project_or_for_secrets_are_dropped_and_a_kept_one_follows
         revision: 3,
     });
     seen.until(LIMIT, |seen| !seen.diagnosed.is_empty());
-    let Diagnosed::Open {
+    let Some(Diagnosed::Open {
         id,
         revision,
         diagnostics,
-    } = seen.diagnosed.pop().unwrap();
+    }) = seen.diagnosed.pop()
+    else {
+        panic!("the open document's set");
+    };
     assert_eq!((id, revision, diagnostics.len()), (4, 3, 1));
+    seen.server.close(4);
+    seen.until(LIMIT, |seen| !seen.diagnosed.is_empty());
+    assert_eq!(file(&mut seen), (later, 1), "a file's again once closed");
     assert!(
         !seen.log.iter().any(|line| line.contains(".env")),
         "never named"
     );
     seen.server.shut_down();
+    seen.until(LIMIT, |seen| {
+        matches!(seen.diagnosed.last(), Some(Diagnosed::Forgotten))
+    });
 }
 
 /// A script that syncs in UTF-16, logs the positions asked about, and does `definition` for
