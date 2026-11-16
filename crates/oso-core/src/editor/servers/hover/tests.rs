@@ -58,12 +58,16 @@ fn asked(text: &str) -> (Editor, AskAt) {
 #[test]
 fn a_description_shows_in_its_own_buffer_only_while_nothing_moved() {
     let (mut editor, at) = asked("fn main() {}\n");
-    assert!(editor.show_hover(at, "```rust\nfn main()\n```\nThe *entry*.", true));
+    assert!(editor.show_hover(at, "srv", "```rust\nfn main()\n```\nThe *entry*.", true));
     let shown = *editor.hover().unwrap();
     let buffer = editor.buffer(shown.buffer()).unwrap();
     assert!(buffer.is_internal() && buffer.withheld_from_agents());
     assert_eq!(buffer.mode(), Mode::Markdown);
-    assert!(buffer.text().to_string().starts_with("```rust"));
+    assert!(
+        buffer.text().to_string().starts_with("srv\n```rust"),
+        "below a row naming it"
+    );
+    assert_eq!(shown.label(), 3);
     assert!(editor.buffer_named(DESCRIBED).is_none(), "no list shows it");
     assert!(editor.hover_layout().is_some());
     // A move of the cursor puts it away, and an edit would too.
@@ -73,22 +77,26 @@ fn a_description_shows_in_its_own_buffer_only_while_nothing_moved() {
     let (mut editor, at) = asked("fn main() {}\n");
     let id = editor.window().buffer();
     editor.apply_edits(id, &[edit(0..0, "x")]).unwrap();
-    assert!(!editor.show_hover(at, "text", false));
+    assert!(!editor.show_hover(at, "srv", "text", false));
     let (mut editor, at) = asked("fn main() {}\n");
-    assert!(!editor.show_hover(at, " \n ", false));
+    assert!(!editor.show_hover(at, "srv", " \n ", false));
 }
 
 #[test]
 fn its_float_fits_its_text_at_most_80_by_20_and_scrolls_by_pages() {
     let (mut editor, at) = asked("x\n");
-    assert!(editor.show_hover(at, "short\nlonger line", false));
+    assert!(editor.show_hover(at, "srv", "short\nlonger line", false));
     let regions = editor.hover_layout().unwrap();
-    assert_eq!((regions.inner.rows, regions.inner.columns), (2, 11));
+    assert_eq!(
+        (regions.inner.rows, regions.inner.columns),
+        (3, 11),
+        "its name, then its text"
+    );
     let long: String = (0..60)
         .map(|n| format!("line {n} {}\n", "y".repeat(100)))
         .collect();
     let (mut editor, at) = asked("x\n");
-    assert!(editor.show_hover(at, &long, false));
+    assert!(editor.show_hover(at, "srv", &long, false));
     let regions = editor.hover_layout().unwrap();
     assert_eq!((regions.inner.rows, regions.inner.columns), (20, 80));
     assert!(!editor.scroll_hover(-1), "at the top already");
@@ -110,12 +118,12 @@ fn a_buffer_that_may_hold_secrets_shows_none_and_one_put_away_never_comes_back()
     let id = editor.window().buffer();
     editor.buffer_mut(id).unwrap().judge_moved_secret();
     assert!(
-        !editor.show_hover(at, "text", false),
+        !editor.show_hover(at, "srv", "text", false),
         "it may hold secrets now"
     );
     // Put away by a prompt, it stays gone once the prompt has closed.
     let (mut editor, at) = asked("fn main() {}\n");
-    assert!(editor.show_hover(at, "text", false));
+    assert!(editor.show_hover(at, "srv", "text", false));
     editor
         .open_prompt(
             "Go to line: ",
@@ -127,7 +135,7 @@ fn a_buffer_that_may_hold_secrets_shows_none_and_one_put_away_never_comes_back()
     assert!(editor.hover().is_none(), "it does not come back");
     // Put away by a move outside a command, the next command lets it go.
     let (mut editor, at) = asked("fn main() {}\n");
-    assert!(editor.show_hover(at, "text", false));
+    assert!(editor.show_hover(at, "srv", "text", false));
     editor.windows[0].selections = SelectionSet::new(3);
     editor.follow_cursor();
     editor.windows[0].selections = SelectionSet::new(0);
@@ -138,9 +146,13 @@ fn a_buffer_that_may_hold_secrets_shows_none_and_one_put_away_never_comes_back()
 fn a_text_of_more_lines_than_are_measured_takes_the_widest_float() {
     let text = "a\n".repeat(MEASURED_LINES);
     let (mut editor, at) = asked("x\n");
-    assert!(editor.show_hover(at, &text, false));
+    assert!(editor.show_hover(at, "srv", &text, false));
     assert_eq!(editor.hover_layout().unwrap().inner.columns, COLUMNS_MAX);
     let (mut editor, at) = asked("x\n");
-    assert!(editor.show_hover(at, &"a\n".repeat(MEASURED_LINES - 2), false));
-    assert_eq!(editor.hover_layout().unwrap().inner.columns, 1);
+    assert!(editor.show_hover(at, "srv", &"a\n".repeat(MEASURED_LINES - 3), false));
+    assert_eq!(
+        editor.hover_layout().unwrap().inner.columns,
+        3,
+        "as wide as its name"
+    );
 }

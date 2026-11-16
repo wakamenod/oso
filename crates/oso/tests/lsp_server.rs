@@ -1192,7 +1192,7 @@ fn a_newer_ask_cancels_the_older_and_only_it_is_answered() {
 
 #[test]
 fn an_ask_fails_on_an_old_text_an_error_a_crash_and_a_long_wait() {
-    use oso_lsp::server::AskKind;
+    use oso_lsp::server::{AskFailure, AskKind};
     let script = asking(json!([
         {"method": "textDocument/references", "nth": 1, "do": [
             {"error": {"code": -32603, "message": "no index yet"}}
@@ -1212,13 +1212,15 @@ fn an_ask_fails_on_an_old_text_an_error_a_crash_and_a_long_wait() {
     seen.until(LIMIT, |seen| !seen.answers.is_empty());
     assert_eq!(
         seen.answers.pop().unwrap().outcome,
-        Err("the server does not have this text yet".into())
+        Err(AskFailure::Other(
+            "the server does not have this text yet".into()
+        ))
     );
     ask(&seen, AskKind::References, 0);
     seen.until(LIMIT, |seen| !seen.answers.is_empty());
     assert_eq!(
         seen.answers.pop().unwrap().outcome,
-        Err("no index yet".into())
+        Err(AskFailure::Other("no index yet".into()))
     );
     assert!(seen.logged("failed with error -32603"));
     assert!(
@@ -1232,7 +1234,7 @@ fn an_ask_fails_on_an_old_text_an_error_a_crash_and_a_long_wait() {
     assert!(asked.elapsed() >= oso_lsp::limits::DEFINITION_WAIT);
     assert_eq!(
         seen.answers.pop().unwrap().outcome,
-        Err("no answer within 10 s".into())
+        Err(AskFailure::Overdue)
     );
     seen.until(LIMIT, |seen| seen.logged("stderr: cancel"));
     // A crash fails what waits.
@@ -1240,14 +1242,14 @@ fn an_ask_fails_on_an_old_text_an_error_a_crash_and_a_long_wait() {
     seen.until(LIMIT, |seen| !seen.answers.is_empty());
     assert_eq!(
         seen.answers.pop().unwrap().outcome,
-        Err("it stopped before it answered".into())
+        Err(AskFailure::Other("it stopped before it answered".into()))
     );
     seen.server.shut_down();
 }
 
 #[test]
 fn an_ask_with_no_server_running_is_answered_at_once() {
-    use oso_lsp::server::AskKind;
+    use oso_lsp::server::{AskFailure, AskKind};
     let mut seen = started(
         "no-run",
         &script(json!([]), json!([])),
@@ -1256,14 +1258,17 @@ fn an_ask_with_no_server_running_is_answered_at_once() {
     seen.until(LIMIT, |seen| seen.state() == Some(State::NotStarted));
     ask(&seen, AskKind::Definition, 0);
     seen.until(LIMIT, |seen| !seen.answers.is_empty());
-    assert_eq!(seen.answers[0].outcome, Err("it does not run".into()));
+    assert_eq!(
+        seen.answers[0].outcome,
+        Err(AskFailure::Other("it does not run".into()))
+    );
 }
 
 /// A description is asked at its position and comes back as the text it held, never logged;
 /// one that waits past 3 s is cancelled and says so.
 #[test]
 fn a_description_is_asked_at_its_position_and_its_text_is_never_logged() {
-    use oso_lsp::server::{Answered, AskKind};
+    use oso_lsp::server::{Answered, AskFailure, AskKind};
     let script = asking(json!([
         {"method": "textDocument/hover", "nth": 1, "do": [{"reply": {"contents": {
             "kind": "markdown", "value": "```rust\nfn secret_name()\n```",
@@ -1311,7 +1316,7 @@ fn a_description_is_asked_at_its_position_and_its_text_is_never_logged() {
     assert!(asked.elapsed() < oso_lsp::limits::DEFINITION_WAIT);
     assert_eq!(
         seen.answers.pop().unwrap().outcome,
-        Err("no answer within 3 s".into())
+        Err(AskFailure::Overdue)
     );
     seen.server.shut_down();
 }

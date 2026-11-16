@@ -2504,7 +2504,7 @@ pub fn oso_core::editor::Editor::hover_layout(&self) -> core::option::Option<oso
 pub fn oso_core::editor::Editor::hover_page(&self) -> usize
 pub fn oso_core::editor::Editor::hover_screen(&self, &mut oso_core::window::Screen)
 pub fn oso_core::editor::Editor::scroll_hover(&mut self, isize) -> bool
-pub fn oso_core::editor::Editor::show_hover(&mut self, oso_core::editor::AskAt, &str, bool) -> bool
+pub fn oso_core::editor::Editor::show_hover(&mut self, oso_core::editor::AskAt, &str, &str, bool) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::completion_failed(&mut self)
 pub fn oso_core::editor::Editor::completion_pending(&self) -> bool
@@ -2911,6 +2911,7 @@ pub fn oso_core::editor::Gutter::fmt(&self, &mut core::fmt::Formatter<'_>) -> co
 pub struct oso_core::editor::HoverShown
 impl oso_core::editor::HoverShown
 pub fn oso_core::editor::HoverShown::buffer(&self) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::HoverShown::label(&self) -> usize
 pub fn oso_core::editor::HoverShown::top(&self) -> usize
 impl core::clone::Clone for oso_core::editor::HoverShown
 pub fn oso_core::editor::HoverShown::clone(&self) -> oso_core::editor::HoverShown

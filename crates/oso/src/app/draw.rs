@@ -13,6 +13,7 @@
 use std::time::Instant;
 
 use oso_core::editor::{Editor, MatchCells, Status};
+use oso_core::frame::CellRect;
 use oso_core::window::{Screen, WindowId};
 use oso_render::{
     Bands, Face, GridRow, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Span,
@@ -43,8 +44,10 @@ pub(super) struct Cells {
     pub(super) flash: Option<f32>,
     answer: Screen,
     preview: Screen,
-    /// The rows of a server's description at point (ADR 0138).
+    /// The rows of a server's description at point, and the cells of its first row, which
+    /// names the server and is drawn dim (ADR 0138).
     hover: Screen,
+    hover_named: Vec<CellRect>,
     /// The matches a project search's preview shows (ADR 0114).
     preview_matches: MatchCells,
     /// Room for the spans and rows each frame lists, empty between frames.
@@ -151,7 +154,7 @@ pub(super) fn with_frame<R>(
     ];
     // A description at point goes over the tiled panes, under a prompt's float, which closes
     // it anyway.
-    float::hover_panes(editor, &cells.hover, &mut list);
+    float::hover_panes(editor, (&cells.hover, &cells.hover_named), &mut list);
     if let (Some(parts), Some(lines)) = (&float, &lines) {
         let screens = float::Screens {
             answer: &cells.answer,
@@ -188,6 +191,15 @@ fn fill_float_screens(editor: &Editor, cells: &mut Cells) {
     editor.preview_screen(&mut cells.preview);
     editor.preview_cells(&cells.preview, &mut cells.preview_matches);
     editor.hover_screen(&mut cells.hover);
+    cells.hover_named.clear();
+    let named = editor.hover().filter(|shown| shown.top() == 0);
+    if let (Some(regions), Some(shown)) = (editor.hover_layout(), named) {
+        cells.hover_named.push(CellRect {
+            rows: 1,
+            columns: shown.label().min(regions.inner.columns),
+            ..regions.inner
+        });
+    }
 }
 
 /// Every terminal a window shows, its rows once however many windows show it, into `rows`,

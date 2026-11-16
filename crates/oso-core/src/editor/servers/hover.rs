@@ -5,6 +5,8 @@
 //! Must not depend on: `command` or `keymap`, or the host's servers, threads or I/O; the host
 //! asks the server, and hands over the text the answer held.
 //!
+//! - Its first row names the server, which the host draws dim, so that no server's text passes
+//!   as oso's; it scrolls away with the rest.
 //! - The text goes in an internal buffer of its own, which no list shows and the agent channel
 //!   never reads, in Markdown mode, or none for plain text, so the syntax worker highlights it
 //!   and the display model boxes its controls, as any buffer's.
@@ -44,6 +46,8 @@ pub struct HoverShown {
     buffer: BufferId,
     columns: usize,
     top: usize,
+    /// The cells of the first row, which names the server.
+    label: usize,
 }
 
 impl fmt::Debug for HoverShown {
@@ -63,6 +67,11 @@ impl HoverShown {
     /// The first of its rows the float shows, from 0.
     pub fn top(&self) -> usize {
         self.top
+    }
+
+    /// The cells of its first row, which names the server, for the host to draw dim.
+    pub fn label(&self) -> usize {
+        self.label
     }
 }
 
@@ -84,10 +93,10 @@ impl fmt::Debug for Hover {
 }
 
 impl Editor {
-    /// Shows `text`, a server's description of `at`, Markdown if `markdown`, in a float at
-    /// point, in place of any shown. Returns false, showing nothing, if anything moved since
-    /// the ask, or the text is empty.
-    pub fn show_hover(&mut self, at: AskAt, text: &str, markdown: bool) -> bool {
+    /// Shows `text`, the server `server`'s description of `at`, Markdown if `markdown`, in a
+    /// float at point, below a row naming the server, in place of any shown. Returns false,
+    /// showing nothing, if anything moved since the ask, or the text is empty.
+    pub fn show_hover(&mut self, at: AskAt, server: &str, text: &str, markdown: bool) -> bool {
         let (window, buffer) = self.current();
         // A buffer that came to may hold secrets since the ask shows none of what it was asked.
         let still = window.buffer() == at.buffer
@@ -117,7 +126,10 @@ impl Editor {
         } else {
             Mode::Fundamental
         };
-        if !self.put_description(id, text, mode) {
+        // The server's name on a line of its own, no control in it, as a label shows one.
+        let server = crate::editor::row_text(server);
+        let label = server.chars().count();
+        if !self.put_description(id, &format!("{server}\n{text}"), mode) {
             return false;
         }
         let columns = self.buffer(id).map_or(1, widest_line).clamp(1, COLUMNS_MAX);
@@ -129,6 +141,7 @@ impl Editor {
             buffer: id,
             columns,
             top: 0,
+            label,
         });
         self.fit_hover();
         true

@@ -27,11 +27,20 @@ use oso_core::editor::{AskAt, VisitColumn};
 use oso_core::syntax::Splice;
 use oso_core::window::WindowId;
 use oso_lsp::position::{Encoding, Position};
-use oso_lsp::server::{Answer, Answered, Ask, AskKind, Location, State, Target};
+use oso_lsp::server::{Answer, Answered, Ask, AskFailure, AskKind, Location, State, Target};
 
 use super::super::App;
 use super::Running;
 use crate::channel::Connection;
+
+/// What the echo area says of an ask of `kind` to the server `name` that got no answer, the
+/// server named first: that it did not answer, as the ADR's bounds say, or why not.
+pub(super) fn failed(name: &str, kind: AskKind, why: &AskFailure) -> String {
+    match why {
+        AskFailure::Overdue => format!("{name} did not answer"),
+        AskFailure::Other(why) => format!("{name}: {} failed: {why}", kind.noun()),
+    }
+}
 
 /// The most buffers outside any project that join one server.
 pub(super) const JOINED_MAX: usize = 64;
@@ -171,8 +180,7 @@ impl App {
                 {
                     let name = self.servers.running[index].entry.name.clone();
                     // The server's text may quote what it read: shown, not logged.
-                    self.editor
-                        .message_unlogged(format!("{name}: {} failed: {why}", kind.noun()));
+                    self.editor.message_unlogged(failed(&name, kind, &why));
                     self.request_redraw();
                 }
                 return;

@@ -63,6 +63,6 @@ fn a_description_shows_below_the_cursor_scrolls_and_goes() {
         description.push_str(&format!("\nLine {n}."));
     }
     let at = editor.ask_at();
-    assert!(editor.show_hover(at, &description, true));
+    assert!(editor.show_hover(at, "fake", &description, true));
     check_editor("hover", text.as_bytes(), editor, &["", "C-v", "C-f"]);
 }

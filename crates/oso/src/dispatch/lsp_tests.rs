@@ -199,7 +199,7 @@ fn c_c_c_d_and_c_h_dot_ask_and_the_description_s_keys_scroll_close_or_pass_on() 
     let long: String = (0..60).map(|n| format!("line {n}\n")).collect();
     let show = |editor: &mut Editor| {
         let at = editor.ask_at();
-        assert!(editor.show_hover(at, &long, false));
+        assert!(editor.show_hover(at, "fake", &long, false));
     };
     show(&mut editor);
     send(&mut d, &mut editor, "C-v");

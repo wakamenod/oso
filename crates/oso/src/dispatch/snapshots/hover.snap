@@ -21,6 +21,7 @@ keys: none
 =-- t.rs  lsp  1:0  Fundamental  UTF-8 LF          =
 "                                                  "
 description at row 1, column 0: 13 x 50
+┊fake                                            ┊
 ┊```rust                                         ┊
 ┊fn main()                                       ┊
 ┊```                                             ┊
@@ -33,7 +34,6 @@ description at row 1, column 0: 13 x 50
 ┊Line 3.                                         ┊
 ┊Line 4.                                         ┊
 ┊Line 5.                                         ┊
-┊Line 6.                                         ┊
 
 keys: C-v
 │ ┆fn main() {                                      │

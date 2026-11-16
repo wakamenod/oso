@@ -508,7 +508,7 @@ fn a_report_for_a_buffer_only_previewed_asks_for_a_frame() {
 fn a_description_shown_at_point_gets_a_job_and_is_dropped_once_it_closes() {
     let (mut editor, _) = editor_with(visited("/w/p/main.rs", "fn main() {}\n"));
     let at = editor.ask_at();
-    assert!(editor.show_hover(at, "```rust\nfn main()\n```\nDocs", true));
+    assert!(editor.show_hover(at, "fake", "```rust\nfn main()\n```\nDocs", true));
     let described = editor.hover().unwrap().buffer();
     let mut syntax = Syntax::default();
     let orders = syntax.orders(&editor);

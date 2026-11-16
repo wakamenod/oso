@@ -79,7 +79,18 @@ pub struct Answer {
     pub document: u64,
     pub kind: AskKind,
     pub revision: u64,
-    pub outcome: Result<Answered, String>,
+    pub outcome: Result<Answered, AskFailure>,
+}
+
+/// Why an ask has no answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AskFailure {
+    /// No answer came within the kind's wait ([`AskKind::wait`]), and the ask was cancelled:
+    /// a person reads that the server did not answer.
+    Overdue,
+    /// Any other reason, as a person reads it. A server's own message may be in it: shown, never
+    /// logged.
+    Other(String),
 }
 
 /// What a server answered, by what was asked. Steps 9 and 10 add theirs.

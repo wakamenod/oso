@@ -10,7 +10,7 @@
 
 use oso_core::buffer::BufferId;
 use oso_core::editor::AskAt;
-use oso_lsp::server::{Answered, AskKind};
+use oso_lsp::server::{Answered, AskFailure, AskKind};
 
 use super::super::App;
 use super::places::Asker;
@@ -22,7 +22,7 @@ impl App {
         &mut self,
         index: usize,
         taken: Option<(BufferId, Asker)>,
-        outcome: Result<Answered, String>,
+        outcome: Result<Answered, AskFailure>,
     ) {
         // Not over a menu either, which holds the keys a description's layer would take.
         let Some((asked, asker)) = taken.filter(|(asked, asker)| {
@@ -39,22 +39,39 @@ impl App {
                     offset: asker.offset,
                     agent: false,
                 };
-                if self.editor.show_hover(at, &hover.text, hover.markdown) {
+                if self
+                    .editor
+                    .show_hover(at, &name, &hover.text, hover.markdown)
+                {
                     self.request_redraw();
                     return;
                 }
                 format!("{name}: nothing to describe here")
             }
             Ok(_) => format!("{name}: nothing to describe here"),
-            Err(why) if why == overdue() => format!("{name} did not answer"),
-            Err(why) => format!("{name}: description failed: {why}"),
+            Err(why) => super::places::failed(&name, AskKind::Hover, &why),
         };
         self.editor.message_unlogged(said);
         self.request_redraw();
     }
 }
 
-/// What the server's thread says of an ask whose wait ended, as it says it.
-fn overdue() -> String {
-    format!("no answer within {} s", AskKind::Hover.wait().as_secs())
+#[cfg(test)]
+mod tests {
+    use oso_lsp::server::{AskFailure, AskKind};
+
+    use super::super::places::failed;
+
+    #[test]
+    fn an_ask_with_no_answer_says_so_with_the_server_first() {
+        let overdue = failed("rust-analyzer", AskKind::Hover, &AskFailure::Overdue);
+        assert_eq!(overdue, "rust-analyzer did not answer");
+        let late = failed("gopls", AskKind::Definition, &AskFailure::Overdue);
+        assert_eq!(late, "gopls did not answer", "a definition's too");
+        let why = AskFailure::Other("no index yet".into());
+        assert_eq!(
+            failed("rust-analyzer", AskKind::Hover, &why),
+            "rust-analyzer: description failed: no index yet"
+        );
+    }
 }

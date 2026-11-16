@@ -1,11 +1,12 @@
 //! A server's description at point (ADR 0138, Hover, step 10): a float's panel right below the
 //! cursor's row, or above it, and the description's buffer in it, highlighted and wrapped as
-//! the editor lays it out, with no cursor.
+//! the editor lays it out, with no cursor, and its first row, the server's name, faded.
 //!
 //! Must not depend on: key presses or commands; a frame only reads the editor's state.
 
 use oso_core::display_map::DisplayPoint;
 use oso_core::editor::Editor;
+use oso_core::frame::CellRect;
 use oso_core::window::Screen;
 use oso_render::{
     Bands, CursorStyle, Layer, Pane, PaneContent, PaneId, Panel, TextMarks, TextView,
@@ -15,10 +16,10 @@ use oso_render::{
 const HOVER_PANES: u32 = 1 << 22;
 
 /// Adds the description's panes to `list`, if one shows: its panel over the tiled panes, and
-/// its text as `screen` holds it.
+/// its text as `screen` holds it, with `named`, the cells of the server's name, faded.
 pub(in crate::app::draw) fn hover_panes<'a>(
     editor: &'a Editor,
-    screen: &'a Screen,
+    (screen, named): (&'a Screen, &'a [CellRect]),
     list: &mut Vec<Pane<'a>>,
 ) {
     let (Some(regions), Some(shown)) = (editor.hover_layout(), editor.hover()) else {
@@ -59,7 +60,10 @@ pub(in crate::app::draw) fn hover_panes<'a>(
         whitespace: false,
         flash: None,
         highlights: buffer.highlights(),
-        marks: TextMarks::NONE,
+        marks: TextMarks {
+            faded: named,
+            ..TextMarks::NONE
+        },
     };
     list.push(Pane {
         id: PaneId(HOVER_PANES + 1),

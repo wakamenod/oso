@@ -1741,7 +1741,7 @@ The author answered step 10's questions on 2026-11-16, all with the first choice
     - `\r\n` reads as `\n`. An answer of `null`, or only blanks, describes nothing.
   - `Answered::Hover` carries it. `*LSP*` gets its size and timing, never the text.
 - **`oso-core`** (`editor/servers/hover.rs`):
-  - `Editor::show_hover` puts the text in a buffer of its own from `Buffer::described`. It is internal, so no list shows it, nothing saves or hands it over, and the agent channel never reads it. Unlike other internal buffers it is highlighted as its mode says: Markdown, with Rust in fenced code through ADR 0111's injection, or none for plain text.
+  - `Editor::show_hover` puts the text in a buffer of its own from `Buffer::described`, below a first row naming the server, which the float draws faded and which scrolls away with the rest, so that no server's text passes as oso's (the author's answer to the review's question, Q1 (a)). It is internal, so no list shows it, nothing saves or hands it over, and the agent channel never reads it. Unlike other internal buffers it is highlighted as its mode says: Markdown, with Rust in fenced code through ADR 0111's injection, or none for plain text.
   - The display model boxes its controls and invisibles, as any buffer's.
   - It shows only if the selected window, its buffer, the revision and the primary cursor are as asked, the buffer may hold no secrets, and no prompt, isearch, jump, query-replace or `C-x TAB` layer is open. `Editor::hover` gives it only while that still holds and the cursor is in view. One that something moved away from is closed after the next command, and an undefined key, a menu or a prompt closes it at once, so it never comes back as the place does.
   - `frame::at_point` places it in the selected window's text area, from an anchor and the text's rows and columns:
@@ -1757,13 +1757,14 @@ The author answered step 10's questions on 2026-11-16, all with the first choice
 - **The tip crate:**
   - `lsp-describe-at-point` (`Person`) is on `C-c C-d` and `C-h .` in the `lsp` layer. It refuses a buffer that may hold secrets, and asks through `ServerRequest::Describe`.
   - The answer goes through 8a's check that nothing moved (`app/servers/hover.rs`). An empty one says `rust-analyzer: nothing to describe here`, an error `rust-analyzer: description failed: …`, and a wait past 3 s `rust-analyzer did not answer`, each with no log line.
+  - A failure is typed (Q2 (a)): `AskFailure::Overdue` for a wait that ended, `AskFailure::Other` with the reason otherwise, in place of 8a's text. A definition or references past its 10 s now says `rust-analyzer did not answer` too, as the bounds above say.
   - While the float shows, its keys take the place of `C-x TAB`'s layer ([ADR 0115](0115-indentation.md)): `C-v` and `M-v` (`lsp-describe-scroll-up`, `-down`) and `C-g` (`lsp-describe-close`). Any other command closes it first and then runs; an undefined key and a menu close it too. An answer that comes while a menu is open shows nothing.
   - A press of a mouse button closes it, and the wheel over it scrolls it; the wheel elsewhere closes it.
   - It is drawn as a framed panel with the buffer's rows in it, highlighted, with no cursor (`app/draw/float/hover.rs`).
   - The agent channel waits while it shows, as the ADR says. `get-state` gives `hover` as the row shown first, never the text.
 - **Public API:**
-  - `oso-lsp`: `AskKind::{Hover, wait}`, `Answered::Hover`, `protocol::{Hover, hover}`. `server::Hovered` of the plan became `protocol::Hover` itself.
-  - `oso-core`: `ServerRequest::Describe`, `Editor::{show_hover, close_hover, hover, scroll_hover, hover_page, hover_layout, hover_screen}`, `editor::HoverShown`. `frame::at_point` is the crate's own, for step 9's popup too.
+  - `oso-lsp`: `AskKind::{Hover, wait}`, `Answered::Hover`, `protocol::{Hover, hover}`, and `server::AskFailure`, which `Answer::outcome`'s error now is (8a's `String` before). `server::Hovered` of the plan became `protocol::Hover` itself.
+  - `oso-core`: `ServerRequest::Describe`, `Editor::{show_hover, close_hover, hover, scroll_hover, hover_page, hover_layout, hover_screen}`, `editor::HoverShown` with `buffer`, `top` and `label`. `show_hover` takes the server's name. `frame::at_point` is the crate's own, for step 9's popup too.
   - `oso-lsp`'s `limits` gains `HOVER_PIECES_MAX` and `HOVER_LANGUAGE_BYTES_MAX`.
   - The commands say "describe", after Eglot's `eglot-help-at-point` and `C-h`'s describe commands; the editor's API says "hover", after the protocol.
 - **From this step's reviews:** the syntax host highlights the description, which it had left out with every internal buffer; a float put away never comes back, and every key, menu, wheel or press that should close it does; a buffer that came to may hold secrets shows none; the width is measured for a bounded number of lines; the reader stops once full and fences only what it keeps; its bounds moved to `limits`; ADR 0008's floats for hover are amended.

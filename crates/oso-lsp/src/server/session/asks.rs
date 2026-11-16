@@ -14,7 +14,7 @@ use crate::position;
 use crate::protocol::{self, Outcome};
 use crate::uri;
 
-use super::super::{Answer, Answered, Ask, AskKind, Location, Target};
+use super::super::{Answer, Answered, Ask, AskFailure, AskKind, Location, Target};
 use super::run::Run;
 use super::{Asked, Session};
 
@@ -171,10 +171,7 @@ impl Session {
             "request {id} not answered within {} s, cancelled",
             ask.kind.wait().as_secs()
         ));
-        self.fail(
-            ask,
-            format!("no answer within {} s", ask.kind.wait().as_secs()),
-        );
+        self.answer_failed(ask, AskFailure::Overdue);
         run.send(&protocol::notification(
             "$/cancelRequest",
             json!({"id": id}),
@@ -197,12 +194,16 @@ impl Session {
     }
 
     fn fail(&mut self, ask: Ask, why: String) {
+        self.answer_failed(ask, AskFailure::Other(why));
+    }
+
+    fn answer_failed(&mut self, ask: Ask, failure: AskFailure) {
         self.reporter.answer(Answer {
             serial: ask.serial,
             document: ask.document,
             kind: ask.kind,
             revision: ask.revision,
-            outcome: Err(why),
+            outcome: Err(failure),
         });
     }
 }
