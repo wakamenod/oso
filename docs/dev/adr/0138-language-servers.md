@@ -524,8 +524,9 @@ Every bound lives in `oso-lsp`'s `limits`:
   toward the connection's 100 buffers, and it is marked as the agent's. So its `didOpen` waits for
   the person, by ADR 0118.
 - **An agent never opens the float** (step 8's Q5): its `M-.` goes to the first of several
-  definitions and says `1 of 3`, and its `M-?` is refused, pointing it to the project search
-  tool, as a float is the person's, and an agent cannot read one.
+  definitions and says `1 of 3`, and its `M-?` is refused, as a float is the person's, and an
+  agent cannot read one: `References are listed in a float, which only the person reads; search
+  the project with your own tools`, as `oso mcp` has no search tool (step 8b's Q7).
 - **The `diagnostics` tool** takes a buffer or `project`, and gives at most 500 entries: the path,
   line and column (1-based, in characters), the severity, the message (2 KiB at most), the source
   and the code. ADR 0121's `@diagnostics` mention reads the same. `state` gains each buffer's
@@ -1494,7 +1495,8 @@ public items below (Q7), with the prompt opened through an argument spec of its 
   place of the `ProjectPreview` pair), `Excerpt::new` with a `VisitColumn`,
   `command::ArgSpec::Diagnostics`, `Editor::{open_diagnostics_list, take_diagnostics_request,
   diagnostics_listed, take_diagnostic_hit}`, `editor::{DiagnosticsRequest, DiagnosticRow,
-  DiagnosticRowAt, DiagnosticRows, DiagnosticHit}`. `oso-lsp`: `server::Diagnosed::{File,
+  DiagnosticRowAt, DiagnosticRows, DiagnosticHit}`, the place types since renamed
+  `editor::{ListedAt, ListedHit}` (step 8b's Q6). `oso-lsp`: `server::Diagnosed::{File,
   Forgotten}`, `limits::DIAGNOSTIC_ROWS_MAX`.
 - **From this step's reviews:** the snapshot copies no path and takes only the project's
   servers; the reports' paths are judged against the root in the servers' spelling; a file's
@@ -1712,3 +1714,75 @@ with nothing asked (Q7); and the public items below (Q8).
 - **Left for 8b:** the float with a preview for several definitions, `M-?`
   (`lsp-find-references`), its rows read on a worker, and the excerpt reader made to read any
   absolute path.
+
+### Step 8b: the list of places, `M-?`
+
+The author answered 8b's questions on 2026-11-16, all with the first choice: `RET` in the list
+runs a command of its own, `lsp-go-to-xref`, whose argument only the list takes, and the host
+opens the list once an answer needs it (Q1); the rows in the server's order, grouped by file
+in the order each first comes, the first selected (Q2); one reference gone to at once, saying
+`1 reference` (Q3); paths from the server's root, others whole with the home directory as `~`,
+and the labels `Definitions:` and `References:` with the list's count (Q4, Q8); at most 64 MiB
+read of a file and 256 MiB of a list, over at most the answer's 1000 places, past them a row
+with no text, a newer ask or the list's end stopping the read (Q5); the place types shared
+with `M-g d` as `editor::{ListedAt, ListedHit}`, renamed once step 6b had merged (Q6); the
+agent's `M-?` refused with the words above (Q7); and the public items below (Q9).
+
+- **`oso-core`** (`editor/servers/xref_list.rs`, a twin of `M-g d`'s list):
+  `Editor::open_xref_list(kind, generation, root)` opens the list empty and waiting, for the
+  host's list `generation`; `Editor::xref_listed` takes its rows, dropped unless they are for the list
+  open; `RET` keeps the row for the host, `Editor::take_xref_hit`. A row reads
+  `path:line: text`. A row of an open buffer goes where its edits since moved it, as `M-g d`'s
+  rows go; any other goes to the
+  server's line and column. The preview is `FilePreview`'s, as `Lister::Xrefs`: a row of an
+  open buffer shows from memory; a file under the server's root is reached from it, any other
+  from its own directory, so one right in a directory that is or holds the home directory
+  shows nothing, by the reader's rule; a file that may hold secrets is never asked for.
+- **The tip crate:**
+  - `lsp-find-references` (`Look`) on `M-?` in the `lsp` layer, and `lsp-go-to-xref`
+    (`Person`, `ArgSpec::Xref`), which `M-x` and the channel refuse and which only `RET` in
+    the list runs; `Dispatcher::list_xrefs` opens the list for it, as `find_file_in` opens a
+    prompt for the host. The command asks the host (`ServerRequest::GoToXref`), which goes to
+    the row's place as an answer's jump goes: the history, the mark ring, and a file outside
+    any project joining the server.
+  - `app/servers/xrefs.rs`: the person's answer with several places, or `M-?`'s, starts the
+    rows' build on `oso-xrefs` (`xrefs/rows.rs`) from a snapshot: the places, each open
+    buffer's text, and the server's root as a URI reads back. The list opens once the rows
+    come, or after 1 s waiting with them to come, only while nothing moved since the ask, as
+    an answer goes; otherwise it is dropped. A newer ask stops a list that waits, and the
+    list's end stops its build.
+  - The rows: an open buffer's line from its text, unless it may hold secrets; any other file
+    read once for all its rows by `grep/preview/lines.rs`, reached as the preview reaches its
+    file, within the bounds of Q5. At most 256 bytes of the line from its first non-blank,
+    each invalid byte one U+FFFD, `…` where more follows.
+  - The agent's `M-.` still goes to the first of several, saying `1 of 3`; its `M-?` asks
+    nothing.
+- **What the two lists share** (`editor/servers/listed.rs`, done once step 6b had merged, as the
+  architecture review asked): `ListedAt` and `ListedHit`, renamed from `DiagnosticRowAt` and
+  `DiagnosticHit`; `Listed`, the state each list keeps beside its rows (its prompt, root,
+  generation, whether its rows came or were cut, their places, `RET`'s row and its preview),
+  with how it opens, takes its rows, maps an open buffer's row through the edits since and
+  closes; and `Editor::show_listed`, which shows the rows, what was typed meanwhile matched
+  against them. Each list keeps only its rows' form and its preview's choice of file.
+- **From this step's reviews:** a row never reads the file of an open buffer that withholds
+  its text, by its path or its device and inode, as the preview never shows one; a place under
+  `/dev`, `/proc` or `/sys` is left out with those under an automount, the jump's too; on
+  Windows a name with `~` and a digit, as a short name, is taken to may hold secrets, the
+  search's preview's too; a place whose path is not UTF-8 or longer than 4 KiB gives no row;
+  the home directory's real place is found on `oso-xrefs`, and an answer's places in open
+  documents are looked up once per document; at most two builds read files at once; the last
+  list's server is kept until the next list, so `RET`'s row goes to it however late the host
+  takes the row, as a command a macro replays runs before it looks; and what the list held is
+  freed off the UI thread.
+- **Public API:** `oso-core`: `editor::{XrefKind, XrefRow, XrefRows, ListedAt, ListedHit}` (the
+  last two in place of `DiagnosticRowAt` and `DiagnosticHit`), `Editor::{open_xref_list,
+  xref_listed, take_xref_hit}`, `ServerRequest::GoToXref`, `ArgSpec::Xref`. The tip's
+  `Dispatcher::list_xrefs`.
+- **Tests:** in `oso-core`, the list's rows, a stale list, the open buffer's mapping, the
+  preview's root for a file under the root and outside it, and a file that may hold secrets;
+  the reader's lines in one pass, across parts, within the budget, a stale read, and a file
+  reached as the preview reaches it, never one that may hold secrets, through a link or under
+  the home directory; the rows' order, paths and texts; dispatcher tests of `M-?`, `RET` and
+  `M-x lsp-go-to-xref`; and the end-to-end flows
+  `a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins`, which now picks the
+  place of two definitions in the list, and `references_are_listed_by_file_and_one_is_gone_to_at_once`.

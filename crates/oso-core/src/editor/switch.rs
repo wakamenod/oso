@@ -315,6 +315,10 @@ impl Editor {
         if self.lists_diagnostics() {
             return self.diagnostics_preview();
         }
+        // `M-.`'s and `M-?`'s list previews its row's place the same way (step 8b).
+        if self.lists_xrefs() {
+            return self.xrefs_preview();
+        }
         // `M-y` previews the kill its selected row names, never a secret one (ADR 0091).
         if self.kill_list_open() {
             let entry = self.selected_kill()?;

@@ -109,7 +109,12 @@ network features.
   ended without a limit found, at most 16 MiB of them with their paths,
   counted as they are found, stay on `oso-grep` for a search that narrows it.
   The next search that ends replaces them, and they go once no search came for
-  30 s.
+  30 s. The rows of a list of a language server's places (`M-.`'s several,
+  `M-?`'s) read each file's lines the same way, on `oso-xrefs`, within 64 MiB
+  of a file and 256 MiB of a list, and show nothing of a file that may hold
+  secrets; a file outside the server's root is reached from its own directory,
+  so one right in a directory that is or holds the home directory is not read
+  (ADR 0138, step 8b).
 - The walk reads the project's ignore files itself, as patterns only: only a
   regular file that is not a link, opened without waiting, of at most 1 MiB.
   The person's global excludes may be a link but must be such a file too. They

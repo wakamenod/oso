@@ -340,7 +340,7 @@ A panicking command is caught at the command boundary
   ([ADR 0127](adr/0127-source-control-and-github.md)) and in a terminal, whose keymap holds session
   mode's keys too in a terminal that hosts an agent session ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)), with the user's
   `[keys.session]` as a minor mode layer above it there, the `lsp` minor mode layer in a buffer a
-  language server follows (`C-M-n`, `C-M-p`, `M-g d`, [ADR 0138](adr/0138-language-servers.md)), and a layer for the user's keys, which
+  language server follows (`C-M-n`, `C-M-p`, `M-g d`, `M-.`, `M-?`, [ADR 0138](adr/0138-language-servers.md)), and a layer for the user's keys, which
   the configuration file fills ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
   take the global layer's place, so that no other key reaches a command. While a jump is on, its
   keymap comes before every other but a question's ([ADR 0116](adr/0116-migemo-and-jumps.md)).
@@ -602,14 +602,20 @@ The UI thread never blocks on I/O or parsing:
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
 - The selected row's preview is read on `oso-preview` (`grep/preview.rs`): the editor asks once
   per row selected (`Editor::take_preview_request`), with the row's byte offset, or for a
-  diagnostic of `M-g d` its line, which the thread finds by counting line breaks within 64 MiB
-  ([ADR 0138](adr/0138-language-servers.md), step 6b), unless the row's file may hold secrets
+  diagnostic of `M-g d` or a place of a server's answer its line, which the thread finds by
+  counting line breaks within 64 MiB ([ADR 0138](adr/0138-language-servers.md), steps 6b and
+  8b), unless the row's file may hold secrets
   or an open buffer of it shows; the thread reads the newest request waiting, opening the file
   from the root a directory at a time, and builds an `oso_core::editor::Excerpt`, the lines
   around the row with their display model, which comes back as `UserEvent::Previewed`. The
   editor shows it as `Preview::Excerpt`, drawn as a text pane of its own whose revision is the
   excerpt's, or an open buffer of the same file by device and inode in its place
   (`editor/file_preview.rs`, one for each list that previews files).
+- The rows of `M-g d`'s list are built on `oso-diagnostics`, and those of a list of a language
+  server's places, `M-.`'s several and `M-?`'s, on `oso-xrefs`, one thread per list, each from a
+  snapshot the UI thread takes; `oso-xrefs` reads each file's lines as `oso-preview` reaches the
+  file (`grep/preview/lines.rs`), and the rows come back as `UserEvent::DiagnosticsListed` and
+  `UserEvent::XrefsListed` ([ADR 0138](adr/0138-language-servers.md), steps 6b and 8b).
 - Directories for `C-x C-f` are listed on worker threads (`crates/oso/src/lister.rs`),
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest

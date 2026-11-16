@@ -133,7 +133,7 @@ fn echo(editor: &Editor) -> String {
 #[test]
 fn m_g_d_lists_the_project_s_diagnostics_and_ret_goes_to_the_one_picked() {
     use oso_core::buffer::Baseline;
-    use oso_core::editor::{DiagnosticRow, DiagnosticRowAt, DiagnosticRows};
+    use oso_core::editor::{DiagnosticRow, DiagnosticRows, ListedAt};
     let path = std::path::PathBuf::from("/w/oso/t.rs");
     let mut buffer = Buffer::visiting(path.clone());
     buffer.apply_load(oso_core::load::decode_all(
@@ -155,7 +155,7 @@ fn m_g_d_lists_the_project_s_diagnostics_and_ret_goes_to_the_one_picked() {
     let row = DiagnosticRow {
         path: "t.rs".into(),
         line: 2,
-        at: DiagnosticRowAt::Open {
+        at: ListedAt::Open {
             buffer: id,
             offset: 15,
             revision,
@@ -178,4 +178,91 @@ fn m_g_d_lists_the_project_s_diagnostics_and_ret_goes_to_the_one_picked() {
     let (mut d, mut editor) = followed(None);
     send(&mut d, &mut editor, "M-g d");
     assert!(editor.prompt().is_none());
+}
+
+#[test]
+fn m_question_asks_for_references_and_ret_in_the_list_of_places_goes_to_the_row() {
+    use oso_core::editor::{ListedAt, ListedHit, ServerRequest, XrefKind, XrefRow};
+    use oso_core::editor::{VisitColumn, XrefRows};
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    let id = editor.window().buffer();
+    send(&mut d, &mut editor, "C-f M-?");
+    match editor.take_server_requests().as_slice() {
+        [ServerRequest::References(at)] => {
+            assert_eq!((at.buffer, at.offset, at.agent), (id, 1, false));
+        }
+        other => panic!("{other:?}"),
+    }
+    // The host opens the list once an answer has several places.
+    let root = std::path::PathBuf::from("/w");
+    let opened = d.list_xrefs(&mut editor, XrefKind::References, 3, root.clone());
+    assert_eq!(opened, editor.prompt().map(|prompt| prompt.id()));
+    assert!(
+        d.list_xrefs(&mut editor, XrefKind::References, 4, root)
+            .is_none(),
+        "not over a prompt"
+    );
+    let row = |line| XrefRow {
+        shown: "b.rs".into(),
+        path: "/w/b.rs".into(),
+        line,
+        at: ListedAt::File {
+            column: VisitColumn::Utf16(2),
+        },
+        text: "x".into(),
+    };
+    editor.xref_listed(XrefRows::new(3, vec![row(4), row(9)], false));
+    send(&mut d, &mut editor, "C-n RET");
+    assert!(editor.prompt().is_none());
+    assert_eq!(
+        editor.take_server_requests(),
+        [ServerRequest::GoToXref],
+        "lsp-go-to-xref asks the host"
+    );
+    assert_eq!(
+        editor.take_xref_hit(),
+        Some(ListedHit::File {
+            path: "/w/b.rs".into(),
+            line: 9,
+            column: VisitColumn::Utf16(2)
+        })
+    );
+}
+
+#[test]
+fn m_x_lsp_go_to_xref_opens_nothing() {
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    let name: Vec<String> = "lsp-go-to-xref".chars().map(String::from).collect();
+    send(&mut d, &mut editor, &format!("M-x {} RET", name.join(" ")));
+    assert!(editor.prompt().is_none());
+    assert!(editor.take_server_requests().is_empty());
+    assert!(echo(&editor).contains("M-. and M-?"), "{}", echo(&editor));
+}
+
+#[test]
+fn the_agent_s_m_question_is_refused_and_asks_nothing_and_its_m_dot_asks() {
+    use super::args::Given;
+    use oso_core::command::Reach;
+    use oso_core::editor::ServerRequest;
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    let ran = d.run_for_agent(
+        &mut editor,
+        "lsp-find-references",
+        Given::Nothing,
+        Reach::Look,
+    );
+    let why = ran.unwrap().1.unwrap_err();
+    assert!(why.contains("only the person reads"), "{why}");
+    assert!(editor.take_server_requests().is_empty(), "nothing asked");
+    let ran = d.run_for_agent(
+        &mut editor,
+        "lsp-find-definition",
+        Given::Nothing,
+        Reach::Look,
+    );
+    assert_eq!(ran.unwrap().1, Ok(()));
+    match editor.take_server_requests().as_slice() {
+        [ServerRequest::Definition(at)] => assert!(at.agent),
+        other => panic!("{other:?}"),
+    }
 }
