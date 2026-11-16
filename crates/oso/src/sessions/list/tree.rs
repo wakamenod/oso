@@ -1,4 +1,4 @@
-//! The tree of `*Sessions*` (ADR 0131, step 2; ADR 0136, step 2): each open issue space, its
+//! The tree of `*Spaces*` (ADR 0131, step 2; ADR 0136, step 2): each open issue space, its
 //! repositories, the worktrees it shows of each, the main checkout first and then the newest
 //! made, and the sessions in each, the most urgent first. A space of one repository shows its
 //! worktrees right under its own row. An external session in a worktree of the tree is listed
@@ -13,18 +13,19 @@
 
 mod choose;
 mod space;
+mod worktree;
 
 pub use choose::{SpaceInput, space_rows};
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use oso_core::syntax::Highlight;
 
 use super::{
-    Entry, Fold, Group, Key, Line, List, PLACE_FROM, Rendered, Row, SPINNER, age, age_of, cells,
-    cut, cut_middle, face, mark, order, pad, rank,
+    Entry, Fold, Group, Key, LEAD, Line, List, Rendered, Row, cells, cut, cut_middle, face, mark,
+    order, pad, rank,
 };
 use crate::sessions::recap::clean;
 use crate::sessions::spaces::SpaceId;
@@ -33,19 +34,17 @@ use crate::sessions::state::State;
 /// How long a worktree with no session stays unchanged before it goes in the quiet row.
 pub const QUIET_AFTER: Duration = Duration::from_secs(7 * 86_400);
 
-/// The mark of a worktree with no session: one of the row marks, so that `n` and `p` stop on it.
-pub const NO_SESSION: char = '·';
+/// The indents of the tree's rows, by depth, past the bar's cell ([`LEAD`]): a space's, a
+/// repository's or a one-repository space's worktree's, a worktree's of a space of several, and
+/// their sessions', whose guides follow (ADR 0140).
+const INDENT: [&str; 5] = [" ", "   ", "     ", "       ", "         "];
 
-/// The indents of the tree's rows, by depth: a space's, a repository's or a one-repository
-/// space's worktree's, a worktree's of a space of several, and their sessions'. A row two
-/// cells in from the fold row above it is a heading for `M-n` (`sessions-next-heading`); a
-/// session never is.
-const INDENT: [&str; 5] = ["", "  ", "    ", "      ", "        "];
+/// The indent of an archived session's row, and of one in `Other projects`.
+const SESSION: &str = "     ";
+const OTHER_SESSION: &str = "       ";
 
-/// The indent of an archived session's row, and of one in `Other projects`: never two cells in
-/// from a fold row, so that `M-n` passes them.
-const SESSION: &str = "    ";
-const OTHER_SESSION: &str = "      ";
+/// What a section's row draws from its name to its roll-up (ADR 0140).
+const RULE: char = '─';
 
 /// A project of the tree: a repository with a space in this oso.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -123,6 +122,7 @@ impl List {
     /// The tree of `entries` for a window `width` cells wide, ages as of `now`.
     pub(super) fn render_tree(&self, entries: &[Entry], width: usize, now: Instant) -> Rendered {
         let mut out = Rendered::default();
+        self.open_to.set(0);
         let spaces = &self.tree.spaces;
         let mut orchestrators: Vec<Vec<&Entry>> = vec![Vec::new(); spaces.len()];
         let mut placed: Vec<Placed<'_>> = spaces
@@ -138,6 +138,7 @@ impl List {
         let mut other_at: HashMap<&[u8], usize> = HashMap::new();
         let mut archived = Vec::new();
         let worktrees = by_depth(spaces);
+        title(&mut out, entries, width);
         for entry in entries {
             match place(&worktrees, &self.tree, entry) {
                 Place::Worktree(s, p, w) => placed[s][p][w].push(entry),
@@ -163,109 +164,6 @@ impl List {
         out
     }
 
-    /// A worktree's row, then its sessions unless it is folded: by default, while none of
-    /// oso's runs in it.
-    fn worktree(
-        &self,
-        out: &mut Rendered,
-        (space, worktree, depth): (&SpaceRows, &Worktree, usize),
-        sessions: &[&Entry],
-        width: usize,
-        now: Instant,
-    ) {
-        let indent = INDENT[depth];
-        let line = Line::Worktree(space.id.clone(), worktree.path.clone());
-        let hosted: Vec<&Entry> = sessions
-            .iter()
-            .copied()
-            .filter(|e| matches!(e.key, Key::Hosted(_)))
-            .collect();
-        let running = hosted.iter().any(|e| e.state != State::Stopped);
-        let fold = Fold::Worktree(space.id.clone(), worktree.path.clone());
-        let folded = self.folded_as(&fold, !running);
-        let roll = worst(sessions);
-        // It spins while its roll-up is a working session of oso's (Q13).
-        let spin = self.spin.filter(|_| {
-            roll.is_some_and(|e| e.state == State::Working)
-                && worst(&hosted).is_some_and(|e| e.state == State::Working)
-        });
-        let (mark, mark_face) = match (spin, roll) {
-            (Some(frame), _) => (SPINNER[frame], Highlight::SessionWorking),
-            (None, Some(top)) if matches!(top.key, Key::Hosted(_)) => {
-                (mark(top.state), face(top.state))
-            }
-            (None, Some(top)) => (mark(top.state), Highlight::SessionQuiet),
-            (None, None) => (NO_SESSION, Highlight::SessionQuiet),
-        };
-        let (name, tag) = names(worktree);
-        let count = if folded && !sessions.is_empty() {
-            format!(" ({})", sessions.len())
-        } else {
-            String::new()
-        };
-        let head = format!("{indent}{mark} ");
-        let age = super::shown_age(
-            self.worktree_age(worktree, sessions, now),
-            width,
-            cells(&head) + cells(&count),
-            &name,
-        );
-        let room = width.saturating_sub(cells(&head) + cells(&age) + cells(&count) + 1);
-        let name = cut_middle(&name, room);
-        let mut text = format!("{head}{name}");
-        let mut spans = vec![(indent.len()..head.len() - 1, mark_face)];
-        let front = self.tree.front_space.as_ref() == Some(&space.id)
-            && self.tree.front.as_deref() == Some(worktree.path.as_path());
-        if front {
-            spans.push((head.len()..text.len(), Highlight::SessionFront));
-        }
-        let left = room.saturating_sub(cells(&name) + 2);
-        if let Some(tag) = tag.filter(|_| left >= PLACE_FROM) {
-            text.push_str("  ");
-            let at = text.len();
-            text.push_str(&cut_middle(super::unmarked(&tag), left));
-            spans.push((at..text.len(), Highlight::SessionQuiet));
-        }
-        let at = text.len();
-        text.push_str(&count);
-        spans.push((at..text.len(), Highlight::SessionQuiet));
-        let text = pad(&text, width.saturating_sub(cells(&age))) + &age;
-        spans.push((text.len() - age.len()..text.len(), Highlight::SessionQuiet));
-        if spin.is_some() {
-            out.spinning.push(out.lines.len());
-        }
-        out.push_drawn(&cut(&text, width), line, &spans);
-        if folded {
-            return;
-        }
-        for (top, nested) in families(sessions) {
-            let waiting = nested
-                .iter()
-                .filter(|e| matches!(e.state, State::NeedsInput(_)))
-                .count();
-            self.session(out, top, INDENT[depth + 1], waiting, width, now);
-            if !self.folded(&Fold::Nested(top.key)) {
-                for entry in nested {
-                    self.session(out, entry, INDENT[depth + 2], 0, width, now);
-                }
-            }
-        }
-    }
-
-    /// A worktree's age: its newest session's, else since git last changed it.
-    fn worktree_age(&self, worktree: &Worktree, sessions: &[&Entry], now: Instant) -> String {
-        match sessions.iter().map(|e| e.since).max() {
-            Some(since) => age(since, now),
-            None => self
-                .tree
-                .wall
-                .zip(worktree.active)
-                .and_then(|(wall, active)| wall.duration_since(active).ok())
-                .map(age_of)
-                .unwrap_or_default(),
-        }
-    }
-
     /// A session's row in the tree: its worktree is the row above, so it says no place.
     fn session(
         &self,
@@ -276,15 +174,7 @@ impl List {
         width: usize,
         now: Instant,
     ) {
-        let row = Row {
-            entry,
-            indent,
-            spin: self.spin,
-            waiting,
-            place: false,
-            tag: None,
-        };
-        row.render(out, width, now);
+        Row::new(entry, indent, self.spin, waiting).render(out, width, now);
     }
 
     /// `Other projects`, folded by default, by directory, each folded too.
@@ -310,11 +200,11 @@ impl List {
             total.to_string()
         };
         let folded = self.folded(&Fold::Group(Group::Other));
-        let head = format!("{} ", if folded { '▸' } else { '▾' });
+        let head = format!("{LEAD}{} ", if folded { '▸' } else { '▾' });
         let roll = Some((right, Highlight::SessionQuiet));
-        heading(
+        section(
             out,
-            (&head, "Other projects"),
+            (&head, "Other projects", None),
             roll,
             width,
             Line::Header(Group::Other),
@@ -344,12 +234,12 @@ impl List {
             return;
         }
         let folded = self.folded(&Fold::Group(Group::Archived));
-        let head = format!("{} ", if folded { '▸' } else { '▾' });
-        let name = format!("Archived {}", archived.len());
-        heading(
+        let head = format!("{LEAD}{} ", if folded { '▸' } else { '▾' });
+        let count = Some((archived.len().to_string(), Highlight::SessionQuiet));
+        section(
             out,
-            (&head, &name),
-            None,
+            (&head, "Archived", None),
+            count,
             width,
             Line::Header(Group::Archived),
         );
@@ -359,31 +249,13 @@ impl List {
         let mut archived = archived.to_vec();
         archived.sort_by(|a, b| order(a).cmp(&order(b)));
         for entry in archived {
-            // At a session's indent, as every session row of the tree, so that only a heading
-            // takes a worktree's (`sessions-next-heading`).
             let row = Row {
-                entry,
-                indent: SESSION,
-                spin: None,
-                waiting: 0,
                 place: true,
-                tag: None,
+                ..Row::new(entry, SESSION, None, 0)
             };
             row.render(out, width, now);
         }
     }
-}
-
-/// What a worktree's row names: the main checkout's branch, marked `primary`, or a linked
-/// worktree's directory, with its branch where that differs.
-fn names(worktree: &Worktree) -> (String, Option<String>) {
-    let dir = dir_name(&worktree.path);
-    let branch = worktree.branch.as_deref().map(clean);
-    if worktree.primary {
-        return (branch.unwrap_or(dir), Some("primary".to_owned()));
-    }
-    let tag = branch.filter(|branch| *branch != dir);
-    (dir, tag)
 }
 
 /// A heading row: `head` and `name`, and at the right edge `right` in its face.
@@ -416,6 +288,82 @@ fn named_heading(
         spans.insert(0, (head.len()..name_end, face));
     }
     out.push_drawn(&cut(&text, width), line, &spans);
+}
+
+/// A section's row (ADR 0140): `head` and `name`, in `name_face` if given, a rule to the
+/// right edge's `right`, in its face, and the section's band behind it.
+fn section(
+    out: &mut Rendered,
+    (head, name, name_face): (&str, &str, Option<Highlight>),
+    right: Option<(String, Highlight)>,
+    width: usize,
+    line: Line,
+) {
+    let (right, right_face) = right.unwrap_or((String::new(), Highlight::SessionQuiet));
+    let right = if right.is_empty() {
+        right
+    } else {
+        format!(" {right}")
+    };
+    // At least one cell of rule after the name, and its blank.
+    let room = width.saturating_sub(cells(head) + cells(&right) + 2);
+    let mut text = format!("{head}{}", cut_middle(super::unmarked(name), room));
+    let name_end = text.len();
+    text.push(' ');
+    let rule_at = text.len();
+    let rule = width.saturating_sub(cells(&text) + cells(&right));
+    text.extend(std::iter::repeat_n(RULE, rule));
+    let rule_end = text.len();
+    text.push_str(&right);
+    let mut spans = vec![
+        (rule_at..rule_end, Highlight::SessionQuiet),
+        (rule_end..text.len(), right_face),
+    ];
+    if let Some(face) = name_face {
+        spans.insert(0, (head.len()..name_end, face));
+    }
+    out.bands.sections.push(out.lines.len());
+    out.push_drawn(&cut(&text, width), line, &spans);
+}
+
+/// The tree's first row (ADR 0140): the pane's name, and at the right the three most urgent
+/// states among oso's own sessions that ask something of the person, each with its count.
+fn title(out: &mut Rendered, entries: &[Entry], width: usize) {
+    let mut counts = [0_usize; 5];
+    for entry in entries {
+        let rank = usize::from(rank(entry.state));
+        if matches!(entry.key, Key::Hosted(_)) && !entry.archived && rank < counts.len() {
+            counts[rank] += 1;
+        }
+    }
+    let states = [
+        State::NeedsInput(crate::sessions::state::Reason::Permission),
+        State::Failed,
+        State::Working,
+        State::ReadyForReview,
+        State::Done,
+    ];
+    let shown: Vec<(State, usize)> = (states.into_iter().zip(counts))
+        .filter(|(_, n)| *n > 0)
+        .take(3)
+        .collect();
+    let mut right = String::new();
+    let mut marks = Vec::new();
+    for (state, n) in &shown {
+        if !right.is_empty() {
+            right.push_str("  ");
+        }
+        marks.push((right.len(), mark(*state), face(*state)));
+        let _ = std::fmt::Write::write_fmt(&mut right, format_args!("{} {n}", mark(*state)));
+    }
+    let name = format!("{LEAD}Spaces");
+    let text = pad(&name, width.saturating_sub(cells(&right))) + &right;
+    let at = text.len() - right.len();
+    let mut spans = vec![(LEAD.len()..name.len(), Highlight::SessionSpace)];
+    for (offset, mark, face) in marks {
+        spans.push((at + offset..at + offset + mark.len_utf8(), face));
+    }
+    out.push_drawn(&cut(&text, width), Line::Title, &spans);
 }
 
 /// Where `entry` goes: with the archived sessions when it or its space is; under the deepest
@@ -547,43 +495,6 @@ fn worst<'e>(sessions: &[&'e Entry]) -> Option<&'e Entry> {
         .iter()
         .copied()
         .min_by_key(|e| (rank(e.state), matches!(e.key, Key::External(_))))
-}
-
-/// `sessions` as families: each top-level one in order, oso's own first, with the sessions
-/// nested under it among them. One whose chain of parents runs in a circle stays at the top.
-fn families<'e>(sessions: &[&'e Entry]) -> Vec<(&'e Entry, Vec<&'e Entry>)> {
-    let by_key: HashMap<Key, &Entry> = sessions.iter().map(|e| (e.key, *e)).collect();
-    let top = |entry: &'e Entry| -> Key {
-        let mut at = entry;
-        let mut seen = HashSet::from([entry.key]);
-        while let Some(parent) = at.parent.and_then(|key| by_key.get(&key)) {
-            if !seen.insert(parent.key) {
-                return entry.key;
-            }
-            at = parent;
-        }
-        at.key
-    };
-    let mut sorted = sessions.to_vec();
-    sorted.sort_by(|a, b| {
-        let external = |e: &Entry| matches!(e.key, Key::External(_));
-        (external(a), order(a)).cmp(&(external(b), order(b)))
-    });
-    let mut families: Vec<(&Entry, Vec<&Entry>)> = Vec::new();
-    for &entry in &sorted {
-        if top(entry) == entry.key {
-            families.push((entry, Vec::new()));
-        }
-    }
-    for &entry in &sorted {
-        let top = top(entry);
-        if top != entry.key
-            && let Some((_, nested)) = families.iter_mut().find(|(e, _)| e.key == top)
-        {
-            nested.push(entry);
-        }
-    }
-    families
 }
 
 /// A directory's last name, as the tree shows it: cleaned as a recap is, as a path from git

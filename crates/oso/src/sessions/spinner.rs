@@ -1,4 +1,4 @@
-//! The spinner of working marks in `*Sessions*` (ADR 0131, Q11–Q14): which frame shows at an
+//! The spinner of working marks in `*Spaces*` (ADR 0131, Q11–Q14): which frame shows at an
 //! instant, and when the next one is due, only while a spinning row is in view. All rows share
 //! one phase, from the instant the spinner started, so one deadline serves them all.
 //!

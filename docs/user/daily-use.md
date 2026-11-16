@@ -53,7 +53,7 @@ too, and Claude Code asks its own trust question.
 
 Visit a file of the project, then run `M-x trust-project` and answer `y`. It works on the project
 of the current buffer's file, or of a session's own buffer, so run it from one of those, not from
-a plain terminal or `*Sessions*`.
+a plain terminal or `*Spaces*`.
 A git worktree is trusted while its main repository is. `M-x untrust-project` takes it back.
 
 ## Language servers
@@ -90,7 +90,7 @@ through `oso mcp`.
 | `C-x a w` | `session-worktree` | Start a session in a new git worktree (see below). |
 | `C-x a a` | `session-adopt` | Bring a session started outside oso into oso. |
 | `C-x a r` | `session-resume` | Resume the stopped session whose buffer this is. |
-| `C-x a s` | `sessions` | Show, select or hide the `*Sessions*` list. |
+| `C-x a s` | `sessions` | Show and select the `*Spaces*` pane, or go back from it; with `C-u`, hide it. |
 | `C-x a b` | `session-switch` | Show a session, picked by name. |
 | `C-x a n` | `session-next-waiting` | Show the session that has waited for input longest. |
 | `C-x a d` | `session-next-done` | Show the session that has been done longest. |
@@ -131,12 +131,17 @@ A session's buffer belongs to the project its session runs in, so `C-x v r`, `C-
 A session starts in the mode your own Claude Code settings give it: oso passes no permission
 option. It starts the agent channel, which its tools need.
 
-### The sessions list
+### The spaces pane
 
-`*Sessions*` shows in a window 44 columns wide at the frame's left while you have sessions;
+`*Spaces*` shows in a window 44 columns wide at the frame's left while you have sessions;
 a frame with no room for that narrows it, down to 24 columns. It is a
 tree: each space, its repositories, the worktrees the space uses of each (the main checkout
-first, then the newest), and the sessions in each, one line each. A space of one repository
+first, then the newest), and the sessions in each, one line each. Each level has a form of its
+own: a space's row is a section header on a band, with a rule to its most urgent state; a
+repository's name ends with `/`; a worktree's row starts with its fold (`▾` open, `▸` folded)
+and has its sessions' most urgent mark at the right; a session hangs from its worktree on a
+guide (`├`, `└`) and starts with its own mark. A session named after its worktree shows its
+title (the conversation's topic) instead. A space of one repository
 lists its worktrees right under its own row. While another space is in front, a space is
 folded unless one of its sessions works or needs you; closed spaces wait in a folded
 `Archived spaces` group. Each line has a mark, a name, and how long since it last changed state (`now` under
@@ -146,14 +151,21 @@ sessions by state instead. A session that needs you takes a second line with the
 asks. Marks are coloured by what they ask of you:
 red needs you, amber works (its mark turns while it is in view), green is done, grey is idle.
 Sessions run outside oso are listed too, all in grey: under their worktree, or in a folded
-`Other projects` group. The row at point has a band across it, and the worktree you are in has
-its name in an accent colour.
+`Other projects` group. The worktree you are in has its name in an accent colour and a faint
+band behind its rows.
+
+`C-x a s` (or `C-c s` in a session's terminal) moves you into the pane; pressing it again, or
+`q`, takes you back to the window you came from, and `C-u C-x a s` hides the pane. While the
+pane has your keys, the row at point has an accent band and a `▌` at its left edge, and the
+pane's modeline says `q back · TAB fold · ? keys`; otherwise it says `C-x a s to enter`. A
+click on the pane moves you into it at that row; a second click, or `RET`, acts on the row. A
+click on a `▾` or `▸` folds.
 The
 modeline shows `⚠ N` while sessions need input and `● N` while sessions are done or ready for
 review. When a session needs you and you are looking elsewhere, oso says so in the echo area
 and asks the desktop for your attention.
 
-In `*Sessions*`:
+In `*Spaces*`:
 
 | Key | What it does |
 |---|---|
@@ -161,6 +173,9 @@ In `*Sessions*`:
 | `n`, `p` | Next and previous row. |
 | `M-n`, `M-p` | Next and previous space, repository, worktree or group. |
 | `TAB` | Fold or unfold a space, a repository, a worktree or a group. |
+| `S-TAB` | Fold everything to the spaces, then open down to the worktrees, then open everything, in turn. |
+| `<right>`, `<left>` | Open a folded row, or go into an open one; fold an open row, or go to the row this one is under. |
+| `q` | Back to the window you came from. |
 | `a` | Add a repository to the space in front. |
 | `c` | Start a session in this row's worktree: a project's main checkout, the worktree, or the session's worktree. |
 | `w` | Start a session in a new worktree of this row's project. From a worktree, the new branch starts at its branch; from a session, it is also that session's child. |
@@ -354,10 +369,10 @@ In `config.toml`:
 claude = "/usr/local/bin/claude"  # the executable, by absolute path; else found on PATH
 env = ["AWS_PROFILE"]                # more variables a session takes from oso's environment
 steer_worktrees = true               # point the agent to start_worktree_session (off by default)
-spinner = false                      # keep working marks in *Sessions* still (they spin by default)
+spinner = false                      # keep working marks in *Spaces* still (they spin by default)
 agents_start_without_asking = true   # let your sessions start sessions with no question (off by default)
 agents_start_limit = 4               # how many such sessions each may run at once, 1 to 8
-pane_width = 52                      # the *Sessions* pane's columns, 24 to 80 (44 by default)
+pane_width = 52                      # the *Spaces* pane's columns, 24 to 80 (44 by default)
 
 [sessions.notify]                    # which states ask for your attention
 needs_input = true
@@ -376,7 +391,7 @@ The `[sessions.notify]` values shown are the defaults.
 through `start_worktree_session` and `session_start` without asking you, in a trusted project
 only, up to `agents_start_limit` running sessions each; past that it asks again. A session started
 this way asks for its own. Each start is said in the echo area and `*Messages*`, its row in
-`*Sessions*` says `unasked`, and `C-x a e` on it shows who started it and its brief, until oso
+`*Spaces*` says `unasked`, and `C-x a e` on it shows who started it and its brief, until oso
 restarts. `M-x agent-starts-ask` brings the question back until oso restarts, and
 `M-x agent-starts-allow` takes that back. The setting is read when oso starts, so a change applies
 from the next start, and it does not apply from a file other users in a group can change. Each new
@@ -429,5 +444,5 @@ just install
 The running oso keeps the old binary. Quit it and start `oso` again when convenient.
 
 Quitting ends oso's terminals and its sessions' `claude` processes. The next start brings each
-session back stopped, with its buffer and its place in `*Sessions*`, and starts nothing. Press
+session back stopped, with its buffer and its place in `*Spaces*`, and starts nothing. Press
 `C-x a r` in its buffer, or `r` on its row, to resume it. A session you archived stays away.

@@ -247,12 +247,17 @@ impl Theme {
 /// A review's bands (ADR 0122) follow: behind its rows only its own faces are drawn until step 9
 /// of ADR 0122 highlights the sides, which checks the syntax faces on them too. Its refined
 /// words' bands are not here, so text on them is drawn in [`Face::Text`]'s colour.
-pub(crate) const SYNTAX_FILLS: [Face; 5] = [
+///
+/// The spaces pane's bands (ADR 0140) follow: its marks and names keep their colours on them.
+pub(crate) const SYNTAX_FILLS: [Face; 8] = [
     Face::CurrentLine,
     Face::DiffAdded,
     Face::DiffRemoved,
     Face::DiffFileHeader,
     Face::ReviewCommentPerson,
+    Face::SessionHeader,
+    Face::SessionFrontTint,
+    Face::SessionPoint,
 ];
 
 /// `name`'s theme, with text gamma off until its strength is picked beside the OS's text.
@@ -351,8 +356,11 @@ pub(crate) mod tests {
     }
 
     /// Plain text is read on every fill a line of it sits on, and on a selected candidate.
-    const TEXT: [(Face, f32); 10] = [
+    const TEXT: [(Face, f32); 12] = [
         (Face::Text, 7.0),
+        // The spaces pane's bands (ADR 0140).
+        (Face::SessionHeader, 7.0),
+        (Face::SessionPoint, 7.0),
         // A refined word's band, and a comment's text on its card (ADR 0122).
         (Face::DiffRefineAdded, 7.0),
         (Face::DiffRefineRemoved, 7.0),
@@ -485,15 +493,28 @@ pub(crate) mod tests {
             // A session's marks and quiet text, on the list's background and on the band of the
             // row at point, and the modeline's counts of those that need the person or are done
             // (ADR 0131).
+            // ADR 0140 adds the pane's bands: a space's row, the front worktree's (the current
+            // line's colour) and the row at point while the pane is selected.
             Face::SessionAlert | Face::SessionDone => &[
                 (Face::Text, LABEL),
                 (Face::CurrentLine, LABEL),
                 (Face::Modeline, LABEL),
                 (Face::ModelineInactive, LABEL),
+                (Face::SessionHeader, LABEL),
+                (Face::SessionPoint, LABEL),
             ],
-            Face::SessionWorking | Face::SessionQuiet | Face::SessionFront => {
-                &[(Face::Text, LABEL), (Face::CurrentLine, LABEL)]
-            }
+            Face::SessionWorking
+            | Face::SessionQuiet
+            | Face::SessionFront
+            | Face::SessionSpace
+            | Face::SessionRepository => &[
+                (Face::Text, LABEL),
+                (Face::CurrentLine, LABEL),
+                (Face::SessionHeader, LABEL),
+                (Face::SessionPoint, LABEL),
+            ],
+            // The bar at point, on its own fill, as a jump's label is.
+            Face::SessionPointBar => &[(Face::SessionPointBar, LABEL)],
             // A listing's header is read as highlighted text is; its names in a terminal's
             // colours, and its details, as a session's marks and quiet text are (ADR 0134).
             Face::DiredHeader => &SYNTAX_PAIRS,
@@ -543,7 +564,10 @@ pub(crate) mod tests {
             | Face::CurrentLine
             | Face::Flash
             | Face::DiffRefineAdded
-            | Face::DiffRefineRemoved => &[],
+            | Face::DiffRefineRemoved
+            | Face::SessionHeader
+            | Face::SessionFrontTint
+            | Face::SessionPoint => &[],
         }
     }
 

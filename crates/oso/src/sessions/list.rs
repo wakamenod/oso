@@ -1,4 +1,4 @@
-//! `*Sessions*` (ADR 0121, Q6, step 3): the sessions grouped by state, in the taxonomy's order,
+//! `*Spaces*` (ADR 0121, Q6, step 3): the sessions grouped by state, in the taxonomy's order,
 //! or by space; pinned ones first in a group; sessions nested under the session that started
 //! them; archived ones in a last group, folded. Rendered to the window's width, so wrapping
 //! never applies, with a map from each line to what it shows. A session takes one line at
@@ -13,7 +13,6 @@
 //! counted in cells as oso draws it, so that no line runs past the width.
 
 use std::collections::{HashMap, HashSet};
-use std::fmt::Write as _;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -53,8 +52,12 @@ pub(super) fn shown_age(age: String, width: usize, head: usize, name: &str) -> S
     }
 }
 
-/// How far a nested session is indented under its parent.
-const NESTED: &str = "  ";
+/// The first cell of every row, where the bar at point goes while the pane is selected
+/// (ADR 0140).
+pub const LEAD: &str = " ";
+
+/// How far a nested session is indented under its parent, past [`LEAD`].
+const NESTED: &str = "   ";
 
 /// A row of the list: a session oso hosts, or one it read from Claude Code's registry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -79,6 +82,9 @@ pub struct Entry {
     /// Since when it is in its state.
     pub since: Instant,
     pub recap: String,
+    /// Its terminal's title, without a spinner: its label in the tree when its name is its
+    /// worktree's (ADR 0140, Q2). Empty for another program's session.
+    pub title: String,
     pub pinned: bool,
     pub archived: bool,
     /// An agent started it without asking (ADR 0135).
@@ -111,6 +117,17 @@ pub struct Rendered {
     pub highlights: Vec<(Range<usize>, Highlight)>,
     /// The lines whose mark spins.
     pub spinning: Vec<usize>,
+    /// The lines drawn on a band (ADR 0140).
+    pub bands: PaneBands,
+}
+
+/// The lines of the list drawn on a band (ADR 0140), by line from 0, in order.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PaneBands {
+    /// A section's row: a space's, `Other projects`', `Archived`'s.
+    pub sections: Vec<usize>,
+    /// The front worktree's rows.
+    pub tint: Vec<usize>,
 }
 
 /// The list's own state: its grouping and what the person folded.
@@ -124,6 +141,12 @@ pub struct List {
     chosen: HashMap<crate::sessions::spaces::SpaceId, bool>,
     /// Whether each space was folded when the tree was last made, which `TAB` turns over.
     shown: std::cell::RefCell<HashMap<crate::sessions::spaces::SpaceId, bool>>,
+    /// Folds `S-TAB` set, whatever their default: folded or open (ADR 0140). `TAB` turns one
+    /// over.
+    set: HashMap<Fold, bool>,
+    /// How deep the tree was open when last made: 0 its spaces, 1 down to its worktrees, 2
+    /// a worktree's sessions too (ADR 0140).
+    open_to: std::cell::Cell<u8>,
     /// The spinner's frame, while working marks spin.
     spin: Option<usize>,
     /// What the tree shows besides sessions.
@@ -140,11 +163,14 @@ impl List {
         }
     }
 
-    /// What the pane's modeline says of it (ADR 0131): its grouping and its help key.
-    pub fn modeline_note(&self) -> &'static str {
-        match self.grouping {
-            Grouping::Tree => "tree · ? keys",
-            Grouping::State => "by state · ? keys",
+    /// What the pane's modeline says of it (ADR 0140): its name and grouping, then how to
+    /// enter it, or, while it is `selected`, how to leave it, fold and find its keys.
+    pub fn modeline_note(&self, selected: bool) -> &'static str {
+        match (self.grouping, selected) {
+            (Grouping::Tree, false) => "Spaces · C-x a s to enter",
+            (Grouping::Tree, true) => "Spaces · q back · TAB fold · ? keys",
+            (Grouping::State, false) => "Spaces by state · C-x a s to enter",
+            (Grouping::State, true) => "Spaces by state · q back · ? keys",
         }
     }
 
@@ -184,8 +210,12 @@ impl List {
             }
             Line::Repository(id, root) => Fold::Repository(id.clone(), root.clone()),
             Line::Worktree(id, path) => Fold::Worktree(id.clone(), path.clone()),
-            Line::ClosedSpace(_) => return,
+            Line::ClosedSpace(_) | Line::Title => return,
         };
+        if let Some(folded) = self.set.get_mut(&fold) {
+            *folded = !*folded;
+            return;
+        }
         if !self.toggled.remove(&fold) {
             self.toggled.insert(fold);
         }
@@ -212,9 +242,39 @@ impl List {
         folded
     }
 
-    /// Whether `fold` is folded, when it is `default` until the person toggles it.
+    /// Whether `fold` is folded, when it is `default` until the person toggles it or `S-TAB`
+    /// sets it.
     fn folded_as(&self, fold: &Fold, default: bool) -> bool {
-        default != self.toggled.contains(fold)
+        match self.set.get(fold) {
+            Some(folded) => *folded,
+            None => default != self.toggled.contains(fold),
+        }
+    }
+
+    /// Notes that the tree shows open to `depth`, as [`List::open_to`] counts.
+    fn opened(&self, depth: u8) {
+        self.open_to.set(self.open_to.get().max(depth));
+    }
+
+    /// `S-TAB` (ADR 0140): the tree folded to its spaces, then open down to its worktrees,
+    /// then everything, in turn, from the deepest level it showed open when last made.
+    pub fn cycle_folds(&mut self) {
+        let next = (self.open_to.get() + 1) % 3;
+        for space in &self.tree.spaces {
+            self.chosen.insert(space.id.clone(), next == 0);
+            if next == 0 {
+                continue;
+            }
+            for project in &space.projects {
+                let repository = Fold::Repository(space.id.clone(), project.root.clone());
+                self.set.insert(repository, false);
+                for worktree in &project.worktrees {
+                    let fold = Fold::Worktree(space.id.clone(), worktree.path.clone());
+                    self.set.insert(fold, next == 1);
+                }
+            }
+        }
+        self.open_to.set(next);
     }
 
     /// The list of `entries` for a window `width` cells wide, ages as of `now`: the tree, or
@@ -228,7 +288,7 @@ impl List {
         for (group, members) in &groups {
             let folded = self.folded(&Fold::Group(group.clone()));
             let header = format!(
-                "{} {} {}",
+                "{LEAD}{} {} {}",
                 if folded { '▸' } else { '▾' },
                 group_name(group),
                 members
@@ -246,12 +306,8 @@ impl List {
                     .filter(|entry| matches!(entry.state, State::NeedsInput(_)))
                     .count();
                 let row = Row {
-                    entry: parent,
-                    indent: "",
-                    spin: self.spin,
-                    waiting,
                     place: true,
-                    tag: None,
+                    ..Row::new(parent, LEAD, self.spin, waiting)
                 };
                 row.render(&mut out, width, now);
                 if self.folded(&Fold::Nested(parent.key)) {
@@ -259,12 +315,8 @@ impl List {
                 }
                 for entry in nested {
                     let row = Row {
-                        entry,
-                        indent: NESTED,
-                        spin: self.spin,
-                        waiting: 0,
                         place: true,
-                        tag: None,
+                        ..Row::new(entry, NESTED, self.spin, 0)
                     };
                     row.render(&mut out, width, now);
                 }
@@ -426,105 +478,6 @@ pub fn age_of(ago: Duration) -> String {
     }
 }
 
-/// The mark of a session an agent started without asking (ADR 0135, as built).
-const UNASKED: &str = "unasked";
-
-/// One session's lines.
-struct Row<'e> {
-    entry: &'e Entry,
-    indent: &'static str,
-    /// The spinner's frame, while working marks spin.
-    spin: Option<usize>,
-    /// How many sessions nested under it need input.
-    waiting: usize,
-    /// Whether it shows its place: not under its worktree in the tree.
-    place: bool,
-    /// What it shows after its name in the tree instead: `orchestrator` (ADR 0136, step 3).
-    tag: Option<&'static str>,
-}
-
-impl Row<'_> {
-    fn render(&self, out: &mut Rendered, width: usize, now: Instant) {
-        let entry = self.entry;
-        let line = Line::Session(entry.key);
-        let external = matches!(entry.key, Key::External(_));
-        let spinning = !external && entry.state == State::Working && self.spin.is_some();
-        let mark = match self.spin.filter(|_| spinning) {
-            Some(frame) => SPINNER[frame],
-            None => mark(entry.state),
-        };
-        let head = format!("{}{mark} ", self.indent);
-        let age = shown_age(age(entry.since, now), width, cells(&head), &entry.name);
-        // The name first, then its place where there is room, then the age at the right edge.
-        let room = width.saturating_sub(cells(&head) + cells(&age) + 1);
-        let name = cut_middle(&entry.name, room);
-        let mut text = format!("{head}{name}");
-        let left = room.saturating_sub(cells(&name) + 2);
-        let mut place = None;
-        // Under its worktree in the tree, only the mark of a start without asking.
-        let shown: Option<std::borrow::Cow<'_, str>> = if let Some(tag) = self.tag {
-            Some(tag.into())
-        } else if self.place {
-            Some(self.place().into())
-        } else {
-            entry.unasked.then_some(UNASKED.into())
-        };
-        if let Some(shown) = shown.filter(|_| left >= PLACE_FROM) {
-            text.push_str("  ");
-            let start = text.len();
-            text.push_str(&cut_middle(unmarked(&shown), left));
-            place = Some(start..text.len());
-        }
-        let text = pad(&text, width.saturating_sub(cells(&age))) + &age;
-        let age_at = text.len() - age.len()..text.len();
-        // A session run outside oso is quiet throughout: oso can mention it, never show it.
-        let spans = if external {
-            vec![(0..text.len(), Highlight::SessionQuiet)]
-        } else {
-            let at = self.indent.len();
-            let mut spans = vec![(at..at + mark.len_utf8(), face(entry.state))];
-            spans.extend(place.map(|place| (place, Highlight::SessionQuiet)));
-            spans.push((age_at, Highlight::SessionQuiet));
-            spans
-        };
-        if spinning {
-            out.spinning.push(out.lines.len());
-        }
-        out.push_drawn(&cut(&text, width), line.clone(), &spans);
-        // A reason only where the person has something to do.
-        let own = matches!(entry.state, State::NeedsInput(_) | State::Failed)
-            .then_some(entry.recap.as_str())
-            .filter(|recap| !recap.is_empty());
-        let reason = match (self.waiting, own) {
-            (0, None) => return,
-            (0, Some(own)) => own.to_owned(),
-            (1, own) => joined("1 nested needs input", own),
-            (n, own) => joined(&format!("{n} nested need input"), own),
-        };
-        let under = format!("{}  ", self.indent);
-        let text = cut(&format!("{under}{}", unmarked(&reason)), width);
-        let quiet = [(under.len()..text.len(), Highlight::SessionQuiet)];
-        out.push_drawn(&text, line, &quiet);
-    }
-
-    /// Where the session runs: its space and branch, whether it is pinned, and whether an agent
-    /// started it without asking.
-    fn place(&self) -> String {
-        let entry = self.entry;
-        let mut place = entry.space.clone();
-        if let Some(branch) = &entry.branch {
-            let _ = write!(place, " · {branch}");
-        }
-        if entry.pinned {
-            place.push_str(" · pinned");
-        }
-        if entry.unasked {
-            let _ = write!(place, " · {UNASKED}");
-        }
-        place
-    }
-}
-
 /// What a state's mark is drawn as (ADR 0131, Q5): the person's attention, work under way,
 /// work to look at, or nothing to do.
 pub fn face(state: State) -> Highlight {
@@ -534,11 +487,6 @@ pub fn face(state: State) -> Highlight {
         State::ReadyForReview | State::Done => Highlight::SessionDone,
         State::Idle | State::Stopped => Highlight::SessionQuiet,
     }
-}
-
-/// `first`, then ` · ` and `then` if there is one.
-fn joined(first: &str, then: Option<&str>) -> String {
-    then.map_or_else(|| first.to_owned(), |then| format!("{first} · {then}"))
 }
 
 impl Rendered {
@@ -569,7 +517,10 @@ use cells::{cells, pad};
 pub use cells::{cut, cut_middle, unmarked};
 
 mod lines;
+mod row;
 mod tree;
+
+use row::Row;
 
 use lines::Fold;
 pub use lines::{Group, Line};

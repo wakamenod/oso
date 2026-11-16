@@ -1,7 +1,8 @@
-//! A click on `*Sessions*` in the side window (ADR 0131, step 2b): point goes to the row under
-//! it, which then does what `RET` does there, or folds when the click is on the row's fold
-//! mark. It acts at once, whether the list was selected or not (the author, 2026-11-15). The
-//! wheel is `wheel`'s, as in any window.
+//! A click on `*Spaces*` in the side window (ADR 0131, step 2b; ADR 0140, Q5): point goes to
+//! the row under it. On the selected list the row then does what `RET` does there; on a list
+//! not selected the click selects it and does nothing more, so that the person sees it has
+//! their keys first. A click on a row's fold mark folds, selected or not. The wheel is
+//! `wheel`'s, as in any window.
 //!
 //! Must not depend on: how a frame is drawn, beyond where a window's text is.
 
@@ -13,11 +14,15 @@ use oso_platform::window::Position;
 
 use crate::app::App;
 
-/// The folds' marks, which begin a project's, a group's and a quiet row's line.
+/// The folds' marks, which begin a space's, a repository's, a worktree's, a group's and a
+/// quiet row's line.
 const FOLDS: [char; 2] = ['▾', '▸'];
 
+/// What a session's row has before its mark (ADR 0140).
+const GUIDES: [char; 3] = ['│', '├', '└'];
+
 impl App {
-    /// A left press at `at` on `window`. True if it fell on the text of `*Sessions*` in the side
+    /// A left press at `at` on `window`. True if it fell on the text of `*Spaces*` in the side
     /// window and was taken there; false leaves it to the press's other routes.
     pub(in crate::app) fn sessions_pressed(&mut self, window: WindowId, at: Position) -> bool {
         if self.editor.side_window() != Some(window) || self.oso_holds_input() {
@@ -45,6 +50,7 @@ impl App {
         {
             return false;
         }
+        let was_selected = self.editor.tiled().0.id() == window;
         self.editor.select_window(window);
         let (shown, buffer) = self.editor.current();
         let lines = buffer.text();
@@ -55,7 +61,10 @@ impl App {
         }
         let (start, end) = (lines.line_start(line), lines.line_end(line));
         let mut chars = lines.chunks_in_range(start..end).flat_map(str::chars);
-        let indent = chars.by_ref().take_while(|c| *c == ' ').count();
+        let indent = chars
+            .by_ref()
+            .take_while(|c| *c == ' ' || GUIDES.contains(c))
+            .count();
         let first = lines
             .chunks_in_range(start..end)
             .flat_map(str::chars)
@@ -66,8 +75,12 @@ impl App {
         self.editor.follow_cursor();
         let action = if on_fold {
             RowAction::Fold
-        } else {
+        } else if was_selected {
             RowAction::Show
+        } else {
+            // The list was not selected: selecting it and moving point is all (Q5).
+            self.request_redraw();
+            return true;
         };
         // As the row's key asks, so that the list renders again after it as after a key.
         self.editor

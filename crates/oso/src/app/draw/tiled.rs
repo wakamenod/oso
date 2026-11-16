@@ -4,6 +4,9 @@
 //!
 //! Must not depend on: key presses or commands; a frame only reads the editor's state.
 //!
+//! `*Spaces*` in the side window draws its own bands instead of the current line's
+//! (`pane.rs`, ADR 0140).
+//!
 //! The selected window draws as the one window always has. Any other has a hollow cursor, no
 //! region, band, flash or match, and an inactive modeline. Beneath a prompt every window's
 //! cursor is hollow and its modeline inactive, but the window the prompt came from keeps its
@@ -18,6 +21,8 @@ use oso_render::{
     TextView,
 };
 
+use super::pane::PaneCells;
+use crate::sessions::list::PaneBands;
 use crate::terminal::hosted::Terminals;
 
 /// The first pane id of the windows': the echo area's and the floats' are below it.
@@ -58,13 +63,15 @@ pub(super) struct WindowCells {
     band: Vec<CellRect>,
     trailing: Vec<CellRect>,
     review: ReviewCells,
+    /// `*Spaces*`' bands, in the side window (ADR 0140).
+    pane: PaneCells,
     screen: Screen,
     gutter: Gutter,
 }
 
 impl WindowCells {
-    /// Fills in what the window `id` draws now.
-    fn fill(&mut self, editor: &Editor, id: WindowId) {
+    /// Fills in what the window `id` draws now; `bands` are `*Spaces*`' (ADR 0140).
+    fn fill(&mut self, editor: &Editor, bands: &PaneBands, id: WindowId) {
         editor.screen_of(id, &mut self.screen);
         let screen = &self.screen;
         editor.region_cells(id, screen, &mut self.region);
@@ -78,16 +85,18 @@ impl WindowCells {
         editor.gutter_into(id, screen, &mut self.gutter);
         self.band.clear();
         self.band.extend(editor.current_line_cells(id, screen));
+        self.pane
+            .fill((editor, bands), (id, screen), &mut self.band);
     }
 }
 
 /// Fills in what every tiled window draws, in the tree's order, into `cells`, which keeps a
-/// window's room for the next frame.
-pub(super) fn fill(editor: &Editor, cells: &mut Vec<WindowCells>) {
+/// window's room for the next frame; `bands` are `*Spaces*`' (ADR 0140).
+pub(super) fn fill(editor: &Editor, bands: &PaneBands, cells: &mut Vec<WindowCells>) {
     let windows = editor.frame().windows();
     cells.resize_with(windows.len(), WindowCells::default);
     for (cells, (id, _)) in cells.iter_mut().zip(windows) {
-        cells.fill(editor, *id);
+        cells.fill(editor, bands, *id);
     }
 }
 
@@ -116,7 +125,7 @@ pub(super) fn tiled_status<'a>(
 /// A modeline's spans: warnings first, so that nothing can push them off the row, after
 /// `Agent` while the agent channel is on, dim, and bright while an agent is connected
 /// (ADR 0085), which only the selected window's says, then the sessions' marks, `⚠ N` and
-/// `● N` in their states' faces, as `*Sessions*` draws them (ADR 0121, ADR 0131). A name and the rest are shaped apart,
+/// `● N` in their states' faces, as `*Spaces*` draws them (ADR 0121, ADR 0131). A name and the rest are shaped apart,
 /// so that neither changes how the other reads. A window that is not selected has its
 /// modeline in [`Face::ModelineInactive`] (ADR 0112).
 fn modeline_spans(status: &Status) -> [Span<'_>; MODELINE_SPANS] {
@@ -171,6 +180,10 @@ fn modeline_face(status: &Status) -> Face {
 /// isearch's others (ADR 0116), and the regions over the matches.
 fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
     [
+        // `*Spaces*`' bands, in the side window only (ADR 0140).
+        (Face::SessionHeader, &cells.pane.sections[..]),
+        (Face::SessionFrontTint, &cells.pane.tint[..]),
+        (Face::SessionPoint, &cells.pane.point[..]),
         (Face::CurrentLine, &cells.band[..]),
         (Face::DiffAdded, &cells.review.added[..]),
         (Face::DiffRemoved, &cells.review.removed[..]),
@@ -186,13 +199,26 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
     ]
 }
 
+/// The bar in the first cell of `*Spaces*`' row at point, while it is selected (ADR 0140).
+const BAR: &str = "▌";
+
 /// How many lists of cells a window fills behind its text.
-const FILLS: usize = 12;
+const FILLS: usize = 15;
 
 /// A jump's labels in a window over its text: each label's first key in [`Face::JumpLabel`],
 /// and the keys after it in [`Face::JumpLabelNext`], in the order the editor gives them, by
 /// row and then column (ADR 0116).
 fn labels_of<'a>(cells: &'a WindowCells, out: &mut Vec<(CellRect, Span<'a>)>) {
+    // The bar at point in `*Spaces*` while it is selected (ADR 0140).
+    if let Some(bar) = cells.pane.bar {
+        out.push((
+            bar,
+            Span {
+                text: BAR,
+                face: Face::SessionPointBar,
+            },
+        ));
+    }
     let jump = &cells.jump;
     for label in &jump.labels {
         let text = &jump.text[label.keys.clone()];
@@ -228,7 +254,8 @@ fn labels_of<'a>(cells: &'a WindowCells, out: &mut Vec<(CellRect, Span<'a>)>) {
 /// How many entries [`labels_of`] gives for a window.
 fn label_runs(cells: &WindowCells) -> usize {
     let labels = &cells.jump.labels;
-    labels.len()
+    usize::from(cells.pane.bar.is_some())
+        + labels.len()
         + labels
             .iter()
             .filter(|label| label.cells.columns > 1)
@@ -483,7 +510,7 @@ fn text<'a>(
         revision: buffer.revision(),
         screen,
         cursor,
-        // `*Sessions*` in the side window marks point's row with the band (ADR 0131).
+        // `*Spaces*` in the side window marks point's row with the band (ADR 0131).
         cursor_style: if editor.side_window() == Some(id) && buffer.mode() == Mode::Sessions {
             CursorStyle::None
         } else if selected {

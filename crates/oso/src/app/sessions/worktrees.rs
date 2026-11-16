@@ -140,7 +140,7 @@ impl App {
 
     /// The selected buffer's project, if it is trusted to run git.
     pub(in crate::app) fn project_here(&self) -> Result<ProjectId, String> {
-        // In `*Sessions*`, the repository of the row at point (ADR 0131, step 2b).
+        // In `*Spaces*`, the repository of the row at point (ADR 0131, step 2b).
         if let Some(place) = self.sessions_row_place() {
             let place = place?;
             return self.trusted_project_of(place.repo()?).ok_or_else(|| {
@@ -261,7 +261,7 @@ impl App {
                 .editor
                 .message("A brief is being written: send it with C-c C-c or drop it with C-c C-k");
         }
-        // From a row of `*Sessions*`, its session and its worktree's branch (ADR 0131).
+        // From a row of `*Spaces*`, its session and its worktree's branch (ADR 0131).
         let row = self.sessions_row_place().and_then(Result::ok);
         if let Some(row) = &row {
             self.enter_row_space(row);

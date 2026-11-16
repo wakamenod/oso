@@ -155,7 +155,7 @@ impl Dispatcher {
     }
 
     /// Opens `find-file`'s prompt in `dir`, as `C-x C-f` from a buffer there would: `RET` on the
-    /// row of a worktree of `*Sessions*` that no space is in (ADR 0131, step 2b). Nothing opens
+    /// row of a worktree of `*Spaces*` that no space is in (ADR 0131, step 2b). Nothing opens
     /// while a prompt is selected.
     pub fn find_file_in(&mut self, editor: &mut Editor, dir: &std::path::Path) -> Effects {
         let found =

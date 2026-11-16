@@ -122,7 +122,7 @@ fn a_session_s_c_c_keys_are_oso_s_and_claude_code_gets_the_rest() {
     // `C-c s` shows the list and sends nothing.
     app.send_keys("C-c s");
     app.wait_for("the list selected", |state| {
-        state["buffer"]["name"] == "*Sessions*"
+        state["buffer"]["name"] == "*Spaces*"
     });
     app.send_keys("C-x a s");
     app.wait_for("the session again", |state| {
@@ -163,7 +163,7 @@ fn a_session_s_keys_from_the_configuration_apply_and_go_with_it() {
     // `C-c g` runs what the file binds it to, and `C-c s`, which it unbinds, is undefined.
     app.send_keys("C-c g");
     app.wait_for("the list selected", |state| {
-        state["buffer"]["name"] == "*Sessions*"
+        state["buffer"]["name"] == "*Spaces*"
     });
     app.send_keys("C-x a s");
     app.wait_for("the session again", |state| {

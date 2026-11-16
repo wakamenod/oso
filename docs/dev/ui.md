@@ -793,7 +793,7 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   terminal. Under `oso dev`, a running terminal holds the restart, until terminals are handed
   over: run long-lived programs in an oso that is not rebuilt.
 - The agent channel reads no terminal's text, types nothing into one, and never selects one:
-  switching to a terminal, or to a list with keys of its own such as `*Sessions*`, is the
+  switching to a terminal, or to a list with keys of its own such as `*Spaces*`, is the
   person's.
 
 ## Input method (IME)
@@ -948,7 +948,7 @@ a switch made with its command stands until that setting changes in the file
   claude = "/usr/local/bin/claude"   # absolute; else the login shell finds it on PATH
   env = ["HTTPS_PROXY", "NODE_EXTRA_CA_CERTS"]
   steer_worktrees = true             # sessions oso starts are steered to C-x a w
-  pane_width = 44                    # *Sessions*' pane, 24 to 80 columns
+  pane_width = 44                    # *Spaces*' pane, 24 to 80 columns
   ```
 
   `claude` is started as the login shell would start it, so its `PATH`, version managers and
@@ -976,7 +976,7 @@ a switch made with its command stands until that setting changes in the file
   Dock bounce: repeated until oso is focused for needs input and failed, once otherwise. On
   Linux and Windows, the window's urgency hint. Several due within 2 s are one line ("3
   sessions need input"). A notification names the session and its state, never screen text.
-- `*Sessions*` lists every session in a side window at the frame's left, 44 columns wide unless
+- `*Spaces*` lists every session in a side window at the frame's left, 44 columns wide unless
   `[sessions] pane_width` (24 to 80) says otherwise, and narrower, down to 24, where the frame
   has no room for that beside the tree's narrowest window; below 24 it takes no cells. `<` and
   `>` in it make it 4 columns narrower or wider, times the count, within 24 to 80, for this
@@ -991,30 +991,40 @@ a switch made with its command stands until that setting changes in the file
   the dialog's question. Marks take their state's face: needs input and failed red, working
   amber, ready for review and done green, idle and stopped grey; a working mark of a session
   oso hosts turns through ten Braille frames, 8 a second, while it is in view, unless
-  `[sessions] spinner = false`. The row at point has the current line's band, whatever the
-  visual aids say. The list is a tree ([ADR 0131](adr/0131-an-orca-style-sessions-pane.md)):
-  each project with a space in this oso, `▾ name` with its most urgent state and how many are
-  in it; under it its worktrees, the main checkout first (its branch and `primary`), then the
-  newest made, as git lists them in a trusted project, each with its sessions' most urgent
-  mark (`·` for none), its branch where it differs from its directory's name, and its newest
-  session's age; under each worktree its sessions, the most urgent first, nested ones under
-  the session that started them. The worktree whose space is in front has its name in an
-  accent colour. A worktree with no session of oso's running is folded, with its count; one
-  with no session and no change for a week waits in a folded `N quiet` row. A worktree git
+  `[sessions] spinner = false`. While the pane is selected, the row at point has an accent
+  band and a `▌` in its first cell, which every row leaves free; while it is not, no band
+  marks point ([ADR 0140](adr/0140-a-spaces-pane-with-sections-and-guides.md)). Its modeline
+  says `Spaces`, the grouping, and `C-x a s to enter` or `q back · TAB fold · ? keys`. The
+  list is a tree ([ADR 0131](adr/0131-an-orca-style-sessions-pane.md), ADR 0140) under a
+  `Spaces` title row with the most urgent states of oso's sessions: each space, a section
+  row on a band, `▾ name ─── ⚠ 1`; in a space of several repositories, each repository,
+  `▾ name/`; then its worktrees, the main checkout first (its branch and `primary`), then the
+  newest made, as git lists them in a trusted project, each beginning with its fold, with its
+  branch where it differs from its directory's name, and at the right its sessions' most
+  urgent mark and its newest session's age; under each worktree its sessions on guides
+  (`├`, `└`, `│`), the most urgent first, nested ones under the session that started them,
+  each called by its title when its name is its worktree's. The worktree whose space is in
+  front has its name in an accent colour and a faint band behind its rows. A worktree with no
+  session of oso's running is folded, with its count; one with no session and no change for a
+  week waits in a folded `N quiet` row. A worktree git
   makes outside oso shows within a second or two. Sessions run outside oso are listed under
   their worktree, grey; those in no project of the tree go in a folded `Other projects`, by
   repository. Archived sessions come last, folded. `s` shows the list grouped by state
   instead, pinned ones first, and back. The list is withheld from agents: while it is shown,
   the agent channel's commands answer in the echo area only.
-  - `C-x a s` (`sessions`): shows and selects the list if hidden, selects it if shown, hides it
-    if selected. Hidden by the person, by `C-x a s` or `C-x 0`, it stays hidden until asked
-    for again. `C-x o` skips it, and so does `C-x 0` in another window; a click or
+  - `C-x a s` (`sessions`): shows and selects the list if hidden, selects it if shown, and
+    goes back to the tree's window selected last if it is selected, as `q` in it does; with
+    `C-u`, hides it. Hidden by the person, by `C-u C-x a s` or `C-x 0`, it stays hidden until
+    asked for again. `C-x o` skips it, and so does `C-x 0` in another window; a click or
     `windmove-left` reaches it. While it is selected, `C-x 2`, `C-x 3`, `C-x 1`, `M-,`, `M-/`,
     `*Messages*` and showing a buffer act on the window selected before it, and select it.
   - The commands that show a session or the list, and pinning and archiving, need a person at
     the keyboard: the agent channel cannot run them.
   - In the list: `RET` shows the session, `n`/`p` move between rows, `M-n`/`M-p` between
-    projects, worktrees and groups, `TAB` folds, `g`
+    spaces, repositories, worktrees and groups (the rows with a fold), `TAB` folds, `S-TAB`
+    folds to the spaces, then opens to the worktrees, then opens everything, `<right>` opens a
+    folded row or goes into an open one, `<left>` folds an open row or goes to the row it is
+    under, `q` goes back to the tree's window, `g`
     renders again with fresh ages and lists each project's worktrees again, `s` groups by
     state instead, `P` pins, `A` archives or
     brings back, `r` resumes, `k` hangs up (asking first while it works or needs input), `e`
@@ -1027,10 +1037,10 @@ a switch made with its command stands until that setting changes in the file
     checkout and `HEAD`; a worktree's row is that worktree and its branch, or `HEAD` and a note
     when it is on none; a session's row is its worktree, and `w` makes it the new session's
     parent. `w` reads the branch of the row's repository, under the trust of a buffer in it.
-  - A left click on the list's text moves point to the row under it and does what `RET` does,
-    whether the list was selected or not; on a fold's mark it folds. Presses wait while a prompt
-    or a key sequence holds input, as everywhere. The modeline says `tree · ? keys` or
-    `by state · ? keys`.
+  - A left click on the list's text moves point to the row under it; on the selected list it
+    then does what `RET` does, and on a list not selected it selects it and nothing more; on a
+    fold's mark it folds. Presses wait while a prompt or a key sequence holds input, as
+    everywhere.
 - `C-x a b` (`session-switch`) completes over sessions by buffer name; their state, space and
   recap are searched too, so `&needs` finds those that need input. `C-x a n` shows the session
   that has needed input longest, `C-x a d` the one done longest, `C-x a e` explains the shown
@@ -1073,7 +1083,7 @@ a switch made with its command stands until that setting changes in the file
   `@NAME`: inserted at each cursor in an oso buffer such as `*Brief*`, or pasted into the session
   whose terminal is selected. An agent addresses that session by the name with Claude Code's
   own `SendMessage`.
-- When a session receives a message from another, its `*Sessions*` row says "message from NAME"
+- When a session receives a message from another, its `*Spaces*` row says "message from NAME"
   until the session is seen. `C-x a f` (`session-follow-message`), in that session's terminal,
   shows the sender. The sender is read from the screen, so it points to a session but does not
   prove who wrote.

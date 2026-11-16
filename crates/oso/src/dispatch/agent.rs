@@ -154,7 +154,7 @@ impl Dispatcher {
         // Nothing the agent runs puts a terminal, or a list with keys of its own, in front of
         // the person's typing (ADR 0120, ADR 0121).
         if name == "delete-window" {
-            // In the side window it hides `*Sessions*`, which the person then would not see
+            // In the side window it hides `*Spaces*`, which the person then would not see
             // come back by itself (ADR 0121).
             if editor.side_window() == Some(editor.tiled().0.id()) {
                 return refused(SIDE_REFUSED.into());
@@ -182,7 +182,7 @@ impl Dispatcher {
 }
 
 /// Why the agent may not select a terminal or a list with keys of its own, such as
-/// `*Sessions*`: the person's next keys would go to its program, or act on the list's rows.
+/// `*Spaces*`: the person's next keys would go to its program, or act on the list's rows.
 const KEYS_REFUSED: &str = "switching to a terminal or a list with keys of its own is the person's";
 
 /// Why the agent may not change a commit's message the person has in front.
@@ -553,7 +553,7 @@ mod tests {
         assert_eq!(editor.window().buffer(), terminal);
     }
 
-    /// An editor 120 columns wide with `*Sessions*` in the side window, as the host shows it,
+    /// An editor 120 columns wide with `*Spaces*` in the side window, as the host shows it,
     /// and two tree windows side by side, the first selected. Returns the side window's name.
     fn with_side_list() -> (Dispatcher, Editor, oso_core::window::WindowId) {
         use oso_core::buffer::Mode;
@@ -566,7 +566,7 @@ mod tests {
         editor
             .split_window(oso_core::frame::Way::Across, false)
             .unwrap();
-        let list = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+        let list = editor.add_internal_buffer("*Spaces*", Mode::Sessions);
         editor.buffer_mut(list).unwrap().withhold_from_agents();
         let side = editor.show_side_window(list, 32);
         (dispatcher, editor, side)
@@ -625,7 +625,7 @@ mod tests {
         });
         let terminal = editor.add_terminal_buffer("*terminal*");
         editor.show(terminal);
-        let list = editor.add_internal_buffer("*Sessions*", Mode::Sessions);
+        let list = editor.add_internal_buffer("*Spaces*", Mode::Sessions);
         editor.buffer_mut(list).unwrap().withhold_from_agents();
         let side = editor.show_side_window(list, 32);
         editor.select_window(side);

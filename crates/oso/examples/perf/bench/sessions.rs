@@ -2,7 +2,7 @@
 //! configuration names. `sessions_printing`: 20 hosted sessions printing at once, one shown,
 //! and the UI thread's time on each frame meanwhile. `session_state_to_photon`: from the fake
 //! printing a permission dialog to the frame whose modeline first counts it.
-//! `sessions_spinning`: 20 hosted sessions working quietly, each mark spinning in `*Sessions*`
+//! `sessions_spinning`: 20 hosted sessions working quietly, each mark spinning in `*Spaces*`
 //! (ADR 0131), and the UI thread's time on each frame and in all, a second. Recorded, with no
 //! threshold yet.
 //!

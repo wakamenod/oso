@@ -159,7 +159,7 @@ fn the_side_list_marks_and_notices_follow_a_sessions_state() {
     // `C-x a s` selects the list, then hides it, and it stays hidden.
     app.send_keys("C-x a s");
     app.wait_for("the list selected", |state| {
-        state["buffer"]["name"] == "*Sessions*"
+        state["buffer"]["name"] == "*Spaces*"
     });
     // `?` says what the marks mean.
     app.send_keys("?");
@@ -203,7 +203,7 @@ fn spins(app: &mut App) {
 fn stop_asks_first(app: &mut App) {
     app.send_keys("C-x a s");
     app.wait_for("the list selected", |state| {
-        state["buffer"]["name"] == "*Sessions*"
+        state["buffer"]["name"] == "*Spaces*"
     });
     // Point to the session's row, under its project's and its worktree's, which spin with it.
     let working = |state: &Value| {

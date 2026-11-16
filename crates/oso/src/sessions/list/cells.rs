@@ -1,4 +1,4 @@
-//! Cells in `*Sessions*`: how many a text takes as oso draws it, and cutting and padding to a
+//! Cells in `*Spaces*`: how many a text takes as oso draws it, and cutting and padding to a
 //! width, so that no row of the list runs past its window.
 //!
 //! Must not depend on: anything but oso-core's cell classes; plain text in, text out.
