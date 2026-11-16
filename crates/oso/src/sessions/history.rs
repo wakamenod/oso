@@ -32,7 +32,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use oso_core::editor::{
-    ConversationPreviewRequest, ConversationSearchRequest, Excerpt, ProjectPreviewRead, WalkEnd,
+    ConversationPreviewRequest, ConversationSearchRequest, Excerpt, FilePreviewRead, WalkEnd,
 };
 use oso_core::project::{LineQuery, MAX_ROWS, row_text};
 
@@ -101,7 +101,7 @@ impl fmt::Debug for Found {
 /// The text a preview asked for. `Debug` gives its generation only.
 pub struct Previewed {
     pub generation: u64,
-    pub read: ProjectPreviewRead,
+    pub read: FilePreviewRead,
 }
 
 impl fmt::Debug for Previewed {
@@ -569,14 +569,14 @@ fn refresh(projects: &Path, hold: &mut Hold, mut each: impl FnMut(&[Conversation
 }
 
 /// The preview's text for `request`, from what `hold` holds.
-fn preview_of(hold: &Hold, request: &ConversationPreviewRequest) -> ProjectPreviewRead {
+fn preview_of(hold: &Hold, request: &ConversationPreviewRequest) -> FilePreviewRead {
     let Some(conversation) = hold.conversations.iter().find(|conversation| {
         conversation.held && conversation.about.id.as_str() == &*request.session
     }) else {
-        return ProjectPreviewRead::Unreadable;
+        return FilePreviewRead::Unreadable;
     };
     let (text, line, column) = preview::text(&conversation.about, &conversation.messages, request);
-    ProjectPreviewRead::Text(Excerpt::wrapped(&text, request.columns, (line, column)))
+    FilePreviewRead::Text(Excerpt::wrapped(&text, request.columns, (line, column)))
 }
 
 #[cfg(all(test, unix))]

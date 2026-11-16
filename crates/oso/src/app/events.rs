@@ -99,6 +99,7 @@ impl App {
             UserEvent::Grepped(found) => self.grepped(event_loop, found),
             UserEvent::Previewed(read) => self.previewed(read),
             UserEvent::Conversations(report) => self.conversations_reported(event_loop, report),
+            UserEvent::DiagnosticsListed(rows) => self.diagnostics_listed(rows),
             UserEvent::Trust => self.trust_reported(),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
@@ -155,6 +156,8 @@ impl App {
         self.start_syntax();
         self.add_quiet_walk(event_loop);
         self.start_completions(event_loop);
+        // `M-g d` may have opened its list, whose rows are built off this thread.
+        self.start_diagnostics_list();
         // Rows that came, or a move, may have selected another row to preview.
         self.start_preview_read();
         // A list built here after a listing ends a wait with no report.

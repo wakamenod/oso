@@ -19,6 +19,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use super::file_preview::FilePreview;
 use super::migemo::Cache;
 use super::{CompletionStyle, Editor, WalkEnd};
 use crate::complete::{Candidate, Candidates, MAX_INPUT_BYTES, WORKER_PAST};
@@ -30,8 +31,6 @@ pub use conversations::{
 };
 use conversations::{Conversations, Request};
 pub(in crate::editor) use preview::PreviewCellsKey;
-use preview::SearchPreview;
-pub use preview::{Excerpt, ProjectPreviewRead, ProjectPreviewRequest};
 
 mod conversations;
 mod preview;
@@ -175,7 +174,7 @@ pub(super) struct ProjectSearch {
     /// The conversation's row `RET` took, for the command.
     conversation_hit: Option<ConversationHit>,
     /// The selected row's preview.
-    preview: SearchPreview,
+    pub(super) preview: FilePreview,
 }
 
 impl Editor {

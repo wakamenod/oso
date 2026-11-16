@@ -148,12 +148,16 @@ impl<'a> Diagnostic<'a> {
     /// Its message's first line, up to any line break: `\n`, `\r`, NEL, or the line and
     /// paragraph separators, so that no text after one reads as another line.
     pub fn first_line(&self) -> &'a str {
-        let message = self.message();
-        message
-            .split(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}'])
-            .next()
-            .unwrap_or(message)
+        first_line(self.message())
     }
+}
+
+/// The first line of `message`, up to any line break, as [`Diagnostic::first_line`] reads it.
+pub(crate) fn first_line(message: &str) -> &str {
+    message
+        .split(['\n', '\r', '\u{85}', '\u{2028}', '\u{2029}'])
+        .next()
+        .unwrap_or(message)
 }
 
 impl Diagnostics {

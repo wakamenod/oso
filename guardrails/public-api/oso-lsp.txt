@@ -93,6 +93,7 @@ pub const oso_lsp::limits::DIAGNOSTICS_BYTES_MAX: usize
 pub const oso_lsp::limits::DIAGNOSTICS_MAX: usize
 pub const oso_lsp::limits::DIAGNOSTIC_LABEL_BYTES_MAX: usize
 pub const oso_lsp::limits::DIAGNOSTIC_MESSAGE_BYTES_MAX: usize
+pub const oso_lsp::limits::DIAGNOSTIC_ROWS_MAX: usize
 pub const oso_lsp::limits::DOCUMENT_BYTES_MAX: usize
 pub const oso_lsp::limits::EXIT_WAIT: core::time::Duration
 pub const oso_lsp::limits::FLOOD_BYTES_MAX: usize
@@ -401,6 +402,11 @@ pub fn oso_lsp::server::Closed::fmt(&self, &mut core::fmt::Formatter<'_>) -> cor
 impl core::marker::Copy for oso_lsp::server::Closed
 impl core::marker::StructuralPartialEq for oso_lsp::server::Closed
 pub enum oso_lsp::server::Diagnosed
+pub oso_lsp::server::Diagnosed::File
+pub oso_lsp::server::Diagnosed::File::encoding: oso_lsp::position::Encoding
+pub oso_lsp::server::Diagnosed::File::path: std::path::PathBuf
+pub oso_lsp::server::Diagnosed::File::report: alloc::sync::Arc<oso_lsp::protocol::Published>
+pub oso_lsp::server::Diagnosed::Forgotten
 pub oso_lsp::server::Diagnosed::Open
 pub oso_lsp::server::Diagnosed::Open::diagnostics: oso_core::diagnostic::Diagnostics
 pub oso_lsp::server::Diagnosed::Open::id: u64

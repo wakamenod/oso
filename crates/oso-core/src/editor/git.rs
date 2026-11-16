@@ -119,6 +119,47 @@ pub enum PullHow {
     Merge,
 }
 
+/// What the stash menu's head asks, or what a prompt or a question it opened gave back (ADR
+/// 0127, step 3b).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StashAction {
+    /// Stash the changes, untracked files too if `untracked` (`z z`); a message is read first.
+    Push { untracked: bool },
+    /// The message the prompt `Push` opened read, empty for git's own.
+    Message(String),
+    /// Apply the stash at point, keeping it (`z a`).
+    Apply,
+    /// Apply the stash at point and drop it (`z p`).
+    Pop,
+    /// Drop the stash at point, after a question (`z k`).
+    Drop,
+    /// The stash the prompt one of the others opened read, as `stash@{N}`.
+    Picked(String),
+    /// What the question before dropping asked about, after the person's `y`.
+    Confirmed,
+}
+
+/// What the branch menu's head asks, or what a prompt or a question it opened gave back (ADR
+/// 0127, step 3b).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BranchAction {
+    /// Check out a branch read in a prompt, local or a remote's (`b b`).
+    Checkout,
+    /// Make a branch at a revision and name read in prompts, checking it out if `checkout`
+    /// (`b c`, `b n`).
+    Create { checkout: bool },
+    /// Rename a branch read in a prompt (`b m`).
+    Rename,
+    /// Delete a branch read in a prompt, asking first if it is not merged (`b k`).
+    Delete,
+    /// The branch or revision the prompt one of the others opened read.
+    Picked(String),
+    /// The new name the prompt one of the others opened read.
+    Named(String),
+    /// What the question before a forced delete asked about, after the person's `y`.
+    Confirmed,
+}
+
 /// What a command asks of the host for git (ADR 0127).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GitRequest {
@@ -212,6 +253,19 @@ pub enum GitRequest {
     /// Abort what is stopped, after the person's `y` to the question it asks (`confirmed`)
     /// (`C-c C-k`, step 3a).
     Abort { buffer: BufferId, confirmed: bool },
+    /// What the stash menu's head `action` asks in the repository of the status `buffer`, for
+    /// the stash on `line`, point's (step 3b).
+    Stash {
+        buffer: BufferId,
+        action: StashAction,
+        line: usize,
+    },
+    /// What the branch menu's head `action` asks in the repository of the status `buffer`
+    /// (step 3b).
+    Branch {
+        buffer: BufferId,
+        action: BranchAction,
+    },
 }
 
 /// A status buffer's record.

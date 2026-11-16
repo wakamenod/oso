@@ -21,11 +21,6 @@ const NOT_COVERED: &[(&str, usize, &str)] = &[
         "the body of a `proptest!` invocation, which rustfmt does not format",
     ),
     (
-        "crates/oso/src/dispatch/prompts.rs",
-        5,
-        "patterns after `|` inside parentheses sit with the first one",
-    ),
-    (
         "crates/oso-render/src/lib.rs",
         1,
         "patterns after `|` inside parentheses sit with the first one",

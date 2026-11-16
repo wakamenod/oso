@@ -545,7 +545,7 @@ fn the_thread_searches_and_previews() {
         panic!("the preview");
     };
     assert_eq!(previewed.generation, 7);
-    assert!(matches!(previewed.read, ProjectPreviewRead::Text(_)));
+    assert!(matches!(previewed.read, FilePreviewRead::Text(_)));
     let debug = format!("{found:?} {previewed:?}");
     assert!(!debug.contains("record"), "{debug}");
 }

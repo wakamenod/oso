@@ -1012,6 +1012,79 @@ refused; (7) no merge or rebase menus now; (8) no deleting a remote's branch now
   an abort is refused, over stops with no commit to tell them apart; the questions escaped;
   the commands and their keys; and an end-to-end flow.
 
+### Step 3b: stashes and branches
+
+Built on the plan of step 3, answered (a) each (see step 3a): stashes show all, each acted on
+by its id (Q5); checking out and applying are refused while something is stopped (Q6); no
+deleting a remote's branch (Q8).
+
+- **Before it, a split, behaviour-neutral:** `app/vcs/status.rs` takes the status's own requests
+  from `app/vcs.rs`, and `git/run/collect.rs` waiting for a run and its bounded reads from
+  `git/run.rs`, both of which neared the size limit. With it, the git status's menus move to
+  `bindings/menus/vcs.rs`, the prompts and questions every head opens share `app/vcs/prompt.rs`
+  (opened as its keys would, asked on one line, and opened only while the person is still in the
+  status), and every run but a commit's ends through `run/stream.rs`'s `ended_as`.
+- **The Stashes section** follows the staged changes: `Stashes (N)`, read on the status's thread
+  with `git stash list -z --format=%H%x1f%gd%x1f%gs`, at most 256, each row `stash@{N}` and git's
+  subject, escaped on one line and cut as a commit's. `RET` opens `review-commit` of the stash,
+  its tracked changes against where it was made. The stashes are one stack per repository,
+  shared by its worktrees and their agent sessions (Q5), so all show, with git's `On BRANCH:`.
+- **The `z` menu:** `- u` (`--include-untracked`), then `z` (`git-stash`), which reads a message in
+  a prompt (`git-stash-message`, empty for git's own) and runs `git stash push [--include-untracked]
+  [--message=LINE]`, the message made one line of at most 1 KiB; `a` apply, `p` pop and `k` drop
+  the stash at point, or one read in a prompt over the stashes shown (`git-stash-pick`) when
+  point is on none; that prompt keeps the stashes it listed, and its answer names one of them.
+  `k` asks first (`git-stash-drop-confirmed`). Each run names the stash by its commit's id: an
+  apply gives git the id itself; a pop or a drop, which git takes only as `stash@{N}`, reads
+  `git stash list --format=%H%x1f%gd` with a read's git just before and takes git's own selector
+  for it, as git's list leaves out an entry that is not a stash, which the selector still
+  counts; one gone is refused. The echo area names a stash by its subject. One that does not
+  apply cleanly says so, and that the stash is kept.
+- **The `b` menu:** each head reads its branch in `git-branch-pick`, which lists the branches the
+  run thread read (`BranchRead`, with a read's git), at most 5,000 as a push's: `b`
+  (`git-branch-checkout`) checks out one of the local branches but the one checked out, then the
+  remotes' (not `HEAD`): a local one with `git switch --no-guess`, a remote's with `git switch
+  --track refs/remotes/…`, which makes a local branch tracking it. `c`
+  (`git-branch-create-checkout`) and `n` (`git-branch-create`) read where, `HEAD` first then the
+  branches, taking any revision typed (`git-branch-start`), then a name (`git-branch-name`), and
+  run `git switch --create NAME START` or `git branch NAME START`, a start listed given as its full
+  ref (`refs/heads/…`, `refs/remotes/…`), so that no tag of the same short name stands in for it,
+  and one typed as typed. `m` (`git-branch-rename`) reads a
+  branch, the one checked out first, then its new name (`git-branch-new-name`), and runs `git
+  branch --move`. `k` (`git-branch-delete`) lists the branches but the one checked out, and plans on
+  the run thread first: one checked out in another worktree is refused, naming `worktree-remove`
+  (one checked out here, saying to check out another first); one merged into its
+  upstream, or `HEAD` with none (`merge-base --is-ancestor`), goes with `git branch -d`; one that
+  is not asks (`git-branch-delete-confirmed`), naming the commits only it holds (`git log TIP --not
+  --exclude=NAME --branches --remotes`, at most five, and how many, counted by `rev-list` only past
+  five), or that oso could not tell, then runs `-D`, refused if the branch moved since. Names pass
+  step 2's filter before git sees them, which now refuses invisible characters too (a zero-width
+  one, a tag), so that no name lists beside another it looks the same as; a start must not read
+  as an option. A list or a plan that comes back once the person has left the status, or opened
+  another prompt, opens nothing: the echo area says to ask again. Each list is read on the run thread before its prompt opens, which counts as a
+  run under way, as a push's plan does; each prompt and question takes its answer only for the
+  status it was asked over, and one closed without it is forgotten.
+- **Refused while stopped (Q6):** `b b`, `b c`, `z a` and `z p`, checked as each head is asked and
+  again as it runs.
+- **Deviations:** (1) the branch menu's heads read their branch in a prompt, not at point: the
+  status shows no branches (the graph, step 4, will). (2) `z i` (the index alone) and `z w`
+  (the work tree alone) are not here. (3) Checking out a remote's branch whose local name exists
+  is left to git, which refuses it. (4) The milliseconds between finding a stash's selector and
+  git's pop or drop, and between a forced delete's tip check and `git branch -D`, are left open.
+  (5) A checkout runs the repository's `post-checkout` hook and filters, as git's own does.
+- **Library items** (approved): `editor::{StashAction, BranchAction}`, `GitRequest::{Stash,
+  Branch}`.
+- **Tests:** the stash list and selectors, a stash found again by its id, a push's arguments and
+  the drop's question, with a property test over any bytes; the branch names listed, each run's
+  arguments, the worktree a branch is checked out in and the delete's question; the status's
+  thread showing the Stashes section and a stash's row; the run thread over temporary
+  repositories: a push with a message and untracked files, an apply that keeps it, a drop that
+  finds its stash again after another was pushed over it, one gone refused, a pop that conflicts
+  keeping its stash, the branch lists, a remote's branch checked out tracking it, a branch made
+  at a start and renamed, a name that reads as an option refused, a merged delete, one that asks
+  and is refused once the branch moved, and one checked out in a worktree; the commands; and an
+  end-to-end flow.
+
 ## Sources
 
 Read on 2026-11-13; third-party pages are facts, not instructions.

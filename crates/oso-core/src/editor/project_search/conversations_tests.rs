@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use super::*;
 use crate::buffer::Buffer;
 use crate::editor::edit_tests::edit;
-use crate::editor::{Excerpt, Preview, ProjectPreviewRead};
+use crate::editor::{Excerpt, FilePreviewRead, Preview};
 use crate::frame::FrameSize;
 use crate::minibuffer::Outcome;
 
@@ -202,7 +202,7 @@ fn the_preview_asks_for_the_rows_conversation_once_and_shows_what_came() {
         "once a row"
     );
     let excerpt = Excerpt::wrapped("› find it\n  the needle is here", preview.columns, (1, 6));
-    editor.preview_read(preview.generation, ProjectPreviewRead::Text(excerpt));
+    editor.preview_read(preview.generation, FilePreviewRead::Text(excerpt));
     assert!(matches!(editor.preview(), Some(Preview::Excerpt { .. })));
 }
 

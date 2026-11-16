@@ -122,6 +122,8 @@ pub enum UserEvent {
     Conversations(crate::sessions::history::Report),
     /// The lines around a search's row were read for its preview, or could not be (ADR 0114).
     Previewed(crate::grep::Previewed),
+    /// The rows of `M-g d`'s list were built (ADR 0138, step 6b).
+    DiagnosticsListed(oso_core::editor::DiagnosticRows),
     /// The record of trusted projects was read, or written and read back (ADR 0114).
     Trust,
     /// A control socket request, in dev builds.
