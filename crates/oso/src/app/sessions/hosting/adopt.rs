@@ -245,7 +245,7 @@ impl App {
         };
         self.hosting.adopting.pending.insert(key, adoption);
         self.turn_agent_channel_on_for_a_session();
-        let terminal = self.session_terminal(key, &name, None);
+        let terminal = self.session_terminal(key, &name, None, true);
         self.order_session(Order {
             token: key,
             kind: Kind::Resume(pick.id),

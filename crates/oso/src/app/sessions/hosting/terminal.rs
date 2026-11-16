@@ -31,12 +31,14 @@ fn buffer_name(name: &str) -> String {
 
 impl App {
     /// The terminal session `key`, named `name`, starts in: `reuse`'s buffer, started over, or
-    /// a new one. Either is shown, and says it is starting until the start thread reports.
+    /// a new one. Either is shown, unless not `shown` (an agent's start, ADR 0135), and says it is
+    /// starting until the start thread reports.
     pub(super) fn session_terminal(
         &mut self,
         key: SessionKey,
         name: &str,
         reuse: Option<BufferId>,
+        shown: bool,
     ) -> TerminalOrder {
         let buffer = match reuse.filter(|id| self.editor.buffer(*id).is_some()) {
             Some(id) => {
@@ -52,7 +54,7 @@ impl App {
         };
         self.mark_session_buffer(key, buffer);
         // Running from now on, as a terminal is while its shell is found: an exit asks first.
-        let size = self.prepare_terminal(buffer);
+        let size = self.prepare_terminal(buffer, shown);
         self.editor.set_mode_note(buffer, String::new());
         self.hosting.starting.insert(key, buffer);
         let ready = self.waker.clone();

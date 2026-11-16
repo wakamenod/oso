@@ -338,18 +338,48 @@ pub struct Unasked {
     /// The caller's live sessions that started without asking, and those starting.
     pub live_unasked: usize,
     /// `[sessions] agents_start_limit`.
-    pub limit: u8,
+    pub limit: StartLimit,
+}
+
+/// `[sessions] agents_start_limit`: how many live sessions one caller may have started without
+/// asking (ADR 0135, Q5, as amended 2026-11-16).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StartLimit {
+    /// At most this many.
+    Most(u8),
+    /// `"none"`: as many as the loop guard lets the caller start.
+    Unlimited,
+}
+
+impl StartLimit {
+    /// Whether a caller with `live` such sessions may start one more.
+    pub fn allows(self, live: usize) -> bool {
+        match self {
+            Self::Most(most) => live < usize::from(most),
+            Self::Unlimited => true,
+        }
+    }
+}
+
+impl std::fmt::Display for StartLimit {
+    /// As `config.toml` spells it.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Most(most) => write!(f, "{most}"),
+            Self::Unlimited => f.write_str("\"none\""),
+        }
+    }
 }
 
 /// Whether a call that would ask starts without asking: only as the person's configuration
 /// allows, from a session the person started, so that it reaches one level, in a trusted
-/// project, and below the caller's limit; else it asks as before (ADR 0135).
+/// project, and below the caller's limit, if it has one; else it asks as before (ADR 0135).
 pub fn starts_without_asking(unasked: Unasked) -> bool {
     unasked.tool == Asks::UnlessAllowed
         && unasked.allowed
         && unasked.caller.by_the_person()
         && unasked.trusted
-        && unasked.live_unasked < usize::from(unasked.limit)
+        && unasked.limit.allows(unasked.live_unasked)
 }
 
 /// What the echo area says of a `session_start` that started with no question (ADR 0135).

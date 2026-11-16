@@ -29,6 +29,9 @@ pub(in crate::app) struct Begin {
     pub trusted: Option<TrustedRoot>,
     /// An issue space's orchestrator: what it starts with (ADR 0136, step 3).
     pub space: Option<crate::sessions::start::SpaceStart>,
+    /// It starts behind what the person is doing: an agent's tool started it, so its terminal
+    /// is not shown and the selected window keeps its buffer (ADR 0135, as amended 2026-11-16).
+    pub background: bool,
 }
 
 impl Default for Begin {
@@ -42,6 +45,7 @@ impl Default for Begin {
             check_shared: false,
             trusted: None,
             space: None,
+            background: false,
         }
     }
 }

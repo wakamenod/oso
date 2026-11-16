@@ -25,7 +25,7 @@ impl App {
         let project = self.terminal_project();
         let id = self.editor.add_terminal_buffer(NAME);
         self.terminals.map.add(id);
-        let size = self.prepare_terminal(id);
+        let size = self.prepare_terminal(id, true);
         let settings = self.terminal_settings();
         let request = Request {
             buffer: id,
@@ -52,12 +52,16 @@ impl App {
         self.request_redraw();
     }
 
-    /// Shows the terminal buffer `id`, already in the map, in the selected window, says it
-    /// runs, and gives the size its terminal starts at.
-    pub(in crate::app) fn prepare_terminal(&mut self, id: BufferId) -> Size {
-        self.editor.show(id);
+    /// Shows the terminal buffer `id`, already in the map, in the selected window unless not
+    /// `shown`, says it runs, and gives the size its terminal starts at: the selected window's.
+    /// One not shown starts behind what the person is doing (ADR 0135, as amended 2026-11-16):
+    /// no window owns its size until one shows it, and then it takes that window's.
+    pub(in crate::app) fn prepare_terminal(&mut self, id: BufferId, shown: bool) -> Size {
         let window = self.editor.window().id();
-        self.terminals.map.selected(id, window);
+        if shown {
+            self.editor.show(id);
+            self.terminals.map.selected(id, window);
+        }
         // From now on, until it ends or fails: a restart or an exit started before the shell
         // is found would end the child about to start.
         self.editor.set_running(id, true);

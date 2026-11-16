@@ -211,6 +211,7 @@ impl App {
             check_shared: false,
             trusted: self.caller_root(caller),
             space: None,
+            background: true,
         };
         // Without asking only in a project an open buffer has trusted now: the trust the session
         // began with may have been taken back since (ADR 0135, Q4).
@@ -332,6 +333,7 @@ impl App {
                     check_shared: false,
                     trusted,
                     space: App::worker_reads(with),
+                    background: true,
                 };
                 // Its job, as a worktree's, looked at trust against the record as it is now.
                 let now = (target, begin.trusted.is_some());

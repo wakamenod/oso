@@ -8,8 +8,9 @@ use std::time::{Duration, Instant};
 use oso_core::command::Reach;
 
 use super::{
-    Asks, Branch, Guard, MAX_CALLS, REFUSED_FOR, Refusal, TOOLS, Unasked, quoted, start_question,
-    start_started, starts_without_asking, tool, worktree_question, worktree_started,
+    Asks, Branch, Guard, MAX_CALLS, REFUSED_FOR, Refusal, StartLimit, TOOLS, Unasked, quoted,
+    start_question, start_started, starts_without_asking, tool, worktree_question,
+    worktree_started,
 };
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
@@ -266,9 +267,20 @@ fn only_the_person_s_session_starts_without_asking_trusted_and_below_its_limit()
         caller: Origin::Person,
         trusted: true,
         live_unasked: 3,
-        limit: 4,
+        limit: StartLimit::Most(4),
     };
     assert!(starts_without_asking(yes));
+    // `"none"`: no count holds it back (ADR 0135, as amended 2026-11-16).
+    assert!(starts_without_asking(Unasked {
+        live_unasked: usize::MAX,
+        limit: StartLimit::Unlimited,
+        ..yes
+    }));
+    assert!(!starts_without_asking(Unasked {
+        limit: StartLimit::Unlimited,
+        trusted: false,
+        ..yes
+    }));
     assert!(starts_without_asking(Unasked {
         caller: Origin::Answered,
         ..yes

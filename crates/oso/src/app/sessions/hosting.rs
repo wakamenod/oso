@@ -257,7 +257,7 @@ impl App {
             self.hosting.shared = Some(begin.clone());
         }
         self.turn_agent_channel_on_for_a_session();
-        let terminal = self.session_terminal(key, &name, None);
+        let terminal = self.session_terminal(key, &name, None, !begin.background);
         let (trusted, root) = match begin.trusted.clone() {
             // A worktree just made, which no buffer opened yet: its own root and trust.
             Some(trusted) => (Some(trusted), Some(directory.clone())),
@@ -394,7 +394,7 @@ impl App {
         if let Some(session) = self.hosting.table.get_mut(key) {
             session.run = Run::Starting;
         }
-        let terminal = self.session_terminal(key, &name, Some(buffer));
+        let terminal = self.session_terminal(key, &name, Some(buffer), true);
         self.order_session(Order {
             token: key,
             kind,

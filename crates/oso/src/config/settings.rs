@@ -17,6 +17,7 @@ use super::indentation::{Indent, Modes};
 use super::paths::user_path;
 use super::problems::{Found, cut, quoted};
 use super::{table, type_name, unknown};
+use crate::sessions::tools::StartLimit;
 use crate::sessions::width;
 
 /// Every setting the file holds.
@@ -71,14 +72,15 @@ pub struct Sessions {
     /// question, in a trusted project (ADR 0135). Off unless set; applies from oso's start.
     pub agents_start_without_asking: bool,
     /// `agents_start_limit`: how many live sessions one caller may have started without asking,
-    /// 1 to [`MAX_AGENTS_START_LIMIT`]; [`AGENTS_START_LIMIT`] unless set (ADR 0135).
-    pub agents_start_limit: Option<u8>,
+    /// 1 to [`MAX_AGENTS_START_LIMIT`] or `"none"`; [`AGENTS_START_LIMIT`] unless set (ADR 0135).
+    pub agents_start_limit: Option<StartLimit>,
 }
 
 impl Sessions {
     /// How many live sessions one caller may have started without asking.
-    pub fn agents_start_limit(&self) -> u8 {
-        self.agents_start_limit.unwrap_or(AGENTS_START_LIMIT)
+    pub fn agents_start_limit(&self) -> StartLimit {
+        self.agents_start_limit
+            .unwrap_or(StartLimit::Most(AGENTS_START_LIMIT))
     }
 }
 
@@ -309,11 +311,24 @@ pub(super) fn sessions(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Sessi
     sessions
 }
 
-/// `[sessions] agents_start_limit`: a whole number from 1 to [`MAX_AGENTS_START_LIMIT`].
-fn agents_start_limit(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<u8> {
-    let takes =
-        format!("[sessions] agents_start_limit takes a number from 1 to {MAX_AGENTS_START_LIMIT}");
-    whole_in(value, found, 1..=MAX_AGENTS_START_LIMIT, &takes)
+/// `[sessions] agents_start_limit`: a whole number from 1 to [`MAX_AGENTS_START_LIMIT`], or
+/// `"none"` for no limit but the loop guard (ADR 0135, as amended 2026-11-16).
+fn agents_start_limit(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Option<StartLimit> {
+    let takes = format!(
+        "[sessions] agents_start_limit takes a number from 1 to {MAX_AGENTS_START_LIMIT}, or \
+         \"none\""
+    );
+    if let DeValue::String(text) = value.get_ref() {
+        if text.as_ref() == "none" {
+            return Some(StartLimit::Unlimited);
+        }
+        found.at(
+            value.span().start,
+            format_args!("{takes}, not {}", quoted(text.as_ref())),
+        );
+        return None;
+    }
+    whole_in(value, found, 1..=MAX_AGENTS_START_LIMIT, &takes).map(StartLimit::Most)
 }
 
 /// `[sessions] pane_width`: a whole number of columns within [`width::WIDTHS`].
