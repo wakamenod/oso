@@ -84,10 +84,6 @@ impl App {
                     continue;
                 }
                 // The message is for step 2's read-only view (ADR 0145).
-                SessionRequest::GoToConversation { session, .. } => {
-                    self.go_to_conversation(&session);
-                    continue;
-                }
                 SessionRequest::Worktree { .. }
                 | SessionRequest::SendBrief(_)
                 | SessionRequest::CancelBrief(_)

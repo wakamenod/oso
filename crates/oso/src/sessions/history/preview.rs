@@ -13,6 +13,7 @@ use std::path::Path;
 
 use oso_core::editor::ConversationPreviewRequest;
 
+use super::held::Whole;
 use super::{About, Message};
 use crate::sessions::registry::shown_directory;
 
@@ -156,6 +157,51 @@ impl Out {
             self.hit = (self.lines, 0);
         }
     }
+}
+
+/// The read-only view's text of the conversation `about` holds, read whole as `whole` (ADR
+/// 0145, step 2): a header naming its directory whole, its id and age, and what was left out,
+/// then every prompt and reply, each starting with its mark, its other lines indented, a blank
+/// line between; and the line its message `message` starts on. A message's lines start with a
+/// mark only on its first, so the view's `n` and `p` find messages by their marks.
+pub(super) fn view(
+    about: &About,
+    whole: &Whole,
+    message: usize,
+    now: std::time::SystemTime,
+) -> (String, usize) {
+    let mut out = Out::default();
+    let directory = about
+        .shown_directory()
+        .map_or_else(|| "?".to_owned(), shown_directory);
+    let gone = if about.gone { " (gone)" } else { "" };
+    let resumes = if about.directory.is_some() {
+        ""
+    } else {
+        " (cannot resume: oso cannot tell where it ran)"
+    };
+    out.line(&format!("in {directory}{gone}{resumes}"));
+    let age = now
+        .duration_since(about.changed)
+        .map_or_else(|_| "now".to_owned(), crate::sessions::list::age_of);
+    out.line(&format!(
+        "session {} · {age} ago · {} messages",
+        about.id.as_str(),
+        whole.messages.len()
+    ));
+    if whole.cut {
+        out.line("… more was said than the view keeps; the rest is left out");
+    }
+    out.line("n and p: next and previous message · r: go to the session · f: fork · g: read again");
+    let mut at = 0;
+    for (index, said) in whole.messages.iter().enumerate() {
+        out.gap();
+        if index == message {
+            at = out.lines + 1;
+        }
+        out.message(said, 0, None);
+    }
+    (out.text, at)
 }
 
 /// The place a row names for a conversation that ran in `directory`: `repository/worktree` for

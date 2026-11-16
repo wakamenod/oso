@@ -356,7 +356,8 @@ pub fn read(listed: &Listed, held: Option<Conversation>) -> Option<Conversation>
         _ => Conversation::new(listed.id.clone(), listed.path.clone()),
     };
     let from = conversation.file.read_to;
-    let read_to = read_lines(&mut file, from, now.len, &mut conversation).unwrap_or(from);
+    let take = |line| conversation.take(line);
+    let read_to = read_lines(&mut file, from, now.len, take).unwrap_or(from);
     conversation.file = FileState { read_to, ..now };
     let about = Arc::make_mut(&mut conversation.about);
     about.changed = now.changed;
@@ -372,7 +373,7 @@ fn read_lines(
     file: &mut File,
     from: u64,
     len: u64,
-    conversation: &mut Conversation,
+    mut take: impl FnMut(scan::Line),
 ) -> io::Result<u64> {
     file.seek(SeekFrom::Start(from))?;
     let mut reader = BufReader::with_capacity(256 * 1024, io::Read::take(file, len - from));
@@ -390,9 +391,62 @@ fn read_lines(
         }
         at += taken;
         if !skipped && !line.is_empty() {
-            conversation.take(scan::read(&line));
+            take(scan::read(&line));
         }
     }
+}
+
+/// The most bytes of text the read-only view of a conversation keeps (ADR 0145, step 2).
+pub const MAX_VIEW: usize = 8 * 1024 * 1024;
+
+/// A conversation read whole for its read-only view: its prompts and replies, and whether more
+/// was said than [`MAX_VIEW`] keeps. `Debug` gives counts only.
+pub struct Whole {
+    pub messages: Vec<Message>,
+    pub cut: bool,
+}
+
+impl std::fmt::Debug for Whole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Whole")
+            .field("messages", &self.messages.len())
+            .field("cut", &self.cut)
+            .finish()
+    }
+}
+
+/// Reads the transcript at `path` whole, as [`read`] reads one, for its read-only view: every
+/// prompt and reply, each whole, until [`MAX_VIEW`] bytes of text, each message counted with
+/// [`MESSAGE_COST`] too. None if it cannot be read as a regular file of this user's with one
+/// name.
+pub fn read_whole(path: &Path) -> Option<Whole> {
+    let (mut file, meta) = file_meta::open_regular_here(path).ok().flatten()?;
+    if !is_this_users(&meta) || !has_one_name(&meta) {
+        return None;
+    }
+    let mut whole = Whole {
+        messages: Vec::new(),
+        cut: false,
+    };
+    let mut bytes = 0;
+    let take = |line: scan::Line| {
+        let Some((prompt, texts)) = line.message else {
+            return;
+        };
+        for text in texts {
+            if bytes + text.len() + MESSAGE_COST > MAX_VIEW {
+                whole.cut = true;
+                continue;
+            }
+            bytes += text.len() + MESSAGE_COST;
+            whole.messages.push(Message {
+                prompt,
+                text: text.into(),
+            });
+        }
+    };
+    read_lines(&mut file, 0, meta.len(), take).ok()?;
+    Some(whole)
 }
 
 /// Reads one line of `reader` into `line`, without its line break, keeping at most

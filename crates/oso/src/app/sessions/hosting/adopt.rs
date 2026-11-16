@@ -76,7 +76,7 @@ pub(super) struct Adoption {
 
 /// The name an adopted session asks for: its own, if any of it is left once cleaned, else its
 /// directory's.
-fn base_of(name: Option<&str>, directory: &Path) -> String {
+pub(super) fn base_of(name: Option<&str>, directory: &Path) -> String {
     name.and_then(cleaned)
         .unwrap_or_else(|| base_name(directory))
 }
@@ -274,7 +274,7 @@ impl App {
     }
 
     /// The deepest open project whose root holds `directory`.
-    fn project_holding(&self, directory: &Path) -> Option<ProjectId> {
+    pub(super) fn project_holding(&self, directory: &Path) -> Option<ProjectId> {
         let mut seen = HashSet::new();
         let roots: Vec<(ProjectId, PathBuf)> = self
             .editor

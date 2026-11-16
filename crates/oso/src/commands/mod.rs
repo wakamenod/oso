@@ -354,6 +354,11 @@ mod tests {
         // Every project's conversations, which no agent gets (ADR 0145).
         "session-search",
         "session-search-scope",
+        "session-search-read",
+        "session-search-fork",
+        "conversation-go",
+        "conversation-fork",
+        "conversation-revert",
         // Sending to a session is the person's typing into its terminal (ADR 0120, Q15).
         "session-follow-message",
         "session-mention",

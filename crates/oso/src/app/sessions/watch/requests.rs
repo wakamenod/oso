@@ -29,6 +29,12 @@ impl App {
     ) -> Option<SessionRequest> {
         match request {
             SessionRequest::ShowList => self.toggle_sessions_list(),
+            // `session-search`'s rows and views (ADR 0145).
+            SessionRequest::GoToConversation { session, .. } => self.go_to_conversation(&session),
+            SessionRequest::ReadConversation { session, message } => {
+                self.read_conversation(&session, message);
+            }
+            SessionRequest::ForkConversation { session } => self.fork_found(&session),
             SessionRequest::Switch(name) => match self.session_named(&name) {
                 Some(key) => self.show_session(key),
                 None => self.editor.message(format!("No session {name}")),

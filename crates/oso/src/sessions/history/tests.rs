@@ -18,10 +18,10 @@ use super::*;
 use crate::sessions::identity::SessionId;
 
 /// A directory of its own under the system's temporary one, removed when dropped.
-struct Scratch(PathBuf);
+pub(super) struct Scratch(pub(super) PathBuf);
 
 impl Scratch {
-    fn new(name: &str) -> Self {
+    pub(super) fn new(name: &str) -> Self {
         let dir = std::env::temp_dir().join(format!("oso-history-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -29,7 +29,13 @@ impl Scratch {
     }
 
     /// Writes `lines` as the transcript of `id` in `project`, changed `ago` before now.
-    fn write(&self, project: &str, id: &SessionId, lines: &[String], ago: u64) -> PathBuf {
+    pub(super) fn write(
+        &self,
+        project: &str,
+        id: &SessionId,
+        lines: &[String],
+        ago: u64,
+    ) -> PathBuf {
         let dir = self.0.join(project);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join(format!("{}.jsonl", id.as_str()));
@@ -53,11 +59,11 @@ impl Drop for Scratch {
     }
 }
 
-fn id(n: u8) -> SessionId {
+pub(super) fn id(n: u8) -> SessionId {
     SessionId::from_random([n; 16])
 }
 
-fn prompt(cwd: &str, text: &str) -> String {
+pub(super) fn prompt(cwd: &str, text: &str) -> String {
     serde_json::json!({"type": "user", "cwd": cwd, "message": {"role": "user", "content": text}})
         .to_string()
 }
@@ -72,7 +78,7 @@ fn tool_result(text: &str) -> String {
         .to_string()
 }
 
-fn request(input: &str, scope: ConversationScope) -> ConversationSearchRequest {
+pub(super) fn request(input: &str, scope: ConversationScope) -> ConversationSearchRequest {
     ConversationSearchRequest {
         generation: 1,
         scope,
@@ -83,7 +89,7 @@ fn request(input: &str, scope: ConversationScope) -> ConversationSearchRequest {
 
 /// The rows a search of `hold` for `request` sends, as (session, message, text), and whether
 /// it said it was cut.
-fn search(
+pub(super) fn search(
     dir: &Path,
     hold: &mut Hold,
     request: &ConversationSearchRequest,
@@ -93,6 +99,7 @@ fn search(
     let mut incoming = Incoming {
         queue: None,
         preview: None,
+        read: None,
     };
     run_search(Some(dir), hold, request.clone(), &send, &mut incoming);
     let mut rows = Vec::new();
@@ -118,7 +125,7 @@ fn search(
 
 /// A tree of two conversations: an older one in `/w/a` and a newer one in a worktree of
 /// `/w/b`, a tool result and a subagent's file that hold the word too, and a link.
-fn tree(scratch: &Scratch) -> (SessionId, SessionId) {
+pub(super) fn tree(scratch: &Scratch) -> (SessionId, SessionId) {
     let (older, newer) = (id(1), id(2));
     scratch.write(
         "-w-a",
@@ -334,6 +341,7 @@ fn a_conversation_gives_at_most_its_rows_and_a_superseded_search_nothing() {
     let mut incoming = Incoming {
         queue: None,
         preview: None,
+        read: None,
     };
     let send = |report| found.lock().unwrap().push(report);
     run_search(Some(&scratch.0), &mut hold, stale, &send, &mut incoming);
@@ -413,6 +421,7 @@ fn a_newer_search_takes_over_while_the_transcripts_are_read() {
     let mut incoming = Incoming {
         queue: Some(&queue),
         preview: None,
+        read: None,
     };
     let mut hold = Hold::default();
     run_search(Some(&scratch.0), &mut hold, first, &send, &mut incoming);

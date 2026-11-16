@@ -83,6 +83,12 @@ pub enum SessionRequest {
     /// `session-search`'s row gave (ADR 0145): show it if oso hosts it, else adopt it as
     /// `session-adopt` does.
     GoToConversation { session: String, message: usize },
+    /// Read the conversation of the session `session` in `*conversation: NAME*`, at its
+    /// message `message` (ADR 0145, step 2).
+    ReadConversation { session: String, message: usize },
+    /// Fork the conversation of the session `session`: resume a copy of it under a new id in a
+    /// new hosted session (ADR 0145, step 2).
+    ForkConversation { session: String },
     /// Open `*Brief*` for a new worktree session on `branch`, a new one starting at `base`
     /// (`session-worktree`).
     Worktree {

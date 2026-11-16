@@ -14,34 +14,40 @@ impl Excerpt {
     /// The excerpt of `text`, lines of prose such as a conversation's messages (ADR 0145),
     /// each wrapped at `columns` cells, a word at a time where a word fits, its continuations
     /// indented by two cells. The row's match is on the line `line`, from 0, at `column`, in
-    /// characters. Keeps at most [`EXCERPT_LINES`] lines of what it wraps to, each at most
-    /// [`EXCERPT_LINE`] bytes; it has no file, so no open buffer shows in its place. Builds its
-    /// display model, O(n) in what it keeps, so the host's thread makes it.
-    pub fn wrapped(text: &str, columns: usize, (line, column): (usize, usize)) -> Self {
+    /// characters.
+    ///
+    /// Its first `keep` lines stay in view in a preview of `rows` rows: when the match would be
+    /// past the middle, whole rows after them are left out, a `…` row in their place, so that
+    /// the preview, which puts the match in the middle, starts at the top. Keeps at most
+    /// [`EXCERPT_LINES`] rows, each at most [`EXCERPT_LINE`] bytes; it has no file, so no open
+    /// buffer shows in its place. Builds its display model, O(n) in what it keeps, so the
+    /// host's thread makes it.
+    pub fn wrapped(
+        text: &str,
+        columns: usize,
+        (rows, keep): (usize, usize),
+        (line, column): (usize, usize),
+    ) -> Self {
         let columns = columns.max(8);
-        let mut out = String::with_capacity(text.len().min(EXCERPT_LINES * EXCERPT_LINE));
-        let mut cursor = None;
-        let mut rows = 0;
+        // Each row's text, and the row and byte of the match in it once found.
+        let mut wrapped: Vec<String> = Vec::new();
+        let mut hit: Option<(usize, usize)> = None;
+        let mut kept_rows = 0;
         'lines: for (index, whole) in text.split('\n').enumerate() {
-            let hit = (index == line).then_some(column);
             for (start, end) in wrap_line(whole, columns) {
-                if rows == EXCERPT_LINES {
+                if wrapped.len() == EXCERPT_LINES {
                     break 'lines;
                 }
-                if rows > 0 {
-                    out.push('\n');
-                }
+                let mut row = String::new();
                 if start > 0 {
-                    out.push_str("  ");
+                    row.push_str("  ");
                 }
                 let part = &whole[start..end];
-                let before = out.len();
+                let before = row.len();
                 let (cut_start, cut_end) =
                     cut_bounds(part.as_bytes(), 0, EXCERPT_LINE.min(part.len()));
-                push_cut(&mut out, part.as_bytes(), (cut_start, cut_end));
-                if let Some(column) = hit
-                    && cursor.is_none()
-                {
+                push_cut(&mut row, part.as_bytes(), (cut_start, cut_end));
+                if index == line && hit.is_none() {
                     let chars_before = whole[..start].chars().count();
                     let chars_here = part.chars().count();
                     if column < chars_before + chars_here || end == whole.len() {
@@ -50,13 +56,37 @@ impl Excerpt {
                             .char_indices()
                             .nth(within)
                             .map_or(part.len(), |(at, _)| at);
-                        cursor = Some(before + at.min(out.len() - before));
+                        hit = Some((wrapped.len(), (before + at).min(row.len())));
                     }
                 }
-                rows += 1;
+                wrapped.push(row);
+            }
+            if index < keep {
+                kept_rows = wrapped.len();
             }
         }
-        let cursor = cursor.unwrap_or(0).min(out.len());
+        // Rows left out after the kept lines, so that the match is at most halfway down.
+        if let Some((at, byte)) = hit {
+            let half = rows.max(4) / 2;
+            if at > half && at > kept_rows + 1 {
+                let gone = (at - half + 1).min(at - kept_rows);
+                wrapped.splice(kept_rows..kept_rows + gone, ["  \u{2026}".to_owned()]);
+                hit = Some((at + 1 - gone, byte));
+            }
+        }
+        let mut out = String::with_capacity(wrapped.iter().map(|row| row.len() + 1).sum());
+        let mut cursor = 0;
+        for (index, row) in wrapped.iter().enumerate() {
+            if index > 0 {
+                out.push('\n');
+            }
+            if let Some((at, byte)) = hit
+                && at == index
+            {
+                cursor = out.len() + byte;
+            }
+            out.push_str(row);
+        }
         let text = Rope::from(out.as_str());
         let display = DisplayMap::new(&text, TabWidth::default());
         Self {
@@ -132,7 +162,7 @@ mod tests {
     #[test]
     fn a_wrapped_excerpt_breaks_at_words_and_keeps_the_match() {
         let text = "‹ one two three four five six seven eight nine ten";
-        let excerpt = Excerpt::wrapped(text, 20, (0, 30));
+        let excerpt = Excerpt::wrapped(text, 20, (40, 0), (0, 30));
         let shown = excerpt.text.to_string();
         let lines: Vec<&str> = shown.lines().collect();
         assert!(lines.len() > 1, "{shown}");
@@ -146,7 +176,7 @@ mod tests {
         );
         assert!(shown[excerpt.cursor..].starts_with("seven"), "{shown}");
         // Wide characters take two cells each.
-        let wide = Excerpt::wrapped(&"あ".repeat(30), 20, (0, 0));
+        let wide = Excerpt::wrapped(&"あ".repeat(30), 20, (40, 0), (0, 0));
         assert!(
             wide.text
                 .to_string()
@@ -158,6 +188,32 @@ mod tests {
                 <= 10
         );
         // An empty text is one empty line.
-        assert_eq!(Excerpt::wrapped("", 20, (0, 0)).text.to_string(), "");
+        assert_eq!(
+            Excerpt::wrapped("", 20, (40, 0), (0, 0)).text.to_string(),
+            ""
+        );
+    }
+
+    #[test]
+    fn the_kept_lines_stay_in_view_and_rows_before_the_match_are_left_out() {
+        let mut text = String::from("in /w/oso\n");
+        for n in 0..30 {
+            text.push_str(&format!("line {n}\n"));
+        }
+        text.push_str("the needle");
+        let excerpt = Excerpt::wrapped(&text, 40, (10, 1), (31, 4));
+        let shown = excerpt.text.to_string();
+        let lines: Vec<&str> = shown.lines().collect();
+        assert_eq!(lines[0], "in /w/oso");
+        assert_eq!(lines[1], "  \u{2026}");
+        let row = lines
+            .iter()
+            .position(|line| line.starts_with("the needle"))
+            .unwrap();
+        assert!(row <= 5, "the match at most halfway down: {shown}");
+        assert!(shown[excerpt.cursor..].starts_with("needle"));
+        // Near the top, nothing is left out.
+        let near = Excerpt::wrapped("in /w/oso\n\nthe needle", 40, (10, 1), (2, 4));
+        assert_eq!(near.text.to_string(), "in /w/oso\n\nthe needle");
     }
 }

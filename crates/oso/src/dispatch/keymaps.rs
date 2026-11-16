@@ -74,6 +74,8 @@ pub(super) struct Keymaps {
     pub(super) git_commit: Keymap,
     /// The log of git's runs' own keys, above the global ones.
     pub(super) git_log: Keymap,
+    /// `session-search`'s prompt's, then `*conversation: NAME*`'s (ADR 0145).
+    pub(super) conversations: [Keymap; 2],
     /// The list of what discards kept's own keys (ADR 0127, step 1c).
     pub(super) git_discarded: Keymap,
     /// A graph's own keys, above the global ones (ADR 0127, step 4).
@@ -126,6 +128,7 @@ impl Keymaps {
             git: bindings::git_status_keymap(registry),
             git_commit: bindings::git_commit_keymap(registry),
             git_log: bindings::git_log_keymap(registry),
+            conversations: bindings::conversation_keymaps(registry),
             git_discarded: bindings::git_discarded_keymap(registry),
             git_graph: bindings::git_graph_keymap(registry),
             terminal: bindings::terminal_keymap(registry),
@@ -163,6 +166,7 @@ impl Keymaps {
             git,
             git_commit,
             git_log,
+            conversations: [searching, conversation],
             git_discarded,
             git_graph,
             terminal,
@@ -197,6 +201,8 @@ impl Keymaps {
             git,
             git_commit,
             git_log,
+            searching,
+            conversation,
             git_discarded,
             git_graph,
             terminal,
@@ -274,6 +280,10 @@ impl Keymaps {
         };
         let major = if let Some(prompt) = editor.prompt() {
             match prompt.kind() {
+                // `session-search`'s own keys over completion's (ADR 0145).
+                Kind::Complete { .. } if editor.searches_conversations() => {
+                    Some(&self.conversations[0])
+                }
                 Kind::Complete { .. } => Some(&self.completing),
                 // `RET` breaks a line in a draft, which `C-c C-c` keeps (ADR 0122).
                 Kind::Draft => Some(&self.draft),
@@ -295,6 +305,7 @@ impl Keymaps {
                 Mode::GitStatus => Some(&self.git),
                 Mode::GitCommit => Some(&self.git_commit),
                 Mode::GitLog => Some(&self.git_log),
+                Mode::Conversation => Some(&self.conversations[1]),
                 Mode::GitDiscarded => Some(&self.git_discarded),
                 Mode::GitGraph => Some(&self.git_graph),
                 Mode::Markdown => Some(&self.markdown),

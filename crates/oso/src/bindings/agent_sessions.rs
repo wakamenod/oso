@@ -57,3 +57,23 @@ pub const LIST: &[(&str, &str)] = &[
     ("<", "sessions-narrower"),
     (">", "sessions-wider"),
 ];
+
+/// The keys of `session-search`'s prompt (ADR 0145), over completion's: `C-c C-s` searches the
+/// next scope, `C-RET` reads the selected row's conversation and `M-RET` forks it, in place of
+/// completion's `M-RET`, as a search's input is no answer.
+pub const CONVERSATION_SEARCH: &[(&str, &str)] = &[
+    ("C-c C-s", "session-search-scope"),
+    ("C-RET", "session-search-read"),
+    ("M-RET", "session-search-fork"),
+];
+
+/// The keys of `*conversation: NAME*` (ADR 0145, step 2), a read-only buffer, so letters run
+/// commands: the next and previous message, go to its session, fork it, read it again, quit.
+pub const CONVERSATION: &[(&str, &str)] = &[
+    ("n", "conversation-next-message"),
+    ("p", "conversation-previous-message"),
+    ("r", "conversation-go"),
+    ("f", "conversation-fork"),
+    ("g", "conversation-revert"),
+    ("q", "quit-window"),
+];

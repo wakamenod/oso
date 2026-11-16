@@ -62,6 +62,8 @@ pub enum Mode {
     GitLog,
     /// What discards in a repository kept, `*git discarded: NAME*` (ADR 0127, step 1c).
     GitDiscarded,
+    /// A past agent conversation read, `*conversation: NAME*` (ADR 0145, step 2).
+    Conversation,
 }
 
 impl Mode {
@@ -127,6 +129,7 @@ impl Mode {
             Self::GitCommit => "Git Commit",
             Self::GitLog => "Git Log",
             Self::GitDiscarded => "Git Discarded",
+            Self::Conversation => "Conversation",
         }
     }
 
@@ -166,6 +169,7 @@ impl Mode {
             | Self::GitStatus
             | Self::GitGraph
             | Self::GitLog
+            | Self::Conversation
             | Self::GitDiscarded
             | Self::Sessions => None,
         }
