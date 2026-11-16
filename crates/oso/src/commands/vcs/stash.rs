@@ -48,13 +48,13 @@ pub const COMMANDS: &[Command] = &[
     ),
     command!(
         "git-stash-apply",
-        "In a git status, apply the stash at the primary cursor, keeping it (the stash menu's `a`).\n\nWith point on no stash it asks which. A stash that does not apply cleanly leaves its files to resolve. It is refused while a merge or a rebase is stopped.",
+        "In a git status, apply the stash at the primary cursor, keeping it (the stash menu's `a`).\n\nWith point on no stash it asks which. A stash that does not apply cleanly leaves its files to resolve. It is refused while a merge, rebase, cherry-pick, revert or `git am` is stopped.",
         ArgSpec::None,
         apply
     ),
     command!(
         "git-stash-pop",
-        "In a git status, apply the stash at the primary cursor and drop it (the stash menu's `p`).\n\nWith point on no stash it asks which. A stash that does not apply cleanly is kept. It is refused while a merge or a rebase is stopped.",
+        "In a git status, apply the stash at the primary cursor and drop it (the stash menu's `p`).\n\nWith point on no stash it asks which. A stash that does not apply cleanly is kept. It is refused while a merge, rebase, cherry-pick, revert or `git am` is stopped.",
         ArgSpec::None,
         pop
     ),

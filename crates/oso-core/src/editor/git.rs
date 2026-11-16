@@ -139,6 +139,27 @@ pub enum StashAction {
     Confirmed,
 }
 
+/// What the branch menu's head asks, or what a prompt or a question it opened gave back (ADR
+/// 0127, step 3b).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BranchAction {
+    /// Check out a branch read in a prompt, local or a remote's (`b b`).
+    Checkout,
+    /// Make a branch at a revision and name read in prompts, checking it out if `checkout`
+    /// (`b c`, `b n`).
+    Create { checkout: bool },
+    /// Rename a branch read in a prompt (`b m`).
+    Rename,
+    /// Delete a branch read in a prompt, asking first if it is not merged (`b k`).
+    Delete,
+    /// The branch or revision the prompt one of the others opened read.
+    Picked(String),
+    /// The new name the prompt one of the others opened read.
+    Named(String),
+    /// What the question before a forced delete asked about, after the person's `y`.
+    Confirmed,
+}
+
 /// What a command asks of the host for git (ADR 0127).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GitRequest {
@@ -238,6 +259,12 @@ pub enum GitRequest {
         buffer: BufferId,
         action: StashAction,
         line: usize,
+    },
+    /// What the branch menu's head `action` asks in the repository of the status `buffer`
+    /// (step 3b).
+    Branch {
+        buffer: BufferId,
+        action: BranchAction,
     },
 }
 

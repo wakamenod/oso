@@ -1,6 +1,6 @@
-//! Which part of the app carries out each git request (ADR 0127): the status's own, a commit's
-//! and its log's, a remote's, a stopped run's, or a stash's. One match over every request, so that a new one is placed
-//! here before it builds, never dropped at run time.
+//! Which part of the app carries out each git request (ADR 0127): the status's own, a commit's and
+//! its log's, a remote's, a stopped run's, a stash's, or a branch's. One match over every request,
+//! so that a new one is placed here before it builds, never dropped at run time.
 //!
 //! Must not depend on: key presses, how a frame is drawn, or git; this only sorts requests.
 
@@ -20,6 +20,8 @@ pub(super) enum Concern {
     Sequence,
     /// Stashing, applying, popping and dropping (step 3b).
     Stash,
+    /// Checking out, creating, renaming and deleting branches (step 3b).
+    Branch,
 }
 
 /// Where `request` is carried out.
@@ -51,5 +53,6 @@ pub(super) fn concern(request: &GitRequest) -> Concern {
             Concern::Sequence
         }
         GitRequest::Stash { .. } => Concern::Stash,
+        GitRequest::Branch { .. } => Concern::Branch,
     }
 }

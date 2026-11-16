@@ -15,7 +15,7 @@
 
 use super::super::read::{git_dir, judged};
 use super::super::sequence::{self, Stop, Want};
-use super::stream::stream;
+use super::stream::{ended_as, stream};
 use super::{RunEnd, RunReport, Watch};
 use crate::git::Git;
 
@@ -37,18 +37,9 @@ pub(super) fn step(
         Ok(streamed) => streamed,
         Err(why) => return RunEnd::Refused(why),
     };
-    match streamed.status {
-        _ if streamed.stopped => RunEnd::Stopped,
-        Ok(status) if status.success() => RunEnd::Done,
-        Ok(_) => RunEnd::Failed {
-            said: sequence::failed(&title, &streamed.tail, stopped_now(git).is_some()),
-            hooks: Vec::new(),
-        },
-        Err(why) => RunEnd::Failed {
-            said: format!("{title} failed: {why}"),
-            hooks: Vec::new(),
-        },
-    }
+    ended_as(streamed, &title, |tail| {
+        sequence::failed(&title, tail, stopped_now(git).is_some())
+    })
 }
 
 /// What is stopped in the repository now, judged from its files alone, with `git`, a read's.

@@ -25,7 +25,7 @@ fn push(message: &str, untracked: bool) -> RunRequest {
 
 fn on(act: Act, id: &str) -> RunRequest {
     RunRequest::Stash {
-        run: StashRun::On {
+        run: StashRun::Act {
             act,
             id: id.to_owned(),
         },
@@ -76,6 +76,7 @@ fn a_drop_finds_its_stash_again_and_one_gone_is_refused() {
     let (end, output, _) = until_end(&got);
     assert_eq!(end, RunEnd::Done, "{output}");
     assert!(output.contains("$ git stash drop stash@{1}"), "{output}");
+
     assert_eq!(
         text(&repo, &["stash", "list", "--format=%gs"]),
         "On main: newer"
@@ -104,4 +105,26 @@ fn a_pop_that_does_not_apply_cleanly_keeps_its_stash() {
     };
     assert!(said.contains("the stash is kept"), "{said}");
     assert_eq!(text(&repo, &["stash", "list", "--format=%H"]), id);
+}
+
+#[test]
+fn a_drop_takes_git_s_own_selector_where_the_list_leaves_an_entry_out() {
+    let repo = repo("stash-gap");
+    std::fs::write(repo.root.join("a.txt"), "two\n").unwrap();
+    repo.git(&["stash", "push", "-q", "-m", "oldest"]);
+    let oldest = text(&repo, &["rev-parse", "stash@{0}"]);
+    std::fs::write(repo.root.join("a.txt"), "three\n").unwrap();
+    repo.git(&["stash", "push", "-q", "-m", "older"]);
+    // An entry that is not a stash: git's list leaves it out, `stash@{N}` still counts it.
+    let blob = text(&repo, &["rev-parse", "HEAD:a.txt"]);
+    repo.git(&["update-ref", "-m", "not a stash", "refs/stash", &blob]);
+    std::fs::write(repo.root.join("a.txt"), "four\n").unwrap();
+    repo.git(&["stash", "push", "-q", "-m", "newest"]);
+    let (runner, got) = runner(&repo);
+    assert!(runner.ask(on(Act::Drop, &oldest)));
+    let (end, output, _) = until_end(&got);
+    assert_eq!(end, RunEnd::Done, "{output}");
+    assert!(output.contains("$ git stash drop stash@{3}"), "{output}");
+    let left = text(&repo, &["stash", "list", "--format=%gs"]);
+    assert_eq!(left, "On main: newest\nOn main: older", "{left}");
 }

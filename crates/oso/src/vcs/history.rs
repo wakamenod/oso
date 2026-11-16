@@ -27,6 +27,7 @@ pub(crate) const FORMAT: &str = "--format=%H%x1f%h%x1f%s";
 pub(crate) struct Commit {
     /// Its full id, as hex.
     pub(crate) id: String,
+    /// Its short id; for a stash, git's selector, `stash@{N}`, as it was read (step 3b).
     pub(crate) short: String,
     /// Its subject as git wrote it, which may be any bytes.
     pub(crate) subject: Vec<u8>,

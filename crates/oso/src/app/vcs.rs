@@ -32,9 +32,11 @@ use crate::vcs::stage::Target;
 use crate::vcs::{Built, Report, Request, View, Worker};
 
 mod agent;
+mod branch;
 mod commit;
 mod discard;
 mod draft;
+mod prompt;
 mod remote;
 mod requests;
 mod runs;
@@ -124,6 +126,7 @@ impl App {
         self.forget_closed_pushes();
         self.forget_closed_sequence_questions();
         self.forget_closed_stash_prompts();
+        self.forget_closed_branch_prompts();
         self.sync_commits();
         let agent = agent || self.gits.by_agent;
         // A key is the person's in a status when the status was selected as it was typed.
@@ -169,6 +172,7 @@ impl App {
             requests::Concern::Remote => self.git_remote_request(request),
             requests::Concern::Sequence => self.git_sequence_request(request),
             requests::Concern::Stash => self.git_stash_request(request),
+            requests::Concern::Branch => self.git_branch_request(request),
             requests::Concern::Status => self.git_status_request(request),
         }
     }

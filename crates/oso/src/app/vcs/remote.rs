@@ -194,22 +194,16 @@ impl App {
                     .message(format!("git: {}", one_line(&why, MAX_SAID)));
             }
             Ok(Planned::Ready(push)) if push.switches.force_with_lease => {
-                let question = one_line(&push.question(), 400);
-                match self.editor.ask_with(
-                    format!("{question} (y or n)"),
-                    "git-push-confirmed",
-                    ["push", "keep"],
-                ) {
-                    Ok(prompt) => {
-                        self.gits.commits.repos[index].pushes.asked = Some(Asked {
-                            status: wait.status,
-                            prompt,
-                            push,
-                        });
-                    }
-                    Err(e) => self.editor.message(format!("Cannot ask: {e}")),
+                let question = push.question();
+                let yes = "git-push-confirmed";
+                if let Some(prompt) = self.ask_bound(&question, yes, ["push", "keep"]) {
+                    self.gits.commits.repos[index].pushes.asked = Some(Asked {
+                        status: wait.status,
+                        prompt,
+                        push,
+                    });
                 }
-                return self.request_redraw();
+                return;
             }
             Ok(Planned::Ready(push)) => return self.run_push(index, push),
             Ok(Planned::Remote {
@@ -229,20 +223,14 @@ impl App {
             .map(|item| Candidate::new(item.as_str(), "", ""))
             .collect();
         self.editor.set_listed(list, items);
-        let before = self.editor.prompt().map(oso_core::minibuffer::Prompt::id);
-        let effects = self.dispatcher.run_from_host(&mut self.editor, command);
         // Only a prompt this opened takes the push's answer.
-        let opened = self.editor.prompt().map(oso_core::minibuffer::Prompt::id);
-        if let Some(prompt) = opened.filter(|id| Some(*id) != before) {
+        if let Some(prompt) = self.open_host_prompt(command) {
             self.gits.commits.repos[index].pushes.prompt = Some(Prompted {
                 status: wait.status,
                 prompt,
                 switches: wait.switches,
                 reads,
             });
-        }
-        if effects.redraw {
-            self.request_redraw();
         }
     }
 

@@ -127,6 +127,7 @@ const TABLES: &[&[Command]] = &[
     vcs::remote::COMMANDS,
     vcs::sequence::COMMANDS,
     vcs::stash::COMMANDS,
+    vcs::branch::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
     windows::COMMANDS,
@@ -450,6 +451,17 @@ mod tests {
         "git-stash-message",
         "git-stash-pick",
         "git-stash-pop",
+        // Branches, checked out, made, renamed and deleted with the repository's hooks (step 3b).
+        "git-branch-checkout",
+        "git-branch-create",
+        "git-branch-create-checkout",
+        "git-branch-delete",
+        "git-branch-delete-confirmed",
+        "git-branch-name",
+        "git-branch-new-name",
+        "git-branch-pick",
+        "git-branch-rename",
+        "git-branch-start",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).

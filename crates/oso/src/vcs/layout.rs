@@ -1,8 +1,8 @@
 //! A status buffer's text, highlights, outline and row table (ADR 0127), in magit's order: the
-//! head, with what is stopped under it (step 3a), then unmerged paths, untracked files, unstaged changes and staged changes, each a
-//! section that folds, with a file's hunks under it when it is open; then the commits unpushed
-//! to the upstream and unpulled from it, and the recent ones (step 2), after the stashes (step
-//! 3b).
+//! head, with what is stopped under it (step 3a), then unmerged paths, untracked files, unstaged
+//! changes and staged changes, each a section that folds, with a file's hunks under it when it is
+//! open; then the commits unpushed to the upstream and unpulled from it, and the recent ones (step
+//! 2), after the stashes (step 3b).
 //!
 //! Must not depend on: `app`, `dispatch`, `commands`, git or the file system; [`lay_out`] is a
 //! pure function of what was read.
@@ -399,6 +399,13 @@ impl Built {
         };
         let (_, log) = self.logs.iter().find(|(of, _)| *of == section)?;
         Some((section, log.commits.get(commit)?))
+    }
+
+    /// The commits the section `section` shows: a commit section's, or the stashes.
+    pub(crate) fn commits(&self, section: Section) -> &[Commit] {
+        (self.logs.iter())
+            .find(|(of, _)| *of == section)
+            .map_or(&[], |(_, log)| log.commits.as_slice())
     }
 
     /// What `RET` on `line` at `column` visits: the file's path, and for a hunk's header or line

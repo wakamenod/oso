@@ -53,11 +53,14 @@ fn a_selector_is_stash_and_a_number() {
 }
 
 #[test]
-fn a_stash_is_found_again_where_it_is_now() {
-    let listed = format!("{B}\0{A}\0");
-    assert_eq!(find(listed.as_bytes(), A).as_deref(), Some("stash@{1}"));
+fn a_stash_is_found_again_by_git_s_own_selector() {
+    // git's list leaves out an entry that is not a stash: its own selector counts it.
+    let listed = format!("{B}\x1fstash@{{0}}\0{A}\x1fstash@{{2}}\0");
+    assert_eq!(find(listed.as_bytes(), A).as_deref(), Some("stash@{2}"));
     assert_eq!(find(listed.as_bytes(), B).as_deref(), Some("stash@{0}"));
     assert_eq!(find(b"", A), None);
+    let forged = format!("{A}\x1f--all\0");
+    assert_eq!(find(forged.as_bytes(), A), None);
 }
 
 #[test]
@@ -82,13 +85,14 @@ fn a_push_takes_its_message_as_one_line_and_untracked_files_if_asked() {
 }
 
 #[test]
-fn each_act_names_the_stash_now_at_its_selector() {
+fn each_act_names_its_stash_and_the_echo_area_its_subject() {
     assert_eq!(args(Act::Pop, "stash@{1}"), ["stash", "pop", "stash@{1}"]);
-    assert_eq!(title(Act::Drop, "stash@{0}"), "git stash drop stash@{0}");
+    assert_eq!(title(Act::Drop), "git stash drop");
     assert_eq!(
-        Act::Apply.done("stash@{0}"),
-        "Applied stash@{0}; it is kept"
+        Act::Apply.done(b"On main: tidy"),
+        "Applied the stash On main: tidy; it is kept"
     );
+    assert!(!Act::Pop.done("a\u{202e}b".as_bytes()).contains('\u{202e}'));
 }
 
 #[test]

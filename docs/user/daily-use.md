@@ -371,6 +371,8 @@ project must be trusted.
 | `F u` | Pull the upstream, fast-forward only; `- r` rebases onto it, `- m` merges it |
 | `C-c C-c` | Go on with a merge, rebase, cherry-pick, revert or `git am` that stopped |
 | `C-c C-s` / `C-c C-k` | Skip the commit it stopped at, or abort it, after a question |
+| `z` | The stash menu: `z` stash, `a` apply, `p` pop, `k` drop the stash at point; `- u` takes untracked files |
+| `b` | The branch menu: `b` check out, `c` make and check out, `n` make, `m` rename, `k` delete |
 | `f u` / `f a` | Fetch the upstream's remote, or every remote |
 | `RET` | Visit the file, or review the commit at point |
 | `$` | Show what git's runs wrote; `C-g` stops one |

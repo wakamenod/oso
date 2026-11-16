@@ -1,8 +1,8 @@
 //! A repository's run thread over temporary repositories: a commit with its message and its
 //! output, a hook that fails and the name the failure gives, `--no-verify`, the message an
 //! amend starts from, a stop that ends a hook and leaves no lock, and a root it refuses; with a
-//! remote (`remote`), over what is stopped (`sequence`, step 3a), and over stashes (`stash`,
-//! step 3b).
+//! remote (`remote`), over what is stopped (`sequence`, step 3a), and over stashes (`stash`)
+//! and branches (`branch`, step 3b).
 //!
 //! Must not depend on: `app`, `dispatch` or winit.
 
@@ -15,6 +15,7 @@ use super::{RunEnd, RunReport, RunRequest, Runner};
 use crate::git::TrustedRoot;
 use crate::review::tests::Repo;
 
+mod branch;
 mod remote;
 mod sequence;
 mod stash;
@@ -56,6 +57,8 @@ pub(super) fn until_end(got: &mpsc::Receiver<RunReport>) -> (RunEnd, String, boo
             RunReport::Elapsed(_)
             | RunReport::Progress(_)
             | RunReport::Planned(_)
+            | RunReport::Branches(_)
+            | RunReport::DeletePlanned { .. }
             | RunReport::Message(_)
             | RunReport::Subjects { .. }
             | RunReport::Discarded(_)

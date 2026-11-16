@@ -104,7 +104,10 @@ often, so it must rebuild within 2 s.
   sections are read by `history` (step 2), with `app/vcs/remote.rs` and
   `commands::vcs::remote`. What is stopped, a merge, rebase, pick, revert or `git am` (a
   sequence, in the code), is judged by `sequence`, continued, skipped and aborted on the run
-  thread (`run/sequence`), with `app/vcs/sequence.rs` and `commands::vcs::sequence` (step 3a). Its keys are listed in `commands::vcs::KEYS` and
+  thread (`run/sequence`), with `app/vcs/sequence.rs` and `commands::vcs::sequence` (step 3a).
+  Stashes and branches are `stash`'s and `branch`'s, run on the run thread (`run/stash`,
+  `run/branch`), with `app/vcs/stash.rs`, `app/vcs/branch.rs`, `commands::vcs::stash` and
+  `commands::vcs::branch` (step 3b). Its keys are listed in `commands::vcs::KEYS` and
   `commands::vcs::commit`, the commit menu is built in, and `bindings/vcs.rs` binds them;
   `app/vcs.rs` carries out what its commands ask, with `app/vcs/status.rs` (the status's own
   requests), `app/vcs/commit.rs` (messages) and `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,

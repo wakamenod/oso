@@ -6,11 +6,14 @@
 //! it: the repository's run thread, `oso-vcs-run`, finds the stash again by its id and runs.
 //!
 //! - A head acts on the stash at point; with none there, a prompt completes over the stashes
-//!   the status shows, opened as its keys would open it.
+//!   the status shows, opened as its keys would open it. The prompt keeps the stashes it
+//!   listed, so that an answer names the stash the person saw, whatever the status reads since.
 //! - Dropping asks first, naming the stash; the `y` runs only for the status it was asked
 //!   over, and a prompt or a question closed without its answer is forgotten.
 //! - Applying and popping are refused while a merge, rebase, pick, revert or `git am` is
 //!   stopped (Q6).
+//! - What the echo area says names a stash by its subject, not its `stash@{N}`, which another
+//!   worktree's push changes.
 
 use std::sync::Arc;
 
@@ -36,20 +39,18 @@ struct Prompted {
 }
 
 /// What a stash's prompt reads.
-#[derive(Clone, Copy)]
 enum Reads {
     /// A push's message, with untracked files if `untracked`.
     Message { untracked: bool },
-    /// The stash to `act` on.
-    Stash(Act),
+    /// The stash to `act` on, of those `shown`.
+    Stash(Act, Vec<Commit>),
 }
 
 /// A drop waiting for the `y` to the question `prompt`, asked over the status `status`.
 struct Asked {
     status: BufferId,
     prompt: PromptId,
-    id: String,
-    selector: String,
+    stash: Commit,
 }
 
 /// A repository's stash prompt and question waiting.
@@ -79,151 +80,133 @@ impl App {
             return self.editor.message(RUNNING);
         }
         let stashes = &mut self.gits.commits.repos[index].stashes;
-        stashes.asked.take_if(|_| action != StashAction::Confirmed);
-        let prompted = stashes.prompt.take();
-        match action {
+        let prompted = stashes.prompt.take().filter(|wait| wait.status == buffer);
+        let asked = stashes.asked.take().filter(|wait| wait.status == buffer);
+        let act = match action {
             StashAction::Push { untracked } => {
-                self.open_stash_prompt(index, buffer, Reads::Message { untracked });
+                let reads = Reads::Message { untracked };
+                return self.open_stash_prompt(index, buffer, "git-stash-message", reads);
             }
-            StashAction::Message(message) => match prompted {
-                Some(Prompted {
-                    status,
-                    reads: Reads::Message { untracked },
-                    ..
-                }) if status == buffer => {
-                    let run = StashRun::Push { untracked, message };
-                    self.run_stash(index, run, "git stash push", "Stashed".to_owned());
-                }
-                _ => self
-                    .editor
-                    .message("The stash's prompt is gone: z z asks again"),
-            },
-            StashAction::Apply => self.stash_at(index, (&*built, buffer), Act::Apply, line),
-            StashAction::Pop => self.stash_at(index, (&*built, buffer), Act::Pop, line),
-            StashAction::Drop => self.stash_at(index, (&*built, buffer), Act::Drop, line),
-            StashAction::Picked(selector) => match prompted {
-                Some(Prompted {
-                    status,
-                    reads: Reads::Stash(act),
-                    ..
-                }) if status == buffer => match stash_named(&built, &selector) {
-                    Some(commit) => self.stash_on(index, (&*built, buffer), act, commit),
-                    None => self.editor.message(format!("No stash {selector} is shown")),
-                },
-                _ => self
-                    .editor
-                    .message("The stash's prompt is gone: z asks again"),
-            },
-            StashAction::Confirmed => match self.gits.commits.repos[index].stashes.asked.take() {
-                Some(asked) if asked.status == buffer => {
-                    let done = Act::Drop.done(&asked.selector);
-                    let title = stash::title(Act::Drop, &asked.selector);
-                    let run = StashRun::On {
-                        act: Act::Drop,
-                        id: asked.id,
-                    };
-                    self.run_stash(index, run, &title, done);
-                }
-                _ => self
-                    .editor
-                    .message("The drop asked about is gone: z k asks again"),
-            },
+            StashAction::Message(message) => {
+                return self.stash_message(index, prompted.map(|wait| wait.reads), message);
+            }
+            StashAction::Picked(selector) => {
+                let reads = prompted.map(|wait| wait.reads);
+                return self.stash_picked(index, (&built, buffer), reads, &selector);
+            }
+            StashAction::Confirmed => {
+                return match asked {
+                    Some(Asked { stash, .. }) => {
+                        let done = Act::Drop.done(&stash.subject);
+                        let run = StashRun::Act {
+                            act: Act::Drop,
+                            id: stash.id,
+                        };
+                        self.run_stash(index, run, stash::title(Act::Drop), done);
+                    }
+                    None => self
+                        .editor
+                        .message("The drop asked about is gone: z k asks again"),
+                };
+            }
+            StashAction::Apply => Act::Apply,
+            StashAction::Pop => Act::Pop,
+            StashAction::Drop => Act::Drop,
+        };
+        let shown = built.commits(Section::Stashes);
+        match built.commit_at(line) {
+            Some((Section::Stashes, stash)) => {
+                let stash = stash.clone();
+                self.stash_on(index, (&built, buffer), act, stash);
+            }
+            _ if shown.is_empty() => self.editor.message("There are no stashes"),
+            _ => {
+                let items: Arc<[Candidate]> = (shown.iter())
+                    .map(|stash| {
+                        let subject = String::from_utf8_lossy(&stash.subject);
+                        Candidate::new(stash.short.as_str(), "", one_line(&subject, 80))
+                    })
+                    .collect();
+                self.editor.set_listed(STASHES_LIST, items);
+                let reads = Reads::Stash(act, shown.to_vec());
+                self.open_stash_prompt(index, buffer, "git-stash-pick", reads);
+            }
         }
     }
 
-    /// `act` on the stash at `line` of `built`, the status `status`'s, or one read in a prompt
-    /// if none is there.
-    fn stash_at(
+    /// The message a push's prompt read: stashes with it.
+    fn stash_message(&mut self, index: usize, reads: Option<Reads>, message: String) {
+        match reads {
+            Some(Reads::Message { untracked }) => {
+                let run = StashRun::Push { untracked, message };
+                self.run_stash(index, run, "git stash push", "Stashed".to_owned());
+            }
+            _ => self
+                .editor
+                .message("The stash's prompt is gone: z z asks again"),
+        }
+    }
+
+    /// The stash a prompt read as `selector`, found among those it listed.
+    fn stash_picked(
         &mut self,
         index: usize,
         (built, status): (&Built, BufferId),
-        act: Act,
-        line: usize,
+        reads: Option<Reads>,
+        selector: &str,
     ) {
-        if act != Act::Drop && self.refused_while_stopped(built) {
-            return;
-        }
-        match built.commit_at(line) {
-            Some((Section::Stashes, commit)) => {
-                let commit = commit.clone();
-                self.stash_on(index, (built, status), act, &commit);
-            }
-            _ if stashes_of(built).is_empty() => self.editor.message("There are no stashes"),
-            _ => self.open_stash_prompt(index, status, Reads::Stash(act)),
+        let Some(Reads::Stash(act, shown)) = reads else {
+            return self
+                .editor
+                .message("The stash's prompt is gone: z asks again");
+        };
+        let selector = selector.trim();
+        match shown.into_iter().find(|stash| stash.short == selector) {
+            Some(stash) => self.stash_on(index, (built, status), act, stash),
+            None => self.editor.message(format!(
+                "{} is not one of those listed",
+                one_line(selector, 40)
+            )),
         }
     }
 
-    /// `act` on `commit`, a stash `built` shows: a drop asks first.
+    /// `act` on `stash`, one `built` showed: applying and popping are refused while something
+    /// is stopped, and a drop asks first.
     fn stash_on(
         &mut self,
         index: usize,
         (built, status): (&Built, BufferId),
         act: Act,
-        commit: &Commit,
+        stash: Commit,
     ) {
-        if act != Act::Drop {
-            if self.refused_while_stopped(built) {
-                return;
-            }
-            let title = stash::title(act, &commit.short);
-            let run = StashRun::On {
-                act,
-                id: commit.id.clone(),
-            };
-            return self.run_stash(index, run, &title, act.done(&commit.short));
-        }
-        let question = one_line(&stash::drop_question(&commit.short, &commit.subject), 400);
-        match (self.editor).ask_with(
-            format!("{question} (y or n)"),
-            "git-stash-drop-confirmed",
-            ["drop", "keep"],
-        ) {
-            Ok(prompt) => {
+        if act == Act::Drop {
+            let question = stash::drop_question(&stash.short, &stash.subject);
+            let yes = "git-stash-drop-confirmed";
+            if let Some(prompt) = self.ask_bound(&question, yes, ["drop", "keep"]) {
                 self.gits.commits.repos[index].stashes.asked = Some(Asked {
                     status,
                     prompt,
-                    id: commit.id.clone(),
-                    selector: commit.short.clone(),
+                    stash,
                 });
             }
-            Err(e) => self.editor.message(format!("Cannot ask: {e}")),
+            return;
         }
-        self.request_redraw();
+        if self.refused_while_stopped(built) {
+            return;
+        }
+        let done = act.done(&stash.subject);
+        let run = StashRun::Act { act, id: stash.id };
+        self.run_stash(index, run, stash::title(act), done);
     }
 
-    /// Opens the prompt that reads what `reads` says over the status `status`, as its keys
-    /// would, and keeps it for its answer.
-    fn open_stash_prompt(&mut self, index: usize, status: BufferId, reads: Reads) {
-        let command = match reads {
-            Reads::Message { .. } => "git-stash-message",
-            Reads::Stash(_) => {
-                let built = (self.gits.open.iter())
-                    .find(|open| open.buffer == status)
-                    .map(|open| Arc::clone(&open.built));
-                let items: Arc<[Candidate]> = (built.iter())
-                    .flat_map(|built| stashes_of(built).to_vec())
-                    .map(|commit| {
-                        let subject = String::from_utf8_lossy(&commit.subject).into_owned();
-                        Candidate::new(commit.short.as_str(), "", one_line(&subject, 80))
-                    })
-                    .collect();
-                self.editor.set_listed(STASHES_LIST, items);
-                "git-stash-pick"
-            }
-        };
-        let before = self.editor.prompt().map(oso_core::minibuffer::Prompt::id);
-        let effects = self.dispatcher.run_from_host(&mut self.editor, command);
-        // Only a prompt this opened takes the answer.
-        let opened = self.editor.prompt().map(oso_core::minibuffer::Prompt::id);
-        if let Some(prompt) = opened.filter(|id| Some(*id) != before) {
+    /// Opens `command`'s prompt over the status `status`, and keeps it for its answer.
+    fn open_stash_prompt(&mut self, index: usize, status: BufferId, command: &str, reads: Reads) {
+        if let Some(prompt) = self.open_host_prompt(command) {
             self.gits.commits.repos[index].stashes.prompt = Some(Prompted {
                 status,
                 prompt,
                 reads,
             });
-        }
-        if effects.redraw {
-            self.request_redraw();
         }
     }
 
@@ -246,19 +229,4 @@ impl App {
             stashes.asked.take_if(|asked| !open(asked.prompt));
         }
     }
-}
-
-/// The stashes `built` shows, newest first.
-fn stashes_of(built: &Built) -> &[Commit] {
-    (built.logs.iter())
-        .find(|(section, _)| *section == Section::Stashes)
-        .map_or(&[], |(_, log)| log.commits.as_slice())
-}
-
-/// The stash `built` shows as `selector`.
-fn stash_named<'a>(built: &'a Built, selector: &str) -> Option<&'a Commit> {
-    let selector = selector.trim();
-    stashes_of(built)
-        .iter()
-        .find(|commit| commit.short == selector)
 }

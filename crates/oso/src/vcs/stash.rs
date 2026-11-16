@@ -8,8 +8,10 @@
 //!
 //! - Stashes are one stack per repository, shared by every worktree and every agent session in
 //!   it (Q5): all show, each with git's `On BRANCH:` text, and each is acted on by its commit's
-//!   id. Its `stash@{N}` is found again from that id just before git runs, as another may have
-//!   pushed or dropped one since; one gone is refused.
+//!   id. An apply names it by that id; a pop or a drop, which git takes only as `stash@{N}`,
+//!   finds git's own selector for it again just before git runs, as another may have pushed or
+//!   dropped one since; one gone is refused. The few milliseconds between that read and git's
+//!   run are left open.
 //! - A subject is shown on one line, escaped as a commit's is.
 
 use super::history::{self, Commit, Log};
@@ -39,12 +41,13 @@ impl Act {
         }
     }
 
-    /// What the echo area says once it went well.
-    pub(crate) fn done(self, selector: &str) -> String {
+    /// What the echo area says once it went well, naming the stash by its `subject`, escaped.
+    pub(crate) fn done(self, subject: &[u8]) -> String {
+        let subject = oso_core::editor::row_text(&String::from_utf8_lossy(subject));
         match self {
-            Self::Apply => format!("Applied {selector}; it is kept"),
-            Self::Pop => format!("Popped {selector}"),
-            Self::Drop => format!("Dropped {selector}"),
+            Self::Apply => format!("Applied the stash {subject}; it is kept"),
+            Self::Pop => format!("Popped the stash {subject}"),
+            Self::Drop => format!("Dropped the stash {subject}"),
         }
     }
 }
@@ -104,24 +107,45 @@ pub(crate) fn is_selector(text: &str) -> bool {
         .is_some_and(|n| !n.is_empty() && n.len() <= 9 && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
-/// The selector of the stash whose id is `id` in `listed`, `git stash list -z --format=%H`'s
-/// output, newest first: where it is now.
+/// The `git stash list` arguments [`find`] reads: each stash's id and git's own selector, at
+/// most far past what the section shows.
+pub(crate) fn find_args() -> Vec<String> {
+    vec![
+        "stash".into(),
+        "list".into(),
+        "-z".into(),
+        "--no-show-signature".into(),
+        "--format=%H%x1f%gd".into(),
+        format!("--max-count={}", 16 * MAX_STASHES),
+    ]
+}
+
+/// git's selector for the stash whose id is `id` in `listed`, [`find_args`]' output: where it
+/// is now. git's own, as its list leaves out an entry that is not a stash, which `stash@{N}`
+/// still counts.
 pub(crate) fn find(listed: &[u8], id: &str) -> Option<String> {
-    (listed.split(|&byte| byte == 0 || byte == b'\n'))
-        .map(<[u8]>::trim_ascii)
-        .filter(|line| !line.is_empty())
-        .position(|line| line == id.as_bytes())
-        .map(|at| format!("stash@{{{at}}}"))
+    (listed.split(|&byte| byte == 0))
+        .map(|record| record.strip_prefix(b"\n").unwrap_or(record))
+        .filter_map(|record| {
+            let (at, selector) = record.split_at(record.iter().position(|&b| b == 0x1f)?);
+            Some((at, std::str::from_utf8(&selector[1..]).ok()?))
+        })
+        .find(|(at, selector)| *at == id.as_bytes() && is_selector(selector))
+        .map(|(_, selector)| selector.to_owned())
 }
 
-/// The arguments of `act` on the stash now at `selector`.
-pub(crate) fn args(act: Act, selector: &str) -> Vec<String> {
-    vec!["stash".into(), act.verb().into(), selector.into()]
+/// The arguments of `act` on the stash `target`: its id for an apply, its selector now else.
+pub(crate) fn args(act: Act, target: &str) -> Vec<String> {
+    vec!["stash".into(), act.verb().into(), target.into()]
 }
 
-/// What the log and the echo area call `act` on `selector`.
-pub(crate) fn title(act: Act, selector: &str) -> String {
-    format!("git stash {} {selector}", act.verb())
+/// What the log and the echo area call `act`.
+pub(crate) fn title(act: Act) -> &'static str {
+    match act {
+        Act::Apply => "git stash apply",
+        Act::Pop => "git stash pop",
+        Act::Drop => "git stash drop",
+    }
 }
 
 /// The arguments of a push, with untracked files if `untracked`, and `message` made one line:

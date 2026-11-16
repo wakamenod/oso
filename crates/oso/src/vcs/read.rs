@@ -1,7 +1,7 @@
-//! A status's reads (ADR 0127): finding the repository git works in, the status's listing,
-//! the counts, the head's subject, the push target and the commit sections (step 2), what is
-//! stopped (step 3a), the stashes (step 3b), and an open file's patch, each bounded, with the arguments and the
-//! variable every run of the status's thread shares. The commit sections read the local refs
+//! A status's reads (ADR 0127): finding the repository git works in, the status's listing, the
+//! counts, the head's subject, the push target and the commit sections (step 2), what is stopped
+//! (step 3a), the stashes (step 3b), and an open file's patch, each bounded, with the arguments and
+//! the variable every run of the status's thread shares. The commit sections read the local refs
 //! that track the remote only: nothing here fetches.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; these run on the status's
@@ -33,7 +33,8 @@ pub(crate) const MAX_PATCH: usize = 1024 * 1024;
 pub(super) const LITERAL: [(&str, &str); 1] = [("GIT_LITERAL_PATHSPECS", "1")];
 
 /// The push target, where it is not the upstream, and the commit sections of `branch`: the
-/// unpushed and unpulled ones when it has an upstream, the recent ones when it has a commit. A
+/// stashes, the repository's whatever the branch (step 3b), the unpushed and unpulled ones when
+/// it has an upstream, the recent ones when it has a commit. A
 /// side the ahead and behind counts say is empty is not read, as most reads find both so. A
 /// read git refuses leaves its part out; one cut at [`history::MAX_LOG`] keeps what came.
 pub(super) fn logs(git: &Git, branch: &status::Branch) -> (Option<Vec<u8>>, Vec<(Section, Log)>) {
