@@ -16,7 +16,7 @@ use crate::sum_tree::Bias;
 
 /// A column on a line, as what gave it counts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Column {
+pub enum VisitColumn {
     /// In characters, as a person counts them.
     Chars(usize),
     /// In UTF-8 bytes.
@@ -26,7 +26,7 @@ pub enum Column {
 }
 
 /// A file to go to a place in once a visit shows it, with the line and column.
-pub(super) type VisitPlace = (PathBuf, usize, Column);
+pub(super) type VisitPlace = (PathBuf, usize, VisitColumn);
 
 impl Editor {
     /// Asks the host to visit `path` in the selected window, reading at most `limit` bytes, as a
@@ -81,7 +81,7 @@ impl Editor {
     /// does, and once it shows, to go to `line`, from 1, and `column`, in characters from 0,
     /// each as far as the text goes, with the place before on the mark ring.
     pub fn request_visit_at(&mut self, path: PathBuf, limit: u64, line: usize, column: usize) {
-        self.request_visit_at_column(path, limit, line, Column::Chars(column));
+        self.request_visit_at_column(path, limit, line, VisitColumn::Chars(column));
     }
 
     /// As [`Editor::request_visit_at`], with the column as `column` counts it (ADR 0138).
@@ -90,7 +90,7 @@ impl Editor {
         path: PathBuf,
         limit: u64,
         line: usize,
-        column: Column,
+        column: VisitColumn,
     ) {
         self.request_visit(path.clone(), limit);
         self.visit_place = Some((path, line, column));
@@ -161,13 +161,17 @@ pub(super) fn file_identity(buffer: &Buffer) -> Option<(u64, u64)> {
 
 /// The offset of `column` on the line `row`, from 0, each as far as the text goes. O(log n),
 /// as the line may be 16 MiB long.
-pub(super) fn column_offset(text: &Rope, row: usize, column: Column) -> usize {
+pub(super) fn column_offset(text: &Rope, row: usize, column: VisitColumn) -> usize {
     let row = row.min(text.line_count().saturating_sub(1));
     let (start, end) = (text.line_start(row), text.line_end(row));
     let offset = match column {
-        Column::Chars(chars) => text.char_to_offset(text.chars_before(start).saturating_add(chars)),
-        Column::Utf8(bytes) => text.clip_offset(start.saturating_add(bytes).min(end), Bias::Left),
-        Column::Utf16(units) => {
+        VisitColumn::Chars(chars) => {
+            text.char_to_offset(text.chars_before(start).saturating_add(chars))
+        }
+        VisitColumn::Utf8(bytes) => {
+            text.clip_offset(start.saturating_add(bytes).min(end), Bias::Left)
+        }
+        VisitColumn::Utf16(units) => {
             text.utf16_to_offset(text.offset_to_utf16(start).saturating_add(units))
         }
     };

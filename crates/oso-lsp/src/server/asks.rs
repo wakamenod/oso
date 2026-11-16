@@ -44,24 +44,36 @@ impl AskKind {
 }
 
 /// An ask about the open document `document` at the byte offset `offset` of the caller's
-/// revision `revision`, which must be the text last handed over.
+/// revision `revision`, which must be the text last handed over. `serial`, the caller's own,
+/// comes back with the answer, so that an answer is told from one to an earlier ask.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ask {
+    pub serial: u64,
     pub document: u64,
     pub kind: AskKind,
     pub revision: u64,
     pub offset: usize,
 }
 
-/// The answer to an [`Ask`]: the places, at most [`LOCATIONS_MAX`](crate::limits::LOCATIONS_MAX),
-/// in the server's order, or why there are none, for a person. A server's own message in it
-/// is the server's text: shown, never logged.
+/// The answer to an [`Ask`], with its serial: what the server answered, or why there is
+/// nothing, for a person. A server's own message in it is the server's text: shown, never
+/// logged.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Answer {
+    pub serial: u64,
     pub document: u64,
     pub kind: AskKind,
     pub revision: u64,
-    pub outcome: Result<Vec<Location>, String>,
+    pub outcome: Result<Answered, String>,
+}
+
+/// What a server answered, by what was asked. Steps 9 and 10 add theirs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Answered {
+    /// Definitions or references: at most [`LOCATIONS_MAX`](crate::limits::LOCATIONS_MAX)
+    /// places, in the server's order.
+    Places(Vec<Location>),
 }
 
 /// A place an answer names: a file, by the path its `file:` URI reads as, and where in it.
@@ -84,11 +96,14 @@ impl std::fmt::Debug for Location {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
     /// In a document open with the server: byte offsets in the text of the caller's revision
-    /// `revision`, which the caller maps through its edits since.
+    /// `revision`, which the caller maps through its edits since; and the line and column as
+    /// the server counts them, for a caller whose buffer is gone, or can no longer map them.
     Open {
         document: u64,
         revision: u64,
         range: Range<usize>,
+        start: Position,
+        encoding: Encoding,
     },
     /// In a file the server does not have open: a line and column as the server counts them,
     /// for the caller to place once it has the text.

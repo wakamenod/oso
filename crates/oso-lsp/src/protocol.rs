@@ -12,7 +12,7 @@ mod published;
 #[cfg(test)]
 mod tests;
 
-pub use located::{Located, definition_params, located, references_params};
+pub use located::{Located, located, position_params, references_params};
 pub use published::{Published, Reported, published};
 use serde_json::{Map, Value, json};
 

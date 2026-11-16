@@ -139,7 +139,7 @@ impl Jumps {
     }
 
     /// How many places are back and forward.
-    pub fn len(&self) -> (usize, usize) {
+    pub fn counts(&self) -> (usize, usize) {
         (self.back.len(), self.forward.len())
     }
 

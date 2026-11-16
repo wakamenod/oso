@@ -84,7 +84,7 @@ fn the_requests_name_the_document_and_the_position() {
     assert_eq!(params["position"], json!({"line": 2, "character": 5}));
     assert_eq!(params["context"]["includeDeclaration"], true);
     assert!(
-        definition_params("file:///a.rs", Position::new(0, 0))
+        position_params("file:///a.rs", Position::new(0, 0))
             .get("context")
             .is_none()
     );

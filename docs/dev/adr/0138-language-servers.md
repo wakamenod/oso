@@ -1450,9 +1450,9 @@ with nothing asked (Q7); and the public items below (Q8).
   - `protocol::located` reads an answer: `null`, a `Location`, or a list of `Location`s or
     `LocationLink`s, a link by its `targetSelectionRange`, else its `targetRange`, as other
     clients read it. At most 1000 are read, in the server's order, each with a URI of at most
-    16 KiB and a range that reads; the rest are counted. `definition_params` and
+    16 KiB and a range that reads; the rest are counted. `position_params` and
     `references_params` build the requests, the declaration included, as Eglot asks.
-  - `Server::ask(Ask { document, kind, revision, offset })` (`server/asks.rs`): the session
+  - `Server::ask(Ask { serial, document, kind, revision, offset })` (`server/asks.rs`): the session
     thread places the byte offset in the text the server has, which must be the caller's
     `revision`: a document not sent, kept from the server, or whose whole text waits for room
     answers `the server does not have this text yet`. One ask of each kind for each document
@@ -1461,8 +1461,13 @@ with nothing asked (Q7); and the public items below (Q8).
     while it starts or stops, an ask fails at once.
   - An answer's places are read on the session thread: a URI that is not a file's is left out
     and counted; a place in a document the server has open becomes byte offsets in the text of
-    the caller's revision it has (`Target::Open`), others keep the line and column as the
-    server counts them (`Target::Lines`), with the encoding. `Report::answers` holds the
+    the caller's revision it has (`Target::Open`), with the line and column too, for a caller
+    whose buffer went or can no longer map them; others keep the line and column as the
+    server counts them (`Target::Lines`), with the encoding. A place under an automount,
+    macOS's `/net` and `/Network` in any case and Linux's `/net`, or with a `..`, is left out
+    and counted, as opening it would reach another computer (step 8's R2). `Answer` brings
+    back the ask's `serial`, and its outcome is an `Answered`, `Places` for these two kinds,
+    which steps 9 and 10 add to. `Report::answers` holds the
     latest of each document and kind, and wakes the UI at once. `*LSP*` has the request's id,
     the count of places and the time, never a path; a server's error message goes only to the
     echo area.
@@ -1474,18 +1479,18 @@ with nothing asked (Q7); and the public items below (Q8).
     batch a crossing's step made as the buffer's log has it (one that keeps none leaves them),
     and a reload's change as the cursors take it. Going there clips them to the text and to a
     cluster's start. A killed buffer's places go. `Debug` gives counts.
-  - `Editor::jump_to_place` and `jump_visit` keep the place left in the selected window's
+  - `Editor::xref_to_place` and `xref_visit` keep the place left in the selected window's
     history and, unless a region shows, on its mark ring, as avy's jumps do
     ([ADR 0116](0116-migemo-and-jumps.md)); a jump to where the cursor is keeps nothing. They
     land one cursor on a cluster's start, the place before on the target's mark ring, the rule
-    a visit at a place now shares (`Editor::land_primary`). `jump_back` and `jump_forward`
+    a visit at a place now shares (`Editor::land_primary`). `xref_back` and `xref_forward`
     change the history only once the place is there, and say `No earlier place` and `No later
     place`; for the agent they refuse a buffer it may not be shown, as one that may hold
-    secrets, is withheld, or is loading. `keep_jump_start` keeps the place for a jump the host
+    secrets, is withheld, or is loading. `keep_xref_start` keeps the place for a jump the host
     makes in its own way, as the agent's. `request_visit_at_column` visits at a column in
-    characters, UTF-8 bytes or UTF-16 units (`editor::Column`, with the visits), so a line and
+    characters, UTF-8 bytes or UTF-16 units (`editor::VisitColumn`, with the visits), so a line and
     column of the server's land once the file has loaded.
-  - `ServerRequest::{Definition, References}` carry `At`: the buffer, its revision, the primary
+  - `ServerRequest::{Definition, References}` carry `AskAt`: the buffer, its revision, the primary
     cursor, and whether the agent's command asked (`Editor::ask_at`).
 - **The tip crate:**
   - `lsp-find-definition`, `lsp-go-back` and `lsp-go-forward` (`Look`), on `M-.`, `M-,` and
@@ -1498,7 +1503,9 @@ with nothing asked (Q7); and the public items below (Q8).
     found`; one goes there; several go to the first and say `1 of 3` until 8b's float. A place
     in an open document is mapped through the buffer's edits since; any other is visited as
     `C-x C-f` would, at the server's line and column, so a name that may hold secrets opens as
-    such a buffer, with no server. An answer goes only while nothing moved since the ask: the
+    such a buffer, with no server; so is a place in an open document whose buffer went or no
+    longer maps it. Each ask has a serial of the app's, and an answer whose serial is not the
+    waiting ask's is dropped. An answer goes only while nothing moved since the ask: the
     same window selected, showing the same buffer at the same revision with the primary cursor
     where it was, and no prompt or isearch open. The places go to the freeing thread.
   - **Joining:** a place's file joins the server that gave it by its buffer, once project
@@ -1520,10 +1527,11 @@ with nothing asked (Q7); and the public items below (Q8).
     (ADR 0118). The place left is kept only as the file shows. Its reply went when the command
     ran, so what the open says, a refusal too, goes to `*Agent*`.
 - **Public API:** `oso-core`: `window::{Jumps, JUMPS_MAX}`, `Window::jumps`,
-  `Editor::{ask_at, jump_to_place, jump_visit, jump_back, jump_forward, keep_jump_start,
-  request_visit_at_column}`, `editor::{At, Column}`, `ServerRequest::{Definition,
-  References}`. `oso-lsp`: `server::{Ask, AskKind, Answer, Location, Target}`, `Server::ask`,
-  `Report::answers`, `protocol::{Located, located, definition_params, references_params}`.
+  `Editor::{ask_at, xref_to_place, xref_visit, xref_back, xref_forward, keep_xref_start,
+  request_visit_at_column}`, `editor::{AskAt, VisitColumn}`, `ServerRequest::{Definition,
+  References}`, `Jumps::counts`. `oso-lsp`: `server::{Ask, AskKind, Answer, Answered,
+  Location, Target}`, `Server::ask`, `Report::answers`, `protocol::{Located, located,
+  position_params, references_params}`.
 - **Tests:** in `oso-lsp`, the three shapes of an answer, the bound and what is left out, and
   the requests' parameters; in `oso-core`, the history's walk, bound, edits and kills, the
   jumps with one cursor and the mark ring, and columns in each unit. Against the fake server,
@@ -1532,6 +1540,11 @@ with nothing asked (Q7); and the public items below (Q8).
   10 s wait and a crash each failing the ask; an ask with no server running. Dispatcher tests
   of the keys, and the end-to-end flow `lsp.rs`
   (`a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins`).
+- **The author's answers to the reviews (2026-11-16), all the first choice:** the serial,
+  `Answered` and `Target::Open`'s line and column, and `position_params` for
+  `definition_params` (R1); places under an automount left out (R2); and the names
+  `Editor::xref_*`, `editor::{AskAt, VisitColumn}` and `Jumps::counts`, as `jump_*` is avy's
+  (R3).
 - **From this step's reviews:** the history follows undos and reloads, in one pass; the
   mark ring follows avy's rule; stale answers, and an agent's whose connection went, are
   dropped; joining goes by buffer, once its project is known to be none, through the settling

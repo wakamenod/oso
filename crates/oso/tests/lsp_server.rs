@@ -1058,6 +1058,7 @@ fn opened(seen: &mut Seen, id: u64, uri: &str, text: &str) {
 
 fn ask(seen: &Seen, kind: oso_lsp::server::AskKind, offset: usize) {
     seen.server.ask(oso_lsp::server::Ask {
+        serial: offset as u64,
         document: 1,
         kind,
         revision: 7,
@@ -1098,7 +1099,9 @@ fn a_definition_is_asked_at_its_position_and_placed_in_the_open_text() {
         (answer.document, answer.kind, answer.revision),
         (1, AskKind::Definition, 7)
     );
-    let places = answer.outcome.unwrap();
+    let oso_lsp::server::Answered::Places(places) = answer.outcome.unwrap() else {
+        panic!("places")
+    };
     assert_eq!(places.len(), 2, "the URI that is not a file's is left out");
     assert_eq!(places[0].path, dir.join("a.rs"));
     assert_eq!(
@@ -1106,7 +1109,9 @@ fn a_definition_is_asked_at_its_position_and_placed_in_the_open_text() {
         Target::Open {
             document: 1,
             revision: 7,
-            range: 3..4
+            range: 3..4,
+            start: Position::new(0, 3),
+            encoding: Encoding::Utf16,
         }
     );
     assert_eq!(places[1].path, dir.join("b.rs"));
@@ -1146,7 +1151,11 @@ fn a_newer_ask_cancels_the_older_and_only_it_is_answered() {
         seen.take(report);
     }
     assert_eq!(seen.answers.len(), 1, "{:?}", seen.answers);
-    assert_eq!(seen.answers[0].outcome, Ok(Vec::new()));
+    assert_eq!(
+        seen.answers[0].outcome,
+        Ok(oso_lsp::server::Answered::Places(Vec::new()))
+    );
+    assert_eq!(seen.answers[0].serial, 1, "the newer ask's");
     seen.until(LIMIT, |seen| {
         seen.logged("asked textDocument/definition 0:1")
     });
@@ -1166,6 +1175,7 @@ fn an_ask_fails_on_an_old_text_an_error_a_crash_and_a_long_wait() {
     let mut seen = started("fails", &script, open());
     opened(&mut seen, 1, "file:///w/p/a.rs", "abc\n");
     seen.server.ask(oso_lsp::server::Ask {
+        serial: 9,
         document: 1,
         kind: AskKind::Definition,
         revision: 6,

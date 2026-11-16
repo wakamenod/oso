@@ -348,12 +348,12 @@ pub fn oso_lsp::protocol::answer(&oso_lsp::protocol::RequestId, core::result::Re
 pub fn oso_lsp::protocol::answer_for(&str, &serde_json::value::Value, core::option::Option<&str>, &serde_json::value::Value) -> core::result::Result<serde_json::value::Value, (i64, &'static str)>
 pub fn oso_lsp::protocol::chosen_encoding(&serde_json::value::Value) -> core::option::Option<oso_lsp::position::Encoding>
 pub fn oso_lsp::protocol::classify(serde_json::value::Value) -> core::result::Result<oso_lsp::protocol::Incoming, oso_lsp::protocol::NotRpc>
-pub fn oso_lsp::protocol::definition_params(&str, oso_lsp::position::Position) -> serde_json::value::Value
 pub fn oso_lsp::protocol::initialize_params(&oso_lsp::protocol::Initialize<'_>) -> serde_json::value::Value
 pub fn oso_lsp::protocol::located(&serde_json::value::Value) -> (alloc::vec::Vec<oso_lsp::protocol::Located>, usize)
 pub fn oso_lsp::protocol::merge(&mut serde_json::value::Value, &serde_json::value::Value)
 pub fn oso_lsp::protocol::message(&serde_json::value::Value) -> core::option::Option<(oso_lsp::protocol::Severity, &str)>
 pub fn oso_lsp::protocol::notification(&str, serde_json::value::Value) -> alloc::vec::Vec<u8>
+pub fn oso_lsp::protocol::position_params(&str, oso_lsp::position::Position) -> serde_json::value::Value
 pub fn oso_lsp::protocol::progress(&serde_json::value::Value) -> core::option::Option<(oso_lsp::protocol::Token, oso_lsp::protocol::Progress)>
 pub fn oso_lsp::protocol::published(&serde_json::value::Value) -> core::option::Option<oso_lsp::protocol::Published>
 pub fn oso_lsp::protocol::references_params(&str, oso_lsp::position::Position) -> serde_json::value::Value
@@ -361,6 +361,16 @@ pub fn oso_lsp::protocol::request(i64, &str, serde_json::value::Value) -> alloc:
 pub fn oso_lsp::protocol::server_name(&serde_json::value::Value) -> core::option::Option<&str>
 pub fn oso_lsp::protocol::sync(&serde_json::value::Value) -> oso_lsp::protocol::Sync
 pub mod oso_lsp::server
+#[non_exhaustive] pub enum oso_lsp::server::Answered
+pub oso_lsp::server::Answered::Places(alloc::vec::Vec<oso_lsp::server::Location>)
+impl core::clone::Clone for oso_lsp::server::Answered
+pub fn oso_lsp::server::Answered::clone(&self) -> oso_lsp::server::Answered
+impl core::cmp::Eq for oso_lsp::server::Answered
+impl core::cmp::PartialEq for oso_lsp::server::Answered
+pub fn oso_lsp::server::Answered::eq(&self, &oso_lsp::server::Answered) -> bool
+impl core::fmt::Debug for oso_lsp::server::Answered
+pub fn oso_lsp::server::Answered::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_lsp::server::Answered
 pub enum oso_lsp::server::AskKind
 pub oso_lsp::server::AskKind::Definition
 pub oso_lsp::server::AskKind::References
@@ -427,8 +437,10 @@ pub oso_lsp::server::Target::Lines::end: oso_lsp::position::Position
 pub oso_lsp::server::Target::Lines::start: oso_lsp::position::Position
 pub oso_lsp::server::Target::Open
 pub oso_lsp::server::Target::Open::document: u64
+pub oso_lsp::server::Target::Open::encoding: oso_lsp::position::Encoding
 pub oso_lsp::server::Target::Open::range: core::ops::range::Range<usize>
 pub oso_lsp::server::Target::Open::revision: u64
+pub oso_lsp::server::Target::Open::start: oso_lsp::position::Position
 impl core::clone::Clone for oso_lsp::server::Target
 pub fn oso_lsp::server::Target::clone(&self) -> oso_lsp::server::Target
 impl core::cmp::Eq for oso_lsp::server::Target
@@ -440,8 +452,9 @@ impl core::marker::StructuralPartialEq for oso_lsp::server::Target
 pub struct oso_lsp::server::Answer
 pub oso_lsp::server::Answer::document: u64
 pub oso_lsp::server::Answer::kind: oso_lsp::server::AskKind
-pub oso_lsp::server::Answer::outcome: core::result::Result<alloc::vec::Vec<oso_lsp::server::Location>, alloc::string::String>
+pub oso_lsp::server::Answer::outcome: core::result::Result<oso_lsp::server::Answered, alloc::string::String>
 pub oso_lsp::server::Answer::revision: u64
+pub oso_lsp::server::Answer::serial: u64
 impl core::clone::Clone for oso_lsp::server::Answer
 pub fn oso_lsp::server::Answer::clone(&self) -> oso_lsp::server::Answer
 impl core::cmp::Eq for oso_lsp::server::Answer
@@ -455,6 +468,7 @@ pub oso_lsp::server::Ask::document: u64
 pub oso_lsp::server::Ask::kind: oso_lsp::server::AskKind
 pub oso_lsp::server::Ask::offset: usize
 pub oso_lsp::server::Ask::revision: u64
+pub oso_lsp::server::Ask::serial: u64
 impl core::clone::Clone for oso_lsp::server::Ask
 pub fn oso_lsp::server::Ask::clone(&self) -> oso_lsp::server::Ask
 impl core::cmp::Eq for oso_lsp::server::Ask

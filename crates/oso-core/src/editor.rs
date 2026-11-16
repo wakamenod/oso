@@ -114,7 +114,7 @@ pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use reviews::*;
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
-pub use servers::{At, ServerRequest};
+pub use servers::{AskAt, ServerRequest};
 pub use sessions::*;
 pub use status::{ServerFace, Status};
 pub use switch::{KillRefused, Preview};
@@ -123,7 +123,7 @@ pub use themes::NoSuchTheme;
 #[cfg(test)]
 use trim::TRIM_ON_THE_UI_THREAD;
 pub use trim::{TrimId, TrimJob, TrimOutcome, TrimReport};
-pub use visits::Column;
+pub use visits::VisitColumn;
 pub use walks::{NotInProject, WalkEnd, WalkRequest};
 pub use windows::{CannotResize, NoWindow, SoleWindow};
 pub use yank_pop::YankPopError;

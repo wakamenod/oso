@@ -11,7 +11,7 @@ mod jumps;
 
 use crate::buffer::{Buffer, BufferId};
 
-pub use jumps::At;
+pub use jumps::AskAt;
 
 use super::Editor;
 use super::messages::Keep;
@@ -36,9 +36,9 @@ pub enum ServerRequest {
     /// `lsp-shutdown`: stop it, and keep it stopped until `lsp-start` or `lsp-restart`.
     ShutDown(BufferId),
     /// `lsp-find-definition` (step 8).
-    Definition(At),
+    Definition(AskAt),
     /// `lsp-find-references` (step 8).
-    References(At),
+    References(AskAt),
 }
 
 impl Editor {

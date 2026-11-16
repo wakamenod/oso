@@ -23,11 +23,11 @@ use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 
 use oso_core::buffer::{Buffer, BufferId};
-use oso_core::editor::{At, Column};
+use oso_core::editor::{AskAt, VisitColumn};
 use oso_core::syntax::Splice;
 use oso_core::window::WindowId;
-use oso_lsp::position::Encoding;
-use oso_lsp::server::{Answer, Ask, AskKind, Location, State, Target};
+use oso_lsp::position::{Encoding, Position};
+use oso_lsp::server::{Answer, Answered, Ask, AskKind, Location, State, Target};
 
 use super::super::App;
 use super::Running;
@@ -39,9 +39,10 @@ pub(super) const JOINED_MAX: usize = 64;
 /// The most files one server's answers led to that wait for their project to be known.
 pub(super) const JOINING_MAX: usize = 16;
 
-/// Who asked, and where, kept until the answer.
+/// Who asked, and where, kept until the answer, which must bring its serial back.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Asker {
+    serial: u64,
     window: WindowId,
     revision: u64,
     offset: usize,
@@ -83,7 +84,7 @@ pub(super) fn joins(id: BufferId, buffer: &Buffer, running: &Running) -> bool {
 impl App {
     /// Asks the server following `at`'s buffer for `kind` there, or says why not. `agent` is
     /// the connection whose command asked, if the agent's did.
-    pub(super) fn lsp_find(&mut self, at: At, kind: AskKind, agent: Option<Connection>) {
+    pub(super) fn lsp_find(&mut self, at: AskAt, kind: AskKind, agent: Option<Connection>) {
         // An agent's ask whose connection is not known never passes as the person's.
         if at.agent && agent.is_none() {
             return;
@@ -91,14 +92,18 @@ impl App {
         let Some(index) = self.server_to_ask(at.buffer) else {
             return;
         };
+        self.servers.serial += 1;
+        let serial = self.servers.serial;
         let running = &self.servers.running[index];
         running.server.ask(Ask {
+            serial,
             document: at.buffer.get(),
             kind,
             revision: at.revision,
             offset: at.offset,
         });
         let asker = Asker {
+            serial,
             window: self.editor.window().id(),
             revision: at.revision,
             offset: at.offset,
@@ -144,14 +149,17 @@ impl App {
     /// are many to free on the UI thread.
     pub(super) fn lsp_answered(&mut self, index: usize, answer: Answer) {
         let Answer {
+            serial,
             document,
             kind,
             outcome,
             ..
         } = answer;
-        let taken = self.take_asker(index, document, kind);
+        let taken = self.take_asker(index, serial, document, kind);
         let places = match outcome {
-            Ok(places) => places,
+            Ok(Answered::Places(places)) => places,
+            // A kind a later step asks for.
+            Ok(_) => return,
             Err(why) => {
                 if let Some((asked, asker)) = taken
                     && self.still_there(asked, &asker)
@@ -174,10 +182,12 @@ impl App {
         self.freer.free(places);
     }
 
-    /// Takes who asked server `index` the ask `kind` of the document `document`.
+    /// Takes who asked server `index` the ask `kind` of the document `document`, if `serial`
+    /// is that ask's: an answer to an earlier one, which a newer replaced, is no one's.
     fn take_asker(
         &mut self,
         index: usize,
+        serial: u64,
         document: u64,
         kind: AskKind,
     ) -> Option<(BufferId, Asker)> {
@@ -187,7 +197,11 @@ impl App {
             .keys()
             .map(|(id, _)| *id)
             .find(|id| id.get() == document)?;
-        Some((asked, running.asked.remove(&(asked, kind))?))
+        let key = (asked, kind);
+        if running.asked.get(&key)?.serial != serial {
+            return None;
+        }
+        Some((asked, running.asked.remove(&key)?))
     }
 
     /// Whether nothing moved since `asker` asked about `asked`, and an agent's connection is
@@ -225,25 +239,20 @@ impl App {
     /// Goes to `place` for the person; whether it went.
     fn person_jump(&mut self, index: usize, place: &Location) -> bool {
         if let Some((buffer, offset)) = self.open_place(index, place) {
-            self.editor.jump_to_place(buffer, offset);
+            self.editor.xref_to_place(buffer, offset);
             return true;
         }
-        let Target::Lines {
-            start, encoding, ..
-        } = place.target
-        else {
-            self.editor
-                .message("The definition's buffer is no longer there");
-            return false;
-        };
+        // A place in an open document whose buffer is gone, or no longer maps it, is visited
+        // by the server's line and column.
+        let (start, encoding) = line_and_column(&place.target);
         if !Buffer::name_may_hold_secrets(&place.path) {
             self.join(index, place.path.clone());
         }
         let column = match encoding {
-            Encoding::Utf8 => Column::Utf8(start.character as usize),
-            Encoding::Utf16 => Column::Utf16(start.character as usize),
+            Encoding::Utf8 => VisitColumn::Utf8(start.character as usize),
+            Encoding::Utf16 => VisitColumn::Utf16(start.character as usize),
         };
-        self.editor.jump_visit(
+        self.editor.xref_visit(
             place.path.clone(),
             oso_core::load::UNASKED,
             start.line as usize + 1,
@@ -261,18 +270,12 @@ impl App {
                 .message("The definition's file may hold secrets: not opened for the agent");
             return false;
         }
-        let line = match &place.target {
-            Target::Lines { start, .. } => start.line as usize + 1,
-            Target::Open { .. } => match self.open_place(index, place) {
-                Some((buffer, offset)) => self
-                    .editor
-                    .buffer(buffer)
-                    .map_or(1, |buffer| buffer.text().offset_to_point(offset).row + 1),
-                None => {
-                    self.agent_log("lsp-find-definition: its buffer is no longer there");
-                    return false;
-                }
-            },
+        let line = match (&place.target, self.open_place(index, place)) {
+            (Target::Open { .. }, Some((buffer, offset))) => self
+                .editor
+                .buffer(buffer)
+                .map_or(1, |buffer| buffer.text().offset_to_point(offset).row + 1),
+            (target, _) => line_and_column(target).0.line as usize + 1,
         };
         self.join(index, place.path.clone());
         // The agent's reply went when its command ran: what the open says goes to `*Agent*`.
@@ -292,6 +295,7 @@ impl App {
             document,
             revision,
             ref range,
+            ..
         } = place.target
         else {
             return None;
@@ -400,6 +404,18 @@ impl App {
             .running
             .iter()
             .any(|running| running.joined.has(id))
+    }
+}
+
+/// Where `target` starts, as the server counts it, and in which encoding.
+fn line_and_column(target: &Target) -> (Position, Encoding) {
+    match *target {
+        Target::Lines {
+            start, encoding, ..
+        } => (start, encoding),
+        Target::Open {
+            start, encoding, ..
+        } => (start, encoding),
     }
 }
 

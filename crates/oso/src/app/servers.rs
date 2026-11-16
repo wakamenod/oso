@@ -41,6 +41,8 @@ pub(super) struct Servers {
     /// The buffers project detection found in no project (step 8): a file an answer leads to
     /// joins its server only once it is known to be one.
     no_project: HashSet<BufferId>,
+    /// The serial of the last ask of a server, which its answer brings back (step 8).
+    serial: u64,
 }
 
 /// One server, as the app knows it.

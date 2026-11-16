@@ -1355,19 +1355,6 @@ impl core::fmt::Debug for oso_core::editor::Chose
 pub fn oso_core::editor::Chose::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::Chose
 impl core::marker::StructuralPartialEq for oso_core::editor::Chose
-pub enum oso_core::editor::Column
-pub oso_core::editor::Column::Chars(usize)
-pub oso_core::editor::Column::Utf16(usize)
-pub oso_core::editor::Column::Utf8(usize)
-impl core::clone::Clone for oso_core::editor::Column
-pub fn oso_core::editor::Column::clone(&self) -> oso_core::editor::Column
-impl core::cmp::Eq for oso_core::editor::Column
-impl core::cmp::PartialEq for oso_core::editor::Column
-pub fn oso_core::editor::Column::eq(&self, &oso_core::editor::Column) -> bool
-impl core::fmt::Debug for oso_core::editor::Column
-pub fn oso_core::editor::Column::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for oso_core::editor::Column
-impl core::marker::StructuralPartialEq for oso_core::editor::Column
 pub enum oso_core::editor::CommitKind
 pub oso_core::editor::CommitKind::Amend
 pub oso_core::editor::CommitKind::Extend
@@ -1890,8 +1877,8 @@ pub fn oso_core::editor::ServerFace::fmt(&self, &mut core::fmt::Formatter<'_>) -
 impl core::marker::Copy for oso_core::editor::ServerFace
 impl core::marker::StructuralPartialEq for oso_core::editor::ServerFace
 pub enum oso_core::editor::ServerRequest
-pub oso_core::editor::ServerRequest::Definition(oso_core::editor::At)
-pub oso_core::editor::ServerRequest::References(oso_core::editor::At)
+pub oso_core::editor::ServerRequest::Definition(oso_core::editor::AskAt)
+pub oso_core::editor::ServerRequest::References(oso_core::editor::AskAt)
 pub oso_core::editor::ServerRequest::Restart(oso_core::buffer::BufferId)
 pub oso_core::editor::ServerRequest::ShutDown(oso_core::buffer::BufferId)
 pub oso_core::editor::ServerRequest::Start(oso_core::buffer::BufferId)
@@ -2031,6 +2018,19 @@ pub fn oso_core::editor::TrustRefused::eq(&self, &oso_core::editor::TrustRefused
 impl core::fmt::Debug for oso_core::editor::TrustRefused
 pub fn oso_core::editor::TrustRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::TrustRefused
+pub enum oso_core::editor::VisitColumn
+pub oso_core::editor::VisitColumn::Chars(usize)
+pub oso_core::editor::VisitColumn::Utf16(usize)
+pub oso_core::editor::VisitColumn::Utf8(usize)
+impl core::clone::Clone for oso_core::editor::VisitColumn
+pub fn oso_core::editor::VisitColumn::clone(&self) -> oso_core::editor::VisitColumn
+impl core::cmp::Eq for oso_core::editor::VisitColumn
+impl core::cmp::PartialEq for oso_core::editor::VisitColumn
+pub fn oso_core::editor::VisitColumn::eq(&self, &oso_core::editor::VisitColumn) -> bool
+impl core::fmt::Debug for oso_core::editor::VisitColumn
+pub fn oso_core::editor::VisitColumn::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::VisitColumn
+impl core::marker::StructuralPartialEq for oso_core::editor::VisitColumn
 pub enum oso_core::editor::YankError
 pub oso_core::editor::YankError::Edit(oso_core::buffer::EditError)
 pub oso_core::editor::YankError::Empty
@@ -2065,20 +2065,20 @@ impl core::fmt::Display for oso_core::editor::YankPopError
 pub fn oso_core::editor::YankPopError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::YankPopError
 impl core::marker::StructuralPartialEq for oso_core::editor::YankPopError
-pub struct oso_core::editor::At
-pub oso_core::editor::At::agent: bool
-pub oso_core::editor::At::buffer: oso_core::buffer::BufferId
-pub oso_core::editor::At::offset: usize
-pub oso_core::editor::At::revision: u64
-impl core::clone::Clone for oso_core::editor::At
-pub fn oso_core::editor::At::clone(&self) -> oso_core::editor::At
-impl core::cmp::Eq for oso_core::editor::At
-impl core::cmp::PartialEq for oso_core::editor::At
-pub fn oso_core::editor::At::eq(&self, &oso_core::editor::At) -> bool
-impl core::fmt::Debug for oso_core::editor::At
-pub fn oso_core::editor::At::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for oso_core::editor::At
-impl core::marker::StructuralPartialEq for oso_core::editor::At
+pub struct oso_core::editor::AskAt
+pub oso_core::editor::AskAt::agent: bool
+pub oso_core::editor::AskAt::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::AskAt::offset: usize
+pub oso_core::editor::AskAt::revision: u64
+impl core::clone::Clone for oso_core::editor::AskAt
+pub fn oso_core::editor::AskAt::clone(&self) -> oso_core::editor::AskAt
+impl core::cmp::Eq for oso_core::editor::AskAt
+impl core::cmp::PartialEq for oso_core::editor::AskAt
+pub fn oso_core::editor::AskAt::eq(&self, &oso_core::editor::AskAt) -> bool
+impl core::fmt::Debug for oso_core::editor::AskAt
+pub fn oso_core::editor::AskAt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::AskAt
+impl core::marker::StructuralPartialEq for oso_core::editor::AskAt
 pub struct oso_core::editor::ClipboardWrite
 pub oso_core::editor::ClipboardWrite::id: u64
 pub oso_core::editor::ClipboardWrite::pieces: alloc::vec::Vec<oso_core::kill::Piece>
@@ -2281,12 +2281,12 @@ pub fn oso_core::editor::Editor::set_keys_in_progress(&mut self, &str)
 pub fn oso_core::editor::Editor::shows_keys_in_progress(&self) -> bool
 pub fn oso_core::editor::Editor::toggle_messages(&mut self)
 impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::ask_at(&self) -> oso_core::editor::At
-pub fn oso_core::editor::Editor::jump_back(&mut self) -> core::result::Result<(), &'static str>
-pub fn oso_core::editor::Editor::jump_forward(&mut self) -> core::result::Result<(), &'static str>
-pub fn oso_core::editor::Editor::jump_to_place(&mut self, oso_core::buffer::BufferId, usize)
-pub fn oso_core::editor::Editor::jump_visit(&mut self, std::path::PathBuf, u64, usize, oso_core::editor::Column)
-pub fn oso_core::editor::Editor::keep_jump_start(&mut self)
+pub fn oso_core::editor::Editor::ask_at(&self) -> oso_core::editor::AskAt
+pub fn oso_core::editor::Editor::keep_xref_start(&mut self)
+pub fn oso_core::editor::Editor::xref_back(&mut self) -> core::result::Result<(), &'static str>
+pub fn oso_core::editor::Editor::xref_forward(&mut self) -> core::result::Result<(), &'static str>
+pub fn oso_core::editor::Editor::xref_to_place(&mut self, oso_core::buffer::BufferId, usize)
+pub fn oso_core::editor::Editor::xref_visit(&mut self, std::path::PathBuf, u64, usize, oso_core::editor::VisitColumn)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::back_to_indentation(&mut self) -> bool
 pub fn oso_core::editor::Editor::delete_indentation(&mut self, bool) -> core::result::Result<(), oso_core::editor::IndentError>
@@ -2530,7 +2530,7 @@ pub fn oso_core::editor::Editor::large_file(&self, &std::path::Path) -> core::op
 pub fn oso_core::editor::Editor::remember_large(&mut self, std::path::PathBuf, u64)
 pub fn oso_core::editor::Editor::request_visit(&mut self, std::path::PathBuf, u64)
 pub fn oso_core::editor::Editor::request_visit_at(&mut self, std::path::PathBuf, u64, usize, usize)
-pub fn oso_core::editor::Editor::request_visit_at_column(&mut self, std::path::PathBuf, u64, usize, oso_core::editor::Column)
+pub fn oso_core::editor::Editor::request_visit_at_column(&mut self, std::path::PathBuf, u64, usize, oso_core::editor::VisitColumn)
 pub fn oso_core::editor::Editor::take_large(&mut self) -> core::option::Option<(std::path::PathBuf, u64)>
 pub fn oso_core::editor::Editor::take_visits(&mut self) -> alloc::vec::Vec<(std::path::PathBuf, u64)>
 impl oso_core::editor::Editor
@@ -5460,8 +5460,8 @@ impl core::marker::Copy for oso_core::window::BadRowMap
 impl core::marker::StructuralPartialEq for oso_core::window::BadRowMap
 pub struct oso_core::window::Jumps
 impl oso_core::window::Jumps
+pub fn oso_core::window::Jumps::counts(&self) -> (usize, usize)
 pub fn oso_core::window::Jumps::is_empty(&self) -> bool
-pub fn oso_core::window::Jumps::len(&self) -> (usize, usize)
 impl core::clone::Clone for oso_core::window::Jumps
 pub fn oso_core::window::Jumps::clone(&self) -> oso_core::window::Jumps
 impl core::cmp::Eq for oso_core::window::Jumps

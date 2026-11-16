@@ -22,7 +22,7 @@ fn back_and_forward_walk_the_places_and_a_new_jump_ends_the_way_forward() {
     assert_eq!(jumps.forward((id(3), 30)), None);
     assert_eq!(jumps.back((id(3), 31)), Some((id(2), 20)));
     jumps.push((id(2), 22));
-    assert_eq!(jumps.len(), (2, 0), "a new jump empties the way forward");
+    assert_eq!(jumps.counts(), (2, 0), "a new jump empties the way forward");
 }
 
 #[test]
@@ -31,7 +31,7 @@ fn past_the_bound_the_oldest_goes() {
     for n in 0..JUMPS_MAX + 3 {
         jumps.push((id(1), n));
     }
-    assert_eq!(jumps.len(), (JUMPS_MAX, 0));
+    assert_eq!(jumps.counts(), (JUMPS_MAX, 0));
     let mut last = None;
     while let Some(place) = jumps.back((id(1), 0)) {
         last = Some(place);
@@ -63,6 +63,6 @@ fn places_follow_their_buffer_s_edits_and_a_kill_lets_them_go() {
     );
     assert_eq!(jumps.back((id(2), 10)), Some((id(1), 13)));
     jumps.forget(id(2));
-    assert_eq!(jumps.len(), (0, 2));
+    assert_eq!(jumps.counts(), (0, 2));
     assert_eq!(format!("{jumps:?}"), "Jumps { back: 0, forward: 2 }");
 }

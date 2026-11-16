@@ -103,7 +103,7 @@ fn m_comma_goes_back_through_the_jumps_while_a_server_follows_and_walks_buffers_
         other => panic!("{other:?}"),
     }
     // The host jumps; `M-,` and `C-M-,` walk the window's history.
-    editor.jump_to_place(followed_id, 15);
+    editor.xref_to_place(followed_id, 15);
     assert_eq!(cursor(&editor), 15);
     send(&mut d, &mut editor, "M-,");
     assert_eq!(cursor(&editor), 2);

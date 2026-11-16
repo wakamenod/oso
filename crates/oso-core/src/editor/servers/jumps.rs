@@ -16,12 +16,12 @@ use crate::selection::OffsetEdit;
 use crate::sum_tree::Bias;
 
 use super::super::Editor;
-use super::super::visits::Column;
+use super::super::visits::VisitColumn;
 
 /// Where an ask about a buffer is: its primary cursor in the selected window, in the text of
 /// `revision`, and whether the agent's command asked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct At {
+pub struct AskAt {
     pub buffer: BufferId,
     pub revision: u64,
     pub offset: usize,
@@ -30,9 +30,9 @@ pub struct At {
 
 impl Editor {
     /// Where an ask about the selected buffer is now.
-    pub fn ask_at(&self) -> At {
+    pub fn ask_at(&self) -> AskAt {
         let (window, buffer) = self.current();
-        At {
+        AskAt {
             buffer: window.buffer(),
             revision: buffer.revision(),
             offset: window.selections.primary().cursor,
@@ -43,31 +43,31 @@ impl Editor {
     /// Jumps the selected window to `offset` in `buffer`, an open buffer, clipped to its text
     /// and to a display cluster's start. Does nothing for a buffer that does not exist, or a
     /// jump to where the primary cursor is.
-    pub fn jump_to_place(&mut self, buffer: BufferId, offset: usize) {
+    pub fn xref_to_place(&mut self, buffer: BufferId, offset: usize) {
         let Some(target) = self.place_in(buffer, offset) else {
             return;
         };
         if self.here() == (buffer, target) {
             return;
         }
-        self.keep_jump_start();
+        self.keep_xref_start();
         self.go_to(buffer, target);
     }
 
     /// Jumps the selected window to `line`, from 1, and `column` in `path`, visited as
     /// [`Editor::request_visit_at`] visits it, reading at most `limit` bytes.
-    pub fn jump_visit(&mut self, path: PathBuf, limit: u64, line: usize, column: Column) {
-        self.keep_jump_start();
+    pub fn xref_visit(&mut self, path: PathBuf, limit: u64, line: usize, column: VisitColumn) {
+        self.keep_xref_start();
         self.request_visit_at_column(path, limit, line, column);
     }
 
     /// `M-,`: back to the nearest place in the selected window's history. `Err` says why not.
-    pub fn jump_back(&mut self) -> Result<(), &'static str> {
+    pub fn xref_back(&mut self) -> Result<(), &'static str> {
         self.walk_jumps(false)
     }
 
     /// `C-M-,`: forward again to the place the last `M-,` left. `Err` says why not.
-    pub fn jump_forward(&mut self) -> Result<(), &'static str> {
+    pub fn xref_forward(&mut self) -> Result<(), &'static str> {
         self.walk_jumps(true)
     }
 
@@ -156,7 +156,7 @@ impl Editor {
     /// Keeps the selected window's place in its history, and on its mark ring unless a region
     /// shows, as avy's jumps do (ADR 0116): for a jump the host makes in its own way, as the
     /// agent channel's open.
-    pub fn keep_jump_start(&mut self) {
+    pub fn keep_xref_start(&mut self) {
         let here = self.here();
         let window = &mut self.windows[self.selected];
         window.jumps_mut().push(here);

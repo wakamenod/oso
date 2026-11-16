@@ -58,18 +58,19 @@ fn one(value: &Value) -> Option<Located> {
     })
 }
 
-/// The parameters of `textDocument/definition` at `position` in the document `uri`.
-pub fn definition_params(uri: &str, position: Position) -> Value {
+/// The parameters of a request at `position` in the document `uri`: `textDocument/definition`'s,
+/// and hover's.
+pub fn position_params(uri: &str, position: Position) -> Value {
     json!({
         "textDocument": {"uri": uri},
         "position": {"line": position.line, "character": position.character},
     })
 }
 
-/// The parameters of `textDocument/references`: as [`definition_params`], the declaration
+/// The parameters of `textDocument/references`: as [`position_params`], the declaration
 /// included, as Eglot asks.
 pub fn references_params(uri: &str, position: Position) -> Value {
-    let mut params = definition_params(uri, position);
+    let mut params = position_params(uri, position);
     params["context"] = json!({"includeDeclaration": true});
     params
 }

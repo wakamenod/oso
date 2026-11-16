@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::buffer::BufferId;
 use crate::display_map::{DisplayMap, DisplayPoint, DisplaySnapshot, TabWidth};
-use crate::editor::visits::{Column, column_offset, file_identity};
+use crate::editor::visits::{VisitColumn, column_offset, file_identity};
 use crate::editor::{Editor, MatchCells, Preview};
 use crate::frame::{self, CellRect};
 use crate::project::{CUT, LineQuery, cut_bounds, decoded_len, push_cut};
@@ -369,7 +369,7 @@ impl Editor {
         let cursor = column_offset(
             self.buffer(id)?.text(),
             line.saturating_sub(1),
-            Column::Chars(column),
+            VisitColumn::Chars(column),
         );
         self.buffer_preview_at(id, cursor)
     }

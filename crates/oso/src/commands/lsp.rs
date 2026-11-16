@@ -131,14 +131,14 @@ fn find_definition(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn go_back(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
-    ctx.editor.jump_back().map_err(CommandError::new)?;
+    ctx.editor.xref_back().map_err(CommandError::new)?;
     ctx.request_redraw();
     Ok(())
 }
 
 fn go_forward(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
-    ctx.editor.jump_forward().map_err(CommandError::new)?;
+    ctx.editor.xref_forward().map_err(CommandError::new)?;
     ctx.request_redraw();
     Ok(())
 }

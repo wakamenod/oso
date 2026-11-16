@@ -205,7 +205,7 @@ impl App {
     fn show_for_agent(&mut self, buffer: BufferId, line: Option<usize>, jump: bool) -> Reply {
         let before = self.editor.view_sample();
         if jump {
-            self.editor.keep_jump_start();
+            self.editor.keep_xref_start();
         }
         self.editor.show(buffer);
         if let Some(line) = line {
