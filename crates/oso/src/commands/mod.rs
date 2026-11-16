@@ -126,6 +126,7 @@ const TABLES: &[&[Command]] = &[
     vcs::discard::COMMANDS,
     vcs::remote::COMMANDS,
     vcs::sequence::COMMANDS,
+    vcs::stash::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
     windows::COMMANDS,
@@ -441,6 +442,14 @@ mod tests {
         "git-continue",
         "git-skip",
         "git-skip-confirmed",
+        // Stashing, applying, popping and dropping, with the repository's hooks (step 3b).
+        "git-stash",
+        "git-stash-apply",
+        "git-stash-drop",
+        "git-stash-drop-confirmed",
+        "git-stash-message",
+        "git-stash-pick",
+        "git-stash-pop",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).

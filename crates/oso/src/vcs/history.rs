@@ -74,7 +74,7 @@ pub(crate) fn parse(bytes: &[u8], keep: usize) -> Log {
 }
 
 /// `subject`, cut to [`MAX_SUBJECT`] bytes before a UTF-8 character, with `…` after it if it was.
-fn cut(subject: &[u8]) -> Vec<u8> {
+pub(crate) fn cut(subject: &[u8]) -> Vec<u8> {
     if subject.len() <= MAX_SUBJECT {
         return subject.to_vec();
     }

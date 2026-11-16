@@ -39,6 +39,7 @@ pub(crate) mod remote;
 pub(crate) mod run;
 pub(crate) mod sequence;
 pub(crate) mod stage;
+pub(crate) mod stash;
 pub(crate) mod status;
 pub(crate) mod work;
 pub(crate) mod write;

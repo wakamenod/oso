@@ -2,7 +2,7 @@
 //! moving between its sections, showing a file's hunks, and staging and unstaging by section,
 //! file and hunk. Committing and the log of git's runs are [`commit`]'s (step 1b), discarding
 //! and the list of what it kept [`discard`]'s (step 1c), remotes [`remote`]'s (step 2), and
-//! going on with what is stopped [`sequence`]'s (step 3a).
+//! going on with what is stopped [`sequence`]'s (step 3a), and stashes [`stash`]'s (step 3b).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and asks the host, which runs git on the status's thread. What a line names is the host's: a
@@ -20,6 +20,7 @@ pub mod commit;
 pub mod discard;
 pub mod remote;
 pub mod sequence;
+pub mod stash;
 
 /// Why a restricted project gets no status (ADR 0127, "Restricted projects").
 pub(crate) const RESTRICTED: &str =
@@ -470,13 +471,14 @@ pub const MENUS: &[(&str, &str)] = &[
     ("P", "push"),
     ("F", "pull"),
     ("f", "fetch"),
+    ("z", "stash"),
 ];
 
 /// The first line of the doc of the source-control command `name`, if it is one.
 fn summary_of(name: &str) -> Option<&'static str> {
     let all = COMMANDS.iter().chain(commit::COMMANDS);
     let all = all.chain(discard::COMMANDS).chain(remote::COMMANDS);
-    let mut all = all.chain(sequence::COMMANDS);
+    let mut all = all.chain(sequence::COMMANDS).chain(stash::COMMANDS);
     let found = all.find(|command| command.name == name)?;
     found.doc.lines().next()
 }

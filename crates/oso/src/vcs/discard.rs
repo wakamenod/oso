@@ -77,7 +77,11 @@ pub(crate) fn plan(built: &Built, targets: &[Target]) -> Result<Plan, String> {
             Section::Unstaged => restore.push(found.path.clone()),
             Section::Staged if found.letters[0] == b'A' => unadd.push(found.path.clone()),
             Section::Staged => head.push(found.path.clone()),
-            Section::Unmerged | Section::Unpushed | Section::Unpulled | Section::Recent => {}
+            Section::Unmerged
+            | Section::Stashes
+            | Section::Unpushed
+            | Section::Unpulled
+            | Section::Recent => {}
         }
         Ok(())
     };

@@ -454,9 +454,37 @@ const FETCH: BuiltInMenu = BuiltInMenu {
     describe: None,
 };
 
+/// Stashing (ADR 0127, step 3b), from a git status's `z`: the stash at point, or one asked
+/// for.
+const STASH: BuiltInMenu = BuiltInMenu {
+    name: "stash",
+    title: "Stash",
+    groups: &[
+        (
+            "Arguments",
+            &[switch(
+                "- u",
+                crate::commands::vcs::stash::STASH_UNTRACKED,
+                "include untracked",
+            )],
+        ),
+        (
+            "Stash",
+            &[
+                exit("z", "git-stash", "the changes"),
+                exit("a", "git-stash-apply", "apply"),
+                exit("p", "git-stash-pop", "pop"),
+                exit("k", "git-stash-drop", "drop"),
+            ],
+        ),
+    ],
+    describe: None,
+};
+
 /// The built-in menus, in the order their ids are given.
-const BUILT_IN: [&BuiltInMenu; 11] = [
-    &TOGGLES, &WINDOWS, &JUMPS, &SEARCH, &REVIEW, &SPACE, &COMMIT, &PUSH, &PULL, &FETCH, &AGENTS,
+const BUILT_IN: [&BuiltInMenu; 12] = [
+    &TOGGLES, &WINDOWS, &JUMPS, &SEARCH, &REVIEW, &SPACE, &COMMIT, &PUSH, &PULL, &FETCH, &STASH,
+    &AGENTS,
 ];
 
 /// The built-in menus over the commands in `registry`. A head whose command `registry` lacks is

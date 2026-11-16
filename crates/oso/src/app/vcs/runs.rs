@@ -1,7 +1,7 @@
 //! git's long runs in the app (ADR 0127, step 1b): each repository's run thread, its log,
 //! what the thread reports, stopping a run, and what quitting ends. A run is a commit, from
-//! step 2 a push, a pull or a fetch, whose progress the echo area shows too, and from step 3a a
-//! continue, a skip or an abort of what is stopped.
+//! step 2 a push, a pull or a fetch, whose progress the echo area shows too, from step 3a a
+//! continue, a skip or an abort of what is stopped, and from step 3b a stash's.
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here runs git or waits for
 //! it: each repository's run thread, `oso-vcs-run`, does, and reports here.
@@ -71,6 +71,8 @@ pub(super) struct Repo {
     pub(super) pushes: super::remote::Pushes,
     /// A skip or an abort waiting for its question's answer (step 3a).
     pub(super) sequence_asked: Option<super::sequence::SequenceAsked>,
+    /// A stash's prompt and question waiting (step 3b).
+    pub(super) stashes: super::stash::Stashes,
 }
 
 /// A commit that failed, as a fix request names it.
@@ -432,6 +434,7 @@ impl App {
             failed: None,
             pushes: super::remote::Pushes::default(),
             sequence_asked: None,
+            stashes: super::stash::Stashes::default(),
         });
         self.gits.commits.repos.len() - 1
     }

@@ -1,7 +1,8 @@
 //! A status buffer's text, highlights, outline and row table (ADR 0127), in magit's order: the
 //! head, with what is stopped under it (step 3a), then unmerged paths, untracked files, unstaged changes and staged changes, each a
 //! section that folds, with a file's hunks under it when it is open; then the commits unpushed
-//! to the upstream and unpulled from it, and the recent ones (step 2).
+//! to the upstream and unpulled from it, and the recent ones (step 2), after the stashes (step
+//! 3b).
 //!
 //! Must not depend on: `app`, `dispatch`, `commands`, git or the file system; [`lay_out`] is a
 //! pure function of what was read.
@@ -33,6 +34,8 @@ pub(crate) enum Section {
     Untracked,
     Unstaged,
     Staged,
+    /// The repository's stashes, each a commit (step 3b).
+    Stashes,
     /// Commits of `HEAD` the upstream does not have (step 2).
     Unpushed,
     /// Commits of the upstream `HEAD` does not have.
@@ -61,6 +64,7 @@ impl Section {
             Section::Untracked => "Untracked files",
             Section::Unstaged => "Unstaged changes",
             Section::Staged => "Staged changes",
+            Section::Stashes => "Stashes",
             Section::Unpushed => "Unpushed to",
             Section::Unpulled => "Unpulled from",
             Section::Recent => "Recent commits",

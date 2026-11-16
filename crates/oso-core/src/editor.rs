@@ -95,7 +95,7 @@ pub use cursors::{CursorError, Toward};
 pub use files::Looked;
 pub use git::{
     CommitKind, CommitSwitches, FetchFrom, GitHeading, GitLines, GitRequest, GitShown, MAX_GIT_LOG,
-    PullHow, PushSwitches, PushTarget,
+    PullHow, PushSwitches, PushTarget, StashAction,
 };
 pub use gutter::Gutter;
 pub use indent::{IndentError, Shift};

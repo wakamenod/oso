@@ -2,7 +2,8 @@
 //! the repository's hooks, which has no time limit, the message an amend starts from, and, from
 //! step 1c, reading the record of what discards kept and writing a copy back; from step 2,
 //! pushes, pulls and fetches (`remotes`), and planning where a push goes; from step 3a,
-//! continuing, skipping and aborting what is stopped (`sequence`).
+//! continuing, skipping and aborting what is stopped (`sequence`); from step 3b, stashing
+//! (`stash`).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
 //! takes reports out, and supplies the wake-up.
@@ -42,9 +43,11 @@ use crate::git::{Ender, Git, MAX_SHORT, TrustedRoot, os_path, trim_line};
 
 mod remotes;
 mod sequence;
+mod stash;
 mod stream;
 
 pub(crate) use remotes::{Planned, Want};
+pub(crate) use stash::StashRun;
 use stream::stream;
 
 /// How often what a run wrote is sent on.
@@ -81,6 +84,9 @@ pub(crate) enum RunRequest {
         want: super::sequence::Want,
         pass: Vec<String>,
     },
+    /// Push onto the stash, or apply, pop or drop a stash, as `run` says, with the names `pass`
+    /// passes on to the hooks (step 3b).
+    Stash { run: StashRun, pass: Vec<String> },
 }
 
 /// What a remote's request asks for, with the names `pass` passes on to the hooks of a run.
@@ -269,13 +275,10 @@ fn serve(
             (Err(why), RunRequest::Remote(RemoteRun::Plan { .. })) => {
                 vec![RunReport::Planned(Err(why))]
             }
-            (
-                Err(why),
-                RunRequest::Commit { .. } | RunRequest::Remote(_) | RunRequest::Step { .. },
-            ) => vec![RunReport::Ended(RunEnd::Refused(why))],
-            (Ok(git), RunRequest::Step { want, pass }) => {
-                let end = sequence::step(&git, &want, &pass, watch, &mut send);
-                vec![ended(watch, end)]
+            // Every other run: it did not start.
+            (Err(why), _) => vec![RunReport::Ended(RunEnd::Refused(why))],
+            (Ok(git), request @ (RunRequest::Step { .. } | RunRequest::Stash { .. })) => {
+                vec![local(&git, request, watch, &mut send)]
             }
             (Ok(git), RunRequest::Remote(request)) => {
                 vec![remote(&git, request, watch, &mut send)]
@@ -324,6 +327,21 @@ fn remote(
         RemoteRun::Push { push, pass } => remotes::push(git, &push, &pass, watch, send),
         RemoteRun::Pull { how, pass } => remotes::pull(git, how, &pass, watch, send),
         RemoteRun::Fetch { from, pass } => remotes::fetch(git, from, &pass, watch, send),
+    };
+    ended(watch, end)
+}
+
+/// How a run that touches no remote ended: a step of what is stopped, or a stash's.
+fn local(
+    git: &Git,
+    request: RunRequest,
+    watch: &Watch<'_>,
+    send: &mut impl FnMut(RunReport) -> bool,
+) -> RunReport {
+    let end = match request {
+        RunRequest::Step { want, pass } => sequence::step(git, &want, &pass, watch, send),
+        RunRequest::Stash { run, pass } => stash::stash(git, &run, &pass, watch, send),
+        _ => RunEnd::Refused("not a run of this kind".into()),
     };
     ended(watch, end)
 }
