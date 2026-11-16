@@ -1,7 +1,7 @@
 //! Keeping what the editor holds private to its user: no core dumps, and a directory
-//! only the user can reach (ADR 0028, ADR 0062, ADR 0065). Also where oso's own state and
-//! configuration live, the person's home directory, and who else can change a file read as the
-//! person's (ADR 0108).
+//! only the user can reach (ADR 0028, ADR 0062, ADR 0065). Also where oso's own state,
+//! configuration and cache (ADR 0142) live, the person's home directory, and who else can
+//! change a file read as the person's (ADR 0108).
 //!
 //! Must not depend on: `control`, `process` or `text`. `control` uses the checks here, so
 //! that the two kinds of private directory cannot drift apart. Both read `inheritance`'s
@@ -52,6 +52,13 @@ pub fn home() -> Option<PathBuf> {
 /// value counts. Asks the environment and not the disk.
 pub fn state_home() -> Option<PathBuf> {
     backend::state_home_from(&|name| std::env::var_os(name))
+}
+
+/// The per-user directory for caches, what may be deleted at any time: `$XDG_CACHE_HOME` or
+/// `~/.cache`, `~/Library/Caches` on macOS, and `%LOCALAPPDATA%` on Windows. Only an absolute
+/// value counts. Asks the environment and not the disk.
+pub fn cache_home() -> Option<PathBuf> {
+    backend::cache_home_from(&|name| std::env::var_os(name))
 }
 
 /// oso's configuration directory, asking the environment and not the disk:
@@ -609,6 +616,45 @@ mod tests {
             assert_eq!(
                 home(&[("XDG_CONFIG_HOME", "conf"), ("HOME", "/home/me")]),
                 Some(PathBuf::from("/home/me/.config/oso"))
+            );
+        }
+    }
+
+    #[test]
+    fn cache_home_comes_from_the_environment_and_only_an_absolute_path_counts() {
+        use super::backend::cache_home_from;
+        use std::path::PathBuf;
+        let home = |vars: &'static [(&'static str, &'static str)]| {
+            cache_home_from(&|name| {
+                vars.iter()
+                    .find(|(var, _)| *var == name)
+                    .map(|(_, value)| value.into())
+            })
+        };
+        assert_eq!(home(&[]), None);
+        assert_eq!(
+            home(&[("HOME", "relative"), ("LOCALAPPDATA", "relative")]),
+            None
+        );
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            home(&[("HOME", "/h"), ("XDG_CACHE_HOME", "/x")]),
+            Some(PathBuf::from("/h/Library/Caches"))
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            home(&[("LOCALAPPDATA", "C:\\Users\\a\\AppData\\Local")]),
+            Some(PathBuf::from("C:\\Users\\a\\AppData\\Local"))
+        );
+        #[cfg(not(any(target_os = "macos", windows)))]
+        {
+            assert_eq!(
+                home(&[("HOME", "/h"), ("XDG_CACHE_HOME", "/x")]),
+                Some(PathBuf::from("/x"))
+            );
+            assert_eq!(
+                home(&[("HOME", "/h"), ("XDG_CACHE_HOME", "relative")]),
+                Some(PathBuf::from("/h/.cache"))
             );
         }
     }

@@ -51,6 +51,10 @@ pub const MAX_DEV_MESSAGE: usize = 1024;
 
 /// The UI's answer to a request: a JSON result or an error message.
 pub use crate::carry::Reply;
+pub use clipboard::ClipboardOp;
+use clipboard::parse_clipboard;
+
+mod clipboard;
 
 /// A method and its parsed parameters.
 #[derive(Debug, Clone, PartialEq)]
@@ -123,28 +127,6 @@ pub enum UiOp {
 pub enum WheelAt {
     Pixel(Position),
     Cell { row: usize, column: usize },
-}
-
-/// What `clipboard` does with the clipboard in memory. Its `Debug` gives lengths only.
-#[derive(Clone, PartialEq, Eq)]
-pub enum ClipboardOp {
-    /// Report what it holds.
-    Get,
-    /// Put text there, marked concealed or not.
-    Set { text: String, concealed: bool },
-}
-
-impl std::fmt::Debug for ClipboardOp {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Get => f.write_str("Get"),
-            Self::Set { text, concealed } => f
-                .debug_struct("Set")
-                .field("len", &text.len())
-                .field("concealed", concealed)
-                .finish(),
-        }
-    }
 }
 
 /// What `ime` reports in place of the OS's input method. Its `Debug` gives lengths
@@ -404,24 +386,6 @@ fn parse_run_command(params: &Map<String, Value>) -> Result<UiOp, String> {
 /// The parameters of `ime`: one of `preedit` (with an optional `range` of two byte
 /// offsets), `commit`, `clear` or `disabled`. A range off the text is the editor's to
 /// drop, as one from the OS would be.
-/// `clipboard` with no parameters reads, and with `text`, and `concealed` if it is to
-/// be marked so, sets.
-fn parse_clipboard(params: &Map<String, Value>) -> Result<ClipboardOp, String> {
-    let concealed = match params.get("concealed") {
-        None => false,
-        Some(Value::Bool(concealed)) => *concealed,
-        Some(_) => return Err("clipboard's \"concealed\" must be a boolean".into()),
-    };
-    match params.get("text") {
-        None if params.is_empty() => Ok(ClipboardOp::Get),
-        Some(Value::String(text)) => Ok(ClipboardOp::Set {
-            text: text.clone(),
-            concealed,
-        }),
-        _ => Err("clipboard takes a string \"text\", and \"concealed\", or nothing".into()),
-    }
-}
-
 fn parse_ime(params: &Map<String, Value>) -> Result<ImeReport, String> {
     const USAGE: &str = "ime takes one of \"preedit\" (a string, with an optional \"range\" of \
                          two byte offsets), \"commit\" (a string), \"clear\" or \"disabled\" (true)";
@@ -624,6 +588,26 @@ mod tests {
         assert!(!format!("{set:?}").contains("hunter2"));
         assert!(parse(r#"{"method": "clipboard", "params": {"text": 1}}"#).is_err());
         assert!(parse(r#"{"method": "clipboard", "params": {"concealed": true}}"#).is_err());
+
+        let image = op(r#"{"image": "tiff", "bytes": [73, 73, 42], "concealed": true}"#);
+        assert_eq!(
+            image,
+            ClipboardOp::SetImage {
+                kind: oso_platform::clipboard::ImageKind::Tiff,
+                bytes: vec![73, 73, 42],
+                concealed: true
+            }
+        );
+        assert!(format!("{image:?}").contains("len: 3"));
+        for bad in [
+            r#"{"image": "bmp", "bytes": []}"#,
+            r#"{"image": "png"}"#,
+            r#"{"image": "png", "bytes": [256]}"#,
+            r#"{"image": "png", "bytes": "abc"}"#,
+        ] {
+            let line = format!(r#"{{"method": "clipboard", "params": {bad}}}"#);
+            assert!(parse(&line).is_err(), "{bad}");
+        }
     }
 
     #[test]

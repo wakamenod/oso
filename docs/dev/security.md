@@ -373,7 +373,12 @@ shown, boxed or escaped.
   clipboard only on a yank, on its own thread. A kill from a buffer that may hold secrets
   goes there marked concealed for clipboard managers, never shows over the socket, and
   makes the buffer it is yanked into secret, also after a round trip through another app
-  ([ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md)). Core
+  ([ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md)). An image is read only on
+  `session-yank-image` and never decoded in oso's process: it is copied into a new `0600` file
+  in a `0700` directory under the cache, a TIFF is converted by `/usr/bin/sips` in a child
+  process with a time limit, a concealed pasteboard is not read, and the files go when the
+  session is archived or after 7 days
+  ([ADR 0142](adr/0142-attaching-the-clipboard-s-image-to-a-session.md)). Core
   dumps are disabled with `RLIMIT_CORE` on Unix, soft and hard. Windows has no such limit for a process to set.
   The panic hook prints the location and the stack and never the message, also for a panic caught at the
   command boundary ([ADR 0028](adr/0028-secrets-handling.md), [ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).

@@ -22,7 +22,9 @@ mod spaces;
 pub use list::COMMANDS as LIST_COMMANDS;
 pub use list::{FOLDS, GUIDES, ROW_MARKS, row_mark};
 pub use mode::{COMMANDS as MODE_COMMANDS, SESSION_HELP};
-pub use send::{COMMANDS as SEND_COMMANDS, MAX_SEND_BYTES, MENTION_LIST, SEND_LIST, too_large};
+pub use send::{
+    COMMANDS as SEND_COMMANDS, MAX_SEND_BYTES, MENTION_LIST, SEND_LIST, YANK_IMAGE, too_large,
+};
 pub use spaces::{
     ARCHIVED_LIST, COMMANDS as SPACE_COMMANDS, MEMBERS_LIST, REPOSITORIES_LIST, listed_takes_input,
 };

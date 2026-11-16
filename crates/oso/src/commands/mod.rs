@@ -341,6 +341,8 @@ mod tests {
         // Sending to a session is the person's typing into its terminal (ADR 0120, Q15).
         "session-follow-message",
         "session-mention",
+        // It reads the clipboard and may start `sips` (ADR 0142).
+        "session-yank-image",
         "session-resume",
         "session-send",
         "session-stop",

@@ -4,7 +4,7 @@ OS abstractions: the text system backends, the clipboard (ADR 0074), and later
 IME and filesystem (ADR 0003, ADR 0004). `clipboard` runs on threads of
 its own, as reading it can wait on another process. `privacy` holds what keeps text
 private to its user: no core dumps, and private directories (ADR 0062), where oso's
-state and configuration live, the home directory, and who else can change a file by its mode
+state, configuration and cache (ADR 0142) live, the home directory, and who else can change a file by its mode
 (ADR 0108), and
 `file_meta` what decides who may reach a file beyond its mode (ADR 0065), and opening and
 listing a directory relative to itself, with the names of owners and groups and the local time

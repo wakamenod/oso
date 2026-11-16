@@ -2,7 +2,8 @@
 //! bracketed paste on, logs every byte it reads, and prints the screen a flow writes for it:
 //! a region, a note and a place arrive as one bracketed paste with no Enter after it; a
 //! dialog refuses a send; a buffer that may hold secrets sends its place only; a mention is
-//! inserted or pasted; and a message line notes the row and `C-x a f` shows its sender.
+//! inserted or pasted; a message line notes the row and `C-x a f` shows its sender; and
+//! `C-c C-y` pastes an `@` reference to the clipboard's image, kept in a private file (ADR 0142).
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: composing the
 //! text, the refusals, the message rule and the completions have their own tests.
@@ -330,4 +331,101 @@ fn a_message_line_notes_the_row_until_seen_and_c_x_a_f_shows_its_sender() {
     });
 
     end(&flow, &mut app, &["proj", "proj-2"]);
+}
+
+/// `C-c C-y` in the selected session, and the state once the echo area has said something new.
+fn yank_image(app: &mut App) -> Value {
+    let before = echo(&app.state());
+    app.send_keys("C-c C-y");
+    app.wait_for("what the yank said", |state| {
+        echo(state) != before && !echo(state).is_empty()
+    })
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn c_c_c_y_pastes_a_reference_to_the_clipboard_s_image_kept_in_a_private_file() {
+    use std::os::unix::fs::PermissionsExt;
+    let flow = flow("sessions-yank-image");
+    let mut app = flow.start();
+    let session = "*claude: proj*";
+    start_session(&flow, &mut app, session, "proj");
+    app.wait_for("the session selected", |state| {
+        state["buffer"]["name"] == session
+    });
+
+    let state = yank_image(&mut app);
+    assert_eq!(echo(&state), "No image on the clipboard");
+
+    // A PNG goes as it came, by path, with a space each side and no Enter.
+    let png: Vec<u8> = vec![0x89, b'P', b'N', b'G', 1, 2, 3];
+    app.call(
+        "clipboard",
+        Some(json!({ "image": "png", "bytes": png.clone() })),
+    );
+    let state = yank_image(&mut app);
+    let cache = if cfg!(target_os = "macos") {
+        flow.home.join("Library").join("Caches")
+    } else {
+        flow.home.join(".cache")
+    };
+    let images = cache.join("oso").join("images");
+    let read = wait_for_pastes(&flow, "proj", 1);
+    let (pasted, after) = paste(&read, 1);
+    assert_eq!(after, "", "not submitted");
+    let path = pasted
+        .strip_prefix(" @")
+        .and_then(|path| path.strip_suffix(' '))
+        .unwrap_or_else(|| panic!("{pasted:?}"));
+    let path = std::path::Path::new(path);
+    assert!(path.starts_with(&images), "{path:?}");
+    assert_eq!(path.extension().unwrap(), "png");
+    assert_eq!(fs::read(path).unwrap(), png);
+    let mode = |path: &std::path::Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(path), 0o600);
+    assert_eq!(mode(path.parent().unwrap()), 0o700);
+    // The echo area, which the agent channel reads, names the file and not its directory.
+    assert_eq!(
+        echo(&state),
+        format!(
+            "Image saved as {}: press Enter there",
+            path.file_name().unwrap().to_string_lossy()
+        )
+    );
+
+    // An image the app that copied it marked secret is not read.
+    app.call(
+        "clipboard",
+        Some(json!({ "image": "png", "bytes": [1], "concealed": true })),
+    );
+    let state = yank_image(&mut app);
+    assert_eq!(
+        echo(&state),
+        "The app that copied the image marked it secret; nothing is attached"
+    );
+
+    // A dialog refuses it before anything is kept, as it refuses a send.
+    app.call("clipboard", Some(json!({ "image": "gif", "bytes": [7] })));
+    print(&flow, "proj", PERMISSION);
+    app.wait_for("needs input", |state| {
+        state_of(state, "proj").is_some_and(|s| s.starts_with("needs input"))
+    });
+    let state = yank_image(&mut app);
+    assert_eq!(
+        echo(&state),
+        "proj is asking for permission; answer it first"
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(input(&flow, "proj").matches(END).count(), 1);
+    assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+
+    // Archived, the session's images go.
+    app.send_keys("C-c A");
+    let directory = path.parent().unwrap().to_path_buf();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while directory.exists() {
+        assert!(Instant::now() < deadline, "{directory:?} is still there");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    end(&flow, &mut app, &["proj"]);
 }
