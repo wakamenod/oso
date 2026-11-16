@@ -1,5 +1,6 @@
-//! Tests of the preview's read (ADR 0114): from the row's offset, around its line, within its
-//! bounds, as the search reached the file, and never one that may hold secrets.
+//! Tests of the preview's read (ADR 0114, ADR 0138): from the row's offset, or its line counted
+//! from the file's start, around its line, within its bounds, as the search reached the file,
+//! and never one that may hold secrets.
 //!
 //! Must not depend on: `app`, winit or the UI thread; these read files they make in a scratch
 //! directory.
@@ -9,11 +10,11 @@ use std::fs;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use oso_core::editor::{ProjectPreviewRead, ProjectPreviewRequest};
+use oso_core::editor::{FilePreviewRead, FilePreviewRequest, PreviewAt, VisitColumn};
 use oso_core::project::MAX_LINE;
 
 use super::super::tests::{Scratch, leads};
-use super::{BACK, open, read_around, read_preview};
+use super::{BACK, Place, SCAN_MAX, line_offset, open, read_around, read_preview};
 
 /// A read of `path` under `scratch` at `offset`, its line `line`, for `rows` rows.
 fn read_of(
@@ -21,39 +22,50 @@ fn read_of(
     path: &str,
     (offset, line): (u64, usize),
     rows: usize,
-) -> ProjectPreviewRequest {
-    ProjectPreviewRequest {
+) -> FilePreviewRequest {
+    FilePreviewRequest {
         generation: 1,
         root: scratch.0.clone(),
         path: path.into(),
-        offset,
-        line,
-        column: 0,
+        at: PreviewAt::Offset {
+            offset,
+            line,
+            column: 0,
+        },
         rows,
         live: Arc::new(AtomicU64::new(1)),
     }
 }
 
 /// What `request` finds, with no home directory to refuse.
-fn preview(request: &ProjectPreviewRequest) -> Option<ProjectPreviewRead> {
+fn preview(request: &FilePreviewRequest) -> Option<FilePreviewRead> {
     read_preview(request, (None, leads))
 }
 
 /// The lines `request` reads, and the number of the first.
-fn read(scratch: &Scratch, request: &ProjectPreviewRequest) -> Option<(String, usize)> {
+fn read(scratch: &Scratch, request: &FilePreviewRequest) -> Option<(String, usize)> {
     let path = std::path::Path::new(&*request.path);
     let leads = leads(&scratch.0);
     let (file, _) = open((&scratch.0, leads.as_deref()), path, None, &|| true)?;
-    let (bytes, first) = read_around(file, request, &|| true)?;
+    let PreviewAt::Offset { offset, line, .. } = request.at else {
+        panic!("a read from an offset");
+    };
+    let place = Place {
+        offset,
+        line,
+        column: VisitColumn::Chars(0),
+        rows: request.rows,
+    };
+    let (bytes, first) = read_around(file, &place, &|| true)?;
     Some((String::from_utf8(bytes).unwrap(), first))
 }
 
-fn is_text(read: Option<ProjectPreviewRead>) -> bool {
-    matches!(read, Some(ProjectPreviewRead::Text(_)))
+fn is_text(read: Option<FilePreviewRead>) -> bool {
+    matches!(read, Some(FilePreviewRead::Text(_)))
 }
 
-fn is_unreadable(read: Option<ProjectPreviewRead>) -> bool {
-    matches!(read, Some(ProjectPreviewRead::Unreadable))
+fn is_unreadable(read: Option<FilePreviewRead>) -> bool {
+    matches!(read, Some(FilePreviewRead::Unreadable))
 }
 
 #[test]
@@ -121,6 +133,54 @@ fn long_lines_after_the_rows_each_keep_what_an_excerpt_shows() {
 }
 
 #[test]
+fn a_line_a_server_gave_is_found_by_its_breaks_from_the_file_s_start() {
+    let scratch = Scratch::new("by-line");
+    // A lone `\r` breaks no line, as in a buffer; `\r\n` is one break.
+    scratch.file("a.rs", b"one\rstill one\r\ntwo\nthree x\n");
+    let at = |line, column| FilePreviewRequest {
+        at: PreviewAt::Line { line, column },
+        ..read_of(&scratch, "a.rs", (0, 1), 2)
+    };
+    let excerpt_line = |request: &FilePreviewRequest| {
+        let path = std::path::Path::new(&*request.path);
+        let leads = leads(&scratch.0);
+        let (mut file, _) = open((&scratch.0, leads.as_deref()), path, None, &|| true).unwrap();
+        line_offset(&mut file, request.at.line(), &|| true)
+    };
+    assert_eq!(excerpt_line(&at(1, VisitColumn::Utf16(0))), Some(0));
+    assert_eq!(excerpt_line(&at(2, VisitColumn::Utf16(0))), Some(15));
+    assert_eq!(excerpt_line(&at(3, VisitColumn::Utf16(6))), Some(19));
+    assert_eq!(
+        excerpt_line(&at(9, VisitColumn::Utf16(0))),
+        None,
+        "past its end"
+    );
+    assert!(is_text(preview(&at(3, VisitColumn::Utf16(6)))));
+    assert!(is_unreadable(preview(&at(9, VisitColumn::Utf8(0)))));
+    // A stale read stops before it scans.
+    let stale = at(3, VisitColumn::Utf8(0));
+    stale.live.store(2, Ordering::Relaxed);
+    assert!(preview(&stale).is_none());
+}
+
+#[test]
+fn a_line_past_the_scan_s_bound_is_not_found() {
+    let scratch = Scratch::new("scan-bound");
+    let bytes = vec![b'\n'; usize::try_from(SCAN_MAX).unwrap() + 2];
+    scratch.file("many.txt", &bytes);
+    let path = std::path::Path::new("many.txt");
+    let leads = leads(&scratch.0);
+    let (mut file, _) = open((&scratch.0, leads.as_deref()), path, None, &|| true).unwrap();
+    let last_in = usize::try_from(SCAN_MAX).unwrap() + 1;
+    assert_eq!(
+        line_offset(&mut file, last_in, &|| true),
+        Some(SCAN_MAX),
+        "the break at the bound's last byte counts"
+    );
+    assert_eq!(line_offset(&mut file, last_in + 1, &|| true), None);
+}
+
+#[test]
 fn a_newer_read_stops_this_one() {
     let scratch = Scratch::new("stale");
     scratch.file("a.rs", b"one\n");
@@ -136,10 +196,7 @@ fn a_file_that_may_hold_secrets_is_never_read() {
     scratch.file("keys/id_rsa", b"key\n");
     for path in [".env", "keys/id_rsa"] {
         let request = read_of(&scratch, path, (0, 1), 4);
-        assert!(matches!(
-            preview(&request),
-            Some(ProjectPreviewRead::Withheld)
-        ));
+        assert!(matches!(preview(&request), Some(FilePreviewRead::Withheld)));
     }
 }
 
@@ -235,12 +292,12 @@ fn a_root_that_leads_through_a_place_that_may_hold_secrets_is_never_read() {
     symlink("../real/.ssh", scratch.0.join("proj/docs")).unwrap();
     symlink(scratch.0.join("real/.ssh"), scratch.0.join("direct")).unwrap();
     for root in ["proj/docs", "direct"] {
-        let request = ProjectPreviewRequest {
+        let request = FilePreviewRequest {
             root: scratch.0.join(root),
             ..read_of(&scratch, "config", (0, 1), 4)
         };
         assert!(
-            matches!(preview(&request), Some(ProjectPreviewRead::Withheld)),
+            matches!(preview(&request), Some(FilePreviewRead::Withheld)),
             "{root}"
         );
     }

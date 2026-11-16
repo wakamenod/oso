@@ -1,5 +1,6 @@
-//! Reading a search's row's file for its preview (ADR 0114): a thread of its own, `oso-preview`,
-//! reads the lines around the row's line and hands them to the editor as an excerpt.
+//! Reading a list's row's file for its preview (ADR 0114, ADR 0138): a thread of its own,
+//! `oso-preview`, reads the lines around the row's line and hands them to the editor as an
+//! excerpt, for a project's search and for the list of diagnostics.
 //!
 //! Must not depend on: `app`, winit or the UI thread; this reads the file system, and the caller
 //! supplies the wake-up.
@@ -10,9 +11,12 @@
 //!   following no link and waiting for nothing. Only a regular file is read.
 //! - A file that may hold secrets, by the name of its path from the root as given or from any
 //!   place the root leads through, as the search judges it, is never read; the editor never
-//!   asks for one whose row says so either. The root opened must be the place judged.
+//!   asks for one whose row says so, or, for a diagnostic, whose name says so, either. The root
+//!   opened must be the place judged.
 //! - The read starts at the row's line, as far as the search found it, and goes back for about
-//!   half the preview's rows: at most [`BACK`] before the line and [`MAX_LINE`] in all.
+//!   half the preview's rows: at most [`BACK`] before the line and [`MAX_LINE`] in all. A place
+//!   a server gave has only its line, which is found by counting line breaks from the file's
+//!   start, as a buffer counts them, in at most [`SCAN_MAX`] bytes; past them nothing shows.
 //! - Each request has a generation, read before the file is opened, at each step on the way
 //!   and before each part read; a newer selection stops it, and only the newest of those
 //!   waiting is read.
@@ -27,7 +31,7 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
-use oso_core::editor::{Excerpt, ProjectPreviewRead, ProjectPreviewRequest};
+use oso_core::editor::{Excerpt, FilePreviewRead, FilePreviewRequest, PreviewAt, VisitColumn};
 use oso_core::project::MAX_LINE;
 use oso_platform::file_meta::Directory;
 
@@ -37,18 +41,21 @@ use crate::walk::{self, MAX_DEPTH, MAX_PATH};
 /// The most bytes read before the row's line, for the lines above it.
 pub const BACK: usize = 64 * 1024;
 
+/// The most bytes read from a file's start to find the line a server gave (ADR 0138, step 6b).
+pub const SCAN_MAX: u64 = 64 << 20;
+
 /// How much is read at a time, the generation asked before each.
 const PART: usize = 64 * 1024;
 
 /// The most bytes past the end of the row's line read for each row after it, as an excerpt keeps
-/// no more of a line: `EXCERPT_LINE` in `oso_core::editor::project_search::preview`, 4 KiB, and
+/// no more of a line: `EXCERPT_LINE` in `oso_core::editor::file_preview`, 4 KiB, and
 /// the line's break. The two must change together.
 const PER_ROW: usize = 4096 + 1;
 
 /// What a preview's read found, for the editor. `Debug` gives its generation only.
 pub struct Previewed {
     pub generation: u64,
-    pub read: ProjectPreviewRead,
+    pub read: FilePreviewRead,
 }
 
 impl fmt::Debug for Previewed {
@@ -64,7 +71,7 @@ type SendRead = Arc<dyn Fn(Previewed) -> bool + Send + Sync>;
 
 /// The reading thread, started with the first request.
 pub struct Previewer {
-    requests: Option<Sender<ProjectPreviewRequest>>,
+    requests: Option<Sender<FilePreviewRequest>>,
     send: SendRead,
     leads: Leads,
     /// The home directory as the person's environment spells it, which the thread finds the
@@ -91,9 +98,9 @@ impl Previewer {
 
     /// Reads as `request` asks, on `oso-preview`, after any read before it, which a newer one
     /// has stopped. If the thread cannot start, the preview shows nothing.
-    pub fn read(&mut self, request: ProjectPreviewRequest) {
+    pub fn read(&mut self, request: FilePreviewRequest) {
         if self.requests.is_none() {
-            let (requests, queue) = mpsc::channel::<ProjectPreviewRequest>();
+            let (requests, queue) = mpsc::channel::<FilePreviewRequest>();
             let send = Arc::clone(&self.send);
             let (home, leads) = (self.home.clone(), self.leads);
             let spawned = thread::Builder::new()
@@ -116,7 +123,7 @@ impl Previewer {
 /// Reads as the newest request waiting asks, in turn, until the reader is dropped or the event
 /// loop has gone.
 fn serve(
-    queue: &Receiver<ProjectPreviewRequest>,
+    queue: &Receiver<FilePreviewRequest>,
     send: &(dyn Fn(Previewed) -> bool + Send + Sync),
     home: Option<&Path>,
     leads: Leads,
@@ -136,7 +143,7 @@ fn serve(
             Ok(None) => continue,
             Err(_) => {
                 log::warn!("a preview's read panicked");
-                ProjectPreviewRead::Unreadable
+                FilePreviewRead::Unreadable
             }
         };
         if !send(Previewed { generation, read }) {
@@ -147,9 +154,9 @@ fn serve(
 
 /// What `request` finds, or `None` once a newer request has stopped it.
 pub(crate) fn read_preview(
-    request: &ProjectPreviewRequest,
+    request: &FilePreviewRequest,
     (home, leads): (Option<&Path>, Leads),
-) -> Option<ProjectPreviewRead> {
+) -> Option<FilePreviewRead> {
     let live = || request.live.load(Ordering::Relaxed) == request.generation;
     if !live() {
         return None;
@@ -158,19 +165,33 @@ pub(crate) fn read_preview(
     let path = Path::new(&*request.path);
     let leads = leads(root);
     if may_hold_secrets(root, leads.as_deref(), path) {
-        return Some(ProjectPreviewRead::Withheld);
+        return Some(FilePreviewRead::Withheld);
     }
     if walk::holds_home(root, home) {
-        return Some(ProjectPreviewRead::Unreadable);
+        return Some(FilePreviewRead::Unreadable);
     }
     let Some((file, identity)) = open((root, leads.as_deref()), path, home, &live) else {
-        return live().then_some(ProjectPreviewRead::Unreadable);
+        return live().then_some(FilePreviewRead::Unreadable);
     };
-    let Some((bytes, first_line)) = read_around(file, request, &live) else {
-        return live().then_some(ProjectPreviewRead::Unreadable);
+    let (mut file, line, column) = (file, request.at.line(), request.at.column());
+    let offset = match request.at {
+        PreviewAt::Offset { offset, .. } => Some(offset),
+        PreviewAt::Line { line, .. } => line_offset(&mut file, line, &live),
     };
-    let hit = (request.line, request.column);
-    Some(ProjectPreviewRead::Text(Excerpt::new(
+    let Some(offset) = offset else {
+        return live().then_some(FilePreviewRead::Unreadable);
+    };
+    let place = Place {
+        offset,
+        line,
+        column,
+        rows: request.rows,
+    };
+    let Some((bytes, first_line)) = read_around(file, &place, &live) else {
+        return live().then_some(FilePreviewRead::Unreadable);
+    };
+    let hit = (line, column);
+    Some(FilePreviewRead::Text(Excerpt::new(
         &bytes, first_line, hit, identity,
     )))
 }
@@ -229,13 +250,69 @@ fn identity(_: &std::fs::Metadata) -> Option<(u64, u64)> {
     None
 }
 
-/// The lines of `file` around the request's line, from its offset, and the number of the first:
+/// Where in its file a preview reads: the offset of its line's start, the line from 1, the
+/// column on it, and the rows the preview shows.
+struct Place {
+    offset: u64,
+    line: usize,
+    column: VisitColumn,
+    rows: usize,
+}
+
+/// The offset of the start of `line`, from 1, in `file`, read from its start a part at a time,
+/// each line ending at a `\n`, as a buffer's lines do: `None` if the file is shorter, past
+/// [`SCAN_MAX`] bytes, if it cannot be read, or once `live` says the read is stale.
+fn line_offset(file: &mut File, line: usize, live: &dyn Fn() -> bool) -> Option<u64> {
+    let mut left = line.checked_sub(1)?;
+    if left == 0 {
+        return Some(0);
+    }
+    file.seek(SeekFrom::Start(0)).ok()?;
+    let mut part = vec![0; PART];
+    let mut read: u64 = 0;
+    while read < SCAN_MAX {
+        if !live() {
+            return None;
+        }
+        let wanted = usize::try_from(SCAN_MAX - read).map_or(PART, |rest| rest.min(PART));
+        let count = file.read(&mut part[..wanted]).ok()?;
+        if count == 0 {
+            return None;
+        }
+        let part = &part[..count];
+        // A whole part's breaks counted at once, which the compiler vectorizes; only the part
+        // the line starts in is walked.
+        let breaks = part.iter().filter(|&&byte| byte == b'\n').count();
+        if breaks < left {
+            left -= breaks;
+        } else {
+            let (index, _) = (part.iter().enumerate())
+                .filter(|&(_, &byte)| byte == b'\n')
+                .nth(left - 1)?;
+            return Some(read + index as u64 + 1);
+        }
+        read += count as u64;
+    }
+    None
+}
+
+/// The most bytes of a line that hold `column` of it, as each count gives a character.
+fn column_bytes(column: VisitColumn) -> usize {
+    match column {
+        VisitColumn::Chars(chars) => chars.saturating_mul(4),
+        VisitColumn::Utf8(bytes) => bytes,
+        // A unit of a character outside the Basic Multilingual Plane is two of its four bytes.
+        VisitColumn::Utf16(units) => units.saturating_mul(3),
+    }
+}
+
+/// The lines of `file` around the place's line, from its offset, and the number of the first:
 /// at most [`BACK`] bytes of whole lines before it, for about half the rows, and from it as many
 /// lines as fill the rest, within [`MAX_LINE`] in all. `None` if it cannot be read, the offset is
 /// past its end, or once `live` says the read is stale.
 fn read_around(
     mut file: File,
-    request: &ProjectPreviewRequest,
+    request: &Place,
     live: &dyn Fn() -> bool,
 ) -> Option<(Vec<u8>, usize)> {
     let before = request.rows / 2;
@@ -255,7 +332,7 @@ fn read_around(
     // than holds its match and what an excerpt keeps after it: a character is at most four
     // bytes.
     let hit_start = bytes.len();
-    let hit_most = request.column.saturating_mul(4).saturating_add(PER_ROW + 4);
+    let hit_most = column_bytes(request.column).saturating_add(PER_ROW + 4);
     let mut breaks = 0;
     let mut line_end = None;
     // Past the row's line: what was read and what is kept of the line being read.

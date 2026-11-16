@@ -510,6 +510,89 @@ fn diagnostics_are_counted_moved_to_and_said_at_point() {
     assert!(modeline.contains("lsp E1 W1  "), "{modeline}");
 }
 
+/// `M-g d` lists the project's diagnostics, the current buffer's first, then a file no buffer
+/// holds, whose row previews its place read from the file; `RET` visits it at that place.
+#[cfg(unix)]
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn diagnostics_are_listed_previewed_and_gone_to() {
+    let scratch = Scratch::new("lsp-diagnostics-list");
+    set_mode(scratch.path(), 0o700);
+    let root = project(&scratch, "proj-lsp", &["main.rs"]);
+    scratch.write(
+        "proj-lsp/src/lib.rs",
+        b"// one\n// two\npub fn unused() {}\n",
+    );
+    let main = oso_lsp::uri::from_path(&root.join("src/main.rs")).unwrap();
+    let lib = oso_lsp::uri::from_path(&root.join("src/lib.rs")).unwrap();
+    let range = |line: u32, start: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}});
+    let rules = json!([
+        {"method": "initialize", "do": [{"reply": {"capabilities": {
+            "positionEncoding": "utf-8",
+            "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+        }}}]},
+        {"method": "textDocument/didOpen", "nth": 1, "do": [
+            {"notify": {"method": "textDocument/publishDiagnostics", "params": {
+                "uri": lib,
+                "diagnostics": [
+                    {"range": range(2, 7, 13), "severity": 2, "source": "rustc", "message": "unused   function"},
+                ],
+            }}},
+            {"notify": {"method": "textDocument/publishDiagnostics", "params": {
+                "uri": main,
+                "version": 1,
+                "diagnostics": [
+                    {"range": range(0, 3, 7), "severity": 1, "message": "mismatched types"},
+                ],
+            }}},
+        ]},
+        {"method": "shutdown", "do": [{"reply": null}]},
+    ]);
+    let config = config(&scratch, &rules);
+    let record = scratch.write("conf/trusted-projects", record_line(&root).as_bytes());
+    set_mode(&record, 0o600);
+    let mut app = App::start_with_file_config_and_env(
+        &root.join("src/main.rs"),
+        scratch.path(),
+        &config,
+        &[],
+    );
+    app.wait_until_ready();
+    modeline_has(&mut app, "the counts", "proj-lsp  lsp E1  ");
+
+    app.send_keys("M-g d");
+    let state = app.wait_for("the rows", |state| {
+        state["prompts"][0]["completion"]["count"] == 2
+    });
+    let prompt = &state["prompts"][0];
+    assert_eq!(prompt["prompt"], "Diagnostics in proj-lsp:");
+    assert_eq!(
+        prompt["completion"]["rows"],
+        json!([
+            "src/main.rs:1: error: mismatched types",
+            "src/lib.rs:3: warning: unused function"
+        ])
+    );
+    assert_eq!(
+        prompt["completion"]["selected"], 0,
+        "the first at or after point"
+    );
+    assert_eq!(prompt["completion"]["preview_kind"], "buffer");
+
+    // The file no buffer holds is read for the preview, by its line.
+    app.send_keys("C-n");
+    app.wait_for("the file's excerpt", |state| {
+        state["prompts"][0]["completion"]["preview_kind"] == "excerpt"
+    });
+
+    app.send_keys("RET");
+    app.wait_for("the place in lib.rs", |state| {
+        state["buffer"]["name"] == "lib.rs"
+            && state["cursor"]["row"] == 2
+            && state["cursor"]["column"] == 7
+    });
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins() {

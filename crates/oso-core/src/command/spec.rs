@@ -160,6 +160,11 @@ pub enum ArgSpec {
     /// it, and no history (ADR 0088). The command reads the row with
     /// [`Ctx::answer`](super::Ctx::answer).
     Mark { prompt: &'static str },
+    /// A diagnostic of the current buffer's project, read in a prompt that says `prompt` and
+    /// the project's name, over the rows the host builds from what its servers reported, with
+    /// the preview of each row's place, and no history (ADR 0138). The command takes the row
+    /// with [`Editor::take_diagnostic_hit`](crate::editor::Editor::take_diagnostic_hit).
+    Diagnostics { prompt: &'static str },
     /// The key that ran it, read with [`Ctx::input`](super::Ctx::input) or [`Ctx::key_char`](super::Ctx::key_char), and a numeric
     /// prefix argument as with `Count`. `M-x` does not list it, as no key runs it there
     /// (ADR 0076).

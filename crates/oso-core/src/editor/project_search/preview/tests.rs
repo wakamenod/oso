@@ -1,16 +1,17 @@
-//! Tests of a project search's preview (ADR 0114): an excerpt's bounds, a read asked for once
-//! per row and dropped once stale, an open buffer shown from memory, and never a secret file.
+//! Tests of a project search's preview (ADR 0114): a read asked for once per row and dropped
+//! once stale, an open buffer shown from memory, and never a secret file.
 //!
 //! Must not depend on: threads or the file system.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
-use super::{EXCERPT_LINE, EXCERPT_LINES, Excerpt, ProjectPreviewRead};
 use crate::buffer::{Baseline, Buffer, FileStamp};
 use crate::display_map::TabWidth;
 use crate::editor::edit_tests::edit;
-use crate::editor::{Editor, MatchCells, Preview, ProjectSearchRow};
+use crate::editor::{
+    Editor, Excerpt, FilePreviewRead, MatchCells, Preview, PreviewAt, ProjectSearchRow, VisitColumn,
+};
 use crate::frame::FrameSize;
 use crate::load::decode_all;
 use crate::window::Screen;
@@ -63,53 +64,20 @@ fn visiting(path: &str, text: &str, identity: Option<(u64, u64)>) -> Buffer {
     buffer
 }
 
-fn excerpt_text(excerpt: &Excerpt) -> String {
-    excerpt.text.to_string()
-}
-
-#[test]
-fn an_excerpt_keeps_its_lines_cut_and_the_rows_line_around_its_match() {
-    let long = "x".repeat(EXCERPT_LINE + 100);
-    let far = format!("{}needle tail", "y".repeat(3 * EXCERPT_LINE));
-    let mut bytes = format!("before\r\n{long}\n{far}\nafter").into_bytes();
-    // An invalid byte in the last line.
-    bytes.extend_from_slice(b"\xff\n");
-    let excerpt = Excerpt::new(&bytes, 10, (12, 3 * EXCERPT_LINE), Some((1, 2)));
-    let text = excerpt_text(&excerpt);
-    let lines: Vec<&str> = text.split('\n').collect();
-    assert_eq!(lines.len(), 4);
-    assert_eq!(lines[0], "before", "the \\r before the break goes");
-    assert_eq!(lines[1], format!("{}…", "x".repeat(EXCERPT_LINE)));
-    assert!(lines[2].starts_with('…') && lines[2].len() <= EXCERPT_LINE + 6);
-    assert!(text[excerpt.cursor..].starts_with("needle tail"));
-    assert_eq!(lines[3], "after\u{fffd}");
-    assert_eq!(excerpt.identity, Some((1, 2)));
-    let debug = format!("{excerpt:?}");
-    assert!(!debug.contains("needle") && !debug.contains("before"));
-}
-
-#[test]
-fn an_excerpt_counts_columns_as_a_row_does_and_keeps_at_most_its_lines() {
-    // Each invalid byte is one column, as a row counts it.
-    let excerpt = Excerpt::new(b"a\xff\xffb needle\n", 1, (1, 5), None);
-    let text = excerpt_text(&excerpt);
-    assert!(text[excerpt.cursor..].starts_with("needle"), "{text:?}");
-    let many = "line\n".repeat(EXCERPT_LINES * 2);
-    let excerpt = Excerpt::new(many.as_bytes(), 1, (EXCERPT_LINES + 5, 0), None);
-    assert_eq!(excerpt.text.line_count(), EXCERPT_LINES);
-    // A line past what was kept puts the cursor at the end.
-    assert_eq!(excerpt.cursor, excerpt.text.len());
-}
-
 #[test]
 fn a_read_is_asked_for_once_per_row_and_a_stale_one_is_dropped() {
     let mut editor = searching(vec![row("a.rs", 3, 40), row("b.rs", 9, 120)]);
     let request = editor
         .take_preview_request()
         .expect("a read for the first row");
+    assert_eq!(&*request.path, "a.rs");
     assert_eq!(
-        (&*request.path, request.line, request.offset, request.column),
-        ("a.rs", 3, 40, 4)
+        request.at,
+        PreviewAt::Offset {
+            offset: 40,
+            line: 3,
+            column: 4
+        }
     );
     assert_eq!(request.root, Path::new("/w/oso"));
     assert!(request.rows > 0);
@@ -126,11 +94,11 @@ fn a_read_is_asked_for_once_per_row_and_a_stale_one_is_dropped() {
         request.generation,
         "a newer selection stops the read"
     );
-    let excerpt = Excerpt::new(b"one needle\n", 9, (9, 4), None);
-    editor.preview_read(request.generation, ProjectPreviewRead::Text(excerpt));
+    let excerpt = Excerpt::new(b"one needle\n", 9, (9, VisitColumn::Chars(4)), None);
+    editor.preview_read(request.generation, FilePreviewRead::Text(excerpt));
     assert_eq!(editor.preview(), None, "the stale read is dropped");
-    let excerpt = Excerpt::new(b"one needle\n", 9, (9, 4), None);
-    editor.preview_read(second.generation, ProjectPreviewRead::Text(excerpt));
+    let excerpt = Excerpt::new(b"one needle\n", 9, (9, VisitColumn::Chars(4)), None);
+    editor.preview_read(second.generation, FilePreviewRead::Text(excerpt));
     let Some(Preview::Excerpt { cursor, .. }) = editor.preview() else {
         panic!("the excerpt shows");
     };
@@ -189,7 +157,7 @@ fn a_secret_row_is_never_read_or_shown() {
     // A file the host found may hold secrets as it read it says so too.
     editor.move_completion(1).unwrap();
     let request = editor.take_preview_request().unwrap();
-    editor.preview_read(request.generation, ProjectPreviewRead::Withheld);
+    editor.preview_read(request.generation, FilePreviewRead::Withheld);
     assert_eq!(editor.preview(), Some(Preview::Withheld));
     assert!(editor.preview_excerpt_display().is_none());
 }
@@ -198,7 +166,7 @@ fn a_secret_row_is_never_read_or_shown() {
 fn an_unreadable_file_shows_nothing() {
     let mut editor = searching(vec![row("a.rs", 1, 0)]);
     let request = editor.take_preview_request().unwrap();
-    editor.preview_read(request.generation, ProjectPreviewRead::Unreadable);
+    editor.preview_read(request.generation, FilePreviewRead::Unreadable);
     assert_eq!(editor.preview(), None);
     let mut screen = Screen::default();
     editor.preview_screen(&mut screen);
@@ -254,8 +222,13 @@ fn a_buffer_the_agent_channel_is_still_opening_is_not_previewed() {
     editor.add_buffer(by_identity);
     // The file is read as if no buffer had it, and the read shows.
     let request = editor.take_preview_request().expect("a read");
-    let excerpt = Excerpt::new(b"first\none needle\n", 1, (2, 4), Some((1, 2)));
-    editor.preview_read(request.generation, ProjectPreviewRead::Text(excerpt));
+    let excerpt = Excerpt::new(
+        b"first\none needle\n",
+        1,
+        (2, VisitColumn::Chars(4)),
+        Some((1, 2)),
+    );
+    editor.preview_read(request.generation, FilePreviewRead::Text(excerpt));
     assert!(matches!(editor.preview(), Some(Preview::Excerpt { .. })));
 }
 
@@ -264,8 +237,8 @@ fn an_open_buffer_of_the_same_file_by_its_identity_replaces_the_excerpt() {
     let mut editor = searching(vec![row("a.rs", 1, 0)]);
     let request = editor.take_preview_request().unwrap();
     let id = editor.add_buffer(visiting("/elsewhere/a.rs", "one needle\n", Some((7, 8))));
-    let excerpt = Excerpt::new(b"one needle\n", 1, (1, 4), Some((7, 8)));
-    editor.preview_read(request.generation, ProjectPreviewRead::Text(excerpt));
+    let excerpt = Excerpt::new(b"one needle\n", 1, (1, VisitColumn::Chars(4)), Some((7, 8)));
+    editor.preview_read(request.generation, FilePreviewRead::Text(excerpt));
     assert_eq!(
         editor.preview(),
         Some(Preview::Buffer {
@@ -295,8 +268,8 @@ fn a_match_past_the_previews_width_scrolls_it_into_view() {
         ..row("a.rs", 1, 0)
     }]);
     let request = editor.take_preview_request().unwrap();
-    let excerpt = Excerpt::new(line.as_bytes(), 1, (1, column), None);
-    editor.preview_read(request.generation, ProjectPreviewRead::Text(excerpt));
+    let excerpt = Excerpt::new(line.as_bytes(), 1, (1, VisitColumn::Chars(column)), None);
+    editor.preview_read(request.generation, FilePreviewRead::Text(excerpt));
     let mut screen = Screen::default();
     editor.preview_screen(&mut screen);
     let mut cells = MatchCells::default();
@@ -311,8 +284,8 @@ fn an_excerpt_of_a_file_open_in_a_buffer_that_may_hold_secrets_is_withheld() {
     let mut buffer = visiting("/elsewhere/.env", "one needle\n", Some((7, 8)));
     buffer.treat_as_secret();
     editor.add_buffer(buffer);
-    let excerpt = Excerpt::new(b"one needle\n", 1, (1, 4), Some((7, 8)));
-    editor.preview_read(request.generation, ProjectPreviewRead::Text(excerpt));
+    let excerpt = Excerpt::new(b"one needle\n", 1, (1, VisitColumn::Chars(4)), Some((7, 8)));
+    editor.preview_read(request.generation, FilePreviewRead::Text(excerpt));
     assert_eq!(editor.preview(), Some(Preview::Withheld));
     assert!(
         editor.read_excerpt().is_none(),

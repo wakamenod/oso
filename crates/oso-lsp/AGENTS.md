@@ -9,7 +9,10 @@ server knows (`server/documents.rs`, with `session/sync.rs`): a whole text never
 half the writer's queue, and a document with a lone carriage return or over the bound is kept
 from the server. Step 6 added diagnostics: reading `publishDiagnostics` (`protocol/published.rs`),
 the reports a session keeps (`server/diagnosed.rs`), and the texts each document keeps to place a
-late report against the version it names and map it forward (`server/documents.rs`).
+late report against the version it names and map it forward (`server/documents.rs`). Step 6b
+hands the UI the kept report of each file no open document holds (`Diagnosed::File`, shared),
+with an empty one for each the store lets go, for a file once its document opens, and
+`Diagnosed::Forgotten` at a run's end; the outbox keeps the latest of each document and file.
 
 - May depend on `oso-core` and `oso-platform` only; only the tip crate depends on it. Module
   layers are in `guardrails/layers.txt` (`[oso-lsp]`). No new dependency: JSON is

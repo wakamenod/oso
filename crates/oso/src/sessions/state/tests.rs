@@ -55,6 +55,35 @@ fn a_session_starts_idle_and_only_a_dialog_moves_it_in_its_grace_period() {
     );
 }
 
+/// A session that starts idle and stays so, as one carried over a restart at its prompt does,
+/// is told idle once its grace is over: nothing else would say it was judged.
+#[test]
+fn an_idle_start_is_told_once_its_grace_is_over_and_a_hold_tells_nothing() {
+    let start = Instant::now();
+    let mut tracker = Tracker::new(start);
+    assert_eq!(tracker.verdict(IDLE, start + ms(500)), None, "in grace");
+    assert_eq!(tracker.due(), Some(start + GRACE));
+    let change = tracker.verdict(IDLE, start + GRACE).unwrap();
+    assert_eq!(change.state, State::Idle);
+    assert_eq!(change.since, start, "idle since the start");
+    assert!(!change.turn_ended, "a start is no turn");
+    assert_eq!(tracker.due(), None);
+    assert_eq!(
+        tracker.verdict(SIGN, start + GRACE + ms(100)),
+        None,
+        "told once"
+    );
+
+    // A full-screen view holds a state not known yet: still nothing told.
+    let mut held = Tracker::new(start);
+    assert_eq!(held.verdict(Target::Hold, start + GRACE), None);
+    assert_eq!(state(held.verdict(SIGN, start + GRACE)), Some(State::Idle));
+
+    // A start that went to work first tells that, and idle later only as a change.
+    let (mut worked, at) = working(start);
+    assert_eq!(state(worked.verdict(SIGN, at + ms(10))), Some(State::Done));
+}
+
 #[test]
 fn a_visible_idle_sign_ends_a_turn_at_once() {
     let start = Instant::now();

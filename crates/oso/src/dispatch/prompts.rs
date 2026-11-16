@@ -244,6 +244,7 @@ impl Dispatcher {
             }
             Some(
                 spec @ (ArgSpec::Mark { .. }
+                | ArgSpec::Diagnostics { .. }
                 | ArgSpec::File { .. }
                 | ArgSpec::Directory { .. }
                 | ArgSpec::Target { .. }

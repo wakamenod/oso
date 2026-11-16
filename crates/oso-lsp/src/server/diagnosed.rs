@@ -35,11 +35,17 @@ fn cost(path: &Path, report: &Published) -> usize {
 impl Store {
     /// Keeps `report`, for the file at `path`, in place of its last; an empty one forgets it.
     /// Past a bound, reports of documents `open` does not say are open go first, oldest first,
-    /// in one pass over the order, then the oldest of any; the new one stays.
-    pub(super) fn put(&mut self, path: PathBuf, report: Published, open: impl Fn(&Path) -> bool) {
+    /// in one pass over the order, then the oldest of any; the new one stays. Gives the paths
+    /// whose reports went, so that the UI lets them go too.
+    pub(super) fn put(
+        &mut self,
+        path: PathBuf,
+        report: Published,
+        open: impl Fn(&Path) -> bool,
+    ) -> Vec<PathBuf> {
         self.forget(&path);
         if report.diagnostics.is_empty() {
-            return;
+            return Vec::new();
         }
         let seq = self.next;
         self.next += 1;
@@ -68,9 +74,10 @@ impl Store {
                 }
             }
         }
-        for path in victims {
-            self.forget(&path);
+        for path in &victims {
+            self.forget(path);
         }
+        victims
     }
 
     /// The report kept for the file at `path`, if any, shared.

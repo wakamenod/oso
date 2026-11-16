@@ -192,7 +192,7 @@ fn a_report_for_a_document_not_open_or_a_version_never_sent_is_not_placed() {
         documents.diagnose(&path(), &report(None, &[X]), "fake", Encoding::Utf8),
         Diagnose::NotOpen
     ));
-    assert!(documents.has_path(&path()));
+    assert!(documents.paths().contains(path().as_path()));
     documents.open_all();
     while documents.next_whole().is_some() {}
     assert_eq!(documents.take_opened(), [path()]);
