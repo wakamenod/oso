@@ -5,13 +5,14 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use oso_platform::control::{ControlDir, ControlStream, Socket};
 use serde_json::{Value, json};
 
+use super::limits::Waiting;
 use super::{Connection, Event, REFUSED_BY_THE_PERSON, Request, Shared, spawn};
 use crate::channel::protocol::{Op, PROTOCOL_VERSION};
 use crate::channel::wire::{request, response_result};
@@ -26,6 +27,13 @@ struct Running {
 
 impl Running {
     fn new() -> Self {
+        Self::with(|_, _| true)
+    }
+
+    /// As [`Running::new`], with `hook` shown each request and the channel's state as it is
+    /// sent, before the UI gets it; one it answers `false` for never reaches the UI, as when the
+    /// editor shuts down.
+    fn with(hook: impl Fn(&Request, &Shared) -> bool + Clone + Send + 'static) -> Self {
         // Each test runs on a thread of its own. Short: socket paths are limited to about
         // 100 bytes.
         let thread = format!("{:?}", std::thread::current().id());
@@ -36,8 +44,9 @@ impl Running {
         let listener = dir.listen(Socket::Agent).unwrap();
         let shared = Arc::new(Shared::new(7));
         let (sent, events) = mpsc::channel();
+        let seen = Arc::clone(&shared);
         spawn(listener, Arc::clone(&shared), move |request| {
-            sent.send(request).is_ok()
+            hook(&request, &seen) && sent.send(request).is_ok()
         })
         .unwrap();
         Self {
@@ -273,6 +282,66 @@ fn a_client_that_leaves_while_it_waits_locks_no_one_out() {
     next.send("version", None);
     running.answer(true);
     assert_eq!(next.reply().unwrap()["protocol"], PROTOCOL_VERSION);
+}
+
+#[test]
+fn the_turn_to_ask_is_back_when_the_ui_hears_a_client_went() {
+    let (seen, open) = mpsc::channel();
+    let running = Running::with(move |request, shared| {
+        if matches!(request.event, Event::Gone) {
+            let _ = seen.send(Waiting::take(shared, Instant::now()).is_ok());
+        }
+        true
+    });
+    let mut client = running.connect();
+    client.send("version", None);
+    let asking = running.next();
+    drop(client);
+    assert!(matches!(running.next().event, Event::Gone));
+    // Checked as the UI is told, so the order is pinned, not raced.
+    let open = open.recv_timeout(Duration::from_secs(5));
+    assert_eq!(
+        open,
+        Ok(true),
+        "an agent connecting now is told another waits"
+    );
+    drop(asking);
+}
+
+#[test]
+fn a_question_the_editor_cannot_take_locks_no_one_out() {
+    let first = Arc::new(AtomicBool::new(true));
+    let running = Running::with(move |request, _| {
+        !(matches!(request.event, Event::Asks(_)) && first.swap(false, Ordering::AcqRel))
+    });
+    let mut client = running.connect();
+    client.send("version", None);
+    assert!(client.reply().unwrap_err().contains("shutting down"));
+    let mut next = running.connect();
+    next.send("version", None);
+    running.answer(true);
+    assert_eq!(next.reply().unwrap()["protocol"], PROTOCOL_VERSION);
+}
+
+#[test]
+fn the_turn_to_ask_is_one_at_a_time_and_given_back_however_it_ends() {
+    let shared = Shared::new(7);
+    let now = Instant::now();
+    let turn = Waiting::take(&shared, now).unwrap();
+    assert!(Waiting::take(&shared, now).is_err(), "one waits at a time");
+    drop(turn);
+    Waiting::take(&shared, now).unwrap().answered(false);
+    // A thread that panics while it holds the turn gives it back.
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _turn = Waiting::take(&shared, now).unwrap();
+        panic!("a client's thread fails");
+    }));
+    assert!(panicked.is_err());
+    Waiting::take(&shared, now).unwrap().answered(true);
+    let held_off = Waiting::take(&shared, Instant::now())
+        .err()
+        .unwrap_or_default();
+    assert!(held_off.contains("refused"), "{held_off}");
 }
 
 #[test]
