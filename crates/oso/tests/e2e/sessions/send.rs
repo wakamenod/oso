@@ -420,7 +420,7 @@ fn c_c_c_y_pastes_a_reference_to_the_clipboard_s_image_kept_in_a_private_file() 
     assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
 
     // Archived, the session's images go.
-    app.send_keys("C-c A");
+    app.send_keys("C-c a A");
     let directory = path.parent().unwrap().to_path_buf();
     let deadline = Instant::now() + Duration::from_secs(10);
     while directory.exists() {
