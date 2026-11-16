@@ -8,12 +8,14 @@
 //! session thread sends and receives them.
 
 mod completion;
+mod hover;
 mod located;
 mod published;
 #[cfg(test)]
 mod tests;
 
 pub use completion::{CompletionList, Offered, completed, completion_params, kind_name, plain};
+pub use hover::{Hover, hover};
 pub use located::{Located, located, position_params, references_params};
 pub use published::{Published, Reported, published};
 use serde_json::{Map, Value, json};
@@ -213,6 +215,7 @@ pub fn initialize_params(start: &Initialize<'_>) -> Value {
                     "completionItem": {"snippetSupport": false, "insertReplaceSupport": true},
                     "contextSupport": true,
                 },
+                "hover": {"contentFormat": ["markdown", "plaintext"]},
             },
         },
     });
