@@ -4,7 +4,8 @@
 //! The bridge is let in unasked as that session's. `session_list` and `session_state` read the
 //! hosted sessions, `start_worktree_session` asks the person and starts a session in a new
 //! worktree on `y`, `n` refuses it and the same call for a minute after, and `worktree_remove`
-//! removes a finished worktree with no question and keeps its branch. With
+//! removes a finished worktree with no question and keeps its branch, also one whose session,
+//! idle at its prompt, was carried over a restart and judged idle there. With
 //! `[sessions] agents_start_without_asking`, the start asks nothing up to the limit, says so and
 //! marks the row, asks past the limit, asks again after `agent-starts-ask`, and asks for a
 //! `session_start` once the person no longer trusts the project (ADR 0135).
@@ -335,6 +336,80 @@ fn an_allowed_worktree_session_starts_and_its_finished_worktree_is_removed() {
     let echo = state["echo"].as_str().unwrap_or_default();
     assert!(echo.starts_with("Session repo removed worktree "), "{echo}");
     flow.exit_with(0);
+}
+
+/// A worktree session idle at its prompt, carried over a restart, is judged idle in the new
+/// instance though its screen never changes, and so its finished worktree is removed: unjudged,
+/// it stayed busy, and every removal was refused.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_idle_session_carried_over_a_restart_is_judged_and_its_worktree_removed() {
+    let flow = Flow::with_fake("session-tools-carried-idle", "", FAKE);
+    let (mut old, mut bridge) = hosted(&flow);
+    let place = flow.repo.join(".claude/worktrees/e2e-idle");
+    let id = bridge.call(
+        "start_worktree_session",
+        json!({ "branch": "e2e-idle", "brief": "Fix the parser" }),
+    );
+    answer(&mut old, "y");
+    let (started, error) = bridge.result(id);
+    assert!(!error, "{started}");
+    let run = run_in(&flow, &place);
+    old.wait_for("the worktree session's terminal", |state| {
+        terminal(state, "*claude: e2e-idle*").is_some()
+    });
+    registered_idle(&flow, &run, &place);
+    // Its work is merged into main and pushed; the session stays at its prompt.
+    fs::write(place.join("work.txt"), "work\n").unwrap();
+    flow.git(&place, &["add", "work.txt"]);
+    flow.git(&place, &["commit", "-q", "--no-gpg-sign", "-m", "work"]);
+    flow.git(&flow.repo, &["merge", "-q", "--ff-only", "e2e-idle"]);
+    flow.git(&flow.repo, &["push", "-q", "origin", "main"]);
+
+    let mut new = flow.start_for_restart();
+    crate::terminal::restart::hand_over(&mut old, &mut new);
+    new.wait_for("the carried session", |state| {
+        terminal(state, "*claude: e2e-idle*").is_some_and(|terminal| terminal["running"] == true)
+    });
+    // The bridge connects again, to the new instance, on its next call.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let (state, error) = bridge.tool("session_state", json!({ "session": "e2e-idle" }));
+        if !error && state["state"] == "idle" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "not judged idle: {state}");
+        thread::sleep(Duration::from_millis(200));
+    }
+    let path = place.display().to_string();
+    let (removed, error) = bridge.tool("worktree_remove", json!({ "path": path }));
+    assert!(!error, "{removed}");
+    assert!(!place.exists(), "the worktree is still there");
+    flow.exit_with(0);
+}
+
+/// Has Claude Code's registry, under the flow's home, say `run` is idle in `cwd`, as a
+/// `claude` at its prompt does: the other half of a removal's check that it is not busy.
+fn registered_idle(flow: &Flow, run: &Run, cwd: &Path) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
+    let registry = flow.home.join(".claude").join("sessions");
+    fs::create_dir_all(&registry).unwrap();
+    let entry = json!({
+        "pid": run.pid.parse::<u32>().unwrap(),
+        "cwd": cwd,
+        "startedAt": now,
+        "kind": "interactive",
+        "status": "idle",
+        "statusUpdatedAt": now,
+    });
+    fs::write(
+        registry.join(format!("{}.json", run.pid)),
+        entry.to_string(),
+    )
+    .unwrap();
 }
 
 #[test]

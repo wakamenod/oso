@@ -154,6 +154,18 @@ impl Flow {
         app
     }
 
+    /// Starts another instance in the repository with nothing opened, as a restart's new
+    /// instance must be to take the state.
+    pub(super) fn start_for_restart(&self) -> App {
+        let mut app = App::start_with_config_and_env(
+            &self.repo,
+            &self.config,
+            &[("HOME", self.home.as_os_str())],
+        );
+        app.wait_until_ready();
+        app
+    }
+
     /// Runs git in `dir` with `args`, which must succeed, with a fixed identity and kept from
     /// the person's configuration and hooks. Returns what it printed.
     pub(super) fn git(&self, dir: &Path, args: &[&str]) -> String {
