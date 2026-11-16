@@ -3,7 +3,8 @@
 //! step 1c, reading the record of what discards kept and writing a copy back; from step 2,
 //! pushes, pulls and fetches (`remotes`), and planning where a push goes; from step 3a,
 //! continuing, skipping and aborting what is stopped (`sequence`); from step 3b, stashing
-//! (`stash`) and branches (`branch`).
+//! (`stash`) and branches (`branch`); from step 4b, a graph's tags, cherry-picks and reverts
+//! (`graph`).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
 //! takes reports out, and supplies the wake-up.
@@ -43,6 +44,7 @@ use super::remote::Push;
 use crate::git::{Ender, Git, MAX_SHORT, TrustedRoot, os_path, trim_line};
 
 mod branch;
+mod graph;
 mod remotes;
 mod sequence;
 mod stash;
@@ -94,6 +96,12 @@ pub(crate) enum RunRequest {
     /// Check out, create, rename or delete a branch, as `run` says, with the names `pass`
     /// passes on to the hooks (step 3b).
     Branch { run: BranchRun, pass: Vec<String> },
+    /// Make a tag, cherry-pick or revert from a graph, as `run` says, with the names `pass`
+    /// passes on to the hooks (step 4b).
+    Graph {
+        run: super::graph::GraphRun,
+        pass: Vec<String>,
+    },
 }
 
 /// What a remote's request asks for, with the names `pass` passes on to the hooks of a run.
@@ -297,6 +305,10 @@ fn serve(
             }
             (Ok(git), RunRequest::Branch { run, pass }) => {
                 let end = branch::run(&git, &run, &pass, watch, &mut send);
+                vec![ended(watch, end)]
+            }
+            (Ok(git), RunRequest::Graph { run, pass }) => {
+                let end = graph::run(&git, &run, &pass, watch, &mut send);
                 vec![ended(watch, end)]
             }
             (Ok(git), RunRequest::Remote(request)) => {

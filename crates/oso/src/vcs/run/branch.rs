@@ -8,12 +8,15 @@
 //!   (`post-checkout`, the reference transaction's), as a commit does.
 //! - A forced delete is refused if the branch moved since its question, which named what it
 //!   would drop then.
+//! - What moves `HEAD` (a checkout, a branch made to check out, a graph's detached checkout) is
+//!   refused while something is stopped, judged here just before git runs (step 4b).
 
 use std::ffi::OsStr;
 
 use super::super::branch::{self, BranchRead, BranchRun, Branches, DeletePlan};
 use super::super::remote::check_branch;
 use super::remotes::{MAX_LISTED, current_branch, dropped, tip_of};
+use super::sequence::refused_while_stopped;
 use super::stream::{ended_as, stream};
 use super::{RunEnd, RunReport, Watch};
 use crate::git::{Git, MAX_SHORT, for_git};
@@ -55,6 +58,9 @@ pub(super) fn run(
 /// git's arguments for `run`, once its names pass and a forced delete's branch is where its
 /// question saw it.
 fn words(git: &Git, run: &BranchRun) -> Result<Vec<String>, String> {
+    if run.checks_out() {
+        refused_while_stopped(git)?;
+    }
     match run {
         BranchRun::Checkout { name, remote } => {
             check_branch(name)?;
@@ -74,6 +80,10 @@ fn words(git: &Git, run: &BranchRun) -> Result<Vec<String>, String> {
             check_branch(new)?;
             Ok(branch::rename_args(old, new))
         }
+        BranchRun::Detach { id } => {
+            check_id(id)?;
+            Ok(branch::detach_args(id))
+        }
         BranchRun::Delete { name, tip } => {
             check_branch(name)?;
             let now = tip_of(git, &format!("refs/heads/{name}"));
@@ -83,6 +93,13 @@ fn words(git: &Git, run: &BranchRun) -> Result<Vec<String>, String> {
             Ok(branch::delete_args(name, tip.is_some()))
         }
     }
+}
+
+/// Refuses an id that is not a whole commit id, as a graph's line gives one.
+pub(super) fn check_id(id: &str) -> Result<(), String> {
+    let hex = matches!(id.len(), 40 | 64) && id.bytes().all(|b| b.is_ascii_hexdigit());
+    hex.then_some(())
+        .ok_or_else(|| "Not a commit's id".to_owned())
 }
 
 /// The local and remote branches, at most [`MAX_LISTED`] each, and the one checked out. git

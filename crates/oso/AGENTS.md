@@ -69,7 +69,9 @@ often, so it must rebuild within 2 s.
   (`registry`) and oso's record (`record`) are read off the UI thread, and a bridge's claim is
   judged by one pure function (`bridge`). `session-adopt` reads Claude Code's transcripts
   (`transcripts`) only for ids, names, times and directories, on its own
-  `oso-session-adopt-list` thread (`adopt`). The clipboard's images a session is given
+  `oso-session-adopt-list` thread (`adopt`). `session-search` alone reads what was said in
+  them, prompts and replies only, held in memory on `oso-history` (`history`, ADR 0145); no
+  agent gets it, and none of it is logged. The clipboard's images a session is given
   (`images`, ADR 0142) are written, converted by `sips` and removed on one `oso-images` thread,
   never the worker's. `app/sessions.rs` and `app/sessions/` carry out what the worker, the jobs
   and the start thread find.
@@ -110,7 +112,8 @@ often, so it must rebuild within 2 s.
   `run/branch`), with `app/vcs/stash.rs`, `app/vcs/branch.rs`, `commands::vcs::stash` and
   `commands::vcs::branch` (step 3b). The graph is `graph`'s: its records, `graph/lanes`, the
   text `graph/write` and its thread `graph/work`, `oso-vcs-graph`, with `app/vcs/graph.rs` and
-  `commands::vcs::graph` (step 4). Its keys are listed in `commands::vcs::KEYS` and
+  `commands::vcs::graph` (step 4); what its keys do with a commit is `app/vcs/graph/acts.rs`,
+  run on the run thread (`run/graph`) (step 4b). Its keys are listed in `commands::vcs::KEYS` and
   `commands::vcs::commit`, the commit menu is built in, and `bindings/vcs.rs` binds them;
   `app/vcs.rs` carries out what its commands ask, with `app/vcs/status.rs` (the status's own
   requests), `app/vcs/commit.rs` (messages) and `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,

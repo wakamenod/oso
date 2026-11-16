@@ -388,6 +388,8 @@ pub oso_core::command::ArgSpec::Buffer::purpose: oso_core::command::BufferPurpos
 pub oso_core::command::ArgSpec::Command
 pub oso_core::command::ArgSpec::Command::history: &'static str
 pub oso_core::command::ArgSpec::Command::prompt: &'static str
+pub oso_core::command::ArgSpec::ConversationSearch
+pub oso_core::command::ArgSpec::ConversationSearch::history: &'static str
 pub oso_core::command::ArgSpec::Count
 pub oso_core::command::ArgSpec::CountAndClipboard
 pub oso_core::command::ArgSpec::Diagnostics
@@ -1503,6 +1505,9 @@ pub oso_core::editor::GitRequest::GraphAct
 pub oso_core::editor::GitRequest::GraphAct::act: oso_core::editor::GraphAct
 pub oso_core::editor::GitRequest::GraphAct::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::GraphAct::line: usize
+pub oso_core::editor::GitRequest::GraphAnswer
+pub oso_core::editor::GitRequest::GraphAnswer::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::GraphAnswer::text: alloc::string::String
 pub oso_core::editor::GitRequest::GraphToggle
 pub oso_core::editor::GitRequest::GraphToggle::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Pull
@@ -1559,9 +1564,17 @@ impl core::fmt::Debug for oso_core::editor::GitRequest
 pub fn oso_core::editor::GitRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::GitRequest
 pub enum oso_core::editor::GraphAct
+pub oso_core::editor::GraphAct::Branch
+pub oso_core::editor::GraphAct::Checkout
+pub oso_core::editor::GraphAct::CherryPick
+pub oso_core::editor::GraphAct::Confirmed
 pub oso_core::editor::GraphAct::CopyId
+pub oso_core::editor::GraphAct::Mark
 pub oso_core::editor::GraphAct::Refresh
+pub oso_core::editor::GraphAct::Revert
 pub oso_core::editor::GraphAct::Review
+pub oso_core::editor::GraphAct::Tag
+pub oso_core::editor::GraphAct::Tag::annotated: bool
 impl core::clone::Clone for oso_core::editor::GraphAct
 pub fn oso_core::editor::GraphAct::clone(&self) -> oso_core::editor::GraphAct
 impl core::cmp::Eq for oso_core::editor::GraphAct
@@ -2082,6 +2095,9 @@ pub oso_core::editor::SessionRequest::Explain(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::ExplainFile(std::path::PathBuf)
 pub oso_core::editor::SessionRequest::FollowMessage(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Fork(oso_core::buffer::BufferId)
+pub oso_core::editor::SessionRequest::GoToConversation
+pub oso_core::editor::SessionRequest::GoToConversation::message: usize
+pub oso_core::editor::SessionRequest::GoToConversation::session: alloc::string::String
 pub oso_core::editor::SessionRequest::NextDone
 pub oso_core::editor::SessionRequest::NextWaiting
 pub oso_core::editor::SessionRequest::OnBuffer(oso_core::buffer::BufferId, oso_core::editor::RowAction)
@@ -2369,6 +2385,66 @@ impl core::fmt::Debug for oso_core::editor::CompletionTyped
 pub fn oso_core::editor::CompletionTyped::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::CompletionTyped
 impl core::marker::StructuralPartialEq for oso_core::editor::CompletionTyped
+pub struct oso_core::editor::ConversationHit
+pub oso_core::editor::ConversationHit::message: usize
+pub oso_core::editor::ConversationHit::session: alloc::boxed::Box<str>
+impl core::clone::Clone for oso_core::editor::ConversationHit
+pub fn oso_core::editor::ConversationHit::clone(&self) -> oso_core::editor::ConversationHit
+impl core::cmp::Eq for oso_core::editor::ConversationHit
+impl core::cmp::PartialEq for oso_core::editor::ConversationHit
+pub fn oso_core::editor::ConversationHit::eq(&self, &oso_core::editor::ConversationHit) -> bool
+impl core::fmt::Debug for oso_core::editor::ConversationHit
+pub fn oso_core::editor::ConversationHit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::ConversationHit
+pub struct oso_core::editor::ConversationPreviewRequest
+pub oso_core::editor::ConversationPreviewRequest::column: usize
+pub oso_core::editor::ConversationPreviewRequest::columns: usize
+pub oso_core::editor::ConversationPreviewRequest::generation: u64
+pub oso_core::editor::ConversationPreviewRequest::line: usize
+pub oso_core::editor::ConversationPreviewRequest::live: alloc::sync::Arc<core::sync::atomic::AtomicU64>
+pub oso_core::editor::ConversationPreviewRequest::message: usize
+pub oso_core::editor::ConversationPreviewRequest::rows: usize
+pub oso_core::editor::ConversationPreviewRequest::session: alloc::boxed::Box<str>
+impl core::clone::Clone for oso_core::editor::ConversationPreviewRequest
+pub fn oso_core::editor::ConversationPreviewRequest::clone(&self) -> oso_core::editor::ConversationPreviewRequest
+impl core::fmt::Debug for oso_core::editor::ConversationPreviewRequest
+pub fn oso_core::editor::ConversationPreviewRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::ConversationRow
+pub oso_core::editor::ConversationRow::column: usize
+pub oso_core::editor::ConversationRow::label: alloc::boxed::Box<str>
+pub oso_core::editor::ConversationRow::line: usize
+pub oso_core::editor::ConversationRow::message: usize
+pub oso_core::editor::ConversationRow::session: alloc::boxed::Box<str>
+pub oso_core::editor::ConversationRow::text: alloc::boxed::Box<str>
+impl core::clone::Clone for oso_core::editor::ConversationRow
+pub fn oso_core::editor::ConversationRow::clone(&self) -> oso_core::editor::ConversationRow
+impl core::fmt::Debug for oso_core::editor::ConversationRow
+pub fn oso_core::editor::ConversationRow::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::ConversationScope
+pub oso_core::editor::ConversationScope::label: alloc::string::String
+impl oso_core::editor::ConversationScope
+pub fn oso_core::editor::ConversationScope::all() -> Self
+pub fn oso_core::editor::ConversationScope::holds(&self, &str, &[std::path::PathBuf]) -> bool
+pub fn oso_core::editor::ConversationScope::within(alloc::string::String, alloc::vec::Vec<std::path::PathBuf>, alloc::vec::Vec<alloc::boxed::Box<str>>) -> Self
+impl core::clone::Clone for oso_core::editor::ConversationScope
+pub fn oso_core::editor::ConversationScope::clone(&self) -> oso_core::editor::ConversationScope
+impl core::cmp::Eq for oso_core::editor::ConversationScope
+impl core::cmp::PartialEq for oso_core::editor::ConversationScope
+pub fn oso_core::editor::ConversationScope::eq(&self, &oso_core::editor::ConversationScope) -> bool
+impl core::default::Default for oso_core::editor::ConversationScope
+pub fn oso_core::editor::ConversationScope::default() -> oso_core::editor::ConversationScope
+impl core::fmt::Debug for oso_core::editor::ConversationScope
+pub fn oso_core::editor::ConversationScope::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::ConversationScope
+pub struct oso_core::editor::ConversationSearchRequest
+pub oso_core::editor::ConversationSearchRequest::generation: u64
+pub oso_core::editor::ConversationSearchRequest::live: alloc::sync::Arc<core::sync::atomic::AtomicU64>
+pub oso_core::editor::ConversationSearchRequest::query: alloc::sync::Arc<oso_core::project::LineQuery>
+pub oso_core::editor::ConversationSearchRequest::scope: oso_core::editor::ConversationScope
+impl core::clone::Clone for oso_core::editor::ConversationSearchRequest
+pub fn oso_core::editor::ConversationSearchRequest::clone(&self) -> oso_core::editor::ConversationSearchRequest
+impl core::fmt::Debug for oso_core::editor::ConversationSearchRequest
+pub fn oso_core::editor::ConversationSearchRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::Crossing
 impl oso_core::editor::Crossing
 pub fn oso_core::editor::Crossing::done(&self) -> f32
@@ -2665,6 +2741,14 @@ pub fn oso_core::editor::Editor::set_quit_when_idle(&mut self, bool)
 pub fn oso_core::editor::Editor::start_save(&mut self) -> core::result::Result<bool, oso_core::editor::SaveRefused>
 pub fn oso_core::editor::Editor::start_save_over(&mut self) -> core::result::Result<bool, oso_core::editor::SaveRefused>
 pub fn oso_core::editor::Editor::take_save_jobs(&mut self) -> alloc::vec::Vec<oso_core::editor::SaveJob>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::conversation_rows_found(&mut self, u64, alloc::vec::Vec<oso_core::editor::ConversationRow>, core::option::Option<oso_core::editor::WalkEnd>)
+pub fn oso_core::editor::Editor::conversation_scopes(&self) -> alloc::vec::Vec<oso_core::editor::ConversationScope>
+pub fn oso_core::editor::Editor::next_conversation_scope(&mut self) -> bool
+pub fn oso_core::editor::Editor::open_conversation_search(&mut self, alloc::vec::Vec<oso_core::editor::ConversationScope>, usize, &'static str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::set_space_scope(&mut self, core::option::Option<oso_core::editor::ConversationScope>)
+pub fn oso_core::editor::Editor::take_conversation_hit(&mut self) -> core::option::Option<oso_core::editor::ConversationHit>
+pub fn oso_core::editor::Editor::take_conversation_search_request(&mut self) -> core::option::Option<oso_core::editor::ConversationSearchRequest>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::current_line_cells(&self, oso_core::window::WindowId, &oso_core::window::Screen) -> core::option::Option<oso_core::frame::CellRect>
 pub fn oso_core::editor::Editor::font_lock(&self) -> bool
@@ -2969,6 +3053,8 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, oso_core::window::WindowId, &mut oso_core::editor::Status)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::tab_to_tab_stop(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::take_conversation_preview_request(&mut self) -> core::option::Option<oso_core::editor::ConversationPreviewRequest>
 impl core::default::Default for oso_core::editor::Editor
 pub fn oso_core::editor::Editor::default() -> Self
 pub struct oso_core::editor::Elsewhere
@@ -2986,6 +3072,8 @@ impl core::marker::StructuralPartialEq for oso_core::editor::Elsewhere
 pub struct oso_core::editor::Excerpt
 impl oso_core::editor::Excerpt
 pub fn oso_core::editor::Excerpt::new(&[u8], usize, (usize, oso_core::editor::VisitColumn), core::option::Option<(u64, u64)>) -> Self
+impl oso_core::editor::Excerpt
+pub fn oso_core::editor::Excerpt::wrapped(&str, usize, (usize, usize)) -> Self
 impl core::fmt::Debug for oso_core::editor::Excerpt
 pub fn oso_core::editor::Excerpt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::ExitRefused
@@ -4977,6 +5065,7 @@ impl oso_core::project::LineQuery
 pub fn oso_core::project::LineQuery::find_in_block(&self, &[u8], impl core::ops::function::FnMut(oso_core::project::LineHit)) -> usize
 pub fn oso_core::project::LineQuery::highlights(&self, &str, &mut alloc::vec::Vec<core::ops::range::Range<usize>>)
 pub fn oso_core::project::LineQuery::matches_line(&self, &[u8]) -> core::option::Option<core::ops::range::Range<usize>>
+pub fn oso_core::project::LineQuery::matches_message(&self, &[u8]) -> core::option::Option<core::ops::range::Range<usize>>
 pub fn oso_core::project::LineQuery::narrows(&self, &Self) -> bool
 pub fn oso_core::project::LineQuery::parse(&str) -> Self
 pub fn oso_core::project::LineQuery::starts(&self) -> bool

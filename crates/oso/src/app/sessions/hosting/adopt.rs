@@ -193,6 +193,16 @@ impl App {
             self.list_adoptable();
             return;
         };
+        self.adopt_conversation(pick);
+    }
+
+    /// Adopts the conversation `pick` stands for: resumes it as a hosted session in the
+    /// directory it ran in, through the start thread, which refuses a live one and offers a
+    /// fork. `session-adopt`'s answer and `session-search`'s `RET` (ADR 0145) come here.
+    pub(in crate::app) fn adopt_conversation(&mut self, mut pick: adopt::Pick) {
+        if let Some((_, busy)) = self.hosting.adopting.names.get(&pick.id) {
+            pick.busy |= busy;
+        }
         if let Some(session) = self
             .hosting
             .table()

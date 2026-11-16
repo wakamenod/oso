@@ -675,7 +675,9 @@ The UI thread never blocks on I/O or parsing:
   `vcs/graph/lanes.rs` lays out the lanes, a pure function, `vcs/graph/write.rs` the text, and
   `vcs/graph/work.rs` runs the reads, a page at a time, on `oso-vcs-graph`, one thread per graph
   buffer; `app/vcs/graph.rs` keeps the buffers, asks the next page as point nears the end and
-  carries out the keys.
+  carries out the keys, and `app/vcs/graph/acts.rs` what they do with a commit (step 4b): its
+  tags, picks and reverts run on `oso-vcs-run` (`vcs/run/graph.rs`), its checkouts and branches
+  through the branches' runs.
 - Stashes and branches (step 3b): `vcs/stash.rs` reads the stash list into the Stashes section
   and `vcs/branch.rs` holds what branches need that runs no git; `vcs/run/stash.rs` and
   `vcs/run/branch.rs` run them on `oso-vcs-run`, finding a stash again by its id and planning a
@@ -762,6 +764,12 @@ The UI thread never blocks on I/O or parsing:
   `session-adopt`'s list of conversations oso does not host is made on a short
   `oso-session-adopt-list` thread (`sessions/adopt.rs`, `sessions/transcripts.rs`, glue in
   `app/sessions/hosting/adopt.rs`), and its pick resumes through the same start thread.
+  `session-search` ([ADR 0145](adr/0145-searching-past-agent-conversations.md)) reads what was
+  said in them on its own `oso-history` thread, with `oso-history-read` threads for a cold read
+  (`sessions/history.rs`, `history/held.rs` holds the conversations, `history/scan.rs` reads a
+  line, `history/preview.rs` makes a preview's text; glue in `app/sessions/conversations.rs`).
+  Its prompt is the project search's (`oso-core`'s `editor/project_search/conversations.rs`),
+  and its `RET` adopts through `session-adopt`'s start.
 - Sending to a session ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 5) has one
   delivery path on the UI thread, `App::send_to_session` (`app/sessions/watch/sending.rs`): it
   refuses a session that cannot take a paste (`sessions/send.rs::refusal`, pure), pastes with

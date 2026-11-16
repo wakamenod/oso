@@ -199,6 +199,18 @@ pub(crate) fn refusal(now: Option<&Stop>, want: &Want) -> Option<String> {
     })
 }
 
+/// Why what moves `HEAD` (the commit menu, a pull, a checkout, a pick, a revert) is refused
+/// over `stop`, what is stopped, if it is: anything but a bisect (Q6).
+pub(crate) fn stopped_refusal(stop: Option<&Stop>) -> Option<String> {
+    let stop = stop.filter(|stop| stop.doing != Doing::Bisect)?;
+    Some(format!(
+        "A {} is stopped here: {} in the status continues it, {} aborts it",
+        stop.doing.noun(),
+        Step::Continue.key(),
+        Step::Abort.key()
+    ))
+}
+
 impl Stop {
     /// Whether `other` is the same stop, the commits read for either aside.
     pub(crate) fn same(&self, other: &Stop) -> bool {
