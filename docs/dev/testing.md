@@ -92,9 +92,16 @@ under each one's first key and `j` under the keys after it, over every other mar
 between `@` below gives the keys at their cells
 ([ADR 0116](adr/0116-migemo-and-jumps.md)). A jump's matches and labels show in every window.
 
-With line numbers on, each of a window's rows begins with the gutter's text, from
-`Editor::gutter_into`, then `┆`, and the lines of marks below it are shifted by as much
+With line numbers on, or a sign column, each of a window's rows begins with the gutter's text,
+from `Editor::gutter_into`, then `┆`, and the lines of marks below it are shifted by as much
 ([ADR 0097](adr/0097-visual-aids.md)).
+
+In a buffer a language server follows, the gutter's first cell is its sign column, with `E`,
+`W` or `I` for a line's sign, from `Gutter::signs`. A line between `%` below a row marks with
+`E`, `W` and `I` the cells of each severity's wavy line, the most severe where they meet, in
+lower case where the text is faded too, and with `u` the cells only faded; a line between `$`
+marks struck cells with `s`. Both come from `Editor::diagnostic_cells`, and the modeline has the
+server's `lsp` and its counts ([ADR 0138](adr/0138-language-servers.md)).
 
 With several tiled windows ([ADR 0112](adr/0112-window-splits.md)), each comes in the
 tree's order after a line such as `WindowId(1) at row 6, column 0: 5 x 24, selected`, with

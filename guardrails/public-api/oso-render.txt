@@ -72,6 +72,9 @@ pub oso_render::Face::CompletionPrompt
 pub oso_render::Face::CompletionSelected
 pub oso_render::Face::CurrentLine
 pub oso_render::Face::Cursor
+pub oso_render::Face::DiagnosticError
+pub oso_render::Face::DiagnosticInfo
+pub oso_render::Face::DiagnosticWarning
 pub oso_render::Face::DiffAdded
 pub oso_render::Face::DiffFileHeader
 pub oso_render::Face::DiffHunkHeader
@@ -206,6 +209,7 @@ pub oso_render::PaneContent::Divider
 pub oso_render::PaneContent::Grid(oso_render::GridView<'a>)
 pub oso_render::PaneContent::Lines(&'a [&'a [oso_render::Span<'a>]])
 pub oso_render::PaneContent::Masked(oso_render::Masked<'a>)
+pub oso_render::PaneContent::Signs(&'a [core::option::Option<oso_render::Face>])
 pub oso_render::PaneContent::Text(oso_render::TextView<'a>)
 pub enum oso_render::Redraw
 pub oso_render::Redraw::Needed
@@ -433,6 +437,17 @@ pub fn oso_render::RenderState::gpu_info(&self) -> oso_render::GpuInfo
 pub struct oso_render::Span<'a>
 pub oso_render::Span::face: oso_render::Face
 pub oso_render::Span::text: &'a str
+pub struct oso_render::TextMarks<'a>
+pub oso_render::TextMarks::faded: &'a [oso_core::frame::CellRect]
+pub oso_render::TextMarks::struck: &'a [oso_core::frame::CellRect]
+pub oso_render::TextMarks::underlines: &'a [(oso_render::Face, &'a [oso_core::frame::CellRect])]
+impl oso_render::TextMarks<'_>
+pub const oso_render::TextMarks<'_>::NONE: Self
+impl<'a> core::clone::Clone for oso_render::TextMarks<'a>
+pub fn oso_render::TextMarks<'a>::clone(&self) -> oso_render::TextMarks<'a>
+impl<'a> core::default::Default for oso_render::TextMarks<'a>
+pub fn oso_render::TextMarks<'a>::default() -> oso_render::TextMarks<'a>
+impl<'a> core::marker::Copy for oso_render::TextMarks<'a>
 pub struct oso_render::TextView<'a>
 pub oso_render::TextView::buffer: oso_core::buffer::BufferId
 pub oso_render::TextView::cursor: oso_core::display_map::DisplayPoint
@@ -442,6 +457,7 @@ pub oso_render::TextView::fills: &'a [(oso_render::Face, &'a [oso_core::frame::C
 pub oso_render::TextView::flash: core::option::Option<oso_render::FlashFill>
 pub oso_render::TextView::highlights: core::option::Option<&'a oso_core::syntax::highlights::Highlights>
 pub oso_render::TextView::labels: &'a [(oso_core::frame::CellRect, oso_render::Span<'a>)]
+pub oso_render::TextView::marks: oso_render::TextMarks<'a>
 pub oso_render::TextView::others: &'a [oso_core::frame::CellRect]
 pub oso_render::TextView::preedit: core::option::Option<&'a oso_core::display_map::preedit::Preedit>
 pub oso_render::TextView::revision: u64

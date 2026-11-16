@@ -975,6 +975,14 @@ Off by default: **line numbers** (`global-display-line-numbers-mode`). They are 
 current one brighter, in a gutter as wide as the line count's digits plus one, at least
 3 digits. Floats keep their place when it appears.
 
+In a buffer a language server follows, the gutter's first cell is a **sign column**, there with
+line numbers off too and before the first report, so the text does not move. A line a diagnostic
+starts on has a bar a third of a cell wide in the most severe one's colour: red for an error,
+amber for a warning, blue for information. Under its range, a wavy line in that colour; code the
+server calls unnecessary is faded, keeping its colours, and deprecated code is struck through.
+Hints get no line, sign or count. The modeline shows `lsp` and the counts, `E2 W5 I1`, each in
+its colour ([ADR 0138](adr/0138-language-servers.md)).
+
 None of these is remembered across starts. Each starts as `[aids]` in `config.toml` says, and
 a switch made with its command stands until that setting changes in the file
 ([ADR 0108](adr/0108-the-user-configuration-file.md)).

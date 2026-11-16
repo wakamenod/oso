@@ -1,5 +1,6 @@
 //! The faces a buffer's plain text takes from its highlights (ADR 0111). They are picked after
 //! shaping, glyph by glyph, as the glyph instances are built, so a report shapes nothing again.
+//! The rows of cells they give way to, [`CellRows`], also say where text is faded (ADR 0138).
 //!
 //! Must not depend on: `capture`, `paint` or a font backend.
 //!
@@ -19,23 +20,35 @@ use oso_core::syntax::{Highlight, Highlights, Runs};
 use crate::pane::{Face, TextView};
 use crate::theme::SYNTAX_FILLS;
 
-/// The frame's cells of a text pane where text keeps [`Face::Text`]'s colour: each a frame row
-/// and its columns, sorted, and those of a row that meet merged, so that a row's glyphs walk
-/// them once. Kept from frame to frame for its room.
+/// Frame cells of a text pane, each a frame row and its columns, sorted, and those of a row that
+/// meet merged, so that a row's glyphs walk them once. Kept from frame to frame for its room.
+/// One holds where text keeps [`Face::Text`]'s colour, another where it is faded (ADR 0138).
 #[derive(Default)]
-pub(super) struct Plain(Vec<(i64, Range<i64>)>);
+pub(super) struct CellRows(Vec<(i64, Range<i64>)>);
 
-impl Plain {
+impl CellRows {
     /// Takes the cells of `view`'s fills, but those of [`SYNTAX_FILLS`], and of its flash, on
-    /// the rows of `region`.
+    /// the rows of `region`: where text keeps [`Face::Text`]'s colour.
     pub(super) fn read(&mut self, view: &TextView<'_>, region: CellRect) {
-        self.0.clear();
         let fills = view
             .fills
             .iter()
             .filter(|(face, _)| !SYNTAX_FILLS.contains(face));
         let flash = view.flash.as_ref().map(|flash| &flash.cells);
-        for cells in fills.flat_map(|(_, cells)| cells.iter()).chain(flash) {
+        self.read_cells(
+            fills.flat_map(|(_, cells)| cells.iter()).chain(flash),
+            region,
+        );
+    }
+
+    /// Takes `cells`, on the rows of `region`.
+    pub(super) fn read_cells<'a>(
+        &mut self,
+        cells: impl Iterator<Item = &'a CellRect>,
+        region: CellRect,
+    ) {
+        self.0.clear();
+        for cells in cells {
             let columns = cells.column as i64..cells.column.saturating_add(cells.columns) as i64;
             let rows = cells.row.max(region.row)
                 ..(cells.row.saturating_add(cells.rows)).min(region.row + region.rows);
@@ -60,11 +73,33 @@ impl Plain {
         self.0.truncate(kept);
     }
 
-    /// The columns of frame row `row`.
-    fn on(&self, row: i64) -> &[(i64, Range<i64>)] {
+    /// Whether it holds no cell.
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The columns of frame row `row`, to walk.
+    pub(super) fn on(&self, row: i64) -> RowCells<'_> {
         let start = self.0.partition_point(|(at, _)| *at < row);
         let end = self.0.partition_point(|(at, _)| *at <= row);
-        &self.0[start..end]
+        RowCells(&self.0[start..end])
+    }
+}
+
+/// One frame row's columns of [`CellRows`], asked about in rising columns.
+#[derive(Clone, Copy, Default)]
+pub(super) struct RowCells<'a>(&'a [(i64, Range<i64>)]);
+
+impl RowCells<'_> {
+    /// Whether any of the frame's columns `cells` is in them. Columns left of `cells` are done
+    /// with, as glyphs come in rising columns.
+    pub(super) fn meets(&mut self, cells: &Range<i64>) -> bool {
+        while let Some(((_, columns), rest)) = self.0.split_first()
+            && columns.end <= cells.start
+        {
+            self.0 = rest;
+        }
+        (self.0.first()).is_some_and(|(_, columns)| columns.start < cells.end)
     }
 }
 
@@ -78,7 +113,7 @@ pub(super) struct RowFaces<'a> {
     runs: Runs<'a>,
     run: Option<(Range<usize>, Option<Highlight>)>,
     /// The row's plain columns from the first that may still meet a glyph.
-    plain: &'a [(i64, Range<i64>)],
+    plain: RowCells<'a>,
 }
 
 impl<'a> RowFaces<'a> {
@@ -88,7 +123,7 @@ impl<'a> RowFaces<'a> {
     pub(super) fn new(
         highlights: &'a Highlights,
         clusters: &'a [(usize, usize)],
-        plain: &'a Plain,
+        plain: &'a CellRows,
         row: i64,
     ) -> Self {
         let end = highlights.len();
@@ -107,17 +142,7 @@ impl<'a> RowFaces<'a> {
     /// The face of a glyph of [`Face::Text`] at `column` of the row, from its base, which
     /// takes the frame's columns `cells`.
     pub(super) fn face(&mut self, column: usize, cells: Range<i64>) -> Face {
-        // Glyphs come in rising columns, so plain columns left of this one are done with.
-        while let Some(((_, plain), rest)) = self.plain.split_first()
-            && plain.end <= cells.start
-        {
-            self.plain = rest;
-        }
-        if self
-            .plain
-            .first()
-            .is_some_and(|(_, plain)| plain.start < cells.end)
-        {
+        if self.plain.meets(&cells) {
             return Face::Text;
         }
         while self

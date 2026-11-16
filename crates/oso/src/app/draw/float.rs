@@ -17,7 +17,8 @@ use oso_core::frame::CellRect;
 use oso_core::minibuffer::{self, Kind, PromptLayout};
 use oso_core::window::Screen;
 use oso_render::{
-    Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextView,
+    Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextMarks,
+    TextView,
 };
 
 mod preview;
@@ -524,5 +525,6 @@ fn answer<'a>(
         whitespace: false,
         flash: None,
         highlights: None,
+        marks: TextMarks::NONE,
     })
 }

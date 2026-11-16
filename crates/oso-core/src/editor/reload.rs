@@ -178,6 +178,21 @@ impl Editor {
         ready
     }
 
+    /// Moves the places in `id` of every window's history of jumps from `old` to the text the
+    /// reload put in, as the cursors move (ADR 0138).
+    /// Then each window showing it follows its cursor.
+    fn follow_reload(&mut self, id: BufferId, old: &Rope, change: Change) {
+        if let Some(new) = self.buffer(id).map(|buffer| buffer.text().clone()) {
+            self.map_jump_history(id, |offset| through_reload(offset, old, &new, change));
+        }
+        let shown: Vec<usize> = (0..self.windows.len())
+            .filter(|index| self.windows[*index].buffer() == id)
+            .collect();
+        for index in shown {
+            self.follow_window(index);
+        }
+    }
+
     fn put_reload_in(
         &mut self,
         id: BufferId,
@@ -264,12 +279,7 @@ impl Editor {
             let scroll = self.windows[index].scroll();
             self.windows[index].restore_positions(set, scroll, &display);
         }
-        let shown: Vec<usize> = (0..self.windows.len())
-            .filter(|index| self.windows[*index].buffer() == id)
-            .collect();
-        for index in shown {
-            self.follow_window(index);
-        }
+        self.follow_reload(id, &old, change);
         self.note_edited(id);
         self.note_secret_shown();
         (ReloadOutcome::Reloaded, leftover)

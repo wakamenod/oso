@@ -22,7 +22,9 @@
 //! With `"log_documents": true`, it keeps its own copy of each document the client opens,
 //! applying each change with positions in `"encoding"` (`"utf-8"`, or `"utf-16"` unless it says),
 //! and writes `doc <uri> v<version> len=<bytes> hash=<FNV-1a 64, hex>` after each open and
-//! change, and `closed <uri>` after a close. A request no rule matches gets `MethodNotFound`, a notification nothing,
+//! change, and `closed <uri>` after a close. With `"log_positions": true`, a request with a
+//! `position` writes `asked <method> <line>:<character>`, and `$/cancelRequest` writes
+//! `cancel <id>`. A request no rule matches gets `MethodNotFound`, a notification nothing,
 //! and `exit` ends the server with 0. The actions:
 //!
 //! - `reply`: the request's result; `error`: its error, `{"code", "message"}`;
@@ -85,6 +87,8 @@ pub struct Script {
     log_answers: bool,
     /// Each document's text, kept and logged.
     log_documents: bool,
+    /// The positions asked about, and cancels, go to the standard error.
+    log_positions: bool,
     utf8: bool,
     documents: std::collections::HashMap<String, String>,
 }
@@ -113,6 +117,7 @@ impl Script {
             next_id: 1,
             log_answers: value.get("log_answers") == Some(&Value::Bool(true)),
             log_documents: value.get("log_documents") == Some(&Value::Bool(true)),
+            log_positions: value.get("log_positions") == Some(&Value::Bool(true)),
             utf8: value.get("encoding").and_then(Value::as_str) == Some("utf-8"),
             documents: std::collections::HashMap::new(),
         })
@@ -136,6 +141,9 @@ impl Script {
             return Vec::new();
         };
         let mut kept = self.keep(method, message);
+        if self.log_positions {
+            kept.extend(asked(method, message));
+        }
         let nth = self.count(method);
         let steps = self
             .rules
@@ -395,6 +403,21 @@ pub fn fnv(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
     })
+}
+
+/// What a request with a position, or a cancel, writes when positions are logged.
+fn asked(method: &str, message: &Value) -> Option<Action> {
+    let params = &message["params"];
+    let line = if method == "$/cancelRequest" {
+        format!("cancel {}\n", params["id"])
+    } else {
+        let position = params.get("position")?;
+        format!(
+            "asked {method} {}:{}\n",
+            position["line"], position["character"]
+        )
+    };
+    Some(Action::Err(line.into_bytes()))
 }
 
 #[cfg(test)]

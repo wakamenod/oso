@@ -1,4 +1,4 @@
-//! The language servers the app runs (ADR 0138, steps 3, 4 and 6), on the UI thread: which server a
+//! The language servers the app runs (ADR 0138, steps 3, 4, 6 and 8), on the UI thread: which server a
 //! buffer's open would start, starting one for a project's root and entry, what the commands
 //! ask, what each server's thread reports, the modeline's marks, and the ends that trust, the
 //! configuration and a quit bring. One server runs per root and entry. The UI thread never
@@ -11,6 +11,7 @@
 mod diagnostics;
 mod documents;
 mod find;
+mod places;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -37,6 +38,11 @@ pub(super) struct Servers {
     next: usize,
     /// When the echo area says the diagnostic at point (step 6).
     at_point: diagnostics::AtPoint,
+    /// The buffers project detection found in no project (step 8): a file an answer leads to
+    /// joins its server only once it is known to be one.
+    no_project: HashSet<BufferId>,
+    /// The serial of the last ask of a server, which its answer brings back (step 8).
+    serial: u64,
 }
 
 /// One server, as the app knows it.
@@ -55,6 +61,10 @@ struct Running {
     start_again: Option<BufferId>,
     /// The documents opened with it, by buffer (step 4).
     documents: HashMap<BufferId, documents::Open>,
+    /// The asks waiting for an answer, by buffer and kind, and who asked (step 8).
+    asked: HashMap<(BufferId, oso_lsp::server::AskKind), places::Asker>,
+    /// The buffers outside any project its answers led to, which join it (step 8).
+    joined: places::Joined,
 }
 
 impl Servers {
@@ -138,6 +148,8 @@ impl App {
                     stopping: false,
                     start_again: None,
                     documents: HashMap::new(),
+                    asked: HashMap::new(),
+                    joined: places::Joined::default(),
                 });
                 // Its project's buffers go to it, once it is ready, but the agent's
                 // (ADR 0118).
@@ -152,6 +164,11 @@ impl App {
 
     /// Carries out what `lsp-start`, `lsp-restart` and `lsp-shutdown` asked. After each event.
     pub(super) fn sync_servers(&mut self) {
+        self.sync_servers_for(None);
+    }
+
+    /// [`App::sync_servers`], with the asks of the agent's `connection` if its command ran.
+    pub(super) fn sync_servers_for(&mut self, agent: Option<crate::channel::Connection>) {
         self.stop_untrusted_servers();
         if self.sync_documents() {
             self.mark_servers();
@@ -161,6 +178,12 @@ impl App {
                 ServerRequest::Start(id) => self.lsp_start(id, false),
                 ServerRequest::Restart(id) => self.lsp_start(id, true),
                 ServerRequest::ShutDown(id) => self.lsp_shutdown(id),
+                ServerRequest::Definition(at) => {
+                    self.lsp_find(at, oso_lsp::server::AskKind::Definition, agent);
+                }
+                ServerRequest::References(at) => {
+                    self.lsp_find(at, oso_lsp::server::AskKind::References, agent);
+                }
             }
         }
     }
@@ -244,6 +267,7 @@ impl App {
     /// diagnostics.
     pub(super) fn servers_reported(&mut self) {
         let mut ended = Vec::new();
+        let mut answers = Vec::new();
         let (mut changed, mut said, mut logged, mut diagnosed) = (false, false, false, false);
         for (index, running) in self.servers.running.iter_mut().enumerate() {
             let Some(report) = running.server.take_report() else {
@@ -300,9 +324,14 @@ impl App {
                     .message_unlogged(format!("{}: {}", running.entry.name, shown.text));
                 said = true;
             }
+            answers.extend(report.answers.into_iter().map(|answer| (index, answer)));
             if report.state == State::Ended {
                 ended.push(index);
             }
+        }
+        // Before an ended server goes, so that each index still names its server.
+        for (index, answer) in answers {
+            self.lsp_answered(index, answer);
         }
         let mut again = Vec::new();
         for index in ended.into_iter().rev() {

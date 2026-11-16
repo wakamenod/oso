@@ -42,6 +42,7 @@ mod completion;
 mod copies;
 mod crossing;
 mod cursors;
+mod diagnostics;
 mod directories;
 mod excerpt;
 mod files;
@@ -92,6 +93,7 @@ pub use completion::CompletionStyle;
 pub use copies::RecoveryAction;
 pub use crossing::Crossing;
 pub use cursors::{CursorError, Toward};
+pub use diagnostics::DiagnosticCells;
 pub use files::Looked;
 pub use git::{
     BranchAction, CommitKind, CommitSwitches, FetchFrom, GitHeading, GitLines, GitRequest,
@@ -116,7 +118,7 @@ pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use reviews::*;
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
-pub use servers::ServerRequest;
+pub use servers::{AskAt, ServerRequest, VisitColumn};
 pub use sessions::*;
 pub use status::{ServerFace, Status};
 pub use switch::{KillRefused, Preview};
@@ -581,8 +583,8 @@ impl Editor {
             .iter()
             .find_map(|(index, set)| (*index == self.selected).then(|| set.clone()));
         let views = self.moved_views(id, &staged.display(), staged.steps(), staged.rewrap());
-
         // Nothing past this point can panic part way.
+        self.follow_jump_history(id, staged.steps());
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.commit_edit(staged, opening, after);
         }

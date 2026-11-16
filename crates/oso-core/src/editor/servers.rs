@@ -1,12 +1,19 @@
 //! What commands ask of the host about the language server of the selected buffer
 //! (ADR 0138, step 3): `lsp-start`, `lsp-restart` and `lsp-shutdown`; and `*LSP*`, the log of
 //! what servers did, which keeps the last bytes the host says; and what the echo area says of
-//! the diagnostics at point (step 6).
+//! the diagnostics at point (step 6); the jumps an answer leads to, and back (step 8,
+//! `jumps`).
 //!
 //! Must not depend on: the host's servers, threads or I/O; a command asks, and the host takes
 //! the request after the command and acts on the server.
 
+mod jumps;
+
 use crate::buffer::{Buffer, BufferId};
+
+/// Where on a line a server's place is: the host turns the server's encoding into one.
+pub use super::visits::VisitColumn;
+pub use jumps::AskAt;
 
 use super::Editor;
 use super::messages::Keep;
@@ -30,6 +37,10 @@ pub enum ServerRequest {
     Restart(BufferId),
     /// `lsp-shutdown`: stop it, and keep it stopped until `lsp-start` or `lsp-restart`.
     ShutDown(BufferId),
+    /// `lsp-find-definition` (step 8).
+    Definition(AskAt),
+    /// `lsp-find-references` (step 8).
+    References(AskAt),
 }
 
 impl Editor {

@@ -427,7 +427,8 @@ Every bound lives in `oso-lsp`'s `limits`:
 - **`M-.` (`lsp-find-definition`)** asks for the definition at the primary cursor. One answer
   goes there. Several answers open the centred float with a preview, as `consult-xref` does. No
   answer says `No definition found`.
-- **A history of places in each window, `oso-core`'s `window::places`:** each jump from `M-.`,
+- **A history of places in each window, `oso-core`'s `window::jumps`** (`window::places` is
+  ADR 0088's place in each buffer): each jump from `M-.`,
   `M-?` or the float pushes the place it left: the buffer and the primary cursor's offset, which
   follows edits. It holds 64 places. `M-,` (`lsp-go-back`) goes back to the last one, and
   `C-M-,` (`lsp-go-forward`) undoes a `M-,`, as Emacs 29's `xref-go-back` and `xref-go-forward`
@@ -522,6 +523,9 @@ Every bound lives in `oso-lsp`'s `limits`:
   matches the secret patterns is refused, a file is shown only once judged ordinary, it counts
   toward the connection's 100 buffers, and it is marked as the agent's. So its `didOpen` waits for
   the person, by ADR 0118.
+- **An agent never opens the float** (step 8's Q5): its `M-.` goes to the first of several
+  definitions and says `1 of 3`, and its `M-?` is refused, pointing it to the project search
+  tool, as a float is the person's, and an agent cannot read one.
 - **The `diagnostics` tool** takes a buffer or `project`, and gives at most 500 entries: the path,
   line and column (1-based, in characters), the severity, the message (2 KiB at most), the source
   and the code. ADR 0121's `@diagnostics` mention reads the same. `state` gains each buffer's
@@ -614,7 +618,7 @@ Each step is one pull request. No step spawns anything before step 1 has merged.
 7. **Diagnostics, drawing:** the wavy underline and dim `Unnecessary` ranges in `oso-render`, the
    faces in the three themes with their contrast check, and the sign column. Text-grid snapshots
    cover both.
-8. **Definition and references:** `window::places`, `M-.`, `M-?`, `M-,` and `C-M-,` in the `lsp`
+8. **Definition and references:** `window::jumps`, `M-.`, `M-?`, `M-,` and `C-M-,` in the `lsp`
    layer, the float with a preview, files outside the project joining the server, and the
    channel's rules.
 9. **Completion in the buffer:** the popup, its keys and cycling, matching, the automatic trigger,
@@ -855,7 +859,7 @@ gains `amended by 0138`.
 - A language server runs only for a trusted project and is started only by the person. A broken
   or hostile server can slow only its own threads, and never blocks the UI thread, edits a
   buffer by itself, opens a file by itself, or makes oso reach another computer.
-- oso gains a crate, and `oso-core` gains `diagnostic`, `window::places`, ADR 0118's enum,
+- oso gains a crate, and `oso-core` gains `diagnostic`, `window::jumps`, ADR 0118's enum,
   completion at point and six modes with no highlighting yet. The renderer gains a wavy underline and three faces in each theme.
 - The gutter gains a column in buffers a server follows, and `M-,` means another thing there.
 - In a trusted project with `node_modules`, the TypeScript server oso runs is the project's own.
@@ -1426,3 +1430,205 @@ the `revision` fields of step 4's `Document` and `Change` among them (Q8).
   and the counts each in its severity's face, `Status::lsp` then holding only the state.
 - **Left for step 12:** the `just perf` metrics: typing with 2000 diagnostics at 1 and 1000
   cursors, and a 2000-entry report applied while typing.
+
+### Step 7: diagnostics, drawing
+
+The author answered step 7's questions on 2026-11-16, all with the first choice: the sign is a
+bar a third of a cell wide, the row's full height (Q1), on the line a diagnostic starts on, on
+its first view row (Q2), in a column at the window's left edge, before the line numbers (Q3);
+unnecessary code keeps its own colours, syntax ones too, faded toward the background (Q4); and
+deprecated code is struck through now, as the renderer strikes a terminal's cells (Q5).
+
+- **Faces:** `Face::DiagnosticError`, `DiagnosticWarning` and `DiagnosticInfo`, in red (a
+  terminal's colour 9), the warning face's amber and a blue of their own (`FgInfo`), in every
+  theme. Their floors: 3:1 for the line and the sign, marks to notice, on the background, the
+  current line's band, the region and isearch's fills; 4.5:1 for the counts on both modelines.
+  A test keeps the three apart from each other, and the error's from `lsp!`'s warning face.
+- **Faded text:** each theme resolves a faded colour for every face, its foreground mixed in sRGB
+  toward the background, at most 0.35 of the way (`FADED`), about VS Code's opacity of 0.67,
+  and less where that would take it under 4.5:1 on the background or the band: a comment, near
+  its floor already, fades less. Only glyphs of text fade: an escape, a box, a mark, the glyph
+  under the cursor and text on a fill other than the band keep their colours, as syntax faces
+  do (ADR 0111).
+- **`oso-render`:**
+  - `TextView::marks: TextMarks { underlines, faded, struck }`, the frame's cells of each, and
+    `TextMarks::NONE`; `PaneContent::Signs`, a column of bars.
+  - Wavy lines are a third pipeline beside the rectangles and the rounded boxes (`shape.rs`,
+    `wave.wgsl`): one instanced quad a run of cells, an antialiased sine at the cells' bottom,
+    a line's thickness thick, swinging over three, its period twice that, its phase from the
+    frame's left so runs side by side join. At most 4096 a frame (`MAX_WAVES`), the most severe
+    first so it keeps its room; each layer has its range, drawn after its rectangles and before
+    its glyphs, so a line is over the fills and under the text. It leaves the cursor's cells
+    out, so the box, or a hollow one's sides, stays whole. The pipeline is made the first time
+    a frame has a wave, not at start-up. Strikes and bars are rectangles under the glyphs, as a
+    terminal's strikes are, and share its strike's line (`scene/boxes.rs`).
+  - New files: `scene/marks.rs` draws the marks and the signs; `scene/boxes.rs` holds the
+    cursor box, the outlines and the divider, moved out of `scene.rs`; `pane/face.rs` holds
+    `Face`, moved out of `pane.rs`. `highlight.rs`'s list of plain cells became `CellRows`,
+    which faded cells use too.
+- **`oso-core`** (`editor/diagnostics.rs`):
+  - `Editor::diagnostic_cells(id, screen, &mut DiagnosticCells)` gives each severity's cells,
+    the most severe where they meet, and the faded and struck ones, as `isearch_cells` does. A
+    frame works out each view row's offsets shown, two conversions a row, and asks the set once
+    for what meets them all: one query, as a query costs as many entries as an early long one
+    reaches over. Only a diagnostic that meets a row's offsets is converted, its ends cut to the
+    rows it meets, so the part of a long line out of view and a range around the whole view cost
+    a search each. A list a diagnostic takes a whole row of is one range on that row, however
+    many do. A range stops at its line's text and never runs to the window's edge or under the
+    wrap mark; an empty one, or one of a line break alone, takes its cell on the row it starts
+    on, with its line but never faded or struck, which would read as a character the buffer
+    does not hold. A preedit's cells get nothing. Hints get no line.
+  - `Gutter::signs()`: the sign column is the gutter's first cell while `Buffer::server` is
+    `Some` and the buffer is no terminal, with line numbers off too, so the text does not move
+    when a report comes; `signs` is empty while there is none, which the tip and the text grid
+    read. The line numbers' floor stays the numbers' own. The signs come from the same one
+    query; each start's line is found by a search of the rows' offsets.
+  - `Status::lsp` holds the state alone, and `Status::lsp_counts` the counts and the gap,
+    which `Status::count_parts` splits for the severities' faces. `Status::modeline` reads as
+    before. `Status::counts`, step 6's numbers, stays for the agents' `state` (step 11).
+- **The tip crate:** each window has a fifth pane, its sign column (`tiled::Part::Signs`), so a
+  window's pane ids moved from four to five apart and every window's rows are shaped once again
+  after the upgrade; its modeline is drawn in 13 spans (`tiled/modeline.rs`, moved out of
+  `tiled.rs`). A preview shows no diagnostics.
+- **Tests:** contrast, faded and told-apart tests in every theme; scene tests of the waves'
+  places, colours, order, cut and cap, strikes, bars and faded glyphs; a GPU pixel test of the
+  wave and a wave cut around the cursor; `oso-core` tests of the cells, ranges across lines and
+  wraps, a range from above the view, a view scrolled sideways, a preedit, a range on a wrapped
+  line's first row alone, empty ranges, and the signs; the tip's panes; and the text-grid snapshot `diagnostics`, whose legend
+  is in `docs/dev/testing.md`. The grid's modeline now has the `lsp` segment.
+- **Public API:** `oso-render`: `Face::{DiagnosticError, DiagnosticWarning, DiagnosticInfo}`,
+  `TextMarks`, `TextView::marks`, `PaneContent::Signs`. `oso-core`: `editor::DiagnosticCells`,
+  `Editor::diagnostic_cells`, `Gutter::signs`, `Status::{lsp_counts, count_parts}`.
+
+### Step 8a: definition and back
+
+The author answered step 8's questions on 2026-11-16, all with the first choice: two pull
+requests, this one with the ask and answer path, `M-.` with one answer, the history, `M-,`
+and `C-M-,`, files outside the project joining, and the channel's rules, and 8b with the float
+and its preview, several definitions and `M-?` (Q1); the history in a new `window::jumps`, as
+ADR 0088 has `window::places` (Q2); 8b's preview of a file not open through the project
+search's excerpt reader, made to read any absolute path by the same rules and shared with
+6b's `M-g d` (Q3); 8b's rows as `path:line: text`, read on a worker (Q4); an agent never
+opening the float, its `M-.` going to the first and its `M-?` refused (Q5); a joined file's
+diagnostics dropped, as any outside the root are (Q6); `<server> is starting` while it starts,
+with nothing asked (Q7); and the public items below (Q8).
+
+- **`oso-lsp`:**
+  - `initialize` claims `textDocument.definition` with `linkSupport`, and
+    `textDocument.references`.
+  - `protocol::located` reads an answer: `null`, a `Location`, or a list of `Location`s or
+    `LocationLink`s, a link by its `targetSelectionRange`, else its `targetRange`, as other
+    clients read it. At most 1000 are read, in the server's order, each with a URI of at most
+    16 KiB and a range that reads; the rest are counted. `position_params` and
+    `references_params` build the requests, the declaration included, as Eglot asks.
+  - `Server::ask(Ask { serial, document, kind, revision, offset })` (`server/asks.rs`): the session
+    thread places the byte offset in the text the server has, which must be the caller's
+    `revision`: a document not sent, kept from the server, or whose whole text waits for room
+    answers `the server does not have this text yet`. One ask of each kind for each document
+    is in flight; a newer one sends `$/cancelRequest` for the older, which gets no answer. Each
+    waits 10 s, then is cancelled and fails; a run's end fails what waits; with no run, or
+    while it starts or stops, an ask fails at once.
+  - An answer's places are read on the session thread: a URI that is not a file's is left out
+    and counted; a place in a document the server has open becomes byte offsets in the text of
+    the caller's revision it has (`Target::Open`), with the line and column too, for a caller
+    whose buffer went or can no longer map them; others keep the line and column as the
+    server counts them (`Target::Lines`), with the encoding. A place under an automount,
+    macOS's `/net` and `/Network` in any case and Linux's `/net`, or with a `..`, is left out
+    and counted, as opening it would reach another computer (step 8's R2). `Answer` brings
+    back the ask's `serial`, and its outcome is an `Answered`, `Places` for these two kinds,
+    which steps 9 and 10 add to. `Report::answers` holds the
+    latest of each document and kind, and wakes the UI at once. `*LSP*` has the request's id,
+    the count of places and the time, never a path; a server's error message goes only to the
+    echo area.
+- **`oso-core`:**
+  - `window::jumps` keeps 64 places back, each a buffer and an offset, and the way forward,
+    which a new jump empties. `Window::show` carries it over, as it does the places. Each
+    edit, sliced undo and reload moves its offsets as markers, in one pass over the edits
+    whatever the number of places, on the stack: an edit's steps (`Editor::apply_edits`), the
+    batch a crossing's step made as the buffer's log has it (one that keeps none leaves them),
+    and a reload's change as the cursors take it. Going there clips them to the text and to a
+    cluster's start. A killed buffer's places go. `Debug` gives counts.
+  - `Editor::xref_to_place` and `xref_visit` keep the place left in the selected window's
+    history and, unless a region shows, on its mark ring, as avy's jumps do
+    ([ADR 0116](0116-migemo-and-jumps.md)); a jump to where the cursor is keeps nothing. They
+    land one cursor on a cluster's start, the place before on the target's mark ring, the rule
+    a visit at a place now shares (`Editor::land_primary`). `xref_back` and `xref_forward`
+    change the history only once the place is there, and say `No earlier place` and `No later
+    place`; for the agent they refuse a buffer it may not be shown, as one that may hold
+    secrets, is withheld, or is loading. `keep_xref_start` keeps the place for a jump the host
+    makes in its own way, as the agent's. `request_visit_at_column` visits at a column in
+    characters, UTF-8 bytes or UTF-16 units (`editor::VisitColumn`, with the visits), so a line and
+    column of the server's land once the file has loaded.
+  - `Editor::starts_on_open_in(id, would, by, project)` is `starts_on_open` with the trust
+    judged on `project`, the project whose server a file outside any joined: such a file has
+    no project of its own to trust, so the person's open runs what would start, and the
+    agent's waits for the person, as [ADR 0118](0118-what-an-agents-open-or-save-starts.md) holds any other.
+  - `ServerRequest::{Definition, References}` carry `AskAt`: the buffer, its revision, the primary
+    cursor, and whether the agent's command asked (`Editor::ask_at`).
+- **The tip crate:**
+  - `lsp-find-definition`, `lsp-go-back` and `lsp-go-forward` (`Look`), on `M-.`, `M-,` and
+    `C-M-,` in the `lsp` layer, so `M-,` stays `previous-buffer` in other buffers.
+  - `app/servers/places.rs` asks after the event's edits went to the server: in a buffer that
+    may hold secrets it says `No server for a buffer that may hold secrets`, with no server
+    following it `No language server follows this buffer`, while it starts `rust-analyzer is
+    starting`, and once it stopped `rust-analyzer does not run`. An answer goes only while the
+    window that asked is selected and shows the buffer asked about. None says `No definition
+    found`; one goes there; several go to the first and say `1 of 3` until 8b's float. A place
+    in an open document is mapped through the buffer's edits since; any other is visited as
+    `C-x C-f` would, at the server's line and column, so a name that may hold secrets opens as
+    such a buffer, with no server; so is a place in an open document whose buffer went or no
+    longer maps it. Each ask has a serial of the app's, and an answer whose serial is not the
+    waiting ask's is dropped. An answer goes only while nothing moved since the ask: the
+    same window selected, showing the same buffer at the same revision with the primary cursor
+    where it was, and no prompt or isearch open. The places go to the freeing thread.
+  - **Joining:** a place's file joins the server that gave it by its buffer, once project
+    detection has said that buffer is in no project: at once for an open one, or when the
+    answer for a new visit comes (`App::projects_known`), as `Buffer::project` alone cannot
+    tell "not found yet" from "none". It is then the server's as a file of its project is: its
+    open is settled again, so ADR 0118 holds the agent's, and it opens with the server, gets
+    its modeline mark and its `lsp` layer, and `M-.` there asks the same server. It starts no
+    server of its own. One buffer joins one server; a server holds at most 64 joined, and 16
+    files waiting for their project. It leaves when its document closes, as when its buffer is
+    killed. A name that may hold secrets joins nothing. A file of another project follows that
+    project's rules, and one outside any project visited by hand joins nothing, as in Eglot.
+  - **The agent's ask:** the connection whose command ran goes with the asks it made
+    (`App::sync_servers_for`); an agent's ask with none is dropped, never taken as the
+    person's. Its answer is dropped once the connection or the channel is gone, and otherwise
+    opens through the channel's `open`, at the place's line: a name that may hold secrets is
+    refused, and `*Agent*` says so; the file shows once judged ordinary, counts toward the
+    connection's 100, and is the agent's, so its open with the server waits for the person
+    (ADR 0118). The place left is kept only as the file shows. Its reply went when the command
+    ran, so what the open says, a refusal too, goes to `*Agent*`.
+- **Public API:** `oso-core`: `window::{Jumps, JUMPS_MAX}`, `Window::jumps`,
+  `Editor::{ask_at, xref_to_place, xref_visit, xref_back, xref_forward, keep_xref_start,
+  request_visit_at_column}`, `editor::{AskAt, VisitColumn}`, `ServerRequest::{Definition,
+  References}`, `Jumps::counts`, `Editor::starts_on_open_in`. `oso-lsp`: `server::{Ask, AskKind, Answer, Answered,
+  Location, Target}`, `Server::ask`, `Report::answers`, `protocol::{Located, located,
+  position_params, references_params}`.
+- **Tests:** in `oso-lsp`, the three shapes of an answer, the bound and what is left out, and
+  the requests' parameters; in `oso-core`, the history's walk, bound, edits and kills, the
+  jumps with one cursor and the mark ring, and columns in each unit. Against the fake server,
+  which gains `log_positions`: a definition asked at its UTF-16 position and placed in the
+  open text and in a file not open; a newer ask cancelling the older; an old text, an error, a
+  10 s wait and a crash each failing the ask; an ask with no server running. Dispatcher tests
+  of the keys, and the end-to-end flow `lsp.rs`
+  (`a_definition_is_gone_to_and_back_and_a_file_outside_the_project_joins`).
+- **The author's answers to the reviews (2026-11-16), all the first choice:** the serial,
+  `Answered` and `Target::Open`'s line and column, and `position_params` for
+  `definition_params` (R1); places under an automount left out (R2); and the names
+  `Editor::xref_*`, `editor::{AskAt, VisitColumn}` and `Jumps::counts`, as `jump_*` is avy's
+  (R3).
+- **From this step's end-to-end flow:** a visit an answer asks for starts at once
+  (`App::serve_files`), as an answer comes on a server's report and not after a command;
+  `1 of 3` is said before the jump, as said once a file not judged yet shows it would go with
+  the window; and a joined file's open is settled with its server's project's trust
+  (`starts_on_open_in`, the author's choice).
+- **From this step's reviews:** the history follows undos and reloads, in one pass; the
+  mark ring follows avy's rule; stale answers, and an agent's whose connection went, are
+  dropped; joining goes by buffer, once its project is known to be none, through the settling
+  of opens, with bounds; the session thread looks the documents up once an answer; a replaced
+  answer is freed outside the outbox's lock; `Column` and its offset went to the visits, and a
+  visit at a place lands on a cluster's start too.
+- **Left for 8b:** the float with a preview for several definitions, `M-?`
+  (`lsp-find-references`), its rows read on a worker, and the excerpt reader made to read any
+  absolute path.

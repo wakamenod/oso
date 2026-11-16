@@ -71,7 +71,7 @@ impl App {
             .filter(|(id, buffer)| {
                 !self.starting.settled.contains(id)
                     && buffer.path().is_some()
-                    && buffer.project().is_some()
+                    && (buffer.project().is_some() || self.joined_project(*id).is_some())
                     && buffer.loading().is_none()
                     && !buffer.agent_pending()
                     && !buffer.is_internal()
@@ -97,11 +97,20 @@ impl App {
                 Acted::Person
             };
             let would = self.would_start(id, false);
-            let runs = self.editor.starts_on_open(id, would, by);
+            let runs = self.starts_on_open(id, would, by);
             self.log_held(id, false);
             self.run_starts(id, runs);
         }
         self.mark_servers();
+    }
+
+    /// What runs as `id` opens, as `Editor::starts_on_open` says, with the trust of the
+    /// project whose server it joined for a file outside any (ADR 0138, step 8a).
+    fn starts_on_open(&mut self, id: BufferId, would: Starts, by: Acted) -> Starts {
+        match self.joined_project(id) {
+            Some(project) => self.editor.starts_on_open_in(id, would, by, project),
+            None => self.editor.starts_on_open(id, would, by),
+        }
     }
 
     /// Runs, for the person, what each open mark their commands let go would start now
@@ -114,7 +123,7 @@ impl App {
         for (id, held) in released {
             self.log_let_go(id, held);
             let would = self.would_start(id, false);
-            let runs = self.editor.starts_on_open(id, would, Acted::Person);
+            let runs = self.starts_on_open(id, would, Acted::Person);
             self.run_starts(id, runs);
         }
         self.mark_servers();

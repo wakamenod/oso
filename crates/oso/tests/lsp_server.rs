@@ -26,6 +26,7 @@ struct Seen {
     shown: Vec<(Severity, String)>,
     documents: Vec<(u64, Option<oso_lsp::server::Closed>)>,
     diagnosed: Vec<oso_lsp::server::Diagnosed>,
+    answers: Vec<oso_lsp::server::Answer>,
     dir: PathBuf,
 }
 
@@ -80,6 +81,7 @@ fn started(name: &str, script: &Value, gate: Gate) -> Seen {
         shown: Vec::new(),
         documents: Vec::new(),
         diagnosed: Vec::new(),
+        answers: Vec::new(),
         dir,
     }
 }
@@ -110,6 +112,7 @@ impl Seen {
             .extend(report.shown.into_iter().map(|s| (s.severity, s.text)));
         self.documents.extend(report.documents);
         self.diagnosed.extend(report.diagnostics);
+        self.answers.extend(report.answers);
     }
 
     /// Waits up to `limit` for `done`, taking each report.
@@ -485,6 +488,7 @@ fn a_crash_ends_what_the_server_left_in_its_group() {
         shown: Vec::new(),
         documents: Vec::new(),
         diagnosed: Vec::new(),
+        answers: Vec::new(),
         dir,
     };
     seen.until(LIMIT, |seen| {
@@ -1027,4 +1031,206 @@ fn reports_outside_the_project_or_for_secrets_are_dropped_and_a_kept_one_follows
         "never named"
     );
     seen.server.shut_down();
+}
+
+/// A script that syncs in UTF-16, logs the positions asked about, and does `definition` for
+/// `textDocument/definition`.
+fn asking(definition: Value) -> Value {
+    let mut script = syncing("utf-16");
+    script["log_positions"] = json!(true);
+    script["rules"]
+        .as_array_mut()
+        .unwrap()
+        .extend(definition.as_array().cloned().unwrap_or_default());
+    script
+}
+
+/// Opens the document `id` at `uri` holding `text`, of revision 7, and waits for it to go.
+fn opened(seen: &mut Seen, id: u64, uri: &str, text: &str) {
+    seen.server.open(oso_lsp::server::Document {
+        id,
+        uri: uri.into(),
+        language_id: "rust".into(),
+        text: oso_core::rope::Rope::from(text),
+        revision: 7,
+    });
+    seen.until(LIMIT, |seen| seen.logged(" v1 "));
+}
+
+fn ask(seen: &Seen, kind: oso_lsp::server::AskKind, offset: usize) {
+    seen.server.ask(oso_lsp::server::Ask {
+        serial: offset as u64,
+        document: 1,
+        kind,
+        revision: 7,
+        offset,
+    });
+}
+
+#[test]
+fn a_definition_is_asked_at_its_position_and_placed_in_the_open_text() {
+    use oso_lsp::position::{Encoding, Position};
+    use oso_lsp::server::{AskKind, Target};
+    let dir = scratch("definition");
+    let here = oso_lsp::uri::from_path(&dir.join("a.rs")).unwrap();
+    let there = oso_lsp::uri::from_path(&dir.join("b.rs")).unwrap();
+    let range = |line: u32, start: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}});
+    let script = asking(
+        json!([{"method": "textDocument/definition", "do": [{"reply": [
+            {"uri": here, "range": range(0, 3, 4)},
+            {"targetUri": there, "targetRange": range(4, 0, 9), "targetSelectionRange": range(5, 2, 6)},
+            {"uri": "https://example.com/x.rs", "range": range(0, 0, 1)},
+        ]}]}]),
+    );
+    let mut seen = started("definition", &script, open());
+    // `é` is one UTF-16 unit and two bytes: the position counts it once.
+    opened(&mut seen, 1, &here, "fn a() {}\nlet é = a();\n");
+    let offset = "fn a() {}\nlet é = ".len();
+    ask(&seen, AskKind::Definition, offset);
+    seen.until(LIMIT, |seen| {
+        !seen.answers.is_empty() && seen.logged("stderr: asked textDocument/definition")
+    });
+    assert!(
+        seen.logged("asked textDocument/definition 1:8"),
+        "{:?}",
+        seen.log
+    );
+    let answer = seen.answers.pop().unwrap();
+    assert_eq!(
+        (answer.document, answer.kind, answer.revision),
+        (1, AskKind::Definition, 7)
+    );
+    let oso_lsp::server::Answered::Places(places) = answer.outcome.unwrap() else {
+        panic!("places")
+    };
+    assert_eq!(places.len(), 2, "the URI that is not a file's is left out");
+    // As a URI reads back: on Windows, with no `\\?\` prefix, which `canonicalize` gives.
+    let read_back =
+        |name: &str| oso_lsp::uri::to_path(&oso_lsp::uri::from_path(&dir.join(name)).unwrap());
+    assert_eq!(Some(places[0].path.clone()), read_back("a.rs"));
+    assert_eq!(
+        places[0].target,
+        Target::Open {
+            document: 1,
+            revision: 7,
+            range: 3..4,
+            start: Position::new(0, 3),
+            encoding: Encoding::Utf16,
+        }
+    );
+    assert_eq!(Some(places[1].path.clone()), read_back("b.rs"));
+    assert_eq!(
+        places[1].target,
+        Target::Lines {
+            start: Position::new(5, 2),
+            end: Position::new(5, 6),
+            encoding: Encoding::Utf16
+        }
+    );
+    assert!(seen.logged("answered with 2 places"), "{:?}", seen.log);
+    assert!(seen.logged("1 more left out"));
+    assert!(
+        !seen.log.iter().any(|line| line.contains("b.rs")),
+        "no path is logged"
+    );
+    seen.server.shut_down();
+}
+
+#[test]
+fn a_newer_ask_cancels_the_older_and_only_it_is_answered() {
+    use oso_lsp::server::AskKind;
+    let script = asking(json!([
+        {"method": "textDocument/definition", "nth": 1, "do": [{"hang": true}]},
+        {"method": "textDocument/definition", "nth": 2, "do": [{"reply": null}]},
+    ]));
+    let mut seen = started("cancel", &script, open());
+    opened(&mut seen, 1, "file:///w/p/a.rs", "abc\n");
+    ask(&seen, AskKind::Definition, 0);
+    ask(&seen, AskKind::Definition, 1);
+    seen.until(LIMIT, |seen| {
+        !seen.answers.is_empty() && seen.logged("stderr: cancel")
+    });
+    std::thread::sleep(Duration::from_millis(200));
+    if let Some(report) = seen.server.take_report() {
+        seen.take(report);
+    }
+    assert_eq!(seen.answers.len(), 1, "{:?}", seen.answers);
+    assert_eq!(
+        seen.answers[0].outcome,
+        Ok(oso_lsp::server::Answered::Places(Vec::new()))
+    );
+    assert_eq!(seen.answers[0].serial, 1, "the newer ask's");
+    seen.until(LIMIT, |seen| {
+        seen.logged("asked textDocument/definition 0:1")
+    });
+    seen.server.shut_down();
+}
+
+#[test]
+fn an_ask_fails_on_an_old_text_an_error_a_crash_and_a_long_wait() {
+    use oso_lsp::server::AskKind;
+    let script = asking(json!([
+        {"method": "textDocument/references", "nth": 1, "do": [
+            {"error": {"code": -32603, "message": "no index yet"}}
+        ]},
+        {"method": "textDocument/references", "nth": 2, "do": [{"hang": true}]},
+        {"method": "textDocument/definition", "do": [{"exit": 3}]},
+    ]));
+    let mut seen = started("fails", &script, open());
+    opened(&mut seen, 1, "file:///w/p/a.rs", "abc\n");
+    seen.server.ask(oso_lsp::server::Ask {
+        serial: 9,
+        document: 1,
+        kind: AskKind::Definition,
+        revision: 6,
+        offset: 0,
+    });
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert_eq!(
+        seen.answers.pop().unwrap().outcome,
+        Err("the server does not have this text yet".into())
+    );
+    ask(&seen, AskKind::References, 0);
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert_eq!(
+        seen.answers.pop().unwrap().outcome,
+        Err("no index yet".into())
+    );
+    assert!(seen.logged("failed with error -32603"));
+    assert!(
+        !seen.logged("no index yet"),
+        "the server's text is not logged"
+    );
+    // The wait ends: the request is cancelled.
+    let asked = Instant::now();
+    ask(&seen, AskKind::References, 0);
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert!(asked.elapsed() >= oso_lsp::limits::DEFINITION_WAIT);
+    assert_eq!(
+        seen.answers.pop().unwrap().outcome,
+        Err("no answer within 10 s".into())
+    );
+    seen.until(LIMIT, |seen| seen.logged("stderr: cancel"));
+    // A crash fails what waits.
+    ask(&seen, AskKind::Definition, 0);
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert_eq!(
+        seen.answers.pop().unwrap().outcome,
+        Err("it stopped before it answered".into())
+    );
+    seen.server.shut_down();
+}
+
+#[test]
+fn an_ask_with_no_server_running_is_answered_at_once() {
+    use oso_lsp::server::AskKind;
+    let mut seen = started(
+        "no-run",
+        &script(json!([]), json!([])),
+        Box::new(|| Err("not installed".into())),
+    );
+    seen.until(LIMIT, |seen| seen.state() == Some(State::NotStarted));
+    ask(&seen, AskKind::Definition, 0);
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert_eq!(seen.answers[0].outcome, Err("it does not run".into()));
 }
