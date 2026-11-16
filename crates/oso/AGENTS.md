@@ -82,8 +82,10 @@ often, so it must rebuild within 2 s.
   arguments and environment, every read bounded and a run past 10 s killed; object ids (`id`);
   `TrustedRoot` (`trust`), the only place git starts from; git's names and the secret-name
   check (`path`); the empty hooks directory under oso's state directory (`hooks`); and runs
-  with no time limit in a process group of their own, which the person stops (`long`). The
-  review, the worktree jobs and the git status use it; it uses none of them.
+  with no time limit in a process group of their own, which the person stops (`long`); a push,
+  a pull or a fetch gets the proxies and a session of its own with no controlling terminal
+  (`Git::for_remote`, ADR 0127 step 2). The review, the worktree jobs and the git status use it;
+  it uses none of them.
 - `src/vcs.rs` and `src/vcs/` are source control's git status (ADR 0127): one thread per status
   buffer, `oso-vcs` (`work`), which runs git through `git`'s runner for a trusted root only,
   its reads in `read` and its writes to the index in `write`; staging lines cuts the patch
@@ -94,7 +96,10 @@ often, so it must rebuild within 2 s.
   its outline and the table of what each line is about (`layout`), and turns the lines commands
   name into staging (`stage`). A commit runs on its repository's thread, `oso-vcs-run`
   (`run`), with the repository's hooks; what needs no git, its arguments, message, highlights,
-  ring and log lines, is `commit`'s. Its keys are listed in `commands::vcs::KEYS` and
+  ring and log lines, is `commit`'s. Pushes, pulls and fetches run there too (`run/remotes`,
+  streamed by `run/stream`), what they need that runs no git is `remote`'s, and the commit
+  sections are read by `history` (step 2), with `app/vcs/remote.rs` and
+  `commands::vcs::remote`. Its keys are listed in `commands::vcs::KEYS` and
   `commands::vcs::commit`, the commit menu is built in, and `bindings/vcs.rs` binds them;
   `app/vcs.rs` carries out what its commands ask, with `app/vcs/commit.rs` (messages) and
   `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,

@@ -212,6 +212,19 @@ network features.
   and `C-g` stops them. What git and its hooks write goes to
   `*git log: NAME*`, escape sequences and control characters taken out, and that buffer is
   withheld from the agent channel. File names in a message's `#` lines are escaped on one line.
+- A push, a pull or a fetch from a git status (ADR 0127, step 2) is the person's act, `Person`,
+  in a trusted project, with the repository's hooks and a commit's variables plus the proxies.
+  It starts in a session of its own with no controlling terminal (`Spawn::own_session`), so
+  that `ssh` or a credential helper cannot ask on the terminal oso was started from, unseen;
+  `GIT_TERMINAL_PROMPT=0` stays. A push names its refs in full after `--` and the remote. A
+  remote typed or picked in a prompt must be one `git remote` lists; one from the repository's
+  configuration is taken as git takes it, and an address is shown with its user and password
+  left out. A branch name is refused before git sees it if it could read as anything else, or
+  holds a control or bidirectional character. A forced push is only `--force-with-lease` with
+  the tip oso read, after a question naming what it drops (or that oso could not tell), and is
+  refused if the branch moved since; the question and the prompts take an answer only for the
+  status they were asked over, and one closed without it is forgotten. Subjects are shown
+  escaped on one line, and the server's own lines stay out of the echo area.
 - Discarding in a git status (ADR 0127, step 1c) asks first, and keeps each file as an
   unreachable object first (`git hash-object -w --no-filters`), but a file that may hold
   secrets, as a loose object can be read more widely than a private file. The record of the

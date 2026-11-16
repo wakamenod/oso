@@ -111,6 +111,7 @@ fn chmod(args: &[&std::ffi::OsStr]) {
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,
+        own_session: false,
         set: &[],
         terminal: None,
         pass_fd: None,

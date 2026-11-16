@@ -209,6 +209,7 @@ fn the_keys_list_names_every_key_with_its_commands_summary() {
         let own = (super::COMMANDS.iter())
             .chain(super::commit::COMMANDS)
             .chain(super::discard::COMMANDS)
+            .chain(super::remote::COMMANDS)
             .any(|command| command.name == *name);
         assert!(own || *name == "quit-window", "{name} has no summary");
     }
@@ -220,6 +221,7 @@ fn each_command_has_the_reach_it_needs() {
     for command in (super::COMMANDS.iter())
         .chain(super::commit::COMMANDS)
         .chain(super::discard::COMMANDS)
+        .chain(super::remote::COMMANDS)
     {
         let looks = matches!(
             command.name,

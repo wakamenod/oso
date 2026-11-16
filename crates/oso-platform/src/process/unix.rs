@@ -12,6 +12,8 @@
 //!   them (`posix_spawn_file_actions_addclosefrom_np`, glibc 2.34 and up; musl has none and is
 //!   not supported). So a descriptor this process made without close-on-exec, or marks only a
 //!   moment later, reaches no child.
+//! - A child that asks for a session of its own and no terminal gets one with no controlling
+//!   terminal (`POSIX_SPAWN_SETSID`, macOS's own flag too), so that it cannot open oso's.
 //! - A child in a terminal leads a session of its own, with the slave as its standard streams
 //!   and its controlling terminal. Linux starts it with `POSIX_SPAWN_SETSID`, and opens the
 //!   slave by name in the child, without `O_NOCTTY`, which a session leader with no terminal
@@ -61,6 +63,14 @@ const TERMINAL_SIGNALS: [libc::c_int; 10] = [
     libc::SIGPIPE,
 ];
 
+/// `POSIX_SPAWN_SETSID`: the child calls `setsid` before its file actions, so that it leads a
+/// session with no controlling terminal. The `libc` crate names it for Linux only; macOS has
+/// had it since 10.15, as `0x0400` in `<sys/spawn.h>`.
+#[cfg(target_os = "linux")]
+const SETSID: libc::c_int = libc::POSIX_SPAWN_SETSID;
+#[cfg(target_os = "macos")]
+const SETSID: libc::c_int = 0x0400;
+
 /// The first descriptor number no file action writes to: what a source below it is first
 /// copied above, so that no file action overwrites a later one's source.
 const FIRST_FREE: RawFd = INHERITED_FD + 1;
@@ -74,8 +84,8 @@ pub(super) struct Process {
     /// Waited for by something else, which the system said as `ECHILD`: its ID may be another
     /// process's too, and how it ended is not known.
     gone: bool,
-    /// It leads a process group of its own, whose ID is its own: started with one, or in a
-    /// terminal, as a session's leader.
+    /// It leads a process group of its own, whose ID is its own: started with one, or as a
+    /// session's leader, in a terminal or not.
     group: bool,
 }
 
@@ -127,7 +137,7 @@ pub(super) fn start(
             pid,
             status: None,
             gone: false,
-            group: request.own_process_group || request.terminal.is_some(),
+            group: request.own_process_group || request.own_session || request.terminal.is_some(),
         },
     })
 }
@@ -189,6 +199,9 @@ fn attributes(request: &Spawn<'_>) -> io::Result<Attributes> {
         attributes.default_signals(&TERMINAL_SIGNALS)?;
     } else {
         attributes.default_signals(&[libc::SIGPIPE])?;
+    }
+    if request.own_session {
+        flags |= SETSID;
     }
     if request.own_process_group {
         flags |= libc::POSIX_SPAWN_SETPGROUP;

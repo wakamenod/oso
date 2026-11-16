@@ -10,7 +10,9 @@
 //! - The commit runs `git -c core.commentChar=# commit --cleanup=strip --file=-` with the
 //!   message on standard input, so that `#` lines are left out whatever the person's
 //!   configuration says, and the switches as flags. Extending runs `--amend --no-edit`, and
-//!   rewording `--amend --only --allow-empty`, which leaves what is staged out.
+//!   rewording `--amend --only --allow-empty`, which leaves what is staged out. A fixup runs
+//!   `--fixup=ID`, which writes its own message, and a squash `--squash=ID --file=-`, its
+//!   message after git's `squash!` line (step 2); `ID` is a full id git listed.
 //! - A file's name in the `#` lines comes from git, so it is shown escaped, on one line: a line
 //!   break in it could not end a `#` line and add one of the message's.
 
@@ -42,32 +44,50 @@ const HOOKS: [(&str, bool); 3] = [
     ("commit-msg", true),
 ];
 
-/// git's arguments for the commit `kind` with `switches`, after oso's own. A kind that takes a
-/// message reads it from standard input.
-pub(crate) fn args(kind: CommitKind, switches: CommitSwitches) -> Vec<&'static str> {
-    let mut words = vec!["-c", "core.commentChar=#", "commit", "--cleanup=strip"];
-    words.extend_from_slice(match kind {
-        CommitKind::New => &["--file=-"][..],
-        CommitKind::Amend => &["--amend", "--file=-"],
-        CommitKind::Extend => &["--amend", "--no-edit"],
+/// git's arguments for the commit `kind` with `switches`, after oso's own, a fixup or a
+/// squash for the commit `target`, a full id. A kind that takes a message reads it from
+/// standard input.
+pub(crate) fn args(
+    kind: CommitKind,
+    switches: CommitSwitches,
+    target: Option<&str>,
+) -> Vec<String> {
+    let mut words: Vec<String> = ["-c", "core.commentChar=#", "commit", "--cleanup=strip"]
+        .map(str::to_owned)
+        .to_vec();
+    let target = target.unwrap_or_default();
+    let own: Vec<String> = match kind {
+        CommitKind::New => vec!["--file=-".into()],
+        CommitKind::Amend => vec!["--amend".into(), "--file=-".into()],
+        CommitKind::Extend => vec!["--amend".into(), "--no-edit".into()],
         // A commit that changes nothing could not be reworded otherwise.
-        CommitKind::Reword => &["--amend", "--only", "--allow-empty", "--file=-"],
-    });
+        CommitKind::Reword => ["--amend", "--only", "--allow-empty", "--file=-"]
+            .map(str::to_owned)
+            .to_vec(),
+        CommitKind::Fixup => vec![format!("--fixup={target}")],
+        CommitKind::Squash => vec![format!("--squash={target}"), "--file=-".into()],
+    };
+    words.extend(own);
     if switches.no_verify {
-        words.push("--no-verify");
+        words.push("--no-verify".into());
     }
     if switches.signoff {
-        words.push("--signoff");
+        words.push("--signoff".into());
     }
-    if switches.allow_empty && !words.contains(&"--allow-empty") {
-        words.push("--allow-empty");
+    if switches.allow_empty && !words.iter().any(|word| word == "--allow-empty") {
+        words.push("--allow-empty".into());
     }
     words
 }
 
 /// Whether the commit `kind` takes a message the person writes.
 pub(crate) fn takes_message(kind: CommitKind) -> bool {
-    !matches!(kind, CommitKind::Extend)
+    !matches!(kind, CommitKind::Extend | CommitKind::Fixup)
+}
+
+/// Whether the commit `kind` acts on the commit at point (step 2).
+pub(crate) fn needs_target(kind: CommitKind) -> bool {
+    matches!(kind, CommitKind::Fixup | CommitKind::Squash)
 }
 
 /// What the log and the echo area call the commit `kind`.
@@ -77,6 +97,8 @@ pub(crate) fn title(kind: CommitKind) -> &'static str {
         CommitKind::Amend => "git commit --amend",
         CommitKind::Extend => "git commit --amend --no-edit",
         CommitKind::Reword => "git commit --amend --only",
+        CommitKind::Fixup => "git commit --fixup",
+        CommitKind::Squash => "git commit --squash",
     }
 }
 

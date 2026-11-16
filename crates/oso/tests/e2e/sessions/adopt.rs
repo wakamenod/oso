@@ -110,6 +110,7 @@ fn run_elsewhere(flow: &Flow, id: &str, cwd: &Path, name: &str) -> oso_platform:
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,
+        own_session: false,
         set: &[],
         terminal: None,
         pass_fd: None,

@@ -17,6 +17,7 @@ use oso_core::selection::Selection;
 
 pub mod commit;
 pub mod discard;
+pub mod remote;
 
 /// Why a restricted project gets no status (ADR 0127, "Restricted projects").
 pub(crate) const RESTRICTED: &str =
@@ -446,12 +447,17 @@ fn status_keys(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 /// The menus a git status's keys open, as `(keys, menu)`.
-pub const MENUS: &[(&str, &str)] = &[("c", "commit")];
+pub const MENUS: &[(&str, &str)] = &[
+    ("c", "commit"),
+    ("P", "push"),
+    ("F", "pull"),
+    ("f", "fetch"),
+];
 
 /// The first line of the doc of the source-control command `name`, if it is one.
 fn summary_of(name: &str) -> Option<&'static str> {
     let all = COMMANDS.iter().chain(commit::COMMANDS);
-    let mut all = all.chain(discard::COMMANDS);
+    let mut all = all.chain(discard::COMMANDS).chain(remote::COMMANDS);
     let found = all.find(|command| command.name == name)?;
     found.doc.lines().next()
 }

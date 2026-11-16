@@ -13,21 +13,44 @@ use super::{
 };
 
 #[test]
+fn a_fixup_and_a_squash_name_their_commit_and_only_a_squash_takes_a_message() {
+    let none = CommitSwitches::default();
+    let base = ["-c", "core.commentChar=#", "commit", "--cleanup=strip"];
+    let with = |rest: &[&'static str]| [&base[..], rest].concat();
+    let id = "0123456789abcdef0123456789abcdef01234567";
+    assert_eq!(
+        args(CommitKind::Fixup, none, Some(id)),
+        with(&["--fixup=0123456789abcdef0123456789abcdef01234567"])
+    );
+    assert_eq!(
+        args(CommitKind::Squash, none, Some(id)),
+        with(&[
+            "--squash=0123456789abcdef0123456789abcdef01234567",
+            "--file=-"
+        ])
+    );
+    assert!(!super::takes_message(CommitKind::Fixup));
+    assert!(super::takes_message(CommitKind::Squash));
+    assert!(super::needs_target(CommitKind::Fixup) && super::needs_target(CommitKind::Squash));
+    assert!(!super::needs_target(CommitKind::Amend));
+}
+
+#[test]
 fn each_kind_runs_its_own_arguments_and_the_switches_add_flags() {
     let none = CommitSwitches::default();
     let base = ["-c", "core.commentChar=#", "commit", "--cleanup=strip"];
     let with = |rest: &[&'static str]| [&base[..], rest].concat();
-    assert_eq!(args(CommitKind::New, none), with(&["--file=-"]));
+    assert_eq!(args(CommitKind::New, none, None), with(&["--file=-"]));
     assert_eq!(
-        args(CommitKind::Amend, none),
+        args(CommitKind::Amend, none, None),
         with(&["--amend", "--file=-"])
     );
     assert_eq!(
-        args(CommitKind::Extend, none),
+        args(CommitKind::Extend, none, None),
         with(&["--amend", "--no-edit"])
     );
     assert_eq!(
-        args(CommitKind::Reword, none),
+        args(CommitKind::Reword, none, None),
         with(&["--amend", "--only", "--allow-empty", "--file=-"])
     );
     let all = CommitSwitches {
@@ -36,11 +59,11 @@ fn each_kind_runs_its_own_arguments_and_the_switches_add_flags() {
         allow_empty: true,
     };
     assert_eq!(
-        args(CommitKind::New, all),
+        args(CommitKind::New, all, None),
         with(&["--file=-", "--no-verify", "--signoff", "--allow-empty"])
     );
     // Rewording allows an empty commit already, and says so once.
-    let words = args(CommitKind::Reword, all);
+    let words = args(CommitKind::Reword, all, None);
     assert_eq!(words.iter().filter(|w| **w == "--allow-empty").count(), 1);
 }
 

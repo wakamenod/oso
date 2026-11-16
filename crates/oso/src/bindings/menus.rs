@@ -282,7 +282,7 @@ const SPACE: BuiltInMenu = BuiltInMenu {
 };
 
 /// Committing (ADR 0127, step 1b), from a git status's `c`, as magit's commit transient: its
-/// switches, then each kind. Fixup and squash at point come with step 2.
+/// switches, then each kind, with fixup and squash onto the commit at point (step 2).
 const COMMIT: BuiltInMenu = BuiltInMenu {
     name: "commit",
     title: "Commit",
@@ -308,13 +308,77 @@ const COMMIT: BuiltInMenu = BuiltInMenu {
                 exit("w", "git-commit-reword", "reword"),
             ],
         ),
+        (
+            "Edit the commit at point",
+            &[
+                exit("f", "git-commit-fixup", "fixup"),
+                exit("s", "git-commit-squash", "squash"),
+            ],
+        ),
     ],
     describe: None,
 };
 
+/// Pushing (ADR 0127, step 2), from a git status's `P`, as magit's push transient.
+const PUSH: BuiltInMenu = BuiltInMenu {
+    name: "push",
+    title: "Push",
+    groups: &[
+        (
+            "Arguments",
+            &[
+                switch(
+                    "- f",
+                    crate::commands::vcs::remote::FORCE_WITH_LEASE,
+                    "force with lease",
+                ),
+                switch(
+                    "- n",
+                    crate::commands::vcs::remote::PUSH_NO_VERIFY,
+                    "no verify",
+                ),
+            ],
+        ),
+        (
+            "Push the branch to",
+            &[
+                exit("p", "git-push", "its push target"),
+                exit("u", "git-push-upstream", "its upstream"),
+                exit("e", "git-push-elsewhere", "elsewhere"),
+            ],
+        ),
+    ],
+    describe: None,
+};
+
+/// Pulling (ADR 0127, step 2), from a git status's `F`: fast-forward only for now.
+const PULL: BuiltInMenu = BuiltInMenu {
+    name: "pull",
+    title: "Pull",
+    groups: &[(
+        "Pull into the branch, fast-forward only, from",
+        &[exit("u", "git-pull", "its upstream")],
+    )],
+    describe: None,
+};
+
+/// Fetching (ADR 0127, step 2), from a git status's `f`, pruning.
+const FETCH: BuiltInMenu = BuiltInMenu {
+    name: "fetch",
+    title: "Fetch",
+    groups: &[(
+        "Fetch, pruning, from",
+        &[
+            exit("u", "git-fetch", "the upstream's remote"),
+            exit("a", "git-fetch-all", "every remote"),
+        ],
+    )],
+    describe: None,
+};
+
 /// The built-in menus, in the order their ids are given.
-const BUILT_IN: [&BuiltInMenu; 7] = [
-    &TOGGLES, &WINDOWS, &JUMPS, &SEARCH, &REVIEW, &SPACE, &COMMIT,
+const BUILT_IN: [&BuiltInMenu; 10] = [
+    &TOGGLES, &WINDOWS, &JUMPS, &SEARCH, &REVIEW, &SPACE, &COMMIT, &PUSH, &PULL, &FETCH,
 ];
 
 /// The built-in menus over the commands in `registry`. A head whose command `registry` lacks is

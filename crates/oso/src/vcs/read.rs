@@ -1,6 +1,8 @@
 //! A status's reads (ADR 0127): finding the repository git works in, the status's listing,
-//! the counts, the head's subject and an open file's patch, each bounded, with the arguments
-//! and the variable every run of the status's thread shares.
+//! the counts, the head's subject, the push target and the commit sections (step 2), and an
+//! open file's patch, each bounded, with the arguments and the variable every run of the
+//! status's thread shares. The commit sections read the local refs that track the remote
+//! only: nothing here fetches.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; these run on the status's
 //! thread, `oso-vcs`, and on the repository's run thread, and wait for git.
@@ -9,6 +11,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
+use super::history::{self, Log};
 use super::layout::Section;
 use super::patch;
 use super::status;
@@ -21,6 +24,60 @@ pub(crate) const MAX_PATCH: usize = 1024 * 1024;
 
 /// The variable every run here sets.
 pub(super) const LITERAL: [(&str, &str); 1] = [("GIT_LITERAL_PATHSPECS", "1")];
+
+/// The push target, where it is not the upstream, and the commit sections of `branch`: the
+/// unpushed and unpulled ones when it has an upstream, the recent ones when it has a commit. A
+/// side the ahead and behind counts say is empty is not read, as most reads find both so. A
+/// read git refuses leaves its part out; one cut at [`history::MAX_LOG`] keeps what came.
+pub(super) fn logs(git: &Git, branch: &status::Branch) -> (Option<Vec<u8>>, Vec<(Section, Log)>) {
+    let mut logs = Vec::new();
+    if branch.oid.is_none() {
+        return (None, logs);
+    }
+    let read = |range: &str, keep: usize| {
+        let words = history::args(range, keep);
+        let words: Vec<&OsStr> = words.iter().map(OsStr::new).collect();
+        let out = git.output(&words, &set(), history::MAX_LOG).ok()?;
+        if out.cut {
+            // The run was killed at the limit: the whole records read show, and more is said.
+            let whole = out
+                .stdout
+                .iter()
+                .rposition(|&byte| byte == 0)
+                .map_or(0, |at| at + 1);
+            let mut log = history::parse(&out.stdout[..whole], keep);
+            log.more = true;
+            return Some(log);
+        }
+        out.status
+            .success()
+            .then(|| history::parse(&out.stdout, keep))
+    };
+    let push = branch.head.as_ref().and_then(|_| {
+        let words = args(&["rev-parse", "--abbrev-ref", "@{push}"]);
+        let out = git.run(&words, &set(), MAX_SHORT).ok()?;
+        let push = crate::git::trim_line(&out).to_vec();
+        (!push.is_empty() && branch.upstream.as_deref() != Some(push.as_slice())).then_some(push)
+    });
+    if branch.upstream.is_some() {
+        let (ahead, behind) = branch
+            .ahead_behind
+            .map_or((true, true), |(a, b)| (a > 0, b > 0));
+        let pairs = [
+            (Section::Unpushed, "@{upstream}..HEAD", ahead),
+            (Section::Unpulled, "HEAD..@{upstream}", behind),
+        ];
+        for (section, range, _) in pairs.into_iter().filter(|(_, _, some)| *some) {
+            if let Some(log) = read(range, history::MAX_COMMITS) {
+                logs.push((section, log));
+            }
+        }
+    }
+    if let Some(log) = read("HEAD", history::RECENT) {
+        logs.push((Section::Recent, log));
+    }
+    (push, logs)
+}
 
 /// `vcs/hooks` under `state`, made private if missing, and checked to be empty: git is told the
 /// hooks are there, so that none runs, `post-index-change` neither (ADR 0127, step 1a).

@@ -403,6 +403,7 @@ fn a_hostile_directory_costs_nothing_and_changes_nothing() {
             stdout: Sink::Null,
             stderr: Sink::Null,
             own_process_group: false,
+            own_session: false,
             set: &[],
             terminal: None,
             pass_fd: None,

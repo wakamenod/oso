@@ -190,6 +190,7 @@ fn a_pipe_is_not_read() {
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,
+        own_session: false,
         set: &[],
         terminal: None,
         pass_fd: None,

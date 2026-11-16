@@ -35,6 +35,8 @@ mod agent;
 mod commit;
 mod discard;
 mod draft;
+mod remote;
+mod requests;
 mod runs;
 
 pub(crate) use runs::RunEvent;
@@ -116,6 +118,7 @@ impl App {
         for request in self.editor.take_git_requests() {
             self.git_request(request);
         }
+        self.forget_closed_pushes();
         self.sync_commits();
         let agent = agent || self.gits.by_agent;
         // A key is the person's in a status when the status was selected as it was typed.
@@ -156,6 +159,11 @@ impl App {
     }
 
     fn git_request(&mut self, request: GitRequest) {
+        match requests::concern(&request) {
+            requests::Concern::Commit => return self.git_commit_request(request),
+            requests::Concern::Remote => return self.git_remote_request(request),
+            requests::Concern::Status => {}
+        }
         match request {
             GitRequest::Status { project } => self.open_git_status(project),
             GitRequest::Refresh { buffer } => {
@@ -173,7 +181,8 @@ impl App {
                 line,
                 column,
             } => self.visit_git_line(buffer, line, column),
-            other => self.git_commit_request(other),
+            // Sorted out above.
+            _ => {}
         }
     }
 
@@ -260,7 +269,7 @@ impl App {
     fn git_ask(&mut self, index: usize, ask: Ask) {
         // A write to the index while a commit runs would race it for the index's lock (Q8).
         if matches!(ask, Ask::Stage(..) | Ask::Discard(..))
-            && self.commit_runs(self.gits.open[index].project)
+            && self.repo_busy(self.gits.open[index].project)
         {
             return self.editor.message(runs::RUNNING);
         }
@@ -352,6 +361,11 @@ impl App {
             return;
         };
         let open = &self.gits.open[index];
+        // A commit's row opens its review, read-only (step 2).
+        if let Some((_, commit)) = open.built.commit_at(line) {
+            let (project, id) = (open.project, commit.id.clone());
+            return self.open_review(project, oso_core::editor::ScopeKind::Commit, Some(id));
+        }
         let visit = match open.built.visit(line, column) {
             Ok(visit) => visit,
             Err(why) => return self.editor.message(why),

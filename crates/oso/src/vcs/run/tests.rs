@@ -13,8 +13,10 @@ use super::{RunEnd, RunReport, RunRequest, Runner};
 use crate::git::TrustedRoot;
 use crate::review::tests::Repo;
 
+mod remote;
+
 /// A repository with a first commit, its own identity and no signing.
-fn repo(name: &str) -> Repo {
+pub(super) fn repo(name: &str) -> Repo {
     let repo = Repo::new(name);
     repo.git(&["config", "user.name", "t"]);
     repo.git(&["config", "user.email", "t@t"]);
@@ -25,7 +27,7 @@ fn repo(name: &str) -> Repo {
     repo
 }
 
-fn runner(repo: &Repo) -> (Runner, mpsc::Receiver<RunReport>) {
+pub(super) fn runner(repo: &Repo) -> (Runner, mpsc::Receiver<RunReport>) {
     let (sent, got) = mpsc::channel();
     let runner = Runner::start(
         TrustedRoot::for_tests(repo.root.clone()),
@@ -37,7 +39,7 @@ fn runner(repo: &Repo) -> (Runner, mpsc::Receiver<RunReport>) {
 }
 
 /// The reports until a run ends, the end, and the output it wrote.
-fn until_end(got: &mpsc::Receiver<RunReport>) -> (RunEnd, String, bool) {
+pub(super) fn until_end(got: &mpsc::Receiver<RunReport>) -> (RunEnd, String, bool) {
     let mut output = String::new();
     let mut began = false;
     loop {
@@ -48,6 +50,8 @@ fn until_end(got: &mpsc::Receiver<RunReport>) -> (RunEnd, String, bool) {
             }
             RunReport::Output(text) => output.push_str(&text),
             RunReport::Elapsed(_)
+            | RunReport::Progress(_)
+            | RunReport::Planned(_)
             | RunReport::Message(_)
             | RunReport::Subjects { .. }
             | RunReport::Discarded(_)
@@ -63,10 +67,11 @@ fn commit(message: &str, switches: CommitSwitches) -> RunRequest {
         switches,
         message: Some(message.as_bytes().to_vec()),
         pass: Vec::new(),
+        target: None,
     }
 }
 
-fn subject(repo: &Repo) -> String {
+pub(super) fn subject(repo: &Repo) -> String {
     String::from_utf8(repo.git(&["log", "-1", "--format=%s"]))
         .unwrap()
         .trim()
@@ -151,6 +156,7 @@ fn an_amend_starts_from_the_message_of_head() {
         switches: CommitSwitches::default(),
         message: Some(b"First, reworded\n".to_vec()),
         pass: Vec::new(),
+        target: None,
     });
     let (end, output, _) = until_end(&got);
     assert_eq!(end, RunEnd::Done, "{output}");
@@ -231,7 +237,7 @@ fn a_root_no_longer_trusted_runs_nothing() {
 
 #[test]
 fn a_flood_is_sent_as_its_end_with_what_was_left_out() {
-    let mut waiting = super::Waiting::default();
+    let mut waiting = super::stream::Waiting::default();
     assert_eq!(waiting.take(), None);
     let line = format!("{}\n", "y".repeat(99));
     for _ in 0..(3 * super::MAX_FLUSH / line.len()) {

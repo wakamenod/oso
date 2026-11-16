@@ -121,6 +121,7 @@ fn runs(pid: u32) -> bool {
         stdout: Sink::Piped,
         stderr: Sink::Null,
         own_process_group: false,
+        own_session: false,
         set: &[],
         terminal: None,
         pass_fd: None,

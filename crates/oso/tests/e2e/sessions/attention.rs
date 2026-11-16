@@ -243,6 +243,7 @@ fn another_programs_session_in_the_registry_is_listed() {
         stdout: Sink::Null,
         stderr: Sink::Null,
         own_process_group: false,
+        own_session: false,
         set: &[],
         terminal: None,
         pass_fd: None,

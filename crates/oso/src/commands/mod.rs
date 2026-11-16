@@ -124,6 +124,7 @@ const TABLES: &[&[Command]] = &[
     vcs::COMMANDS,
     vcs::commit::COMMANDS,
     vcs::discard::COMMANDS,
+    vcs::remote::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
     windows::COMMANDS,
@@ -417,6 +418,19 @@ mod tests {
         "git-restore-discarded",
         "git-show-log",
         "git-stop",
+        // Fixup and squash at point, and pushes, pulls and fetches, which talk to a remote
+        // (step 2).
+        "git-commit-fixup",
+        "git-commit-squash",
+        "git-fetch",
+        "git-fetch-all",
+        "git-pull",
+        "git-push",
+        "git-push-confirmed",
+        "git-push-elsewhere",
+        "git-push-to",
+        "git-push-to-remote",
+        "git-push-upstream",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).
