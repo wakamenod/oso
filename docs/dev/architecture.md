@@ -1028,12 +1028,12 @@ Full details are in [`security.md`](security.md).
   ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
   - `crates/oso/src/channel/` serves `<pid>-agent.sock` in the same private directory through
     `oso-platform::control`, which is built in every build. Its methods are `version`, `state`,
-    `commands`, `run`, `cancel`, `open` and `text`, and the session tools' methods
+    `commands`, `run`, `cancel`, `open`, `text` and `diagnostics` (ADR 0138, step 11), and the session tools' methods
     (`channel/protocol/sessions.rs`, ADR 0121), over the JSON Lines framing in
     `channel::wire`, which the dev socket shares, and no dev method. A session tool that asks
     the person holds its reply until they answer (`channel/server/held.rs`).
   - `oso mcp` (`channel/mcp.rs`) is a subcommand of the oso binary that opens no window: MCP's
-    JSON-RPC on stdin and stdout, with the tools `state`, `text`, `commands`, `look`,
+    JSON-RPC on stdin and stdout, with the tools `state`, `text`, `diagnostics`, `commands`, `look`,
     `change`, `open` and `cancel`, which takes back a question the agent's change opened
     (ADR 0093), and the session tools (`channel/mcp/session_tools.rs`, ADR 0121). It connects on the first tool call, asks the channel's `version`
     first, and connects again after oso restarts. It looks through every instance's socket
@@ -1050,7 +1050,7 @@ Full details are in [`security.md`](security.md).
     size once loaded, is shown in that buffer instead, if the channel may show it
     (`dispatch::unshowable`, which `switch-to-buffer` asks too), and that buffer keeps its
     mark (ADR 0094). Until its open is done, a buffer the channel is opening is left out of
-    `state`, `text`, `switch-to-buffer` and the dev restart's handoff. `text` copies rows or the region off the UI thread (`channel::text`). A buffer
+    `state`, `text`, `switch-to-buffer` and the dev restart's handoff. `text` copies rows or the region off the UI thread (`channel::text`), and `diagnostics` makes its answer off it too, from the sets and the servers' reports the UI thread shared (`channel::diagnostics`, answered by `app/agent/servers.rs`); it never gives a buffer `text` refuses, nor the servers' reports of such a buffer's file. A buffer
     the channel opened is marked, and `save-buffer` run for the agent asks the person before
     saving it. A save a command run for the agent queued, or the person's `y` to its question,
     goes through `saver::spawn_for_agent`, which refuses it on the saving thread, right before

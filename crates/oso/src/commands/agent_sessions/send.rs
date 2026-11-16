@@ -78,7 +78,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "session-fix-error",
-        doc: "Ask an agent session, read with completion, to fix the diagnostic at point.\n\nIt pastes the diagnostic, `path:line:column: severity:` and the server's message, the 10 lines either side of it in a fence, and \"Fix this error.\". Of several there, the most severe goes. The paste is not submitted: you read it in the session's input box and press Enter.",
+        doc: "Ask an agent session, read with completion, to fix the diagnostic at the primary cursor.\n\nIt pastes the diagnostic, `path:line:column: severity`, the server's message in a fence under a line saying a language server wrote it, the 10 lines either side of it in a fence, and \"Fix this error.\". Of several there, the most severe goes; hints never do. The paste is not submitted: you read it in the session's input box and press Enter.",
         args: ArgSpec::Listed {
             list: SEND_LIST,
             prompt: "Fix the error with session:",
@@ -224,24 +224,39 @@ fn session_send_diagnostics(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandErr
     let session = super::answer(ctx, "No session")?;
     let (window, buffer) = ctx.editor.current();
     let set = diagnosed(buffer)?;
-    let regions: Vec<_> = window
+    let mut regions: Vec<_> = window
         .selections
         .iter()
         .map(|selection| selection.range())
         .filter(|range| !range.is_empty())
         .collect();
+    regions.sort_unstable_by_key(|range| range.start);
+    // A diagnostic in a region, found by a binary search of the regions, which meet no other.
     let meets = |range: std::ops::Range<usize>| {
+        let after = regions.partition_point(|region| region.end <= range.start);
         regions.is_empty()
-            || regions.iter().any(|region| {
-                range.start < region.end && region.start <= range.start.max(range.end)
-            })
+            || regions
+                .get(after)
+                .is_some_and(|region| region.start <= range.start)
     };
-    let diagnostics: Vec<SendDiagnostic> = set
-        .iter()
+    let mut diagnostics: Vec<SendDiagnostic> = Vec::new();
+    let mut bytes = 0;
+    for diagnostic in (set.iter())
         .filter(|diagnostic| diagnostic.severity() != Severity::Hint)
         .filter(|diagnostic| meets(diagnostic.range()))
-        .map(|diagnostic| send_diagnostic(buffer, &diagnostic))
-        .collect();
+    {
+        // Its first line only, as the line sends, and no column, which it shows none of.
+        let mut sent = send_diagnostic(buffer, &diagnostic, false);
+        sent.message = oso_core::diagnostic::first_line(&sent.message).to_owned();
+        bytes += sent.message.len() + sent.buffer.len() + 32;
+        if bytes > MAX_SEND_BYTES {
+            return Err(CommandError::new(too_large(
+                bytes,
+                "M-x session-send-diagnostics",
+            )));
+        }
+        diagnostics.push(sent);
+    }
     if diagnostics.is_empty() {
         return Err(CommandError::new(if regions.is_empty() {
             "No diagnostics to send"
@@ -256,7 +271,7 @@ fn session_send_diagnostics(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandErr
     Ok(())
 }
 
-/// Sends the most severe diagnostic at point, its lines around and "Fix this error." (ADR 0121,
+/// Sends the most severe diagnostic at the primary cursor, its lines around and "Fix this error." (ADR 0121,
 /// ADR 0138, step 11).
 fn session_fix_error(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::super::not_in_prompt(ctx)?;
@@ -287,7 +302,7 @@ fn session_fix_error(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     ctx.editor.request_session(SessionRequest::Send {
         to: SendTo::Named(session),
         parts: vec![SendPart::FixError {
-            diagnostic: send_diagnostic(buffer, &diagnostic),
+            diagnostic: send_diagnostic(buffer, &diagnostic, true),
             around,
         }],
     });
@@ -306,22 +321,26 @@ fn diagnosed(buffer: &Buffer) -> Result<&oso_core::diagnostic::Diagnostics, Comm
         .ok_or_else(|| CommandError::new("No language server reported on this buffer"))
 }
 
-/// `diagnostic` of `buffer` as a send gives it, its column in characters.
+/// `diagnostic` of `buffer` as a send gives it, its message cut to what a send keeps, and its
+/// column in characters if `column`, else 0.
 fn send_diagnostic(
     buffer: &Buffer,
     diagnostic: &oso_core::diagnostic::Diagnostic<'_>,
+    column: bool,
 ) -> SendDiagnostic {
     let text = buffer.text();
     let start = diagnostic.range().start;
     let point = text.offset_to_point(start);
-    let column = text.slice(text.line_start(point.row)..start).char_count();
+    let column = column.then(|| text.slice(text.line_start(point.row)..start).char_count() + 1);
+    let message = diagnostic.message();
+    let kept = &message[..message.floor_char_boundary(crate::channel::diagnostics::MESSAGE_BYTES)];
     SendDiagnostic {
         path: buffer.path().map(std::path::Path::to_path_buf),
         buffer: buffer.name().to_owned(),
         line: point.row + 1,
-        column: column + 1,
+        column: column.unwrap_or(0),
         severity: diagnostic.severity(),
-        message: diagnostic.message().to_owned(),
+        message: kept.to_owned(),
     }
 }
 

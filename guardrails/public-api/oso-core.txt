@@ -808,6 +808,8 @@ pub oso_core::diagnostic::Severity::Error
 pub oso_core::diagnostic::Severity::Hint
 pub oso_core::diagnostic::Severity::Information
 pub oso_core::diagnostic::Severity::Warning
+impl oso_core::diagnostic::Severity
+pub fn oso_core::diagnostic::Severity::word(self) -> &'static str
 impl core::clone::Clone for oso_core::diagnostic::Severity
 pub fn oso_core::diagnostic::Severity::clone(&self) -> oso_core::diagnostic::Severity
 impl core::cmp::Eq for oso_core::diagnostic::Severity
@@ -902,6 +904,7 @@ impl core::hash::Hash for oso_core::diagnostic::Tags
 pub fn oso_core::diagnostic::Tags::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::diagnostic::Tags
 impl core::marker::StructuralPartialEq for oso_core::diagnostic::Tags
+pub fn oso_core::diagnostic::first_line(&str) -> &str
 pub mod oso_core::display_map
 pub mod oso_core::display_map::cell
 pub enum oso_core::display_map::cell::CellKind

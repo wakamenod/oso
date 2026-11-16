@@ -129,7 +129,7 @@ impl DiagnosticRows {
             .map(|row| {
                 // Runs of blanks are one, so that no text the server pads out passes as oso's.
                 let message = first_line(&row.message).split_whitespace();
-                let mut text = format!("{}:{}: {}:", row.path, row.line, name(row.severity));
+                let mut text = format!("{}:{}: {}:", row.path, row.line, row.severity.word());
                 let start = text.len();
                 for word in message {
                     if text.len() - start >= ROW_MESSAGE_BYTES {
@@ -166,16 +166,6 @@ impl DiagnosticRows {
             selected,
             cut,
         }
-    }
-}
-
-/// The word a row gives a severity.
-fn name(severity: Severity) -> &'static str {
-    match severity {
-        Severity::Error => "error",
-        Severity::Warning => "warning",
-        Severity::Information => "info",
-        Severity::Hint => "hint",
     }
 }
 

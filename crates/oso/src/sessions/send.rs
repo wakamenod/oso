@@ -11,30 +11,30 @@
 //! - `@diagnostics` is a line for each of a language server's diagnostics,
 //!   `path:line: severity: message`, the message's first line with its blanks as one
 //!   (ADR 0138, step 11).
-//! - `session-fix-error`'s part is the diagnostic, `path:line:column: severity:` and its
-//!   message, then its lines around as `@region` gives lines, then "Fix this error.".
+//! - `session-fix-error`'s part is the diagnostic, `path:line:column: severity`, then its
+//!   message under a line that says a language server wrote it, in a fence of its own longer
+//!   than any run of backticks in it, so that no message can pass as the lines or the ask after
+//!   it, then its lines around as `@region` gives lines, then "Fix this error.".
 //!
 //! A path is relative to the session's directory when it is inside it, and absolute otherwise.
 //! Control, bidirectional and invisible characters in it are written as `\u{…}`, so that a file
 //! name can neither end a line of the form nor read as another. So are they in a server's
-//! message, but its line breaks, which `session-fix-error` keeps, and a message gives at most
-//! [`MESSAGE_BYTES`].
+//! message, as the agent channel writes them (`channel::diagnostics::server_text`), but its
+//! line breaks, which `session-fix-error` keeps.
 
 use std::fmt::Write as _;
 use std::path::Path;
 
-use oso_core::diagnostic::Severity;
+use oso_core::diagnostic::first_line;
 use oso_core::display_map::cell::is_invisible;
 use oso_core::editor::{SendDiagnostic, SendExcerpt, SendPart};
+
+use crate::channel::diagnostics::server_text;
 
 use super::state::{Reason, State};
 
 /// The most a send pastes: 256 KiB (ADR 0121), the commands' own limit.
 pub const MAX_BYTES: usize = crate::commands::agent_sessions::MAX_SEND_BYTES;
-
-/// The most bytes of a server's message a send gives, cut at a character, as the agent
-/// channel's `diagnostics` gives (ADR 0138).
-pub const MESSAGE_BYTES: usize = 2 << 10;
 
 /// A send is larger than [`MAX_BYTES`]: `bytes` long.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,15 +58,15 @@ pub fn compose(parts: &[SendPart], directory: &Path) -> Result<String, TooLarge>
                     if index > 0 {
                         out.push('\n');
                     }
-                    let first = diagnostic.message.lines().next().unwrap_or_default();
-                    let first = first.split_whitespace().collect::<Vec<_>>().join(" ");
+                    let first = first_line(&diagnostic.message).split_whitespace();
+                    let first = first.collect::<Vec<_>>().join(" ");
                     let _ = write!(
                         out,
                         "{}:{}: {}: {}",
                         named(diagnostic, directory),
                         diagnostic.line,
-                        severity(diagnostic.severity),
-                        message(&first)
+                        diagnostic.severity.word(),
+                        server_text(&first, false)
                     );
                     if out.len() > MAX_BYTES {
                         return Err(TooLarge { bytes: out.len() });
@@ -74,14 +74,15 @@ pub fn compose(parts: &[SendPart], directory: &Path) -> Result<String, TooLarge>
                 }
             }
             SendPart::FixError { diagnostic, around } => {
+                let message = server_text(&diagnostic.message, true);
+                let fence = fence(&message);
                 let _ = writeln!(
                     out,
-                    "{}:{}:{}: {}: {}",
+                    "{}:{}:{}: {}\nThe language server says:\n{fence}\n{message}\n{fence}",
                     named(diagnostic, directory),
                     diagnostic.line,
                     diagnostic.column,
-                    severity(diagnostic.severity),
-                    message(&diagnostic.message)
+                    diagnostic.severity.word(),
                 );
                 push_excerpt(&mut out, around, directory);
                 out.push_str("\n\nFix this error.");
@@ -119,23 +120,6 @@ fn named(diagnostic: &SendDiagnostic, directory: &Path) -> String {
         ),
         None => format!("buffer {}", escaped(&diagnostic.buffer)),
     }
-}
-
-/// The word a send gives a severity.
-fn severity(severity: Severity) -> &'static str {
-    match severity {
-        Severity::Error => "error",
-        Severity::Warning => "warning",
-        Severity::Information => "info",
-        Severity::Hint => "hint",
-    }
-}
-
-/// A server's message as a send gives it: at most [`MESSAGE_BYTES`] of it, cut at a character,
-/// its line breaks kept, and every other control, bidi or invisible character as `\u{…}`.
-fn message(text: &str) -> String {
-    let kept = &text[..text.floor_char_boundary(MESSAGE_BYTES)];
-    kept.split('\n').map(escaped).collect::<Vec<_>>().join("\n")
 }
 
 /// Where `excerpt` is: `path:10-20`, or `path:10` for one line, the path relative to

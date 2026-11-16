@@ -16,6 +16,8 @@
 //!   is judged ordinary; `line` is optional.
 //! - `text`: `{"buffer": 3, "start_row": 0, "rows": 200}` gives whole rows of a buffer, or
 //!   `{"region": true}` the selected window's region.
+//! - `diagnostics`: `{"buffer": 3, "project": true}` gives the language servers' diagnostics
+//!   of a buffer, the selected one by default, or of its whole project (ADR 0138, step 11).
 //! - The session methods, one for each session tool (ADR 0121), in [`sessions`].
 
 use std::path::PathBuf;

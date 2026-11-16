@@ -20,8 +20,10 @@ use oso_core::sum_tree::Bias;
 use oso_core::window::Window;
 use serde_json::{Value, json};
 
-/// The state's version. Bump it on incompatible changes. 2 added each buffer's `waits`
-/// (ADR 0118, Q6); 3 each buffer's `server` and `diagnostics` (ADR 0138, step 11).
+/// The state's version. Bumped on incompatible changes and, since ADR 0118, on new fields of
+/// each buffer's, which an agent may check before it reads them; new fields of a window's
+/// keep it. 2 added each buffer's `waits` (ADR 0118, Q6); 3 each buffer's `server` and
+/// `diagnostics` (ADR 0138, step 11).
 pub const STATE_VERSION: u32 = 3;
 
 /// The most text of the selected window's rows the state holds, in bytes.
@@ -42,15 +44,9 @@ pub fn unreadable(buffer: &Buffer) -> bool {
 
 /// The state: every buffer the person has, every tiled window, the selected window's rows,
 /// the echo area, the prompts open, the outermost first, and `menu`, the name of the menu the
-/// person has open, or null (ADR 0117).
-#[cfg(test)]
-pub fn state(editor: &Editor, menu: Option<&str>, buffer_offset: usize) -> Value {
-    state_with(editor, menu, buffer_offset, &|_| None)
-}
-
-/// The state, as [`state`] gives it, with `server_of` the name of the language server that
-/// follows a buffer, for each buffer's `server` (ADR 0138, step 11).
-pub fn state_with(
+/// person has open, or null (ADR 0117). `server_of` names the language server that follows a
+/// buffer, for each buffer's `server` (ADR 0138, step 11).
+pub fn state(
     editor: &Editor,
     menu: Option<&str>,
     buffer_offset: usize,
@@ -178,8 +174,11 @@ fn buffer_state(
         "waits": buffer.waits().shown().collect::<Vec<_>>(),
     });
     // The language server that follows it, and the counts of what it reported, hints left out
-    // (ADR 0138, step 11). A buffer that may hold secrets has neither.
-    if let Some(mark) = buffer.server() {
+    // (ADR 0138, step 11): never of a buffer the channel may not read, as `diagnostics`
+    // refuses it.
+    if !unreadable(buffer)
+        && let Some(mark) = buffer.server()
+    {
         let (state_word, progress) = match mark {
             ServerMark::Starting => ("starting", None),
             ServerMark::Ready => ("ready", None),
@@ -216,8 +215,8 @@ fn buffer_state(
 /// A tiled window, in the tree's order (ADR 0112): its id, its cells, gutter, text and
 /// modeline together, so that a secret buffer's gutter says nothing of its lines (ADR 0097),
 /// and its positions only if what it shows may hold no secrets. The selected one is the
-/// selected tiled window, also beneath a prompt. New fields keep the state's version
-/// (ADR 0085).
+/// selected tiled window, also beneath a prompt. New fields of a window's keep the state's
+/// version (ADR 0085), as [`STATE_VERSION`] says.
 fn window_state(
     editor: &Editor,
     window: &Window,
@@ -373,12 +372,17 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_VISIBLE_TEXT, STATE_VERSION, begin_a_large_undo, commands, state};
+    use super::{MAX_VISIBLE_TEXT, STATE_VERSION, begin_a_large_undo, commands};
     use oso_core::buffer::Buffer;
     use oso_core::editor::Editor;
     use oso_core::window::ViewSize;
     use serde_json::json;
     use std::path::PathBuf;
+
+    /// The state with no language server named.
+    fn state(editor: &Editor, menu: Option<&str>, buffer_offset: usize) -> serde_json::Value {
+        super::state(editor, menu, buffer_offset, &|_| None)
+    }
 
     fn editor(text: &str) -> Editor {
         let mut editor = Editor::with_buffer(Buffer::from_text("notes.md", text));
@@ -409,7 +413,7 @@ mod tests {
         use oso_core::diagnostic::{Diagnostics, New, Severity, Tags};
         let mut editor = editor("let x = 1;\n");
         let id = editor.tiled().0.buffer();
-        let plain = super::state_with(&editor, None, 0, &|_| None);
+        let plain = state(&editor, None, 0);
         assert_eq!(plain["version"], 3);
         assert!(
             plain["buffers"][0].get("server").is_none(),
@@ -437,7 +441,7 @@ mod tests {
         );
         let revision = buffer.revision();
         assert!(buffer.take_diagnostics(revision, set));
-        let state = super::state_with(&editor, None, 0, &|_| Some("rust-analyzer".into()));
+        let state = super::state(&editor, None, 0, &|_| Some("rust-analyzer".into()));
         let shown = &state["buffers"][0];
         assert_eq!(
             shown["server"],
@@ -447,6 +451,11 @@ mod tests {
             shown["diagnostics"],
             json!({ "errors": 1, "warnings": 1, "information": 0 })
         );
+        // One the channel may not read says neither, as `diagnostics` refuses it.
+        editor.buffer_mut(id).unwrap().withhold_from_agents();
+        let state = super::state(&editor, None, 0, &|_| Some("rust-analyzer".into()));
+        let shown = &state["buffers"][0];
+        assert!(shown.get("server").is_none() && shown.get("diagnostics").is_none());
     }
 
     #[test]
@@ -697,8 +706,8 @@ mod tests {
         let id = editor.add_terminal_buffer("*terminal*");
         editor.set_running(id, true);
         editor.set_mode_note(id, "\u{201c}a title\u{201d}".to_owned());
-        let state = state(&editor, None, 0);
-        let listed = state["buffers"]
+        let first = state(&editor, None, 0);
+        let listed = first["buffers"]
             .as_array()
             .unwrap()
             .iter()
@@ -711,8 +720,8 @@ mod tests {
         assert!(!listed.to_string().contains("a title"), "{listed}");
         assert!(listed.get("secret").is_none(), "{listed}");
         editor.set_agent_reads(id, true);
-        let state = super::state(&editor, None, 0);
-        assert!(state.to_string().contains("\"agent_reads\":true"));
+        let again = state(&editor, None, 0);
+        assert!(again.to_string().contains("\"agent_reads\":true"));
     }
 
     #[test]

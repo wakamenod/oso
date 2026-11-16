@@ -103,6 +103,8 @@ through `oso mcp`.
 | `d` | `session-next-done` | Show the session that has been done longest. |
 | `f` | `session-follow-message` | Show the session that sent this one its newest message. |
 | `m` | `session-send` | Paste the region, or a note, into a session. |
+| `!` | `session-send-diagnostics` | Paste the language server's errors and warnings of the region, or of the buffer, into a session. |
+| `x` | `session-fix-error` | Ask a session to fix the error at point: its message, the 10 lines either side, and "Fix this error.". |
 | `@` | `session-mention` | Insert a session's name as `@NAME`. |
 | `e` | `session-explain` | Explain why this session has the state it shows. |
 | `j` | `space-switch` | Switch to another space. |
@@ -280,6 +282,12 @@ lines and its text. With `C-u`, only the path and lines go (`path:10-20`), and t
 the file itself. With no region, oso asks for a one-line note. The paste is not submitted:
 oso shows the session, and you read the paste and press Enter. A session that is asking a
 question is refused until you answer it.
+
+In a buffer a language server follows, `C-c a !` sends its errors, warnings and notes, one line
+each (`path:line: severity: message`): those in the region, or the whole buffer's. `C-c a x`
+sends the most severe one at point, the server's message in a fence of its own, its 10 lines
+either side and "Fix this error.". Hints never go, and neither does anything of a buffer that
+may hold secrets.
 
 `C-c a @` gives a session's name as `@NAME`, which an agent uses to message that session.
 

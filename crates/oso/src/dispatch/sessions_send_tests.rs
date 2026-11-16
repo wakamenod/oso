@@ -1,6 +1,7 @@
 //! Sending to agent sessions through a dispatcher (ADR 0121, step 5): `C-c a m` reads a
 //! session, then a note unless a region shows, and asks the host to paste what it read;
-//! `C-c a @` inserts a session's name; `C-c a f` asks for a message's sender.
+//! `C-c a @` inserts a session's name; `C-c a f` asks for a message's sender; `C-c a !` sends
+//! the buffer's diagnostics and `C-c a x` the error at point (ADR 0138, step 11).
 //!
 //! Must not depend on: `app` or winit; these drive a dispatcher and an editor alone.
 
@@ -306,7 +307,7 @@ fn c_c_a_bang_sends_the_buffer_s_diagnostics_but_its_hints() {
         path: None,
         buffer: "a.rs".to_owned(),
         line: 2,
-        column: 5,
+        column: 0,
         severity: Severity::Error,
         message: "mismatched types".to_owned(),
     };

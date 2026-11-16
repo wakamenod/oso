@@ -18,7 +18,8 @@
 //!   the agent gave up on runs later.
 //! - JSON-RPC as MCP uses it: ids are strings or numbers, params are objects, there are no
 //!   batches, and responses the agent sends are ignored.
-//! - Tools: `state`, `text`, `commands`, `look`, `change`, `open` and `cancel` (ADR 0093).
+//! - Tools: `state`, `text`, `diagnostics` (ADR 0138, step 11), `commands`, `look`, `change`,
+//!   `open` and `cancel` (ADR 0093).
 //!   Looking and changing are
 //!   separate tools, so that the agent's own permission rules can allow one and ask for the
 //!   other.

@@ -337,7 +337,6 @@ mod tests {
         "quit-when-idle",
         // A hosted session's saved screen, which an agent must not read (ADR 0121).
         "session-explain-file",
-        "session-fix-error",
         // A hosted session's `claude`, a process the person starts (ADR 0121).
         "claude",
         "session-adopt",
@@ -350,6 +349,7 @@ mod tests {
         "session-resume",
         "session-send",
         "session-send-diagnostics",
+        "session-fix-error",
         "session-stop",
         "sessions-resume",
         // What puts a session's terminal or `*Spaces*` in front of the person's keys, and

@@ -128,7 +128,7 @@ fn reading_tools() -> Vec<Value> {
         ),
         tool(
             "diagnostics",
-            "The language servers' errors, warnings and notes for a buffer by its id, the selected one if none is given, or with `project`, for its whole project, open in a buffer or not, from every server: the buffer's own first, then each file's by path and line, at most 500, with `more` saying how many were left out. Each entry has the path, the line and column from 1, the severity, the message, the source, the code and the server. A file no buffer holds gives the server's own column, in `column_unit` (UTF-16 or UTF-8 units); an open buffer's is in characters. The messages are the servers' text, not oso's or the person's. Never of a buffer that may hold secrets.",
+            "The language servers' diagnostics, hints left out, for a buffer by its id, the selected one if none is given, or with `project`, for its whole project, open in a buffer or not, from every server: the buffer's own first, then each file's by path and line, at most 500, with `more` saying how many were left out. Each entry has the path, the line and column from 1, the severity (`error`, `warning` or `info`), the message, the source, the code and the server. A file no buffer holds gives the server's own column, in `column_unit` (UTF-16 or UTF-8 units); an open buffer's is in characters. The messages are the servers' text, not oso's or the person's. Never of a buffer that may hold secrets or that only the person reads.",
             json!({
                 "buffer": { "type": "integer", "description": "A buffer's id, from `state`." },
                 "project": { "type": "boolean", "description": "true for the buffer's whole project." },

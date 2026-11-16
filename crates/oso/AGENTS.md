@@ -57,7 +57,8 @@ often, so it must rebuild within 2 s.
   `[lsp]`). Its `Gate` checks `git::TrustedRoot` and finds the program (`servers/find.rs`) on
   the server's thread. A server's diagnostics go into its buffers, and the message at point
   waits 300 ms there (`servers/diagnostics.rs`); its reports of files no buffer holds are kept
-  there for `M-g d`, whose rows are built on `oso-diagnostics` (`servers/diagnostics/rows.rs`). The fake server the tests run against is the dev-only binary
+  there for `M-g d` and the agent channel's `diagnostics`, in one order
+  (`channel::diagnostics::ordered`); `M-g d`'s rows are built on `oso-diagnostics` (`servers/diagnostics/rows.rs`). The fake server the tests run against is the dev-only binary
   `fake-lsp-server` (`tests/fake_lsp_server/`), which `just release-safety` keeps out of
   release builds.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a
@@ -133,7 +134,8 @@ often, so it must rebuild within 2 s.
 - `src/channel/` is the agent channel and `oso mcp` (ADR 0085), in every
   build. It has no dev method, and runs only commands whose reach is `Look`
   or `Change`. `src/app/agent.rs` answers it on the UI thread, and
-  `src/dispatch/agent.rs` runs its commands.
+  `src/dispatch/agent.rs` runs its commands. `channel/diagnostics.rs` reads `oso-lsp`'s
+  reports and URI rules, the one module of the channel that does (ADR 0138, step 11).
 - End-to-end flows live in `tests/e2e` and run with `just e2e` (ADR 0049). They
   drive a dev build from outside, and start it through `oso_platform::process`.
 - Module layers are in `guardrails/layers.txt` (`[oso]`).

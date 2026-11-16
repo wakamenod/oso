@@ -223,6 +223,7 @@ pub struct SendDiagnostic {
     /// The buffer's name.
     pub buffer: String,
     pub line: usize,
+    /// From 1, in characters; 0 where the part shows no column, as `@diagnostics` does.
     pub column: usize,
     pub severity: Severity,
     /// The server's whole message, which a send cuts and escapes.

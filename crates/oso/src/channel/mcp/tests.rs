@@ -137,7 +137,7 @@ fn initializes_without_connecting_and_lists_its_tools() {
     let hint = |name: &str, hint: &str| {
         tools.iter().find(|tool| tool["name"] == name).unwrap()["annotations"][hint].clone()
     };
-    for read in ["state", "text", "commands"] {
+    for read in ["state", "text", "commands", "diagnostics"] {
         assert_eq!(hint(read, "readOnlyHint"), true, "{read}");
     }
     assert_eq!(hint("look", "readOnlyHint"), false);

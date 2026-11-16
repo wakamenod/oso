@@ -29,6 +29,7 @@ mod open;
 pub(super) use open::TOO_LARGE_FOR_THE_AGENT;
 mod questions;
 mod saving;
+mod servers;
 mod undoing;
 
 use super::App;
@@ -196,6 +197,22 @@ impl App {
         }
     }
 
+    /// The channel's `text`: checked here, and the rows copied on a thread of its own.
+    fn agent_text(
+        &mut self,
+        of: channel::protocol::TextOf,
+        reply: std::sync::mpsc::Sender<channel::server::Reply>,
+    ) {
+        self.agent_log_often("text");
+        let screen = |id, ask| self.terminal_screen(id, ask);
+        match channel::text::start(&self.editor, &screen, of) {
+            Ok(job) => job.spawn(reply),
+            Err(why) => {
+                let _ = reply.send(Err(why));
+            }
+        }
+    }
+
     /// A connection of the agent channel brought something.
     pub(super) fn handle_agent(&mut self, event_loop: &Loop<'_>, request: channel::Request) {
         let channel::Request {
@@ -250,22 +267,11 @@ impl App {
                 }
                 match op {
                     // These reply later: once the text is copied, or the file shown.
-                    Op::Text(of) => {
-                        self.agent_log_often("text");
-                        match channel::text::start(
-                            &self.editor,
-                            &|id, ask| self.terminal_screen(id, ask),
-                            of,
-                        ) {
-                            Ok(job) => job.spawn(reply),
-                            Err(why) => {
-                                let _ = reply.send(Err(why));
-                            }
-                        }
-                    }
+                    Op::Text(of) => self.agent_text(of, reply),
                     Op::Open { path, line } => {
                         self.agent_open(connection, path, line, false, reply)
                     }
+                    Op::Diagnostics(of) => self.agent_diagnostics(of, reply),
                     // Each replies when it can: at once, after a job, or after the person's
                     // answer and what it started (ADR 0121, step 6).
                     Op::Session(call) => self.session_tool(connection, call, reply),
@@ -389,7 +395,6 @@ impl App {
     fn agent_op(&mut self, connection: Connection, op: Op) -> Reply {
         match op {
             Op::State { buffer_offset } => self.agent_state(buffer_offset),
-            Op::Diagnostics(of) => self.agent_diagnostics(of),
             Op::Commands => {
                 self.agent_log_often("commands");
                 Ok(channel::state::commands(self.dispatcher.commands()))
@@ -408,9 +413,11 @@ impl App {
                 }
             }
             // Answered where they come in, as they reply later.
-            Op::Text(_) | Op::Open { .. } | Op::Run { .. } | Op::Session(_) => {
-                Err("not here".into())
-            }
+            Op::Text(_)
+            | Op::Diagnostics(_)
+            | Op::Open { .. }
+            | Op::Run { .. }
+            | Op::Session(_) => Err("not here".into()),
         }
     }
 

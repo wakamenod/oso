@@ -9,16 +9,16 @@
 //!
 //! - A file's report is the server's for a file no document open with it holds; once one opens
 //!   it, the server's thread forgets it, so a buffer's rows come from its own set.
-//! - The reports' paths are compared with the root as a URI reads back, as the server's thread
+//! - The order and the paths are the agent channel's too (`channel::diagnostics::ordered`):
+//!   the reports' paths are compared with the root as a URI reads back, as the server's thread
 //!   judged them, so that on Windows a drive letter in either case and a `\\?\` root match.
-//! - A path longer than [`ROW_PATH_BYTES_MAX`] gives no row: a server may name any path, and
+//! - A path longer than [`PATH_BYTES_MAX`](crate::channel::diagnostics::PATH_BYTES_MAX) gives no row: a server may name any path, and
 //!   each row holds its own.
 //! - The files are sorted by path before any row is made, and each file's reports by line, so
 //!   no more rows are ever made than the list keeps, however much the servers reported. A newer
 //!   list stops the build.
 
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::PathBuf;
 
 use oso_core::buffer::BufferId;
 use oso_core::diagnostic::{Diagnostics, Severity};
@@ -28,13 +28,12 @@ use oso_lsp::limits::DIAGNOSTIC_ROWS_MAX;
 use oso_lsp::position::Encoding;
 use oso_lsp::protocol::Published;
 
+use crate::channel::diagnostics::{FileReport, Ordered, ordered};
+
 /// The most bytes of a message copied into a row, more than a row keeps of its first line
 /// (`oso_core::project::MAX_ROW_BYTES`, 512), so that what the servers reported is never
 /// copied whole.
 const COPIED_BYTES: usize = 1024;
-
-/// The longest path from the root a row is made for, as long as a walk's longest path.
-const ROW_PATH_BYTES_MAX: usize = 4096;
 
 /// The most bytes of paths and messages the rows hold in all; past it the list is cut, as at
 /// [`DIAGNOSTIC_ROWS_MAX`]. The list's text and the folded copies matching makes stay within a
@@ -71,13 +70,7 @@ pub(crate) struct Snapshot {
     pub(crate) current: BufferId,
     pub(crate) cursor: usize,
     pub(crate) open: Vec<OpenSet>,
-    pub(crate) files: Vec<(Arc<Path>, Arc<Published>, Encoding)>,
-}
-
-/// Where a file's rows come from.
-enum Source<'a> {
-    Open(&'a OpenSet),
-    File(&'a Published, Encoding),
+    pub(crate) files: Vec<FileReport>,
 }
 
 /// The rows being made, within their bounds.
@@ -119,48 +112,37 @@ pub(crate) fn build(snapshot: &Snapshot, live: &dyn Fn() -> bool) -> Option<Diag
         live,
     };
     let mut selected = None;
-    let relative = |path: &Path, root: &Path| -> Option<Box<str>> {
-        let relative = path.strip_prefix(root).ok()?.to_str()?;
-        (relative.len() <= ROW_PATH_BYTES_MAX).then(|| relative.into())
-    };
-    // The root as the servers' paths spell it.
-    let server_root = oso_lsp::uri::from_path(&snapshot.root)
-        .and_then(|uri| oso_lsp::uri::to_path(&uri))
-        .unwrap_or_else(|| snapshot.root.clone());
+    // In the order the agent channel gives them too (ADR 0138, step 11).
     let current = snapshot
         .open
         .iter()
         .find(|open| open.buffer == snapshot.current);
-    if let Some(open) = current
-        && let Some(path) = relative(&open.path, &snapshot.root)
-    {
-        push_open(&mut rows, &path, open);
-        selected = rows.rows.iter().position(|row| {
-            matches!(row.at, DiagnosticRowAt::Open { offset, .. } if offset >= snapshot.cursor)
-        });
-    }
-    // The rest by path: open buffers' sets, and the servers' reports of other files.
-    let mut others: Vec<(Box<str>, Source<'_>)> = Vec::new();
-    for open in &snapshot.open {
-        if open.buffer != snapshot.current
-            && let Some(path) = relative(&open.path, &snapshot.root)
-        {
-            others.push((path, Source::Open(open)));
-        }
-    }
-    for (path, report, encoding) in &snapshot.files {
-        if let Some(path) = relative(path, &server_root) {
-            others.push((path, Source::File(report, *encoding)));
-        }
-    }
-    others.sort_by(|(a, _), (b, _)| a.cmp(b));
-    for (path, source) in &others {
+    let others = (snapshot.open.iter()).filter(|open| open.buffer != snapshot.current);
+    let sources = ordered(
+        &snapshot.root,
+        (current, others),
+        &snapshot.files,
+        |open: &OpenSet| &open.path,
+        &|_| false,
+    );
+    for (path, source) in &sources {
         if rows.cut {
             break;
         }
         match source {
-            Source::Open(open) => push_open(&mut rows, path, open),
-            Source::File(report, encoding) => push_file(&mut rows, path, report, *encoding),
+            Ordered::Open(open) => {
+                let first = rows.rows.len();
+                push_open(&mut rows, path, open);
+                if open.buffer == snapshot.current {
+                    selected = (rows.rows[first..].iter())
+                        .position(|row| {
+                            matches!(row.at, DiagnosticRowAt::Open { offset, .. }
+                                if offset >= snapshot.cursor)
+                        })
+                        .map(|at| first + at);
+                }
+            }
+            Ordered::File(file) => push_file(&mut rows, path, &file.report, file.encoding),
         }
     }
     if !live() {

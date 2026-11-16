@@ -14,7 +14,29 @@ use oso_lsp::position::{Encoding, Position};
 use oso_lsp::protocol::{Published, Reported};
 use serde_json::Value;
 
-use super::{FileReport, MAX_ENTRIES, MESSAGE_BYTES, diagnostics, for_agent};
+use std::sync::Arc;
+
+use super::{ANSWER_BYTES, FileReport, MAX_ENTRIES, MESSAGE_BYTES, server_text, start};
+
+/// The answer to `of`, with `files` as the project's servers' reports.
+fn diagnostics(
+    editor: &Editor,
+    files: &[(&str, &Published, Encoding)],
+    of: DiagnosticsOf,
+) -> Result<Value, String> {
+    let reports = |_: &Path| {
+        files
+            .iter()
+            .map(|(path, report, encoding)| FileReport {
+                path: Arc::from(Path::new(path)),
+                report: Arc::new((*report).clone()),
+                encoding: *encoding,
+                server: Arc::from("fake"),
+            })
+            .collect()
+    };
+    start(editor, &reports, of).map(|job| job.run())
+}
 use crate::channel::protocol::DiagnosticsOf;
 
 /// A buffer visiting `path`, holding `text`, judged ordinary.
@@ -153,18 +175,8 @@ fn a_project_s_add_other_buffers_and_files_by_path_with_the_server_s_columns() {
         file_report(&[(0, 0, Severity::Error)]),
     );
     let files = [
-        FileReport {
-            path: Path::new("/w/oso/src/a.rs"),
-            report: &a,
-            encoding: Encoding::Utf16,
-            server: "fake",
-        },
-        FileReport {
-            path: Path::new("/w/elsewhere/x.rs"),
-            report: &outside,
-            encoding: Encoding::Utf8,
-            server: "fake",
-        },
+        ("/w/oso/src/a.rs", &a, Encoding::Utf16),
+        ("/w/elsewhere/x.rs", &outside, Encoding::Utf8),
     ];
     let of = DiagnosticsOf {
         buffer: None,
@@ -238,9 +250,69 @@ fn a_buffer_that_may_hold_secrets_or_is_withheld_gives_none() {
 #[test]
 fn a_message_is_cut_and_its_controls_written_out_but_its_line_breaks() {
     assert_eq!(
-        for_agent("a\u{202e}b\r\nc\u{7}"),
+        server_text("a\u{202e}b\r\nc\u{7}", true),
         "a\\u{202e}b\\u{d}\nc\\u{7}"
     );
     let long = "é".repeat(MESSAGE_BYTES);
-    assert!(for_agent(&long).len() <= MESSAGE_BYTES);
+    assert!(server_text(&long, true).len() <= MESSAGE_BYTES);
+}
+
+#[test]
+fn an_answer_holds_no_more_than_its_bytes_and_counts_the_rest() {
+    let text = "x\n".repeat(MAX_ENTRIES);
+    let mut editor = Editor::with_buffer(visiting("/w/oso/a.rs", &text));
+    let id = editor.tiled().0.buffer();
+    let long = "\u{1}".repeat(MESSAGE_BYTES);
+    let at: Vec<_> = (0..MAX_ENTRIES)
+        .map(|n| (2 * n, Severity::Error, long.as_str()))
+        .collect();
+    report(&mut editor, id, &at);
+    let of = DiagnosticsOf {
+        buffer: None,
+        project: false,
+    };
+    let answer = diagnostics(&editor, &[], of).unwrap();
+    let made = answer["entries"].as_array().unwrap().len();
+    assert!(made < MAX_ENTRIES, "{made}");
+    assert_eq!(answer["more"], MAX_ENTRIES - made);
+    assert!(answer.to_string().len() < 1 << 20, "it fits a reply line");
+    assert!(answer.to_string().len() > ANSWER_BYTES / 2);
+}
+
+#[test]
+fn a_project_s_leave_out_buffers_withheld_and_their_files_reports_and_escape_paths() {
+    let mut editor = Editor::with_buffer(visiting("/w/oso/a.rs", "x\n"));
+    let first = editor.tiled().0.buffer();
+    in_project(&mut editor, first);
+    // Withheld from agents, with a set of its own and a server's report of its file.
+    let withheld = editor.add_buffer(visiting("/w/oso/w.rs", "y\n"));
+    report(&mut editor, withheld, &[(0, Severity::Error, "quoted")]);
+    editor.buffer_mut(withheld).unwrap().withhold_from_agents();
+    let of_withheld = file_report(&[(0, 0, Severity::Error)]);
+    // A server names a path and writes a source and a code to steer the agent.
+    let mut crafted = file_report(&[(0, 0, Severity::Error)]);
+    crafted.diagnostics[0].source = "clip\u{202e}py".into();
+    crafted.diagnostics[0].code = "E\u{e0041}1".into();
+    let files = [
+        ("/w/oso/w.rs", &of_withheld, Encoding::Utf8),
+        ("/w/oso/b\u{202e}sr.rs", &crafted, Encoding::Utf8),
+    ];
+    let of = DiagnosticsOf {
+        buffer: None,
+        project: true,
+    };
+    let answer = diagnostics(&editor, &files, of).unwrap();
+    let entries = answer["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1, "{answer}");
+    let entry = &entries[0];
+    assert_eq!(entry["path"], "/w/oso/b\\u{202e}sr.rs");
+    assert_eq!(
+        (&entry["source"], &entry["code"]),
+        (
+            &Value::from("clip\\u{202e}py"),
+            &Value::from("E\\u{e0041}1")
+        )
+    );
+    assert!(!answer.to_string().contains("quoted"));
+    assert_eq!(answer["more"], 0, "what is left out is not counted either");
 }
