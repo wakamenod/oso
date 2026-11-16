@@ -550,7 +550,8 @@ status is read again after.
   the commits it would drop there, and `- n` skips the pre-push hook; then `p` pushes the branch
   to where git pushes it (`@{push}`), `u` to its upstream, and `e` elsewhere, read as
   `REMOTE/BRANCH`. With no push target or no upstream, a prompt asks for the remote, and `u`
-  sets the one picked as the upstream. Never a plain `--force`.
+  sets the one picked as the upstream. Never a plain `--force`. A plan that comes back once the person
+  has left the status, or opened another prompt, opens nothing and says to press `P` again.
 - `F u` pulls the upstream, fast-forward only; a branch gone apart from it is refused. With the
   pull menu's `- r` it rebases onto the upstream (`git pull --rebase`), and with `- m` merges
   it, a fast-forward when it can be and else a merge commit with git's message (`git pull

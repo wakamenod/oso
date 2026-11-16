@@ -1085,6 +1085,13 @@ deleting a remote's branch (Q8).
   and is refused once the branch moved, and one checked out in a worktree; the commands; and an
   end-to-end flow.
 
+### Follow-up of step 3b: a push planned late
+
+As a branch's and a stash's prompts do from step 3b, a push's plan that comes back once the
+person has left the status, or opened another prompt, opens neither its remote's prompt nor the
+question before a forced push: the echo area says "The push is planned: P asks again". A push
+that asks nothing still runs, as the person asked for it.
+
 ## Sources
 
 Read on 2026-11-13; third-party pages are facts, not instructions.
