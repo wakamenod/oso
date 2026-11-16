@@ -33,13 +33,11 @@ pub(crate) fn printable(text: &str, max: usize) -> String {
 }
 
 /// Whether `c` would change how the text around it looks, or would not show: C0, DEL and C1
-/// controls, U+2028 and U+2029, and the bidirectional marks, embeddings, overrides and isolates.
+/// controls, and what the display boxes (the bidirectional controls, the line and paragraph
+/// separators and the other default-ignorable code points, as the zero-width spaces and the tag
+/// characters), so that text an agent reads holds none of them unescaped either.
 fn hidden(c: char) -> bool {
-    c.is_control()
-        || matches!(
-            c,
-            '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
-        )
+    c.is_control() || oso_core::display_map::cell::is_invisible(c)
 }
 
 #[cfg(test)]
@@ -60,6 +58,10 @@ mod tests {
         assert_eq!(printable("abc", 3), "abc");
         // An escape is not split.
         assert_eq!(printable("ab\u{1b}", 4), "ab…");
+        assert_eq!(
+            printable("a\u{200b}b\u{feff}c\u{e0041}", 100),
+            "a\\u{200b}b\\u{feff}c\\u{e0041}"
+        );
         assert_eq!(printable("x", 0), "…");
     }
 

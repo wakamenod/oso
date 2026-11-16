@@ -155,7 +155,7 @@ fn sessions_in_registry(
         }
         let name = entry.name.as_deref().map_or_else(
             || format!("process {}", entry.pid),
-            |name| porcelain::printable(name, 48),
+            |name| crate::git::printable(name, 48),
         );
         if let Some(cwd) = entry.cwd {
             external.push((cwd, name));

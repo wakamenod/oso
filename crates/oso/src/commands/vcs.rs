@@ -178,7 +178,7 @@ pub(crate) fn status_project(editor: &Editor) -> Option<ProjectId> {
     let buffer = editor.tiled().0.buffer();
     (editor.git_status_of(buffer))
         .or_else(|| editor.git_graph_of(buffer))
-        .or_else(|| editor.git_view_of(buffer))
+        .or_else(|| editor.git_pr_of(buffer))
         .or_else(|| editor.buffer(buffer)?.project())
 }
 

@@ -12,6 +12,7 @@
 
 use std::ffi::OsString;
 use std::io;
+use std::path::Path;
 
 use super::{Child, Executable, Sink, Source, Spawn, spawn};
 
@@ -31,25 +32,27 @@ const DESKTOP: [&str; 8] = [
     "BROWSER",
 ];
 
-/// Starts the system's opener on `url`, an `https` address.
+/// Starts the system's opener on `url`, an `https` address, leaving `project` and what is
+/// under it out of the `PATH` it is found on and starts its helpers from. The caller waits for
+/// it, off the UI thread, and reaps it.
 ///
 /// # Errors
 ///
 /// If `url` is not one that may open, or the opener cannot be found or started.
-pub fn open_link(url: &str) -> io::Result<Child> {
+pub fn open_link(url: &str, project: Option<&Path>) -> io::Result<Child> {
     if !may_open(url) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "only an https address of plain characters opens",
         ));
     }
-    let (executable, inherit) = opener()?;
+    let (executable, inherit) = opener(project)?;
     let args = [OsString::from(url)];
     spawn(&Spawn {
         executable: &executable,
         args: &args,
         cwd: None,
-        project: None,
+        project,
         inherit,
         stdin: Source::Closed,
         stdout: Sink::Null,
@@ -62,13 +65,14 @@ pub fn open_link(url: &str) -> io::Result<Child> {
     })
 }
 
-/// Whether `url` may open: `https://`, a host, at most [`MAX_LINK`] bytes, and only the
-/// characters an address is written with, but no quote, space or backslash.
+/// Whether `url` may open: `https://`, a host, at most [`MAX_LINK`] bytes, and only letters,
+/// digits and `-._~:/?#=%&`: no quote, space, backslash, comma, semicolon, `$`, `(` or `!`,
+/// which an opener or the shell behind one could take apart.
 fn may_open(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("https://") else {
         return false;
     };
-    let plain = |b: u8| b.is_ascii_alphanumeric() || b"-._~:/?#@!$&()*+,;=%".contains(&b);
+    let plain = |b: u8| b.is_ascii_alphanumeric() || b"-._~:/?#=%&".contains(&b);
     url.len() <= MAX_LINK
         && rest
             .bytes()
@@ -78,18 +82,22 @@ fn may_open(url: &str) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-fn opener() -> io::Result<(Executable, &'static [&'static str])> {
+fn opener(_: Option<&Path>) -> io::Result<(Executable, &'static [&'static str])> {
     Ok((Executable::absolute("/usr/bin/open")?, &[]))
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn opener() -> io::Result<(Executable, &'static [&'static str])> {
-    Ok((Executable::from_path("xdg-open", None)?, &DESKTOP))
+fn opener(project: Option<&Path>) -> io::Result<(Executable, &'static [&'static str])> {
+    Ok((Executable::from_path("xdg-open", project)?, &DESKTOP))
 }
 
+/// `explorer.exe` in the system's directory, never one found on `PATH`.
 #[cfg(not(unix))]
-fn opener() -> io::Result<(Executable, &'static [&'static str])> {
-    Ok((Executable::from_path("explorer.exe", None)?, &[]))
+fn opener(_: Option<&Path>) -> io::Result<(Executable, &'static [&'static str])> {
+    let root = std::env::var_os("SYSTEMROOT")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "SYSTEMROOT is not set"))?;
+    let explorer = std::path::PathBuf::from(root).join("explorer.exe");
+    Ok((Executable::absolute(explorer)?, &[]))
 }
 
 #[cfg(test)]
@@ -100,6 +108,7 @@ mod tests {
     fn only_a_plain_https_address_may_open() {
         assert!(may_open("https://github.com/o/r/pull/12"));
         assert!(may_open("https://ghe.example.com/o/r/pull/3#discussion_r1"));
+        assert!(may_open("https://github.com/o/r/pull/3?a=1&b=2"));
         for url in [
             "http://github.com/o/r/pull/12",
             "https://",
@@ -109,6 +118,10 @@ mod tests {
             "https://github.com/o/r pull",
             "https://github.com/o/r\"pull",
             "https://github.com/o/r'pull",
+            "https://github.com/o/r,pull",
+            "https://github.com/$(x)",
+            "https://github.com/o;r",
+            "https://github.com/!x",
             "https://github.com/o/r\\pull",
             "https://github.com/\no",
             "https://github.com/ö",

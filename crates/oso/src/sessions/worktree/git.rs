@@ -43,7 +43,7 @@ pub struct Repo {
 
 /// Text for the echo area from a failed git run.
 pub fn said(error: &GitError) -> String {
-    porcelain::printable(&error.to_string(), 400)
+    crate::git::printable(&error.to_string(), 400)
 }
 
 impl Repo {
@@ -204,7 +204,7 @@ pub fn merged_pulls(
         "--limit",
         GH_LIMIT,
     ];
-    let out = gh.run(repo, &args, cwd, (MAX_GH, RUN_LIMIT))?.ok()?;
+    let out = gh.run(repo, &args, cwd, MAX_GH, RUN_LIMIT)?.into_stdout()?;
     parse_merged(&out).ok_or_else(|| "gh gave an unexpected answer".to_owned())
 }
 

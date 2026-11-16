@@ -7,8 +7,8 @@
 use proptest::prelude::*;
 
 use super::{
-    Bucket, Counts, Review, State, is_plain_path, is_pull_address, read_checks, read_head,
-    read_list, read_threads, read_view, seconds,
+    Bucket, Counts, Review, State, is_plain_link, is_plain_path, is_pull_address, read_checks,
+    read_head, read_list, read_threads, read_view, seconds,
 };
 
 const HEAD: &str = r#"{"number":12,"title":"Add x","state":"OPEN","isDraft":false,
@@ -113,7 +113,7 @@ fn a_list_reads_its_pull_requests() {
 
 #[test]
 fn only_the_pull_request_s_own_address_opens() {
-    let repo = "github.com/o/r";
+    let repo = &crate::git::GhRepo::from_url("https://github.com/o/r", None).unwrap();
     assert!(is_pull_address("https://github.com/o/r/pull/12", repo, 12));
     assert!(is_pull_address("https://GitHub.com/o/r/pull/12", repo, 12));
     for url in [
@@ -133,8 +133,37 @@ fn only_the_pull_request_s_own_address_opens() {
 fn a_thread_s_file_is_visited_only_under_the_root() {
     assert!(is_plain_path("src/a.rs"));
     assert!(is_plain_path("a b/ü.rs"));
-    for path in ["", "/etc/passwd", "../x", "a/../../x", "./a", "a\\..\\b"] {
+    for path in [
+        "",
+        "/etc/passwd",
+        "../x",
+        "a/../../x",
+        "./a",
+        "a\\..\\b",
+        "C:x",
+        "a:b",
+    ] {
         assert!(!is_plain_path(path), "{path:?}");
+    }
+}
+
+#[test]
+fn only_a_plain_https_link_is_copied() {
+    assert!(is_plain_link(
+        "https://github.com/o/r/actions/runs/1/job/2?pr=3&x=y#step:4"
+    ));
+    for link in [
+        "http://ci.example/1",
+        "https://ci.example/1\ncurl x|sh",
+        "https://ci.example/1 x",
+        "https://ci.example/$(x)",
+        "https://ci.example/a;b",
+        "https://ci.example/a,b",
+        "https://ci.example/'a'",
+        "https://",
+        "",
+    ] {
+        assert!(!is_plain_link(link), "{link:?}");
     }
 }
 

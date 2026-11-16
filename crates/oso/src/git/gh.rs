@@ -11,7 +11,7 @@
 //!   is told to ask nothing and print no colour, and is killed past the time its caller gives.
 
 use std::ffi::{OsStr, OsString};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
@@ -103,12 +103,21 @@ impl GhRepo {
         &self.0
     }
 
+    /// Its host, owner and name.
+    pub(crate) fn parts(&self) -> (&str, &str, &str) {
+        let mut parts = self.0.splitn(3, '/');
+        let mut next = || parts.next().unwrap_or_default();
+        (next(), next(), next())
+    }
+
+    /// The address of its pull request `number`, as GitHub writes it.
+    pub(crate) fn pull_address(&self, number: u64) -> String {
+        format!("https://{}/pull/{number}", self.0)
+    }
+
     /// Whether it is on `github.com`, not the host `GH_HOST` names.
     pub(crate) fn on_github(&self) -> bool {
-        self.0
-            .split('/')
-            .next()
-            .is_some_and(|host| host.eq_ignore_ascii_case(GITHUB))
+        self.parts().0.eq_ignore_ascii_case(GITHUB)
     }
 }
 
@@ -127,20 +136,27 @@ fn gh_inherit(repo: &GhRepo) -> Vec<&'static str> {
 #[derive(Clone, Debug)]
 pub(crate) struct Gh {
     executable: Executable,
+    /// The project it is asked about, left out of the `PATH` of `gh` and what it starts.
+    project: Option<PathBuf>,
 }
 
 impl Gh {
-    /// `gh` from `PATH`, leaving out `project` and what is under it.
+    /// `gh` from `PATH`, leaving out `project` and what is under it, there and in its children's.
     pub(crate) fn find(project: &Path) -> Option<Gh> {
-        Executable::from_path("gh", Some(project))
-            .ok()
-            .map(|executable| Gh { executable })
+        let executable = Executable::from_path("gh", Some(project)).ok()?;
+        Some(Gh {
+            executable,
+            project: Some(project.to_owned()),
+        })
     }
 
     /// The `gh` at `executable`, for tests.
     #[cfg(all(test, unix))]
     pub(crate) fn at(executable: Executable) -> Gh {
-        Gh { executable }
+        Gh {
+            executable,
+            project: None,
+        }
     }
 
     /// Runs `gh` with `args` about `repo`, in `cwd`, an empty private directory, and gives its
@@ -155,7 +171,8 @@ impl Gh {
         repo: &GhRepo,
         args: &[&str],
         cwd: &Path,
-        (limit, within): (usize, Duration),
+        limit: usize,
+        within: Duration,
     ) -> Result<GhAnswer, String> {
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
         let set: Vec<(&str, &OsStr)> = GH_SET
@@ -166,7 +183,7 @@ impl Gh {
             executable: &self.executable,
             args: &args,
             cwd: Some(cwd),
-            project: Some(cwd),
+            project: Some(self.project.as_deref().unwrap_or(cwd)),
             inherit: &gh_inherit(repo),
             stdin: Source::Closed,
             stdout: Sink::Piped,
@@ -206,7 +223,7 @@ impl GhAnswer {
     /// # Errors
     ///
     /// `gh failed: …` with its words, if it exited other than 0.
-    pub(crate) fn ok(self) -> Result<Vec<u8>, String> {
+    pub(crate) fn into_stdout(self) -> Result<Vec<u8>, String> {
         if self.code == Some(0) {
             Ok(self.stdout)
         } else {

@@ -12,44 +12,45 @@
 
 use std::sync::Arc;
 
-use oso_core::load::{Builder, LoadSnapshot};
+use oso_core::load::LoadSnapshot;
 use oso_core::syntax::{Highlight, Highlights};
 
 use super::{Bucket, Check, Comment, Counts, Listed, PrHead, PrView, State, Thread};
-use crate::dired::rows::decoded_len;
 use crate::git::printable;
+use crate::vcs::layout::write::Out;
 
 /// The most characters of one shown row.
 const MAX_ROW: usize = 300;
+/// The most rows of one text.
+const MAX_ROWS: usize = 20_000;
 /// The most rows of one body or comment.
 const MAX_BODY_ROWS: usize = 60;
 /// The most rows of a review comment's diff shown: its last ones, where the comment is.
 const MAX_HUNK_ROWS: usize = 4;
 
-/// What a line of a pull request's buffer, or of a list, names.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// What a line of a pull request's buffer, or of a list, names: an index into its table of
+/// checks, threads or listed pull requests, so that a line costs no copy of what it names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PrRow {
     Other,
-    /// A check, with its address.
-    Check {
-        link: String,
-    },
-    /// A review thread's file, from the repository's root, and line.
-    Thread {
-        path: String,
-        line: Option<u64>,
-    },
-    /// A listed pull request.
-    Pull {
-        number: u64,
-        url: String,
-    },
+    /// A check, with its address: [`PrBuilt::links`].
+    Check(usize),
+    /// A review thread's file, from the repository's root, and line: [`PrBuilt::threads`].
+    Thread(usize),
+    /// A listed pull request: [`PrBuilt::pulls`].
+    Pull(usize),
 }
 
 /// What a laid text's lines name, and the pull request it shows.
 #[derive(Debug, Default)]
 pub(crate) struct PrBuilt {
     pub(crate) rows: Vec<PrRow>,
+    /// The review threads' files and lines.
+    pub(crate) threads: Vec<(String, Option<u64>)>,
+    /// The checks' addresses.
+    pub(crate) links: Vec<String>,
+    /// The listed pull requests' numbers and addresses.
+    pub(crate) pulls: Vec<(u64, String)>,
     /// The pull request's number and address, for a pull request's buffer.
     pub(crate) pull: Option<(u64, String)>,
     /// The line of the checks' heading.
@@ -57,8 +58,8 @@ pub(crate) struct PrBuilt {
 }
 
 impl PrBuilt {
-    pub(crate) fn row(&self, line: usize) -> &PrRow {
-        self.rows.get(line).unwrap_or(&PrRow::Other)
+    pub(crate) fn row(&self, line: usize) -> PrRow {
+        self.rows.get(line).copied().unwrap_or(PrRow::Other)
     }
 }
 
@@ -183,10 +184,9 @@ pub(crate) fn list_text(repo: &str, items: &[Listed]) -> PrLaid {
         for (text, face) in counts_parts(item.counts) {
             page.part(&text, face);
         }
-        page.end(PrRow::Pull {
-            number: item.number,
-            url: item.url.clone(),
-        });
+        page.pulls.push((item.number, item.url.clone()));
+        let row = PrRow::Pull(page.pulls.len() - 1);
+        page.end(row);
     }
     page.laid(None, 0)
 }
@@ -215,9 +215,9 @@ fn checks(page: &mut Page, checks: &[Check]) {
                 Some(Highlight::GitDetail),
             );
         }
-        page.end(PrRow::Check {
-            link: check.link.clone(),
-        });
+        page.links.push(check.link.clone());
+        let row = PrRow::Check(page.links.len() - 1);
+        page.end(row);
     }
 }
 
@@ -228,10 +228,7 @@ fn threads(page: &mut Page, threads: &[Thread], more: usize) {
         threads.len() + more
     ));
     for thread in threads {
-        let row = PrRow::Thread {
-            path: thread.path.clone(),
-            line: thread.line,
-        };
+        let row = page.thread(&thread.path, thread.line);
         page.part("  ", None);
         page.part(
             &printable(&thread.path, 200),
@@ -246,12 +243,12 @@ fn threads(page: &mut Page, threads: &[Thread], more: usize) {
             ("  unresolved", Highlight::Outdated)
         };
         page.part(state, Some(face));
-        page.end(row.clone());
+        page.end(row);
         if let Some(first) = thread.comments.first() {
-            hunk(page, &first.hunk, &row);
+            hunk(page, &first.hunk, row);
         }
         for comment in &thread.comments {
-            comment_rows(page, comment, "    ", row.clone());
+            comment_rows(page, comment, "    ", row);
         }
         if thread.more > 0 {
             page.part(
@@ -271,7 +268,7 @@ fn threads(page: &mut Page, threads: &[Thread], more: usize) {
 }
 
 /// The last rows of a review comment's diff, the lines it is on.
-fn hunk(page: &mut Page, hunk: &str, row: &PrRow) {
+fn hunk(page: &mut Page, hunk: &str, row: PrRow) {
     let lines: Vec<&str> = hunk.lines().collect();
     for line in &lines[lines.len().saturating_sub(MAX_HUNK_ROWS)..] {
         let face = match line.as_bytes().first() {
@@ -282,7 +279,7 @@ fn hunk(page: &mut Page, hunk: &str, row: &PrRow) {
         };
         page.part("    │ ", Some(Highlight::GitDetail));
         page.part(&printable(line, MAX_ROW), face);
-        page.end(row.clone());
+        page.end(row);
     }
 }
 
@@ -296,7 +293,7 @@ fn comment_rows(page: &mut Page, comment: &Comment, indent: &str, row: PrRow) {
         let association = printable(&comment.association, 20);
         page.part(&format!(" ({association})"), Some(Highlight::GitDetail));
     }
-    page.end(row.clone());
+    page.end(row);
     page.body(&comment.body, &format!("{indent}  "), row);
 }
 
@@ -318,32 +315,42 @@ fn state_face(state: State) -> Highlight {
     }
 }
 
-/// A text being written: its bytes, runs of faces and each line's row.
+/// A text being written, as the status's is, and what each of its lines names; past
+/// [`MAX_ROWS`] rows it says so and writes no more.
 #[derive(Default)]
 struct Page {
-    bytes: Vec<u8>,
-    len: usize,
-    runs: Vec<(usize, Option<Highlight>)>,
+    out: Out,
     rows: Vec<PrRow>,
+    threads: Vec<(String, Option<u64>)>,
+    links: Vec<String>,
+    pulls: Vec<(u64, String)>,
+    full: bool,
 }
 
 impl Page {
     /// Adds `text`, a part of one line, in `face`.
     fn part(&mut self, text: &str, face: Option<Highlight>) {
-        let len = decoded_len(text.as_bytes());
-        self.bytes.extend_from_slice(text.as_bytes());
-        self.len += len;
-        match self.runs.last_mut() {
-            Some((run, last)) if *last == face => *run += len,
-            _ if len > 0 => self.runs.push((len, face)),
-            _ => {}
+        if !self.full {
+            self.out.part(text.as_bytes(), face);
         }
     }
 
     /// Ends the line, which names `row`.
     fn end(&mut self, row: PrRow) {
-        self.part("\n", None);
+        if self.full {
+            return;
+        }
+        self.out.end_line();
         self.rows.push(row);
+        if self.rows.len() + 1 >= MAX_ROWS {
+            self.out.part(
+                b"The rest is cut: the address shows it all",
+                Some(Highlight::GitDetail),
+            );
+            self.out.end_line();
+            self.rows.push(PrRow::Other);
+            self.full = true;
+        }
     }
 
     fn blank(&mut self) {
@@ -355,16 +362,22 @@ impl Page {
         self.end(PrRow::Other);
     }
 
+    /// The row that names a review thread at `path` and `line`, kept once.
+    fn thread(&mut self, path: &str, line: Option<u64>) -> PrRow {
+        self.threads.push((path.to_owned(), line));
+        PrRow::Thread(self.threads.len() - 1)
+    }
+
     /// `text`'s lines, each escaped and cut, at most [`MAX_BODY_ROWS`], after `indent`.
     fn body(&mut self, text: &str, indent: &str, row: PrRow) {
-        let lines: Vec<&str> = text.lines().collect();
+        let lines: Vec<&str> = text.lines().take(MAX_BODY_ROWS + 1).collect();
         for line in lines.iter().take(MAX_BODY_ROWS) {
             self.part(indent, None);
             self.part(&printable(line.trim_end_matches('\r'), MAX_ROW), None);
-            self.end(row.clone());
+            self.end(row);
         }
         if lines.len() > MAX_BODY_ROWS {
-            let more = lines.len() - MAX_BODY_ROWS;
+            let more = text.lines().count() - MAX_BODY_ROWS;
             self.part(
                 &format!("{indent}and {more} more lines"),
                 Some(Highlight::GitDetail),
@@ -374,18 +387,15 @@ impl Page {
     }
 
     fn laid(self, pull: Option<(u64, String)>, checks_line: usize) -> PrLaid {
-        let mut builder = Builder::new(None, Default::default());
-        builder.push(&self.bytes);
-        builder.finish();
-        let text = builder.snapshot();
-        let mut highlights = Highlights::new(text.text().len());
-        debug_assert_eq!(text.text().len(), self.len);
-        highlights.replace(0..self.len.min(text.text().len()), self.runs);
+        let (text, highlights) = self.out.finish();
         PrLaid {
             text,
             highlights,
             built: Arc::new(PrBuilt {
                 rows: self.rows,
+                threads: self.threads,
+                links: self.links,
+                pulls: self.pulls,
                 pull,
                 checks_line,
             }),

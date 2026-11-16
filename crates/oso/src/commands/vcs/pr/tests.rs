@@ -3,7 +3,6 @@
 //!
 //! Must not depend on: `app` or winit.
 
-use oso_core::buffer::Mode;
 use oso_core::command::Args;
 use oso_core::editor::{GitRequest, PrAct};
 
@@ -41,7 +40,7 @@ fn the_menu_s_heads_ask_about_the_project_s_branch() {
 #[test]
 fn a_pull_request_s_keys_act_at_the_primary_cursor() {
     let (mut editor, project) = crate::commands::review::tests::in_project(true);
-    let buffer = editor.add_git_view(project, "*pr: #12*", Mode::GitPr);
+    let buffer = editor.add_git_pr(project, "*pr: #12*");
     editor.show(buffer);
     for name in [
         "git-pr-visit",

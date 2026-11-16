@@ -8,12 +8,12 @@ use super::super::super::App;
 use super::super::hosting::Begin;
 use super::asks::{Creating, Plan};
 use super::{Caller, Job, Pending, shown};
+use crate::git::printable;
 use crate::sessions::explain::{self, Unasked};
 use crate::sessions::identity::{Origin, SessionId};
 use crate::sessions::tools as rules;
 use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::jobs::{Report, Trust};
-use crate::sessions::worktree::porcelain::printable;
 
 impl App {
     /// Whether `caller`'s call of `tool`, a start in a project that is `trusted` now or not,

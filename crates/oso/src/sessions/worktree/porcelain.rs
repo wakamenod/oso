@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-pub(crate) use crate::git::printable;
+use crate::git::printable;
 
 /// The most characters [`status_lines`] shows of one entry.
 const MAX_LINE_CHARS: usize = 1024;

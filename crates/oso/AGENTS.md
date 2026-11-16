@@ -88,7 +88,9 @@ often, so it must rebuild within 2 s.
   arguments and environment, every read bounded (`run/collect`) and a run past 10 s killed; object ids (`id`);
   `TrustedRoot` (`trust`), the only place git starts from; git's names and the secret-name
   check (`path`); the empty hooks directory under oso's state directory (`hooks`); and runs
-  with no time limit in a process group of their own, which the person stops (`long`); a push,
+  with no time limit in a process group of their own, which the person stops (`long`); `gh`, about
+  the GitHub repository a remote names (`gh`, ADR 0121 and ADR 0127 step 5a); text from a run
+  made safe to show (`said`); a push,
   a pull or a fetch gets the proxies and a session of its own with no controlling terminal
   (`Git::for_remote`, ADR 0127 step 2). The review, the worktree jobs and the git status use it;
   it uses none of them.

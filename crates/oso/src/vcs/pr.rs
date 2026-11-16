@@ -16,6 +16,8 @@ pub(crate) mod write;
 
 use serde_json::Value;
 
+use crate::git::GhRepo;
+
 /// The most checks, comments or listed pull requests kept of one answer.
 pub(crate) const MAX_ITEMS: usize = 500;
 /// The most review threads asked for, and the most comments of each.
@@ -26,7 +28,7 @@ const MAX_TEXT: usize = 64 * 1024;
 
 /// The fields of `gh pr view --json` the status's head line reads.
 pub(crate) const HEAD_FIELDS: &str =
-    "number,title,state,isDraft,reviewDecision,statusCheckRollup,url,headRefOid";
+    "number,title,state,isDraft,reviewDecision,statusCheckRollup,url,headRefOid,headRefName";
 /// The fields of `gh pr view --json` a pull request's buffer reads.
 pub(crate) const VIEW_FIELDS: &str = "number,title,state,isDraft,reviewDecision,\
 statusCheckRollup,url,headRefOid,author,baseRefName,headRefName,body,comments";
@@ -115,6 +117,8 @@ pub(crate) struct PrHead {
     pub(crate) url: String,
     /// The pull request's head commit, whole.
     pub(crate) head: String,
+    /// Its head branch, which must be the branch it was asked for.
+    pub(crate) branch: String,
 }
 
 /// A check's outcome, as `gh pr checks` buckets it.
@@ -296,10 +300,15 @@ pub(crate) fn read_list(json: &[u8]) -> Option<Vec<Listed>> {
     Some(items.iter().take(MAX_ITEMS).filter_map(listed).collect())
 }
 
-/// The address and number in `gh pr view --json number,url`'s answer.
-pub(crate) fn read_address(json: &[u8]) -> Option<(String, u64)> {
+/// The address, number and head branch in `gh pr view --json number,url,headRefName`'s answer.
+pub(crate) fn read_address(json: &[u8]) -> Option<(String, u64, String)> {
     let value = serde_json::from_slice::<Value>(json).ok()?;
-    Some((text(value.get("url")?)?, value.get("number")?.as_u64()?))
+    let url = text(value.get("url")?)?;
+    Some((
+        url,
+        value.get("number")?.as_u64()?,
+        text(value.get("headRefName")?)?,
+    ))
 }
 
 /// Whether `path`, a review thread's file as GitHub names it, is a plain path under the root:
@@ -307,22 +316,32 @@ pub(crate) fn read_address(json: &[u8]) -> Option<(String, u64)> {
 pub(crate) fn is_plain_path(path: &str) -> bool {
     use std::path::{Component, Path};
     !path.is_empty()
-        && !path.contains('\\')
+        && !path.contains(['\\', ':'])
         && Path::new(path)
             .components()
             .all(|part| matches!(part, Component::Normal(_)))
 }
 
-/// Whether `url` is the address of pull request `number` of `repo`, `HOST/OWNER/REPO` as `gh
-/// --repo` takes it: the only address `o` opens (Q5).
-pub(crate) fn is_pull_address(url: &str, repo: &str, number: u64) -> bool {
+/// Whether `url` is the address of pull request `number` of `repo`, as GitHub writes it: the
+/// only address `o` opens (Q5).
+pub(crate) fn is_pull_address(url: &str, repo: &GhRepo, number: u64) -> bool {
+    url.eq_ignore_ascii_case(&repo.pull_address(number))
+}
+
+/// Whether `url` is a plain `https` address, of the characters an address is written with but
+/// no quote, space, comma or semicolon, at most 2 KiB: what `w` copies, as a link is anyone's
+/// words.
+pub(crate) fn is_plain_link(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("https://") else {
         return false;
     };
-    let Some((place, n)) = rest.rsplit_once("/pull/") else {
-        return false;
-    };
-    place.eq_ignore_ascii_case(repo) && n == number.to_string()
+    let plain = |b: u8| b.is_ascii_alphanumeric() || b"-._~:/?#=%&".contains(&b);
+    url.len() <= 2048
+        && rest
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_alphanumeric())
+        && url.bytes().all(plain)
 }
 
 fn head_of(value: &Value) -> Option<PrHead> {
@@ -341,6 +360,7 @@ fn head_of(value: &Value) -> Option<PrHead> {
         counts: counts_of(value.get("statusCheckRollup")),
         url: value.get("url").and_then(text).unwrap_or_default(),
         head: value.get("headRefOid").and_then(text).unwrap_or_default(),
+        branch: value.get("headRefName").and_then(text).unwrap_or_default(),
     })
 }
 

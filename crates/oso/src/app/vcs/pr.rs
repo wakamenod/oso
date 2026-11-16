@@ -16,18 +16,19 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use oso_core::buffer::{BufferId, Mode};
+use oso_core::buffer::BufferId;
 use oso_core::editor::{GitRequest, GitShown, PrAct};
 use oso_core::project::ProjectId;
 
 use super::super::{App, UserEvent};
 use super::Ask;
-use crate::commands::review::one_line;
-use crate::commands::vcs::RESTRICTED;
-use crate::git::TrustedRoot;
+use crate::git::{TrustedRoot, printable};
 use crate::vcs::pr::PrHead;
 use crate::vcs::pr::work::{PrReport, PrRequest, PrWorker};
 use crate::vcs::pr::write::{PrBuilt, PrLaid, PrRow};
+
+/// Why a restricted project gets no pull request.
+const RESTRICTED: &str = "Pull requests are read through gh, which this project is not trusted to run: M-x trust-project";
 
 /// The least time between two reads of a status's `PR:` line the person asked for.
 const HEAD_EVERY: Duration = Duration::from_secs(30);
@@ -128,7 +129,7 @@ impl App {
             .position(|view| view.project == project && view.number == number && view.list == list)
             .filter(|&index| {
                 self.editor
-                    .git_view_of(self.gits.prs.views[index].buffer)
+                    .git_pr_of(self.gits.prs.views[index].buffer)
                     .is_some()
             });
         let index = found.unwrap_or_else(|| {
@@ -137,8 +138,11 @@ impl App {
                 (false, Some(number)) => format!("*pr: #{number}*"),
                 (false, None) => format!("*pr: {}*", self.project_name(project)),
             };
-            let mode = if list { Mode::GitPrList } else { Mode::GitPr };
-            let buffer = self.editor.add_git_view(project, name, mode);
+            let buffer = if list {
+                self.editor.add_git_pr_list(project, name)
+            } else {
+                self.editor.add_git_pr(project, name)
+            };
             self.gits.prs.views.push(PrBuffer {
                 buffer,
                 project,
@@ -259,12 +263,10 @@ impl App {
         match report {
             PrReport::Head { generation, head } => self.pr_head_read(index, generation, head),
             PrReport::View { generation, laid } => self.pr_text(generation, laid),
-            PrReport::List { generation, laid } => {
-                self.pr_text(generation, laid.map(|(_, laid)| laid));
-            }
+            PrReport::List { generation, laid } => self.pr_text(generation, laid),
             PrReport::Address(Ok((url, number))) => self.open_pr_address(project, url, number),
             PrReport::Address(Err(why)) | PrReport::Opened(why) => {
-                self.editor.message(one_line(&why, super::MAX_MESSAGE));
+                self.editor.message(printable(&why, super::MAX_MESSAGE));
             }
         }
         self.request_redraw();
@@ -290,7 +292,7 @@ impl App {
                 // Said once, not on every read: the status shows no line meanwhile.
                 if repo.said.as_deref() != Some(why.as_str()) {
                     self.editor
-                        .message(format!("PR: {}", one_line(&why, super::MAX_MESSAGE)));
+                        .message(format!("PR: {}", printable(&why, super::MAX_MESSAGE)));
                     self.gits.prs.repos[index].said = Some(why);
                 }
                 None
@@ -317,7 +319,7 @@ impl App {
                 self.freer.free(old);
             }
             Ok(laid) => self.put_in_pr(index, *laid),
-            Err(why) => self.editor.message(one_line(&why, super::MAX_MESSAGE)),
+            Err(why) => self.editor.message(printable(&why, super::MAX_MESSAGE)),
         }
     }
 
@@ -350,18 +352,25 @@ impl App {
         self.buffers_changed();
     }
 
-    /// After each event: forgets killed buffers, and repositories no longer trusted, revoking
-    /// their roots, and puts in a text that waited.
+    /// After each event: forgets killed buffers, freeing their texts off the UI thread, and
+    /// repositories no longer trusted, revoking their roots so that nothing queued runs and
+    /// what comes back late is dropped; and puts in a text that waited.
     pub(super) fn sync_prs(&mut self) {
         let editor = &self.editor;
-        self.gits
-            .prs
-            .views
-            .retain(|view| editor.git_view_of(view.buffer).is_some());
+        let gone: Vec<usize> = (self.gits.prs.views.iter().enumerate())
+            .filter(|(_, view)| editor.git_pr_of(view.buffer).is_none())
+            .map(|(index, _)| index)
+            .collect();
+        for index in gone.into_iter().rev() {
+            let view = self.gits.prs.views.remove(index);
+            self.freer.free((view.built, view.waiting));
+        }
         for repo in &mut self.gits.prs.repos {
-            if repo.worker.is_some() && !editor.project_trusted(repo.project) {
+            if repo.worker.is_some() && !self.editor.project_trusted(repo.project) {
                 repo.root.revoke();
                 repo.worker = None;
+                // A report still under way is of the revoked start's, and is dropped.
+                repo.serial = 0;
             }
         }
         if self.editor.reload_waits() {
@@ -382,33 +391,42 @@ impl App {
         };
         let view = &self.gits.prs.views[index];
         let project = view.project;
-        let row = view.built.row(line).clone();
-        let pull = view.built.pull.clone();
+        let built = Arc::clone(&view.built);
+        let row = built.row(line);
+        let thread = |at: usize| built.threads.get(at).cloned();
+        let link = |at: usize| built.links.get(at).filter(|link| !link.is_empty()).cloned();
+        let pull = |at: usize| built.pulls.get(at).cloned();
         match (act, row) {
             (PrAct::Refresh, _) => self.read_pr(index),
-            (PrAct::Visit, PrRow::Thread { path, line }) => {
-                self.visit_pr_thread(project, &path, line)
-            }
-            (PrAct::Visit, PrRow::Check { link }) if !link.is_empty() => {
+            (PrAct::Visit, PrRow::Thread(at)) => match thread(at) {
+                Some((path, line)) => self.visit_pr_thread(project, &path, line),
+                None => self.editor.message("Nothing here to visit"),
+            },
+            (PrAct::Visit, PrRow::Check(at)) if link(at).is_some() => {
+                let link = link(at).unwrap_or_default();
                 self.editor
-                    .message(format!("{} (w copies it)", one_line(&link, 300)));
+                    .message(format!("{} (w copies it)", printable(&link, 300)));
             }
-            (PrAct::Visit, PrRow::Pull { number, .. }) => {
-                self.show_pr(project, Some(number), false, false)
+            (PrAct::Visit, PrRow::Pull(at)) if pull(at).is_some() => {
+                let (number, _) = pull(at).unwrap_or_default();
+                self.show_pr(project, Some(number), false, false);
             }
             (PrAct::Visit, _) => self.editor.message("Nothing here to visit"),
-            (PrAct::Open, PrRow::Pull { number, url }) => {
-                self.open_pr_address(project, url, number)
+            (PrAct::Open, PrRow::Pull(at)) if pull(at).is_some() => {
+                let (number, url) = pull(at).unwrap_or_default();
+                self.open_pr_address(project, url, number);
             }
-            (PrAct::Open, _) => match pull {
+            (PrAct::Open, _) => match built.pull.clone() {
                 Some((number, url)) => self.open_pr_address(project, url, number),
                 None => self.editor.message("No pull request here"),
             },
-            (PrAct::CopyLink, PrRow::Check { link }) if !link.is_empty() => {
-                self.copy_pr_link(&link)
+            (PrAct::CopyLink, PrRow::Check(at)) if link(at).is_some() => {
+                self.copy_pr_link(&link(at).unwrap_or_default());
             }
-            (PrAct::CopyLink, PrRow::Pull { url, .. }) => self.copy_pr_link(&url),
-            (PrAct::CopyLink, _) => match pull {
+            (PrAct::CopyLink, PrRow::Pull(at)) if pull(at).is_some() => {
+                self.copy_pr_link(&pull(at).unwrap_or_default().1);
+            }
+            (PrAct::CopyLink, _) => match built.pull.clone() {
                 Some((_, url)) => self.copy_pr_link(&url),
                 None => self.editor.message("No address here"),
             },
@@ -419,15 +437,22 @@ impl App {
     /// does only if it is that pull request's own (Q5).
     fn open_pr_address(&mut self, project: ProjectId, url: String, number: u64) {
         self.editor
-            .message(format!("Opening {}", one_line(&url, 300)));
+            .message(format!("Opening {}", printable(&url, 300)));
         self.ask_pr(project, PrRequest::Open { url, number });
     }
 
+    /// Copies `url` to the clipboard, if it is a plain `https` address: a link is anyone's
+    /// words, and one with a line break or a space would paste more than an address.
     fn copy_pr_link(&mut self, url: &str) {
+        if !crate::vcs::pr::is_plain_link(url) {
+            let shown = printable(url, 120);
+            return self
+                .editor
+                .message(format!("Not copied, not a plain https address: {shown}"));
+        }
         self.editor.kill_new(url, false);
         self.write_clipboard();
-        self.editor
-            .message(format!("Copied {}", one_line(url, 300)));
+        self.editor.message(format!("Copied {url}"));
     }
 
     /// Visits `path`, a review thread's file as GitHub names it, at `line`, if it is a plain

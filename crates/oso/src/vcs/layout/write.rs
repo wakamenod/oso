@@ -42,7 +42,11 @@ pub(crate) fn lay_out(
     };
     let mut outline = Vec::new();
     head_lines(&mut out, &mut built.rows, head);
-    if let Some(pr) = &view.pr {
+    // Only the branch's own: a line read before a checkout names another branch's.
+    let ours = |pr: &&std::sync::Arc<crate::vcs::pr::PrHead>| {
+        head.branch.head.as_deref() == Some(pr.branch.as_bytes())
+    };
+    if let Some(pr) = view.pr.as_ref().filter(ours) {
         pr_line(&mut out, &mut built.rows, head, pr);
     }
     for note in notes {

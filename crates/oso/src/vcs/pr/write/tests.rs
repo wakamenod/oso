@@ -21,6 +21,7 @@ fn head() -> PrHead {
         },
         url: "https://github.com/o/r/pull/12".into(),
         head: "abcdef0123".into(),
+        branch: "feature".into(),
     }
 }
 
@@ -83,24 +84,18 @@ fn a_pull_request_s_lines_name_its_checks_and_threads() {
         .iter()
         .position(|line| line.contains("✗ build"))
         .unwrap();
-    assert_eq!(
-        laid.built.row(check),
-        &PrRow::Check {
-            link: "https://x/1".into()
-        }
-    );
+    assert_eq!(laid.built.row(check), PrRow::Check(0));
+    assert_eq!(laid.built.links, ["https://x/1"]);
     let thread = lines
         .iter()
         .position(|line| line.contains("src/a.rs:7"))
         .unwrap();
-    let place = PrRow::Thread {
-        path: "src/a.rs".into(),
-        line: Some(7),
-    };
-    assert_eq!(laid.built.row(thread), &place);
+    let place = PrRow::Thread(0);
+    assert_eq!(laid.built.row(thread), place);
+    assert_eq!(laid.built.threads, [("src/a.rs".to_owned(), Some(7))]);
     assert!(lines[thread].ends_with("unresolved"));
     // The thread's diff, comment and count of more name its place too.
-    assert_eq!(laid.built.row(thread + 1), &place);
+    assert_eq!(laid.built.row(thread + 1), place);
     assert!(text.contains("    │ +new") && text.contains("and 2 more comments"));
     assert_eq!(
         laid.built.pull,
@@ -137,13 +132,33 @@ fn a_list_names_each_pull_request() {
     let laid = list_text("github.com/o/r", &items);
     let text = laid.text.text().to_string();
     assert!(text.starts_with("Open pull requests of github.com/o/r (1)\n#3     draft  t"));
+    assert_eq!(laid.built.row(1), PrRow::Pull(0));
     assert_eq!(
-        laid.built.row(1),
-        &PrRow::Pull {
-            number: 3,
-            url: "https://github.com/o/r/pull/3".into()
-        }
+        laid.built.pulls,
+        [(3, "https://github.com/o/r/pull/3".to_owned())]
     );
+}
+
+#[test]
+fn a_thread_s_path_is_kept_once_and_a_text_is_cut_in_rows() {
+    let mut view = view();
+    let path = "d/".repeat(2000);
+    let thread = Thread {
+        path,
+        line: Some(1),
+        resolved: false,
+        comments: vec![comment(&"x\n".repeat(61)); 50],
+        more: 0,
+    };
+    view.threads = vec![thread; 100];
+    let laid = view_text(&view);
+    let built = &laid.built;
+    // One copy of each path, whatever the rows that name it.
+    assert_eq!(built.threads.len(), 100);
+    assert!(built.rows.len() <= super::MAX_ROWS, "{}", built.rows.len());
+    let text = laid.text.text().to_string();
+    assert!(text.ends_with("The rest is cut: the address shows it all\n"));
+    assert_eq!(built.rows.len(), text.lines().count());
 }
 
 proptest! {

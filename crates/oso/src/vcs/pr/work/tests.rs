@@ -3,7 +3,7 @@
 //!
 //! Must not depend on: the network or a real `gh`; a script answers in its place.
 
-use super::{PrRequest, latest, owner_and_name};
+use super::{PrRequest, latest};
 use crate::git::GhRepo;
 
 #[test]
@@ -37,9 +37,10 @@ fn of_each_read_only_the_last_asked_is_answered() {
 }
 
 #[test]
-fn a_repository_s_owner_and_name() {
+fn a_repository_s_parts() {
     let repo = GhRepo::from_url("https://github.com/o/r.git", None).unwrap();
-    assert_eq!(owner_and_name(&repo), ("o", "r"));
+    assert_eq!(repo.parts(), ("github.com", "o", "r"));
+    assert_eq!(repo.pull_address(3), "https://github.com/o/r/pull/3");
 }
 
 #[cfg(unix)]
@@ -50,8 +51,8 @@ mod with_gh {
 
     use oso_platform::process::Executable;
 
-    use super::super::{Found, Repo, head, repo_of, view};
-    use crate::git::{Gh, Git};
+    use super::super::{Found, Target, head, target_of, view};
+    use crate::git::{Gh, Git, TrustedRoot};
     use crate::review::tests::Repo as Scratch;
 
     /// A repository on `main` whose `origin` is on github.com, and a `gh` that logs each run's
@@ -103,6 +104,7 @@ mod with_gh {
                 git: Git::new(&self.repo.root, &self.hooks).unwrap(),
                 gh: Gh::at(Executable::absolute(script).unwrap()),
                 cwd: self.hooks.clone(),
+                root: TrustedRoot::for_tests(self.repo.root.clone()),
             }
         }
 
@@ -111,14 +113,26 @@ mod with_gh {
         }
     }
 
-    fn repo(found: &Found) -> Repo {
-        repo_of(&found.git).unwrap()
+    fn repo(found: &Found) -> Target {
+        target_of(&found.git).unwrap()
     }
 
     const HEAD: &str = r#"{"number":12,"title":"Add x","state":"OPEN","isDraft":false,
     "reviewDecision":"","url":"https://github.com/o/r/pull/12","headRefOid":"abc",
     "statusCheckRollup":[],"author":{"login":"ann"},"baseRefName":"main",
     "headRefName":"main","body":"","comments":[]}"#;
+
+    #[test]
+    fn a_branch_named_as_a_number_gets_no_other_branch_s_pull_request() {
+        let bench = Bench::new("pr-number-branch");
+        bench.repo.git(&["checkout", "-q", "-b", "42"]);
+        // `gh pr view 42` answers pull request #42, whose head is `main`.
+        bench.answer("pr-view", HEAD, 0, "");
+        let found = bench.found();
+        assert_eq!(head(&found, &repo(&found)), Ok(None));
+        let refused = view(&found, &repo(&found), None).err().unwrap_or_default();
+        assert!(refused.contains("42 has no pull request"), "{refused}");
+    }
 
     #[test]
     fn the_branch_s_pull_request_is_asked_of_its_remote_s_repository_outside_it() {
@@ -171,7 +185,7 @@ mod with_gh {
             "{asked}"
         );
         assert!(
-            asked.contains("-F owner=o -F name=r -F number=12"),
+            asked.contains("-f owner=o -f name=r -F number=12"),
             "{asked}"
         );
     }
@@ -186,7 +200,7 @@ mod with_gh {
             "https://evil.example/o/r.git",
         ]);
         let found = bench.found();
-        let refused = repo_of(&found.git).err().unwrap_or_default();
+        let refused = target_of(&found.git).err().unwrap_or_default();
         assert!(refused.contains("not on github.com"), "{refused}");
         assert_eq!(bench.asked(), "");
     }

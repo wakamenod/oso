@@ -57,7 +57,7 @@ pub enum Mode {
     /// A pull request, `*pr: #N*`: its state, checks, review threads and conversation, as `gh`
     /// gives them (ADR 0127, step 5a).
     GitPr,
-    /// A repository's open pull requests, `*pull requests: REPO*` (ADR 0127, step 5a).
+    /// A repository's open pull requests, `*pull requests: NAME*` (ADR 0127, step 5a).
     GitPrList,
     /// A commit's message being written, `*commit: NAME*`, as magit's `git-commit-mode`
     /// (ADR 0127, step 1b).

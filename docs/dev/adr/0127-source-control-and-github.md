@@ -1193,7 +1193,8 @@ The rest of step 4's plan (Q10), on the answers of step 4a: a plain cherry-pick 
 The plan of step 5a was answered (a) each (the author, 2026-11-16): (1) two pull requests, 5a-1
 the reads (the head line, `*pr: #N*`, the list, `k`, `o`) and 5a-2 creating and merging; (2) `gh`
 outside the repository, with `--repo` from the branch's upstream's remote, else `origin`'s, on
-`github.com` or the host `GH_HOST` names, as worktree sessions run it; (3) the head line read on
+`github.com` or the host `GH_HOST` names, run as worktree sessions run it (they pick the first
+remote on GitHub, `origin` first); (3) the head line read on
 open and `g`, at most once every 30 s, and right after oso's own push; (4) review threads in
 `*pr: #N*` now, read-only, every author shown; (5) the system's opener built now, for the pull
 request's own address only; (6) a merge bound with `--match-head-commit`; (7) the base from
@@ -1206,13 +1207,16 @@ or `docs/`; (9) no comment lines stripped from a pull request's message.
 - **The thread:** each repository has one, `oso-vcs-gh` (`vcs/pr/work.rs`): git says which branch
   is checked out, its upstream's remote and that remote's address, which must name a repository
   on `github.com` or `GH_HOST`'s host, else `gh` is not run. `gh` runs in the empty private
-  directory with `--repo HOST/OWNER/REPO`, one run at a time, each killed past 30 s, its answer
-  at most 4 MiB. Only the latest read of each kind is answered.
+  directory of its own with `--repo HOST/OWNER/REPO`, the project left out of its `PATH`, one run
+  at a time, each killed past 30 s, its answer at most 4 MiB, and the root looked at again
+  before each run. Only the latest read of each kind is answered.
 - **The head line:** `PR:       #12 TITLE  open, approved  ✓ 12 ✗ 1 ● 2`, `stale` when the pull
   request's head is not the commit checked out, from `gh pr view BRANCH --json
   number,title,state,isDraft,reviewDecision,statusCheckRollup,url,headRefOid`. It goes in the
-  status's view, which lays it out with the head. A branch with no pull request shows none; a
-  missing or logged-out `gh` is said once.
+  status's view, which lays it out with the head while that branch is checked out; it is read
+  again after oso's own push or checkout. A pull request whose head branch is not the branch, as
+  `gh` names for a branch named as a number, is none. A branch with no pull request shows none;
+  a missing or logged-out `gh` is said once.
 - **`N`, the pull request menu** (built in): `v` the branch's pull request, `k` at its checks,
   `o` open it in the browser, `l` the open ones; `c` and `m` come with 5a-2.
 - **`*pr: #N*`** (`*pr: NAME*` for the branch's): the title, state, review decision and checks'
@@ -1222,23 +1226,28 @@ or `docs/`; (9) no comment lines stripped from a pull request's message.
   owner, name and number given as `-F` variables, the first 100 threads and 50 comments each,
   each with the last lines of its diff; and the conversation. `RET` visits a thread's file at its
   line, if its path is a plain one under the root, or shows a check's address; `o` opens the
-  pull request, `w` copies an address, `g` reads it again.
+  pull request, `w` copies an address, if it is a plain `https` one, and `g` reads it again. The
+  buffers are listed by `C-x b` and killed by `C-x k`, as a status is.
 - **The list,** `*pull requests: NAME*`: `gh pr list --state open --limit 100 --json
   number,title,headRefName,author,isDraft,reviewDecision,statusCheckRollup,url`; `RET` shows one.
 - **Opening (Q5):** `oso_platform::process::open_link`, the system's opener (`open`, `xdg-open`,
-  `explorer.exe`), takes only an `https` address of plain characters; oso opens only the pull
+  `explorer.exe` in the system's directory), takes only an `https` address of letters, digits
+  and `-._~:/?#=%&`, and leaves the project out of the opener's `PATH`; oso opens only the pull
   request's own address on the repository's host, `https://HOST/OWNER/REPO/pull/N`, after the
-  echo area shows it.
+  echo area shows it, and reaps an opener that waits.
 - **GitHub's words are data (Q13):** every title, body, comment, path, name and address is
-  escaped on its row, each body cut at 60 rows and each row at 300 characters; what a line names
-  is the table's.
+  escaped on its row, every character the display boxes among them, so that an agent reading
+  the text gets none unescaped either; each body is cut at 60 rows, each row at 300 characters
+  and a text at 20,000 rows. What a line names is the table's, an index, never a copy.
 - **Deviations:** (1) the branch's pull request's buffer is `*pr: NAME*`, as its number is not
   known before `gh` answers. (2) `RET` on a check shows its address, which `w` copies: only a pull
   request's own address opens.
 - **Library items** (approved): `Mode::{GitPr, GitPrList}`, `GitRequest::{PrView, PrList,
-  PrOpen, PrAct}`, `editor::PrAct`, and `oso_platform::process::open_link`; and, past the plan,
-  `Editor::{add_git_view, git_view_of}`, the records of the two modes' buffers, as a graph's
-  are. `editor` re-exports `git`'s items whole.
+  PrOpen, PrAct}`, `editor::PrAct`, and `oso_platform::process::open_link(url, project)`; and,
+  past the plan, `Editor::{add_git_pr, add_git_pr_list, git_pr_of}`, the records of the two
+  modes' buffers, as a graph's are. `editor` re-exports `git`'s items whole. `gh`'s runner moves
+  to `git::gh`, with `GhRepo`'s parts and a pull request's address, and `printable` to
+  `git::said`.
 - **Tests:** the readers by shape, with property tests over any bytes; the texts, their rows and
   escaped words; a thread's path and an address that may open; the thread's runs against a
   stand-in `gh` (the arguments, `--repo`, no pull request, checks still going, the GraphQL

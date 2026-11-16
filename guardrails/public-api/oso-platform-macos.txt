@@ -542,7 +542,7 @@ pub fn oso_platform::process::Spawn<'a>::clone(&self) -> oso_platform::process::
 impl<'a> core::marker::Copy for oso_platform::process::Spawn<'a>
 pub fn oso_platform::process::account_shell() -> core::option::Option<std::path::PathBuf>
 pub fn oso_platform::process::may_pass(&str) -> bool
-pub fn oso_platform::process::open_link(&str) -> std::io::error::Result<oso_platform::process::Child>
+pub fn oso_platform::process::open_link(&str, core::option::Option<&std::path::Path>) -> std::io::error::Result<oso_platform::process::Child>
 pub fn oso_platform::process::spawn(&oso_platform::process::Spawn<'_>) -> std::io::error::Result<oso_platform::process::Child>
 pub fn oso_platform::process::start_time(u32) -> std::io::error::Result<core::option::Option<std::time::SystemTime>>
 pub mod oso_platform::random

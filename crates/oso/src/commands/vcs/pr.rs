@@ -51,7 +51,7 @@ pub const COMMANDS: &[Command] = &[
     ),
     command!(
         "git-pr-list",
-        "Show the open pull requests of the current project's GitHub repository, `*pull requests: REPO*` (the pull request menu's `l`). `RET` there shows one.",
+        "Show the open pull requests of the current project's GitHub repository, `*pull requests: NAME*` (the pull request menu's `l`). `RET` there shows one.",
         list
     ),
     command!(
@@ -94,7 +94,7 @@ fn shown(ctx: &Ctx<'_>) -> Result<BufferId, CommandError> {
     let (window, buffer) = ctx.editor.current();
     let mode = buffer.mode();
     if !matches!(mode, Mode::GitPr | Mode::GitPrList)
-        || ctx.editor.git_view_of(window.buffer()).is_none()
+        || ctx.editor.git_pr_of(window.buffer()).is_none()
     {
         return Err(CommandError::new("Not in a pull request's buffer"));
     }

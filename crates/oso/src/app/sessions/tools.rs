@@ -29,13 +29,13 @@ use crate::channel::protocol::sessions::Call;
 use crate::channel::{Connection, Reply};
 use crate::config::AgentStarts;
 use crate::git::TrustedRoot;
+use crate::git::printable;
 use crate::sessions::hosted::Hosted;
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
 use crate::sessions::tools::{self as rules, Asks, Guard, Tool};
 use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::jobs::{Report, Trust};
-use crate::sessions::worktree::porcelain::printable;
 
 mod asks;
 mod reads;
