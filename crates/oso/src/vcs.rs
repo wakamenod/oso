@@ -20,6 +20,7 @@
 //!   git, its arguments, its message and the log's lines, is [`commit`]'s.
 
 pub(crate) mod commit;
+pub(crate) mod cut;
 pub(crate) mod layout;
 pub(crate) mod patch;
 pub(crate) mod read;

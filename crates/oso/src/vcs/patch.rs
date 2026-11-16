@@ -5,8 +5,8 @@
 //! child's output, which is untrusted.
 //!
 //! - Staging applies git's own bytes: a hunk's patch is the file's header and that hunk as git
-//!   wrote them, so that `git apply` gets exactly what was shown, and refuses it if the file
-//!   moved on.
+//!   wrote them (`cut::file_patch`), so that `git apply` gets exactly what was shown, and refuses
+//!   it if the file moved on.
 //! - A hunk whose lines do not add up to its header's counts is shown but cannot be staged
 //!   alone, and neither can a hunk of a patch git cut short, nor one of a new or deleted
 //!   file, a rename, a binary file or a submodule: those stage as a whole.
@@ -55,21 +55,6 @@ impl Patch {
             .iter()
             .map(|hunk| hunk.header.len() + hunk.lines.iter().map(Vec::len).sum::<usize>());
         self.header.len() + hunks.sum::<usize>()
-    }
-
-    /// The patch that stages hunk `index` alone, or unstages it when applied in reverse: the
-    /// header and the hunk as git wrote them. `None` if it cannot be staged alone.
-    pub(crate) fn hunk_patch(&self, index: usize) -> Option<Vec<u8>> {
-        if self.whole_only.is_some() {
-            return None;
-        }
-        let hunk = self.hunks.get(index).filter(|hunk| hunk.whole)?;
-        let mut out = self.header.clone();
-        out.extend_from_slice(&hunk.header);
-        for line in &hunk.lines {
-            out.extend_from_slice(line);
-        }
-        Some(out)
     }
 }
 
@@ -167,7 +152,7 @@ fn adds_up(body: &[Vec<u8>], (_, old, _, new): (u64, u64, u64, u64)) -> bool {
 
 /// The counts of a hunk's header `@@ -a[,b] +c[,d] @@`: old start and length, new start and
 /// length, a length left out being 1.
-fn counts(header: &[u8]) -> Option<(u64, u64, u64, u64)> {
+pub(super) fn counts(header: &[u8]) -> Option<(u64, u64, u64, u64)> {
     let rest = header.strip_prefix(b"@@ -")?;
     let end = rest.windows(3).position(|window| window == b" @@")?;
     let ranges = std::str::from_utf8(&rest[..end]).ok()?;

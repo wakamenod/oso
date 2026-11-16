@@ -6,6 +6,7 @@
 use proptest::prelude::*;
 
 use super::parse;
+use crate::vcs::cut::file_patch;
 
 const PATCH: &[u8] = b"diff --git a/src/a.rs b/src/a.rs
 index 1111111..2222222 100644
@@ -39,12 +40,12 @@ fn a_patch_is_cut_into_its_header_and_hunks() {
 #[test]
 fn a_hunks_patch_is_the_header_and_that_hunk_as_git_wrote_them() {
     let patch = parse(PATCH, false);
-    let second = patch.hunk_patch(1).unwrap();
+    let second = file_patch(&patch, &[(1, None)], false).unwrap();
     let text = String::from_utf8(second).unwrap();
     assert!(text.starts_with("diff --git a/src/a.rs b/src/a.rs\n"));
     assert!(text.ends_with("@@ -10,2 +11,2 @@\n ten\n-eleven\n+onze\n"));
     assert!(!text.contains("deux"));
-    assert_eq!(patch.hunk_patch(2), None);
+    assert_eq!(file_patch(&patch, &[(2, None)], false), None);
 }
 
 #[test]
@@ -66,7 +67,7 @@ fn a_hunk_without_a_count_or_with_no_final_newline_marker_reads() {
     );
     assert_eq!(patch.hunks.len(), 1);
     assert!(patch.hunks[0].whole);
-    assert!(patch.hunk_patch(0).is_some());
+    assert!(file_patch(&patch, &[(0, None)], false).is_some());
 }
 
 #[test]
@@ -77,7 +78,7 @@ fn a_hunk_that_does_not_add_up_shows_but_does_not_stage() {
     );
     assert_eq!(patch.hunks.len(), 1);
     assert!(!patch.hunks[0].whole);
-    assert_eq!(patch.hunk_patch(0), None);
+    assert_eq!(file_patch(&patch, &[(0, None)], false), None);
 }
 
 #[test]
@@ -87,7 +88,7 @@ fn a_cut_patch_drops_its_last_part_and_stages_whole() {
     assert_eq!(patch.hunks.len(), 1);
     assert!(patch.cut);
     assert!(patch.whole_only.is_some());
-    assert_eq!(patch.hunk_patch(0), None);
+    assert_eq!(file_patch(&patch, &[(0, None)], false), None);
 }
 
 #[test]
@@ -106,7 +107,7 @@ fn new_deleted_renamed_binary_and_submodule_patches_stage_whole() {
             "{}",
             String::from_utf8_lossy(case)
         );
-        assert!(patch.hunk_patch(0).is_none());
+        assert!(file_patch(&patch, &[(0, None)], false).is_none());
     }
 }
 
@@ -130,7 +131,7 @@ proptest! {
             }).sum::<usize>();
         prop_assert!(held <= bytes.len());
         for index in 0..patch.hunks.len() {
-            if let Some(one) = patch.hunk_patch(index) {
+            if let Some(one) = file_patch(&patch, &[(index, None)], false) {
                 prop_assert!(one.len() <= bytes.len());
             }
         }
@@ -158,7 +159,7 @@ proptest! {
         let patch = parse(&bytes, false);
         prop_assert_eq!(patch.hunks.len(), bodies.len());
         for (index, body) in bodies.iter().enumerate() {
-            let one = patch.hunk_patch(index).expect("a hunk that adds up stages");
+            let one = file_patch(&patch, &[(index, None)], false).expect("a hunk that adds up stages");
             let tail = body.concat();
             prop_assert!(one.ends_with(tail.as_bytes()));
             let hunks = one.windows(3).filter(|w| *w == b"@@ ").count();

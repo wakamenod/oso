@@ -174,6 +174,51 @@ fn a_hunk_stages_and_unstages_alone() {
 }
 
 #[test]
+fn lines_of_a_hunk_stage_and_unstage_alone() {
+    let repo = Repo::new("vcs-lines");
+    repo.write("a.txt", b"one\ntwo\nthree\n");
+    repo.commit("first");
+    repo.write("a.txt", b"one\nTWO\nthree\nfour\n");
+    let mut state = state(&repo);
+    let view = open_a(Section::Unstaged);
+    let laid = read(&mut state, &repo.root, &view);
+    // The one hunk is ` one`, `-two`, `+TWO`, ` three`, `+four`: `+four` alone.
+    let target = Target::Lines {
+        section: Section::Unstaged,
+        file: 0,
+        hunk: 0,
+        first: 4,
+        last: 4,
+    };
+    let (_, reports) = run(&mut state, &repo.root, &laid, &[target], true, &view);
+    assert!(
+        matches!(reports.as_slice(), [Report::Ran { .. }]),
+        "{reports:?}"
+    );
+    let index = String::from_utf8(repo.git(&["show", ":a.txt"])).unwrap();
+    assert_eq!(index, "one\ntwo\nthree\nfour\n");
+    // From the staged side, `+four` unstages by itself again.
+    let view = open_a(Section::Staged);
+    let laid = read(&mut state, &repo.root, &view);
+    let target = Target::Lines {
+        section: Section::Staged,
+        file: 0,
+        hunk: 0,
+        first: 3,
+        last: 3,
+    };
+    let (_, reports) = run(&mut state, &repo.root, &laid, &[target], false, &view);
+    assert!(
+        matches!(reports.as_slice(), [Report::Ran { .. }]),
+        "{reports:?}"
+    );
+    assert_eq!(cached(&repo), "");
+    // The work tree never changed.
+    let work = std::fs::read_to_string(repo.root.join("a.txt")).unwrap();
+    assert_eq!(work, "one\nTWO\nthree\nfour\n");
+}
+
+#[test]
 fn a_hunk_whose_file_moved_on_is_refused() {
     let repo = two_hunks("vcs-refused");
     let mut state = state(&repo);
