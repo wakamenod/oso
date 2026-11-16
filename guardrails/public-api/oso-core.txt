@@ -1478,6 +1478,9 @@ pub oso_core::editor::FilePreviewRead::Withheld
 impl core::fmt::Debug for oso_core::editor::FilePreviewRead
 pub fn oso_core::editor::FilePreviewRead::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum oso_core::editor::GitRequest
+pub oso_core::editor::GitRequest::Abort
+pub oso_core::editor::GitRequest::Abort::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Abort::confirmed: bool
 pub oso_core::editor::GitRequest::Commit
 pub oso_core::editor::GitRequest::Commit::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Commit::kind: oso_core::editor::CommitKind
@@ -1490,6 +1493,8 @@ pub oso_core::editor::GitRequest::CommitFinish::buffer: oso_core::buffer::Buffer
 pub oso_core::editor::GitRequest::CommitRing
 pub oso_core::editor::GitRequest::CommitRing::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::CommitRing::older: bool
+pub oso_core::editor::GitRequest::Continue
+pub oso_core::editor::GitRequest::Continue::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Discard
 pub oso_core::editor::GitRequest::Discard::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Discard::confirmed: bool
@@ -1503,6 +1508,7 @@ pub oso_core::editor::GitRequest::FixWithAgent
 pub oso_core::editor::GitRequest::FixWithAgent::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Pull
 pub oso_core::editor::GitRequest::Pull::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Pull::how: oso_core::editor::PullHow
 pub oso_core::editor::GitRequest::Push
 pub oso_core::editor::GitRequest::Push::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Push::switches: oso_core::editor::PushSwitches
@@ -1517,6 +1523,9 @@ pub oso_core::editor::GitRequest::ShowDiscarded
 pub oso_core::editor::GitRequest::ShowDiscarded::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::ShowLog
 pub oso_core::editor::GitRequest::ShowLog::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Skip
+pub oso_core::editor::GitRequest::Skip::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::Skip::confirmed: bool
 pub oso_core::editor::GitRequest::Stage
 pub oso_core::editor::GitRequest::Stage::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Stage::lines: alloc::vec::Vec<oso_core::editor::GitLines>
@@ -1753,6 +1762,19 @@ impl core::fmt::Debug for oso_core::editor::PreviewAt
 pub fn oso_core::editor::PreviewAt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::PreviewAt
 impl core::marker::StructuralPartialEq for oso_core::editor::PreviewAt
+pub enum oso_core::editor::PullHow
+pub oso_core::editor::PullHow::FfOnly
+pub oso_core::editor::PullHow::Merge
+pub oso_core::editor::PullHow::Rebase
+impl core::clone::Clone for oso_core::editor::PullHow
+pub fn oso_core::editor::PullHow::clone(&self) -> oso_core::editor::PullHow
+impl core::cmp::Eq for oso_core::editor::PullHow
+impl core::cmp::PartialEq for oso_core::editor::PullHow
+pub fn oso_core::editor::PullHow::eq(&self, &oso_core::editor::PullHow) -> bool
+impl core::fmt::Debug for oso_core::editor::PullHow
+pub fn oso_core::editor::PullHow::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::PullHow
+impl core::marker::StructuralPartialEq for oso_core::editor::PullHow
 pub enum oso_core::editor::PushTarget
 pub oso_core::editor::PushTarget::Asked
 pub oso_core::editor::PushTarget::Elsewhere

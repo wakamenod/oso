@@ -116,6 +116,9 @@ impl App {
         let Some((project, root, built)) = self.trusted_status(status) else {
             return;
         };
+        if self.refused_while_stopped(&built) {
+            return;
+        }
         let target = if commit::needs_target(kind) {
             match built.commit_at(line) {
                 Some((Section::Unpushed | Section::Recent, found)) => Some(found.id.clone()),

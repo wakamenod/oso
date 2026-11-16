@@ -15,7 +15,7 @@ use super::{repo, runner, subject, until_end};
 use crate::review::tests::Repo;
 
 /// A repository with a first commit and an empty bare remote, `origin`, beside it.
-fn with_remote(name: &str) -> (Repo, String) {
+pub(super) fn with_remote(name: &str) -> (Repo, String) {
     let repo = repo(name);
     // Without Windows' verbatim prefix, which git cannot take.
     let bare = crate::git::for_git(&repo.dir.join("remote.git"));
@@ -161,7 +161,10 @@ fn a_forced_push_names_what_it_drops_and_git_refuses_it_once_the_remote_moved() 
     })));
     let (end, output, _) = until_end(&got);
     assert_eq!(end, RunEnd::Done, "{output}");
-    assert!(runner.ask(RunRequest::Remote(RemoteRun::Pull { pass: Vec::new() })));
+    assert!(runner.ask(RunRequest::Remote(RemoteRun::Pull {
+        how: oso_core::editor::PullHow::FfOnly,
+        pass: Vec::new(),
+    })));
     let (end, _, _) = until_end(&got);
     assert!(matches!(end, RunEnd::Failed { .. }), "{end:?}");
     assert_eq!(subject(&repo), "first, again");
@@ -190,7 +193,10 @@ fn a_fetch_and_a_fast_forward_pull_take_the_remote_s_commits() {
         "{output}"
     );
     assert_eq!(subject(&repo), "first");
-    assert!(runner.ask(RunRequest::Remote(RemoteRun::Pull { pass: Vec::new() })));
+    assert!(runner.ask(RunRequest::Remote(RemoteRun::Pull {
+        how: oso_core::editor::PullHow::FfOnly,
+        pass: Vec::new(),
+    })));
     let (end, output, _) = until_end(&got);
     assert_eq!(end, RunEnd::Done, "{output}");
     assert_eq!(subject(&repo), "theirs");

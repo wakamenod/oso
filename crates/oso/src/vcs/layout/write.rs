@@ -15,6 +15,7 @@ use oso_core::syntax::{Highlight, Highlights};
 use super::{Built, File, Head, Hunks, MAX_FILE_TEXT, MAX_FILES, MAX_TEXT, Row, Section, View};
 use crate::dired::rows::{decoded_len, push_name};
 use crate::vcs::history::Log;
+use crate::vcs::sequence::{Doing, Stop};
 
 /// A status's text, highlights, outline and table.
 pub(crate) struct Laid {
@@ -36,6 +37,7 @@ pub(crate) fn lay_out(
     let mut out = Out::default();
     let mut built = Built {
         branch: head.branch.clone(),
+        stop: head.stop.clone(),
         ..Built::default()
     };
     let mut outline = Vec::new();
@@ -283,6 +285,76 @@ fn head_lines(out: &mut Out, rows: &mut Vec<Row>, head: &Head) {
         let mut name = Vec::new();
         push_name(&mut name, push);
         out.part(&name, Some(Highlight::GitBranchRemote));
+        out.end_line();
+        rows.push(Row::Other);
+    }
+    if let Some(stop) = &head.stop {
+        stop_lines(out, rows, stop);
+    }
+}
+
+/// What is stopped, as `Rebasing: main onto abc1234, 2 of 5; stopped at def5678 SUBJECT`, and
+/// the keys that go on with it (step 3a).
+fn stop_lines(out: &mut Out, rows: &mut Vec<Row>, stop: &Stop) {
+    let commit = |out: &mut Out, id: &str| {
+        let (short, subject) = stop.named(id);
+        out.part(short.as_bytes(), Some(Highlight::GitHash));
+        if let Some(subject) = subject {
+            let mut words = vec![b' '];
+            push_name(&mut words, subject);
+            out.part(&words, None);
+        }
+    };
+    out.part(stop.doing.label().as_bytes(), None);
+    match stop.doing {
+        Doing::Rebase => {
+            match &stop.branch {
+                Some(branch) => {
+                    let mut name = Vec::new();
+                    push_name(&mut name, branch);
+                    out.part(&name, Some(Highlight::GitBranchLocal));
+                }
+                None => out.part(b"(detached)", Some(Highlight::GitDetail)),
+            }
+            if let Some(onto) = &stop.onto {
+                out.part(b" onto ", None);
+                let (short, _) = stop.named(onto);
+                out.part(short.as_bytes(), Some(Highlight::GitHash));
+            }
+            if let Some((at, of)) = stop.progress {
+                out.part(
+                    format!(", {at} of {of}").as_bytes(),
+                    Some(Highlight::GitDetail),
+                );
+            }
+            if let Some(at) = &stop.at {
+                out.part(b"; stopped at ", None);
+                commit(out, at);
+            }
+        }
+        Doing::Am => {
+            out.part(b"patches", None);
+            if let Some((at, of)) = stop.progress {
+                out.part(
+                    format!(", {at} of {of}").as_bytes(),
+                    Some(Highlight::GitDetail),
+                );
+            }
+        }
+        Doing::Merge | Doing::CherryPick | Doing::Revert => match &stop.at {
+            Some(at) => commit(out, at),
+            None => out.part(b"between commits", Some(Highlight::GitDetail)),
+        },
+        Doing::Bisect => out.part(
+            b"git bisect reset in a shell ends it",
+            Some(Highlight::GitDetail),
+        ),
+    }
+    out.end_line();
+    rows.push(Row::Other);
+    if let Some(keys) = stop.doing.keys() {
+        out.part(b"          ", None);
+        out.part(keys.as_bytes(), Some(Highlight::GitDetail));
         out.end_line();
         rows.push(Row::Other);
     }

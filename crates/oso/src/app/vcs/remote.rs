@@ -14,18 +14,17 @@
 //! - One run at a time in a repository, a plan waiting counted as one.
 
 use std::sync::Arc;
-use std::time::Instant;
 
 use oso_core::buffer::BufferId;
 use oso_core::complete::Candidate;
-use oso_core::editor::{FetchFrom, GitRequest, PushSwitches, PushTarget};
+use oso_core::editor::{FetchFrom, GitRequest, PullHow, PushSwitches, PushTarget};
 use oso_core::minibuffer::PromptId;
 
 use super::super::App;
-use super::runs::{MAX_SAID, RUNNING, Running};
+use super::runs::{MAX_SAID, RUNNING};
 use crate::commands::review::one_line;
 use crate::commands::vcs::remote::{REMOTES_LIST, TARGETS_LIST};
-use crate::vcs::remote::{PULL, Push, fetch_title};
+use crate::vcs::remote::{Push, fetch_title, pull_title};
 use crate::vcs::run::{Planned, RemoteRun, RunRequest, Want};
 
 /// A push being planned, asked from the status `status`.
@@ -77,7 +76,7 @@ impl App {
                 target,
                 switches,
             } => self.push_git(buffer, target, switches),
-            GitRequest::Pull { buffer } => self.pull_git(buffer),
+            GitRequest::Pull { buffer, how } => self.pull_git(buffer, how),
             GitRequest::Fetch { buffer, from } => self.fetch_git(buffer, from),
             // The others are not a remote's (`requests::concern`).
             _ => {}
@@ -85,12 +84,21 @@ impl App {
     }
 
     /// The repository of the status `buffer`, if it may start a run now; else says why not,
-    /// `no_upstream` when the run needs an upstream the branch lacks.
-    fn remote_repo(&mut self, buffer: BufferId, no_upstream: Option<&str>) -> Option<usize> {
+    /// `no_upstream` when the run needs an upstream the branch lacks, and refusing while
+    /// something is stopped if `not_stopped` (a pull, step 3a, Q6).
+    fn remote_repo(
+        &mut self,
+        buffer: BufferId,
+        no_upstream: Option<&str>,
+        not_stopped: bool,
+    ) -> Option<usize> {
         let (project, root, built) = self.trusted_status(buffer)?;
         let index = self.git_repo(project, &root);
         if self.repo_busy(project) {
             self.editor.message(RUNNING);
+            return None;
+        }
+        if not_stopped && self.refused_while_stopped(&built) {
             return None;
         }
         if built.branch.head.is_none() {
@@ -109,7 +117,7 @@ impl App {
         if target == PushTarget::Asked {
             return self.push_asked(buffer);
         }
-        let Some(index) = self.remote_repo(buffer, None) else {
+        let Some(index) = self.remote_repo(buffer, None, false) else {
             return;
         };
         let pushes = &mut self.gits.commits.repos[index].pushes;
@@ -162,7 +170,7 @@ impl App {
 
     /// `y` to the question before a forced push: runs what it asked about.
     fn push_asked(&mut self, buffer: BufferId) {
-        let Some(index) = self.remote_repo(buffer, None) else {
+        let Some(index) = self.remote_repo(buffer, None, false) else {
             return;
         };
         match self.gits.commits.repos[index].pushes.asked.take() {
@@ -268,25 +276,30 @@ impl App {
         let done = format!("Pushed {} to {}", push.branch, push.destination());
         let pass = self.pass_env();
         if self.ask_runner(index, RunRequest::Remote(RemoteRun::Push { push, pass })) {
-            self.remote_began(index, title, done);
+            self.run_began(index, title, done);
         }
     }
 
-    fn pull_git(&mut self, buffer: BufferId) {
+    fn pull_git(&mut self, buffer: BufferId, how: PullHow) {
         let no_upstream = "The branch has no upstream: P u sets one";
-        let Some(index) = self.remote_repo(buffer, Some(no_upstream)) else {
+        let Some(index) = self.remote_repo(buffer, Some(no_upstream), true) else {
             return;
         };
         let pass = self.pass_env();
-        if self.ask_runner(index, RunRequest::Remote(RemoteRun::Pull { pass })) {
-            self.remote_began(index, PULL.to_owned(), "Pulled, fast-forward".to_owned());
+        let done = match how {
+            PullHow::FfOnly => "Pulled, fast-forward",
+            PullHow::Rebase => "Pulled, rebased onto the upstream",
+            PullHow::Merge => "Pulled, merged",
+        };
+        if self.ask_runner(index, RunRequest::Remote(RemoteRun::Pull { how, pass })) {
+            self.run_began(index, pull_title(how).to_owned(), done.to_owned());
         }
     }
 
     fn fetch_git(&mut self, buffer: BufferId, from: FetchFrom) {
         let no_upstream = (from == FetchFrom::Upstream)
             .then_some("The branch has no upstream: f a fetches every remote");
-        let Some(index) = self.remote_repo(buffer, no_upstream) else {
+        let Some(index) = self.remote_repo(buffer, no_upstream, false) else {
             return;
         };
         let pass = self.pass_env();
@@ -296,30 +309,8 @@ impl App {
             FetchFrom::All => "Fetched from every remote",
         };
         if self.ask_runner(index, RunRequest::Remote(RemoteRun::Fetch { from, pass })) {
-            self.remote_began(index, title.to_owned(), done.to_owned());
+            self.run_began(index, title.to_owned(), done.to_owned());
         }
-    }
-
-    /// A remote's run called `title` began in the repository at `index`; `done` is what the
-    /// echo area says once it went well.
-    fn remote_began(&mut self, index: usize, title: String, done: String) {
-        let echoed = format!("{title}…");
-        self.editor.echo(echoed.clone());
-        let log = self.git_log(index);
-        self.editor.set_git_running(log, true);
-        let repo = &mut self.gits.commits.repos[index];
-        repo.run = Some(Running {
-            kind: None,
-            title,
-            done,
-            started: Instant::now(),
-            echoed,
-            progress: None,
-            message: None,
-            draft: None,
-            output: String::new(),
-        });
-        self.request_redraw();
     }
 
     /// The names `[git] pass_env` passes on to a run's hooks.

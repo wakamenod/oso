@@ -370,13 +370,17 @@ project must be trusted.
 | `k` | Discard it, after a question; a copy is kept for two weeks (`M-x git-discarded`) |
 | `c` | The commit menu: `c` commit, `a` amend, `e` extend, `w` reword, and `f` fixup or `s` squash for the commit at point |
 | `P` | The push menu: `p` where git pushes, `u` the upstream, `e` elsewhere; `- f` forces with a lease, after a question |
-| `F u` | Pull the upstream, fast-forward only |
+| `F u` | Pull the upstream, fast-forward only; `- r` rebases onto it, `- m` merges it |
+| `C-c C-c` | Go on with a merge, rebase, cherry-pick, revert or `git am` that stopped |
+| `C-c C-s` / `C-c C-k` | Skip the commit it stopped at, or abort it, after a question |
 | `f u` / `f a` | Fetch the upstream's remote, or every remote |
 | `RET` | Visit the file, or review the commit at point |
 | `$` | Show what git's runs wrote; `C-g` stops one |
 | `g` / `q` / `?` | Read it again, leave it, list the keys |
 
-Commits run the repository's hooks, with no time limit. A push, a pull or a fetch can ask for no
+When a merge or a rebase stops on a conflict, the status says so under its head and lists the
+files under Unmerged paths: resolve each, `s` stages it, and `C-c C-c` goes on. Commits run the
+repository's hooks, with no time limit. A push, a pull or a fetch can ask for no
 password or passphrase: set up a credential helper or `ssh-agent`, or push from a terminal.
 
 ## What an agent in oso can do
