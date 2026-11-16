@@ -2,8 +2,8 @@
 //! starting it, starting it again, and stopping it; moving to its diagnostics (step 6), and
 //! the list of the project's (step 6b); going to a definition, and back and forward through
 //! the window's jumps (step 8), and to the references or one of several definitions, through
-//! their list (step 8b); and describing what is at point in a float, which its own keys scroll
-//! and close (step 10).
+//! their list (step 8b); completion at point (step 9); and describing what is at point in a
+//! float, which its own keys scroll and close (step 10).
 //!
 //! Must not depend on: winit, the GPU, `bindings` or the host's servers; a command asks the
 //! host through `Editor::request_server`, and the host acts on the server after it.
@@ -127,6 +127,14 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
+        name: "completion-at-point",
+        doc: "Complete the word before point with what the language server offers, in a popup under it, as Corfu does.\n\nThe items match the word as it is typed, in the server's order; `C-n` and `C-p` move, `TAB` inserts, and `C-g` closes it. With several cursors, the item goes in at each one whose word before it is the primary's.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: complete_at_point,
+        state: None,
+    },
+    Command {
         name: "lsp-go-back",
         doc: "Go back to the place the last jump to a definition left, as Emacs's `xref-go-back`.\n\nEach window keeps its own history of 64 places; `lsp-go-forward` goes forward again.",
         args: ArgSpec::None,
@@ -238,6 +246,22 @@ fn find_references(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         ));
     }
     ctx.editor.request_server(ServerRequest::References(at));
+    Ok(())
+}
+
+/// Asks the host for the completions at the primary cursor; the popup opens with the answer.
+fn complete_at_point(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    if ctx.editor.current().1.is_secret() {
+        return Err(CommandError::new(
+            "No server for a buffer that may hold secrets",
+        ));
+    }
+    if ctx.editor.preedit().is_some() {
+        return Err(CommandError::new("Not while an input method composes"));
+    }
+    let at = ctx.editor.ask_at();
+    ctx.editor.request_server(ServerRequest::Complete(at));
     Ok(())
 }
 

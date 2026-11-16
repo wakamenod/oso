@@ -1,6 +1,6 @@
 //! `M-.` and the jumps a server's answers lead to (ADR 0138, Go to definition and back, step 8),
-//! on the UI thread: the ask, sent after the event's edits went to the server, and each answer,
-//! which goes to its place, or says why not. A file outside any project that an answer leads to
+//! on the UI thread: each answer of places, which goes to its place, or says why not; the asks
+//! themselves are `asks`'. A file outside any project that an answer leads to
 //! joins the server that gave it, as `eglot-extend-to-xref` does, until its buffer is killed.
 //!
 //! Must not depend on: the window system or the drawing; nothing here waits on a server.
@@ -24,14 +24,14 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 
 use oso_core::buffer::{Buffer, BufferId};
-use oso_core::editor::{AskAt, VisitColumn};
+use oso_core::editor::VisitColumn;
 use oso_core::syntax::Splice;
-use oso_core::window::WindowId;
 use oso_lsp::position::{Encoding, Position};
-use oso_lsp::server::{Answer, Answered, Ask, AskFailure, AskKind, Location, State, Target};
+use oso_lsp::server::{AskFailure, AskKind, Location, Target};
 
 use super::super::App;
 use super::Running;
+use super::asks::Asker;
 use crate::channel::Connection;
 
 /// What the echo area says of an ask of `kind` to the server `name` that got no answer, the
@@ -49,29 +49,12 @@ pub(super) const JOINED_MAX: usize = 64;
 /// The most files one server's answers led to that wait for their project to be known.
 pub(super) const JOINING_MAX: usize = 16;
 
-/// Who asked, and where, kept until the answer, which must bring its serial back.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Asker {
-    serial: u64,
-    window: WindowId,
-    pub(super) revision: u64,
-    pub(super) offset: usize,
-    agent: Option<Connection>,
-}
-
 /// What joins a server: buffers, and the files of answers whose buffers are not known to be in
 /// no project yet.
 #[derive(Debug, Default)]
 pub(super) struct Joined {
     buffers: HashSet<BufferId>,
     waiting: VecDeque<PathBuf>,
-}
-
-impl Asker {
-    /// The ask's serial, which numbers the list of its places too.
-    pub(super) fn serial(&self) -> u64 {
-        self.serial
-    }
 }
 
 impl Joined {
@@ -99,154 +82,9 @@ pub(super) fn joins(id: BufferId, buffer: &Buffer, running: &Running) -> bool {
 }
 
 impl App {
-    /// Asks the server following `at`'s buffer for `kind` there, or says why not. `agent` is
-    /// the connection whose command asked, if the agent's did.
-    pub(super) fn lsp_ask(&mut self, at: AskAt, kind: AskKind, agent: Option<Connection>) {
-        // An agent's ask whose connection is not known never passes as the person's.
-        if at.agent && agent.is_none() {
-            return;
-        }
-        let Some(index) = self.server_to_ask(at.buffer) else {
-            return;
-        };
-        // A newer ask stops the list that waits for its rows (step 8b).
-        if let Some(old) = self.servers.xrefs.stop_waiting() {
-            self.freer.free(old);
-        }
-        self.servers.serial += 1;
-        let serial = self.servers.serial;
-        let running = &self.servers.running[index];
-        running.server.ask(Ask {
-            serial,
-            document: at.buffer.get(),
-            kind,
-            revision: at.revision,
-            offset: at.offset,
-        });
-        let asker = Asker {
-            serial,
-            window: self.editor.window().id(),
-            revision: at.revision,
-            offset: at.offset,
-            agent,
-        };
-        self.servers.running[index]
-            .asked
-            .insert((at.buffer, kind), asker);
-    }
-
-    /// The server to ask about `buffer`: one that follows it and runs. Otherwise the echo area
-    /// says why not, and `None`.
-    pub(super) fn server_to_ask(&mut self, buffer: BufferId) -> Option<usize> {
-        let shown = self.editor.buffer(buffer)?;
-        if shown.is_secret() {
-            self.editor
-                .message("No server for a buffer that may hold secrets");
-            return None;
-        }
-        let followed = self.running_for(buffer).filter(|index| {
-            self.servers.running[*index]
-                .documents
-                .get(&buffer)
-                .is_some_and(|open| open.closed.is_none())
-        });
-        let Some(index) = followed else {
-            self.editor
-                .message("No language server follows this buffer");
-            return None;
-        };
-        let running = &self.servers.running[index];
-        let why = match running.state {
-            State::Ready | State::Working(_) => return Some(index),
-            State::Starting | State::Waiting => "is starting",
-            State::Stopped | State::NotStarted | State::Ended => "does not run",
-        };
-        let name = running.entry.name.clone();
-        self.editor.message(format!("{name} {why}"));
-        None
-    }
-
-    /// What server `index` answered. The places go to the freeing thread, as up to 1000 paths
-    /// are many to free on the UI thread.
-    pub(super) fn lsp_answered(&mut self, index: usize, answer: Answer) {
-        let Answer {
-            serial,
-            document,
-            kind,
-            outcome,
-            ..
-        } = answer;
-        let taken = self.take_asker(index, serial, document, kind);
-        // A description goes to its float (step 10).
-        if kind == AskKind::Hover {
-            self.lsp_described(index, taken, outcome);
-            return;
-        }
-        let places = match outcome {
-            Ok(Answered::Places(places)) => places,
-            // A kind a later step asks for.
-            Ok(_) => return,
-            Err(why) => {
-                if let Some((asked, asker)) = taken
-                    && self.still_there(asked, &asker)
-                {
-                    let name = self.servers.running[index].entry.name.clone();
-                    // The server's text may quote what it read: shown, not logged.
-                    self.editor.message_unlogged(failed(&name, kind, &why));
-                    self.request_redraw();
-                }
-                return;
-            }
-        };
-        if let Some((asked, asker)) = taken
-            && self.still_there(asked, &asker)
-        {
-            self.go_to_answer(index, (kind, asked, asker), &places);
-            self.request_redraw();
-        }
-        self.freer.free(places);
-    }
-
-    /// Takes who asked server `index` the ask `kind` of the document `document`, if `serial`
-    /// is that ask's: an answer to an earlier one, which a newer replaced, is no one's.
-    pub(super) fn take_asker(
-        &mut self,
-        index: usize,
-        serial: u64,
-        document: u64,
-        kind: AskKind,
-    ) -> Option<(BufferId, Asker)> {
-        let running = self.servers.running.get_mut(index)?;
-        let asked = running
-            .asked
-            .keys()
-            .map(|(id, _)| *id)
-            .find(|id| id.get() == document)?;
-        let key = (asked, kind);
-        if running.asked.get(&key)?.serial != serial {
-            return None;
-        }
-        Some((asked, running.asked.remove(&key)?))
-    }
-
-    /// Whether nothing moved since `asker` asked about `asked`, and an agent's connection is
-    /// still let in.
-    pub(super) fn still_there(&self, asked: BufferId, asker: &Asker) -> bool {
-        let (window, buffer) = self.editor.current();
-        window.id() == asker.window
-            && window.buffer() == asked
-            && buffer.revision() == asker.revision
-            && window.selections.primary().cursor == asker.offset
-            && self.editor.prompt().is_none()
-            && self.editor.isearch().is_none()
-            && asker
-                .agent
-                .is_none_or(|connection| self.agent_connected(connection))
-    }
-
     /// Goes to the answer's place, or lists its places for the person when it has several, or
     /// for `M-?`, one at once (step 8b); the agent goes to the first.
-    fn go_to_answer(
+    pub(super) fn go_to_answer(
         &mut self,
         index: usize,
         (kind, asked, asker): (AskKind, BufferId, Asker),
@@ -256,13 +94,13 @@ impl App {
             let none = match kind {
                 AskKind::Definition => "No definition found",
                 AskKind::References => "No references found",
-                // A description goes to its float, never here.
-                AskKind::Hover => return,
+                // Completions never come here (`asks`), and a description goes to its float.
+                AskKind::Completion | AskKind::Hover => return,
             };
             self.editor.message(none);
             return;
         };
-        let Some(connection) = asker.agent else {
+        let Some(connection) = asker.agent() else {
             if places.len() > 1 {
                 self.list_places(index, (kind, asked, asker), places);
                 return;

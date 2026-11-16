@@ -160,6 +160,10 @@ fn initialize_claims_only_what_the_steps_use() {
                 "synchronization": {"didSave": true},
                 "definition": {"linkSupport": true},
                 "references": {},
+                "completion": {
+                    "completionItem": {"snippetSupport": false, "insertReplaceSupport": true},
+                    "contextSupport": true,
+                },
                 "hover": {"contentFormat": ["markdown", "plaintext"]},
                 "publishDiagnostics": {
                     "versionSupport": true,

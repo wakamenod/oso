@@ -4,8 +4,9 @@
 //! do, and `M-g d` lists the project's, as `consult-flymake` (step 6b); `M-.` goes to a
 //! definition, `M-?` lists the references (step 8b), and `M-,` and `C-M-,` go back and forward,
 //! as the author's xref keys there, so `M-,` is `previous-buffer` only in buffers no server
-//! follows (step 8); `C-c C-d` and `C-h .` describe what is at point in a float, which `C-v`
-//! and `M-v` scroll (step 10). Later steps add the rest of the layer's keys.
+//! follows (step 8); `C-M-i` completes at point (step 9); `C-c C-d` and `C-h .` describe what is
+//! at point in a float, which `C-v` and `M-v` scroll (step 10). Later steps add the rest of the
+//! layer's keys.
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
@@ -18,6 +19,7 @@ pub const LSP: &[(&str, &str)] = &[
     ("M-?", "lsp-find-references"),
     ("M-,", "lsp-go-back"),
     ("C-M-,", "lsp-go-forward"),
+    ("C-M-i", "completion-at-point"),
     ("C-c C-d", "lsp-describe-at-point"),
     ("C-h .", "lsp-describe-at-point"),
 ];

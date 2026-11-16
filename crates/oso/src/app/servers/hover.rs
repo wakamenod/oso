@@ -9,11 +9,10 @@
 //!   log: a server's text may quote what it read.
 
 use oso_core::buffer::BufferId;
-use oso_core::editor::AskAt;
 use oso_lsp::server::{Answered, AskFailure, AskKind};
 
 use super::super::App;
-use super::places::Asker;
+use super::asks::Asker;
 
 impl App {
     /// Takes the answer to the description asked of server `index`, by `taken`, who asked and
@@ -33,12 +32,8 @@ impl App {
         let name = self.servers.running[index].entry.name.clone();
         let said = match outcome {
             Ok(Answered::Hover(Some(hover))) => {
-                let at = AskAt {
-                    buffer: asked,
-                    revision: asker.revision,
-                    offset: asker.offset,
-                    agent: false,
-                };
+                // The person's only: the command is `Person`.
+                let at = asker.at(asked);
                 if self
                     .editor
                     .show_hover(at, &name, &hover.text, hover.markdown)

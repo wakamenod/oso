@@ -1,4 +1,4 @@
-//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8, 8b and 10), on the UI thread: which server a
+//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8, 8b, 9 and 10), on the UI thread: which server a
 //! buffer's open would start, starting one for a project's root and entry, what the commands
 //! ask, what each server's thread reports, the modeline's marks, and the ends that trust, the
 //! configuration and a quit bring. One server runs per root and entry. The UI thread never
@@ -8,6 +8,8 @@
 //! Must not depend on: the window system or the drawing; this keeps the servers and tells the
 //! editor what to show.
 
+mod asks;
+mod complete;
 mod diagnostics;
 mod documents;
 mod find;
@@ -76,7 +78,7 @@ struct Running {
     /// The documents opened with it, by buffer (step 4).
     documents: HashMap<BufferId, documents::Open>,
     /// The asks waiting for an answer, by buffer and kind, and who asked (step 8).
-    asked: HashMap<(BufferId, oso_lsp::server::AskKind), places::Asker>,
+    asked: HashMap<(BufferId, oso_lsp::server::AskKind), asks::Asker>,
     /// The buffers outside any project its answers led to, which join it (step 8).
     joined: places::Joined,
     /// The reports of files no document open with it holds, for `M-g d` (step 6b).
@@ -206,6 +208,9 @@ impl App {
                     self.lsp_ask(at, oso_lsp::server::AskKind::Hover, None);
                 }
                 ServerRequest::GoToXref => self.go_to_xref(),
+                ServerRequest::Complete(at) => {
+                    self.lsp_ask(at, oso_lsp::server::AskKind::Completion, agent);
+                }
             }
         }
     }

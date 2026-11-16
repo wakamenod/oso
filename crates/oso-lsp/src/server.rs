@@ -38,7 +38,9 @@ use oso_core::syntax::Splice;
 use oso_platform::process::{Child, Executable, Signal};
 use serde_json::Value;
 
-pub use asks::{Answer, Answered, Ask, AskFailure, AskKind, Location, Target};
+pub use asks::{
+    Answer, Answered, Ask, AskFailure, AskKind, Completion, Completions, Location, Target,
+};
 
 use crate::framing::{Frame, FrameError};
 use crate::position::Encoding;

@@ -47,6 +47,8 @@
 //! place: its ring as a box of `┌─┐`, and inside it the label, the answer and a message
 //! (ADR 0072). Beneath it, the window's hollow cursor is marked `o` in place of `^`. That
 //! the float hides what is under it is the renderer's, checked in its scene tests.
+//! The completion popup at point comes after it: where it is, then its rows, the selected one
+//! with `>` and what matched marked `*` below (ADR 0138).
 
 use oso_core::buffer::Buffer;
 
@@ -66,6 +68,7 @@ mod diagnostics;
 mod hover;
 #[cfg(test)]
 mod jumps;
+mod popup;
 mod preview;
 #[cfg(test)]
 mod review;
@@ -140,6 +143,7 @@ fn flashing_grid(editor: &Editor, flashing: bool) -> String {
     draw_spans(&echo, regions.echo, '"', &mut lines);
     draw_float(editor, &mut lines);
     hover::draw_hover(editor, &mut lines);
+    popup::draw_popup(editor, &mut lines);
     lines.join("\n")
 }
 

@@ -4,7 +4,8 @@
 //! the diagnostics at point (step 6), and the list of a project's (`M-g d`, step 6b,
 //! `diagnostics_list`, sharing `listed` with the list of an answer's places); the jumps an
 //! answer leads to, and back (step 8, `jumps`), and the list of an answer's places (step 8b,
-//! `xref_list`); and the description of what is at point in a float there (step 10, `hover`).
+//! `xref_list`); the completion popup (step 9, `popup`); and the description of what is at
+//! point in a float there (step 10, `hover`).
 //!
 //! Must not depend on: the host's servers, threads or I/O; a command asks, and the host takes
 //! the request after the command and acts on the server.
@@ -13,6 +14,7 @@ mod diagnostics_list;
 mod hover;
 mod jumps;
 mod listed;
+mod popup;
 mod xref_list;
 
 use crate::buffer::{Buffer, BufferId};
@@ -23,6 +25,10 @@ pub use diagnostics_list::{DiagnosticRow, DiagnosticRows, DiagnosticsRequest};
 pub use hover::HoverShown;
 pub use jumps::AskAt;
 pub use listed::{ListedAt, ListedHit};
+pub use popup::{
+    COMPLETION_POPUP_COLUMNS, COMPLETION_POPUP_ROWS, CompletionPopup, CompletionPopupAnswer,
+    CompletionPopupItem,
+};
 pub use xref_list::{XrefKind, XrefRow, XrefRows};
 
 use super::Editor;
@@ -39,6 +45,8 @@ pub(super) struct Servers {
     pub(super) list: diagnostics_list::DiagnosticsList,
     /// The list of a server's places, `M-.`'s and `M-?`'s (step 8b).
     pub(super) xrefs: xref_list::XrefList,
+    /// The completion popup at point (step 9).
+    popup: Option<popup::CompletionPopup>,
     /// The description shown at point, `C-c C-d` (step 10).
     pub(super) hover: hover::Hover,
     log: Option<BufferId>,
@@ -57,6 +65,8 @@ pub enum ServerRequest {
     Definition(AskAt),
     /// `lsp-find-references` (step 8).
     References(AskAt),
+    /// `completion-at-point`: ask for the completions at the primary cursor (step 9).
+    Complete(AskAt),
     /// `lsp-go-to-xref`: go to the row the list of a server's places took
     /// ([`Editor::take_xref_hit`]), as an answer's jump goes (step 8b).
     GoToXref,
@@ -78,6 +88,24 @@ impl Editor {
     /// Whether the innermost prompt is `M-g d`'s list or a list of places, waiting for its rows.
     pub(super) fn server_list_pending(&self) -> bool {
         self.diagnostics_pending() || self.xrefs_pending()
+    }
+
+    /// What servers' answers left in `buffer` follows an edit's `steps`, as the cursors do:
+    /// each window's history of jumps (step 8) and the completion popup's word (step 9).
+    pub(super) fn answers_follow(
+        &mut self,
+        buffer: BufferId,
+        steps: &[Vec<crate::selection::OffsetEdit>],
+    ) {
+        self.follow_jump_history(buffer, steps);
+        self.completion_popup_follows(buffer, steps);
+    }
+
+    /// `buffer` was read again, its offsets moved through `map`: the jumps' places move, and
+    /// the popup, which no longer knows its word, closes.
+    pub(super) fn answers_reloaded(&mut self, buffer: BufferId, map: impl FnMut(usize) -> usize) {
+        self.map_jump_history(buffer, map);
+        self.completion_popup_reloaded(buffer);
     }
 
     /// What commands asked about servers since the host last looked, oldest first.

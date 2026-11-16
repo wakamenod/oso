@@ -820,3 +820,72 @@ fn references_are_listed_by_file_and_one_is_gone_to_at_once() {
         state["cursor"]["column"] == 3 && state["echo"] == "1 reference"
     });
 }
+
+/// `C-M-i` asks for completions and opens the popup under the word, its items matched against
+/// it in the server's order; typing narrows it, and `TAB` inserts the server's edit, replacing
+/// the word.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn completion_at_point_pops_up_narrows_and_inserts() {
+    let scratch = Scratch::new("lsp-completion");
+    set_mode(scratch.path(), 0o700);
+    let root = project(&scratch, "proj-lsp", &["main.rs"]);
+    let range = |line: u32, start: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}});
+    let script = json!({
+        "rules": [
+            {"method": "initialize", "do": [{"reply": {"capabilities": {
+                "positionEncoding": "utf-8",
+                "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+                "completionProvider": {},
+            }}}]},
+            {"method": "textDocument/completion", "do": [{"reply": {"isIncomplete": false, "items": [
+                {"label": "format", "kind": 3, "detail": "macro format!", "textEdit": {"range": range(1, 0, 2), "newText": "format!()"}},
+                {"label": "foo", "kind": 6},
+                {"label": "bar", "kind": 6},
+            ]}}]},
+            {"method": "shutdown", "do": [{"reply": null}]},
+        ],
+        "log_documents": true,
+        "log_positions": true,
+        "encoding": "utf-8",
+    });
+    let script = scratch.write("conf/fake-lsp.json", script.to_string().as_bytes());
+    let toml = format!(
+        "[lsp.servers.rust-analyzer]\ncommand = [{:?}, {:?}]\n",
+        env!("CARGO_BIN_EXE_fake-lsp-server"),
+        script.to_str().expect("a UTF-8 scratch path"),
+    );
+    let config = scratch.write("conf/config.toml", toml.as_bytes());
+    set_mode(&scratch.path().join("conf"), 0o700);
+    set_mode(&config, 0o644);
+    let record = scratch.write("conf/trusted-projects", record_line(&root).as_bytes());
+    set_mode(&record, 0o600);
+    let mut app = App::start_with_file_config_and_env(
+        &root.join("src/main.rs"),
+        scratch.path(),
+        &config,
+        &[],
+    );
+    app.wait_until_ready();
+    lsp_log_with(&mut app, "main.rs", "stderr: doc ", 1);
+
+    app.send_keys("M-> f o C-M-i");
+    let state = app.wait_for("the popup", |state| !state["popup"].is_null());
+    assert_eq!(state["popup"]["rows"], json!(["foo", "format"]), "{state}");
+    assert_eq!(state["popup"]["selected"], 0);
+
+    app.send_keys("r");
+    app.wait_for("narrowed", |state| {
+        state["popup"]["rows"] == json!(["format"])
+    });
+    app.send_keys("TAB");
+    let state = app.wait_for("inserted", |state| state["popup"].is_null());
+    assert_eq!(state["cursor"]["row"], 1);
+    assert_eq!(state["cursor"]["column"], 9);
+    let text = app.call("get-text", Some(json!({ "start_row": 0, "rows": 3 })));
+    assert!(text.to_string().contains("format!()"), "{text}");
+    // Last: showing the log closes a popup.
+    let log = lsp_log(&mut app, "main.rs");
+    assert!(log.contains("asked textDocument/completion 1:2"), "{log}");
+    assert!(log.contains("answered with 3 completions"), "{log}");
+}

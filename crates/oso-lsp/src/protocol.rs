@@ -7,12 +7,14 @@
 //! Must not depend on: `server`, threads or processes; this builds and reads values, and the
 //! session thread sends and receives them.
 
+mod completion;
 mod hover;
 mod located;
 mod published;
 #[cfg(test)]
 mod tests;
 
+pub use completion::{CompletionList, Offered, completed, completion_params, kind_name, plain};
 pub use hover::{Hover, hover};
 pub use located::{Located, located, position_params, references_params};
 pub use published::{Published, Reported, published};
@@ -188,7 +190,8 @@ pub struct Initialize<'a> {
 /// `initialize`'s parameters: oso's process, the root as the one workspace folder, the entry's
 /// settings, and the capabilities the steps so far use: positions in UTF-8 or UTF-16,
 /// progress, `workspace/configuration`, saves (step 4), diagnostics with their versions and
-/// tags (step 6), and definitions, with links, and references (step 8).
+/// tags (step 6), definitions, with links, and references (step 8), and completion with no
+/// snippets (step 9).
 pub fn initialize_params(start: &Initialize<'_>) -> Value {
     let mut params = json!({
         "processId": std::process::id(),
@@ -207,6 +210,11 @@ pub fn initialize_params(start: &Initialize<'_>) -> Value {
                 },
                 "definition": {"linkSupport": true},
                 "references": {},
+                // Plain text only (Q22); `resolve` comes with step 9b.
+                "completion": {
+                    "completionItem": {"snippetSupport": false, "insertReplaceSupport": true},
+                    "contextSupport": true,
+                },
                 "hover": {"contentFormat": ["markdown", "plaintext"]},
             },
         },

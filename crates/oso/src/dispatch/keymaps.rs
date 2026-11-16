@@ -52,6 +52,11 @@ pub(super) struct Keymaps {
     pub(super) rigid: Keymap,
     /// The commands the layer runs rather than closes for.
     pub(super) rigid_commands: Vec<CommandId>,
+    /// The completion popup's keys while it is open, before its selection was moved and
+    /// after, in the place of `C-x TAB`'s (ADR 0138, step 9).
+    pub(super) popup: [Keymap; 2],
+    /// The commands the popup stays open for: its own, and typing.
+    pub(super) popup_commands: Vec<CommandId>,
     /// The keys of a server's description at point, in the layer's place while it shows
     /// (ADR 0138, Hover), and the commands it runs rather than closes for.
     pub(super) hover: Keymap,
@@ -100,6 +105,7 @@ impl Keymaps {
         let (list, copy) = bindings::recovery_keymaps(registry);
         let [minibuffer, question, completing, draft] = bindings::prompt_keymaps(registry);
         let session = bindings::session_keymap(registry);
+        let (popup, popup_commands) = bindings::popup_keymaps(registry);
         Self {
             global,
             user: Keymap::new(),
@@ -114,6 +120,8 @@ impl Keymaps {
             replace: bindings::replace_keymap(registry),
             rigid: bindings::rigid_keymap(registry),
             rigid_commands: bindings::rigid_commands(registry),
+            popup,
+            popup_commands,
             hover: bindings::hover_keymap(registry),
             hover_commands: bindings::hover_commands(registry),
             markdown: bindings::markdown_keymap(registry),
@@ -136,7 +144,7 @@ impl Keymaps {
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 30] {
+    pub(super) fn all(&self) -> [&Keymap; 32] {
         let Self {
             global,
             user,
@@ -151,6 +159,8 @@ impl Keymaps {
             replace,
             rigid,
             rigid_commands: _,
+            popup: [popup, popup_moved],
+            popup_commands: _,
             hover,
             hover_commands: _,
             markdown,
@@ -184,6 +194,8 @@ impl Keymaps {
             jump,
             replace,
             rigid,
+            popup,
+            popup_moved,
             hover,
             markdown,
             brief,
@@ -215,11 +227,12 @@ impl Keymaps {
         } else {
             &self.lsp
         };
-        // A description's keys take the place of the layer of `C-x TAB`: one is open at most.
-        let transient = if editor.hover().is_some() {
-            &self.hover
-        } else {
-            &self.rigid
+        // One place for a layer a key opens for a while: the popup's, a description's or
+        // `C-x TAB`'s.
+        let transient = match editor.completion_popup() {
+            Some(popup) => &self.popup[usize::from(popup.moved())],
+            None if editor.hover().is_some() => &self.hover,
+            None => &self.rigid,
         };
         [&self.prefix[1], &self.prefix[0], minor, transient, minor]
     }
@@ -265,7 +278,10 @@ impl Keymaps {
         let minor: &[&Keymap] = match prefix {
             Some(prefix) if prefix.reads_minus() => &reading[..2 + minor_len],
             Some(prefix) if prefix.reads_digits() => &reading[1..2 + minor_len],
-            _ if editor.indent_rigidly_layer() || editor.hover().is_some() => {
+            _ if editor.indent_rigidly_layer()
+                || editor.completion_popup().is_some()
+                || editor.hover().is_some() =>
+            {
                 &reading[3..4 + minor_len]
             }
             _ => &reading[2..2 + minor_len],

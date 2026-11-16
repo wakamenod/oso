@@ -24,14 +24,11 @@ fn stopped(rows: &[String]) -> bool {
         .any(|row| row.starts_with("Rebasing: main onto "))
 }
 
-/// Pulls with `-r` onto the conflict, and waits for the head to show it.
+/// Pulls with `-r` onto the conflict, and waits for the head to show it. The head, not the echo:
+/// the conflict rewrites the open `a.txt`, and its "Reloaded" can take the echo area before a
+/// poll sees the pull's own words, which the run thread's tests check.
 fn pull_onto_the_conflict(app: &mut App) {
     app.send_keys("F - r u");
-    wait_echo_starting(
-        app,
-        "the pull's conflict",
-        "git pull --rebase stopped on a conflict",
-    );
     let shown = rows_until(app, |rows| stopped(rows) && has(rows, "Unmerged paths (1)"));
     let line = shown.iter().find(|row| row.starts_with("Rebasing: "));
     assert!(
@@ -84,7 +81,7 @@ fn a_rebasing_pull_stops_aborts_after_a_question_and_goes_on_once_resolved() {
     app.send_keys("C-c C-k");
     app.wait_for("the question again", asked);
     app.send_keys("y");
-    wait_echo_starting(&mut app, "the abort", "Aborted the rebase");
+    // The head shows each run's end; their words can lose the echo area to a.txt's reload.
     let shown = rows_until(&mut app, |rows| {
         !stopped(rows) && rows.first().is_some_and(|head| head.ends_with(" mine"))
     });
@@ -104,7 +101,6 @@ fn a_rebasing_pull_stops_aborts_after_a_question_and_goes_on_once_resolved() {
         !has(rows, "Unmerged paths (1)") && has(rows, "Staged changes (1)")
     });
     app.send_keys("C-c C-c");
-    wait_echo_starting(&mut app, "the continue", "Continued the rebase");
     let shown = rows_until(&mut app, |rows| {
         !stopped(rows) && rows.first().is_some_and(|head| head.ends_with(" mine"))
     });

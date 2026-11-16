@@ -14,7 +14,9 @@ use crate::position;
 use crate::protocol::{self, Outcome};
 use crate::uri;
 
-use super::super::{Answer, Answered, Ask, AskFailure, AskKind, Location, Target};
+use super::super::{
+    Answer, Answered, Ask, AskFailure, AskKind, Completion, Completions, Location, Target,
+};
 use super::run::Run;
 use super::{Asked, Session};
 
@@ -47,6 +49,7 @@ impl Session {
         let params = match ask.kind {
             AskKind::Definition | AskKind::Hover => protocol::position_params(uri, at),
             AskKind::References => protocol::references_params(uri, at),
+            AskKind::Completion => protocol::completion_params(uri, at),
         };
         // The older of its kind for the document is moot.
         let older = run.pending.iter().find_map(|(id, (asked, _))| match asked {
@@ -98,6 +101,10 @@ impl Session {
         };
         if ask.kind == AskKind::Hover {
             self.answered_hover(id, ask, &result, took);
+            return;
+        }
+        if ask.kind == AskKind::Completion {
+            self.completed(run, (id, ask), &result, took);
             return;
         }
         let (located, left) = protocol::located(&result);
@@ -162,6 +169,61 @@ impl Session {
             kind: ask.kind,
             revision: ask.revision,
             outcome: Ok(Answered::Hover(hover)),
+        });
+    }
+
+    /// The completions `result` offers for `ask`, request `id`, their ranges placed in the text
+    /// the server has of the document.
+    fn completed(
+        &mut self,
+        run: &Run,
+        (id, ask): (i64, Ask),
+        result: &serde_json::Value,
+        took: u128,
+    ) {
+        let completed = protocol::completed(result);
+        let Some((revision, text)) = self.documents.sent(ask.document) else {
+            self.fail(ask, "the document is no longer open with it".to_owned());
+            return;
+        };
+        // A range is kept only around the position asked about, in the text asked about.
+        let at = (revision == ask.revision)
+            .then(|| position::from_offset(text, ask.offset, run.encoding));
+        let items: Vec<Completion> = (completed.items.into_iter())
+            .map(|offered| Completion {
+                range: (at.and_then(|at| offered.range_around(at)))
+                    .map(|(start, end)| position::to_range(text, start, end, run.encoding)),
+                label: offered.label,
+                kind: offered.kind,
+                detail: offered.detail,
+                filter: offered.filter,
+                text: offered.text,
+            })
+            .collect();
+        self.reporter.log(format!(
+            "request {id} answered with {} completions in {took} ms{}{}",
+            items.len(),
+            if completed.incomplete {
+                ", incomplete"
+            } else {
+                ""
+            },
+            if completed.left > 0 {
+                format!(", {} more left out", completed.left)
+            } else {
+                String::new()
+            }
+        ));
+        self.reporter.answer(Answer {
+            serial: ask.serial,
+            document: ask.document,
+            kind: ask.kind,
+            revision: ask.revision,
+            outcome: Ok(Answered::Completion(Completions {
+                revision,
+                items,
+                incomplete: completed.incomplete,
+            })),
         });
     }
 

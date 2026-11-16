@@ -21,8 +21,9 @@ fn area() -> CellRect {
 fn a_float_at_point_goes_below_its_row_or_above_with_more_room_and_never_over_it() {
     let below = frame::at_point(area(), (5, 10), (20, 40)).unwrap();
     assert_eq!((below.outer.row, below.outer.rows), (6, 20));
-    assert_eq!((below.outer.column, below.outer.columns), (10, 42));
-    assert_eq!((below.inner.column, below.inner.columns), (11, 40));
+    // Its text starts at the anchor's column, its padding left of it, as the popup's does.
+    assert_eq!((below.outer.column, below.outer.columns), (9, 42));
+    assert_eq!((below.inner.column, below.inner.columns), (10, 40));
     // Near the bottom, above, as tall as the room there.
     let above = frame::at_point(area(), (25, 10), (20, 40)).unwrap();
     assert_eq!((above.outer.row, above.outer.rows), (5, 20));

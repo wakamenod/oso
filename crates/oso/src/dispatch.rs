@@ -45,6 +45,7 @@ mod run_command;
 mod session_help;
 mod shown;
 mod terminal;
+mod transient;
 
 use keymaps::Keymaps;
 use shown::{masked, reads_passphrase};
@@ -359,9 +360,7 @@ impl Dispatcher {
         self.drop_branch_wait(editor);
         self.prefix = None;
         self.last = None;
-        editor.set_indent_rigidly_layer(false);
-        // An undefined key closes a server's description at point too (ADR 0138).
-        editor.close_hover();
+        transient::close_all(editor);
         editor.forget_kills();
     }
 
@@ -387,16 +386,7 @@ impl Dispatcher {
             _ => 0,
         };
         self.last = Some((id, repeats));
-        // Any command but the person's of the layer of `C-x TAB` closes it first, joining its
-        // keys' edits.
-        if step == Step::Apart || !self.keymaps.rigid_commands.contains(&id) {
-            editor.set_indent_rigidly_layer(false);
-        }
-        // So does any but a description's own, which then runs as it always does (ADR 0138);
-        // one already put away goes too.
-        if !self.keymaps.hover_commands.contains(&id) {
-            editor.close_hover();
-        }
+        self.close_transient_layers(editor, id, step);
         // The person's answer to the agent's question, `y`, `n` or `C-g`, lets nothing go
         // (ADR 0118, Q11).
         let answers_the_agent = editor.prompt().is_some_and(|prompt| prompt.from_agent());
@@ -442,8 +432,10 @@ impl Dispatcher {
             editor.note_persons_command();
         }
         self.macro_ran(id, result.is_err(), editor);
-        // What the command typed in a prompt that completes is matched once, now (ADR 0076).
+        // What the command typed in a prompt that completes is matched once, now (ADR 0076), and
+        // in the word the popup completes (ADR 0138).
         editor.match_completion();
+        editor.follow_completion_popup();
         if let Err(error @ ExecuteError::Panicked { .. }) = &result {
             // This names the command and nothing else (ADR 0028).
             editor.message(error.to_string());

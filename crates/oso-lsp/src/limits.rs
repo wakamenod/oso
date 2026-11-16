@@ -46,6 +46,11 @@ pub const COMPLETION_ITEMS_MAX: usize = 5000;
 pub const LABEL_BYTES_MAX: usize = 1 << 10;
 /// The most bytes kept of a completion's detail (step 9).
 pub const DETAIL_BYTES_MAX: usize = 4 << 10;
+/// The most bytes kept of a completion's `sortText` (step 9); its `filterText` keeps as many
+/// as a label.
+pub const SORT_TEXT_BYTES_MAX: usize = 256;
+/// The most bytes of text a completion inserts; an item with more is dropped (step 9).
+pub const INSERT_TEXT_BYTES_MAX: usize = 16 << 10;
 /// The most bytes kept of a diagnostic's message (step 6).
 pub const DIAGNOSTIC_MESSAGE_BYTES_MAX: usize = 8 << 10;
 /// The most bytes kept of hover or documentation text (steps 9 and 10).
