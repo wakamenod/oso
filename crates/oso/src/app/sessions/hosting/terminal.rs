@@ -192,15 +192,12 @@ impl App {
     /// `buffer`'s terminal has no program, and its modeline says `note`.
     /// Keeps the table within its cap: a buffer whose session went past it says so.
     pub(super) fn prune_sessions(&mut self) {
-        let before: Vec<_> = self.hosting.table.iter().map(|s| s.id.clone()).collect();
-        let buffers = self.hosting.table.prune();
-        // The images of the sessions dropped go with them (ADR 0142).
-        for id in before {
-            if !self.hosting.table.iter().any(|session| session.id == id) {
-                self.drop_session_images(id);
-            }
-        }
-        for buffer in buffers {
+        for (id, buffer) in self.hosting.table.prune() {
+            // The images of a session dropped go with it (ADR 0142).
+            self.drop_session_images(id);
+            let Some(buffer) = buffer else {
+                continue;
+            };
             self.show_stopped(buffer, FORGOTTEN);
             // No session to act on any more: a plain terminal's keys (ADR 0132).
             self.editor.set_hosts_session(buffer, false);

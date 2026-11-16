@@ -9,7 +9,8 @@
 //!
 //! An image is read as the bytes of the first of [`IMAGE_TYPES`] the pasteboard has, and is
 //! not decoded: a screenshot usually carries `public.png` beside a much larger `public.tiff`.
-//! Nothing is read from a pasteboard marked concealed.
+//! Nothing is read from a pasteboard marked concealed, and an image read while another app
+//! wrote the pasteboard is dropped, as it may not be the one the concealed check saw.
 //!
 //! Apple documents no rule for the threads `NSPasteboard` may run on; it is used only
 //! from the clipboard's thread here, never from two at once. Each call runs in an
@@ -96,6 +97,7 @@ impl Backend for Pasteboard {
     fn read_image(&mut self, max: usize) -> ImageContents {
         autoreleasepool(|_| {
             let pasteboard = NSPasteboard::generalPasteboard();
+            let before = pasteboard.changeCount();
             let Some(types) = pasteboard.types() else {
                 return ImageContents::Nothing;
             };
@@ -112,6 +114,9 @@ impl Backend for Pasteboard {
                 let Some(data) = pasteboard.dataForType(&name) else {
                     continue;
                 };
+                if pasteboard.changeCount() != before {
+                    return ImageContents::NoAnswer;
+                }
                 if data.len() > max {
                     return ImageContents::TooLarge;
                 }

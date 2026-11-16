@@ -51,30 +51,6 @@ fn recall(directory: Option<&Path>) -> Out {
     }
 }
 
-/// Drops the images `job` names. Each touches a directory of oso's own, so it is quick.
-fn image_job(job: &super::ImageJob) {
-    use super::ImageJob;
-    use crate::sessions::images;
-    match job {
-        ImageJob::Sweep(root) => {
-            let removed = images::sweep(root, std::time::SystemTime::now());
-            if removed > 0 {
-                log::info!("removed {removed} images kept more than a week");
-            }
-        }
-        ImageJob::Session(root, id) => {
-            if let Err(e) = images::delete_session(root, id) {
-                log::warn!("could not remove a session's images: {e}");
-            }
-        }
-        ImageJob::File(path) => {
-            if let Err(e) = images::delete_file(path) {
-                log::warn!("could not remove an image no paste refers to: {e}");
-            }
-        }
-    }
-}
-
 /// Whether `job` looks at the disk for a space command, which a thread of its own does
 /// (step 3): not keeping the spaces or reading ids, which the worker does in turn.
 pub(super) fn looks_at_the_disk(job: &SpaceJob) -> bool {
@@ -351,10 +327,6 @@ impl Core {
             }
             Job::Recall(directory) => return vec![recall(directory.as_deref())],
             Job::Space(job) => return space_job(job),
-            Job::Images(job) => {
-                image_job(&job);
-                return Vec::new();
-            }
             Job::Remember {
                 directory,
                 sessions,

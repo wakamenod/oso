@@ -133,8 +133,12 @@ pub enum UserEvent {
     AgentStarted(std::io::Result<crate::channel::Channel>),
     /// The sessions worker found something (ADR 0121).
     Sessions(crate::sessions::worker::Out),
-    /// A thread kept the clipboard's image for a session, or could not (ADR 0142).
-    ImageKept(Box<crate::sessions::images::Report>),
+    /// The thread that keeps images kept the clipboard's image for this session, or could not
+    /// (ADR 0142).
+    ImageKept(
+        crate::sessions::worker::SessionKey,
+        Box<Result<crate::sessions::images::Kept, String>>,
+    ),
     /// A hosted session's start thread found something (ADR 0121).
     SessionStart(crate::sessions::start::Report),
     /// The list `session-adopt` completes over was made (ADR 0121).
@@ -501,8 +505,6 @@ impl App {
     /// Does what commands asked for.
     fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
         let effects = effects.union(self.sync_clipboard());
-        // While the dispatcher still knows whether the input came through the dev socket.
-        self.start_image_yanks();
         // A command that reads a branch waits for them as a yank does (ADR 0121).
         let effects = effects.union(self.sync_branch_wait());
         let input = self.flash_after_input();

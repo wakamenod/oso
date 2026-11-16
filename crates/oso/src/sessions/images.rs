@@ -3,8 +3,8 @@
 //! TIFF becomes, the `@path` reference pasted into the session, and how long they stay.
 //!
 //! Must not depend on: `app`, the clipboard's threads or the UI thread. [`save`], [`sweep`] and
-//! [`delete_session`] touch the disk, and [`save`] may run `sips`: they run on threads of their
-//! own.
+//! the [`Keeper`]'s jobs touch the disk, and [`save`] may run `sips`: they run on threads of their own,
+//! never the sessions worker's, which judges the sessions' screens.
 //!
 //! - Each session has a private directory (`0700`) under the per-user cache,
 //!   `oso/images/<session id>`, and each image is a new file in it (`0600`, made with
@@ -16,12 +16,15 @@
 //!   limit, so that decoding another app's image never runs in oso's own process, which holds
 //!   every buffer. The other types are copied as they came and never decoded.
 //! - A session's directory goes when the session is archived or dropped from the record, and
-//!   files older than [`KEEP`] when oso starts.
+//!   files older than [`KEEP`] when oso starts and after each image is kept.
+//! - Nothing is removed through a link: a directory is removed only once it and the way to it
+//!   pass [`PrivateDir::existing`].
 
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Sender};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -30,7 +33,6 @@ use oso_platform::privacy::PrivateDir;
 use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 
 use super::identity::SessionId;
-use super::worker::SessionKey;
 
 /// How long an image is kept at most: files older than this go when oso starts.
 pub const KEEP: Duration = Duration::from_secs(7 * 24 * 60 * 60);
@@ -45,15 +47,12 @@ const CONVERT_POLL: Duration = Duration::from_millis(10);
 /// macOS's image tool, at the one path it ships at.
 const SIPS: &str = "/usr/bin/sips";
 
-/// How many entries a sweep looks at in a directory, so that a directory filled by something
-/// else costs a bounded walk.
+/// How many entries a sweep looks at in all, so that directories filled by something else
+/// cost a bounded walk.
 const MAX_SWEPT: usize = 4096;
 
 /// Names tried for one image: the time, then `-2` to `-9` after it.
 const NAMES_TRIED: u32 = 9;
-
-/// The extensions a sweep removes: those [`save`] writes.
-const KEPT_EXTENSIONS: [&str; 5] = ["png", "jpg", "gif", "webp", "tiff"];
 
 /// Where the images are kept: `oso/images` in the per-user cache directory. `None` with no
 /// cache directory to go by.
@@ -99,12 +98,13 @@ pub fn reference(path: &Path) -> Result<String, String> {
     Ok(format!(" @{text} "))
 }
 
-/// The name of an image kept at `at`, without its extension: `YYYYMMDD-HHMMSS-mmm` in UTC.
-pub fn stem(at: SystemTime) -> String {
+/// The name of an image kept at `at`, without its extension: `YYYYMMDD-HHMMSS-mmm` in the time
+/// zone `offset` seconds east of UTC.
+pub fn stem(at: SystemTime, offset: i32) -> String {
     let since = at.duration_since(UNIX_EPOCH).unwrap_or_default();
-    let seconds = since.as_secs();
-    let (days, of_day) = (seconds / 86_400, seconds % 86_400);
-    let (year, month, day) = civil_from_days(days);
+    let seconds = i64::try_from(since.as_secs()).unwrap_or(i64::MAX - 86_400) + i64::from(offset);
+    let (days, of_day) = (seconds.div_euclid(86_400), seconds.rem_euclid(86_400));
+    let (year, month, day) = crate::dired::civil_from_days(days);
     format!(
         "{year:04}{month:02}{day:02}-{:02}{:02}{:02}-{:03}",
         of_day / 3600,
@@ -114,28 +114,138 @@ pub fn stem(at: SystemTime) -> String {
     )
 }
 
-/// The date `days` after 1970-01-01, as (year, month, day): Howard Hinnant's
-/// `civil_from_days`, for the days from the epoch on.
-fn civil_from_days(days: u64) -> (u64, u64, u64) {
-    let z = days + 719_468;
-    let era = z / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + u64::from(month <= 2);
-    (year, month, day)
+/// The thread that keeps and removes the images, one job after another, so that a session's
+/// directory is never removed while an image is written into it. It starts with its first job,
+/// and a new one takes over from one that ended. What goes wrong is logged without paths.
+#[derive(Default)]
+pub struct Keeper(Option<Sender<Work>>);
+
+impl std::fmt::Debug for Keeper {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Keeper").finish_non_exhaustive()
+    }
 }
 
-/// What a thread that keeps an image says, for session `key`.
-#[derive(Debug)]
-pub struct Report {
-    /// The session the image is for.
-    pub key: SessionKey,
-    /// The image kept, or why it was not.
-    pub kept: Result<Kept, String>,
+/// What is told how keeping an image went, on the keeper's thread.
+pub type Done = Box<dyn FnOnce(Result<Kept, String>) + Send>;
+
+/// A job of the [`Keeper`]'s.
+enum Work {
+    /// Keep `image` for session `id` under `root`, say how it went, then sweep `root`.
+    Save {
+        root: PathBuf,
+        id: SessionId,
+        image: Image,
+        done: Done,
+    },
+    /// Remove the images older than [`KEEP`] under this root.
+    Sweep(PathBuf),
+    /// Remove session `id`'s images under `root`: it was archived or dropped.
+    Session { root: PathBuf, id: SessionId },
+    /// Remove this image, which no paste refers to.
+    File(PathBuf),
+}
+
+impl Keeper {
+    /// Keeps `image` for session `id` under `root`, then calls `done` with how it went, on the
+    /// keeper's thread. Hands the image back if there is no thread to do it.
+    pub fn save(
+        &mut self,
+        root: PathBuf,
+        id: SessionId,
+        image: Image,
+        done: Done,
+    ) -> Result<(), Image> {
+        let work = Work::Save {
+            root,
+            id,
+            image,
+            done,
+        };
+        match self.send(work) {
+            Ok(()) => Ok(()),
+            Err(Work::Save { image, .. }) => Err(image),
+            Err(_) => Ok(()),
+        }
+    }
+
+    /// Removes the images under `root` older than [`KEEP`].
+    pub fn sweep(&mut self, root: PathBuf) {
+        let _ = self.send(Work::Sweep(root));
+    }
+
+    /// Removes session `id`'s images under `root`.
+    pub fn drop_session(&mut self, root: PathBuf, id: SessionId) {
+        let _ = self.send(Work::Session { root, id });
+    }
+
+    /// Removes the image at `path`.
+    pub fn drop_file(&mut self, path: PathBuf) {
+        let _ = self.send(Work::File(path));
+    }
+
+    /// Sends `work` to the thread, starting one first if none runs. Gives the work back if no
+    /// thread can be started.
+    fn send(&mut self, work: Work) -> Result<(), Work> {
+        let work = match &self.0 {
+            Some(jobs) => match jobs.send(work) {
+                Ok(()) => return Ok(()),
+                // Its thread ended, with a panic: a new one takes over.
+                Err(back) => back.0,
+            },
+            None => work,
+        };
+        let (jobs, inbox) = mpsc::channel::<Work>();
+        let started = thread::Builder::new()
+            .name("oso-images".into())
+            .spawn(move || inbox.into_iter().for_each(run));
+        if let Err(e) = started {
+            log::warn!("could not start the thread that keeps images: {e}");
+            self.0 = None;
+            return Err(work);
+        }
+        let sent = jobs.send(work).map_err(|back| back.0);
+        self.0 = Some(jobs);
+        sent
+    }
+}
+
+/// Does one job of the keeper's.
+fn run(work: Work) {
+    let removed = match work {
+        Work::Save {
+            root,
+            id,
+            image,
+            done,
+        } => {
+            let now = SystemTime::now();
+            let offset = oso_platform::file_meta::utc_offset_at(now).unwrap_or(0);
+            // A panic in keeping it still says so, so that the next yank is not refused as
+            // waiting for this one.
+            let kept = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                save(&root, &id, &image, now, offset)
+            }))
+            .unwrap_or_else(|_| Err("Cannot keep the image: keeping it failed".to_owned()));
+            drop(image);
+            done(kept);
+            // Images past their week go while oso runs, too.
+            sweep(&root, now);
+            Ok(())
+        }
+        Work::Sweep(root) => {
+            let removed = sweep(&root, SystemTime::now());
+            if removed > 0 {
+                log::info!("removed {removed} images kept more than a week");
+            }
+            Ok(())
+        }
+        Work::Session { root, id } => delete_session(&root, &id),
+        Work::File(path) => delete_file(&path),
+    };
+    if let Err(e) = removed {
+        log::warn!("could not remove a session's images: {e}");
+    }
 }
 
 /// An image kept for a session.
@@ -149,17 +259,23 @@ pub struct Kept {
     pub converted: bool,
 }
 
-/// Keeps `image` in session `id`'s directory under `root`, as a new file named by `now`,
-/// converted to PNG first if it is a TIFF. Says why not, in words for the echo area, if it
-/// cannot be kept, and leaves no file behind then.
-pub fn save(root: &Path, id: &SessionId, image: &Image, now: SystemTime) -> Result<Kept, String> {
+/// Keeps `image` in session `id`'s directory under `root`, as a new file named by `now` in the
+/// time zone `offset` seconds east of UTC, converted to PNG first if it is a TIFF. Says why not,
+/// in words for the echo area, if it cannot be kept, and leaves no file behind then.
+pub fn save(
+    root: &Path,
+    id: &SessionId,
+    image: &Image,
+    now: SystemTime,
+    offset: i32,
+) -> Result<Kept, String> {
     let directory = session_directory(root, id)
         .ok_or_else(|| "That session's id cannot name a directory".to_owned())?;
     // Before anything is written: a path the reference cannot hold makes the file useless.
     reference(&directory.join("x.png"))?;
     let directory =
         PrivateDir::open(directory).map_err(|e| format!("Cannot keep the image: {e}"))?;
-    let stem = stem(now);
+    let stem = stem(now, offset);
     let mut tried = None;
     for attempt in 1..=NAMES_TRIED {
         let name = if attempt == 1 {
@@ -221,7 +337,9 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), Failed> {
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     let mut file = options.open(path)?;
-    if let Err(e) = file.write_all(bytes).and_then(|()| file.sync_all()) {
+    // Not synced: the file is a cache's, read by Claude Code seconds later, and one lost to a
+    // power cut costs nothing.
+    if let Err(e) = file.write_all(bytes) {
         let _ = fs::remove_file(path);
         return Err(Failed::Said(format!("Cannot keep the image: {e}")));
     }
@@ -229,17 +347,16 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), Failed> {
 }
 
 /// The TIFF `bytes` as `name.png` in `directory`, through `name.tiff`, which is removed
-/// whatever happens. The PNG's name is checked free first, so that `sips` never writes over a
-/// file.
+/// whatever happens. The PNG's name is taken first, as an empty file of this process's own, so
+/// that `sips` writes over nothing else.
 fn keep_converted(directory: &Path, name: &str, bytes: &[u8]) -> Result<(PathBuf, bool), Failed> {
     let png = directory.join(format!("{name}.png"));
-    match fs::symlink_metadata(&png) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Ok(_) => return Err(Failed::Taken),
-        Err(e) => return Err(e.into()),
-    }
+    write_new(&png, &[])?;
     let tiff = directory.join(format!("{name}.tiff"));
-    write_new(&tiff, bytes)?;
+    if let Err(failed) = write_new(&tiff, bytes) {
+        let _ = fs::remove_file(&png);
+        return Err(failed);
+    }
     let converted = convert(&tiff, &png);
     let _ = fs::remove_file(&tiff);
     match converted {
@@ -294,7 +411,11 @@ fn convert(tiff: &Path, png: &Path) -> Result<(), String> {
                 let _ = child.wait();
                 return Err("Converting the TIFF to PNG took too long".to_owned());
             }
-            Err(e) => return Err(format!("Cannot convert the TIFF to PNG: {e}")),
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("Cannot convert the TIFF to PNG: {e}"));
+            }
         }
     };
     // sips exits 0 having written nothing when it cannot read its input: the file tells.
@@ -312,22 +433,27 @@ fn convert(tiff: &Path, png: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Removes session `id`'s directory under `root` and what is in it, if it is there. A link in
-/// its place is removed, not followed.
+/// Removes session `id`'s directory under `root` and what is in it, if it is there and it and
+/// the way to it are private: a link anywhere on the way is refused, not followed.
 pub fn delete_session(root: &Path, id: &SessionId) -> io::Result<()> {
     let Some(directory) = session_directory(root, id) else {
         return Ok(());
     };
-    match fs::symlink_metadata(&directory) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(e),
-        Ok(meta) if meta.file_type().is_dir() => fs::remove_dir_all(&directory),
-        Ok(_) => fs::remove_file(&directory),
+    match PrivateDir::existing(directory)? {
+        Some(directory) => fs::remove_dir_all(directory.path()),
+        None => Ok(()),
     }
 }
 
-/// Removes the image at `path`, which a paste refused.
+/// Removes the image at `path`, which a paste refused, if the directory it is in and the way to
+/// it are private.
 pub fn delete_file(path: &Path) -> io::Result<()> {
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+    if PrivateDir::existing(parent)?.is_none() {
+        return Ok(());
+    }
     match fs::remove_file(path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         other => other,
@@ -336,8 +462,9 @@ pub fn delete_file(path: &Path) -> io::Result<()> {
 
 /// Removes the images under `root` last changed before `now` less [`KEEP`], and each session's
 /// directory left empty. Only files with the extensions [`save`] writes, in directories named
-/// as sessions are, are looked at, at most [`MAX_SWEPT`] entries a directory. A `root` that
-/// is not private is left alone. Returns how many files went.
+/// as sessions are, are looked at, at most [`MAX_SWEPT`] entries in all. A `root` that is not
+/// private is left alone, and so is a session's directory that is not. Returns how many files
+/// went.
 pub fn sweep(root: &Path, now: SystemTime) -> usize {
     match PrivateDir::existing(root) {
         Ok(Some(_)) => {}
@@ -351,20 +478,24 @@ pub fn sweep(root: &Path, now: SystemTime) -> usize {
         return 0;
     };
     let mut removed = 0;
-    for directory in entries(root) {
+    let mut budget = MAX_SWEPT;
+    for directory in entries(root, &mut budget) {
         let plain = directory
             .file_name()
             .and_then(|name| name.to_str())
             .is_some_and(plain_name);
-        let is_dir = fs::symlink_metadata(&directory).is_ok_and(|meta| meta.file_type().is_dir());
-        if !(plain && is_dir) {
+        if !plain || !matches!(PrivateDir::existing(&directory), Ok(Some(_))) {
             continue;
         }
-        for file in entries(&directory) {
+        for file in entries(&directory, &mut budget) {
             let ours = file
                 .extension()
                 .and_then(|extension| extension.to_str())
-                .is_some_and(|extension| KEPT_EXTENSIONS.contains(&extension));
+                .is_some_and(|extension| {
+                    ImageKind::ALL
+                        .iter()
+                        .any(|kind| kind.extension() == extension)
+                });
             let old = fs::symlink_metadata(&file).is_ok_and(|meta| {
                 meta.file_type().is_file() && meta.modified().is_ok_and(|at| at < before)
             });
@@ -378,15 +509,18 @@ pub fn sweep(root: &Path, now: SystemTime) -> usize {
     removed
 }
 
-/// The paths of at most [`MAX_SWEPT`] entries of `directory`; none if it cannot be read.
-fn entries(directory: &Path) -> Vec<PathBuf> {
-    fs::read_dir(directory)
+/// The paths of at most `budget` entries of `directory`, taken from it; none if it cannot be
+/// read.
+fn entries(directory: &Path, budget: &mut usize) -> Vec<PathBuf> {
+    let found: Vec<PathBuf> = fs::read_dir(directory)
         .map(|read| {
-            read.take(MAX_SWEPT)
+            read.take(*budget)
                 .filter_map(|entry| entry.ok().map(|entry| entry.path()))
                 .collect()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+    *budget -= found.len().min(*budget);
+    found
 }
 
 #[cfg(all(test, unix))]

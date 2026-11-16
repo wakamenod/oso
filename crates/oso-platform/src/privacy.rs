@@ -1,7 +1,7 @@
 //! Keeping what the editor holds private to its user: no core dumps, and a directory
-//! only the user can reach (ADR 0028, ADR 0062, ADR 0065). Also where oso's own state and
-//! configuration live, the person's home directory, and who else can change a file read as the
-//! person's (ADR 0108).
+//! only the user can reach (ADR 0028, ADR 0062, ADR 0065). Also where oso's own state,
+//! configuration and cache (ADR 0142) live, the person's home directory, and who else can
+//! change a file read as the person's (ADR 0108).
 //!
 //! Must not depend on: `control`, `process` or `text`. `control` uses the checks here, so
 //! that the two kinds of private directory cannot drift apart. Both read `inheritance`'s

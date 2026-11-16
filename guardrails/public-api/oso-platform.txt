@@ -18,6 +18,7 @@ impl core::fmt::Debug for oso_platform::clipboard::Contents
 pub fn oso_platform::clipboard::Contents::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_platform::clipboard::Contents
 pub enum oso_platform::clipboard::Event
+pub oso_platform::clipboard::Event::Image(oso_platform::clipboard::ImageContents)
 pub oso_platform::clipboard::Event::NotAnswering
 pub oso_platform::clipboard::Event::Read(oso_platform::clipboard::Contents)
 pub oso_platform::clipboard::Event::Written
@@ -25,6 +26,40 @@ pub oso_platform::clipboard::Event::Written::fingerprint: oso_platform::clipboar
 pub oso_platform::clipboard::Event::Written::id: u64
 impl core::fmt::Debug for oso_platform::clipboard::Event
 pub fn oso_platform::clipboard::Event::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum oso_platform::clipboard::ImageContents
+pub oso_platform::clipboard::ImageContents::Concealed
+pub oso_platform::clipboard::ImageContents::Image(oso_platform::clipboard::Image)
+pub oso_platform::clipboard::ImageContents::NoAnswer
+pub oso_platform::clipboard::ImageContents::Nothing
+pub oso_platform::clipboard::ImageContents::TooLarge
+pub oso_platform::clipboard::ImageContents::Unsupported
+impl core::clone::Clone for oso_platform::clipboard::ImageContents
+pub fn oso_platform::clipboard::ImageContents::clone(&self) -> oso_platform::clipboard::ImageContents
+impl core::cmp::Eq for oso_platform::clipboard::ImageContents
+impl core::cmp::PartialEq for oso_platform::clipboard::ImageContents
+pub fn oso_platform::clipboard::ImageContents::eq(&self, &oso_platform::clipboard::ImageContents) -> bool
+impl core::fmt::Debug for oso_platform::clipboard::ImageContents
+pub fn oso_platform::clipboard::ImageContents::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_platform::clipboard::ImageContents
+pub enum oso_platform::clipboard::ImageKind
+pub oso_platform::clipboard::ImageKind::Gif
+pub oso_platform::clipboard::ImageKind::Jpeg
+pub oso_platform::clipboard::ImageKind::Png
+pub oso_platform::clipboard::ImageKind::Tiff
+pub oso_platform::clipboard::ImageKind::Webp
+impl oso_platform::clipboard::ImageKind
+pub const oso_platform::clipboard::ImageKind::ALL: [Self; 5]
+pub fn oso_platform::clipboard::ImageKind::extension(self) -> &'static str
+pub fn oso_platform::clipboard::ImageKind::name(self) -> &'static str
+impl core::clone::Clone for oso_platform::clipboard::ImageKind
+pub fn oso_platform::clipboard::ImageKind::clone(&self) -> oso_platform::clipboard::ImageKind
+impl core::cmp::Eq for oso_platform::clipboard::ImageKind
+impl core::cmp::PartialEq for oso_platform::clipboard::ImageKind
+pub fn oso_platform::clipboard::ImageKind::eq(&self, &oso_platform::clipboard::ImageKind) -> bool
+impl core::fmt::Debug for oso_platform::clipboard::ImageKind
+pub fn oso_platform::clipboard::ImageKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::clipboard::ImageKind
+impl core::marker::StructuralPartialEq for oso_platform::clipboard::ImageKind
 pub enum oso_platform::clipboard::Source
 pub oso_platform::clipboard::Source::Memory
 pub oso_platform::clipboard::Source::System
@@ -41,6 +76,7 @@ pub struct oso_platform::clipboard::Clipboard
 impl oso_platform::clipboard::Clipboard
 pub fn oso_platform::clipboard::Clipboard::memory(&self) -> core::option::Option<&oso_platform::clipboard::MemoryClipboard>
 pub fn oso_platform::clipboard::Clipboard::read(&self)
+pub fn oso_platform::clipboard::Clipboard::read_image(&self)
 pub fn oso_platform::clipboard::Clipboard::start(oso_platform::clipboard::Source, usize, impl core::ops::function::Fn(oso_platform::clipboard::Event) + core::marker::Send + 'static) -> std::io::error::Result<Self>
 pub fn oso_platform::clipboard::Clipboard::write(&self, u64, bool, oso_platform::clipboard::MakeText)
 impl core::fmt::Debug for oso_platform::clipboard::Clipboard
@@ -61,10 +97,22 @@ impl core::hash::Hash for oso_platform::clipboard::Fingerprint
 pub fn oso_platform::clipboard::Fingerprint::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_platform::clipboard::Fingerprint
 impl core::marker::StructuralPartialEq for oso_platform::clipboard::Fingerprint
+pub struct oso_platform::clipboard::Image
+pub oso_platform::clipboard::Image::bytes: alloc::vec::Vec<u8>
+pub oso_platform::clipboard::Image::kind: oso_platform::clipboard::ImageKind
+impl core::clone::Clone for oso_platform::clipboard::Image
+pub fn oso_platform::clipboard::Image::clone(&self) -> oso_platform::clipboard::Image
+impl core::cmp::Eq for oso_platform::clipboard::Image
+impl core::cmp::PartialEq for oso_platform::clipboard::Image
+pub fn oso_platform::clipboard::Image::eq(&self, &oso_platform::clipboard::Image) -> bool
+impl core::fmt::Debug for oso_platform::clipboard::Image
+pub fn oso_platform::clipboard::Image::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_platform::clipboard::Image
 pub struct oso_platform::clipboard::MemoryClipboard(_)
 impl oso_platform::clipboard::MemoryClipboard
 pub fn oso_platform::clipboard::MemoryClipboard::get(&self) -> core::option::Option<(alloc::string::String, bool)>
 pub fn oso_platform::clipboard::MemoryClipboard::set(&self, alloc::string::String, bool)
+pub fn oso_platform::clipboard::MemoryClipboard::set_image(&self, oso_platform::clipboard::ImageKind, alloc::vec::Vec<u8>, bool)
 impl core::clone::Clone for oso_platform::clipboard::MemoryClipboard
 pub fn oso_platform::clipboard::MemoryClipboard::clone(&self) -> oso_platform::clipboard::MemoryClipboard
 impl core::default::Default for oso_platform::clipboard::MemoryClipboard
@@ -72,6 +120,7 @@ pub fn oso_platform::clipboard::MemoryClipboard::default() -> oso_platform::clip
 impl core::fmt::Debug for oso_platform::clipboard::MemoryClipboard
 pub fn oso_platform::clipboard::MemoryClipboard::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub const oso_platform::clipboard::GIVE_UP: core::time::Duration
+pub const oso_platform::clipboard::MAX_IMAGE: usize
 pub const oso_platform::clipboard::READ_TIMEOUT: core::time::Duration
 pub type oso_platform::clipboard::MakeText = alloc::boxed::Box<(dyn core::ops::function::FnOnce() -> alloc::string::String + core::marker::Send)>
 pub mod oso_platform::control
@@ -324,6 +373,7 @@ pub oso_platform::privacy::WhoCanChange::metadata: std::fs::Metadata
 pub oso_platform::privacy::WhoCanChange::way: oso_platform::privacy::Writers
 impl core::fmt::Debug for oso_platform::privacy::WhoCanChange
 pub fn oso_platform::privacy::WhoCanChange::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn oso_platform::privacy::cache_home() -> core::option::Option<std::path::PathBuf>
 pub fn oso_platform::privacy::config_home() -> core::option::Option<std::path::PathBuf>
 pub fn oso_platform::privacy::disable_core_dumps() -> std::io::error::Result<()>
 pub fn oso_platform::privacy::has_one_name(&std::fs::Metadata) -> bool

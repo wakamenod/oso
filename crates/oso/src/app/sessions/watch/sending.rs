@@ -2,7 +2,8 @@
 //! [`App::send_to_session`], which refuses a session that cannot take a paste, pastes as the
 //! person's bracketed paste, not submitted, and shows the session; the completions of
 //! `session-send` and `session-mention`; and who last messaged each session, for its row and
-//! `session-follow-message`.
+//! `session-follow-message`. `images` keeps its own state here: the session an image is read
+//! for, and the thread that keeps the images (ADR 0142).
 //!
 //! Must not depend on: how a frame is drawn, key presses, or the worker's thread. The text is
 //! put together by pure functions over the parts, and the paste is the terminal's own.
@@ -36,7 +37,9 @@ pub(in crate::app) struct Sending {
     judged: HashMap<SessionKey, Option<bool>>,
     /// The session a `session-yank-image` reads the clipboard's image for, while the read or
     /// the save is out: one at a time (ADR 0142).
-    pub(super) image: Option<SessionKey>,
+    pub(super) reading_image_for: Option<SessionKey>,
+    /// The thread that keeps and removes the sessions' images (ADR 0142).
+    pub(super) keeper: crate::sessions::images::Keeper,
 }
 
 impl App {

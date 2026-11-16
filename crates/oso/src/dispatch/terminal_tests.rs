@@ -463,3 +463,36 @@ fn a_session_s_modeline_says_session() {
     editor.status_into(editor.tiled().0.id(), &mut status);
     assert!(status.state.starts_with("Session"), "{}", status.state);
 }
+
+#[test]
+fn a_person_s_c_c_c_y_is_noted_as_theirs_and_a_lost_origin_as_the_socket_s() {
+    let (mut dispatcher, mut editor) = in_session();
+    send(&mut dispatcher, &mut editor, "C-c C-y");
+    assert!(!dispatcher.take_image_yank_origin(), "the person's own key");
+    assert!(
+        dispatcher.take_image_yank_origin(),
+        "none noted: read as the socket's, which reads nothing of the person's"
+    );
+}
+
+/// A socket's `C-c C-y` held behind the person's `C-y` keeps its origin when it runs, after the
+/// clipboard answered (ADR 0142).
+#[cfg(feature = "dev")]
+#[test]
+fn a_held_c_c_c_y_from_the_socket_is_noted_as_the_socket_s() {
+    let (mut dispatcher, mut editor) = in_session();
+    send(&mut dispatcher, &mut editor, "C-y");
+    assert_eq!(dispatcher.take_clipboard_request(), Some(false));
+    dispatcher.set_input_from_socket(true);
+    send(&mut dispatcher, &mut editor, "C-c C-y");
+    dispatcher.set_input_from_socket(false);
+    assert!(editor.take_session_requests().is_empty(), "held");
+    dispatcher.clipboard_answered(&mut editor, &oso_core::kill::FromClipboard::Own);
+    assert_eq!(
+        editor.take_session_requests(),
+        [oso_core::editor::SessionRequest::YankImage(
+            editor.window().buffer()
+        )]
+    );
+    assert!(dispatcher.take_image_yank_origin(), "the socket's");
+}

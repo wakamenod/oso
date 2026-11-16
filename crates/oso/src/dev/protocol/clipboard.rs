@@ -56,14 +56,10 @@ pub(super) fn parse_clipboard(params: &Map<String, Value>) -> Result<ClipboardOp
     if let Some(image) = params.get("image") {
         const USAGE: &str = "clipboard's \"image\" is one of png, jpeg, gif, webp and tiff, with \
                              \"bytes\", an array of byte values";
-        let kind = match image.as_str() {
-            Some("png") => ImageKind::Png,
-            Some("jpeg") => ImageKind::Jpeg,
-            Some("gif") => ImageKind::Gif,
-            Some("webp") => ImageKind::Webp,
-            Some("tiff") => ImageKind::Tiff,
-            _ => return Err(USAGE.into()),
-        };
+        let kind = ImageKind::ALL
+            .into_iter()
+            .find(|kind| image.as_str() == Some(kind.name()))
+            .ok_or(USAGE)?;
         let bytes = params
             .get("bytes")
             .and_then(Value::as_array)

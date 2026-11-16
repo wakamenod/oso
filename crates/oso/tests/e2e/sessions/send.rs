@@ -384,11 +384,13 @@ fn c_c_c_y_pastes_a_reference_to_the_clipboard_s_image_kept_in_a_private_file() 
     let mode = |path: &std::path::Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode(path), 0o600);
     assert_eq!(mode(path.parent().unwrap()), 0o700);
-    assert!(
-        echo(&state).starts_with("Image saved to ~/")
-            && echo(&state).ends_with(": press Enter there"),
-        "{}",
-        echo(&state)
+    // The echo area, which the agent channel reads, names the file and not its directory.
+    assert_eq!(
+        echo(&state),
+        format!(
+            "Image saved as {}: press Enter there",
+            path.file_name().unwrap().to_string_lossy()
+        )
     );
 
     // An image the app that copied it marked secret is not read.

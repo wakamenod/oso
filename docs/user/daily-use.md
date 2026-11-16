@@ -419,6 +419,9 @@ Both share your configuration file and your per-user state, so a change to
   back):
   `~/Library/Application Support/oso` on macOS, `$XDG_STATE_HOME/oso` or `~/.local/state/oso` on
   Linux.
+- Images you attach to a session with `C-c C-y`: `~/Library/Caches/oso/images` on macOS,
+  `$XDG_CACHE_HOME/oso/images` or `~/.cache/oso/images` on Linux, one directory a session. They
+  go when the session is archived, or after a week.
 
 ## Update
 

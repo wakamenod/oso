@@ -38,9 +38,6 @@ pub(super) fn worker(waker: &Waker, state: Option<&std::path::Path>) -> Option<W
             .send(UserEvent::Sessions(out));
     })?;
     worker.send(Job::Recall(state.map(std::path::Path::to_path_buf)));
-    if let Some(root) = crate::sessions::images::root() {
-        worker.send(Job::Images(crate::sessions::worker::ImageJob::Sweep(root)));
-    }
     Some(worker)
 }
 
@@ -65,6 +62,11 @@ impl App {
                 }
                 SessionRequest::Fork(buffer) => {
                     self.fork_session(buffer);
+                    continue;
+                }
+                SessionRequest::YankImage(buffer) => {
+                    let from_socket = self.dispatcher.take_image_yank_origin();
+                    self.yank_image(buffer, from_socket);
                     continue;
                 }
                 SessionRequest::QuestionDetails => {
@@ -193,6 +195,8 @@ impl App {
             } => {
                 self.sessions_recalled(sessions, spaces, migrated, readable, fresh);
                 self.sessions_touched();
+                // Images past their week go once, as oso starts (ADR 0142).
+                self.sweep_images();
                 // Once oso knows its own, the others it may adopt.
                 self.hosting.adopting.recalled = true;
                 self.list_adoptable();

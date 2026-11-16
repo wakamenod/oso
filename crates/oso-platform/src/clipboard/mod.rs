@@ -133,6 +133,20 @@ pub enum ImageKind {
 }
 
 impl ImageKind {
+    /// Every type, in the order a read prefers them.
+    pub const ALL: [Self; 5] = [Self::Png, Self::Jpeg, Self::Gif, Self::Webp, Self::Tiff];
+
+    /// The type's name in lower case, as `png` or `jpeg`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+            Self::Jpeg => "jpeg",
+            Self::Gif => "gif",
+            Self::Webp => "webp",
+            Self::Tiff => "tiff",
+        }
+    }
+
     /// The file name extension for an image of this type, in lower case.
     pub fn extension(self) -> &'static str {
         match self {
@@ -177,7 +191,8 @@ pub enum ImageContents {
     Concealed,
     /// An image larger than [`MAX_IMAGE`], which was not kept.
     TooLarge,
-    /// No answer within [`GIVE_UP`], or a read still running from before.
+    /// No answer within [`GIVE_UP`], a read still running from before, or another app wrote
+    /// the clipboard during the read.
     NoAnswer,
     /// This system has no clipboard backend that reads images yet.
     Unsupported,
@@ -227,7 +242,7 @@ trait Backend {
     /// Reads the text, if there is any and it is at most `max` bytes.
     fn read(&mut self, max: usize) -> Found;
     /// Reads an image, if there is one of a type it reads and it is at most `max` bytes.
-    /// Never [`ImageContents::NoAnswer`].
+    /// [`ImageContents::NoAnswer`] when another app wrote the clipboard during the read.
     fn read_image(&mut self, max: usize) -> ImageContents;
 }
 

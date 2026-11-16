@@ -35,12 +35,19 @@ want the same in oso.
 1. **`session-yank-image`, `C-c C-y` in session mode.** In the terminal of a session oso hosts,
    it keeps the clipboard's image in a file and pastes `@PATH` into the session's prompt, with a
    space before and after it, as a bracketed paste, not submitted. The echo area says
-   `Image saved to ~/…: press Enter there`, and `… as PNG: …` for a converted TIFF. Elsewhere
-   it says `This buffer holds no session`. It is `Reach::Person`: it reads the clipboard and may
-   start a process.
+   `Image saved as NAME: press Enter there`, and `…, as PNG: …` for a converted TIFF. It names
+   the file only: the agent channel reads the echo area, and the directory holds the session's
+   id. Elsewhere it says `This buffer holds no session`. It is `Reach::Person`: it reads the
+   clipboard and may start a process.
    - The space before it is always there. Claude Code draws its own cursor, so oso cannot tell
      what is left of it. A mention must start a word, and a space too many costs nothing.
    - A plain terminal keeps ADR 0120's rule: `C-c C-y` goes to its program, both keys.
+   - The command asks the host with `SessionRequest::YankImage(buffer)` (`oso-core`, new). The
+     dispatcher notes, as the command runs, whether its input came through the dev socket,
+     held input's origin included, and the host takes that with the request
+     (`Dispatcher::take_image_yank_origin`). A request whose origin is lost counts as the
+     socket's. The host never reads where the last input came from later, when a held key may
+     have run meanwhile.
 2. **It goes through `send_to_session`, and is checked first.** The same refusals as a send
    apply, with the same words, before the clipboard is read, so that no file is kept for a
    paste that would be refused, and again when the file is ready, as the session may have
@@ -49,7 +56,10 @@ want the same in oso.
 3. **The clipboard reads an image** (`oso_platform::clipboard`): `Clipboard::read_image`
    answers with `Event::Image(ImageContents)`, on the worker that owns the pasteboard.
    - On macOS, it reads the first of `public.png`, `public.jpeg`, `com.compuserve.gif`,
-     `org.webmproject.webp` and `public.tiff` the pasteboard has, as bytes, never decoded.
+     `org.webmproject.webp` and `public.tiff` the pasteboard has, as bytes, never decoded. If
+     another app writes the pasteboard during the read (its change count moves), the read
+     answers `NoAnswer` (`The clipboard is busy or not answering`), as the image may not be the
+     one the concealed check saw.
    - A pasteboard marked `org.nspasteboard.ConcealedType` is not read
      (`The app that copied the image marked it secret; nothing is attached`).
    - At most `MAX_IMAGE`, 32 MiB (`… is over 32 MiB; nothing is attached`).
@@ -63,31 +73,45 @@ want the same in oso.
      other, as the system's does. The dev socket's `clipboard` method sets one with `image` and
      `bytes`. As for a yank, input from the dev socket reads only a clipboard in memory.
    - New public items: `Clipboard::read_image`, `Event::Image`, `ImageContents`, `Image`,
-     `ImageKind`, `MAX_IMAGE` and `MemoryClipboard::set_image`, in the existing module.
+     `ImageKind` (with `ALL`, `name` and `extension`), `MAX_IMAGE` and
+     `MemoryClipboard::set_image`, in the existing module.
 4. **Where the files go: the per-user cache** (`oso_platform::privacy::cache_home`, new):
    `~/Library/Caches` on macOS, `$XDG_CACHE_HOME` or `~/.cache` elsewhere on Unix, and
-   `%LOCALAPPDATA%` on Windows. Images go in `oso/images/<session id>/`, a `PrivateDir` (`0700`,
-   checked as ADR 0028's are). Each is a new file, `0600` from the start, made with
-   `create_new`, so never through a link, named by the time in UTC as `YYYYMMDD-HHMMSS-mmm`
-   with `-2` to `-9` after it if that name is taken. oso has no time zone code, and UTC needs
-   none. A path with a space, a control or invisible character, or not UTF-8 is refused before
-   anything is written, as an `@` reference cannot hold it.
+   `%LOCALAPPDATA%` on Windows, where the cache's `oso` is the state directory's too. Images go
+   in `oso/images/<session id>/`, a `PrivateDir` (`0700`, checked as ADR 0028's are). Each is a
+   new file, `0600` from the start, made with `create_new`, so never through a link, named by
+   the local time as `YYYYMMDD-HHMMSS-mmm` (ADR 0134's `file_meta::utc_offset_at`, read on the
+   keeper's thread; UTC where it is not read), with `-2` to `-9` after it if that name is taken.
+   A path with a space, a control or invisible character, or not UTF-8 is refused before
+   anything is written, as an `@` reference cannot hold it. The files are not synced: they are a
+   cache's, read by Claude Code seconds later.
 5. **A TIFF is converted by `/usr/bin/sips`** in a child process, started through
    `oso_platform::process` at that absolute path, with an argument vector, the base environment
-   and a 10 s limit after which it is killed. The TIFF is written next to the PNG's name, which
-   is checked free first, and removed whatever happens. `sips` exits 0 having written nothing
-   when it cannot read its input, so the PNG file itself tells. The PNG is set to `0600`. Off
-   macOS, a TIFF is refused. The other types are copied as they came.
+   and a 10 s limit after which it is killed. The PNG's name is taken first, as an empty
+   `create_new` file, so that `sips` writes over nothing else, and the TIFF is written next to
+   it and removed whatever happens. `sips` exits 0 having written nothing when it cannot read
+   its input, so the PNG file itself tells. The PNG is set to `0600`. Off macOS, a TIFF is
+   refused. The other types are copied as they came.
+   - This lives in the tip crate's `sessions::images`, not in `oso-platform`: there `clipboard`
+     and `process` share a layer line and may not use each other, and `process` holds no idea
+     of what it runs. A Linux or Windows backend that needs a conversion adds its own here.
 6. **How long they stay.** A session's directory goes when the session is archived (`C-c A`, `A`
-   in `*Sessions*`, `C-x k`) or dropped from the record. Files older than 7 days go when oso
-   starts. The sessions worker does both, off the UI thread. A sweep removes only files with the
-   extensions this ADR writes, in directories named as session ids, at most 4096 entries a
-   directory, and leaves a root that is not private alone. An archived session brought back has
-   no images: Claude Code read each when its prompt was sent.
-7. **Threads.** The clipboard's worker reads the image. A thread of its own (`oso-image`) writes
-   the file and runs `sips`, then reports `UserEvent::ImageKept`. The UI thread only routes. No
-   image bytes reach the agent channel or a log. The pasted path reaches the channel only where
-   the person let it read the terminal (ADR 0120, Q16).
+   in `*Sessions*`, `C-x k`) or dropped from the record. Files older than 7 days go once the
+   sessions are recalled at the start, and after each image is kept, so a long-running oso keeps
+   none much past its week. A sweep removes only files with the extensions this ADR writes, in
+   session directories named as ids that pass `PrivateDir::existing`, at most 4096 entries in
+   all, and leaves a root that is not private alone. A directory or file is removed only once it
+   and the way to it pass `PrivateDir::existing`, so a link in its place, or a way another user
+   could change, is refused. An archived session brought back has no images: Claude Code read
+   each when its prompt was sent.
+7. **Threads.** The clipboard's worker reads the image. One long-lived thread, `oso-images`
+   (`sessions::images::Keeper`), does every write and removal in turn, so that a directory is
+   never removed while an image is written into it, and it is never the sessions worker, which
+   judges the sessions' screens. It runs `sips`, reports `UserEvent::ImageKept`, and turns a
+   panic in keeping an image into a refusal, so that the next `C-c C-y` is not left waiting.
+   The UI thread only routes, and an image it drops goes to the freer's thread. No image bytes
+   reach the agent channel or a log. The pasted path reaches the channel only where the person
+   let it read the terminal (ADR 0120, Q16).
 
 ## Changes to accepted ADRs
 
@@ -109,6 +133,14 @@ want the same in oso.
   `sips`, not oso.
 - The files sit in the cache directory, which backup and cleanup tools treat as disposable.
   Another oso instance's sessions are never swept by membership, only by age.
+- Residuals:
+  - `dataForType:` copies whatever the app that copied the image hands over before its length
+    is known, as a text read does, so an app can make oso hold a large image briefly; a kept one
+    peaks at twice `MAX_IMAGE`.
+  - `sips` gives crash isolation, not a sandbox: a crafted TIFF that exploits ImageIO runs as
+    the person. A sandbox profile for it is a follow-up.
+  - `PrivateDir` follows the person's own links on the way to a directory, as everywhere in
+    oso; only another user's change to the way is refused.
 - Follow-ups: Linux and Windows backends with their window layers. Dropped image files,
   `session-insert-image` from a path, and `C-x a` forms that pick a session, if wanted.
 
@@ -126,8 +158,10 @@ want the same in oso.
 - **Inline base64.** It would be written into the conversation's recording, and a 10 MB image
   would be a paste of 13 MB.
 - **Keeping images until the person removes them.** They would pile up, one file per screenshot.
-- **Local time in the name.** It needs time zone code oso does not have, and the name only has
-  to sort and be unique.
+- **UTC in the name.** Simpler, but the person reads the name as the time they took the
+  screenshot, and oso already reads the local offset for dired.
+- **The image's disk work on the sessions worker.** It would hold the judging of screens on a
+  slow cache, which ADR 0136's step 3 took off that thread for the spaces' lookups.
 
 ## Questions
 

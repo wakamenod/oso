@@ -1,52 +1,32 @@
 //! `session-yank-image` carried out (ADR 0142): the clipboard's image is read on the clipboard's
-//! threads, kept in a file on a thread of its own, and an `@` reference to the file is pasted
-//! into the session through [`App::send_to_session`], the one delivery path, so that a session
-//! that cannot take a paste refuses it as it refuses a send.
+//! threads, kept in a file by `sessions::images`' keeper thread, and an `@` reference to the file
+//! is pasted into the session through [`App::send_to_session`], the one delivery path, so that a
+//! session that cannot take a paste refuses it as it refuses a send. A session's images go when
+//! it is archived or dropped, and old ones when the sessions are recalled at the start.
 //!
 //! Must not depend on: how a frame is drawn, or key presses.
 //!
-//! Nothing here touches the disk: the file is written on a thread of its own, and removed by
-//! the sessions worker.
-//!
-//! The image itself never reaches the agent channel or a log: only its file's path is pasted,
-//! into a terminal the channel reads only where the person allowed it (ADR 0120, Q16). Input
-//! from the dev socket reads only a clipboard in memory, as a yank does (ADR 0074).
-
-use std::path::Path;
-use std::thread;
-use std::time::SystemTime;
+//! Nothing here touches the disk, and an image dropped here goes to the freer's thread. The
+//! image itself never reaches the agent channel or a log, and the echo area names only its file,
+//! not the directory: the full path is pasted into a terminal the channel reads only where the
+//! person allowed it (ADR 0120, Q16). Input from the dev socket reads only a clipboard in
+//! memory, as a yank does (ADR 0074): the dispatcher notes where each run came from.
 
 use oso_core::buffer::BufferId;
-use oso_core::editor::SessionRequest;
 use oso_platform::clipboard::{Image, ImageContents, MAX_IMAGE};
 
 use crate::app::{App, UserEvent, clipboard};
-use crate::sessions::images::{self, Report};
-use crate::sessions::worker::{ImageJob, Job, SessionKey};
+use crate::sessions::identity::SessionId;
+use crate::sessions::images::{self, Kept};
+use crate::sessions::worker::SessionKey;
 
 impl App {
-    /// After a command: reads the clipboard's image for each `session-yank-image` it asked for,
-    /// while the dispatcher still knows whether the input came through the dev socket. The
-    /// other session requests stay for `sync_sessions`, in their order.
-    pub(in crate::app) fn start_image_yanks(&mut self) {
-        let requests = self.editor.take_session_requests();
-        if requests.is_empty() {
-            return;
-        }
-        let from_socket = self.dispatcher.input_from_socket();
-        for request in requests {
-            match request {
-                SessionRequest::YankImage(buffer) => self.yank_image(buffer, from_socket),
-                other => self.editor.request_session(other),
-            }
-        }
-    }
-
-    /// Starts reading the clipboard's image for the session whose terminal is `buffer`, unless
-    /// it could not take the paste now, or an image is being read already.
-    fn yank_image(&mut self, buffer: BufferId, from_socket: bool) {
-        let said = self.start_image_read(buffer, from_socket);
-        if let Err(why) = said {
+    /// `session-yank-image` in the terminal `buffer`: starts reading the clipboard's image for
+    /// its session, unless the session could not take the paste now, or an image is being read
+    /// already. `from_socket` says whether the command came through the dev socket, as the
+    /// dispatcher noted when it ran.
+    pub(in crate::app) fn yank_image(&mut self, buffer: BufferId, from_socket: bool) {
+        if let Err(why) = self.start_image_read(buffer, from_socket) {
             self.editor.message(why);
         }
         self.request_redraw();
@@ -59,7 +39,7 @@ impl App {
             .by_buffer(buffer)
             .map(|session| session.key)
             .ok_or_else(|| "This buffer holds no session".to_owned())?;
-        if self.watch.sending.image.is_some() {
+        if self.watch.sending.reading_image_for.is_some() {
             return Err("Still reading the clipboard's image".to_owned());
         }
         // Checked first, so that no file is kept for a paste that would be refused.
@@ -72,14 +52,15 @@ impl App {
             return Err("Input from the dev socket reads no system clipboard".to_owned());
         }
         clipboard.read_image();
-        self.watch.sending.image = Some(key);
+        self.watch.sending.reading_image_for = Some(key);
         Ok(())
     }
 
     /// The clipboard's threads answered the image read.
     pub(in crate::app) fn clipboard_image(&mut self, contents: ImageContents) {
         // No read of this instance's is out: an answer nobody waits for is dropped.
-        let Some(key) = self.watch.sending.image else {
+        let Some(key) = self.watch.sending.reading_image_for else {
+            self.freer.free(contents);
             return;
         };
         let said = match contents {
@@ -95,58 +76,57 @@ impl App {
                 "The image on the clipboard is over {} MiB; nothing is attached",
                 MAX_IMAGE >> 20
             ),
-            ImageContents::NoAnswer => "The clipboard is not answering".to_owned(),
+            ImageContents::NoAnswer => "The clipboard is busy or not answering".to_owned(),
             ImageContents::Unsupported => {
                 "Images on the clipboard are not supported on this system yet".to_owned()
             }
         };
-        self.watch.sending.image = None;
+        self.watch.sending.reading_image_for = None;
         self.editor.message(said);
         self.request_redraw();
     }
 
-    /// Keeps `image` for session `key` on a thread of its own, which reports
-    /// [`UserEvent::ImageKept`].
+    /// Hands `image` to the keeper for session `key`, which reports [`UserEvent::ImageKept`].
+    /// An image that cannot be kept goes to the freer.
     fn keep_image(&mut self, key: SessionKey, image: Image) -> Result<(), String> {
         let id = self
             .hosting
             .table()
             .get(key)
-            .map(|session| session.id.clone())
-            .ok_or_else(|| "That session is gone".to_owned())?;
-        let root = images::root()
-            .ok_or_else(|| "There is no cache directory to keep the image in".to_owned())?;
+            .map(|session| session.id.clone());
+        let (Some(id), Some(root)) = (id, images::root()) else {
+            self.freer.free(image);
+            return Err("There is no session or cache directory to keep the image for".to_owned());
+        };
         let waker = self.waker.clone();
-        thread::Builder::new()
-            .name("oso-image".into())
-            .spawn(move || {
-                let kept = images::save(&root, &id, &image, SystemTime::now());
-                waker.send(UserEvent::ImageKept(Box::new(Report { key, kept })));
-            })
-            .map(drop)
-            .map_err(|e| format!("Cannot keep the image: {e}"))
+        let done = Box::new(move |kept| {
+            waker.send(UserEvent::ImageKept(key, Box::new(kept)));
+        });
+        let refused = self.watch.sending.keeper.save(root, id, image, done);
+        refused.map_err(|image| {
+            self.freer.free(image);
+            "Cannot keep the image: see the log".to_owned()
+        })
     }
 
-    /// The image for a session was kept, or could not be: its reference is pasted into the
+    /// The image for session `key` was kept, or could not be: its reference is pasted into the
     /// session, which may have stopped taking pastes meanwhile. A file no paste refers to is
     /// removed.
-    pub(in crate::app) fn image_kept(&mut self, report: Report) {
-        self.watch.sending.image = None;
-        let said = match report.kept {
+    pub(in crate::app) fn image_kept(&mut self, key: SessionKey, kept: Result<Kept, String>) {
+        self.watch.sending.reading_image_for = None;
+        let said = match kept {
             Err(why) => why,
-            Ok(kept) => match self.send_to_session(report.key, kept.reference) {
+            Ok(kept) => match self.send_to_session(key, kept.reference) {
                 Ok(()) => {
-                    let shown = shown(&kept.path);
-                    if kept.converted {
-                        format!("Image saved to {shown} as PNG: press Enter there")
-                    } else {
-                        format!("Image saved to {shown}: press Enter there")
-                    }
+                    let name = kept
+                        .path
+                        .file_name()
+                        .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+                    let png = if kept.converted { ", as PNG" } else { "" };
+                    format!("Image saved as {name}{png}: press Enter there")
                 }
                 Err(why) => {
-                    if let Some(worker) = &self.sessions {
-                        worker.send(Job::Images(ImageJob::File(kept.path)));
-                    }
+                    self.watch.sending.keeper.drop_file(kept.path);
                     why
                 }
             },
@@ -156,21 +136,16 @@ impl App {
     }
 
     /// Session `id`'s images go, as it was archived or dropped (ADR 0142).
-    pub(in crate::app) fn drop_session_images(&self, id: crate::sessions::identity::SessionId) {
-        if let (Some(worker), Some(root)) = (&self.sessions, images::root()) {
-            worker.send(Job::Images(ImageJob::Session(root, id)));
+    pub(in crate::app) fn drop_session_images(&mut self, id: SessionId) {
+        if let Some(root) = images::root() {
+            self.watch.sending.keeper.drop_session(root, id);
         }
     }
-}
 
-/// `path` with the home directory written as `~`.
-fn shown(path: &Path) -> String {
-    let home = oso_platform::privacy::home();
-    match home
-        .as_deref()
-        .and_then(|home| path.strip_prefix(home).ok())
-    {
-        Some(rest) => format!("~/{}", rest.display()),
-        None => path.display().to_string(),
+    /// Images older than a week go, as oso starts.
+    pub(in crate::app) fn sweep_images(&mut self) {
+        if let Some(root) = images::root() {
+            self.watch.sending.keeper.sweep(root);
+        }
     }
 }

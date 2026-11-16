@@ -40,6 +40,10 @@ pub fn too_large(bytes: usize) -> String {
     )
 }
 
+/// The name of the command that yanks the clipboard's image into a session, whose origin the
+/// dispatcher notes (ADR 0142).
+pub const YANK_IMAGE: &str = "session-yank-image";
+
 /// The sending commands.
 pub const COMMANDS: &[Command] = &[
     Command {
@@ -78,7 +82,7 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
-        name: "session-yank-image",
+        name: YANK_IMAGE,
         doc: "Keep the image on the clipboard in a file and paste an `@` reference to it into the session whose terminal is this buffer.\n\nThe reference is the file's absolute path, which Claude Code reads when you press Enter: the image goes by path, never inline. A PNG, JPEG, GIF or WebP is kept as it came; a TIFF alone, as some macOS apps copy, is converted to PNG with `sips`. The files are private to you, under the cache directory's `oso/images`, and go when the session is archived, or after a week. As with `session-send`, a session that asks for permission or another answer is refused until you answer it. macOS only for now.",
         args: ArgSpec::None,
         reach: Reach::Person,

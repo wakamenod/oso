@@ -11,8 +11,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use oso_platform::clipboard::{Image, ImageKind};
 
 use super::{
-    KEEP, civil_from_days, delete_file, delete_session, plain_name, reference, save,
-    session_directory, stem, sweep,
+    KEEP, delete_file, delete_session, plain_name, reference, save, session_directory, stem, sweep,
 };
 use crate::sessions::identity::SessionId;
 
@@ -109,28 +108,18 @@ fn tiny_tiff() -> Vec<u8> {
 }
 
 #[test]
-fn a_name_is_the_time_in_utc_to_the_millisecond() {
-    assert_eq!(stem(UNIX_EPOCH), "19700101-000000-000");
-    assert_eq!(stem(at(1_794_797_058, 359)), "20261116-024418-359");
-    assert_eq!(stem(at(1_709_251_199, 999)), "20240229-235959-999");
+fn a_name_is_the_local_time_to_the_millisecond() {
+    assert_eq!(stem(UNIX_EPOCH, 0), "19700101-000000-000");
+    assert_eq!(stem(at(1_794_797_058, 359), 0), "20261116-024418-359");
+    assert_eq!(stem(at(1_709_251_199, 999), 0), "20240229-235959-999");
+    // East and west of UTC, across a day.
+    assert_eq!(stem(at(0, 5), 9 * 3600), "19700101-090000-005");
+    assert_eq!(stem(UNIX_EPOCH, -3600), "19691231-230000-000");
+    assert_eq!(stem(at(1_709_251_199, 0), 3600), "20240301-005959-000");
     // Before the epoch, which no clock here gives, is the epoch.
     assert_eq!(
-        stem(UNIX_EPOCH - Duration::from_secs(1)),
+        stem(UNIX_EPOCH - Duration::from_secs(1), 0),
         "19700101-000000-000"
-    );
-}
-
-#[test]
-fn civil_dates_cross_leap_years_and_centuries() {
-    assert_eq!(civil_from_days(0), (1970, 1, 1));
-    assert_eq!(civil_from_days(59), (1970, 3, 1));
-    assert_eq!(civil_from_days(11_016), (2000, 2, 29));
-    assert_eq!(civil_from_days(11_017), (2000, 3, 1));
-    assert_eq!(civil_from_days(47_540), (2100, 2, 28));
-    assert_eq!(
-        civil_from_days(47_541),
-        (2100, 3, 1),
-        "2100 has no 29 February"
     );
 }
 
@@ -173,7 +162,7 @@ fn an_image_is_a_new_private_file_in_a_private_directory() {
     let scratch = Scratch::new("save");
     let root = scratch.root();
     let now = at(1_794_797_058, 359);
-    let kept = save(&root, &id(1), &png(b"first"), now).unwrap();
+    let kept = save(&root, &id(1), &png(b"first"), now, 0).unwrap();
     let directory = root.join(id(1).as_str());
     assert_eq!(kept.path, directory.join("20261116-024418-359.png"));
     assert_eq!(kept.reference, format!(" @{} ", kept.path.display()));
@@ -184,14 +173,14 @@ fn an_image_is_a_new_private_file_in_a_private_directory() {
     assert_eq!(mode(&root), 0o700);
 
     // The same millisecond again takes the next name, and never writes over the first.
-    let second = save(&root, &id(1), &png(b"second"), now).unwrap();
+    let second = save(&root, &id(1), &png(b"second"), now, 0).unwrap();
     assert_eq!(second.path, directory.join("20261116-024418-359-2.png"));
     assert_eq!(fs::read(&kept.path).unwrap(), b"first");
     let jpeg = Image {
         kind: ImageKind::Jpeg,
         bytes: b"j".to_vec(),
     };
-    let third = save(&root, &id(1), &jpeg, now).unwrap();
+    let third = save(&root, &id(1), &jpeg, now, 0).unwrap();
     assert_eq!(third.path, directory.join("20261116-024418-359.jpg"));
 }
 
@@ -201,11 +190,11 @@ fn a_name_taken_by_a_link_is_skipped_and_not_followed() {
     let root = scratch.root();
     let directory = root.join(id(2).as_str());
     let now = at(0, 0);
-    save(&root, &id(2), &png(b"x"), at(1, 0)).unwrap();
+    save(&root, &id(2), &png(b"x"), at(1, 0), 0).unwrap();
     let outside = scratch.0.join("outside");
     fs::write(&outside, b"keep").unwrap();
     std::os::unix::fs::symlink(&outside, directory.join("19700101-000000-000.png")).unwrap();
-    let kept = save(&root, &id(2), &png(b"new"), now).unwrap();
+    let kept = save(&root, &id(2), &png(b"new"), now, 0).unwrap();
     assert_eq!(kept.path, directory.join("19700101-000000-000-2.png"));
     assert_eq!(fs::read(&outside).unwrap(), b"keep");
 }
@@ -216,9 +205,9 @@ fn every_name_taken_says_so() {
     let root = scratch.root();
     let now = at(0, 0);
     for _ in 0..super::NAMES_TRIED {
-        save(&root, &id(3), &png(b"x"), now).unwrap();
+        save(&root, &id(3), &png(b"x"), now, 0).unwrap();
     }
-    let refused = save(&root, &id(3), &png(b"x"), now).unwrap_err();
+    let refused = save(&root, &id(3), &png(b"x"), now, 0).unwrap_err();
     assert!(refused.contains("every name"), "{refused}");
 }
 
@@ -226,7 +215,7 @@ fn every_name_taken_says_so() {
 fn a_path_with_a_space_writes_nothing() {
     let scratch = Scratch::new("space");
     let root = scratch.0.join("with space").join("images");
-    let refused = save(&root, &id(4), &png(b"x"), at(0, 0)).unwrap_err();
+    let refused = save(&root, &id(4), &png(b"x"), at(0, 0), 0).unwrap_err();
     assert!(refused.contains("space"), "{refused}");
     assert!(!scratch.0.join("with space").exists(), "nothing was made");
 }
@@ -238,7 +227,7 @@ fn a_shared_directory_is_refused() {
     let directory = root.join(id(5).as_str());
     fs::create_dir_all(&directory).unwrap();
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o755)).unwrap();
-    let refused = save(&root, &id(5), &png(b"x"), at(0, 0)).unwrap_err();
+    let refused = save(&root, &id(5), &png(b"x"), at(0, 0), 0).unwrap_err();
     assert!(refused.starts_with("Cannot keep the image"), "{refused}");
     assert!(names(&directory).is_empty());
 }
@@ -252,7 +241,7 @@ fn a_tiff_becomes_a_private_png_and_leaves_no_tiff() {
         kind: ImageKind::Tiff,
         bytes: tiny_tiff(),
     };
-    let kept = save(&root, &id(6), &tiff, at(0, 0)).unwrap();
+    let kept = save(&root, &id(6), &tiff, at(0, 0), 0).unwrap();
     assert!(kept.converted);
     assert_eq!(kept.path.extension().unwrap(), "png");
     assert!(
@@ -276,7 +265,7 @@ fn a_tiff_sips_cannot_read_leaves_nothing() {
         kind: ImageKind::Tiff,
         bytes: b"not an image".to_vec(),
     };
-    let refused = save(&root, &id(7), &bad, at(0, 0)).unwrap_err();
+    let refused = save(&root, &id(7), &bad, at(0, 0), 0).unwrap_err();
     assert!(refused.contains("PNG"), "{refused}");
     assert!(names(&root.join(id(7).as_str())).is_empty());
 }
@@ -286,9 +275,13 @@ fn a_sweep_removes_old_images_and_empty_directories_only() {
     let scratch = Scratch::new("sweep");
     let root = scratch.root();
     let now = SystemTime::now();
-    let old = save(&root, &id(8), &png(b"old"), at(0, 0)).unwrap().path;
-    let fresh = save(&root, &id(8), &png(b"fresh"), at(1, 0)).unwrap().path;
-    let alone = save(&root, &id(9), &png(b"alone"), at(0, 0)).unwrap().path;
+    let old = save(&root, &id(8), &png(b"old"), at(0, 0), 0).unwrap().path;
+    let fresh = save(&root, &id(8), &png(b"fresh"), at(1, 0), 0)
+        .unwrap()
+        .path;
+    let alone = save(&root, &id(9), &png(b"alone"), at(0, 0), 0)
+        .unwrap()
+        .path;
     let other = root.join(id(8).as_str()).join("notes.txt");
     fs::write(&other, b"not ours").unwrap();
     let long_ago = now - KEEP - Duration::from_secs(60);
@@ -316,7 +309,9 @@ fn a_sweep_leaves_a_root_that_is_not_private_or_not_there() {
     let scratch = Scratch::new("sweepshared");
     let root = scratch.root();
     assert_eq!(sweep(&root, SystemTime::now()), 0, "nothing there");
-    let old = save(&root, &id(10), &png(b"old"), at(0, 0)).unwrap().path;
+    let old = save(&root, &id(10), &png(b"old"), at(0, 0), 0)
+        .unwrap()
+        .path;
     fs::File::options()
         .write(true)
         .open(&old)
@@ -329,10 +324,10 @@ fn a_sweep_leaves_a_root_that_is_not_private_or_not_there() {
 }
 
 #[test]
-fn deleting_a_session_removes_its_directory_and_follows_no_link() {
+fn deleting_a_session_removes_its_directory_and_refuses_a_link() {
     let scratch = Scratch::new("delete");
     let root = scratch.root();
-    let kept = save(&root, &id(11), &png(b"x"), at(0, 0)).unwrap();
+    let kept = save(&root, &id(11), &png(b"x"), at(0, 0), 0).unwrap();
     delete_session(&root, &id(11)).unwrap();
     assert!(!kept.path.exists());
     assert!(!root.join(id(11).as_str()).exists());
@@ -342,12 +337,57 @@ fn deleting_a_session_removes_its_directory_and_follows_no_link() {
     fs::create_dir(&outside).unwrap();
     fs::write(outside.join("keep"), b"keep").unwrap();
     std::os::unix::fs::symlink(&outside, root.join(id(12).as_str())).unwrap();
-    delete_session(&root, &id(12)).unwrap();
+    assert!(delete_session(&root, &id(12)).is_err(), "a link is refused");
     assert!(outside.join("keep").exists());
-    assert!(fs::symlink_metadata(root.join(id(12).as_str())).is_err());
 
-    let file = save(&root, &id(13), &png(b"x"), at(0, 0)).unwrap().path;
+    let file = save(&root, &id(13), &png(b"x"), at(0, 0), 0).unwrap().path;
     delete_file(&file).unwrap();
     assert!(!file.exists());
     delete_file(&file).unwrap();
+}
+
+#[test]
+fn nothing_is_removed_where_another_user_could_change_the_way() {
+    let scratch = Scratch::new("openway");
+    let root = scratch.root();
+    let kept = save(&root, &id(14), &png(b"keep"), at(0, 0), 0)
+        .unwrap()
+        .path;
+    // Anyone could put a link at `images` now, so nothing under it is trusted.
+    fs::set_permissions(scratch.0.join("oso"), fs::Permissions::from_mode(0o777)).unwrap();
+    assert!(delete_session(&root, &id(14)).is_err());
+    assert!(delete_file(&kept).is_err());
+    assert_eq!(sweep(&root, SystemTime::now() + KEEP * 2), 0);
+    assert!(kept.exists());
+}
+
+#[test]
+fn the_keeper_keeps_says_and_removes_in_order() {
+    let scratch = Scratch::new("keeper");
+    let root = scratch.root();
+    let mut keeper = super::Keeper::default();
+    let (tx, rx) = std::sync::mpsc::channel();
+    keeper
+        .save(
+            root.clone(),
+            id(15),
+            png(b"kept"),
+            Box::new(move |kept| tx.send(kept).unwrap()),
+        )
+        .unwrap();
+    let kept = rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap();
+    assert_eq!(fs::read(&kept.path).unwrap(), b"kept");
+    keeper.drop_session(root.clone(), id(15));
+    // A job after it on the same thread sees it done.
+    let (tx, rx) = std::sync::mpsc::channel();
+    keeper
+        .save(
+            root.clone(),
+            id(16),
+            png(b"x"),
+            Box::new(move |kept| tx.send(kept).unwrap()),
+        )
+        .unwrap();
+    rx.recv_timeout(Duration::from_secs(10)).unwrap().unwrap();
+    assert!(!root.join(id(15).as_str()).exists());
 }
