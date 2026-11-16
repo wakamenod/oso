@@ -69,7 +69,10 @@ until `M-x lsp-start`, and untrusting the project stops it. In a buffer a server
 keeps its own history. With several definitions, and for `M-?`, the references, a list opens,
 each row `path:line: text` with a preview of its place; `RET` goes there. A file outside any
 project that they lead to, such as the standard library's, joins the server until its buffer is
-killed. The rest comes in later steps.
+killed. `C-M-i` completes the word before point in a popup under it, as Corfu does: typing
+narrows it, `C-n` and `C-p` move (from the last back to the first), `TAB` inserts, `RET`
+inserts once you have moved, and `C-g` or any other key closes it. The rest comes in later
+steps.
 
 A server can be changed in `config.toml`:
 

@@ -96,6 +96,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
             .collect::<Vec<_>>(),
         "keys": { "pending": keys_shown.then(|| display_keys(pending).to_string()) },
         "prompts": prompts_state(editor),
+        "popup": popup_state(editor),
         "isearch": isearch_state(editor),
         "jump": jump_state(editor),
         "replace": replace_state(editor),
@@ -257,6 +258,19 @@ fn piece_start(piece: &oso_core::kill::Piece) -> String {
 /// or a line number can say something of the text, and which candidates match says what was
 /// typed (ADR 0076). So they are for a prompt that was open around one, or opened then, once it
 /// is gone.
+/// The completion popup's rows shown, the selected one, the matches and whether it moved (ADR
+/// 0138); the agent's state has none of it.
+fn popup_state(editor: &Editor) -> Value {
+    editor.popup().map_or(Value::Null, |popup| {
+        json!({
+            "rows": popup.rows().map(|(_, row)| row.text()).collect::<Vec<_>>(),
+            "selected": popup.rows().position(|(selected, _)| selected),
+            "count": popup.len(),
+            "moved": popup.moved(),
+        })
+    })
+}
+
 fn prompts_state(editor: &Editor) -> Value {
     let showing = !editor.shows_secret();
     let layout = editor.prompt_layout();
@@ -781,6 +795,7 @@ mod tests {
                 "keys": { "pending": "" },
                 "kill_ring": { "entries": 0, "newest": null },
                 "prompts": [],
+                "popup": null,
                 "isearch": null,
                 "jump": null,
                 "replace": null,

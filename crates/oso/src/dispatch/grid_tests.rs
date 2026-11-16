@@ -47,6 +47,8 @@
 //! place: its ring as a box of `┌─┐`, and inside it the label, the answer and a message
 //! (ADR 0072). Beneath it, the window's hollow cursor is marked `o` in place of `^`. That
 //! the float hides what is under it is the renderer's, checked in its scene tests.
+//! The completion popup at point comes after it: where it is, then its rows, the selected one
+//! with `>` and what matched marked `*` below (ADR 0138).
 
 use oso_core::buffer::Buffer;
 
@@ -139,7 +141,7 @@ fn flashing_grid(editor: &Editor, flashing: bool) -> String {
     let echo = [status.echo_warnings(), &status.echo[..]];
     draw_spans(&echo, regions.echo, '"', &mut lines);
     draw_float(editor, &mut lines);
-    draw_popup(editor, &mut lines);
+    popup::draw_popup(editor, &mut lines);
     lines.join("\n")
 }
 
@@ -223,55 +225,6 @@ fn draw_float(editor: &Editor, lines: &mut Vec<String>) {
     let regions = layout.regions;
     if regions.candidates_padded() || regions.candidates.rows == 0 && regions.padded_below() {
         lines.push(format!("└{}┘", "─".repeat(outer.columns)));
-    }
-}
-
-/// The completion popup, if one is open: where it is, then its rows, the selected one with `>`
-/// beside it and what matched marked `*` below (ADR 0138, step 9).
-fn draw_popup(editor: &Editor, lines: &mut Vec<String>) {
-    let Some(popup) = editor.popup() else {
-        return;
-    };
-    let mut screen = Screen::default();
-    editor.screen(&mut screen);
-    let Some(regions) = editor.popup_regions(&screen) else {
-        lines.push("popup with no room".to_owned());
-        return;
-    };
-    let (outer, inner) = (regions.outer, regions.inner);
-    lines.push(format!(
-        "popup at row {}, column {}: {} x {}",
-        outer.row, outer.column, outer.rows, outer.columns
-    ));
-    let named = popup.rows().map(|(_, row)| (row.text(), row.binding()));
-    let column = minibuffer::annotation_column(named, inner.columns);
-    let mut highlights = Vec::new();
-    for (selected, row) in popup.rows().take(inner.rows) {
-        let (text, note) = (row.text(), row.annotation());
-        let at = minibuffer::candidate_row(text, "", note, inner.columns, column);
-        let shown = &text[..at.text];
-        let mut spans = vec![shown.to_owned()];
-        let used = minibuffer::cells_of(shown);
-        if let Some((column, bytes, _)) = at.annotation {
-            spans.push(" ".repeat(column - used) + &note[..bytes]);
-        }
-        let spans: Vec<&str> = spans.iter().map(String::as_str).collect();
-        let (line, _) = spans_row(&spans, inner.columns);
-        let side = if selected { '>' } else { ' ' };
-        lines.push(format!("│{side}{line} │"));
-        popup.highlights(row, &mut highlights);
-        let mut marks = vec![' '; inner.columns];
-        for range in &highlights {
-            let end = range.end.min(shown.len());
-            let (from, to) = (
-                minibuffer::cells_of(&shown[..range.start.min(end)]),
-                minibuffer::cells_of(&shown[..end]).min(inner.columns),
-            );
-            marks[from..to].fill('*');
-        }
-        if marks.contains(&'*') {
-            lines.push(format!(": {} :", marks.into_iter().collect::<String>()));
-        }
     }
 }
 
