@@ -232,17 +232,54 @@ fn a_row_of_a_file_no_buffer_holds_is_read_by_its_line_and_goes_there() {
 }
 
 #[test]
-fn an_offset_moves_past_the_splices_before_it_and_into_one_it_is_inside() {
-    let splice = |start, old_len, new_len| Splice {
-        start,
-        old_len,
-        new_len,
+fn a_padded_source_and_code_read_with_their_blanks_as_one() {
+    let (mut editor, request) = listing("x\n");
+    let mut padded = row("a.rs", 1, file(VisitColumn::Chars(0)), "m");
+    padded.source = "  rust\tc   ".into();
+    padded.code = " E0308 \n".into();
+    editor.diagnostics_listed(DiagnosticRows::new(
+        request.generation,
+        vec![padded],
+        None,
+        false,
+    ));
+    let candidates = editor.prompt().unwrap().candidates().unwrap();
+    assert_eq!(candidates.get(0).unwrap().annotation(), "rust c E0308");
+}
+
+#[test]
+fn an_open_buffer_s_row_goes_by_its_line_once_its_log_no_longer_reaches_the_list() {
+    let (mut editor, request) = listing("let x = 1;\nlet y = 2;\n");
+    let buffer = request.buffer;
+    let revision = editor.buffer(buffer).unwrap().revision();
+    let at = DiagnosticRowAt::Open {
+        buffer,
+        offset: 15,
+        revision,
     };
-    let batch = [splice(2, 0, 3), splice(10, 4, 1)];
-    assert_eq!(moved(1, &batch), 1);
-    assert_eq!(moved(2, &batch), 2, "an insertion at it leaves it before");
-    assert_eq!(moved(5, &batch), 8);
-    assert_eq!(moved(12, &batch), 13, "inside a replacement, at its start");
-    assert_eq!(moved(14, &batch), 14);
-    assert_eq!(moved(20, &batch), 20);
+    let rows = vec![row("a.rs", 2, at, "m")];
+    editor.diagnostics_listed(DiagnosticRows::new(
+        request.generation,
+        rows,
+        Some(0),
+        false,
+    ));
+    // More edits than its log keeps, so the list's revision is out of its reach.
+    for _ in 0..70 {
+        editor.apply_edits(buffer, &[edit(0..0, "/")]).unwrap();
+    }
+    assert!(
+        matches!(editor.preview(), Some(Preview::Buffer { cursor: 81, .. })),
+        "line 2's start, by its line: {:?}",
+        editor.preview()
+    );
+    editor.submit_prompt().unwrap();
+    assert_eq!(
+        editor.take_diagnostic_hit(),
+        Some(DiagnosticHit::File {
+            path: PathBuf::from("/w/oso/a.rs"),
+            line: 2,
+            column: VisitColumn::Chars(0)
+        })
+    );
 }

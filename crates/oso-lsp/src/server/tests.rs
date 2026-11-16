@@ -252,9 +252,10 @@ fn diagnostics_wait_as_the_latest_of_each_document_and_file_and_a_run_s_end_forg
     reporter.diagnostics(file("/w/a.rs", 2));
     reporter.diagnostics(file("/w/b.rs", 1));
     let report = outbox.take().unwrap();
+    // A newer one takes the place of the one waiting.
     assert_eq!(
         report.diagnostics,
-        [open(4), file("/w/a.rs", 2), file("/w/b.rs", 1)]
+        [file("/w/a.rs", 2), open(4), file("/w/b.rs", 1)]
     );
     reporter.diagnostics(file("/w/a.rs", 1));
     reporter.diagnostics(open(4));

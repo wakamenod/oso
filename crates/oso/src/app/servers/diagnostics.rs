@@ -11,8 +11,9 @@
 mod rows;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use oso_core::buffer::BufferId;
@@ -27,8 +28,9 @@ use super::super::{App, Freer, UserEvent};
 use super::documents::Open;
 
 /// The reports of a server's files that no document open with it holds, by path, each with the
-/// encoding of its positions: the reports its thread keeps, shared, so they cost no more here.
-pub(super) type Files = HashMap<PathBuf, (Arc<Published>, Encoding)>;
+/// encoding of its positions: the reports its thread keeps, shared, so they cost no more here,
+/// and the paths shared too, so a snapshot copies none.
+pub(super) type Files = HashMap<Arc<Path>, (Arc<Published>, Encoding)>;
 
 /// Takes `diagnosed` into the buffers of `documents` whose document is open with the server,
 /// and the reports of other files into `files`. What a buffer or `files` had goes to `freer`:
@@ -41,6 +43,9 @@ pub(super) fn take(
     freer: &Freer,
 ) -> bool {
     let mut taken = false;
+    // What goes, freed in one go off this thread.
+    let mut old_files = Vec::new();
+    let mut old_sets = Vec::new();
     for diagnosed in diagnosed {
         let (id, revision, diagnostics) = match diagnosed {
             Diagnosed::Open {
@@ -53,16 +58,17 @@ pub(super) fn take(
                 report,
                 encoding,
             } => {
+                let path: Arc<Path> = Arc::from(path);
                 let old = if report.diagnostics.is_empty() {
                     files.remove(&path)
                 } else {
                     files.insert(path, (report, encoding))
                 };
-                freer.free(old);
+                old_files.extend(old);
                 continue;
             }
             Diagnosed::Forgotten => {
-                freer.free(std::mem::take(files));
+                old_files.extend(std::mem::take(files).into_values());
                 continue;
             }
         };
@@ -76,8 +82,14 @@ pub(super) fn take(
             // A clone shares the strings, so the old set's last owner is the freeing thread's.
             let old = buffer.diagnostics().cloned();
             taken |= buffer.take_diagnostics(revision, diagnostics);
-            freer.free(old);
+            old_sets.extend(old);
         }
+    }
+    if !old_files.is_empty() {
+        freer.free(old_files);
+    }
+    if !old_sets.is_empty() {
+        freer.free(old_sets);
     }
     taken
 }
@@ -117,14 +129,13 @@ impl App {
                 })
             })
             .collect();
-        // The root as a server's URI reads back, so that the files' paths start with it.
-        let root = oso_lsp::uri::from_path(&request.root)
-            .and_then(|uri| oso_lsp::uri::to_path(&uri))
-            .unwrap_or_else(|| request.root.clone());
+        // Only the servers of this project, or of one inside it or around it; the paths are
+        // judged on the thread, against the root as a server's URI reads back.
+        let root = &request.root;
         let files = (self.servers.running.iter())
+            .filter(|running| running.root.starts_with(root) || root.starts_with(&running.root))
             .flat_map(|running| running.files.iter())
-            .filter(|(path, _)| path.starts_with(&root))
-            .map(|(path, (report, encoding))| (path.clone(), Arc::clone(report), *encoding))
+            .map(|(path, (report, encoding))| (Arc::clone(path), Arc::clone(report), *encoding))
             .collect();
         let snapshot = rows::Snapshot {
             generation: request.generation,
@@ -134,14 +145,21 @@ impl App {
             open,
             files,
         };
+        // A newer list stops the build of an older one.
+        let live = Arc::clone(&self.servers.listing);
+        live.store(request.generation, Ordering::Relaxed);
         let waker = self.waker.clone();
         let spawned = std::thread::Builder::new()
             .name("oso-diagnostics".into())
             .spawn(move || {
-                let built = rows::build(&snapshot);
+                let built = rows::build(&snapshot, &|| {
+                    live.load(Ordering::Relaxed) == snapshot.generation
+                });
                 // The snapshot's sets and reports are freed here too.
                 drop(snapshot);
-                waker.send(UserEvent::DiagnosticsListed(built));
+                if let Some(built) = built {
+                    waker.send(UserEvent::DiagnosticsListed(built));
+                }
             });
         if spawned.is_err() {
             log::warn!("the thread that lists diagnostics could not start");

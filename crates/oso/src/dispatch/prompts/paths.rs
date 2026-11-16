@@ -1,6 +1,7 @@
 //! The prompts that read a path, for a command's argument: `C-x C-f`'s and `C-x C-w`'s by its
 //! segments (ADR 0087), and a project's files, listed as they are walked, or a line of them,
-//! searched for (ADR 0114). The mark list shares their way in, as it too lists before it reads.
+//! searched for (ADR 0114). The mark list and the list of a project's diagnostics (ADR 0138)
+//! share their way in, as they too list before they read.
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 
@@ -61,10 +62,20 @@ impl Dispatcher {
         if let Some(refused) = refused_in_a_prompt(editor) {
             return refused;
         }
+        let utf8 = match editor.project_files_root() {
+            Ok((root, _)) => root.to_str().is_some(),
+            Err(not) => {
+                editor.message(not.to_string());
+                return (redraw(), Ok(()));
+            }
+        };
         match editor.open_diagnostics_list(prompt) {
             Ok(prompt) => self.reading.push(Reading::run(id, prefix, prompt)),
+            Err(PromptError::Invalid) if !utf8 => {
+                editor.message("Cannot list the diagnostics of a project whose path is not UTF-8");
+            }
             Err(PromptError::Invalid) => {
-                editor.message("No project here to list the diagnostics of");
+                editor.message("A project's diagnostics are listed already")
             }
             Err(error) => editor.prompt_says(error.to_string()),
         }

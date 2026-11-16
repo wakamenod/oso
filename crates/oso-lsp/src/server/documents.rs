@@ -12,7 +12,7 @@
 //! Each document also keeps the texts it was given last, so that a late diagnostics report is
 //! placed against the text it names and mapped forward to the latest (`history`, step 6).
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 use oso_core::rope::Rope;
@@ -324,11 +324,12 @@ impl Documents {
         self.0.get(&id)?.path.clone()
     }
 
-    /// Whether a document open with the server, or waiting to be, is at `path`.
-    pub(super) fn has_path(&self, path: &Path) -> bool {
+    /// The paths of the documents open with the server, or waiting to be.
+    pub(super) fn paths(&self) -> HashSet<&Path> {
         self.0
             .values()
-            .any(|kept| kept.path.as_deref() == Some(path))
+            .filter_map(|kept| kept.path.as_deref())
+            .collect()
     }
 
     #[cfg(test)]

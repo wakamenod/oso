@@ -178,32 +178,44 @@ impl Session {
             return;
         };
         let open = self.deliver_diagnostics(&path, &report, run.encoding);
+        // The paths open, gathered once, and only if the bounds are reached.
         let documents = &self.documents;
-        let gone = self
-            .diagnosed
-            .put(path.clone(), report, |path| documents.has_path(path));
+        let opened = std::cell::OnceCell::new();
+        let gone = self.diagnosed.put(path.clone(), report, |path| {
+            opened.get_or_init(|| documents.paths()).contains(path)
+        });
         if !open {
             self.deliver_file(path, run.encoding);
         }
         for path in gone {
-            self.deliver_file(path, run.encoding);
+            self.forget_file(path);
         }
     }
 
     /// Hands the UI the report kept for the file at `path`, or an empty one if none is, for a
     /// file no document open with the server holds.
     pub(super) fn deliver_file(&mut self, path: PathBuf, encoding: Encoding) {
-        let report = self.diagnosed.get(&path).unwrap_or_else(|| {
-            Arc::new(Published {
+        match self.diagnosed.get(&path) {
+            Some(report) => self.reporter.diagnostics(Diagnosed::File {
+                path,
+                report,
+                encoding,
+            }),
+            None => self.forget_file(path),
+        }
+    }
+
+    /// Tells the UI to forget the report of the file at `path`, whose diagnostics the store let
+    /// go or a document holds now: an empty one, whose encoding counts for nothing.
+    pub(super) fn forget_file(&mut self, path: PathBuf) {
+        self.reporter.diagnostics(Diagnosed::File {
+            path,
+            report: Arc::new(Published {
                 uri: String::new(),
                 version: None,
                 diagnostics: Vec::new(),
-            })
-        });
-        self.reporter.diagnostics(Diagnosed::File {
-            path,
-            report,
-            encoding,
+            }),
+            encoding: Encoding::Utf16,
         });
     }
 

@@ -43,6 +43,9 @@ pub(super) struct Servers {
     no_project: HashSet<BufferId>,
     /// The serial of the last ask of a server, which its answer brings back (step 8).
     serial: u64,
+    /// The generation of `M-g d`'s newest list, which stops the build of an older one
+    /// (step 6b).
+    listing: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// One server, as the app knows it.

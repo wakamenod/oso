@@ -16,22 +16,21 @@
 //!   completion does.
 //! - Nothing of a row reaches a log; `Debug` gives a generation at most.
 
+use std::cell::Cell;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::buffer::BufferId;
+use crate::buffer::{Buffer, BufferId};
 use crate::complete::{Candidate, Candidates, WORKER_PAST};
 use crate::diagnostic::{Severity, first_line};
 use crate::editor::file_preview::{FilePreview, Lister, PreviewAt, Wanted};
 use crate::editor::visits::VisitColumn;
 use crate::editor::{CompletionStyle, Editor, Preview};
 use crate::minibuffer::{PromptError, PromptId};
-use crate::syntax::Splice;
-
-/// The most bytes of a message a row keeps, cut at a character, as a search's row keeps of its
-/// line.
-const ROW_MESSAGE_BYTES: usize = 512;
+use crate::project::MAX_ROW_BYTES as ROW_MESSAGE_BYTES;
+use crate::selection::{OffsetEdit, follow_offset};
+use crate::sum_tree::Bias;
 
 /// The rows the host should build for the list of a project's diagnostics. `Debug` gives its
 /// generation only.
@@ -147,11 +146,11 @@ impl DiagnosticRows {
                     text.truncate(end);
                     text.push('…');
                 }
-                let annotation = match (row.source.is_empty(), row.code.is_empty()) {
-                    (false, false) => format!("{} {}", row.source, row.code),
-                    (false, true) => row.source.into(),
-                    (true, _) => row.code.into(),
-                };
+                // The source and the code, their runs of blanks as one too.
+                let annotation = (row.source.split_whitespace())
+                    .chain(row.code.split_whitespace())
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 places.push(RowPlace {
                     path: row.path.len(),
                     line: row.line,
@@ -212,6 +211,10 @@ pub(in crate::editor) struct DiagnosticsList {
     hit: Option<DiagnosticHit>,
     /// The selected row's preview of a file no buffer holds.
     pub(in crate::editor) preview: FilePreview,
+    /// Where an open buffer's row was last found, as the preview asks each frame: its item, the
+    /// buffer's revision then, and its offset, or `None` once the buffer's edits no longer
+    /// reach the list's.
+    moved: Cell<Option<(usize, u64, Option<usize>)>>,
 }
 
 impl fmt::Debug for DiagnosticsList {
@@ -220,23 +223,6 @@ impl fmt::Debug for DiagnosticsList {
             .field("generation", &self.generation)
             .finish_non_exhaustive()
     }
-}
-
-/// Where `offset` of a text goes through `splices`, one batch in ascending order of the text it
-/// changes: past each splice before it by its change in length, and into one it is inside to
-/// the start of what replaced it.
-fn moved(offset: usize, splices: &[Splice]) -> usize {
-    let mut moved = offset;
-    for splice in splices {
-        if offset <= splice.start {
-            break;
-        }
-        if offset < splice.start + splice.old_len {
-            return moved - (offset - splice.start);
-        }
-        moved = moved + splice.new_len - splice.old_len;
-    }
-    moved
 }
 
 impl Editor {
@@ -303,7 +289,7 @@ impl Editor {
             .prompt
             .filter(|_| list.pending && rows.generation == list.generation);
         let Some(id) = open else {
-            if rows.places.len() > WORKER_PAST {
+            if rows.items.len() > WORKER_PAST {
                 self.free_on_the_worker(Box::new(rows));
             }
             return;
@@ -318,18 +304,16 @@ impl Editor {
         list.pending = false;
         list.cut = cut;
         list.places = places;
-        let Some(prompt) = self.prompts.iter().find(|prompt| prompt.id == id) else {
-            return;
-        };
-        let typed = self
-            .buffer(prompt.buffer)
+        list.moved.set(None);
+        let typed = (self.prompts.iter().find(|prompt| prompt.id == id))
+            .and_then(|prompt| self.buffer(prompt.buffer))
             .is_some_and(|buffer| !buffer.text().is_empty());
-        let Some((candidates, seen)) = self
-            .prompts
-            .iter_mut()
-            .find(|prompt| prompt.id == id)
-            .and_then(|prompt| prompt.completion.as_mut())
-        else {
+        let completion = (self.prompts.iter_mut().find(|prompt| prompt.id == id))
+            .and_then(|prompt| prompt.completion.as_mut());
+        let Some((candidates, seen)) = completion else {
+            if items.len() > WORKER_PAST {
+                self.free_on_the_worker(Box::new(items));
+            }
             return;
         };
         let mut listed = Candidates::in_given_order(items);
@@ -378,9 +362,11 @@ impl Editor {
         Some((item, Path::new(text.get(..place.path)?), place))
     }
 
-    /// Where the open buffer of a row is now: its offset moved through the edits since the
-    /// list was made, clipped to its text; `None` once the buffer has gone.
-    fn open_place(&self, at: DiagnosticRowAt) -> Option<(BufferId, usize)> {
+    /// Where the open buffer of the row `item` is now: its offset moved through the edits since
+    /// the list was made, as the cursors move, clipped to its text. `None` once the buffer has
+    /// gone, or its edits since no longer reach the list's revision: the row is then its file's,
+    /// by line. Worked out once for each revision of the buffer, as each frame asks.
+    fn open_place(&self, item: usize, at: DiagnosticRowAt) -> Option<(BufferId, usize)> {
         let DiagnosticRowAt::Open {
             buffer: id,
             offset,
@@ -390,47 +376,67 @@ impl Editor {
             return None;
         };
         let buffer = self.buffer(id)?;
-        let offset = if buffer.revision() == revision {
+        let now = buffer.revision();
+        let offset = if now == revision {
             offset
+        } else if let Some((seen, at, moved)) = self.servers.list.moved.get()
+            && (seen, at) == (item, now)
+        {
+            moved?
         } else {
-            buffer
-                .edits_since(revision)
-                .map_or(offset, |splices| moved(offset, &splices))
+            let moved = buffer.edits_since(revision).map(|splices| {
+                let mut edits: Vec<OffsetEdit> = (splices.iter())
+                    .map(|splice| OffsetEdit {
+                        start: splice.start,
+                        old_len: splice.old_len,
+                        new_len: splice.new_len,
+                    })
+                    .collect();
+                edits.sort_unstable_by_key(|edit| edit.start);
+                follow_offset(offset, &edits, Bias::Left)
+            });
+            self.servers.list.moved.set(Some((item, now, moved)));
+            moved?
         };
         let text = buffer.text();
-        Some((
-            id,
-            text.clip_offset(offset.min(text.len()), crate::sum_tree::Bias::Left),
-        ))
+        Some((id, text.clip_offset(offset.min(text.len()), Bias::Left)))
+    }
+
+    /// The column a row of `at` is gone to by its file: its server's, or the line's start for an
+    /// open buffer's row whose place is no longer known.
+    fn file_column(at: DiagnosticRowAt) -> VisitColumn {
+        match at {
+            DiagnosticRowAt::File { column } => column,
+            DiagnosticRowAt::Open { .. } => VisitColumn::Chars(0),
+        }
     }
 
     /// The selected row, as the preview of a file wants it: none for a row of an open buffer,
     /// which shows from memory.
     pub(in crate::editor) fn diagnostic_wanted(&self) -> Option<Wanted<'_>> {
         let (item, path, place) = self.selected_diagnostic()?;
-        if self.open_place(place.at).is_some() {
+        if self.open_place(item, place.at).is_some() {
             return None;
         }
-        let column = match place.at {
-            DiagnosticRowAt::File { column } => column,
-            DiagnosticRowAt::Open { .. } => VisitColumn::Chars(0),
-        };
+        let root = &self.servers.list.root;
         Some(Wanted {
             key: (self.servers.list.generation, item),
-            root: &self.servers.list.root,
+            root,
             path,
             at: PreviewAt::Line {
                 line: place.line,
-                column,
+                column: Self::file_column(place.at),
             },
-            secret: false,
+            // The server's thread drops a report of such a file, and the reader withholds one
+            // it judges so; nothing of one is asked for either, as for a search's row.
+            secret: Buffer::name_may_hold_secrets(&root.join(path)),
         })
     }
 
     /// What the preview of the innermost prompt's selected row shows, if it lists diagnostics.
     pub(in crate::editor) fn diagnostics_preview(&self) -> Option<Preview> {
-        let (_, _, place) = self.selected_diagnostic()?;
-        match self.open_place(place.at) {
+        let (item, _, place) = self.selected_diagnostic()?;
+        match self.open_place(item, place.at) {
             Some((id, offset)) => self.buffer_preview_at(id, offset),
             None => self.file_row_preview(Lister::Diagnostics),
         }
@@ -439,18 +445,15 @@ impl Editor {
     /// The whole path of the innermost prompt's selected row, if it lists diagnostics: its place
     /// is kept for the command ([`Editor::take_diagnostic_hit`]). Nothing goes in a history.
     pub(in crate::editor) fn diagnostics_answer(&mut self) -> Option<String> {
-        let (_, path, place) = self.selected_diagnostic()?;
+        let (item, path, place) = self.selected_diagnostic()?;
         let whole = self.servers.list.root.join(path);
         let answer = whole.to_str()?.to_owned();
-        let hit = match self.open_place(place.at) {
+        let hit = match self.open_place(item, place.at) {
             Some((id, offset)) => DiagnosticHit::Buffer { id, offset },
             None => DiagnosticHit::File {
                 path: whole,
                 line: place.line,
-                column: match place.at {
-                    DiagnosticRowAt::File { column } => column,
-                    DiagnosticRowAt::Open { .. } => VisitColumn::Chars(0),
-                },
+                column: Self::file_column(place.at),
             },
         };
         self.servers.list.hit = Some(hit);
@@ -462,7 +465,7 @@ impl Editor {
         self.servers.list.hit.take()
     }
 
-    /// Forgets the list of diagnostics, once its prompt has closed; many rows go to the worker.
+    /// Forgets the list of diagnostics, once its prompt has closed.
     pub(in crate::editor) fn forget_diagnostics_list(&mut self, closed: PromptId) {
         let list = &mut self.servers.list;
         if list.prompt != Some(closed) {
@@ -471,18 +474,13 @@ impl Editor {
         let mut preview = std::mem::take(&mut list.preview);
         preview.reset();
         let (generation, hit) = (list.generation, list.hit.take());
-        let before = std::mem::replace(
-            list,
-            DiagnosticsList {
-                generation,
-                hit,
-                preview,
-                ..DiagnosticsList::default()
-            },
-        );
-        if before.places.len() > WORKER_PAST {
-            self.free_on_the_worker(Box::new(before.places));
-        }
+        // Its places hold nothing on the heap of their own: one free, here.
+        *list = DiagnosticsList {
+            generation,
+            hit,
+            preview,
+            ..DiagnosticsList::default()
+        };
     }
 }
 

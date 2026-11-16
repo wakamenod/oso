@@ -11,7 +11,8 @@
 //!   following no link and waiting for nothing. Only a regular file is read.
 //! - A file that may hold secrets, by the name of its path from the root as given or from any
 //!   place the root leads through, as the search judges it, is never read; the editor never
-//!   asks for one whose row says so either. The root opened must be the place judged.
+//!   asks for one whose row says so, or, for a diagnostic, whose name says so, either. The root
+//!   opened must be the place judged.
 //! - The read starts at the row's line, as far as the search found it, and goes back for about
 //!   half the preview's rows: at most [`BACK`] before the line and [`MAX_LINE`] in all. A place
 //!   a server gave has only its line, which is found by counting line breaks from the file's
@@ -47,7 +48,7 @@ pub const SCAN_MAX: u64 = 64 << 20;
 const PART: usize = 64 * 1024;
 
 /// The most bytes past the end of the row's line read for each row after it, as an excerpt keeps
-/// no more of a line: `EXCERPT_LINE` in `oso_core::editor::project_search::preview`, 4 KiB, and
+/// no more of a line: `EXCERPT_LINE` in `oso_core::editor::file_preview`, 4 KiB, and
 /// the line's break. The two must change together.
 const PER_ROW: usize = 4096 + 1;
 
@@ -278,13 +279,17 @@ fn line_offset(file: &mut File, line: usize, live: &dyn Fn() -> bool) -> Option<
         if count == 0 {
             return None;
         }
-        for (index, &byte) in part[..count].iter().enumerate() {
-            if byte == b'\n' {
-                left -= 1;
-                if left == 0 {
-                    return Some(read + index as u64 + 1);
-                }
-            }
+        let part = &part[..count];
+        // A whole part's breaks counted at once, which the compiler vectorizes; only the part
+        // the line starts in is walked.
+        let breaks = part.iter().filter(|&&byte| byte == b'\n').count();
+        if breaks < left {
+            left -= breaks;
+        } else {
+            let (index, _) = (part.iter().enumerate())
+                .filter(|&(_, &byte)| byte == b'\n')
+                .nth(left - 1)?;
+            return Some(read + index as u64 + 1);
         }
         read += count as u64;
     }

@@ -7,8 +7,9 @@
 //!
 //! Must not depend on: `session`'s loop or `pipes`; this holds what they report.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::mem;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -34,7 +35,17 @@ struct Waiting {
     shown: Vec<Shown>,
     documents: Vec<(u64, Option<Closed>)>,
     diagnostics: Vec<Diagnosed>,
+    /// Where in `diagnostics` each document's and each file's waits, so that a newer one
+    /// replaces it in O(1), however many wait.
+    waiting_at: HashMap<Key, usize>,
     answers: Vec<Answer>,
+}
+
+/// What a waiting set of diagnostics is of: an open document, or a file.
+#[derive(Debug, PartialEq, Eq, Hash)]
+enum Key {
+    Open(u64),
+    File(PathBuf),
 }
 
 impl Default for Waiting {
@@ -48,6 +59,7 @@ impl Default for Waiting {
             shown: Vec::new(),
             documents: Vec::new(),
             diagnostics: Vec::new(),
+            waiting_at: HashMap::new(),
             answers: Vec::new(),
         }
     }
@@ -74,7 +86,10 @@ impl Outbox {
             log,
             shown: mem::take(&mut waiting.shown),
             documents: mem::take(&mut waiting.documents),
-            diagnostics: mem::take(&mut waiting.diagnostics),
+            diagnostics: {
+                waiting.waiting_at.clear();
+                mem::take(&mut waiting.diagnostics)
+            },
             answers: mem::take(&mut waiting.answers),
         })
     }
@@ -188,13 +203,32 @@ impl Reporter {
     /// interval.
     pub(super) fn diagnostics(&mut self, diagnosed: Diagnosed) {
         self.outbox.with(|waiting| {
-            waiting.diagnostics.retain(|kept| match (kept, &diagnosed) {
-                (Diagnosed::Open { id: kept, .. }, Diagnosed::Open { id, .. }) => kept != id,
-                (Diagnosed::File { path: kept, .. }, Diagnosed::File { path, .. }) => kept != path,
-                (Diagnosed::File { .. } | Diagnosed::Forgotten, Diagnosed::Forgotten) => false,
-                _ => true,
-            });
-            waiting.diagnostics.push(diagnosed);
+            let key = match &diagnosed {
+                Diagnosed::Open { id, .. } => Key::Open(*id),
+                Diagnosed::File { path, .. } => Key::File(path.clone()),
+                Diagnosed::Forgotten => {
+                    // Rare: once a run, so O(n) here.
+                    let waiting_at = &mut waiting.waiting_at;
+                    waiting
+                        .diagnostics
+                        .retain(|kept| matches!(kept, Diagnosed::Open { .. }));
+                    waiting_at.clear();
+                    for (at, kept) in waiting.diagnostics.iter().enumerate() {
+                        if let Diagnosed::Open { id, .. } = kept {
+                            waiting_at.insert(Key::Open(*id), at);
+                        }
+                    }
+                    waiting.diagnostics.push(diagnosed);
+                    return;
+                }
+            };
+            match waiting.waiting_at.get(&key) {
+                Some(&at) => waiting.diagnostics[at] = diagnosed,
+                None => {
+                    waiting.waiting_at.insert(key, waiting.diagnostics.len());
+                    waiting.diagnostics.push(diagnosed);
+                }
+            }
         });
         self.due = true;
     }

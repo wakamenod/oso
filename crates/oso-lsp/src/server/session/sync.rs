@@ -62,10 +62,9 @@ impl Session {
                 (change.id, out)
             }
             Ask::Close(id) => {
-                // Its kept report, if any, is a file's again for the UI (step 6b).
-                if let (Some(path), Some(run)) = (self.documents.path_of(id), run.as_ref())
-                    && self.diagnosed.get(&path).is_some()
-                {
+                // Its kept report is a file's again for the UI, or none forgets what the UI
+                // may hold from before it opened (step 6b).
+                if let (Some(path), Some(run)) = (self.documents.path_of(id), run.as_ref()) {
                     let encoding = run.encoding;
                     self.deliver_file(path, encoding);
                 }
@@ -106,9 +105,15 @@ impl Session {
         }
         // A report kept from before a document opened, which names no version, as a check's
         // on save does: placed against the text it opened with.
+        // A file's report the UI holds goes once its document opens: from then on its set is
+        // the document's (step 6b).
         for path in self.documents.take_opened() {
-            if let Some(report) = self.diagnosed.get(&path).filter(|r| r.version.is_none()) {
-                self.deliver_diagnostics(&path, &report, run.encoding);
+            let report = self.diagnosed.get(&path);
+            if let Some(report) = report.as_ref().filter(|r| r.version.is_none()) {
+                self.deliver_diagnostics(&path, report, run.encoding);
+            }
+            if report.is_some() {
+                self.forget_file(path);
             }
         }
         Ok(())

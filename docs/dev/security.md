@@ -97,6 +97,8 @@ network features.
   file only, judged again as the search judges it, from the root opened only if
   it is the place judged. It reads at most 64 KiB before the row's line and
   16 MiB in all, keeps at most 256 lines of at most 4 KiB of the file's bytes,
+  and for a diagnostic of `M-g d`, which has its line but no offset, first
+  counts line breaks from the file's start within 64 MiB (ADR 0138); it
   opens no buffer, and an open buffer of a file
   that may hold secrets is never shown in it. A file that could not be opened for a
   reason other than its being gone or refused ends the search with `+`. On
