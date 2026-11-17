@@ -407,6 +407,7 @@ fn a_hostile_directory_costs_nothing_and_changes_nothing() {
             set: &[],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .and_then(|mut child| child.wait())
         .expect("cannot run mkfifo");

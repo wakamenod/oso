@@ -37,6 +37,7 @@ mod commit;
 mod discard;
 mod draft;
 mod graph;
+mod pr;
 mod prompt;
 mod remote;
 mod requests;
@@ -46,6 +47,7 @@ mod stash;
 mod status;
 
 pub(crate) use graph::GraphEvent;
+pub(crate) use pr::PrEvent;
 pub(crate) use runs::RunEvent;
 
 /// The most characters of a failure the echo area shows.
@@ -82,6 +84,8 @@ pub(super) struct GitStatuses {
     commits: commit::Commits,
     /// The graph buffers (step 4).
     graphs: graph::Graphs,
+    /// The repositories `gh` is asked about, and the pull requests' buffers (step 5a).
+    prs: pr::Prs,
 }
 
 /// A status buffer as the app knows it.
@@ -138,6 +142,7 @@ impl App {
         // A graph's next page is read only for a person's key in it, never for an agent's.
         let keyed_graph = (key && !agent).then_some(typed_in).flatten();
         self.sync_graphs(keyed_graph);
+        self.sync_prs();
         for index in 0..self.gits.open.len() {
             let buffer = self.gits.open[index].buffer;
             let shown = self
@@ -181,6 +186,7 @@ impl App {
             requests::Concern::Stash => self.git_stash_request(request),
             requests::Concern::Branch => self.git_branch_request(request),
             requests::Concern::Graph => self.git_graph_request(request),
+            requests::Concern::Pr => self.git_pr_request(request),
             requests::Concern::Status => self.git_status_request(request),
         }
     }

@@ -12,12 +12,12 @@ use oso_core::project::ProjectId;
 
 use super::super::super::App;
 use super::{QUESTION_NAMES, Removing, hosted_state};
+use crate::git::printable;
 use crate::sessions::state::State;
 use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::checks::{self, Check};
 use crate::sessions::worktree::jobs::{Asked, Go};
 use crate::sessions::worktree::list;
-use crate::sessions::worktree::porcelain::printable;
 
 impl App {
     /// `worktree-remove`: the worktree at `path`, else the row at point in `*Worktrees*`, else

@@ -39,6 +39,7 @@ fn request<'a>(sh: &'a Executable, args: &'a [OsString]) -> Spawn<'a> {
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     }
 }
 
@@ -130,6 +131,7 @@ fn a_passed_descriptor_is_the_only_one_past_the_standard_streams() {
     let args = ["-c".into(), script.into()];
     let mut child = spawn(&Spawn {
         pass_fd: Some(PassedFd::new(writer.as_fd())),
+        args_logged: true,
         ..request(&sh, &args)
     })
     .unwrap();
@@ -302,6 +304,7 @@ fn a_low_descriptor_passed_is_not_overwritten_by_a_stream_set_up_before_it() {
         stdout: Sink::Piped,
         stderr: Sink::Piped,
         pass_fd: Some(PassedFd::new(stderr.as_fd())),
+        args_logged: true,
         ..request(&sh, &args)
     })
     .unwrap();

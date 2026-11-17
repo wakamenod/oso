@@ -113,6 +113,26 @@ fn a_person_goes_to_a_status_and_kills_it() {
 }
 
 #[test]
+fn a_person_lists_and_kills_a_pull_request_s_buffer_and_a_list() {
+    let mut editor = Editor::default();
+    let pr = editor.add_git_pr(ProjectId(0), "*pr: #12*");
+    let other = editor.add_git_pr(ProjectId(0), "*pr: #12*");
+    let list = editor.add_git_pr_list(ProjectId(1), "*pull requests: oso*");
+    assert_eq!(editor.buffer_named("*pr: #12*<2>"), Some(other));
+    assert_eq!(editor.buffer(pr).map(|b| b.mode()), Some(Mode::GitPr));
+    assert_eq!(editor.buffer(list).map(|b| b.mode()), Some(Mode::GitPrList));
+    assert_eq!(editor.git_pr_of(list), Some(ProjectId(1)));
+    assert_eq!(editor.git_status_of(pr), None, "not a status");
+    // Its text goes in as a status's, and the person can come back to it and kill it.
+    editor.set_git_text(pr, text(), shown(0, Vec::new()));
+    assert!(editor.buffers_by_recency().contains(&pr));
+    editor.show(pr);
+    editor.kill_by_person(pr, false).unwrap();
+    assert!(editor.buffer(pr).is_none());
+    assert_eq!(editor.git_pr_of(pr), None);
+}
+
+#[test]
 fn requests_go_to_the_host_in_order() {
     let mut editor = Editor::default();
     let id = editor.add_git_status(ProjectId(0), "*git: oso*");

@@ -63,6 +63,8 @@ pub oso_core::buffer::Mode::GitCommit
 pub oso_core::buffer::Mode::GitDiscarded
 pub oso_core::buffer::Mode::GitGraph
 pub oso_core::buffer::Mode::GitLog
+pub oso_core::buffer::Mode::GitPr
+pub oso_core::buffer::Mode::GitPrList
 pub oso_core::buffer::Mode::GitStatus
 pub oso_core::buffer::Mode::Go
 pub oso_core::buffer::Mode::JavaScript
@@ -1515,6 +1517,18 @@ pub oso_core::editor::GitRequest::GraphAnswer::buffer: oso_core::buffer::BufferI
 pub oso_core::editor::GitRequest::GraphAnswer::text: alloc::string::String
 pub oso_core::editor::GitRequest::GraphToggle
 pub oso_core::editor::GitRequest::GraphToggle::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::PrAct
+pub oso_core::editor::GitRequest::PrAct::act: oso_core::editor::PrAct
+pub oso_core::editor::GitRequest::PrAct::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::PrAct::line: usize
+pub oso_core::editor::GitRequest::PrList
+pub oso_core::editor::GitRequest::PrList::project: oso_core::project::ProjectId
+pub oso_core::editor::GitRequest::PrOpen
+pub oso_core::editor::GitRequest::PrOpen::project: oso_core::project::ProjectId
+pub oso_core::editor::GitRequest::PrView
+pub oso_core::editor::GitRequest::PrView::checks: bool
+pub oso_core::editor::GitRequest::PrView::number: core::option::Option<u64>
+pub oso_core::editor::GitRequest::PrView::project: oso_core::project::ProjectId
 pub oso_core::editor::GitRequest::Pull
 pub oso_core::editor::GitRequest::Pull::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::Pull::how: oso_core::editor::PullHow
@@ -1801,6 +1815,20 @@ impl core::fmt::Display for oso_core::editor::NoPair
 pub fn oso_core::editor::NoPair::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::NoPair
 impl core::marker::StructuralPartialEq for oso_core::editor::NoPair
+pub enum oso_core::editor::PrAct
+pub oso_core::editor::PrAct::CopyLink
+pub oso_core::editor::PrAct::Open
+pub oso_core::editor::PrAct::Refresh
+pub oso_core::editor::PrAct::Visit
+impl core::clone::Clone for oso_core::editor::PrAct
+pub fn oso_core::editor::PrAct::clone(&self) -> oso_core::editor::PrAct
+impl core::cmp::Eq for oso_core::editor::PrAct
+impl core::cmp::PartialEq for oso_core::editor::PrAct
+pub fn oso_core::editor::PrAct::eq(&self, &oso_core::editor::PrAct) -> bool
+impl core::fmt::Debug for oso_core::editor::PrAct
+pub fn oso_core::editor::PrAct::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::PrAct
+impl core::marker::StructuralPartialEq for oso_core::editor::PrAct
 pub enum oso_core::editor::Preview
 pub oso_core::editor::Preview::Buffer
 pub oso_core::editor::Preview::Buffer::cursor: usize
@@ -2558,12 +2586,15 @@ pub fn oso_core::editor::Editor::windows(&self) -> impl core::iter::traits::exac
 pub fn oso_core::editor::Editor::with_buffer(oso_core::buffer::Buffer) -> Self
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_git_graph(&mut self, oso_core::project::ProjectId, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::Editor::add_git_pr(&mut self, oso_core::project::ProjectId, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::Editor::add_git_pr_list(&mut self, oso_core::project::ProjectId, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::add_git_status(&mut self, oso_core::project::ProjectId, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::append_git_log(&mut self, oso_core::buffer::BufferId, &str)
 pub fn oso_core::editor::Editor::git_graph_buffer(&self, oso_core::project::ProjectId) -> core::option::Option<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::git_graph_of(&self, oso_core::buffer::BufferId) -> core::option::Option<oso_core::project::ProjectId>
 pub fn oso_core::editor::Editor::git_outline(&self, oso_core::buffer::BufferId) -> &[oso_core::editor::GitHeading]
 pub fn oso_core::editor::Editor::git_points(&self, oso_core::buffer::BufferId) -> alloc::vec::Vec<(oso_core::window::WindowId, usize)>
+pub fn oso_core::editor::Editor::git_pr_of(&self, oso_core::buffer::BufferId) -> core::option::Option<oso_core::project::ProjectId>
 pub fn oso_core::editor::Editor::git_runs(&self) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::buffer::BufferId> + '_
 pub fn oso_core::editor::Editor::git_status_buffer(&self, oso_core::project::ProjectId) -> core::option::Option<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::git_status_of(&self, oso_core::buffer::BufferId) -> core::option::Option<oso_core::project::ProjectId>
@@ -2694,6 +2725,7 @@ pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<all
 pub fn oso_core::editor::Editor::message_unlogged(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::messages_buffer(&self) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::note(&mut self, impl core::convert::Into<alloc::string::String>)
+pub fn oso_core::editor::Editor::note_unlogged(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::place_behind_internal_of(&self, oso_core::window::WindowId) -> core::option::Option<(oso_core::buffer::BufferId, &oso_core::selection::SelectionSet, oso_core::window::Scroll)>
 pub fn oso_core::editor::Editor::restore_kept_place(&mut self, oso_core::buffer::BufferId, oso_core::selection::SelectionSet, oso_core::window::Scroll) -> bool
 pub fn oso_core::editor::Editor::restore_kept_place_in(&mut self, oso_core::window::WindowId, oso_core::buffer::BufferId, oso_core::selection::SelectionSet, oso_core::window::Scroll) -> bool

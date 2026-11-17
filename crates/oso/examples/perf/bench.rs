@@ -25,6 +25,7 @@ mod dired;
 mod edits;
 mod finding;
 mod git_status;
+mod lsp;
 mod review;
 mod sessions;
 mod startup;
@@ -163,6 +164,7 @@ pub fn run_all(exe: &Path, scale: &Scale) -> Result<Report, String> {
     git_status::git_status(exe, scale.key_runs, scale.keys, &mut report)?;
     sessions::sessions(exe, scale.key_runs, &mut report)?;
     conversations::conversations(exe, scale.key_runs, scale.keys, &mut report)?;
+    lsp::lsp(exe, scale.key_runs, scale.keys, &mut report)?;
 
     log_step("opening a large file");
     let open = dir.file("open.txt");

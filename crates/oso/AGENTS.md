@@ -90,7 +90,9 @@ often, so it must rebuild within 2 s.
   arguments and environment, every read bounded (`run/collect`) and a run past 10 s killed; object ids (`id`);
   `TrustedRoot` (`trust`), the only place git starts from; git's names and the secret-name
   check (`path`); the empty hooks directory under oso's state directory (`hooks`); and runs
-  with no time limit in a process group of their own, which the person stops (`long`); a push,
+  with no time limit in a process group of their own, which the person stops (`long`); `gh`, about
+  the GitHub repository a remote names (`gh`, ADR 0121 and ADR 0127 step 5a); text from a run
+  made safe to show (`said`); a push,
   a pull or a fetch gets the proxies and a session of its own with no controlling terminal
   (`Git::for_remote`, ADR 0127 step 2). The review, the worktree jobs and the git status use it;
   it uses none of them.
@@ -115,7 +117,9 @@ often, so it must rebuild within 2 s.
   `commands::vcs::branch` (step 3b). The graph is `graph`'s: its records, `graph/lanes`, the
   text `graph/write` and its thread `graph/work`, `oso-vcs-graph`, with `app/vcs/graph.rs` and
   `commands::vcs::graph` (step 4); what its keys do with a commit is `app/vcs/graph/acts.rs`,
-  run on the run thread (`run/graph`) (step 4b). Its keys are listed in `commands::vcs::KEYS` and
+  run on the run thread (`run/graph`) (step 4b). Pull requests are `pr`'s: `gh`'s answers read,
+  their texts `pr/write` and the repository's `gh` thread `pr/work`, `oso-vcs-gh`, through
+  `git::Gh`, with `app/vcs/pr.rs` and `commands::vcs::pr` (step 5a). Its keys are listed in `commands::vcs::KEYS` and
   `commands::vcs::commit`, the commit menu is built in, and `bindings/vcs.rs` binds them;
   `app/vcs.rs` carries out what its commands ask, with `app/vcs/status.rs` (the status's own
   requests), `app/vcs/commit.rs` (messages) and `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,

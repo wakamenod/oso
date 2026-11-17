@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use super::create::{Resolved, head_of, resolve};
 use super::git::Repo;
-use super::porcelain::printable;
+use crate::git::printable;
 use crate::sessions::spaces::Member;
 
 /// What to look at.

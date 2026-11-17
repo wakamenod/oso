@@ -17,7 +17,7 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use oso_platform::file_meta::{Directory, Entry, EntryKind, open_regular_here};
 use oso_platform::privacy::has_one_name;
 
-use super::porcelain::printable;
+use crate::git::printable;
 
 /// The file's name, at the root of the main checkout.
 pub const NAME: &str = ".worktreeinclude";

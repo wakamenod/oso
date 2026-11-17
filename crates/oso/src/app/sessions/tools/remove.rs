@@ -14,10 +14,10 @@ use super::super::super::App;
 use super::reads::JOB_WITHIN;
 use super::{Caller, Job, Pending, shown};
 use crate::channel::{Connection, Reply};
+use crate::git::printable;
 use crate::sessions::tools::Tool;
 use crate::sessions::worktree::checks;
 use crate::sessions::worktree::jobs::{Asked, Go, Report};
-use crate::sessions::worktree::porcelain::printable;
 
 /// The most names of what git ignored a reply gives.
 const NAMES: usize = 20;

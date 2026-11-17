@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use super::checks::{self, Held, Looked};
-use super::porcelain::printable;
+use crate::git::printable;
 
 /// The longest a field of a row is shown.
 const MAX_FIELD: usize = 120;
