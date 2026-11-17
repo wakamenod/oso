@@ -42,7 +42,7 @@ pub const COMMANDS: &[Command] = &[
     },
     person_command!(
         "review-message-drop",
-        "Drop this review message: nothing is sent, and its comments stay unsent.",
+        "Drop this review message and show its review again: nothing is sent, and its comments stay unsent.",
         review_message_drop
     ),
 ];

@@ -1288,7 +1288,8 @@ second. The author approved the plan's public items and answered its questions (
   while it runs, else the hosted session that runs in the review's root, the one shown last
   first (Q5). **`C-u C-c C-c`** reads one by completion over `session-send`'s list, and the
   review keeps it, in memory, until the review closes or the session is gone. **`C-c C-k`
-  (`review-message-drop`) drops the message, in place of the Decision's `C-g`,** which stays
+  (`review-message-drop`) drops the message and shows its review again, in place of the
+  Decision's `C-g`,** which stays
   `keyboard-quit` in a buffer the person types in, as in a commit's and a pull request's
   message (Q2).
 - **A paste refused** (the session asks for permission or another answer, is not judged yet,

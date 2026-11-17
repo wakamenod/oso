@@ -9,12 +9,19 @@
 
 use super::git_agent::{END, FAKE, back_to, echo, hosted, pastes};
 use super::git_status::{has, rows_until};
+use super::harness::App;
 use super::review::rows;
 use super::typing;
 use super::worktrees::Flow;
 
 const REVIEW: &str = "*review: uncommitted repo*";
 const MESSAGE: &str = "*review message*";
+
+/// Shows the review of the uncommitted changes, opening it or showing the one open.
+fn show_review(app: &mut App) {
+    app.send_keys("C-x v r w");
+    app.wait_for("the review", |state| state["buffer"]["name"] == REVIEW);
+}
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
@@ -23,8 +30,7 @@ fn a_comment_goes_to_the_session_through_its_message_and_is_then_sent() {
     // `hosted` changes the README, which the review shows.
     let (mut app, _bridge) = hosted(&flow);
     back_to(&mut app, "README.md");
-    app.send_keys("C-x v r w");
-    app.wait_for("the review", |state| state["buffer"]["name"] == REVIEW);
+    show_review(&mut app);
     rows_until(&mut app, |rows| has(rows, "+changed"));
 
     // Nothing of the person's waits yet.
@@ -34,7 +40,7 @@ fn a_comment_goes_to_the_session_through_its_message_and_is_then_sent() {
     // A comment on the added line.
     app.send_keys("n C-n");
     app.send_keys("c");
-    app.send_keys(&format!("{} C-c C-c", typing("Say why")));
+    app.send_keys(&format!("{} SPC {} C-c C-c", typing("Say"), typing("why")));
     rows_until(&mut app, |rows| has(rows, "    \u{258d}  Say why"));
 
     // `C-c C-c` shows the message, naming the session it goes to.
@@ -61,7 +67,8 @@ fn a_comment_goes_to_the_session_through_its_message_and_is_then_sent() {
         echo(&state),
         "The message was dropped: its comments stay unsent"
     );
-    back_to(&mut app, REVIEW);
+    // Killing the message shows the review it was made from again.
+    assert_eq!(state["buffer"]["name"], REVIEW);
     app.send_keys("C-c C-c");
     app.wait_for("the message again", |state| {
         state["buffer"]["name"] == MESSAGE
@@ -81,8 +88,9 @@ fn a_comment_goes_to_the_session_through_its_message_and_is_then_sent() {
         "Pasted into repo: press Enter there. 1 comment marked sent"
     );
 
-    // Sent, it is gathered no more, and its message is gone.
-    back_to(&mut app, REVIEW);
+    // Sent, it is gathered no more, and its message is gone. The review, an internal buffer,
+    // is shown again from its menu, which `C-x b` does not list.
+    show_review(&mut app);
     app.send_keys("C-c C-c");
     assert_eq!(echo(&app.state()), "No comment of yours waits to be sent");
     let buffers = app.state()["buffers"].clone();

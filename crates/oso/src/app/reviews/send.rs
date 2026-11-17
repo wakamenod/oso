@@ -209,12 +209,19 @@ impl App {
         ));
     }
 
-    /// `review-message-drop`: drops the message `buffer` holds.
+    /// `review-message-drop`: drops the message `buffer` holds, and shows its review again.
     pub(super) fn drop_review_message(&mut self, buffer: BufferId) {
-        let ours =
-            (self.reviews.sending.message.as_ref()).is_some_and(|message| message.buffer == buffer);
-        if ours {
+        let review = (self.reviews.sending.message.as_ref())
+            .filter(|message| message.buffer == buffer)
+            .map(|message| message.review);
+        if review.is_some() {
             self.reviews.sending.message = None;
+        }
+        // A review buffer is internal, which a kill's next buffer leaves out.
+        if let Some(shown) = review.and_then(|review| self.editor.review_buffer(review))
+            && self.editor.window().buffer() == buffer
+        {
+            self.editor.show(shown);
         }
         self.editor.kill_buffer(buffer);
         self.editor

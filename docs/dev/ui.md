@@ -433,7 +433,7 @@ project and how long ago the baseline was taken. Only a trusted project runs git
   30 lines around the comment past 60), the comment it replies to, and `Comment: …`. The echo
   area names the session it goes to. The buffer is yours: an agent may read it, never change it.
   There `C-c C-c` pastes it into the session, as `session-send` does, not submitted, and `C-u
-  C-c C-c` picks the session by completion; `C-c C-k` drops it. Once pasted, the comments it
+  C-c C-c` picks the session by completion; `C-c C-k` drops it and shows the review again. Once pasted, the comments it
   held are drawn dimmed, but any changed meanwhile; one message waits at a time.
 - `C-x k` closes the review, asking first while comments of yours that were not sent, or a draft,
   would be lost; a review not shown is shown before the question.
