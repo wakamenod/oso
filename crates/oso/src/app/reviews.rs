@@ -7,7 +7,6 @@
 //! file, diffs or builds a review's text: a text comes whole from its view thread, goes in at
 //! O(1), and the text it replaces is freed off the UI thread. Nothing here logs a file's text.
 
-use std::collections::VecDeque;
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -20,8 +19,10 @@ use super::{App, UserEvent};
 use crate::commands::review::{MAX_NAME, RESTRICTED, one_line};
 use crate::git::{Id, TrustedRoot};
 use crate::review::count::Counted;
+use crate::review::pr::PrFound;
 use crate::review::view::{Tell, Text, View};
-use crate::review::{Asked, Content, Reading, Report, Request, Reviewer, Scope};
+use crate::review::{Asked, Content, Reading, Report, Request, Reviewer};
+use scope::{fetching_said, found_said, same_scope, scope_label, scope_of};
 pub(in crate::app) use state::Reviews;
 use state::{Baseliner, Reopen, Running};
 
@@ -81,55 +82,6 @@ fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |now| now.as_secs())
-}
-
-/// What a review's name and title call its scope.
-fn scope_label(scope: &Scope) -> String {
-    let label = match scope {
-        Scope::Session { .. } => "session".to_owned(),
-        Scope::Uncommitted => "uncommitted".to_owned(),
-        Scope::Unstaged => "unstaged".to_owned(),
-        Scope::Staged => "staged".to_owned(),
-        Scope::Branch { base } => format!("branch {base}"),
-        Scope::Commit { revision } => format!("commit {revision}"),
-        Scope::Range { from, to } => format!("range {from}..{to}"),
-    };
-    one_line(&label, MAX_NAME)
-}
-
-/// Whether `a` and `b` review the same thing: the session scope whatever its baseline.
-fn same_scope(a: &Scope, b: &Scope) -> bool {
-    matches!((a, b), (Scope::Session { .. }, Scope::Session { .. })) || a == b
-}
-
-/// The scope a request names, or why it cannot be reviewed.
-fn scope_of(
-    scope: ScopeKind,
-    revision: Option<String>,
-    baseline: Option<Id>,
-) -> Result<Scope, &'static str> {
-    let revision = || revision.clone().ok_or("No revision was named");
-    Ok(match scope {
-        ScopeKind::Session => Scope::Session {
-            baseline: baseline.ok_or("No baseline: B takes one")?,
-        },
-        ScopeKind::Uncommitted => Scope::Uncommitted,
-        ScopeKind::Unstaged => Scope::Unstaged,
-        ScopeKind::Staged => Scope::Staged,
-        ScopeKind::Branch => Scope::Branch { base: revision()? },
-        ScopeKind::Commit => Scope::Commit {
-            revision: revision()?,
-        },
-        ScopeKind::Range => {
-            let range = revision()?;
-            let (from, to) = range.split_once("..").ok_or("A range is FROM..TO")?;
-            Scope::Range {
-                from: from.to_owned(),
-                to: to.to_owned(),
-            }
-        }
-        ScopeKind::PullRequest => return Err("Pull requests cannot be reviewed yet"),
-    })
 }
 
 impl App {
@@ -243,21 +195,7 @@ impl App {
             }
         };
         self.editor.show_in(window, buffer);
-        self.reviews.open.push(Running {
-            id,
-            project,
-            scope: scope.clone(),
-            root,
-            serial: 0,
-            reviewer: None,
-            view,
-            texts: VecDeque::new(),
-            revoked: false,
-            carrying: VecDeque::new(),
-            layout: layout::Layout::default(),
-            folded: false,
-            shown_folded: false,
-        });
+        (self.reviews.open).push(Running::new(id, project, scope.clone(), root, view));
         let index = self.reviews.open.len() - 1;
         self.start_reviewer(index);
         self.ask_review(index, Request::Open(scope));
@@ -413,6 +351,9 @@ impl App {
             Report::Failed { asked, why } => {
                 if asked == Asked::Carry {
                     self.carries_failed(index, false);
+                } else {
+                    // What `gh` said may be stale now: comments go to the review's own session.
+                    self.reviews.open[index].pr = None;
                 }
                 let why = one_line(&why, MAX_MESSAGE);
                 self.editor.message(format!("The review failed: {why}"));
@@ -426,8 +367,29 @@ impl App {
                 Tell::Said(vec![gone.to_owned()])
             }
             Report::Baseline { .. } => return,
+            Report::PrFound(found) => return self.review_pr_found(index, found),
+            Report::Fetching { number, remote } => {
+                self.editor.message(fetching_said(number, &remote));
+                return self.request_redraw();
+            }
         };
         self.reviews.open[index].view.tell(tell);
+    }
+
+    /// Keeps what `gh` said of a review's pull request, saying it once what is said of it
+    /// changed.
+    fn review_pr_found(&mut self, index: usize, found: PrFound) {
+        let running = &mut self.reviews.open[index];
+        let said = found_said(&found);
+        let new = running
+            .pr
+            .as_ref()
+            .is_none_or(|was| found_said(was) != said);
+        running.pr = Some(found);
+        if new {
+            self.editor.message(said);
+            self.request_redraw();
+        }
     }
 
     fn baseline_report(&mut self, project: ProjectId, serial: u64, report: Report) {
@@ -579,6 +541,7 @@ impl App {
 mod comments;
 mod layout;
 mod menu;
+mod scope;
 mod send;
 mod state;
 #[cfg(test)]

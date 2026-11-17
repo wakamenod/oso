@@ -598,6 +598,12 @@ agent, after ADR 0122's step 12. The plan's questions were answered (a) each:
   save no one here started counts as the agent's, and so do two the list had let go of: an
   agent's save that outlasted the wait for its reply, and one whose connection closed. Each
   only marks the status stale; before, they read it again, running git on what an agent did.
+- **Later moves (ADR 0122, step 12b):** `PullTarget` (step 5a's remote and repository for
+  `gh`, was `vcs::pr::work`'s `Target`), `GH_LIMIT`, the worktree list's run and parser
+  (`worktrees`, was the worktree jobs', its record now `ListedWorktree`), the lossy path
+  decoding they share (`path::os_lossy`), `Git::line`, `Git::is_ancestor`, `own_line` (was
+  `vcs::remote::failed`'s), `Git::run_long_with` and `Git::for_fetch`, as a review of a pull
+  request needs them and may not use `vcs` or `sessions`.
 - **Follow-up:** `identity`, a file's device and inode, is a file system helper, not git's;
   `grep` and `sessions` keep copies of their own. One helper, in `oso-platform`, would do.
 

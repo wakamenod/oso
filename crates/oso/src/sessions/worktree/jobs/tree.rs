@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use super::{Jobs, Report, Trust};
+use crate::git::ListedWorktree;
 use crate::sessions::list::Worktree;
-use crate::sessions::worktree::porcelain::Listed;
 
 impl Jobs {
     /// Lists the worktrees of the repository at `root`, under `trust`, for the tree.
@@ -40,7 +40,7 @@ impl Jobs {
 /// One listed worktree of the repository at `main`, the main checkout if `primary`: its path
 /// resolved where it can be, when it was made (its `.git` file's change) and when git last
 /// wrote its index.
-fn worktree(main: &Path, listed: Listed, primary: bool) -> Worktree {
+fn worktree(main: &Path, listed: ListedWorktree, primary: bool) -> Worktree {
     let path = std::fs::canonicalize(&listed.path).unwrap_or(listed.path);
     let changed = |file: &Path| -> Option<SystemTime> {
         std::fs::symlink_metadata(file)

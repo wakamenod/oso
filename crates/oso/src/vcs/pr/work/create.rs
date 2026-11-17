@@ -21,7 +21,8 @@ use super::super::create::{
     BranchCommit, MAX_COMMITS, MAX_TEMPLATE, TEMPLATE_DIRS, TEMPLATE_NAME, draft_text, read_commits,
 };
 use super::super::{read_default_branch, read_merge};
-use super::{Found, Target, no_pull_request, none_found, pr_view, read_line, run, unexpected};
+use super::{Found, no_pull_request, none_found, pr_view, run, unexpected};
+use crate::git::PullTarget;
 use crate::git::may_hold_secrets;
 use crate::vcs::read::{args, set};
 use crate::vcs::remote::check_branch;
@@ -55,7 +56,11 @@ pub(crate) struct MergeTarget {
     pub(crate) repo: String,
 }
 
-pub(super) fn draft(found: &Found, target: &Target, base: Option<&str>) -> Result<Drafted, String> {
+pub(super) fn draft(
+    found: &Found,
+    target: &PullTarget,
+    base: Option<&str>,
+) -> Result<Drafted, String> {
     let branch =
         (target.branch.clone()).ok_or("No branch is checked out to make a pull request of")?;
     let remote = &target.remote;
@@ -70,11 +75,15 @@ pub(super) fn draft(found: &Found, target: &Target, base: Option<&str>) -> Resul
         return Err(format!("{branch} is its own base: N c - b names another"));
     }
     let git = &found.git;
-    let set_upstream =
-        read_line(git, &["rev-parse", "--verify", "--quiet", "@{upstream}"]).is_none();
+    let set_upstream = git
+        .line(&["rev-parse", "--verify", "--quiet", "@{upstream}"])
+        .is_none();
     let there = format!("refs/remotes/{remote}/{branch}");
-    let push_first = read_line(git, &["rev-parse", "--verify", "--quiet", &there]).is_none()
-        || read_line(git, &["rev-list", "--count", &format!("{there}..HEAD")])
+    let push_first = git
+        .line(&["rev-parse", "--verify", "--quiet", &there])
+        .is_none()
+        || git
+            .line(&["rev-list", "--count", &format!("{there}..HEAD")])
             .is_none_or(|ahead| ahead != "0");
     let commits = branch_commits(found, remote, &base);
     let template = template(found.root.path());
@@ -90,10 +99,12 @@ pub(super) fn draft(found: &Found, target: &Target, base: Option<&str>) -> Resul
 }
 
 /// The remote's `HEAD`, else the repository's default branch.
-fn default_base(found: &Found, target: &Target) -> Result<String, String> {
+fn default_base(found: &Found, target: &PullTarget) -> Result<String, String> {
     let remote = &target.remote;
     let head = format!("refs/remotes/{remote}/HEAD");
-    let known = read_line(&found.git, &["symbolic-ref", "--quiet", "--short", &head])
+    let known = found
+        .git
+        .line(&["symbolic-ref", "--quiet", "--short", &head])
         .and_then(|name| name.strip_prefix(&format!("{remote}/")).map(str::to_owned));
     if let Some(base) = known {
         return Ok(base);
@@ -110,7 +121,10 @@ fn default_base(found: &Found, target: &Target) -> Result<String, String> {
 /// not known there.
 fn branch_commits(found: &Found, remote: &str, base: &str) -> Vec<BranchCommit> {
     let at = format!("refs/remotes/{remote}/{base}");
-    let known = read_line(&found.git, &["rev-parse", "--verify", "--quiet", &at]).is_some();
+    let known = found
+        .git
+        .line(&["rev-parse", "--verify", "--quiet", &at])
+        .is_some();
     let range = if known {
         format!("{at}..HEAD")
     } else {
@@ -167,7 +181,7 @@ fn template(root: &Path) -> Option<String> {
     })
 }
 
-pub(super) fn merge_target(found: &Found, target: &Target) -> Result<MergeTarget, String> {
+pub(super) fn merge_target(found: &Found, target: &PullTarget) -> Result<MergeTarget, String> {
     let fields = "number,state,baseRefName,headRefOid,headRefName";
     let answer = pr_view(found, target, None, fields)?;
     if none_found(&answer) {

@@ -17,9 +17,10 @@ use std::path::Path;
 
 use super::super::pr::create::{PrRun, failed, log_line};
 use super::super::pr::read_merge;
-use super::super::pr::work::{GH_LIMIT, branch_repo};
+use super::super::pr::work::branch_repo;
 use super::stream::{ended_as, stream_long};
 use super::{RunEnd, RunReport, Watch};
+use crate::git::GH_LIMIT;
 use crate::git::{Gh, GhRepo, Git, MAX_GH, TrustedRoot};
 
 /// Runs `run` about the repository at `root`, `gh`'s directory under `state`, to its end.

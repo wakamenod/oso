@@ -294,6 +294,7 @@ mod tests {
         "review-commit",
         "review-kill",
         "review-mark-baseline",
+        "review-pull-request",
         "review-range",
         "review-refresh",
         "review-session",
@@ -528,6 +529,7 @@ mod tests {
         "git-pr-open",
         "git-pr-previous-message",
         "git-pr-refresh",
+        "git-pr-review",
         "git-pr-view",
         "git-pr-visit",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).

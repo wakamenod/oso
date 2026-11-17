@@ -11,7 +11,7 @@ use oso_core::editor::{Editor, ReviewId, ScopeKind};
 use oso_core::project::ProjectId;
 
 use super::state::{Baseliner, Reopen, Reviews, Running};
-use super::{same_scope, scope_label, scope_of};
+use super::{fetching_said, found_said, same_scope, scope_label, scope_of};
 use crate::commands::review::{MAX_NAME, one_line};
 use crate::git::Id;
 use crate::git::TrustedRoot;
@@ -59,6 +59,16 @@ fn a_request_names_its_scope_or_says_why_it_cannot() {
         Err("No revision was named")
     );
     assert!(scope_of(ScopeKind::PullRequest, None, None).is_err());
+    assert_eq!(
+        scope_of(ScopeKind::PullRequest, Some("12".into()), None),
+        Ok(Scope::PullRequest { number: 12 })
+    );
+    for bad in ["", "0", "+1", "-1", "1a", " 1", "١", "1234567890123456789"] {
+        assert!(
+            scope_of(ScopeKind::PullRequest, Some(bad.into()), None).is_err(),
+            "{bad:?}"
+        );
+    }
 }
 
 #[test]
@@ -119,6 +129,7 @@ fn running(id: ReviewId, project: ProjectId, scope: Scope, serial: u64) -> Runni
         layout: super::layout::Layout::default(),
         folded: false,
         shown_folded: false,
+        pr: None,
     }
 }
 
@@ -214,4 +225,39 @@ fn a_project_no_longer_trusted_stops_its_reviews_baselines_and_counts() {
     assert!(reviews.counted.is_none());
     assert!(counts_root.revoked());
     assert_eq!(reviews.base_wanted, None);
+}
+
+#[test]
+fn what_is_said_of_a_pull_request_puts_its_escaped_title_last() {
+    let found = |title: &str, branch: &str, head_checked_out: bool| crate::review::pr::PrFound {
+        number: 7,
+        title: title.into(),
+        head_branch: branch.into(),
+        worktree: None,
+        head_checked_out,
+    };
+    assert_eq!(
+        found_said(&found("Add b", "feature", false)),
+        "Reviewing #7, its head commit shows \u{b7} feature \u{b7} Add b"
+    );
+    assert_eq!(
+        found_said(&found("Add b", "feature", true)),
+        "Reviewing #7, checked out here, so the work tree shows \u{b7} feature \u{b7} Add b"
+    );
+    // A title or branch holding a line break, an escape or a reordering mark says none.
+    let said = found_said(&found("x\n\u{1b}[2J\u{202e}y", "f\u{202e}\n", false));
+    assert!(!said.contains(['\n', '\u{1b}', '\u{202e}']), "{said:?}");
+    assert!(
+        said.starts_with("Reviewing #7, its head commit shows \u{b7} "),
+        "{said:?}"
+    );
+    // A branch that spells oso's words comes after them.
+    let spelled = "a,\u{3000}checked\u{3000}out\u{3000}here";
+    let said = found_said(&found("t", spelled, false));
+    assert!(
+        said.starts_with("Reviewing #7, its head commit shows \u{b7} "),
+        "{said:?}"
+    );
+    let said = fetching_said(7, "up\u{1b}[31mstream");
+    assert!(!said.contains('\u{1b}'), "{said:?}");
 }

@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use oso_core::buffer::BufferId;
-use oso_core::editor::{GitRequest, GitShown, PrAct};
+use oso_core::editor::{GitRequest, GitShown, PrAct, ScopeKind};
 use oso_core::project::ProjectId;
 
 use super::super::{App, UserEvent};
@@ -459,6 +459,19 @@ impl App {
                 Some((_, url)) => self.copy_pr_link(&url),
                 None => self.editor.message("No address here"),
             },
+            (PrAct::Review, row) => {
+                let listed = match row {
+                    PrRow::Pull(at) => pull(at),
+                    _ => None,
+                };
+                match listed.or_else(|| built.pull.clone()) {
+                    Some((number, _)) => {
+                        let number = Some(number.to_string());
+                        self.open_review(project, ScopeKind::PullRequest, number);
+                    }
+                    None => self.editor.message("No pull request here"),
+                }
+            }
         }
     }
 

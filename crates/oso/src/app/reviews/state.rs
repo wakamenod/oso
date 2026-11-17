@@ -45,6 +45,8 @@ pub(super) struct Running {
     /// Whether agent cards fold in the text the review buffer holds, which may still be one
     /// built before the view was told otherwise.
     pub(super) shown_folded: bool,
+    /// What `gh` last said of the pull request it reviews (step 12b).
+    pub(super) pr: Option<crate::review::pr::PrFound>,
 }
 
 /// What opening a review that is open already does.
@@ -60,6 +62,32 @@ pub(super) enum Reopen {
 }
 
 impl Running {
+    /// A review just opened, whose thread is not started yet.
+    pub(super) fn new(
+        id: ReviewId,
+        project: ProjectId,
+        scope: Scope,
+        root: TrustedRoot,
+        view: View,
+    ) -> Running {
+        Running {
+            id,
+            project,
+            scope,
+            root,
+            serial: 0,
+            reviewer: None,
+            view,
+            texts: VecDeque::new(),
+            revoked: false,
+            carrying: VecDeque::new(),
+            layout: super::layout::Layout::default(),
+            folded: false,
+            shown_folded: false,
+            pr: None,
+        }
+    }
+
     /// What opening `scope` again does to this review, which reviews the same thing.
     pub(super) fn reopen(&self, scope: &Scope) -> Reopen {
         if self.revoked {

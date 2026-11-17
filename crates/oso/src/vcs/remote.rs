@@ -360,17 +360,9 @@ pub(crate) fn failed(title: &str, output: &str) -> String {
                                   terminal, which asks to trust it"
             .to_owned(),
         None => {
-            let from = output.floor_char_boundary(output.len().saturating_sub(MAX_LOOKED));
             // A server's own error (`fatal: remote error: …`) is its words: not echoed.
-            let line = output[from..].lines().rev().find(|line| {
-                let line = line.trim_start();
-                (line.starts_with("fatal: ")
-                    || line.starts_with("error: ")
-                    || line.starts_with("! ["))
-                    && !line.contains("remote error:")
-            });
-            match line {
-                Some(line) => format!("{title} failed: {}; $ shows the output", line.trim()),
+            match crate::git::own_line(output, MAX_LOOKED) {
+                Some(line) => format!("{title} failed: {line}; $ shows the output"),
                 None => format!("{title} failed: $ shows the output"),
             }
         }

@@ -175,6 +175,9 @@ pub enum PrAct {
     Open,
     /// Copy the address the line names, or the pull request's (`w`).
     CopyLink,
+    /// Review the pull request, or the one the line names in a list, as ADR 0122's pull
+    /// request scope (`r`, ADR 0122, step 12b).
+    Review,
 }
 
 /// How `N m` merges a pull request (ADR 0127, step 5a): `gh pr merge`'s `--squash`, `--merge`

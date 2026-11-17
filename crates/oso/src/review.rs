@@ -27,12 +27,15 @@
 //!   request, and a newer request stops the run of them, the rest waiting.
 //! - Limits, each saying what it hides: 10,000 files and 32 MiB of list; a side of 8 MiB and
 //!   200,000 lines, diffed within 1 s, and 5 s of diffing per request; 64 MiB of sides and
-//!   hunks held per review; a git run of 10 s.
+//!   hunks held per review; a git run of 10 s, but a pull request's fetch, which has none.
 //! - The thread's stack is [`STACK`]: Myers' diff recurses, and needs up to half a MiB at the
 //!   line limit.
 //! - Nothing here logs a file's text; `Debug` of a reading gives its path and kind.
 //! - Its runner, [`TrustedRoot`] and its secret-name check are the `git` module's, shared with
 //!   the worktree jobs (ADR 0121) and the git status (`vcs`, ADR 0127).
+//! - A pull request's sides come from `gh` and, for commits this clone lacks, a fetch that
+//!   writes objects alone, with the review's empty hooks, on open and on each refresh the
+//!   person asks for (`pr`, step 12b); carries are answered while they wait.
 //! - Two things need no thread: `message` composes the message of the person's comments to an
 //!   agent session (step 12), and [`hunk_header`] writes a hunk's header for it and the view.
 
@@ -42,6 +45,7 @@ mod diff;
 mod index;
 mod list;
 pub(crate) mod message;
+pub(crate) mod pr;
 #[cfg(test)]
 mod queue_tests;
 mod read;
@@ -127,6 +131,10 @@ pub(crate) enum Report {
     Carried { carried: Carried, cut_short: bool },
     /// A request failed; the message says why, with no file's text.
     Failed { asked: Asked, why: String },
+    /// What `gh` said of the pull request reviewed, before its listing (step 12b).
+    PrFound(pr::PrFound),
+    /// A fetch of pull request `number`'s commits from `remote` starts (step 12b).
+    Fetching { number: u64, remote: String },
 }
 
 impl fmt::Debug for Report {
@@ -175,6 +183,16 @@ impl fmt::Debug for Report {
                 .field("asked", asked)
                 .field("why", why)
                 .finish(),
+            // A title and a branch are anyone's words.
+            Self::PrFound(found) => f
+                .debug_struct("PrFound")
+                .field("number", &found.number)
+                .field("head_checked_out", &found.head_checked_out)
+                .finish_non_exhaustive(),
+            Self::Fetching { number, .. } => f
+                .debug_struct("Fetching")
+                .field("number", number)
+                .finish_non_exhaustive(),
         }
     }
 }

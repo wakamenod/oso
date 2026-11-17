@@ -51,7 +51,8 @@ mod with_gh {
 
     use oso_platform::process::Executable;
 
-    use super::super::{Found, Target, head, target_of, view};
+    use super::super::{Found, head, view};
+    use crate::git::PullTarget;
     use crate::git::{Gh, Git, TrustedRoot};
     use crate::review::tests::Repo as Scratch;
 
@@ -113,8 +114,8 @@ mod with_gh {
         }
     }
 
-    fn repo(found: &Found) -> Target {
-        target_of(&found.git).unwrap()
+    fn repo(found: &Found) -> PullTarget {
+        PullTarget::of(&found.git).unwrap()
     }
 
     const HEAD: &str = r#"{"number":12,"title":"Add x","state":"OPEN","isDraft":false,
@@ -200,7 +201,7 @@ mod with_gh {
             "https://evil.example/o/r.git",
         ]);
         let found = bench.found();
-        let refused = target_of(&found.git).err().unwrap_or_default();
+        let refused = PullTarget::of(&found.git).err().unwrap_or_default();
         assert!(refused.contains("not on github.com"), "{refused}");
         assert_eq!(bench.asked(), "");
     }

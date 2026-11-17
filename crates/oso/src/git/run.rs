@@ -33,6 +33,8 @@
 //! - A run may let the repository's own hooks run ([`Git::with_own_hooks`]), for a commit,
 //!   with the variables a hook needs; a push, a pull or a fetch gets the proxies too, and runs
 //!   with no controlling terminal ([`Git::for_remote`]).
+//!   A review's fetch of a pull request's objects gets the same, but keeps the empty hooks
+//!   directory ([`Git::for_fetch`], ADR 0122, step 12b).
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -223,6 +225,17 @@ impl Git {
         }
     }
 
+    /// The same git for a fetch a review makes (ADR 0122, step 12b): the proxies and the SSH
+    /// agent a remote needs, and a long run in a session of its own with no controlling
+    /// terminal, as [`Git::for_remote`]'s, but keeping the empty hooks directory and the reads'
+    /// variables, as a fetch that writes no ref has no hook of the person's to run.
+    pub(crate) fn for_fetch(&self) -> Git {
+        Git {
+            remote: true,
+            ..self.clone()
+        }
+    }
+
     /// The same git, whose long runs start in a session of their own with no controlling
     /// terminal: what it starts that opens the terminal fails at once instead of stopping, and
     /// closing the terminal oso was started from sends it nothing.
@@ -326,6 +339,10 @@ impl Git {
         }
         if self.remote {
             inherit.extend(REMOTE_INHERIT);
+            if self.hooks.is_some() {
+                // A fetch with oso's hooks still reaches an ssh remote (`for_fetch`).
+                inherit.push("SSH_AUTH_SOCK");
+            }
         }
         if !self.ceiling.is_empty() {
             variables.push(("GIT_CEILING_DIRECTORIES", &self.ceiling));
@@ -402,6 +419,35 @@ impl Git {
             });
         }
         Ok(output.stdout)
+    }
+
+    /// The first line git writes for `words`, with `GIT_LITERAL_PATHSPECS` set, if it ran well
+    /// and said one in UTF-8.
+    pub(crate) fn line(&self, words: &[&str]) -> Option<String> {
+        let args: Vec<&OsStr> = words.iter().map(OsStr::new).collect();
+        let set = [("GIT_LITERAL_PATHSPECS", OsStr::new("1"))];
+        let out = self.run(&args, &set, MAX_SHORT).ok()?;
+        let line = std::str::from_utf8(super::trim_line(&out)).ok()?.to_owned();
+        (!line.is_empty()).then_some(line)
+    }
+
+    /// Whether `ancestor` is `tip` or one of its ancestors (`git merge-base --is-ancestor`),
+    /// each an object id or a full ref name oso made, never a person's text.
+    ///
+    /// # Errors
+    ///
+    /// If git cannot run, or says neither yes nor no, as for an object it does not have.
+    pub(crate) fn is_ancestor(&self, ancestor: &str, tip: &str) -> Result<bool, GitError> {
+        let args = ["merge-base", "--is-ancestor", ancestor, tip].map(OsStr::new);
+        let out = self.output(&args, &[], MAX_SHORT)?;
+        match out.status.code() {
+            Some(0) => Ok(true),
+            Some(1) => Ok(false),
+            status => Err(GitError::Failed {
+                status,
+                stderr: out.stderr,
+            }),
+        }
     }
 
     /// Resolves `revision`, as a person or an agent gave it, to the id of the object `peel`

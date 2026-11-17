@@ -21,18 +21,17 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use super::porcelain::{self, Listed};
+use super::porcelain;
+use crate::git::ListedWorktree;
 use crate::git::{Gh, GhRepo, Git, GitError, MAX_GH, MAX_SHORT, RUN_LIMIT};
 use crate::project::linked_worktree;
 
 /// The most bytes of a listing read: worktrees, branches, refs, paths.
 pub const MAX_LISTING: usize = 4 * 1024 * 1024;
-/// The most worktrees a repository's listing keeps.
-pub const MAX_WORKTREES: usize = 256;
 /// The most names a listing of branches or refs keeps.
 pub const MAX_NAMES: usize = 10_000;
 /// How many merged pull requests of a branch `gh` is asked for.
-const GH_LIMIT: &str = "30";
+const MERGED_ASKED: &str = "30";
 
 /// A repository's main checkout, run in by git.
 #[derive(Clone, Debug)]
@@ -100,11 +99,8 @@ impl Repo {
     /// # Errors
     ///
     /// If git cannot list them.
-    pub fn worktrees(&self) -> Result<Vec<Listed>, String> {
-        let out = self
-            .run(&["worktree", "list", "--porcelain", "-z"], MAX_LISTING)
-            .map_err(|e| said(&e))?;
-        Ok(porcelain::worktrees(&out, MAX_WORKTREES))
+    pub fn worktrees(&self) -> Result<Vec<ListedWorktree>, String> {
+        crate::git::list_worktrees(&self.git).map_err(|e| said(&e))
     }
 
     /// git in the linked worktree at `path`, if it is one of this repository's whose claim
@@ -164,18 +160,6 @@ pub fn run(git: &Git, args: &[&str], limit: usize) -> Result<Vec<u8>, GitError> 
     git.run(&args, &[], limit)
 }
 
-/// Runs `git` with `args` and gives its exit status's code, as `merge-base --is-ancestor`
-/// answers with it.
-///
-/// # Errors
-///
-/// If git cannot run or ran too long.
-pub fn status(git: &Git, args: &[&str]) -> Result<Option<i32>, GitError> {
-    let args: Vec<&OsStr> = args.iter().map(OsStr::new).collect();
-    git.output(&args, &[], MAX_SHORT)
-        .map(|out| out.status.code())
-}
-
 /// A merged pull request of a branch, as `gh` gives it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MergedPr {
@@ -211,7 +195,7 @@ pub fn merged_pulls(
         "--json",
         "number,headRefOid,baseRefName",
         "--limit",
-        GH_LIMIT,
+        MERGED_ASKED,
     ];
     let out = gh.run(repo, &args, cwd, MAX_GH, RUN_LIMIT)?.into_stdout()?;
     parse_merged(&out).ok_or_else(|| "gh gave an unexpected answer".to_owned())

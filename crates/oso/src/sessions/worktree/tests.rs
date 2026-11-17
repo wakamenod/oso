@@ -21,8 +21,8 @@ use super::create::{self, Order};
 use super::facts::RepoFacts;
 use super::git::Repo;
 use super::merged::{self, Merged};
-use super::porcelain::Listed;
 use crate::git::Gh;
+use crate::git::ListedWorktree;
 
 /// An order for a worktree on `branch` with a brief.
 fn order(branch: &str) -> Order {
@@ -137,7 +137,7 @@ impl Scratch {
     }
 
     /// The listed worktree at `path`.
-    fn listed(&self, path: &Path) -> Listed {
+    fn listed(&self, path: &Path) -> ListedWorktree {
         self.repo()
             .worktrees()
             .unwrap()

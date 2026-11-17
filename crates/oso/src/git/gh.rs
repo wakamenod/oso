@@ -17,10 +17,12 @@ use std::time::Duration;
 use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 
 use super::long::Long;
-use super::{GitError, collect, printable, read_at_most};
+use super::{Git, GitError, collect, printable, read_at_most};
 
 /// The most bytes of `gh`'s answer read.
 pub(crate) const MAX_GH: usize = 256 * 1024;
+/// How long one run of `gh` about pull requests may take.
+pub(crate) const GH_LIMIT: Duration = Duration::from_secs(30);
 /// The GitHub host `gh` knows without `GH_HOST`.
 const GITHUB: &str = "github.com";
 
@@ -119,6 +121,48 @@ impl GhRepo {
     /// Whether it is on `github.com`, not the host `GH_HOST` names.
     pub(crate) fn on_github(&self) -> bool {
         self.parts().0.eq_ignore_ascii_case(GITHUB)
+    }
+}
+
+/// What `gh` is asked about for pull requests (ADR 0127, step 5a; ADR 0122, step 12b): the
+/// repository on GitHub of the remote the branch checked out pushes to, else `origin`'s, and
+/// the branch, if one is checked out.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PullTarget {
+    pub(crate) github: GhRepo,
+    pub(crate) branch: Option<String>,
+    /// The remote the branch pushes to, else `origin`.
+    pub(crate) remote: String,
+}
+
+impl PullTarget {
+    /// The target of the repository `git` runs in, as git says it now.
+    ///
+    /// # Errors
+    ///
+    /// Why there is none: no such remote, or one on no GitHub host `gh` is asked about.
+    pub(crate) fn of(git: &Git) -> Result<PullTarget, String> {
+        let read = |words: &[&str]| git.line(words);
+        let branch = read(&["symbolic-ref", "--quiet", "--short", "HEAD"])
+            .filter(|branch| !branch.starts_with('-'));
+        let remote = branch
+            .as_deref()
+            .and_then(|branch| {
+                let head = format!("refs/heads/{branch}");
+                read(&["for-each-ref", "--format=%(upstream:remotename)", &head])
+            })
+            .unwrap_or_else(|| "origin".to_owned());
+        let url = read(&["remote", "get-url", "--", &remote])
+            .ok_or_else(|| format!("No remote {remote}: a pull request is a GitHub remote's"))?;
+        let gh_host = std::env::var("GH_HOST").ok();
+        let github = GhRepo::from_url(&url, gh_host.as_deref()).ok_or_else(|| {
+            format!("{remote} is not on github.com or the host GH_HOST names: gh is not asked")
+        })?;
+        Ok(PullTarget {
+            github,
+            branch,
+            remote,
+        })
     }
 }
 
