@@ -1,0 +1,151 @@
+//! The UI's asks for code actions on the session thread (ADR 0138, step 13): an ask becomes a
+//! request over its range with the diagnostics there as the server gave them, and an answer, or
+//! a resolve, becomes actions for the UI with their edits placed (`edits`).
+//!
+//! Must not depend on: the process or the pipes; the run sends, and the reporter hands over.
+//!
+//! - The diagnostics given are those of the document's last report that overlap the range, if
+//!   the report is of the text asked about, at most [`ACTION_DIAGNOSTICS_MAX`].
+//! - The revisions of the texts the server has are kept as the request goes out: an edit of a
+//!   document whose text changed while the server answered is refused (Q8).
+//! - The actions are kept as the server gave them, but for the edits already read, for the
+//!   picked one's resolve and a command's arguments (13b); a newer answer replaces them.
+
+use oso_core::rope::Rope;
+use serde_json::Value;
+
+use crate::limits::ACTION_DIAGNOSTICS_MAX;
+use crate::position;
+use crate::protocol::{self, Reported};
+
+use super::super::{ActionResolved, Answer, Answered, Ask, AskContext, CodeAction, CodeActions};
+use super::Session;
+use super::run::{LastItems, Run};
+
+impl Session {
+    /// `textDocument/codeAction`'s parameters for `ask`, over `start` to `end` of `text`, the
+    /// document's at `uri`, or why it cannot be asked.
+    pub(super) fn action_params(
+        &self,
+        run: &Run,
+        ask: &Ask,
+        (start, end): (usize, usize),
+        (uri, text): (&str, &Rope),
+    ) -> Result<Value, &'static str> {
+        if !run.acting.offers {
+            return Err("it offers no code actions");
+        }
+        let start = position::from_offset(text, start, run.encoding);
+        let end = position::from_offset(text, end, run.encoding).max(start);
+        let report =
+            (self.documents.path_of(ask.document)).and_then(|path| self.diagnosed.get(&path));
+        // Only a report of the text asked about places its ranges in it.
+        let version = self.documents.sent_version(ask.document);
+        let diagnostics: Vec<&Reported> = (report.iter())
+            .filter(|report| report.version.is_none() || report.version == version)
+            .flat_map(|report| report.diagnostics.iter())
+            .filter(|reported| reported.start <= end && start <= reported.end)
+            .take(ACTION_DIAGNOSTICS_MAX)
+            .collect();
+        Ok(protocol::code_action_params(
+            uri,
+            (start, end),
+            &diagnostics,
+        ))
+    }
+
+    /// The code actions `result` offers for `ask`, request `id`, their edits placed.
+    pub(super) fn offered_actions(
+        &mut self,
+        run: &mut Run,
+        (id, ask): (i64, Ask),
+        result: Value,
+        took: u128,
+    ) {
+        let list = protocol::code_actions(&result);
+        let base = run.edit_bases.remove(&id);
+        // Kept as the server gave them, but for the edits read, which may be large.
+        let mut kept = protocol::take_actions(result, &list.at);
+        for (value, offered) in kept.iter_mut().zip(&list.actions) {
+            if offered.edit.is_some()
+                && let Value::Object(fields) = value
+            {
+                fields.remove("edit");
+            }
+        }
+        run.last_actions = Some(LastItems {
+            document: ask.document,
+            serial: ask.serial,
+            items: kept,
+        });
+        let resolves = run.acting.resolves;
+        let actions: Vec<CodeAction> = (list.actions.into_iter())
+            .map(|offered| CodeAction {
+                resolves: resolves && offered.resolvable,
+                edit: (offered.edit).map(|edit| {
+                    let edit = edit.map_err(str::to_owned)?;
+                    self.placed(run.encoding, edit, base.as_ref())
+                }),
+                title: offered.title,
+                kind: offered.kind,
+                preferred: offered.preferred,
+                disabled: offered.disabled,
+                command: offered.command,
+            })
+            .collect();
+        self.reporter.log(format!(
+            "request {id} answered with {} code actions in {took} ms{}",
+            actions.len(),
+            if list.left > 0 {
+                format!(", {} more left out", list.left)
+            } else {
+                String::new()
+            }
+        ));
+        self.reporter.answer(Answer {
+            serial: ask.serial,
+            document: ask.document,
+            kind: ask.kind,
+            revision: ask.revision,
+            outcome: Ok(Answered::CodeActions(CodeActions { actions })),
+        });
+    }
+
+    /// What `result`, a resolved code action, gives for `ask`, request `id`: its edit placed,
+    /// and its command.
+    pub(super) fn resolved_action(
+        &mut self,
+        run: &mut Run,
+        (id, ask): (i64, Ask),
+        result: &Value,
+        took: u128,
+    ) {
+        let AskContext::Item { answer, index } = ask.context else {
+            self.fail(ask, "a resolve names no code action".to_owned());
+            return;
+        };
+        let base = run.edit_bases.remove(&id);
+        let Some(resolved) = protocol::resolved_action(result) else {
+            self.fail(ask, "its resolve is no code action".to_owned());
+            return;
+        };
+        let edit = (resolved.edit).map(|edit| {
+            let edit = edit.map_err(str::to_owned)?;
+            self.placed(run.encoding, edit, base.as_ref())
+        });
+        self.reporter
+            .log(format!("request {id} resolved a code action in {took} ms"));
+        self.reporter.answer(Answer {
+            serial: ask.serial,
+            document: ask.document,
+            kind: ask.kind,
+            revision: ask.revision,
+            outcome: Ok(Answered::ActionResolved(ActionResolved {
+                answer,
+                index,
+                edit,
+                command: resolved.command,
+            })),
+        });
+    }
+}

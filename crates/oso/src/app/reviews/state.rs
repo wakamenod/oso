@@ -130,8 +130,9 @@ pub(in crate::app) struct Reviews {
     pub(super) next_serial: u64,
     /// Room for the paths of the files a review's windows show.
     pub(super) shown: Vec<Box<[u8]>>,
-    /// The areas of the frame reviews show in, as last looked at.
+    /// The areas of the frame reviews show in, as last looked at, and what each wants.
     pub(super) areas: Vec<ReviewArea>,
+    pub(super) judge: super::judge::Judge,
     /// Room for the rows a review window shows, to find the comments read.
     pub(super) screen: Screen,
     /// Whether the person's own input came since reading marks were last looked for: what the

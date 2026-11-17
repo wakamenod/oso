@@ -45,6 +45,22 @@ impl Documents {
             .map(|given| &given.text)
     }
 
+    /// The version the text the server has of document `id` went as, if it has it (step 13: a
+    /// versioned edit must be of it).
+    pub(in crate::server) fn sent_version(&self, id: u64) -> Option<i32> {
+        let kept = self.0.get(&id)?;
+        kept.sent_revision()?;
+        kept.given.back()?.version
+    }
+
+    /// The caller's revision of the text the server has of each document that has one (step 13:
+    /// what an edit's request was asked against).
+    pub(in crate::server) fn sent_revisions(&self) -> HashMap<u64, u64> {
+        (self.0.iter())
+            .filter_map(|(id, kept)| Some((*id, kept.sent_revision()?)))
+            .collect()
+    }
+
     /// The documents whose text the server has, by path: each one's id, the caller's revision
     /// of that text, and the text.
     pub(in crate::server) fn sent_by_path(&self) -> HashMap<&Path, (u64, u64, &Rope)> {

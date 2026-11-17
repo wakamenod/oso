@@ -103,6 +103,22 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
+        name: "lsp-code-actions",
+        doc: "Pick one of the language server's code actions for the region, or for point, and apply it, as Eglot's `eglot-code-actions`.\n\nThe server is asked about the region if one is active, else the primary cursor, with the diagnostics there. Its actions are listed in its order, each with its kind beside it, the one it prefers selected; one it disabled is faded, with its reason, and cannot be picked. `RET` applies the picked one's edits to the buffers they name, each buffer's as one step to undo, only if none of them changed since the server answered. A buffer that may hold secrets is never asked about or edited.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: code_actions,
+        state: None,
+    },
+    Command {
+        name: "lsp-code-action-apply",
+        doc: "Apply the code action the list of a language server's code actions took, as `lsp-code-actions` does.\n\n`RET` in the list that `lsp-code-actions` opens runs it; it reads nothing else.",
+        args: ArgSpec::CodeAction,
+        reach: Reach::Person,
+        run: code_action_apply,
+        state: None,
+    },
+    Command {
         name: "lsp-find-definition",
         doc: "Go to the definition of what is at point, as the language server finds it, as Eglot's `xref-find-definitions`.\n\nThe server is asked about the primary cursor; one cursor is left at the definition. Several are listed as `consult-xref` lists them, each row `path:line: text` with a preview of its place, and `RET` goes to the one picked; the agent's goes to the first and says how many there are. The place left is kept in the window's history, which `lsp-go-back` goes back through, and on the mark ring. A file outside any project that it leads to joins the server, until its buffer is killed.",
         args: ArgSpec::None,
@@ -284,6 +300,40 @@ fn describe_at_point(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     // The host says whether a server follows it.
     let at = ctx.editor.ask_at();
     ctx.editor.request_server(ServerRequest::Describe(at));
+    Ok(())
+}
+
+/// Asks the server for the code actions of the region, or of the primary cursor's place (Q1).
+fn code_actions(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    if ctx.editor.current().1.is_secret() {
+        return Err(CommandError::new(
+            "No server for a buffer that may hold secrets",
+        ));
+    }
+    let selections = &ctx.editor.window().selections;
+    let primary = selections.primary();
+    // The region only while it is active; an inactive mark is no region.
+    let range = if selections.mark_active().is_active() {
+        primary.range()
+    } else {
+        primary.cursor..primary.cursor
+    };
+    let at = ctx.editor.ask_at();
+    // The host says whether a server follows it.
+    ctx.editor.request_server(ServerRequest::CodeActions {
+        at,
+        start: range.start,
+        end: range.end,
+    });
+    Ok(())
+}
+
+/// The host takes the action the list took and applies it.
+fn code_action_apply(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    ctx.editor.request_server(ServerRequest::ApplyCodeAction);
+    ctx.request_redraw();
     Ok(())
 }
 

@@ -497,6 +497,10 @@ fn bar_asks_for_two_panes_or_one_stream_and_a_filler_row_takes_no_comment() {
         Ok(())
     );
     assert_eq!(editor.review_choice(review), ReviewChoice::Panes);
+    // `C-u |`: as the width has it again, whatever was chosen.
+    let universal = Args::with_prefix(Some(oso_core::command::Prefix::universal(None)));
+    assert_eq!(run(&mut editor, "review-toggle-panes", universal).0, Ok(()));
+    assert_eq!(editor.review_choice(review), ReviewChoice::Auto);
     // `q` in a pane buries the pair: one window, back to what it showed before.
     assert_eq!(run(&mut editor, "review-quit", Args::NONE).0, Ok(()));
     assert_eq!(editor.pair_of(window), None);
