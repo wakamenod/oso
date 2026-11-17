@@ -121,6 +121,7 @@ impl App {
             ReviewRequest::Send(id) => self.send_review(id),
             ReviewRequest::MessageSend { buffer, to } => self.send_review_message(buffer, to),
             ReviewRequest::MessageDrop { buffer } => self.drop_review_message(buffer),
+            ReviewRequest::MessageTake { buffer } => self.take_review_message(buffer),
             // Visits come with a later step of ADR 0122.
             ReviewRequest::Visit { .. } => {
                 log::debug!("a review request this build does not carry out yet");

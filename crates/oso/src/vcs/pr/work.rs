@@ -1,14 +1,16 @@
 //! A repository's thread for `gh`, `oso-vcs-gh` (ADR 0127, step 5a): it reads the pull request
 //! of the branch checked out for the status's head line, one pull request with its checks and
 //! review threads, and the open ones, lays out their texts, and opens a pull request's address;
-//! from step 5b-1 the same for issues ([`issue`]).
+//! from step 5b-1 the same for issues ([`issue`]), and from step 6b what a message for an agent
+//! session is made of ([`send`]).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
 //! takes reports out, and supplies the wake-up.
 //!
 //! - It starts only from a [`TrustedRoot`], looks at the root before each request, and finds
-//!   git as the status's thread does; git only says which branch is checked out, which remote
-//!   it pushes to and that remote's address.
+//!   git as the status's thread does; git says which branch is checked out, which remote it
+//!   pushes to and that remote's address, what a pull request starts from ([`create`]), and
+//!   which worktree holds a pull request's head ([`send`]).
 //! - `gh` is [`Gh`]'s: run in the empty private directory, never in the repository, about the
 //!   repository on `github.com` or the host `GH_HOST` names that the remote's address names
 //!   (Q2), one request at a time, each run killed past [`GH_LIMIT`]. A remote elsewhere is said,
@@ -27,11 +29,12 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use super::send::Pick;
 use super::write::{PrLaid, list_text, view_text};
 use super::{
-    CHECK_FIELDS, HEAD_FIELDS, LIST_FIELDS, LIST_LIMIT, PrHead, THREADS_QUERY, VIEW_FIELDS,
-    is_cross, is_pull_address, read_address, read_checks, read_head, read_list, read_threads,
-    read_view,
+    CHECK_FIELDS, Check, HEAD_FIELDS, LIST_FIELDS, LIST_LIMIT, PrHead, THREADS_QUERY, Thread,
+    VIEW_FIELDS, is_cross, is_pull_address, read_address, read_checks, read_head, read_list,
+    read_threads, read_view,
 };
 use crate::git::{GH_LIMIT, Gh, GhAnswer, GhRepo, Git, PullTarget, TrustedRoot};
 use crate::vcs::read::{find, hooks_dir};
@@ -88,6 +91,17 @@ pub(crate) enum PrRequest {
     IssueView { generation: u64, number: u64 },
     /// What a worktree session from issue `number` starts from.
     IssueBrief { generation: u64, number: u64 },
+    /// A message for an agent session of pull request `number`'s checks or threads, as `pick`
+    /// says (step 6b).
+    Send {
+        generation: u64,
+        number: u64,
+        /// Its address, as the buffer read it: an answer of another one is refused.
+        url: String,
+        pick: Pick,
+        /// The most bytes of the message, with what it leaves out.
+        limit: usize,
+    },
 }
 
 /// What the thread found.
@@ -126,6 +140,11 @@ pub(crate) enum PrReport {
         generation: u64,
         brief: Result<IssueBrief, String>,
     },
+    /// A message for an agent session (step 6b).
+    Sent {
+        generation: u64,
+        sent: Result<Box<PrSent>, String>,
+    },
 }
 
 impl std::fmt::Debug for PrReport {
@@ -139,6 +158,7 @@ impl std::fmt::Debug for PrReport {
             Self::Drafted { .. } => "Drafted",
             Self::MergeAsked { .. } => "MergeAsked",
             Self::IssueBriefed { .. } => "IssueBriefed",
+            Self::Sent { .. } => "Sent",
         };
         f.debug_tuple(kind).finish_non_exhaustive()
     }
@@ -222,6 +242,7 @@ fn latest(batch: Vec<PrRequest>) -> Vec<PrRequest> {
         PrRequest::IssueList { .. } => 6,
         PrRequest::IssueView { .. } => 7,
         PrRequest::IssueBrief { .. } => 8,
+        PrRequest::Send { .. } => 9,
         PrRequest::Address | PrRequest::Open { .. } => 3,
     };
     let mut kept: Vec<PrRequest> = Vec::with_capacity(batch.len());
@@ -271,6 +292,10 @@ fn refused(request: &PrRequest, why: String) -> PrReport {
         PrRequest::IssueBrief { generation, .. } => PrReport::IssueBriefed {
             generation: *generation,
             brief: Err(why),
+        },
+        PrRequest::Send { generation, .. } => PrReport::Sent {
+            generation: *generation,
+            sent: Err(why),
         },
     }
 }
@@ -322,6 +347,16 @@ fn answer(
         PrRequest::IssueBrief { generation, number } => PrReport::IssueBriefed {
             generation,
             brief: issue::brief(found, &target, number),
+        },
+        PrRequest::Send {
+            generation,
+            number,
+            url,
+            pick,
+            limit,
+        } => PrReport::Sent {
+            generation,
+            sent: send::send(found, &target, (number, &url), &pick, limit).map(Box::new),
         },
         PrRequest::Draft { generation, base } => PrReport::Drafted {
             generation,
@@ -415,14 +450,25 @@ fn view(found: &Found, target: &PullTarget, number: Option<u64>) -> Result<PrLai
         return Err(no_pull_request(target));
     }
     let n = view.head.number.to_string();
+    view.checks = checks_of(found, target, &n)?;
+    (view.threads, view.more_threads) = threads_of(found, target, &n)?;
+    Ok(view_text(&view))
+}
+
+/// The checks of pull request `n`.
+fn checks_of(found: &Found, target: &PullTarget, n: &str) -> Result<Vec<Check>, String> {
     let repo = target.github.as_str();
-    let checks = ["pr", "checks", &n, "--repo", repo, "--json", CHECK_FIELDS];
+    let checks = ["pr", "checks", n, "--repo", repo, "--json", CHECK_FIELDS];
     let checks = run(found, target, &checks)?;
-    view.checks = match checks.code {
-        Some(0 | CHECKS_PENDING) => read_checks(&checks.stdout).ok_or_else(unexpected)?,
-        _ if checks.stderr.contains("no checks reported") => Vec::new(),
-        _ => return Err(format!("gh failed: {}", checks.stderr)),
-    };
+    match checks.code {
+        Some(0 | CHECKS_PENDING) => read_checks(&checks.stdout).ok_or_else(unexpected),
+        _ if checks.stderr.contains("no checks reported") => Ok(Vec::new()),
+        _ => Err(format!("gh failed: {}", checks.stderr)),
+    }
+}
+
+/// The review threads of pull request `n`, and how many there are past them.
+fn threads_of(found: &Found, target: &PullTarget, n: &str) -> Result<(Vec<Thread>, usize), String> {
     let (host, owner, name) = target.github.parts();
     let query = format!("query={THREADS_QUERY}");
     let (owner, name, number) = (
@@ -446,8 +492,7 @@ fn view(found: &Found, target: &PullTarget, number: Option<u64>) -> Result<PrLai
         &number,
     ];
     let threads = run(found, target, &threads)?.into_stdout()?;
-    (view.threads, view.more_threads) = read_threads(&threads).ok_or_else(unexpected)?;
-    Ok(view_text(&view))
+    read_threads(&threads).ok_or_else(unexpected)
 }
 
 fn list(found: &Found, target: &PullTarget) -> Result<PrLaid, String> {
@@ -538,9 +583,11 @@ fn unexpected() -> String {
 
 mod create;
 mod issue;
+mod send;
 
 pub(crate) use create::{Drafted, MergeTarget};
 pub(crate) use issue::IssueBrief;
+pub(crate) use send::PrSent;
 
 #[cfg(test)]
 mod tests;

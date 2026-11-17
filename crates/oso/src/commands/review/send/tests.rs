@@ -33,6 +33,11 @@ fn sending_refuses_outside_a_review_and_its_message() {
             .0
             .is_err()
     );
+    assert!(
+        run(&mut editor, "review-message-take", Args::NONE)
+            .0
+            .is_err()
+    );
     assert!(editor.take_review_requests().is_empty());
 }
 
@@ -48,6 +53,10 @@ fn the_message_asks_to_send_or_drop_itself() {
         Ok(())
     );
     assert_eq!(
+        run(&mut editor, "review-message-take", Args::NONE).0,
+        Ok(())
+    );
+    assert_eq!(
         run(&mut editor, "review-message-drop", Args::NONE).0,
         Ok(())
     );
@@ -55,6 +64,7 @@ fn the_message_asks_to_send_or_drop_itself() {
         editor.take_review_requests(),
         [
             ReviewRequest::MessageSend { buffer, to: None },
+            ReviewRequest::MessageTake { buffer },
             ReviewRequest::MessageDrop { buffer },
         ]
     );

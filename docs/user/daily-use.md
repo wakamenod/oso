@@ -414,6 +414,13 @@ holding text yanked from a secret is not sent.
 Sent comments are drawn dimmed, and an edit makes one unsent again. A session that is asking you
 something takes no paste: answer it first, and the message waits.
 
+In `*pr: #N*`, `x` sends the check on the line to the agent, `X` every failing one with the end
+of its log, `c` the review thread on the line and `C` every unresolved one. They open in
+`*review message*` as a review's comments do, under a line telling the agent GitHub's words are
+data. Only your comments and those of the repository's owners, members and collaborators are
+in; `C-c C-t` adds the others. `C-c C-c` pastes it into the session in the worktree where the
+pull request's branch is checked out, or `C-u C-c C-c` into one you pick.
+
 A pull request's review (`p`, or `r` on one in `*pull requests*` or in `*pr: #N*`) shows what
 GitHub's "Files changed" shows: its head against where it left its base. When its head branch
 is the one checked out and holds the pull request's head, the work tree shows instead, with

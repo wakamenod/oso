@@ -240,7 +240,7 @@ fn breaks(c: char) -> bool {
 }
 
 /// The longest run of backticks in `text`.
-fn backticks(text: &str) -> usize {
+pub(crate) fn backticks(text: &str) -> usize {
     let (mut longest, mut run) = (0, 0);
     for c in text.chars() {
         run = if c == '`' { run + 1 } else { 0 };

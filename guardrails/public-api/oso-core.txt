@@ -1913,6 +1913,10 @@ pub oso_core::editor::PrAct::CopyLink
 pub oso_core::editor::PrAct::Open
 pub oso_core::editor::PrAct::Refresh
 pub oso_core::editor::PrAct::Review
+pub oso_core::editor::PrAct::SendCheck
+pub oso_core::editor::PrAct::SendFailing
+pub oso_core::editor::PrAct::SendThread
+pub oso_core::editor::PrAct::SendUnresolved
 pub oso_core::editor::PrAct::Visit
 impl core::clone::Clone for oso_core::editor::PrAct
 pub fn oso_core::editor::PrAct::clone(&self) -> oso_core::editor::PrAct
@@ -2118,6 +2122,8 @@ pub oso_core::editor::ReviewRequest::MessageDrop::buffer: oso_core::buffer::Buff
 pub oso_core::editor::ReviewRequest::MessageSend
 pub oso_core::editor::ReviewRequest::MessageSend::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::ReviewRequest::MessageSend::to: core::option::Option<alloc::string::String>
+pub oso_core::editor::ReviewRequest::MessageTake
+pub oso_core::editor::ReviewRequest::MessageTake::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::ReviewRequest::Open
 pub oso_core::editor::ReviewRequest::Open::project: oso_core::project::ProjectId
 pub oso_core::editor::ReviewRequest::Open::revision: core::option::Option<alloc::string::String>

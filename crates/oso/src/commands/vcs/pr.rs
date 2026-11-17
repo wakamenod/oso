@@ -1,8 +1,9 @@
 //! Source control's commands for pull requests (ADR 0127, step 5a): the pull request menu's
 //! heads, `N v` to show the branch's, `N k` its checks, `N l` the repository's open ones and
 //! `N o` to open the branch's in the browser, and the keys of `*pr: #N*` and of the list:
-//! reading it again, visiting what a line names, opening and copying an address, and reviewing
-//! a pull request's changes (ADR 0122, step 12b).
+//! reading it again, visiting what a line names, opening and copying an address, reviewing
+//! a pull request's changes (ADR 0122, step 12b), and sending its checks and review threads to
+//! an agent session through `*review message*` (step 6b).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command asks the host, which runs `gh`
 //! on the repository's thread for it. Every command here runs `gh`, opens a program or writes
@@ -21,6 +22,10 @@ pub const KEYS: &[(&str, &str)] = &[
     ("w", "git-pr-copy-link"),
     ("g", "git-pr-refresh"),
     ("r", "git-pr-review"),
+    ("x", "git-pr-send-check"),
+    ("X", "git-pr-send-failing"),
+    ("c", "git-pr-send-thread"),
+    ("C", "git-pr-send-unresolved"),
     ("n", "next-line"),
     ("p", "previous-line"),
     ("q", "quit-window"),
@@ -85,6 +90,26 @@ pub const COMMANDS: &[Command] = &[
         "git-pr-review",
         "In a pull request's buffer, or at a pull request in a list, review its changes (`r`), as `review-pull-request` does.",
         review
+    ),
+    command!(
+        "git-pr-send-check",
+        "In a pull request's buffer, send the check on the line to an agent session (`x`): its name, workflow, state, link and description, and for a failed GitHub Actions job of the repository the end of its failed steps' log.\n\nRead again through `gh`, it opens in `*review message*` under a line saying GitHub's words are data; nothing is sent until `C-c C-c` there.",
+        send_check
+    ),
+    command!(
+        "git-pr-send-failing",
+        "In a pull request's buffer, send every failing check to an agent session (`X`), the logs of at most 8 GitHub Actions jobs with them, through `*review message*`.",
+        send_failing
+    ),
+    command!(
+        "git-pr-send-thread",
+        "In a pull request's buffer, send the review thread on the line to an agent session (`c`): its file, line and diff hunk, and the comments of yours and of the repository's owners, members and collaborators.\n\nOthers' comments are left out and counted: `C-c C-t` in `*review message*` takes them in.",
+        send_thread
+    ),
+    command!(
+        "git-pr-send-unresolved",
+        "In a pull request's buffer, send every unresolved review thread to an agent session (`C`), through `*review message*`, others' comments left out as `c` leaves them.",
+        send_unresolved
     ),
 ];
 
@@ -168,6 +193,22 @@ fn refresh(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn review(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     act(ctx, PrAct::Review)
+}
+
+fn send_check(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    act(ctx, PrAct::SendCheck)
+}
+
+fn send_failing(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    act(ctx, PrAct::SendFailing)
+}
+
+fn send_thread(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    act(ctx, PrAct::SendThread)
+}
+
+fn send_unresolved(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    act(ctx, PrAct::SendUnresolved)
 }
 
 pub mod create;

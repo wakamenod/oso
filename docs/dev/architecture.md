@@ -704,6 +704,10 @@ The UI thread never blocks on I/O or parsing:
   Each worktree's open pull request (step 5b-2) is read by `sessions/worktree/git.rs`, the
   first use of `vcs::pr` from `sessions`, on the worktree jobs' pool, as described under the
   worktree jobs.
+  Checks and threads to the agent (step 6b): `vcs/pr/send.rs` composes the message,
+  `vcs/pr/work/send.rs` reads what it is made of on `oso-vcs-gh`, `app/vcs/pr/send.rs` the
+  keys, and ADR 0122's `app/reviews/send.rs` shows and pastes it, its pull requests' part in
+  `send/pull.rs`.
 - Stashes and branches (step 3b): `vcs/stash.rs` reads the stash list into the Stashes section
   and `vcs/branch.rs` holds what branches need that runs no git; `vcs/run/stash.rs` and
   `vcs/run/branch.rs` run them on `oso-vcs-run`, finding a stash again by its id and planning a
