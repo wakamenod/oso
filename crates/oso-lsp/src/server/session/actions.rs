@@ -9,7 +9,9 @@
 //! - The revisions of the texts the server has are kept as the request goes out: an edit of a
 //!   document whose text changed while the server answered is refused (Q8).
 //! - The actions are kept as the server gave them, but for the edits already read, for the
-//!   picked one's resolve and a command's arguments (13b); a newer answer replaces them.
+//!   picked one's resolve and a command's arguments, a resolved one as its resolve gave it; a
+//!   newer answer replaces them.
+//! - A command runs only if the server declared it (13b, Q5), with its arguments as given.
 
 use oso_core::rope::Rope;
 use serde_json::Value;
@@ -32,7 +34,7 @@ impl Session {
         (start, end): (usize, usize),
         (uri, text): (&str, &Rope),
     ) -> Result<Value, &'static str> {
-        if !run.acting.offers {
+        if !run.actions.acting.offers {
             return Err("it offers no code actions");
         }
         let start = position::from_offset(text, start, run.encoding);
@@ -63,7 +65,7 @@ impl Session {
         took: u128,
     ) {
         let list = protocol::code_actions(&result);
-        let base = run.edit_bases.remove(&id);
+        let base = run.actions.edit_bases.remove(&id);
         // Kept as the server gave them, but for the edits read, which may be large.
         let mut kept = protocol::take_actions(result, &list.at);
         for (value, offered) in kept.iter_mut().zip(&list.actions) {
@@ -73,12 +75,12 @@ impl Session {
                 fields.remove("edit");
             }
         }
-        run.last_actions = Some(LastItems {
+        run.actions.last_actions = Some(LastItems {
             document: ask.document,
             serial: ask.serial,
             items: kept,
         });
-        let resolves = run.acting.resolves;
+        let resolves = run.actions.acting.resolves;
         let actions: Vec<CodeAction> = (list.actions.into_iter())
             .map(|offered| CodeAction {
                 resolves: resolves && offered.resolvable,
@@ -124,7 +126,17 @@ impl Session {
             self.fail(ask, "a resolve names no code action".to_owned());
             return;
         };
-        let base = run.edit_bases.remove(&id);
+        let base = run.actions.edit_bases.remove(&id);
+        // Kept as resolved, but for its edit, for the command it may run (13b).
+        if let Some(last) = run.actions.last_actions.as_mut()
+            && (last.document, last.serial) == (ask.document, answer)
+            && let Some(kept) = last.items.get_mut(index)
+        {
+            *kept = result.clone();
+            if let Value::Object(fields) = kept {
+                fields.remove("edit");
+            }
+        }
         let Some(resolved) = protocol::resolved_action(result) else {
             self.fail(ask, "its resolve is no code action".to_owned());
             return;
@@ -146,6 +158,43 @@ impl Session {
                 edit,
                 command: resolved.command,
             })),
+        });
+    }
+
+    /// `workspace/executeCommand`'s parameters for the action at `index` of the answer `answer`
+    /// about `document`, as the server gave it, if it runs a command the server declared.
+    pub(super) fn command_params(
+        &self,
+        run: &Run,
+        document: u64,
+        (answer, index): (u64, usize),
+    ) -> Result<Value, String> {
+        let action = (run.actions.last_actions.as_ref())
+            .filter(|last| (last.document, last.serial) == (document, answer))
+            .and_then(|last| last.items.get(index))
+            .ok_or("its code actions are gone")?;
+        let (name, params) =
+            protocol::execute_command_params(action).ok_or("it runs no command")?;
+        // Only one the server declared it runs (Q5).
+        if !run.actions.acting.commands.contains(&name) {
+            return Err(format!(
+                "the server did not declare {}",
+                protocol::shown(&name)
+            ));
+        }
+        Ok(params)
+    }
+
+    /// A command, request `id`, answered: its edits came while it waited.
+    pub(super) fn executed(&mut self, id: i64, ask: Ask, took: u128) {
+        self.reporter
+            .log(format!("request {id} ran a command in {took} ms"));
+        self.reporter.answer(Answer {
+            serial: ask.serial,
+            document: ask.document,
+            kind: ask.kind,
+            revision: ask.revision,
+            outcome: Ok(Answered::Executed),
         });
     }
 }

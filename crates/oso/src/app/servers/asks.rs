@@ -91,7 +91,8 @@ impl App {
             | AskKind::Resolve
             | AskKind::Hover
             | AskKind::CodeAction
-            | AskKind::ResolveAction => AskContext::None,
+            | AskKind::ResolveAction
+            | AskKind::ExecuteCommand => AskContext::None,
         };
         self.send_ask(index, (at, kind, context), who);
     }
@@ -200,6 +201,11 @@ impl App {
             }
             Ok(Answered::ActionResolved(resolved)) => {
                 self.code_action_resolved(index, taken, resolved);
+                return;
+            }
+            // Its edits came while it waited (step 13b).
+            Ok(Answered::Executed) => {
+                self.servers.running_command = None;
                 return;
             }
             // A kind a later step asks for.

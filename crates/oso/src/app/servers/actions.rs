@@ -10,17 +10,17 @@
 //! - The answer's actions are kept, with the server named by its root and entry, until one is
 //!   picked or a newer list opens; the picked one's resolve keeps only what it needs. What is let
 //!   go is freed off the UI thread.
-//! - An edit applies whole or not at all, to buffers still at the text the server had (Q8). One
-//!   that changes a file whose text the server does not have, and an action that runs a command,
-//!   wait for 13b; until then the echo area says so and nothing changes.
+//! - An edit applies whole or not at all, to buffers still at the text the server had (Q8), and
+//!   files whose text the server does not have open first (`applying`, 13b). An action's command
+//!   runs after its edit applied, only one the server declared (Q5).
 //! - An action's title is the server's text, with its bidi and invisible characters written out:
 //!   the echo area shows it after what changed, and no log has it.
 
 use std::path::PathBuf;
 
 use oso_core::buffer::BufferId;
-use oso_core::editor::{AskAt, BufferEdit, CodeActionItem};
-use oso_lsp::server::{ActionResolved, AskContext, AskKind, CodeAction, CodeActions, ServerEdit};
+use oso_core::editor::{AskAt, CodeActionItem};
+use oso_lsp::server::{ActionResolved, AskContext, AskKind, CodeAction, CodeActions};
 
 use super::super::App;
 use super::asks::{Asker, Who};
@@ -34,6 +34,17 @@ pub(super) struct KeptActions {
     revision: u64,
     serial: u64,
     actions: Vec<CodeAction>,
+}
+
+/// A command to run once its action's edit applied: its server, the buffer asked about, its
+/// action by its answer's serial and its place, and the action's title (13b).
+#[derive(Debug)]
+pub(super) struct Then {
+    server: (PathBuf, String),
+    buffer: BufferId,
+    serial: u64,
+    index: usize,
+    title: String,
 }
 
 /// The picked action while it resolves: its server, its answer's serial, its place and title.
@@ -125,12 +136,14 @@ impl App {
         self.freer.free(kept);
         let name = server.1.clone();
         let title = action.title;
-        // A command runs only in 13b, and an action that runs one is refused whole.
-        if action.command.is_some() {
-            self.editor.message_unlogged(format!(
-                "{name}: runs a command, which oso does not run yet: \u{201c}{title}\u{201d}"
-            ));
-        } else if self
+        let then = (action.command.is_some()).then(|| Then {
+            server: server.clone(),
+            buffer,
+            serial,
+            index: hit,
+            title: title.clone(),
+        });
+        if self
             .editor
             .buffer(buffer)
             .map(oso_core::buffer::Buffer::revision)
@@ -140,17 +153,21 @@ impl App {
                 "{name}: the buffer changed since the list opened: \u{201c}{title}\u{201d}"
             ));
         } else {
+            // An edit goes first, then the command it runs, as the protocol orders them.
             match action.edit {
-                Some(Ok(edit)) => self.apply_action_edit(&server, &title, edit),
+                Some(Ok(edit)) => self.apply_edit_of(&server, &title, edit, (then, None)),
                 Some(Err(why)) => self
                     .editor
                     .message_unlogged(format!("{name}: {why}: \u{201c}{title}\u{201d}")),
                 None if action.resolves => {
-                    self.resolve_action(server, (buffer, serial, hit), title)
+                    self.resolve_action(server, (buffer, serial, hit), title);
                 }
-                None => self
-                    .editor
-                    .message_unlogged(format!("{name}: no edit: \u{201c}{title}\u{201d}")),
+                None => match then {
+                    Some(then) => self.run_then(then),
+                    None => self
+                        .editor
+                        .message_unlogged(format!("{name}: no edit: \u{201c}{title}\u{201d}")),
+                },
             }
         }
         self.request_redraw();
@@ -212,14 +229,21 @@ impl App {
             return;
         }
         let (name, title) = (resolving.server.1.clone(), resolving.title.clone());
-        match (resolved.command, resolved.edit) {
-            (Some(_), _) => self.editor.message_unlogged(format!(
-                "{name}: runs a command, which oso does not run yet: \u{201c}{title}\u{201d}"
-            )),
-            (None, Some(Ok(edit))) => self.apply_action_edit(&resolving.server, &title, edit),
-            (None, Some(Err(why))) => self
+        let then = (resolved.command.is_some()).then(|| Then {
+            server: resolving.server.clone(),
+            buffer: asked,
+            serial: resolving.serial,
+            index: resolving.index,
+            title: title.clone(),
+        });
+        match (resolved.edit, then) {
+            (Some(Ok(edit)), then) => {
+                self.apply_edit_of(&resolving.server, &title, edit, (then, None));
+            }
+            (Some(Err(why)), _) => self
                 .editor
                 .message_unlogged(format!("{name}: {why}: \u{201c}{title}\u{201d}")),
+            (None, Some(then)) => self.run_then(then),
             (None, None) => self
                 .editor
                 .message_unlogged(format!("{name}: no edit: \u{201c}{title}\u{201d}")),
@@ -227,52 +251,26 @@ impl App {
         self.request_redraw();
     }
 
-    /// Applies `edit`, `server`'s edit of the action `title`, to the buffers it names, whole or
-    /// not at all, and says what changed before the title, so that no title passes for it.
-    fn apply_action_edit(&mut self, server: &(PathBuf, String), title: &str, edit: ServerEdit) {
-        let name = &server.1;
-        let Some(index) = self.servers.find(&server.0, name) else {
-            self.freer.free(edit);
+    /// Asks `then`'s server to run the command of its action, a command it declared (Q5); its
+    /// edits come as `workspace/applyEdit` while it waits.
+    pub(super) fn run_then(&mut self, then: Then) {
+        let (Some(index), Some(shown)) = (
+            self.servers.find(&then.server.0, &then.server.1),
+            self.editor.buffer(then.buffer),
+        ) else {
             return;
         };
-        if !edit.unsent.is_empty() {
-            let count = edit.unsent.len();
-            let files = if count == 1 { "file" } else { "files" };
-            self.editor.message_unlogged(format!(
-                "{name}: changes {count} {files} it has no buffer of, which oso does not edit yet: \u{201c}{title}\u{201d}"
-            ));
-            self.freer.free(edit);
-            return;
-        }
-        let running = &self.servers.running[index];
-        let mut parts = Vec::with_capacity(edit.open.len());
-        for open in edit.open {
-            let Some(buffer) = running.buffer_of(open.document) else {
-                self.editor
-                    .message(format!("{name}: a buffer the action edits is gone"));
-                return;
-            };
-            parts.push(BufferEdit {
-                buffer,
-                revision: open.revision,
-                edits: open.edits,
-            });
-        }
-        let said = match self.editor.apply_server_edit(parts) {
-            Ok(applied) => {
-                let edits = if applied.edits == 1 { "edit" } else { "edits" };
-                let buffers = if applied.buffers == 1 {
-                    "buffer"
-                } else {
-                    "buffers"
-                };
-                format!(
-                    "{name}: {} {edits} in {} {buffers}: \u{201c}{title}\u{201d}",
-                    applied.edits, applied.buffers
-                )
-            }
-            Err(why) => format!("{name}: {why}: \u{201c}{title}\u{201d}"),
+        let at = AskAt {
+            buffer: then.buffer,
+            revision: shown.revision(),
+            offset: self.editor.window().selections.primary().cursor,
+            agent: false,
         };
-        self.editor.message_unlogged(said);
+        let context = AskContext::Item {
+            answer: then.serial,
+            index: then.index,
+        };
+        self.servers.running_command = Some(then.title);
+        self.send_ask(index, (at, AskKind::ExecuteCommand, context), Who::Person);
     }
 }

@@ -508,6 +508,7 @@ mod tests {
         "load-theme",
         // A server's code actions edit buffers by the person's pick (ADR 0138, step 13, Q9).
         "lsp-code-action-apply",
+        "lsp-code-action-confirm",
         "lsp-code-actions",
         "lsp-describe-at-point",
         "lsp-describe-close",

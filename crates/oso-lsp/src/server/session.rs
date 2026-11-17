@@ -26,6 +26,7 @@ use super::policy::{Crashes, Flood};
 use super::{Diagnosed, Event, Gate, Start, State};
 
 mod actions;
+mod apply;
 mod asks;
 mod edits;
 mod incoming;
@@ -181,6 +182,8 @@ impl Session {
                     }
                 }
                 Event::Ask(ask) => self.ask_idle(ask),
+                // No run waits for it.
+                Event::AnswerApplyEdit(..) => {}
                 // An earlier run's news.
                 Event::Frame(..) | Event::ReadEnd(..) | Event::WriteFailed(..) => {}
             }
@@ -312,9 +315,7 @@ impl Session {
             sync: run::NO_SYNC,
             resolves: false,
             last_items: None,
-            acting: crate::protocol::Acting::default(),
-            last_actions: None,
-            edit_bases: HashMap::new(),
+            actions: run::Actions::default(),
         };
         let root_uri = uri::from_path(&start.root).unwrap_or_default();
         let root_name = start
@@ -448,6 +449,11 @@ impl Session {
                 }
             }
             Event::Ask(ask) => return self.ask(run, ask).err().map(End::Crashed),
+            Event::AnswerApplyEdit(token, outcome) => {
+                return (self.answer_apply_edit(run, token, outcome))
+                    .err()
+                    .map(End::Crashed);
+            }
             Event::Frame(id, frame) if id == run.id => {
                 return self.frame(run, frame).err().map(End::Crashed);
             }

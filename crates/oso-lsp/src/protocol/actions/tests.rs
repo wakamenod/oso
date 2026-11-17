@@ -8,7 +8,7 @@ use oso_core::diagnostic::{Severity, Tags};
 use serde_json::{Value, json};
 
 use super::*;
-use crate::limits::CODE_ACTIONS_MAX;
+use crate::limits::{CODE_ACTIONS_MAX, COMMANDS_MAX};
 use crate::limits::{EDIT_EDITS_MAX, EDIT_FILES_MAX};
 use crate::protocol::workspace_edit::workspace_edit;
 
@@ -24,7 +24,8 @@ fn initialize_says_whether_a_server_offers_and_resolves_code_actions() {
         acting(json!(true)),
         Acting {
             offers: true,
-            resolves: false
+            resolves: false,
+            commands: Vec::new(),
         }
     );
     assert_eq!(acting(json!(false)), Acting::default());
@@ -32,13 +33,44 @@ fn initialize_says_whether_a_server_offers_and_resolves_code_actions() {
         acting(json!({"resolveProvider": true})),
         Acting {
             offers: true,
-            resolves: true
+            resolves: true,
+            commands: Vec::new(),
         }
     );
     assert_eq!(
         super::acting(&json!({"capabilities": {}})),
         Acting::default()
     );
+    // The commands it declares, each within its bound, at most so many (13b).
+    let long = "c".repeat(ACTION_TITLE_BYTES_MAX + 1);
+    let mut names: Vec<Value> = vec![json!("fake.fix"), json!(long), json!(7)];
+    names.extend((0..COMMANDS_MAX).map(|n| json!(format!("fake.{n}"))));
+    let declared = super::acting(&json!({"capabilities": {
+        "executeCommandProvider": {"commands": names},
+    }}));
+    assert_eq!(declared.commands[0], "fake.fix");
+    assert!(
+        declared.commands.len() < COMMANDS_MAX,
+        "the long and the number left out, the rest cut"
+    );
+}
+
+#[test]
+fn a_command_s_parameters_are_its_name_and_arguments_as_given() {
+    let bare = json!({"title": "Run", "command": "fake.run", "arguments": [1, {"a": 2}]});
+    assert_eq!(
+        execute_command_params(&bare),
+        Some((
+            "fake.run".to_owned(),
+            json!({"command": "fake.run", "arguments": [1, {"a": 2}]})
+        ))
+    );
+    let action = json!({"title": "Fix", "command": {"title": "Fix", "command": "fake.fix"}});
+    assert_eq!(
+        execute_command_params(&action),
+        Some(("fake.fix".to_owned(), json!({"command": "fake.fix"})))
+    );
+    assert_eq!(execute_command_params(&json!({"title": "Edit only"})), None);
 }
 
 #[test]
