@@ -73,7 +73,7 @@ impl fmt::Debug for ReviewEvent {
 /// copies. Asks the environment and not the disk. A session's start baseline is taken there
 /// too (ADR 0121).
 pub(in crate::app) fn state() -> Option<PathBuf> {
-    oso_platform::privacy::state_home().map(|home| home.join("oso"))
+    oso_platform::privacy::state_dir()
 }
 
 /// Seconds since the Unix epoch.

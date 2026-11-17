@@ -210,7 +210,8 @@ pub(crate) struct Head {
     pub(crate) stop: Option<Stop>,
 }
 
-/// What is folded and open: sections hidden, and files whose hunks show.
+/// What is folded and open (sections hidden, and files whose hunks show), and what the host
+/// read that the text shows: the files withheld, and the branch's pull request.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct View {
     pub(crate) folded: BTreeSet<Section>,
@@ -219,6 +220,10 @@ pub(crate) struct View {
     pub(crate) withheld: BTreeSet<Vec<u8>>,
     /// Each section's open files, by path, so that a file is looked up without a copy of it.
     open: BTreeMap<Section, BTreeSet<Vec<u8>>>,
+    /// The branch's pull request, as `gh` last gave it, for the head's `PR:` line, drawn only
+    /// while that branch is checked out (step 5a). Not a fold: what the host read, laid out
+    /// with the rest.
+    pub(crate) pr: Option<std::sync::Arc<crate::vcs::pr::PrHead>>,
 }
 
 impl View {

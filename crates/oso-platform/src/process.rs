@@ -17,6 +17,7 @@
 //!   values.
 //! - [`account_shell`] reads the account's login shell from the user database.
 //! - [`start_time`] says when a process started, by its ID (ADR 0121).
+//! - [`open_link`] opens an `https` address with the system's opener (ADR 0127, step 5a).
 //! - A caller can pass one descriptor, which the child finds as its descriptor 3
 //!   ([`PassedFd`]): `oso-restart`'s end of the pair for the instance it starts (ADR 0133).
 //! - On Unix a child gets only its standard streams and the descriptor passed, whatever else
@@ -29,6 +30,7 @@
 #[cfg(unix)]
 mod account;
 mod child;
+mod opener;
 pub mod pty;
 mod started;
 #[cfg(unix)]
@@ -40,6 +42,7 @@ use other as imp;
 use unix as imp;
 
 pub use child::Child;
+pub use opener::open_link;
 
 use std::env;
 use std::ffi::{OsStr, OsString};

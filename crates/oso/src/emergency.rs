@@ -35,7 +35,7 @@ use oso_core::buffer::{BufferId, ContentId, FileStamp};
 use oso_core::decode::LineEnding;
 use oso_core::editor::Editor;
 use oso_core::rope::Rope;
-use oso_platform::privacy::{PrivateDir, state_home};
+use oso_platform::privacy::{PrivateDir, state_dir};
 
 use crate::saver::{Agreement, AgreementCell};
 
@@ -532,7 +532,7 @@ where
 /// Where the copies go: `emergency` under oso's directory of per-user state. Asks the
 /// environment and not the disk.
 pub fn default_directory() -> Option<PathBuf> {
-    Some(state_home()?.join("oso").join("emergency"))
+    Some(state_dir()?.join("emergency"))
 }
 
 #[cfg(test)]

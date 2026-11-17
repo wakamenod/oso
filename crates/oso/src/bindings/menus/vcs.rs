@@ -1,6 +1,6 @@
 //! The git status's built-in menus (ADR 0127): the commit, push, pull and fetch menus (steps
-//! 1b and 2), the stash and branch menus (step 3b), and the log menu (step 4), each reached from
-//! a key of the status, the log menu from a graph's too.
+//! 1b and 2), the stash and branch menus (step 3b), the log menu (step 4) and the pull request
+//! menu (step 5a), each reached from a key of the status, the log menu from a graph's too.
 //!
 //! Must not depend on: `dispatch`, `app` or winit; menus are data.
 
@@ -159,6 +159,22 @@ pub(super) const BRANCH: BuiltInMenu = BuiltInMenu {
             ],
         ),
     ],
+    describe: None,
+};
+
+/// Pull requests (ADR 0127, step 5a), from a git status's `N`, through `gh`.
+pub(super) const PULL_REQUEST: BuiltInMenu = BuiltInMenu {
+    name: "pull-request",
+    title: "Pull request",
+    groups: &[(
+        "The branch's pull request",
+        &[
+            exit("v", "git-pr-view", "view"),
+            exit("k", "git-pr-checks", "checks"),
+            exit("o", "git-pr-browse", "open in the browser"),
+            exit("l", "git-pr-list", "the open ones"),
+        ],
+    )],
     describe: None,
 };
 

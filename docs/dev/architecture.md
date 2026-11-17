@@ -683,6 +683,11 @@ The UI thread never blocks on I/O or parsing:
   carries out the keys, and `app/vcs/graph/acts.rs` what they do with a commit (step 4b): its
   tags, picks and reverts run on `oso-vcs-run` (`vcs/run/graph.rs`), its checkouts and branches
   through the branches' runs.
+- Pull requests (step 5a): `vcs/pr.rs` reads `gh`'s answers by shape, `vcs/pr/write.rs` lays out
+  the head line's parts, `*pr: #N*` and the list, and `vcs/pr/work.rs` runs `gh` on
+  `oso-vcs-gh`, one thread per repository, through `git/gh.rs`'s runner; `app/vcs/pr.rs` keeps
+  the buffers, puts the head line in the status's view and carries out the keys, and
+  `commands::vcs::pr` holds the menu's heads and the buffers' keys.
 - Stashes and branches (step 3b): `vcs/stash.rs` reads the stash list into the Stashes section
   and `vcs/branch.rs` holds what branches need that runs no git; `vcs/run/stash.rs` and
   `vcs/run/branch.rs` run them on `oso-vcs-run`, finding a stash again by its id and planning a
@@ -763,6 +768,7 @@ The UI thread never blocks on I/O or parsing:
   terminal's (`app/terminals/start.rs`). The app's table of hosted sessions (`sessions/hosted.rs`, glue in
   `app/sessions/hosting.rs`) holds each session's buffer and its `claude`'s process id
   (`oso_term::Terminal::pid`); the set oso remembers, `sessions` in the state directory
+  (`oso_platform::privacy::state_dir()`, which `OSO_STATE_DIR` moves, ADR 0146)
   (`sessions/record.rs`), is read and written on `oso-sessions`. A bridge's claim of a session is
   judged on the UI thread by one pure function (`sessions/bridge.rs`) when the channel's server
   asks (`Event::Claims`).

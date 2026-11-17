@@ -93,8 +93,9 @@ const CARGO_ENV: [&str; 16] = [
 ];
 
 /// What an editor instance needs beyond the base set: its log filter, how to reach the display
-/// and the control directory, and where the person's configuration is (ADR 0108).
-const INSTANCE_ENV: [&str; 9] = [
+/// and the control directory, where the person's configuration is (ADR 0108), and where its
+/// state is when it is not the person's (ADR 0146).
+const INSTANCE_ENV: [&str; 10] = [
     "RUST_LOG",
     "RUST_BACKTRACE",
     "DISPLAY",
@@ -104,6 +105,7 @@ const INSTANCE_ENV: [&str; 9] = [
     "XDG_SESSION_TYPE",
     "XDG_CONFIG_HOME",
     "APPDATA",
+    "OSO_STATE_DIR",
 ];
 
 /// Runs `oso dev` if the first argument is `dev`, and returns its exit status.
