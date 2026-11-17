@@ -10,8 +10,9 @@
 //!   so no key loses composed text. Other keys go to the input method.
 //! - While oso has the input method off, as in a buffer that may hold secrets, no text and no
 //!   marked text from it is taken, and text marked meanwhile is dropped at the next key.
-//! - A key press comes only from the event `keyDown:` handles. Text from anything else, such
-//!   as Dictation or the Character Viewer, is a commit, never a key.
+//! - A key press comes only from a key-down AppKit dispatches: the event `keyDown:` handles,
+//!   or Command-`.`, for which the window sends `cancelOperation:` instead. Text from anything
+//!   else, such as Dictation or the Character Viewer, is a commit, never a key.
 
 use std::cell::{Cell, RefCell};
 use std::panic::AssertUnwindSafe;
@@ -21,23 +22,22 @@ use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{ClassType, DefinedClass, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
-    NSEvent, NSEventModifierFlags, NSResponder, NSTextInputClient, NSTextInputContext,
-    NSTextInputTraits, NSView, NSViewLayerContentsRedrawPolicy, NSWritingToolsBehavior,
+    NSEvent, NSResponder, NSTextInputClient, NSTextInputContext, NSTextInputTraits, NSView,
+    NSViewLayerContentsRedrawPolicy, NSWritingToolsBehavior,
 };
 use objc2_foundation::{
-    MainThreadMarker, NSArray, NSAttributedString, NSAttributedStringKey, NSNotFound,
-    NSObjectProtocol, NSPoint, NSRange, NSRangePointer, NSRect, NSSize, NSString, NSUInteger,
-    ns_string,
+    MainThreadMarker, NSArray, NSAttributedString, NSAttributedStringKey, NSObjectProtocol,
+    NSPoint, NSRange, NSRangePointer, NSRect, NSSize, NSString, NSUInteger,
 };
 use objc2_quartz_core::{CALayer, CAMetalLayer};
 
-use super::key_text;
 use super::keys::{self, Route};
 use super::{Delivery, State};
+use super::{cancel, input_client, key_text};
 use crate::window::MouseAction::{Moved, Press, Release};
 use crate::window::MouseButton::{Left, Middle, Right};
 use crate::window::utf16;
-use crate::window::{CursorArea, Event, Held, ImeEvent, KeyInput, SystemKey};
+use crate::window::{Event, Held, ImeEvent, KeyInput, SystemKey};
 
 /// The key `keyDown:` is handling while the input method has it, and whether the input
 /// method gave it back to oso as a key.
@@ -60,6 +60,8 @@ pub(super) struct Ivars {
     /// its own: what it sends with no key in hand is not taken until the next key, as a reply
     /// may come late.
     muted: Cell<bool>,
+    /// The key-down last routed, which a `cancelOperation:` never routes again.
+    routed: Cell<Option<cancel::Stamp>>,
 }
 
 define_class!(
@@ -152,6 +154,15 @@ define_class!(
             self.ivars().state.during_event(|| self.route_key(event));
         }
 
+        /// Command-`.`, which AppKit's window sends here in place of `keyDown:`.
+        #[unsafe(method(cancelOperation:))]
+        fn cancel_operation(&self, _sender: Option<&AnyObject>) {
+            let (nested, routed) = (self.ivars().state.in_event.get(), self.ivars().routed.get());
+            if let Some(event) = cancel::diverted_key(self, nested, routed) {
+                self.ivars().state.during_event(|| self.route_key(&event));
+            }
+        }
+
         #[unsafe(method(keyUp:))]
         fn key_up(&self, _event: &NSEvent) {}
 
@@ -229,7 +240,7 @@ define_class!(
             if !self.in_key() && !self.takes_text() {
                 return;
             }
-            let text = text_of(string);
+            let text = input_client::text_of(string);
             if !self.ivars().marked.borrow().is_empty() {
                 self.ivars().marked.borrow_mut().clear();
                 self.ime(ImeEvent::Preedit(String::new(), None));
@@ -266,7 +277,7 @@ define_class!(
             if !self.in_key() && !self.takes_text() {
                 return;
             }
-            let text = text_of(string);
+            let text = input_client::text_of(string);
             if text.is_empty() {
                 self.ivars().marked.borrow_mut().clear();
                 self.ime(ImeEvent::Preedit(String::new(), None));
@@ -307,7 +318,7 @@ define_class!(
         fn marked_range(&self) -> NSRange {
             let marked = self.ivars().marked.borrow();
             if marked.is_empty() {
-                NSRange::new(not_found(), 0)
+                NSRange::new(input_client::not_found(), 0)
             } else {
                 let offset = self.ivars().state.ime.borrow().excerpt_offset();
                 NSRange::new(offset, utf16::utf16_len(&marked))
@@ -369,12 +380,12 @@ define_class!(
                 // of the call, which is not null here.
                 unsafe { actual.write(NSRange::new(units.start, units.end - units.start)) };
             }
-            self.on_screen(area)
+            input_client::on_screen(self, self.scale(), area)
         }
 
         #[unsafe(method(characterIndexForPoint:))]
         fn character_index(&self, _point: NSPoint) -> NSUInteger {
-            not_found()
+            input_client::not_found()
         }
     }
 );
@@ -392,6 +403,7 @@ impl OsoView {
             handling: RefCell::new(None),
             held: Cell::new(Held::NONE),
             muted: Cell::new(false),
+            routed: Cell::new(None),
         });
         // SAFETY: `initWithFrame:` is NSView's initializer, with this signature.
         let view: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
@@ -430,12 +442,13 @@ impl OsoView {
 
     /// Decides where a key goes: to oso, or to the input method first.
     fn route_key(&self, event: &NSEvent) {
+        self.ivars().routed.set(Some(cancel::stamp(event)));
         self.ivars().muted.set(false);
         let held = keys::held(event.modifierFlags());
         self.note_modifiers(held);
         let marked = !self.ivars().marked.borrow().is_empty();
         let allowed = self.ivars().state.ime_allowed();
-        let is_g = marked && held == Held::CONTROL && is_g(event);
+        let is_g = marked && held == Held::CONTROL && key_text::is_g(event);
         match keys::route(held, marked, allowed, is_g) {
             Route::Oso => self.deliver_key(event),
             Route::CommitThenOso => {
@@ -554,43 +567,4 @@ impl OsoView {
             matches!((&given, &current), (Some(given), Some(current)) if given == current);
         (given.is_some(), is_current)
     }
-
-    /// `area`, in physical pixels of the view, in points on the screen.
-    fn on_screen(&self, area: CursorArea) -> NSRect {
-        let scale = self.scale();
-        let rect = NSRect::new(
-            NSPoint::new(f64::from(area.x) / scale, f64::from(area.y) / scale),
-            NSSize::new(
-                f64::from(area.width) / scale,
-                f64::from(area.height) / scale,
-            ),
-        );
-        let in_window = self.convertRect_toView(rect, None);
-        self.window()
-            .map_or(in_window, |window| window.convertRectToScreen(in_window))
-    }
-}
-
-/// The text of what an input method gives, which is a string or an attributed one.
-fn text_of(string: &AnyObject) -> String {
-    if let Some(attributed) = string.downcast_ref::<NSAttributedString>() {
-        attributed.string().to_string()
-    } else if let Some(plain) = string.downcast_ref::<NSString>() {
-        plain.to_string()
-    } else {
-        String::new()
-    }
-}
-
-/// Whether the key is `g` on the layout, whatever is held.
-fn is_g(event: &NSEvent) -> bool {
-    event
-        .charactersByApplyingModifiers(NSEventModifierFlags::empty())
-        .is_some_and(|text| text.isEqualToString(ns_string!("g")))
-}
-
-/// AppKit's `NSNotFound`, as an unsigned location.
-#[expect(clippy::cast_sign_loss, reason = "NSNotFound is NSIntegerMax")]
-fn not_found() -> NSUInteger {
-    NSNotFound as NSUInteger
 }

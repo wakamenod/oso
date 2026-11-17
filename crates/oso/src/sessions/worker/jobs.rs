@@ -344,8 +344,9 @@ impl Core {
             }
             Job::Exited(key, exit) => (key, self.tracker(key, |t| t.exited(exit, now))),
             Job::Seen(key) => (key, self.tracker(key, |t| t.seen(now))),
-            Job::Changes(key, yes) => (key, self.tracker(key, |t| t.changes(yes, now))),
+            Job::Changes(key, unmerged) => (key, self.tracker(key, |t| t.changes(unmerged, now))),
             Job::ReviewOpened(key) => (key, self.tracker(key, |t| t.review_opened(now))),
+            Job::WorkMerged(key, at) => (key, self.tracker(key, |t| t.work_merged(at, now))),
         };
         change
             .map(|change| Out::Changed(key, change))

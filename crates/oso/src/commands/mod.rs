@@ -35,6 +35,7 @@ mod popup;
 mod prefix;
 mod projects;
 mod recovery;
+mod rename;
 mod replace;
 mod restart;
 pub(crate) mod review;
@@ -109,6 +110,7 @@ const TABLES: &[&[Command]] = &[
     prefix::COMMANDS,
     projects::COMMANDS,
     recovery::COMMANDS,
+    rename::COMMANDS,
     replace::COMMANDS,
     restart::COMMANDS,
     review::COMMANDS,
@@ -136,6 +138,7 @@ const TABLES: &[&[Command]] = &[
     vcs::graph::COMMANDS,
     vcs::pr::COMMANDS,
     vcs::pr::create::COMMANDS,
+    vcs::pr::issue::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
     windows::COMMANDS,
@@ -538,6 +541,12 @@ mod tests {
         "git-pr-refresh",
         "git-pr-view",
         "git-pr-visit",
+        "github-issue-copy-link",
+        "github-issue-open",
+        "github-issue-refresh",
+        "github-issue-visit",
+        "github-issue-worktree",
+        "github-issues",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).
@@ -552,6 +561,10 @@ mod tests {
         "lsp-describe-scroll-up",
         "lsp-diagnostics",
         "lsp-go-to-xref",
+        "lsp-rename",
+        "lsp-rename-apply",
+        "lsp-rename-cancel",
+        "lsp-rename-to",
         "lsp-restart",
         "lsp-shutdown",
         "lsp-start",

@@ -668,6 +668,10 @@ topological order, children before their parents, one row each (ADR 0127, step 4
   and `M-n` walk the messages kept. `- d` makes a draft, `- b` reads the base. `N m` opens the
   merge menu: `s`, `m` or `r` after a question naming the pull request, its base, the method and
   its head; `- d` deletes the branch on the remote.
+- Issues (step 5b-1): `C-x v i`, or `N i`, shows `*issues: NAME*`; `RET` shows `*issue: #N*` with
+  its comments; `w` opens `*Brief*` for a worktree session on `issue-N-SLUG`, the issue's text
+  under a line telling the agent it is data; `o` opens it, `y` copies its address, `g` reads
+  again.
 
 ## Echo area
 
@@ -1108,14 +1112,16 @@ a switch made with its command stands until that setting changes in the file
   and untracked files, whether its branch is merged and how that was found, its sessions and
   their states, unsaved buffers, its space, and whether it can be removed. `gh` is asked last, only for a branch that was
   pushed and that its remote's main branches do not hold. `g` lists again, and `D` removes the
-  one at point. A worktree whose removal runs says `removing…` instead.
+  one at point. A worktree whose removal runs says `removing…` instead. A row that is clean and
+  merged makes its sessions that were ready for review idle: their work needs no review. An
+  agent's `worktree_list` does so only for the sessions of its own space.
 - `M-x worktree-remove` removes the worktree of the selected buffer, or of the row at point,
   only when nothing would be lost. Each of these must hold, checked in this order:
   - it is a linked worktree of this repository;
   - it has nothing uncommitted or untracked;
   - no buffer in it is unsaved and no brief for it is unsent;
-  - no session in it is busy: one oso hosts is busy unless its state is idle or done and Claude
-    Code's registry calls it idle;
+  - no session in it is busy: one oso hosts is busy unless its state is idle, done or ready for
+    review and Claude Code's registry calls it idle;
   - its branch is merged, into a remote's main branch or through a merged pull request that
     `gh` knows of.
 

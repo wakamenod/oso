@@ -1,5 +1,6 @@
 //! Pull requests in the app (ADR 0127, step 5a): the status's `PR:` line, `*pr: #N*` and the
-//! list of open ones, what their keys ask, and opening a pull request in the browser.
+//! list of open ones, what their keys ask, and opening a pull request in the browser; from step
+//! 5b-1 issues' buffers too ([`issue`]).
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here runs `gh` or git, or
 //! lays out a text: each repository's thread, `oso-vcs-gh`, does, and a text goes in at O(1).
@@ -24,16 +25,17 @@ use super::super::{App, UserEvent};
 use super::Ask;
 use crate::git::{TrustedRoot, printable};
 use crate::vcs::pr::PrHead;
-use crate::vcs::pr::work::{PrReport, PrRequest, PrWorker};
+use crate::vcs::pr::work::{GhItem, PrReport, PrRequest, PrWorker};
 use crate::vcs::pr::write::{PrBuilt, PrLaid, PrRow};
 
 mod create;
+mod issue;
 
 pub(super) use create::AfterRun;
 
 /// Why a restricted project gets no pull request.
 const RESTRICTED: &str =
-    "Pull requests go through gh, which this project is not trusted to run: M-x trust-project";
+    "GitHub is asked through gh, which this project is not trusted to run: M-x trust-project";
 
 /// The least time between two reads of a status's `PR:` line the person asked for.
 const HEAD_EVERY: Duration = Duration::from_secs(30);
@@ -54,11 +56,13 @@ impl std::fmt::Debug for PrEvent {
     }
 }
 
-/// The repositories `gh` is asked about, and the pull requests' buffers.
+/// The repositories `gh` is asked about, and the pull requests' and issues' buffers.
 #[derive(Default)]
 pub(super) struct Prs {
     repos: Vec<PrRepo>,
     views: Vec<PrBuffer>,
+    /// The issue brief being read for `w`: its generation, and the buffer it was asked from.
+    issue_brief: Option<(u64, BufferId)>,
     /// Making and merging pull requests (step 5a-2).
     create: create::Creating,
     serial: u64,
@@ -77,13 +81,31 @@ struct PrRepo {
     said: Option<String>,
 }
 
+/// What a pull request's or an issue's buffer shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Shows {
+    /// The pull request numbered so, or the branch's.
+    Pull(Option<u64>),
+    /// The repository's open pull requests.
+    Pulls,
+    /// The issue numbered so (step 5b-1).
+    Issue(u64),
+    /// The repository's open issues.
+    Issues,
+}
+
+impl Shows {
+    pub(super) fn is_list(self) -> bool {
+        matches!(self, Self::Pulls | Self::Issues)
+    }
+}
+
 /// A pull request's buffer, or a list of them.
 struct PrBuffer {
     buffer: BufferId,
     project: ProjectId,
-    /// The pull request it shows, or the branch's; none for a list.
-    number: Option<u64>,
-    list: bool,
+    /// What it shows.
+    shows: Shows,
     /// Whether the next text goes in at its checks.
     at_checks: bool,
     asked: u64,
@@ -123,6 +145,8 @@ impl App {
                 delete_branch,
             } => self.start_merge(project, method, delete_branch),
             GitRequest::PrConfirmed => self.pr_confirmed(),
+            GitRequest::IssueList { project } => self.show_github(project, Shows::Issues, false),
+            GitRequest::IssueAct { buffer, act, line } => self.issue_act(buffer, act, line),
             // The others are not pull requests' (`requests::concern`).
             _ => {}
         }
@@ -147,29 +171,39 @@ impl App {
     /// Shows the buffer of `project`'s pull request `number`, or the branch's, or the list if
     /// `list`, and reads it again.
     fn show_pr(&mut self, project: ProjectId, number: Option<u64>, list: bool, checks: bool) {
+        let shows = if list {
+            Shows::Pulls
+        } else {
+            Shows::Pull(number)
+        };
+        self.show_github(project, shows, checks);
+    }
+
+    /// Shows the buffer of what `shows` names in `project`'s repository, and reads it again.
+    fn show_github(&mut self, project: ProjectId, shows: Shows, checks: bool) {
+        let editor = &self.editor;
+        let alive = |view: &PrBuffer| {
+            editor.git_pr_of(view.buffer).is_some() || editor.git_issue_of(view.buffer).is_some()
+        };
         let found = (self.gits.prs.views.iter())
-            .position(|view| view.project == project && view.number == number && view.list == list)
-            .filter(|&index| {
-                self.editor
-                    .git_pr_of(self.gits.prs.views[index].buffer)
-                    .is_some()
-            });
+            .position(|view| view.project == project && view.shows == shows && alive(view));
         let index = found.unwrap_or_else(|| {
-            let name = match (list, number) {
-                (true, _) => format!("*pull requests: {}*", self.project_name(project)),
-                (false, Some(number)) => format!("*pr: #{number}*"),
-                (false, None) => format!("*pr: {}*", self.project_name(project)),
-            };
-            let buffer = if list {
-                self.editor.add_git_pr_list(project, name)
-            } else {
-                self.editor.add_git_pr(project, name)
+            let of = self.project_name(project);
+            let buffer = match shows {
+                Shows::Issues => self
+                    .editor
+                    .add_git_issue_list(project, format!("*issues: {of}*")),
+                Shows::Issue(n) => self.editor.add_git_issue(project, format!("*issue: #{n}*")),
+                Shows::Pulls => self
+                    .editor
+                    .add_git_pr_list(project, format!("*pull requests: {of}*")),
+                Shows::Pull(Some(n)) => self.editor.add_git_pr(project, format!("*pr: #{n}*")),
+                Shows::Pull(None) => self.editor.add_git_pr(project, format!("*pr: {of}*")),
             };
             self.gits.prs.views.push(PrBuffer {
                 buffer,
                 project,
-                number,
-                list,
+                shows,
                 at_checks: false,
                 asked: 0,
                 fresh: true,
@@ -192,11 +226,12 @@ impl App {
         let generation = self.gits.prs.generation;
         let view = &mut self.gits.prs.views[index];
         view.asked = generation;
-        let (project, number, list) = (view.project, view.number, view.list);
-        let request = if list {
-            PrRequest::List { generation }
-        } else {
-            PrRequest::View { generation, number }
+        let project = view.project;
+        let request = match view.shows {
+            Shows::Issues => PrRequest::IssueList { generation },
+            Shows::Issue(number) => PrRequest::IssueView { generation, number },
+            Shows::Pulls => PrRequest::List { generation },
+            Shows::Pull(number) => PrRequest::View { generation, number },
         };
         if self.ask_pr(project, request).is_some() {
             self.editor.echo("Asking gh…");
@@ -289,6 +324,9 @@ impl App {
             PrReport::Address(Ok((url, number))) => self.open_pr_address(project, url, number),
             PrReport::Drafted { generation, draft } => {
                 self.pr_drafted(project, generation, draft);
+            }
+            PrReport::IssueBriefed { generation, brief } => {
+                self.issue_briefed(project, generation, brief);
             }
             PrReport::MergeAsked { generation, merge } => {
                 self.pr_merge_read(project, generation, merge);
@@ -387,7 +425,10 @@ impl App {
         self.sync_pr_drafts();
         let editor = &self.editor;
         let gone: Vec<usize> = (self.gits.prs.views.iter().enumerate())
-            .filter(|(_, view)| editor.git_pr_of(view.buffer).is_none())
+            .filter(|(_, view)| {
+                editor.git_pr_of(view.buffer).is_none()
+                    && editor.git_issue_of(view.buffer).is_none()
+            })
             .map(|(index, _)| index)
             .collect();
         for index in gone.into_iter().rev() {
@@ -467,7 +508,12 @@ impl App {
     fn open_pr_address(&mut self, project: ProjectId, url: String, number: u64) {
         self.editor
             .message(format!("Opening {}", printable(&url, 300)));
-        self.ask_pr(project, PrRequest::Open { url, number });
+        let request = PrRequest::Open {
+            url,
+            number,
+            item: GhItem::Pull,
+        };
+        self.ask_pr(project, request);
     }
 
     /// Copies `url` to the clipboard, if it is a plain `https` address: a link is anyone's

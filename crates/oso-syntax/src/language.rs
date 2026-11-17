@@ -65,11 +65,14 @@ impl Language {
             | Mode::GitGraph
             | Mode::GitPr
             | Mode::GitPrList
+            | Mode::GitIssueList
+            | Mode::GitIssue
             | Mode::GitCommit
             | Mode::GitPrMessage
             | Mode::ReviewMessage
             | Mode::GitLog
             | Mode::Conversation
+            | Mode::RenamePreview
             | Mode::GitDiscarded
             | Mode::Sessions => None,
         }

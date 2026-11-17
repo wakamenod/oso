@@ -278,7 +278,13 @@ network features.
   its base, the method and its head; just before it the run thread reads again that it is open
   and into that base, and `--match-head-commit` makes `gh` refuse it if its head moved. A
   question or a message `gh` answers late opens nothing over what the person does now. A pull request's message is
-  the person's: an agent's command does not change it. A template is read only as a regular
+  the person's: an agent's command does not change it. An issue's brief (step 5b-1) is its text
+  under the line that tells the agent it is data, every line escaped, cut at 64 KiB, with only
+  the comments of its author, of the login `gh` is logged in as and of the repository's owners,
+  members and collaborators, each line quoted so that none passes for oso's or the person's, a
+  deleted account never counting as the author; the person reads it in `*Brief*` before it is
+  sent. An agent may read `*issue: #N*` through `text`, every comment in it, as data, as a pull
+  request's. Only an issue's own address opens. A template is read only as a regular
   file under the root, never through a linked directory, at most 64 KiB, never one whose name
   may hold secrets.
 - Stashes and branches from a git status (ADR 0127, step 3b) are the person's acts, `Person`,
@@ -370,6 +376,15 @@ network features.
   edit, and what it opened goes (13b). A command runs only if the server declared it, and its
   `workspace/applyEdit` applies as the action's edit only while it waits; any other gets
   `applied: false`.
+- A rename (`M-x lsp-rename`, step 14) is the person's alone, as its commands are `Person`. Its
+  edit goes the same way, judged as 13b judges one before and once its files load, so that no
+  file that may hold secrets or lies outside the root reaches `*lsp-rename*`, which is withheld
+  from agents. Its files open first, unshown and unedited, and the preview is built from those
+  texts with the ranges `y` applies, which applies only while every buffer is still at the text
+  shown. Every line that changes is shown before and after, what differs in a long line whole,
+  its controls and bidi and invisible characters written out; one too large to show, or with
+  edits that overlap, is refused, not shown in part. The new name is at most 256 bytes with no
+  control, and neither it nor an edit's text is logged.
 - The environment is sanitized and every spawn is logged in a visible buffer.
 
 ### Dependencies (T2, T8)

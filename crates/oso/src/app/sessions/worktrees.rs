@@ -16,30 +16,28 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
+use std::time::Instant;
 
-use oso_core::buffer::{Buffer, BufferId, Mode};
+use oso_core::buffer::BufferId;
 use oso_core::command::Effects;
 use oso_core::editor::SessionRequest;
 use oso_core::project::ProjectId;
 
 use super::super::{App, Loop, UserEvent};
 
+mod brief;
 mod listing;
 mod removal;
 mod stop;
-use super::hosting::Begin;
 use super::watch::Watch;
 use crate::git::TrustedRoot;
-use crate::git::printable;
 use crate::sessions::hosted::{Hosted, Run};
 use crate::sessions::identity::SessionId;
 use crate::sessions::state::State;
-use crate::sessions::worktree::brief::MAX_BRIEF;
 use crate::sessions::worktree::checks::{Held, HostedSession};
-use crate::sessions::worktree::create::{Created, Handover, Order, Step};
+use crate::sessions::worktree::create::Handover;
 use crate::sessions::worktree::jobs::{Jobs, Report, Snapshot, Trust};
 use crate::sessions::worktree::list::{Row, RowText, Shown};
-use crate::sessions::worktree::slug;
 
 /// The name of the buffer a brief is written in.
 const BRIEF: &str = "*Brief*";
@@ -209,6 +207,26 @@ impl App {
 
     /// A worktree job reported.
     pub(in crate::app) fn worktree_reported(&mut self, event_loop: &Loop<'_>, report: Report) {
+        if let Report::WorkMerged {
+            key,
+            judgment,
+            merged,
+        } = report
+        {
+            return self.session_work_judged(key, judgment, merged);
+        }
+        // A worktree a listing found clean and merged is the work of its sessions merged (ADR
+        // 0121, "Merged work is not ready for review, as amended"): the person's listing speaks
+        // for every session there, an agent's only for those of its own space.
+        if let Some((token, path, looked_at)) = merged_work_at(&report) {
+            let person = (self.hosting.worktrees.list.as_ref()).is_some_and(|l| l.token == token);
+            let keys = if person {
+                self.sessions_at(&path)
+            } else {
+                self.agent_listing_sessions(token, &path)
+            };
+            self.session_work_merged(&keys, looked_at);
+        }
         // A job an agent's session tool asked for (ADR 0121, step 6).
         // Its handlers ask for a frame only when they show something.
         let Some(report) = self.session_tool_report(report) else {
@@ -235,6 +253,7 @@ impl App {
                 token,
                 path,
                 merged,
+                ..
             } => self.worktree_merged(token, &path, merged),
             Report::Checked {
                 token,
@@ -248,192 +267,14 @@ impl App {
                 result,
             } => self.worktree_removed(token, &path, result),
             // The person's listing ends as its rows come; only an agent's waits for the end.
-            Report::ListEnded { .. } | Report::Prepared { .. } => {}
+            Report::ListEnded { .. } | Report::Prepared { .. } | Report::WorkMerged { .. } => {}
         }
         self.request_redraw();
     }
 
-    /// `session-worktree`: opens `*Brief*` for a worktree on `branch`.
-    fn open_brief(&mut self, branch: String, base: Option<String>) {
-        let (project, root) = match self.project_here() {
-            Ok(id) => match self.editor.project(id) {
-                Some(found) => (id, found.root().to_owned()),
-                None => return,
-            },
-            Err(why) => return self.editor.message(why),
-        };
-        if let Some(open) = self.hosting.worktrees.briefs.keys().next().copied() {
-            self.editor.show(open);
-            return self
-                .editor
-                .message("A brief is being written: send it with C-c C-c or drop it with C-c C-k");
-        }
-        // From a row of `*Spaces*`, its session and its worktree's branch (ADR 0131).
-        let row = self.sessions_row_place().and_then(Result::ok);
-        if let Some(row) = &row {
-            self.enter_row_space(row);
-        }
-        let base = base.or_else(|| row.as_ref()?.base().map(str::to_owned));
-        let detached = if base.is_none() && row.as_ref().is_some_and(|row| row.detached()) {
-            " (that worktree is on no branch: this one starts at HEAD)"
-        } else {
-            ""
-        };
-        let starting = self.editor.window().buffer();
-        let session = match &row {
-            Some(row) => row.session.and_then(|key| self.hosting.table.get(key)),
-            None => self.hosting.table.by_buffer(starting),
-        };
-        let from = session.map(|session| Handover {
-            name: session.runs().then(|| session.name.clone()),
-            id: session.id.as_str().to_owned(),
-            directory: session.directory.clone(),
-            space: self.orchestrated_space(&session.id),
-            reads: Vec::new(),
-        });
-        let parent = session.map(|s| s.id.clone());
-        let place = slug::slug(&branch)
-            .map(|slug| root.join(".claude/worktrees").join(slug))
-            .unwrap_or_default();
-        let mut buffer = Buffer::from_text(BRIEF, "");
-        buffer.set_mode(Mode::Brief);
-        // The person's brief: no agent reads or rewrites it before it is sent.
-        buffer.withhold_from_agents();
-        let id = self.editor.add_buffer(buffer);
-        self.editor.show(id);
-        let shown = printable(&branch, 80);
-        self.hosting.worktrees.briefs.insert(
-            id,
-            Brief {
-                project,
-                branch,
-                base,
-                from,
-                parent,
-                place,
-                buffer: id,
-            },
-        );
-        self.editor.message(format!(
-            "Write the brief for {shown}{detached}: C-c C-c makes the worktree and starts its session, C-c C-k drops it"
-        ));
-    }
-
-    /// `brief-send`: makes the worktree, then starts its session with the brief.
-    fn send_brief(&mut self, buffer: BufferId) {
-        let Some(brief) = self.hosting.worktrees.briefs.get(&buffer).cloned() else {
-            return self
-                .editor
-                .message("This brief belongs to no worktree session");
-        };
-        let Some(text) = self.editor.buffer(buffer).map(Buffer::text) else {
-            return;
-        };
-        // Measured before it is copied.
-        if text.len() > MAX_BRIEF {
-            return self.editor.message("The brief is over 64 KiB");
-        }
-        let text = text.to_string();
-        if text.trim().is_empty() {
-            return self.editor.message("The brief is empty");
-        }
-        if self
-            .hosting
-            .worktrees
-            .creating
-            .values()
-            .any(|c| c.buffer == buffer)
-        {
-            return self.editor.message("This worktree is being made");
-        }
-        let trust = match self.trust_for(brief.project) {
-            Ok(trust) => trust,
-            Err(why) => return self.editor.message(why),
-        };
-        let token = self.worktree_token();
-        let order = Order {
-            branch: brief.branch.clone(),
-            base: brief.base.clone(),
-            brief: text,
-            from: brief.from.clone(),
-            start_at: None,
-        };
-        self.worktree_jobs().create(token, trust, order);
-        self.editor.message(format!(
-            "Making the worktree for {}…",
-            printable(&brief.branch, 80)
-        ));
-        self.hosting.worktrees.creating.insert(token, brief);
-    }
-
-    /// A create job reached `step`: the echo area says what comes next.
-    fn worktree_step(&mut self, token: u64, step: Step) {
-        let Some(brief) = self.hosting.worktrees.creating.get(&token) else {
-            return;
-        };
-        let branch = printable(&brief.branch, 80);
-        let said = match step {
-            Step::Checked => format!("Adding the worktree for {branch}…"),
-            Step::Added => format!("Copying .worktreeinclude's files for {branch}…"),
-            Step::Copied => format!("Starting the session for {branch}…"),
-        };
-        self.editor.message(said);
-    }
-
-    /// `brief-cancel`: drops the brief unsent.
-    fn cancel_brief(&mut self, buffer: BufferId) {
-        if self.hosting.worktrees.briefs.remove(&buffer).is_some() {
-            self.editor.kill_buffer(buffer);
-            self.editor.message("Brief dropped");
-        }
-    }
-
-    /// A create job ended: its session starts, or why not is said.
-    fn worktree_created(&mut self, token: u64, result: Result<(Created, TrustedRoot), String>) {
-        let Some(brief) = self.hosting.worktrees.creating.remove(&token) else {
-            return;
-        };
-        let (created, trusted) = match result {
-            Ok(made) => made,
-            // The brief stays, to send again.
-            Err(why) => return self.editor.message(why),
-        };
-        self.hosting.worktrees.briefs.remove(&brief.buffer);
-        self.editor.kill_buffer(brief.buffer);
-        let copied = match (&created.include_note, created.copied.files) {
-            (Some(note), _) => format!("; {note}"),
-            (None, 0) => String::new(),
-            (None, n) => format!("; {n} files copied by .worktreeinclude"),
-        };
-        let made = if created.made_branch {
-            "new branch"
-        } else {
-            "branch"
-        };
-        self.editor.message(format!(
-            "Worktree {} made on {made} {}{copied}",
-            printable(&created.path.display().to_string(), 200),
-            printable(&created.branch, 80),
-        ));
-        // The worktree is held by the space of the session that asked for it, when its
-        // repository is one of that space's, else by the space it joins (ADR 0136): its
-        // session then joins the same.
-        self.hold_made_worktree(brief.parent.as_ref(), &created.path, &created.main);
-        self.begin_session(Begin {
-            origin: crate::sessions::identity::Origin::Person,
-            name: None,
-            directory: Some(created.path),
-            brief: Some(created.prompt),
-            parent: brief.parent,
-            check_shared: false,
-            trusted: Some(trusted),
-            space: None,
-        });
-    }
-
     /// What the UI thread holds about the worktree at `path` alone: buffers with unsaved
-    /// changes under it, an unsent brief for it, and its hosted sessions whose screen's state
-    /// is not idle or done. The registry's half of check 4 is the job's to read.
+    /// changes under it, an unsent brief for it, and its hosted sessions that are not
+    /// [`settled`]. The registry's half of check 4 is the job's to read.
     pub(in crate::app) fn held_at(&self, path: &Path) -> Held {
         let unsaved = self
             .editor
@@ -492,6 +333,23 @@ impl App {
     }
 }
 
+/// The worktree a listing's `report` found clean with its branch merged, a row or `gh`'s word
+/// on one: the listing's token, the path, and when the job read its changes.
+fn merged_work_at(report: &Report) -> Option<(u64, PathBuf, Instant)> {
+    match report {
+        Report::Row { token, looked } if looked.work_merged() => {
+            Some((*token, looked.listed.path.clone(), looked.looked_at))
+        }
+        Report::Merged {
+            token,
+            path,
+            merged,
+            clean: Some(looked_at),
+        } if merged.is_merged() => Some((*token, path.clone(), *looked_at)),
+        _ => None,
+    }
+}
+
 /// A hosted session's state as the UI thread knows it: a running session's as the sessions
 /// worker last told it (ADR 0121 step 3), while that agrees that it runs. `None` while a
 /// session starts or its live state is not known: a session that runs then counts as busy.
@@ -506,8 +364,18 @@ pub(in crate::app) fn hosted_state(session: &Hosted, watch: &Watch) -> Option<St
     }
 }
 
-/// The hosted sessions that run, neither failed nor stopped, each with whether its screen's
-/// state is idle or done: check 4's half that the UI thread knows.
+/// Whether a session in `state` is settled for check 4, and is stopped by a removal whose checks
+/// hold: idle, done or ready for review. A removal's checks 2 and 5 hold only for work committed
+/// and merged (ADR 0121, "Merged work is not ready for review, as amended").
+pub(in crate::app) fn settled(state: Option<State>) -> bool {
+    matches!(
+        state,
+        Some(State::Idle | State::Done | State::ReadyForReview)
+    )
+}
+
+/// The hosted sessions that run, neither failed nor stopped, each with whether it is
+/// [`settled`]: check 4's half that the UI thread knows.
 fn running_sessions(sessions: &[Hosted], watch: &Watch) -> Vec<HostedSession> {
     sessions
         .iter()
@@ -524,7 +392,7 @@ fn running_sessions(sessions: &[Hosted], watch: &Watch) -> Vec<HostedSession> {
                     Run::Running { child } => child,
                     _ => None,
                 },
-                settled: matches!(state, Some(State::Idle | State::Done)),
+                settled: settled(state),
             })
         })
         .collect()

@@ -1,6 +1,7 @@
 //! Pull requests as `gh` gives them (ADR 0127, step 5a): what its JSON answers say of a branch's
 //! pull request, one pull request with its checks, review threads and conversation, and a
-//! repository's open ones, read by shape into plain values.
+//! repository's open ones, read by shape into plain values; and from step 5b-1 issues
+//! ([`issue`]).
 //!
 //! Must not depend on: `app`, `dispatch`, processes or the file system; these are pure
 //! functions over the bytes `gh` wrote, which its thread reads ([`work`]) and the text is made
@@ -12,6 +13,7 @@
 //!   answer of the wrong shape reads as `None`, and every list has a bound.
 
 pub(crate) mod create;
+pub(crate) mod issue;
 pub(crate) mod work;
 pub(crate) mod write;
 

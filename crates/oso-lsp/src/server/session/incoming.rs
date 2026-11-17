@@ -109,6 +109,7 @@ impl Session {
                 let completing = protocol::completing(&result);
                 run.resolves = completing.resolves;
                 run.actions.acting = protocol::acting(&result);
+                run.renaming = protocol::renaming(&result);
                 self.reporter.completing(completing);
                 self.open_documents(run)?;
                 let name = protocol::server_name(&result)

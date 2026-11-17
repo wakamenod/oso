@@ -29,6 +29,7 @@ mod popup;
 mod prefix;
 mod projects;
 mod recovery;
+mod rename;
 mod replace;
 mod review;
 mod save;
@@ -207,6 +208,12 @@ pub fn review_message_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, review::MESSAGE).unwrap_or_default()
 }
 
+/// `*lsp-rename*`'s own keymap, above the global one (ADR 0138, step 14). Empty for a registry
+/// without its commands, as in tests that bring their own.
+pub fn rename_preview_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, rename::PREVIEW).unwrap_or_default()
+}
+
 /// A directory listing's own keymap, above the global one in it (ADR 0134). Empty for a
 /// registry without its commands, as in tests that bring their own.
 pub fn dired_keymap(registry: &Registry) -> Keymap {
@@ -256,6 +263,12 @@ pub fn git_pr_keymap(registry: &Registry) -> Keymap {
 /// Empty for a registry without its commands.
 pub fn git_pr_message_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, vcs::PR_MESSAGE).unwrap_or_default()
+}
+
+/// An issue's buffer's own keymap, and a list's, above the global one in it (ADR 0127, step
+/// 5b-1). Empty for a registry without its commands.
+pub fn git_issue_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, vcs::ISSUE).unwrap_or_default()
 }
 
 /// The keymap of the list of what discards kept, above the global one in it (ADR 0127, step
