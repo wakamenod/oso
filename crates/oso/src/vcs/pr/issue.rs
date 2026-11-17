@@ -27,9 +27,9 @@ pub(crate) const MAX_BRIEF: usize = 64 * 1024;
 /// The most characters of a branch name's slug.
 const MAX_SLUG: usize = 40;
 /// The login GitHub shows for a deleted account.
-const GHOST: &str = "ghost";
+pub(super) const GHOST: &str = "ghost";
 /// What ends the part of a brief GitHub said.
-const END: &str = "\nEnd of what GitHub said. Your own words go below.\n";
+pub(super) const END: &str = "\nEnd of what GitHub said. Your own words go below.\n";
 /// What a cut brief says where it was cut.
 const CUT: &str = "> [the rest is cut]\n";
 /// The room a brief leaves for the header a session's first prompt adds (ADR 0121).

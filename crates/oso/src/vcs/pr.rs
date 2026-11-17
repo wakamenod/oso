@@ -14,6 +14,7 @@
 
 pub(crate) mod create;
 pub(crate) mod issue;
+pub(crate) mod send;
 pub(crate) mod work;
 pub(crate) mod write;
 
@@ -36,7 +37,8 @@ pub(crate) const HEAD_FIELDS: &str =
 pub(crate) const VIEW_FIELDS: &str = "number,title,state,isDraft,reviewDecision,\
 statusCheckRollup,url,headRefOid,author,baseRefName,headRefName,body,comments";
 /// The fields of `gh pr checks --json`.
-pub(crate) const CHECK_FIELDS: &str = "name,state,bucket,link,workflow,startedAt,completedAt";
+pub(crate) const CHECK_FIELDS: &str =
+    "name,state,bucket,link,workflow,startedAt,completedAt,description";
 /// The fields of `gh pr list --json`.
 pub(crate) const LIST_FIELDS: &str =
     "number,title,headRefName,author,isDraft,reviewDecision,statusCheckRollup,url";
@@ -143,6 +145,8 @@ pub(crate) struct Check {
     pub(crate) link: String,
     /// How long it ran, in seconds, once it ended.
     pub(crate) took: Option<u64>,
+    /// What it says of itself, anyone's words (step 6b).
+    pub(crate) description: String,
 }
 
 /// A comment, in a review thread or the conversation.
@@ -245,6 +249,7 @@ pub(crate) fn read_checks(json: &[u8]) -> Option<Vec<Check>> {
             workflow: item.get("workflow").and_then(text).unwrap_or_default(),
             link: item.get("link").and_then(text).unwrap_or_default(),
             took,
+            description: item.get("description").and_then(text).unwrap_or_default(),
         })
     };
     Some(items.iter().take(MAX_ITEMS).filter_map(check).collect())

@@ -27,6 +27,7 @@ use std::path::{Path, PathBuf};
 
 use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::editor::ReviewId;
+use oso_core::project::ProjectId;
 use oso_core::review::{Author, Comment, CommentId, Review, RowKind, Rows, Seek};
 
 use super::super::App;
@@ -40,18 +41,28 @@ use crate::sessions::worker::SessionKey;
 /// What the buffer of a review's message is called.
 const NAME: &str = "*review message*";
 
-/// A review's message waiting in its buffer to be sent, and the comments it was made from.
+/// A message waiting in its buffer to be sent, what it was made from, and the comments it took.
 pub(in crate::app) struct Waiting {
     buffer: BufferId,
-    review: ReviewId,
+    origin: Origin,
     taken: Vec<Comment>,
 }
 
-/// What sending keeps: the message open, and the session the person picked for each review.
+/// What a message was made from: a review's comments, or a pull request's checks or review
+/// threads (ADR 0127, step 6b).
+#[derive(Clone, Debug)]
+enum Origin {
+    Review(ReviewId),
+    Pull(pull::FromPull),
+}
+
+/// What sending keeps: the message open, and the session the person picked for each review and
+/// each pull request.
 #[derive(Default)]
 pub(in crate::app) struct Sending {
     message: Option<Waiting>,
     picked: HashMap<ReviewId, SessionKey>,
+    picked_pulls: HashMap<(ProjectId, u64), SessionKey>,
 }
 
 impl App {
@@ -122,7 +133,7 @@ impl App {
         let count = taken.len();
         self.reviews.sending.message = Some(Waiting {
             buffer,
-            review,
+            origin: Origin::Review(review),
             taken,
         });
         let to = match self.review_session(review) {
@@ -139,53 +150,36 @@ impl App {
         ));
     }
 
-    /// `review-message-send`: pastes the message `buffer` holds into its review's session, or
-    /// into the one named `to`, and marks the comments it took sent.
+    /// `review-message-send`: pastes the message `buffer` holds into its session, or into the
+    /// one named `to`, and marks the comments a review's message took sent.
     pub(super) fn send_review_message(&mut self, buffer: BufferId, to: Option<String>) {
-        let Some(review) = (self.reviews.sending.message.as_ref())
+        let Some(origin) = (self.reviews.sending.message.as_ref())
             .filter(|message| message.buffer == buffer)
-            .map(|message| message.review)
+            .map(|message| message.origin.clone())
         else {
             return self
                 .editor
                 .message("This is no review's message: C-c C-c in a review makes one");
         };
-        let Some(shown) = self.editor.buffer(buffer) else {
+        let Some(text) = self.message_to_send(buffer) else {
             return;
         };
-        // A yank of a secret entry turns the message secret: what it holds stays here, as a
-        // draft's does (step 3).
-        if shown.is_secret() {
-            return self.editor.message(
-                "The message holds secret text, which is not sent: take it out, or C-c C-k",
-            );
-        }
-        // Its length is looked at before anything is copied.
-        let bytes = shown.text().len();
-        if bytes > MAX_SEND_BYTES {
-            let send = self
-                .dispatcher
-                .where_is(&self.editor, "review-message-send");
-            return self.editor.message(too_large(bytes, &send));
-        }
-        let text = shown.text().to_string();
-        if text.trim().is_empty() {
-            return self
-                .editor
-                .message("The message is empty: C-c C-k drops it");
-        }
         let key = match &to {
             Some(name) => match self.session_named(name) {
                 Some(key) => key,
                 None => return self.editor.message(format!("No session {name}")),
             },
-            None => match self.review_session(review) {
+            None => match self.message_session(&origin) {
                 Some(key) => key,
                 None => {
                     let start = self.dispatcher.where_is(&self.editor, "claude");
+                    let place = match origin {
+                        Origin::Review(_) => "in this worktree",
+                        Origin::Pull(_) => "where the pull request's branch is checked out",
+                    };
                     return self.editor.message(format!(
-                        "No agent session runs in this worktree: C-u C-c C-c picks one, or \
-                         {start} starts one"
+                        "No agent session runs {place}: C-u C-c C-c picks one, or {start} starts \
+                         one"
                     ));
                 }
             },
@@ -194,14 +188,26 @@ impl App {
         if let Err(why) = self.send_to_session(key, text) {
             return self.editor.message(why);
         }
-        if to.is_some() {
-            self.reviews.sending.picked.insert(review, key);
-        }
         let Some(message) = self.reviews.sending.message.take() else {
             return;
         };
-        let (marked, changed) = self.mark_sent(review, &message.taken);
         self.editor.kill_buffer(buffer);
+        let review = match origin {
+            Origin::Review(review) => review,
+            Origin::Pull(from) => {
+                if to.is_some() {
+                    let picked = &mut self.reviews.sending.picked_pulls;
+                    picked.insert((from.project, from.number), key);
+                }
+                return self
+                    .editor
+                    .message(format!("Pasted into {name}: press Enter there"));
+            }
+        };
+        if to.is_some() {
+            self.reviews.sending.picked.insert(review, key);
+        }
+        let (marked, changed) = self.mark_sent(review, &message.taken);
         let changed = match changed {
             0 => String::new(),
             n => format!("; {} changed meanwhile stay unsent", comments(n)),
@@ -212,28 +218,71 @@ impl App {
         ));
     }
 
-    /// `review-message-drop`: drops the message `buffer` holds, and shows its review again.
+    /// The text of the message `buffer` holds, if it may be sent; else why not is said.
+    fn message_to_send(&mut self, buffer: BufferId) -> Option<String> {
+        let shown = self.editor.buffer(buffer)?;
+        // A yank of a secret entry turns the message secret: what it holds stays here, as a
+        // draft's does (step 3).
+        if shown.is_secret() {
+            self.editor.message(
+                "The message holds secret text, which is not sent: take it out, or C-c C-k",
+            );
+            return None;
+        }
+        // Its length is looked at before anything is copied.
+        let bytes = shown.text().len();
+        if bytes > MAX_SEND_BYTES {
+            let send = self
+                .dispatcher
+                .where_is(&self.editor, "review-message-send");
+            self.editor.message(too_large(bytes, &send));
+            return None;
+        }
+        let text = shown.text().to_string();
+        if text.trim().is_empty() {
+            self.editor
+                .message("The message is empty: C-c C-k drops it");
+            return None;
+        }
+        Some(text)
+    }
+
+    /// `review-message-drop`: drops the message `buffer` holds, and shows what it was made
+    /// from again.
     pub(super) fn drop_review_message(&mut self, buffer: BufferId) {
-        let review = (self.reviews.sending.message.as_ref())
+        let origin = (self.reviews.sending.message.as_ref())
             .filter(|message| message.buffer == buffer)
-            .map(|message| message.review);
-        if review.is_some() {
+            .map(|message| message.origin.clone());
+        if origin.is_some() {
             self.reviews.sending.message = None;
         }
         // A review buffer is internal, which a kill's next buffer leaves out.
-        if let Some(shown) = review.and_then(|review| self.editor.review_buffer(review))
+        let from = match &origin {
+            Some(Origin::Review(review)) => self.editor.review_buffer(*review),
+            Some(Origin::Pull(from)) => self.pr_buffer_of(from.project, from.number),
+            None => None,
+        };
+        if let Some(shown) = from
             && self.editor.window().buffer() == buffer
         {
             self.editor.show(shown);
         }
         self.editor.kill_buffer(buffer);
+        let left = match origin {
+            Some(Origin::Pull(_)) => "nothing was sent",
+            _ => "its comments stay unsent",
+        };
         self.editor
-            .message("The message was dropped: its comments stay unsent");
+            .message(format!("The message was dropped: {left}"));
     }
 
     /// After each event: forgets a message whose buffer was killed, and a picked session that
-    /// is gone or whose review closed.
+    /// is gone, or whose review closed or pull request is no longer shown.
     pub(super) fn sync_review_message(&mut self) {
+        let shown: HashSet<(ProjectId, u64)> = (self.reviews.sending.picked_pulls.keys())
+            .filter(|(project, number)| self.pr_buffer_of(*project, *number).is_some())
+            .copied()
+            .collect();
         let editor = &self.editor;
         let sending = &mut self.reviews.sending;
         if (sending.message.as_ref()).is_some_and(|message| editor.buffer(message.buffer).is_none())
@@ -245,6 +294,16 @@ impl App {
         sending.picked.retain(|review, key| {
             table.get(*key).is_some() && open.iter().any(|running| running.id == *review)
         });
+        (sending.picked_pulls)
+            .retain(|pull, key| table.get(*key).is_some() && shown.contains(pull));
+    }
+
+    /// The session a message from `origin` goes to, if none is named.
+    fn message_session(&self, origin: &Origin) -> Option<SessionKey> {
+        match origin {
+            Origin::Review(review) => self.review_session(*review),
+            Origin::Pull(from) => self.pull_session(from),
+        }
     }
 
     /// The session a message of `review` goes to: the one the person picked for it while it
@@ -366,6 +425,9 @@ fn resolved_threads(model: &Review) -> HashSet<CommentId> {
     }
     under
 }
+
+#[path = "send/pull.rs"]
+mod pull;
 
 #[cfg(test)]
 #[path = "send_tests.rs"]

@@ -121,6 +121,9 @@ pub enum ReviewRequest {
     },
     /// Drop the review message `buffer` holds, sending nothing.
     MessageDrop { buffer: BufferId },
+    /// Add the comments a pull request's message `buffer` left out to its end (`C-c C-t`, ADR
+    /// 0127, step 6b).
+    MessageTake { buffer: BufferId },
 }
 
 /// One open review.

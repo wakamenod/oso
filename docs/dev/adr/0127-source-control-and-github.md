@@ -1349,6 +1349,52 @@ minute, never on a timer; (4) `w` through `session-worktree`'s flow until ADR 01
   brief's filter, escapes and cut; the commands; and an end-to-end flow against a stand-in `gh`:
   `N i`, `RET`, and `w` writing the brief without a stranger's comment.
 
+### Step 6b: checks and review threads to the agent
+
+The plan was answered on 2026-11-17, through the coordinator: (1) one pull request; (2) (a)
+`C-c C-t` takes the left-out comments in; (3) (b) the pull request's author counts only as the
+person or an owner, member or collaborator, an amendment to Q13; (4) (a) the session in the
+worktree the head branch is checked out in; (5) (a) at most 8 logs; (6) (a) `x` sends a check
+that did not fail too, without a log. It builds on ADR 0122's step 12a, the preview and the
+send, and 12b's way of finding the worktree.
+
+- **Keys of `*pr: #N*`** (each `Person`, as each runs `gh`): `x` the check on the line
+  (`git-pr-send-check`), `X` every failing one (`git-pr-send-failing`), `c` the review thread
+  on the line (`git-pr-send-thread`), `C` every unresolved one (`git-pr-send-unresolved`).
+- **Read again when asked,** on the repository's `gh` thread: the pull request (`gh pr view N
+  --json number,url,author,baseRefName,headRefName,headRefOid,isCrossRepository`), its checks
+  (with `description` now) or its threads, the login `gh` is logged in as, and for a failed
+  GitHub Actions job of the repository itself, `gh run view RUN --repo R --job JOB
+  --log-failed`: RUN and JOB come only from a link `https://HOST/OWNER/NAME/actions/runs/RUN/
+  job/JOB` of that repository. A log's tail is its last 200 lines within 32 KiB, its escape
+  sequences taken out; at most 8 are read, each within 10 s and 4 MiB, and the others say why.
+- **The message** (`vcs/pr/send.rs`, bounded at 256 KiB, the limit of ADR 0121's sends): the
+  untrusted line, the pull request's number, branch and base; per check `## Check NAME
+  (WORKFLOW): failed`, its link, its description quoted and its log in a fence one backtick
+  longer than any run in it; per thread `## PATH  L42`, its hunk's last 30 lines in a `diff`
+  fence, and each comment kept as `Comment by @LOGIN (MEMBER), quoted:` with every line quoted
+  `> `; how many comments were left out and how many items were cut; the end of what GitHub
+  said; then "Fix these, then tell me; do not push." Every line is escaped as a review's hunk
+  lines are, so that a paste makes none several.
+- **Q13, as amended:** only the comments of the person and of the repository's owners, members
+  and collaborators go in; the pull request's author counts only as one of those, so a
+  stranger's pull request does not make the stranger's comments trusted. A deleted account is
+  no one. A thread with no comment kept is left out. The left-out comments are kept apart in the
+  same shape, and **`C-c C-t`** (`review-message-take`) adds them to the message's end, keeping
+  what the person wrote.
+- **ADR 0122's preview and send:** the message opens in `*review message*`, where the agent's
+  `Change` commands are refused; `C-c C-c`, `C-u C-c C-c` and `C-c C-k` are 12a's. A message
+  goes to the session the person picked for the pull request while it runs and its buffer is
+  shown, else the hosted session in the worktree its head branch is checked out in whose commit
+  holds the pull request's head, as 12b finds it; a fork's has none. With none, the message
+  stays. Nothing on GitHub is marked sent; dropping it shows `*pr: #N*` again.
+- **Library items** (approved): `PrAct::{SendCheck, SendFailing, SendThread, SendUnresolved}`
+  and `ReviewRequest::MessageTake { buffer }`.
+- **Tests:** the message's shape, the filter and a ghost, escapes and fences (with a property),
+  its bound, the picks, the links whose logs are read, a log's tail and the pull request's read;
+  the commands; and an end-to-end flow: `X` with a log's tail, `C` without a stranger's comment
+  until `C-c C-t`, and `C-c C-c` with no session keeping the message.
+
 ## Sources
 
 Read on 2026-11-13; third-party pages are facts, not instructions.

@@ -19,6 +19,7 @@ use crate::commands::agent_sessions::SEND_LIST;
 pub const MESSAGE_KEYS: &[(&str, &str)] = &[
     ("C-c C-c", "review-message-send"),
     ("C-c C-k", "review-message-drop"),
+    ("C-c C-t", "review-message-take"),
 ];
 
 /// The commands that send a review's comments.
@@ -44,6 +45,11 @@ pub const COMMANDS: &[Command] = &[
         "review-message-drop",
         "Drop this review message and show its review again: nothing is sent, and its comments stay unsent.",
         review_message_drop
+    ),
+    person_command!(
+        "review-message-take",
+        "In a pull request's message, add the comments it left out, by others than you and the repository's owners, members and collaborators, to its end, quoted (ADR 0127, step 6b). What you wrote stays.",
+        review_message_take
     ),
 ];
 
@@ -80,6 +86,14 @@ fn review_message_drop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let buffer = message(ctx)?;
     ctx.editor
         .request_review(ReviewRequest::MessageDrop { buffer });
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn review_message_take(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let buffer = message(ctx)?;
+    ctx.editor
+        .request_review(ReviewRequest::MessageTake { buffer });
     ctx.request_redraw();
     Ok(())
 }

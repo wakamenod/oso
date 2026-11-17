@@ -210,7 +210,7 @@ fn lines_of(out: &mut String, hunk: &Hunk, at: Option<usize>) {
 }
 
 /// A line's text without its ending, at most [`MAX_LINE_CHARS`] characters.
-fn line_text(line: &[u8]) -> String {
+pub(crate) fn line_text(line: &[u8]) -> String {
     let line = line.strip_suffix(b"\n").unwrap_or(line);
     let line = line.strip_suffix(b"\r").unwrap_or(line);
     // No character takes more than 4 bytes, so what is shown is in these, however long the
@@ -240,7 +240,7 @@ fn breaks(c: char) -> bool {
 }
 
 /// The longest run of backticks in `text`.
-fn backticks(text: &str) -> usize {
+pub(crate) fn backticks(text: &str) -> usize {
     let (mut longest, mut run) = (0, 0);
     for c in text.chars() {
         run = if c == '`' { run + 1 } else { 0 };

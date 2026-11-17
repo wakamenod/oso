@@ -701,6 +701,10 @@ The UI thread never blocks on I/O or parsing:
   and makes a brief, `vcs/pr/write/issue.rs` their texts, `vcs/pr/work/issue.rs` the `gh` thread's
   reads, `app/vcs/pr/issue.rs` the keys, opening `*Brief*` through
   `app/sessions/worktrees.rs`'s `start_brief`, and `commands::vcs::pr::issue` the commands.
+  Checks and threads to the agent (step 6b): `vcs/pr/send.rs` composes the message,
+  `vcs/pr/work/send.rs` reads what it is made of on `oso-vcs-gh`, `app/vcs/pr/send.rs` the
+  keys, and ADR 0122's `app/reviews/send.rs` shows and pastes it, its pull requests' part in
+  `send/pull.rs`.
 - Stashes and branches (step 3b): `vcs/stash.rs` reads the stash list into the Stashes section
   and `vcs/branch.rs` holds what branches need that runs no git; `vcs/run/stash.rs` and
   `vcs/run/branch.rs` run them on `oso-vcs-run`, finding a stash again by its id and planning a

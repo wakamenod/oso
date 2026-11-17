@@ -293,7 +293,13 @@ network features.
   its base, the method and its head; just before it the run thread reads again that it is open
   and into that base, and `--match-head-commit` makes `gh` refuse it if its head moved. A
   question or a message `gh` answers late opens nothing over what the person does now. A pull request's message is
-  the person's: an agent's command does not change it. An issue's brief (step 5b-1) is its text
+  the person's: an agent's command does not change it. Checks and review threads sent to an
+  agent (step 6b) are read again when the person asks, shown in `*review message*` under the
+  untrusted line before anything is pasted, every line quoted or fenced and escaped; only the
+  person's and the repository's owners', members' and collaborators' comments go in by default,
+  the pull request's author no more than another. A log is read only of a GitHub Actions job of
+  the repository itself, by the run and job its link names, at most 8 a message, each within
+  10 s and 4 MiB. An issue's brief (step 5b-1) is its text
   under the line that tells the agent it is data, every line escaped, cut at 64 KiB, with only
   the comments of its author, of the login `gh` is logged in as and of the repository's owners,
   members and collaborators, each line quoted so that none passes for oso's or the person's, a

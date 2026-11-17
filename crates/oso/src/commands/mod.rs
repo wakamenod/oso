@@ -312,6 +312,7 @@ mod tests {
         // change (ADR 0122, step 12).
         "review-message-drop",
         "review-message-send",
+        "review-message-take",
         "review-send",
         // Folding the agent's comments hides what it wrote from the person, who alone chooses
         // how much of it to see.
@@ -532,6 +533,10 @@ mod tests {
         "git-pr-previous-message",
         "git-pr-refresh",
         "git-pr-review",
+        "git-pr-send-check",
+        "git-pr-send-failing",
+        "git-pr-send-thread",
+        "git-pr-send-unresolved",
         "git-pr-view",
         "git-pr-visit",
         "github-issue-copy-link",
