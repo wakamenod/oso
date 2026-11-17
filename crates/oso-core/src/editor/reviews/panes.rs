@@ -20,7 +20,7 @@
 
 use crate::buffer::{BufferId, Mode};
 use crate::display_map::DisplayPoint;
-use crate::editor::{Editor, NoPair, ReviewId, ReviewLeftover};
+use crate::editor::{Editor, LineMoves, NoPair, ReviewId, ReviewLeftover};
 use crate::frame::{TooSmall, Way};
 use crate::load::{Change, Reloaded};
 use crate::motion;
@@ -100,8 +100,8 @@ impl Editor {
     }
 
     /// Puts in the review `id`'s two panes' whole new texts, with what each line is and their
-    /// highlights, as [`Editor::set_review_text`] puts in its buffer's, making the panes'
-    /// buffers the first time. Their windows in a pair move in step again. The host calls it
+    /// highlights, as [`Editor::set_review_text`] puts in its buffer's, its windows' places by
+    /// anchor through `moved`, making the panes' buffers the first time. Their windows in a pair move in step again. The host calls it
     /// only while [`Editor::review_waits`] is false, and frees what this returns off the UI
     /// thread: all it was given when the two do not have as many lines, or the review is gone.
     pub fn set_review_panes(
@@ -109,6 +109,7 @@ impl Editor {
         id: ReviewId,
         old: (Reloaded, Rows, Highlights),
         new: (Reloaded, Rows, Highlights),
+        moved: LineMoves<'_>,
     ) -> ReviewLeftover {
         if old.1.lines() != new.1.lines() || self.reviews.get(id).is_none() {
             let refused = [old, new]
@@ -139,7 +140,16 @@ impl Editor {
             ..ReviewLeftover::none()
         };
         for (side, (text, rows, highlights)) in [old, new].into_iter().enumerate() {
+            // Each pane's windows keep their places by anchor, as the unified text's do.
+            let before = (self.reviews.get(id))
+                .and_then(|open| open.panes.as_ref())
+                .map(|panes| self.keep_places(buffers[side], &panes.rows[side]));
+            let new_rows = rows.clone();
             let mut pane = self.put_generated_text(buffers[side], text, highlights);
+            if let Some(before) = before.filter(|_| !fresh) {
+                self.put_places(buffers[side], before, &new_rows, moved);
+                self.follow_buffer_windows(buffers[side]);
+            }
             pane.rows = Some(self.put_pane_rows(id, side, rows));
             left.panes.push(pane);
         }

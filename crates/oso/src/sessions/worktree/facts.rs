@@ -59,10 +59,7 @@ impl RepoFacts {
         if !remotes.is_empty() {
             pushed.extend(with_upstream(repo));
         }
-        let github = remotes.iter().find_map(|remote| {
-            let url = repo.remote_url(remote)?;
-            Some((remote.clone(), GhRepo::from_url(&url, gh_host)?))
-        });
+        let github = super::git::github_of(repo, &remotes, gh_host);
         let (external, hosted_idle) = registry::directory().map_or_else(Default::default, |dir| {
             sessions_in_registry(registry::read(&dir), hosted, |entry| {
                 registry::liveness(entry, process::start_time) != registry::Live::No

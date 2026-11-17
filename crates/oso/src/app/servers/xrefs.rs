@@ -38,12 +38,14 @@ pub(super) const OPEN_AFTER: Duration = Duration::from_secs(1);
 const READING_MAX: usize = 2;
 
 /// The list being built or shown, the newest list's number, which stops an older build, the
-/// last list's server, and how many builds read files now.
+/// last list's server, the name of the server of the last list that opened, and how many
+/// builds read files now.
 #[derive(Debug, Default)]
 pub(super) struct Lists {
     list: Option<List>,
     live: Arc<AtomicU64>,
     server: Option<(PathBuf, String)>,
+    opened_of: Option<String>,
     reading: Arc<AtomicUsize>,
 }
 
@@ -296,6 +298,9 @@ impl App {
             self.request_redraw();
             return;
         };
+        // Named once it opens: a newer answer's server is not this list's (step 15).
+        self.servers.xrefs.opened_of =
+            (self.servers.xrefs.server.as_ref()).map(|(_, name)| name.clone());
         if let Some(list) = &mut self.servers.xrefs.list {
             list.prompt = Some(prompt);
             if let Some(rows) = list.rows.take() {
@@ -303,6 +308,12 @@ impl App {
             }
         }
         self.request_redraw();
+    }
+
+    /// The name of the server of the last list of places that opened, which is the one open if
+    /// one is, for the agent's `state` (step 15).
+    pub(in crate::app) fn xrefs_server(&self) -> Option<&str> {
+        self.servers.xrefs.opened_of.as_deref()
     }
 
     /// `lsp-go-to-xref`: goes to the row the list took, as an answer's jump goes, the file of a

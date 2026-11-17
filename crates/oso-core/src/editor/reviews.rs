@@ -23,6 +23,7 @@ mod cells;
 mod draft;
 mod menu;
 mod panes;
+mod places;
 mod request;
 
 use std::collections::BTreeSet;
@@ -39,6 +40,7 @@ pub use cells::ReviewCells;
 pub use draft::DraftFor;
 pub use menu::{Count, ScopeMenu};
 pub use panes::{ReviewArea, ReviewChoice, ReviewLayout};
+pub use places::LineMoves;
 pub use request::ReviewRequest;
 
 /// A review's id, never reused while the editor runs.
@@ -303,16 +305,18 @@ impl Editor {
 
     /// Puts in the review buffer's whole new text, built on the host's view thread and
     /// compared there with the text it replaces, with what each line is and its highlights.
-    /// O(1) and the cursors: every window's cursors and top keep their place outside the span
-    /// that changed and their line and column inside it, as a reload's do, with no undo. The
-    /// host calls it only while [`Editor::review_waits`] is false, keeps the text before at
-    /// O(1), and frees it and what this returns off the UI thread.
+    /// O(1) and the cursors: every window's cursors and top keep their place by anchor, a line
+    /// of a side moved by `moved`, the host's map of where each line of a file went, and a
+    /// header's, a note's or a card's row found again (step 4); with no undo. The host calls it
+    /// only while [`Editor::review_waits`] is false, keeps the text before at O(1), and frees
+    /// it and what this returns off the UI thread.
     pub fn set_review_text(
         &mut self,
         id: ReviewId,
         text: Reloaded,
         rows: Rows,
         highlights: Highlights,
+        moved: LineMoves<'_>,
     ) -> ReviewLeftover {
         let Some(buffer_id) = self
             .review_buffer(id)
@@ -320,10 +324,26 @@ impl Editor {
         else {
             return ReviewLeftover::of(rows, highlights, Some(text));
         };
+        let kept = (self.reviews.get(id)).map(|open| self.keep_places(buffer_id, &open.rows));
+        let new_rows = rows.clone();
         let mut left = self.put_generated_text(buffer_id, text, highlights);
         left.rows = self.put_review_rows(id, rows);
         left.spare = self.take_spare_rows(id);
+        if let Some(kept) = kept {
+            self.put_places(buffer_id, kept, &new_rows, moved);
+            self.follow_buffer_windows(buffer_id);
+        }
         left
+    }
+
+    /// Scrolls each window showing `buffer` as little as shows its cursor.
+    pub(super) fn follow_buffer_windows(&mut self, buffer: BufferId) {
+        let shown: Vec<usize> = (0..self.windows.len())
+            .filter(|index| self.windows[*index].buffer() == buffer)
+            .collect();
+        for index in shown {
+            self.follow_window(index);
+        }
     }
 
     /// Puts in the whole new text of `buffer_id`, a review buffer or a pane of one, with its
@@ -553,8 +573,9 @@ impl Editor {
     }
 
     /// What a review buffer's modeline says after its mode, `Review`, into `out`: how many agent
-    /// comments are unread and how far a reading is. Nothing for another buffer. Costs a look at
-    /// each comment.
+    /// comments are unread, how far a reading is and how far the person is, each after a gap,
+    /// as the fields after the state are. Nothing for another buffer. Costs a look at each
+    /// comment.
     pub(super) fn review_status_into(&self, buffer: BufferId, out: &mut String) {
         use std::fmt::Write as _;
         let Some(open) = self.reviews.holding(buffer) else {
@@ -566,10 +587,10 @@ impl Editor {
             .filter(|comment| comment.author() != Author::Person && !comment.is_read())
             .count();
         if unread > 0 {
-            let _ = write!(out, "{unread} unread  ");
+            let _ = write!(out, "  {unread} unread");
         }
         if let Some((read, listed)) = open.reading {
-            let _ = write!(out, "reading {read}/{listed}  ");
+            let _ = write!(out, "  reading {read}/{listed}");
         }
         // How far the person is (ADR 0122, step 5).
         let (decided, viewed, hunks) = open.review.progress();
@@ -577,7 +598,7 @@ impl Editor {
             let noun = if hunks == 1 { "hunk" } else { "hunks" };
             let _ = write!(
                 out,
-                "{decided} of {hunks} {noun} decided, {viewed} viewed  "
+                "  {decided} of {hunks} {noun} decided, {viewed} viewed"
             );
         }
     }

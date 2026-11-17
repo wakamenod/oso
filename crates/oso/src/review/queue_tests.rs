@@ -39,6 +39,7 @@ fn what(request: Option<Request>) -> String {
         }
         Some(Request::Open(_)) => "open".into(),
         Some(Request::Stage(_)) => "stage".into(),
+        Some(Request::Look) => "look".into(),
         Some(Request::Refresh { first }) => format!("refresh {}", first.len()),
         Some(Request::Baseline) => "baseline".into(),
     }

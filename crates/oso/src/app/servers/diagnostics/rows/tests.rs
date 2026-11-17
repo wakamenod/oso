@@ -99,7 +99,7 @@ fn snapshot(
 
 /// The rows of `snapshot`, with no newer list to stop them.
 fn built(snapshot: &Snapshot) -> DiagnosticRows {
-    build(snapshot, &|| true).expect("rows, as nothing stopped them")
+    build(snapshot, |_| false, &|| true).expect("rows, as nothing stopped them")
 }
 
 /// The rows' texts, the row selected and whether the list was cut, as `editor` shows them.
@@ -263,7 +263,7 @@ fn a_newer_list_stops_the_build() {
         report(&[(0, Severity::Error)]),
         Encoding::Utf8,
     )];
-    assert!(build(&snapshot(current, Vec::new(), files), &|| false).is_none());
+    assert!(build(&snapshot(current, Vec::new(), files), |_| false, &|| false).is_none());
 }
 
 /// On Windows, the servers' paths are spelled as a URI reads back, the drive letter upper case,
@@ -284,4 +284,23 @@ fn a_root_spelled_otherwise_than_the_servers_paths_still_holds_them() {
     snapshot.root = PathBuf::from(r"c:\w\oso");
     let (shown, _, _) = taken(&mut editor, built(&snapshot));
     assert_eq!(shown, ["a.rs:1: error: on line 0"]);
+}
+
+#[test]
+fn a_file_whose_path_really_leads_to_one_that_may_hold_secrets_gives_no_row() {
+    let (mut editor, current, _) = listing();
+    let file = |name: &str| {
+        (
+            PathBuf::from(format!("/w/oso/src/{name}")),
+            report(&[(1, Severity::Error)]),
+            Encoding::Utf16,
+        )
+    };
+    let snapshot = snapshot(current, Vec::new(), vec![file("conf.ts"), file("plain.ts")]);
+    // As the loader's judge finds `conf.ts` a link to `.env`.
+    let judged = |path: &Path| path.ends_with("conf.ts");
+    let rows = build(&snapshot, judged, &|| true).unwrap();
+    let (shown, _, _) = taken(&mut editor, rows);
+    assert_eq!(shown.len(), 1, "{shown:?}");
+    assert!(shown[0].starts_with("src/plain.ts:2:"), "{shown:?}");
 }

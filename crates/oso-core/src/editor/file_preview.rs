@@ -133,6 +133,8 @@ pub struct Excerpt {
     /// Where the row's place is in `text`.
     cursor: usize,
     identity: Option<(u64, u64)>,
+    /// The line of its file `text` starts with, from 1.
+    first_line: usize,
 }
 
 impl fmt::Debug for Excerpt {
@@ -185,7 +187,13 @@ impl Excerpt {
             display,
             cursor,
             identity,
+            first_line: first_line.max(1),
         }
+    }
+
+    /// The line of its file it starts with, from 1.
+    pub(in crate::editor) fn first_line(&self) -> usize {
+        self.first_line
     }
 }
 

@@ -98,7 +98,13 @@ fn editor_with_review(columns: usize) -> (Editor, ReviewId, WindowId) {
     let (id, buffer) = editor.add_review(ProjectId(0), "*review: uncommitted p*".into());
     editor.show(buffer);
     let (text, rows) = unified();
-    let _ = editor.set_review_text(id, loaded(text), rows, Highlights::new(text.len()));
+    let _ = editor.set_review_text(
+        id,
+        loaded(text),
+        rows,
+        Highlights::new(text.len()),
+        &|_, _, number| Some(number),
+    );
     let window = editor.window().id();
     (editor, id, window)
 }
@@ -107,7 +113,12 @@ fn editor_with_review(columns: usize) -> (Editor, ReviewId, WindowId) {
 /// panes no window shows.
 fn put_panes(editor: &mut Editor, id: ReviewId) {
     let ((old, old_rows), (new, new_rows)) = panes();
-    let _ = editor.set_review_panes(id, text_of(old, old_rows), text_of(new, new_rows));
+    let _ = editor.set_review_panes(
+        id,
+        text_of(old, old_rows),
+        text_of(new, new_rows),
+        &|_, _, number| Some(number),
+    );
 }
 
 /// Puts the panes in and shows them in `window` the way `way`.
@@ -215,6 +226,7 @@ fn panes_of_unequal_lines_are_refused_whole() {
         id,
         text_of(old, old_rows),
         text_of("one\n", rows(&[(RowKind::File, 1)])),
+        &|_, _, number| Some(number),
     );
     assert_eq!(left.panes.len(), 2);
     assert!(
@@ -391,6 +403,7 @@ fn panes_made_again_take_their_text_whole_though_it_did_not_change() {
         id,
         (same(old), old_rows, Highlights::new(old.len())),
         (same(new), new_rows, Highlights::new(new.len())),
+        &|_, _, number| Some(number),
     );
     let (old_buffer, new_buffer) = editor.review_panes(id).unwrap();
     assert_eq!(editor.buffer(old_buffer).unwrap().text().to_string(), old);

@@ -284,7 +284,11 @@ network features.
   members and collaborators, each line quoted so that none passes for oso's or the person's, a
   deleted account never counting as the author; the person reads it in `*Brief*` before it is
   sent. An agent may read `*issue: #N*` through `text`, every comment in it, as data, as a pull
-  request's. Only an issue's own address opens. A template is read only as a regular
+  request's. Only an issue's own address opens. Each worktree's pull request (step 5b-2) is
+  read with the person's listings, at most once a minute a repository for the tree, never for an
+  agent's `worktree_list` or `sessions-refresh` and never when the worker sees the worktrees
+  change. A fork's pull request is never taken as a branch's, here or in the status's head line
+  and `N m`: its head branch may be named as the person's. A template is read only as a regular
   file under the root, never through a linked directory, at most 64 KiB, never one whose name
   may hold secrets.
 - Stashes and branches from a git status (ADR 0127, step 3b) are the person's acts, `Person`,
@@ -751,6 +755,17 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   holds is judged off the UI thread by where its path really leads, links and all, as the
   loader judges a buffer's, so that a project's `conf.ts` linked to a credentials file gives
   nothing. `state`'s counts follow the same check.
+- `state`'s `list` (ADR 0138, step 15) gives the agent the list of a server's places or of a
+  project's diagnostics that the person has open, as a frame shows it: the rows shown and the
+  preview's rows as drawn, at most the float's rows and 256 bytes a row. It gives nothing while
+  a buffer that may hold secrets is shown, and never the person's input itself, though the rows
+  shown follow it. A row of a file whose name may hold secrets, or of a buffer the channel may
+  not read or is still opening, gives its path and line only, and the preview of one is
+  withheld; the rows' paths and texts are escaped as a server's text is. The preview's rows are
+  what the person sees, as `text` gives a buffer's rows; a file outside the project shows as the
+  person sees it, as the reader withholds those that may hold secrets. `M-g d` leaves out a file
+  whose path really leads to one that may hold secrets, judged off the UI thread as the
+  `diagnostics` tool judges one. The agent still opens no such list itself.
 - `*Session explain*` shows
   screen text and is withheld from the agent channel, which can neither read it nor switch to
   it; what the channel's commands say or kill while it is shown stays out of its reach.

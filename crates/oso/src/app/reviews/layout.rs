@@ -74,6 +74,7 @@ impl App {
         index: usize,
         panes: Option<Box<[PaneText; 2]>>,
         paint: Option<Box<PanePaint>>,
+        moved: oso_core::editor::LineMoves<'_>,
     ) {
         if panes.is_none() && paint.is_none() {
             return;
@@ -97,7 +98,7 @@ impl App {
             .map(|shown| (shown.text().clone(), shown.display()))
             .collect();
         let [old, new] = *panes;
-        let left = self.editor.set_review_panes(id, old, new);
+        let left = self.editor.set_review_panes(id, old, new, moved);
         self.freer.free((before, left));
         self.reviews.open[index].layout.asked_again = false;
         self.sync_review_layouts();
