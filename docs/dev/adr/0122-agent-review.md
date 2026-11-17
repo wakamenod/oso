@@ -1063,6 +1063,64 @@ on 2026-11-14, through the coordinator, and answered its questions Q-A to Q-F (a
 - A withheld file has no line rows, so it takes no comment, and keeps its note (Q13); showing
   it on `RET` comes with part three.
 
+### Step 5: decisions
+
+The author approved the plan's public items and answered its questions (a) on 2026-11-17,
+through the coordinator:
+
+- **Q-A:** `A` accepts, as `a` folds agent cards since step 3b. **This changes "Keys":** `a`
+  is not accept.
+- **Q-B:** accept and reject refuse outside the work tree's scopes: a commit's, a branch's or a
+  range's review says so.
+- **Q-C:** reject asks y/n when the file's buffer holds unsaved edits, as it saves the whole
+  buffer.
+- **Q-D:** a file reject opened stays open, unshown, so its undo is in the buffer too.
+- **Q-E:** accept and reject refuse an added, deleted, renamed or binary file, saying why.
+- **Q-F:** decisions are words on the headers, and progress is in the modeline.
+- **Q-G:** a hunk that leaves the review by its own decision is not counted as changed.
+
+What it built:
+
+- **Public items:** `ReviewRequest::Accept`, `Reject` and `Undo`, as planned, and
+  `ReviewRequest::Viewed`, as `v` goes to the host too, which keeps the undo list beside the
+  patches it applied; `Review::progress()`; `Editor::start_save_of(buffer)`, as `start_save`
+  saves only the selected window's buffer; `syntax::Highlight::Decided` and
+  `oso_render::Face::ReviewDecided` (`review.decided`). Opening the file unshown needed no
+  item: the host's own visit makes the buffer, and only shows it when asked to.
+- **Accept** stages on the review's own thread, a `Stage` waiting beside carries, so it stops no
+  refresh, answered once the running request ends. The patch is built from the hunks and the
+  old side's blob the reading names, with up to 3 of its lines around each hunk, hunks whose
+  context meets in one fragment, a path git would quote quoted; each hunk's removed lines are
+  checked to be the old side's where it says first. It goes to `git -c
+  apply.ignoreWhitespace=no apply --cached --whitespace=nowarn -` on standard input, as the git
+  status stages, and git places it by its context in an index holding other staged hunks, or
+  refuses it. **This changes "Accept stages exactly the hunk shown": no `--unidiff-zero`,** as
+  a hunk with no context is placed by its numbers alone. In the staged scope, `x` unstages the
+  same way with `-R`, and `A` says it is staged already.
+- **Reject** finds the file's open buffer, or opens it unshown, and once it has loaded checks
+  each hunk's new lines are where the reading put them, replaces them with the old lines as one
+  edit, which undoes as one step, and saves it with `start_save_of`. The command asks first
+  while the buffer holds unsaved edits. A hunk moved since says "that hunk changed; look
+  again", and nothing changes.
+- **Viewed** sets the model's mark, or clears it when every hunk at point has it.
+- **Undo** (`u`) takes back the review's last decision, of at most 1,000 kept: the same patch the
+  other way, the reverse edit checked the same way, put back where the revert left the old
+  lines, or the viewed mark cleared.
+- **Marks:** a hunk's header says `  · accepted`, `  · rejected` or `  · viewed`, a file's
+  header `  · 1/2 decided`, in `review.decided`, and a note says how many decisions dropped as
+  their hunks changed, until the person decides on the file again. They show only on the
+  reading the model's marks are of, in the unified text and in both panes. A hunk staged where
+  the scope stops showing it, unstaged, or reverted is not marked, so it leaves uncounted
+  (Q-G). The modeline says `7 of 12 hunks decided, 3 viewed`.
+- **Reach:** every decision key is `Person`; no agent tool decides.
+- **Tests:** the patch's context, counts, fragments, last line and quoting, and a hunk that
+  moved; against a temporary repository, a hunk staged by its context below one staged before,
+  refused once in, and unstaged with the same patch; a reject's edits for a changed, a put-in
+  and a taken-out hunk, several at once, undone, and refused where the lines moved; what each
+  key asks for and where it refuses; progress; the marks on the headers and their drop; and an
+  end-to-end flow that views, accepts, undoes, refuses a new file, rejects with unsaved edits
+  after the question, and undoes the reject.
+
 ### Step 8: documents no buffer owns
 
 The author approved the plan's API and its nine answers, each the recommended one (2026-11-13,

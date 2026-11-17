@@ -138,6 +138,9 @@ pub enum Face {
     /// A comment of the person's sent to the agent: its bar, label and text, dim on the
     /// comments' band (ADR 0122, step 12).
     ReviewSent,
+    /// What says a hunk was accepted, rejected or viewed, on the headers' band (ADR 0122,
+    /// step 5).
+    ReviewDecided,
     /// The band behind a pane's filler rows, which hold nothing and line it up with the other
     /// pane (ADR 0122, step 11).
     DiffFiller,

@@ -48,6 +48,7 @@ mod read;
 pub(crate) mod refine;
 mod scope;
 mod side;
+pub(crate) mod stage;
 #[cfg(test)]
 pub(crate) mod tests;
 pub(crate) mod view;
@@ -67,7 +68,6 @@ use oso_core::review::{Carried, Carry, Hunk, Shape};
 use crate::git::{Id, TrustedRoot};
 
 pub(crate) use list::Entry;
-#[cfg(test)]
 pub(crate) use list::Status;
 pub(crate) use scope::Scope;
 
@@ -88,6 +88,9 @@ pub(crate) enum Request {
     /// Carry comments to a new reading (`oso_core::review::Review::carry`). It stops nothing,
     /// and is answered between the files of a running request.
     Carry(Carry),
+    /// Put hunks in the index or take them out (step 5). It stops nothing, and is answered once
+    /// the running request ends.
+    Stage(stage::Stage),
 }
 
 /// Which request a failure answers.
@@ -97,6 +100,7 @@ pub(crate) enum Asked {
     Refresh,
     Baseline,
     Carry,
+    Stage,
 }
 
 /// What the review's thread found. Each listing, the readings after it and the `Read` that
@@ -125,6 +129,8 @@ pub(crate) enum Report {
     /// Comments carried; `cut_short` if matching lines ran out of time, so some may be outdated
     /// that would not have been.
     Carried { carried: Carried, cut_short: bool },
+    /// What the stage `serial` did.
+    Staged { serial: u64, staged: stage::Staged },
     /// A request failed; the message says why, with no file's text.
     Failed { asked: Asked, why: String },
 }
@@ -169,6 +175,12 @@ impl fmt::Debug for Report {
             Self::Carried { cut_short, .. } => f
                 .debug_struct("Carried")
                 .field("cut_short", cut_short)
+                .finish_non_exhaustive(),
+            // A patch holds the file's text: only whether it went in.
+            Self::Staged { serial, staged } => f
+                .debug_struct("Staged")
+                .field("serial", serial)
+                .field("applied", &staged.is_ok())
                 .finish_non_exhaustive(),
             Self::Failed { asked, why } => f
                 .debug_struct("Failed")
@@ -278,11 +290,12 @@ pub(crate) struct Reviewer {
     live: Arc<AtomicBool>,
 }
 
-/// What waits for the thread, taken from the queue: carries in order, and the first other
-/// request, which stops the one running.
+/// What waits for the thread, taken from the queue: carries and stages in order, and the
+/// first other request, which stops the one running.
 #[derive(Default)]
 struct Waiting {
     carries: VecDeque<Carry>,
+    stages: VecDeque<stage::Stage>,
     next: Option<Request>,
 }
 
@@ -326,10 +339,10 @@ impl Reviewer {
     }
 }
 
-/// Sends `request` on `requests`, counted in `waiting` unless it is a carry; `false` if the
-/// thread has ended.
+/// Sends `request` on `requests`, counted in `waiting` unless it is a carry or a stage; `false`
+/// if the thread has ended.
 fn send_request(requests: &Sender<Request>, waiting: &AtomicUsize, request: Request) -> bool {
-    let counted = !matches!(request, Request::Carry(_));
+    let counted = !matches!(request, Request::Carry(_) | Request::Stage(_));
     if counted {
         waiting.fetch_add(1, Ordering::SeqCst);
     }
@@ -412,6 +425,7 @@ fn pull(queue: &Receiver<Request>, held: &RefCell<Waiting>, waiting: &AtomicUsiz
     while held.next.is_none() {
         match queue.try_recv() {
             Ok(Request::Carry(carry)) => held.carries.push_back(carry),
+            Ok(Request::Stage(stage)) => held.stages.push_back(stage),
             Ok(other) => {
                 waiting.fetch_sub(1, Ordering::SeqCst);
                 held.next = Some(other);
@@ -431,17 +445,25 @@ fn next_request(
     waiting: &AtomicUsize,
 ) -> Option<Request> {
     let next = held.borrow_mut().next.take();
+    if next.is_none() {
+        // Each borrow ends before the next: a carry, then a stage, waiting aside.
+        let carry = held.borrow_mut().carries.pop_front();
+        if let Some(carry) = carry {
+            return Some(Request::Carry(carry));
+        }
+        let stage = held.borrow_mut().stages.pop_front();
+        if let Some(stage) = stage {
+            return Some(Request::Stage(stage));
+        }
+    }
     let request = match next {
         Some(request) => request,
-        None => match held.borrow_mut().carries.pop_front() {
-            Some(carry) => return Some(Request::Carry(carry)),
-            None => match queue.recv().ok()? {
-                Request::Carry(carry) => return Some(Request::Carry(carry)),
-                request => {
-                    waiting.fetch_sub(1, Ordering::SeqCst);
-                    request
-                }
-            },
+        None => match queue.recv().ok()? {
+            request @ (Request::Carry(_) | Request::Stage(_)) => return Some(request),
+            request => {
+                waiting.fetch_sub(1, Ordering::SeqCst);
+                request
+            }
         },
     };
     let Request::Refresh { mut first } = request else {
@@ -450,6 +472,7 @@ fn next_request(
     while let Ok(newer) = queue.try_recv() {
         match newer {
             Request::Carry(carry) => held.borrow_mut().carries.push_back(carry),
+            Request::Stage(stage) => held.borrow_mut().stages.push_back(stage),
             Request::Refresh { first: more } => {
                 waiting.fetch_sub(1, Ordering::SeqCst);
                 first.extend(more);
@@ -470,5 +493,6 @@ fn asked(request: &Request) -> Asked {
         Request::Refresh { .. } => Asked::Refresh,
         Request::Baseline => Asked::Baseline,
         Request::Carry(_) => Asked::Carry,
+        Request::Stage(_) => Asked::Stage,
     }
 }

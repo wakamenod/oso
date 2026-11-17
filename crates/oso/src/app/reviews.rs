@@ -146,6 +146,8 @@ impl App {
             self.review_request(request);
         }
         self.put_in_review_texts();
+        // A file a reject opened may have loaded.
+        self.go_on_reverting();
         self.sync_review_layouts();
         self.sync_review_comments();
         self.sync_review_message();
@@ -169,6 +171,7 @@ impl App {
             ReviewRequest::Visit { .. } => {
                 log::debug!("a review request this build does not carry out yet");
             }
+            decision => self.decision_request(decision),
         }
     }
 
@@ -214,8 +217,7 @@ impl App {
                 Reopen::Refresh | Reopen::Restart => self.refresh_review(id),
                 Reopen::Open => self.ask_review(index, Request::Open(scope)),
             }
-            self.request_redraw();
-            return;
+            return self.request_redraw();
         }
         let name = self
             .editor
@@ -255,6 +257,7 @@ impl App {
             revoked: false,
             carrying: VecDeque::new(),
             layout: layout::Layout::default(),
+            decisions: decide::Decisions::default(),
             folded: false,
             shown_folded: false,
         });
@@ -403,6 +406,7 @@ impl App {
                     more,
                     cut,
                 });
+                self.reviews.open[index].decisions.entries = Arc::clone(&entries);
                 return self.forget_unlisted(index, &entries, whole);
             }
             Report::File { reading, .. } => return self.tell_file(index, reading),
@@ -410,9 +414,13 @@ impl App {
                 return self.review_carried(index, carried, cut_short);
             }
             Report::Read { .. } => Tell::Read,
+            Report::Staged { serial, staged } => return self.review_staged(index, serial, staged),
             Report::Failed { asked, why } => {
                 if asked == Asked::Carry {
                     self.carries_failed(index, false);
+                }
+                if asked == Asked::Stage {
+                    self.stages_failed(index);
                 }
                 let why = one_line(&why, MAX_MESSAGE);
                 self.editor.message(format!("The review failed: {why}"));
@@ -577,6 +585,7 @@ impl App {
 }
 
 mod comments;
+mod decide;
 mod layout;
 mod menu;
 mod send;

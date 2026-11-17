@@ -22,7 +22,7 @@ use oso_core::editor::ReviewId;
 use oso_core::review::{Applied, Author, Comment, CommentId, Review, RowKind, Rows};
 
 use super::super::App;
-use crate::review::view::{Carrying, Tell};
+use crate::review::view::{Carrying, Marks, Tell};
 use crate::review::{Content, Entry, Reading, Request};
 
 impl App {
@@ -166,10 +166,18 @@ impl App {
         // Each clone costs counts: the text and the path are shared.
         let comments: Vec<Comment> = model.comments_on(path).cloned().collect();
         let reading = model.file(path).cloned();
+        let hunks = reading.as_ref().map_or(0, |shape| shape.hunks().len());
+        let marks = Marks {
+            hunks: (0..hunks)
+                .map(|at| (model.decision(path, at), model.viewed(path, at)))
+                .collect(),
+            dropped: model.dropped(path),
+        };
         self.reviews.open[index].view.tell(Tell::Cards {
             path: path.into(),
             comments,
             reading,
+            marks,
         });
     }
 

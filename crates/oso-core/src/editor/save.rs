@@ -197,10 +197,24 @@ impl Editor {
         self.queue_save(true)
     }
 
+    /// Starts saving the buffer `id`, as [`Editor::start_save`] does the selected window's, for
+    /// a buffer no window need show, as a review's reject saves the file it reverted in (ADR
+    /// 0122, step 5). A file changed on disk is not saved over.
+    ///
+    /// # Errors
+    ///
+    /// Why the save did not start, [`SaveRefused::NoFile`] for no such buffer. Nothing changes.
+    pub fn start_save_of(&mut self, id: BufferId) -> Result<bool, SaveRefused> {
+        self.queue_save_of(id, false)
+    }
+
     pub(super) fn queue_save(&mut self, over: bool) -> Result<bool, SaveRefused> {
-        let id = self.window().buffer();
+        self.queue_save_of(self.window().buffer(), over)
+    }
+
+    fn queue_save_of(&mut self, id: BufferId, over: bool) -> Result<bool, SaveRefused> {
         let persons = !self.runs_for_agent();
-        let buffer = self.current().1;
+        let buffer = self.buffer(id).ok_or(SaveRefused::NoFile)?;
         if let Some(refused) = refusal(buffer, persons) {
             return Err(refused);
         }

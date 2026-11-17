@@ -414,6 +414,21 @@ impl Review {
         self.files.get(path).map_or(0, |state| state.dropped)
     }
 
+    /// How far the person is through the review: the hunks of every current reading that hold a
+    /// decision, those marked viewed, and all of them. O(hunks).
+    pub fn progress(&self) -> (usize, usize, usize) {
+        let marks = (self.files.values())
+            .filter_map(|state| state.reading.as_ref())
+            .flat_map(|reading| reading.marks.iter());
+        marks.fold((0, 0, 0), |(decided, viewed, all), mark| {
+            (
+                decided + usize::from(mark.decision.is_some()),
+                viewed + usize::from(mark.viewed),
+                all + 1,
+            )
+        })
+    }
+
     /// Forgets the dropped count of `path`, once the person looked.
     pub fn clear_dropped(&mut self, path: &[u8]) {
         if let Some(state) = self.files.get_mut(path) {
