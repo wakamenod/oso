@@ -227,12 +227,13 @@ impl App {
             self.watch.spaces_mut().hold_worktree(at, worktree, now);
         }
         self.sessions_touched();
+        let connection = pending.connection;
         pending.answer(Ok(json!({
             "moving": true,
             "space": moving.space_name,
             "next": moving::REPLY,
         })));
         self.agent_log(&format!("{TOOL}: allowed; waiting for the session to stop"));
-        self.wait_for_move(moving);
+        self.wait_for_move(moving, connection, now);
     }
 }

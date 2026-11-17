@@ -1144,8 +1144,9 @@ a switch made with its command stands until that setting changes in the file
   `Agent: move session "NAME" ("claude", pid N, in "DIR", outside oso) into space "X", adding
   repository "R" to it? …`, the process named as the system names it, and `adding …` only for
   a repository the space lacks; `?` shows the conversation's id and the whole paths. On `y`
-  an internal buffer `*moving: NAME*` says what oso waits for, and the echo area asks for
-  `/exit` where the session runs. At 120 s it says so again; at 5 minutes, or when the space
+  an internal buffer `*moving: NAME*` says what oso waits for, and the echo area says the
+  session stops where it runs once its turn ends, or to type `/exit` there; its bridge stops
+  it then. At 120 s the echo area asks for `/exit`; at 5 minutes, or when the space
   closed or lost the repository meanwhile, oso resumes nothing and says to use
   `session-adopt`. Killing `*moving: NAME*` with `C-x k` cancels. Once the outside process has
   ended, `*claude: NAME*` resumes in its directory, in space X, and the echo area says

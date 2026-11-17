@@ -267,6 +267,7 @@ impl App {
                     // Each replies when it can: at once, after a job, or after the person's
                     // answer and what it started (ADR 0121, step 6).
                     Op::Session(call) => self.session_tool(connection, call, reply),
+                    Op::MoveWait => self.move_wait(connection, reply),
                     // This replies once the save its command started has ended, if it started
                     // one, or the undo it began (ADR 0119).
                     Op::Run { name, arg, reach } => {
@@ -410,7 +411,8 @@ impl App {
             | Op::Diagnostics(_)
             | Op::Open { .. }
             | Op::Run { .. }
-            | Op::Session(_) => Err("not here".into()),
+            | Op::Session(_)
+            | Op::MoveWait => Err("not here".into()),
         }
     }
 

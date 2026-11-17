@@ -386,9 +386,9 @@ type Waited = Arc<(Mutex<(bool, bool)>, Condvar)>;
 /// A channel whose calls wait until it is closed, as one waits for the person's yes.
 struct Waiting(Waited);
 
-impl Link for Waiting {
-    fn call(&mut self, method: &str, _: Value) -> Result<Value, Failed> {
-        assert_eq!(method, "version", "{method} ran after the agent went");
+impl Waiting {
+    /// Waits until the connection is closed.
+    fn wait(&self) -> Result<Value, Failed> {
         let (state, woken) = &*self.0;
         let mut guard = state.lock().unwrap();
         guard.0 = true;
@@ -399,6 +399,13 @@ impl Link for Waiting {
         assert!(!timeout.timed_out(), "nothing closed the waiting call");
         assert!(guard.1);
         Err(Failed::Broken("oso closed the connection".into()))
+    }
+}
+
+impl Link for Waiting {
+    fn call(&mut self, method: &str, _: Value) -> Result<Value, Failed> {
+        assert_eq!(method, "version", "{method} ran after the agent went");
+        self.wait()
     }
 
     fn closer(&self) -> Option<Box<dyn Fn() + Send>> {

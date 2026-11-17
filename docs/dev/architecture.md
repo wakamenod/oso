@@ -807,7 +807,9 @@ The UI thread never blocks on I/O or parsing:
   (`app/agent.rs`). The call's checks and question are `app/sessions/tools/moving.rs`'; on the
   person's `y`, `oso-session-move-wait` watches the outside process, and once it has ended
   `app/sessions/hosting/moving.rs` resumes the conversation through `session-adopt`'s start,
-  in that space.
+  in that space. That thread also reads the session's registry entry, and once its turn has
+  ended it answers the bridge's held `move_wait`, after which `oso mcp` sends its own parent
+  `SIGTERM` (`channel/mcp/moving.rs`, `oso_platform::process::terminate_parent`).
 - Sending to a session ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 5) has one
   delivery path on the UI thread, `App::send_to_session` (`app/sessions/watch/sending.rs`): it
   refuses a session that cannot take a paste (`sessions/send.rs::refusal`, pure), pastes with

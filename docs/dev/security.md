@@ -656,7 +656,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     the resume, and the question names it when the `y` adds it to the space.
     Nothing starts until the outside process has ended, and the start thread reads the registry
     again, so two processes never run one conversation. The moved session counts as started on
-    the person's `y` (ADR 0135), which the question says.
+    the person's `y` (ADR 0135), which the question says. oso signals no process for it: the
+    bridge of the session that moves sends `SIGTERM` to its own parent only, once oso saw its
+    turn end after the reply, and only while that id is still its parent (a pidfd on Linux).
   - `draft_set` ([ADR 0127](adr/0127-source-control-and-github.md), step 6a) asks nothing: it
     writes only the commit message whose newest request, pasted by the person's `C-c C-d`,
     named its 32-bit id, from the session it was pasted into, in that worktree of a trusted
