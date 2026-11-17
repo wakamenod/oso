@@ -14,7 +14,6 @@
 
 mod menu;
 
-use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{DraftFor, Editor, ReviewChoice, ReviewId, ReviewRequest, ScopeKind};
 use oso_core::project::ProjectId;
@@ -48,9 +47,6 @@ pub const KEYS: &[(&str, &str)] = &[
     ("q", "review-quit"),
     ("?", "review-keys"),
 ];
-
-/// What the buffer `review-keys` shows is named.
-const KEYS_BUFFER: &str = "*Review keys*";
 
 /// Why a review cannot open in a restricted project (ADR 0122, "Restricted projects").
 pub(crate) const RESTRICTED: &str =
@@ -98,11 +94,15 @@ macro_rules! person_command {
 
 mod comments;
 mod decide;
+mod keys;
+mod saved;
 mod send;
 
 pub use comments::COMMANDS as COMMENT_COMMANDS;
 pub use decide::COMMANDS as DECISION_COMMANDS;
 pub(crate) use decide::{open_buffer_of, place_of};
+pub use saved::COMMANDS as SAVED_COMMANDS;
+pub(crate) use saved::{SAVED_LIST, lost};
 pub use send::{COMMANDS as SEND_COMMANDS, MESSAGE_KEYS};
 
 /// The commands of reviews.
@@ -234,12 +234,12 @@ pub const COMMANDS: &[Command] = &[
         doc: "Show the keys of a review buffer, each with what its command does, in `*Review keys*`.",
         args: ArgSpec::None,
         reach: Reach::Look,
-        run: review_keys,
+        run: keys::review_keys,
         state: None,
     },
     person_command!(
         "review-kill",
-        "Close the current review: its buffer and its workers.\n\nIt asks first while the review holds comments of yours that were not sent, an open draft among them, which are lost with it. `C-x k` in a review buffer runs it.",
+        "Close the current review: its buffer and its workers.\n\nThe review is saved as it changes, so its comments, decisions and viewed marks come back when the same scope of the project opens again, or with `review-resume`. It asks first only for what would be lost: an open draft, or comments of yours not sent when the review could not be saved. `C-x k` in a review buffer runs it.",
         review_kill
     ),
 ];
@@ -500,44 +500,6 @@ fn review_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     Ok(())
 }
 
-fn review_keys(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    super::not_in_prompt(ctx)?;
-    let text = keys_text();
-    let shown = ctx
-        .editor
-        .buffer_named(KEYS_BUFFER)
-        .filter(|id| ctx.editor.buffer(*id).is_some_and(|b| b.is_internal()));
-    let id = match shown {
-        Some(id) => id,
-        None => ctx
-            .editor
-            .add_internal_buffer(KEYS_BUFFER, Mode::Fundamental),
-    };
-    ctx.editor.set_internal_text(id, &text);
-    let window = ctx.editor.window().id();
-    ctx.editor.show_in(window, id);
-    ctx.request_redraw();
-    Ok(())
-}
-
-/// What `*Review keys*` says: each key, and its command's name and summary.
-fn keys_text() -> String {
-    let mut text = String::from("Keys in a review buffer\n\n");
-    for (keys, name) in KEYS {
-        let summary = COMMANDS
-            .iter()
-            .chain(COMMENT_COMMANDS)
-            .chain(DECISION_COMMANDS)
-            .chain(SEND_COMMANDS)
-            .find(|command| command.name == *name)
-            .and_then(|command| command.doc.lines().next())
-            .unwrap_or_default();
-        text.push_str(&format!("{keys:<8}{name:<24}{summary}\n"));
-    }
-    text.push_str("\nC-x v r opens the review menu; C-x k closes the review.\n");
-    text
-}
-
 /// How many comments of the person's in the review `id` were not sent, an open draft for it
 /// counted as one, unless it edits a comment counted already.
 pub(crate) fn unsent(editor: &Editor, id: ReviewId) -> usize {
@@ -557,9 +519,10 @@ pub(crate) fn unsent(editor: &Editor, id: ReviewId) -> usize {
     review.comments().filter(|comment| unsent(comment)).count() + usize::from(drafted)
 }
 
-/// How many comments of the person's every open review holds that were not sent.
+/// How many comments of the person's every open review would lose if the editor went now
+/// ([`lost`]): its open draft, and those not sent of a review the host could not save.
 pub(crate) fn unsent_everywhere(editor: &Editor) -> usize {
-    editor.reviews().map(|(id, _)| unsent(editor, id)).sum()
+    editor.reviews().map(|(id, _)| lost(editor, id)).sum()
 }
 
 fn review_kill(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -567,11 +530,17 @@ fn review_kill(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     kill(ctx, review)
 }
 
-/// Closes the review `review`, asking first while it holds unsent comments of the person's,
-/// until a `y` to that question runs `review-kill` again. The review asked about is shown in
-/// the selected window first, so that the `y`, which kills the review shown, kills this one.
+/// Closes the review `review`, asking first while it would lose comments of the person's
+/// ([`lost`]), until a `y` to that question runs `review-kill` again. The review asked about is
+/// shown in the selected window first, so that the `y`, which kills the review shown, kills
+/// this one. Comments the saved review keeps are said to be kept (step 6, Q-G).
 pub(crate) fn kill(ctx: &mut Ctx<'_>, review: ReviewId) -> Result<(), CommandError> {
-    let unsent = unsent(ctx.editor, review);
+    let unsent = lost(ctx.editor, review);
+    let kept = if ctx.editor.review_kept(review) {
+        self::unsent(ctx.editor, review) - unsent
+    } else {
+        0
+    };
     if unsent > 0 && !ctx.confirmed() {
         let (window, shown) = {
             let window = ctx.editor.tiled().0;
@@ -589,6 +558,12 @@ pub(crate) fn kill(ctx: &mut Ctx<'_>, review: ReviewId) -> Result<(), CommandErr
         return super::session::ask(ctx, question, "review-kill", ["kill", "keep"]);
     }
     ctx.editor.remove_review(review);
+    if kept > 0 {
+        let comments = if kept == 1 { "comment" } else { "comments" };
+        ctx.editor.message(format!(
+            "{kept} unsent {comments} kept; review-resume brings them back"
+        ));
+    }
     ctx.request_redraw();
     Ok(())
 }

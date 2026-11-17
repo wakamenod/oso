@@ -43,10 +43,11 @@ const POLL: Duration = Duration::from_millis(10);
 
 /// Opening, moving in, showing as two panes and refreshing a review, in new processes, as
 /// `review_open_first_screen_ms`, `review_open_whole_ms`, `review_key_p99_ms`,
-/// `review_panes_switch_ms`, `review_panes_key_p99_ms` and `review_refresh_ms`; and, as its
+/// `review_panes_switch_ms`, `review_panes_key_p99_ms` and `review_refresh_ms`; as its
 /// sides' highlights come on (step 9), `review_highlight_first_screen_ms`,
 /// `review_highlight_whole_ms` and the UI thread's longest time putting a text in,
-/// `review_put_in_max_ms`.
+/// `review_put_in_max_ms`; and, opened again in a new process with its comments saved (step
+/// 6), `review_resume_first_screen_ms`.
 pub(super) fn review(
     exe: &Path,
     runs: usize,
@@ -69,9 +70,13 @@ pub(super) fn review(
     let config = dir.file("config.toml");
     std::fs::write(&config, "[lsp]\nstart = \"manual\"\n")
         .map_err(|e| format!("{}: {e}", config.display()))?;
-    let mut metrics: [Vec<f64>; 9] = Default::default();
+    let mut metrics: [Vec<f64>; METRICS.len()] = Default::default();
     for run in 0..runs {
-        let mut app = App::start_with_config(exe, Some(&root.join(name(0))), Some(&config))?;
+        // A state directory of each run's own, for its two instances, so that the review saved
+        // by the first is read by the second (ADR 0122, step 6), and nothing an earlier run saved.
+        let state = dir.file(&format!("state-{run}"));
+        let env = [("OSO_STATE_DIR", state.as_path())];
+        let mut app = App::start_with_env(exe, Some(&root.join(name(0))), Some(&config), &env)?;
         app.wait_until("loaded file", LOAD_TIMEOUT, |t| {
             t["load"]["done_us"].is_u64()
         })?;
@@ -116,29 +121,82 @@ pub(super) fn review(
         let frames = until_read(&mut app, asked)?;
         let read = frames.last().ok_or("g showed nothing")?;
         metrics[5].push(since(asked, read));
+
+        close_with_comments(&mut app)?;
         app.stop();
+        metrics[9].push(resumed(exe, &root.join(name(0)), &config, &env)?);
     }
-    let [
-        first,
-        whole,
-        keys,
-        switch,
-        pane_keys,
-        refresh,
-        highlighted_screen,
-        highlighted,
-        put_in,
-    ] = metrics;
-    report.add("review_open_first_screen_ms", first);
-    report.add("review_open_whole_ms", whole);
-    report.add("review_key_p99_ms", keys);
-    report.add("review_panes_switch_ms", switch);
-    report.add("review_panes_key_p99_ms", pane_keys);
-    report.add("review_refresh_ms", refresh);
-    report.add("review_highlight_first_screen_ms", highlighted_screen);
-    report.add("review_highlight_whole_ms", highlighted);
-    report.add("review_put_in_max_ms", put_in);
+    for (name, runs) in METRICS.into_iter().zip(metrics) {
+        report.add(name, runs);
+    }
     Ok(())
+}
+
+/// The metrics the scenario records, in the order its runs gather them.
+const METRICS: [&str; 10] = [
+    "review_open_first_screen_ms",
+    "review_open_whole_ms",
+    "review_key_p99_ms",
+    "review_panes_switch_ms",
+    "review_panes_key_p99_ms",
+    "review_refresh_ms",
+    "review_highlight_first_screen_ms",
+    "review_highlight_whole_ms",
+    "review_put_in_max_ms",
+    "review_resume_first_screen_ms",
+];
+
+/// How many comments the review holds when it is closed and opened again.
+const RESUMED_COMMENTS: usize = 20;
+
+/// A comment on each of the first [`RESUMED_COMMENTS`] hunks, then the review closed, which
+/// saves it (ADR 0122, step 6).
+fn close_with_comments(app: &mut App) -> Result<(), String> {
+    app.send_keys("M-<")?;
+    for _ in 0..RESUMED_COMMENTS {
+        app.send_keys("n c x C-c C-c")?;
+    }
+    settle(app)?;
+    app.send_keys("C-x k")?;
+    settle(app)?;
+    Ok(())
+}
+
+/// A new process on `file`, with the environment `env`, opening the review closed before
+/// again, as [`resume`] times it.
+fn resumed(exe: &Path, file: &Path, config: &Path, env: &[(&str, &Path)]) -> Result<f64, String> {
+    let mut app = App::start_with_env(exe, Some(file), Some(config), env)?;
+    app.wait_until("loaded file", LOAD_TIMEOUT, |t| {
+        t["load"]["done_us"].is_u64()
+    })?;
+    trust(&mut app)?;
+    let resumed = resume(&mut app)?;
+    app.send_keys("C-x k")?;
+    app.stop();
+    Ok(resumed)
+}
+
+/// In a new process, the review closed before opened again: how soon its first file shows,
+/// its saved review read meanwhile and carried by the first readings. Its comments must have
+/// come back.
+fn resume(app: &mut App) -> Result<f64, String> {
+    app.send_keys("C-x v r")?;
+    settle(app)?;
+    let asked = unix_us();
+    app.send_keys("w")?;
+    let frames = until_read(app, asked)?;
+    let first = frames
+        .iter()
+        .find(|frame| frame["read"].as_u64() >= Some(1) || frame["done"] == true)
+        .ok_or("the review opened again showed no file")?;
+    let first = since(asked, first);
+    let brought = format!("{RESUMED_COMMENTS} saved comments brought back");
+    wait_for_state(app, "the saved comments", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.contains(&brought))
+    })?;
+    Ok(first)
 }
 
 /// `|` in the review: how soon its two panes show, then the p99 of `count` paced keys in a pane,

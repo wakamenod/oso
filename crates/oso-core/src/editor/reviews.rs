@@ -21,10 +21,14 @@
 
 mod cells;
 mod draft;
+mod kept;
+mod leftover;
 mod menu;
 mod panes;
 mod places;
 mod request;
+
+pub use leftover::ReviewLeftover;
 
 use std::collections::BTreeSet;
 
@@ -105,6 +109,9 @@ struct Open {
     panes: Option<panes::Panes>,
     /// The rows of panes dropped since, for the next leftover to take off the UI thread.
     spare: Vec<Rows>,
+    /// Whether the host keeps the review across a restart, saving it as it changes (ADR 0122,
+    /// step 6): its comments are then not lost with the editor.
+    kept: bool,
 }
 
 impl Open {
@@ -128,6 +135,8 @@ pub(super) struct Reviews {
     menus: Vec<(ProjectId, ScopeMenu)>,
     /// The open draft, if any.
     draft: Option<draft::Draft>,
+    /// The models of reviews closed since the host last took them, for it to save and free.
+    closed: Vec<(ReviewId, Review)>,
 }
 
 impl Reviews {
@@ -148,66 +157,6 @@ impl Reviews {
                     .as_ref()
                     .is_some_and(|panes| panes.buffers.contains(&buffer))
         })
-    }
-}
-
-/// What putting in a review's text or paint left over: the rows, highlights and text it
-/// replaced or did not take. They may be large, so the host frees them off the UI thread.
-#[must_use = "free it off the UI thread"]
-pub struct ReviewLeftover {
-    rows: Option<Rows>,
-    highlights: Option<Highlights>,
-    text: Option<Box<Reloaded>>,
-    /// What a pane's text left over, for the two panes.
-    panes: Vec<ReviewLeftover>,
-    /// The rows of panes dropped since the last leftover.
-    spare: Vec<Rows>,
-}
-
-impl ReviewLeftover {
-    /// Nothing left over yet.
-    fn none() -> ReviewLeftover {
-        ReviewLeftover {
-            rows: None,
-            highlights: None,
-            text: None,
-            panes: Vec::new(),
-            spare: Vec::new(),
-        }
-    }
-
-    fn of(rows: Rows, highlights: Highlights, text: Option<Reloaded>) -> ReviewLeftover {
-        ReviewLeftover {
-            rows: Some(rows),
-            highlights: Some(highlights),
-            text: text.map(Box::new),
-            panes: Vec::new(),
-            spare: Vec::new(),
-        }
-    }
-}
-
-#[cfg(test)]
-impl ReviewLeftover {
-    /// Whether it holds rows, highlights and a text.
-    pub(crate) fn holds(&self) -> (bool, bool, bool) {
-        (
-            self.rows.is_some(),
-            self.highlights.is_some(),
-            self.text.is_some(),
-        )
-    }
-}
-
-impl std::fmt::Debug for ReviewLeftover {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ReviewLeftover")
-            .field("rows", &self.rows.is_some())
-            .field("highlights", &self.highlights.is_some())
-            .field("text", &self.text.is_some())
-            .field("panes", &self.panes)
-            .field("spare", &self.spare.len())
-            .finish()
     }
 }
 
@@ -243,6 +192,7 @@ impl Editor {
             choice: ReviewChoice::Auto,
             panes: None,
             spare: Vec::new(),
+            kept: false,
         });
         (id, buffer)
     }
@@ -260,6 +210,7 @@ impl Editor {
             }
         }
         self.drop_internal_buffer(open.buffer);
+        self.reviews.closed.push((id, open.review));
         self.reviews.requests.push(ReviewRequest::Close(id));
     }
 

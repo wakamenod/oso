@@ -47,6 +47,9 @@ struct ImportReply {
     judging: Vec<BufferId>,
 }
 
+/// How long an export waits for the reviews to be saved.
+const REVIEWS_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+
 impl App {
     /// The OS window's place and size, if there is a window.
     pub(super) fn frame(&self) -> Option<carry::Frame> {
@@ -63,6 +66,11 @@ impl App {
     /// `export-text`, replacing the one before.
     pub(super) fn export_state(&mut self) -> Reply {
         self.resume_terminals();
+        // The reviews are on disk before the next instance opens them again (ADR 0122, step 6),
+        // waited for only when one was handed over now.
+        if self.hand_review_saves() {
+            self.wait_review_saves(REVIEWS_WAIT);
+        }
         let (state, exported) = self.export_texts(None)?;
         self.keep_export(exported);
         Ok(state)
@@ -74,6 +82,7 @@ impl App {
         &self,
         terminals: Option<(&[BufferId], usize)>,
     ) -> Result<(Value, pieces::Exported), String> {
+        let reviews = self.reviews_to_hand_over();
         carry::export(
             &self.editor,
             self.dispatcher.pending_to_carry(),
@@ -81,6 +90,7 @@ impl App {
             &self.handover.restore,
             self.handover.exports + 1,
             terminals,
+            &reviews,
         )
     }
 
@@ -386,7 +396,10 @@ impl App {
             buffer.apply_carried(text, facts);
         }
         self.carry_ring_and_histories(kills, histories);
+        let reviews = std::mem::take(&mut state.reviews);
         self.take_view(&named, state);
+        // Each once its project is known and trusted (ADR 0122, step 6).
+        self.reviews_handed_over(reviews);
         Ok(judging)
     }
 

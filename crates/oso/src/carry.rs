@@ -61,6 +61,7 @@ use internal::{behind_internal, handed_over};
 mod look;
 pub mod notice;
 mod restore;
+pub mod reviews;
 pub mod terminals;
 mod waits;
 pub use allowed::{exit_allowed, generation, import_allowed};
@@ -115,6 +116,7 @@ pub fn export(
     restores: &[Restore],
     number: u64,
     terminals: Option<(&[BufferId], usize)>,
+    reviews: &[reviews::Shown],
 ) -> Result<(Value, Exported), String> {
     let (terminals, reserved) = match terminals {
         Some((carried, reserved)) => (Some(carried), reserved),
@@ -200,8 +202,39 @@ pub fn export(
         "kills": kills,
         "histories": histories,
     });
+    let mut state = state;
+    add_reviews(editor, &mut state, reviews);
     fits(&state)?;
     Ok((state, Exported::new(number, items)))
+}
+
+/// Adds to `state` the reviews of `shown` its windows show, which open again (ADR 0122, step
+/// 6), unless they would not fit: they never refuse the restart.
+fn add_reviews(editor: &Editor, state: &mut Value, shown: &[reviews::Shown]) {
+    let entries = reviews::entries(editor, &tiled_windows(editor), shown);
+    if entries.is_empty() {
+        return;
+    }
+    state["reviews"] = reviews::state(&entries);
+    if fits(state).is_err() {
+        log::info!("the reviews the windows show are left out of the restart's state");
+        if let Some(state) = state.as_object_mut() {
+            state.remove("reviews");
+        }
+    }
+}
+
+/// The tiled windows in the order the state lists them: the tree's, without the side window,
+/// which comes back by itself (ADR 0121).
+pub fn tiled_windows(editor: &Editor) -> Vec<&Window> {
+    let side = editor.side_window();
+    editor
+        .frame()
+        .windows()
+        .iter()
+        .filter(|(id, _)| Some(*id) != side)
+        .filter_map(|(id, _)| editor.window_by_id(*id))
+        .collect()
 }
 
 /// Whether `state` fits in the line that carries it.
@@ -221,14 +254,7 @@ pub fn fits(state: &Value) -> Result<(), String> {
 fn windows_state(editor: &Editor, restores: &[Restore]) -> (Vec<Value>, usize) {
     let at_the_top = SelectionSet::default();
     // Not the side window: the layout is the tree's, and it comes back by itself (ADR 0121).
-    let side = editor.side_window();
-    let tiled: Vec<&Window> = editor
-        .frame()
-        .windows()
-        .iter()
-        .filter(|(id, _)| Some(*id) != side)
-        .filter_map(|(id, _)| editor.window_by_id(*id))
-        .collect();
+    let tiled = tiled_windows(editor);
     let windows: Vec<Value> = tiled
         .iter()
         .map(|window| {
@@ -563,7 +589,7 @@ fn export_value(
     restore: Option<&Restore>,
 ) -> Reply {
     let restores = restore.map(std::slice::from_ref).unwrap_or_default();
-    export(editor, pending, frame, restores, 1, None).map(|(state, _)| state)
+    export(editor, pending, frame, restores, 1, None, &[]).map(|(state, _)| state)
 }
 
 #[cfg(test)]

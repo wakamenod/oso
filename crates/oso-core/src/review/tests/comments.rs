@@ -155,7 +155,7 @@ fn a_review_holds_at_most_its_limit_of_comments() {
 
 #[test]
 fn a_long_line_is_compared_whole() {
-    let long = "x".repeat(MAX_KEPT_LINE + 10);
+    let long = "x".repeat(4 * 1024 + 10);
     let other = format!("{}y", &long[..long.len() - 1]);
     let base = blob("1");
     let mut review = review_of(Shape::new(base.clone(), vec![hunk(1, &[], 1, &[&long])]).unwrap());

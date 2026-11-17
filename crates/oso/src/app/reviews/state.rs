@@ -54,6 +54,8 @@ pub(super) struct Running {
     /// Whether every file of a listing was read once, after which a file's first reading is
     /// new to the person (step 4).
     pub(super) read_once: bool,
+    /// How it is saved across restarts (step 6).
+    pub(super) saving: super::keep::Saving,
 }
 
 /// What opening a review that is open already does.
@@ -94,6 +96,7 @@ impl Running {
             folded: false,
             shown_folded: false,
             read_once: false,
+            saving: super::keep::Saving::default(),
             pr: None,
         }
     }
@@ -162,6 +165,10 @@ pub(in crate::app) struct Reviews {
     pub(super) looked: Option<(WindowId, usize, ViewSize, u64)>,
     /// The review message waiting to be sent, and the session picked for each review (step 12).
     pub(super) sending: super::send::Sending,
+    /// The saved reviews' store and list (step 6).
+    pub(super) keep: super::keep::Keep,
+    /// The reviews a restart carried, waiting for their projects (step 6).
+    pub(super) handed: Vec<super::handed::Handed>,
 }
 
 impl Reviews {

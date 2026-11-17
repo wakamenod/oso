@@ -40,8 +40,9 @@
 //! - A pull request's sides come from `gh` and, for commits this clone lacks, a fetch that
 //!   writes objects alone, with the review's empty hooks, on open and on each refresh the
 //!   person asks for (`pr`, step 12b); carries are answered while they wait.
-//! - Two things need no thread: `message` composes the message of the person's comments to an
-//!   agent session (step 12), and [`hunk_header`] writes a hunk's header for it and the view.
+//! - Three things need no thread: `message` composes the message of the person's comments to an
+//!   agent session (step 12), [`hunk_header`] writes a hunk's header for it and the view, and
+//!   `saved` is a saved review's file format (step 6), which the app's store reads and writes.
 
 mod batch;
 pub(crate) mod count;
@@ -56,6 +57,7 @@ pub(crate) mod pr;
 mod queue_tests;
 mod read;
 pub(crate) mod refine;
+pub(crate) mod saved;
 mod scope;
 mod side;
 pub(crate) mod stage;

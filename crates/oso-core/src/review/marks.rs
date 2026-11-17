@@ -40,7 +40,7 @@ impl Review {
     /// Records, or clears with `None`, the decision on hunk `hunk` of `path`; `false` when the
     /// current reading has no such hunk.
     pub fn decide(&mut self, path: &[u8], hunk: usize, decision: Option<Decision>) -> bool {
-        self.change_mark(path, hunk, |mark| mark.decision = decision)
+        self.change_mark(path, hunk, true, |mark| mark.decision = decision)
     }
 
     /// The decision on hunk `hunk` of `path`.
@@ -50,7 +50,7 @@ impl Review {
 
     /// Marks hunk `hunk` of `path` viewed, or not; `false` when there is no such hunk.
     pub fn set_viewed(&mut self, path: &[u8], hunk: usize, viewed: bool) -> bool {
-        self.change_mark(path, hunk, |mark| mark.viewed = viewed)
+        self.change_mark(path, hunk, true, |mark| mark.viewed = viewed)
     }
 
     /// Whether hunk `hunk` of `path` is marked viewed.
@@ -76,7 +76,7 @@ impl Review {
         if !self.changed(path, hunk) {
             return false;
         }
-        self.change_mark(path, hunk, |mark| mark.changed = false)
+        self.change_mark(path, hunk, false, |mark| mark.changed = false)
     }
 
     /// The readings let go since the last call, for the host to free off the UI thread, as a
@@ -99,6 +99,7 @@ impl Review {
     /// Forgets the dropped count of `path`, once the person looked.
     pub fn clear_dropped(&mut self, path: &[u8]) {
         if let Some(state) = self.files.get_mut(path) {
+            self.revision += 1;
             state.dropped = 0;
         }
     }

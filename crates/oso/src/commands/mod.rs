@@ -118,6 +118,7 @@ const TABLES: &[&[Command]] = &[
     review::COMMANDS,
     review::COMMENT_COMMANDS,
     review::DECISION_COMMANDS,
+    review::SAVED_COMMANDS,
     review::SEND_COMMANDS,
     save::COMMANDS,
     scroll::COMMANDS,
@@ -331,6 +332,10 @@ mod tests {
         // Folding the agent's comments hides what it wrote from the person, who alone chooses
         // how much of it to see.
         "review-fold-agents",
+        // A saved review opens again by running git, and forgetting one removes the person's
+        // comments (ADR 0122, step 6).
+        "review-forget",
+        "review-resume",
         // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
         "consult-mark",
         // The completion popup is a float for the keyboard (ADR 0138, step 9).

@@ -31,6 +31,9 @@ pub struct Carry {
     pub(super) marked: Option<MarkedReading>,
     /// Whether the person saw no reading of the file before, though they saw the review's.
     pub(super) unseen: bool,
+    /// Whether the current reading was restored from a saved review: no hunk is marked
+    /// changed against it (step 6, Q-J).
+    pub(super) restored: bool,
     pub(super) hasher: RandomState,
     pub(super) readings: u64,
     pub(super) added: u64,
@@ -207,7 +210,11 @@ impl Carry {
                     hashes: from_hashes,
                     marks,
                 };
-                decision::carry_marks(&from, to.hunks(), &hashes)
+                let (mut marks, dropped) = decision::carry_marks(&from, to.hunks(), &hashes);
+                if self.restored {
+                    decision::clear_changed(&mut marks);
+                }
+                (marks, dropped)
             }
             None => {
                 let mark = Mark {

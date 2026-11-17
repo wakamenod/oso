@@ -401,8 +401,15 @@ in it. `g` reads now.
 | `?` | List these keys |
 
 A comment opens as a draft at the top: `RET` breaks a line, `C-c C-c` keeps it, and `C-g` drops
-it into the kill ring. `C-x k` closes the review, and asks first while it holds comments you
-have not sent.
+it into the kill ring. `C-x k` closes the review.
+
+A review is saved as it changes: its comments, decisions, viewed marks, layout and cursor come
+back when you open the same review of the project again, after closing it or restarting oso,
+carried to the changes as they are then. A comment whose line went is kept as outdated.
+`M-x review-resume` picks a saved review to open again, and `M-x review-forget` removes one; a
+review not opened for 30 days is removed. Nothing is saved of a file that may hold secrets but
+your comments on it. `C-x k` and quitting ask about comments only when the review could not be
+saved. `oso-restart` opens again the reviews its windows showed.
 
 `C-c C-c` in the review gathers your comments that were not sent, outside threads you resolved,
 into `*review message*`: each with its file, its line or hunk and the hunk's lines. Read it and

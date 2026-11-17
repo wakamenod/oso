@@ -98,8 +98,9 @@ fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandE
     ctx.editor.set_quit_when_idle(false);
     let (turns, jobs) = busy(ctx.editor);
     let runs: Vec<BufferId> = ctx.editor.git_runs().collect();
-    // Comments of the person's not sent yet are lost with the editor until reviews are saved
-    // (ADR 0122, step 6), and work and programs in terminals end with it (ADR 0120,
+    // Comments of the person's not sent yet are lost with the editor when their review could
+    // not be saved, and a draft always (ADR 0122, step 6), and work and programs in terminals
+    // end with it (ADR 0120,
     // ADR 0133), as git's runs do (ADR 0127): one question says all of it.
     let mut lost = Vec::new();
     match super::review::unsent_everywhere(ctx.editor) {

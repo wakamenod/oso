@@ -89,8 +89,8 @@ fn read_checked(state_dir: &Path) -> io::Result<Vec<Remembered>> {
 /// The bytes of the file called `name` in `state_dir`: `None` if there is none, and an error
 /// if there is one that may not be read, which a write must then not replace. It is read only
 /// if the directory is private and the file a regular one of this user's with one name, of at
-/// most `max` bytes. The `spaces` file is read the same way (ADR 0136), and the recent files
-/// (ADR 0148).
+/// most `max` bytes. The `spaces` file is read the same way (ADR 0136), the recent files
+/// (ADR 0148) and saved reviews (ADR 0122, step 6).
 pub(crate) fn read_file(state_dir: &Path, name: &str, max: u64) -> io::Result<Option<Vec<u8>>> {
     let Some(directory) = PrivateDir::existing(state_dir)? else {
         return Ok(None);

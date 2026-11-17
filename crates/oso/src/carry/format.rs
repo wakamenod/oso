@@ -79,6 +79,8 @@ pub struct State {
     pub terminals: Vec<super::terminals::TerminalState>,
     /// The instance that exported it and those it took over from, the newest last.
     pub follows: Vec<u32>,
+    /// The reviews its windows showed, which open again (ADR 0122, step 6).
+    pub reviews: Vec<super::reviews::ReviewEntry>,
 }
 
 #[cfg(test)]
@@ -245,6 +247,7 @@ pub fn parse(state: &Value) -> Result<State, String> {
         }
     }
     let windows = parse_windows(state, entries, version)?;
+    let reviews = super::reviews::parse(state, windows.windows.len());
     Ok(State {
         export,
         items: items.lengths,
@@ -260,6 +263,7 @@ pub fn parse(state: &Value) -> Result<State, String> {
         histories,
         terminals,
         follows: super::terminals::parse_follows(state)?,
+        reviews,
     })
 }
 

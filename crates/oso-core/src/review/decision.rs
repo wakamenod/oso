@@ -101,3 +101,11 @@ pub(super) fn carry_marks(from: &Marked<'_>, to: &[Hunk], hashes: &[u64]) -> (Ve
     }
     (marks, dropped)
 }
+
+/// Marks no hunk of `marks` changed, as when the reading carried from was restored from a saved
+/// review: the hunks new since it were not shown in this run (ADR 0122, step 6, Q-J).
+pub(super) fn clear_changed(marks: &mut [Mark]) {
+    for mark in marks {
+        mark.changed = false;
+    }
+}

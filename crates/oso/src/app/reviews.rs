@@ -1,11 +1,13 @@
 //! Reviews in the app (ADR 0122): what review commands ask of the host, carried out on the UI
 //! thread. Each open review has its own `oso-review` thread, which runs git and diffs, and its
 //! own `oso-review-view` thread, which lays out the review buffer's text; the review menu's
-//! counts come from `oso-review-count`. What they report is put in here, in order.
+//! counts come from `oso-review-count`, and saved reviews are read and written on
+//! `oso-review-store` (`keep`, `store`, step 6). What they report is put in here, in order.
 //!
-//! Must not depend on: key presses or how a frame is drawn. Nothing here runs git, reads a
-//! file, diffs or builds a review's text: a text comes whole from its view thread, goes in at
-//! O(1), and the text it replaces is freed off the UI thread. Nothing here logs a file's text.
+//! Must not depend on: key presses or how a frame is drawn. Nothing here runs git, reads or
+//! writes a file, diffs or builds a review's text: a text comes whole from its view thread,
+//! goes in at O(1), and the text it replaces is freed off the UI thread. Nothing here logs a
+//! file's text.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -17,14 +19,14 @@ use oso_core::project::ProjectId;
 
 use super::{App, UserEvent};
 use crate::commands::review::{MAX_NAME, RESTRICTED, one_line};
-use crate::git::{Id, TrustedRoot};
+use crate::git::TrustedRoot;
 use crate::review::count::Counted;
 use crate::review::pr::PrFound;
 use crate::review::view::{Tell, Text, View};
-use crate::review::{Asked, Report, Request, Reviewer};
+use crate::review::{Asked, Report, Request, Reviewer, Scope};
 use scope::{fetching_said, found_said, same_scope, scope_label, scope_of};
 pub(in crate::app) use state::Reviews;
-use state::{Baseliner, Reopen, Running};
+use state::{Reopen, Running};
 
 /// The most characters of a failure the echo area shows.
 const MAX_MESSAGE: usize = 200;
@@ -47,6 +49,8 @@ pub(crate) enum ReviewEvent {
     Text { review: ReviewId, text: Box<Text> },
     /// The menu's counting threads counted.
     Counted(Counted),
+    /// The saved reviews' store found or did something (step 6).
+    Stored(store::Stored),
 }
 
 impl fmt::Debug for ReviewEvent {
@@ -66,6 +70,7 @@ impl fmt::Debug for ReviewEvent {
                 .field("review", &review.get())
                 .finish_non_exhaustive(),
             Self::Counted(counted) => f.debug_tuple("Counted").field(counted).finish(),
+            Self::Stored(stored) => f.debug_tuple("Stored").field(stored).finish(),
         }
     }
 }
@@ -90,6 +95,7 @@ impl App {
     /// asked, starts or stops the menu's counts, and puts in the texts that wait while nothing
     /// holds them.
     pub(super) fn sync_reviews(&mut self) {
+        self.start_review_store();
         self.revoke_untrusted_reviews();
         // Before the requests, so that a head that closed the menu, as `b` does, stops the
         // menu's counts before a request starts its own.
@@ -97,6 +103,8 @@ impl App {
         for request in self.editor.take_review_requests() {
             self.review_request(request);
         }
+        // What a restart carried, once its projects are known (step 6).
+        self.reopen_handed_reviews();
         self.put_in_review_texts();
         // A file a reject opened may have loaded.
         self.go_on_reverting();
@@ -105,6 +113,7 @@ impl App {
         self.sync_review_watches();
         self.sync_review_comments();
         self.sync_review_message();
+        self.sync_review_saves();
     }
 
     fn review_request(&mut self, request: ReviewRequest) {
@@ -121,6 +130,8 @@ impl App {
             ReviewRequest::Send(id) => self.send_review(id),
             ReviewRequest::MessageSend { buffer, to } => self.send_review_message(buffer, to),
             ReviewRequest::MessageDrop { buffer } => self.drop_review_message(buffer),
+            ReviewRequest::Resume(pick) => self.resume_review(&pick),
+            ReviewRequest::Forget(pick) => self.forget_review(&pick),
             ReviewRequest::MessageTake { buffer } => self.take_review_message(buffer),
             // Visits come with a later step of ADR 0122.
             ReviewRequest::Visit { .. } => {
@@ -146,11 +157,18 @@ impl App {
             Ok(scope) => scope,
             Err(why) => return self.editor.message(why),
         };
+        self.editor.set_last_scope(project, kind);
+        self.open_scope(project, scope);
+    }
+
+    /// Opens a review of `scope` in `project`, or shows the one open and reads it again: as a
+    /// request names it, or as a saved review or a restart kept it, a session review with its
+    /// own baseline (step 6).
+    pub(super) fn open_scope(&mut self, project: ProjectId, scope: Scope) {
         let Some(root) = TrustedRoot::of(&self.editor, project) else {
             return self.editor.message(RESTRICTED);
         };
-        self.editor.set_last_scope(project, kind);
-        if kind == ScopeKind::Session {
+        if matches!(scope, Scope::Session { .. }) {
             self.session_review_opened(root.path());
         }
         let window = self.editor.tiled().0.id();
@@ -210,6 +228,9 @@ impl App {
         self.reviews.open.push(running);
         let index = self.reviews.open.len() - 1;
         self.start_reviewer(index);
+        // What was saved of it is read meanwhile, and what its thread reports waits for it
+        // (step 6).
+        self.open_saved(index, &scope);
         self.ask_review(index, Request::Open(scope));
         self.request_redraw();
     }
@@ -286,37 +307,25 @@ impl App {
 
     /// Stops a closed review's threads, and frees the texts it left waiting.
     fn close_review(&mut self, id: ReviewId) {
-        if let Some(running) = self.reviews.close(id) {
-            self.freer.free(running.texts);
+        match self.reviews.close(id) {
+            Some(running) => {
+                // What it held is saved at once (step 6).
+                self.save_closed_review(&running);
+                self.freer.free(running.texts);
+            }
+            // A review that never started its threads: its model is only freed.
+            None => self.freer.free(self.editor.take_closed_review(id)),
         }
     }
 
-    /// Takes a baseline of `project`'s work tree on a thread of its own.
-    fn take_baseline(&mut self, project: ProjectId) {
-        let Some(root) = TrustedRoot::of(&self.editor, project) else {
-            return self.editor.message(RESTRICTED);
-        };
-        let waker = self.waker.clone();
-        let serial = self.reviews.serial();
-        let started = Reviewer::start(root.clone(), state(), move |report| {
-            waker.send(UserEvent::Review(ReviewEvent::Baseline {
-                project,
-                serial,
-                report,
-            }))
-        });
-        match started {
-            Ok(reviewer) => {
-                reviewer.ask(Request::Baseline);
-                self.reviews.add_baseliner(Baseliner {
-                    project,
-                    serial,
-                    root,
-                    _reviewer: reviewer,
-                });
-            }
-            Err(e) => self.editor.message(format!("Cannot take a baseline: {e}")),
-        }
+    /// The project oso knows whose root is `root`, by a buffer in it or an open review.
+    pub(super) fn project_with_root(&self, root: &std::path::Path) -> Option<ProjectId> {
+        (self.editor.buffers())
+            .filter_map(|(_, buffer)| buffer.project())
+            .chain(self.reviews.open.iter().map(|running| running.project))
+            .find(|project| {
+                (self.editor.project(*project)).is_some_and(|known| known.root() == root)
+            })
     }
 
     /// A review's threads sent something.
@@ -340,12 +349,17 @@ impl App {
                 None => self.freer.free(text),
             },
             ReviewEvent::Counted(counted) => self.scope_counted(counted),
+            ReviewEvent::Stored(stored) => self.review_stored(stored),
         }
     }
 
     fn review_report(&mut self, review: ReviewId, serial: u64, report: Report) {
         let Some(index) = self.reviews.current(review, serial) else {
             return self.freer.free(report);
+        };
+        // While its saved review is read, the model may not take a reading yet (step 6).
+        let Err(report) = self.hold_review_report(index, serial, report) else {
+            return;
         };
         let tell = match report {
             Report::Listed {
@@ -424,58 +438,6 @@ impl App {
         }
     }
 
-    fn baseline_report(&mut self, project: ProjectId, serial: u64, report: Report) {
-        // A report of a thread replaced or dropped since, or taken as the trust was taken
-        // back, is not used.
-        if !self.reviews.take_baseliner(project, serial) || !self.editor.project_trusted(project) {
-            return self.freer.free(report);
-        }
-        match report {
-            Report::Baseline { tree, left_out } => {
-                self.keep_baseline(project, tree);
-                self.editor.message(if left_out == 0 {
-                    "Baseline taken: D reviews what changed since".to_owned()
-                } else {
-                    format!(
-                        "Baseline taken, {left_out} files left out: D reviews what changed since"
-                    )
-                });
-            }
-            Report::Failed { why, .. } => {
-                let why = one_line(&why, MAX_MESSAGE);
-                self.editor
-                    .message(format!("Cannot take a baseline: {why}"));
-            }
-            other => self.freer.free(other),
-        }
-        self.request_redraw();
-    }
-
-    /// `tree` is `project`'s baseline from now on: the session review compares with it.
-    fn keep_baseline(&mut self, project: ProjectId, tree: Id) {
-        self.reviews.baselines.retain(|(id, _)| *id != project);
-        self.reviews.baselines.push((project, tree));
-        self.editor.set_baseline_taken(project, Some(now()));
-        self.count_session(project);
-    }
-
-    /// A hosted session's start thread took `tree` as `project`'s baseline before its
-    /// `claude` ran (ADR 0121, ADR 0122): the review takes it as if `B` had, while the
-    /// project is still trusted.
-    pub(in crate::app) fn session_baseline_taken(&mut self, project: ProjectId, tree: &str) {
-        if !self.editor.project_trusted(project) {
-            return;
-        }
-        if let Some(tree) = Id::parse(tree.as_bytes()) {
-            self.keep_baseline(project, tree);
-        }
-    }
-
-    fn forget_baseline(&mut self, project: ProjectId) {
-        self.reviews.baselines.retain(|(id, _)| *id != project);
-        self.editor.set_baseline_taken(project, None);
-    }
-
     /// Puts in each review's waiting texts, in order, while nothing holds them.
     fn put_in_review_texts(&mut self) {
         let mut put = false;
@@ -547,6 +509,8 @@ impl App {
             self.carry_applied(index, reading, &applied);
         }
         self.editor.set_review_reading(id, reading);
+        // The cursor saved goes back once a text shows its file (step 6).
+        self.put_back_place(index);
         #[cfg(feature = "dev")]
         self.timings.review_text(crate::dev::ReviewText::of(
             reading,
@@ -566,15 +530,20 @@ impl App {
     }
 }
 
+mod baseline;
 mod comments;
 mod decide;
+mod handed;
 mod highlight;
 mod judge;
+mod keep;
 mod layout;
 mod menu;
 mod scope;
+mod secrets;
 mod send;
 mod state;
+mod store;
 #[cfg(test)]
 #[path = "reviews_tests.rs"]
 mod tests;

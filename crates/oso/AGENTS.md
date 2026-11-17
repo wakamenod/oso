@@ -99,7 +99,11 @@ often, so it must rebuild within 2 s.
   `review/count.rs` counts the review menu's scopes on `oso-review-count`. `review/message.rs`
   composes the message of the person's comments that `app/reviews/send.rs` pastes into the
   review's session through `send_to_session` (step 12). `review/pr.rs` resolves a pull
-  request's sides through `gh` and a fetch of objects alone (step 12b). A review buffer's
+  request's sides through `gh` and a fetch of objects alone (step 12b). `review/saved.rs` is a
+  saved review's file format (step 6), which `app/reviews/store.rs` reads and writes on
+  `oso-review-store`, under the state directory, and `app/reviews/keep.rs` saves and brings
+  back; `carry/reviews.rs` names the reviews a restart opens again (`app/reviews/handed.rs`). A
+  review buffer's
   keys are listed in `commands::review::KEYS`, which `?` reads, and bound by
   `bindings/review.rs`.
 - `src/git.rs` and `src/git/` are what every run of git shares (ADR 0127, as built): the

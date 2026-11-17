@@ -30,17 +30,18 @@ mod decision;
 mod map;
 mod marks;
 mod rows;
+mod saved;
 mod shape;
 
 pub use carry::{Applied, Carried, Carry};
 pub use comment::{
     Anchor, Author, Comment, CommentError, CommentId, MAX_COMMENT_BYTES, MAX_COMMENTS,
-    MAX_KEPT_LINE,
 };
 pub use decision::Decision;
 pub use map::{BaseHunk, LineMap, base_pair};
 pub(crate) use rows::Place;
 pub use rows::{Row, RowKind, Rows, Section, Seek};
+pub use saved::{RestoreError, Saved, SavedComment, SavedFile};
 pub use shape::{Base, Hunk, Shape, ShapeError, Side};
 
 use carry::Item;
@@ -62,6 +63,8 @@ pub struct Review {
     progress: Progress,
     /// Readings let go since [`Review::take_released`], for the host to free off the UI thread.
     released: Vec<Arc<Shape>>,
+    /// Counts changes, so that the host saves the review only when it changed (step 6).
+    revision: u64,
 }
 
 /// What the review keeps of one path, read now or once.
@@ -78,6 +81,20 @@ struct PathState {
     added: u64,
     /// Counts changes to the marks, so marks changed since a snapshot are carried in its place.
     remarked: u64,
+    /// The current reading was restored from a saved review and no reading was applied since:
+    /// the next one marks no hunk changed (step 6, Q-J).
+    restored: bool,
+}
+
+impl PathState {
+    /// Whether [`Review::save`] holds this path's reading: it holds a mark or a comment, or
+    /// marks dropped. A comment on an earlier reading counts too, as its file's state does.
+    fn is_saved(&self) -> bool {
+        !self.comments.is_empty()
+            || self.dropped > 0
+            || (self.reading.as_ref())
+                .is_some_and(|reading| reading.marks.iter().any(|m| m.is_set()))
+    }
 }
 
 /// A file's current reading, its hunks' hashes and the person's mark on each hunk.
@@ -91,6 +108,14 @@ struct Reading {
 impl Review {
     pub fn new() -> Review {
         Review::default()
+    }
+
+    /// A count of the changes of what [`Review::save`] holds: it differs whenever a comment, a
+    /// decision or viewed mark, or the reading of a file holding one, changed since it was last
+    /// asked, so that the host saves the review only then (ADR 0122, step 6). A reading of a
+    /// file holding none, and a hunk seen, count nothing.
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// The current reading of the file at `path`.
@@ -111,8 +136,12 @@ impl Review {
         let Some(state) = self.files.get_mut(path) else {
             return;
         };
+        if state.is_saved() {
+            self.revision += 1;
+        }
         if let Some(reading) = state.reading.take() {
-            state.dropped += reading.marks.iter().filter(|mark| mark.is_set()).count();
+            let set = reading.marks.iter().filter(|mark| mark.is_set()).count();
+            state.dropped = state.dropped.saturating_add(set);
             self.progress.count(&reading.marks, true);
             self.released.push(reading.shape);
         }
@@ -155,6 +184,7 @@ impl Review {
             items,
             marked,
             unseen: false,
+            restored: state.is_some_and(|state| state.restored),
             hasher: self.hasher.clone(),
             readings: state.map_or(0, |state| state.readings),
             added: state.map_or(0, |state| state.added),
@@ -168,6 +198,7 @@ impl Review {
     /// outdated until then.
     pub fn apply(&mut self, carried: Carried) -> Applied {
         let state = self.files.entry(carried.path).or_default();
+        let saved_before = state.is_saved();
         if carried.readings != state.readings {
             return Applied {
                 again: true,
@@ -188,11 +219,17 @@ impl Review {
                     hashes: &reading.hashes,
                     marks: &reading.marks,
                 };
-                decision::carry_marks(&from, to.hunks(), &carried.hashes)
+                let (mut marks, dropped) =
+                    decision::carry_marks(&from, to.hunks(), &carried.hashes);
+                if state.restored {
+                    decision::clear_changed(&mut marks);
+                }
+                (marks, dropped)
             }
             _ => (carried.marks, carried.dropped),
         };
         state.readings += 1;
+        state.restored = false;
         for (id, placement) in carried.placed {
             let Some(comment) = self.comments.get_mut(&id) else {
                 continue;
@@ -225,7 +262,7 @@ impl Review {
             }
         }
         let_go(state, &mut self.comments, &to, &mut self.released);
-        state.dropped += dropped;
+        state.dropped = state.dropped.saturating_add(dropped);
         applied.dropped = dropped;
         if let Some(before) = state.reading.take() {
             self.progress.count(&before.marks, true);
@@ -237,6 +274,10 @@ impl Review {
             hashes: carried.hashes,
             marks,
         });
+        // Only a reading a save holds counts as a change (step 6).
+        if saved_before || state.is_saved() {
+            self.revision += 1;
+        }
         applied
     }
 
@@ -333,6 +374,7 @@ impl Review {
         comment.text = text.into();
         comment.sent = false;
         comment.read = by == Author::Person;
+        self.revision += 1;
         Ok(())
     }
 
@@ -353,6 +395,7 @@ impl Review {
             .get_mut(&id)
             .ok_or(CommentError::NoSuchComment)?;
         comment.resolved = resolved;
+        self.revision += 1;
         Ok(())
     }
 
@@ -364,6 +407,7 @@ impl Review {
             self.only_agents_in(id)?;
         }
         let thread = self.thread(id).ok_or(CommentError::NoSuchComment)?;
+        self.revision += 1;
         for id in &thread {
             if let Some(comment) = self.comments.remove(id)
                 && let Some(state) = self.files.get_mut(&*comment.path)
@@ -376,6 +420,7 @@ impl Review {
 
     /// Marks the comments `ids` sent.
     pub fn mark_sent(&mut self, ids: &[CommentId]) {
+        self.revision += 1;
         for id in ids {
             if let Some(comment) = self.comments.get_mut(id) {
                 comment.sent = true;
@@ -385,6 +430,7 @@ impl Review {
 
     /// Marks the comments `ids` read by the person.
     pub fn mark_read(&mut self, ids: &[CommentId]) {
+        self.revision += 1;
         for id in ids {
             if let Some(comment) = self.comments.get_mut(id) {
                 comment.read = true;
@@ -404,8 +450,9 @@ impl Review {
 
     /// Gives `comment` the next id and keeps it.
     fn insert(&mut self, mut comment: Comment) -> CommentId {
+        self.revision += 1;
         let id = CommentId(self.next_id);
-        self.next_id += 1;
+        self.next_id = self.next_id.saturating_add(1);
         comment.id = id;
         let state = self.files.entry(Box::from(&*comment.path)).or_default();
         state.comments.insert(id);
@@ -474,7 +521,15 @@ impl Review {
             .copied()
     }
 
-    fn change_mark(&mut self, path: &[u8], index: usize, change: impl FnOnce(&mut Mark)) -> bool {
+    /// Changes the mark on hunk `index` of `path`'s current reading; `saved` if a save holds
+    /// what it changes, which then counts as a change of the review.
+    fn change_mark(
+        &mut self,
+        path: &[u8],
+        index: usize,
+        saved: bool,
+        change: impl FnOnce(&mut Mark),
+    ) -> bool {
         let Some(state) = self.files.get_mut(path) else {
             return false;
         };
@@ -486,6 +541,7 @@ impl Review {
             return false;
         };
         self.progress.count(std::slice::from_ref(mark), true);
+        self.revision += u64::from(saved);
         change(mark);
         self.progress.count(std::slice::from_ref(mark), false);
         state.remarked += 1;

@@ -13,11 +13,6 @@ pub const MAX_COMMENTS: usize = 10_000;
 /// The most bytes of a comment's text.
 pub const MAX_COMMENT_BYTES: usize = 64 * 1024;
 
-/// The most bytes of a commented line's text a saved review keeps; past them, its length and a
-/// hash of the rest stand for it. In memory a comment keeps the reading its line is in, and its
-/// line is compared whole.
-pub const MAX_KEPT_LINE: usize = 4 * 1024;
-
 /// A comment's id, never reused within a review.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CommentId(pub(super) u64);

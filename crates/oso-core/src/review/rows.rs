@@ -301,6 +301,37 @@ impl Rows {
         None
     }
 
+    /// The line that shows line `number` of `side` of the file at `path`, else the first line
+    /// of that side after it in the file, else the file's header; with no line asked for, the
+    /// header. `None` for a file not shown. O(1) for the file, then its runs: a saved review's
+    /// cursor goes back by it (ADR 0122, step 6).
+    pub fn line_of(&self, path: &[u8], line: Option<(Side, u32)>) -> Option<usize> {
+        let index = self.section_of(path)?;
+        let start = self.starts[index];
+        let Some((side, number)) = line else {
+            return Some(start);
+        };
+        let mut after: Option<(u32, usize)> = None;
+        for run in &self.sections[index].runs {
+            let RowKind::Lines {
+                side: at, first, ..
+            } = run.kind
+            else {
+                continue;
+            };
+            if at != side {
+                continue;
+            }
+            if number >= first && ((number - first) as usize) < run.lines {
+                return Some(start + run.start + (number - first) as usize);
+            }
+            if first > number && after.is_none_or(|(nearest, _)| first < nearest) {
+                after = Some((first, run.start));
+            }
+        }
+        Some(start + after.map_or(0, |(_, line)| line))
+    }
+
     /// The first line of the section of the file at `path`, its header. O(1).
     pub(crate) fn file_start(&self, path: &[u8]) -> Option<usize> {
         Some(self.starts[self.section_of(path)?])
@@ -473,6 +504,26 @@ mod tests {
         assert_eq!(rows.nearest(b"z.rs", Side::New, 1), None);
         assert_eq!(rows.file_start(b"c.rs"), Some(14));
         assert_eq!(rows.file_start(b"z.rs"), None);
+    }
+
+    #[test]
+    fn a_saved_line_is_found_or_the_next_of_its_side_or_its_files_header() {
+        let rows = sample();
+        assert_eq!(rows.line_of(b"a.rs", Some((Side::New, 5))), Some(5));
+        assert_eq!(
+            rows.line_of(b"a.rs", Some((Side::New, 10))),
+            Some(11),
+            "the next shown"
+        );
+        assert_eq!(rows.line_of(b"a.rs", Some((Side::New, 1))), Some(4));
+        assert_eq!(
+            rows.line_of(b"a.rs", Some((Side::Old, 9))),
+            Some(0),
+            "none after it"
+        );
+        assert_eq!(rows.line_of(b"a.rs", None), Some(0));
+        assert_eq!(rows.line_of(b"c.rs", Some((Side::Old, 1))), Some(16));
+        assert_eq!(rows.line_of(b"z.rs", None), None);
     }
 
     #[test]

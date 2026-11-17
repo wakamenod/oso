@@ -457,7 +457,8 @@ Limits for crafted input, each saying what it hides:
   dependency. It sits on `guardrails/layers.txt`'s `oso-core` line with `project`, and
   `editor` holds the open reviews.
 - **`crates/oso/src/review/`** (new tip-crate module): the git and `gh` runner, the diff worker
-  (`similar`), the seams, persistence, and the channel methods' bodies. A new line entry beside
+  (`similar`), the seams, persistence's file format (the thread that reads and writes it is the
+  app's, `app/reviews/store.rs`, as built in step 6), and the channel methods' bodies. A new line entry beside
   `walk` in `[oso]`.
 - **`oso-syntax`** gains documents no buffer owns, for the old side and files not open (new public
   API, this ADR; its items are approved at step 8).
@@ -636,6 +637,10 @@ The author answered every question on 2026-11-12, through the coordinator: (a) f
   that no kill appends to (step 3).
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), "What the channel can do" and the `oso mcp` tool
   list: the review methods and tools above join them, with the reach given for each.
+- [ADR 0090](0090-oso-dev-carries-unsaved-text.md), the state a restart carries: it
+  gains an optional `reviews`, each review its windows show by root and scope, which the new
+  instance opens again; one this does not write is left out, never refusing the restart
+  (step 6).
 - [ADR 0103](0103-soft-wrap-in-a-window.md), "A prompt's window never wraps": a review comment's
   draft's window wraps, as a tiled window does (step 3).
 - [ADR 0111](0111-tree-sitter-highlighting.md), "the worker a tree per buffer": the workers also
@@ -698,8 +703,10 @@ answered its questions (a), then those of its reviews:
    line, and that case is not ported.
 3. **A commented line is compared whole.** This changes the rule in "Comments and re-anchoring":
    in memory, a comment keeps the reading its line is in (the one it was last placed in), and
-   its line there is compared with the line it is carried to, on the worker. The first 4 KiB, the
-   length and a hash of the rest (`MAX_KEPT_LINE`) are only what a saved review keeps (step 6).
+   its line there is compared with the line it is carried to, on the worker. **A saved review
+   keeps its readings' lines whole too (step 6, Q-E (a)), in place of the first 4 KiB, the
+   length and a hash of the rest planned here:** oso-core has no stable hash, and one written
+   for it could be forged by whoever reads the file. `MAX_KEPT_LINE` went with it.
 4. **Removing a comment removes its replies.** The person removes any comment; an agent removes
    only its own, and is refused when a reply is the person's. Both edit only their own comments.
    **An agent resolves or reopens** only its own comment, and only while no reply in its thread
@@ -1220,6 +1227,137 @@ What it built:
   key asks for and where it refuses; progress; the marks on the headers and their drop; and an
   end-to-end flow that views, accepts, undoes, refuses a new file, rejects with unsaved edits
   after the question, and undoes the reject.
+
+### Step 6: the files pane, the filter and persistence
+
+Step 6 lands in two PRs, as the author chose: persistence first, then the files pane and the
+filter. The author approved the plan's public items and answered its questions (a) on
+2026-11-17, through the coordinator:
+
+- **Q-A:** in the files pane, `RET` shows the file in the review and selects it, `SPC` shows it
+  and stays, with `n`/`p`, `/`, `g`, `s` or `q` and `?`; decisions are made in the review only.
+- **Q-B:** the files pane is 40 columns wide, resized as any window.
+- **Q-C:** the filter's words, separated by spaces, must all match, each by a file's path or
+  its comments' text, case-insensitive unless the word holds an upper-case letter.
+- **Q-D:** the filter applies on `RET`.
+- **Q-E:** a saved review keeps its readings' lines whole, within its 16 MiB; past them the
+  largest readings go first, and their comments come back outdated. **This changes step 1's
+  item 3.**
+- **Q-F:** a file whose name or open buffer may hold secrets keeps only its comments' places
+  and texts, and they come back outdated.
+- **Q-G:** leaving oso and `C-x k` no longer ask about unsent comments once the saved review
+  holds them, and ask as before when it could not be written.
+- **Q-H:** a restart opens again the reviews its windows showed, the project's trust checked
+  first; the windows left over, a pair's second and the files pane's, are closed and made
+  again by the review's own layout, so no `pair_windows` (step 10's item 7).
+- **Q-I:** a fresh start opens no review by itself: opening the same scope, or
+  `review-resume`, brings a saved one back.
+- **Q-J:** the first readings of a review brought back mark no hunk ` · changed`.
+- **Q-K:** `review-forget` removes a saved review at once, besides the 30-day sweep and the cap.
+- **Q-L:** two instances with one review open: the last write wins.
+
+What the first PR built:
+
+- **The model's part** (`oso_core::review::saved`): `Review::save` gives a `Saved`, plain data
+  of the files whose current reading holds a mark or a comment, or a dropped count, each as a
+  `SavedFile` (path, reading, each hunk's decision and viewed mark, dropped count), and every
+  comment as a `SavedComment` with every state, its id as a number, and the reading its anchor
+  is in, all by reference. `Review::restore` builds a review back from one, checked whole, and
+  refuses with `RestoreError` what no review saves: too many comments, a text too long, an id
+  used twice or not below the next, a reply whose parent is missing, newer or on another file,
+  an anchor its reading does not show, a comment not outdated off its file's current reading,
+  a file twice, or marks not as many as the hunks. A restored review holds the saved readings
+  as its current ones, so its first refresh carries them as any refresh does, and that first
+  carry marks no hunk changed (Q-J). The person's comments come back read, and a file keeps at
+  most 16 earlier readings, its newest comments'.
+- **Public items, besides those planned,** approved on 2026-11-17: `SavedComment`'s id and
+  parent are numbers, so nothing outside a review makes a `CommentId`; `MAX_KEPT_LINE` is gone
+  (Q-E); `Review::revision`, a count of its changes, so that the host saves only when it
+  changed; `Editor::take_closed_review`, the model of a review closed, so that its last changes
+  are saved and it is freed off the UI thread; `Editor::review_kept` and `set_review_kept`, as
+  the commands see only the editor; `ReviewRequest::Resume` and `Forget`.
+- **The file** (`review/saved.rs`) is JSON Lines: a header (the version, the root, the scope
+  with its revisions as given and the session's baseline, when it was opened, and the counts
+  `review-resume` shows), what the view keeps (the layout chosen, agent cards folded, the
+  cursor's place), each reading once, each file's marks, each comment. Paths and lines are
+  strings when UTF-8, else hex. Its name is a 128-bit FNV of the root and the scope, the same
+  for every session baseline; the header is checked against what was asked as it is read, so a
+  name that comes out the same reads nothing. A pull request's scope (step 12b) is saved by its
+  number, as the others are: `review-resume` and a restart open it again, running `gh` and its
+  fetch as opening one does (the author's choice, 2026-11-18). Past 16 MiB the largest readings
+  are left out first, and a review whose comments alone pass it is not written. Read back, a
+  line this does not write is left out, with the replies to a comment left out.
+- **The store** (`app/reviews/store.rs`) is one thread, `oso-review-store`, started after the
+  first event, which sweeps reviews not opened for 30 days and past the 256 opened last, reads
+  through `sessions::record`'s checks (a private directory, a regular file of this user's with
+  one name, at most 16 MiB), and writes through a `.part` of mode `0600`. Only names of 32 hex
+  digits and `.review` are read, written or removed. Counting reviews after a write reads only
+  the directory's names, and headers only past 256.
+- **Opening** (`app/reviews/keep.rs`): a new review asks the store for its saved file, and its
+  own thread is asked to open only once that came back, so its model goes in before any reading.
+  A file that could not be read is never written over: the review says so and names
+  `review-forget`. Restored, the layout and the agent fold come back, and the cursor goes back to
+  its line, else the next line of its side in its file, else the file's row, once a text shows
+  that file, in each window whose cursor is still at the top.
+- **Saving:** a second after the last change, at most five after the first, by the model's
+  revision and the view's choices; at close from the model the editor hands back; and before
+  oso goes or restarts, with the sessions and recent files, within the same second. What may
+  hold secrets is withheld as the review message withholds it: by name, or by an open buffer
+  that may hold secrets or is withheld from agents.
+- **Q-G as built:** `C-x k` closes a kept review with no question, saying "1 unsent comment
+  kept; review-resume brings them back"; it and leaving oso ask about an open draft, and about
+  comments not sent of a review whose write failed, as before.
+- **`review-resume` and `review-forget`** (`Person`) complete over the saved reviews, opened last
+  first, each `SCOPE ROOT` with its comments, those not sent and its age. Resume opens only a
+  project oso already knows, as no buffer of it means no project (the author accepted the
+  limit): it says to open a file of it first. A session review resumed with no baseline in this
+  run compares with the saved one.
+- **A restart (Q-H):** the state gains an optional `reviews`, each a root, a scope and the
+  windows that showed it (`carry/reviews.rs`), an entry this does not write being left out,
+  never refusing the restart. `export-state` saves the reviews first, and waits for them only
+  when it handed one over. The new instance opens
+  each in the first of its windows once a buffer's project has that root and is trusted, within
+  30 s, closing the others, which the review's layout makes again. Until then the windows show
+  what was behind the review.
+- **The performance harness** gives each instance a state directory of its own, as the
+  end-to-end flows do, so that a benchmark never writes the person's saved reviews; the `review`
+  scenario adds `review_resume_first_screen_ms`, a review with 20 comments closed and opened
+  again, recorded with no threshold.
+- **Answering the reviews** (security, architecture and performance, 2026-11-17):
+  - A review's own thread opens at once; what it reports waits until the saved review was
+    read and put in, so reading the file and git's listing run together.
+  - `Review::revision` counts only changes of what a save holds: a reading of a file with no
+    comment or mark, and a hunk seen, count nothing. The store writes nothing when a review's
+    bytes, its header's date aside, are those it wrote last.
+  - What may hold secrets is judged on the store's thread, each path once, by name, by the name
+    before a rename, and by every buffer seen to hold secrets or to be withheld from agents
+    while a review was open in this run, not only at the save.
+  - Each write goes through a part of its own, `NAME.PID.N.part`; parts an hour old are swept.
+    The store keeps the list in memory after reading the directory once, when it is first
+    idle, so neither the sweep nor a list stands before a read as oso starts. A header's date
+    is that of the last write, and the sweep goes by it; one dated past 30 days ahead goes
+    too.
+  - A file whose header names another review is never written over. A saved file whose lines
+    were left out says so as it comes back.
+  - A comment saved on another reading than its file's current one comes back outdated and is
+    carried from it, so no whole reading is compared to place it. `next_id` and the dropped
+    counts are bounded, and a saved reading holds at most 200,000 lines a side.
+  - A closed review's write that fails says how many of the person's comments were lost; a
+    review whose store ended is no longer kept, and asks.
+  - `encode` serializes each line once and stops as soon as the comments alone pass 16 MiB.
+  - The cursor goes back by `Rows::line_of`, a new public item: O(1) for the file, then its
+    runs.
+  - `review-resume` candidates are unique, two of one text told apart by their files' names,
+    and a pick that matches more than one is refused.
+  - A resumed or restarted session review compares with its own saved baseline, and the
+    project's baseline in this run is left as it is: `open_scope` opens a scope as it was kept.
+  - The restart's `reviews` are written by `carry::export`, from the same windows as the state's,
+    at most 64, and left out when they would not fit.
+- **Tests:** the file's round trip, secrets (no line of such a file in the bytes), the limit,
+  non-UTF-8 bytes, lines left out, the header and names; the store against a private
+  directory (modes, a second name, a link, too large, a name not a saved review's, the sweep,
+  the cap, the thread's order); when a change is saved; scopes back; the commands; and two
+  end-to-end flows, a comment kept across `C-x k` and across a restart.
 
 ### Step 8: documents no buffer owns
 

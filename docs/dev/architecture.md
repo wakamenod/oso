@@ -918,6 +918,16 @@ The UI thread never blocks on I/O or parsing:
   buffer whose text a file's new side is, handed to the view as an O(1) copy after each report
   it takes, gives that side's runs: all of them once the buffer is highlighted whole, when the
   side's own document closes; before that, those of its lines on screen (ADR 0122, step 9).
+- A review is saved as it changes to `reviews/` under the state directory, one JSON Lines file
+  per project and scope (`review/saved.rs`), by one `oso-review-store` thread
+  (`app/reviews/store.rs`), which also reads a saved review back and builds its model with
+  `Review::restore`, so that the UI thread puts it in at O(1), while the review's own thread
+  lists and reads, its reports waiting; the first readings then carry it as any refresh does. The UI thread
+  (`app/reviews/keep.rs`) hands over a snapshot, references to the model's readings and
+  comments, a second after the last change, when a review closes (`Editor::take_closed_review`)
+  and before oso goes or restarts. A restart's state names the reviews its windows show, which
+  the new instance opens again once their projects are known and trusted
+  (`app/reviews/handed.rs`; ADR 0122, step 6).
 
 ### Configuration
 

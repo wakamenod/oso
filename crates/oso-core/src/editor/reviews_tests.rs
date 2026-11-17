@@ -92,6 +92,18 @@ fn a_review_has_a_read_only_buffer_of_its_own_until_it_closes() {
 }
 
 #[test]
+fn a_closed_reviews_model_goes_to_the_host_once_and_its_kept_mark_with_it() {
+    let (mut editor, id) = editor_with_review();
+    assert!(!editor.review_kept(id), "kept only once the host says so");
+    editor.set_review_kept(id, true);
+    assert!(editor.review_kept(id));
+    editor.remove_review(id);
+    assert!(!editor.review_kept(id));
+    assert!(editor.take_closed_review(id).is_some());
+    assert!(editor.take_closed_review(id).is_none());
+}
+
+#[test]
 fn a_new_text_carries_the_cursor_through_what_changed() {
     let (mut editor, id) = editor_with_review();
     let _ = put_in(&mut editor, id, &[("a.rs", 3), ("b.rs", 3)]);
