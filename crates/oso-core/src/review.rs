@@ -55,6 +55,35 @@ pub struct Review {
     comments: BTreeMap<CommentId, Comment>,
     next_id: u64,
     hasher: RandomState,
+    /// The marks of every current reading, counted as they change, so that a modeline asks
+    /// at O(1).
+    progress: Progress,
+}
+
+/// How many hunks of the current readings hold a decision, a viewed mark, and in all.
+#[derive(Clone, Copy, Debug, Default)]
+struct Progress {
+    decided: usize,
+    viewed: usize,
+    hunks: usize,
+}
+
+impl Progress {
+    /// Counts `marks` in, or out with `out`.
+    fn count(&mut self, marks: &[Mark], out: bool) {
+        let decided = marks.iter().filter(|mark| mark.decision.is_some()).count();
+        let viewed = marks.iter().filter(|mark| mark.viewed).count();
+        let step = |total: &mut usize, by: usize| {
+            *total = if out {
+                total.saturating_sub(by)
+            } else {
+                *total + by
+            };
+        };
+        step(&mut self.decided, decided);
+        step(&mut self.viewed, viewed);
+        step(&mut self.hunks, marks.len());
+    }
 }
 
 /// What the review keeps of one path, read now or once.
@@ -106,6 +135,7 @@ impl Review {
         };
         if let Some(reading) = state.reading.take() {
             state.dropped += reading.marks.iter().filter(|mark| mark.is_set()).count();
+            self.progress.count(&reading.marks, true);
         }
         state.readings += 1;
         for id in &state.comments {
@@ -227,6 +257,10 @@ impl Review {
         }
         state.dropped += dropped;
         applied.dropped = dropped;
+        if let Some(before) = &state.reading {
+            self.progress.count(&before.marks, true);
+        }
+        self.progress.count(&marks, false);
         state.reading = Some(Reading {
             shape: to,
             hashes: carried.hashes,
@@ -414,6 +448,17 @@ impl Review {
         self.files.get(path).map_or(0, |state| state.dropped)
     }
 
+    /// How far the person is through the review: the hunks of every current reading that hold a
+    /// decision, those marked viewed, and all of them. O(1): counted as marks change.
+    pub fn progress(&self) -> (usize, usize, usize) {
+        let Progress {
+            decided,
+            viewed,
+            hunks,
+        } = self.progress;
+        (decided, viewed, hunks)
+    }
+
     /// Forgets the dropped count of `path`, once the person looked.
     pub fn clear_dropped(&mut self, path: &[u8]) {
         if let Some(state) = self.files.get_mut(path) {
@@ -514,7 +559,9 @@ impl Review {
         else {
             return false;
         };
+        self.progress.count(std::slice::from_ref(mark), true);
         change(mark);
+        self.progress.count(std::slice::from_ref(mark), false);
         state.remarked += 1;
         true
     }

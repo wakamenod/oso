@@ -35,11 +35,19 @@ pub(crate) fn read(review: &mut Review, path: &[u8], hunks: Vec<Hunk>) -> Readin
     reading
 }
 
-/// The model's snapshot of `path`'s comments, as the UI sends it.
+/// The model's snapshot of `path`'s comments and marks, as the UI sends it.
 pub(crate) fn snapshot(review: &Review, path: &[u8]) -> Cards {
+    let reading = review.file(path).cloned();
+    let hunks = reading.as_ref().map_or(0, |shape| shape.hunks().len());
     Cards {
         comments: review.comments_on(path).cloned().collect(),
-        reading: review.file(path).cloned(),
+        reading,
+        marks: super::Marks {
+            hunks: (0..hunks)
+                .map(|at| (review.decision(path, at), review.viewed(path, at)))
+                .collect(),
+            dropped: review.dropped(path),
+        },
     }
 }
 

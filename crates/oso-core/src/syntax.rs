@@ -79,6 +79,9 @@ pub enum Highlight {
     /// A comment of the person's sent to the agent, and not changed since: its bar, label and
     /// text, dimmed (ADR 0122, step 12).
     Sent,
+    /// What says a hunk was accepted, rejected or viewed, and a file's count of them (ADR 0122,
+    /// step 5).
+    Decided,
     /// A session's mark that needs the person: needs input or failed (ADR 0131). Only the
     /// host's `*Spaces*` gives these; no parser does.
     SessionAlert,
