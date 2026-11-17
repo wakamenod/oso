@@ -275,16 +275,16 @@ impl Document {
                     Ok((widened, found)) => {
                         // A fence's grammar's query is compiled when a fence of it is first
                         // met, not with Markdown's (ADR 0147), and the piece is done again.
-                        // A fence whose query cannot be compiled stays plain (`highlight_nested`).
-                        let mut compiled = false;
-                        for &(_, language) in &found.fences {
-                            let kind = Kind::Highlights(language);
-                            if !queries.tried(kind) {
-                                queries.prepare(kind);
-                                compiled = true;
-                            }
-                        }
-                        if compiled {
+                        // One a call, so that a piece of many languages' fences runs past its
+                        // slice by one compile at most. A fence whose query cannot be compiled
+                        // stays plain (`highlight_nested`).
+                        let untried = found
+                            .fences
+                            .iter()
+                            .map(|&(_, language)| Kind::Highlights(language))
+                            .find(|&kind| !queries.tried(kind));
+                        if let Some(kind) = untried {
+                            queries.prepare(kind);
                             return (piece, Piece::Compiled);
                         }
                         nested = found;

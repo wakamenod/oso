@@ -193,8 +193,9 @@ gains `amended by 0147`.
   map literal's identifier keys are too. A call through `index_expression`
   (`f[int]()`) is a function.
 - **Fences:** `go` and `golang`. The fence's query is compiled when `highlight_piece` widens a
-  Markdown piece to a fence of that grammar. The piece then ends as `Piece::Compiled` and is
-  done again, unjudged: the review found that, timed as the piece's own work, a compile (Rust's
+  Markdown piece to a fence of that grammar, one query a call. The piece then ends as
+  `Piece::Compiled` and is done again, unjudged, so a piece with fences of several new languages
+  runs past its slice by one compile at most (the perf review of step 2): the review found that, timed as the piece's own work, a compile (Rust's
   takes 9.7 ms, and more on a slower machine or in a debug build) could halve pieces for
   nothing or fail the whole document as too slow. Each query is tried once a thread, so a piece
   ends so at most once a language. A fence whose query did not compile stays plain, as a fence of
@@ -204,13 +205,20 @@ gains `amended by 0147`.
 - `Language::ALL` and `Kind::ALL` (crate-private) list every grammar and query once; the
   queries' table takes its length from them, and a test checks each query has a place of its
   own, so a language added in step 2 cannot be left out of the tests.
+- **Two lists say which modes are highlighted:** `oso-core`'s `Buffer::can_highlight`, which
+  cannot see `oso-syntax`, and `Language::of`. A test in the tip crate checks they agree for
+  every mode a file can have, so a mode moved in one alone does not stay plain unnoticed.
 - **Measured** with `syntax_perf -- go`, release, on the author's Mac, on 2 MiB of Go's standard
   library (`net/http` and `go/types`), while other builds ran:
 
   | Input, 2 MiB | Parse | Parse and highlight | In 20 ms slices | After one key | Peak memory |
   |---|---|---|---|---|---|
-  | Go | 108–184 ms | 162–269 ms | 9–13, the longest 20.0–21.1 ms | 3.4–5.2 ms | 141 MB |
-  | Rust (oso-core, for comparison) | 95 ms | 182 ms | | | 171 MB |
+  | Go | 108–184 ms | 162–269 ms | 9–13, the longest 20.0–21.1 ms | 3.4–5.2 ms | 71 MB |
+  | Rust (oso-core, for comparison) | 95 ms | 182 ms | | | 87 MB |
+
+  Peak memory is a process's highest resident set with one document highlighted to its end in
+  slices, the rope and the queries too (`syntax_perf` holds two documents at once, so its peak
+  counts two). Rust's matches ADR 0111's 88 MB.
 
   Go's query compiles in 1.5 ms (Rust's 9.7 ms, TOML's 0.09 ms). Crafted texts of 2 MB, a
   few characters repeated (`(`, `{`, `func(`, `[`, `a.`, `x{`, `if a{`, `map[`, `*`, `<-`),

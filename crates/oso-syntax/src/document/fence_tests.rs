@@ -84,7 +84,10 @@ fn a_fences_query_is_compiled_at_its_first_fence() {
         document.highlight(&mut queries, &[], LONG),
         Highlighted::Done
     );
-    for language in [Language::Rust, Language::Toml, Language::Go] {
+    let fenced = Language::ALL
+        .into_iter()
+        .filter(|language| !matches!(language, Language::Markdown | Language::MarkdownInline));
+    for language in fenced {
         assert!(
             queries.get(Kind::Highlights(language)).is_none(),
             "{language:?}"
@@ -111,9 +114,13 @@ fn a_piece_that_compiles_a_query_is_done_again() {
     assert!(queries.prepare(Kind::Highlights(Language::Markdown)));
     assert!(queries.prepare(Kind::Highlights(Language::MarkdownInline)));
     let deadline = Instant::now() + LONG;
+    // One query a call: Rust's, then Go's, then the piece is done.
     let (_, first) = document.highlight_piece(&mut queries, 0..text.len(), deadline);
     assert!(matches!(first, Piece::Compiled));
     assert!(queries.get(Kind::Highlights(Language::Rust)).is_some());
+    assert!(queries.get(Kind::Highlights(Language::Go)).is_none());
+    let (_, second) = document.highlight_piece(&mut queries, 0..text.len(), deadline);
+    assert!(matches!(second, Piece::Compiled));
     assert!(queries.get(Kind::Highlights(Language::Go)).is_some());
     let (_, again) = document.highlight_piece(&mut queries, 0..text.len(), deadline);
     assert!(matches!(again, Piece::Done(..)));

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use oso_core::buffer::{Buffer, BufferId, Replacement, Verdict};
+use oso_core::buffer::{Buffer, BufferId, Mode, Replacement, Verdict};
 use oso_core::display_map::TabWidth;
 use oso_core::editor::Editor;
 use oso_core::load::decode_all;
@@ -50,6 +50,33 @@ fn edit(editor: &mut Editor, id: BufferId, at: usize, text: &str) {
 
 fn job_ids(orders: &Orders) -> Vec<BufferId> {
     orders.jobs.iter().map(|job| job.buffer).collect()
+}
+
+/// `oso-core` says which modes can be highlighted and `oso-syntax` which have a grammar; the
+/// worker needs both (`allowed`), so a mode in one list and not the other would stay plain
+/// without a word (ADR 0147).
+#[test]
+fn a_file_mode_has_a_grammar_exactly_when_its_buffer_can_be_highlighted() {
+    for mode in [
+        Mode::Fundamental,
+        Mode::Rust,
+        Mode::Markdown,
+        Mode::Toml,
+        Mode::Go,
+        Mode::TypeScript,
+        Mode::Tsx,
+        Mode::JavaScript,
+        Mode::Latex,
+        Mode::Swift,
+    ] {
+        let mut buffer = visited("/p/a.txt", "x\n");
+        assert!(buffer.set_mode(mode), "{mode:?}");
+        assert_eq!(
+            Language::of(mode).is_some(),
+            buffer.can_highlight(),
+            "{mode:?}"
+        );
+    }
 }
 
 #[test]
