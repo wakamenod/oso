@@ -1003,8 +1003,9 @@ Dusk's are pale tints or the text's own, so it looks nearly plain. Off, it drops
 highlights. A buffer's language is its major mode, from the file's name
 on a visit and on `C-x C-w`, and set by hand with `rust-mode`, `markdown-mode`, `toml-mode`,
 `go-mode`, `typescript-mode`, `tsx-mode`, `javascript-mode`, `latex-mode`, `swift-mode` and
-`fundamental-mode` (`M-x`, no keys), which refuse an internal buffer. The six after TOML's have
-no highlighting yet: they are there for their language servers (ADR 0138). Setting a mode again,
+`fundamental-mode` (`M-x`, no keys), which refuse an internal buffer. Go is highlighted too
+(ADR 0147); the five after Go's have no highlighting yet: they are there for their language
+servers (ADR 0138). Setting a mode again,
 the same one too, gives a buffer whose highlighting stopped another try. The modeline names
 the mode.
 

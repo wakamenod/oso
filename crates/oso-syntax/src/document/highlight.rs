@@ -78,6 +78,9 @@ pub(super) enum Piece {
     Limit,
     /// The slice ran out.
     Stopped,
+    /// It met a fence whose grammar's query was compiled for it: the piece is done again, and
+    /// not judged by the time the compiling took (ADR 0147).
+    Compiled,
 }
 
 impl Document {
@@ -122,7 +125,7 @@ impl Document {
     /// Highlights pieces until `deadline` or none is left.
     fn highlight_pieces(
         &mut self,
-        queries: &Queries,
+        queries: &mut Queries,
         first: &[Range<usize>],
         budget: Duration,
         deadline: Instant,
@@ -140,6 +143,11 @@ impl Document {
             // A piece that had most of a slice and still did not fit will not fit the next.
             let had_a_slice = deadline - started >= budget / 2;
             let (piece, outcome) = self.highlight_piece(queries, piece, deadline);
+            // Compiling is no sign of slow text, and happens once a language: the piece stays
+            // to do, and the next goes on from the time now.
+            if matches!(outcome, Piece::Compiled) {
+                continue;
+            }
             if judged && Instant::now() > overrun {
                 self.fail(Failure::TooSlow);
                 return Highlighted::Failed(Failure::TooSlow);
@@ -172,6 +180,8 @@ impl Document {
                     return Highlighted::Failed(Failure::TooSlow);
                 }
                 Piece::Stopped => return Highlighted::Paused,
+                // Gone on from above.
+                Piece::Compiled => {}
             }
         }
         Highlighted::Done
@@ -203,16 +213,13 @@ impl Document {
         })
     }
 
-    /// Compiles the queries the document's language needs, and says whether they compiled.
+    /// Compiles the queries the document's language needs before any piece, and says whether
+    /// they compiled.
     fn prepare(&self, queries: &mut Queries) -> bool {
         let mut kinds = vec![Kind::Highlights(self.language)];
+        // Fences' grammars' queries wait for a fence of theirs (`highlight_piece`).
         if self.language == Language::Markdown {
-            kinds.extend([
-                Kind::Injections,
-                Kind::Highlights(Language::MarkdownInline),
-                Kind::Highlights(Language::Rust),
-                Kind::Highlights(Language::Toml),
-            ]);
+            kinds.extend([Kind::Injections, Kind::Highlights(Language::MarkdownInline)]);
         }
         kinds.into_iter().all(|kind| queries.prepare(kind))
     }
@@ -251,9 +258,9 @@ impl Document {
 
     /// Runs the queries over `piece` until `deadline`, and says what range they ran over: in
     /// Markdown, `piece` widened to whole inline nodes and fences.
-    fn highlight_piece(
+    pub(super) fn highlight_piece(
         &mut self,
-        queries: &Queries,
+        queries: &mut Queries,
         piece: Range<usize>,
         deadline: Instant,
     ) -> (Range<usize>, Piece) {
@@ -266,13 +273,27 @@ impl Document {
             Language::Markdown => {
                 match widen(&self.text, queries, &tree, piece.clone(), deadline) {
                     Ok((widened, found)) => {
+                        // A fence's grammar's query is compiled when a fence of it is first
+                        // met, not with Markdown's (ADR 0147), and the piece is done again.
+                        // A fence whose query cannot be compiled stays plain (`highlight_nested`).
+                        let mut compiled = false;
+                        for &(_, language) in &found.fences {
+                            let kind = Kind::Highlights(language);
+                            if !queries.tried(kind) {
+                                queries.prepare(kind);
+                                compiled = true;
+                            }
+                        }
+                        if compiled {
+                            return (piece, Piece::Compiled);
+                        }
                         nested = found;
                         widened
                     }
                     Err(outcome) => return (piece, outcome),
                 }
             }
-            Language::Rust | Language::MarkdownInline | Language::Toml => piece,
+            Language::Rust | Language::MarkdownInline | Language::Toml | Language::Go => piece,
         };
         let outcome = self.highlight_range(queries, &tree, nested, piece.clone(), deadline);
         (piece, outcome)

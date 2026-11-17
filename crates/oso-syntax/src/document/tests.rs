@@ -89,6 +89,11 @@ fn each_language_parses_its_text() {
             "inline",
         ),
         (Language::Toml, "[package]\nname = \"oso\"\n", "document"),
+        (
+            Language::Go,
+            "package main\n\nfunc main() {\n\ts := \"日本\"\n}\n",
+            "source_file",
+        ),
     ];
     for (language, text, root) in cases {
         let document = parsed(language, text);
