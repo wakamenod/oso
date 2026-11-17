@@ -110,10 +110,19 @@ mod tests {
 
     use super::*;
 
+    /// An absolute root on this system: a Unix path is not one on Windows.
+    fn root() -> PathBuf {
+        if cfg!(windows) {
+            PathBuf::from(r"C:\work\p")
+        } else {
+            PathBuf::from("/work/p")
+        }
+    }
+
     #[test]
     fn reviews_go_both_ways_and_what_this_does_not_write_is_left_out() {
         let entry = ReviewEntry {
-            root: "/work/p".into(),
+            root: root(),
             scope: Scope::Branch {
                 base: "main".into(),
             },
@@ -130,8 +139,8 @@ mod tests {
         );
         let odd = json!({ "reviews": [
             { "root": "relative", "scope": { "kind": "staged" }, "windows": [0] },
-            { "root": "/p", "scope": { "kind": "what" }, "windows": [0] },
-            { "root": "/p", "scope": { "kind": "staged" }, "windows": [] },
+            { "root": root(), "scope": { "kind": "what" }, "windows": [0] },
+            { "root": root(), "scope": { "kind": "staged" }, "windows": [] },
             "no",
         ] });
         assert!(parse(odd.as_object().unwrap(), 3).is_empty());
