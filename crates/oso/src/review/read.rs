@@ -92,17 +92,24 @@ impl Kept {
     }
 
     /// Whether a work tree file kept by its stamp has another now, or is no longer a file
-    /// there: a look at each, opening it as a reading does and reading nothing (step 4).
-    pub(super) fn stamps_moved(&self, top: &Directory) -> bool {
-        self.files
-            .iter()
-            .any(|(path, (signature, _))| match &signature.new {
-                NewSign::Stamp(stamp) => match side::find(top, path) {
-                    Ok(Found::File(_, now)) => now != *stamp,
-                    _ => true,
-                },
-                _ => false,
-            })
+    /// there: a look at each, opening it as a reading does and reading nothing (step 4). It
+    /// gives up, saying nothing moved, once `stop` says a request came.
+    pub(super) fn stamps_moved(&self, top: &Directory, stop: &dyn Fn() -> bool) -> bool {
+        let stamped =
+            (self.files.iter()).filter_map(|(path, (signature, _))| match &signature.new {
+                NewSign::Stamp(stamp) => Some((path, stamp)),
+                _ => None,
+            });
+        for (looked, (path, stamp)) in stamped.enumerate() {
+            if looked % 64 == 0 && stop() {
+                return false;
+            }
+            match side::find(top, path) {
+                Ok(Found::File(_, now)) if now == *stamp => {}
+                _ => return true,
+            }
+        }
+        false
     }
 
     #[cfg(test)]

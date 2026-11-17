@@ -40,7 +40,7 @@ pub use cells::ReviewCells;
 pub use draft::DraftFor;
 pub use menu::{Count, ScopeMenu};
 pub use panes::{ReviewArea, ReviewChoice, ReviewLayout};
-pub use places::Moved;
+pub use places::LineMoves;
 pub use request::ReviewRequest;
 
 /// A review's id, never reused while the editor runs.
@@ -316,7 +316,7 @@ impl Editor {
         text: Reloaded,
         rows: Rows,
         highlights: Highlights,
-        moved: Moved<'_>,
+        moved: LineMoves<'_>,
     ) -> ReviewLeftover {
         let Some(buffer_id) = self
             .review_buffer(id)
@@ -337,7 +337,7 @@ impl Editor {
     }
 
     /// Scrolls each window showing `buffer` as little as shows its cursor.
-    fn follow_buffer_windows(&mut self, buffer: BufferId) {
+    pub(super) fn follow_buffer_windows(&mut self, buffer: BufferId) {
         let shown: Vec<usize> = (0..self.windows.len())
             .filter(|index| self.windows[*index].buffer() == buffer)
             .collect();

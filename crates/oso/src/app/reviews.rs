@@ -319,7 +319,7 @@ impl App {
         let mut first = std::mem::take(&mut self.reviews.shown);
         self.editor.shown_review_files(id, &mut first);
         self.ask_review(index, Request::Refresh { first });
-        self.review_refreshing(index);
+        self.refresh_started(index);
     }
 
     /// Stops a closed review's threads, and frees the texts it left waiting.
@@ -402,15 +402,21 @@ impl App {
             Report::Carried { carried, cut_short } => {
                 return self.review_carried(index, *carried, cut_short);
             }
-            Report::Read { stopped, .. } => {
-                if !stopped {
-                    self.review_read(index);
-                }
+            Report::Read { .. } => {
+                self.refresh_ended(index);
                 Tell::Read
             }
             Report::Stale => return self.mark_review_stale(index),
             Report::Staged { ticket, staged } => return self.review_staged(index, ticket, staged),
+            // A look nobody asked for tells nothing of its failure: the next `g` says why.
+            Report::Failed {
+                asked: Asked::Look,
+                why,
+            } => return log::debug!("a review's look failed: {}", one_line(&why, MAX_MESSAGE)),
             Report::Failed { asked, why } => {
+                if matches!(asked, Asked::Open | Asked::Refresh) {
+                    self.refresh_ended(index);
+                }
                 if asked == Asked::Carry {
                     self.carries_failed(index, false);
                 }
@@ -419,6 +425,7 @@ impl App {
                 Tell::Said(vec![why])
             }
             Report::BaselineGone => {
+                self.refresh_ended(index);
                 let project = self.reviews.open[index].project;
                 self.forget_baseline(project);
                 let gone = "the session's baseline is gone: B takes another";
@@ -533,7 +540,8 @@ impl App {
             .editor
             .buffer(buffer)
             .map(|shown| (shown.text().clone(), shown.display()));
-        let moved = |path: &[u8], side, number| watch::line_now(&carried, path, side, number);
+        let lines = watch::Lines::new(self.editor.review(id), &carried);
+        let moved = |path: &[u8], side, number| lines.line_now(path, side, number);
         let left = match text {
             Some(text) => (self.editor).set_review_text(id, text, rows, highlights, &moved),
             None => self

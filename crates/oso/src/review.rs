@@ -25,6 +25,10 @@
 //!   between the files of a running request and when nothing runs, so that a file's comments
 //!   never stop a refresh (ADR 0122, step 3b). Before each, the root is checked as before a
 //!   request, and a newer request stops the run of them, the rest waiting.
+//! - A look (step 4) is no newer request either: looks waiting are one, answered when nothing
+//!   else waits. It opens each reviewed work tree file as a reading does, reading nothing, to
+//!   compare its stamp, and each second look lists the scope again; it says only whether the
+//!   review is stale, and a newer request stops it.
 //! - Limits, each saying what it hides: 10,000 files and 32 MiB of list; a side of 8 MiB and
 //!   200,000 lines, diffed within 1 s, and 5 s of diffing per request; 64 MiB of sides and
 //!   hunks held per review; a git run of 10 s.

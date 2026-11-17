@@ -100,7 +100,11 @@ impl App {
         // carried, or dropped, are said on the new reading (step 5).
         let marked = (self.editor.review(id)).is_some_and(|model| {
             let hunks = model.file(path).map_or(0, |shape| shape.hunks().len());
-            (0..hunks).any(|at| model.decision(path, at).is_some() || model.viewed(path, at))
+            (0..hunks).any(|at| {
+                model.decision(path, at).is_some()
+                    || model.viewed(path, at)
+                    || model.changed(path, at)
+            })
         });
         if applied.outdated > 0 || again || applied.dropped > 0 || marked {
             self.tell_cards(index, path);
@@ -218,6 +222,9 @@ impl App {
                 commented.push(path.clone());
             }
         }
+        // The readings it let go are freed off the UI thread (step 4).
+        let released = model.take_released();
+        self.freer.free(released);
         // A file gone takes no comment, so it waits for no carry.
         for path in &gone {
             self.editor.set_review_file_behind(id, path, false);
@@ -231,6 +238,9 @@ impl App {
     /// review window shows after it counts as read.
     pub(in crate::app) fn note_person_acted(&mut self) {
         self.reviews.person_acted = true;
+        let (window, shown) = self.editor.tiled();
+        let cursor = window.selections.primary().cursor;
+        self.reviews.acted_on = Some((window.buffer(), shown.revision(), cursor));
     }
 
     /// After commands and events: tells each view whether agent cards fold, when that changed,

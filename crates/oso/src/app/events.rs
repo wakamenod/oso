@@ -215,6 +215,7 @@ impl App {
             // ---- Visible again: frames skipped while occluded need a redraw ----
             Event::Occluded(false) => {
                 self.sessions_occluded(false);
+                self.reviews_occluded(false);
                 self.request_redraw();
             }
 
@@ -256,6 +257,7 @@ impl App {
             // A flash ends with the window out of sight (ADR 0097).
             Event::Occluded(true) => {
                 self.sessions_occluded(true);
+                self.reviews_occluded(true);
                 self.end_flash();
             }
             Event::InputSource(source) => self.input_source_chosen(source),

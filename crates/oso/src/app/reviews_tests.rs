@@ -117,7 +117,7 @@ fn running(id: ReviewId, project: ProjectId, scope: Scope, serial: u64) -> Runni
         revoked: false,
         carrying: VecDeque::new(),
         layout: super::layout::Layout::default(),
-        watch: super::watch::Watch::default(),
+        refresher: super::watch::Refresher::default(),
         decisions: super::decide::Decisions::default(),
         folded: false,
         shown_folded: false,

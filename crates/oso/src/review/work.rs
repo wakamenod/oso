@@ -326,7 +326,7 @@ impl Reader {
         };
         self.looks += 1;
         let top = Directory::open(git.top()).ok();
-        let mut stale = top.is_some_and(|top| self.kept.stamps_moved(&top));
+        let mut stale = top.is_some_and(|top| self.kept.stamps_moved(&top, stop));
         if !stale && self.looks.is_multiple_of(2) {
             let sides = scope::resolve(&git, &scope, stop)?;
             let listing = scope::list(&git, &sides, &index, self.scratch.as_mut(), stop)?;

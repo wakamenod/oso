@@ -312,3 +312,36 @@ fn a_new_text_keeps_each_cursor_and_top_on_its_line_by_the_hosts_map() {
         .row;
     assert!(line <= shown.text().max_point().row);
 }
+
+#[test]
+fn cursors_inside_the_span_a_new_text_changes_each_keep_their_own_line() {
+    let (mut editor, id) = editor_with_review();
+    let _ = put_in(&mut editor, id, &[("a.rs", 3)]);
+    let buffer = editor.review_buffer(id).unwrap();
+    // On `+line 1` and `+line 2`, a.rs's new lines 2 and 3, the second primary.
+    let text = editor.buffer(buffer).unwrap().text().clone();
+    let set = SelectionSet::from_parts(
+        vec![
+            crate::selection::Selection::at(text.line_start(3)),
+            crate::selection::Selection::at(text.line_start(4)),
+        ],
+        1,
+    )
+    .unwrap();
+    editor.current_mut().0.selections = set;
+    // Every line of a.rs is rewritten, one more put in above: the text change meets both
+    // cursors at one edge, but each follows its line by the host's map.
+    let (text, rows) = review_text(&[("a.rs", 4)]);
+    let text = text.replace("+line", "+LINE");
+    let old = editor.buffer(buffer).unwrap().text().clone();
+    let reloaded = decode_all(text.as_bytes(), TabWidth::default()).compared_with(&old);
+    let moved = |_: &[u8], _, number: u32| Some(number + 1);
+    let _ = editor.set_review_text(id, reloaded, rows, Highlights::new(text.len()), &moved);
+    let (window, shown) = editor.current();
+    let lines: Vec<usize> = (window.selections.iter())
+        .map(|it| shown.text().offset_to_point(it.cursor).row)
+        .collect();
+    assert_eq!(lines, [4, 5]);
+    let primary = window.selections.primary().cursor;
+    assert_eq!(shown.text().offset_to_point(primary).row, 5);
+}

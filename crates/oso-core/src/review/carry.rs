@@ -52,9 +52,9 @@ pub struct Carried {
     pub(super) hashes: Arc<[u64]>,
     pub(super) marks: Vec<Mark>,
     pub(super) dropped: usize,
-    /// Where each line of the current reading is in the new one, if the file had one; boxed,
-    /// as it is large and a carry goes through queues.
-    pub(super) moved: Option<Box<LineMap>>,
+    /// The current reading as the snapshot was taken, and where each of its lines is in the
+    /// new one, if the file had one; boxed, as it is large and a carry goes through queues.
+    pub(super) moved: Option<Box<(Arc<Shape>, LineMap)>>,
     pub(super) readings: u64,
     pub(super) added: u64,
     pub(super) remarked: u64,
@@ -93,8 +93,9 @@ pub struct Applied {
     pub marks_changed: bool,
 }
 
-/// How far from a line that went its nearest line that stayed is looked for, each way.
-const NEAREST: u32 = 10_000;
+/// How far from a line that went its nearest line that stayed is looked for, each way: a
+/// cursor farther from any is put on the nearest row its side shows.
+const NEAREST: u32 = 1_000;
 
 impl Carried {
     /// Where each comment of the snapshot goes in the new reading, by id; `None` for one that
@@ -108,7 +109,10 @@ impl Carried {
     /// nearest line that stayed, the upper one when both are as near. `None` when the file had
     /// no reading before, or nothing near stayed.
     pub fn line_now(&self, side: Side, number: u32) -> Option<u32> {
-        let map = self.moved.as_ref()?;
+        let (_, map) = self.moved.as_deref()?;
+        if map.carries_nothing() {
+            return None;
+        }
         if let Some(now) = map.carry(side, number) {
             return Some(now);
         }
@@ -118,6 +122,12 @@ impl Carried {
                 .and_then(|line| map.carry(side, line))
                 .or_else(|| map.carry(side, number.checked_add(away)?))
         })
+    }
+
+    /// The reading [`Carried::line_now`] maps from: the file's current one as the snapshot was
+    /// taken, which a window showing another must not follow.
+    pub fn maps_from(&self) -> Option<&Arc<Shape>> {
+        self.moved.as_deref().map(|(from, _)| from)
     }
 }
 
@@ -172,7 +182,9 @@ impl Carry {
                 LineMap::onto(from, to, &to_spans, hunks, &mut lcs)
             })
         });
-        let moved = moved.map(Box::new);
+        let moved = (self.marked.as_ref())
+            .zip(moved)
+            .map(|((from, ..), map)| Box::new((Arc::clone(from), map)));
         let hashes: Arc<[u64]> = to
             .hunks()
             .iter()

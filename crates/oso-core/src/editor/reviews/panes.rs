@@ -18,7 +18,7 @@
 
 use crate::buffer::{BufferId, Mode};
 use crate::display_map::DisplayPoint;
-use crate::editor::{Editor, Moved, NoPair, ReviewId, ReviewLeftover};
+use crate::editor::{Editor, LineMoves, NoPair, ReviewId, ReviewLeftover};
 use crate::frame::{TooSmall, Way};
 use crate::load::{Change, Reloaded};
 use crate::motion;
@@ -107,7 +107,7 @@ impl Editor {
         id: ReviewId,
         old: (Reloaded, Rows, Highlights),
         new: (Reloaded, Rows, Highlights),
-        moved: Moved<'_>,
+        moved: LineMoves<'_>,
     ) -> ReviewLeftover {
         if old.1.lines() != new.1.lines() || self.reviews.get(id).is_none() {
             let refused = [old, new]
@@ -146,6 +146,7 @@ impl Editor {
             let mut pane = self.put_generated_text(buffers[side], text, highlights);
             if let Some(before) = before.filter(|_| !fresh) {
                 self.put_places(buffers[side], before, &new_rows, moved);
+                self.follow_buffer_windows(buffers[side]);
             }
             pane.rows = match self
                 .reviews

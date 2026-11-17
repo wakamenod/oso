@@ -72,7 +72,7 @@ impl App {
         &mut self,
         index: usize,
         panes: Box<[PaneText; 2]>,
-        moved: oso_core::editor::Moved<'_>,
+        moved: oso_core::editor::LineMoves<'_>,
     ) {
         if !self.takes_review_panes(index) {
             return self.freer.free(panes);
