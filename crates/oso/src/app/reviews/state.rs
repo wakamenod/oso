@@ -160,6 +160,8 @@ pub(in crate::app) struct Reviews {
     pub(super) sending: super::send::Sending,
     /// The saved reviews' store and list (step 6).
     pub(super) keep: super::keep::Keep,
+    /// The reviews a restart carried, waiting for their projects (step 6).
+    pub(super) handed: Vec<super::handed::Handed>,
 }
 
 impl Reviews {

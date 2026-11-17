@@ -297,6 +297,29 @@ fn a_comment_is_drafted_kept_edited_removed_and_yanked_back() {
     assert!(text.ends_with("You  #0\nfirst\nsecond"), "{text:?}");
 }
 
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_restart_opens_the_review_again_with_its_comment_in_its_window() {
+    let scratch = Scratch::new("review-restart");
+    let mut old = open_review(&scratch);
+    old.send_keys("n C-n C-n c");
+    old.send_keys(&format!("{} C-c C-c", typing("kept")));
+    rows_until(&mut old, "    \u{258d}  kept");
+    // The new instance shares the flow's state directory, as a restart's two do.
+    let config = scratch.path().join("config.toml");
+    let mut new = App::start_with_config(None, scratch.path(), &config);
+    new.wait_until_ready();
+    let _ = super::handover::hand_over(&mut old, &mut new);
+    new.wait_for("the review again", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+    });
+    let shown = rows_until(&mut new, "    \u{258d}  kept");
+    assert!(
+        shown.iter().any(|row| row == "    \u{258d}You  #0"),
+        "the comment, by its id: {shown:?}"
+    );
+}
+
 /// How many windows the frame shows.
 fn window_count(app: &mut App) -> usize {
     app.state()["windows"].as_array().map_or(0, Vec::len)

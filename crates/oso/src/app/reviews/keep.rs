@@ -25,7 +25,9 @@ use std::time::{Duration, Instant};
 
 use oso_core::complete::Candidate;
 use oso_core::editor::{ReviewChoice, ReviewId, ScopeKind};
-use oso_core::review::{Author, Review};
+use oso_core::review::{Author, Review, RowKind, Rows, Seek};
+use oso_core::selection::SelectionSet;
+use oso_core::window::{Scroll, Window, WindowId};
 
 use super::state::Running;
 use super::store::{self, Found, Snapshot, Store, Stored};
@@ -33,13 +35,15 @@ use super::{ReviewEvent, scope_label};
 use crate::app::{App, UserEvent};
 use crate::commands::review::{MAX_NAME, RESTRICTED, SAVED_LIST, one_line};
 use crate::git::TrustedRoot;
-use crate::review::saved::{self, Header, Kept};
+use crate::review::saved::{self, Header, Kept, Place};
 use crate::review::{Request, Scope};
 
 /// How long after the last change a review is saved.
 const QUIET: Duration = Duration::from_secs(1);
 /// How long after the first change it is saved, however it goes on changing.
 const AT_MOST: Duration = Duration::from_secs(5);
+/// How many rows above a cursor put back the window shows.
+const PLACE_ABOVE: usize = 3;
 
 /// What a review keeps of its saving.
 #[derive(Debug, Default)]
@@ -59,6 +63,8 @@ pub(super) struct Saving {
     last: Option<Instant>,
     /// Whether a write failed, said once until one succeeds.
     failed: bool,
+    /// Where the cursor was when it was saved, put back once a text shows it.
+    pub(super) place: Option<Place>,
 }
 
 /// The app's side of saved reviews: the store's thread, once started, and the saved reviews
@@ -203,6 +209,7 @@ impl App {
         self.freer.free(empty);
         self.editor.choose_review_layout(id, kept.choice);
         self.editor.fold_agents(id, kept.folded);
+        self.reviews.open[index].saving.place = kept.place;
         // Nothing to save until it changes.
         let revision = self.editor.review(id).map_or(0, Review::revision);
         self.reviews.open[index].saving.handed = Some((revision, kept.choice, kept.folded));
@@ -319,7 +326,7 @@ impl App {
         let kept = Kept {
             choice: self.editor.review_choice(running.id),
             folded: self.editor.agents_folded(running.id),
-            place: None,
+            place: self.review_place(running.id),
         };
         Some(Snapshot {
             header,
@@ -327,6 +334,71 @@ impl App {
             kept,
             withheld,
         })
+    }
+
+    /// Where the cursor of the window showing the review `id` is, the selected one first: a
+    /// line of a side of a file, or the file's row. None from a text that may hold secrets.
+    fn review_place(&self, id: ReviewId) -> Option<Place> {
+        let shows = |buffer| self.editor.review_of(buffer) == Some(id);
+        let (selected, _) = self.editor.tiled();
+        let window = std::iter::once(selected)
+            .chain(self.editor.windows())
+            .find(|window| shows(window.buffer()))?;
+        let buffer = self.editor.buffer(window.buffer())?;
+        if buffer.is_secret() {
+            return None;
+        }
+        let line = buffer
+            .text()
+            .offset_to_point(window.selections.primary().cursor)
+            .row;
+        let row = self.editor.review_rows_of(window.buffer())?.at(line)?;
+        Some(Place {
+            path: row.path.into(),
+            line: row.line(),
+        })
+    }
+
+    /// A text of the review at `index` went in: the cursor saved goes back to its place, if the
+    /// text shows its file, in each window showing the review whose cursor is still at the top,
+    /// as the person did not move it yet. Once every file was read, a place not shown is let go.
+    pub(super) fn put_back_place(&mut self, index: usize) {
+        let id = self.reviews.open[index].id;
+        let Some(place) = &self.reviews.open[index].saving.place else {
+            return;
+        };
+        let Some(buffer) = self.editor.review_buffer(id) else {
+            return;
+        };
+        let line = (self.editor.review_rows(id)).and_then(|rows| line_of(rows, place));
+        let Some(line) = line else {
+            if self.reviews.open[index].read_once {
+                self.reviews.open[index].saving.place = None;
+            }
+            return;
+        };
+        self.reviews.open[index].saving.place = None;
+        let Some(shown) = self
+            .editor
+            .buffer(buffer)
+            .filter(|shown| !shown.is_secret())
+        else {
+            return;
+        };
+        let text = shown.text();
+        let offset = text.line_start(line);
+        let scroll = Scroll {
+            start: text.line_start(line.saturating_sub(PLACE_ABOVE)),
+            left: 0,
+        };
+        let windows: Vec<WindowId> = (self.editor.windows())
+            .filter(|window| window.buffer() == buffer && window.selections.primary().cursor == 0)
+            .map(Window::id)
+            .collect();
+        for window in windows {
+            self.editor
+                .restore_positions_in(window, SelectionSet::new(offset), scroll);
+        }
     }
 
     /// The review `running` closed: what it held is saved at once, from the model the editor
@@ -454,7 +526,7 @@ impl App {
 }
 
 /// What a review request names `scope` by: its kind, and the revision as the person gave it.
-fn kind_and_revision(scope: &Scope) -> (ScopeKind, Option<String>) {
+pub(super) fn kind_and_revision(scope: &Scope) -> (ScopeKind, Option<String>) {
     match scope {
         Scope::Session { .. } => (ScopeKind::Session, None),
         Scope::Uncommitted => (ScopeKind::Uncommitted, None),
@@ -464,6 +536,30 @@ fn kind_and_revision(scope: &Scope) -> (ScopeKind, Option<String>) {
         Scope::Commit { revision } => (ScopeKind::Commit, Some(revision.clone())),
         Scope::Range { from, to } => (ScopeKind::Range, Some(format!("{from}..{to}"))),
     }
+}
+
+/// The line of `rows` that shows `place`: its line, else the first line of its side after it
+/// in its file, else its file's header. Costs a step per file before it, and its file's rows.
+fn line_of(rows: &Rows, place: &Place) -> Option<usize> {
+    let mut header = Some(0).filter(|_| rows.at(0).is_some());
+    while let Some(at) = header {
+        let row = rows.at(at)?;
+        if row.path == &*place.path && matches!(row.kind, RowKind::File) {
+            break;
+        }
+        header = rows.seek(at, Seek::File, true);
+    }
+    let header = header?;
+    let Some((side, number)) = place.line else {
+        return Some(header);
+    };
+    let end = rows.seek(header, Seek::File, true).unwrap_or(rows.lines());
+    let found = (header..end).find(|&line| {
+        (rows.at(line))
+            .and_then(|row| row.line())
+            .is_some_and(|(at_side, at)| at_side == side && at >= number)
+    });
+    Some(found.unwrap_or(header))
 }
 
 /// When `saving`'s changes are due to be saved, if any wait.

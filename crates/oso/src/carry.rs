@@ -61,6 +61,7 @@ use internal::{behind_internal, handed_over};
 mod look;
 pub mod notice;
 mod restore;
+pub mod reviews;
 pub mod terminals;
 mod waits;
 pub use allowed::{exit_allowed, generation, import_allowed};

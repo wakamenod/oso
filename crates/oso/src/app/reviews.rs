@@ -22,7 +22,7 @@ use crate::review::count::Counted;
 use crate::review::view::{Tell, Text, View};
 use crate::review::{Asked, Report, Request, Reviewer, Scope};
 pub(in crate::app) use state::Reviews;
-use state::{Baseliner, Reopen, Running};
+use state::{Reopen, Running};
 
 /// The most characters of a failure the echo area shows.
 const MAX_MESSAGE: usize = 200;
@@ -148,6 +148,8 @@ impl App {
         for request in self.editor.take_review_requests() {
             self.review_request(request);
         }
+        // What a restart carried, once its projects are known (step 6).
+        self.reopen_handed_reviews();
         self.put_in_review_texts();
         // A file a reject opened may have loaded.
         self.go_on_reverting();
@@ -339,34 +341,6 @@ impl App {
         }
     }
 
-    /// Takes a baseline of `project`'s work tree on a thread of its own.
-    fn take_baseline(&mut self, project: ProjectId) {
-        let Some(root) = TrustedRoot::of(&self.editor, project) else {
-            return self.editor.message(RESTRICTED);
-        };
-        let waker = self.waker.clone();
-        let serial = self.reviews.serial();
-        let started = Reviewer::start(root.clone(), state(), move |report| {
-            waker.send(UserEvent::Review(ReviewEvent::Baseline {
-                project,
-                serial,
-                report,
-            }))
-        });
-        match started {
-            Ok(reviewer) => {
-                reviewer.ask(Request::Baseline);
-                self.reviews.add_baseliner(Baseliner {
-                    project,
-                    serial,
-                    root,
-                    _reviewer: reviewer,
-                });
-            }
-            Err(e) => self.editor.message(format!("Cannot take a baseline: {e}")),
-        }
-    }
-
     /// A review's threads sent something.
     pub(super) fn review_reported(&mut self, event: ReviewEvent) {
         match event {
@@ -449,58 +423,6 @@ impl App {
         self.reviews.open[index].view.tell(tell);
     }
 
-    fn baseline_report(&mut self, project: ProjectId, serial: u64, report: Report) {
-        // A report of a thread replaced or dropped since, or taken as the trust was taken
-        // back, is not used.
-        if !self.reviews.take_baseliner(project, serial) || !self.editor.project_trusted(project) {
-            return self.freer.free(report);
-        }
-        match report {
-            Report::Baseline { tree, left_out } => {
-                self.keep_baseline(project, tree);
-                self.editor.message(if left_out == 0 {
-                    "Baseline taken: D reviews what changed since".to_owned()
-                } else {
-                    format!(
-                        "Baseline taken, {left_out} files left out: D reviews what changed since"
-                    )
-                });
-            }
-            Report::Failed { why, .. } => {
-                let why = one_line(&why, MAX_MESSAGE);
-                self.editor
-                    .message(format!("Cannot take a baseline: {why}"));
-            }
-            other => self.freer.free(other),
-        }
-        self.request_redraw();
-    }
-
-    /// `tree` is `project`'s baseline from now on: the session review compares with it.
-    fn keep_baseline(&mut self, project: ProjectId, tree: Id) {
-        self.reviews.baselines.retain(|(id, _)| *id != project);
-        self.reviews.baselines.push((project, tree));
-        self.editor.set_baseline_taken(project, Some(now()));
-        self.count_session(project);
-    }
-
-    /// A hosted session's start thread took `tree` as `project`'s baseline before its
-    /// `claude` ran (ADR 0121, ADR 0122): the review takes it as if `B` had, while the
-    /// project is still trusted.
-    pub(in crate::app) fn session_baseline_taken(&mut self, project: ProjectId, tree: &str) {
-        if !self.editor.project_trusted(project) {
-            return;
-        }
-        if let Some(tree) = Id::parse(tree.as_bytes()) {
-            self.keep_baseline(project, tree);
-        }
-    }
-
-    fn forget_baseline(&mut self, project: ProjectId) {
-        self.reviews.baselines.retain(|(id, _)| *id != project);
-        self.editor.set_baseline_taken(project, None);
-    }
-
     /// Puts in each review's waiting texts, in order, while nothing holds them.
     fn put_in_review_texts(&mut self) {
         let mut put = false;
@@ -568,6 +490,8 @@ impl App {
             self.carry_applied(index, reading, &applied);
         }
         self.editor.set_review_reading(id, reading);
+        // The cursor saved goes back once a text shows its file (step 6).
+        self.put_back_place(index);
         #[cfg(feature = "dev")]
         self.timings.review_text(crate::dev::ReviewText {
             read: reading.map_or(0, |(read, _)| read),
@@ -587,8 +511,10 @@ impl App {
     }
 }
 
+mod baseline;
 mod comments;
 mod decide;
+mod handed;
 mod judge;
 mod keep;
 mod layout;
