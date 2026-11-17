@@ -122,6 +122,7 @@ fn running(id: ReviewId, project: ProjectId, scope: Scope, serial: u64) -> Runni
         decisions: super::decide::Decisions::default(),
         folded: false,
         shown_folded: false,
+        saving: super::keep::Saving::default(),
     }
 }
 

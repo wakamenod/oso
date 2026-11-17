@@ -228,12 +228,15 @@ impl App {
     pub(in crate::app) fn review_watch_deadline(&self) -> Option<Instant> {
         (self.reviews.open.iter())
             .filter_map(|running| running.refresher.deadline())
+            .chain(self.review_save_deadline())
             .min()
     }
 
     /// Starts each refresh whose marks settled, and asks each shown review whose time came to
     /// look.
     pub(in crate::app) fn review_watch_due(&mut self) {
+        // And each save whose changes settled (step 6).
+        self.review_saves_due();
         let now = Instant::now();
         for index in 0..self.reviews.open.len() {
             let shown = self.review_shown(index);

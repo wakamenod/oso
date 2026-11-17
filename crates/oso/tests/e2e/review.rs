@@ -267,13 +267,23 @@ fn a_comment_is_drafted_kept_edited_removed_and_yanked_back() {
     assert_eq!(prompt_label(&mut app), None);
     assert_eq!(app.state()["echo"], "Draft in the kill ring: C-y");
 
-    // Closing asks while the comment was not sent.
+    // Closing keeps the comment not sent, as the review is saved (step 6, Q-G): no question,
+    // and opening the same scope again brings it back on its line.
     app.send_keys(&format!("M-x {} RET", typing("review-kill")));
+    assert_eq!(prompt_label(&mut app), None);
     assert_eq!(
-        prompt_label(&mut app).as_deref(),
-        Some("1 comment of yours will be lost; kill? (y or n)")
+        app.state()["echo"],
+        "1 unsent comment kept; review-resume brings them back"
     );
-    app.send_keys("n");
+    app.send_keys("C-x v r w");
+    app.wait_for("the review again", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+    });
+    let shown = rows_until(&mut app, "    \u{258d}  second");
+    let at = shown.iter().position(|row| row == "+2").expect("the line");
+    assert_eq!(&shown[at..at + 4], &card[..], "back on its line: {shown:?}");
+    app.send_keys("M-< n C-n C-n C-n");
+    assert_eq!(cursor(&app.state()), (5, 0));
 
     // `k` removes it at once, and `C-y` yanks it back as text elsewhere.
     app.send_keys("k");

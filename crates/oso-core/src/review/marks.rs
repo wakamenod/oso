@@ -99,6 +99,7 @@ impl Review {
     /// Forgets the dropped count of `path`, once the person looked.
     pub fn clear_dropped(&mut self, path: &[u8]) {
         if let Some(state) = self.files.get_mut(path) {
+            self.revision += 1;
             state.dropped = 0;
         }
     }

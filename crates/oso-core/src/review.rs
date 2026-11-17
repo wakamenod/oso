@@ -63,6 +63,8 @@ pub struct Review {
     progress: Progress,
     /// Readings let go since [`Review::take_released`], for the host to free off the UI thread.
     released: Vec<Arc<Shape>>,
+    /// Counts changes, so that the host saves the review only when it changed (step 6).
+    revision: u64,
 }
 
 /// What the review keeps of one path, read now or once.
@@ -97,6 +99,13 @@ impl Review {
         Review::default()
     }
 
+    /// A count of the review's changes: it differs whenever a reading, comment or mark
+    /// changed since it was last asked, so that the host saves the review only then (ADR
+    /// 0122, step 6).
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
     /// The current reading of the file at `path`.
     pub fn file(&self, path: &[u8]) -> Option<&Arc<Shape>> {
         Some(&self.files.get(path)?.reading.as_ref()?.shape)
@@ -112,6 +121,7 @@ impl Review {
     /// Takes the file at `path` out of the review: its comments go outdated, kept to come back
     /// with a later reading, and its decisions drop.
     pub fn remove_file(&mut self, path: &[u8]) {
+        self.revision += 1;
         let Some(state) = self.files.get_mut(path) else {
             return;
         };
@@ -172,6 +182,7 @@ impl Review {
     /// applied changes nothing and asks to be carried again. A comment the snapshot missed is
     /// outdated until then.
     pub fn apply(&mut self, carried: Carried) -> Applied {
+        self.revision += 1;
         let state = self.files.entry(carried.path).or_default();
         if carried.readings != state.readings {
             return Applied {
@@ -344,6 +355,7 @@ impl Review {
         comment.text = text.into();
         comment.sent = false;
         comment.read = by == Author::Person;
+        self.revision += 1;
         Ok(())
     }
 
@@ -364,6 +376,7 @@ impl Review {
             .get_mut(&id)
             .ok_or(CommentError::NoSuchComment)?;
         comment.resolved = resolved;
+        self.revision += 1;
         Ok(())
     }
 
@@ -375,6 +388,7 @@ impl Review {
             self.only_agents_in(id)?;
         }
         let thread = self.thread(id).ok_or(CommentError::NoSuchComment)?;
+        self.revision += 1;
         for id in &thread {
             if let Some(comment) = self.comments.remove(id)
                 && let Some(state) = self.files.get_mut(&*comment.path)
@@ -387,6 +401,7 @@ impl Review {
 
     /// Marks the comments `ids` sent.
     pub fn mark_sent(&mut self, ids: &[CommentId]) {
+        self.revision += 1;
         for id in ids {
             if let Some(comment) = self.comments.get_mut(id) {
                 comment.sent = true;
@@ -396,6 +411,7 @@ impl Review {
 
     /// Marks the comments `ids` read by the person.
     pub fn mark_read(&mut self, ids: &[CommentId]) {
+        self.revision += 1;
         for id in ids {
             if let Some(comment) = self.comments.get_mut(id) {
                 comment.read = true;
@@ -415,6 +431,7 @@ impl Review {
 
     /// Gives `comment` the next id and keeps it.
     fn insert(&mut self, mut comment: Comment) -> CommentId {
+        self.revision += 1;
         let id = CommentId(self.next_id);
         self.next_id += 1;
         comment.id = id;
@@ -497,6 +514,7 @@ impl Review {
             return false;
         };
         self.progress.count(std::slice::from_ref(mark), true);
+        self.revision += 1;
         change(mark);
         self.progress.count(std::slice::from_ref(mark), false);
         state.remarked += 1;

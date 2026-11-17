@@ -558,3 +558,41 @@ proptest! {
 fn review_hunks(reviews: &[&mut Review]) -> usize {
     reviews[0].file(FILE).map_or(0, |shape| shape.hunks().len())
 }
+
+#[test]
+fn every_change_of_a_review_counts_and_a_save_does_not() {
+    let mut review = review_of(diff(&["a"], &["b"], blob("1")));
+    let mut last = review.revision();
+    let mut changed = |review: &Review, what: &str| {
+        assert_ne!(review.revision(), last, "{what}");
+        last = review.revision();
+    };
+    let id = review
+        .add_comment(Author::Agent, FILE, new_line(1), "c".into())
+        .unwrap();
+    changed(&review, "a comment");
+    review.edit_comment(Author::Agent, id, "d".into()).unwrap();
+    changed(&review, "an edit");
+    review.resolve(Author::Agent, id, true).unwrap();
+    changed(&review, "a resolve");
+    review.mark_read(&[id]);
+    changed(&review, "read");
+    review.mark_sent(&[id]);
+    changed(&review, "sent");
+    review.set_viewed(FILE, 0, true);
+    changed(&review, "viewed");
+    review.decide(FILE, 0, Some(Decision::Accepted));
+    changed(&review, "a decision");
+    read(&mut review, diff(&["a"], &["c"], blob("1")));
+    changed(&review, "a reading");
+    review.clear_dropped(FILE);
+    changed(&review, "dropped cleared");
+    review.remove_comment(Author::Agent, id).unwrap();
+    changed(&review, "a removal");
+    review.remove_file(FILE);
+    changed(&review, "a file gone");
+    let _ = review.save();
+    assert_eq!(review.revision(), last);
+    assert!(review.edit_comment(Author::Person, id, "x".into()).is_err());
+    assert_eq!(review.revision(), last, "a refused change counts nothing");
+}

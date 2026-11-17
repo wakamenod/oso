@@ -70,4 +70,8 @@ pub enum ReviewRequest {
     },
     /// Drop the review message `buffer` holds, sending nothing.
     MessageDrop { buffer: BufferId },
+    /// Open again the saved review the host listed as this candidate (ADR 0122, step 6).
+    Resume(String),
+    /// Remove the saved review the host listed as this candidate, now.
+    Forget(String),
 }

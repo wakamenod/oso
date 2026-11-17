@@ -45,6 +45,8 @@ pub(crate) enum ReviewEvent {
     Text { review: ReviewId, text: Box<Text> },
     /// The menu's counting threads counted.
     Counted(Counted),
+    /// The saved reviews' store found or did something (step 6).
+    Stored(store::Stored),
 }
 
 impl fmt::Debug for ReviewEvent {
@@ -64,6 +66,7 @@ impl fmt::Debug for ReviewEvent {
                 .field("review", &review.get())
                 .finish_non_exhaustive(),
             Self::Counted(counted) => f.debug_tuple("Counted").field(counted).finish(),
+            Self::Stored(stored) => f.debug_tuple("Stored").field(stored).finish(),
         }
     }
 }
@@ -137,6 +140,7 @@ impl App {
     /// asked, starts or stops the menu's counts, and puts in the texts that wait while nothing
     /// holds them.
     pub(super) fn sync_reviews(&mut self) {
+        self.start_review_store();
         self.revoke_untrusted_reviews();
         // Before the requests, so that a head that closed the menu, as `b` does, stops the
         // menu's counts before a request starts its own.
@@ -151,6 +155,7 @@ impl App {
         self.sync_review_watches();
         self.sync_review_comments();
         self.sync_review_message();
+        self.sync_review_saves();
     }
 
     fn review_request(&mut self, request: ReviewRequest) {
@@ -167,6 +172,8 @@ impl App {
             ReviewRequest::Send(id) => self.send_review(id),
             ReviewRequest::MessageSend { buffer, to } => self.send_review_message(buffer, to),
             ReviewRequest::MessageDrop { buffer } => self.drop_review_message(buffer),
+            ReviewRequest::Resume(pick) => self.resume_review(&pick),
+            ReviewRequest::Forget(pick) => self.forget_review(&pick),
             // Visits come with a later step of ADR 0122.
             ReviewRequest::Visit { .. } => {
                 log::debug!("a review request this build does not carry out yet");
@@ -249,7 +256,8 @@ impl App {
         self.reviews.open.push(running);
         let index = self.reviews.open.len() - 1;
         self.start_reviewer(index);
-        self.ask_review(index, Request::Open(scope));
+        // What was saved of it is read first (step 6).
+        self.open_saved(index, scope);
         self.request_redraw();
     }
 
@@ -325,6 +333,8 @@ impl App {
     /// Stops a closed review's threads, and frees the texts it left waiting.
     fn close_review(&mut self, id: ReviewId) {
         if let Some(running) = self.reviews.close(id) {
+            // What it held is saved at once (step 6).
+            self.save_closed_review(&running);
             self.freer.free(running.texts);
         }
     }
@@ -378,6 +388,7 @@ impl App {
                 None => self.freer.free(text),
             },
             ReviewEvent::Counted(counted) => self.scope_counted(counted),
+            ReviewEvent::Stored(stored) => self.review_stored(stored),
         }
     }
 
@@ -579,10 +590,12 @@ impl App {
 mod comments;
 mod decide;
 mod judge;
+mod keep;
 mod layout;
 mod menu;
 mod send;
 mod state;
+mod store;
 #[cfg(test)]
 #[path = "reviews_tests.rs"]
 mod tests;

@@ -21,6 +21,7 @@
 
 mod cells;
 mod draft;
+mod kept;
 mod menu;
 mod panes;
 mod places;
@@ -105,6 +106,9 @@ struct Open {
     panes: Option<panes::Panes>,
     /// The rows of panes dropped since, for the next leftover to take off the UI thread.
     spare: Vec<Rows>,
+    /// Whether the host keeps the review across a restart, saving it as it changes (ADR 0122,
+    /// step 6): its comments are then not lost with the editor.
+    kept: bool,
 }
 
 impl Open {
@@ -128,6 +132,8 @@ pub(super) struct Reviews {
     menus: Vec<(ProjectId, ScopeMenu)>,
     /// The open draft, if any.
     draft: Option<draft::Draft>,
+    /// The models of reviews closed since the host last took them, for it to save and free.
+    closed: Vec<(ReviewId, Review)>,
 }
 
 impl Reviews {
@@ -243,6 +249,7 @@ impl Editor {
             choice: ReviewChoice::Auto,
             panes: None,
             spare: Vec::new(),
+            kept: false,
         });
         (id, buffer)
     }
@@ -260,6 +267,7 @@ impl Editor {
             }
         }
         self.drop_internal_buffer(open.buffer);
+        self.reviews.closed.push((id, open.review));
         self.reviews.requests.push(ReviewRequest::Close(id));
     }
 
