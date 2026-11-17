@@ -562,6 +562,7 @@ pub(crate) mod tests {
             Face::ReviewOutdated => &[(Face::ReviewCommentPerson, LABEL), (Face::Text, LABEL)],
             // A sent comment's text is still read on its card, dimmed as a label is.
             Face::ReviewSent => &[(Face::ReviewCommentPerson, LABEL)],
+            Face::ReviewDecided => &[(Face::DiffFileHeader, LABEL)],
             // A session's marks and quiet text, on the list's background and on the band of the
             // row at point, and the modeline's counts of those that need the person or are done
             // (ADR 0131).

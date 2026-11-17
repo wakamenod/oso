@@ -98,6 +98,8 @@ impl App {
             self.review_request(request);
         }
         self.put_in_review_texts();
+        // A file a reject opened may have loaded.
+        self.go_on_reverting();
         self.sync_review_layouts();
         self.sync_review_comments();
         self.sync_review_message();
@@ -121,6 +123,7 @@ impl App {
             ReviewRequest::Visit { .. } => {
                 log::debug!("a review request this build does not carry out yet");
             }
+            decision => self.decision_request(decision),
         }
     }
 
@@ -166,8 +169,7 @@ impl App {
                 Reopen::Refresh | Reopen::Restart => self.refresh_review(id),
                 Reopen::Open => self.ask_review(index, Request::Open(scope)),
             }
-            self.request_redraw();
-            return;
+            return self.request_redraw();
         }
         let name = self
             .editor
@@ -204,8 +206,10 @@ impl App {
 
     /// Starts the review's own thread over its root, dropping the one before.
     fn start_reviewer(&mut self, index: usize) {
-        // What the thread before was carrying is carried on the view thread.
+        // What the thread before was carrying is carried on the view thread; what it was
+        // staging is answered by no one.
         self.carries_failed(index, true);
+        self.stages_lost(index);
         let serial = self.reviews.serial();
         let running = &mut self.reviews.open[index];
         running.serial = serial;
@@ -341,6 +345,7 @@ impl App {
                     more,
                     cut,
                 });
+                self.reviews.open[index].decisions.listing = Arc::clone(&entries);
                 return self.forget_unlisted(index, &entries, whole);
             }
             Report::File { reading, .. } => return self.tell_file(index, reading),
@@ -348,6 +353,7 @@ impl App {
                 return self.review_carried(index, carried, cut_short);
             }
             Report::Read { .. } => Tell::Read,
+            Report::Staged { ticket, staged } => return self.review_staged(index, ticket, staged),
             Report::Failed { asked, why } => {
                 if asked == Asked::Carry {
                     self.carries_failed(index, false);
@@ -539,6 +545,7 @@ impl App {
 }
 
 mod comments;
+mod decide;
 mod judge;
 mod layout;
 mod menu;

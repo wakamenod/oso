@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use oso_core::load::Reloaded;
-use oso_core::review::{Hunk, RowKind, Rows, Side};
+use oso_core::review::{Hunk, RowKind, Rows, Shape, Side};
 use oso_core::rope::Rope;
 use oso_core::syntax::{Highlight, Highlights};
 
@@ -119,12 +119,20 @@ impl SideLines {
 
 /// A hunk's header in both panes, then its removed and added lines beside each other, each
 /// line's cards under it in its own pane, and the hunk's cards in the new pane.
-fn hunk(old: &mut Writer, new: &mut Writer, plan: &mut Plan, index: usize, hunk: &Hunk) {
+fn hunk(
+    (old, new): (&mut Writer, &mut Writer),
+    plan: &mut Plan,
+    (index, hunk): (usize, &Hunk),
+    said: &str,
+) {
     let header = crate::review::hunk_header(hunk);
     for writer in [&mut *old, &mut *new] {
         writer.line(
             RowKind::Hunk { hunk: index },
-            &[(header.as_bytes(), Some(Highlight::DiffHunkHeader))],
+            &[
+                (header.as_bytes(), Some(Highlight::DiffHunkHeader)),
+                (said.as_bytes(), Some(Highlight::Decided)),
+            ],
         );
     }
     let mut sides = [Side::Old, Side::New].map(|side| SideLines {
@@ -155,6 +163,14 @@ fn hunk(old: &mut Writer, new: &mut Writer, plan: &mut Plan, index: usize, hunk:
     pad(old, new);
 }
 
+/// The shape of a text reading.
+fn shape_of(reading: &Reading) -> Option<&Arc<Shape>> {
+    match &reading.content {
+        Content::Text { shape, .. } => Some(shape),
+        _ => None,
+    }
+}
+
 /// The panes of `reading` with its comments, given the bytes the review's text has `room` for,
 /// as [`section::render`] lays out its section.
 pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Sides {
@@ -162,12 +178,9 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Sides {
     let cards = shown.cards;
     let (mut old, mut new) = (Writer::new(&entry.path), Writer::new(&entry.path));
     for writer in [&mut old, &mut new] {
-        section::header(writer, entry, reading.counts(), cards);
+        section::header(writer, entry, reading.counts(), cards, shape_of(reading));
     }
-    let shape = match &reading.content {
-        Content::Text { shape, .. } => Some(shape),
-        _ => None,
-    };
+    let shape = shape_of(reading);
     let placing = Placing::of(shape, cards, shown.placed);
     let shape = shape.map(|shape| &**shape);
     let mut plan = Plan::new(&cards.comments, shape, placing, shown.folded, room);
@@ -183,10 +196,13 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Sides {
         pad(&mut old, &mut new);
         return Sides::of(old, new);
     }
-    match (&reading.content, shape) {
+    match (&reading.content, shape_of(reading)) {
         (Content::Text { .. }, Some(shape)) => {
             for writer in [&mut old, &mut new] {
                 section::ending_notes(writer, shape.hunks());
+            }
+            if let Some(dropped) = section::dropped_note(cards) {
+                note(&mut old, &mut new, &dropped);
             }
             if shown.cut_short {
                 note(
@@ -198,7 +214,8 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Sides {
             plan.outdated(&mut new);
             pad(&mut old, &mut new);
             for (index, at) in shape.hunks().iter().enumerate() {
-                hunk(&mut old, &mut new, &mut plan, index, at);
+                let said = cards.decided(shape, index);
+                hunk((&mut old, &mut new), &mut plan, (index, at), &said);
             }
             plan.rest(&mut new);
         }

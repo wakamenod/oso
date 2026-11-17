@@ -102,6 +102,7 @@ impl Reader {
             Request::Refresh { first } => self.refresh(&first, stop, carries, out),
             Request::Baseline => self.baseline(stop, out),
             Request::Carry(carry) => self.carry(carry, out),
+            Request::Stage(stage) => self.stage(stage, out),
         };
         if let Err(e) = answered {
             out(match e {
@@ -346,6 +347,20 @@ impl Reader {
             log::warn!("a review's baseline left out at least {left_out} files git could not read");
         }
         out(Report::Baseline { tree, left_out });
+        Ok(())
+    }
+
+    /// Answers `stage` by its ticket, a repository not found too.
+    fn stage(&mut self, stage: super::stage::Stage, out: &mut Out<'_>) -> Result<(), ScopeError> {
+        let ticket = stage.ticket;
+        let staged = match self.repository() {
+            Ok(repository) => {
+                let git = repository.git.clone();
+                super::stage::run(&git, &mut self.batch, stage)
+            }
+            Err(e) => Err(message(&e)),
+        };
+        out(Report::Staged { ticket, staged });
         Ok(())
     }
 

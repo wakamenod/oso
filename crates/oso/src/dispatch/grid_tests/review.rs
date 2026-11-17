@@ -190,6 +190,7 @@ fn cards_show_under_their_line_and_an_agents_text_cannot_pass_for_a_label() {
             path: b"a.rs".as_slice().into(),
             comments: model.comments_on(b"a.rs").cloned().collect(),
             reading: model.file(b"a.rs").cloned(),
+            marks: Default::default(),
         },
     ];
     check_editor("review_cards", b"", review(told, (12, 50)), &[""]);

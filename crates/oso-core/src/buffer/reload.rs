@@ -82,8 +82,9 @@ impl Buffer {
         Some(noticed)
     }
 
-    /// Whether a save found the file changed since this buffer read it or wrote it.
-    pub(crate) fn changed_on_disk(&self) -> bool {
+    /// Whether a save found the file changed since this buffer read it or wrote it, so that
+    /// a save made for the person by another path, as a review's reject, does not go over it.
+    pub fn changed_on_disk(&self) -> bool {
         self.changed_on_disk
     }
 

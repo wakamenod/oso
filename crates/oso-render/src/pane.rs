@@ -338,7 +338,8 @@ pub struct Panel<'a> {
     pub marked: Option<CellRect>,
     /// A completion's float (ADR 0076): filled with the text's background and framed by a
     /// border in place of the hairline, with square corners and no shadow, and its selected row
-    /// a bar across the whole panel.
+    /// a square bar on the cells `selected` gives: across the panel, or beside a preview only
+    /// as far as the column that divides them (ADR 0088).
     pub border: bool,
 }
 

@@ -15,14 +15,19 @@
 //!   fetched a squash's merge commit never holds the tip, so what was merged is told by its head.
 //! - No remote, a branch never pushed, or no `gh` when ancestry is not enough: not merged,
 //!   saying which.
+//! - **A session's work** at a turn's end ([`work_merged`]): its review snapshot is the tree of
+//!   the commit checked out, on a branch ancestry alone finds merged, so a merged session is not
+//!   ready for review (ADR 0121, "Merged work is not ready for review, as amended").
 
 use std::collections::HashSet;
+use std::path::Path;
 
-use super::facts::{MAIN_BRANCHES, RepoFacts};
+use super::facts::{MAIN_BRANCHES, RepoFacts, main_lines};
 use super::git::{MAX_LISTING, MAX_NAMES, Repo, merged_pulls, run};
 use super::porcelain;
 use crate::git::Gh;
 use crate::git::MAX_SHORT;
+use crate::git::{Id, trim_line};
 
 /// The most bytes of a branch's reflog read.
 const MAX_REFLOG: usize = 1024 * 1024;
@@ -100,6 +105,71 @@ pub fn locally(repo: &Repo, facts: &RepoFacts, branch: &str, tip: &str, have_gh:
         return no("not merged, as far as the remotes show; gh is not found");
     }
     Local::AskGh
+}
+
+/// Whether the work of a session at `dir`, a worktree of `repo`, is merged, at a turn's end
+/// (ADR 0121, "Merged work is not ready for review, as amended"). `tree` is the tree of
+/// everything there git does not ignore, as the session's review snapshot took it. It must be
+/// the tree of the commit checked out, so nothing is uncommitted, staged or untracked; a branch
+/// must be checked out; and ancestry alone must find that branch merged, as [`locally`] does:
+/// a commit made on it, and its tip in a remote's main line. `gh` is never asked here: a
+/// listing or a removal asks it. The cheap refusals come first, and only the main lines are
+/// read of the remotes, as nothing else can change an answer without `gh`.
+pub fn work_merged(repo: &Repo, dir: &Path, tree: &Id) -> Merged {
+    let no = |why: &str| Merged::No(why.to_owned());
+    let listed = match repo.worktrees() {
+        Ok(listed) => listed,
+        Err(why) => return Merged::No(format!("not known: {why}")),
+    };
+    let Some(here) = listed
+        .into_iter()
+        .find(|w| oso_core::project::same_place(&w.path, dir))
+    else {
+        return no("not known: it is not a worktree of this repository");
+    };
+    let (Some(branch), Some(head)) = (here.branch, here.head) else {
+        return no("not merged: no branch is checked out");
+    };
+    if Id::parse(head.as_bytes()).is_none() || committed_tree(repo, &head).as_ref() != Some(tree) {
+        return no("not merged: work is not committed");
+    }
+    if !made_a_commit(repo, &branch) {
+        return no("not merged: no commit of its own");
+    }
+    let remotes = repo.remotes();
+    if remotes.is_empty() {
+        return no("not merged: the repository has no remote");
+    }
+    let mut mains = match main_lines(repo) {
+        Ok(mains) => mains,
+        Err(why) => return Merged::No(format!("not known: {why}")),
+    };
+    // Only a configured remote's main line, and never the branch's own copy that a remote's
+    // `HEAD` may point to.
+    mains.retain(|name| {
+        remotes.iter().any(|remote| {
+            name.strip_prefix(&format!("refs/remotes/{remote}/"))
+                .is_some_and(|line| line != branch)
+        })
+    });
+    containing(repo, &head, &mains).map_or_else(
+        || no("not merged, as far as the remotes show"),
+        Merged::Ancestor,
+    )
+}
+
+/// The tree of the commit `commit`, by its full name.
+fn committed_tree(repo: &Repo, commit: &str) -> Option<Id> {
+    let tree = format!("{commit}^{{tree}}");
+    let args = [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "--end-of-options",
+        &tree,
+    ];
+    let out = run(repo.git(), &args, MAX_SHORT).ok()?;
+    Id::parse(trim_line(&out))
 }
 
 /// Whether the branch's reflog shows a commit made on it.

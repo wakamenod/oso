@@ -88,6 +88,17 @@ impl RepoFacts {
     }
 }
 
+/// The remote branches that count as main lines, by full name, from one listing of
+/// `refs/remotes/`: all a session's work needs at a turn's end (ADR 0121, "Merged work is not
+/// ready for review, as amended").
+///
+/// # Errors
+///
+/// What git said.
+pub fn main_lines(repo: &Repo) -> Result<HashSet<String>, String> {
+    remote_refs(repo).map(|(mains, _)| mains)
+}
+
 /// From one listing of `refs/remotes/`: the remote branches that count as main lines
 /// (`refs/remotes/R/{main,master,develop}` and what each `refs/remotes/R/HEAD` points to), by
 /// full name, and the names of every remote branch, without their remote.

@@ -1049,7 +1049,7 @@ mod tests {
                 field_room: rect(0, 0, 0, 0),
                 keys: &[],
                 marked: None,
-                selected: Some(rect(4, 3, 1, 6)),
+                selected: Some(rect(4, 2, 1, 8)),
                 border: true,
             }),
             ..pane(0, rect(0, 0, 8, 12), 16, PaneContent::Lines(&[]))
@@ -1070,11 +1070,40 @@ mod tests {
         assert_eq!(panel.radii, [0.0; 4]);
         assert_eq!(panel.fill, theme().background(Face::Text));
         assert_eq!((panel.shadow[3], panel.params[0]), (0.0, 0.0));
-        // The selected row is a bar across the whole panel.
+        // The selected row, given across the panel, is a bar across it.
         let bar = rounded[2];
         assert_eq!(bar.fill, theme().background(Face::CompletionSelected));
         assert_eq!((bar.rect[0], bar.rect[2]), (panel.rect[0], panel.rect[2]));
         assert_eq!(bar.radii, [0.0; 4]);
+    }
+
+    #[test]
+    fn a_bar_beside_a_preview_ends_where_its_cells_do() {
+        let panes = [Pane {
+            panel: Some(Panel {
+                cells: rect(2, 2, 4, 8),
+                field: None,
+                field_room: rect(0, 0, 0, 0),
+                keys: &[],
+                marked: None,
+                // The list's columns only, the preview right of them.
+                selected: Some(rect(4, 2, 1, 3)),
+                border: true,
+            }),
+            ..pane(0, rect(0, 0, 8, 12), 16, PaneContent::Lines(&[]))
+        }];
+        let mut scene = Scene::new(LIMITS, theme());
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let rounded = scene.rounded();
+        let (panel, bar) = (rounded[1], rounded[2]);
+        assert_eq!(bar.fill, theme().background(Face::CompletionSelected));
+        // Cells of 10 px: from the panel's left edge, 3 cells and no further.
+        assert_eq!(bar.rect[0], panel.rect[0]);
+        assert_eq!(bar.rect[2], 30.0);
+        assert!(
+            bar.rect[2] < panel.rect[2],
+            "short of the preview's columns"
+        );
     }
 
     #[test]

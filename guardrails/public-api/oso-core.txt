@@ -73,6 +73,7 @@ pub oso_core::buffer::Mode::Go
 pub oso_core::buffer::Mode::JavaScript
 pub oso_core::buffer::Mode::Latex
 pub oso_core::buffer::Mode::Markdown
+pub oso_core::buffer::Mode::RenamePreview
 pub oso_core::buffer::Mode::Review
 pub oso_core::buffer::Mode::ReviewMessage
 pub oso_core::buffer::Mode::Rust
@@ -278,6 +279,8 @@ pub fn oso_core::buffer::Buffer::open_waits(&self) -> oso_core::buffer::Starts
 pub fn oso_core::buffer::Buffer::save_waits(&self) -> oso_core::buffer::Starts
 pub fn oso_core::buffer::Buffer::waits(&self) -> oso_core::buffer::Starts
 impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::changed_on_disk(&self) -> bool
+impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::diagnostics(&self) -> core::option::Option<&oso_core::diagnostic::Diagnostics>
 pub fn oso_core::buffer::Buffer::take_diagnostics(&mut self, u64, oso_core::diagnostic::Diagnostics) -> bool
 impl oso_core::buffer::Buffer
@@ -435,6 +438,8 @@ pub oso_core::command::ArgSpec::Mark::prompt: &'static str
 pub oso_core::command::ArgSpec::Menu
 pub oso_core::command::ArgSpec::Menu::history: &'static str
 pub oso_core::command::ArgSpec::Menu::prompt: &'static str
+pub oso_core::command::ArgSpec::NewName
+pub oso_core::command::ArgSpec::NewName::history: &'static str
 pub oso_core::command::ArgSpec::None
 pub oso_core::command::ArgSpec::Number
 pub oso_core::command::ArgSpec::Number::history: &'static str
@@ -2077,6 +2082,10 @@ pub fn oso_core::editor::ReviewLayout::fmt(&self, &mut core::fmt::Formatter<'_>)
 impl core::marker::Copy for oso_core::editor::ReviewLayout
 impl core::marker::StructuralPartialEq for oso_core::editor::ReviewLayout
 pub enum oso_core::editor::ReviewRequest
+pub oso_core::editor::ReviewRequest::Accept
+pub oso_core::editor::ReviewRequest::Accept::hunks: alloc::vec::Vec<usize>
+pub oso_core::editor::ReviewRequest::Accept::path: alloc::boxed::Box<[u8]>
+pub oso_core::editor::ReviewRequest::Accept::review: oso_core::editor::ReviewId
 pub oso_core::editor::ReviewRequest::Baseline
 pub oso_core::editor::ReviewRequest::Baseline::project: oso_core::project::ProjectId
 pub oso_core::editor::ReviewRequest::Close(oso_core::editor::ReviewId)
@@ -2093,7 +2102,16 @@ pub oso_core::editor::ReviewRequest::Redraw
 pub oso_core::editor::ReviewRequest::Redraw::path: alloc::boxed::Box<[u8]>
 pub oso_core::editor::ReviewRequest::Redraw::review: oso_core::editor::ReviewId
 pub oso_core::editor::ReviewRequest::Refresh(oso_core::editor::ReviewId)
+pub oso_core::editor::ReviewRequest::Reject
+pub oso_core::editor::ReviewRequest::Reject::hunks: alloc::vec::Vec<usize>
+pub oso_core::editor::ReviewRequest::Reject::path: alloc::boxed::Box<[u8]>
+pub oso_core::editor::ReviewRequest::Reject::review: oso_core::editor::ReviewId
 pub oso_core::editor::ReviewRequest::Send(oso_core::editor::ReviewId)
+pub oso_core::editor::ReviewRequest::Undo(oso_core::editor::ReviewId)
+pub oso_core::editor::ReviewRequest::Viewed
+pub oso_core::editor::ReviewRequest::Viewed::hunks: alloc::vec::Vec<usize>
+pub oso_core::editor::ReviewRequest::Viewed::path: alloc::boxed::Box<[u8]>
+pub oso_core::editor::ReviewRequest::Viewed::review: oso_core::editor::ReviewId
 pub oso_core::editor::ReviewRequest::Visit
 pub oso_core::editor::ReviewRequest::Visit::number: u32
 pub oso_core::editor::ReviewRequest::Visit::old_side: bool
@@ -2207,6 +2225,8 @@ impl core::marker::Copy for oso_core::editor::ServerFace
 impl core::marker::StructuralPartialEq for oso_core::editor::ServerFace
 pub enum oso_core::editor::ServerRequest
 pub oso_core::editor::ServerRequest::ApplyCodeAction
+pub oso_core::editor::ServerRequest::ApplyRename
+pub oso_core::editor::ServerRequest::CancelRename
 pub oso_core::editor::ServerRequest::CodeActions
 pub oso_core::editor::ServerRequest::CodeActions::at: oso_core::editor::AskAt
 pub oso_core::editor::ServerRequest::CodeActions::end: usize
@@ -2217,6 +2237,8 @@ pub oso_core::editor::ServerRequest::Definition(oso_core::editor::AskAt)
 pub oso_core::editor::ServerRequest::Describe(oso_core::editor::AskAt)
 pub oso_core::editor::ServerRequest::GoToXref
 pub oso_core::editor::ServerRequest::References(oso_core::editor::AskAt)
+pub oso_core::editor::ServerRequest::Rename(oso_core::editor::AskAt)
+pub oso_core::editor::ServerRequest::RenameTo(alloc::boxed::Box<str>)
 pub oso_core::editor::ServerRequest::Restart(oso_core::buffer::BufferId)
 pub oso_core::editor::ServerRequest::ShutDown(oso_core::buffer::BufferId)
 pub oso_core::editor::ServerRequest::Start(oso_core::buffer::BufferId)
@@ -2227,7 +2249,6 @@ impl core::cmp::PartialEq for oso_core::editor::ServerRequest
 pub fn oso_core::editor::ServerRequest::eq(&self, &oso_core::editor::ServerRequest) -> bool
 impl core::fmt::Debug for oso_core::editor::ServerRequest
 pub fn oso_core::editor::ServerRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for oso_core::editor::ServerRequest
 impl core::marker::StructuralPartialEq for oso_core::editor::ServerRequest
 pub enum oso_core::editor::SessionRequest
 pub oso_core::editor::SessionRequest::Adopt(alloc::string::String)
@@ -2976,6 +2997,7 @@ pub fn oso_core::editor::Editor::save_finished(&mut self, oso_core::buffer::Buff
 pub fn oso_core::editor::Editor::save_unneeded(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::set_quit_when_idle(&mut self, bool)
 pub fn oso_core::editor::Editor::start_save(&mut self) -> core::result::Result<bool, oso_core::editor::SaveRefused>
+pub fn oso_core::editor::Editor::start_save_of(&mut self, oso_core::buffer::BufferId) -> core::result::Result<bool, oso_core::editor::SaveRefused>
 pub fn oso_core::editor::Editor::start_save_over(&mut self) -> core::result::Result<bool, oso_core::editor::SaveRefused>
 pub fn oso_core::editor::Editor::take_save_jobs(&mut self) -> alloc::vec::Vec<oso_core::editor::SaveJob>
 impl oso_core::editor::Editor
@@ -3229,6 +3251,8 @@ pub fn oso_core::editor::Editor::starts_on_open(&mut self, oso_core::buffer::Buf
 pub fn oso_core::editor::Editor::starts_on_open_in(&mut self, oso_core::buffer::BufferId, oso_core::buffer::Starts, oso_core::buffer::Acted, oso_core::project::ProjectId) -> oso_core::buffer::Starts
 pub fn oso_core::editor::Editor::starts_on_save(&mut self, oso_core::buffer::BufferId, oso_core::buffer::Starts, oso_core::buffer::Acted) -> oso_core::buffer::Starts
 pub fn oso_core::editor::Editor::take_released_starts(&mut self) -> alloc::vec::Vec<(oso_core::buffer::BufferId, oso_core::buffer::Starts)>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::offer_prompt_default(&mut self, oso_core::minibuffer::PromptId, impl core::convert::Into<alloc::string::String>)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::open_project_search(&mut self, std::path::PathBuf, &str, &'static str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::rows_found(&mut self, u64, alloc::vec::Vec<oso_core::editor::ProjectSearchRow>, core::option::Option<oso_core::editor::WalkEnd>)
@@ -5696,6 +5720,7 @@ pub fn oso_core::review::Review::files(&self) -> impl core::iter::traits::iterat
 pub fn oso_core::review::Review::mark_read(&mut self, &[oso_core::review::CommentId])
 pub fn oso_core::review::Review::mark_sent(&mut self, &[oso_core::review::CommentId])
 pub fn oso_core::review::Review::new() -> oso_core::review::Review
+pub fn oso_core::review::Review::progress(&self) -> (usize, usize, usize)
 pub fn oso_core::review::Review::remove_comment(&mut self, oso_core::review::Author, oso_core::review::CommentId) -> core::result::Result<usize, oso_core::review::CommentError>
 pub fn oso_core::review::Review::remove_file(&mut self, &[u8])
 pub fn oso_core::review::Review::reply(&mut self, oso_core::review::Author, oso_core::review::CommentId, alloc::string::String) -> core::result::Result<oso_core::review::CommentId, oso_core::review::CommentError>
@@ -6089,6 +6114,7 @@ pub oso_core::syntax::Highlight::Comment
 pub oso_core::syntax::Highlight::CommentAgent
 pub oso_core::syntax::Highlight::CommentPerson
 pub oso_core::syntax::Highlight::Constant
+pub oso_core::syntax::Highlight::Decided
 pub oso_core::syntax::Highlight::DiffAdded
 pub oso_core::syntax::Highlight::DiffFileHeader
 pub oso_core::syntax::Highlight::DiffHunkHeader
