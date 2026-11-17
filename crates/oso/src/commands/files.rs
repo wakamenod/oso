@@ -1,5 +1,5 @@
 //! Commands that open a file by its path, or list a directory named, and write a buffer under a
-//! new one (ADR 0087, ADR 0141).
+//! new one (ADR 0087, ADR 0141), and open a recent file (ADR 0148).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys. The host lists directories, loads and saves.
@@ -24,6 +24,17 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Person,
         run: find_file,
+        state: None,
+    },
+    Command {
+        name: "recentf-open",
+        doc: "Visit a recently visited file, read with completion, the most recent first.\n\nThe current buffer's file comes last, so `RET` opens the one before. A file that is gone is dropped from the list. Files a person visited are kept, at most 100, but none whose name may hold secrets.",
+        args: ArgSpec::RecentFile {
+            prompt: "Open recent file:",
+            history: "recent-file",
+        },
+        reach: Reach::Person,
+        run: recentf_open,
         state: None,
     },
     Command {
@@ -84,6 +95,30 @@ pub(super) fn visit(ctx: &mut Ctx<'_>, path: PathBuf) -> Result<(), CommandError
         return super::session::ask(ctx, question, "open-large-file", ["open", "keep"]);
     }
     ctx.editor.request_visit(path, oso_core::load::UNASKED);
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn recentf_open(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    let answer = ctx.answer().unwrap_or_default();
+    let path = ctx
+        .editor
+        .recent_file_named(answer)
+        .map(std::path::Path::to_path_buf)
+        .ok_or_else(|| CommandError::new("No such recent file"))?;
+    visit_recent(ctx, path)
+}
+
+/// Visits the recent file `path` as `C-x C-f` would, except that a file gone from there is
+/// dropped from the list rather than opened as a new one (ADR 0148). A file found large asks
+/// first, as `C-x C-f` does, and its `y` visits it as any.
+pub(super) fn visit_recent(ctx: &mut Ctx<'_>, path: PathBuf) -> Result<(), CommandError> {
+    if ctx.editor.large_file(&path).is_some() {
+        return visit(ctx, path);
+    }
+    ctx.editor
+        .request_recent_visit(path, oso_core::load::UNASKED);
     ctx.request_redraw();
     Ok(())
 }

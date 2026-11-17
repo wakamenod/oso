@@ -347,6 +347,8 @@ impl App {
         let result = visited
             .map(|buffer| {
                 self.editor.show(buffer);
+                // As a person's visit, as `send-keys` counts as their keys (ADR 0148).
+                self.await_recent(buffer, false);
                 json!({ "opened": true })
             })
             .ok_or_else(|| "cannot start loading; see the log".to_owned());

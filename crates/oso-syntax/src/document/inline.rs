@@ -103,8 +103,10 @@ impl Document {
         captures: &mut Vec<Capture>,
     ) -> Option<Piece> {
         for (node, language) in nodes {
+            // A fence whose grammar's query did not compile stays plain, as one of a language
+            // oso does not inject does (ADR 0147). Markdown's own are compiled before any piece.
             let Some(prepared) = queries.get(Kind::Highlights(language)) else {
-                return Some(Piece::Limit);
+                continue;
             };
             let Some(nested) = self.parse_nested(language, node, deadline) else {
                 if Instant::now() >= deadline {

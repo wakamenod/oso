@@ -26,6 +26,7 @@ pub(super) struct Load {
     editorconfig: Option<loader::EditorConfigFound>,
 }
 
+pub(super) mod opened;
 impl App {
     /// Visits `path` in the selected window: a buffer named after the file
     /// shows at once, read-only, and fills in as a background thread loads
@@ -33,6 +34,7 @@ impl App {
     pub fn open(&mut self, path: PathBuf) {
         if let Some(buffer) = self.visit(path, loader::UNASKED) {
             self.editor.show(buffer);
+            self.await_recent(buffer, false);
         }
         self.request_redraw();
     }
@@ -233,6 +235,9 @@ impl App {
             return true;
         }
         let editorconfig = self.editorconfig_for(index, &update);
+        if self.recent_file_gone(index, id, &update) {
+            return true;
+        }
         let Some(buffer) = self.editor.buffer_mut(id) else {
             self.loads.swap_remove(index);
             return false;
@@ -268,6 +273,9 @@ impl App {
                 }
                 // The windows showing it wrap the text that came, if it wraps (ADR 0103).
                 self.editor.loaded(id);
+                if done {
+                    self.recent_loaded(id);
+                }
                 old_end.is_some_and(|end| reaches_offset(&self.editor, id, end))
             }
             // The buffer holds carried text, and only its verdict was missing.
@@ -308,12 +316,38 @@ impl App {
         self.try_restore_positions() || redraw
     }
 
+    /// Whether the load at `index`, of `id`, found nothing where a file the person chose from
+    /// the recent files was: the buffer goes, unshown, the file leaves the recent files, and the
+    /// echo area says so, rather than a new file opening (ADR 0148).
+    fn recent_file_gone(&mut self, index: usize, id: BufferId, update: &LoadUpdate) -> bool {
+        if !matches!(update, LoadUpdate::Failed(LoadError::NotFound))
+            || self.recent.awaiting.get(&id) != Some(&true)
+        {
+            return false;
+        }
+        let Some(path) = self
+            .editor
+            .buffer(id)
+            .and_then(|b| b.path().map(PathBuf::from))
+        else {
+            return false;
+        };
+        let row = self.editor.recent_file_row(&path);
+        self.editor.forget_recent_file(&path);
+        self.loads.swap_remove(index);
+        self.recent.awaiting.remove(&id);
+        self.editor.kill_buffer(id);
+        self.editor.message(format!("{row} no longer exists"));
+        true
+    }
+
     /// The first load of `id` failed with `e`: the buffer goes, and the agent hears why its open
     /// stopped, else the echo area says why, but a person's visit of a directory lists it, as
     /// Emacs's dired does (ADR 0141).
     fn first_load_failed(&mut self, id: BufferId, e: &LoadError) {
         let path = (self.editor.buffer(id)).and_then(|buffer| buffer.path().map(PathBuf::from));
-        let listed = if self.agent_load_failed(id, e) {
+        // A server's edit opened it: it says why itself, and lists no directory.
+        let listed = if self.agent_load_failed(id, e) || self.opened_for_an_edit(id) {
             None
         } else if let (LoadError::Directory, Some(directory)) = (e, path) {
             Some(directory)
@@ -398,7 +432,8 @@ impl App {
         };
         buffer.set_baseline(baseline);
         self.editor.request_project(id);
-        self.shows_the_one_open(index, id)
+        // A server's edit that opened it judges another name itself, and shows nothing.
+        !self.opened_for_an_edit(id) && self.shows_the_one_open(index, id)
     }
 
     /// If another buffer visits the very file the load of `id` opened, by its device and inode,
@@ -435,6 +470,11 @@ impl App {
         // the person: no message, and no question for their next `C-x C-f`.
         if buffer.agent_pending() {
             self.refuse_agent_open(id, super::agent::TOO_LARGE_FOR_THE_AGENT);
+            self.editor.kill_buffer(id);
+            return;
+        }
+        // A server's edit opened it, which then says it could not.
+        if self.opened_for_an_edit(id) {
             self.editor.kill_buffer(id);
             return;
         }

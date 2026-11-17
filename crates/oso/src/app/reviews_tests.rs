@@ -116,6 +116,7 @@ fn running(id: ReviewId, project: ProjectId, scope: Scope, serial: u64) -> Runni
         texts: VecDeque::new(),
         revoked: false,
         carrying: VecDeque::new(),
+        layout: super::layout::Layout::default(),
         folded: false,
         shown_folded: false,
     }

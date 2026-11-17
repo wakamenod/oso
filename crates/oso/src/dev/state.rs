@@ -302,8 +302,8 @@ fn prompts_state(editor: &Editor) -> Value {
 /// How many candidates match of how many, which is selected, the names of those in the rows
 /// shown, as the float shows them (ADR 0076), whether what is typed is selected, and which
 /// buffer the preview shows, by id and never its text, or `null` when it shows none or withholds
-/// it (ADR 0088), and what kind of thing it shows: `buffer`, `excerpt`, `withheld`, `kill` or
-/// `null` (ADR 0114).
+/// it (ADR 0088), and what kind of thing it shows: `buffer`, `excerpt`, `withheld`, `kill`,
+/// `not-open` (ADR 0148) or `null` (ADR 0114).
 fn completion_state(editor: &Editor, candidates: &Candidates) -> Value {
     let rows = candidates
         .shown(editor.candidate_rows())
@@ -312,12 +312,16 @@ fn completion_state(editor: &Editor, candidates: &Candidates) -> Value {
     let shown = editor.preview();
     let preview = match shown {
         Some(Preview::Buffer { id, .. }) => Some(id.get()),
-        Some(Preview::Withheld | Preview::Text { .. } | Preview::Excerpt { .. }) | None => None,
+        Some(
+            Preview::Withheld | Preview::NotOpen | Preview::Text { .. } | Preview::Excerpt { .. },
+        )
+        | None => None,
     };
     // What kind of thing it shows, for a flow to wait on; never what it shows (ADR 0114).
     let preview_kind = shown.map(|shown| match shown {
         Preview::Buffer { .. } => "buffer",
         Preview::Withheld => "withheld",
+        Preview::NotOpen => "not-open",
         Preview::Text { .. } => "kill",
         Preview::Excerpt { .. } => "excerpt",
     });

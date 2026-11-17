@@ -29,6 +29,10 @@ pub struct Mapped {
 /// What is wrong, naming the command: an argument of the wrong kind or one missing, or a
 /// passphrase, which only a prompt reads. Each caller bounds counts where it reads them
 /// ([`oso_core::command::MAX_REMOTE_COUNT`]).
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm for each argument spec, each a few lines"
+)]
 pub fn map(
     name: &str,
     spec: ArgSpec,
@@ -56,6 +60,11 @@ pub fn map(
         (ArgSpec::Listed { .. } | ArgSpec::ListedAndNoteUnlessRegion { .. }, _) => Err(format!(
             "{name} reads one of a list, which only its prompt takes, from keys"
         )),
+        // With no prefix it reads nothing (ADR 0122, step 12).
+        (ArgSpec::ListedOnPrefix { .. }, Given::Nothing) => plain(Args::NONE),
+        (ArgSpec::ListedOnPrefix { .. }, _) => Err(format!(
+            "{name} reads one of a list, which only its prompt takes, from keys"
+        )),
         // A menu reads keys, and no channel opens one (ADR 0117).
         (ArgSpec::Menu { .. }, _) => Err(format!(
             "{name} reads a menu's name, which only its prompt takes, from keys"
@@ -65,6 +74,11 @@ pub fn map(
         // show, and shows it (ADR 0094, ADR 0095).
         (ArgSpec::Buffer { .. }, _) => Err(format!(
             "{name} reads a buffer's name, which only its prompt takes, from keys"
+        )),
+        // The recent files are listed only in its prompt, which the channel never sees
+        // (ADR 0148).
+        (ArgSpec::RecentFile { .. }, _) => Err(format!(
+            "{name} reads a recent file, which only its prompt takes, from keys"
         )),
         (ArgSpec::Mark { .. }, _) => Err(format!(
             "{name} reads a mark, which only its prompt takes, from keys"
@@ -76,6 +90,10 @@ pub fn map(
         // A server's places are listed only in their list, which the host opens (step 8b).
         (ArgSpec::Xref, _) => Err(format!(
             "{name} reads a place of a server's answer, which only its list takes, from keys"
+        )),
+        // So are a server's code actions (step 13).
+        (ArgSpec::CodeAction, _) => Err(format!(
+            "{name} reads a server's code action, which only its list takes, from keys"
         )),
         (ArgSpec::KillEntry { .. }, _) => Err(format!(
             "{name} reads a kill, which only its prompt takes, from keys"
@@ -255,6 +273,12 @@ mod tests {
             purpose: BufferPurpose::Kill,
         };
         assert!(refused(kill, Given::Text("notes")).contains("buffer's name"));
+        let recent = ArgSpec::RecentFile {
+            prompt: "Open recent file:",
+            history: "recent-file",
+        };
+        assert!(refused(recent, Given::Text("~/notes.md")).contains("recent file"));
+        assert!(refused(recent, Given::Nothing).contains("recent file"));
         let mark = ArgSpec::Mark {
             prompt: "Go to mark: ",
         };

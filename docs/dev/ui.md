@@ -289,7 +289,7 @@ are rounded.
 
 ### Buffers (`C-x b`, `C-x k`, `M-,`, `M-/`, `C-.`)
 
-[ADR 0088](adr/0088-switching-and-killing-buffers.md):
+[ADR 0088](adr/0088-switching-and-killing-buffers.md), [ADR 0148](adr/0148-recent-files.md):
 
 ```
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -312,6 +312,16 @@ are rounded.
   `*Emergency Copies*` and `*Agent*` are kept. The window then shows the most recent other buffer.
 - `M-,` and `M-/` go to the previous and next buffer in the window's order, skipping internal ones.
 - `C-.` lists the mark ring, with the buffer around the selected mark in the preview.
+- After the buffers, `C-x b` lists the recent files no buffer visits, each its path from `~/`
+  marked `file`; their preview says `not open`, and `RET` opens one
+  ([ADR 0148](adr/0148-recent-files.md)).
+
+### Recent files (`C-x C-r`)
+
+[ADR 0148](adr/0148-recent-files.md): `Open recent file:` in the centred float, with no preview.
+A row is the file's path from `~/`, marked `open` when a buffer visits it, the most recent first
+and the current buffer's file last, so `RET` opens the one before. Only a listed file is taken. A
+file that is gone says `~/notes/a.md no longer exists` and leaves the list.
 
 ## Menus
 
@@ -427,6 +437,14 @@ project and how long ago the baseline was taken. Only a trusted project runs git
   stays open, and `C-g` keeps its text.
 - An agent's comment counts as read once you have had it whole on screen, unfolded, after a key
   of yours.
+- `C-c C-c` gathers your comments that were not sent, outside threads you resolved, in the
+  order the review shows them, into `*review message*` (ADR 0122, step 12): a line saying what
+  to do, the scope, then each comment's `## path  L42 (new)`, its hunk in a `diff` fence (cut to
+  30 lines around the comment past 60), the comment it replies to, and `Comment: …`. The echo
+  area names the session it goes to. The buffer is yours: an agent may read it, never change it.
+  There `C-c C-c` pastes it into the session, as `session-send` does, not submitted, and `C-u
+  C-c C-c` picks the session by completion; `C-c C-k` drops it and shows the review again. Once pasted, the comments it
+  held are drawn dimmed, but any changed meanwhile; one message waits at a time.
 - `C-x k` closes the review, asking first while comments of yours that were not sent, or a draft,
   would be lost; a review not shown is shown before the question.
 - In a restricted project the commands and the menu's heads say "Reviewing runs git, which this
@@ -1009,9 +1027,11 @@ Dusk's are pale tints or the text's own, so it looks nearly plain. Off, it drops
 highlights. A buffer's language is its major mode, from the file's name
 on a visit and on `C-x C-w`, and set by hand with `rust-mode`, `markdown-mode`, `toml-mode`,
 `go-mode`, `typescript-mode`, `tsx-mode`, `javascript-mode`, `latex-mode`, `swift-mode` and
-`fundamental-mode` (`M-x`, no keys), which refuse an internal buffer. The six after TOML's have
-no highlighting yet: they are there for their language servers (ADR 0138). Setting a mode again,
-the same one too, gives a buffer whose highlighting stopped another try. The modeline names
+`fundamental-mode` (`M-x`, no keys), which refuse an internal buffer. Go, TypeScript, TSX and
+JavaScript are highlighted too (ADR 0147); LaTeX and Swift have no highlighting yet: they are
+there for their language servers (ADR 0138). Setting a mode again, the same one too, gives a
+buffer whose highlighting stopped another try. A file over 2 MiB, or with a line longer than
+16 KiB (minified or generated code), stays plain (ADR 0147). The modeline names
 the mode.
 
 Off by default: **line numbers** (`global-display-line-numbers-mode`). They are absolute, the

@@ -1,7 +1,8 @@
-//! The asks of a server about a buffer (ADR 0138, steps 8, 9 and 10), on the UI thread: each sent
-//! after the event's edits went to the server, who asked and where kept until its answer, and
-//! each answer routed by its kind: places to their jump or list (`places`, `xrefs`),
-//! completions to the popup (`complete`), and a description to its float (`hover`).
+//! The asks of a server about a buffer (ADR 0138, steps 8, 9, 10 and 13), on the UI thread: each
+//! sent after the event's edits went to the server, who asked and where kept until its answer,
+//! and each answer routed by its kind: places to their jump or list (`places`, `xrefs`),
+//! completions to the popup (`complete`), a description to its float (`hover`), and code
+//! actions to their list and their edits (`actions`).
 //!
 //! Must not depend on: the window system or the drawing; nothing here waits on a server.
 //!
@@ -84,9 +85,14 @@ impl App {
         // The person's `C-M-i` invokes completions; places take no context.
         let context = match kind {
             AskKind::Completion => AskContext::Completion(oso_lsp::protocol::Invoked::Invoked),
-            AskKind::Definition | AskKind::References | AskKind::Resolve | AskKind::Hover => {
-                AskContext::None
-            }
+            // Code actions are asked with their range (`actions`); this never asks them.
+            AskKind::Definition
+            | AskKind::References
+            | AskKind::Resolve
+            | AskKind::Hover
+            | AskKind::CodeAction
+            | AskKind::ResolveAction
+            | AskKind::ExecuteCommand => AskContext::None,
         };
         self.send_ask(index, (at, kind, context), who);
     }
@@ -189,6 +195,16 @@ impl App {
                 }
                 return;
             }
+            Ok(Answered::CodeActions(actions)) => {
+                self.code_actions_came(index, taken, actions);
+                return;
+            }
+            Ok(Answered::ActionResolved(resolved)) => {
+                self.code_action_resolved(index, taken, resolved);
+                return;
+            }
+            // Its edits came while it waited (step 13b).
+            Ok(Answered::Executed) => return,
             // A kind a later step asks for.
             Ok(_) => return,
             Err(why) => {

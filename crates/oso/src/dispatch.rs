@@ -641,6 +641,8 @@ mod jump_tests;
 #[cfg(test)]
 mod kill_tests;
 #[cfg(test)]
+mod listed_on_prefix_tests;
+#[cfg(test)]
 mod lsp_tests;
 #[cfg(test)]
 mod macro_tests;
@@ -660,6 +662,8 @@ mod prefix_tests;
 mod project_tests;
 #[cfg(test)]
 mod prompt_tests;
+#[cfg(test)]
+mod recent_tests;
 #[cfg(test)]
 mod recovery_tests;
 #[cfg(test)]

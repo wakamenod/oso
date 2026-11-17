@@ -14,6 +14,9 @@ tree-sitter.workspace = true
 tree-sitter-rust.workspace = true
 tree-sitter-md.workspace = true
 tree-sitter-toml-ng.workspace = true
+tree-sitter-go.workspace = true
+tree-sitter-javascript.workspace = true
+tree-sitter-typescript.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

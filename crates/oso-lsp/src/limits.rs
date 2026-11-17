@@ -85,6 +85,24 @@ pub const LOCATIONS_MAX: usize = 1000;
 pub const ADDITIONAL_EDITS_MAX: usize = 16;
 /// The most bytes of text those edits may insert in all (step 9).
 pub const ADDITIONAL_EDITS_BYTES_MAX: usize = 64 << 10;
+/// The most commands a server's `executeCommandProvider` names that are kept (step 13b).
+pub const COMMANDS_MAX: usize = 256;
+/// The most code actions kept of one answer (step 13, Q7).
+pub const CODE_ACTIONS_MAX: usize = 200;
+/// The most bytes of a code action's title, and of its kind, kept; the rest is cut (Q7).
+pub const ACTION_TITLE_BYTES_MAX: usize = 256;
+/// The most files one workspace edit may change (step 13, Q7).
+pub const EDIT_FILES_MAX: usize = 64;
+/// The most text edits one workspace edit may make, across its files (step 13, Q7b): 1,000
+/// apply in about 5 ms on the UI thread, within a frame; 10,000 took 26 to 59 ms.
+pub const EDIT_EDITS_MAX: usize = 1000;
+/// The most bytes of new text one workspace edit may insert, across its files (step 13, Q7).
+pub const EDIT_BYTES_MAX: usize = 4 << 20;
+/// The most bytes of a diagnostic's `data`, as JSON, kept to give back with an ask for code
+/// actions; past it, none is kept (step 13).
+pub const DIAGNOSTIC_DATA_BYTES_MAX: usize = 4 << 10;
+/// The most diagnostics given with one ask for code actions, those of the range (step 13).
+pub const ACTION_DIAGNOSTICS_MAX: usize = 64;
 
 /// The most bytes queued for the writer. Sync cannot drop a message, so past this the
 /// server is stopped (step 3).
@@ -95,7 +113,8 @@ pub const KEPT_VERSIONS_MAX: usize = 16;
 
 /// How long `initialize` may take (step 3).
 pub const INITIALIZE_WAIT: Duration = Duration::from_secs(60);
-/// How long a definition or references request may take (step 8).
+/// How long a definition or references request may take (step 8), and a code action's
+/// (step 13, Q7).
 pub const DEFINITION_WAIT: Duration = Duration::from_secs(10);
 /// How long a completion or hover request may take (steps 9 and 10).
 pub const COMPLETION_WAIT: Duration = Duration::from_secs(3);

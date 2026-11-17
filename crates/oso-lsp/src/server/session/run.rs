@@ -49,10 +49,39 @@ pub(super) struct Run {
     pub(super) resolves: bool,
     /// The items of the last completions it gave, as it gave them, for their resolve (9b).
     pub(super) last_items: Option<LastItems>,
+    /// What its code actions keep (step 13).
+    pub(super) actions: Actions,
 }
 
-/// The items of a document's last completions, as the server gave them: the document's id, the
-/// completions' ask's serial, and the items in the answer's order.
+/// What a run keeps of its code actions (step 13): what `initialize` said of them, the last
+/// answer's actions as the server gave them, the texts each edit's request was asked against,
+/// the commands waiting, and the `workspace/applyEdit` the UI is to answer.
+#[derive(Default)]
+pub(super) struct Actions {
+    /// Whether it offers and resolves code actions, as `initialize` said (step 13).
+    pub(super) acting: protocol::Acting,
+    /// The last code actions it gave, as it gave them, for their resolve (step 13).
+    pub(super) last_actions: Option<LastItems>,
+    /// The revisions of the texts it had as each request for code actions or a resolve went
+    /// out, by the request's id, against which their edits are placed (step 13, Q8).
+    pub(super) edit_bases: std::collections::HashMap<i64, std::collections::HashMap<u64, u64>>,
+    /// The requests of commands waiting for their answer, while which a `workspace/applyEdit`
+    /// is the UI's to answer, each with its action's title, which names that edit if the server
+    /// gives it no label (step 13b).
+    pub(super) executing: std::collections::HashMap<i64, String>,
+    /// The `workspace/applyEdit` the UI is to answer, by its token, and its id, if one waits.
+    pub(super) applying: Option<(u64, protocol::RequestId)>,
+}
+
+/// How documents are synced until `initialize` says: not at all.
+pub(super) const NO_SYNC: protocol::Sync = protocol::Sync {
+    open_close: false,
+    change: protocol::SyncKind::None,
+    save: false,
+};
+
+/// The items of a document's last completions or code actions, as the server gave them: the
+/// document's id, their ask's serial, and the items in the answer's order.
 pub(super) struct LastItems {
     pub(super) document: u64,
     pub(super) serial: u64,

@@ -280,13 +280,10 @@ impl Editor {
         if let Some((path, input)) = self.search_answer() {
             return self.give_answer_recording(path, input.as_deref());
         }
-        // A diagnostic's row is given as its file's whole path, and no history keeps it.
-        if let Some(path) = self.diagnostics_answer() {
-            return self.give_answer_recording(path, None);
-        }
-        // So is a server's place (ADR 0138, step 8b).
-        if let Some(path) = self.xrefs_answer() {
-            return self.give_answer_recording(path, None);
+        // A diagnostic's row and a server's place are given as their file's whole path, a code
+        // action by its title, and no history keeps any (ADR 0138).
+        if let Some(answer) = self.server_list_answer() {
+            return self.give_answer_recording(answer?, None);
         }
         // A project's file is given as its whole path, and kept in the history by its path
         // from the root, as the list shows it (ADR 0114).
@@ -499,6 +496,7 @@ impl Editor {
         self.forget_project_search(prompt.id);
         self.forget_diagnostics_list(prompt.id);
         self.forget_xref_list(prompt.id);
+        self.forget_code_actions(prompt.id);
         self.forget_completion_work(prompt.id);
         self.forget_draft(prompt.id);
         // A list of 100,000 is dropped on the worker (ADR 0096).

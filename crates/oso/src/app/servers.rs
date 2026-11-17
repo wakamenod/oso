@@ -1,4 +1,4 @@
-//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8, 8b, 9 and 10), on the UI thread: which server a
+//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8, 8b, 9, 10 and 13), on the UI thread: which server a
 //! buffer's open would start, starting one for a project's root and entry, what the commands
 //! ask, what each server's thread reports, the modeline's marks, and the ends that trust, the
 //! configuration and a quit bring. One server runs per root and entry. The UI thread never
@@ -8,6 +8,8 @@
 //! Must not depend on: the window system or the drawing; this keeps the servers and tells the
 //! editor what to show.
 
+mod actions;
+mod applying;
 mod asks;
 mod complete;
 mod diagnostics;
@@ -54,6 +56,13 @@ pub(super) struct Servers {
     xrefs: xrefs::Lists,
     /// Where the person's typing asks for completions once it has rested, and when (step 9b).
     typing_rest: Option<(oso_core::editor::AskAt, std::time::Instant)>,
+    /// The code actions of the list open now, and the picked one while it resolves (step 13).
+    actions: Option<actions::KeptActions>,
+    resolving: Option<actions::Picked>,
+    /// An edit waiting for the person's yes or its files' loads (step 13b).
+    pending: Option<applying::PendingEdit>,
+    /// The action whose edit applied, whose command is asked for at the next sync (13b).
+    command_next: Option<actions::Picked>,
 }
 
 /// `path` in the form a server's URI of it reads back as, as the places and reports of servers
@@ -87,6 +96,13 @@ struct Running {
     files: diagnostics::Files,
     /// What it said of its completions once initialized (step 9b).
     completing: Option<oso_lsp::protocol::Completing>,
+}
+
+impl Running {
+    /// The buffer of the document `document` open with it.
+    fn buffer_of(&self, document: u64) -> Option<BufferId> {
+        (self.documents.keys().copied()).find(|id| id.get() == document)
+    }
 }
 
 impl Servers {
@@ -197,6 +213,8 @@ impl App {
         if self.sync_documents() {
             self.mark_servers();
         }
+        // Once the edit before it went to the server (step 13b).
+        self.run_command_next();
         for request in self.editor.take_server_requests() {
             match request {
                 ServerRequest::Start(id) => self.lsp_start(id, false),
@@ -213,6 +231,12 @@ impl App {
                     self.lsp_ask(at, oso_lsp::server::AskKind::Hover, None);
                 }
                 ServerRequest::GoToXref => self.go_to_xref(),
+                // The person's only: the commands are `Person` (step 13, Q9).
+                ServerRequest::CodeActions { at, start, end } => {
+                    self.lsp_code_actions(at, (start, end));
+                }
+                ServerRequest::ApplyCodeAction => self.apply_code_action(),
+                ServerRequest::ConfirmCodeAction => self.confirm_server_edit(),
                 ServerRequest::Complete(at) => {
                     self.lsp_ask(at, oso_lsp::server::AskKind::Completion, agent);
                 }
@@ -220,6 +244,8 @@ impl App {
         }
         // After the edits went to the server: what the person typed may ask by itself.
         self.complete_as_typed();
+        // An edit waiting for its files' loads, or for a question that closed (step 13b).
+        self.step_pending_edit();
     }
 
     /// `lsp-start`, or `lsp-restart` if `again`.
@@ -302,6 +328,7 @@ impl App {
     pub(super) fn servers_reported(&mut self) {
         let mut ended = Vec::new();
         let mut answers = Vec::new();
+        let mut applies = Vec::new();
         let (mut changed, mut said, mut logged, mut diagnosed) = (false, false, false, false);
         for (index, running) in self.servers.running.iter_mut().enumerate() {
             let Some(report) = running.server.take_report() else {
@@ -359,6 +386,7 @@ impl App {
                 said = true;
             }
             answers.extend(report.answers.into_iter().map(|answer| (index, answer)));
+            applies.extend(report.apply_edits.into_iter().map(|edit| (index, edit)));
             running.completing = report.completing.or(running.completing.take());
             if report.state == State::Ended {
                 ended.push(index);
@@ -368,6 +396,21 @@ impl App {
         for (index, answer) in answers {
             self.lsp_answered(index, answer);
         }
+        for (index, edit) in applies {
+            self.server_applies_edit(index, edit);
+        }
+        self.servers_ended(ended);
+        if changed {
+            self.mark_servers();
+        }
+        if changed || said || diagnosed || (logged && self.editor.server_log_shown()) {
+            self.request_redraw();
+        }
+    }
+
+    /// Lets the servers at `ended` go, the last first so that each index still names its
+    /// server, and starts again those a buffer waits on.
+    fn servers_ended(&mut self, ended: Vec<usize>) {
         let mut again = Vec::new();
         for index in ended.into_iter().rev() {
             let mut running = self.servers.running.remove(index);
@@ -377,12 +420,6 @@ impl App {
         }
         for id in again {
             self.start_server_for(id);
-        }
-        if changed {
-            self.mark_servers();
-        }
-        if changed || said || diagnosed || (logged && self.editor.server_log_shown()) {
-            self.request_redraw();
         }
     }
 

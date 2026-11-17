@@ -61,6 +61,8 @@ impl App {
         self.sync_pane_directory();
         // Once for all the changes the event made to the sessions (ADR 0121).
         self.save_sessions();
+        // And to the recent files (ADR 0148).
+        self.sync_recent_files();
         // At once, not at the next wait: a buffer that turned secret gets no slice after this.
         self.drop_syntax();
     }
@@ -174,6 +176,7 @@ impl App {
         self.diagnostic_at_point_if_due();
         self.xrefs_if_due();
         self.completion_if_due();
+        self.review_layout_due();
         self.quit_if_idle(event_loop);
         // Last, once every deadline is known.
         self.set_wake(event_loop);
@@ -280,6 +283,7 @@ impl App {
             self.slice_deadline(),
             self.hidden_terminals_deadline(),
             self.sessions_deadline(),
+            self.review_layout_deadline(),
             self.handover_deadline(),
             self.idle_quit.next_wake(),
         ];

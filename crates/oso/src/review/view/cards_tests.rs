@@ -69,7 +69,7 @@ fn shown(reading: &Reading, cards: &Cards, folded: bool, room: usize) -> Rendere
 
 /// Each line as what its row is and its text, and under it a mark for each character's
 /// highlight: `h` a header, `@` a hunk's, `+` and `-` lines, `p` and `a` the person's and an
-/// agent's face, `o` outdated.
+/// agent's face, `o` outdated, `s` sent.
 fn grid(rendered: &Rendered) -> String {
     let rows = Rows::new(vec![Arc::clone(&rendered.section)]);
     let text = text_of(rendered);
@@ -87,6 +87,7 @@ fn grid(rendered: &Rendered) -> String {
             RowKind::Lines { .. } => "line".to_owned(),
             RowKind::Label { comment } => format!("label {}", comment.get()),
             RowKind::Card { comment } => format!("card {}", comment.get()),
+            RowKind::Filler => "filler".to_owned(),
         };
         let marks: String = line
             .char_indices()
@@ -98,6 +99,7 @@ fn grid(rendered: &Rendered) -> String {
                 Some(Highlight::CommentPerson) => 'p',
                 Some(Highlight::CommentAgent) => 'a',
                 Some(Highlight::Outdated) => 'o',
+                Some(Highlight::Sent) => 's',
                 _ => ' ',
             })
             .collect();
@@ -227,6 +229,30 @@ fn a_resolved_thread_folds_to_its_label() {
 }
 
 #[test]
+fn a_sent_comment_is_dimmed_until_it_changes() {
+    let mut review = Review::new();
+    let reading = read(&mut review, PATH, vec![hunk(1, 1, &[], &[b"x\n"])]);
+    let sent = comment(&mut review, Author::Person, line(Side::New, 1), "sent");
+    comment(&mut review, Author::Person, line(Side::New, 1), "not yet");
+    review.mark_sent(&[sent]);
+    let drawn =
+        |review: &Review| grid(&shown(&reading, &snapshot(review, PATH), false, usize::MAX));
+    let before = drawn(&review);
+    // Its bar, its label and its text, dimmed; the comment not sent keeps the person's face.
+    let wanted = "label 0  |    \u{258d}You  #0\n         |    ssssssss\ncard 0   |    \u{258d}  sent\n         |    s  ssss\nlabel 1  |    \u{258d}You  #1\n         |    pppppppp\n";
+    assert!(before.contains(wanted), "{before}");
+    // An edit makes it unsent, and it is drawn as the person's again.
+    review
+        .edit_comment(Author::Person, sent, "sent again".into())
+        .unwrap();
+    let after = drawn(&review);
+    assert!(
+        after.contains("label 0  |    \u{258d}You  #0\n         |    pppppppp\n"),
+        "{after}"
+    );
+}
+
+#[test]
 fn folded_agent_cards_show_their_first_line_and_a_mark_for_more() {
     let mut review = Review::new();
     let reading = read(&mut review, PATH, vec![hunk(1, 1, &[], &[b"x\n"])]);
@@ -319,10 +345,11 @@ fn past_the_texts_room_cards_show_their_label_alone() {
             RowKind::Label { comment: first },
             RowKind::Card { comment: first },
             RowKind::Card { comment: first },
+            // `y`, line 2, starts a run of its own after the card.
             RowKind::Lines {
                 hunk: 0,
                 side: Side::New,
-                first: 1
+                first: 2
             },
             RowKind::Label { comment: second },
         ]
@@ -496,4 +523,52 @@ fn text_lines_split_at_every_break() {
     assert_eq!(split("\n"), [""]);
     assert_eq!(split("a\r\n\r\nb\r"), ["a", "", "b"]);
     assert_eq!(split("a\n\rb"), ["a", "", "b"]);
+}
+
+#[test]
+fn a_line_after_a_card_keeps_its_own_number() {
+    let mut review = Review::new();
+    let reading = read(
+        &mut review,
+        PATH,
+        vec![hunk(
+            2,
+            2,
+            &[b"old two\n", b"old three\n"],
+            &[b"new two\n", b"new three\n", b"new four\n"],
+        )],
+    );
+    comment(
+        &mut review,
+        Author::Person,
+        line(Side::Old, 2),
+        "on old two",
+    );
+    comment(
+        &mut review,
+        Author::Person,
+        line(Side::New, 2),
+        "on new two",
+    );
+    comment(
+        &mut review,
+        Author::Agent,
+        line(Side::New, 3),
+        "on new three",
+    );
+    let rendered = shown(&reading, &snapshot(&review, PATH), false, usize::MAX);
+    let rows = Rows::new(vec![Arc::clone(&rendered.section)]);
+    let lines: Vec<_> = (0..rows.lines())
+        .filter_map(|line| rows.at(line)?.line())
+        .collect();
+    assert_eq!(
+        lines,
+        vec![
+            (Side::Old, 2),
+            (Side::Old, 3),
+            (Side::New, 2),
+            (Side::New, 3),
+            (Side::New, 4),
+        ]
+    );
 }

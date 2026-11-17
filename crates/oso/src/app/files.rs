@@ -38,9 +38,13 @@ impl App {
             let names = names.into_iter().map(OsString::from).collect();
             self.lister.look(directory, names, 0);
         }
-        for (path, limit) in self.editor.take_visits() {
-            if let Some(buffer) = self.visit(path, limit) {
+        for asked in self.editor.take_asked_visits() {
+            if let Some(buffer) = self.visit(asked.path, asked.limit) {
                 self.editor.show(buffer);
+                // The person's visit goes in the recent files once loaded (ADR 0148).
+                if asked.by == oso_core::buffer::Acted::Person {
+                    self.await_recent(buffer, asked.from_recent);
+                }
             }
             self.request_redraw();
         }

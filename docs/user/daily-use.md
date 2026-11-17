@@ -73,8 +73,14 @@ killed. `C-M-i` completes the word before point in a popup under it, as Corfu do
 typing three letters of a word and pausing, or one of the server's characters such as `.`: typing
 narrows it, `C-n` and `C-p` move (from the last back to the first), `TAB` inserts, `RET`
 inserts once you have moved, and `C-g` or any other key closes it. An item that needs a `use`
-line adds it as it goes in; when that line is out of view, the echo area says which it is. The rest comes in later
-steps.
+line adds it as it goes in; when that line is out of view, the echo area says which it is.
+`C-c C-r` lists the server's code actions for the region, or for point, such as a fix for the
+error there or a refactoring, the one the server prefers selected; `RET` applies the one picked
+to the buffers it changes, each as one step to undo, and the echo area says what changed. One the
+server disabled is faded, with its reason. An action that changes a file no buffer holds asks
+first, `apply to N files, M not open?`; `y` opens them, unshown and unsaved, and applies it. An
+action that runs a command of the server's applies what the server then changes. The rest
+comes in later steps.
 
 A server can be changed in `config.toml`:
 
@@ -366,13 +372,32 @@ In a review buffer:
 | `r` | Resolve the thread, or open it again |
 | `}`, `{` | Next and previous comment |
 | `a` | Fold the agent's comments, or show them whole |
+| `\|` | Two panes, the old side and the new side lined up, or one stream again |
 | `g` | Read the files again now |
+| `C-c C-c` | Gather your comments not sent yet into a message to the session |
 | `q` | Bury the review |
 | `?` | List these keys |
 
 A comment opens as a draft at the top: `RET` breaks a line, `C-c C-c` keeps it, and `C-g` drops
 it into the kill ring. `C-x k` closes the review, and asks first while it holds comments you
-have not sent. Sending comments to a session is not built yet.
+have not sent.
+
+`C-c C-c` in the review gathers your comments that were not sent, outside threads you resolved,
+into `*review message*`: each with its file, its line or hunk and the hunk's lines. Read it and
+change it as you like, then `C-c C-c` there pastes it into the agent session that runs in the
+review's worktree, without pressing Enter: read it in the session and press Enter there.
+`C-u C-c C-c` picks another session, which the review then keeps; with no session the message
+stays, and the echo area says how to pick or start one. `C-c C-k` drops the message. A message
+holding text yanked from a secret is not sent.
+Sent comments are drawn dimmed, and an edit makes one unsent again. A session that is asking you
+something takes no paste: answer it first, and the message waits.
+
+`|` shows the review as two panes that scroll together: the old side at the left and the new side
+at the right when the review's area is 160 columns wide or more, else one above the other.
+Blank rows keep the panes lined up; the cursor skips them. A comment shows in the pane of its
+side, a hunk's in the new side's. `|` again, or `q`, goes back to one window. Until you press
+`|`, a review shows as two panes side by side in an area 160 columns wide or more and as one
+stream below 150, judged when the width changes; `C-u |` goes back to that.
 
 ## Source control
 
@@ -512,6 +537,17 @@ The installed oso has no dev features: `oso dev` and `oso ctl` work only in a de
 Both share your configuration file and your per-user state, so a change to
 `config.toml` reaches both.
 
+## Recent files
+
+`C-x C-r` opens a file you visited recently, the most recent first, as Emacs's `recentf-open`
+does. The file you are in comes last, so `C-x C-r RET` opens the one before. `C-x b` lists the
+same files after the buffers, marked `file`, as consult-buffer does.
+
+oso keeps the last 100 files you opened or looked at, by their paths. It never keeps a file
+whose name may hold secrets, such as `.env` or anything under `~/.ssh`, and it never keeps a
+file's text. A file you choose that is gone leaves the list. An agent cannot read the list.
+To empty it, delete `recent-files` in the state directory below.
+
 ## Where things live
 
 - Configuration: `~/.config/oso/config.toml`, or `$XDG_CONFIG_HOME/oso/config.toml` when that is
@@ -519,7 +555,7 @@ Both share your configuration file and your per-user state, so a change to
 - Trusted projects: `trusted-projects`, next to `config.toml`. oso writes it when you trust or
   untrust a project.
 - State that oso keeps by itself (emergency copies, the theme chosen last, the sessions to bring
-  back):
+  back, the recent files):
   `~/Library/Application Support/oso` on macOS, `$XDG_STATE_HOME/oso` or `~/.local/state/oso` on
   Linux.
 - Images you attach to a session with `C-c C-y`: `~/Library/Caches/oso/images` on macOS,

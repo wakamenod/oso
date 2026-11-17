@@ -23,7 +23,7 @@ use oso_core::syntax::Highlight;
 
 use super::cards::{self, Cards, Placing, Plan};
 use crate::review::list::Status;
-use crate::review::{Content, Entry, Reading};
+use crate::review::{Content, Entry, Reading, hunk_header};
 
 /// What a newline in a path shows as.
 const PATH_NEWLINE: &str = "\u{2424}";
@@ -67,7 +67,7 @@ pub(super) struct Writer {
 }
 
 impl Writer {
-    fn new(path: &[u8]) -> Writer {
+    pub(super) fn new(path: &[u8]) -> Writer {
         Writer {
             bytes: Vec::new(),
             section: Section::new(path.into()),
@@ -83,7 +83,12 @@ impl Writer {
         self.bytes.len()
     }
 
-    fn done(mut self) -> Rendered {
+    /// How many lines it holds.
+    pub(super) fn rows(&self) -> usize {
+        self.section.lines() + self.pending.map_or(0, |(_, lines)| lines)
+    }
+
+    pub(super) fn done(mut self) -> Rendered {
         if let Some((kind, lines)) = self.pending.take() {
             self.section.push(kind, lines);
         }
@@ -128,7 +133,7 @@ impl Writer {
     }
 
     /// A note: one line, whatever its text holds, as a reason may come from git.
-    fn note(&mut self, text: &str) {
+    pub(super) fn note(&mut self, text: &str) {
         let text = text.replace(['\n', '\r'], " ");
         self.line(
             RowKind::Note,
@@ -190,7 +195,12 @@ fn size(bytes: u64) -> String {
 
 /// The file's header line: its status, its path (and the one it came from), its counts, and
 /// how many comments it has.
-fn header(writer: &mut Writer, entry: &Entry, counts: Option<(usize, usize)>, cards: &Cards) {
+pub(super) fn header(
+    writer: &mut Writer,
+    entry: &Entry,
+    counts: Option<(usize, usize)>,
+    cards: &Cards,
+) {
     let mut text = Vec::new();
     text.extend_from_slice(status_word(entry.status).as_bytes());
     text.extend_from_slice(b"  ");
@@ -220,7 +230,7 @@ impl std::fmt::Write for Bytes<'_> {
 }
 
 /// A line's text without its ending, and the ending it had.
-fn without_ending(line: &[u8]) -> (&[u8], Ending) {
+pub(super) fn without_ending(line: &[u8]) -> (&[u8], Ending) {
     match line {
         [rest @ .., b'\r', b'\n'] => (rest, Ending::CrLf),
         [rest @ .., b'\n'] => (rest, Ending::Lf),
@@ -229,7 +239,7 @@ fn without_ending(line: &[u8]) -> (&[u8], Ending) {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Ending {
+pub(super) enum Ending {
     Lf,
     CrLf,
     None,
@@ -254,7 +264,7 @@ impl Endings {
 
 /// The notes on line endings a text reading needs: a side whose changed lines end in CR LF
 /// where the other side's do not, and a side whose last line has no newline.
-fn ending_notes(writer: &mut Writer, hunks: &[Hunk]) {
+pub(super) fn ending_notes(writer: &mut Writer, hunks: &[Hunk]) {
     let (mut old, mut new) = (Endings::default(), Endings::default());
     for hunk in hunks {
         for line in &hunk.removed {
@@ -276,38 +286,27 @@ fn ending_notes(writer: &mut Writer, hunks: &[Hunk]) {
     }
 }
 
-/// A hunk's header, as git writes one with no context.
-fn hunk_header(hunk: &Hunk) -> String {
-    let side = |start: u32, count: usize| {
-        if count == 0 {
-            format!("{},0", start.saturating_sub(1))
-        } else if count == 1 {
-            format!("{start}")
-        } else {
-            format!("{start},{count}")
-        }
-    };
-    format!(
-        "@@ -{} +{} @@",
-        side(hunk.old_start, hunk.removed.len()),
-        side(hunk.new_start, hunk.added.len())
-    )
-}
-
 fn lines(writer: &mut Writer, plan: &mut Plan, index: usize, hunk: &Hunk, side: Side) {
     let (lines, first, sign, highlight) = match side {
         Side::Old => (&hunk.removed, hunk.old_start, b"-", Highlight::DiffRemoved),
         Side::New => (&hunk.added, hunk.new_start, b"+", Highlight::DiffAdded),
     };
-    let kind = RowKind::Lines {
-        hunk: index,
-        side,
-        first,
-    };
+    // A card after a line ends the run of lines, so the next run is numbered from its own
+    // first line, as a row's line is its run's first plus how far into the run it is.
+    let mut run_first = first;
     for (number, line) in (first..).zip(lines) {
         let (text, _) = without_ending(line);
+        let kind = RowKind::Lines {
+            hunk: index,
+            side,
+            first: run_first,
+        };
         writer.line(kind, &[(sign, Some(highlight)), (text, Some(highlight))]);
+        let before = writer.rows();
         plan.after_line(writer, side, number);
+        if writer.rows() != before {
+            run_first = number.saturating_add(1);
+        }
     }
 }
 
@@ -387,29 +386,39 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Rendered 
             // Every thread has its place by now; this keeps any that did not.
             plan.rest(&mut writer);
         }
-        Content::Binary { old, new } => {
-            writer.note(&format!("binary: {} \u{2192} {}", size(*old), size(*new)));
+        content => {
+            if let Some(note) = content_note(entry, content) {
+                writer.note(&note);
+            }
         }
-        Content::TooLarge { old, new } => writer.note(&format!(
-            "too large to show: {} \u{2192} {}",
-            size(*old),
-            size(*new)
-        )),
-        Content::OutOfTime => writer.note("not read in time: g reads it again"),
-        Content::Withheld => writer.note("may hold secrets: not shown"),
-        Content::Conflicted => writer.note("conflicted: not shown"),
-        Content::Submodule => writer.note(&format!(
-            "submodule: {} \u{2192} {}",
-            short(entry.old_id.as_str()),
-            short(entry.new_id.as_str())
-        )),
-        Content::Unreadable(why) => writer.note(&format!("cannot be read: {why}")),
     }
     // A file that may hold secrets shows only how many comments it has.
     if shape.is_none() && !matches!(reading.content, Content::Withheld) {
         plan.rest(&mut writer);
     }
     writer.done()
+}
+
+/// What a reading that is not text shows in its place, as a note: `None` for text.
+pub(super) fn content_note(entry: &Entry, content: &Content) -> Option<String> {
+    Some(match content {
+        Content::Text { .. } => return None,
+        Content::Binary { old, new } => {
+            format!("binary: {} \u{2192} {}", size(*old), size(*new))
+        }
+        Content::TooLarge { old, new } => {
+            format!("too large to show: {} \u{2192} {}", size(*old), size(*new))
+        }
+        Content::OutOfTime => "not read in time: g reads it again".to_owned(),
+        Content::Withheld => "may hold secrets: not shown".to_owned(),
+        Content::Conflicted => "conflicted: not shown".to_owned(),
+        Content::Submodule => format!(
+            "submodule: {} \u{2192} {}",
+            short(entry.old_id.as_str()),
+            short(entry.new_id.as_str())
+        ),
+        Content::Unreadable(why) => format!("cannot be read: {why}"),
+    })
 }
 
 /// An object id cut to its first 12 digits, or `none` for no object.

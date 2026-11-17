@@ -1,6 +1,7 @@
 //! What the app keeps of its reviews (ADR 0122): each open review's threads and the text that
 //! waits to go in, each project's session baseline and the threads taking one, the menu's
-//! counting threads and the root they run in, and the choices over them that need no window.
+//! counting threads and the root they run in, the message waiting to be sent and the session
+//! picked for each review (step 12), and the choices over them that need no window.
 //!
 //! Must not depend on: the editor's state beyond what a caller hands in, key presses or how a
 //! frame is drawn. Nothing here runs git: it starts, revokes and drops the threads that do.
@@ -8,7 +9,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use oso_core::editor::ReviewId;
+use oso_core::editor::{ReviewArea, ReviewId};
 use oso_core::project::ProjectId;
 use oso_core::window::{Screen, ViewSize, WindowId};
 
@@ -37,6 +38,8 @@ pub(super) struct Running {
     /// The readings whose comments the review's own thread carries, in the order asked, which
     /// is the order it answers.
     pub(super) carrying: VecDeque<Arc<Reading>>,
+    /// How it shows: unified or as its two panes (ADR 0122, step 11).
+    pub(super) layout: super::layout::Layout,
     /// Whether the view was last told that agent cards fold.
     pub(super) folded: bool,
     /// Whether agent cards fold in the text the review buffer holds, which may still be one
@@ -99,6 +102,9 @@ pub(in crate::app) struct Reviews {
     pub(super) next_serial: u64,
     /// Room for the paths of the files a review's windows show.
     pub(super) shown: Vec<Box<[u8]>>,
+    /// The areas of the frame reviews show in, as last looked at, and what each wants.
+    pub(super) areas: Vec<ReviewArea>,
+    pub(super) judge: super::judge::Judge,
     /// Room for the rows a review window shows, to find the comments read.
     pub(super) screen: Screen,
     /// Whether the person's own input came since reading marks were last looked for: what the
@@ -107,6 +113,8 @@ pub(in crate::app) struct Reviews {
     /// The selected window, its first row's offset, its size and its buffer's revision when
     /// reading marks were last looked for: the same view of the same text shows nothing new.
     pub(super) looked: Option<(WindowId, usize, ViewSize, u64)>,
+    /// The review message waiting to be sent, and the session picked for each review (step 12).
+    pub(super) sending: super::send::Sending,
 }
 
 impl Reviews {

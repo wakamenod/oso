@@ -28,6 +28,7 @@ struct Seen {
     diagnosed: Vec<oso_lsp::server::Diagnosed>,
     answers: Vec<oso_lsp::server::Answer>,
     completing: Option<oso_lsp::protocol::Completing>,
+    apply_edits: Vec<oso_lsp::server::ApplyEdit>,
     dir: PathBuf,
 }
 
@@ -84,6 +85,7 @@ fn started(name: &str, script: &Value, gate: Gate) -> Seen {
         diagnosed: Vec::new(),
         answers: Vec::new(),
         completing: None,
+        apply_edits: Vec::new(),
         dir,
     }
 }
@@ -115,6 +117,7 @@ impl Seen {
         self.documents.extend(report.documents);
         self.diagnosed.extend(report.diagnostics);
         self.answers.extend(report.answers);
+        self.apply_edits.extend(report.apply_edits);
         if report.completing.is_some() {
             self.completing = report.completing;
         }
@@ -207,7 +210,9 @@ fn a_server_starts_answers_and_shuts_down() {
         .map(|answer| serde_json::from_str(answer).unwrap())
         .collect();
     assert_eq!(answers[0]["result"], json!([{"x": "y"}, null]));
-    assert_eq!(answers[1]["result"], json!({"applied": false}));
+    // No command of its waits: its edit is refused, and says why (step 13b).
+    assert_eq!(answers[1]["result"]["applied"], json!(false));
+    assert!(answers[1]["result"]["failureReason"].is_string());
     assert_eq!(answers[2]["error"]["code"], json!(-32601));
     assert_eq!(seen.shown, [(Severity::Warning, "careful".to_owned())]);
     seen.server.shut_down();
@@ -496,6 +501,7 @@ fn a_crash_ends_what_the_server_left_in_its_group() {
         diagnosed: Vec::new(),
         answers: Vec::new(),
         completing: None,
+        apply_edits: Vec::new(),
         dir,
     };
     seen.until(LIMIT, |seen| {
@@ -1466,5 +1472,286 @@ fn a_description_is_asked_at_its_position_and_its_text_is_never_logged() {
         seen.answers.pop().unwrap().outcome,
         Err(AskFailure::Overdue)
     );
+    seen.server.shut_down();
+}
+
+/// The fake server's script for code actions over the document at `here`: a report with a
+/// diagnostic of a numeric code and `data`, an answer of each kind of action, and a resolve.
+fn code_action_script(here: &str) -> Value {
+    // A file no document open with the server holds, as a URI of this system names one: on
+    // Windows a `file:` URI has a drive.
+    let elsewhere =
+        oso_lsp::uri::from_path(&std::env::temp_dir().join("oso-elsewhere").join("b.rs"))
+            .expect("an absolute path");
+    let range = |line: u32, start: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}});
+    json!({
+        "rules": [
+            {"method": "initialize", "do": [{"reply": {"capabilities": {
+                "positionEncoding": "utf-16",
+                "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+                "codeActionProvider": {"resolveProvider": true},
+            }}}]},
+            {"method": "textDocument/didOpen", "nth": 1, "do": [
+                {"notify": {"method": "textDocument/publishDiagnostics", "params": {
+                    "uri": here,
+                    "version": 1,
+                    "diagnostics": [
+                        {"range": range(1, 4, 5), "severity": 1, "code": 2304, "message": "Cannot find", "data": {"fix": 7}},
+                        {"range": range(0, 0, 2), "severity": 2, "message": "elsewhere"},
+                    ],
+                }}}
+            ]},
+            {"method": "textDocument/codeAction", "do": [{"reply": [
+                {"title": "Import `x`", "kind": "quickfix", "isPreferred": true, "edit": {"documentChanges": [
+                    {"textDocument": {"uri": here, "version": 1}, "edits": [{"range": range(0, 0, 0), "newText": "use x;\n"}]},
+                ]}},
+                {"title": "Rename to y", "kind": "refactor", "data": {"id": 1}},
+                {"title": "Run it", "command": "fake.run"},
+                {"title": "Elsewhere", "edit": {"changes": {elsewhere: [{"range": range(0, 0, 0), "newText": "x"}]}}},
+                {"title": "Old", "edit": {"documentChanges": [
+                    {"textDocument": {"uri": here, "version": 0}, "edits": [{"range": range(0, 0, 0), "newText": "x"}]},
+                ]}},
+            ]}]},
+            {"method": "codeAction/resolve", "do": [{"reply": {
+                "title": "Rename to y",
+                "edit": {"changes": {here: [{"range": range(1, 4, 5), "newText": "y"}]}},
+            }}]},
+            {"method": "shutdown", "do": [{"reply": null}]},
+        ],
+        "log_documents": true,
+        "log_positions": true,
+        "encoding": "utf-16",
+    })
+}
+
+#[test]
+fn code_actions_are_asked_over_a_range_with_its_diagnostics_and_their_edits_placed() {
+    use oso_lsp::server::{Answered, AskContext, AskKind};
+    let dir = scratch("code-actions");
+    let here = oso_lsp::uri::from_path(&dir.join("a.rs")).unwrap();
+    let script = code_action_script(&here);
+    let mut seen = started("code-actions", &script, open());
+    opened(&mut seen, 1, &here, "fn a() {}\nlet x = 1;\n");
+    seen.until(LIMIT, |seen| !seen.diagnosed.is_empty());
+    let offset = "fn a() {}\nlet ".len();
+    seen.server.ask(oso_lsp::server::Ask {
+        serial: 5,
+        document: 1,
+        kind: AskKind::CodeAction,
+        revision: 7,
+        offset,
+        context: AskContext::Range {
+            start: offset,
+            end: offset + 1,
+        },
+    });
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    // The range, and only the diagnostic there, as the server gave it. Its standard error comes
+    // in its own time, after the answer on some systems: waited for.
+    seen.until(LIMIT, |seen| {
+        seen.logged(r#"asked textDocument/codeAction 1:4-1:5 1 diagnostics=[{"code":2304,"data":{"fix":7},"message":"Cannot find","range":{"end":{"character":5,"line":1},"start":{"character":4,"line":1}},"severity":1}]"#)
+    });
+    let Ok(Answered::CodeActions(actions)) = seen.answers.pop().unwrap().outcome else {
+        panic!("code actions")
+    };
+    let [import, rename, run, elsewhere, old] = &actions.actions[..] else {
+        panic!("{actions:?}")
+    };
+    assert!(import.preferred);
+    let edit = import.edit.as_ref().unwrap().as_ref().unwrap();
+    assert_eq!(edit.open.len(), 1);
+    assert_eq!((edit.open[0].document, edit.open[0].revision), (1, 7));
+    assert_eq!(edit.open[0].edits, [(0..0, "use x;\n".to_owned())]);
+    assert!(rename.edit.is_none() && rename.resolves);
+    assert!(
+        run.command.is_some() && !run.resolves,
+        "a bare command is never resolved"
+    );
+    let elsewhere = elsewhere.edit.as_ref().unwrap().as_ref().unwrap();
+    assert_eq!(
+        (elsewhere.open.len(), elsewhere.unsent.len()),
+        (0, 1),
+        "a file not open"
+    );
+    assert!(
+        old.edit.as_ref().unwrap().is_err(),
+        "made for an older text"
+    );
+    // The picked one resolves, by the answer's serial and its place.
+    seen.server.ask(oso_lsp::server::Ask {
+        serial: 6,
+        document: 1,
+        kind: AskKind::ResolveAction,
+        revision: 7,
+        offset,
+        context: AskContext::Item {
+            answer: 5,
+            index: 1,
+        },
+    });
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    let Ok(Answered::ActionResolved(resolved)) = seen.answers.pop().unwrap().outcome else {
+        panic!("resolved")
+    };
+    assert_eq!((resolved.answer, resolved.index), (5, 1));
+    let edit = resolved.edit.unwrap().unwrap();
+    assert_eq!(edit.open[0].edits, [(offset..offset + 1, "y".to_owned())]);
+    seen.server.shut_down();
+}
+
+#[test]
+fn an_edit_of_a_buffer_changed_while_the_server_answered_is_refused_and_64_diagnostics_go() {
+    use oso_lsp::limits::ACTION_DIAGNOSTICS_MAX;
+    use oso_lsp::server::{Answered, AskContext, AskKind, Change};
+    let dir = scratch("code-actions-late");
+    let here = oso_lsp::uri::from_path(&dir.join("a.rs")).unwrap();
+    let range = |line: u32, start: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}});
+    let many: Vec<Value> = (0..ACTION_DIAGNOSTICS_MAX + 6)
+        .map(|n| json!({"range": range(0, 0, 3), "message": format!("d{n}")}))
+        .collect();
+    let script = json!({
+        "rules": [
+            {"method": "initialize", "do": [{"reply": {"capabilities": {
+                "positionEncoding": "utf-16",
+                "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+                "codeActionProvider": true,
+            }}}]},
+            {"method": "textDocument/didOpen", "nth": 1, "do": [
+                {"notify": {"method": "textDocument/publishDiagnostics", "params": {
+                    "uri": &here, "version": 1, "diagnostics": many,
+                }}}
+            ]},
+            {"method": "textDocument/codeAction", "do": [
+                // Long enough for the change below to go first on a slow runner.
+                {"sleep_ms": 2000},
+                {"reply": [{"title": "Late", "edit": {"changes": {here.clone(): [{"range": range(0, 0, 0), "newText": "x"}]}}}]},
+            ]},
+            {"method": "shutdown", "do": [{"reply": null}]},
+        ],
+        "log_documents": true,
+        "log_positions": true,
+        "encoding": "utf-16",
+    });
+    let mut seen = started("code-actions-late", &script, open());
+    opened(&mut seen, 1, &here, "let x = 1;\n");
+    seen.until(LIMIT, |seen| !seen.diagnosed.is_empty());
+    seen.server.ask(oso_lsp::server::Ask {
+        serial: 5,
+        document: 1,
+        kind: AskKind::CodeAction,
+        revision: 7,
+        offset: 1,
+        context: AskContext::Range { start: 1, end: 1 },
+    });
+    // The fake server's own line, which comes in its own time: oso's log says
+    // `asked textDocument/codeAction (request …)` as it asks, which is not it.
+    let at_most =
+        format!("asked textDocument/codeAction 0:1-0:1 {ACTION_DIAGNOSTICS_MAX} diagnostics=");
+    seen.until(LIMIT, |seen| seen.logged(&at_most));
+    // The buffer changes while the server answers.
+    seen.server.change(Change {
+        id: 1,
+        before: oso_core::rope::Rope::from("let x = 1;\n"),
+        after: oso_core::rope::Rope::from("let y = 1;\n"),
+        splices: None,
+        revision: 8,
+    });
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    let Ok(Answered::CodeActions(actions)) = seen.answers.pop().unwrap().outcome else {
+        panic!("code actions")
+    };
+    assert_eq!(
+        actions.actions[0].edit,
+        Some(Err(
+            "a buffer it edits changed while the server answered".to_owned()
+        ))
+    );
+    seen.server.shut_down();
+}
+
+#[test]
+fn a_declared_command_runs_and_its_edit_waits_for_the_answer_an_undeclared_one_is_refused() {
+    use oso_lsp::server::{Answered, AskContext, AskKind};
+    let dir = scratch("code-action-command");
+    let here = oso_lsp::uri::from_path(&dir.join("a.rs")).unwrap();
+    let range = |line: u32, start: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}});
+    let script = json!({
+        "rules": [
+            {"method": "initialize", "do": [{"reply": {"capabilities": {
+                "positionEncoding": "utf-16",
+                "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+                "codeActionProvider": true,
+                "executeCommandProvider": {"commands": ["fake.fix"]},
+            }}}]},
+            {"method": "textDocument/codeAction", "do": [{"reply": [
+                {"title": "Fix it", "command": {"title": "Fix it", "command": "fake.fix", "arguments": [3]}},
+                {"title": "Run tests", "command": "fake.run"},
+            ]}]},
+            {"method": "workspace/executeCommand", "do": [
+                {"request": {"method": "workspace/applyEdit", "params": {"label": "Fixed", "edit": {
+                    "changes": {&here: [{"range": range(0, 4, 5), "newText": "y"}]},
+                }}}},
+                // A second while the first waits is refused.
+                {"request": {"method": "workspace/applyEdit", "params": {"edit": {"changes": {}}}}},
+                {"sleep_ms": 400},
+                {"reply": null},
+            ]},
+            {"method": "shutdown", "do": [{"reply": null}]},
+        ],
+        "log_documents": true,
+        "log_answers": true,
+        "encoding": "utf-16",
+    });
+    let mut seen = started("code-action-command", &script, open());
+    opened(&mut seen, 1, &here, "let x = 1;\n");
+    seen.server.ask(oso_lsp::server::Ask {
+        serial: 5,
+        document: 1,
+        kind: AskKind::CodeAction,
+        revision: 7,
+        offset: 4,
+        context: AskContext::Range { start: 4, end: 4 },
+    });
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    let Ok(Answered::CodeActions(actions)) = seen.answers.pop().unwrap().outcome else {
+        panic!("code actions")
+    };
+    assert_eq!(actions.actions[0].command.as_deref(), Some("fake.fix"));
+    let execute = |seen: &Seen, serial: u64, index: usize| {
+        seen.server.ask(oso_lsp::server::Ask {
+            serial,
+            document: 1,
+            kind: AskKind::ExecuteCommand,
+            revision: 7,
+            offset: 4,
+            context: AskContext::Item { answer: 5, index },
+        });
+    };
+    // One the server did not declare never reaches it.
+    execute(&seen, 6, 1);
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    let refused = seen.answers.pop().unwrap().outcome;
+    assert!(
+        matches!(&refused, Err(oso_lsp::server::AskFailure::Other(why)) if why.contains("did not declare")),
+        "{refused:?}"
+    );
+    // A declared one runs, with its arguments; its edit waits for the UI's answer.
+    execute(&seen, 7, 0);
+    seen.until(LIMIT, |seen| !seen.apply_edits.is_empty());
+    let asked = seen.apply_edits.pop().unwrap();
+    assert_eq!(asked.label.as_deref(), Some("Fixed"));
+    let edit = asked.edit.unwrap();
+    assert_eq!(edit.open[0].edits, [(4..5, "y".to_owned())]);
+    assert!(seen.apply_edits.is_empty(), "only the first waits");
+    seen.until(LIMIT, |seen| seen.logged(r#""applied":false"#));
+    // An answer of another token is let go; the edit's own is answered.
+    seen.server.answer_apply_edit(asked.token + 100, Ok(()));
+    seen.server.answer_apply_edit(asked.token, Ok(()));
+    seen.until(LIMIT, |seen| seen.logged(r#""applied":true"#));
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert!(matches!(
+        seen.answers.pop().unwrap().outcome,
+        Ok(Answered::Executed)
+    ));
     seen.server.shut_down();
 }

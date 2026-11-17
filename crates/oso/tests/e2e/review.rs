@@ -281,3 +281,71 @@ fn a_comment_is_drafted_kept_edited_removed_and_yanked_back() {
     let text = rows(&mut app, 20).join("\n");
     assert!(text.ends_with("You  #0\nfirst\nsecond"), "{text:?}");
 }
+
+/// How many windows the frame shows.
+fn window_count(app: &mut App) -> usize {
+    app.state()["windows"].as_array().map_or(0, Vec::len)
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn bar_shows_the_two_panes_in_step_and_the_one_stream_again() {
+    let scratch = Scratch::new("review-panes");
+    let mut app = open_review(&scratch);
+    // On `+2`, the hunk's added line.
+    app.send_keys("n C-n C-n");
+    assert_eq!(cursor(&app.state()), (4, 0));
+
+    // `|`: the new side's pane holds the cursor, beside `-two` in the old one.
+    app.send_keys("|");
+    let state = app.wait_for("the panes", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review \u{b7} new*"
+    });
+    assert_eq!(cursor(&state), (3, 0));
+    assert_eq!(window_count(&mut app), 2);
+    let new = rows_until(&mut app, "+fn b() {}");
+    assert_eq!(new[3], "+2", "{new:?}");
+    app.send_keys("C-x o");
+    assert_eq!(
+        app.state()["buffer"]["name"],
+        "*review: uncommitted proj-review \u{b7} old*"
+    );
+    let old = rows(&mut app, new.len());
+    assert_eq!(
+        old.len(),
+        new.len(),
+        "the panes are in step: {old:?} {new:?}"
+    );
+    assert_eq!(old[3], "-two", "{old:?}");
+    // b.rs is new: its added line stands beside a filler row.
+    let at = new.iter().position(|row| row == "+fn b() {}").unwrap();
+    assert_eq!(old[at], "", "{old:?}");
+
+    // A comment from a pane goes on its side's line.
+    app.send_keys("C-x o c");
+    assert_eq!(
+        prompt_label(&mut app).as_deref(),
+        Some("Comment on a.rs L2 (new)")
+    );
+    app.send_keys("C-g");
+
+    // `|` again: one stream, on the same line.
+    app.send_keys("|");
+    let state = app.wait_for("the one stream", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+    });
+    assert_eq!(cursor(&state), (4, 0));
+    assert_eq!(window_count(&mut app), 1);
+
+    // Two panes again, then `C-u |`: as the width has it, and this window is under 150 columns.
+    app.send_keys("|");
+    app.wait_for("the panes again", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review \u{b7} new*"
+    });
+    app.send_keys("C-u |");
+    let state = app.wait_for("the one stream by the width", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+    });
+    assert_eq!(state["echo"], "Two panes or one by the width");
+    assert_eq!(window_count(&mut app), 1);
+}

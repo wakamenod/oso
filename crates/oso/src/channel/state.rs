@@ -336,7 +336,9 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     ArgSpec::Text { .. } => "text",
                     ArgSpec::TextOnPrefix { .. } => "optional text",
                     // With no prefix it reads nothing, and the channel gives no prefix.
-                    ArgSpec::DirectoryAndTextOnPrefix { .. } => "none",
+                    ArgSpec::DirectoryAndTextOnPrefix { .. } | ArgSpec::ListedOnPrefix { .. } => {
+                        "none"
+                    }
                     // The name of a buffer `C-x b` lists (ADR 0094).
                     ArgSpec::Buffer {
                         purpose: BufferPurpose::Switch,
@@ -352,9 +354,11 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     | ArgSpec::ListedAndNoteUnlessRegion { .. }
                     | ArgSpec::Menu { .. }
                     | ArgSpec::Buffer { .. }
+                    | ArgSpec::RecentFile { .. }
                     | ArgSpec::Mark { .. }
                     | ArgSpec::Diagnostics { .. }
                     | ArgSpec::Xref
+                    | ArgSpec::CodeAction
                     | ArgSpec::File { .. }
                     | ArgSpec::Directory { .. }
                     | ArgSpec::Target { .. }

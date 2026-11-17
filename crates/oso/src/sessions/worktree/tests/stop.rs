@@ -9,10 +9,20 @@ use std::fs;
 use std::time::{Duration, Instant};
 
 use super::super::jobs::{
-    Asked, Phase, Report, STOPPED_BEFORE_GIT, STOPPED_IN_GIT, Snapshot, Stop,
+    Asked, Jobs, Phase, Report, STOPPED_BEFORE_GIT, STOPPED_IN_GIT, Snapshot, Stop,
 };
 use super::Scratch;
 use super::jobs::{jobs, merged, next, slowed, trust};
+
+/// Waits until no removal runs, failing past 10 s. A job reports its end before its thread
+/// lets go of the removal's entry, so a loaded machine can see it a moment after the report.
+fn none_run(jobs: &Jobs) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !jobs.running_removals().is_empty() {
+        assert!(Instant::now() < deadline, "a removal still runs");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
 
 #[test]
 fn a_removal_stopped_before_git_runs_removes_nothing() {
@@ -59,7 +69,7 @@ fn a_removal_stopped_before_git_runs_removes_nothing() {
         }
     }
     assert!(one.join("a.txt").is_file(), "nothing was removed");
-    assert!(jobs.running_removals().is_empty());
+    none_run(&jobs);
     assert_eq!(jobs.stop_removal_confirmed(1), Stop::Ended, "it has ended");
 }
 
@@ -156,5 +166,5 @@ fn a_removal_waiting_for_a_thread_can_be_stopped_and_then_runs_nothing() {
     let third = ended.iter().find(|(token, _)| *token == 3).unwrap();
     assert_eq!(third.1, Err(STOPPED_BEFORE_GIT.into()));
     assert!(three.join("a.txt").is_file(), "nothing was removed");
-    assert!(jobs.running_removals().is_empty());
+    none_run(&jobs);
 }

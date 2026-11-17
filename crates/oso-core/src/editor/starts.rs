@@ -1,6 +1,7 @@
 //! What runs when a buffer is opened or saved, and what waits for the person (ADR 0118): an
 //! agent's open or save starts no program, and marks the buffer instead; the person's first
-//! command there, or their next save of it, lets the mark go.
+//! command there, or their next save of it, lets the mark go. That command also puts its
+//! buffer's file first in the recent files (ADR 0148), an agent's open with it.
 //!
 //! Must not depend on: threads, processes or the host's servers. The host says what would start
 //! for the person, as its settings and the project's trust are, and starts what these return.
@@ -81,12 +82,15 @@ impl Editor {
     /// [`Self::take_released_starts`]. Not for a command the agent channel ran, nor for the one
     /// the person's `y` to its question ran, which is the agent's; the host does not call it for
     /// the answer to the agent's question itself (Q11), nor for what is no input of the
-    /// person's. The person's open is then theirs: [`crate::buffer::Buffer::open_let_go`].
+    /// person's. The person's open is then theirs: [`crate::buffer::Buffer::open_let_go`]. The
+    /// selected window's file also goes first in the recent files (ADR 0148).
     pub fn note_persons_command(&mut self) {
         if self.runs_for_agent() {
             return;
         }
         let id = self.window().buffer();
+        // Its file goes first in the recent files, an agent's open with it (ADR 0148).
+        self.note_recent_visit(id);
         let Some(buffer) = self.buffer_mut(id) else {
             return;
         };

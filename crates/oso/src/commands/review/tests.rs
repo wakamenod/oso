@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use oso_core::buffer::{Baseline, Buffer};
 use oso_core::command::{Args, Ctx, Invocation};
-use oso_core::editor::{Editor, ReviewId, ReviewRequest, ScopeKind};
+use oso_core::editor::{Editor, ReviewChoice, ReviewId, ReviewRequest, ScopeKind};
 use oso_core::load::decode_all;
 use oso_core::project::{Found, ProjectId, RootIdentity, TrustList};
 use oso_core::review::{
@@ -349,7 +349,7 @@ fn g_refreshes_q_buries_and_question_mark_lists_the_keys() {
     assert_eq!(keys.name(), "*Review keys*");
     let text = keys.text().to_string();
     for (key, name) in super::KEYS {
-        assert!(text.contains(&format!("{key:<6}{name}")), "{key} {name}");
+        assert!(text.contains(&format!("{key:<8}{name}")), "{key} {name}");
     }
     assert!(text.contains("Move every cursor to the header of the Nth next hunk"));
     // A second `?` reuses the buffer.
@@ -421,4 +421,88 @@ fn reviews_start_from_the_shown_buffers_project_or_the_shown_reviews() {
     assert_eq!(super::review_project(&editor), Some(project));
     assert_eq!(run(&mut editor, "review-staged", Args::NONE).0, Ok(()));
     assert_eq!(super::review_project(&Editor::default()), None);
+}
+
+/// [`TEXT`] as two panes: b's new line beside a filler row, as is a's second.
+fn put_panes(editor: &mut Editor, review: ReviewId) {
+    let head = "Review\nmodified  a  +2 \u{2212}1\n@@ -1 +1,2 @@\n";
+    let old = format!("{head}-x\n\nadded  b  +1 \u{2212}0\n@@ -0,0 +1 @@\n\n");
+    let new = format!("{head}+y\n+z\nadded  b  +1 \u{2212}0\n@@ -0,0 +1 @@\n+w\n");
+    let pane = |text: &str, side: Side| {
+        let mut title = Section::new(Box::default());
+        title.push(RowKind::Note, 1);
+        let lines = |first| RowKind::Lines {
+            hunk: 0,
+            side,
+            first,
+        };
+        let (mut a, mut b) = (
+            Section::new(b"a".as_slice().into()),
+            Section::new(b"b".as_slice().into()),
+        );
+        a.push(RowKind::File, 1);
+        a.push(RowKind::Hunk { hunk: 0 }, 1);
+        b.push(RowKind::File, 1);
+        b.push(RowKind::Hunk { hunk: 0 }, 1);
+        if side == Side::Old {
+            a.push(lines(1), 1);
+            a.push(RowKind::Filler, 1);
+            b.push(RowKind::Filler, 1);
+        } else {
+            a.push(lines(1), 2);
+            b.push(lines(1), 1);
+        }
+        let rows = Rows::new(vec![Arc::new(title), Arc::new(a), Arc::new(b)]);
+        let loaded = decode_all(text.as_bytes(), Default::default()).compared_with(&Rope::new());
+        (loaded, rows, Highlights::new(text.len()))
+    };
+    let _ = editor.set_review_panes(review, pane(&old, Side::Old), pane(&new, Side::New));
+}
+
+#[test]
+fn bar_asks_for_two_panes_or_one_stream_and_a_filler_row_takes_no_comment() {
+    let (mut editor, project) = in_project(true);
+    editor.set_frame_size(oso_core::frame::FrameSize {
+        rows: 30,
+        columns: 200,
+    });
+    let review = with_review(&mut editor, project);
+    assert_eq!(editor.review_choice(review), ReviewChoice::Auto);
+    assert_eq!(
+        run(&mut editor, "review-toggle-panes", Args::NONE).0,
+        Ok(())
+    );
+    assert_eq!(editor.review_choice(review), ReviewChoice::Panes);
+    // As the host does once the panes' texts come.
+    put_panes(&mut editor, review);
+    let window = editor.window().id();
+    editor
+        .show_review_panes(window, oso_core::frame::Way::Across)
+        .unwrap();
+    editor.select_window(window);
+    // On a's filler row in the old pane, as no motion leaves a cursor.
+    put_at(&mut editor, &[4]);
+    assert_eq!(
+        run(&mut editor, "review-comment", Args::NONE).0,
+        Err("Nothing to comment on here".to_owned())
+    );
+    assert_eq!(
+        run(&mut editor, "review-toggle-panes", Args::NONE).0,
+        Ok(())
+    );
+    assert_eq!(editor.review_choice(review), ReviewChoice::Unified);
+    // Chosen, `|` turns the choice wherever it is pressed, as in an area too small for panes.
+    assert_eq!(
+        run(&mut editor, "review-toggle-panes", Args::NONE).0,
+        Ok(())
+    );
+    assert_eq!(editor.review_choice(review), ReviewChoice::Panes);
+    // `C-u |`: as the width has it again, whatever was chosen.
+    let universal = Args::with_prefix(Some(oso_core::command::Prefix::universal(None)));
+    assert_eq!(run(&mut editor, "review-toggle-panes", universal).0, Ok(()));
+    assert_eq!(editor.review_choice(review), ReviewChoice::Auto);
+    // `q` in a pane buries the pair: one window, back to what it showed before.
+    assert_eq!(run(&mut editor, "review-quit", Args::NONE).0, Ok(()));
+    assert_eq!(editor.pair_of(window), None);
+    assert_eq!(editor.review_of(editor.window().buffer()), None);
 }

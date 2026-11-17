@@ -7,15 +7,18 @@ use std::ops::Range;
 use std::time::{Duration, Instant};
 
 use oso_core::rope::Rope;
-use oso_core::syntax::Highlight::{self, Comment, Constant, Function, Keyword, Markup, Property};
+use oso_core::syntax::Highlight::{
+    self, Comment, Constant, Function, Keyword, Markup, Property, Type,
+};
 use oso_core::syntax::Splice;
 
 use super::fence::MAX_FENCE_BYTES;
+use super::highlight::Piece;
 use super::highlight_tests::{highlighted, runs};
 use super::tests::LONG;
 use super::{Document, Failure, Highlighted};
 use crate::language::Language;
-use crate::queries::Queries;
+use crate::queries::{Kind, Queries};
 
 type Runs = Vec<(Range<usize>, Option<Highlight>)>;
 
@@ -56,6 +59,105 @@ fn rust_and_toml_fences_take_their_grammars() {
         ("g", Function),
     ] {
         assert!(has(text, part, highlight), "{part:?} as {highlight:?}");
+    }
+}
+
+#[test]
+fn go_fences_take_their_grammar() {
+    let text = "```go\nfunc main() {} // c\n```\n\n```Golang\nconst N = 7\n```\n";
+    for (part, highlight) in [
+        ("main", Function),
+        ("// c", Comment),
+        ("const", Keyword),
+        ("N", Constant),
+    ] {
+        assert!(has(text, part, highlight), "{part:?} as {highlight:?}");
+    }
+    assert!(plain("```gopher\nfunc f() {}\n```\n", "func f() {}"));
+}
+
+/// A fence's grammar's query is compiled when a fence of it is first met, not with Markdown's
+/// (ADR 0147).
+#[test]
+fn a_fences_query_is_compiled_at_its_first_fence() {
+    let mut queries = Queries::new();
+    let mut document = Document::new(Language::Markdown, Rope::from("# Notes\n\n*text*\n"));
+    assert_eq!(
+        document.highlight(&mut queries, &[], LONG),
+        Highlighted::Done
+    );
+    let fenced = Language::ALL
+        .into_iter()
+        .filter(|language| !matches!(language, Language::Markdown | Language::MarkdownInline));
+    for language in fenced {
+        assert!(
+            queries.get(Kind::Highlights(language)).is_none(),
+            "{language:?}"
+        );
+    }
+    let mut document = Document::new(Language::Markdown, Rope::from("```go\nfunc f() {}\n```\n"));
+    assert_eq!(
+        document.highlight(&mut queries, &[], LONG),
+        Highlighted::Done
+    );
+    assert!(queries.get(Kind::Highlights(Language::Go)).is_some());
+    assert!(queries.get(Kind::Highlights(Language::Rust)).is_none());
+}
+
+/// A piece that compiles a fence's query is done again, and not judged by the time compiling
+/// took, so a slow compile never fails a document as too slow (ADR 0147).
+#[test]
+fn a_piece_that_compiles_a_query_is_done_again() {
+    let text = "Text.\n\n```rust\nfn f() {}\n```\n\n```go\nfunc g() {}\n```\n";
+    let mut queries = Queries::new();
+    let mut document = Document::new(Language::Markdown, Rope::from(text));
+    assert_eq!(document.parse(LONG), super::Parsed::Done);
+    assert!(queries.prepare(Kind::Injections));
+    assert!(queries.prepare(Kind::Highlights(Language::Markdown)));
+    assert!(queries.prepare(Kind::Highlights(Language::MarkdownInline)));
+    let deadline = Instant::now() + LONG;
+    // One query a call: Rust's, then Go's, then the piece is done.
+    let (_, first) = document.highlight_piece(&mut queries, 0..text.len(), deadline);
+    assert!(matches!(first, Piece::Compiled));
+    assert!(queries.get(Kind::Highlights(Language::Rust)).is_some());
+    assert!(queries.get(Kind::Highlights(Language::Go)).is_none());
+    let (_, second) = document.highlight_piece(&mut queries, 0..text.len(), deadline);
+    assert!(matches!(second, Piece::Compiled));
+    assert!(queries.get(Kind::Highlights(Language::Go)).is_some());
+    let (_, again) = document.highlight_piece(&mut queries, 0..text.len(), deadline);
+    assert!(matches!(again, Piece::Done(..)));
+    // In the worker's slices, from fresh queries, the document gets to its end, never too slow,
+    // however long compiling takes on this machine: no piece is judged by it.
+    let mut queries = Queries::new();
+    let mut document = Document::new(Language::Markdown, Rope::from(text));
+    let done = (0..10_000)
+        .map(|_| document.highlight(&mut queries, &[], Duration::from_millis(20)))
+        .find(|done| *done != Highlighted::Paused);
+    assert_eq!(done, Some(Highlighted::Done));
+    assert!(has(text, "g", Function));
+}
+
+#[test]
+fn javascript_and_typescript_fences_take_their_grammars() {
+    let text = "```js\nfunction a() {}\n```\n\n```JSX\nconst x = <b />;\n```\n\n\
+                ```mjs\nexport const c = 1;\n```\n\n```typescript\ninterface D {}\n```\n\n\
+                ```ts\ntype E = number;\n```\n\n```tsx\nconst f = <F<string> />;\n```\n\n\
+                ```cts\nlet g: boolean;\n```\n";
+    for (part, highlight) in [
+        ("a", Function),
+        ("b", Function),
+        ("export", Keyword),
+        ("interface", Keyword),
+        ("E", Type),
+        ("F", Function),
+        ("string", Type),
+        ("boolean", Type),
+    ] {
+        assert!(has(text, part, highlight), "{part:?} as {highlight:?}");
+    }
+    for other in ["javascripts", "node", "react"] {
+        let fence = format!("```{other}\nfunction a() {{}}\n```\n");
+        assert!(plain(&fence, "function a() {}"), "{other}");
     }
 }
 

@@ -7,13 +7,20 @@
 //! Must not depend on: `server`, threads or processes; this builds and reads values, and the
 //! session thread sends and receives them.
 
+mod actions;
 mod completion;
 mod hover;
 mod located;
 mod published;
 #[cfg(test)]
 mod tests;
+mod workspace_edit;
 
+pub use actions::{
+    Acting, ActionList, OfferedAction, acting, code_action_params, code_actions,
+    execute_command_params, resolved_action, take_actions,
+};
+pub(crate) use actions::{applied_edit, shown};
 pub use completion::{
     Completing, CompletionList, Extra, Invoked, Offered, completed, completing, completion_params,
     extra_edits, kind_name, plain, resolved, take_items,
@@ -22,6 +29,7 @@ pub use hover::{Hover, hover};
 pub use located::{Located, located, position_params, references_params};
 pub use published::{Published, Reported, published};
 use serde_json::{Map, Value, json};
+pub use workspace_edit::{WireEdit, WireFile, workspace_edit};
 
 use crate::json::{integer_in, string, uinteger};
 use crate::limits::{
@@ -193,8 +201,9 @@ pub struct Initialize<'a> {
 /// `initialize`'s parameters: oso's process, the root as the one workspace folder, the entry's
 /// settings, and the capabilities the steps so far use: positions in UTF-8 or UTF-16,
 /// progress, `workspace/configuration`, saves (step 4), diagnostics with their versions and
-/// tags (step 6), definitions, with links, and references (step 8), and completion with no
-/// snippets (step 9).
+/// tags (step 6), definitions, with links, and references (step 8), completion with no
+/// snippets (step 9), hover (step 10), and code actions with edits by document version
+/// (step 13).
 pub fn initialize_params(start: &Initialize<'_>) -> Value {
     let mut params = json!({
         "processId": std::process::id(),
@@ -204,7 +213,18 @@ pub fn initialize_params(start: &Initialize<'_>) -> Value {
         "capabilities": {
             "general": {"positionEncodings": Encoding::OFFERED},
             "window": {"workDoneProgress": true},
-            "workspace": {"configuration": true},
+            // Edits by document version, and no file created, renamed or deleted (step 13, Q6).
+            "workspace": {
+                "configuration": true,
+                "workspaceEdit": {
+                    "documentChanges": true,
+                    "resourceOperations": [],
+                    "failureHandling": "transactional",
+                },
+                // A command a code action runs, and its edits, applied as the action's (13b).
+                "applyEdit": true,
+                "executeCommand": {},
+            },
             "textDocument": {
                 "synchronization": {"didSave": true},
                 "publishDiagnostics": {
@@ -223,6 +243,18 @@ pub fn initialize_params(start: &Initialize<'_>) -> Value {
                     "contextSupport": true,
                 },
                 "hover": {"contentFormat": ["markdown", "plaintext"]},
+                // Every kind, the preferred and disabled ones told, an edit resolved once
+                // picked, and the diagnostics' `data` given back (step 13).
+                "codeAction": {
+                    "codeActionLiteralSupport": {"codeActionKind": {"valueSet": [
+                        "", "quickfix", "refactor", "refactor.extract", "refactor.inline",
+                        "refactor.rewrite", "source", "source.organizeImports",
+                    ]}},
+                    "isPreferredSupport": true,
+                    "disabledSupport": true,
+                    "dataSupport": true,
+                    "resolveSupport": {"properties": ["edit"]},
+                },
             },
         },
     });

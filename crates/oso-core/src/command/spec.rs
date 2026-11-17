@@ -90,6 +90,16 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
     },
+    /// One of a list the host keeps, read as [`ArgSpec::Listed`] reads it, but only with a
+    /// prefix argument, such as `C-u`; with none, the command runs at once with no answer
+    /// (ADR 0122, step 12): `C-u C-c C-c` in a review's message picks its session. Only keys
+    /// give it: the agent channel runs such a command with none. The command reads the
+    /// candidate's text with [`Ctx::answer`](super::Ctx::answer).
+    ListedOnPrefix {
+        list: &'static str,
+        prompt: &'static str,
+        history: &'static str,
+    },
     /// One of a list the host keeps, read as [`ArgSpec::Listed`] reads it; then, unless the
     /// selected window shows a region, a line of text in a prompt that says `note_prompt`, kept
     /// in the history named `note_history` (ADR 0121): a session to send to, and a note when
@@ -110,6 +120,15 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
         purpose: BufferPurpose,
+    },
+    /// A recent file, read in a prompt that says `prompt` and completes over the recent files,
+    /// the most recent first and the current buffer's last, kept in the history named
+    /// `history` (ADR 0148). Only a listed file is taken. The command reads the row with
+    /// [`Ctx::answer`](super::Ctx::answer), which
+    /// [`Editor::recent_file_named`](crate::editor::Editor::recent_file_named) names the file of.
+    RecentFile {
+        prompt: &'static str,
+        history: &'static str,
     },
     /// A path, read in a prompt that says `prompt` and completes by segments over listed
     /// directories, starting at the buffer's directory, kept in the history named `history`
@@ -176,6 +195,10 @@ pub enum ArgSpec {
     /// never from keys or by name. The command takes the row with
     /// [`Editor::take_xref_hit`](crate::editor::Editor::take_xref_hit).
     Xref,
+    /// A language server's code action, read in the list the host opens once an answer comes,
+    /// and no history (ADR 0138, step 13): never from keys or by name. The command takes it with
+    /// [`Editor::take_code_action_hit`](crate::editor::Editor::take_code_action_hit).
+    CodeAction,
     /// The key that ran it, read with [`Ctx::input`](super::Ctx::input) or [`Ctx::key_char`](super::Ctx::key_char), and a numeric
     /// prefix argument as with `Count`. `M-x` does not list it, as no key runs it there
     /// (ADR 0076).

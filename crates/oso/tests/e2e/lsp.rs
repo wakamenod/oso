@@ -1035,3 +1035,202 @@ fn typing_opens_the_completion_popup_and_a_resolved_use_line_goes_in_with_it() {
     app.wait_for("closed", |state| state["popup"].is_null());
     lsp_log_with(&mut app, "main.rs", "resolved with 1 more edits", 1);
 }
+
+/// The fake server's rules for code actions in the file at `uri`: one with its edit, one
+/// disabled, and the preferred one, whose edit comes with its resolve.
+fn code_action_rules(uri: &str) -> Value {
+    let range = |line: u32, start: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}});
+    json!([
+        {"method": "initialize", "do": [{"reply": {"capabilities": {
+            "positionEncoding": "utf-8",
+            "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+            "codeActionProvider": {"resolveProvider": true},
+        }}}]},
+        {"method": "textDocument/codeAction", "do": [{"reply": [
+            {"title": "Add a comment", "kind": "refactor", "edit": {"changes": {uri: [
+                {"range": range(0, 0, 0), "newText": "// hi\n"},
+            ]}}},
+            {"title": "Inline it", "kind": "refactor.inline", "disabled": {"reason": "nothing to inline"}},
+            {"title": "Rename to start", "kind": "quickfix", "isPreferred": true, "data": {"id": 1}},
+        ]}]},
+        {"method": "codeAction/resolve", "do": [{"reply": {
+            "title": "Rename to start",
+            "edit": {"changes": {uri: [{"range": range(0, 3, 7), "newText": "start"}]}},
+        }}]},
+        {"method": "shutdown", "do": [{"reply": null}]},
+    ])
+}
+
+/// `C-c C-r` lists the server's code actions, the preferred one selected and a disabled one
+/// refused; `RET` resolves the picked action's edit and applies it, and another applies at once,
+/// each one step to undo.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn code_actions_are_listed_picked_resolved_and_applied_one_step_each() {
+    let scratch = Scratch::new("lsp-code-actions");
+    set_mode(scratch.path(), 0o700);
+    let root = project(&scratch, "proj-lsp", &["main.rs"]);
+    let uri = oso_lsp::uri::from_path(&root.join("src/main.rs")).unwrap();
+    let rules = code_action_rules(&uri);
+    let config = config(&scratch, &rules);
+    let record = scratch.write("conf/trusted-projects", record_line(&root).as_bytes());
+    set_mode(&record, 0o600);
+    let mut app = App::start_with_file_config_and_env(
+        &root.join("src/main.rs"),
+        scratch.path(),
+        &config,
+        &[],
+    );
+    app.wait_until_ready();
+    lsp_log_with(&mut app, "main.rs", "] initialized in ", 1);
+    let text = |app: &mut App| {
+        app.call("get-text", Some(json!({ "start_row": 0, "rows": 3 })))
+            .to_string()
+    };
+
+    app.send_keys("C-c C-r");
+    let state = app.wait_for("the list of code actions", |state| {
+        state["prompts"][0]["completion"]["count"] == 3
+    });
+    let prompt = &state["prompts"][0];
+    assert_eq!(prompt["prompt"], "Code action:");
+    assert_eq!(
+        prompt["completion"]["rows"],
+        json!(["Add a comment", "Inline it", "Rename to start"]),
+        "{prompt}"
+    );
+    assert_eq!(prompt["completion"]["selected"], 2, "the preferred one");
+    // A disabled one is refused, and the list stays.
+    app.send_keys("C-p RET");
+    app.wait_for("refused", |state| {
+        state["prompts"][0]["message"] == "This code action is disabled: nothing to inline"
+    });
+    app.send_keys("C-n RET");
+    // The echo first: showing `*LSP*` below clears it.
+    app.wait_for("resolved and applied", |state| {
+        state["prompts"].as_array().is_some_and(Vec::is_empty)
+            && state["echo"]
+                .as_str()
+                .is_some_and(|echo| echo.contains("1 edit in 1 buffer"))
+    });
+    lsp_log_with(&mut app, "main.rs", "resolved a code action", 1);
+    assert!(text(&mut app).contains("fn start()"), "{}", text(&mut app));
+
+    // Another applies at once, its edit in the answer.
+    app.send_keys("C-c C-r");
+    app.wait_for("the list again", |state| {
+        state["prompts"][0]["completion"]["count"] == 3
+    });
+    app.send_keys("C-p C-p RET");
+    app.wait_for("commented", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.contains("Add a comment"))
+    });
+    assert!(text(&mut app).contains("// hi"), "{}", text(&mut app));
+    // One undo takes the whole action back, and only it.
+    app.send_keys("C-z");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut after = text(&mut app);
+    while after.contains("// hi") && std::time::Instant::now() < deadline {
+        after = text(&mut app);
+    }
+    assert!(
+        !after.contains("// hi") && after.contains("fn start()"),
+        "{after}"
+    );
+}
+
+/// The fake server's rules for 13b: an action whose edit changes `lib`, a file no buffer holds,
+/// and one that runs a declared command, whose edit of `main` comes as `workspace/applyEdit`.
+fn code_action_file_rules(main: &str, lib: &str) -> Value {
+    let range = |line: u32, start: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}});
+    json!([
+        {"method": "initialize", "do": [{"reply": {"capabilities": {
+            "positionEncoding": "utf-8",
+            "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+            "codeActionProvider": true,
+            "executeCommandProvider": {"commands": ["fake.fix"]},
+        }}}]},
+        {"method": "textDocument/codeAction", "do": [{"reply": [
+            {"title": "Edit the library", "edit": {"changes": {lib: [
+                {"range": range(0, 0, 0), "newText": "// edited\n"},
+            ]}}},
+            {"title": "Fix by command", "command": {"title": "Fix", "command": "fake.fix"}},
+        ]}]},
+        {"method": "workspace/executeCommand", "do": [
+            {"request": {"method": "workspace/applyEdit", "params": {"edit": {"changes": {main: [
+                {"range": range(0, 3, 7), "newText": "begin"},
+            ]}}}}},
+            {"sleep_ms": 300},
+            {"reply": null},
+        ]},
+        {"method": "shutdown", "do": [{"reply": null}]},
+    ])
+}
+
+/// An action that changes a file no buffer holds asks first, and `y` opens it and applies the
+/// edit; an action that runs a declared command applies the edit the server sends while it runs.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_code_action_opens_a_file_after_a_yes_and_a_command_s_edit_applies() {
+    let scratch = Scratch::new("lsp-code-action-files");
+    set_mode(scratch.path(), 0o700);
+    let root = project(&scratch, "proj-lsp", &["main.rs"]);
+    scratch.write("proj-lsp/src/lib.rs", b"pub fn lib() {}\n");
+    let main = oso_lsp::uri::from_path(&root.join("src/main.rs")).unwrap();
+    let lib = oso_lsp::uri::from_path(&root.join("src/lib.rs")).unwrap();
+    let config = config(&scratch, &code_action_file_rules(&main, &lib));
+    let record = scratch.write("conf/trusted-projects", record_line(&root).as_bytes());
+    set_mode(&record, 0o600);
+    let mut app = App::start_with_file_config_and_env(
+        &root.join("src/main.rs"),
+        scratch.path(),
+        &config,
+        &[],
+    );
+    app.wait_until_ready();
+    lsp_log_with(&mut app, "main.rs", "] initialized in ", 1);
+
+    app.send_keys("C-c C-r");
+    app.wait_for("the list", |state| {
+        state["prompts"][0]["completion"]["count"] == 2
+    });
+    app.send_keys("RET");
+    let state = app.wait_for("the question", |state| {
+        state["prompts"][0]["prompt"]
+            .as_str()
+            .is_some_and(|prompt| prompt.contains("1 not open"))
+    });
+    assert!(state["buffers"].to_string().contains("main.rs"), "{state}");
+    app.send_keys("y");
+    let state = app.wait_for("the library edited", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.contains("1 edit in 1 buffer"))
+    });
+    let lib_buffer = state["buffers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|buffer| buffer["name"] == "lib.rs")
+        .cloned()
+        .unwrap_or_else(|| panic!("lib.rs opened: {state}"));
+    assert_eq!(lib_buffer["modified"], true, "{lib_buffer}");
+    assert_eq!(state["buffer"]["name"], "main.rs", "it opened unshown");
+
+    // A declared command's edit, as it runs.
+    app.send_keys("C-c C-r");
+    app.wait_for("the list again", |state| {
+        state["prompts"][0]["completion"]["count"] == 2
+    });
+    app.send_keys("C-n RET");
+    app.wait_for("the command's edit", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.contains("1 edit in 1 buffer"))
+            && state["buffer"]["modified"] == true
+    });
+    let text = app.call("get-text", Some(json!({ "start_row": 0, "rows": 2 })));
+    assert!(text.to_string().contains("fn begin()"), "{text}");
+}

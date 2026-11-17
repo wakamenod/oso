@@ -560,6 +560,8 @@ pub(crate) mod tests {
                 &[(Face::ReviewCommentPerson, READ)]
             }
             Face::ReviewOutdated => &[(Face::ReviewCommentPerson, LABEL), (Face::Text, LABEL)],
+            // A sent comment's text is still read on its card, dimmed as a label is.
+            Face::ReviewSent => &[(Face::ReviewCommentPerson, LABEL)],
             // A session's marks and quiet text, on the list's background and on the band of the
             // row at point, and the modeline's counts of those that need the person or are done
             // (ADR 0131).
@@ -649,6 +651,7 @@ pub(crate) mod tests {
             | Face::Flash
             | Face::DiffRefineAdded
             | Face::DiffRefineRemoved
+            | Face::DiffFiller
             | Face::SessionHeader
             | Face::SessionFrontTint
             | Face::SessionPoint
@@ -803,6 +806,7 @@ pub(crate) mod tests {
                 (Face::DiffRemoved, behind_text),
                 (Face::DiffFileHeader, behind_text),
                 (Face::ReviewCommentPerson, behind_text),
+                (Face::DiffFiller, behind_text),
                 (Face::DiffRefineAdded, theme.background(Face::DiffAdded)),
                 (Face::DiffRefineRemoved, theme.background(Face::DiffRemoved)),
                 // The spaces pane's bands, and point's on a section's or the front's (ADR 0140).

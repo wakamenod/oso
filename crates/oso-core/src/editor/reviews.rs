@@ -1,6 +1,7 @@
 //! The open reviews (ADR 0122, "The views"): each one's model, its review buffer and the rows
 //! that say what each of its lines is, and what commands ask of the host for them. What the
-//! review menu shows is in `menu`, and the backgrounds of a review's rows in `cells`.
+//! review menu shows is in `menu`, the backgrounds of a review's rows in `cells`, and its two
+//! panes in `panes`.
 //!
 //! Must not depend on: `command` or `keymap`, or the host's threads, git or files; the host
 //! runs git and builds each review's text on threads of its own, and hands the text in.
@@ -21,6 +22,7 @@
 mod cells;
 mod draft;
 mod menu;
+mod panes;
 
 use std::collections::BTreeSet;
 
@@ -28,13 +30,14 @@ use super::Editor;
 use crate::buffer::{BufferId, Mode, Rewrap};
 use crate::load::{Change, Reloaded};
 use crate::project::ProjectId;
-use crate::review::{Author, Review, Rows, Side};
+use crate::review::{Author, Review, RowKind, Rows, Side};
 use crate::sum_tree::Bias;
 use crate::syntax::Highlights;
 
 pub use cells::ReviewCells;
 pub use draft::DraftFor;
 pub use menu::{Count, ScopeMenu};
+pub use panes::{ReviewArea, ReviewChoice, ReviewLayout};
 
 /// A review's id, never reused while the editor runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -107,6 +110,17 @@ pub enum ReviewRequest {
     },
     /// The review was closed: stop its threads.
     Close(ReviewId),
+    /// Gather the person's comments that were not sent into a message, shown in
+    /// `*review message*` before anything goes to an agent session (step 12).
+    Send(ReviewId),
+    /// Paste the review message `buffer` holds into its review's session, or into the session
+    /// named `to`, and mark the comments it took sent.
+    MessageSend {
+        buffer: BufferId,
+        to: Option<String>,
+    },
+    /// Drop the review message `buffer` holds, sending nothing.
+    MessageDrop { buffer: BufferId },
 }
 
 /// One open review.
@@ -122,6 +136,24 @@ struct Open {
     reading: Option<(usize, usize)>,
     /// The files whose reading shown is newer than the model's, until their carry is applied.
     behind: BTreeSet<Box<[u8]>>,
+    /// How the person chose it to show, and its two panes while the host builds them (ADR
+    /// 0122, step 11).
+    choice: ReviewChoice,
+    panes: Option<panes::Panes>,
+    /// The rows of panes dropped since, for the next leftover to take off the UI thread.
+    spare: Vec<Rows>,
+}
+
+impl Open {
+    /// What each line of `buffer` is, its review buffer or a pane of it.
+    fn rows_of(&self, buffer: BufferId) -> Option<&Rows> {
+        if self.buffer == buffer {
+            return Some(&self.rows);
+        }
+        let panes = self.panes.as_ref()?;
+        let side = panes.buffers.iter().position(|pane| *pane == buffer)?;
+        Some(&panes.rows[side])
+    }
 }
 
 /// Every open review, what commands asked of the host, and the menu's state per project.
@@ -143,6 +175,17 @@ impl Reviews {
     fn get_mut(&mut self, id: ReviewId) -> Option<&mut Open> {
         self.open.iter_mut().find(|open| open.id == id)
     }
+
+    /// The review whose buffer, or one of whose panes, is `buffer`.
+    fn holding(&self, buffer: BufferId) -> Option<&Open> {
+        self.open.iter().find(|open| {
+            open.buffer == buffer
+                || open
+                    .panes
+                    .as_ref()
+                    .is_some_and(|panes| panes.buffers.contains(&buffer))
+        })
+    }
 }
 
 /// What putting in a review's text or paint left over: the rows, highlights and text it
@@ -152,6 +195,10 @@ pub struct ReviewLeftover {
     rows: Option<Rows>,
     highlights: Option<Highlights>,
     text: Option<Box<Reloaded>>,
+    /// What a pane's text left over, for the two panes.
+    panes: Vec<ReviewLeftover>,
+    /// The rows of panes dropped since the last leftover.
+    spare: Vec<Rows>,
 }
 
 impl ReviewLeftover {
@@ -161,6 +208,8 @@ impl ReviewLeftover {
             rows: None,
             highlights: None,
             text: None,
+            panes: Vec::new(),
+            spare: Vec::new(),
         }
     }
 
@@ -169,6 +218,8 @@ impl ReviewLeftover {
             rows: Some(rows),
             highlights: Some(highlights),
             text: text.map(Box::new),
+            panes: Vec::new(),
+            spare: Vec::new(),
         }
     }
 }
@@ -191,6 +242,8 @@ impl std::fmt::Debug for ReviewLeftover {
             .field("rows", &self.rows.is_some())
             .field("highlights", &self.highlights.is_some())
             .field("text", &self.text.is_some())
+            .field("panes", &self.panes)
+            .field("spare", &self.spare.len())
             .finish()
     }
 }
@@ -224,6 +277,9 @@ impl Editor {
             agents_folded: false,
             reading: None,
             behind: BTreeSet::new(),
+            choice: ReviewChoice::Auto,
+            panes: None,
+            spare: Vec::new(),
         });
         (id, buffer)
     }
@@ -235,6 +291,11 @@ impl Editor {
             return;
         };
         let open = self.reviews.open.remove(index);
+        if let Some(panes) = &open.panes {
+            for buffer in panes.buffers {
+                self.drop_internal_buffer(buffer);
+            }
+        }
         self.drop_internal_buffer(open.buffer);
         self.reviews.requests.push(ReviewRequest::Close(id));
     }
@@ -257,19 +318,19 @@ impl Editor {
         Some(self.reviews.get(id)?.buffer)
     }
 
-    /// The review whose buffer is `buffer`.
+    /// The review whose buffer, or one of whose panes, is `buffer`.
     pub fn review_of(&self, buffer: BufferId) -> Option<ReviewId> {
-        let open = self
-            .reviews
-            .open
-            .iter()
-            .find(|open| open.buffer == buffer)?;
-        Some(open.id)
+        Some(self.reviews.holding(buffer)?.id)
     }
 
     /// What each line of the review buffer of `id` is.
     pub fn review_rows(&self, id: ReviewId) -> Option<&Rows> {
         Some(&self.reviews.get(id)?.rows)
+    }
+
+    /// What each line of `buffer` is, a review buffer or a pane of one.
+    pub fn review_rows_of(&self, buffer: BufferId) -> Option<&Rows> {
+        self.reviews.holding(buffer)?.rows_of(buffer)
     }
 
     /// Whether a review's new text must wait, as a file read again does
@@ -292,11 +353,33 @@ impl Editor {
         rows: Rows,
         highlights: Highlights,
     ) -> ReviewLeftover {
-        let Some(buffer_id) = self.review_buffer(id) else {
+        let Some(buffer_id) = self
+            .review_buffer(id)
+            .filter(|buffer| self.buffer(*buffer).is_some())
+        else {
             return ReviewLeftover::of(rows, highlights, Some(text));
         };
+        let mut left = self.put_generated_text(buffer_id, text, highlights);
+        left.rows = self.put_review_rows(id, rows);
+        left.spare = self.take_spare_rows(id);
+        left
+    }
+
+    /// Puts in the whole new text of `buffer_id`, a review buffer or a pane of one, with its
+    /// highlights, as [`Editor::set_review_text`] does, and returns what it replaced or did
+    /// not take but the rows, which the caller puts in.
+    fn put_generated_text(
+        &mut self,
+        buffer_id: BufferId,
+        text: Reloaded,
+        highlights: Highlights,
+    ) -> ReviewLeftover {
         let Some(buffer) = self.buffer(buffer_id) else {
-            return ReviewLeftover::of(rows, highlights, Some(text));
+            return ReviewLeftover {
+                highlights: Some(highlights),
+                text: Some(Box::new(text)),
+                ..ReviewLeftover::none()
+            };
         };
         let Reloaded { snapshot, change } = text;
         let old = buffer.text().clone();
@@ -309,10 +392,15 @@ impl Editor {
                     ..ReviewLeftover::none()
                 };
                 left.highlights = self.put_review_highlights(buffer_id, highlights);
-                left.rows = self.put_review_rows(id, rows);
                 return left;
             }
             None => Change {
+                start: 0,
+                old_end: old.len(),
+                new_end: snapshot.text.len(),
+            },
+            // One compared with another text than the buffer's, as a pane's made again: whole.
+            Some(change) if change.old_end > old.len() || change.start > change.old_end => Change {
                 start: 0,
                 old_end: old.len(),
                 new_end: snapshot.text.len(),
@@ -338,7 +426,6 @@ impl Editor {
                 None => old_highlights,
             };
         }
-        left.rows = self.put_review_rows(id, rows);
         self.commit_views(buffer_id, views);
         for (index, set) in moved {
             let scroll = self.windows[index].scroll();
@@ -379,7 +466,8 @@ impl Editor {
         Ok(ReviewLeftover {
             highlights: self.put_review_highlights(buffer_id, highlights),
             rows: self.put_review_rows(id, rows),
-            text: None,
+            spare: self.take_spare_rows(id),
+            ..ReviewLeftover::none()
         })
     }
 
@@ -404,6 +492,14 @@ impl Editor {
         }
     }
 
+    /// The rows of the review `id`'s panes dropped since, for a leftover to free.
+    fn take_spare_rows(&mut self, id: ReviewId) -> Vec<Rows> {
+        self.reviews
+            .get_mut(id)
+            .map(|open| std::mem::take(&mut open.spare))
+            .unwrap_or_default()
+    }
+
     /// Whether `a` folds every agent card of the review `id` to its first line.
     pub fn agents_folded(&self, id: ReviewId) -> bool {
         self.reviews.get(id).is_some_and(|open| open.agents_folded)
@@ -416,27 +512,33 @@ impl Editor {
         }
     }
 
-    /// The paths of the files the windows showing review `id`'s buffer show some line of, into
-    /// `out`, emptied first, each once, in the review's order, for the host to read them first.
+    /// The paths of the files the windows showing review `id`'s buffer or a pane of it show
+    /// some line of, into `out`, emptied first, each once, in the review's order, for the host
+    /// to read them first.
     pub fn shown_review_files(&self, id: ReviewId, out: &mut Vec<Box<[u8]>>) {
         out.clear();
         let Some(open) = self.reviews.get(id) else {
             return;
         };
-        let Some(buffer) = self.buffer(open.buffer) else {
-            return;
-        };
-        let display = buffer.display();
-        for window in self.windows.iter().filter(|w| w.buffer() == open.buffer) {
-            let Some(regions) = self.regions(window.id()) else {
+        for window in &self.windows {
+            let Some(rows) = open.rows_of(window.buffer()) else {
                 continue;
             };
-            let top = display.offset_to_display_point(window.scroll().start).row;
+            let (Some(buffer), Some(regions)) =
+                (self.buffer(window.buffer()), self.regions(window.id()))
+            else {
+                continue;
+            };
+            let top = buffer
+                .display()
+                .offset_to_display_point(window.scroll().start)
+                .row;
             for line in top..top + regions.text.rows {
-                let Some(row) = open.rows.at(line) else {
+                let Some(row) = rows.at(line) else {
                     break;
                 };
-                if out.last().is_none_or(|last| **last != *row.path) {
+                if row.kind != RowKind::Filler && out.last().is_none_or(|last| **last != *row.path)
+                {
                     out.push(row.path.into());
                 }
             }
@@ -484,7 +586,7 @@ impl Editor {
     /// each comment.
     pub(super) fn review_status_into(&self, buffer: BufferId, out: &mut String) {
         use std::fmt::Write as _;
-        let Some(open) = self.reviews.open.iter().find(|open| open.buffer == buffer) else {
+        let Some(open) = self.reviews.holding(buffer) else {
             return;
         };
         let unread = open

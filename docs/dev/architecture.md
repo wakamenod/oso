@@ -343,7 +343,7 @@ A panicking command is caught at the command boundary
   ([ADR 0127](adr/0127-source-control-and-github.md)) and in a terminal, whose keymap holds session
   mode's keys too in a terminal that hosts an agent session ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)), with the user's
   `[keys.session]` as a minor mode layer above it there, the `lsp` minor mode layer in a buffer a
-  language server follows (`C-M-n`, `C-M-p`, `M-g d`, `M-.`, `M-?`, `C-M-i`, `C-c C-d`, [ADR 0138](adr/0138-language-servers.md)), above it while one is open the layer of `C-x TAB`, the completion popup's or a description's, which any other command closes, and a layer for the user's keys, which
+  language server follows (`C-M-n`, `C-M-p`, `M-g d`, `M-.`, `M-?`, `C-M-i`, `C-c C-d`, `C-c C-r`, [ADR 0138](adr/0138-language-servers.md)), above it while one is open the layer of `C-x TAB`, the completion popup's or a description's, which any other command closes, and a layer for the user's keys, which
   the configuration file fills ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
   take the global layer's place, so that no other key reaches a command. While a jump is on, its
   keymap comes before every other but a question's ([ADR 0116](adr/0116-migemo-and-jumps.md)).
@@ -627,6 +627,12 @@ The UI thread never blocks on I/O or parsing:
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- The recent files are kept in `oso-core` (`editor/recent_files.rs`), with no clock or I/O: a
+  person's command, load or save puts a file first. `app/recent_files.rs` stamps what moved,
+  reads `oso/recent-files` on `oso-recent-read` at start, taken after an event once done, and
+  writes it on `oso-recent` 1 s after the last change, merging another instance's. Every exit or
+  restart's start waits for it with the sessions record, at most 1 s in all
+  ([ADR 0148](adr/0148-recent-files.md)).
 - The directory editor's listings are read on the same threads, a request kept per listing
   buffer (`crates/oso/src/dired.rs`, glue in `app/dired.rs`): each entry's metadata from the
   descriptor, following no link (`getattrlistbulk` on macOS, `fstatat` on Linux, the
@@ -731,10 +737,12 @@ The UI thread never blocks on I/O or parsing:
   in `oso-core` (`syntax::Highlights`) that follows edits with the buffer, and the worker's
   reports replace it, mapped through the edits made since. Colour is applied when glyph
   instances are built, so a highlight never reshapes a row, and a report draws a frame only
-  if a window shows runs it changed. Markdown's inline text and its fenced Rust and TOML are
-  parsed again, with their own grammars, wherever the worker highlights. Buffers that may
-  hold secrets and files over 2 MiB are not parsed
-  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). The same schedule takes documents no
+  if a window shows runs it changed. Markdown's inline text and its fenced Rust, TOML, Go,
+  JavaScript, TypeScript and TSX are parsed again, with their own grammars, wherever the
+  worker highlights; a fence's grammar's query is compiled at the first fence of it
+  ([ADR 0147](adr/0147-highlighting-go-typescript-and-javascript.md)). Buffers that may
+  hold secrets, files over 2 MiB ([ADR 0111](adr/0111-tree-sitter-highlighting.md)) and text
+  with a line longer than 16 KiB (ADR 0147) are not parsed. The same schedule takes documents no
   buffer owns, texts that never change such as a review's sides, opened with the verdict of
   where they came from (a text that may hold secrets is refused). They run only where buffers
   no window shows do, at most 4 hold a tree at once, and a finished one gives its tree to a
@@ -796,8 +804,9 @@ The UI thread never blocks on I/O or parsing:
   refuses a session that cannot take a paste (`sessions/send.rs::refusal`, pure), pastes with
   the terminal's own paste, never submitted, and shows the session. Commands only describe
   what to send (`SessionRequest::Send`); the text is put together by pure functions
-  (`sessions/send.rs::compose`). ADR 0122's review comments and ADR 0127's drafts call the
-  same path, and so does `session-yank-image` (`C-c C-y`, ADR 0142), which checks the same
+  (`sessions/send.rs::compose`). ADR 0122's review comments call the same path, their message
+  composed from the review's model by `review/message.rs` and shown in `*review message*`
+  first (`app/reviews/send.rs`, step 12); so do ADR 0127's drafts, and so does `session-yank-image` (`C-c C-y`, ADR 0142), which checks the same
   refusals first (`paste_target`), has the clipboard's worker read the image, and keeps it on
   `sessions::images`' one `oso-images` thread, which also removes a session's images when it is
   archived and sweeps old ones (`app/sessions/watch/images.rs`). The dispatcher notes whether
@@ -869,6 +878,13 @@ The UI thread never blocks on I/O or parsing:
   (`review/count.rs`), an epoch per opening of the menu. A review buffer's added and removed
   lines, headers and cards are bands the window fills behind its text for the rows in view
   (`Editor::review_cells`).
+- While the person chose two panes and an area shows the review, the view thread also lays
+  out its old and new sides as two panes in step, filler rows padding the shorter side
+  (`review/view/panes.rs`), and the UI puts both in as two more buffers of the review just as
+  `app/reviews/layout.rs` switches each area to them, side by side from 160 columns, stacked
+  below. The editor carries the cursor across a switch by place, moves it off filler rows after
+  each command, and drops the panes once no window shows them
+  (`oso_core::editor` `reviews/panes.rs`; ADR 0122, step 11).
 
 ### Configuration
 
