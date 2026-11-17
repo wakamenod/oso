@@ -7,21 +7,30 @@
 //! before the resume, so that two processes never run one conversation.
 //!
 //! - One move waits at a time. Killing its `*moving: NAME*` buffer cancels it.
+//! - The bridge of the session that moves holds a `move_wait` call (step 2). Once the wait's
+//!   thread sees in the registry that the session's turn ended, the reply names the process,
+//!   and the bridge stops its own parent if that is the one; oso itself signals nothing. At
+//!   120 s, or when the move ends any other way, the reply says why not, and the person's
+//!   `/exit` is what is left.
 //! - A move that gives up, an oso exit while it waits, or a space closed or left by the
 //!   repository meanwhile resumes nothing.
 //! - What the echo area says names the session as the registry does, so none of it is logged.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, PoisonError};
+
+use serde_json::json;
 
 use oso_core::buffer::{BufferId, Mode};
 
 use super::adopt::Landing;
 use crate::app::{App, UserEvent};
+use crate::channel::{Connection, Reply};
 use crate::git::printable;
 use crate::sessions::adopt::Pick;
 use crate::sessions::identity::Origin;
-use crate::sessions::moving::{self, Asker, Step};
+use crate::sessions::moving::{self, Asker, BridgeWait, Step, TOO_LATE, Watched};
 use crate::sessions::spaces::SpaceId;
 use crate::sessions::tools::quoted;
 use crate::sessions::worker::SessionKey;
@@ -49,6 +58,10 @@ struct Waiting {
     buffer: BufferId,
     /// Ends the wait's thread.
     stop: Arc<AtomicBool>,
+    /// The connection of the session's bridge, whose `move_wait` alone is held.
+    connection: Connection,
+    /// The bridge's `move_wait`, asked once and answered once.
+    bridge: BridgeWait<Sender<Reply>>,
 }
 
 /// What the app keeps of moves.
@@ -73,7 +86,13 @@ impl Moves {
 
 impl App {
     /// Watches `moving`'s outside process on a thread of its own, with a buffer that says so.
-    pub(in crate::app) fn wait_for_move(&mut self, moving: Moving) {
+    /// `connection` is its bridge's, which the agent was told at `since_ms` to end its turn.
+    pub(in crate::app) fn wait_for_move(
+        &mut self,
+        moving: Moving,
+        connection: Connection,
+        since_ms: u64,
+    ) {
         let token = self.hosting.moves.token();
         let said = moving::waiting(&moving.name, &moving.space_name);
         let buffer = self.editor.add_internal_buffer(
@@ -83,15 +102,16 @@ impl App {
         self.editor.set_internal_text(buffer, &format!("{said}\n"));
         let stop = Arc::new(AtomicBool::new(false));
         let waker = Mutex::new(self.waker.clone());
-        let spawned = moving::spawn_wait(
-            moving.asker.pid,
-            moving.asker.started,
-            Arc::clone(&stop),
-            move |step| {
-                (waker.lock().unwrap_or_else(PoisonError::into_inner))
-                    .send(UserEvent::MoveWaited(token, step))
-            },
-        );
+        let watched = Watched {
+            pid: moving.asker.pid,
+            then: moving.asker.started,
+            id: moving.asker.id.clone(),
+            since_ms,
+        };
+        let spawned = moving::spawn_wait(watched, Arc::clone(&stop), move |step| {
+            (waker.lock().unwrap_or_else(PoisonError::into_inner))
+                .send(UserEvent::MoveWaited(token, step))
+        });
         if let Err(e) = spawned {
             log::warn!("cannot watch a session that moves: {e}");
             self.editor.kill_buffer(buffer);
@@ -103,8 +123,25 @@ impl App {
             moving,
             buffer,
             stop,
+            connection,
+            bridge: BridgeWait::default(),
         });
         self.request_redraw();
+    }
+
+    /// `move_wait` from `connection`: held until the moving session's turn ended, then answered
+    /// with the process its bridge stops (ADR 0151, step 2). Only the bridge of the session
+    /// that moves is held, once.
+    pub(in crate::app) fn move_wait(&mut self, connection: Connection, reply: Sender<Reply>) {
+        let waiting = (self.hosting.moves.waiting.as_mut())
+            .filter(|waiting| waiting.connection == connection);
+        let Some(waiting) = waiting else {
+            let _ = reply.send(Err(moving::NOT_WAITING.into()));
+            return;
+        };
+        if let Err((reply, why)) = waiting.bridge.ask(reply) {
+            let _ = reply.send(Err(why.into()));
+        }
     }
 
     /// The wait `token` took `step`.
@@ -115,8 +152,18 @@ impl App {
         }
         match step {
             Step::Wait => {}
+            Step::Idle => {
+                let held = moves.waiting.as_mut().and_then(|w| w.bridge.turn_ended());
+                if let (Some(held), Some(waiting)) = (held, &moves.waiting) {
+                    let _ = held.send(Ok(json!({ "stop": waiting.moving.asker.pid })));
+                    self.agent_log("move_to_space: the turn ended; its bridge stops the session");
+                }
+            }
             Step::Late => {
-                if let Some(waiting) = &moves.waiting {
+                if let Some(waiting) = &mut moves.waiting {
+                    if let Some(held) = waiting.bridge.late() {
+                        let _ = held.send(Err(TOO_LATE.into()));
+                    }
                     let said = moving::late(&waiting.moving.name);
                     self.editor.message_unlogged(said);
                 }
@@ -138,8 +185,11 @@ impl App {
 
     /// The waiting move, its buffer gone and its thread told to end.
     fn end_wait(&mut self) -> Option<Waiting> {
-        let waiting = self.hosting.moves.waiting.take()?;
+        let mut waiting = self.hosting.moves.waiting.take()?;
         waiting.stop.store(true, Ordering::Release);
+        if let Some(held) = waiting.bridge.ended() {
+            let _ = held.send(Err("the move ended".into()));
+        }
         if self.editor.buffer(waiting.buffer).is_some() {
             self.editor.kill_buffer(waiting.buffer);
         }

@@ -40,6 +40,9 @@ pub(super) struct Calls {
     pub in_flight: Option<Value>,
     /// The agent cancelled the call in flight: its connection is closed, and made again.
     pub cut: bool,
+    /// The call in flight is the bridge's own, which any request of the agent's cuts as a
+    /// cancel does, so that the agent never waits on it (ADR 0151, step 2).
+    pub yields: bool,
     /// What closes the connection, so that a call waiting on it ends.
     pub close: Option<Box<dyn Fn() + Send>>,
     /// Ids the agent cancelled that were not in flight, the latest [`QUEUED`].
@@ -70,6 +73,17 @@ impl Interrupt {
                 calls.cancelled.pop_front();
             }
             calls.cancelled.push_back(id);
+        }
+    }
+
+    /// The agent sent a request: a call of the bridge's own that waits gives way to it.
+    pub(super) fn request_came(&self) {
+        let mut calls = self.lock();
+        if calls.yields && calls.in_flight.is_some() {
+            calls.cut = true;
+            if let Some(close) = &calls.close {
+                close();
+            }
         }
     }
 
@@ -186,6 +200,11 @@ pub(super) fn spawn_reader(
                 {
                     interrupt.cancel(id);
                     continue;
+                }
+                if let Input::Line(text) = &read
+                    && id_of(text).is_some()
+                {
+                    interrupt.request_came();
                 }
                 if matches!(read, Input::End) {
                     if end_is_gone {

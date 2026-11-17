@@ -10,8 +10,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use super::super::{Look, NOT_FOUND, POLL, look, spawn_wait};
+use super::super::{Look, NOT_FOUND, POLL, Watched, look, spawn_wait};
 use super::{ID, PID, started, still};
+use crate::sessions::identity::SessionId;
 
 struct Scratch(PathBuf);
 
@@ -194,7 +195,13 @@ fn the_wait_ends_when_told_without_a_step() {
     let stop = Arc::new(AtomicBool::new(false));
     let (sent, steps) = mpsc::channel();
     let (ended, done) = mpsc::channel::<()>();
-    spawn_wait(pid, then, Arc::clone(&stop), move |step| {
+    let watched = Watched {
+        pid,
+        then,
+        id: SessionId::parse(ID).unwrap(),
+        since_ms: 0,
+    };
+    spawn_wait(watched, Arc::clone(&stop), move |step| {
         let _ = &ended;
         sent.send(step).is_ok()
     })

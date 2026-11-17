@@ -78,7 +78,8 @@ often, so it must rebuild within 2 s.
   (`transcripts`) only for ids, names, times and directories, on its own
   `oso-session-adopt-list` thread (`adopt`). A session started outside oso that asks to move
   into a space (`moving`, ADR 0151) is found from the registry on `oso-session-move`, and its
-  process is watched on `oso-session-move-wait`. `session-search` alone reads what was said in
+  process and its registry entry are watched on `oso-session-move-wait`; once its turn
+  ended, its bridge stops its own parent (`channel/mcp/moving.rs`, step 2). `session-search` alone reads what was said in
   them, prompts and replies only, held in memory on `oso-history` (`history`, ADR 0145); no
   agent gets it, and none of it is logged. The clipboard's images a session is given
   (`images`, ADR 0142) are written, converted by `sips` and removed on one `oso-images` thread,

@@ -548,6 +548,7 @@ pub fn oso_platform::process::may_pass(&str) -> bool
 pub fn oso_platform::process::open_link(&str, core::option::Option<&std::path::Path>) -> std::io::error::Result<oso_platform::process::Child>
 pub fn oso_platform::process::spawn(&oso_platform::process::Spawn<'_>) -> std::io::error::Result<oso_platform::process::Child>
 pub fn oso_platform::process::start_time(u32) -> std::io::error::Result<core::option::Option<std::time::SystemTime>>
+pub fn oso_platform::process::terminate_parent(u32) -> std::io::error::Result<()>
 pub mod oso_platform::random
 pub fn oso_platform::random::fill(&mut [u8]) -> std::io::error::Result<()>
 pub mod oso_platform::text

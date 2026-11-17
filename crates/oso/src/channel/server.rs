@@ -536,6 +536,7 @@ where
     };
     let hold = match &op {
         Op::Session(call) => call.hold(),
+        Op::MoveWait => Hold::Job(protocol::MOVE_WAIT_WITHIN),
         _ => Hold::Usual,
     };
     // Only a file that is there opens: the channel starts no new file (ADR 0085). Looked at

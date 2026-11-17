@@ -45,9 +45,11 @@ pub const GIVE_UP: Duration = Duration::from_secs(300);
 pub const NOT_FOUND: &str = "oso cannot find this session in Claude Code's registry: stop it \
      here and ask the person to adopt it with session-adopt";
 
-/// What the agent is told once the person agreed: it ends its turn, and the person stops it.
+/// What the agent is told once the person agreed: it ends its turn, and its bridge stops it
+/// then, or the person does where it has none (step 2).
 pub const REPLY: &str = "The person agreed. End your turn now, calling no more tools, with one \
-     short line telling the person to type /exit here; once this process has ended, oso resumes \
+     short line telling the person that this session moves into oso and stops here once this \
+     turn ends, and to type /exit here if it does not; once this process has ended, oso resumes \
      this conversation in the space. Do not resume it anywhere yourself.";
 
 /// What the look is given: the bridge's parent and when it started, as the system said when
@@ -167,6 +169,9 @@ fn repository(directory: &Path, look: &Look) -> Result<(Member, Option<PathBuf>)
 pub enum Step {
     /// The process still runs.
     Wait,
+    /// Its registry entry says its turn ended after the agent was told to end it: its bridge
+    /// may stop it now (step 2). Said once.
+    Idle,
     /// It still runs at [`LATE`]: the person is asked to stop it, once.
     Late,
     /// It has ended.
@@ -296,16 +301,129 @@ pub fn spawn_look(
         .map(drop)
 }
 
-/// Watches the process `pid`, which started at `then`, every [`POLL`] on a thread of its own,
-/// `oso-session-move-wait`, and calls `send` with each step but [`Step::Wait`], until it has
-/// stopped, the wait gave up, `stop` is set or `send` returns false.
+/// What the wait watches: the outside process, and its conversation's registry entry.
+#[derive(Debug, Clone)]
+pub struct Watched {
+    pub pid: u32,
+    /// When the process started.
+    pub then: SystemTime,
+    pub id: SessionId,
+    /// When the agent was told to end its turn, in milliseconds since the epoch.
+    pub since_ms: u64,
+}
+
+/// When `entry`, the outside process's registry entry, says the turn of `watched`'s
+/// conversation ended, if after its agent was told to end it. An entry that does not say when
+/// its status changed never says so: a status from before the reply would stop a turn that
+/// still runs.
+pub fn idle(entry: Option<&registry::Entry>, watched: &Watched) -> Option<u64> {
+    let entry = entry?;
+    let ours = entry.pid == watched.pid && entry.session_id.as_ref() == Some(&watched.id);
+    let at = entry
+        .status_updated_at
+        .filter(|&at| at > watched.since_ms)?;
+    (ours && entry.status.as_deref() == Some("idle")).then_some(at)
+}
+
+/// Whether the turn has ended, by two readings in a row of the same `idle`: a prompt the
+/// person typed while the turn ended starts the next one at once, and one reading could
+/// fall between the two.
+#[derive(Debug, Default)]
+pub struct Settling(Option<u64>);
+
+impl Settling {
+    /// Takes a reading, `idle`'s; true once it is the same idle as the one before.
+    pub fn saw(&mut self, idle: Option<u64>) -> bool {
+        let settled = idle.is_some() && idle == self.0;
+        self.0 = idle;
+        settled
+    }
+}
+
+/// What the bridge's `move_wait` is told when the wait passed [`LATE`].
+pub const TOO_LATE: &str = "the session's turn did not end in time";
+
+/// What a `move_wait` is told that is not held.
+pub const NOT_WAITING: &str = "no move of this session waits";
+
+/// The bridge's `move_wait`, `R` the reply to it, as the app holds it (step 2): asked once,
+/// and answered once. A turn that ended before it was asked answers nothing later, as the
+/// session may have gone on since.
+#[derive(Debug)]
+pub struct BridgeWait<R> {
+    held: Asked<R>,
+    late: bool,
+}
+
+#[derive(Debug)]
+enum Asked<R> {
+    Not,
+    Held(R),
+    Answered,
+}
+
+impl<R> Default for BridgeWait<R> {
+    fn default() -> Self {
+        Self {
+            held: Asked::Not,
+            late: false,
+        }
+    }
+}
+
+impl<R> BridgeWait<R> {
+    /// The bridge asks, to be answered with `reply`: held, or given back with why not.
+    ///
+    /// # Errors
+    ///
+    /// `reply` and why it is not held: the wait passed [`LATE`], or it was asked already.
+    pub fn ask(&mut self, reply: R) -> Result<(), (R, &'static str)> {
+        if self.late {
+            return Err((reply, TOO_LATE));
+        }
+        match self.held {
+            Asked::Not => {
+                self.held = Asked::Held(reply);
+                Ok(())
+            }
+            Asked::Held(_) | Asked::Answered => Err((reply, NOT_WAITING)),
+        }
+    }
+
+    /// The turn ended: the reply to answer with the process to stop, if one is held.
+    pub fn turn_ended(&mut self) -> Option<R> {
+        self.answered()
+    }
+
+    /// The wait passed [`LATE`]: the reply to refuse, if one is held.
+    pub fn late(&mut self) -> Option<R> {
+        self.late = true;
+        self.answered()
+    }
+
+    /// The wait ended any other way: the reply to refuse, if one is held.
+    pub fn ended(&mut self) -> Option<R> {
+        self.answered()
+    }
+
+    fn answered(&mut self) -> Option<R> {
+        match std::mem::replace(&mut self.held, Asked::Answered) {
+            Asked::Held(reply) => Some(reply),
+            Asked::Not | Asked::Answered => None,
+        }
+    }
+}
+
+/// Watches `watched` every [`POLL`] on a thread of its own, `oso-session-move-wait`, and calls
+/// `send` with each step but [`Step::Wait`], until the process has stopped, the wait gave up,
+/// `stop` is set or `send` returns false. The registry is read only while the process runs
+/// and its turn has not been seen to end.
 ///
 /// # Errors
 ///
 /// If no thread starts.
 pub fn spawn_wait(
-    pid: u32,
-    then: SystemTime,
+    watched: Watched,
     stop: Arc<AtomicBool>,
     send: impl Fn(Step) -> bool + Send + 'static,
 ) -> io::Result<()> {
@@ -313,13 +431,28 @@ pub fn spawn_wait(
         .name("oso-session-move-wait".into())
         .spawn(move || {
             let began = Instant::now();
-            let mut told_late = false;
+            let dir = registry::directory();
+            let name = OsString::from(format!("{}.json", watched.pid));
+            let (mut told_late, mut told_idle) = (false, false);
+            let mut settling = Settling::default();
             loop {
                 thread::sleep(POLL);
                 if stop.load(Ordering::Acquire) {
                     return;
                 }
-                let alive = running(pid, then, process::start_time);
+                let alive = running(watched.pid, watched.then, process::start_time);
+                // No one waits for the turn's end past [`LATE`].
+                if alive && !told_idle && !told_late {
+                    let entry = dir
+                        .as_deref()
+                        .and_then(|dir| registry::read_file(dir, &name));
+                    if settling.saw(idle(entry.as_ref(), &watched)) {
+                        told_idle = true;
+                        if !send(Step::Idle) {
+                            return;
+                        }
+                    }
+                }
                 let next = step(began.elapsed(), alive, told_late);
                 told_late |= next == Step::Late;
                 if next != Step::Wait && !send(next) {
@@ -385,8 +518,9 @@ pub fn details(label: &str, asker: &Asker, space: &str, held_by: Option<&str>) -
         "A Claude Code session outside oso asks, as its registry entry says:\n\n  {label}\n\ny \
          allows it, n or C-g refuses it.\n\n  Conversation: {}\n  Process:      {} {}\n  \
          Directory:    {}\n{worktree}  Repository:   {}\n  Space:        {}\n\nOn y, the \
-         session is told to end its turn and the person to type /exit where it runs. Once that \
-         process has ended, oso resumes the conversation in that directory, in this space, as \
+         session is told to end its turn, and once oso sees it end, its own oso mcp asks it to \
+         end (SIGTERM); if it does not stop, type /exit where it runs. Once that process has \
+         ended, oso resumes the conversation in that directory, in this space, as \
          started on your y, with your settings and none of the flags it ran with. Background \
          work in the old process ends with it. Killing the buffer *moving: …* cancels the move \
          while oso waits.\n",
@@ -402,8 +536,8 @@ pub fn details(label: &str, asker: &Asker, space: &str, held_by: Option<&str>) -
 /// What the waiting buffer and the echo area say while oso waits for `name` to stop.
 pub fn waiting(name: &str, space: &str) -> String {
     format!(
-        "Moving {} into space {}: type /exit where it runs; oso resumes it here once it stops \
-         (kill this buffer to cancel)",
+        "Moving {} into space {}: it stops where it runs once its turn ends, or type /exit \
+         there; oso resumes it here once it stops (kill this buffer to cancel)",
         quoted(name),
         quoted(space)
     )

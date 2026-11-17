@@ -109,8 +109,9 @@ sessions as yours do. (y or n)`
 1. Trust is checked again. The repository joins the space if it is not a member, and a linked
    worktree is held by the space, which takes it from a space that held it.
 2. The tool replies. The reply tells the agent to end its turn now with one short line, and to
-   call no more tools: in step 1, the line tells the person to type `/exit` there. That line
-   is the note the other editor's terminal keeps, since oso cannot write there.
+   call no more tools: the line says the session stops there once the turn ends, and to type
+   `/exit` if it does not. That line is the note the other editor's terminal keeps, since oso
+   cannot write there.
 3. An internal buffer `*moving: NAME*` says what oso waits for. Killing it cancels the move:
    it is killed as a person's buffer is, as a rename's preview is (`Mode::SessionMove`).
 4. A thread watches the outside process every 500 ms, by its id and start time. At 120 s the
@@ -129,19 +130,33 @@ sessions as yours do. (y or n)`
 
 ### Stopping the outside process (step 2)
 
-- The bridge stops its own parent, never another process. Once the reply to its own
-  `move_to_space` said the person agreed, `oso mcp` watches its parent's registry entry every
-  250 ms, for at most 120 s, until its `status` is `idle`, that is, until the turn has ended.
-  Then, if its parent is still the process the entry names and started when it says, it sends
-  `SIGTERM` to it through `oso_platform::process::terminate_parent`. It never sends
-  `SIGKILL`.
-- The bridge checks that its parent is still the process the entry names right before the
-  signal: once a parent ends, its child is given to another and its id can be reused. On
-  Linux, a pidfd holds the process across the check. This is still safer than oso signalling
-  a process it did not start, by an id read earlier.
-- If the turn does not end, for example at a permission prompt, nothing is stopped, and
-  step 1's `/exit` at 120 s applies.
-- Windows has no such stop, so the move waits for the person's `/exit` there.
+- The bridge stops its own parent, never another process; oso watches and signals nothing.
+  `channel` sits below `sessions` (ADR 0038), so the bridge does not read the registry: the
+  app does, with ADR 0121's reader (the author's choice, 2026-11-18).
+- Once the reply to its own `move_to_space` has gone to the agent, `oso mcp` calls the
+  channel's `move_wait` on the same connection, so nothing new is asked. It is no tool: no
+  agent calls it. The app holds it, for the bridge of the session that moves only, once.
+- The wait's thread, which watches the process every 500 ms, also reads its registry entry
+  until 120 s. The turn has ended when the entry, still that process's and that
+  conversation's, says `idle` with a `statusUpdatedAt` later than the reply, the same on two
+  readings in a row: a prompt the person typed as the turn ended starts the next turn at
+  once. An entry that does not say when its status changed never counts, so a status from
+  before the reply stops nothing.
+- `move_wait` is held once and answered once. A turn that ended before the bridge asked
+  answers nothing later, as the session may have gone on since. While the bridge waits, any
+  request of the agent's cuts the wait, as a cancel does, and is answered: the turn has not
+  ended then.
+- Then `move_wait` is answered with the process's id. The bridge sends it `SIGTERM` through
+  `oso_platform::process::terminate_parent(parent)`, which signals only while that id is
+  the bridge's own parent: once a parent ends, its child is given to another and its id can
+  be reused. On Linux a pidfd taken between two checks holds the process; on macOS the check
+  and the signal follow at once, and a parent that ends keeps its id until it is reaped. It
+  never sends `SIGKILL`, and never to the first process.
+- If the turn does not end, for example at a permission prompt, nothing is stopped: at 120 s
+  `move_wait` is answered with why not, and the person's `/exit` applies. A cancel, a give-up
+  or any other end of the wait answers it the same way.
+- Windows has no such stop: the bridge holds nothing there, and the move waits for the
+  person's `/exit`.
 
 ### Where it lands
 
@@ -184,8 +199,10 @@ sessions as yours do. (y or n)`
 - `channel::Event::Asks` carries the parent's start time, and the app keeps each outside
   connection's peer while it is open.
 - `oso_core::buffer::Mode::SessionMove`, the waiting buffer's mode, which the person may kill.
-- Step 2: `oso_platform::process::terminate_parent` (Unix), and the bridge's watch in
-  `channel/mcp`.
+- Step 2: `oso_platform::process::terminate_parent` (`process/parent.rs`, Unix); the
+  channel's `move_wait` (`channel::protocol::Op::MoveWait`, held up to 130 s); the registry
+  watch on the wait's thread (`sessions::moving::idle`) and the held reply in
+  `app/sessions/hosting/moving.rs`; and the bridge's side in `channel/mcp/moving.rs`.
 
 ### The work, in steps
 
@@ -202,10 +219,12 @@ ADRs 0085, 0121, 0135 and 0136 gain `amended by 0151`.
   within the selected window's project": an outside connection may also call
   `move_to_space`, which asks the person each time.
 - ADR 0121, "What no tool does", "never stops or archives the caller itself": in step 2,
-  `move_to_space`'s bridge stops its own `claude` once the person agreed and its turn ended.
+  `move_to_space`'s bridge stops its own `claude` once the person agreed and oso saw its turn
+  end.
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), "Each new connection asks the person": the app
   keeps what the system said of each connection let in (its process, its parent, and when
-  that parent started) while it is open.
+  that parent started) while it is open. In step 2 the channel gains `move_wait`, a method
+  no tool names, which only the bridge of a session that moves is answered.
 - [ADR 0136](0136-issue-spaces.md), "No tool makes, closes or reopens a space, adds or removes
   a repository": `move_to_space` adds the moved session's repository on the person's `y` to a
   question that names it.

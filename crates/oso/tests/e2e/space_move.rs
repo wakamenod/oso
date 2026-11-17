@@ -6,8 +6,9 @@
 //! repository it adds, and on `y` tells the agent to end its turn. oso then waits, resuming
 //! nothing while the outside process runs. Once that ends, as `/exit` would end it, the
 //! conversation resumes in oso with step 1's fake `claude`, in the directory it ran in, in that
-//! space, which now holds both repositories. Killing the waiting buffer instead cancels it:
-//! nothing resumes once the outside process ends.
+//! space, which now holds both repositories. Once its entry says its turn ended, its bridge
+//! sends the outside session `SIGTERM` itself, and the resume follows (step 2). Killing the
+//! waiting buffer instead cancels it: nothing resumes once the outside process ends.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: which registry
 //! entry is the asker's, the repository found, the wait's steps and the question's words have
@@ -31,17 +32,27 @@ use super::worktrees::{DEADLINE, Flow, asks};
 const ID: &str = "5678cdef-0000-4000-8000-00000000cccc";
 
 /// The outside session: its registry entry, then `oso mcp` as its child, reading the flow's
-/// requests, then it runs until the flow writes `exit`, as the person's `/exit` ends it. `DIR`
-/// is the flow's scratch directory.
+/// requests. It runs until the flow writes `exit`, as the person's `/exit` ends it, or until
+/// a `SIGTERM`, which only its bridge sends. Once the flow writes `idle`, its entry says the
+/// turn ended, as the CLI's does. `DIR` is the flow's scratch directory.
 const OUTSIDE: &str = r#"#!/bin/sh
 dir='DIR'
 mkdir -p "$HOME/.claude/sessions"
 entry="$HOME/.claude/sessions/$$.json"
-printf '{"pid":%s,"sessionId":"%s","cwd":"%s","startedAt":%s000,"name":"outside-fix","kind":"interactive","status":"busy"}\n' \
-  $$ "$MOVE_ID" "$MOVE_CWD" "$(date +%s)" > "$entry"
-"$OSO" mcp --pid "$OSO_PID" --requests "$dir/move-requests.jsonl" > "$dir/move-out" 2> "$dir/move-err"
+started=$(date +%s)
+write() {
+  printf '{"pid":%s,"sessionId":"%s","cwd":"%s","startedAt":%s000,"name":"outside-fix","kind":"interactive","status":"%s","statusUpdatedAt":%s000}\n' \
+    $$ "$MOVE_ID" "$MOVE_CWD" "$started" "$1" "$(date +%s)" > "$entry.new" && mv "$entry.new" "$entry"
+}
+trap 'rm -f "$entry"; : > "$dir/terminated"; exit 143' TERM
+write busy
+"$OSO" mcp --pid "$OSO_PID" --requests "$dir/move-requests.jsonl" > "$dir/move-out" 2> "$dir/move-err" &
 while [ ! -f "$dir/exit" ]; do
   [ -d "$dir" ] || break
+  if [ -f "$dir/idle" ] && [ ! -f "$dir/idle-written" ]; then
+    write idle
+    : > "$dir/idle-written"
+  fi
   sleep 0.1
 done
 rm -f "$entry"
@@ -243,6 +254,49 @@ fn a_session_started_outside_oso_moves_into_a_space_once_it_stopped_there() {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
+fn the_bridge_stops_its_session_once_its_turn_ended() {
+    let mut moving = moving("space-move-stop");
+    // The entry's time is whole seconds: one from a second after the reply is after it.
+    thread::sleep(Duration::from_millis(1100));
+    assert!(
+        runs(&moving.flow).is_empty(),
+        "a resume ran while the outside process ran"
+    );
+    // Its turn ends: the bridge sends its own parent `SIGTERM`, and nothing else stops it.
+    moving.flow.scratch.write("idle", b"");
+    let deadline = Instant::now() + DEADLINE;
+    while moving
+        .outside
+        .try_wait()
+        .expect("the outside session")
+        .is_none()
+    {
+        assert!(
+            Instant::now() < deadline,
+            "the bridge did not stop its session"
+        );
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert!(
+        moving.flow.scratch.path().join("terminated").exists(),
+        "the outside session ended without a SIGTERM"
+    );
+    let run = run_in(&moving.flow, &moving.repo);
+    assert!(
+        run.args.iter().any(|arg| arg == &format!("--resume={ID}")),
+        "{:?}",
+        run.args
+    );
+    moving
+        .app
+        .wait_for("the moved session in its space", |state| {
+            session(state, "outside-fix").is_some_and(|s| s["space"] == "fix-login-error")
+        });
+    moving.flow.scratch.write("go", b"0");
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
 fn killing_the_waiting_buffer_cancels_the_move() {
     let mut moving = moving("space-move-cancel");
     // The waiting buffer is internal, and `C-x b` and `C-x k` take it as a person's.
@@ -259,6 +313,13 @@ fn killing_the_waiting_buffer_cancels_the_move() {
     moving.app.wait_for("the move cancelled", |state| {
         state["buffer"]["name"] != "*moving: outside-fix*" && echo(state).contains("was cancelled")
     });
+    // Its turn ends after the cancel: its bridge stops nothing.
+    moving.flow.scratch.write("idle", b"");
+    thread::sleep(Duration::from_millis(1500));
+    assert!(
+        !moving.flow.scratch.path().join("terminated").exists(),
+        "a cancelled move stopped the outside session"
+    );
     // The outside session ends, and nothing resumes it.
     exit_outside(&mut moving);
     thread::sleep(Duration::from_millis(1500));
