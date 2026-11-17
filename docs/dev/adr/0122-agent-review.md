@@ -1280,9 +1280,11 @@ What the first PR built:
   cursor's place), each reading once, each file's marks, each comment. Paths and lines are
   strings when UTF-8, else hex. Its name is a 128-bit FNV of the root and the scope, the same
   for every session baseline; the header is checked against what was asked as it is read, so a
-  name that comes out the same reads nothing. Past 16 MiB the largest readings are left out
-  first, and a review whose comments alone pass it is not written. Read back, a line this does
-  not write is left out, with the replies to a comment left out.
+  name that comes out the same reads nothing. A pull request's scope (step 12b) is saved by its
+  number, as the others are: `review-resume` and a restart open it again, running `gh` and its
+  fetch as opening one does (the author's choice, 2026-11-18). Past 16 MiB the largest readings
+  are left out first, and a review whose comments alone pass it is not written. Read back, a
+  line this does not write is left out, with the replies to a comment left out.
 - **The store** (`app/reviews/store.rs`) is one thread, `oso-review-store`, started after the
   first event, which sweeps reviews not opened for 30 days and past the 256 opened last, reads
   through `sessions::record`'s checks (a private directory, a regular file of this user's with
