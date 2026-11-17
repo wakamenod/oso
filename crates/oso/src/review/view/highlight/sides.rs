@@ -9,6 +9,7 @@
 //!   U+FFFD and a first BOM left out, so that its offsets are those of the review's lines,
 //!   whose bytes the section decodes the same way. No display map is built for it.
 
+use std::cmp::Ordering;
 use std::ops::Range;
 use std::path::Path;
 use std::sync::Arc;
@@ -125,9 +126,53 @@ pub(super) fn language(reading: &Reading, side: Side) -> Option<Language> {
     Language::of(Mode::for_path(Path::new(name)))
 }
 
+/// Whether `bytes`, a side, starts with a BOM, which its text leaves out.
+pub(super) fn has_bom(bytes: &[u8]) -> bool {
+    bytes.starts_with(BOM)
+}
+
+/// Whether `text`, a buffer's, is `bytes`, a side, as the loader decodes it: a BOM left out.
+/// O(1) when the buffer is shorter, or more than three times longer, as after most edits; else
+/// O(n), and a decoded copy only when the buffer is longer than the side's bytes, as a side with
+/// invalid bytes is once decoded.
+pub(super) fn same_text(bytes: &[u8], text: &Rope) -> bool {
+    let rest = bytes.strip_prefix(BOM).unwrap_or(bytes);
+    // Decoding only grows a text, each invalid byte to a U+FFFD of three: the same length
+    // means the same bytes, as the buffer's are UTF-8, and a shorter one cannot be it.
+    match text.len().cmp(&rest.len()) {
+        Ordering::Less => false,
+        Ordering::Equal => same_bytes(rest, text),
+        Ordering::Greater if text.len() > rest.len().saturating_mul(3) => false,
+        Ordering::Greater => {
+            let (decoded, _) = decoded(bytes);
+            same_bytes(decoded.as_bytes(), text)
+        }
+    }
+}
+
+/// Whether `text` holds `bytes`, chunk by chunk.
+fn same_bytes(bytes: &[u8], text: &Rope) -> bool {
+    if bytes.len() != text.len() {
+        return false;
+    }
+    let mut at = 0;
+    text.chunks().all(|chunk| {
+        let chunk = chunk.as_bytes();
+        let same = bytes.get(at..at + chunk.len()) == Some(chunk);
+        at += chunk.len();
+        same
+    })
+}
+
 /// `bytes` decoded as the loader decodes a file, and whether it started with a BOM, which the
 /// text leaves out. O(n).
 pub(super) fn decode(bytes: &[u8]) -> (Rope, bool) {
+    let (text, bom) = decoded(bytes);
+    (Rope::from(text.as_str()), bom)
+}
+
+/// `bytes` decoded as [`decode`] decodes them, as a string.
+fn decoded(bytes: &[u8]) -> (String, bool) {
     let (mut rest, bom) = match bytes.strip_prefix(BOM) {
         Some(rest) => (rest, true),
         None => (bytes, false),
@@ -149,7 +194,7 @@ pub(super) fn decode(bytes: &[u8]) -> (Rope, bool) {
             }
         }
     }
-    (Rope::from(text.as_str()), bom)
+    (text, bom)
 }
 
 #[cfg(test)]
@@ -175,6 +220,24 @@ mod tests {
             assert_eq!(text.to_string(), loaded.text().to_string(), "{bytes:?}");
             assert_eq!(bom, bytes.starts_with(BOM));
         }
+    }
+
+    #[test]
+    fn a_buffers_text_is_a_side_when_it_decodes_the_same() {
+        let rope = |text: &str| Rope::from(text);
+        assert!(same_text(b"fn a() {}\n", &rope("fn a() {}\n")));
+        assert!(
+            same_text(b"\xEF\xBB\xBFfn\n", &rope("fn\n")),
+            "the BOM left out"
+        );
+        assert!(!same_text(b"fn b() {}\n", &rope("fn a() {}\n")));
+        assert!(!same_text(b"fn\n", &rope("fn\n\n")));
+        assert!(same_text(b"a\xFFb", &rope("a\u{FFFD}b")), "an invalid byte");
+        let long = "x".repeat(3000) + "\n";
+        let mut edited = long.clone();
+        edited.replace_range(2500..2501, "y");
+        assert!(same_text(long.as_bytes(), &rope(&long)));
+        assert!(!same_text(long.as_bytes(), &rope(&edited)));
     }
 
     #[test]

@@ -60,8 +60,8 @@ use cards::Cards;
 pub(crate) use cards::{HunkMark, Marks};
 use file::{File, Gone, Laid};
 use highlight::Highlighting;
-pub(crate) use highlight::{Highlighter, Progress};
-pub(crate) use panes::PaneText;
+pub(crate) use highlight::{BufferSide, Highlighter, Progress};
+pub(crate) use panes::{PanePaint, PaneText};
 
 /// The most bytes a review's text holds: past it, files show their header alone.
 pub(crate) const MAX_TEXT: usize = 64 * 1024 * 1024;
@@ -124,6 +124,8 @@ pub(crate) enum Tell {
     /// The byte ranges of the review buffer's text its windows show, for the sides on screen to
     /// go first.
     Shown(Vec<Range<usize>>),
+    /// An open buffer whose text a file's new side may be.
+    Buffer(Box<BufferSide>),
 }
 
 /// How a file's comments are carried to its new reading.
@@ -147,6 +149,9 @@ pub(crate) struct Text {
     pub(crate) highlights: Highlights,
     /// The two panes' texts, old then new, while they are built and changed since the last.
     pub(crate) panes: Option<Box<[PaneText; 2]>>,
+    /// Or, when their texts did not change, their rows and highlights, as the sides' runs
+    /// changed (step 9).
+    pub(crate) pane_paint: Option<Box<PanePaint>>,
     pub(crate) carried: Vec<(Arc<Reading>, Carried)>,
     pub(crate) reading: Option<(usize, usize)>,
     /// Whether its agent cards show folded to their first line.
@@ -280,6 +285,10 @@ impl State {
                 self.shown_now();
                 return false;
             }
+            Tell::Buffer(buffer) => {
+                self.highlighting.offer_buffer(*buffer);
+                return false;
+            }
             _ => {}
         }
         match told {
@@ -324,7 +333,7 @@ impl State {
                 self.highlighting.set(highlighter, top);
                 self.shown_now();
             }
-            Tell::Syntax(_) | Tell::Shown(_) => {}
+            Tell::Syntax(_) | Tell::Shown(_) | Tell::Buffer(_) => {}
         }
         true
     }
@@ -410,6 +419,7 @@ impl State {
                 self.files.insert(path.clone(), file);
             }
         }
+        self.highlighting.keep_listed_buffers();
         let same = self.more == more && self.cut == cut && before == self.order;
         self.dirty |= !same;
         self.more = more;

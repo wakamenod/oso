@@ -22,16 +22,20 @@ impl State {
     pub(super) fn build(&mut self) -> Text {
         // Reports told since the last batch, as when a test tells them and builds.
         self.highlighting.take_reports(&self.order);
+        // The files whose sides' runs changed, for a paint of the unified text and the panes.
+        let changed = self.highlighting.take_changed();
         let reading = self.reading_now();
+        let pane_paint = self.panes_paint(&changed);
         let panes = self.panes_text();
         if !self.dirty
-            && let Some((rows, highlights)) = self.paint()
+            && let Some((rows, highlights)) = self.paint(&changed)
         {
             return Text {
                 text: None,
                 rows: rows.clone(),
                 highlights: highlights.clone(),
                 panes,
+                pane_paint,
                 carried: std::mem::take(&mut self.carried),
                 reading,
                 folded: self.folded,
@@ -81,6 +85,7 @@ impl State {
             rows: built.rows,
             highlights: built.highlights,
             panes,
+            pane_paint,
             carried: std::mem::take(&mut self.carried),
             reading,
             folded,
@@ -88,12 +93,11 @@ impl State {
         }
     }
 
-    /// The last rows and highlights, with the sides' runs that changed since laid over the
+    /// The last rows and highlights, with the runs of the files in `changed` laid over the
     /// sections they touch, the rest shared: a paint that lays out nothing. `None` before the
     /// first text.
-    fn paint(&mut self) -> Option<(Rows, Highlights)> {
+    fn paint(&mut self, changed: &HashSet<Box<[u8]>>) -> Option<(Rows, Highlights)> {
         let (rows, highlights) = self.last.as_mut()?;
-        let changed = self.highlighting.take_changed();
         if !changed.is_empty() {
             for (path, start, rendered) in &self.placed {
                 if changed.contains(path) {
@@ -114,7 +118,6 @@ impl State {
         sections: &[Arc<section::Rendered>],
         paths: Vec<Option<Box<[u8]>>>,
     ) -> Vec<Option<Vec<Run>>> {
-        self.highlighting.take_changed();
         self.placed.clear();
         let mut laid = HashSet::new();
         let mut runs = Vec::with_capacity(sections.len());
@@ -125,10 +128,7 @@ impl State {
             if let Some(path) = path
                 && !rendered.slots.is_empty()
             {
-                let sides = self.highlighting.sides(&path);
-                if sides.iter().any(Option::is_some) {
-                    merged = Some(project::merged(&rendered.runs, &rendered.slots, sides));
-                }
+                merged = project::section_runs(rendered, self.highlighting.sides(&path));
                 laid.insert(path.clone());
                 self.placed.push((path, start, Arc::clone(rendered)));
             }

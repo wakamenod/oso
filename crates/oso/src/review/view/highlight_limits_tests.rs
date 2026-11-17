@@ -1,5 +1,6 @@
-//! The view's highlighting at its limits: a side past the budget, a full schedule, a file the
-//! text cut short, a withheld reading, a stale report, what windows show, and the view dropped.
+//! The view's highlighting at its limits and from elsewhere: a side past the budget, a full
+//! schedule, a file the text cut short, a withheld reading, a stale report, what windows show,
+//! the view dropped, the panes, and an open buffer's runs taken for a new side.
 //!
 //! Must not depend on: threads or the syntax worker; a stand-in highlighter records what is
 //! asked, and reports are given by hand.
@@ -8,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use oso_core::syntax::{Highlight, Highlights};
-use oso_syntax::Outcome;
+use oso_syntax::{Language, Outcome};
 
 use super::highlight_tests::{Recorder, at, id, keyword, reading, report, state_with};
 use super::section::tests::{entry, hunk};
@@ -191,4 +192,187 @@ fn what_windows_show_changes_no_text_and_a_stale_report_is_dropped() {
         Some(Highlight::DiffAdded),
         "the older report did not count"
     );
+}
+
+/// The highlight of the byte at `needle`'s first match in pane `side`'s text, plus `skip`.
+fn pane_at(text: &str, highlights: &Highlights, needle: &str, skip: usize) -> Option<Highlight> {
+    highlights.at(text.find(needle).unwrap() + skip)
+}
+
+#[test]
+fn the_panes_take_each_sides_runs_laid_out_and_as_a_paint() {
+    let recorder = Recorder::default();
+    let mut state = state_with(
+        &recorder,
+        &[reading(b"a.rs", b"fn a\n", b"let b\n", (1, 2))],
+    );
+    // Highlighted before the panes are built: their first texts hold the runs.
+    state.take(Tell::Syntax(report(
+        1,
+        Outcome::Highlights(keyword("fn a\n", 2)),
+        true,
+    )));
+    state.build();
+    state.take(Tell::Panes(true));
+    let text = state.build();
+    let panes = text.panes.expect("the panes");
+    let [old, new] = *panes;
+    let old_text = state.panes.texts[0].to_string();
+    let new_text = state.panes.texts[1].to_string();
+    assert_eq!(
+        pane_at(&old_text, &old.2, "-fn", 1),
+        Some(Highlight::Keyword)
+    );
+    assert_eq!(
+        pane_at(&new_text, &new.2, "+let", 1),
+        Some(Highlight::DiffAdded)
+    );
+    // The new side's report: a paint of both panes, with no text.
+    state.take(Tell::Syntax(report(
+        2,
+        Outcome::Highlights(keyword("let b\n", 3)),
+        true,
+    )));
+    let painted = state.build();
+    assert!(painted.panes.is_none() && painted.text.is_none());
+    let [old, new] = *painted.pane_paint.expect("a paint of the panes");
+    assert_eq!(
+        pane_at(&new_text, &new.1, "+let", 1),
+        Some(Highlight::Keyword)
+    );
+    assert_eq!(
+        pane_at(&new_text, &new.1, "+let", 0),
+        Some(Highlight::DiffAdded)
+    );
+    assert_eq!(
+        pane_at(&old_text, &old.1, "-fn", 1),
+        Some(Highlight::Keyword)
+    );
+    // With nothing changed, no paint.
+    assert!(state.build().pane_paint.is_none());
+}
+
+/// An open buffer of `path` holding `text` at `revision`, its first `keyword_len` bytes a
+/// keyword, in Rust.
+fn buffer(path: &[u8], (text, revision): (&str, u64), keyword_len: usize, whole: bool) -> Tell {
+    Tell::Buffer(Box::new(BufferSide {
+        path: path.into(),
+        revision,
+        text: oso_core::rope::Rope::from(text),
+        highlights: keyword(text, keyword_len),
+        whole,
+        language: Some(Language::Rust),
+    }))
+}
+
+/// Offers `buffer` to `state`; whether its batch changed what the text shows.
+fn offer(state: &mut State, buffer: Tell) -> bool {
+    assert!(!state.take(buffer), "an offer waits for its batch");
+    state.schedule()
+}
+
+#[test]
+fn an_open_buffers_whole_runs_are_its_files_new_sides_and_its_document_closes() {
+    let recorder = Recorder::default();
+    let mut state = state_with(
+        &recorder,
+        &[reading(b"a.rs", b"fn a\n", b"let b\n", (1, 2))],
+    );
+    assert_eq!(recorder.opened().len(), 2, "both sides open first");
+    // Another text, or the same in another language: not the side's.
+    assert!(!offer(&mut state, buffer(b"a.rs", ("let c\n", 6), 3, true)));
+    let Tell::Buffer(mut other) = buffer(b"a.rs", ("let b\n", 7), 3, true) else {
+        unreachable!()
+    };
+    other.language = Some(Language::Markdown);
+    assert!(!offer(&mut state, Tell::Buffer(other)));
+    // The side's text, whole: its runs, and the new side's document closes.
+    assert!(offer(&mut state, buffer(b"a.rs", ("let b\n", 8), 3, true)));
+    let text = state.build();
+    assert_eq!(at(&state, &text, "+let", 1), Some(Highlight::Keyword));
+    assert_eq!(at(&state, &text, "+let", 4), None, "whole: plain");
+    let opened = recorder.opened();
+    assert_eq!(opened.len(), 1, "{opened:?}");
+    assert_eq!(opened[0].1, "fn a\n", "the old side's only");
+    // Whole already: the next offer changes nothing.
+    assert!(!offer(&mut state, buffer(b"a.rs", ("let b\n", 8), 3, true)));
+}
+
+#[test]
+fn a_buffer_not_whole_colours_the_lines_on_screen_and_a_new_reading_tries_it_again() {
+    let recorder = Recorder::default();
+    let mut state = state_with(
+        &recorder,
+        &[reading(b"a.rs", b"fn a\n", b"let b\n", (1, 2))],
+    );
+    // Nothing on screen: a buffer partly highlighted gives nothing yet; once on screen, the
+    // buffer kept gives its lines there.
+    assert!(!offer(
+        &mut state,
+        buffer(b"a.rs", ("let b\n", 7), 3, false)
+    ));
+    all_shown(&mut state);
+    assert!(state.schedule(), "on screen: tried again");
+    let text = state.build();
+    assert_eq!(at(&state, &text, "+let", 1), Some(Highlight::Keyword));
+    assert_eq!(
+        at(&state, &text, "+let", 4),
+        Some(Highlight::DiffAdded),
+        "not whole: the diff face"
+    );
+    assert!(
+        recorder.opened().iter().any(|(_, text)| text == "let b\n"),
+        "its document stays"
+    );
+    // Offered whole, then a new reading of the same text: the buffer kept is tried again.
+    assert!(offer(&mut state, buffer(b"a.rs", ("let b\n", 9), 3, true)));
+    let again = reading(b"a.rs", b"fn a\n", b"let b\n", (1, 3));
+    state.take(Tell::File {
+        reading: again,
+        carry: Carrying::Nothing,
+    });
+    let text = state.build();
+    assert_eq!(at(&state, &text, "+let", 1), Some(Highlight::Keyword));
+    assert_eq!(at(&state, &text, "+let", 4), None);
+}
+
+#[test]
+fn no_buffer_is_kept_or_taken_while_highlighting_is_off_and_a_withheld_reading_takes_none() {
+    let recorder = Recorder::default();
+    let mut state = state_with(
+        &recorder,
+        &[reading(b"a.rs", b"fn a\n", b"let b\n", (1, 2))],
+    );
+    state.take(Tell::Highlighter {
+        highlighter: None,
+        top: PathBuf::new(),
+    });
+    assert!(!offer(&mut state, buffer(b"a.rs", ("let b\n", 7), 3, true)));
+    // A new reading the buffer's text is: still nothing while off.
+    let again = reading(b"a.rs", b"fn a\n", b"let b\n", (1, 3));
+    state.take(Tell::File {
+        reading: again,
+        carry: Carrying::Nothing,
+    });
+    let text = state.build();
+    assert_eq!(at(&state, &text, "+let", 1), Some(Highlight::DiffAdded));
+    // On again, a withheld reading of the file takes none of an offer.
+    state.take(Tell::Highlighter {
+        highlighter: Some(Box::new(recorder.clone())),
+        top: PathBuf::from("/top"),
+    });
+    let mut entry = entry(b"a.rs", Status::Modified);
+    entry.new_id = id(9);
+    state.take(Tell::File {
+        reading: Arc::new(Reading {
+            entry,
+            content: Content::Withheld,
+        }),
+        carry: Carrying::Nothing,
+    });
+    state.build();
+    assert!(!offer(
+        &mut state,
+        buffer(b"a.rs", ("let b\n", 10), 3, true)
+    ));
 }

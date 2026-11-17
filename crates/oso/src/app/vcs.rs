@@ -507,23 +507,8 @@ fn withheld(editor: &oso_core::editor::Editor, root: &std::path::Path) -> BTreeS
     (editor.buffers())
         .filter(|(_, buffer)| buffer.is_secret())
         .filter_map(|(_, buffer)| buffer.path()?.strip_prefix(root).ok())
-        .filter_map(git_bytes)
+        .filter_map(crate::git::name_of)
         .collect()
-}
-
-/// A relative path as git writes it: its bytes, with `/` between names.
-#[cfg(unix)]
-fn git_bytes(path: &std::path::Path) -> Option<Vec<u8>> {
-    use std::os::unix::ffi::OsStrExt;
-    Some(path.as_os_str().as_bytes().to_vec())
-}
-
-#[cfg(not(unix))]
-fn git_bytes(path: &std::path::Path) -> Option<Vec<u8>> {
-    let words: Vec<&str> = (path.components())
-        .map(|part| part.as_os_str().to_str())
-        .collect::<Option<_>>()?;
-    Some(words.join("/").into_bytes())
 }
 
 /// Where point goes in a first text: the first section's heading, else the top.
