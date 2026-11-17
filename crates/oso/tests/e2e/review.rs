@@ -469,6 +469,35 @@ fn seen(app: &mut App, row: &str) {
     );
 }
 
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_edit_made_under_an_open_review_shows_with_the_cursor_kept_on_its_line() {
+    let scratch = Scratch::new("review-refresh");
+    let mut app = open_review(&scratch);
+    let file = scratch.path().join("proj-review/a.rs");
+    seen(&mut app, "+2");
+    // On `+2`, a.rs's new line 2.
+    app.send_keys("n C-n C-n");
+    assert_eq!(cursor(&app.state()), (4, 0));
+    // The agent puts a line in at the top, and no key is pressed: the review shows it.
+    std::fs::write(&file, b"zero\none\n2\nthree\n").unwrap();
+    seen(&mut app, "+zero");
+    let shown = rows(&mut app, 20);
+    let at = shown.iter().position(|row| row == "+2").expect("the line");
+    assert_eq!(
+        cursor(&app.state()).0,
+        at as u64,
+        "the cursor stays on +2: {shown:?}"
+    );
+    // A hunk new since the reading before says so until the cursor is in it.
+    assert!(
+        shown
+            .iter()
+            .any(|row| row.starts_with("@@ -0,0 +1 @@") && row.ends_with("changed")),
+        "{shown:?}"
+    );
+}
+
 /// Whether the current buffer shows a run of a syntax class.
 fn syntax(state: &Value) -> bool {
     state["buffer"]["syntax"] == true

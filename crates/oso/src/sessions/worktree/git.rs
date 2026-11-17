@@ -14,7 +14,8 @@
 //!   are checked, and then with `GIT_DIR` and `GIT_WORK_TREE` given, so git looks for no
 //!   repository of its own.
 //! - `gh` is [`git::Gh`](crate::git::Gh)'s, run in the repository's empty private directory,
-//!   asked about the merged pull requests of a branch.
+//!   asked about the merged pull requests of a branch, and from ADR 0127 step 5b-2 about the
+//!   repository's open ones, a fork's left out.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -217,6 +218,75 @@ pub fn merged_pulls(
     parse_merged(&out).ok_or_else(|| "gh gave an unexpected answer".to_owned())
 }
 
+/// A repository's open pull request whose head is in the repository itself, by its head branch,
+/// and the line a worktree's row shows of it (ADR 0127, step 5b-2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenPull {
+    pub branch: String,
+    pub line: String,
+}
+
+/// The open pull requests of `repo` whose heads are in it, not in a fork, `gh` run in `cwd`, an
+/// empty private directory.
+///
+/// # Errors
+///
+/// Why `gh` gave no answer.
+pub fn open_pulls(gh: &Gh, repo: &GhRepo, cwd: &Path) -> Result<Vec<OpenPull>, String> {
+    use crate::vcs::pr::{LIST_FIELDS, LIST_LIMIT, MAX_LIST, read_list};
+    let args = [
+        "pr",
+        "list",
+        "--repo",
+        repo.as_str(),
+        "--state",
+        "open",
+        "--limit",
+        LIST_LIMIT,
+        "--json",
+        LIST_FIELDS,
+    ];
+    let out = gh
+        .run(repo, &args, cwd, MAX_LIST, RUN_LIMIT)?
+        .into_stdout()?;
+    let items = read_list(&out).ok_or("gh gave an unexpected answer")?;
+    Ok(own_pulls(&items))
+}
+
+/// The pull requests of `items` whose heads are in the repository itself: a fork's head branch
+/// is named as a local one may be, and is never a worktree's.
+fn own_pulls(items: &[crate::vcs::pr::Listed]) -> Vec<OpenPull> {
+    (items.iter().filter(|item| !item.cross))
+        .map(|item| OpenPull {
+            branch: item.branch.clone(),
+            line: crate::vcs::pr::write::pull_summary(item),
+        })
+        .collect()
+}
+
+/// The line a worktree on `branch` shows of its open pull request in `pulls`; none for a
+/// worktree on no branch.
+pub fn pull_line(pulls: &[OpenPull], branch: Option<&str>) -> Option<String> {
+    let branch = branch.filter(|branch| !branch.is_empty())?;
+    let branch = branch.strip_prefix("refs/heads/").unwrap_or(branch);
+    (pulls.iter())
+        .find(|pull| pull.branch == branch)
+        .map(|pull| pull.line.clone())
+}
+
+/// The first of `remotes` whose address names a repository on GitHub, or on the host `gh_host`
+/// names, and that repository: what `gh` is asked about.
+pub fn github_of(
+    repo: &Repo,
+    remotes: &[String],
+    gh_host: Option<&str>,
+) -> Option<(String, GhRepo)> {
+    remotes.iter().find_map(|remote| {
+        let url = repo.remote_url(remote)?;
+        Some((remote.clone(), GhRepo::from_url(&url, gh_host)?))
+    })
+}
+
 /// The pull requests in `gh pr list --json number,headRefOid,baseRefName`'s answer; `None` if it
 /// is not that shape. Entries missing a field are left out.
 pub fn parse_merged(json: &[u8]) -> Option<Vec<MergedPr>> {
@@ -239,7 +309,56 @@ pub fn parse_merged(json: &[u8]) -> Option<Vec<MergedPr>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MergedPr, parse_merged};
+    use super::{MergedPr, OpenPull, own_pulls, parse_merged, pull_line};
+    use crate::vcs::pr::{Counts, Listed};
+
+    fn listed(number: u64, branch: &str, cross: bool) -> Listed {
+        Listed {
+            number,
+            title: "t".into(),
+            branch: branch.into(),
+            author: "e".into(),
+            draft: false,
+            review: None,
+            counts: Counts::default(),
+            url: String::new(),
+            cross,
+        }
+    }
+
+    #[test]
+    fn a_fork_s_pull_request_is_never_a_worktree_s() {
+        // A stranger's `main` and a fork's `feature`, newest first, then the person's own.
+        let items = [
+            listed(9, "main", true),
+            listed(8, "feature", true),
+            listed(7, "feature", false),
+        ];
+        let pulls = own_pulls(&items);
+        assert_eq!(
+            pulls,
+            [OpenPull {
+                branch: "feature".into(),
+                line: "PR #7 open".into(),
+            }]
+        );
+        assert_eq!(pull_line(&pulls, Some("main")), None);
+        assert_eq!(
+            pull_line(&pulls, Some("feature")).as_deref(),
+            Some("PR #7 open")
+        );
+        assert_eq!(
+            pull_line(&pulls, Some("refs/heads/feature")).as_deref(),
+            Some("PR #7 open")
+        );
+    }
+
+    #[test]
+    fn a_worktree_on_no_branch_has_no_pull_request() {
+        let pulls = own_pulls(&[listed(3, "", false)]);
+        assert_eq!(pull_line(&pulls, None), None);
+        assert_eq!(pull_line(&pulls, Some("")), None);
+    }
 
     #[test]
     fn gh_answers_are_read_by_shape() {

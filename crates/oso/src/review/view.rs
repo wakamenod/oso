@@ -19,10 +19,13 @@
 //!   rows and highlights, which cost O(1) to share.
 //! - The text is cut near [`MAX_TEXT`]: the limit is looked at before each section, so the one
 //!   that passes it is whole, and the files after it show their header and a note.
-//! - Comments are carried here when a file has none to place, which costs hashing alone; a file
-//!   with comments is carried on the review's own thread, which reads old sides, and keeps the
-//!   section it showed until that carry comes. A carry is applied by the UI only when the text
-//!   holding it goes in, so the model's reading of a file is the one its text shows.
+//! - Comments are carried here when a file has none to place, which costs hashing and matching
+//!   the lines both readings put in, within [`HERE_DEADLINE`], for the map the windows keep
+//!   their places by (step 4); old sides are not read, so a file whose old side moved keeps no
+//!   line there, and its windows go to the nearest row shown. A file with comments is carried
+//!   on the review's own thread, which reads old sides, and keeps the section it showed until
+//!   that carry comes. A carry is applied by the UI only when the text holding it goes in, so
+//!   the model's reading of a file is the one its text shows.
 //! - Comments are cards among a file's lines, from the model's latest snapshot of them; a change
 //!   to a snapshot, or to whether agent cards fold, lays out again only the files it touches. A
 //!   file that leaves the listing with comments stays, after the others, until it has none.
@@ -45,6 +48,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use oso_core::load::Reloaded;
 use oso_core::review::{Carried, Carry, Comment, Rows, Shape};
@@ -53,7 +57,7 @@ use oso_core::syntax::Highlights;
 
 use super::{Entry, Reading};
 use cards::Cards;
-pub(crate) use cards::Marks;
+pub(crate) use cards::{HunkMark, Marks};
 use file::{File, Gone, Laid};
 use highlight::Highlighting;
 pub(crate) use highlight::{Highlighter, Progress};
@@ -160,7 +164,8 @@ type SendText = Box<dyn FnMut(Text) -> bool + Send>;
 
 /// What the thread takes: what it is told, or that the UI took its last text.
 enum Message {
-    Tell(Tell),
+    /// Boxed, as a comment's snapshot makes it large.
+    Tell(Box<Tell>),
     Taken,
 }
 
@@ -188,7 +193,7 @@ impl View {
 
     /// Tells the thread `what`; `false` if it has ended.
     pub(crate) fn tell(&self, what: Tell) -> bool {
-        self.tell.send(Message::Tell(what)).is_ok()
+        self.tell.send(Message::Tell(Box::new(what))).is_ok()
     }
 
     /// Says the UI put in the last text, so that the thread may build the next.
@@ -509,9 +514,14 @@ impl State {
     }
 }
 
-/// Carries the comments of a file with none to place: nothing is matched, only hunks hashed.
+/// How long one carry made here may match lines for.
+const HERE_DEADLINE: Duration = Duration::from_millis(100);
+
+/// Carries the comments of a file with none to place: hunks hashed, and the lines both readings
+/// put in matched within [`HERE_DEADLINE`], with no old side read.
 fn carry_here(carry: Carry) -> Carried {
-    carry.run(|_, _| None, |_, _| Vec::new())
+    let deadline = Instant::now() + HERE_DEADLINE;
+    carry.run(|_, _| None, |a, b| super::diff::matches(a, b, deadline))
 }
 
 /// Takes what is told, everything waiting at once, and hands out a text after each batch once
@@ -524,7 +534,7 @@ fn serve(told: &Receiver<Message>, mut send: SendText, title: String, live: &Ato
     let mut told_since = false;
     while let Ok(first) = told.recv() {
         let mut take = |message| match message {
-            Message::Tell(tell) => told_since |= state.take(tell),
+            Message::Tell(tell) => told_since |= state.take(*tell),
             Message::Taken => in_flight = false,
         };
         take(first);

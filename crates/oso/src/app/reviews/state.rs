@@ -40,6 +40,8 @@ pub(super) struct Running {
     pub(super) carrying: VecDeque<Arc<Reading>>,
     /// How it shows: unified or as its two panes (ADR 0122, step 11).
     pub(super) layout: super::layout::Layout,
+    /// What marks it stale, and its refresh once the marks settle (step 4).
+    pub(super) refresher: super::watch::Refresher,
     /// Its decisions, for undo, and what waits for git or a save (step 5).
     pub(super) decisions: super::decide::Decisions,
     /// Whether the view was last told that agent cards fold.
@@ -47,6 +49,9 @@ pub(super) struct Running {
     /// Whether agent cards fold in the text the review buffer holds, which may still be one
     /// built before the view was told otherwise.
     pub(super) shown_folded: bool,
+    /// Whether every file of a listing was read once, after which a file's first reading is
+    /// new to the person (step 4).
+    pub(super) read_once: bool,
 }
 
 /// What opening a review that is open already does.
@@ -62,6 +67,34 @@ pub(super) enum Reopen {
 }
 
 impl Running {
+    /// A review of `scope` in `project`, opened now, its thread not started yet.
+    pub(super) fn new(
+        id: ReviewId,
+        project: ProjectId,
+        scope: Scope,
+        root: TrustedRoot,
+        view: View,
+    ) -> Running {
+        Running {
+            id,
+            project,
+            scope,
+            root,
+            serial: 0,
+            reviewer: None,
+            view,
+            texts: VecDeque::new(),
+            revoked: false,
+            carrying: VecDeque::new(),
+            layout: super::layout::Layout::default(),
+            refresher: super::watch::Refresher::default(),
+            decisions: super::decide::Decisions::default(),
+            folded: false,
+            shown_folded: false,
+            read_once: false,
+        }
+    }
+
     /// What opening `scope` again does to this review, which reviews the same thing.
     pub(super) fn reopen(&self, scope: &Scope) -> Reopen {
         if self.revoked {
@@ -116,6 +149,11 @@ pub(in crate::app) struct Reviews {
     /// Whether the person's own input came since reading marks were last looked for: what the
     /// agent channel brings into view is not read.
     pub(super) person_acted: bool,
+    /// The selected buffer and its revision as the person's input came: a hunk is seen only in
+    /// the text they had in front of them, not in one put in after their key (step 4).
+    pub(super) acted_on: Option<(oso_core::buffer::BufferId, u64, usize)>,
+    /// Whether oso's window is hidden, when no review looks (step 4).
+    pub(super) occluded: bool,
     /// The selected window, its first row's offset, its size and its buffer's revision when
     /// reading marks were last looked for: the same view of the same text shows nothing new.
     pub(super) looked: Option<(WindowId, usize, ViewSize, u64)>,

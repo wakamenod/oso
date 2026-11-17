@@ -26,6 +26,8 @@ pub struct Row {
     pub sessions: Vec<String>,
     /// The name of its space, when it has one.
     pub space: Option<String>,
+    /// Its branch's open pull request, as its line shows it (ADR 0127, step 5b-2).
+    pub pull: Option<String>,
 }
 
 /// The list's text, and the line each row starts on, with its worktree's path.
@@ -111,6 +113,9 @@ pub fn row_lines(main: &Path, row: &Row) -> RowText {
         .as_ref()
         .map_or_else(|| "merge: not known".to_owned(), |m| m.how());
     lines.push(format!("  {changes}; {}", printable(&merged, MAX_FIELD)));
+    if let Some(pull) = &row.pull {
+        lines.push(format!("  {}", printable(pull, MAX_FIELD)));
+    }
     if !row.sessions.is_empty() {
         let names: Vec<String> = row.sessions.iter().map(|s| printable(s, 60)).collect();
         lines.push(format!("  sessions: {}", names.join(", ")));
@@ -178,6 +183,7 @@ mod tests {
             held: Held::default(),
             sessions: Vec::new(),
             space: None,
+            pull: None,
         }
     }
 
@@ -238,6 +244,21 @@ mod tests {
         let shown = render(Path::new("/r"), &[odd], 1);
         assert!(!shown.text.contains('\u{1b}'));
         assert!(shown.text.contains("1 more being looked at"));
+    }
+
+    #[test]
+    fn a_row_shows_its_branch_s_pull_request_escaped() {
+        let mut with = row("a", Status::default(), Merged::No("not merged".into()));
+        with.pull = Some("PR #7 open\u{1b}[2J ✓ 1".into());
+        let shown = render(Path::new("/r"), &[with], 0);
+        assert!(
+            shown.text.contains("; not merged\n  PR #7 open"),
+            "{}",
+            shown.text
+        );
+        assert!(!shown.text.contains('\u{1b}'));
+        let without = row("b", Status::default(), Merged::No("not merged".into()));
+        assert!(!render(Path::new("/r"), &[without], 0).text.contains("PR #"));
     }
 
     #[test]

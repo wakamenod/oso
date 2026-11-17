@@ -44,7 +44,11 @@ pub(crate) fn snapshot(review: &Review, path: &[u8]) -> Cards {
         reading,
         marks: super::Marks {
             hunks: (0..hunks)
-                .map(|at| (review.decision(path, at), review.viewed(path, at)))
+                .map(|at| super::HunkMark {
+                    decision: review.decision(path, at),
+                    viewed: review.viewed(path, at),
+                    changed: review.changed(path, at),
+                })
                 .collect(),
             dropped: review.dropped(path),
         },

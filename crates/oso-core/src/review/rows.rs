@@ -9,6 +9,8 @@
 //! refinement marks. [`Rows`] holds the sections in order with the line each starts at, so
 //! swapping a section costs the files, not the lines, and a lookup halves twice.
 
+use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -169,21 +171,40 @@ pub struct Rows {
     sections: Arc<[Arc<Section>]>,
     /// The line each section starts at.
     starts: Arc<[usize]>,
+    /// Each section by its path's hash, for a lookup by path in O(1); paths of one hash are
+    /// looked for among the sections in order.
+    by_path: Arc<HashMap<u64, usize>>,
     lines: usize,
 }
+
+/// The hash a path is looked up by.
+fn path_hash(path: &[u8]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    path.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// What a section's index says of a hash two paths share.
+const SHARED: usize = usize::MAX;
 
 impl Rows {
     /// The rows of `sections`, one after another. O(files).
     pub fn new(sections: Vec<Arc<Section>>) -> Rows {
         let mut starts = Vec::with_capacity(sections.len());
+        let mut by_path = HashMap::with_capacity(sections.len());
         let mut lines = 0;
-        for section in &sections {
+        for (index, section) in sections.iter().enumerate() {
             starts.push(lines);
             lines += section.lines;
+            by_path
+                .entry(path_hash(&section.path))
+                .and_modify(|at| *at = SHARED)
+                .or_insert(index);
         }
         Rows {
             sections: sections.into(),
             starts: starts.into(),
+            by_path: Arc::new(by_path),
             lines,
         }
     }
@@ -280,15 +301,54 @@ impl Rows {
         None
     }
 
-    /// The first line of the section of the file at `path`, its header. O(files).
+    /// The first line of the section of the file at `path`, its header. O(1).
     pub(crate) fn file_start(&self, path: &[u8]) -> Option<usize> {
         Some(self.starts[self.section_of(path)?])
     }
 
+    /// The row of `side` of the file at `path` whose line number is nearest `number`, the upper
+    /// one on a tie: `None` for a file not shown, or one with no row of that side. O(the file's
+    /// runs).
+    pub(crate) fn nearest(&self, path: &[u8], side: Side, number: u32) -> Option<usize> {
+        let index = self.section_of(path)?;
+        let start = self.starts[index];
+        let mut best: Option<(u32, usize)> = None;
+        for run in &self.sections[index].runs {
+            let RowKind::Lines {
+                side: at, first, ..
+            } = run.kind
+            else {
+                continue;
+            };
+            if at != side {
+                continue;
+            }
+            let last = first.saturating_add(u32::try_from(run.lines - 1).unwrap_or(u32::MAX));
+            let (away, line) = if number < first {
+                (first - number, run.start)
+            } else if number > last {
+                (number - last, run.start + run.lines - 1)
+            } else {
+                (0, run.start + (number - first) as usize)
+            };
+            if best.is_none_or(|(nearest, _)| away < nearest) {
+                best = Some((away, line));
+            }
+        }
+        best.map(|(_, line)| start + line)
+    }
+
+    /// The section of the file at `path`. O(1), or O(files) for a path whose hash another
+    /// shares.
     fn section_of(&self, path: &[u8]) -> Option<usize> {
-        self.sections
-            .iter()
-            .position(|section| *section.path == *path)
+        match self.by_path.get(&path_hash(path)) {
+            Some(&SHARED) => self
+                .sections
+                .iter()
+                .position(|section| *section.path == *path),
+            Some(&index) => (*self.sections[index].path == *path).then_some(index),
+            None => None,
+        }
     }
 
     /// The spans of bytes from line `line`'s start that refinement marks, in order.
@@ -395,6 +455,24 @@ mod tests {
                 ],
             ),
         ])
+    }
+
+    #[test]
+    fn the_nearest_row_of_a_side_is_found_the_upper_one_on_a_tie() {
+        let rows = sample();
+        // a.rs shows new lines 4 to 6 at rows 4 to 6, and new line 20 at row 11.
+        assert_eq!(rows.nearest(b"a.rs", Side::New, 5), Some(5));
+        assert_eq!(rows.nearest(b"a.rs", Side::New, 1), Some(4));
+        assert_eq!(rows.nearest(b"a.rs", Side::New, 15), Some(11));
+        assert_eq!(rows.nearest(b"a.rs", Side::New, 13), Some(6), "7 from each");
+        assert_eq!(rows.nearest(b"a.rs", Side::Old, 9), Some(3));
+        // c.rs starts at row 14 and shows old line 1 only.
+        assert_eq!(rows.nearest(b"c.rs", Side::Old, 5), Some(16));
+        assert_eq!(rows.nearest(b"c.rs", Side::New, 1), None);
+        assert_eq!(rows.nearest(b"b.bin", Side::New, 1), None);
+        assert_eq!(rows.nearest(b"z.rs", Side::New, 1), None);
+        assert_eq!(rows.file_start(b"c.rs"), Some(14));
+        assert_eq!(rows.file_start(b"z.rs"), None);
     }
 
     #[test]
