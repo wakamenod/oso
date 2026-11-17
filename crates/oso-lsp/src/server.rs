@@ -41,7 +41,7 @@ use oso_core::syntax::Splice;
 use oso_platform::process::{Child, Executable, Signal};
 use serde_json::Value;
 
-pub use actions::{ActionResolved, CodeAction, CodeActions};
+pub use actions::{ActionResolved, ApplyEdit, CodeAction, CodeActions};
 pub use asks::{
     Answer, Answered, Ask, AskContext, AskFailure, AskKind, Completion, Completions, Location,
     Resolved, Target,
@@ -65,6 +65,8 @@ enum Event {
     Close(u64),
     Save(u64),
     Ask(Ask),
+    /// The UI's answer to the server's `workspace/applyEdit` of this token (13b).
+    AnswerApplyEdit(u64, Result<(), String>),
     Frame(u64, Frame),
     ReadEnd(u64, Option<FrameError>),
     WriteFailed(u64, io::ErrorKind),
@@ -215,6 +217,9 @@ pub struct Report {
     /// What the server said of its completions in its run's `initialize`, until the UI took
     /// it: nothing of it for a server that does not complete (step 9b).
     pub completing: Option<crate::protocol::Completing>,
+    /// The server's `workspace/applyEdit`s while one of its commands waited, which wait for
+    /// [`Server::answer_apply_edit`] (step 13b).
+    pub apply_edits: Vec<ApplyEdit>,
 }
 
 /// A server's session thread, and what the UI shares with it.
@@ -287,6 +292,12 @@ impl Server {
     /// server does not run, or the document's text there is not the one `ask` names.
     pub fn ask(&self, ask: Ask) {
         let _ = self.events.send(Event::Ask(ask));
+    }
+
+    /// Answers the server's `workspace/applyEdit` of `token` (step 13b): `applied: true`, or
+    /// `applied: false` with why. One the server no longer waits for is let go.
+    pub fn answer_apply_edit(&self, token: u64, outcome: Result<(), String>) {
+        let _ = self.events.send(Event::AnswerApplyEdit(token, outcome));
     }
 
     /// Stops the server as [`Server::shut_down`] does, if it runs, forgets its crashes, and

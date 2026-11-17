@@ -133,6 +133,27 @@ fn a_person_lists_and_kills_a_pull_request_s_buffer_and_a_list() {
 }
 
 #[test]
+fn an_issue_s_buffer_is_listed_killed_and_never_taken_for_a_pull_request_s() {
+    let mut editor = Editor::default();
+    let issue = editor.add_git_issue(ProjectId(0), "*issue: #45*");
+    let list = editor.add_git_issue_list(ProjectId(0), "*issues: oso*");
+    let pr = editor.add_git_pr(ProjectId(0), "*pr: #12*");
+    assert_eq!(editor.buffer(issue).map(|b| b.mode()), Some(Mode::GitIssue));
+    assert_eq!(
+        editor.buffer(list).map(|b| b.mode()),
+        Some(Mode::GitIssueList)
+    );
+    assert_eq!(editor.git_issue_of(issue), Some(ProjectId(0)));
+    assert_eq!(editor.git_pr_of(issue), None);
+    assert_eq!(editor.git_issue_of(pr), None);
+    editor.set_git_text(issue, text(), shown(0, Vec::new()));
+    assert!(editor.buffers_by_recency().contains(&issue));
+    editor.show(issue);
+    editor.kill_by_person(issue, false).unwrap();
+    assert_eq!(editor.git_issue_of(issue), None);
+}
+
+#[test]
 fn requests_go_to_the_host_in_order() {
     let mut editor = Editor::default();
     let id = editor.add_git_status(ProjectId(0), "*git: oso*");

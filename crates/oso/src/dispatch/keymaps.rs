@@ -87,6 +87,7 @@ pub(super) struct Keymaps {
     /// A graph's own keys, above the global ones (ADR 0127, step 4).
     pub(super) git_graph: Keymap,
     pub(super) git_pr: Keymap,
+    pub(super) git_issue: Keymap,
     pub(super) git_pr_message: Keymap,
     pub(super) review_message: Keymap,
     /// A terminal's own keys, above the global ones in a terminal's buffer (ADR 0120).
@@ -144,6 +145,7 @@ impl Keymaps {
             git_discarded: bindings::git_discarded_keymap(registry),
             git_graph: bindings::git_graph_keymap(registry),
             git_pr: bindings::git_pr_keymap(registry),
+            git_issue: bindings::git_issue_keymap(registry),
             git_pr_message: bindings::git_pr_message_keymap(registry),
             review_message: bindings::review_message_keymap(registry),
             terminal: bindings::terminal_keymap(registry),
@@ -156,7 +158,7 @@ impl Keymaps {
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 37] {
+    pub(super) fn all(&self) -> [&Keymap; 38] {
         let Self {
             global,
             user,
@@ -188,6 +190,7 @@ impl Keymaps {
             git_discarded,
             git_graph,
             git_pr,
+            git_issue,
             git_pr_message,
             review_message,
             terminal,
@@ -228,6 +231,7 @@ impl Keymaps {
             git_discarded,
             git_graph,
             git_pr,
+            git_issue,
             git_pr_message,
             review_message,
             terminal,
@@ -339,6 +343,7 @@ impl Keymaps {
                 Mode::GitDiscarded => Some(&self.git_discarded),
                 Mode::GitGraph => Some(&self.git_graph),
                 Mode::GitPr | Mode::GitPrList => Some(&self.git_pr),
+                Mode::GitIssue | Mode::GitIssueList => Some(&self.git_issue),
                 Mode::GitPrMessage => Some(&self.git_pr_message),
                 Mode::ReviewMessage => Some(&self.review_message),
                 Mode::Markdown => Some(&self.markdown),

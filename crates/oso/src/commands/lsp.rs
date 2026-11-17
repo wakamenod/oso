@@ -119,6 +119,14 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
+        name: "lsp-code-action-confirm",
+        doc: "Apply the code action that waits, opening the files it changes that no buffer holds, as the question before it asks.\n\nThe question `lsp-code-actions` opens when an action changes such files runs it with `y`; it does nothing when no action waits.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: code_action_confirm,
+        state: None,
+    },
+    Command {
         name: "lsp-find-definition",
         doc: "Go to the definition of what is at point, as the language server finds it, as Eglot's `xref-find-definitions`.\n\nThe server is asked about the primary cursor; one cursor is left at the definition. Several are listed as `consult-xref` lists them, each row `path:line: text` with a preview of its place, and `RET` goes to the one picked; the agent's goes to the first and says how many there are. The place left is kept in the window's history, which `lsp-go-back` goes back through, and on the mark ring. A file outside any project that it leads to joins the server, until its buffer is killed.",
         args: ArgSpec::None,
@@ -333,6 +341,13 @@ fn code_actions(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 fn code_action_apply(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
     ctx.editor.request_server(ServerRequest::ApplyCodeAction);
+    ctx.request_redraw();
+    Ok(())
+}
+
+/// The host opens the waiting action's files and applies it.
+fn code_action_confirm(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    ctx.editor.request_server(ServerRequest::ConfirmCodeAction);
     ctx.request_redraw();
     Ok(())
 }

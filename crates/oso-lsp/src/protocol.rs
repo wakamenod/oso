@@ -17,9 +17,10 @@ mod tests;
 mod workspace_edit;
 
 pub use actions::{
-    Acting, ActionList, OfferedAction, acting, code_action_params, code_actions, resolved_action,
-    take_actions,
+    Acting, ActionList, OfferedAction, acting, code_action_params, code_actions,
+    execute_command_params, resolved_action, take_actions,
 };
+pub(crate) use actions::{applied_edit, shown};
 pub use completion::{
     Completing, CompletionList, Extra, Invoked, Offered, completed, completing, completion_params,
     extra_edits, kind_name, plain, resolved, take_items,
@@ -215,7 +216,14 @@ pub fn initialize_params(start: &Initialize<'_>) -> Value {
             // Edits by document version, and no file created, renamed or deleted (step 13, Q6).
             "workspace": {
                 "configuration": true,
-                "workspaceEdit": {"documentChanges": true, "resourceOperations": []},
+                "workspaceEdit": {
+                    "documentChanges": true,
+                    "resourceOperations": [],
+                    "failureHandling": "transactional",
+                },
+                // A command a code action runs, and its edits, applied as the action's (13b).
+                "applyEdit": true,
+                "executeCommand": {},
             },
             "textDocument": {
                 "synchronization": {"didSave": true},

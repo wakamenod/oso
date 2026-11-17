@@ -113,6 +113,11 @@ impl GhRepo {
         (next(), next(), next())
     }
 
+    /// The address of its issue `number`, as GitHub writes it (step 5b-1).
+    pub(crate) fn issue_address(&self, number: u64) -> String {
+        format!("https://{}/issues/{number}", self.0)
+    }
+
     /// The address of its pull request `number`, as GitHub writes it.
     pub(crate) fn pull_address(&self, number: u64) -> String {
         format!("https://{}/pull/{number}", self.0)
