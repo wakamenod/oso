@@ -538,7 +538,8 @@ Every bound lives in `oso-lsp`'s `limits`:
 - **An agent never opens the float** (step 8's Q5): its `M-.` goes to the first of several
   definitions and says `1 of 3`, and its `M-?` is refused, as a float is the person's, and an
   agent cannot read one: `References are listed in a float, which only the person reads; search
-  the project with your own tools`, as `oso mcp` has no search tool (step 8b's Q7).
+  the project with your own tools`, as `oso mcp` has no search tool (step 8b's Q7). Since step
+  15 the agent reads the list the person has open in `state`, and the refusal says so.
 - **The `diagnostics` tool** takes a buffer or `project`, and gives at most 500 entries: the path,
   line and column (1-based, in characters), the severity, the message (2 KiB at most), the source
   and the code. ADR 0121's `@diagnostics` mention reads the same. `state` gains each buffer's
@@ -656,6 +657,8 @@ Later, after these, each with its own decisions put to the author first:
     `applied: false` only then.
 14. **Rename,** as `eglot-rename`: the new name read in a prompt, and the edits across files
     shown before they apply.
+15. **Agents see the person's lists:** `state` gives the list of places or of diagnostics the
+    person has open, as a frame shows it, so that an agent can look at what the person sees.
 
 ## Questions
 
@@ -883,7 +886,8 @@ gains `amended by 0138`.
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), the channel's methods and `oso mcp`'s tools: and
   `diagnostics`, a read tool like `text`; `state` gains each followed buffer's `server` and
   `diagnostics`, and its version goes to 3, as ADR 0118 bumped it for a buffer's new field
-  rather than keeping it as ADR 0103 has it (step 11).
+  rather than keeping it as ADR 0103 has it (step 11); a prompt that is such a list gains
+  `list`, and the version goes to 4 (step 15).
 - [ADR 0121](0121-agent-sessions-and-spaces.md), "`@diagnostics` … (M4)" and "`session-fix-error`
   (`Person`): the diagnostic at point, its 20 lines around": both are built (its Q5), as
   `session-send-diagnostics` and `session-fix-error`, the latter with the 10 lines either side,
@@ -2269,3 +2273,72 @@ and `Server::cancel`.
   asked with its name and its edit placed, a server that checks no place, a name that does not
   fit, a file renamed refused, and one cancelled; and the end-to-end flow
   `a_symbol_is_renamed_across_files_after_the_preview`.
+
+### Step 15: agents see the person's lists
+
+The author asked on 2026-11-17 that an agent can look at the lists of a server's work the person
+has open, after a preview looked wrong to them and no agent could see it, and chose the first
+choice on each of this step's questions: the rows a frame shows, not every row (Q1); the rows
+even while the person narrows them, but never the input itself (Q2); the preview's rows as
+drawn (Q3); a file outside the project as the person sees it, unless it may hold secrets or only
+the person reads it (Q4); the agent's own asks unchanged, its `M-?` refusal pointing at `state`
+(Q5); `M-g d`'s list too (Q6); `STATE_VERSION` 3 to 4 (Q7); and one pull request (Q8). The
+public items were approved with the plan, and their final names after the reviews.
+
+- **`oso-core`** (`editor/servers/listed_view.rs`): `Editor::listed_view` gives the innermost
+  prompt, if it lists definitions, references or a project's diagnostics, as a frame shows it
+  (`ListedView`): what it lists (`ListedOf`), how many rows match of how many, whether its rows
+  were cut or have yet to come, the rows shown (`ListedRow`: the path as the row shows it,
+  `shown`, and whole, `path`; the line; the rest of the row; and the open buffer that holds its
+  place) and which is selected, and the preview (`ListedPreview`): withheld, nothing, or the rows
+  it draws (`Rows`), each its line, numbered as in its file, and the columns it draws, with the
+  row of the selected row's place.
+  - The preview's rows are those `Editor::preview_screen` gives the frame: a line the preview
+    wraps is several rows, and one it scrolls left to its place shows from there. Each is at
+    most `LISTED_LINE_BYTES` (256), cut at a character; only that much of a long one is copied.
+  - Each list keeps where a row's own text starts in it, beside the bytes of its path, so the
+    view splits no row by its form. A file's excerpt keeps the line of its file it starts with.
+  - A row's buffer is the one it was listed in while it is there, else the one that visits its
+    file (`find_open_buffer`, which skips one the channel is still opening). No row's place is
+    mapped through the edits since; only the preview maps the selected one's.
+- **The channel** (`channel/state/list.rs`): the innermost prompt's entry in `state` gains
+  `list`: `of` (`definitions`, `references` or `diagnostics`), `server` (the list of places'
+  server, named once its list opened; none for diagnostics, which are every server's), `count`,
+  `total`, `cut`, `pending`, `rows` (`path`, `line` and `text`), `selected`, and `preview`
+  (`kind` `buffer` or `file` with `rows`, each `line` and `text`, and `at`; or `withheld`). What
+  is withheld:
+  - all of it while a buffer that may hold secrets is shown;
+  - the person's input itself, always, though the rows shown follow it;
+  - a row's text, if its file's name may hold secrets or its buffer is one the channel may not
+    read (`unreadable`) or is still opening, and the preview, if that row is selected or the
+    preview's buffer is such a one;
+  - the rows' paths and texts are escaped as a server's text is (`server_text`); the
+    preview's rows are as `text` gives a buffer's rows.
+  `STATE_VERSION` goes to 4, and the `state` tool's description says what `list` holds.
+- **`M-g d` leaves out a file whose path really leads to one that may hold secrets** (the
+  author's choice after the security review): its rows are built off the UI thread, and each
+  file no buffer holds whose rows would go is judged there as the `diagnostics` tool judges one,
+  links and all (`loader::file_may_hold_secrets`, moved from the channel's reads so that both
+  share it). Its diagnostics show neither to the person nor to an agent, as `oso-lsp` already
+  drops a report for a name that may hold secrets.
+- **The agent's own `M-?`** is still refused: `References are listed in a float, which only the
+  person opens; `state` gives one the person has open, and your own tools search the project`.
+- **Changes to this ADR:** "an agent cannot read one" in "What agents may do": it reads the one
+  the person has open.
+- **From this step's reviews:** the preview's lines were taken from each line's start, one per
+  row, where the frame wraps them or scrolls left to the place; each row's place was mapped
+  through the edits since, and each file row matched against every buffer's path; the row's
+  text was split back off by its form; the server was named before its list opened, so a newer
+  answer's could name the open one; a buffer the channel is still opening was not taken as
+  hidden; and `M-g d` listed a file's diagnostics by its server's name for it only. All are
+  fixed as above, with a test of each.
+- **Public API:** `oso-core`: `editor::{ListedView, ListedRow, ListedPreview, ListedOf,
+  LISTED_LINE_BYTES}` and `Editor::listed_view`. The tip's `channel::state::state` takes the
+  list's server beside `server_of`.
+- **Tests:** in `oso-core`, a list of references split into its rows with the selected one's
+  row, a file's row with the rows read for it numbered as in its file, a list of diagnostics'
+  rows, a row of a buffer edited since, a long row cut at a character, a place deep in a long
+  line, a line the preview wraps, and none for another prompt; in the tip crate, `M-g d`'s rows
+  leaving out a file judged to may hold secrets, and the channel's `list` of references, of a
+  file's row and of diagnostics, with each withheld case and the input typed in no field; and
+  the end-to-end flow `an_agent_reads_the_list_of_references_the_person_has_open`.

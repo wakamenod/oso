@@ -4,6 +4,7 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
+use crate::sessions::worktree::git::{OpenPull, pull_line};
 use std::path::Path;
 
 use oso_core::buffer::{Buffer, Mode};
@@ -106,6 +107,7 @@ impl App {
             held,
             sessions,
             space,
+            pull: None,
         };
         list.lines.push(list::row_lines(&list.main, &row));
         list.rows.push(row);
@@ -130,6 +132,27 @@ impl App {
         list.rows[at].looked.merged = Some(merged);
         list.rows[at].looked.gh_pending = None;
         list.lines[at] = list::row_lines(&list.main, &list.rows[at]);
+        self.show_worktree_rows();
+    }
+
+    /// The repository's open pull requests came: each row whose branch is one's shows it.
+    pub(super) fn worktree_pulls(&mut self, token: u64, pulls: &[OpenPull]) {
+        let Some(list) = self
+            .hosting
+            .worktrees
+            .list
+            .as_mut()
+            .filter(|l| l.token == token)
+        else {
+            return;
+        };
+        for at in 0..list.rows.len() {
+            let pull = pull_line(pulls, list.rows[at].looked.listed.branch.as_deref());
+            if pull != list.rows[at].pull {
+                list.rows[at].pull = pull;
+                list.lines[at] = list::row_lines(&list.main, &list.rows[at]);
+            }
+        }
         self.show_worktree_rows();
     }
 

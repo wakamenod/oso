@@ -18,7 +18,7 @@
 //!   no more rows are ever made than the list keeps, however much the servers reported. A newer
 //!   list stops the build.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use oso_core::buffer::BufferId;
 use oso_core::diagnostic::{Diagnostics, Severity};
@@ -104,7 +104,15 @@ impl Rows<'_> {
 /// The rows of `snapshot`, in the list's order, with the first of the current buffer's at or
 /// after its cursor selected, else the first row: `None` once `live` says a newer list stopped
 /// this one.
-pub(crate) fn build(snapshot: &Snapshot, live: &dyn Fn() -> bool) -> Option<DiagnosticRows> {
+///
+/// A file no buffer holds whose path really leads, links and all, to one that may hold secrets
+/// (`secret_file`, which touches the file system) is left out, as the agent channel's
+/// `diagnostics` leaves it out (step 15's review): only the files whose rows go are judged.
+pub(crate) fn build(
+    snapshot: &Snapshot,
+    secret_file: fn(&Path) -> bool,
+    live: &dyn Fn() -> bool,
+) -> Option<DiagnosticRows> {
     let mut rows = Rows {
         rows: Vec::new(),
         bytes: 0,
@@ -142,7 +150,10 @@ pub(crate) fn build(snapshot: &Snapshot, live: &dyn Fn() -> bool) -> Option<Diag
                         .map(|at| first + at);
                 }
             }
-            Ordered::File(file) => push_file(&mut rows, path, &file.report, file.encoding),
+            Ordered::File(file) if !secret_file(&file.path) => {
+                push_file(&mut rows, path, &file.report, file.encoding);
+            }
+            Ordered::File(_) => {}
         }
     }
     if !live() {

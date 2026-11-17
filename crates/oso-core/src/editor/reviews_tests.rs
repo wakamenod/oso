@@ -357,3 +357,20 @@ fn cursors_inside_the_span_a_new_text_changes_each_keep_their_own_line() {
     let primary = window.selections.primary().cursor;
     assert_eq!(shown.text().offset_to_point(primary).row, 5);
 }
+
+#[test]
+fn the_modeline_says_how_far_a_reading_is_apart_from_the_encoding() {
+    let (mut editor, id) = editor_with_review();
+    let _ = put_in(&mut editor, id, &[("a.rs", 1)]);
+    editor.set_review_reading(id, Some((1, 3)));
+    let mut status = crate::editor::Status::default();
+    editor.status_into(editor.tiled().0.id(), &mut status);
+    // Each field after the state after a gap: once "LF0 of 4 hunks decided" ran together.
+    let at = status
+        .state
+        .find("reading 1/3")
+        .expect("the reading is said");
+    assert!(status.state[..at].ends_with("  "), "{:?}", status.state);
+    assert!(!status.state[..at - 2].ends_with(' '), "{:?}", status.state);
+    assert!(status.state.ends_with("reading 1/3"), "{:?}", status.state);
+}

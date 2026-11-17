@@ -51,6 +51,17 @@ pub enum ListedHit {
     },
 }
 
+/// A row as its list keeps it, for a view of the rows shown (step 15): the bytes of the path
+/// that starts its text and where its own text starts after its line, its whole path, its
+/// line and where it is.
+pub(super) struct RowParts {
+    pub(super) shown: usize,
+    pub(super) text: usize,
+    pub(super) path: PathBuf,
+    pub(super) line: usize,
+    pub(super) at: ListedAt,
+}
+
 /// What a list keeps beside its rows, each row's place a `P`. `Debug` gives its generation.
 pub(in crate::editor) struct Listed<P> {
     pub(super) prompt: Option<PromptId>,

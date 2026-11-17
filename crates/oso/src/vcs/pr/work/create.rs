@@ -168,13 +168,13 @@ fn template(root: &Path) -> Option<String> {
 }
 
 pub(super) fn merge_target(found: &Found, target: &Target) -> Result<MergeTarget, String> {
-    let fields = "number,state,baseRefName,headRefOid,headRefName";
+    let fields = "number,state,baseRefName,headRefOid,headRefName,isCrossRepository";
     let answer = pr_view(found, target, None, fields)?;
     if none_found(&answer) {
         return Err(no_pull_request(target));
     }
     let merge = read_merge(&answer.into_stdout()?).ok_or_else(unexpected)?;
-    if Some(&merge.branch) != target.branch.as_ref() {
+    if merge.cross || Some(&merge.branch) != target.branch.as_ref() {
         return Err(no_pull_request(target));
     }
     if !merge.open {

@@ -701,6 +701,9 @@ The UI thread never blocks on I/O or parsing:
   and makes a brief, `vcs/pr/write/issue.rs` their texts, `vcs/pr/work/issue.rs` the `gh` thread's
   reads, `app/vcs/pr/issue.rs` the keys, opening `*Brief*` through
   `app/sessions/worktrees/brief.rs`'s `start_brief`, and `commands::vcs::pr::issue` the commands.
+  Each worktree's open pull request (step 5b-2) is read by `sessions/worktree/git.rs`, the
+  first use of `vcs::pr` from `sessions`, on the worktree jobs' pool, as described under the
+  worktree jobs.
 - Stashes and branches (step 3b): `vcs/stash.rs` reads the stash list into the Stashes section
   and `vcs/branch.rs` holds what branches need that runs no git; `vcs/run/stash.rs` and
   `vcs/run/branch.rs` run them on `oso-vcs-run`, finding a stash again by its id and planning a
@@ -827,8 +830,11 @@ The UI thread never blocks on I/O or parsing:
     before it runs, and refuses a repository whose main checkout is not trusted too. What
     touches the disk, the new worktree's trust included, is made on the job's thread.
   - A job reads the repository's remotes, main branches, GitHub repository and the registry's
-    sessions once (`facts.rs`). A listing sends every row without `gh`, then what `gh` says of
-    the rows that need it (`Report::Merged`); a newer listing stops an older one.
+    sessions once (`facts.rs`). A listing (`jobs/list.rs`) sends every row without `gh`, then, for the person's
+    listing only, the repository's open pull requests (`Report::Pulls`, ADR 0127 step 5b-2),
+    then what `gh` says of the rows that need it (`Report::Merged`); a newer listing stops an
+    older one. The tree's listing sends its worktrees, then, when asked, the open pull requests
+    (`Report::TreePulls`), which the pane keeps apart from the listing.
   - What only the UI thread knows (unsaved buffers, unsent briefs, hosted sessions) goes with
     each job as a `Snapshot`, and is checked again before the removal's question and its `y`,
     whose job runs every check again before it removes.
