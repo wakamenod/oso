@@ -10,18 +10,20 @@
 //!   order, as refinement pairs them.
 //! - A card goes in the pane of its side, under its line, and a hunk's or an outdated one in the
 //!   new pane: the other pane holds filler rows as tall, so that the panes stay in step.
-//! - The text is cut at the same file in both panes, by the larger.
+//! - The text is cut at the same file in both panes, by both panes' bytes together, so that the
+//!   two hold about what the unified text does.
 
 use std::sync::Arc;
 
-use oso_core::display_map::TabWidth;
-use oso_core::load::{Builder, Reloaded};
+use oso_core::load::Reloaded;
 use oso_core::review::{Hunk, RowKind, Rows, Side};
 use oso_core::rope::Rope;
 use oso_core::syntax::{Highlight, Highlights};
 
 use super::State;
+use super::assemble::assemble;
 use super::cards::{Cards, Placing, Plan};
+use super::file::{Laidout, section_in};
 use super::section::{self, Rendered, Shown, Writer};
 use crate::review::{Content, Entry, Reading};
 
@@ -29,22 +31,33 @@ use crate::review::{Content, Entry, Reading};
 pub(crate) type PaneText = (Reloaded, Rows, Highlights);
 
 /// A file's section as the two panes show it: the old pane's, then the new one's.
-pub(crate) struct Pair {
+pub(crate) struct Sides {
     pub(crate) old: Rendered,
     pub(crate) new: Rendered,
 }
 
-impl Pair {
-    fn of(old: Writer, new: Writer) -> Pair {
-        Pair {
+impl Sides {
+    fn of(old: Writer, new: Writer) -> Sides {
+        Sides {
             old: old.done(),
             new: new.done(),
         }
     }
+}
 
-    /// The bytes the larger pane holds.
+impl Laidout for Sides {
+    fn cards(&self) -> bool {
+        self.old.cards || self.new.cards
+    }
+
+    fn cut(&self) -> bool {
+        self.old.cut || self.new.cut
+    }
+
+    /// The bytes both panes hold, which the review's text limit counts together, so that the
+    /// panes hold no more than the unified text does.
     fn len(&self) -> usize {
-        self.old.bytes.len().max(self.new.bytes.len())
+        self.old.bytes.len() + self.new.bytes.len()
     }
 }
 
@@ -56,12 +69,6 @@ pub(super) struct Panes {
     on: bool,
     dirty: bool,
     texts: [Rope; 2],
-}
-
-/// A file's panes as last laid out, with the room the text had for them.
-pub(super) struct KeptPanes {
-    pair: Arc<Pair>,
-    room: usize,
 }
 
 /// Writes a filler row into whichever of `old` and `new` has fewer, until they have as many.
@@ -150,7 +157,7 @@ fn hunk(old: &mut Writer, new: &mut Writer, plan: &mut Plan, index: usize, hunk:
 
 /// The panes of `reading` with its comments, given the bytes the review's text has `room` for,
 /// as [`section::render`] lays out its section.
-pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Pair {
+pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Sides {
     let entry = &reading.entry;
     let cards = shown.cards;
     let (mut old, mut new) = (Writer::new(&entry.path), Writer::new(&entry.path));
@@ -174,7 +181,7 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Pair {
             plan.rest(&mut new);
         }
         pad(&mut old, &mut new);
-        return Pair::of(old, new);
+        return Sides::of(old, new);
     }
     match (&reading.content, shape) {
         (Content::Text { .. }, Some(shape)) => {
@@ -206,12 +213,12 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Pair {
         }
     }
     pad(&mut old, &mut new);
-    Pair::of(old, new)
+    Sides::of(old, new)
 }
 
 /// The panes of a file listed and not read yet: its header and a note in both.
-pub(crate) fn unread(entry: &Entry, cards: &Cards) -> Pair {
-    Pair {
+pub(crate) fn unread(entry: &Entry, cards: &Cards) -> Sides {
+    Sides {
         old: section::unread(entry, cards),
         new: section::unread(entry, cards),
     }
@@ -219,7 +226,7 @@ pub(crate) fn unread(entry: &Entry, cards: &Cards) -> Pair {
 
 /// The panes of a file that left the review with comments on it: its header in both, and its
 /// cards, outdated, in the new pane, as [`section::gone`] lays it out.
-pub(crate) fn gone(path: &[u8], cards: &Cards, room: usize, folded: bool, withheld: bool) -> Pair {
+pub(crate) fn gone(path: &[u8], cards: &Cards, room: usize, folded: bool, withheld: bool) -> Sides {
     let new = section::gone(path, cards, room, folded, withheld);
     let mut old = Writer::new(path);
     let header = (new.bytes.split(|byte| *byte == b'\n').next()).unwrap_or_default();
@@ -228,86 +235,28 @@ pub(crate) fn gone(path: &[u8], cards: &Cards, room: usize, folded: bool, withhe
     for _ in 1..lines {
         old.line(RowKind::Filler, &[]);
     }
-    Pair {
+    Sides {
         old: old.done(),
         new,
     }
 }
 
-/// `kept`'s panes if they fit `room`, by [`super::file::fits`], else `lay_out`'s, kept for the
-/// next text.
-pub(super) fn panes_in(
-    kept: &mut Option<KeptPanes>,
-    room: usize,
-    lay_out: impl FnOnce() -> Pair,
-) -> Arc<Pair> {
-    let pair = kept
-        .as_ref()
-        .filter(|kept| {
-            let pair = &kept.pair;
-            let cards = pair.old.cards || pair.new.cards;
-            let cut = pair.old.cut || pair.new.cut;
-            super::file::fits(kept.room, room, cards, cut, pair.len())
-        })
-        .map(|kept| Arc::clone(&kept.pair))
-        .unwrap_or_else(|| Arc::new(lay_out()));
-    *kept = Some(KeptPanes {
-        pair: Arc::clone(&pair),
-        room,
-    });
-    pair
-}
-
-/// One text laid out from sections: the text compared with the one before, what each line is,
-/// its highlights, the text itself, and whether every section's bytes were UTF-8.
-pub(super) struct Assembled {
-    pub(super) text: Reloaded,
-    pub(super) rows: Rows,
-    pub(super) highlights: Highlights,
-    pub(super) rope: Rope,
-    pub(super) valid: bool,
-}
-
-/// Lays `sections` end to end as one text, compared with `before`.
-pub(super) fn assemble(sections: &[&Rendered], before: &Rope) -> Assembled {
-    let size: usize = sections.iter().map(|rendered| rendered.bytes.len()).sum();
-    let mut builder = Builder::new(Some(size as u64), TabWidth::default());
-    let mut decoded = 0;
-    for rendered in sections {
-        builder.push(&rendered.bytes);
-        decoded += rendered.runs.iter().map(|(len, _)| len).sum::<usize>();
-    }
-    builder.finish();
-    let snapshot = builder.snapshot();
-    let mut highlights = Highlights::new(snapshot.text().len());
-    let runs = sections
-        .iter()
-        .flat_map(|rendered| rendered.runs.iter().copied());
-    highlights.replace(0..decoded, runs);
-    let rows = Rows::new(
-        sections
-            .iter()
-            .map(|rendered| Arc::clone(&rendered.section))
-            .collect(),
-    );
-    Assembled {
-        rope: snapshot.text().clone(),
-        text: snapshot.compared_with(before),
-        rows,
-        highlights,
-        valid: sections.iter().all(|rendered| rendered.valid),
-    }
-}
-
 impl State {
-    /// Builds the panes from now on, or no more: the first text after turning them on holds
-    /// them whatever else changed.
+    /// Builds the panes from now on, or no more: the first text after it is told to build them,
+    /// the first time or again, holds them whatever else changed.
     pub(super) fn show_panes(&mut self, on: bool) {
-        if on && !self.panes.on {
+        // Asked for again, as the UI dropped them: the next text holds them too.
+        if on {
             self.panes.dirty = true;
         }
-        if !on {
+        if !on && self.panes.on {
+            // What they were laid out from goes too: the panes are kept only while built.
             self.panes = Panes::default();
+            let files = self.files.values_mut().map(|file| &mut file.rendered.panes);
+            let gone = self.gone.values_mut().map(|gone| &mut gone.rendered.panes);
+            for kept in files.chain(gone) {
+                *kept = None;
+            }
         }
         self.panes.on = on;
     }
@@ -320,7 +269,7 @@ impl State {
         }
         self.panes.dirty = false;
         let said = self.said_now();
-        let title = Arc::new(Pair {
+        let title = Arc::new(Sides {
             old: section::title(&self.title, &said),
             new: section::title(&self.title, &said),
         });
@@ -333,7 +282,7 @@ impl State {
             };
             let room = self.max_text.saturating_sub(size);
             let mut kept = file.rendered.panes.take();
-            let pair = panes_in(&mut kept, room, || file.render_panes(room, folded));
+            let pair = section_in(&mut kept, room, || file.render_panes(room, folded));
             file.rendered.panes = kept;
             size += pair.len();
             pairs.push(pair);
@@ -341,7 +290,7 @@ impl State {
         for (path, gone) in &mut self.gone {
             let room = self.max_text.saturating_sub(size);
             let (cards, withheld) = (&gone.cards, gone.withheld);
-            let pair = panes_in(&mut gone.rendered.panes, room, || {
+            let pair = section_in(&mut gone.rendered.panes, room, || {
                 self::gone(path, cards, room, folded, withheld)
             });
             size += pair.len();

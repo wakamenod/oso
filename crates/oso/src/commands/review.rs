@@ -16,7 +16,7 @@ mod menu;
 
 use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::{DraftFor, Editor, ReviewId, ReviewRequest, ScopeKind};
+use oso_core::editor::{DraftFor, Editor, ReviewChoice, ReviewId, ReviewRequest, ScopeKind};
 use oso_core::project::ProjectId;
 use oso_core::review::{Author, Seek};
 
@@ -434,10 +434,14 @@ fn review_toggle_panes(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let buffer = ctx.editor.window().buffer();
     let in_panes =
         (ctx.editor.review_panes(review)).is_some_and(|(old, new)| buffer == old || buffer == new);
-    ctx.editor.request_review(ReviewRequest::Layout {
-        review,
-        panes: Some(!in_panes),
-    });
+    // The choice turns, and what shows only says which way while it is automatic.
+    let choice = match ctx.editor.review_choice(review) {
+        ReviewChoice::Panes => ReviewChoice::Unified,
+        ReviewChoice::Unified => ReviewChoice::Panes,
+        ReviewChoice::Auto if in_panes => ReviewChoice::Unified,
+        ReviewChoice::Auto => ReviewChoice::Panes,
+    };
+    ctx.editor.choose_review_layout(review, choice);
     ctx.request_redraw();
     Ok(())
 }

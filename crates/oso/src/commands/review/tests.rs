@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use oso_core::buffer::{Baseline, Buffer};
 use oso_core::command::{Args, Ctx, Invocation};
-use oso_core::editor::{Editor, ReviewId, ReviewRequest, ScopeKind};
+use oso_core::editor::{Editor, ReviewChoice, ReviewId, ReviewRequest, ScopeKind};
 use oso_core::load::decode_all;
 use oso_core::project::{Found, ProjectId, RootIdentity, TrustList};
 use oso_core::review::{
@@ -467,17 +467,12 @@ fn bar_asks_for_two_panes_or_one_stream_and_a_filler_row_takes_no_comment() {
         columns: 200,
     });
     let review = with_review(&mut editor, project);
+    assert_eq!(editor.review_choice(review), ReviewChoice::Auto);
     assert_eq!(
         run(&mut editor, "review-toggle-panes", Args::NONE).0,
         Ok(())
     );
-    assert_eq!(
-        editor.take_review_requests(),
-        [ReviewRequest::Layout {
-            review,
-            panes: Some(true)
-        }]
-    );
+    assert_eq!(editor.review_choice(review), ReviewChoice::Panes);
     // As the host does once the panes' texts come.
     put_panes(&mut editor, review);
     let window = editor.window().id();
@@ -495,13 +490,13 @@ fn bar_asks_for_two_panes_or_one_stream_and_a_filler_row_takes_no_comment() {
         run(&mut editor, "review-toggle-panes", Args::NONE).0,
         Ok(())
     );
+    assert_eq!(editor.review_choice(review), ReviewChoice::Unified);
+    // Chosen, `|` turns the choice wherever it is pressed, as in an area too small for panes.
     assert_eq!(
-        editor.take_review_requests(),
-        [ReviewRequest::Layout {
-            review,
-            panes: Some(false)
-        }]
+        run(&mut editor, "review-toggle-panes", Args::NONE).0,
+        Ok(())
     );
+    assert_eq!(editor.review_choice(review), ReviewChoice::Panes);
     // `q` in a pane buries the pair: one window, back to what it showed before.
     assert_eq!(run(&mut editor, "review-quit", Args::NONE).0, Ok(()));
     assert_eq!(editor.pair_of(window), None);

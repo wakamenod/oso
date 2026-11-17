@@ -161,7 +161,6 @@ impl App {
             ReviewRequest::Refresh(id) => self.refresh_review(id),
             ReviewRequest::Close(id) => self.close_review(id),
             ReviewRequest::Redraw { review, path } => self.redraw_comments(review, &path),
-            ReviewRequest::Layout { review, panes } => self.choose_review_layout(review, panes),
             // Visits come with a later step of ADR 0122.
             ReviewRequest::Visit { .. } => {
                 log::debug!("a review request this build does not carry out yet");

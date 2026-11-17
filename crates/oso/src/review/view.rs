@@ -27,6 +27,7 @@
 //!   file that leaves the listing with comments stays, after the others, until it has none.
 //! - Nothing here logs a file's text or a comment's.
 
+mod assemble;
 mod cards;
 mod file;
 mod panes;
@@ -441,7 +442,7 @@ impl State {
         }
         let sections: Vec<&section::Rendered> =
             sections.iter().map(|rendered| &**rendered).collect();
-        let built = panes::assemble(&sections, &self.text);
+        let built = assemble::assemble(&sections, &self.text);
         // The same text needs no swap, which would only free it again on the UI thread.
         let changed = built.text.is_changed() || !built.valid || !self.valid;
         let text = changed.then_some(built.text);

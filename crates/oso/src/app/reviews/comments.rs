@@ -254,10 +254,17 @@ impl App {
             return;
         }
         // Both panes of a pair are in view, the person reading across them (ADR 0122, Q-G).
-        let other = (self.editor.pair_of(window)).filter(|&other| {
-            (self.editor.window_by_id(other))
-                .is_some_and(|other| self.editor.review_of(other.buffer()) == Some(id))
-        });
+        // Not one the frame has no room for, which shows nothing.
+        let has_cells = |window| {
+            (self.editor.regions(window))
+                .is_some_and(|regions| regions.text.rows > 0 && regions.text.columns > 0)
+        };
+        let other = (self.editor.pair_of(window))
+            .filter(|&other| has_cells(other))
+            .filter(|&other| {
+                (self.editor.window_by_id(other))
+                    .is_some_and(|other| self.editor.review_of(other.buffer()) == Some(id))
+            });
         let folded = self.editor.agents_folded(id)
             || (self.reviews.index(id)).is_some_and(|index| self.reviews.open[index].shown_folded);
         let (mut read, mut paths) = (Vec::new(), Vec::new());

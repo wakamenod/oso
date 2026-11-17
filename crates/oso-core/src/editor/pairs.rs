@@ -106,22 +106,33 @@ impl Editor {
             return Err(NoPair::NoBuffer);
         }
         let splits = self.paired_splits(first, way)?;
-        let Some(first_index) = self.window_index(first) else {
-            return Err(NoPair::NoBuffer);
-        };
+        Ok(self.pair_with(first, splits, buffer, map))
+    }
+
+    /// Pairs `first` with a new window showing `buffer` by `splits`, the tree
+    /// [`Editor::paired_splits`] gave for it, as nothing changed since. Returns the new
+    /// window's name.
+    pub(super) fn pair_with(
+        &mut self,
+        first: WindowId,
+        splits: crate::frame::Splits,
+        buffer: BufferId,
+        map: RowMap,
+    ) -> WindowId {
         let id = WindowId::new(self.next_window);
         self.isearch_exit();
         self.splits = splits;
         self.next_window += 1;
-        self.add_split_off(first_index, id);
+        if let Some(first_index) = self.window_index(first) {
+            self.add_split_off(first_index, id);
+        }
         self.lay_out(self.frame.size());
         if let Some(index) = self.window_index(id) {
             self.window_shows(index, buffer);
         }
-        let Some(first_index) = self.window_index(first) else {
-            return Err(NoPair::NoBuffer);
-        };
-        let first_buffer = self.windows[first_index].buffer();
+        let first_buffer = self
+            .window_index(first)
+            .map_or(buffer, |index| self.windows[index].buffer());
         self.pairs.push(Pair {
             windows: [first, id],
             buffers: [first_buffer, buffer],
@@ -129,7 +140,7 @@ impl Editor {
             seen: [None; 2],
         });
         self.lead_pair(first, Lead::Cursor);
-        Ok(id)
+        id
     }
 
     /// The tree with `first` split into a pair the way `way`, the new window's name the next
@@ -149,6 +160,11 @@ impl Editor {
             .pair(first, way, id, &self.frame)
             .map_err(|TooSmall| NoPair::TooSmall)?;
         Ok(splits)
+    }
+
+    /// The first window of the pair `id` is in, at the left or above, if it is in one.
+    pub(super) fn first_of_pair(&self, id: WindowId) -> Option<WindowId> {
+        Some(self.pairs[self.pair_at(id)?].windows[0])
     }
 
     /// The other window of the pair `id` is in, if it is in one.
@@ -323,7 +339,7 @@ impl Editor {
         let (top, line) = (across(top), across(cursor.row));
         let before = self.windows[to].scroll();
         match lead {
-            Lead::Cursor => self.follow_lead(
+            Lead::Cursor => self.place_window(
                 to,
                 (top, left),
                 line,
@@ -354,8 +370,9 @@ impl Editor {
 
     /// Shows the window at `index` from the start of line `top`, at column `left` while it
     /// does not wrap, with its primary cursor alone on line `line` where `goal` aims, its mark
-    /// kept; then scrolls it as little as shows the cursor, which a narrower wrap may need.
-    pub(super) fn follow_lead(
+    /// kept; then scrolls it as little as shows the cursor, which a narrower wrap may need. A
+    /// pair's other window is placed so behind its leader, and a review's window on a switch.
+    pub(super) fn place_window(
         &mut self,
         index: usize,
         (top, left): (usize, usize),

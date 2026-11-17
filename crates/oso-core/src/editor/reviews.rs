@@ -1,6 +1,7 @@
 //! The open reviews (ADR 0122, "The views"): each one's model, its review buffer and the rows
 //! that say what each of its lines is, and what commands ask of the host for them. What the
-//! review menu shows is in `menu`, and the backgrounds of a review's rows in `cells`.
+//! review menu shows is in `menu`, the backgrounds of a review's rows in `cells`, and its two
+//! panes in `panes`.
 //!
 //! Must not depend on: `command` or `keymap`, or the host's threads, git or files; the host
 //! runs git and builds each review's text on threads of its own, and hands the text in.
@@ -36,7 +37,7 @@ use crate::syntax::Highlights;
 pub use cells::ReviewCells;
 pub use draft::DraftFor;
 pub use menu::{Count, ScopeMenu};
-pub use panes::{ReviewArea, ReviewLayout};
+pub use panes::{ReviewArea, ReviewChoice, ReviewLayout};
 
 /// A review's id, never reused while the editor runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -109,12 +110,6 @@ pub enum ReviewRequest {
     },
     /// The review was closed: stop its threads.
     Close(ReviewId),
-    /// Show the review in two panes, `Some(true)`, unified, `Some(false)`, or as each area's
-    /// width has it, `None` (ADR 0122, "The views").
-    Layout {
-        review: ReviewId,
-        panes: Option<bool>,
-    },
 }
 
 /// One open review.
@@ -130,8 +125,12 @@ struct Open {
     reading: Option<(usize, usize)>,
     /// The files whose reading shown is newer than the model's, until their carry is applied.
     behind: BTreeSet<Box<[u8]>>,
-    /// Its two panes, while the host builds them (ADR 0122, step 11).
+    /// How the person chose it to show, and its two panes while the host builds them (ADR
+    /// 0122, step 11).
+    choice: ReviewChoice,
     panes: Option<panes::Panes>,
+    /// The rows of panes dropped since, for the next leftover to take off the UI thread.
+    spare: Vec<Rows>,
 }
 
 impl Open {
@@ -187,6 +186,8 @@ pub struct ReviewLeftover {
     text: Option<Box<Reloaded>>,
     /// What a pane's text left over, for the two panes.
     panes: Vec<ReviewLeftover>,
+    /// The rows of panes dropped since the last leftover.
+    spare: Vec<Rows>,
 }
 
 impl ReviewLeftover {
@@ -197,6 +198,7 @@ impl ReviewLeftover {
             highlights: None,
             text: None,
             panes: Vec::new(),
+            spare: Vec::new(),
         }
     }
 
@@ -206,6 +208,7 @@ impl ReviewLeftover {
             highlights: Some(highlights),
             text: text.map(Box::new),
             panes: Vec::new(),
+            spare: Vec::new(),
         }
     }
 }
@@ -229,6 +232,7 @@ impl std::fmt::Debug for ReviewLeftover {
             .field("highlights", &self.highlights.is_some())
             .field("text", &self.text.is_some())
             .field("panes", &self.panes)
+            .field("spare", &self.spare.len())
             .finish()
     }
 }
@@ -262,7 +266,9 @@ impl Editor {
             agents_folded: false,
             reading: None,
             behind: BTreeSet::new(),
+            choice: ReviewChoice::Auto,
             panes: None,
+            spare: Vec::new(),
         });
         (id, buffer)
     }
@@ -344,6 +350,7 @@ impl Editor {
         };
         let mut left = self.put_generated_text(buffer_id, text, highlights);
         left.rows = self.put_review_rows(id, rows);
+        left.spare = self.take_spare_rows(id);
         left
     }
 
@@ -377,6 +384,12 @@ impl Editor {
                 return left;
             }
             None => Change {
+                start: 0,
+                old_end: old.len(),
+                new_end: snapshot.text.len(),
+            },
+            // One compared with another text than the buffer's, as a pane's made again: whole.
+            Some(change) if change.old_end > old.len() || change.start > change.old_end => Change {
                 start: 0,
                 old_end: old.len(),
                 new_end: snapshot.text.len(),
@@ -442,6 +455,7 @@ impl Editor {
         Ok(ReviewLeftover {
             highlights: self.put_review_highlights(buffer_id, highlights),
             rows: self.put_review_rows(id, rows),
+            spare: self.take_spare_rows(id),
             ..ReviewLeftover::none()
         })
     }
@@ -465,6 +479,14 @@ impl Editor {
             Some(open) => Some(std::mem::replace(&mut open.rows, rows)),
             None => Some(rows),
         }
+    }
+
+    /// The rows of the review `id`'s panes dropped since, for a leftover to free.
+    fn take_spare_rows(&mut self, id: ReviewId) -> Vec<Rows> {
+        self.reviews
+            .get_mut(id)
+            .map(|open| std::mem::take(&mut open.spare))
+            .unwrap_or_default()
     }
 
     /// Whether `a` folds every agent card of the review `id` to its first line.

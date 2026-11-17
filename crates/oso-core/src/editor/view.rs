@@ -322,6 +322,10 @@ impl Editor {
     /// selected window left of the command's wrap budget. Not while a prompt is open: the
     /// wheel scrolls the window beneath it and leaves its cursors (ADR 0072); they follow once
     /// it closes.
+    ///
+    /// Then, with no prompt open, a review's pane selected moves its cursors off filler rows,
+    /// and the panes of a review no window shows are dropped, as the host puts them in only as
+    /// it switches an area to them (ADR 0122, step 11); and the other window of a pair follows.
     pub fn follow_cursor(&mut self) -> bool {
         // So does the preview's wrap, which a command may have moved (ADR 0100), and a
         // description's (ADR 0138).

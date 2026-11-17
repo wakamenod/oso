@@ -54,7 +54,7 @@ fn model() -> (Review, crate::review::Reading) {
 }
 
 /// Each row of both panes side by side: what it is and its text, the old pane's at the left.
-fn side_by_side(pair: &Pair) -> String {
+fn side_by_side(pair: &Sides) -> String {
     let (old, new) = (lines_of(&pair.old), lines_of(&pair.new));
     assert_eq!(old.len(), new.len(), "the panes have as many rows");
     let name = |kind: RowKind| match kind {
@@ -187,4 +187,64 @@ fn the_panes_texts_come_only_while_asked_for_and_changed() {
     state.take(Tell::Panes(false));
     state.take(Tell::Panes(true));
     assert!(state.build().panes.is_some(), "asked for again");
+}
+
+#[test]
+fn a_file_that_may_hold_secrets_shows_only_its_count_in_both_panes() {
+    let (review, mut reading) = model();
+    reading.content = crate::review::Content::Withheld;
+    let cards = snapshot(&review, PATH);
+    for room in [usize::MAX, 0] {
+        let pair = render(&reading, room, &shown(&cards));
+        for pane in [&pair.old, &pair.new] {
+            let kinds: Vec<RowKind> = lines_of(pane).into_iter().map(|(_, kind)| kind).collect();
+            assert_eq!(kinds, [RowKind::File, RowKind::Note], "room {room}");
+        }
+    }
+    let pair = gone(PATH, &cards, usize::MAX, false, true);
+    for pane in [&pair.old, &pair.new] {
+        assert_eq!(lines_of(pane).len(), 1, "the header alone");
+    }
+}
+
+#[test]
+fn past_the_limit_both_panes_show_the_same_files_header_alone() {
+    let file = |path: &[u8]| Tell::File {
+        reading: Arc::new(text_reading(
+            path,
+            vec![hunk(1, 1, &[b"a\n"], &[b"b\n", b"c\n"])],
+        )),
+        carry: super::super::Carrying::Nothing,
+    };
+    let listed = Tell::Listed {
+        entries: [b"a.rs".as_slice(), b"b.rs"]
+            .iter()
+            .map(|path| text_reading(path, Vec::new()).entry.clone())
+            .collect::<Vec<_>>()
+            .into(),
+        more: 0,
+        cut: false,
+    };
+    let mut state = State::new("t".to_owned());
+    state.take(listed);
+    state.take(file(b"a.rs"));
+    state.take(file(b"b.rs"));
+    state.take(Tell::Panes(true));
+    // Room for the title and a.rs's panes, counted together, but not for b.rs's.
+    let whole = state.build();
+    let [old, new] = *whole.panes.unwrap();
+    let a = old.1.lines();
+    assert_eq!(a, new.1.lines());
+    state.max_text = 90;
+    state.dirty = true;
+    let cut = state.build();
+    let [old, new] = *cut.panes.unwrap();
+    assert_eq!(old.1.lines(), new.1.lines());
+    assert!(old.1.lines() < a, "a file past the limit shows less");
+    let notes = |rows: &Rows| {
+        (0..rows.lines())
+            .filter(|line| rows.at(*line).unwrap().kind == RowKind::Note)
+            .count()
+    };
+    assert_eq!(notes(&old.1), notes(&new.1), "cut at the same file");
 }

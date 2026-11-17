@@ -214,6 +214,15 @@ impl Rows {
         })
     }
 
+    /// The lines of the run of rows of one kind that line `line` is in. O(log of files and
+    /// runs).
+    pub(crate) fn run_lines(&self, line: usize) -> Option<Range<usize>> {
+        let (index, local) = self.section(line)?;
+        let run = self.sections[index].run(local)?;
+        let start = self.starts[index] + run.start;
+        Some(start..start + run.lines)
+    }
+
     /// Where line `line` is in its file's section, and the file's path: `None` for a filler
     /// row and past the last line. O(log of files and runs, and the runs before it).
     pub(crate) fn place(&self, line: usize) -> Option<(&[u8], Place)> {

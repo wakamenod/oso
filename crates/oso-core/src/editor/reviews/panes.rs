@@ -20,7 +20,7 @@ use crate::buffer::{BufferId, Mode};
 use crate::display_map::DisplayPoint;
 use crate::editor::{Editor, NoPair, ReviewId, ReviewLeftover};
 use crate::frame::{TooSmall, Way};
-use crate::load::Reloaded;
+use crate::load::{Change, Reloaded};
 use crate::motion;
 use crate::review::{Place, RowKind, Rows, Side};
 use crate::selection::Goal;
@@ -51,6 +51,16 @@ pub enum ReviewLayout {
     Unified,
     /// Its two panes, side by side with [`Way::Across`] or stacked with [`Way::Down`].
     Panes(Way),
+}
+
+/// How the person chose a review to show in every area it shows in (ADR 0122, Q-C).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ReviewChoice {
+    /// As each area's width has it, which the host judges; unified until it does.
+    #[default]
+    Auto,
+    Unified,
+    Panes,
 }
 
 /// An area of the frame a review shows in: a window showing it unified or a pane of it alone,
@@ -106,11 +116,26 @@ impl Editor {
                 ..ReviewLeftover::none()
             };
         }
-        let buffers = match self.review_panes(id) {
-            Some((old, new)) => [old, new],
-            None => self.make_review_panes(id),
+        let (buffers, fresh) = match self.review_panes(id) {
+            Some((old, new)) => ([old, new], false),
+            None => (self.make_review_panes(id), true),
         };
-        let mut left = ReviewLeftover::none();
+        // A new pane takes its first text whole, whatever the view compared it with.
+        let whole = |mut text: Reloaded| {
+            if fresh {
+                text.change = Some(Change {
+                    start: 0,
+                    old_end: 0,
+                    new_end: text.snapshot.text.len(),
+                });
+            }
+            text
+        };
+        let (old, new) = ((whole(old.0), old.1, old.2), (whole(new.0), new.1, new.2));
+        let mut left = ReviewLeftover {
+            spare: self.take_spare_rows(id),
+            ..ReviewLeftover::none()
+        };
         for (side, (text, rows, highlights)) in [old, new].into_iter().enumerate() {
             let mut pane = self.put_generated_text(buffers[side], text, highlights);
             pane.rows = match self
@@ -165,8 +190,8 @@ impl Editor {
     ///
     /// # Errors
     ///
-    /// [`NoPair`]: [`NoPair::NoBuffer`] for a window showing no review or one with no panes
-    /// yet, [`NoPair::Paired`] for one paired with another buffer, [`NoPair::TooSmall`] where
+    /// [`NoPair`]: [`NoPair::NoBuffer`], there being no buffer to pair, for a window showing no
+    /// review or one whose panes the host has not put in, [`NoPair::Paired`] for one paired with another buffer, [`NoPair::TooSmall`] where
     /// a split would be. Nothing changes.
     pub fn show_review_panes(&mut self, window: WindowId, way: Way) -> Result<(), NoPair> {
         let index = self.window_index(window).ok_or(NoPair::NoBuffer)?;
@@ -181,7 +206,7 @@ impl Editor {
             }
             return Err(NoPair::Paired);
         }
-        self.paired_splits(window, way)?;
+        let splits = self.paired_splits(window, way)?;
         let places = self.review_places(index);
         let (side, line, top) = {
             let open = self.reviews.holding(buffer);
@@ -200,8 +225,8 @@ impl Editor {
         };
         let selected = self.tiled_id() == window;
         self.window_shows(index, buffers[OLD]);
-        self.follow_lead(index, (top, places.left), line, Some(places.goal));
-        let new = self.pair_window_of(window, way, buffers[NEW], RowMap::same())?;
+        self.place_window(index, (top, places.left), line, Some(places.goal));
+        let new = self.pair_with(window, splits, buffers[NEW], RowMap::same());
         if selected && side == NEW {
             self.select_window(new);
         }
@@ -249,26 +274,28 @@ impl Editor {
         let line = line_of(self, places.cursor.as_ref()).unwrap_or(0);
         let top = line_of(self, places.top.as_ref()).unwrap_or(0);
         self.window_shows(index, unified);
-        self.follow_lead(index, (top, places.left), line, Some(places.goal));
+        self.place_window(index, (top, places.left), line, Some(places.goal));
         true
     }
 
     /// Each area of the frame a review shows in, into `out`, emptied first, in the windows'
     /// order: a window showing a review unified or a pane alone, and a pair of its panes once,
     /// by its first window. Windows the frame has no room for, and the side window, are left
-    /// out.
+    /// out; a pane whose pair's other window has none counts alone.
     pub fn review_areas(&self, out: &mut Vec<ReviewArea>) {
         out.clear();
         let side = self.side_window();
+        let outer = |id: WindowId| {
+            (self.regions(id))
+                .filter(|regions| regions.has_cells() && Some(id) != side)
+                .map(|regions| regions.outer())
+        };
         for window in &self.windows {
             let id = window.id();
             let Some(open) = self.reviews.holding(window.buffer()) else {
                 continue;
             };
-            let Some(outer) = (self.regions(id))
-                .filter(|regions| regions.has_cells() && Some(id) != side)
-                .map(|regions| regions.outer())
-            else {
+            let Some(mine) = outer(id) else {
                 continue;
             };
             let buffers = open.panes.as_ref().map(|panes| panes.buffers);
@@ -276,22 +303,18 @@ impl Editor {
                 let shown = self.window_by_id(id).map(|window| window.buffer());
                 buffers.is_some_and(|buffers| shown.is_some_and(|shown| buffers.contains(&shown)))
             };
-            let paired = self
-                .pair_of(id)
+            let pair = (self.pair_of(id))
                 .filter(|&other| shows_pane(id) && shows_pane(other))
-                .and_then(|other| self.regions(other))
-                .map(|regions| regions.outer());
-            let (columns, layout) = match paired {
+                .and_then(|other| Some((outer(other)?, self.splits.pair_way(id)?)));
+            let (columns, layout) = match pair {
                 // The second of a pair is counted with the first.
-                Some(theirs) if (theirs.row, theirs.column) < (outer.row, outer.column) => {
-                    continue;
-                }
-                Some(theirs) if theirs.column > outer.column => (
-                    theirs.column + theirs.columns - outer.column,
+                Some(_) if self.first_of_pair(id) != Some(id) => continue,
+                Some((theirs, Way::Across)) => (
+                    (theirs.column + theirs.columns).saturating_sub(mine.column),
                     ReviewLayout::Panes(Way::Across),
                 ),
-                Some(_) => (outer.columns, ReviewLayout::Panes(Way::Down)),
-                None => (outer.columns, ReviewLayout::Unified),
+                Some((_, way)) => (mine.columns, ReviewLayout::Panes(way)),
+                None => (mine.columns, ReviewLayout::Unified),
             };
             out.push(ReviewArea {
                 window: id,
@@ -299,6 +322,22 @@ impl Editor {
                 columns,
                 layout,
             });
+        }
+    }
+
+    /// How the person chose the review `id` to show: [`ReviewChoice::Auto`] for a review not
+    /// open.
+    pub fn review_choice(&self, id: ReviewId) -> ReviewChoice {
+        self.reviews
+            .get(id)
+            .map_or(ReviewChoice::Auto, |open| open.choice)
+    }
+
+    /// Chooses how the review `id` shows in every area, as `|` does; the host switches the
+    /// areas once the panes' texts are in.
+    pub fn choose_review_layout(&mut self, id: ReviewId, choice: ReviewChoice) {
+        if let Some(open) = self.reviews.get_mut(id) {
+            open.choice = choice;
         }
     }
 
@@ -313,7 +352,10 @@ impl Editor {
             .collect();
         for (id, buffers) in unshown {
             if let Some(open) = self.reviews.get_mut(id) {
-                open.panes = None;
+                // Their rows go with the review's next leftover, freed off the UI thread.
+                if let Some(panes) = open.panes.take() {
+                    open.spare.extend(panes.rows);
+                }
             }
             for buffer in buffers {
                 self.drop_internal_buffer(buffer);
@@ -371,11 +413,33 @@ impl Editor {
         }
     }
 
+    /// Whether the review buffer or a pane of the review that `buffer` is one of may hold
+    /// secrets, as a yank of a secret kill into isearch turns it, whatever the verdict was.
+    fn review_holds_secret(&self, buffer: BufferId) -> bool {
+        let Some(open) = self.reviews.holding(buffer) else {
+            return false;
+        };
+        let panes = open.panes.iter().flat_map(|panes| panes.buffers);
+        std::iter::once(open.buffer)
+            .chain(panes)
+            .any(|buffer| self.buffer(buffer).is_some_and(|shown| shown.is_secret()))
+    }
+
     /// Where the window at `index` shows its review, by its buffer's rows: a filler row by the
     /// row of the other pane beside it, in a pair of the panes, else by the nearest row that is
     /// not one.
     fn review_places(&self, index: usize) -> Places {
         let window = &self.windows[index];
+        // No position leaves a buffer that may hold secrets, nor goes into one (ADR 0044): the
+        // windows a switch shows are described by the dev socket and the agent channel.
+        if self.review_holds_secret(window.buffer()) {
+            return Places {
+                cursor: None,
+                top: None,
+                goal: Goal::Column(0),
+                left: 0,
+            };
+        }
         let buffer = self.shown(window);
         let display = buffer.display();
         let cursor = window.cursor_point(&display);
@@ -384,8 +448,7 @@ impl Editor {
         let rows = self.review_rows_of(window.buffer());
         let other = (self.pair_of(window.id()))
             .and_then(|other| self.window_by_id(other))
-            .and_then(|other| self.review_rows_of(other.buffer()))
-            .filter(|_| self.review_of(window.buffer()).is_some());
+            .and_then(|other| self.review_rows_of(other.buffer()));
         let place = |line: usize| {
             let rows = rows?;
             let found = rows.place(line).or_else(|| other?.place(line));
@@ -421,16 +484,14 @@ fn is_filler(rows: &Rows, line: usize) -> bool {
     rows.at(line).is_some_and(|row| row.kind == RowKind::Filler)
 }
 
-/// The nearest line from `line` that is not a filler row, looked for upward first when `up`,
-/// downward first otherwise.
+/// The nearest line from `line`, a filler row, that is not one, looked for upward first when
+/// `up`, downward first otherwise: past the run of filler rows it is in, as filler rows next to
+/// each other are one run and a section starts with its header. O(log of files and runs).
 fn off_filler(rows: &Rows, line: usize, up: bool) -> Option<usize> {
-    let mut down = (line + 1..rows.lines()).filter(|&at| !is_filler(rows, at));
-    let mut upward = (0..line).rev().filter(|&at| !is_filler(rows, at));
-    if up {
-        upward.next().or_else(|| down.next())
-    } else {
-        down.next().or_else(|| upward.next())
-    }
+    let run = rows.run_lines(line)?;
+    let down = Some(run.end).filter(|&at| at < rows.lines() && !is_filler(rows, at));
+    let upward = (run.start.checked_sub(1)).filter(|&at| !is_filler(rows, at));
+    if up { upward.or(down) } else { down.or(upward) }
 }
 
 #[cfg(test)]

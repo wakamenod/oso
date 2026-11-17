@@ -139,7 +139,6 @@ impl Splits {
     }
 
     /// How the pair `window` is in is laid out.
-    #[cfg(test)]
     pub(crate) fn pair_way(&self, window: WindowId) -> Option<Way> {
         match self.root.unit(window)? {
             Node::Run(run) if run.pair => Some(run.way),
