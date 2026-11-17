@@ -1,6 +1,7 @@
 //! What the UI asks a server about a document, and what comes back (ADR 0138, Go to definition
 //! and back, step 8): the definitions or references at a byte offset, the completions there
-//! (step 9), and the description of what is there (Hover, step 10).
+//! (step 9), the description of what is there (Hover, step 10), and the code actions of a range
+//! (step 13).
 //!
 //! Must not depend on: the session's loop or the pipes; these are the values that cross
 //! between the UI and the session thread.
@@ -8,8 +9,8 @@
 //! - One ask of each kind for each document is in flight; a newer one cancels the older with
 //!   `$/cancelRequest`, and the older gets no answer.
 //! - Each waits at most its kind's wait ([`AskKind::wait`]): a definition or references
-//!   [`DEFINITION_WAIT`], a completion or a description [`COMPLETION_WAIT`]; a run that ends
-//!   fails what waits.
+//!   or code actions [`DEFINITION_WAIT`], a completion or a description [`COMPLETION_WAIT`]; a
+//!   run that ends fails what waits.
 //! - An answer wakes the UI at once.
 
 use std::ops::Range;
@@ -33,6 +34,10 @@ pub enum AskKind {
     Resolve,
     /// `textDocument/hover` (step 10).
     Hover,
+    /// `textDocument/codeAction` over a range (step 13).
+    CodeAction,
+    /// `codeAction/resolve` of an action of the last code actions (step 13).
+    ResolveAction,
 }
 
 impl AskKind {
@@ -44,13 +49,17 @@ impl AskKind {
             Self::Completion => "textDocument/completion",
             Self::Resolve => "completionItem/resolve",
             Self::Hover => "textDocument/hover",
+            Self::CodeAction => "textDocument/codeAction",
+            Self::ResolveAction => "codeAction/resolve",
         }
     }
 
     /// How long its answer is waited for (ADR 0138's table).
     pub fn wait(self) -> Duration {
         match self {
-            Self::Definition | Self::References => DEFINITION_WAIT,
+            Self::Definition | Self::References | Self::CodeAction | Self::ResolveAction => {
+                DEFINITION_WAIT
+            }
             Self::Completion | Self::Resolve | Self::Hover => COMPLETION_WAIT,
         }
     }
@@ -63,6 +72,8 @@ impl AskKind {
             Self::Completion => "completion",
             Self::Resolve => "resolve",
             Self::Hover => "description",
+            Self::CodeAction => "code actions",
+            Self::ResolveAction => "code action",
         }
     }
 }
@@ -81,8 +92,9 @@ pub struct Ask {
 }
 
 /// What more an ask says (step 9b): nothing, for definitions and references; why completions
-/// are asked for; or, for a resolve, which item of which answer, by the completions' ask's
-/// serial and the item's place in its answer. A kind with the wrong context fails.
+/// are asked for; for a resolve, which item or action of which answer, by its ask's serial and
+/// its place in the answer; or, for code actions, the range asked about, `offset` the primary
+/// cursor still (step 13). A kind with the wrong context fails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AskContext {
     #[default]
@@ -91,6 +103,10 @@ pub enum AskContext {
     Item {
         answer: u64,
         index: usize,
+    },
+    Range {
+        start: usize,
+        end: usize,
     },
 }
 
@@ -117,7 +133,7 @@ pub enum AskFailure {
     Other(String),
 }
 
-/// What a server answered, by what was asked. Step 9b adds its own.
+/// What a server answered, by what was asked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Answered {
@@ -130,6 +146,10 @@ pub enum Answered {
     Completion(Completions),
     /// A resolved item's edits besides its own (step 9b).
     Resolved(Resolved),
+    /// Code actions (step 13).
+    CodeActions(super::CodeActions),
+    /// A resolved code action's edit (step 13).
+    ActionResolved(super::ActionResolved),
 }
 
 /// What an item's `completionItem/resolve` gave: the item, by its answer's serial and its place

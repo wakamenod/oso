@@ -155,7 +155,10 @@ fn initialize_claims_only_what_the_steps_use() {
         json!({
             "general": {"positionEncodings": ["utf-8", "utf-16"]},
             "window": {"workDoneProgress": true},
-            "workspace": {"configuration": true},
+            "workspace": {
+                "configuration": true,
+                "workspaceEdit": {"documentChanges": true, "resourceOperations": []},
+            },
             "textDocument": {
                 "synchronization": {"didSave": true},
                 "definition": {"linkSupport": true},
@@ -169,6 +172,16 @@ fn initialize_claims_only_what_the_steps_use() {
                     "contextSupport": true,
                 },
                 "hover": {"contentFormat": ["markdown", "plaintext"]},
+                "codeAction": {
+                    "codeActionLiteralSupport": {"codeActionKind": {"valueSet": [
+                        "", "quickfix", "refactor", "refactor.extract", "refactor.inline",
+                        "refactor.rewrite", "source", "source.organizeImports",
+                    ]}},
+                    "isPreferredSupport": true,
+                    "disabledSupport": true,
+                    "dataSupport": true,
+                    "resolveSupport": {"properties": ["edit"]},
+                },
                 "publishDiagnostics": {
                     "versionSupport": true,
                     "tagSupport": {"valueSet": [1, 2]},

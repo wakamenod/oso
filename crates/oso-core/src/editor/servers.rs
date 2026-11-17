@@ -5,23 +5,27 @@
 //! `diagnostics_list`, sharing `listed` with the list of an answer's places); the jumps an
 //! answer leads to, and back (step 8, `jumps`), and the list of an answer's places (step 8b,
 //! `xref_list`); the completion popup (step 9, `popup`), with what it takes after it opened
-//! and what the person typed (step 9b); and the description of what is at point in a float
-//! there (step 10, `hover`).
+//! and what the person typed (step 9b); the description of what is at point in a float there
+//! (step 10, `hover`); and the list of a server's code actions (step 13, `code_actions`) and a
+//! server's edit applied (`server_edit`).
 //!
 //! Must not depend on: the host's servers, threads or I/O; a command asks, and the host takes
 //! the request after the command and acts on the server.
 
+mod code_actions;
 mod diagnostics_list;
 mod hover;
 mod jumps;
 mod listed;
 mod popup;
+mod server_edit;
 mod xref_list;
 
 use crate::buffer::{Buffer, BufferId};
 
 /// Where on a line a server's place is: the host turns the server's encoding into one.
 pub use super::visits::VisitColumn;
+pub use code_actions::CodeActionItem;
 pub use diagnostics_list::{DiagnosticRow, DiagnosticRows, DiagnosticsRequest};
 pub use hover::HoverShown;
 pub use jumps::AskAt;
@@ -30,10 +34,12 @@ pub use popup::{
     COMPLETION_POPUP_COLUMNS, COMPLETION_POPUP_ROWS, CompletionPopup, CompletionPopupAnswer,
     CompletionPopupItem, CompletionTyped,
 };
+pub use server_edit::{BufferEdit, EditApplied};
 pub use xref_list::{XrefKind, XrefRow, XrefRows};
 
 use super::Editor;
 use super::messages::Keep;
+use crate::minibuffer::PromptError;
 
 /// The name of the servers' log.
 pub(crate) const SERVER_LOG: &str = "*LSP*";
@@ -54,6 +60,8 @@ pub(super) struct Servers {
     typed: Option<AskAt>,
     /// The description shown at point, `C-c C-d` (step 10).
     pub(super) hover: hover::Hover,
+    /// The list of a server's code actions, `C-c C-r` (step 13).
+    pub(super) actions: code_actions::ActionsShown,
     log: Option<BufferId>,
 }
 
@@ -77,6 +85,12 @@ pub enum ServerRequest {
     GoToXref,
     /// `lsp-describe-at-point` (step 10).
     Describe(AskAt),
+    /// `lsp-code-actions`: the code actions from `start` to `end`, the active region or the
+    /// primary cursor's place, asked from `at`, the cursor (step 13, Q1).
+    CodeActions { at: AskAt, start: usize, end: usize },
+    /// `lsp-code-action-apply`: apply the action the list of code actions took
+    /// ([`Editor::take_code_action_hit`]) (step 13).
+    ApplyCodeAction,
 }
 
 impl Editor {
@@ -88,6 +102,19 @@ impl Editor {
     /// Whether the innermost prompt is `M-g d`'s list or a list of places, and its rows were cut.
     pub(super) fn server_list_cut(&self) -> bool {
         self.diagnostics_cut() || self.xrefs_cut()
+    }
+
+    /// The answer of the innermost prompt, if it is one of a server's lists: `M-g d`'s row and a
+    /// place (step 8b) as their file's whole path, and a code action by its title (step 13),
+    /// or why it is refused.
+    pub(super) fn server_list_answer(&mut self) -> Option<Result<String, PromptError>> {
+        if let Some(path) = self.diagnostics_answer() {
+            return Some(Ok(path));
+        }
+        if let Some(path) = self.xrefs_answer() {
+            return Some(Ok(path));
+        }
+        self.code_action_answer()
     }
 
     /// Whether the innermost prompt is `M-g d`'s list or a list of places, waiting for its rows.

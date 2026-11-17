@@ -94,8 +94,13 @@ impl App {
             let none = match kind {
                 AskKind::Definition => "No definition found",
                 AskKind::References => "No references found",
-                // Completions never come here (`asks`), and a description goes to its float.
-                AskKind::Completion | AskKind::Resolve | AskKind::Hover => return,
+                // Completions and code actions never come here (`asks`), and a description goes
+                // to its float.
+                AskKind::Completion
+                | AskKind::Resolve
+                | AskKind::Hover
+                | AskKind::CodeAction
+                | AskKind::ResolveAction => return,
             };
             self.editor.message(none);
             return;

@@ -67,11 +67,12 @@ fn go_to_row(app: &mut App, row: usize) {
 #[ignore = "opens windows; run with `just e2e`"]
 fn c_x_c_j_lists_the_directory_and_moves_between_directories_in_one_buffer() {
     let scratch = Scratch::new("dired-move");
-    let notes = scratch.write("notes.md", b"agenda\n");
-    scratch.write("plan.md~", b"backup\n");
-    std::fs::create_dir(scratch.path().join("sub")).unwrap();
-    scratch.write("sub/inner.txt", b"inside\n");
-    let name = format!("{}/", scratch.path().file_name().unwrap().to_string_lossy());
+    let notes = scratch.write("listed/notes.md", b"agenda\n");
+    scratch.write("listed/plan.md~", b"backup\n");
+    std::fs::create_dir(scratch.path().join("listed/sub")).unwrap();
+    scratch.write("listed/sub/inner.txt", b"inside\n");
+    // A directory of its own, apart from the instance's state (ADR 0146, ADR 0148).
+    let name = "listed/".to_owned();
     let mut app = App::start(Some(&notes), scratch.path());
     app.wait_until_ready();
 
@@ -120,15 +121,16 @@ fn c_x_c_j_lists_the_directory_and_moves_between_directories_in_one_buffer() {
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_file_made_outside_shows_on_its_own_and_s_and_paren_change_the_rows() {
     let scratch = Scratch::new("dired-watch");
-    let notes = scratch.write("notes.md", b"agenda\n");
-    let name = format!("{}/", scratch.path().file_name().unwrap().to_string_lossy());
+    let notes = scratch.write("listed/notes.md", b"agenda\n");
+    // A directory of its own, apart from the instance's state (ADR 0146, ADR 0148).
+    let name = "listed/".to_owned();
     let mut app = App::start(Some(&notes), scratch.path());
     app.wait_until_ready();
     app.send_keys("C-x C-j");
     listed(&mut app, &name, "notes.md");
     let point = app.state()["cursor"]["row"].clone();
 
-    scratch.write("fresh.md", b"new\n");
+    scratch.write("listed/fresh.md", b"new\n");
     listed(&mut app, &name, "fresh.md");
     let shown = rows(&mut app);
     assert_eq!(
@@ -180,9 +182,10 @@ fn a_listing_inside_ssh_gives_the_socket_no_text() {
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_listing_comes_back_after_a_restart_listed_again() {
     let scratch = Scratch::new("dired-restart");
-    let notes = scratch.write("notes.md", b"agenda\n");
-    scratch.write("plan.md", b"budget\n");
-    let name = format!("{}/", scratch.path().file_name().unwrap().to_string_lossy());
+    let notes = scratch.write("listed/notes.md", b"agenda\n");
+    scratch.write("listed/plan.md", b"budget\n");
+    // A directory of its own, apart from the instance's state (ADR 0146, ADR 0148).
+    let name = "listed/".to_owned();
     let mut old = App::start(Some(&notes), scratch.path());
     old.wait_until_ready();
     old.send_keys("C-x C-j");
@@ -212,9 +215,11 @@ fn a_listing_comes_back_after_a_restart_listed_again() {
 #[ignore = "opens windows; run with `just e2e`"]
 fn marks_show_stay_over_a_refresh_and_toggle() {
     let scratch = Scratch::new("dired-marks");
-    let notes = scratch.write("notes.md", b"agenda\n");
-    scratch.write("plan.md", b"budget\n");
-    let name = format!("{}/", scratch.path().file_name().unwrap().to_string_lossy());
+    // A directory of its own, apart from the instance's state beside it (ADR 0146), which the
+    // recent files write to (ADR 0148), so that `t` meets only these rows.
+    let notes = scratch.write("listed/notes.md", b"agenda\n");
+    scratch.write("listed/plan.md", b"budget\n");
+    let name = "listed/".to_owned();
     let mut app = App::start(Some(&notes), scratch.path());
     app.wait_until_ready();
     app.send_keys("C-x C-j");
@@ -234,7 +239,7 @@ fn marks_show_stay_over_a_refresh_and_toggle() {
     };
     assert!(marked(&mut app, "notes.md"));
     // A new file has the directory listed again, and the mark stays.
-    scratch.write("fresh.md", b"new\n");
+    scratch.write("listed/fresh.md", b"new\n");
     listed(&mut app, &name, "fresh.md");
     assert!(marked(&mut app, "notes.md"));
     // `t` marks every other row, and `.` and `..` never.

@@ -104,6 +104,7 @@ impl Session {
                 run.sync = protocol::sync(&result);
                 let completing = protocol::completing(&result);
                 run.resolves = completing.resolves;
+                run.acting = protocol::acting(&result);
                 self.reporter.completing(completing);
                 self.open_documents(run)?;
                 let name = protocol::server_name(&result)

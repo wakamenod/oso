@@ -92,6 +92,11 @@ impl App {
         let by = self.save_starts(buffer, failed, report.elsewhere());
         self.agent_save_ended(&report);
         saver::apply(&mut self.editor, report);
+        // The person's save puts its file first in the recent files: a new file's first, and
+        // one `C-x C-w` named (ADR 0148).
+        if by == oso_core::buffer::Acted::Person && !failed {
+            self.editor.note_recent_visit(buffer);
+        }
         // After the saver's own message, which a review's revert says more than (ADR 0122).
         self.review_save_ended(buffer, !failed);
         self.look_again_after_save(buffer);
@@ -212,8 +217,9 @@ impl App {
     /// running now may or may not finish, and nobody can tell, so its buffer gets a copy too.
     pub(super) fn ending(&mut self) {
         self.emergency.on_exit();
-        // The sessions and spaces changed last are written before the process goes (ADR 0121).
-        self.flush_sessions();
+        // The sessions, spaces and recent files changed last are written before the process goes
+        // (ADR 0121, ADR 0148).
+        self.flush_records();
         // Servers end with oso, with no wait (ADR 0138).
         self.quit_servers();
         // git's runs end with oso, a hook and what it started too (ADR 0127, Q7).

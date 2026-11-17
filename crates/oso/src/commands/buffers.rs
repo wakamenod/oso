@@ -14,7 +14,7 @@ const NAME_CELLS: usize = 40;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "switch-to-buffer",
-        doc: "Show a buffer, read with completion, the one shown before first.\n\nA name that matches no buffer makes an empty one with no file; `M-RET` makes it when another matches.",
+        doc: "Show a buffer, read with completion, the one shown before first.\n\nRecent files no buffer visits are listed after the buffers, and open as `C-x C-r` opens them. A name that matches neither makes an empty buffer with no file; `M-RET` makes it when another matches.",
         args: ArgSpec::Buffer {
             prompt: "Switch to buffer:",
             history: "buffer",
@@ -73,6 +73,15 @@ pub const COMMANDS: &[Command] = &[
 fn switch_to_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
     let name = ctx.answer().unwrap_or_default().to_owned();
+    // A recent file listed after the buffers is opened (ADR 0148). The agent channel shows a
+    // buffer by its name and never comes here (ADR 0094); were it to, it opens nothing.
+    if !ctx.editor.runs_for_agent()
+        && ctx.editor.buffer_named(&name).is_none()
+        && let Some(path) = ctx.editor.recent_file_named(&name)
+    {
+        let path = path.to_path_buf();
+        return super::files::visit_recent(ctx, path);
+    }
     ctx.editor
         .switch_to_named(&name)
         .map_err(CommandError::new)?;

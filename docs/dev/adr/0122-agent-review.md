@@ -1356,7 +1356,8 @@ What the first PR built:
   whole when the two have not as many lines; `Editor::show_review_panes(window, way)` and
   `Editor::show_review_unified(window)`; `Editor::review_areas(out)` with `ReviewArea` (window,
   review, columns, layout) and `ReviewLayout { Unified, Panes(Way) }`. Three more follow from
-  them and are listed for the author's approval with the PR: the person's choice, held by the
+  them, which the author approved on 2026-11-17, keeping the filler band's colours as built: the
+  person's choice, held by the
   editor beside each review as `a`'s fold is, `editor::ReviewChoice { Auto, Unified, Panes }`
   with `Editor::review_choice(id)` and `Editor::choose_review_layout(id, choice)`;
   `ReviewCells::fillers`; and `oso_render::Face::DiffFiller`.
@@ -1413,6 +1414,39 @@ What the first PR built:
   run of a million passed at once, a switch too small, no place carried from or into a buffer
   that may hold secrets, panes made again taking their text whole, and the panes dropped; `|`, `c` on a filler row and `q`
   in a pane; and an end-to-end flow that turns a review into two panes and back.
+
+### Step 11: the two-pane view, part two
+
+The second PR judges the width, as Q6's choice has it, and brings `C-u |`. What it built:
+
+- **The judge** (`app/reviews/judge.rs`) keeps each area's width by its window, and judges what
+  the area wants only when it first shows, when the review's choice changes, and when its width
+  changed and then stayed the same for 100 ms; scrolling, moving and refreshing change no width,
+  so they are never judged. A width settling sets the event loop's wake, and the wake judges
+  what settled, so a drag that stops is judged without another event. What was judged stays
+  until the next judgment. An area is its window and the review it shows: a window that shows
+  another review is judged anew. An area that refused two panes, too small for them, is tried
+  again only once a new width is judged, so a drag neither retries it nor turns the panes'
+  building on and off before it settles.
+- **The rules:** while automatic, an area turns side by side at 160 columns or more and unified
+  below 150, and between the two keeps what it shows. With two panes chosen, they go side by
+  side at 160 or more and stacked below 150, and between the two keep their way (Q-D). Unified
+  chosen is unified.
+- While automatic in an area of 160 columns or more, a pane left alone, as when the other
+  window shows another buffer, is paired again: there the rule shows two panes, and `|` is the
+  way to one stream.
+- **`C-u |`** sets the review's choice back to automatic, `ReviewChoice::Auto`, which every
+  review starts with, and says so.
+- **The host** builds a review's panes while an area of it wants them, as judged, and did not
+  refuse them at its width, and switches or turns each area to what it wants.
+- **The `review` scenario** adds `review_panes_switch_ms`, from `|` to the first frame showing
+  the panes, and `review_panes_key_p99_ms`, the paced hunk and file keys in a pane; recorded
+  with no threshold, as the others.
+- **Tests:** the judge on a clock of its own (the 160 and 150 rules both ways, a drag across
+  the lines judged once where it rests, nothing judged again at the same width, a choice
+  judged at once); `C-u |`; and the end-to-end flow turning to two panes and back by the width.
+  The end-to-end window is 99 columns wide and cannot be resized over the socket, so side by
+  side by the width is left to a check by hand.
 
 ### Step 12a: sending comments to the session
 

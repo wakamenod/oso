@@ -341,6 +341,18 @@ fn bar_shows_the_two_panes_in_step_and_the_one_stream_again() {
     });
     assert_eq!(cursor(&state), (4, 0));
     assert_eq!(window_count(&mut app), 1);
+
+    // Two panes again, then `C-u |`: as the width has it, and this window is under 150 columns.
+    app.send_keys("|");
+    app.wait_for("the panes again", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review \u{b7} new*"
+    });
+    app.send_keys("C-u |");
+    let state = app.wait_for("the one stream by the width", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+    });
+    assert_eq!(state["echo"], "Two panes or one by the width");
+    assert_eq!(window_count(&mut app), 1);
 }
 
 /// The echo area's text once it is `said`, or what it said last after 5 s.

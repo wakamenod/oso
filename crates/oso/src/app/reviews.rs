@@ -585,6 +585,7 @@ impl App {
 
 mod comments;
 mod decide;
+mod judge;
 mod layout;
 mod menu;
 mod send;
