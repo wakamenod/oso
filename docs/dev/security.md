@@ -362,7 +362,14 @@ network features.
   refused, and one of more than 1,000 edits too. Its title is the server's text, shown with its
   controls as spaces and its bidi and invisible characters written out, after what the edit
   changed, and never logged. The agent channel never
-  runs the commands, which are `Person`. `workspace/applyEdit` still gets `applied: false`.
+  runs the commands, which are `Person`. A file the server has no text of is the buffer that
+  holds it, unmodified and at the revision it had, or opens through the loader, unshown, at most
+  8 MiB, only after the person's yes to a question naming the files; never outside the server's
+  root, lexically or where links lead, in a `.git` directory, or under a name that may hold
+  secrets, and a loaded one judged secret, not there, or open under another name refuses the
+  edit, and what it opened goes (13b). A command runs only if the server declared it, and its
+  `workspace/applyEdit` applies as the action's edit only while it waits; any other gets
+  `applied: false`.
 - The environment is sanitized and every spawn is logged in a visible buffer.
 
 ### Dependencies (T2, T8)

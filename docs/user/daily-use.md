@@ -77,8 +77,10 @@ line adds it as it goes in; when that line is out of view, the echo area says wh
 `C-c C-r` lists the server's code actions for the region, or for point, such as a fix for the
 error there or a refactoring, the one the server prefers selected; `RET` applies the one picked
 to the buffers it changes, each as one step to undo, and the echo area says what changed. One the
-server disabled is faded, with its reason. An action that changes a file no buffer holds, or runs
-a command, does nothing yet. The rest comes in later steps.
+server disabled is faded, with its reason. An action that changes a file no buffer holds asks
+first, `apply to N files, M not open?`; `y` opens them, unshown and unsaved, and applies it. An
+action that runs a command of the server's applies what the server then changes. The rest
+comes in later steps.
 
 A server can be changed in `config.toml`:
 

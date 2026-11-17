@@ -21,7 +21,8 @@ whole or not at all (`protocol/actions.rs`, `protocol/workspace_edit.rs`), place
 session thread in the texts the server had as the request went out (`session/actions.rs`,
 `session/edits.rs`), as the values the UI takes (`server/actions.rs`, `server/edits.rs`); the
 last answer's actions are kept as the server gave them, but for the edits read, for a resolve
-and a command's arguments.
+and a command's arguments. Step 13b runs a declared command and hands the UI the server's
+`workspace/applyEdit` while it waits, whose answer waits for the UI (`session/apply.rs`).
 
 - May depend on `oso-core` and `oso-platform` only; only the tip crate depends on it. Module
   layers are in `guardrails/layers.txt` (`[oso-lsp]`). No new dependency: JSON is

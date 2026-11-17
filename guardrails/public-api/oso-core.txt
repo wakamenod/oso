@@ -2188,6 +2188,7 @@ pub oso_core::editor::ServerRequest::CodeActions::at: oso_core::editor::AskAt
 pub oso_core::editor::ServerRequest::CodeActions::end: usize
 pub oso_core::editor::ServerRequest::CodeActions::start: usize
 pub oso_core::editor::ServerRequest::Complete(oso_core::editor::AskAt)
+pub oso_core::editor::ServerRequest::ConfirmCodeAction
 pub oso_core::editor::ServerRequest::Definition(oso_core::editor::AskAt)
 pub oso_core::editor::ServerRequest::Describe(oso_core::editor::AskAt)
 pub oso_core::editor::ServerRequest::GoToXref
