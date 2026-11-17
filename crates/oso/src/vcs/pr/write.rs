@@ -92,6 +92,24 @@ pub(crate) fn head_parts(head: &PrHead, tip: Option<&str>) -> Vec<(String, Optio
     parts
 }
 
+/// A worktree's pull request as its row shows it (step 5b-2): `PR #12 open, approved ✓ 3 ✗ 0
+/// ● 1`, its words escaped.
+pub(crate) fn pull_summary(item: &Listed) -> String {
+    let state = if item.draft {
+        State::Draft
+    } else {
+        State::Open
+    };
+    let mut line = format!("PR #{} {}", item.number, state.word());
+    if let Some(review) = item.review {
+        line.push_str(&format!(", {}", review.words()));
+    }
+    for (text, _) in counts_parts(item.counts) {
+        line.push_str(&text);
+    }
+    printable(&line, 200)
+}
+
 /// `view`'s text, its checks and threads with it.
 pub(crate) fn view_text(view: &PrView) -> PrLaid {
     let mut page = Page::default();

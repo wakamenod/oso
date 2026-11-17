@@ -121,6 +121,12 @@ pub enum Report {
     },
     /// One row of a listing.
     Row { token: u64, looked: Box<Looked> },
+    /// The repository's open pull requests, each its head branch and its row's line (ADR 0127,
+    /// step 5b-2), after every row.
+    Pulls {
+        token: u64,
+        pulls: Vec<(String, String)>,
+    },
     /// What `gh` said of a listed row's branch, after every row.
     Merged {
         token: u64,
@@ -490,6 +496,11 @@ fn list(
     let Some(gh) = gh else {
         return;
     };
+    if let Some((_, github)) = &facts.github
+        && let Ok(pulls) = super::git::open_pulls(&gh, github, repo.hooks())
+    {
+        send(Report::Pulls { token, pulls });
+    }
     for (path, branch, tip) in asks {
         if !live() {
             return;

@@ -27,6 +27,8 @@ use crate::sessions::worker::Job;
 pub(super) struct Pane {
     /// Each project's worktrees as git last listed them, by the project's root.
     listed: HashMap<PathBuf, Vec<Worktree>>,
+    /// When each repository's open pull requests were last asked for (ADR 0127, step 5b-2).
+    pulls_read: HashMap<PathBuf, std::time::Instant>,
     /// Projects whose listing was asked for and has not come.
     asked: HashSet<PathBuf>,
     /// The `worktrees` directories the worker watches, as last told.
@@ -235,7 +237,9 @@ impl App {
             return;
         };
         self.watch.view.pane.asked.insert(root.to_owned());
-        self.worktree_jobs().tree_worktrees(trust, root.to_owned());
+        let pulls = self.pulls_due(root);
+        self.worktree_jobs()
+            .tree_worktrees(trust, root.to_owned(), pulls);
     }
 
     /// The trust a job for the repository at `root` runs under: through a buffer of it, or of
@@ -298,6 +302,24 @@ impl App {
         self.watch.stale = true;
     }
 
+    /// Whether `root`'s open pull requests are asked for with its worktrees now: not for an
+    /// agent's doing, and at most once a minute (ADR 0127, step 5b-2).
+    fn pulls_due(&mut self, root: &Path) -> bool {
+        if self.gits.by_agent {
+            return false;
+        }
+        let last = self.watch.view.pane.pulls_read.get(root);
+        if last.is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(60)) {
+            return false;
+        }
+        self.watch
+            .view
+            .pane
+            .pulls_read
+            .insert(root.to_owned(), std::time::Instant::now());
+        true
+    }
+
     /// `g`: every project is listed again.
     pub(super) fn relist_projects(&mut self) {
         let roots: Vec<PathBuf> = self.watch.view.pane.listed.keys().cloned().collect();
@@ -314,7 +336,9 @@ impl App {
         }
         if let Some(trust) = self.trusted_project(root) {
             self.watch.view.pane.asked.insert(root.to_owned());
-            self.worktree_jobs().tree_worktrees(trust, root.to_owned());
+            let pulls = self.pulls_due(root);
+            self.worktree_jobs()
+                .tree_worktrees(trust, root.to_owned(), pulls);
         }
     }
 }

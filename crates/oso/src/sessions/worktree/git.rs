@@ -217,6 +217,50 @@ pub fn merged_pulls(
     parse_merged(&out).ok_or_else(|| "gh gave an unexpected answer".to_owned())
 }
 
+/// The most bytes of a repository's open pull requests read.
+const MAX_PULLS: usize = 4 * 1024 * 1024;
+
+/// The open pull requests of `repo`, each its head branch and the line a worktree's row shows of
+/// it (ADR 0127, step 5b-2), `gh` run in `cwd`, an empty private directory.
+///
+/// # Errors
+///
+/// Why `gh` gave no answer.
+pub fn open_pulls(gh: &Gh, repo: &GhRepo, cwd: &Path) -> Result<Vec<(String, String)>, String> {
+    let fields = crate::vcs::pr::LIST_FIELDS;
+    let args = [
+        "pr",
+        "list",
+        "--repo",
+        repo.as_str(),
+        "--state",
+        "open",
+        "--limit",
+        "100",
+        "--json",
+        fields,
+    ];
+    let out = gh
+        .run(repo, &args, cwd, MAX_PULLS, RUN_LIMIT)?
+        .into_stdout()?;
+    let items = crate::vcs::pr::read_list(&out).ok_or("gh gave an unexpected answer")?;
+    Ok(items
+        .iter()
+        .map(|item| {
+            (
+                item.branch.clone(),
+                crate::vcs::pr::write::pull_summary(item),
+            )
+        })
+        .collect())
+}
+
+/// The repository on GitHub, or the host `gh_host` names, of `repo`'s first remote that names
+/// one, `origin` first.
+pub fn github_of(repo: &Repo, gh_host: Option<&str>) -> Option<GhRepo> {
+    (repo.remotes().iter()).find_map(|remote| GhRepo::from_url(&repo.remote_url(remote)?, gh_host))
+}
+
 /// The pull requests in `gh pr list --json number,headRefOid,baseRefName`'s answer; `None` if it
 /// is not that shape. Entries missing a field are left out.
 pub fn parse_merged(json: &[u8]) -> Option<Vec<MergedPr>> {

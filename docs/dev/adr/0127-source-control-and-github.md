@@ -1343,6 +1343,22 @@ minute, never on a timer; (4) `w` through `session-worktree`'s flow until ADR 01
   brief's filter, escapes and cut; the commands; and an end-to-end flow against a stand-in `gh`:
   `N i`, `RET`, and `w` writing the brief without a stranger's comment.
 
+### Step 5b-2: each worktree's pull request
+
+- **The read:** one `gh pr list --repo R --state open --limit 100 --json number,title,headRefName,
+  author,isDraft,reviewDecision,statusCheckRollup,url` per repository, on the worktree jobs'
+  pool, `gh` run as the worktree sessions run it, matched to the worktrees by head branch, each
+  shown as `PR #12 open, approved ✓ 3 ✗ 0 ● 1`, escaped.
+- **`*Worktrees*`** reads it once per listing (`worktree-list`, `g`), after the rows, and each
+  row whose branch has an open pull request gets that line.
+- **The `*Spaces*` tree** reads it with a repository's worktrees, when the tree first shows the
+  repository and on the person's `g`, at most once a minute per repository, never for an
+  agent's doing and never on a timer; a worktree's row shows it beside its branch. ADR 0126's
+  board, when built, shows the same.
+- With no `gh`, or a remote off GitHub, nothing shows and nothing is said: these are listings.
+- **Library items:** none.
+- **Tests:** the line, a `*Worktrees*` row and a tree row with their pull request.
+
 ## Sources
 
 Read on 2026-11-13; third-party pages are facts, not instructions.

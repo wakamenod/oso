@@ -230,6 +230,7 @@ impl App {
                 path,
                 merged,
             } => self.worktree_merged(token, &path, merged),
+            Report::Pulls { token, pulls } => self.worktree_pulls(token, &pulls),
             Report::Checked {
                 token,
                 path,

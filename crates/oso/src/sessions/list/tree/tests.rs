@@ -55,6 +55,7 @@ fn worktree(path: &str, branch: &str, made_days_ago: Option<u64>) -> Worktree {
         primary: false,
         made: made_days_ago.map(|days| wall() - DAY * u32::try_from(days).unwrap()),
         active: made_days_ago.map(|days| wall() - DAY * u32::try_from(days).unwrap()),
+        pull: None,
     }
 }
 
@@ -358,3 +359,14 @@ fn a_session_started_without_asking_is_marked_under_its_worktree() {
 }
 
 mod spaces;
+
+#[test]
+fn a_worktree_s_row_shows_its_branch_s_pull_request() {
+    let mut with = worktree("/r/.claude/worktrees/w", "feature", Some(1));
+    with.pull = Some("PR #12 open\u{202e}".into());
+    let (name, tag) = super::worktree::names_for_tests(&with);
+    assert_eq!(name, "w");
+    let tag = tag.unwrap();
+    assert!(tag.starts_with("feature, PR #12 open"), "{tag}");
+    assert!(!tag.contains('\u{202e}'), "escaped: {tag}");
+}

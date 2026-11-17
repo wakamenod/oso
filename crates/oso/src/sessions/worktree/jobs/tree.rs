@@ -12,19 +12,31 @@ use crate::sessions::list::Worktree;
 use crate::sessions::worktree::porcelain::Listed;
 
 impl Jobs {
-    /// Lists the worktrees of the repository at `root`, under `trust`, for the tree.
-    pub fn tree_worktrees(&self, trust: Trust, root: PathBuf) {
+    /// Lists the worktrees of the repository at `root`, under `trust`, for the tree, each with
+    /// its branch's open pull request if `pulls` (ADR 0127, step 5b-2).
+    pub fn tree_worktrees(&self, trust: Trust, root: PathBuf, pulls: bool) {
         let failed = root.clone();
         self.on_repo(
             trust,
             false,
             move |_, repo, send| {
+                let open = pulls
+                    .then(|| open_pulls(repo))
+                    .flatten()
+                    .unwrap_or_default();
                 let result = repo.worktrees().map(|listed| {
                     listed
                         .into_iter()
                         .filter(|w| !w.prunable && !w.bare)
                         .enumerate()
-                        .map(|(at, listed)| worktree(repo.main(), listed, at == 0))
+                        .map(|(at, listed)| {
+                            let mut worktree = worktree(repo.main(), listed, at == 0);
+                            let branch = worktree.branch.as_deref().unwrap_or_default();
+                            worktree.pull = (open.iter())
+                                .find(|(head, _)| head == branch)
+                                .map(|(_, line)| line.clone());
+                            worktree
+                        })
                         .collect()
                 });
                 send(Report::Tree { root, result });
@@ -35,6 +47,14 @@ impl Jobs {
             },
         );
     }
+}
+
+/// The open pull requests of `repo`'s GitHub repository, if `gh` is found and answers.
+fn open_pulls(repo: &crate::sessions::worktree::git::Repo) -> Option<Vec<(String, String)>> {
+    let gh = crate::git::Gh::find(repo.main())?;
+    let gh_host = std::env::var("GH_HOST").ok();
+    let github = crate::sessions::worktree::git::github_of(repo, gh_host.as_deref())?;
+    crate::sessions::worktree::git::open_pulls(&gh, &github, repo.hooks()).ok()
 }
 
 /// One listed worktree of the repository at `main`, the main checkout if `primary`: its path
@@ -64,5 +84,6 @@ fn worktree(main: &Path, listed: Listed, primary: bool) -> Worktree {
         primary,
         made,
         active,
+        pull: None,
     }
 }

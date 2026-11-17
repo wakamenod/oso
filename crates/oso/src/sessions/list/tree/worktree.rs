@@ -195,16 +195,28 @@ fn label<'e>(entry: &'e Entry, dir: &str) -> Option<&'e str> {
     (named_after && !entry.title.is_empty()).then_some(entry.title.as_str())
 }
 
+/// [`names`], for the tree's tests.
+#[cfg(test)]
+pub(super) fn names_for_tests(worktree: &Worktree) -> (String, Option<String>) {
+    names(worktree)
+}
+
 /// What a worktree's row names: the main checkout's branch, marked `primary`, or a linked
 /// worktree's directory, with its branch where that differs.
 fn names(worktree: &Worktree) -> (String, Option<String>) {
     let dir = dir_name(&worktree.path);
     let branch = worktree.branch.as_deref().map(clean);
+    let pull = worktree.pull.as_deref().map(clean);
+    let with_pull = |tag: Option<String>| match (tag, &pull) {
+        (Some(tag), Some(pull)) => Some(format!("{tag}, {pull}")),
+        (tag, None) => tag,
+        (None, Some(pull)) => Some(pull.clone()),
+    };
     if worktree.primary {
-        return (branch.unwrap_or(dir), Some("primary".to_owned()));
+        return (branch.unwrap_or(dir), with_pull(Some("primary".to_owned())));
     }
     let tag = branch.filter(|branch| *branch != dir);
-    (dir, tag)
+    (dir, with_pull(tag))
 }
 
 /// `sessions` as families: each top-level one in order, oso's own first, with the sessions

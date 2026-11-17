@@ -26,6 +26,8 @@ pub struct Row {
     pub sessions: Vec<String>,
     /// The name of its space, when it has one.
     pub space: Option<String>,
+    /// Its branch's open pull request, as its line shows it (ADR 0127, step 5b-2).
+    pub pull: Option<String>,
 }
 
 /// The list's text, and the line each row starts on, with its worktree's path.
@@ -110,6 +112,9 @@ pub fn row_lines(main: &Path, row: &Row) -> RowText {
         .as_ref()
         .map_or_else(|| "merge: not known".to_owned(), |m| m.how());
     lines.push(format!("  {changes}; {}", printable(&merged, MAX_FIELD)));
+    if let Some(pull) = &row.pull {
+        lines.push(format!("  {}", printable(pull, MAX_FIELD)));
+    }
     if !row.sessions.is_empty() {
         let names: Vec<String> = row.sessions.iter().map(|s| printable(s, 60)).collect();
         lines.push(format!("  sessions: {}", names.join(", ")));
@@ -175,6 +180,7 @@ mod tests {
             held: Held::default(),
             sessions: Vec::new(),
             space: None,
+            pull: None,
         }
     }
 

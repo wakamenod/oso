@@ -216,3 +216,32 @@ fn an_issue_s_lines_and_a_list_s_name_what_they_show() {
         Some((45, "https://github.com/o/r/issues/45".into()))
     );
 }
+
+#[test]
+fn a_worktree_s_pull_request_is_one_escaped_line() {
+    let item = Listed {
+        number: 12,
+        title: "t".into(),
+        branch: "b\u{202e}".into(),
+        author: "e".into(),
+        draft: false,
+        review: Some(Review::Approved),
+        counts: Counts {
+            pass: 3,
+            fail: 0,
+            pending: 1,
+        },
+        url: String::new(),
+    };
+    assert_eq!(
+        super::pull_summary(&item),
+        "PR #12 open, approved  ✓ 3 ✗ 0 ● 1"
+    );
+    let draft = Listed {
+        draft: true,
+        review: None,
+        counts: Counts::default(),
+        ..item
+    };
+    assert_eq!(super::pull_summary(&draft), "PR #12 draft");
+}
