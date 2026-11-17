@@ -13,11 +13,9 @@
 //! - A draft request names an id of 32 random bits, kept with the session it was pasted into;
 //!   `super::draft` answers `draft_set` with it, and no file that pastes takes a tool's call.
 
-use std::path::Path;
 use std::time::Instant;
 
 use oso_core::buffer::BufferId;
-use oso_core::project::same_place;
 
 use super::super::App;
 use super::runs::RUNNING;
@@ -42,28 +40,6 @@ impl App {
         self.editor.message(format!(
             "No agent session runs in this worktree: {start} starts one"
         ));
-    }
-
-    /// The hosted session that runs in `root` with a terminal, the one shown last first.
-    pub(super) fn worktree_session(&self, root: &Path) -> Option<SessionKey> {
-        let order = self.editor.buffers_by_recency();
-        let table = self.hosting.table();
-        table
-            .iter()
-            .filter(|session| !session.archived && session.runs())
-            .filter(|session| same_place(&session.directory, root))
-            .filter_map(|session| {
-                let buffer = session
-                    .buffer
-                    .filter(|b| self.editor.buffer(*b).is_some())?;
-                let at = order
-                    .iter()
-                    .position(|b| *b == buffer)
-                    .unwrap_or(usize::MAX);
-                Some((at, session.key))
-            })
-            .min_by_key(|(at, _)| *at)
-            .map(|(_, key)| key)
     }
 
     /// Asks the worktree's session for a draft of the message `buffer` (`C-c C-d`): the last

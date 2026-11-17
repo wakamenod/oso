@@ -34,6 +34,7 @@ impl Face {
             Highlight::CommentPerson => Self::ReviewCommentPerson,
             Highlight::CommentAgent => Self::ReviewCommentAgent,
             Highlight::Outdated => Self::ReviewOutdated,
+            Highlight::Sent => Self::ReviewSent,
             Highlight::SessionAlert => Self::SessionAlert,
             Highlight::SessionWorking => Self::SessionWorking,
             Highlight::SessionDone => Self::SessionDone,

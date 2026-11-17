@@ -126,6 +126,7 @@ impl Offer {
             | Mode::GitIssue
             | Mode::GitCommit
             | Mode::GitPrMessage
+            | Mode::ReviewMessage
             | Mode::GitLog
             | Mode::Conversation
             | Mode::GitDiscarded

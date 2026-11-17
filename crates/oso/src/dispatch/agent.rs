@@ -97,13 +97,15 @@ impl Dispatcher {
         let refused = |why: String| Err(Refused(why));
         let (id, command) = self.by_reach(name, reach)?;
         // A commit's message is the person's to write until `draft_set` (ADR 0127, Q6), and a
-        // pull request's (step 5a); the agent may read them.
-        let message = matches!(
-            editor.current().1.mode(),
-            Mode::GitCommit | Mode::GitPrMessage
-        );
-        if reach == Reach::Change && message {
-            return refused(MESSAGE_REFUSED.into());
+        // pull request's (step 5a); the agent may read them. So is a review's message, which
+        // goes to the agent (ADR 0122, step 12, Q7).
+        let mode = editor.current().1.mode();
+        if reach == Reach::Change {
+            match mode {
+                Mode::GitCommit | Mode::GitPrMessage => return refused(MESSAGE_REFUSED.into()),
+                Mode::ReviewMessage => return refused(REVIEW_MESSAGE_REFUSED.into()),
+                _ => {}
+            }
         }
         if self.waits_for_clipboard() {
             return refused("a yank is waiting for the clipboard".into());
@@ -191,6 +193,9 @@ const KEYS_REFUSED: &str = "switching to a terminal or a list with keys of its o
 
 /// Why the agent may not change a commit's message the person has in front.
 const MESSAGE_REFUSED: &str = "a commit's message is the person's to write; ask the person";
+
+/// Why the agent may not change a review's message before it is sent to it (ADR 0122, Q7).
+const REVIEW_MESSAGE_REFUSED: &str = "a review's message is the person's to send; ask the person";
 
 /// Why the agent may not delete the side window.
 const SIDE_REFUSED: &str = "hiding the list of sessions is the person's";
@@ -340,6 +345,7 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::GitIssue
         | Mode::GitCommit
         | Mode::GitPrMessage
+        | Mode::ReviewMessage
         | Mode::GitLog
         | Mode::Conversation
         | Mode::GitDiscarded
@@ -891,6 +897,33 @@ mod tests {
         assert!(why.contains("the person's to write"), "{why}");
         assert_eq!(editor.current().1.text().to_string(), "Subject\n");
         // Its keys are the person's, so the agent cannot show it either.
+        assert_eq!(
+            super::unshowable(editor.buffer(id).unwrap()),
+            Some(super::Unshowable::OwnKeys)
+        );
+    }
+
+    #[test]
+    fn a_review_s_message_in_front_is_read_but_never_changed() {
+        use oso_core::buffer::Mode;
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("ab"));
+        let mut message = Buffer::from_text("*review message*", "Review comments\n");
+        assert!(message.set_mode(Mode::ReviewMessage));
+        let id = editor.add_buffer(message);
+        editor.show(id);
+        let (_, result) = dispatcher
+            .run_for_agent(&mut editor, "forward-char", Given::Count(1), Reach::Look)
+            .unwrap();
+        assert_eq!(result, Ok(()));
+        let why = refusal(
+            &mut dispatcher,
+            &mut editor,
+            "insert",
+            Given::Text("x"),
+            Reach::Change,
+        );
+        assert!(why.contains("the person's to send"), "{why}");
+        assert_eq!(editor.current().1.text().to_string(), "Review comments\n");
         assert_eq!(
             super::unshowable(editor.buffer(id).unwrap()),
             Some(super::Unshowable::OwnKeys)

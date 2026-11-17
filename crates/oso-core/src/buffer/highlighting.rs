@@ -263,6 +263,7 @@ impl Buffer {
             | Mode::GitPrMessage
             | Mode::GitIssueList
             | Mode::GitIssue
+            | Mode::ReviewMessage
             | Mode::GitLog
             | Mode::Conversation
             | Mode::GitDiscarded

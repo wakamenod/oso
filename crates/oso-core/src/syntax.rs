@@ -76,6 +76,9 @@ pub enum Highlight {
     CommentAgent,
     /// A comment whose line went, or what says so.
     Outdated,
+    /// A comment of the person's sent to the agent, and not changed since: its bar, label and
+    /// text, dimmed (ADR 0122, step 12).
+    Sent,
     /// A session's mark that needs the person: needs input or failed (ADR 0131). Only the
     /// host's `*Spaces*` gives these; no parser does.
     SessionAlert,
