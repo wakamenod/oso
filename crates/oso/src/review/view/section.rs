@@ -23,7 +23,7 @@ use oso_core::syntax::Highlight;
 
 use super::cards::{self, Cards, Placing, Plan};
 use crate::review::list::Status;
-use crate::review::{Content, Entry, Reading};
+use crate::review::{Content, Entry, Reading, hunk_header};
 
 /// What a newline in a path shows as.
 const PATH_NEWLINE: &str = "\u{2424}";
@@ -81,6 +81,11 @@ impl Writer {
     /// How many bytes it holds.
     pub(super) fn len(&self) -> usize {
         self.bytes.len()
+    }
+
+    /// How many lines it holds.
+    fn rows(&self) -> usize {
+        self.section.lines() + self.pending.map_or(0, |(_, lines)| lines)
     }
 
     fn done(mut self) -> Rendered {
@@ -276,38 +281,27 @@ fn ending_notes(writer: &mut Writer, hunks: &[Hunk]) {
     }
 }
 
-/// A hunk's header, as git writes one with no context.
-fn hunk_header(hunk: &Hunk) -> String {
-    let side = |start: u32, count: usize| {
-        if count == 0 {
-            format!("{},0", start.saturating_sub(1))
-        } else if count == 1 {
-            format!("{start}")
-        } else {
-            format!("{start},{count}")
-        }
-    };
-    format!(
-        "@@ -{} +{} @@",
-        side(hunk.old_start, hunk.removed.len()),
-        side(hunk.new_start, hunk.added.len())
-    )
-}
-
 fn lines(writer: &mut Writer, plan: &mut Plan, index: usize, hunk: &Hunk, side: Side) {
     let (lines, first, sign, highlight) = match side {
         Side::Old => (&hunk.removed, hunk.old_start, b"-", Highlight::DiffRemoved),
         Side::New => (&hunk.added, hunk.new_start, b"+", Highlight::DiffAdded),
     };
-    let kind = RowKind::Lines {
-        hunk: index,
-        side,
-        first,
-    };
+    // A card after a line ends the run of lines, so the next run is numbered from its own
+    // first line, as a row's line is its run's first plus how far into the run it is.
+    let mut run_first = first;
     for (number, line) in (first..).zip(lines) {
         let (text, _) = without_ending(line);
+        let kind = RowKind::Lines {
+            hunk: index,
+            side,
+            first: run_first,
+        };
         writer.line(kind, &[(sign, Some(highlight)), (text, Some(highlight))]);
+        let before = writer.rows();
         plan.after_line(writer, side, number);
+        if writer.rows() != before {
+            run_first = number.saturating_add(1);
+        }
     }
 }
 
