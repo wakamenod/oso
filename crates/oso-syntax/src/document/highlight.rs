@@ -293,7 +293,13 @@ impl Document {
                     Err(outcome) => return (piece, outcome),
                 }
             }
-            Language::Rust | Language::MarkdownInline | Language::Toml | Language::Go => piece,
+            Language::Rust
+            | Language::MarkdownInline
+            | Language::Toml
+            | Language::Go
+            | Language::JavaScript
+            | Language::TypeScript
+            | Language::Tsx => piece,
         };
         let outcome = self.highlight_range(queries, &tree, nested, piece.clone(), deadline);
         (piece, outcome)

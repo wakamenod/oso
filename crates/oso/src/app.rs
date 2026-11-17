@@ -35,8 +35,8 @@ mod jumps;
 mod loads;
 mod log_gate;
 mod migemo;
-mod opened;
 mod projects;
+mod recent_files;
 mod reloads;
 mod restart;
 mod reviews;
@@ -254,6 +254,8 @@ pub struct App {
     /// then (ADR 0089, ADR 0108).
     theme_read: Option<ThemeRead>,
     theme_writer: theme_file::Writer,
+    /// The recent files' stamps, the person's visits loading, and their threads (ADR 0148).
+    recent: recent_files::RecentFiles,
     /// The renderer's themes, each a name and what it is, the default first: made once, as
     /// making them resolves every theme's colours.
     themes: Vec<(&'static str, &'static str)>,
@@ -387,8 +389,7 @@ impl App {
         dispatcher.set_publisher(emergency.publisher());
         let clipboard = clipboard::start(source, waker.clone());
         let disk = reloads::Disk::start(waker.clone());
-        let lister = files::lister(&waker);
-        let projects = projects::detector(&waker);
+        let (lister, projects) = (files::lister(&waker), projects::detector(&waker));
         let (home_dir, editorconfigs) = projects::editorconfig_reader(&waker);
         let walker = walks::walker(&waker);
         let (grep, previewer) = (greps::grep(&waker), greps::previewer(&waker));
@@ -405,6 +406,7 @@ impl App {
             modifiers: Held::NONE,
             // Before the waker moves in.
             conversations: sessions::conversations(&waker),
+            recent: recent_files::RecentFiles::start(theme_directory.clone()),
             waker,
             loads: Vec::new(),
             disk,

@@ -9,7 +9,7 @@
 //! - Before anything opens: a file outside the server's root, in a `.git` directory, or whose
 //!   name may hold secrets refuses the whole edit, as does a buffer that holds the file with
 //!   changes the server has not seen, may hold secrets, or is still opening for the agent.
-//! - Once loaded (`judge_loaded`, as the agent channel's open judges, `app/opened.rs`): a file
+//! - Once loaded (`judge_loaded`, as the agent channel's open judges, `app/loads/opened.rs`): a file
 //!   that may hold secrets, is not there, leads elsewhere through a link, out of the root, or is
 //!   open under another name refuses it. So does a held buffer that changed since. What it
 //!   opened then goes, unsaved; what it applied to is left unsaved, as Eglot leaves it.
@@ -31,7 +31,7 @@ use oso_lsp::limits::DOCUMENT_BYTES_MAX;
 use oso_lsp::server::{ApplyEdit, ServerEdit, UnsentEdit};
 
 use super::super::App;
-use super::super::opened::{found_elsewhere, held_elsewhere};
+use super::super::loads::opened::{found_elsewhere, held_elsewhere};
 use super::actions::{Picked, said_of};
 
 /// Where an edit came from: a picked action, with the command to run once it applied; the

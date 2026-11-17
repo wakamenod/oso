@@ -340,6 +340,7 @@ mod tests {
         "dired-find-file-other-window",
         "dired-jump",
         "quit-window",
+        "recentf-open",
         "find-file",
         "open-large-file",
         "open-menu",
