@@ -72,6 +72,7 @@ pub oso_core::buffer::Mode::JavaScript
 pub oso_core::buffer::Mode::Latex
 pub oso_core::buffer::Mode::Markdown
 pub oso_core::buffer::Mode::Review
+pub oso_core::buffer::Mode::ReviewMessage
 pub oso_core::buffer::Mode::Rust
 pub oso_core::buffer::Mode::Sessions
 pub oso_core::buffer::Mode::Swift
@@ -422,6 +423,10 @@ pub oso_core::command::ArgSpec::ListedAndNoteUnlessRegion::list: &'static str
 pub oso_core::command::ArgSpec::ListedAndNoteUnlessRegion::note_history: &'static str
 pub oso_core::command::ArgSpec::ListedAndNoteUnlessRegion::note_prompt: &'static str
 pub oso_core::command::ArgSpec::ListedAndNoteUnlessRegion::prompt: &'static str
+pub oso_core::command::ArgSpec::ListedOnPrefix
+pub oso_core::command::ArgSpec::ListedOnPrefix::history: &'static str
+pub oso_core::command::ArgSpec::ListedOnPrefix::list: &'static str
+pub oso_core::command::ArgSpec::ListedOnPrefix::prompt: &'static str
 pub oso_core::command::ArgSpec::Mark
 pub oso_core::command::ArgSpec::Mark::prompt: &'static str
 pub oso_core::command::ArgSpec::Menu
@@ -2019,6 +2024,11 @@ pub enum oso_core::editor::ReviewRequest
 pub oso_core::editor::ReviewRequest::Baseline
 pub oso_core::editor::ReviewRequest::Baseline::project: oso_core::project::ProjectId
 pub oso_core::editor::ReviewRequest::Close(oso_core::editor::ReviewId)
+pub oso_core::editor::ReviewRequest::MessageDrop
+pub oso_core::editor::ReviewRequest::MessageDrop::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::ReviewRequest::MessageSend
+pub oso_core::editor::ReviewRequest::MessageSend::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::ReviewRequest::MessageSend::to: core::option::Option<alloc::string::String>
 pub oso_core::editor::ReviewRequest::Open
 pub oso_core::editor::ReviewRequest::Open::project: oso_core::project::ProjectId
 pub oso_core::editor::ReviewRequest::Open::revision: core::option::Option<alloc::string::String>
@@ -2027,6 +2037,7 @@ pub oso_core::editor::ReviewRequest::Redraw
 pub oso_core::editor::ReviewRequest::Redraw::path: alloc::boxed::Box<[u8]>
 pub oso_core::editor::ReviewRequest::Redraw::review: oso_core::editor::ReviewId
 pub oso_core::editor::ReviewRequest::Refresh(oso_core::editor::ReviewId)
+pub oso_core::editor::ReviewRequest::Send(oso_core::editor::ReviewId)
 pub oso_core::editor::ReviewRequest::Visit
 pub oso_core::editor::ReviewRequest::Visit::number: u32
 pub oso_core::editor::ReviewRequest::Visit::old_side: bool
@@ -5947,6 +5958,7 @@ pub oso_core::syntax::Highlight::Macro
 pub oso_core::syntax::Highlight::Markup
 pub oso_core::syntax::Highlight::Outdated
 pub oso_core::syntax::Highlight::Property
+pub oso_core::syntax::Highlight::Sent
 pub oso_core::syntax::Highlight::SessionAlert
 pub oso_core::syntax::Highlight::SessionDone
 pub oso_core::syntax::Highlight::SessionFront

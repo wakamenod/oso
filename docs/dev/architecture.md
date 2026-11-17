@@ -790,8 +790,9 @@ The UI thread never blocks on I/O or parsing:
   refuses a session that cannot take a paste (`sessions/send.rs::refusal`, pure), pastes with
   the terminal's own paste, never submitted, and shows the session. Commands only describe
   what to send (`SessionRequest::Send`); the text is put together by pure functions
-  (`sessions/send.rs::compose`). ADR 0122's review comments and ADR 0127's drafts call the
-  same path, and so does `session-yank-image` (`C-c C-y`, ADR 0142), which checks the same
+  (`sessions/send.rs::compose`). ADR 0122's review comments call the same path, their message
+  composed from the review's model by `review/message.rs` and shown in `*review message*`
+  first (`app/reviews/send.rs`, step 12); so do ADR 0127's drafts, and so does `session-yank-image` (`C-c C-y`, ADR 0142), which checks the same
   refusals first (`paste_target`), has the clipboard's worker read the image, and keeps it on
   `sessions::images`' one `oso-images` thread, which also removes a session's images when it is
   archived and sweeps old ones (`app/sessions/watch/images.rs`). The dispatcher notes whether

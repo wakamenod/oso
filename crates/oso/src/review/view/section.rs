@@ -23,7 +23,7 @@ use oso_core::syntax::Highlight;
 
 use super::cards::{self, Cards, Placing, Plan};
 use crate::review::list::Status;
-use crate::review::{Content, Entry, Reading};
+use crate::review::{Content, Entry, Reading, hunk_header};
 
 /// What a newline in a path shows as.
 const PATH_NEWLINE: &str = "\u{2424}";
@@ -279,24 +279,6 @@ fn ending_notes(writer: &mut Writer, hunks: &[Hunk]) {
     if new.none {
         writer.note("no newline at the end of the new side");
     }
-}
-
-/// A hunk's header, as git writes one with no context.
-fn hunk_header(hunk: &Hunk) -> String {
-    let side = |start: u32, count: usize| {
-        if count == 0 {
-            format!("{},0", start.saturating_sub(1))
-        } else if count == 1 {
-            format!("{start}")
-        } else {
-            format!("{start},{count}")
-        }
-    };
-    format!(
-        "@@ -{} +{} @@",
-        side(hunk.old_start, hunk.removed.len()),
-        side(hunk.new_start, hunk.added.len())
-    )
 }
 
 fn lines(writer: &mut Writer, plan: &mut Plan, index: usize, hunk: &Hunk, side: Side) {

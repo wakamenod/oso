@@ -111,7 +111,6 @@ pub fn review_menu(editor: &Editor, open: &Open) -> Notes {
         if let Some(at) = baseline {
             line.push_str(&format!(" \u{b7} baseline {}", ago(at)));
         }
-        line.push_str(" \u{b7} comments go to the kill ring until sending exists");
         notes.line = Some(line);
     }
     let ret = last.unwrap_or(ScopeKind::Uncommitted);
