@@ -415,10 +415,12 @@ fn a_hunk_is_viewed_accepted_rejected_and_each_undone() {
     );
 
     // Rejected while a.rs holds an unsaved edit: asked first, then reverted and saved whole.
-    app.send_keys(&format!(
-        "C-x b {} RET M-> x x x RET C-x b RET",
-        typing("a.rs")
-    ));
+    app.send_keys(&format!("C-x b {} RET M-> x x x RET", typing("a.rs")));
+    // A review buffer is no C-x b default: the menu shows the open review again.
+    app.send_keys("C-x v r w");
+    app.wait_for("the review again", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+    });
     app.send_keys("M-< n x");
     assert_eq!(
         prompt_label(&mut app).as_deref(),
