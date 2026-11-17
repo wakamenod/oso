@@ -627,6 +627,12 @@ The UI thread never blocks on I/O or parsing:
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- The recent files are kept in `oso-core` (`editor/recent_files.rs`), with no clock or I/O: a
+  person's command, load or save puts a file first. `app/recent_files.rs` stamps what moved,
+  reads `oso/recent-files` on `oso-recent-read` at start, taken after an event once done, and
+  writes it on `oso-recent` 1 s after the last change, merging another instance's. Every exit or
+  restart's start waits for it with the sessions record, at most 1 s in all
+  ([ADR 0148](adr/0148-recent-files.md)).
 - The directory editor's listings are read on the same threads, a request kept per listing
   buffer (`crates/oso/src/dired.rs`, glue in `app/dired.rs`): each entry's metadata from the
   descriptor, following no link (`getattrlistbulk` on macOS, `fstatat` on Linux, the
@@ -725,9 +731,9 @@ The UI thread never blocks on I/O or parsing:
   in `oso-core` (`syntax::Highlights`) that follows edits with the buffer, and the worker's
   reports replace it, mapped through the edits made since. Colour is applied when glyph
   instances are built, so a highlight never reshapes a row, and a report draws a frame only
-  if a window shows runs it changed. Markdown's inline text and its fenced Rust, TOML and Go
-  are parsed again, with their own grammars, wherever the worker highlights; a fence's
-  grammar's query is compiled at the first fence of it
+  if a window shows runs it changed. Markdown's inline text and its fenced Rust, TOML, Go,
+  JavaScript, TypeScript and TSX are parsed again, with their own grammars, wherever the
+  worker highlights; a fence's grammar's query is compiled at the first fence of it
   ([ADR 0147](adr/0147-highlighting-go-typescript-and-javascript.md)). Buffers that may
   hold secrets, files over 2 MiB ([ADR 0111](adr/0111-tree-sitter-highlighting.md)) and text
   with a line longer than 16 KiB (ADR 0147) are not parsed. The same schedule takes documents no

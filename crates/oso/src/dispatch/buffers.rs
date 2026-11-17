@@ -1,9 +1,11 @@
 //! What `C-x b` and `C-x k` complete over: the buffers, most recent first, each with what
-//! marginalia says of a buffer (ADR 0088).
+//! marginalia says of a buffer (ADR 0088). `C-x b` lists after them the recent files no buffer
+//! visits, as consult-buffer does, and `C-x C-r` lists the recent files (ADR 0148).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use oso_core::buffer::Buffer;
@@ -18,10 +20,53 @@ pub(super) fn candidates(editor: &Editor, purpose: BufferPurpose) -> Arc<[Candid
     if purpose == BufferPurpose::Switch && !order.is_empty() {
         order.rotate_left(1);
     }
-    order
+    let buffers = order
         .into_iter()
         .filter_map(|id| editor.buffer(id))
-        .map(|buffer| Candidate::new(buffer.name(), "", annotation(buffer, editor.home())))
+        .map(|buffer| Candidate::new(buffer.name(), "", annotation(buffer, editor.home())));
+    if purpose == BufferPurpose::Kill {
+        return buffers.collect();
+    }
+    let visited = visited(editor);
+    let files = (editor.recent_files().iter())
+        .filter(|path| !visited.contains(path.as_path()))
+        .map(|path| Candidate::new(editor.recent_file_row(path), "", FILE));
+    buffers.chain(files).collect()
+}
+
+/// What a recent file's row in `C-x b` says, in the annotation's face (ADR 0148).
+const FILE: &str = "file";
+
+/// What a recent file's row in `C-x C-r` says when a buffer visits it.
+const OPEN: &str = "open";
+
+/// The files the buffers visit, but those the agent channel is still opening, which a visit
+/// does not take either (`Editor::request_visit`).
+fn visited(editor: &Editor) -> HashSet<&Path> {
+    (editor.buffers())
+        .filter(|(_, buffer)| !buffer.agent_pending())
+        .filter_map(|(_, buffer)| buffer.path())
+        .collect()
+}
+
+/// The recent files `C-x C-r` lists, the most recent first and the current buffer's last, so
+/// that `RET` opens the one before; `open` when a buffer visits one (ADR 0148).
+pub(super) fn recent_candidates(editor: &Editor) -> Arc<[Candidate]> {
+    let current = editor.current().1.path();
+    let (others, last): (Vec<&PathBuf>, Vec<&PathBuf>) =
+        (editor.recent_files().iter()).partition(|path| Some(path.as_path()) != current);
+    let visited = visited(editor);
+    others
+        .into_iter()
+        .chain(last)
+        .map(|path| {
+            let annotation = if visited.contains(path.as_path()) {
+                OPEN
+            } else {
+                ""
+            };
+            Candidate::new(editor.recent_file_row(path), "", annotation)
+        })
         .collect()
 }
 

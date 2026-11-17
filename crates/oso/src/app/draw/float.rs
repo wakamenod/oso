@@ -201,6 +201,10 @@ impl<'a> Parts<'a> {
             text: WITHHELD,
             face: Face::CompletionAnnotation,
         }];
+        let not_open = [Span {
+            text: NOT_OPEN,
+            face: Face::CompletionAnnotation,
+        }];
         Spans {
             label,
             message,
@@ -209,6 +213,7 @@ impl<'a> Parts<'a> {
             count,
             divider,
             withheld,
+            not_open,
             region: &self.region,
             kill: self
                 .kill
@@ -290,6 +295,8 @@ pub(super) struct Spans<'a> {
     divider: [Span<'a>; 1],
     /// What a preview says in place of a buffer that may hold secrets.
     withheld: [Span<'a>; 1],
+    /// What a preview says in place of a recent file no buffer visits (ADR 0148).
+    not_open: [Span<'a>; 1],
     /// The cells of a region in the answer.
     region: &'a [CellRect],
     kill: Vec<[Span<'a>; 1]>,
@@ -300,6 +307,9 @@ const DIVIDER: &str = "│";
 
 /// What a preview shows of a buffer that may hold secrets, or one not judged yet (ADR 0088).
 const WITHHELD: &str = "may hold secrets";
+
+/// What a preview shows of a recent file no buffer visits, which is not read (ADR 0148).
+const NOT_OPEN: &str = "not open";
 
 impl<'a> Spans<'a> {
     /// The rows as the panes take them.
@@ -312,6 +322,7 @@ impl<'a> Spans<'a> {
             count: [&self.count],
             divider: vec![&self.divider[..]; complete::ROWS],
             withheld: [&self.withheld],
+            not_open: [&self.not_open],
             fills: [(Face::Region, self.region)],
             kill: self.kill.iter().map(|row| &row[..]).collect(),
         }
@@ -328,6 +339,7 @@ pub(super) struct Lines<'a> {
     /// The divider's rows, one for each candidate row there can be.
     divider: Vec<&'a [Span<'a>]>,
     withheld: [&'a [Span<'a>]; 1],
+    not_open: [&'a [Span<'a>]; 1],
     /// What the answer's pane fills behind its text: its region (ADR 0076).
     fills: [(Face, &'a [CellRect]); 1],
     kill: Vec<&'a [Span<'a>]>,
