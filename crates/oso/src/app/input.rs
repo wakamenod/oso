@@ -85,6 +85,9 @@ impl App {
             self.handle_key(event_loop, key);
         } else if let Some(text) = keys::typed_text(input, self.modifiers) {
             self.handle_text(event_loop, text);
+        } else if !input.repeat {
+            // A key with no Emacs name still shows in `view-lossage` (ADR 0150).
+            self.dispatcher.note_unnamed_key(&self.editor);
         }
     }
 
