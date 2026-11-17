@@ -1105,15 +1105,14 @@ fn code_actions_are_listed_picked_resolved_and_applied_one_step_each() {
         state["prompts"][0]["message"] == "This code action is disabled: nothing to inline"
     });
     app.send_keys("C-n RET");
+    // The echo first: showing `*LSP*` below clears it.
     app.wait_for("resolved and applied", |state| {
         state["prompts"].as_array().is_some_and(Vec::is_empty)
+            && state["echo"]
+                .as_str()
+                .is_some_and(|echo| echo.contains("1 edit in 1 buffer"))
     });
     lsp_log_with(&mut app, "main.rs", "resolved a code action", 1);
-    app.wait_for("renamed", |state| {
-        state["echo"]
-            .as_str()
-            .is_some_and(|echo| echo.contains("1 edit in 1 buffer"))
-    });
     assert!(text(&mut app).contains("fn start()"), "{}", text(&mut app));
 
     // Another applies at once, its edit in the answer.
@@ -1128,9 +1127,13 @@ fn code_actions_are_listed_picked_resolved_and_applied_one_step_each() {
             .is_some_and(|echo| echo.contains("Add a comment"))
     });
     assert!(text(&mut app).contains("// hi"), "{}", text(&mut app));
-    app.send_keys("C-/");
-    app.wait_for("one step undone", |state| state["cursor"]["row"] == 0);
-    let after = text(&mut app);
+    // One undo takes the whole action back, and only it.
+    app.send_keys("C-z");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut after = text(&mut app);
+    while after.contains("// hi") && std::time::Instant::now() < deadline {
+        after = text(&mut app);
+    }
     assert!(
         !after.contains("// hi") && after.contains("fn start()"),
         "{after}"
