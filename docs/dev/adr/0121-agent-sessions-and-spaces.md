@@ -1543,6 +1543,26 @@ deletion.
   - a longer limit. oso cannot tell from outside when git starts deleting, so any limit could
     stop it partway.
 
+## The record at an exit, as built
+
+Built on 2026-11-17, after an end-to-end flow showed it (a space closed and oso quit at once came
+back open). The coordinator approved this for the author:
+
+- **The sessions worker writes `sessions` and ADR 0136's `spaces`** after each event that changed
+  them, as before. An exit did not wait for that write, so a change made just before quitting
+  could be lost with the process.
+- **Every exit now waits for it:** the event loop's end (`App::ending`, a person's quit, the
+  system's, and a restart's old instance alike) hands the worker what changed, then asks it,
+  through `Job::Flush`, to answer once every job handed over before is done. The worker does its
+  jobs in order, so its answer means the records are written, or their failure logged. The exit
+  waits at most 1 s (`FLUSH_WAIT`); past it, it says so in the log and goes on, so a stuck worker
+  never holds an exit.
+- **`oso-restart` waits as it starts:** its new instance reads the records as it starts, while this
+  one still runs, so `begin_restart` waits for the write before it starts the new one.
+- **Not covered:** `oso dev`'s supervisor starts its new instance itself, so a change made in the
+  few milliseconds before a rebuilt instance starts may still be read without it.
+
+
 ## Consequences
 
 - A session needs no hook and no change to Claude Code's settings; its identity and MCP server come

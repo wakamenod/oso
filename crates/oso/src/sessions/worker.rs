@@ -19,7 +19,7 @@ mod jobs;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -93,6 +93,9 @@ pub enum Job {
     },
     /// What the spaces ask (ADR 0136).
     Space(SpaceJob),
+    /// Answer once every job handed over before this one is done, the records' writes among
+    /// them: what an exit waits for (ADR 0121, "The record at an exit, as built").
+    Flush(SyncSender<()>),
 }
 
 /// What the issue spaces ask of the worker (ADR 0136): to be kept, ids for new ones, and what
@@ -256,6 +259,15 @@ impl Worker {
     /// Hands `job` to the thread. A thread that ended takes nothing, which its end logged.
     pub fn send(&self, job: Job) {
         let _ = self.jobs.send(job);
+    }
+
+    /// Waits, at most `within`, until the thread has done every job handed over before now:
+    /// the sessions' and the spaces' records are then written, or their failure logged.
+    /// Whether it said so in time; a thread that ended, or failed that batch, says nothing.
+    pub fn flush(&self, within: Duration) -> bool {
+        let (done, answer) = mpsc::sync_channel(1);
+        self.send(Job::Flush(done));
+        answer.recv_timeout(within).is_ok()
     }
 }
 

@@ -326,6 +326,11 @@ impl Core {
                 return Vec::new();
             }
             Job::Recall(directory) => return vec![recall(directory.as_deref())],
+            // The jobs before it, in this batch and those before, are done.
+            Job::Flush(done) => {
+                let _ = done.send(());
+                return Vec::new();
+            }
             Job::Space(job) => return space_job(job),
             Job::Remember {
                 directory,
