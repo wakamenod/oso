@@ -19,8 +19,9 @@
 use std::collections::HashSet;
 
 use super::facts::{MAIN_BRANCHES, RepoFacts};
-use super::git::{Gh, MAX_LISTING, MAX_NAMES, Repo, run, status};
+use super::git::{MAX_LISTING, MAX_NAMES, Repo, merged_pulls, run, status};
 use super::porcelain;
+use crate::git::Gh;
 use crate::git::MAX_SHORT;
 
 /// The most bytes of a branch's reflog read.
@@ -146,7 +147,7 @@ pub fn by_pull_request(repo: &Repo, gh: &Gh, facts: &RepoFacts, branch: &str, ti
         .map(str::to_owned)
         .chain(MAIN_BRANCHES.map(str::to_owned))
         .collect();
-    let pulls = match gh.merged(github, branch, repo.hooks()) {
+    let pulls = match merged_pulls(gh, github, branch, repo.hooks()) {
         Ok(pulls) => pulls,
         Err(why) => return Merged::No(format!("not known: {why}")),
     };

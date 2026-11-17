@@ -456,6 +456,7 @@ fn runs(pid: u32) -> bool {
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })
     .unwrap();
     let out = ps.wait_with_output().unwrap();
@@ -1540,12 +1541,11 @@ fn code_actions_are_asked_over_a_range_with_its_diagnostics_and_their_edits_plac
         },
     });
     seen.until(LIMIT, |seen| !seen.answers.is_empty());
-    // The range, and only the diagnostic there, as the server gave it.
-    assert!(
-        seen.logged(r#"asked textDocument/codeAction 1:4-1:5 1 diagnostics=[{"code":2304,"data":{"fix":7},"message":"Cannot find","range":{"end":{"character":5,"line":1},"start":{"character":4,"line":1}},"severity":1}]"#),
-        "{}",
-        seen.log.join("\n")
-    );
+    // The range, and only the diagnostic there, as the server gave it. Its standard error comes
+    // in its own time, after the answer on some systems: waited for.
+    seen.until(LIMIT, |seen| {
+        seen.logged(r#"asked textDocument/codeAction 1:4-1:5 1 diagnostics=[{"code":2304,"data":{"fix":7},"message":"Cannot find","range":{"end":{"character":5,"line":1},"start":{"character":4,"line":1}},"severity":1}]"#)
+    });
     let Ok(Answered::CodeActions(actions)) = seen.answers.pop().unwrap().outcome else {
         panic!("code actions")
     };

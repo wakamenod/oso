@@ -400,6 +400,7 @@ fn convert(tiff: &Path, png: &Path) -> Result<(), String> {
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })
     .map_err(|e| format!("Cannot convert the TIFF to PNG: {e}"))?;
     let deadline = Instant::now() + CONVERT_TIMEOUT;

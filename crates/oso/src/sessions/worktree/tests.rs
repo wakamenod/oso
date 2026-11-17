@@ -18,9 +18,10 @@ use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 use super::checks::{self, Check, Depth, Held};
 use super::create::{self, Order};
 use super::facts::RepoFacts;
-use super::git::{Gh, Repo};
+use super::git::Repo;
 use super::merged::{self, Merged};
 use super::porcelain::Listed;
+use crate::git::Gh;
 
 /// An order for a worktree on `branch` with a brief.
 fn order(branch: &str) -> Order {
@@ -103,6 +104,7 @@ impl Scratch {
             set: &[("HOME", home), ("GIT_CONFIG_NOSYSTEM", "1".as_ref())],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .unwrap();
         let mut out = Vec::new();

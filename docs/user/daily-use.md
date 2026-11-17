@@ -397,6 +397,7 @@ project must be trusted.
 | `z` | The stash menu: `z` stash, `a` apply, `p` pop, `k` drop the stash at point; `- u` takes untracked files |
 | `b` | The branch menu: `b` check out, `c` make and check out, `n` make, `m` rename, `k` delete |
 | `l` | The log menu: `l` the graph of the branch, `a` of every ref, `o` of another; `C-x v l` from anywhere |
+| `N` | The pull request menu, through `gh`: `v` the branch's pull request, `k` its checks, `o` open it in the browser, `l` the open ones |
 | `f u` / `f a` | Fetch the upstream's remote, or every remote |
 | `RET` | Visit the file, or review the commit at point |
 | `$` | Show what git's runs wrote; `C-g` stops one |

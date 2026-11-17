@@ -134,6 +134,7 @@ const TABLES: &[&[Command]] = &[
     vcs::stash::COMMANDS,
     vcs::branch::COMMANDS,
     vcs::graph::COMMANDS,
+    vcs::pr::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
     windows::COMMANDS,
@@ -504,6 +505,14 @@ mod tests {
         "git-graph-tag-message",
         "git-graph-tag-name",
         "git-graph-toggle-all",
+        "git-pr-browse",
+        "git-pr-checks",
+        "git-pr-copy-link",
+        "git-pr-list",
+        "git-pr-open",
+        "git-pr-refresh",
+        "git-pr-view",
+        "git-pr-visit",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).

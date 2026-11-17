@@ -114,6 +114,7 @@ fn run_elsewhere(flow: &Flow, id: &str, cwd: &Path, name: &str) -> oso_platform:
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })
     .unwrap();
     let sessions = flow.home.join(".claude/sessions");

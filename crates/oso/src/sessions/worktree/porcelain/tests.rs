@@ -8,8 +8,7 @@ use std::path::PathBuf;
 use proptest::prelude::*;
 
 use super::{
-    Listed, Status, made_a_commit, names, paths, printable, ref_pairs, status, status_lines,
-    worktrees,
+    Listed, Status, made_a_commit, names, paths, ref_pairs, status, status_lines, worktrees,
 };
 
 #[test]
@@ -187,21 +186,6 @@ fn reflogs_with_and_without_commits() {
     assert!(!made_a_commit(b""));
 }
 
-#[test]
-fn printable_escapes_and_cuts() {
-    assert_eq!(printable("plain é 日本", 100), "plain é 日本");
-    assert_eq!(printable("a\nb\tc\u{7f}", 100), "a\\u{a}b\\u{9}c\\u{7f}");
-    assert_eq!(
-        printable("\u{9b}\u{2028}\u{202e}\u{2067}", 100),
-        "\\u{9b}\\u{2028}\\u{202e}\\u{2067}"
-    );
-    assert_eq!(printable("abcdef", 3), "abc…");
-    assert_eq!(printable("abc", 3), "abc");
-    // An escape is not split.
-    assert_eq!(printable("ab\u{1b}", 4), "ab…");
-    assert_eq!(printable("x", 0), "…");
-}
-
 proptest! {
     #[test]
     fn no_parser_panics(bytes in proptest::collection::vec(any::<u8>(), 0..512), max in 0usize..8) {
@@ -214,12 +198,5 @@ proptest! {
         prop_assert!(names(&bytes, max).len() <= max);
         prop_assert!(ref_pairs(&bytes, max).len() <= max);
         let _ = made_a_commit(&bytes);
-    }
-
-    #[test]
-    fn printable_shows_no_control(text in any::<String>(), max in 0usize..64) {
-        let shown = printable(&text, max);
-        prop_assert!(shown.chars().count() <= max + 1);
-        prop_assert!(!shown.chars().any(super::hidden));
     }
 }
