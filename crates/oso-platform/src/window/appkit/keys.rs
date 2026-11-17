@@ -73,8 +73,21 @@ pub(super) fn route(held: Held, marked: bool, allowed: bool, is_g: bool) -> Rout
 /// Whether a `cancelOperation:` that came with a key-down is that key, for oso as if
 /// `keyDown:` had it (ADR 0149): only with Command `held`, for the view's own window (`ours`),
 /// and if the key is `fresh`, not one already routed nor taken while another event is handled.
-pub(super) fn is_diverted_key(held: Held, ours: bool, fresh: bool) -> bool {
+pub(super) fn is_cancel_key(held: Held, ours: bool, fresh: bool) -> bool {
     held.contains(Held::LOGO) && ours && fresh
+}
+
+/// The virtual key code of the key that types `/` on ANSI and JIS layouts (`kVK_ANSI_Slash`).
+const SLASH_KEY: u16 = 0x2C;
+
+/// Whether a key equivalent the view is offered is macOS's "Show Help menu" key, which AppKit
+/// takes for itself next and never sends to `keyDown:`, for oso as if `keyDown:` had it
+/// (ADR 0152): Command and Shift alone `held`, on the key with code 44 (`code`), as the
+/// system's default says and AppKit matches it, whatever the layout types there (`/` on ANSI
+/// and JIS layouts, so `M-?`). A person who moves "Show Help menu" to another key leaves that
+/// key to AppKit.
+pub(super) fn is_help_menu_key(held: Held, code: u16) -> bool {
+    held == Held::LOGO | Held::SHIFT && code == SLASH_KEY
 }
 
 /// Whether the view takes text or marked text the input method sends with no key of oso's in
@@ -159,8 +172,8 @@ pub(super) fn input_source(id: &str, ascii_capable: bool) -> InputSource {
 #[cfg(test)]
 mod tests {
     use super::{
-        Route, chosen_key, held, input_source, is_diverted_key, is_keys_own, named, route,
-        shift_only, takes_text,
+        Route, SLASH_KEY, chosen_key, held, input_source, is_cancel_key, is_help_menu_key,
+        is_keys_own, named, route, shift_only, takes_text,
     };
     use crate::window::InputSource;
     use crate::window::{Held, SystemNamed};
@@ -318,19 +331,38 @@ mod tests {
             Held::LOGO | Held::SHIFT,
             Held::LOGO | Held::CONTROL,
         ] {
-            assert!(is_diverted_key(held_keys, true, true), "{held_keys:?}");
+            assert!(is_cancel_key(held_keys, true, true), "{held_keys:?}");
         }
         for held_keys in [Held::NONE, Held::CONTROL, Held::ALT, Held::SHIFT] {
-            assert!(!is_diverted_key(held_keys, true, true), "{held_keys:?}");
+            assert!(!is_cancel_key(held_keys, true, true), "{held_keys:?}");
         }
         assert!(
-            !is_diverted_key(Held::LOGO, false, true),
+            !is_cancel_key(Held::LOGO, false, true),
             "another window's key"
         );
         assert!(
-            !is_diverted_key(Held::LOGO, true, false),
+            !is_cancel_key(Held::LOGO, true, false),
             "routed already, or during another event"
         );
+    }
+
+    #[test]
+    fn the_help_menu_key_is_command_shift_alone_on_the_slash_key() {
+        let command_shift = Held::LOGO | Held::SHIFT;
+        assert!(is_help_menu_key(command_shift, SLASH_KEY));
+        // AppKit's match is exact: these reach `keyDown:` as they are.
+        for held_keys in [
+            Held::LOGO,
+            Held::SHIFT,
+            Held::NONE,
+            command_shift | Held::ALT,
+            command_shift | Held::CONTROL,
+            command_shift | Held::CONTROL | Held::ALT,
+        ] {
+            assert!(!is_help_menu_key(held_keys, SLASH_KEY), "{held_keys:?}");
+        }
+        // `M->`, Command-Shift-`.`, is another key.
+        assert!(!is_help_menu_key(command_shift, 0x2F));
     }
 
     #[test]
