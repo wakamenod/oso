@@ -277,11 +277,11 @@ fn answer(
         }
         PrRequest::Draft { generation, base } => PrReport::Drafted {
             generation,
-            draft: draft::draft(found, &target, base.as_deref()),
+            draft: create::draft(found, &target, base.as_deref()),
         },
         PrRequest::MergeAsk { generation } => PrReport::MergeAsked {
             generation,
-            merge: draft::merge_target(found, &target),
+            merge: create::merge_target(found, &target),
         },
     }
 }
@@ -516,9 +516,9 @@ fn unexpected() -> String {
     "gh gave an unexpected answer".to_owned()
 }
 
-mod draft;
+mod create;
 
-pub(crate) use draft::{Drafted, MergeTarget};
+pub(crate) use create::{Drafted, MergeTarget};
 
 #[cfg(test)]
 mod tests;

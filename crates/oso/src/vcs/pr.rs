@@ -332,22 +332,27 @@ pub(crate) fn read_default_branch(json: &[u8]) -> Option<String> {
 /// A pull request to merge, as `gh pr view --json number,state,baseRefName,headRefOid,
 /// headRefName` gives it (step 5a-2).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ToMerge {
+pub(crate) struct MergeRead {
     pub(crate) number: u64,
     pub(crate) open: bool,
     pub(crate) base: String,
-    pub(crate) head: String,
+    pub(crate) head_commit: String,
     pub(crate) branch: String,
 }
 
 /// The pull request to merge in `gh pr view`'s answer.
-pub(crate) fn read_merge(json: &[u8]) -> Option<ToMerge> {
+pub(crate) fn read_merge(json: &[u8]) -> Option<MergeRead> {
     let value = serde_json::from_slice::<Value>(json).ok()?;
-    Some(ToMerge {
+    let head_commit = text(value.get("headRefOid")?)?;
+    // A whole commit id, as `--match-head-commit` takes and a question shortens.
+    let whole =
+        matches!(head_commit.len(), 40 | 64) && head_commit.bytes().all(|b| b.is_ascii_hexdigit());
+    whole.then_some(())?;
+    Some(MergeRead {
         number: value.get("number")?.as_u64()?,
         open: value.get("state")?.as_str()? == "OPEN",
         base: text(value.get("baseRefName")?)?,
-        head: text(value.get("headRefOid")?)?,
+        head_commit,
         branch: text(value.get("headRefName")?)?,
     })
 }

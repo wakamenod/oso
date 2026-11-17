@@ -98,21 +98,26 @@ fn the_create_and_merge_heads_ask_with_their_switches() {
     run_with(&mut editor, "git-pr-create", &[DRAFT, BASE]).unwrap();
     run_with(&mut editor, "git-pr-merge-squash", &[DELETE_BRANCH]).unwrap();
     run_with(&mut editor, "git-pr-merge-rebase", &[]).unwrap();
+    // A `y` counts only as a question's answer.
     let (result, _) = run(&mut editor, "git-pr-confirmed", Args::NONE);
-    assert!(result.is_ok());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("No pull request was asked about")
+    );
     assert_eq!(
         editor.take_git_requests(),
         [
             GitRequest::PrCreate {
                 project,
                 draft: false,
-                base: None
+                ask_base: false
             },
-            // `- b` asks the host for the base's prompt first.
             GitRequest::PrCreate {
                 project,
                 draft: true,
-                base: Some(String::new())
+                ask_base: true
             },
             GitRequest::PrMerge {
                 project,
@@ -124,7 +129,6 @@ fn the_create_and_merge_heads_ask_with_their_switches() {
                 method: MergeMethod::Rebase,
                 delete_branch: false
             },
-            GitRequest::PrConfirmed,
         ]
     );
 }

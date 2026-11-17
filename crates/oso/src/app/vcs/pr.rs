@@ -22,15 +22,18 @@ use oso_core::project::ProjectId;
 
 use super::super::{App, UserEvent};
 use super::Ask;
-
-mod create;
 use crate::git::{TrustedRoot, printable};
 use crate::vcs::pr::PrHead;
 use crate::vcs::pr::work::{PrReport, PrRequest, PrWorker};
 use crate::vcs::pr::write::{PrBuilt, PrLaid, PrRow};
 
+mod create;
+
+pub(super) use create::AfterRun;
+
 /// Why a restricted project gets no pull request.
-const RESTRICTED: &str = "Pull requests are read through gh, which this project is not trusted to run: M-x trust-project";
+const RESTRICTED: &str =
+    "Pull requests go through gh, which this project is not trusted to run: M-x trust-project";
 
 /// The least time between two reads of a status's `PR:` line the person asked for.
 const HEAD_EVERY: Duration = Duration::from_secs(30);
@@ -108,8 +111,9 @@ impl App {
             GitRequest::PrCreate {
                 project,
                 draft,
-                base,
-            } => self.pr_create_asked(project, draft, base),
+                ask_base,
+            } => self.pr_create_asked(project, draft, ask_base),
+            GitRequest::PrCreateBase { project, base } => self.pr_base_answered(project, base),
             GitRequest::PrCreateFinish { buffer } => self.finish_pr(buffer),
             GitRequest::PrCreateCancel { buffer } => self.cancel_pr(buffer),
             GitRequest::PrRing { buffer, older } => self.walk_pr_ring(buffer, older),

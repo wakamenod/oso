@@ -325,13 +325,17 @@ pub enum GitRequest {
         act: PrAct,
         line: usize,
     },
-    /// Write a pull request for `project`'s branch checked out, a draft if `draft`, into `base`,
-    /// or the remote's default branch (`N c`).
+    /// Write a pull request for `project`'s branch checked out, a draft if `draft`, into the
+    /// remote's default branch, or into a base read in a prompt first if `ask_base` (`N c`,
+    /// `N c - b`).
     PrCreate {
         project: ProjectId,
         draft: bool,
-        base: Option<String>,
+        ask_base: bool,
     },
+    /// The base `N c - b`'s prompt read for `project`'s pull request: the host joins it to the
+    /// switches `N c` had.
+    PrCreateBase { project: ProjectId, base: String },
     /// Make the pull request the message `buffer` holds (`C-c C-c`).
     PrCreateFinish { buffer: BufferId },
     /// Drop the pull request's message `buffer`, keeping its text for `M-p` (`C-c C-k`).

@@ -896,6 +896,29 @@ mod tests {
     }
 
     #[test]
+    fn a_pull_request_s_message_in_front_is_read_but_never_changed() {
+        use oso_core::buffer::Mode;
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("ab"));
+        let mut message = Buffer::from_text("*pull request: b*", "Title\n");
+        assert!(message.set_mode(Mode::GitPrMessage));
+        let id = editor.add_buffer(message);
+        editor.show(id);
+        let (_, result) = dispatcher
+            .run_for_agent(&mut editor, "forward-char", Given::Count(1), Reach::Look)
+            .unwrap();
+        assert_eq!(result, Ok(()));
+        let why = refusal(
+            &mut dispatcher,
+            &mut editor,
+            "insert",
+            Given::Text("x"),
+            Reach::Change,
+        );
+        assert!(why.contains("the person's to write"), "{why}");
+        assert_eq!(editor.current().1.text().to_string(), "Title\n");
+    }
+
+    #[test]
     fn insert_takes_its_text_with_the_command_and_nothing_else() {
         let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("ab"));
         let (_, result) = dispatcher

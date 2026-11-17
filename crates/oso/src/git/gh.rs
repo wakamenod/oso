@@ -243,14 +243,14 @@ impl Gh {
             stdin,
             stdout: Sink::Piped,
             stderr: Sink::Piped,
-            own_process_group: cfg!(unix),
+            own_process_group: true,
             own_session: false,
             set: &set,
             terminal: None,
             pass_fd: None,
         })
         .map_err(|e| format!("cannot run gh: {e}"))?;
-        Long::adopt(child, input).map_err(|e| gh_said(&e, Duration::ZERO))
+        Long::adopt(child, input).map_err(|e| format!("cannot run gh: {e}"))
     }
 }
 

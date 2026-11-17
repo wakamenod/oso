@@ -17,6 +17,7 @@ use crate::review::tests::Repo;
 
 mod branch;
 mod graph;
+mod pr;
 mod remote;
 mod sequence;
 mod stash;

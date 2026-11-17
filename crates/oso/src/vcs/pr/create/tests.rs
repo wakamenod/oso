@@ -6,7 +6,7 @@
 use oso_core::editor::MergeMethod;
 use proptest::prelude::*;
 
-use super::{BranchCommit, PrRun, draft_text, title_and_body};
+use super::{BranchCommit, PrRun, draft_text, log_line, read_commits, title_and_body};
 
 fn commit(subject: &str, message: &str) -> BranchCommit {
     BranchCommit {
@@ -67,7 +67,8 @@ fn every_value_goes_bound_to_its_flag_and_the_body_on_standard_input() {
         repo: "github.com/o/r".into(),
         number: 12,
         method: MergeMethod::Squash,
-        head: "abc".into(),
+        base: "main".into(),
+        head_commit: "abc".into(),
         delete_branch: true,
     };
     let (args, input) = merge.args();
@@ -87,7 +88,33 @@ fn every_value_goes_bound_to_its_flag_and_the_body_on_standard_input() {
     assert_eq!(merge.done(), "Merged #12");
 }
 
+#[test]
+fn a_branch_s_commits_read_from_git_s_records() {
+    let out = b"Second\x1fSecond\n\nwhy\n\0\nFirst\x1fFirst\n\0no separator\0";
+    let commits = read_commits(out);
+    assert_eq!(commits.len(), 2, "a record of another shape is left out");
+    assert_eq!(
+        (commits[0].subject.as_str(), commits[1].subject.as_str()),
+        ("Second", "First")
+    );
+    assert_eq!(commits[0].message, "Second\n\nwhy\n");
+}
+
+#[test]
+fn the_log_line_quotes_each_value() {
+    let args = ["pr", "create", "--title=Fix --base=main", "--head=x"].map(String::from);
+    assert_eq!(
+        log_line(&args),
+        "$ gh pr create --title='Fix --base=main' --head='x'\n"
+    );
+}
+
 proptest! {
+    #[test]
+    fn any_git_output_reads_without_a_panic(bytes in proptest::collection::vec(any::<u8>(), 0..512)) {
+        prop_assert!(read_commits(&bytes).len() <= super::MAX_COMMITS);
+    }
+
     #[test]
     fn any_message_reads_without_a_panic(text in any::<String>()) {
         if let Ok((title, _)) = title_and_body(&text) {

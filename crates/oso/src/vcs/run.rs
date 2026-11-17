@@ -4,7 +4,7 @@
 //! pushes, pulls and fetches (`remotes`), and planning where a push goes; from step 3a,
 //! continuing, skipping and aborting what is stopped (`sequence`); from step 3b, stashing
 //! (`stash`) and branches (`branch`); from step 4b, a graph's tags, cherry-picks and reverts
-//! (`graph`).
+//! (`graph`); from step 5a-2, making and merging pull requests, `gh`'s long runs (`pr`).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
 //! takes reports out, and supplies the wake-up.

@@ -1,4 +1,4 @@
-//! Streaming one long run of git to its end (ADR 0127, steps 1b and 2): what it writes goes out
+//! Streaming one long run of git, or of `gh` (step 5a-2), to its end (ADR 0127, steps 1b and 2): what it writes goes out
 //! as log lines, its time each second and, for a push, a pull or a fetch, its progress; a stop,
 //! the root's revocation or the event loop's going ends it.
 //!
@@ -68,7 +68,7 @@ pub(super) fn stream(
 }
 
 /// Streams `long`, a run started already, whose log begins with `line`, as [`stream`] does: a
-/// run of `gh` too (step 5a).
+/// run of `gh` too (step 5a-2).
 pub(super) fn stream_long(
     mut long: Long,
     line: String,

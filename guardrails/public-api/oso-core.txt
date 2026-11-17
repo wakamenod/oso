@@ -1523,9 +1523,12 @@ pub oso_core::editor::GitRequest::PrAct::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::PrAct::line: usize
 pub oso_core::editor::GitRequest::PrConfirmed
 pub oso_core::editor::GitRequest::PrCreate
-pub oso_core::editor::GitRequest::PrCreate::base: core::option::Option<alloc::string::String>
+pub oso_core::editor::GitRequest::PrCreate::ask_base: bool
 pub oso_core::editor::GitRequest::PrCreate::draft: bool
 pub oso_core::editor::GitRequest::PrCreate::project: oso_core::project::ProjectId
+pub oso_core::editor::GitRequest::PrCreateBase
+pub oso_core::editor::GitRequest::PrCreateBase::base: alloc::string::String
+pub oso_core::editor::GitRequest::PrCreateBase::project: oso_core::project::ProjectId
 pub oso_core::editor::GitRequest::PrCreateCancel
 pub oso_core::editor::GitRequest::PrCreateCancel::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::PrCreateFinish

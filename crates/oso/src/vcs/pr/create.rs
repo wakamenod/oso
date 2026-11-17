@@ -25,6 +25,8 @@ pub(crate) const MAX_TEMPLATE: usize = 64 * 1024;
 pub(crate) const MAX_COMMITS: usize = 50;
 /// The longest title GitHub takes.
 const MAX_TITLE: usize = 256;
+/// The most bytes of a pull request's message read back from its buffer.
+pub(crate) const MAX_PR_MESSAGE: usize = 256 * 1024;
 
 /// A commit the branch has that its base lacks: its subject and its whole message.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -110,13 +112,14 @@ pub(crate) enum PrRun {
         body: String,
         draft: bool,
     },
-    /// Merge pull request `number` of `repo` as `method`, if its head is still `head`, deleting
-    /// its branch on the remote if `delete_branch`.
+    /// Merge pull request `number` of `repo` into `base` as `method`, if its head commit is
+    /// still `head_commit`, deleting its branch on the remote if `delete_branch`.
     Merge {
         repo: String,
         number: u64,
         method: MergeMethod,
-        head: String,
+        base: String,
+        head_commit: String,
         delete_branch: bool,
     },
 }
@@ -158,8 +161,9 @@ impl PrRun {
                 repo,
                 number,
                 method,
-                head,
+                head_commit,
                 delete_branch,
+                ..
             } => {
                 let mut args = vec![
                     "pr".to_owned(),
@@ -167,7 +171,7 @@ impl PrRun {
                     number.to_string(),
                     format!("--repo={repo}"),
                     format!("--{}", method_word(*method)),
-                    format!("--match-head-commit={head}"),
+                    format!("--match-head-commit={head_commit}"),
                 ];
                 if *delete_branch {
                     args.push("--delete-branch".to_owned());
@@ -196,6 +200,27 @@ impl PrRun {
             Self::Merge { number, .. } => format!("Merged #{number}"),
         }
     }
+}
+
+/// What the echo area says of `title`, a run of `gh`, that failed: its last words.
+pub(crate) fn failed(title: &str, output: &str) -> String {
+    let said = output.lines().rev().find(|line| !line.trim().is_empty());
+    match said {
+        Some(said) => format!("{title} failed: {}", said.trim()),
+        None => format!("{title} failed"),
+    }
+}
+
+/// The line the log of git's runs shows for `gh` run with `args`: each value quoted, so that a
+/// title's words cannot read as flags of their own.
+pub(crate) fn log_line(args: &[String]) -> String {
+    let quoted: Vec<String> = (args.iter())
+        .map(|arg| match arg.split_once('=') {
+            Some((flag, value)) if flag.starts_with("--") => format!("{flag}='{value}'"),
+            _ => arg.clone(),
+        })
+        .collect();
+    format!("$ gh {}\n", quoted.join(" "))
 }
 
 /// `gh pr merge`'s word for `method`.

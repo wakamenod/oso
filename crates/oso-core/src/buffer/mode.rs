@@ -60,7 +60,7 @@ pub enum Mode {
     /// A repository's open pull requests, `*pull requests: NAME*` (ADR 0127, step 5a).
     GitPrList,
     /// A pull request's title and body being written, `*pull request: BRANCH*` (ADR 0127, step
-    /// 5a): its first line the title, the rest the body.
+    /// 5a-2): its first line the title, the rest the body.
     GitPrMessage,
     /// A commit's message being written, `*commit: NAME*`, as magit's `git-commit-mode`
     /// (ADR 0127, step 1b).

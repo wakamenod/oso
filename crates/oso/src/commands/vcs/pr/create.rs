@@ -130,16 +130,13 @@ fn ask(ctx: &mut Ctx<'_>, request: GitRequest) -> Result<(), CommandError> {
 fn create(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let project = project(ctx)?;
     let draft = ctx.switch(DRAFT);
-    // An empty base asks the host to read one in a prompt first.
-    let base = ctx.switch(BASE).then(String::new);
-    ask(
-        ctx,
-        GitRequest::PrCreate {
-            project,
-            draft,
-            base,
-        },
-    )
+    let ask_base = ctx.switch(BASE);
+    let request = GitRequest::PrCreate {
+        project,
+        draft,
+        ask_base,
+    };
+    ask(ctx, request)
 }
 
 fn create_base(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -149,12 +146,7 @@ fn create_base(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     }
     let project = super::super::status_project(ctx.editor)
         .ok_or_else(|| CommandError::new("This buffer is of no project"))?;
-    let request = GitRequest::PrCreate {
-        project,
-        draft: false,
-        base: Some(base),
-    };
-    ask(ctx, request)
+    ask(ctx, GitRequest::PrCreateBase { project, base })
 }
 
 fn finish(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -211,5 +203,10 @@ fn merge_rebase(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn confirmed(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    if !ctx.confirmed() {
+        return Err(CommandError::new(
+            "No pull request was asked about: N c or N m asks",
+        ));
+    }
     ask(ctx, GitRequest::PrConfirmed)
 }

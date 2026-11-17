@@ -232,7 +232,7 @@ fn a_pull_request_is_made_after_its_branch_s_push_and_merged_after_a_question() 
     let asked = |state: &serde_json::Value| {
         state["prompts"][0]["prompt"]
             .as_str()
-            .is_some_and(|label| label.starts_with("Push feature to origin first?"))
+            .is_some_and(|label| label.starts_with("Push feature to origin/feature first?"))
     };
     app.wait_for("the push question", asked);
     app.send_keys("y");
@@ -255,7 +255,8 @@ fn a_pull_request_is_made_after_its_branch_s_push_and_merged_after_a_question() 
     let asked = |state: &serde_json::Value| {
         state["prompts"][0]["prompt"].as_str().is_some_and(|label| {
             label.starts_with(
-                "Merge #13 into main by squash, its head abcdef0, deleting its branch on the remote?",
+                "Merge #13 of github.com/o/r into main by squash, its head abcdef0, deleting its branch \
+                 on the remote?",
             )
         })
     };

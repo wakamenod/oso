@@ -1271,9 +1271,12 @@ The rest of step 5a's plan, on the answers of 5a-1 (Q6–Q9).
   message is: an agent's command does not change it. Its first line is the title, the rest the
   body; nothing is stripped (Q9). `C-c C-c` makes it, refusing an empty title or one past 256
   characters; `C-c C-k` drops it; both keep its text for `M-p` and `M-n`, the last 20.
-- **Pushing first:** a branch to be pushed is pushed after a question, `Push BRANCH to REMOTE
-  first?`, as `P` pushes it, its upstream set when it has none; the pull request is made once the
-  push went well.
+- **Pushing first:** a branch the remote's branch of its name lacks, or is behind, is pushed
+  after a question, `Push BRANCH to REMOTE/BRANCH first?`, to that name, never to an upstream of
+  another name (a branch made from `origin/main` would else push onto `main`), its upstream set
+  only when it has none. The pull request follows that push alone, as the push's own run's next
+  step: a plan that starts no push, a push of another branch checked out by then, or a message
+  closed meanwhile makes none.
 - **Making it** runs `gh pr create --repo=R --title=T --body-file=- --base=B --head=BRANCH
   [--draft]` on the repository's run thread, as the person's run: in the log, `C-g` stopping it,
   in a process group of its own. Every value is bound to its flag, so nothing a title or a name
@@ -1281,17 +1284,20 @@ The rest of step 5a's plan, on the answers of 5a-1 (Q6–Q9).
   the branch's remote still names the repository the message was read for.
 - **`N m`**, the merge menu: `- d` deletes the branch on the remote; `s`, `m` and `r` squash,
   merge or rebase. Each reads the branch's pull request, which must be open and of that branch,
-  asks `Merge #N into BASE by METHOD, its head SHORT?`, then runs `gh pr merge N --repo=R
+  asks `Merge #N of HOST/OWNER/REPO into BASE by METHOD, its head SHORT?`, then, once the run
+  thread has read again that it is open and into that base, runs `gh pr merge N --repo=R
   --METHOD --match-head-commit=HEAD [--delete-branch]`, so that `gh` refuses it if the pull
-  request moved since the question (Q6). An agent cannot merge: every command is `Person`.
+  request moved since the question (Q6). An agent cannot merge: every command is `Person`. A
+  message or a question `gh` answers late opens nothing over what the person does now.
 - After a pull request's run, as after a push or a checkout, the status's `PR:` line is read
   again.
 - **Deviations:** (1) `- b` reads the base as typed, with no completion over the remote's
   branches; the branch filter checks it. (2) A question asked of a pull request is answered
   through one `y` command bound to its prompt, as a graph's are.
-- **Library items:** `Mode::GitPrMessage`, `GitRequest::{PrCreate, PrCreateFinish,
-  PrCreateCancel, PrRing, PrMerge, PrConfirmed}` (within the approved plan), and
-  `editor::MergeMethod` (approved). A `PrCreate` whose base is empty asks for the base's prompt.
+- **Library items:** `Mode::GitPrMessage`, `GitRequest::{PrCreate { ask_base }, PrCreateBase,
+  PrCreateFinish, PrCreateCancel, PrRing, PrMerge, PrConfirmed}` and `editor::MergeMethod`
+  (approved; `PrCreateBase` carries the base `- b`'s prompt read, which the host joins to the
+  switches `N c` had, as a graph's answers are).
 - **Tests:** the message's start, title and body, and `gh`'s arguments with every value bound;
   the commands with their switches and a message's keys; and an end-to-end flow against a
   stand-in `gh`: `N c` with a template, the push question, the push to a bare repository, the

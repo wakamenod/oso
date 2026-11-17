@@ -8,7 +8,10 @@
 //!   else the repository's default branch as `gh repo view` says (Q7).
 //! - The template is the first of `.github/`, the root's and `docs/`'s, in any case, read only
 //!   as a regular file, at most 64 KiB, and never one whose name may hold secrets (Q8).
-//! - A branch with no upstream, or ahead of it, is to be pushed before its pull request is made.
+//! - A branch the remote's branch of its name lacks, or is behind, is to be pushed there before
+//!   its pull request is made, setting its upstream only if it has none: never to an upstream of
+//!   another name, as `main`.
+//! - A template directory that is a link is not looked in, so nothing outside the root is read.
 //! - A merge is of the branch's pull request while it is open, with its head as `gh` says it.
 
 use std::io::Read;
@@ -36,8 +39,10 @@ pub(crate) struct Drafted {
     pub(crate) repo: String,
     /// The remote the branch pushes to.
     pub(crate) remote: String,
-    /// Whether the branch has no upstream, or is ahead of it.
-    pub(crate) push: bool,
+    /// Whether the remote's branch of its name lacks it, or is behind it.
+    pub(crate) push_first: bool,
+    /// Whether its push sets the upstream: the branch has none.
+    pub(crate) set_upstream: bool,
 }
 
 /// The open pull request a merge is of.
@@ -46,7 +51,7 @@ pub(crate) struct MergeTarget {
     pub(crate) number: u64,
     pub(crate) base: String,
     /// Its head commit, whole.
-    pub(crate) head: String,
+    pub(crate) head_commit: String,
     pub(crate) repo: String,
 }
 
@@ -65,8 +70,11 @@ pub(super) fn draft(found: &Found, target: &Target, base: Option<&str>) -> Resul
         return Err(format!("{branch} is its own base: N c - b names another"));
     }
     let git = &found.git;
-    let push = read_line(git, &["rev-parse", "--verify", "--quiet", "@{upstream}"]).is_none()
-        || read_line(git, &["rev-list", "--count", "@{upstream}..HEAD"])
+    let set_upstream =
+        read_line(git, &["rev-parse", "--verify", "--quiet", "@{upstream}"]).is_none();
+    let there = format!("refs/remotes/{remote}/{branch}");
+    let push_first = read_line(git, &["rev-parse", "--verify", "--quiet", &there]).is_none()
+        || read_line(git, &["rev-list", "--count", &format!("{there}..HEAD")])
             .is_none_or(|ahead| ahead != "0");
     let commits = branch_commits(found, remote, &base);
     let template = template(found.root.path());
@@ -76,7 +84,8 @@ pub(super) fn draft(found: &Found, target: &Target, base: Option<&str>) -> Resul
         branch,
         repo: target.github.as_str().to_owned(),
         remote: remote.clone(),
-        push,
+        push_first,
+        set_upstream,
     })
 }
 
@@ -131,6 +140,11 @@ fn branch_commits(found: &Found, remote: &str, base: &str) -> Vec<BranchCommit> 
 fn template(root: &Path) -> Option<String> {
     TEMPLATE_DIRS.iter().find_map(|dir_name| {
         let dir = root.join(dir_name);
+        // A directory that is a link may lead out of the root: it is not looked in.
+        let linked = std::fs::symlink_metadata(&dir).map_or(true, |meta| !meta.is_dir());
+        if linked {
+            return None;
+        }
         let entries = std::fs::read_dir(&dir).ok()?;
         let name = entries
             .filter_map(Result::ok)
@@ -172,7 +186,7 @@ pub(super) fn merge_target(found: &Found, target: &Target) -> Result<MergeTarget
     Ok(MergeTarget {
         number: merge.number,
         base: merge.base,
-        head: merge.head,
+        head_commit: merge.head_commit,
         repo: target.github.as_str().to_owned(),
     })
 }

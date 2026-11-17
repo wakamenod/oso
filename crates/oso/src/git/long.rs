@@ -1,5 +1,6 @@
 //! Running git with no time limit (ADR 0127, step 1b): a commit with its hooks, which may run a
-//! whole test suite, and a write to the index, which a kill could leave locked. Each run is the
+//! whole test suite, and a write to the index, which a kill could leave locked; and from step
+//! 5a-2 `gh`'s making and merging of a pull request ([`Long::adopt`]). Each run is the
 //! person's act, and they stop it: `C-g` sends `SIGTERM`, then `SIGKILL` after [`GRACE`].
 //! A caller may also set no stop and keep no [`Ender`]: a worktree's removal, which a stop
 //! would leave half removed (ADR 0121, "Worktree removal, as fixed"). Such a run is ended only

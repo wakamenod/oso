@@ -262,11 +262,16 @@ network features.
   request's own address on the repository's host, after the echo area shows it. Every command
   is `Person`; an agent may read `*pr: #N*` through `text`, as data. Making and merging (step 5a-2) are the person's
   runs on the run thread: `gh pr create` and `gh pr merge` with every value bound to its flag
-  and the body on standard input, the branch's remote looked at again before `gh` runs; a merge
-  only after a question naming the pull request, its base, the method and its head, with
-  `--match-head-commit` so that a push since makes `gh` refuse it. A pull request's message is
+  and the body on standard input, each value quoted in the log, the branch's remote and the
+  project's trust looked at again before `gh` runs. The push before one goes to the remote's
+  branch of the same name, never to an upstream of another name, and the pull request follows
+  that push alone. A merge comes only after a question naming the pull request, its repository,
+  its base, the method and its head; just before it the run thread reads again that it is open
+  and into that base, and `--match-head-commit` makes `gh` refuse it if its head moved. A
+  question or a message `gh` answers late opens nothing over what the person does now. A pull request's message is
   the person's: an agent's command does not change it. A template is read only as a regular
-  file under the root, at most 64 KiB, never one whose name may hold secrets.
+  file under the root, never through a linked directory, at most 64 KiB, never one whose name
+  may hold secrets.
 - Stashes and branches from a git status (ADR 0127, step 3b) are the person's acts, `Person`,
   with the repository's hooks: a checkout runs `post-checkout` and the filters, as git's own
   does in a trusted project. A stash is named by its commit's id: an apply gives git the id, and

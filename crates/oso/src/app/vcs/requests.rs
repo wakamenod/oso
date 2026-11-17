@@ -67,6 +67,7 @@ pub(super) fn concern(request: &GitRequest) -> Concern {
         | GitRequest::PrOpen { .. }
         | GitRequest::PrAct { .. }
         | GitRequest::PrCreate { .. }
+        | GitRequest::PrCreateBase { .. }
         | GitRequest::PrCreateFinish { .. }
         | GitRequest::PrCreateCancel { .. }
         | GitRequest::PrRing { .. }
