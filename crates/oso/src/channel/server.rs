@@ -98,8 +98,12 @@ pub type Reply = Result<Value, String>;
 #[derive(Debug)]
 pub enum Event {
     /// Its first request came: ask the person whether this process may drive the editor. An
-    /// `Ok` reply lets it in.
-    Asks(Peer),
+    /// `Ok` reply lets it in. When the peer's parent started is read here, off the UI thread:
+    /// an outside session that asks to move is known by it (ADR 0151).
+    Asks {
+        peer: Peer,
+        parent_started: Option<std::time::SystemTime>,
+    },
     /// Its first request names a hosted session, as the bridge gave it: is this process that
     /// session's bridge (ADR 0121)? An `Ok(true)` reply lets it in without asking, as that
     /// session's; anything else and it asks as any connection.
@@ -437,11 +441,7 @@ where
         event: Event::Claims {
             peer: peer.clone(),
             session,
-            parent_started: peer.parent.as_ref().and_then(|parent| {
-                oso_platform::process::start_time(parent.pid())
-                    .ok()
-                    .flatten()
-            }),
+            parent_started: parent_started(peer),
         },
         reply: Some(reply),
     };
@@ -450,6 +450,14 @@ where
             replied.recv_timeout(REPLY_TIMEOUT),
             Ok(Ok(Value::Bool(true)))
         )
+}
+
+/// When `peer`'s parent started, as the system says, if it does.
+fn parent_started(peer: &Peer) -> Option<std::time::SystemTime> {
+    let parent = peer.parent.as_ref()?;
+    oso_platform::process::start_time(parent.pid())
+        .ok()
+        .flatten()
 }
 
 /// How asking the person ended, when it did not let the connection in.
@@ -476,7 +484,10 @@ where
     let (reply, replied) = mpsc::channel();
     let asks = Request {
         connection,
-        event: Event::Asks(peer.clone()),
+        event: Event::Asks {
+            peer: peer.clone(),
+            parent_started: parent_started(peer),
+        },
         reply: Some(reply),
     };
     if !send(asks) {
@@ -551,28 +562,6 @@ where
     })
 }
 
-/// The largest file the channel opens, in bytes: an agent reads what it opens, and memory
-/// spent on a huge one is the person's.
-pub const MAX_OPEN_BYTES: u64 = 256 << 20;
-
-/// Why the file at `path` may not be opened for the channel, if it may not: there is none,
-/// it is no regular file, it is too large, or it has more than one name, so that its other
-/// names, which the secret patterns judge, are not seen (ADR 0085).
-fn may_open(path: &std::path::Path) -> Result<(), &'static str> {
-    let meta = std::fs::metadata(path).map_err(|_| "no file is at that path")?;
-    if !meta.is_file() {
-        return Err("that is not a regular file");
-    }
-    if meta.len() > MAX_OPEN_BYTES {
-        return Err("the file is larger than the agent may open; ask the person");
-    }
-    #[cfg(unix)]
-    if std::os::unix::fs::MetadataExt::nlink(&meta) > 1 {
-        return Err("the file has more than one name; ask the person");
-    }
-    Ok(())
-}
-
 /// The result of `version`.
 fn version() -> Value {
     json!({
@@ -584,9 +573,12 @@ fn version() -> Value {
 
 mod held;
 mod limits;
+mod opening;
 
 use held::Waited;
 use limits::{Gate, Rate, Slot, Waiting, gate};
+pub use opening::MAX_OPEN_BYTES;
+use opening::may_open;
 
 // The tests need a socket, which only Unix has (ADR 0032).
 #[cfg(all(test, unix))]

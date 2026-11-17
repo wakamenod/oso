@@ -799,6 +799,15 @@ The UI thread never blocks on I/O or parsing:
   line, `history/preview.rs` makes a preview's text; glue in `app/sessions/conversations.rs`).
   Its prompt is the project search's (`oso-core`'s `editor/project_search/conversations.rs`),
   and its `RET` adopts through `session-adopt`'s start.
+  A session started outside oso that asks to move into a space with `move_to_space`
+  ([ADR 0151](adr/0151-moving-a-session-into-a-space.md)) is known by the registry entry of its
+  bridge's parent, found with its repository on a short `oso-session-move` thread
+  (`sessions/moving.rs`); the channel's server reads when that parent started as the
+  connection comes (`Event::Asks`), and the app keeps it with the connection
+  (`app/agent.rs`). The call's checks and question are `app/sessions/tools/moving.rs`'; on the
+  person's `y`, `oso-session-move-wait` watches the outside process, and once it has ended
+  `app/sessions/hosting/moving.rs` resumes the conversation through `session-adopt`'s start,
+  in that space.
 - Sending to a session ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 5) has one
   delivery path on the UI thread, `App::send_to_session` (`app/sessions/watch/sending.rs`): it
   refuses a session that cannot take a paste (`sessions/send.rs::refusal`, pure), pastes with

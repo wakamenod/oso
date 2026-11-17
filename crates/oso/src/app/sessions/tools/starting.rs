@@ -85,6 +85,7 @@ impl App {
             Plan::Start(_, Some(root)) if !self.still_trusted(&root) => {
                 pending.answer(Err("the repository is no longer trusted".into()));
             }
+            Plan::Move(moving) => self.start_move(pending, *moving),
             Plan::Start(mut begin, _) => {
                 // As the directories to read stand at the person's `y`.
                 begin.space = self.space_now(begin.space.take());

@@ -26,6 +26,7 @@ mod begin;
 mod bridge;
 mod carried;
 mod fork;
+mod moving;
 mod record;
 mod terminal;
 
@@ -33,6 +34,7 @@ use fork::ForkFrom;
 
 pub(in crate::app) use adopt::Adopting;
 pub(in crate::app) use begin::Begin;
+pub(in crate::app) use moving::{Moves, Moving};
 
 /// What the app keeps of its hosted sessions.
 #[derive(Debug, Default)]
@@ -73,6 +75,8 @@ pub(in crate::app) struct Hosting {
     pub(in crate::app) trusts: HashMap<SessionKey, TrustedRoot>,
     /// The agents' session tools (ADR 0121 step 6).
     pub(in crate::app) tools: super::tools::Tools,
+    /// Sessions started outside oso that move into a space (ADR 0151).
+    pub(in crate::app) moves: Moves,
 }
 
 impl Hosting {
@@ -116,6 +120,7 @@ impl Hosting {
             worktrees: super::worktrees::Worktrees::default(),
             trusts: HashMap::new(),
             tools: super::tools::Tools::default(),
+            moves: Moves::default(),
         }
     }
 }
@@ -355,6 +360,12 @@ impl App {
 
     /// `session-resume`: the stopped session whose terminal is `buffer`, in the same buffer.
     pub(in crate::app) fn resume_session(&mut self, buffer: BufferId) {
+        self.resume_session_shown(buffer, true);
+    }
+
+    /// Resumes the stopped session whose terminal is `buffer`, shown in the selected window
+    /// if `shown`.
+    pub(in crate::app) fn resume_session_shown(&mut self, buffer: BufferId, shown: bool) {
         let Some(session) = self.hosting.table.by_buffer(buffer) else {
             self.editor.message("This buffer holds no session");
             return;
@@ -381,7 +392,7 @@ impl App {
         if let Some(session) = self.hosting.table.get_mut(key) {
             session.run = Run::Starting;
         }
-        let terminal = self.session_terminal(key, &name, Some(buffer), true);
+        let terminal = self.session_terminal(key, &name, Some(buffer), shown);
         self.order_session(Order {
             token: key,
             kind,
