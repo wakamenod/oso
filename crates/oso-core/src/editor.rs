@@ -64,6 +64,7 @@ mod pairs;
 mod project_search;
 mod projects;
 mod prompts;
+mod recent_files;
 mod reload;
 mod replace;
 mod reviews;
@@ -111,6 +112,7 @@ pub use pairs::NoPair;
 pub use project_search::*;
 pub use projects::{ProjectRequest, TrustRefused};
 pub use prompts::Quit;
+pub use recent_files::{AskedVisit, MAX_RECENT_FILES, MAX_RECENT_PATH, RecentChanges};
 pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
 pub use reviews::*;
@@ -196,10 +198,10 @@ pub struct Editor {
     visit_place: Option<visits::VisitPlace>,
     /// What a prompt that completes waits for from the worker (ADR 0096).
     completion_work: completion::CompletionWork,
-    /// Files commands asked to visit, with the most bytes each may read, for the host.
-    visits: Vec<(std::path::PathBuf, u64)>,
-    /// A file a load stopped as too large, with its size, which `C-x C-f` asks about (ADR 0087).
-    large: Option<(std::path::PathBuf, u64)>,
+    /// The visits commands asked for, and a file a load stopped as too large (ADR 0087).
+    visits: visits::Visits,
+    /// The files the person visited most recently (ADR 0148).
+    recent_files: recent_files::RecentList,
     /// The directory oso started in.
     start_directory: std::path::PathBuf,
     /// The marks the last `C-.` listed (ADR 0088).
@@ -352,8 +354,8 @@ impl Editor {
             project_search: project_search::ProjectSearch::default(),
             visit_place: None,
             completion_work: completion::CompletionWork::default(),
-            visits: Vec::new(),
-            large: None,
+            visits: visits::Visits::default(),
+            recent_files: recent_files::RecentList::default(),
             start_directory: std::path::PathBuf::from("/"),
             write_over_asked: None,
             kill_asked: None,

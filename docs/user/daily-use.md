@@ -535,6 +535,17 @@ The installed oso has no dev features: `oso dev` and `oso ctl` work only in a de
 Both share your configuration file and your per-user state, so a change to
 `config.toml` reaches both.
 
+## Recent files
+
+`C-x C-r` opens a file you visited recently, the most recent first, as Emacs's `recentf-open`
+does. The file you are in comes last, so `C-x C-r RET` opens the one before. `C-x b` lists the
+same files after the buffers, marked `file`, as consult-buffer does.
+
+oso keeps the last 100 files you opened or looked at, by their paths. It never keeps a file
+whose name may hold secrets, such as `.env` or anything under `~/.ssh`, and it never keeps a
+file's text. A file you choose that is gone leaves the list. An agent cannot read the list.
+To empty it, delete `recent-files` in the state directory below.
+
 ## Where things live
 
 - Configuration: `~/.config/oso/config.toml`, or `$XDG_CONFIG_HOME/oso/config.toml` when that is
@@ -542,7 +553,7 @@ Both share your configuration file and your per-user state, so a change to
 - Trusted projects: `trusted-projects`, next to `config.toml`. oso writes it when you trust or
   untrust a project.
 - State that oso keeps by itself (emergency copies, the theme chosen last, the sessions to bring
-  back):
+  back, the recent files):
   `~/Library/Application Support/oso` on macOS, `$XDG_STATE_HOME/oso` or `~/.local/state/oso` on
   Linux.
 - Images you attach to a session with `C-c C-y`: `~/Library/Caches/oso/images` on macOS,

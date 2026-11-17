@@ -6,9 +6,11 @@
 //! only on the worker.
 //!
 //! - A fence's language is the first word of its info string, the grammar's `language` node:
-//!   `rust` and `rs` are Rust's, `toml` TOML's, `go` and `golang` Go's, ignoring ASCII case.
-//!   Any other, and a fence with none, stays plain, as does an indented code block. A fence
-//!   only picks one of the compiled-in grammars, and nothing reads its content to guess one.
+//!   `rust` and `rs` are Rust's, `toml` TOML's, `go` and `golang` Go's, `js`, `javascript`,
+//!   `jsx`, `mjs` and `cjs` JavaScript's, `ts`, `typescript`, `mts` and `cts` TypeScript's, and
+//!   `tsx` TSX's, ignoring ASCII case (ADR 0147). Any other, and a fence with none, stays plain,
+//!   as does an indented code block. A fence only picks one of the compiled-in grammars, and
+//!   nothing reads its content to guess one.
 //! - The content of a fence longer than [`MAX_FENCE_BYTES`], its delimiter lines too, stays
 //!   plain (its delimiters and info string are still markup), so that the
 //!   piece that holds it stays small: a piece widens to the whole of each fence it meets, as typing
@@ -78,6 +80,9 @@ fn named(text: &Rope, node: Node) -> Option<Language> {
         b"rust" | b"rs" => Some(Language::Rust),
         b"toml" => Some(Language::Toml),
         b"go" | b"golang" => Some(Language::Go),
+        b"js" | b"javascript" | b"jsx" | b"mjs" | b"cjs" => Some(Language::JavaScript),
+        b"ts" | b"typescript" | b"mts" | b"cts" => Some(Language::TypeScript),
+        b"tsx" => Some(Language::Tsx),
         _ => None,
     }
 }

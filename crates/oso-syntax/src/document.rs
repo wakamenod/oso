@@ -314,7 +314,13 @@ impl Document {
     fn most_bytes(&self) -> usize {
         match self.language {
             Language::MarkdownInline => inline::MAX_INLINE_BYTES,
-            Language::Rust | Language::Markdown | Language::Toml | Language::Go => MAX_BYTES,
+            Language::Rust
+            | Language::Markdown
+            | Language::Toml
+            | Language::Go
+            | Language::JavaScript
+            | Language::TypeScript
+            | Language::Tsx => MAX_BYTES,
         }
     }
 

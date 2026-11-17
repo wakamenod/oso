@@ -42,6 +42,7 @@ mod menus;
 mod png;
 mod projects;
 mod prompts;
+mod recent_files;
 mod recovery;
 mod reload;
 mod replace;
@@ -716,8 +717,10 @@ fn a_save_reaches_the_disk_and_a_restart_reads_the_file_again() {
     // Read from outside the editor, as anything else on the machine would.
     let on_disk = std::fs::read_to_string(&file).expect("the file is there");
     assert_eq!(on_disk, format!("{UNSAVED}on disk\n"));
+    // The instance's own state, such as its recent files, is in `state` (ADR 0146, ADR 0148).
     let names = std::fs::read_dir(scratch.path())
         .expect("the directory")
+        .filter(|entry| !entry.as_ref().is_ok_and(|e| e.file_name() == "state"))
         .count();
     assert_eq!(names, 1, "nothing is left beside the file");
 
@@ -781,8 +784,10 @@ fn the_quit_key_asks_with_unsaved_text_and_a_save_needs_no_answer() {
     assert_eq!(app.wait_for_exit().code(), Some(0));
     let on_disk = std::fs::read_to_string(&file).expect("the file is there");
     assert!(on_disk.starts_with('x'), "the save did not land");
+    // The instance's own state, such as its recent files, is in `state` (ADR 0146, ADR 0148).
     let names = std::fs::read_dir(scratch.path())
         .expect("the directory")
+        .filter(|entry| !entry.as_ref().is_ok_and(|e| e.file_name() == "state"))
         .count();
     assert_eq!(names, 1, "nothing is left beside the file");
 }
@@ -812,8 +817,10 @@ fn a_failed_save_after_a_confirmed_exit_keeps_the_instance_and_the_text() {
         b"another program\n",
         "the other program's text stays",
     );
+    // The instance's own state, such as its recent files, is in `state` (ADR 0146, ADR 0148).
     let names = std::fs::read_dir(scratch.path())
         .expect("the directory")
+        .filter(|entry| !entry.as_ref().is_ok_and(|e| e.file_name() == "state"))
         .count();
     assert_eq!(names, 1, "nothing is left beside the file");
 

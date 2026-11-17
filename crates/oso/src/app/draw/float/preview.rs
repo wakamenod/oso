@@ -22,6 +22,9 @@ const PREVIEW_PANES: u32 = 1 << 20;
 /// (ADR 0114).
 const EXCERPT_PANE: u32 = 13;
 
+/// The pane of what is said of a recent file no buffer visits (ADR 0148).
+const NOT_OPEN_PANE: u32 = 14;
+
 /// Adds a preview's panes to `list`: the column that divides it from the candidates, and the
 /// selected buffer from where its window was, read-only with its cursor hollow, or what is
 /// said of a buffer that may hold secrets in its place (ADR 0088), with a project search's
@@ -57,6 +60,7 @@ pub(super) fn preview_panes<'a>(
     let content = match editor.preview() {
         None => return,
         Some(Preview::Withheld) => pane(11, preview, PaneContent::Lines(&lines.withheld)),
+        Some(Preview::NotOpen) => pane(NOT_OPEN_PANE, preview, PaneContent::Lines(&lines.not_open)),
         Some(Preview::Text { .. }) => pane(12, preview, PaneContent::Lines(&lines.kill)),
         Some(Preview::Excerpt { revision, cursor }) => {
             let (Some(display), Some(prompt)) = (editor.preview_excerpt_display(), editor.prompt())

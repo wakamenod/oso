@@ -17,7 +17,7 @@ use crate::loader::LoadError;
 use serde_json::json;
 
 use super::super::App;
-use super::super::opened::{Held, found_elsewhere, held_elsewhere};
+use super::super::loads::opened::{Held, found_elsewhere, held_elsewhere};
 use crate::channel::{Connection, Reply};
 use crate::dispatch::{Given, Unshowable, unshowable};
 
@@ -344,7 +344,7 @@ mod tests {
     use super::{
         Next, Opening, TOO_LARGE_FOR_THE_AGENT, load_failed, next, reusable, take_opening,
     };
-    use crate::app::opened::{Held, found_elsewhere, held_elsewhere};
+    use crate::app::loads::opened::{Held, found_elsewhere, held_elsewhere};
     use crate::channel::Connection;
     use crate::loader::LoadError;
     use oso_core::buffer::{Baseline, Buffer, FileStamp};

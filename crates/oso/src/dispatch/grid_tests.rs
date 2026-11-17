@@ -846,6 +846,50 @@ mod scenarios {
         );
     }
 
+    /// An editor on `plan.md` that remembers recent files under a home directory, so that
+    /// their rows read the same on every OS (ADR 0148).
+    fn with_recent_files() -> Editor {
+        let mut editor = Editor::with_buffer(Buffer::from_text("plan.md", "budget\nhiring\n"));
+        aids_off(&mut editor);
+        editor.set_frame_size(FrameSize {
+            rows: 24,
+            columns: 100,
+        });
+        let home = if cfg!(windows) {
+            std::path::PathBuf::from(r"C:\Users\me")
+        } else {
+            std::path::PathBuf::from("/home/me")
+        };
+        editor.set_home(Some(home.clone()));
+        editor.remember_recent_files([
+            home.join("notes").join("todo.md"),
+            home.join("src").join("main.rs"),
+        ]);
+        editor
+    }
+
+    #[test]
+    fn c_x_b_lists_recent_files_after_the_buffers_and_never_reads_one_to_preview() {
+        let editor = with_recent_files();
+        check_editor(
+            "buffers_recent_files",
+            b"budget\nhiring\n",
+            editor,
+            &["C-x b", "C-n C-n", "C-g"],
+        );
+    }
+
+    #[test]
+    fn c_x_c_r_lists_the_recent_files_newest_first() {
+        let editor = with_recent_files();
+        check_editor(
+            "recent_files_c_x_c_r",
+            b"budget\nhiring\n",
+            editor,
+            &["C-x C-r", "m a i n", "C-g"],
+        );
+    }
+
     #[test]
     fn c_dot_previews_the_text_around_each_mark() {
         let text = "# Notes\n\nAgenda\n- budget\n- hiring\n";

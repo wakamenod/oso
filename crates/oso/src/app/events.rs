@@ -61,6 +61,8 @@ impl App {
         self.sync_pane_directory();
         // Once for all the changes the event made to the sessions (ADR 0121).
         self.save_sessions();
+        // And to the recent files (ADR 0148).
+        self.sync_recent_files();
         // At once, not at the next wait: a buffer that turned secret gets no slice after this.
         self.drop_syntax();
     }

@@ -75,6 +75,11 @@ pub fn map(
         (ArgSpec::Buffer { .. }, _) => Err(format!(
             "{name} reads a buffer's name, which only its prompt takes, from keys"
         )),
+        // The recent files are listed only in its prompt, which the channel never sees
+        // (ADR 0148).
+        (ArgSpec::RecentFile { .. }, _) => Err(format!(
+            "{name} reads a recent file, which only its prompt takes, from keys"
+        )),
         (ArgSpec::Mark { .. }, _) => Err(format!(
             "{name} reads a mark, which only its prompt takes, from keys"
         )),
@@ -268,6 +273,12 @@ mod tests {
             purpose: BufferPurpose::Kill,
         };
         assert!(refused(kill, Given::Text("notes")).contains("buffer's name"));
+        let recent = ArgSpec::RecentFile {
+            prompt: "Open recent file:",
+            history: "recent-file",
+        };
+        assert!(refused(recent, Given::Text("~/notes.md")).contains("recent file"));
+        assert!(refused(recent, Given::Nothing).contains("recent file"));
         let mark = ArgSpec::Mark {
             prompt: "Go to mark: ",
         };

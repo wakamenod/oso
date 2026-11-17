@@ -73,6 +73,10 @@ tree-sitter-md = { version = "=0.5.4", default-features = false }
 tree-sitter-toml-ng = "=0.7.0"
 # ADR 0147. No external scanner.
 tree-sitter-go = "=0.25.0"
+# ADR 0147. JSX is part of the JavaScript grammar; the TypeScript crate holds two grammars,
+# TypeScript and TSX. Both external scanners keep no state.
+tree-sitter-javascript = "=0.25.0"
+tree-sitter-typescript = "=0.23.2"
 
 # Dev-only (the `dev` features, ADR 0016). Release builds never contain them.
 # Deflate for screenshot PNGs. Pure Rust, forbids `unsafe`.
