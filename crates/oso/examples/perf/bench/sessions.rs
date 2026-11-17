@@ -150,7 +150,9 @@ const SPINNING: Duration = Duration::from_secs(5);
 /// gives the UI thread's time on each frame over [`SPINNING`], in ms: the spinner's frames.
 fn spinning(app: &mut App, scratch: &Path) -> Result<Vec<f64>, String> {
     let work = scratch.join("work");
-    std::fs::write(&work, WORKING).map_err(|e| format!("{}: {e}", work.display()))?;
+    // Staged and renamed: a fake that saw the file before it was written would show it empty,
+    // once, and never work.
+    write_screen(&scratch.join("work.new"), &work, WORKING)?;
     let deadline = Instant::now() + WITHIN;
     loop {
         let state = app.call("get-state", None)?;
@@ -240,7 +242,8 @@ fn counted_frame(app: &mut App) -> Result<u64, String> {
     }
 }
 
-/// Has every fake print `text`: the one file each looks at.
+/// Has every fake print `text`: writes it to `screen`, one of the files each looks at, all at
+/// once, by a rename from `staged`, so that no fake reads it half written.
 fn write_screen(staged: &Path, screen: &Path, text: &str) -> Result<(), String> {
     std::fs::write(staged, text).map_err(|e| format!("{}: {e}", staged.display()))?;
     std::fs::rename(staged, screen).map_err(|e| format!("{}: {e}", screen.display()))
