@@ -92,13 +92,26 @@ impl<Key: Copy + Eq + Hash + Send + 'static> Pool<Key> {
         self.shared.ready.notify_all();
     }
 
+    /// A handle that opens, shows and closes documents no buffer owns on these threads, for a
+    /// review's view thread (ADR 0122, step 9). It keeps the threads' schedule, not the
+    /// threads: once the pool is dropped, what it opens never runs.
+    pub(super) fn documents(&self) -> Documents<Key> {
+        Documents {
+            shared: Arc::clone(&self.shared),
+        }
+    }
+}
+
+/// Opens, shows and closes documents no buffer owns on a pool's threads, from any thread. Each
+/// call holds the lock for the schedule's bookkeeping alone.
+pub(in crate::app) struct Documents<Key> {
+    shared: Arc<Shared<Key>>,
+}
+
+impl<Key: Copy + Eq + Hash> Documents<Key> {
     /// Opens a document no buffer owns under `key`, as [`Scheduler::open`] says: refused, and
     /// nothing kept, for a text that may hold secrets. The lock is held for that alone.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "ADR 0122 step 9 opens review sides")
-    )]
-    pub(super) fn open(
+    pub(in crate::app) fn open(
         &self,
         key: Key,
         language: Language,
@@ -118,21 +131,13 @@ impl<Key: Copy + Eq + Hash + Send + 'static> Pool<Key> {
     }
 
     /// What windows show of an open document now.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "ADR 0122 step 9 opens review sides")
-    )]
-    pub(super) fn show(&self, key: Key, shown: Vec<Range<usize>>) {
+    pub(in crate::app) fn show(&self, key: Key, shown: Vec<Range<usize>>) {
         lock(&self.shared.state).scheduler.show(key, shown);
         self.shared.ready.notify_all();
     }
 
     /// Closes a document at once: nothing more runs on it, and a thread frees it.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "ADR 0122 step 9 opens review sides")
-    )]
-    pub(super) fn close(&self, key: Key) {
+    pub(in crate::app) fn close(&self, key: Key) {
         lock(&self.shared.state).scheduler.close(key);
         self.shared.ready.notify_all();
     }

@@ -131,8 +131,7 @@ pub(super) struct Context<'a> {
 
 /// Reads `entry` again, or `None` if its signature did not change.
 pub(super) fn read(cx: &mut Context<'_>, entry: &Entry) -> Option<Reading> {
-    let secret = |path: &[u8]| crate::git::may_hold_secrets(cx.git.top(), path);
-    if secret(&entry.path) || entry.old_path.as_deref().is_some_and(secret) {
+    if entry.verdict(cx.git.top()).is_withheld() {
         let signature = signature(entry, NewSign::Nothing);
         return keep(cx, entry, signature, Content::Withheld, 0);
     }

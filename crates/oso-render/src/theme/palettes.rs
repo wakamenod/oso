@@ -198,7 +198,7 @@ pub(super) fn dark(name: Name) -> Color {
         BgMenuSwitch => rgb(0xf2c46a),
         // Dim green and red bands, a little lighter than the background, under pale text.
         FgAdded => rgb(0xa8e6b8),
-        BgAdded => rgb(0x13291c),
+        BgAdded => rgb(0x0f2016),
         BgRefineAdded => rgb(0x24553a),
         FgRemoved => rgb(0xf5b0b8),
         BgRemoved => rgb(0x2f141a),
@@ -277,7 +277,7 @@ pub(super) fn light(name: Name) -> Color {
         BgAdded => rgb(0xe3f5e6),
         BgRefineAdded => rgb(0xb9e6c2),
         FgRemoved => rgb(0x8a1424),
-        BgRemoved => rgb(0xfbe4e6),
+        BgRemoved => rgb(0xffe5ee),
         BgRefineRemoved => rgb(0xf5c0c6),
         FgHunkHeader => rgb(0x1d4a8f),
         FgFileHeader => rgb(0x0b0c10),

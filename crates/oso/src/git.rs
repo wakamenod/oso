@@ -7,7 +7,8 @@
 //! 0122), the worktree jobs (ADR 0121), and a git status and its commits (ADR 0127) use it.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread, nor on what uses it; this
-//! runs on the threads that run git, and waits for git.
+//! runs on the threads that run git, and waits for git. Its ids and its name check, which do no
+//! I/O, also serve a review's view thread (ADR 0122, step 9).
 
 pub(crate) mod apply;
 mod gh;
@@ -23,7 +24,7 @@ pub(crate) use gh::{Gh, GhAnswer, GhRepo, MAX_GH};
 pub(crate) use hooks::empty_hooks;
 pub(crate) use id::{Id, trim_line};
 pub(crate) use long::{Ender, GRACE, Long, Next};
-pub(crate) use path::{identity, may_hold_secrets, os as os_path};
+pub(crate) use path::{identity, may_hold_secrets, os as os_path, verdict as path_verdict};
 pub(crate) use run::{
     Git, GitError, MAX_SHORT, MAX_STDERR, Output, RUN_LIMIT, check_revision, collect, for_git,
     read_at_most, stop,

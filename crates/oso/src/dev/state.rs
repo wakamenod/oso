@@ -36,6 +36,7 @@ use serde_json::{Value, json};
 use super::Reply;
 
 mod popup;
+mod syntax;
 mod text;
 use crate::channel::state::slice;
 pub use text::get_text;
@@ -437,6 +438,9 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
         "wrapped": state_shown.then(|| buffer.wraps()),
         // Whether it holds highlights now (ADR 0111): never one that may hold secrets.
         "highlighted": buffer.highlights().is_some(),
+        // Whether any of its first runs is of a syntax class, as a review's side is once
+        // highlighted (ADR 0122, step 9).
+        "syntax": buffer.highlights().is_some_and(syntax::has_syntax),
         "loading": buffer.loading().map(|progress| json!({
             "read": size_shown.then_some(progress.read),
             "total": if size_shown { progress.total } else { None },
@@ -749,6 +753,7 @@ mod tests {
             "loading": null,
             "wrapped": false,
             "highlighted": false,
+            "syntax": false,
         });
         assert_eq!(
             state,
