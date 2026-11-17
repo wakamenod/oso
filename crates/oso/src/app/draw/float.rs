@@ -13,7 +13,7 @@ use std::ops::Range;
 
 use oso_core::complete::{self, Candidates};
 use oso_core::editor::{Editor, Preview};
-use oso_core::frame::CellRect;
+use oso_core::frame::{CellRect, FloatRegions};
 use oso_core::minibuffer::{self, Kind, PromptLayout};
 use oso_core::window::Screen;
 use oso_render::{
@@ -497,26 +497,42 @@ fn list_panes<'a>(parts: &'a Parts<'a>, lines: &'a Lines<'a>, list: &mut Vec<Pan
     }
 }
 
-/// The cells of the selected candidate's row, while it shows, or of the answer's row while what
-/// is typed is selected (ADR 0087, ADR 0088).
+/// The cells of the bar on the selected candidate's row, while it shows, or on the answer's row
+/// while what is typed is selected (ADR 0076, ADR 0087, ADR 0088).
 fn selected_row(parts: &Parts<'_>) -> Option<CellRect> {
     let (candidates, _) = parts.list.as_ref()?;
-    let rows = parts.layout.regions.candidates;
+    let regions = &parts.layout.regions;
     if candidates.on_input() {
-        // Across the whole answer's row, also beside a preview.
-        let inner = parts.layout.regions.inner;
-        return Some(CellRect {
-            row: (inner.row + inner.rows).checked_sub(1)?,
-            rows: 1,
-            ..inner
-        });
+        // Across the whole answer's row, also above a preview.
+        let inner = regions.inner;
+        return Some(bar(
+            regions,
+            (inner.row + inner.rows).checked_sub(1)?,
+            false,
+        ));
     }
+    let rows = regions.candidates;
     let place = candidates.selected()?.checked_sub(candidates.top())?;
-    (place < rows.rows).then_some(CellRect {
-        row: rows.row + place,
+    (place < rows.rows).then(|| bar(regions, rows.row + place, true))
+}
+
+/// The cells of a bar on `row` of the float: across the whole panel, padding and all, but on a
+/// candidate's row beside a preview only as far as the column that divides them, so that it
+/// marks no row of the preview, whose own cursor marks its place.
+fn bar(regions: &FloatRegions, row: usize, candidate: bool) -> CellRect {
+    let outer = regions.outer;
+    let preview = regions.preview;
+    let end = if candidate && preview.rows > 0 && preview.columns > 0 {
+        preview.column.saturating_sub(1).max(outer.column)
+    } else {
+        outer.column + outer.columns
+    };
+    CellRect {
+        row,
         rows: 1,
-        ..rows
-    })
+        column: outer.column,
+        columns: end - outer.column,
+    }
 }
 
 /// What the answer's pane shows: the prompt's window, or one `*` per character of a
@@ -553,3 +569,6 @@ fn answer<'a>(
         marks: TextMarks::NONE,
     })
 }
+
+#[cfg(test)]
+mod tests;

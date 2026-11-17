@@ -253,7 +253,7 @@ impl Dispatcher {
                 };
                 return self.read_buffer(editor, id, args.raw(), read);
             }
-            Some(spec @ (ArgSpec::Xref | ArgSpec::CodeAction)) => {
+            Some(spec @ (ArgSpec::Xref | ArgSpec::CodeAction | ArgSpec::NewName { .. })) => {
                 return self.read_listed(editor, id, args.raw(), spec);
             }
             Some(spec) if paths::reads_listed(spec) => {

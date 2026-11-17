@@ -61,7 +61,8 @@ recap_region = "after_last_rule"                 # optional: where recap looks; 
 | `hold` | the state stays as it was: for full-screen views, such as the transcript viewer, help or a picker. Rank hold rules below needs-input rules, so that a view never hides a dialog. |
 
 No rule gives done, ready for review, failed or stopped:
-- done and ready for review come from a turn's end;
+- done and ready for review come from a turn's end: ready for review when the directory has
+  changes since the session's baseline that are not merged (ADR 0121);
 - failed and stopped come from the process.
 
 When no rule matches, the session counts as idle.

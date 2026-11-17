@@ -70,6 +70,13 @@ pub(super) fn route(held: Held, marked: bool, allowed: bool, is_g: bool) -> Rout
     }
 }
 
+/// Whether a `cancelOperation:` that came with a key-down is that key, for oso as if
+/// `keyDown:` had it (ADR 0149): only with Command `held`, for the view's own window (`ours`),
+/// and if the key is `fresh`, not one already routed nor taken while another event is handled.
+pub(super) fn is_diverted_key(held: Held, ours: bool, fresh: bool) -> bool {
+    held.contains(Held::LOGO) && ours && fresh
+}
+
 /// Whether the view takes text or marked text the input method sends with no key of oso's in
 /// hand: only while the input method is on, and not just after oso dropped a composition, as
 /// a reply to that may come late. A key clears that.
@@ -152,7 +159,8 @@ pub(super) fn input_source(id: &str, ascii_capable: bool) -> InputSource {
 #[cfg(test)]
 mod tests {
     use super::{
-        Route, chosen_key, held, input_source, is_keys_own, named, route, shift_only, takes_text,
+        Route, chosen_key, held, input_source, is_diverted_key, is_keys_own, named, route,
+        shift_only, takes_text,
     };
     use crate::window::InputSource;
     use crate::window::{Held, SystemNamed};
@@ -301,6 +309,28 @@ mod tests {
         );
         assert!(!takes_text(true, true), "a late reply to a drop");
         assert!(!takes_text(false, true));
+    }
+
+    #[test]
+    fn a_cancel_operation_is_a_fresh_key_with_command_for_our_window() {
+        for held_keys in [
+            Held::LOGO,
+            Held::LOGO | Held::SHIFT,
+            Held::LOGO | Held::CONTROL,
+        ] {
+            assert!(is_diverted_key(held_keys, true, true), "{held_keys:?}");
+        }
+        for held_keys in [Held::NONE, Held::CONTROL, Held::ALT, Held::SHIFT] {
+            assert!(!is_diverted_key(held_keys, true, true), "{held_keys:?}");
+        }
+        assert!(
+            !is_diverted_key(Held::LOGO, false, true),
+            "another window's key"
+        );
+        assert!(
+            !is_diverted_key(Held::LOGO, true, false),
+            "routed already, or during another event"
+        );
     }
 
     #[test]

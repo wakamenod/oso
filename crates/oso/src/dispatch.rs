@@ -117,6 +117,8 @@ pub struct Dispatcher {
     /// What runs now is no input of the person's, though it is not the agent's: the dev
     /// socket's `run-command` and the window's close request. It lets no mark go (ADR 0118).
     not_input: bool,
+    /// A rename waits for its server, or for its preview: `C-g` stops it (ADR 0138, step 14).
+    rename_waits: bool,
     /// A command ran for the agent channel since the host last asked: what it queued is the
     /// agent's, so the saves it queued are checked as the channel's (ADR 0108).
     ran_for_agent: bool,
@@ -178,6 +180,7 @@ impl Dispatcher {
             completion_held: None,
             view_jumped: None,
             not_input: false,
+            rename_waits: false,
             ran_for_agent: false,
             terminal_keys: std::collections::HashMap::new(),
             terminal_sends: Vec::new(),
@@ -666,6 +669,8 @@ mod prompt_tests;
 mod recent_tests;
 #[cfg(test)]
 mod recovery_tests;
+#[cfg(test)]
+mod rename_tests;
 #[cfg(test)]
 mod replace_tests;
 #[cfg(test)]

@@ -1296,3 +1296,135 @@ fn a_code_action_opens_a_file_after_a_yes_and_a_command_s_edit_applies() {
     let text = app.call("get-text", Some(json!({ "start_row": 0, "rows": 2 })));
     assert!(text.to_string().contains("fn begin()"), "{text}");
 }
+
+fn rename_rules(main: &str, lib: &str) -> Value {
+    let range = |line: u32, start: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}});
+    json!([
+        {"method": "initialize", "do": [{"reply": {"capabilities": {
+            "positionEncoding": "utf-8",
+            "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+            "renameProvider": {"prepareProvider": true},
+        }}}]},
+        {"method": "textDocument/prepareRename", "do": [{"reply": {
+            "range": range(1, 8, 13), "placeholder": "value",
+        }}]},
+        {"method": "textDocument/rename", "do": [{"reply": {"changes": {
+            main: [
+                {"range": range(1, 8, 13), "newText": "count"},
+                {"range": range(2, 15, 20), "newText": "count"},
+            ],
+            lib: [{"range": range(0, 7, 12), "newText": "count"}],
+        }}}]},
+        {"method": "shutdown", "do": [{"reply": null}]},
+    ])
+}
+
+/// Renames `value` at its place in `main.rs` to `name`, its old name checked on `M-n`, and
+/// gives the rows the preview shows.
+fn rename_to_preview(app: &mut App, name: &str) -> String {
+    app.send_keys("M-< C-n C-a C-f C-f C-f C-f C-f C-f C-f C-f");
+    app.send_keys(&format!("M-x {} RET", super::typing("lsp-rename")));
+    app.wait_for("the prompt", |state| {
+        state["prompts"][0]["prompt"].as_str() == Some("Rename \u{2018}value\u{2019} to: ")
+    });
+    app.send_keys("M-n");
+    app.wait_for("the old name on M-n", |state| {
+        state["prompts"][0]["text"] == "value"
+    });
+    app.send_keys(&format!("C-a C-k {} RET", super::typing(name)));
+    app.wait_for("the preview", |state| {
+        state["buffer"]["name"] == "*lsp-rename*"
+    });
+    let shown = app.call("get-text", Some(json!({ "start_row": 0, "rows": 20 })));
+    shown["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `M-x lsp-rename` reads the new name with the old on `M-n`, shows every changed line in
+/// `*lsp-rename*`, a file no buffer holds among them, and `y` applies it all, one step to undo in
+/// each buffer, the file opened unshown and unsaved; `n` leaves everything as it was.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_symbol_is_renamed_across_files_after_the_preview() {
+    let scratch = Scratch::new("lsp-rename");
+    set_mode(scratch.path(), 0o700);
+    let root = project(&scratch, "proj-lsp", &["main.rs"]);
+    let text = "fn main() {\n    let value = 1;\n    println!(\"{value}\");\n}\n";
+    scratch.write("proj-lsp/src/main.rs", text.as_bytes());
+    scratch.write("proj-lsp/src/lib.rs", b"pub fn value() {}\n");
+    let main = oso_lsp::uri::from_path(&root.join("src/main.rs")).unwrap();
+    let lib = oso_lsp::uri::from_path(&root.join("src/lib.rs")).unwrap();
+    let config = config(&scratch, &rename_rules(&main, &lib));
+    let record = scratch.write("conf/trusted-projects", record_line(&root).as_bytes());
+    set_mode(&record, 0o600);
+    let mut app = App::start_with_file_config_and_env(
+        &root.join("src/main.rs"),
+        scratch.path(),
+        &config,
+        &[],
+    );
+    app.wait_until_ready();
+    lsp_log_with(&mut app, "main.rs", "] initialized in ", 1);
+    let shown = rename_to_preview(&mut app, "count");
+    assert!(
+        shown.contains("renames \u{2018}value\u{2019} to \u{2018}count\u{2019}: 3 edits in 2 files (1 opened for it, unshown)"),
+        "{shown}"
+    );
+    assert!(shown.contains("     2 -     let value = 1;"), "{shown}");
+    assert!(shown.contains("     2 +     let count = 1;"), "{shown}");
+    assert!(
+        shown.contains("     3 +     println!(\"{count}\");"),
+        "{shown}"
+    );
+    assert!(shown.contains("src/lib.rs (1 edit)"), "{shown}");
+    assert!(shown.contains("     1 + pub fn count() {}"), "{shown}");
+    app.send_keys("y");
+    let state = app.wait_for("the rename applied", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.contains("3 edits in 2 buffers, unsaved; C-x s saves"))
+    });
+    assert_eq!(state["buffer"]["name"], "main.rs", "{state}");
+    assert!(
+        !state["buffers"].to_string().contains("*lsp-rename*"),
+        "{state}"
+    );
+    let lib_buffer = state["buffers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|buffer| buffer["name"] == "lib.rs")
+        .cloned()
+        .unwrap_or_else(|| panic!("lib.rs opened: {state}"));
+    assert_eq!(lib_buffer["modified"], true, "{lib_buffer}");
+    let rows = app.call("get-text", Some(json!({ "start_row": 1, "rows": 2 })));
+    assert!(rows.to_string().contains("let count = 1;"), "{rows}");
+    assert!(rows.to_string().contains("{count}"), "{rows}");
+    // One step to undo in the buffer.
+    app.send_keys("C-z");
+    let rows = app.call("get-text", Some(json!({ "start_row": 1, "rows": 2 })));
+    assert!(rows.to_string().contains("let value = 1;"), "{rows}");
+    assert!(rows.to_string().contains("{value}"), "{rows}");
+
+    // `n` drops it, and nothing changes.
+    let shown = rename_to_preview(&mut app, "other");
+    assert!(shown.contains("to \u{2018}other\u{2019}"), "{shown}");
+    app.send_keys("n");
+    let state = app.wait_for("the rename dropped", |state| {
+        state["buffer"]["name"] == "main.rs"
+            && state["echo"]
+                .as_str()
+                .is_some_and(|echo| echo.contains("rename not applied"))
+    });
+    assert!(
+        !state["buffers"].to_string().contains("*lsp-rename*"),
+        "{state}"
+    );
+    let rows = app.call("get-text", Some(json!({ "start_row": 1, "rows": 1 })));
+    assert!(rows.to_string().contains("let value = 1;"), "{rows}");
+}

@@ -80,8 +80,13 @@ error there or a refactoring, the one the server prefers selected; `RET` applies
 to the buffers it changes, each as one step to undo, and the echo area says what changed. One the
 server disabled is faded, with its reason. An action that changes a file no buffer holds asks
 first, `apply to N files, M not open?`; `y` opens them, unshown and unsaved, and applies it. An
-action that runs a command of the server's applies what the server then changes. The rest
-comes in later steps.
+action that runs a command of the server's applies what the server then changes.
+`M-x lsp-rename` renames what is at point, as Eglot's `eglot-rename`: the prompt names the old
+name, which `M-n` gives, and `*lsp-rename*` then shows every line the rename changes, in every
+file, as it is and as it would be. `y` applies it, each buffer's edits one step to undo, opening
+the files no buffer holds unshown; nothing is saved, and `C-x s` saves. `n`, `q` or `C-g` leaves
+everything as it was, and `C-g` while the server works stops it. It has no key, as `C-c` and a
+letter are yours to bind.
 
 A server can be changed in `config.toml`:
 

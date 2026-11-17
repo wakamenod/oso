@@ -178,6 +178,7 @@ fn exits_looks_and_reviews_reach_the_tracker_and_forget_drops_it() {
     core.handle(Job::Forget(1), at + ms(2));
     assert!(core.handle(Job::Changes(1, true), at + ms(3)).is_empty());
     assert!(core.handle(Job::ReviewOpened(1), at + ms(3)).is_empty());
+    assert!(core.handle(Job::WorkMerged(1, at), at + ms(3)).is_empty());
     assert!(core.handle(screen("x"), at + ms(4)).is_empty());
     assert_eq!(core.due(), None);
 }
@@ -414,4 +415,25 @@ fn a_session_is_told_judged_only_by_looks_in_time_and_told_when_one_runs_late() 
     core.handle(Job::Rules(rules), due);
     let (found, _) = look_again(&mut core, due, 1);
     assert_eq!(judged(&found), [None]);
+}
+
+#[test]
+fn changes_found_merged_leave_ready_for_review() {
+    let start = Instant::now();
+    let (mut core, at) = working(start);
+    core.handle(screen("x"), at + ms(1));
+    let mut found = core.tick(at + ms(1));
+    while let Some(due) = core.due() {
+        found.extend(core.tick(due));
+    }
+    assert_eq!(states(&found), [State::Done]);
+    let now = at + ms(1000);
+    assert_eq!(
+        states(&core.handle(Job::Changes(1, true), now)),
+        [State::ReadyForReview]
+    );
+    assert_eq!(
+        states(&core.handle(Job::WorkMerged(1, now + ms(1)), now + ms(2))),
+        [State::Idle]
+    );
 }

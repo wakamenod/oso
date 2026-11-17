@@ -8,7 +8,11 @@
 //! idle at its prompt, was carried over a restart and judged idle there. With
 //! `[sessions] agents_start_without_asking`, the start asks nothing up to the limit, says so and
 //! marks the row, asks past the limit, asks again after `agent-starts-ask`, and asks for a
-//! `session_start` once the person no longer trusts the project (ADR 0135).
+//! `session_start` once the person no longer trusts the project (ADR 0135). A worktree
+//! session whose turn leaves work not merged is ready for review until the person's listing,
+//! or an agent's of its space, finds it merged; a turn that ends on merged work leaves it done, and a removal takes a worktree whose
+//! session is ready for review once its work is merged (ADR 0121, "Merged work is not ready for
+//! review, as amended").
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: the tools' table,
 //! the questions' wording, the loop guard and the refusals have their own tests.
@@ -23,10 +27,11 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::harness::App;
-use super::worktrees::{DEADLINE, Flow, asks, terminal};
+use super::worktrees::{DEADLINE, Flow, asks, keys, terminal};
 
 /// The fake: where it runs and what it was given, a FIFO `in.PID` for its bridge's stdin, and
 /// once the flow wrote `bridge.PID`, that script run as its child, writing to `out.PID`. It
+/// prints each `screen.PID` the flow writes, cleared first, as the TUI would. It
 /// exits with the status the flow writes to `go.PID`, or to `go` for every run, and ends once
 /// the flow's directory is gone. `DIR` is the flow's scratch directory.
 pub(super) const FAKE: &str = r#"#!/bin/sh
@@ -38,6 +43,11 @@ printf 'fake claude\n'
 bridged=
 while [ ! -f "$dir/go" ] && [ ! -f "$dir/go.$$" ]; do
   [ -d "$dir" ] || exit 0
+  if [ -f "$dir/screen.$$" ]; then
+    printf '\033[2J\033[H'
+    cat "$dir/screen.$$"
+    rm -f "$dir/screen.$$"
+  fi
   if [ -z "$bridged" ] && [ -f "$dir/bridge.$$" ]; then
     sh "$dir/bridge.$$" < "$dir/in.$$" > "$dir/out.$$" 2> "$dir/err.$$" &
     bridged=1
@@ -110,6 +120,8 @@ fn quoted(word: &str) -> String {
 pub(super) struct Bridge {
     input: File,
     output: PathBuf,
+    /// Where the server's standard error goes.
+    errors: PathBuf,
     next: u64,
 }
 
@@ -157,6 +169,7 @@ impl Bridge {
         let mut bridge = Bridge {
             input,
             output: dir.join(format!("out.{}", run.pid)),
+            errors: dir.join(format!("err.{}", run.pid)),
             next: 1,
         };
         let id = bridge.send(
@@ -212,6 +225,17 @@ impl Bridge {
         }
     }
 
+    /// What the server wrote so far, to standard output and standard error, for a flow that
+    /// fails waiting on it.
+    fn said(&self) -> String {
+        let read = |path: &Path| fs::read_to_string(path).unwrap_or_default();
+        format!(
+            "its stdout:\n{}\nits stderr:\n{}",
+            read(&self.output),
+            read(&self.errors)
+        )
+    }
+
     /// The result of the tool call `id`: what it said, parsed if it is JSON, and whether it is
     /// an error.
     pub(super) fn result(&self, id: u64) -> (Value, bool) {
@@ -234,21 +258,41 @@ impl Bridge {
 /// Starts an instance in `flow`'s repository and a session at its root, and returns the
 /// instance and that session's bridge.
 fn hosted(flow: &Flow) -> (App, Bridge) {
-    let (mut app, _) = flow.start();
+    let (app, bridge, _) = hosted_with_readme(flow);
+    (app, bridge)
+}
+
+/// As [`hosted`], with the id of the `README.md` buffer the instance opened.
+fn hosted_with_readme(flow: &Flow) -> (App, Bridge, Value) {
+    let (mut app, readme) = flow.start();
     app.send_keys("C-c a c");
     let run = run_in(flow, &flow.repo);
     app.wait_for("the session's terminal", |state| {
         terminal(state, "*claude: repo*").is_some()
     });
     let bridge = Bridge::start(flow, &run);
-    (app, bridge)
+    (app, bridge, readme)
 }
 
-/// Waits for the agent's question, and answers it with `key` as the person.
-pub(super) fn answer(app: &mut App, key: &str) -> String {
-    let state = app.wait_for("the agent's question", |state| {
-        asks(state).is_some_and(|prompt| prompt.starts_with("Agent: "))
-    });
+/// Waits for the question an agent's call on `bridge` asks, and answers it with `key` as the
+/// person. One that does not come fails with what was asked instead, the echo area and what
+/// the bridge said, which tell a call that never reached the app from another question.
+pub(super) fn answer(app: &mut App, bridge: &Bridge, key: &str) -> String {
+    let deadline = Instant::now() + DEADLINE;
+    let state = loop {
+        let state = app.state();
+        if asks(&state).is_some_and(|prompt| prompt.starts_with("Agent: ")) {
+            break state;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no agent's question after {DEADLINE:?}; asked instead: {}; the echo area: {}; the bridge: {}",
+            state["prompts"],
+            state["echo"],
+            bridge.said(),
+        );
+        thread::sleep(Duration::from_millis(100));
+    };
     thread::sleep(QUIET);
     app.send_keys(key);
     asks(&state).unwrap_or_default()
@@ -295,7 +339,7 @@ fn an_allowed_worktree_session_starts_and_its_finished_worktree_is_removed() {
         "start_worktree_session",
         json!({ "branch": "e2e-agent", "brief": "Fix the parser" }),
     );
-    let question = answer(&mut app, "y");
+    let question = answer(&mut app, &bridge, "y");
     assert!(question.contains("e2e-agent"), "{question}");
     let (started, error) = bridge.result(id);
     assert!(!error, "{started}");
@@ -351,7 +395,7 @@ fn an_idle_session_carried_over_a_restart_is_judged_and_its_worktree_removed() {
         "start_worktree_session",
         json!({ "branch": "e2e-idle", "brief": "Fix the parser" }),
     );
-    answer(&mut old, "y");
+    answer(&mut old, &bridge, "y");
     let (started, error) = bridge.result(id);
     assert!(!error, "{started}");
     let run = run_in(&flow, &place);
@@ -388,6 +432,172 @@ fn an_idle_session_carried_over_a_restart_is_judged_and_its_worktree_removed() {
     flow.exit_with(0);
 }
 
+const WORKING: &str = include_str!("../../src/sessions/screens/working.txt");
+const DONE: &str = include_str!("../../src/sessions/screens/done.txt");
+
+/// Has `run` of the fake print `screen`.
+fn print(flow: &Flow, run: &Run, screen: &str) {
+    let staged = flow
+        .scratch
+        .write(&format!("screen.{}.new", run.pid), screen.as_bytes());
+    fs::rename(
+        staged,
+        flow.scratch.path().join(format!("screen.{}", run.pid)),
+    )
+    .unwrap();
+}
+
+/// Session `name`'s state in the dev state.
+fn state_of(state: &Value, name: &str) -> Option<String> {
+    state["sessions"]["sessions"]
+        .as_array()?
+        .iter()
+        .find(|session| session["name"] == name)?["state"]
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// Has session `name`, run `run` of the fake, take a turn that ends: working, then done or,
+/// with changes not merged, ready for review. Returns the state the turn ended in.
+fn turn(app: &mut App, flow: &Flow, run: &Run, name: &str) -> String {
+    print(flow, run, WORKING);
+    app.wait_for("working", |state| {
+        state_of(state, name).as_deref() == Some("working")
+    });
+    print(flow, run, DONE);
+    let state = app.wait_for("the turn's end", |state| {
+        state_of(state, name).is_some_and(|s| s != "working")
+    });
+    state_of(&state, name).unwrap()
+}
+
+/// Starts a worktree session on `branch` from the session at the repository's root, idle in
+/// Claude Code's registry, and commits work there. Returns its place and its run.
+fn worktree_with_work(
+    app: &mut App,
+    bridge: &mut Bridge,
+    flow: &Flow,
+    branch: &str,
+) -> (PathBuf, Run) {
+    let place = flow.repo.join(".claude/worktrees").join(branch);
+    let id = bridge.call(
+        "start_worktree_session",
+        json!({ "branch": branch, "brief": "Fix the parser" }),
+    );
+    answer(app, "y");
+    let (started, error) = bridge.result(id);
+    assert!(!error, "{started}");
+    let run = run_in(flow, &place);
+    app.wait_for("the worktree session's terminal", |state| {
+        terminal(state, &format!("*claude: {branch}*")).is_some()
+    });
+    registered_idle(flow, &run, &place);
+    // Its own bridge connects, as a real session's does once it starts: only then does oso
+    // know its process, which the registry's half of check 4 needs.
+    let mut own = Bridge::start(flow, &run);
+    let (_, error) = own.tool("session_list", json!({}));
+    assert!(!error);
+    fs::write(place.join("work.txt"), "work\n").unwrap();
+    flow.git(&place, &["add", "work.txt"]);
+    flow.git(&place, &["commit", "-q", "--no-gpg-sign", "-m", "work"]);
+    (place, run)
+}
+
+/// Merges `branch` into main and pushes it, as a merged pull request would.
+fn merge(flow: &Flow, branch: &str) {
+    flow.git(&flow.repo, &["merge", "-q", "--ff-only", branch]);
+    flow.git(&flow.repo, &["push", "-q", "origin", "main"]);
+}
+
+/// Work not merged is ready for review; once merged, the person's listing makes it idle, a
+/// turn that ends on it leaves it done, new work makes it ready for review again until an agent
+/// of its space lists it merged, and its worktree is removed.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn merged_work_is_not_ready_for_review() {
+    let flow = Flow::with_fake("session-tools-merged-work", "", FAKE);
+    let (mut app, mut bridge, readme) = hosted_with_readme(&flow);
+    let (place, run) = worktree_with_work(&mut app, &mut bridge, &flow, "e2e-merged");
+    let name = "e2e-merged";
+    assert_eq!(turn(&mut app, &flow, &run, name), "done");
+    app.wait_for("ready for review", |state| {
+        state_of(state, name).as_deref() == Some("ready for review")
+    });
+
+    merge(&flow, name);
+    // The person's listing reaches every session.
+    app.show_buffer(&readme);
+    app.send_keys(&format!("M-x {} RET", keys("worktree-list")));
+    app.wait_for("*Worktrees*", |state| {
+        state["buffer"]["name"] == "*Worktrees*"
+    });
+    app.wait_for("idle once the person's listing found it merged", |state| {
+        state_of(state, name).as_deref() == Some("idle")
+    });
+    // The next turn's end on merged work leaves it done; an agent of its space then lists.
+
+    assert_eq!(turn(&mut app, &flow, &run, name), "done");
+    // The look and the merged check that follow it take well under a second.
+    thread::sleep(Duration::from_secs(2));
+    assert_eq!(
+        state_of(&app.state(), name).as_deref(),
+        Some("done"),
+        "merged work after a turn is not ready for review"
+    );
+    // A new commit, not merged: ready for review again, until an agent of its space lists it
+    // merged.
+    fs::write(place.join("more.txt"), "more\n").unwrap();
+    flow.git(&place, &["add", "more.txt"]);
+    flow.git(&place, &["commit", "-q", "--no-gpg-sign", "-m", "more"]);
+    turn(&mut app, &flow, &run, name);
+    app.wait_for("ready for review again", |state| {
+        state_of(state, name).as_deref() == Some("ready for review")
+    });
+    merge(&flow, name);
+    let (listed, error) = bridge.tool("worktree_list", json!({}));
+    assert!(!error, "{listed}");
+    app.wait_for("idle once its space's agent found it merged", |state| {
+        state_of(state, name).as_deref() == Some("idle")
+    });
+
+    thread::sleep(AFTER_TYPING);
+    let path = place.display().to_string();
+    let (removed, error) = bridge.tool("worktree_remove", json!({ "path": path }));
+    assert!(!error, "{removed}");
+    assert!(!place.exists(), "the worktree is still there");
+    flow.exit_with(0);
+}
+
+/// A removal does not wait for a listing: a session ready for review whose work has been
+/// merged since does not keep its worktree, and is stopped before git removes it.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_removal_takes_a_worktree_whose_reviewable_work_was_merged() {
+    let flow = Flow::with_fake("session-tools-merged-remove", "", FAKE);
+    let (mut app, mut bridge) = hosted(&flow);
+    let (place, run) = worktree_with_work(&mut app, &mut bridge, &flow, "e2e-reviewable");
+    let name = "e2e-reviewable";
+    turn(&mut app, &flow, &run, name);
+    app.wait_for("ready for review", |state| {
+        state_of(state, name).as_deref() == Some("ready for review")
+    });
+    thread::sleep(AFTER_TYPING);
+    let path = place.display().to_string();
+    let (kept, error) = bridge.tool("worktree_remove", json!({ "path": path }));
+    assert!(error, "{kept}");
+    assert!(place.exists(), "work not merged was removed");
+
+    merge(&flow, name);
+    let (removed, error) = bridge.tool("worktree_remove", json!({ "path": path }));
+    assert!(!error, "{removed}");
+    assert!(!place.exists(), "the worktree is still there");
+    app.wait_for("its session stopped, as an idle one is", |state| {
+        terminal(state, &format!("*claude: {name}*"))
+            .is_some_and(|terminal| terminal["ended"] == "stopped: session-resume to continue")
+    });
+    flow.exit_with(0);
+}
+
 /// Has Claude Code's registry, under the flow's home, say `run` is idle in `cwd`, as a
 /// `claude` at its prompt does: the other half of a removal's check that it is not busy.
 fn registered_idle(flow: &Flow, run: &Run, cwd: &Path) {
@@ -420,7 +630,7 @@ fn a_refused_worktree_session_is_refused_again_without_asking() {
     let call = json!({ "branch": "e2e-refused", "brief": "Fix the parser" });
 
     let id = bridge.call("start_worktree_session", call.clone());
-    answer(&mut app, "n");
+    answer(&mut app, &bridge, "n");
     let (said, error) = bridge.result(id);
     assert!(error, "{said}");
     assert!(
@@ -504,7 +714,7 @@ fn a_worktree_session_starts_without_asking_up_to_the_limit_and_asks_past_it() {
         "start_worktree_session",
         json!({ "branch": "e2e-asked", "brief": "Fix the lexer" }),
     );
-    let question = answer(&mut app, "n");
+    let question = answer(&mut app, &bridge, "n");
     assert!(question.contains("e2e-asked"), "{question}");
     let (said, error) = bridge.result(id);
     assert!(error, "{said}");
@@ -559,7 +769,7 @@ fn after_agent_starts_ask_a_start_asks_again() {
         "start_worktree_session",
         json!({ "branch": "e2e-held", "brief": "Fix the parser" }),
     );
-    answer(&mut app, "n");
+    answer(&mut app, &bridge, "n");
     let (said, error) = bridge.result(id);
     assert!(error, "{said}");
     assert_eq!(runs(&flow).len(), 1, "a second fake ran");
@@ -601,7 +811,7 @@ fn a_session_in_its_own_directory_starts_without_asking_until_the_project_is_unt
     });
     thread::sleep(AFTER_TYPING);
     let id = bridge.call("session_start", json!({ "brief": "Look again" }));
-    answer(&mut app, "n");
+    answer(&mut app, &bridge, "n");
     let (said, error) = bridge.result(id);
     assert!(error, "{said}");
     flow.exit_with(0);

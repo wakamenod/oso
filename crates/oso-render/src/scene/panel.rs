@@ -197,7 +197,8 @@ fn key_chip(
 }
 
 /// The selected candidate's `row`, a little wider than its cells, kept inside the panel's
-/// `fill` and cut to `clip`, or, in a `bar` across the whole panel, square (ADR 0076).
+/// `fill` and cut to `clip`, or, as a `bar`, square on its cells, which the caller makes as
+/// wide as the bar goes (ADR 0076).
 fn selected_box(
     row: CellRect,
     bar: bool,
@@ -212,7 +213,7 @@ fn selected_box(
         return None;
     }
     let across = if bar {
-        f32::INFINITY
+        0.0
     } else {
         (style.selected_reach * pt).round()
     };
