@@ -6,8 +6,9 @@
 //! Must not depend on: key presses or how a frame is drawn; the commands ask by
 //! [`ReviewRequest`], and this answers.
 //!
-//! - Only the work tree's scopes take accept and reject (Q-B): a commit's, a branch's or a
-//!   range's say so. In the staged scope, reject unstages, and accept says it is staged already.
+//! - Only the work tree's scopes take accept and reject (Q-B): a commit's, a branch's, a
+//!   range's or a pull request's (step 12b) say so. In the staged scope, reject unstages, and
+//!   accept says it is staged already.
 //! - Only hunks of a modified text file that is no link are accepted or rejected (Q-E): an
 //!   added, deleted, renamed, binary or linked file says why.
 //! - Hunks are named by the model's reading they were picked in and their index there, shared,
@@ -153,8 +154,11 @@ impl Done {
 /// What a scope lets accept and reject do: `true` for the work tree, `false` for the index.
 fn work_tree(scope: &Scope) -> Result<bool, &'static str> {
     match scope {
-        Scope::Commit { .. } | Scope::Branch { .. } | Scope::Range { .. } => Err(
-            "Accept and reject change the work tree's changes: not in a commit's, branch's or range's review",
+        Scope::Commit { .. }
+        | Scope::Branch { .. }
+        | Scope::Range { .. }
+        | Scope::PullRequest { .. } => Err(
+            "Accept and reject change the work tree's changes: not in a commit's, branch's, range's or pull request's review",
         ),
         Scope::Staged => Ok(false),
         Scope::Session { .. } | Scope::Uncommitted | Scope::Unstaged => Ok(true),

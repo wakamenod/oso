@@ -92,11 +92,13 @@ often, so it must rebuild within 2 s.
   lays out a review buffer's whole text on `oso-review-view`, one thread per review, and
   `review/view/panes.rs` its two panes, which `app/reviews/layout.rs` switches areas to;
   `review/view/highlight.rs` opens each side as a document no buffer owns on the syntax threads,
-  through the handle `app/reviews/highlight.rs` gives it, and `review/view/project.rs` lays the
-  runs over the review's lines (step 9); and
+  through the handle `app/reviews/highlight.rs` gives it, which also offers it the open
+  buffers whose text a new side may be (`review/view/highlight/buffers.rs`), and
+  `review/view/project.rs` lays the runs over the review's lines (step 9); and
   `review/count.rs` counts the review menu's scopes on `oso-review-count`. `review/message.rs`
   composes the message of the person's comments that `app/reviews/send.rs` pastes into the
-  review's session through `send_to_session` (step 12). A review buffer's
+  review's session through `send_to_session` (step 12). `review/pr.rs` resolves a pull
+  request's sides through `gh` and a fetch of objects alone (step 12b). A review buffer's
   keys are listed in `commands::review::KEYS`, which `?` reads, and bound by
   `bindings/review.rs`.
 - `src/git.rs` and `src/git/` are what every run of git shares (ADR 0127, as built): the
@@ -105,7 +107,9 @@ often, so it must rebuild within 2 s.
   `TrustedRoot` (`trust`), the only place git starts from; git's names and the secret-name
   check (`path`); the empty hooks directory under oso's state directory (`hooks`); and runs
   with no time limit in a process group of their own, which the person stops (`long`); `gh`, about
-  the GitHub repository a remote names (`gh`, ADR 0121 and ADR 0127 step 5a); text from a run
+  the GitHub repository a remote names, and the remote pull requests are asked about
+  (`PullTarget`) (`gh`, ADR 0121 and ADR 0127 step 5a); the worktrees git lists (`worktrees`,
+  shared by the worktree jobs and a pull request's review); text from a run
   made safe to show (`said`); a push,
   a pull or a fetch gets the proxies and a session of its own with no controlling terminal
   (`Git::for_remote`, ADR 0127 step 2). The review, the worktree jobs and the git status use it;

@@ -256,6 +256,21 @@ network features.
   refused while something is stopped, judged on the run thread, and when oso cannot tell. Only
   a label the push's filter takes is offered to check out. These runs honour `refs/replace/`,
   as the person's own git does, where the graph's reads do not.
+- A pull request's review (ADR 0122, step 12b) asks `gh` as the pull request buffers do, from
+  the review's thread, only for the person's `p`, `r` or `g` in a trusted project, never on a
+  timer. Only the whole commit ids it gives reach git; its base branch reaches git only as a
+  plain ASCII branch name, so no refspec of GitHub's can name a ref to write. The side the
+  clone lacks is fetched from the branch's remote, else `origin`, with the review's empty
+  hooks directory and reads' variables, the proxies, the SSH agent and no controlling
+  terminal (`Git::for_fetch`), as objects alone (`--refmap=`, `--no-write-fetch-head`), so no
+  ref moves and `FETCH_HEAD` names nothing of a fork's for a later merge; with no tags,
+  submodules or upkeep. The review's stop ends the fetch and the wait for `gh`; a fetch still
+  running as oso quits goes on, with no bound, until it ends or fails. A failed fetch shows
+  git's own last line, never a server's own error or `remote:` text. The work tree stands for the pull request only when
+  the head branch checked out holds its head commit, so a branch behind it hides no pushed
+  commit, and comments go to a worktree only under the same rule, and to the review's own
+  session after a failed refresh. The branch and title are escaped in the echo area, after the
+  fixed words.
 - Pull requests (ADR 0127, step 5a) are read through `gh`, the person's: in a trusted project
   only, on a thread of the repository's own, `gh` run in the empty private directory, never in
   the repository, with `--repo` naming the repository the branch's remote's address gives, on
@@ -505,6 +520,15 @@ shown, boxed or escaped.
   dumps are disabled with `RLIMIT_CORE` on Unix, soft and hard. Windows has no such limit for a process to set.
   The panic hook prints the location and the stack and never the message, also for a panic caught at the
   command boundary ([ADR 0028](adr/0028-secrets-handling.md), [ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
+- `view-lossage` keeps the last 300 keys oso received, in memory only: never saved, logged or
+  carried over a restart. A key typed where secrets may be (a buffer that may hold them, a
+  passphrase prompt, or a prompt, isearch or jump over such a buffer) is kept as `<hidden>`,
+  with nothing of what it ran, and so is a character sent to a terminal's program, which may be
+  a password the terminal has not yet seen asked for. A run of hidden keys is one line. A key
+  held to run later is kept as `<held>` until it runs, where it is judged. `*Lossage*` is
+  withheld from the agent channel, and the channel can run neither `view-lossage` nor
+  `describe-key`, which reads no key where secrets may be
+  ([ADR 0150](adr/0150-view-lossage-and-describe-key.md)).
 - Saving (T5) writes a temporary file beside the real file, follows symbolic links to
   find it, and renames it over that file, so a crash leaves the old file or the whole
   new one, unless the file system cannot sync, which the message then says. The text goes only to where the buffer's file was: if a link or a directory

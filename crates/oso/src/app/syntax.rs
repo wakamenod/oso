@@ -68,6 +68,10 @@ pub(super) struct Syntax {
     present: HashMap<BufferId, (Mode, bool)>,
     /// The description shown at point when `shown` was built, and its revision.
     described: Option<(BufferId, u64)>,
+    /// The epoch and revision each buffer was last reported highlighted whole at (ADR 0122,
+    /// step 9): a new start at the same revision, as a mode set again or highlighting turned
+    /// off and on, is not whole until its own done report.
+    whole: HashMap<BufferId, (u64, u64)>,
 }
 
 /// The buffers the worker may have: every buffer of the user's, and a server's description
@@ -129,6 +133,8 @@ pub(super) struct Taken {
     pub(super) redraw: bool,
     /// What to say, if the buffer's highlighting failed.
     pub(super) message: Option<String>,
+    /// Whether the buffer took the report's highlights.
+    pub(super) taken: bool,
 }
 
 impl<Key> Orders<Key> {
@@ -161,6 +167,7 @@ impl Syntax {
             keep
         });
         self.stopped.retain(|id, _| present.contains_key(id));
+        self.whole.retain(|id, _| present.contains_key(id));
         drops
     }
 
@@ -308,10 +315,16 @@ impl Syntax {
         };
         // O(1): the runs are shared.
         let before = buffer.highlights().cloned();
+        let mut taken = false;
         let why = match report.outcome {
             Outcome::Highlights(highlights) => {
                 // False for a report the buffer cannot take, which changes nothing.
-                buffer.take_highlights(report.revision, highlights);
+                taken = buffer.take_highlights(report.revision, highlights);
+                // Whole at its revision only if no edit came since.
+                if taken && report.done && report.revision == buffer.revision() {
+                    self.whole
+                        .insert(report.buffer, (report.epoch, report.revision));
+                }
                 None
             }
             Outcome::Failed(failure) => Some(why(failure)),
@@ -332,7 +345,18 @@ impl Syntax {
             .map(|(_, range)| range)
             .chain(everywhere.as_ref())
             .any(|range| changed(before.as_ref(), after, range));
-        Taken { redraw, message }
+        Taken {
+            redraw,
+            message,
+            taken,
+        }
+    }
+
+    /// Whether buffer `id`'s whole text is highlighted at `revision`, its revision now, in the
+    /// worker's current start of it.
+    pub(super) fn is_whole(&self, id: BufferId, revision: u64) -> bool {
+        let epoch = self.sent.get(&id).map(|sent| sent.epoch);
+        epoch.is_some_and(|epoch| self.whole.get(&id) == Some(&(epoch, revision)))
     }
 }
 
@@ -487,7 +511,11 @@ impl App {
                 return self.review_side_reported(review, rekeyed(report, key));
             }
         };
+        let id = report.buffer;
         let taken = self.syntax.take(&mut self.editor, report);
+        if taken.taken {
+            self.review_buffer_highlighted(id);
+        }
         if let Some(message) = taken.message {
             self.editor.message(message);
             self.request_redraw();
@@ -499,3 +527,5 @@ impl App {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod whole_tests;

@@ -109,7 +109,7 @@ previous setup measured 25 ms for 206 files once the index's stat cache is copie
 | Unstaged | the index | the working tree |
 | Branch against base | `merge-base BASE HEAD` | the working tree |
 | A commit or a range | `X^` or `FROM^` (the empty tree for a root commit) | `X` or `TO` |
-| A pull request | the PR's base commit | its head commit |
+| A pull request | `merge-base BASE HEAD` of the PR's base and head commits (amended in step 12b) | its head commit |
 
 - **The session baseline** is a tree written through a throwaway index, so the person's index and
   stash are untouched: copy the real index (keeping its modification time, so its stat cache
@@ -123,9 +123,11 @@ previous setup measured 25 ms for 206 files once the index's stat cache is copie
   weeks by default. A review whose baseline is gone says so and offers the uncommitted scope.
 - **A pull request** is found with `gh pr view N --json number,title,baseRefOid,headRefOid,…` (and
   listed with `gh pr list`). Commits missing locally are fetched with `git fetch --no-tags
-  --recurse-submodules=no --refmap= REMOTE pull/N/head` into `FETCH_HEAD` only, no ref of the
-  person's moved. When the PR's branch is the one checked out, the scope is branch against base
-  instead, so the working tree shows. Posting to GitHub is not in this ADR.
+  --recurse-submodules=no --refmap= --no-write-fetch-head REMOTE pull/N/head` as objects alone
+  (amended in step 12b, where it said "into `FETCH_HEAD` only"), no ref of the person's moved. When the PR's branch is the one checked out, the scope is branch against base
+  instead, so the working tree shows, when that branch holds the PR's head commit (step 12b, as
+  built: the old side stays the PR's own merge-base, and only the new side is the work tree).
+  Posting to GitHub is not in this ADR.
 - **The menu** (`C-x v r`, a float of choices as in ADR 0117 once it lands, a completing
   prompt until then) offers each scope with its file count, counted on a worker and
   filled in as each count comes. It remembers the last choice per project.
@@ -639,7 +641,9 @@ The author answered every question on 2026-11-12, through the coordinator: (a) f
 - [ADR 0111](0111-tree-sitter-highlighting.md), "the worker a tree per buffer": the workers also
   parse documents no buffer owns, a review's sides, under the same limits and secret rules. And
   the contrast tests: syntax faces, and plain text, are also checked at 7:1 on a review's added
-  and removed bands, where a side's highlighted lines draw them (step 9).
+  and removed bands, where a side's highlighted lines draw them (step 9). And "reports go only
+  when the highlights changed": a buffer's report also goes once for each epoch and revision its
+  whole text is highlighted at, even with nothing new, saying it is done (step 9).
 - [ADR 0112](0112-window-splits.md), the window tree: it gains a pair of windows that scroll
   together and are closed and resized together.
 
@@ -1322,7 +1326,7 @@ building (below). What the first PR built:
 
 - **Public items:** `oso_syntax::Report::done`, true on a document no buffer owns' last report,
   which comes even when nothing changed since the one before, so that its caller can close it
-  (a buffer's is always false); and `Buffer::judge_name(&Path) -> Verdict`, the verdict on a
+  (a buffer's too since part two, below); and `Buffer::judge_name(&Path) -> Verdict`, the verdict on a
   path by its name alone, beside `Buffer::name_may_hold_secrets`. **The plan named it
   `oso_core::secret::judge_name`; the author chose an associated function of `Buffer` instead
   (2026-11-17), as `secret` is a private module and a public one would need an ADR of its own.**
@@ -1382,8 +1386,8 @@ building (below). What the first PR built:
 - **The bands (Q-B):** syntax faces, and plain text, are now checked at 7:1 on the added and
   removed bands, as on the current line's. To meet it, dark's added band went from `#13291c` to
   `#0f2016`, and light's removed band from `#fbe4e6` to `#ffe5ee`, a little pinker than the
-  plan's `#fce8ea` to stay 0.05 OKLab from the added band; both stay provisional until the
-  author picks from screenshots. Under the words refinement marks, text keeps the text's
+  plan's `#fce8ea` to stay 0.05 OKLab from the added band; the author approved both from
+  screenshots on 2026-11-17. Under the words refinement marks, text keeps the text's
   colour, as built in step 3, since a syntax face is only 3.6:1 there in dark.
 - **The `review` scenario** adds `review_highlight_first_screen_ms`, from `C-x v r w` to the
   first frame whose sides on screen are highlighted, `review_highlight_whole_ms`, to the first
@@ -1405,6 +1409,53 @@ building (below). What the first PR built:
   nothing new; the theme's pairs; the scene drawing a review line's syntax over its band and
   the text's colour under refined words; and an end-to-end flow in which a review's sides are
   highlighted and `global-font-lock-mode` turns that off and on.
+
+### Step 9: highlighting the sides, part two
+
+The second PR brings the two panes' paint and an open buffer's highlights. The author chose, on
+2026-11-17 through the coordinator, that `Report::done` say a buffer is highlighted whole too
+(option (a) of three: not, and keep parsing the side; or leave the reuse out). What it built:
+
+- **Public items:** `Editor::set_review_panes_paint(id, old, new)`, each pane's rows and
+  highlights for texts that did not change, put in at O(1), refused whole, changing nothing,
+  when the review has no panes or either pane's rows do not cover its lines or its highlights
+  its text. **`Report::done` is now true for a buffer too,** once for each revision its whole
+  text is highlighted at, forced as a document's last report is, even with nothing new since
+  the report before; the field and its type are unchanged.
+- **The panes:** each pane's sections take their file's sides' runs as the unified text's do,
+  merged in one pass, and a paint of both panes goes with the unified one when only runs
+  changed and the panes are built and not laid out anew.
+- **An open buffer (Q-C, Q-D):** after each report a buffer takes, and for every open buffer
+  when a review's highlighting turns on, the UI offers each such review's view an O(1) copy of
+  the buffer's text and highlights, its path under the review's top as git names it
+  (`git::name_of`, which the git status's withheld paths now use too), its revision, its
+  language, and whether it is highlighted whole in the worker's current start of it, at that
+  revision: the glue keeps the epoch and revision of each buffer's done report, so a mode set
+  again or highlighting turned off and on at the same revision is not whole until its own.
+  Never a buffer that may hold secrets, whose highlights it does not show. The view keeps the
+  latest of each path, only those of the review's files once it lists them and none while
+  highlighting is off, and tries them with the next batch, so that offers that come together
+  cost one comparison; again when the file shows a new reading or comes on screen, so that runs
+  the budget dropped come back. It compares the buffer's text with the new side's, decoded as
+  the loader decodes it and its BOM left out, once a revision: O(1) when the buffer is shorter
+  than the side's bytes or more than three times longer, as after most edits, else O(n) on the
+  view thread, with a decoded copy only for a side with invalid bytes. While they are the
+  same, each try takes the buffer's runs as the new side's: every line the review shows of it
+  once the buffer's are whole, which closes the side's document or keeps it from opening, else
+  those on screen, the side's document still parsing. Never while highlighting is off, for a
+  file the text cut short, past 2 MiB, or from a buffer in another language than the side's
+  path says. A buffer edited since its reading is another text, so the side's own document is
+  used.
+- **The bands** stay as part one set them: the author approved them from screenshots.
+- **Tests:** the editor's pane paint and its refusals; the view's panes taking the runs as
+  laid out and as a paint, and no paint with nothing changed; a buffer's whole runs taken and
+  the side's document closed, another text or another language not taken; a buffer not whole
+  colouring the lines on screen once the file shows, and a new reading trying the buffer kept
+  again; nothing kept or taken while highlighting is off, and none for a withheld reading; the
+  comparison of a buffer's text and a side's; a buffer's done report once a revision, and not
+  again for a shown change; the glue's whole mark, gone with an edit and with a new start at
+  the same revision; a buffer offered only when ordinary and under the top; a path as git
+  names it; and the end-to-end flow showing the new pane highlighted after `|`.
 
 ### Step 10: a pair of windows that scroll together
 
@@ -1696,3 +1747,92 @@ second. The author approved the plan's public items and answered its questions (
   commands, their requests and refusals; `ListedOnPrefix` from keys, with `C-u` and from the
   agent channel; the agent refused in a message; sent cards' faces; and an end-to-end flow with
   a fake session that shows, drops, edits and sends a message, then finds nothing more to send.
+
+### Step 12b: pull requests through `gh`
+
+The second PR of step 12 (Q1). The author answered the plan's Q9 to Q11 (a) on 2026-11-17,
+through the coordinator, and approved its one public item while building: **`PrAct::Review`**,
+`r` in a pull request's buffer and on one in `*pull requests*`, as only the host knows which
+pull request a list's line names. The number goes in `ReviewRequest::Open`'s `revision`, as
+the plan said, with `ScopeKind::PullRequest`, which step 3 had left refused.
+
+- **Opening:** `p` in the review menu (`review-pull-request`, `Person`, in the Revisions group)
+  reads the number, a `#` before it allowed, then digits only, at most 18 and above 0, as
+  `commands::review::pull_number` checks it for the command and the scope; `r` (`git-pr-review`, `Person`) takes the pull
+  request of the buffer, or of the list's line. The menu counts nothing for `p`, as for `c`
+  and `r`, and the review thread refuses to count one. An open review of that number is shown
+  again and read again.
+- **The sides (Q9), as built:** on the review's own thread (`review/pr.rs`), on open and on
+  each `g` (Q10), never on a timer: `gh pr view N --repo R --json
+  number,title,baseRefName,baseRefOid,headRefName,headRefOid,isCrossRepository`, `R` and the
+  remote being the ones step 5a asks about, the branch's remote, else `origin`
+  (`git::PullTarget`). `gh` runs on a thread of its own, `oso-review-gh`, so that the review's
+  stop ends the wait at once and its comments are carried meanwhile; a run a stop left waiting
+  is taken up by the next request of that pull request, so at most one runs per review. An answer of another
+  number, or with an id not whole, is refused. **The old side is `git merge-base BASE HEAD`,
+  amending this ADR's table**, which said "the PR's base commit": GitHub's "Files changed"
+  shows the merge-base, and the base itself would show its later changes reversed. The new
+  side is the head's tree, or the work tree when the head branch is the one checked out, the
+  pull request is not a fork's, and **`HEAD` holds the head commit** (`merge-base
+  --is-ancestor`): a branch behind the pull request shows its head commit, so that no commit
+  pushed to it is hidden behind the work tree (the author's choice, from the security review).
+- **Fetching:** only the side the clone lacks, `refs/pull/N/head` or `refs/heads/BASE`, with
+  `git fetch --no-tags --recurse-submodules=no --no-auto-gc --no-write-commit-graph --refmap=
+  --no-write-fetch-head -- REMOTE …`: objects alone. **`--no-write-fetch-head` amends the
+  Decision's "into `FETCH_HEAD` only"** (the author's choice): git marks each ref fetched by
+  name for merging, so a later `git merge FETCH_HEAD`, the person's or an agent's, would have
+  taken a fork's commits. It runs as `Git::for_fetch`: the review's empty hooks directory and
+  reads' variables, with the proxies, the SSH agent and a session of its own with no
+  controlling terminal. The base branch must be a plain ASCII name git takes, so no refspec
+  from GitHub can name a ref to write. The echo area says `Fetching #N's commits from REMOTE:
+  closing the review stops it`; the fetch has no time limit, as the person's own has none,
+  and the review's stop ends it (closing it, a newer request, the project no longer trusted),
+  its comments carried meanwhile. A failed one says git's own last line, never a server's own
+  error (`fatal: remote error: …`) or `remote:` words (`git::own_line`, shared with `f`). Still missing after it, the review says so and `g` asks
+  again.
+- **Where comments go (Q11):** the thread lists the worktrees and reports the one the head
+  branch is checked out in whose `HEAD` holds the head commit (none for a fork's; at most four
+  looked at, as git checks a branch out once), and the
+  review's message goes to the session there, else to the review's own as in step 12a; the
+  session `C-u C-c C-c` picked still comes first, and a failed refresh forgets the worktree, so
+  comments then go to the review's own. The echo area says `Reviewing #N, its head commit shows
+  · BRANCH · TITLE`, or `checked out here, so the work tree shows`, the fixed words first and the
+  branch and title after them, escaped, so neither reads as oso's; it is said again when any of
+  them changes.
+- **Step 4's refreshes:** a look, and a refresh that step 4's marks start, read the sides
+  `gh` last gave (`Request::Refresh`'s `person` is false): only opening and the person's `g` ask
+  `gh` (Q10). A pull request whose head is the work tree still follows the person's edits.
+- **Decisions:** accept and reject refuse in a pull request's review, as in a branch's,
+  commit's or range's (step 5): it compares commits, whatever its new side.
+- **What moved into `git`**, as `review` may use no `vcs` or `sessions` (ADR 0038's layers):
+  the remote pull requests are asked about, `git::PullTarget` (was `vcs::pr::work`'s
+  `Target`); `GH_LIMIT`; and the worktree list, its run and parser, `git::worktrees` (was
+  `sessions::worktree::porcelain`'s and `Repo::worktrees`' run), with `os_lossy`, the path
+  decoding it shares with `porcelain`, in `git::path`. `Git::line` reads git's first line for
+  the target and the pull request buffers, `Git::is_ancestor` asks `merge-base --is-ancestor`
+  for the review, the worktree jobs and the branch delete, `git::own_line` picks git's own
+  line for the review's fetch and `f`, and `Git::run_long_with` is `run_long` with a stop
+  asked and a call between pieces, which the fetch uses. The worktree list's record is
+  `ListedWorktree`. The worktree jobs' `gh` count of
+  merged pull requests is now `MERGED_ASKED`, apart from `GH_LIMIT`, a time.
+- **Deviations, approved through the coordinator:**
+  - The plan's default number, the branch's own pull request, is not built: an empty answer is
+    refused. Reviewing the branch checked out is what `b` does.
+  - No timer runs `gh` (Q10): only opening and `g`.
+  - A fetch still running when oso quits is not ended with it, as a status run's is through
+    its ender: it runs in a session of its own with no terminal, writes only objects, and goes
+    on until it ends or fails, nothing of oso stopping it then.
+- **Left as they are:** a `g` while a fetch runs stops it and the refresh starts it again, the
+  echo area saying so; objects fetched this way are reachable from no ref, so a later fetch may
+  ask for them again until the person's own fetch brings the branch.
+- **Tests:** the answer read by shape, whole ids only; against temporary repositories and a
+  stand-in `gh`: the merge-base and the head's tree, the work tree for the head checked out
+  here holding the head, and not for a fork's or a branch behind the pull request; the head
+  branch's worktree, and none of a fork's or at another commit; a fetch from a bare repository
+  holding `refs/pull/7/head`, with no ref moved, no `FETCH_HEAD` written and no fetch the next
+  time; a pull request the remote lacks; a waiting `gh` run taken up again; an answer of another number or a short id; `gh`'s
+  failure; a failed fetch's words, git's and not the server's; base names refused; a stop
+  that ends a slow `gh`'s wait at once while carries are answered, and one that asks nothing;
+  the echo area's words, escaped; the number's checks in the commands and the scope; where
+  comments go; and an end-to-end flow, `review_pr`, that reviews a listed pull request with
+  `r` and shows it again through the menu's `p`.

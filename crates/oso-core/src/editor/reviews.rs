@@ -434,16 +434,12 @@ impl Editor {
         rows: Rows,
         highlights: Highlights,
     ) -> Result<ReviewLeftover, ReviewLeftover> {
-        let buffer = self
+        let Some(buffer_id) = self
             .review_buffer(id)
-            .and_then(|id| Some((id, self.buffer(id)?)));
-        let Some((buffer_id, buffer)) = buffer else {
+            .filter(|buffer| self.paint_covers(*buffer, &rows, &highlights))
+        else {
             return Err(ReviewLeftover::of(rows, highlights, None));
         };
-        let lines = buffer.text().max_point().row + 1;
-        if rows.lines() + 1 < lines || highlights.len() != buffer.text().len() {
-            return Err(ReviewLeftover::of(rows, highlights, None));
-        }
         Ok(ReviewLeftover {
             highlights: self.put_review_highlights(buffer_id, highlights),
             rows: self.put_review_rows(id, rows),
@@ -452,8 +448,22 @@ impl Editor {
         })
     }
 
+    /// Whether `rows` cover the lines of `buffer`, a review buffer or a pane, and `highlights`
+    /// its text, as a paint for a text that did not change must.
+    pub(super) fn paint_covers(
+        &self,
+        buffer: BufferId,
+        rows: &Rows,
+        highlights: &Highlights,
+    ) -> bool {
+        self.buffer(buffer).is_some_and(|shown| {
+            let lines = shown.text().max_point().row + 1;
+            rows.lines() + 1 >= lines && highlights.len() == shown.text().len()
+        })
+    }
+
     /// Puts in a review buffer's highlights, returning the ones before, or these if refused.
-    fn put_review_highlights(
+    pub(super) fn put_review_highlights(
         &mut self,
         buffer: BufferId,
         highlights: Highlights,
@@ -474,7 +484,7 @@ impl Editor {
     }
 
     /// The rows of the review `id`'s panes dropped since, for a leftover to free.
-    fn take_spare_rows(&mut self, id: ReviewId) -> Vec<Rows> {
+    pub(super) fn take_spare_rows(&mut self, id: ReviewId) -> Vec<Rows> {
         self.reviews
             .get_mut(id)
             .map(|open| std::mem::take(&mut open.spare))

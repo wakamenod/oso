@@ -53,8 +53,9 @@ impl Dispatcher {
             if session {
                 let keys = display_keys(&[route::C_C, key]).to_string();
                 editor.echo(format!("{keys} is undefined (C-c C-c sends C-c)"));
-            } else {
-                self.send_to_program(editor, id, ToProgram::Keys(vec![route::C_C, key]));
+                self.note_undefined();
+            } else if self.send_to_program(editor, id, ToProgram::Keys(vec![route::C_C, key])) {
+                self.lossage_sent(key);
             }
             return Some(Effects::default());
         }
@@ -75,7 +76,9 @@ impl Dispatcher {
         match routed {
             Route::Oso => None,
             Route::Send(keys) => {
-                self.send_to_program(editor, id, ToProgram::Keys(keys));
+                if self.send_to_program(editor, id, ToProgram::Keys(keys)) {
+                    self.lossage_sent(key);
+                }
                 Some(Effects::default())
             }
             Route::Hold => {
@@ -112,11 +115,49 @@ impl Dispatcher {
         }
     }
 
+    /// Where `key` would go in the selected terminal, said for `describe-key`, which sends
+    /// nothing and changes no terminal's state: `None` when the keymaps take it. It asks what
+    /// [`Dispatcher::route_to_terminal`] does.
+    pub(super) fn terminal_takes(&self, editor: &Editor, key: KeyPress) -> Option<&'static str> {
+        const SENT: &str = "is sent to the terminal's program";
+        let (window, buffer) = editor.current();
+        if !buffer.is_terminal() || editor.prompt().is_some() {
+            return None;
+        }
+        let session = buffer.hosts_session();
+        let pending_c_c =
+            self.resolver.pending() == [route::C_C] && (self.prefix.is_none() || session);
+        if pending_c_c && !is_cancel(key) && !self.binds_c_c(buffer, key) {
+            return Some(if session {
+                "is undefined (C-c C-c sends C-c)"
+            } else {
+                SENT
+            });
+        }
+        let state = self.terminal_keys.get(&window.buffer()).copied();
+        let state = State {
+            oso_busy: self.oso_busy(editor),
+            session,
+            ..state.unwrap_or_default()
+        };
+        match route::route(state, key) {
+            Route::Oso => None,
+            Route::Send(_) => Some(SENT),
+            Route::Hold => Some("is held, to go to the terminal's program with the next key"),
+            Route::SuspendKept => Some("is kept from the session's program"),
+            Route::LeaveCharMode => Some("leaves char mode"),
+        }
+    }
+
     /// Whether oso holds the mouse from a terminal's program, as it holds keys from it: a
-    /// prompt is open, something of oso's takes every key ([`Dispatcher::oso_busy`]), or input
-    /// waits for `!` or an undo ([`holds_input`]). The app adds a composition.
+    /// prompt is open, something of oso's takes every key ([`Dispatcher::oso_busy`]), as
+    /// `describe-key` reading does, or input waits for `!` or an undo ([`holds_input`]). The
+    /// app adds a composition.
     pub(crate) fn holds_the_mouse(&self, editor: &Editor) -> bool {
-        editor.prompt().is_some() || self.oso_busy(editor) || super::holds_input(editor)
+        editor.prompt().is_some()
+            || self.oso_busy(editor)
+            || self.describing()
+            || super::holds_input(editor)
     }
 
     /// Something of oso's is open that takes every key: a key sequence or a prefix argument in

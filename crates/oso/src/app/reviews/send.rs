@@ -7,7 +7,9 @@
 //! and the paste is `send_to_session`'s.
 //!
 //! - The session is the one the person picked for the review with `C-u C-c C-c`, while it
-//!   runs, else the hosted session that runs in the review's root, the one shown last first.
+//!   runs, else, for a pull request, the hosted session in the worktree its head branch is
+//!   checked out in (step 12b, Q11), else the one that runs in the review's root, the one shown
+//!   last first.
 //!   With none, the message stays and says how to pick or start one: nothing goes to the kill
 //!   ring, as the message may hold an agent's words (ADR 0074, Q-G).
 //! - A paste refused, as when the session asks for permission, keeps the message (Q6).
@@ -21,7 +23,7 @@
 //! - One message at a time: `C-c C-c` in a review while one is open shows it.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::editor::ReviewId;
@@ -32,6 +34,7 @@ use super::scope_label;
 use crate::commands::agent_sessions::{MAX_SEND_BYTES, too_large};
 use crate::commands::review::{MAX_NAME, one_line};
 use crate::review::message::{Item, compose};
+use crate::review::pr::PrFound;
 use crate::sessions::worker::SessionKey;
 
 /// What the buffer of a review's message is called.
@@ -245,15 +248,15 @@ impl App {
     }
 
     /// The session a message of `review` goes to: the one the person picked for it while it
-    /// runs, else the one that runs in the review's root, the one shown last first.
+    /// runs, else the one in each of [`places`], the one shown last first.
     fn review_session(&self, review: ReviewId) -> Option<SessionKey> {
         let picked = (self.reviews.sending.picked.get(&review).copied())
             .filter(|key| self.hosting.table().get(*key).is_some_and(|s| s.runs()));
         picked.or_else(|| {
             let index = self.reviews.index(review)?;
-            let project = self.reviews.open[index].project;
-            let root = self.editor.project(project)?.root().to_path_buf();
-            self.worktree_session(&root)
+            let running = &self.reviews.open[index];
+            let root = self.editor.project(running.project)?.root();
+            places(running.pr.as_ref(), root).find_map(|place| self.worktree_session(place))
         })
     }
 
@@ -287,6 +290,13 @@ impl App {
         }
         (same.len(), taken.len() - same.len())
     }
+}
+
+/// Where a review's session is looked for, in order: a pull request's comments go to the
+/// session where its head branch is checked out (step 12b, Q11), else to the review's own.
+fn places<'a>(found: Option<&'a PrFound>, root: &'a Path) -> impl Iterator<Item = &'a Path> {
+    let head = found.and_then(|found| found.worktree.as_deref());
+    head.into_iter().chain(std::iter::once(root))
 }
 
 /// Whether `now` says what `then` said when the message was made from it: an edit to other

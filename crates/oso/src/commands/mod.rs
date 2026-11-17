@@ -19,6 +19,7 @@ pub(crate) mod dired;
 mod edit;
 pub use edit::MAX_CROSSINGS;
 mod files;
+pub(crate) mod help;
 mod indent;
 mod isearch;
 mod jump;
@@ -93,6 +94,7 @@ const TABLES: &[&[Command]] = &[
     dired::OPERATION_COMMANDS,
     edit::COMMANDS,
     files::COMMANDS,
+    help::COMMANDS,
     indent::COMMANDS,
     isearch::COMMANDS,
     jump::COMMANDS,
@@ -262,6 +264,9 @@ mod tests {
         "agent-starts-allow",
         "agent-question-details",
         "agent-channel-stop",
+        // What the person typed, and keys read from the keyboard (ADR 0150).
+        "describe-key",
+        "view-lossage",
         // Answering a prompt, choosing what it answers, and running a command by name
         // (ADR 0076).
         "answer-no",
@@ -298,6 +303,7 @@ mod tests {
         "review-commit",
         "review-kill",
         "review-mark-baseline",
+        "review-pull-request",
         "review-range",
         "review-refresh",
         "review-session",
@@ -539,6 +545,7 @@ mod tests {
         "git-pr-open",
         "git-pr-previous-message",
         "git-pr-refresh",
+        "git-pr-review",
         "git-pr-view",
         "git-pr-visit",
         "github-issue-copy-link",

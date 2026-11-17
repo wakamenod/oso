@@ -413,7 +413,8 @@ planned.
 An agent's changes are reviewed in a review buffer ([ADR 0122](adr/0122-agent-review.md)),
 `*review: <scope> <project>*`, opened from the `review` menu on `C-x v r`: `D` since the session's
 baseline, `w` uncommitted, `u` unstaged, `s` staged, `b` the branch against its base (`C-u b`
-names it), `c` a commit, `r` a range `FROM..TO`, and `B` takes a baseline, keeping the menu open.
+names it), `c` a commit, `r` a range `FROM..TO`, `p` a pull request by its number (step 12b),
+and `B` takes a baseline, keeping the menu open.
 Each head's note counts the files it would show, as they come; the line under the title names the
 project and how long ago the baseline was taken. Only a trusted project runs git.
 
@@ -661,7 +662,10 @@ topological order, children before their parents, one row each (ADR 0127, step 4
   threads, unresolved first, and the conversation), `k` the same at its checks, `o` opens it in
   the browser after the echo area shows its address, `l` lists the open ones. In those buffers
   `RET` visits a thread's file at its line, shows a check's address, or shows a listed one; `o`
-  opens, `w` copies an address, `g` reads it again.
+  opens, `w` copies an address, `g` reads it again, and `r` reviews the pull request (ADR
+  0122, step 12b), `*review: pull request #N <project>*`, the echo area saying `Reviewing #N,
+  its head commit shows · BRANCH · TITLE` (or `checked out here, so the work tree shows`),
+  and `Fetching #N's commits from REMOTE: closing the review stops it` while it fetches.
 - Making and merging (step 5a-2): `N c` opens `*pull request: BRANCH*`, the branch's commit's
   message or its commits' subjects above the template, its first line the title; `C-c C-c` makes
   it, asking first to push a branch with no upstream or ahead of it, `C-c C-k` cancels, `M-p`
@@ -686,6 +690,10 @@ topological order, children before their parents, one row each (ADR 0127, step 4
   `*Messages*` and the log, and goes from the line once the window moves on. An
   undefined key and "Quit" reach only the line
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
+- `C-h l` shows the last 300 keys oso received in `*Lossage*`, each with what it ran, and
+  `C-h k` reads a key sequence and says in `*Help*` what it runs, without running it. Keys typed
+  where secrets may be show as `<hidden>`, as do characters sent to a terminal
+  ([ADR 0150](adr/0150-view-lossage-and-describe-key.md)).
 
 ## Emergency copies
 

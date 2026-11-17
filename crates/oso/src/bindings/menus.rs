@@ -244,6 +244,7 @@ const REVIEW: BuiltInMenu = BuiltInMenu {
             &[
                 exit("c", "review-commit", "a commit\u{2026}"),
                 exit("r", "review-range", "a range\u{2026}"),
+                exit("p", "review-pull-request", "a pull request\u{2026}"),
             ],
         ),
         (
