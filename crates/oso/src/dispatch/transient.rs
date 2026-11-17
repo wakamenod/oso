@@ -31,6 +31,16 @@ impl Dispatcher {
         if typed && self.keymaps.self_insert == Some(id) {
             editor.note_completion_typed();
         }
+        // `C-g` stops a rename that waits for its server (ADR 0138, step 14, Q7).
+        if ran && self.rename_waits && !self.not_input && self.keymaps.keyboard_quit == Some(id) {
+            editor.request_server(oso_core::editor::ServerRequest::CancelRename);
+        }
+    }
+
+    /// Whether a rename waits for its server or its preview, which `C-g` then stops (ADR 0138,
+    /// step 14): the host's to say, after each change.
+    pub fn set_rename_waits(&mut self, waits: bool) {
+        self.rename_waits = waits;
     }
 
     /// Before command `id` runs: each layer it is not one of the commands of closes, and a

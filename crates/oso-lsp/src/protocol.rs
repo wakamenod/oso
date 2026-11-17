@@ -12,6 +12,7 @@ mod completion;
 mod hover;
 mod located;
 mod published;
+mod rename;
 #[cfg(test)]
 mod tests;
 mod workspace_edit;
@@ -28,6 +29,8 @@ pub use completion::{
 pub use hover::{Hover, hover};
 pub use located::{Located, located, position_params, references_params};
 pub use published::{Published, Reported, published};
+pub(crate) use rename::new_name_fits;
+pub use rename::{Renaming, prepare_rename_params, prepared, rename_params, renaming};
 use serde_json::{Map, Value, json};
 pub use workspace_edit::{WireEdit, WireFile, workspace_edit};
 
@@ -255,6 +258,8 @@ pub fn initialize_params(start: &Initialize<'_>) -> Value {
                     "dataSupport": true,
                     "resolveSupport": {"properties": ["edit"]},
                 },
+                // A place checked first, and no change annotations (step 14).
+                "rename": {"prepareSupport": true},
             },
         },
     });

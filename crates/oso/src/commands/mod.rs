@@ -36,6 +36,7 @@ mod popup;
 mod prefix;
 mod projects;
 mod recovery;
+mod rename;
 mod replace;
 mod restart;
 pub(crate) mod review;
@@ -111,10 +112,12 @@ const TABLES: &[&[Command]] = &[
     prefix::COMMANDS,
     projects::COMMANDS,
     recovery::COMMANDS,
+    rename::COMMANDS,
     replace::COMMANDS,
     restart::COMMANDS,
     review::COMMANDS,
     review::COMMENT_COMMANDS,
+    review::DECISION_COMMANDS,
     review::SEND_COMMANDS,
     save::COMMANDS,
     scroll::COMMANDS,
@@ -306,6 +309,12 @@ mod tests {
         "review-staged",
         "review-uncommitted",
         "review-unstaged",
+        // Decisions stage, revert and save at the person's word, and viewed is their record
+        // of what they read: no agent tool decides (ADR 0122, step 5).
+        "review-accept",
+        "review-reject",
+        "review-undo",
+        "review-viewed",
         // The person's comments are theirs alone to write (ADR 0122, Q11).
         "review-comment",
         "review-edit-comment",
@@ -557,6 +566,10 @@ mod tests {
         "lsp-describe-scroll-up",
         "lsp-diagnostics",
         "lsp-go-to-xref",
+        "lsp-rename",
+        "lsp-rename-apply",
+        "lsp-rename-cancel",
+        "lsp-rename-to",
         "lsp-restart",
         "lsp-shutdown",
         "lsp-start",

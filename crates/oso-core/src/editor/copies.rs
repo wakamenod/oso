@@ -193,6 +193,7 @@ impl Editor {
             | Mode::ReviewMessage
             | Mode::GitLog
             | Mode::Conversation
+            | Mode::RenamePreview
             | Mode::GitDiscarded
             | Mode::Sessions => {}
             Mode::CopyList => self.leave_internal(),

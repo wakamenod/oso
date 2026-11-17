@@ -66,7 +66,7 @@ pub(super) struct Servers {
 }
 
 /// What a command asks of the host about the server of a buffer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ServerRequest {
     /// `lsp-start`: start the buffer's server, if none runs.
     Start(BufferId),
@@ -94,6 +94,15 @@ pub enum ServerRequest {
     /// `lsp-code-action-confirm`, the `y` of the question before an edit opens files no buffer
     /// holds (step 13b, Q4).
     ConfirmCodeAction,
+    /// `lsp-rename`: check the place at the primary cursor, then read its new name (step 14).
+    Rename(AskAt),
+    /// `lsp-rename-to`: rename what the check found to this name, the prompt's answer
+    /// (step 14).
+    RenameTo(Box<str>),
+    /// `lsp-rename-apply`, the `y` of `*lsp-rename*`: apply the rename it shows (step 14).
+    ApplyRename,
+    /// `lsp-rename-cancel`, its `n`, `q` and `C-g`: drop it (step 14).
+    CancelRename,
 }
 
 impl Editor {

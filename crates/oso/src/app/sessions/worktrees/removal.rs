@@ -11,9 +11,8 @@ use std::path::{Path, PathBuf};
 use oso_core::project::ProjectId;
 
 use super::super::super::App;
-use super::{QUESTION_NAMES, Removing, hosted_state};
+use super::{QUESTION_NAMES, Removing, hosted_state, settled};
 use crate::git::printable;
-use crate::sessions::state::State;
 use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::checks::{self, Check};
 use crate::sessions::worktree::jobs::{Asked, Go};
@@ -186,7 +185,7 @@ impl App {
         self.request_redraw();
     }
 
-    /// Stops the idle hosted sessions in the worktree at `path`, which check 4 let through, as
+    /// Stops the [`settled`] hosted sessions in the worktree at `path`, which check 4 let through, as
     /// `session-stop` stops one that is not busy: a hang-up oso made, so that each becomes
     /// stopped, not failed, and keeps its buffer, read-only. The job goes on without waiting
     /// for their processes to end.
@@ -197,12 +196,7 @@ impl App {
             .all()
             .iter()
             .filter(|session| session.runs() && session.directory.starts_with(path))
-            .filter(|session| {
-                matches!(
-                    hosted_state(session, &self.watch),
-                    Some(State::Idle | State::Done)
-                )
-            })
+            .filter(|session| settled(hosted_state(session, &self.watch)))
             .map(|session| session.key)
             .collect();
         for key in idle {

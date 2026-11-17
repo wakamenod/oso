@@ -1,4 +1,4 @@
-//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8, 8b, 9, 10 and 13), on the UI thread: which server a
+//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8, 8b, 9, 10, 13 and 14), on the UI thread: which server a
 //! buffer's open would start, starting one for a project's root and entry, what the commands
 //! ask, what each server's thread reports, the modeline's marks, and the ends that trust, the
 //! configuration and a quit bring. One server runs per root and entry. The UI thread never
@@ -17,6 +17,9 @@ mod documents;
 mod find;
 mod hover;
 mod places;
+mod rename;
+
+pub(crate) use rename::PlacedEdits;
 mod xrefs;
 
 use std::collections::{HashMap, HashSet};
@@ -63,6 +66,9 @@ pub(super) struct Servers {
     pending: Option<applying::PendingEdit>,
     /// The action whose edit applied, whose command is asked for at the next sync (13b).
     command_next: Option<actions::Picked>,
+    /// The rename under way, and the generation of its newest preview (step 14).
+    rename: Option<rename::Renaming>,
+    preview_generation: rename::Generation,
 }
 
 /// `path` in the form a server's URI of it reads back as, as the places and reports of servers
@@ -240,8 +246,15 @@ impl App {
                 ServerRequest::Complete(at) => {
                     self.lsp_ask(at, oso_lsp::server::AskKind::Completion, agent);
                 }
+                // The person's only: the commands are `Person` (step 14, Q10).
+                ServerRequest::Rename(at) => self.lsp_rename(at),
+                ServerRequest::RenameTo(name) => self.rename_to(&name),
+                ServerRequest::ApplyRename => self.apply_rename(),
+                ServerRequest::CancelRename => self.cancel_rename(),
             }
         }
+        // A rename whose prompt closed with no name, or whose preview went (step 14).
+        self.step_rename();
         // After the edits went to the server: what the person typed may ask by itself.
         self.complete_as_typed();
         // An edit waiting for its files' loads, or for a question that closed (step 13b).

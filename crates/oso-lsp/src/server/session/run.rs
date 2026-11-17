@@ -51,6 +51,8 @@ pub(super) struct Run {
     pub(super) last_items: Option<LastItems>,
     /// What its code actions keep (step 13).
     pub(super) actions: Actions,
+    /// Whether it renames, and checks a place first, as `initialize` said (step 14).
+    pub(super) renaming: protocol::Renaming,
 }
 
 /// What a run keeps of its code actions (step 13): what `initialize` said of them, the last

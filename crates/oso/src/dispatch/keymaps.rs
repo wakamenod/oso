@@ -60,6 +60,8 @@ pub(super) struct Keymaps {
     pub(super) popup_commands: Vec<CommandId>,
     /// `self-insert-command`, the person's typing of which may complete by itself (step 9b).
     pub(super) self_insert: Option<CommandId>,
+    /// `keyboard-quit`, which stops a rename waiting for its server (step 14, Q7).
+    pub(super) keyboard_quit: Option<CommandId>,
     /// The keys of a server's description at point, in the layer's place while it shows
     /// (ADR 0138, Hover), and the commands it runs rather than closes for.
     pub(super) hover: Keymap,
@@ -75,6 +77,8 @@ pub(super) struct Keymaps {
     pub(super) review: Keymap,
     /// A directory listing's own keys, above the global ones (ADR 0134).
     pub(super) dired: Keymap,
+    /// `*lsp-rename*`'s own keys, above the global ones (ADR 0138, step 14).
+    pub(super) rename_preview: Keymap,
     /// A git status's own keys, above the global ones (ADR 0127).
     pub(super) git: Keymap,
     /// A commit's message's own keys, above the global ones (ADR 0127, step 1b).
@@ -132,6 +136,7 @@ impl Keymaps {
             popup,
             popup_commands,
             self_insert: registry.lookup("self-insert-command"),
+            keyboard_quit: registry.lookup("keyboard-quit"),
             hover: bindings::hover_keymap(registry),
             hover_commands: bindings::hover_commands(registry),
             markdown: bindings::markdown_keymap(registry),
@@ -139,6 +144,7 @@ impl Keymaps {
             sessions: bindings::sessions_keymap(registry),
             review: bindings::review_keymap(registry),
             dired: bindings::dired_keymap(registry),
+            rename_preview: bindings::rename_preview_keymap(registry),
             git: bindings::git_status_keymap(registry),
             git_commit: bindings::git_commit_keymap(registry),
             git_log: bindings::git_log_keymap(registry),
@@ -159,7 +165,11 @@ impl Keymaps {
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 38] {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one line for each keymap, named twice so that none is left out"
+    )]
+    pub(super) fn all(&self) -> [&Keymap; 39] {
         let Self {
             global,
             user,
@@ -177,6 +187,7 @@ impl Keymaps {
             popup: [popup, popup_moved],
             popup_commands: _,
             self_insert: _,
+            keyboard_quit: _,
             hover,
             hover_commands: _,
             markdown,
@@ -184,6 +195,7 @@ impl Keymaps {
             sessions,
             review,
             dired,
+            rename_preview,
             git,
             git_commit,
             git_log,
@@ -224,6 +236,7 @@ impl Keymaps {
             sessions,
             review,
             dired,
+            rename_preview,
             git,
             git_commit,
             git_log,
@@ -345,42 +358,48 @@ impl Keymaps {
                 _ => Some(&self.minibuffer),
             }
         } else {
-            match buffer.mode() {
-                Mode::Fundamental
-                | Mode::Rust
-                | Mode::Toml
-                | Mode::Go
-                | Mode::TypeScript
-                | Mode::Tsx
-                | Mode::JavaScript
-                | Mode::Latex
-                | Mode::Swift => None,
-                Mode::Review => Some(&self.review),
-                Mode::Directory => Some(&self.dired),
-                Mode::GitStatus => Some(&self.git),
-                Mode::GitCommit => Some(&self.git_commit),
-                Mode::GitLog => Some(&self.git_log),
-                Mode::Conversation => Some(&self.conversations[1]),
-                Mode::GitDiscarded => Some(&self.git_discarded),
-                Mode::GitGraph => Some(&self.git_graph),
-                Mode::GitPr | Mode::GitPrList => Some(&self.git_pr),
-                Mode::GitIssue | Mode::GitIssueList => Some(&self.git_issue),
-                Mode::GitPrMessage => Some(&self.git_pr_message),
-                Mode::ReviewMessage => Some(&self.review_message),
-                Mode::Markdown => Some(&self.markdown),
-                Mode::Brief => Some(&self.worktrees[0]),
-                Mode::Worktrees => Some(&self.worktrees[1]),
-                Mode::Sessions => Some(&self.sessions),
-                Mode::CopyList => Some(&self.copy[0]),
-                Mode::CopyView => Some(&self.copy[1]),
-                Mode::Terminal => Some(self.terminal_keys(buffer)),
-            }
+            self.mode_keys(buffer)
         };
         Layers {
             minor,
             major,
             user: self.user(),
             ..Layers::global(&self.global)
+        }
+    }
+
+    /// The keys of `buffer`'s major mode, above the global ones, if it has its own.
+    fn mode_keys<'a>(&'a self, buffer: &Buffer) -> Option<&'a Keymap> {
+        match buffer.mode() {
+            Mode::Fundamental
+            | Mode::Rust
+            | Mode::Toml
+            | Mode::Go
+            | Mode::TypeScript
+            | Mode::Tsx
+            | Mode::JavaScript
+            | Mode::Latex
+            | Mode::Swift => None,
+            Mode::Review => Some(&self.review),
+            Mode::Directory => Some(&self.dired),
+            Mode::RenamePreview => Some(&self.rename_preview),
+            Mode::GitStatus => Some(&self.git),
+            Mode::GitCommit => Some(&self.git_commit),
+            Mode::GitLog => Some(&self.git_log),
+            Mode::Conversation => Some(&self.conversations[1]),
+            Mode::GitDiscarded => Some(&self.git_discarded),
+            Mode::GitGraph => Some(&self.git_graph),
+            Mode::GitPr | Mode::GitPrList => Some(&self.git_pr),
+            Mode::GitIssue | Mode::GitIssueList => Some(&self.git_issue),
+            Mode::GitPrMessage => Some(&self.git_pr_message),
+            Mode::ReviewMessage => Some(&self.review_message),
+            Mode::Markdown => Some(&self.markdown),
+            Mode::Brief => Some(&self.worktrees[0]),
+            Mode::Worktrees => Some(&self.worktrees[1]),
+            Mode::Sessions => Some(&self.sessions),
+            Mode::CopyList => Some(&self.copy[0]),
+            Mode::CopyView => Some(&self.copy[1]),
+            Mode::Terminal => Some(self.terminal_keys(buffer)),
         }
     }
 

@@ -79,6 +79,8 @@ pub enum Mode {
     GitDiscarded,
     /// A past agent conversation read, `*conversation: NAME*` (ADR 0145, step 2).
     Conversation,
+    /// A rename's edits shown before they apply, `*lsp-rename*` (ADR 0138, step 14).
+    RenamePreview,
 }
 
 impl Mode {
@@ -151,6 +153,7 @@ impl Mode {
             Self::GitLog => "Git Log",
             Self::GitDiscarded => "Git Discarded",
             Self::Conversation => "Conversation",
+            Self::RenamePreview => "Rename",
         }
     }
 
@@ -197,6 +200,7 @@ impl Mode {
             | Self::GitIssue
             | Self::GitLog
             | Self::Conversation
+            | Self::RenamePreview
             | Self::GitDiscarded
             | Self::Sessions => None,
         }

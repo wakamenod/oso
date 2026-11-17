@@ -106,7 +106,9 @@ impl App {
             | AskKind::Hover
             | AskKind::CodeAction
             | AskKind::ResolveAction
-            | AskKind::ExecuteCommand => return,
+            | AskKind::ExecuteCommand
+            | AskKind::PrepareRename
+            | AskKind::Rename => return,
         };
         let Some(running) = self.servers.running.get(index) else {
             return;

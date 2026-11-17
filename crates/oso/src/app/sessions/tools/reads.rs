@@ -18,6 +18,8 @@ use crate::channel::Reply;
 use crate::channel::protocol::sessions::JOB_ANSWER_WITHIN;
 use crate::sessions::hosted::{Hosted, Run};
 use crate::sessions::identity::SessionId;
+use crate::sessions::spaces::SpaceId;
+use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::checks::{self, Held, Looked};
 use crate::sessions::worktree::jobs::{Report, Trust};
 
@@ -39,7 +41,10 @@ pub(in crate::app) struct Listing {
     /// Each row with what the UI held of it when it came, so that the reply costs little.
     rows: Vec<ListedRow>,
     /// The space an orchestrator's listing names the sessions of; others it only counts.
-    scope: Option<crate::sessions::spaces::SpaceId>,
+    scope: Option<SpaceId>,
+    /// The caller's own space, whatever its part there: the only sessions a merged row of this
+    /// listing makes idle (ADR 0121, "Merged work is not ready for review, as amended").
+    own_space: Option<SpaceId>,
 }
 
 #[derive(Debug)]
@@ -222,10 +227,12 @@ impl App {
     /// `worktree_list`: the linked worktrees of the caller's repository, or of the selected
     /// window's project for another agent, gathered from a listing job.
     pub(super) fn tool_worktree_list(&mut self, pending: Pending, caller: Option<Caller>) {
-        let scope = (caller.as_ref())
-            .filter(|caller| caller.scoped())
+        let own_space = (caller.as_ref())
             .and_then(|caller| caller.space.as_ref())
             .map(|space| space.id.clone());
+        let scope = (caller.as_ref())
+            .filter(|caller| caller.scoped())
+            .and(own_space.clone());
         let (lister, trust) = match &caller {
             Some(caller) => (
                 Lister::Session(caller.id.clone()),
@@ -271,8 +278,32 @@ impl App {
                 expected: None,
                 rows: Vec::new(),
                 scope,
+                own_space,
             }),
         );
+    }
+
+    /// The hosted sessions in the worktree at `path` that agent listing `token` may find
+    /// merged: those of its caller's own space only (the author's choice), so none for a
+    /// caller in no space, or once the listing has ended.
+    pub(in crate::app) fn agent_listing_sessions(
+        &self,
+        token: u64,
+        path: &Path,
+    ) -> Vec<SessionKey> {
+        let Some(Job::Listing(listing)) = self.hosting.tools.jobs.get(&token) else {
+            return Vec::new();
+        };
+        let spaces = self.watch.spaces();
+        let at = (self.hosting.table.all().iter())
+            .filter(|session| session.directory.starts_with(path))
+            .map(|session| {
+                let space = (self.space_of_session(session))
+                    .and_then(|at| spaces.stored(at))
+                    .map(|stored| &stored.id);
+                (session.key, space)
+            });
+        reached(listing.own_space.as_ref(), at)
     }
 
     /// A listing job reported for `listing`.
@@ -376,6 +407,22 @@ impl App {
     }
 }
 
+/// Of the sessions at a merged worktree, each with the space it is in, those an agent's
+/// listing from `own_space` makes idle: only its own space's, and none for an agent in no space
+/// (the author's choice, ADR 0121, "Merged work is not ready for review, as amended").
+fn reached<'a>(
+    own_space: Option<&SpaceId>,
+    at: impl IntoIterator<Item = (SessionKey, Option<&'a SpaceId>)>,
+) -> Vec<SessionKey> {
+    let Some(own) = own_space else {
+        return Vec::new();
+    };
+    at.into_iter()
+        .filter(|(_, space)| *space == Some(own))
+        .map(|(key, _)| key)
+        .collect()
+}
+
 fn worktree_row_json(row: &ListedRow, cut: bool, scoped: bool) -> Value {
     let looked = &row.looked;
     let path: &Path = &looked.listed.path;
@@ -403,4 +450,23 @@ fn worktree_row_json(row: &ListedRow, cut: bool, scoped: bool) -> Value {
             check => check.why(),
         }),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reached;
+    use crate::sessions::spaces::SpaceId;
+
+    #[test]
+    fn an_agents_listing_reaches_only_its_own_spaces_sessions() {
+        let ours = SpaceId::from_random([1; 16]);
+        let theirs = SpaceId::from_random([2; 16]);
+        let at = || [(1, Some(&ours)), (2, Some(&theirs)), (3, None)];
+        assert_eq!(reached(Some(&ours), at()), [1]);
+        assert_eq!(reached(Some(&theirs), at()), [2]);
+        assert!(
+            reached(None, at()).is_empty(),
+            "an agent in no space reaches none"
+        );
+    }
 }

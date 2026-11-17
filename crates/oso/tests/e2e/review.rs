@@ -20,6 +20,11 @@ use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 /// Runs git in `root` with `args`, which must succeed, kept from the person's configuration
 /// and hooks: git looks for hooks only in an empty directory beside `root`.
 pub(super) fn git(root: &Path, args: &[&str]) {
+    assert!(git_ran(root, args), "git {args:?}");
+}
+
+/// Runs git as [`git`] does, saying whether it succeeded.
+fn git_ran(root: &Path, args: &[&str]) -> bool {
     let git = Executable::from_path("git", None).expect("git is on PATH");
     let hooks = root.with_file_name("hooks");
     std::fs::create_dir_all(&hooks).expect("cannot make the hooks directory");
@@ -52,7 +57,7 @@ pub(super) fn git(root: &Path, args: &[&str]) {
     })
     .and_then(|mut child| child.wait())
     .expect("cannot run git");
-    assert!(status.success(), "git {args:?}");
+    status.success()
 }
 
 /// The current buffer's first `rows` rows.
@@ -348,4 +353,117 @@ fn bar_shows_the_two_panes_in_step_and_the_one_stream_again() {
     });
     assert_eq!(state["echo"], "Two panes or one by the width");
     assert_eq!(window_count(&mut app), 1);
+}
+
+/// The echo area's text once it is `said`, or what it said last after 5 s.
+fn echo_until(app: &mut App, said: &str) -> String {
+    let mut echo = String::new();
+    for _ in 0..200 {
+        echo = app.state()["echo"].as_str().unwrap_or_default().to_owned();
+        if echo == said {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    echo
+}
+
+/// The file's text once it is `text`, or what it held last after 5 s.
+fn file_until(path: &Path, text: &str) -> String {
+    let mut held = String::new();
+    for _ in 0..200 {
+        held = std::fs::read_to_string(path).unwrap_or_default();
+        if held == text {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    held
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_hunk_is_viewed_accepted_rejected_and_each_undone() {
+    let scratch = Scratch::new("review-decisions");
+    let mut app = open_review(&scratch);
+    let root = scratch.path().join("proj-review");
+    let file = root.join("a.rs");
+    // Each step waits for what the one before shows, so that no key comes early.
+    seen(&mut app, "@@ -2 +2 @@");
+    // The first hunk's header: viewed, then staged, then each undone.
+    app.send_keys("n v");
+    seen(&mut app, "@@ -2 +2 @@  \u{b7} viewed");
+    let modeline = app.state()["modeline"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        modeline.contains("0 of 2 hunks decided, 1 viewed"),
+        "{modeline}"
+    );
+    app.send_keys("A");
+    assert_eq!(
+        echo_until(&mut app, "Staged 1 hunk of a.rs"),
+        "Staged 1 hunk of a.rs"
+    );
+    assert!(
+        !git_ran(&root, &["diff", "--cached", "--quiet"]),
+        "a.rs is staged"
+    );
+    seen(&mut app, "@@ -2 +2 @@  \u{b7} accepted \u{b7} viewed");
+    app.send_keys("u");
+    assert_eq!(
+        echo_until(&mut app, "Unstaged 1 hunk of a.rs"),
+        "Unstaged 1 hunk of a.rs"
+    );
+    assert!(
+        git_ran(&root, &["diff", "--cached", "--quiet"]),
+        "nothing staged"
+    );
+
+    // A new file is not accepted.
+    app.send_keys("N A");
+    assert_eq!(
+        app.state()["echo"],
+        "A new file: M-x delete-file removes it"
+    );
+
+    // Rejected while a.rs holds an unsaved edit: asked first, then reverted and saved whole.
+    app.send_keys(&format!("C-x b {} RET M-> x x x RET", typing("a.rs")));
+    app.wait_for("the edit", |state| {
+        state["buffer"]["name"] == "a.rs"
+            && state["text"]["rows"]
+                .as_array()
+                .is_some_and(|rows| rows.iter().any(|row| row == "xxx"))
+    });
+    // A review buffer is no C-x b default: the menu shows the open review again.
+    app.send_keys("C-x v r w");
+    app.wait_for("the review again", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+    });
+    seen(&mut app, "@@ -2 +2 @@  \u{b7} viewed");
+    app.send_keys("M-< n x");
+    assert_eq!(
+        prompt_label(&mut app).as_deref(),
+        Some("a.rs has unsaved edits; revert the hunk and save it? (y or n)")
+    );
+    app.send_keys("y");
+    let reverted = "one\ntwo\nthree\nxxx\n";
+    assert_eq!(file_until(&file, reverted), reverted);
+    assert_eq!(
+        echo_until(&mut app, "Reverted 1 hunk of a.rs"),
+        "Reverted 1 hunk of a.rs"
+    );
+    app.send_keys("u");
+    let back = "one\n2\nthree\nxxx\n";
+    assert_eq!(file_until(&file, back), back);
+}
+
+/// Waits for a row that is `row`, failing if none shows within 5 s.
+fn seen(app: &mut App, row: &str) {
+    let shown = rows_until(app, row);
+    assert!(
+        shown.iter().any(|shown| shown == row),
+        "no {row:?} in {shown:?}"
+    );
 }
