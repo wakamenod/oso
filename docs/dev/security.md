@@ -317,6 +317,11 @@ network features.
   link and through none of git's own directory, and writing a copy back makes its file there
   with no link followed, and keeps what the file held as another copy first. A file with more
   than one name, or for its owner's eyes only, is not discarded, as its copy could expose it.
+- The recent files (ADR 0148), `recent-files` in oso's state directory, are private (`0600`)
+  and hold paths and times, never contents. Only a file judged `Ordinary`, after the loader
+  has seen where its path leads, goes in, and the list read back is judged by its names again.
+  The agent channel neither reads it nor opens a file from it, and nothing on it is looked at
+  to list it.
 - Passphrase and credential prompts never enter minibuffer history, the kill
   ring or keyboard macros.
 

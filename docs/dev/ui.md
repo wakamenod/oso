@@ -289,7 +289,7 @@ are rounded.
 
 ### Buffers (`C-x b`, `C-x k`, `M-,`, `M-/`, `C-.`)
 
-[ADR 0088](adr/0088-switching-and-killing-buffers.md):
+[ADR 0088](adr/0088-switching-and-killing-buffers.md), [ADR 0148](adr/0148-recent-files.md):
 
 ```
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
@@ -312,6 +312,16 @@ are rounded.
   `*Emergency Copies*` and `*Agent*` are kept. The window then shows the most recent other buffer.
 - `M-,` and `M-/` go to the previous and next buffer in the window's order, skipping internal ones.
 - `C-.` lists the mark ring, with the buffer around the selected mark in the preview.
+- After the buffers, `C-x b` lists the recent files no buffer visits, each its path from `~/`
+  marked `file`; their preview says `not open`, and `RET` opens one
+  ([ADR 0148](adr/0148-recent-files.md)).
+
+### Recent files (`C-x C-r`)
+
+[ADR 0148](adr/0148-recent-files.md): `Open recent file:` in the centred float, with no preview.
+A row is the file's path from `~/`, marked `open` when a buffer visits it, the most recent first
+and the current buffer's file last, so `RET` opens the one before. Only a listed file is taken. A
+file that is gone says `~/notes/a.md no longer exists` and leaves the list.
 
 ## Menus
 

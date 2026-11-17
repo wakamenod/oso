@@ -627,6 +627,12 @@ The UI thread never blocks on I/O or parsing:
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- The recent files are kept in `oso-core` (`editor/recent_files.rs`), with no clock or I/O: a
+  person's command, load or save puts a file first. `app/recent_files.rs` stamps what moved,
+  reads `oso/recent-files` on `oso-recent-read` at start, taken after an event once done, and
+  writes it on `oso-recent` 1 s after the last change, merging another instance's. Every exit or
+  restart's start waits for it with the sessions record, at most 1 s in all
+  ([ADR 0148](adr/0148-recent-files.md)).
 - The directory editor's listings are read on the same threads, a request kept per listing
   buffer (`crates/oso/src/dired.rs`, glue in `app/dired.rs`): each entry's metadata from the
   descriptor, following no link (`getattrlistbulk` on macOS, `fstatat` on Linux, the

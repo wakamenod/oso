@@ -663,6 +663,8 @@ mod project_tests;
 #[cfg(test)]
 mod prompt_tests;
 #[cfg(test)]
+mod recent_tests;
+#[cfg(test)]
 mod recovery_tests;
 #[cfg(test)]
 mod replace_tests;

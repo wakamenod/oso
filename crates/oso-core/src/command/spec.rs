@@ -121,6 +121,15 @@ pub enum ArgSpec {
         history: &'static str,
         purpose: BufferPurpose,
     },
+    /// A recent file, read in a prompt that says `prompt` and completes over the recent files,
+    /// the most recent first and the current buffer's last, kept in the history named
+    /// `history` (ADR 0148). Only a listed file is taken. The command reads the row with
+    /// [`Ctx::answer`](super::Ctx::answer), which
+    /// [`Editor::recent_file_named`](crate::editor::Editor::recent_file_named) names the file of.
+    RecentFile {
+        prompt: &'static str,
+        history: &'static str,
+    },
     /// A path, read in a prompt that says `prompt` and completes by segments over listed
     /// directories, starting at the buffer's directory, kept in the history named `history`
     /// (ADR 0087). The command reads the whole path with [`Ctx::answer`](super::Ctx::answer).
