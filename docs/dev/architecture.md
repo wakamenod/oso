@@ -863,6 +863,13 @@ The UI thread never blocks on I/O or parsing:
   (`review/count.rs`), an epoch per opening of the menu. A review buffer's added and removed
   lines, headers and cards are bands the window fills behind its text for the rows in view
   (`Editor::review_cells`).
+- While the person chose two panes and an area shows the review, the view thread also lays
+  out its old and new sides as two panes in step, filler rows padding the shorter side
+  (`review/view/panes.rs`), and the UI puts both in as two more buffers of the review just as
+  `app/reviews/layout.rs` switches each area to them, side by side from 160 columns, stacked
+  below. The editor carries the cursor across a switch by place, moves it off filler rows after
+  each command, and drops the panes once no window shows them
+  (`oso_core::editor` `reviews/panes.rs`; ADR 0122, step 11).
 
 ### Configuration
 

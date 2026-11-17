@@ -100,6 +100,8 @@ pub(super) enum Name {
     FgCommentPerson,
     FgCommentAgent,
     BgCard,
+    /// The band behind a pane's filler rows, neutral and faint.
+    BgFiller,
     /// A terminal's colour 0 to 15 (ADR 0120), from the theme's table of them: 0 black, 1 red,
     /// 2 green, 3 yellow, 4 blue, 5 magenta, 6 cyan, 7 light grey, and 8 to 15 their bright
     /// forms. 1 to 6 and 9 to 14 are read at 7:1 on the background, as highlighted text is.
@@ -207,6 +209,7 @@ pub(super) fn dark(name: Name) -> Color {
         FgCommentPerson => rgb(0xa9d4ff),
         FgCommentAgent => rgb(0xf2c2ff),
         BgCard => rgb(0x1d1b2a),
+        BgFiller => rgb(0x17181e),
         Terminal(n) => terminal(&DARK_TERMINAL, n),
     }
 }
@@ -282,6 +285,7 @@ pub(super) fn light(name: Name) -> Color {
         FgCommentPerson => rgb(0x123f8a),
         FgCommentAgent => rgb(0x6a1b84),
         BgCard => rgb(0xf0eef8),
+        BgFiller => rgb(0xefefeb),
         Terminal(n) => terminal(&LIGHT_TERMINAL, n),
     }
 }
@@ -359,6 +363,7 @@ pub(super) fn dusk(name: Name) -> Color {
         FgCommentPerson => rgb(0xbfe0ff),
         FgCommentAgent => rgb(0xffbcf0),
         BgCard => rgb(0x35303f),
+        BgFiller => rgb(0x36363f),
         Terminal(n) => terminal(&DUSK_TERMINAL, n),
     }
 }

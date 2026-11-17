@@ -10,6 +10,7 @@ use std::sync::Arc;
 use oso_core::review::{Anchor, CommentId};
 
 use super::cards::Cards;
+use super::panes;
 use super::section;
 use crate::review::{Content, Entry, Reading};
 
@@ -28,7 +29,21 @@ pub(super) struct File {
     placed: Option<Placed>,
     cut_short: bool,
     pub(super) cards: Cards,
-    pub(super) rendered: Option<Kept>,
+    pub(super) rendered: Laid,
+}
+
+/// A file's section and its two panes as last laid out, each kept while laying it out again
+/// would give the same, and cleared together.
+#[derive(Default)]
+pub(super) struct Laid {
+    pub(super) unified: Option<Kept<section::Rendered>>,
+    pub(super) panes: Option<Kept<panes::Sides>>,
+}
+
+impl Laid {
+    pub(super) fn clear(&mut self) {
+        *self = Laid::default();
+    }
 }
 
 impl File {
@@ -40,7 +55,7 @@ impl File {
             placed: None,
             cut_short: false,
             cards,
-            rendered: None,
+            rendered: Laid::default(),
         }
     }
 
@@ -51,7 +66,7 @@ impl File {
         self.pending = None;
         self.placed = placed;
         self.cut_short = cut_short;
-        self.rendered = None;
+        self.rendered.clear();
     }
 
     /// The reading a carry must be for: the one waiting for its carry, else the one shown.
@@ -67,20 +82,29 @@ impl File {
             .any(|reading| matches!(reading.content, Content::Withheld))
     }
 
+    /// How its comments show beside its reading.
+    fn shown(&self, folded: bool) -> section::Shown<'_> {
+        section::Shown {
+            cards: &self.cards,
+            placed: self.placed.as_deref(),
+            cut_short: self.cut_short,
+            folded,
+        }
+    }
+
     /// Its section, given the bytes the review's text has room for.
     pub(super) fn render(&self, room: usize, folded: bool) -> section::Rendered {
         match &self.reading {
-            Some(reading) => section::render(
-                reading,
-                room,
-                &section::Shown {
-                    cards: &self.cards,
-                    placed: self.placed.as_deref(),
-                    cut_short: self.cut_short,
-                    folded,
-                },
-            ),
+            Some(reading) => section::render(reading, room, &self.shown(folded)),
             None => section::unread(&self.entry, &self.cards),
+        }
+    }
+
+    /// Its two panes, given the bytes the review's text has room for.
+    pub(super) fn render_panes(&self, room: usize, folded: bool) -> panes::Sides {
+        match &self.reading {
+            Some(reading) => panes::render(reading, room, &self.shown(folded)),
+            None => panes::unread(&self.entry, &self.cards),
         }
     }
 }
@@ -90,34 +114,54 @@ impl File {
 pub(super) struct Gone {
     pub(super) cards: Cards,
     pub(super) withheld: bool,
-    pub(super) rendered: Option<Kept>,
+    pub(super) rendered: Laid,
 }
 
-/// A section as last laid out, with the room the text had for it.
-pub(super) struct Kept {
-    pub(super) rendered: Arc<section::Rendered>,
+/// What was laid out for a file, as its cache keeps it: whether it holds a card's row, whether a
+/// card showed its label alone, and its bytes.
+pub(super) trait Laidout {
+    fn cards(&self) -> bool;
+    fn cut(&self) -> bool;
+    fn len(&self) -> usize;
+}
+
+impl Laidout for section::Rendered {
+    fn cards(&self) -> bool {
+        self.cards
+    }
+
+    fn cut(&self) -> bool {
+        self.cut
+    }
+
+    fn len(&self) -> usize {
+        self.bytes.len()
+    }
+}
+
+/// A file's section or panes as last laid out, with the room the text had for them.
+pub(super) struct Kept<T> {
+    pub(super) rendered: Arc<T>,
     room: usize,
 }
 
-impl Kept {
-    /// Its section, if laying it out with `room` gives the same: the same room, any room but
-    /// none for a section with no card, or room for all of it when no card was cut.
-    fn fits(&self, room: usize) -> Option<Arc<section::Rendered>> {
-        let rendered = &self.rendered;
+impl<T: Laidout> Kept<T> {
+    /// What was laid out, if laying it out with `room` gives the same: the same room, any room
+    /// but none for what holds no card, or room for all of it when no card was cut.
+    fn fits(&self, room: usize) -> Option<Arc<T>> {
+        let laid = &*self.rendered;
         let same = (self.room == 0) == (room == 0)
-            && (self.room == room
-                || !rendered.cards
-                || (!rendered.cut && room >= rendered.bytes.len()));
+            && (self.room == room || !laid.cards() || (!laid.cut() && room >= laid.len()));
         same.then(|| Arc::clone(&self.rendered))
     }
 }
 
-/// `kept`'s section if it fits `room`, else `lay_out`'s, kept for the next text.
-pub(super) fn section_in(
-    kept: &mut Option<Kept>,
+/// `kept`'s section or panes if they fit `room`, else `lay_out`'s, kept for the next text.
+pub(super) fn section_in<T: Laidout>(
+    kept: &mut Option<Kept<T>>,
     room: usize,
-    lay_out: impl FnOnce() -> section::Rendered,
-) -> Arc<section::Rendered> {
+    lay_out: impl FnOnce() -> T,
+) -> Arc<T> {
     let rendered = kept
         .as_ref()
         .and_then(|kept| kept.fits(room))
