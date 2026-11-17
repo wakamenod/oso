@@ -28,6 +28,7 @@ use crate::vcs::pr::work::{PrReport, PrRequest, PrWorker};
 use crate::vcs::pr::write::{PrBuilt, PrLaid, PrRow};
 
 mod create;
+mod issue;
 
 pub(super) use create::AfterRun;
 
@@ -59,6 +60,8 @@ impl std::fmt::Debug for PrEvent {
 pub(super) struct Prs {
     repos: Vec<PrRepo>,
     views: Vec<PrBuffer>,
+    /// The issue brief being read for `w`: its generation, and the buffer it was asked from.
+    issue_brief: Option<(u64, BufferId)>,
     /// Making and merging pull requests (step 5a-2).
     create: create::Creating,
     serial: u64,
@@ -81,9 +84,11 @@ struct PrRepo {
 struct PrBuffer {
     buffer: BufferId,
     project: ProjectId,
-    /// The pull request it shows, or the branch's; none for a list.
+    /// The pull request or issue it shows, or the branch's pull request; none for a list.
     number: Option<u64>,
     list: bool,
+    /// Whether it shows issues (step 5b-1).
+    issue: bool,
     /// Whether the next text goes in at its checks.
     at_checks: bool,
     asked: u64,
@@ -123,6 +128,10 @@ impl App {
                 delete_branch,
             } => self.start_merge(project, method, delete_branch),
             GitRequest::PrConfirmed => self.pr_confirmed(),
+            GitRequest::IssueList { project } => {
+                self.show_github(project, (None, true, true), false)
+            }
+            GitRequest::IssueAct { buffer, act, line } => self.issue_act(buffer, act, line),
             // The others are not pull requests' (`requests::concern`).
             _ => {}
         }
@@ -147,29 +156,47 @@ impl App {
     /// Shows the buffer of `project`'s pull request `number`, or the branch's, or the list if
     /// `list`, and reads it again.
     fn show_pr(&mut self, project: ProjectId, number: Option<u64>, list: bool, checks: bool) {
-        let found = (self.gits.prs.views.iter())
-            .position(|view| view.project == project && view.number == number && view.list == list)
-            .filter(|&index| {
-                self.editor
-                    .git_pr_of(self.gits.prs.views[index].buffer)
-                    .is_some()
-            });
+        self.show_github(project, (number, list, false), checks);
+    }
+
+    /// Shows the buffer of `project`'s pull request or issue `number` (the branch's pull
+    /// request for none), or the list of them if `list`, issues if `issue`, and reads it again.
+    fn show_github(
+        &mut self,
+        project: ProjectId,
+        (number, list, issue): (Option<u64>, bool, bool),
+        checks: bool,
+    ) {
+        let editor = &self.editor;
+        let alive = |view: &PrBuffer| {
+            editor.git_pr_of(view.buffer).is_some() || editor.git_issue_of(view.buffer).is_some()
+        };
+        let found = (self.gits.prs.views.iter()).position(|view| {
+            view.project == project
+                && (view.number, view.list, view.issue) == (number, list, issue)
+                && alive(view)
+        });
         let index = found.unwrap_or_else(|| {
-            let name = match (list, number) {
-                (true, _) => format!("*pull requests: {}*", self.project_name(project)),
-                (false, Some(number)) => format!("*pr: #{number}*"),
-                (false, None) => format!("*pr: {}*", self.project_name(project)),
+            let of = self.project_name(project);
+            let name = match (issue, list, number) {
+                (true, true, _) => format!("*issues: {of}*"),
+                (true, false, number) => format!("*issue: #{}*", number.unwrap_or_default()),
+                (false, true, _) => format!("*pull requests: {of}*"),
+                (false, false, Some(number)) => format!("*pr: #{number}*"),
+                (false, false, None) => format!("*pr: {of}*"),
             };
-            let buffer = if list {
-                self.editor.add_git_pr_list(project, name)
-            } else {
-                self.editor.add_git_pr(project, name)
+            let buffer = match (issue, list) {
+                (true, true) => self.editor.add_git_issue_list(project, name),
+                (true, false) => self.editor.add_git_issue(project, name),
+                (false, true) => self.editor.add_git_pr_list(project, name),
+                (false, false) => self.editor.add_git_pr(project, name),
             };
             self.gits.prs.views.push(PrBuffer {
                 buffer,
                 project,
                 number,
                 list,
+                issue,
                 at_checks: false,
                 asked: 0,
                 fresh: true,
@@ -193,10 +220,14 @@ impl App {
         let view = &mut self.gits.prs.views[index];
         view.asked = generation;
         let (project, number, list) = (view.project, view.number, view.list);
-        let request = if list {
-            PrRequest::List { generation }
-        } else {
-            PrRequest::View { generation, number }
+        let request = match (view.issue, list, number) {
+            (true, true, _) => PrRequest::IssueList { generation },
+            (true, false, number) => PrRequest::IssueView {
+                generation,
+                number: number.unwrap_or_default(),
+            },
+            (false, true, _) => PrRequest::List { generation },
+            (false, false, number) => PrRequest::View { generation, number },
         };
         if self.ask_pr(project, request).is_some() {
             self.editor.echo("Asking gh…");
@@ -289,6 +320,9 @@ impl App {
             PrReport::Address(Ok((url, number))) => self.open_pr_address(project, url, number),
             PrReport::Drafted { generation, draft } => {
                 self.pr_drafted(project, generation, draft);
+            }
+            PrReport::IssueBriefed { generation, brief } => {
+                self.issue_briefed(project, generation, brief);
             }
             PrReport::MergeAsked { generation, merge } => {
                 self.pr_merge_read(project, generation, merge);
@@ -387,7 +421,10 @@ impl App {
         self.sync_pr_drafts();
         let editor = &self.editor;
         let gone: Vec<usize> = (self.gits.prs.views.iter().enumerate())
-            .filter(|(_, view)| editor.git_pr_of(view.buffer).is_none())
+            .filter(|(_, view)| {
+                editor.git_pr_of(view.buffer).is_none()
+                    && editor.git_issue_of(view.buffer).is_none()
+            })
             .map(|(index, _)| index)
             .collect();
         for index in gone.into_iter().rev() {
@@ -467,7 +504,12 @@ impl App {
     fn open_pr_address(&mut self, project: ProjectId, url: String, number: u64) {
         self.editor
             .message(format!("Opening {}", printable(&url, 300)));
-        self.ask_pr(project, PrRequest::Open { url, number });
+        let request = PrRequest::Open {
+            url,
+            number,
+            issue: false,
+        };
+        self.ask_pr(project, request);
     }
 
     /// Copies `url` to the clipboard, if it is a plain `https` address: a link is anyone's

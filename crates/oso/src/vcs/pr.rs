@@ -12,6 +12,7 @@
 //!   answer of the wrong shape reads as `None`, and every list has a bound.
 
 pub(crate) mod create;
+pub(crate) mod issue;
 pub(crate) mod work;
 pub(crate) mod write;
 
@@ -436,7 +437,7 @@ fn counts_of(value: Option<&Value>) -> Counts {
     counts
 }
 
-fn comment_of(value: &Value, hunk: Option<&Value>) -> Option<Comment> {
+pub(super) fn comment_of(value: &Value, hunk: Option<&Value>) -> Option<Comment> {
     Some(Comment {
         author: login(value.get("author")),
         association: (value.get("authorAssociation").and_then(text)).unwrap_or_default(),
@@ -446,7 +447,7 @@ fn comment_of(value: &Value, hunk: Option<&Value>) -> Option<Comment> {
 }
 
 /// A login, or `ghost` for an account that is gone, as GitHub shows it.
-fn login(author: Option<&Value>) -> String {
+pub(super) fn login(author: Option<&Value>) -> String {
     (author.and_then(|author| author.get("login")).and_then(text))
         .unwrap_or_else(|| "ghost".to_owned())
 }
@@ -458,7 +459,7 @@ fn count(value: Option<&Value>) -> usize {
 }
 
 /// A string's text, at most [`MAX_TEXT`] bytes of it, cut at a character.
-fn text(value: &Value) -> Option<String> {
+pub(super) fn text(value: &Value) -> Option<String> {
     let text = value.as_str()?;
     let mut end = text.len().min(MAX_TEXT);
     while !text.is_char_boundary(end) {

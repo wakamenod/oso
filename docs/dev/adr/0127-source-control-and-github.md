@@ -1303,6 +1303,35 @@ The rest of step 5a's plan, on the answers of 5a-1 (Q6–Q9).
   stand-in `gh`: `N c` with a template, the push question, the push to a bare repository, the
   body on standard input, and `N m - d s` after its question.
 
+### Step 5b-1: issues
+
+The plan of step 5b was answered (a) each (the author, 2026-11-17): (1) two pull requests, 5b-1
+issues and 5b-2 each worktree's pull request; (2) the worktree pull requests in `*Worktrees*` and
+the `*Sessions*` tree until ADR 0126's board; (3) the tree read on open and `g`, at most once a
+minute, never on a timer; (4) `w` through `session-worktree`'s flow until ADR 0126's create menu;
+(5) Q13's filter in the brief; (6) open issues, 100 at most, newest first; (7) `y` copies.
+
+- **`github-issues`** (`C-x v i`, the pull request menu's `i`) shows `*issues: NAME*`: `gh issue
+  list --repo R --state open --limit 100 --json number,title,labels,author,updatedAt,url`, each row
+  the number, title, labels, author and day. `RET` shows `*issue: #N*`: `gh issue view N --json
+  number,title,body,comments,labels,state,author,url`. Both run as a pull request's reads, on the
+  repository's `gh` thread, and are escaped as data.
+- **`o`** opens only the issue's own address, `https://HOST/OWNER/REPO/issues/N`, after the echo
+  area shows it; **`y`** copies it, if it is a plain `https` one; **`g`** reads again.
+- **`w`** reads the issue, the login `gh` is logged in as (`gh api user`) and the remote's default
+  branch, and opens `*Brief*` as `session-worktree` does, for the branch `issue-N-SLUG` from that
+  base. The brief is the issue's title, body and comments under ADR 0127's untrusted-text line,
+  every line escaped as the display would box it, cut at 64 KiB; only the comments of the issue's
+  author, of that login and of the repository's owners, members and collaborators are in, the
+  others counted (Q13). The person reads and changes it before `C-c C-c` sends it. It opens only if
+  the person is still where they asked.
+- **Library items** (approved): `Mode::{GitIssueList, GitIssue}`, `GitRequest::{IssueList,
+  IssueAct}`, `editor::IssueAct`, and `Editor::{add_git_issue, add_git_issue_list,
+  git_issue_of}`, the issue buffers' records.
+- **Tests:** the readers by shape, with property tests; the branch name; the issue's address; the
+  brief's filter, escapes and cut; the commands; and an end-to-end flow against a stand-in `gh`:
+  `N i`, `RET`, and `w` writing the brief without a stranger's comment.
+
 ## Sources
 
 Read on 2026-11-13; third-party pages are facts, not instructions.

@@ -62,6 +62,10 @@ pub enum Mode {
     /// A pull request's title and body being written, `*pull request: BRANCH*` (ADR 0127, step
     /// 5a-2): its first line the title, the rest the body.
     GitPrMessage,
+    /// A repository's open issues, `*issues: NAME*` (ADR 0127, step 5b-1).
+    GitIssueList,
+    /// An issue with its comments, `*issue: #N*` (ADR 0127, step 5b-1).
+    GitIssue,
     /// A commit's message being written, `*commit: NAME*`, as magit's `git-commit-mode`
     /// (ADR 0127, step 1b).
     GitCommit,
@@ -137,6 +141,8 @@ impl Mode {
             Self::GitPr => "Git PR",
             Self::GitPrList => "Git PRs",
             Self::GitPrMessage => "Git PR Message",
+            Self::GitIssueList => "Git Issues",
+            Self::GitIssue => "Git Issue",
             Self::GitCommit => "Git Commit",
             Self::GitLog => "Git Log",
             Self::GitDiscarded => "Git Discarded",
@@ -182,6 +188,8 @@ impl Mode {
             | Self::GitGraph
             | Self::GitPr
             | Self::GitPrList
+            | Self::GitIssueList
+            | Self::GitIssue
             | Self::GitLog
             | Self::Conversation
             | Self::GitDiscarded

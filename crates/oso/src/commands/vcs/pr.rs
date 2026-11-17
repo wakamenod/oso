@@ -160,6 +160,7 @@ fn refresh(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 pub mod create;
+pub mod issue;
 
 #[cfg(test)]
 mod tests;

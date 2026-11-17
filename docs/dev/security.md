@@ -269,7 +269,11 @@ network features.
   its base, the method and its head; just before it the run thread reads again that it is open
   and into that base, and `--match-head-commit` makes `gh` refuse it if its head moved. A
   question or a message `gh` answers late opens nothing over what the person does now. A pull request's message is
-  the person's: an agent's command does not change it. A template is read only as a regular
+  the person's: an agent's command does not change it. An issue's brief (step 5b-1) is its text
+  under the line that tells the agent it is data, every line escaped, cut at 64 KiB, with only
+  the comments of its author, of the login `gh` is logged in as and of the repository's owners,
+  members and collaborators; the person reads it in `*Brief*` before it is sent. Only an issue's
+  own address opens. A template is read only as a regular
   file under the root, never through a linked directory, at most 64 KiB, never one whose name
   may hold secrets.
 - Stashes and branches from a git status (ADR 0127, step 3b) are the person's acts, `Person`,

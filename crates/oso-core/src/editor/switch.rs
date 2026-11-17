@@ -585,6 +585,7 @@ fn kept_as_users(buffer: &Buffer) -> bool {
         || super::git::is_git_log(buffer)
         || super::git::is_git_graph(buffer)
         || super::git::is_git_pr(buffer)
+        || super::git::is_git_issue(buffer)
         || (buffer.is_internal() && buffer.mode() == crate::buffer::Mode::GitDiscarded)
 }
 

@@ -90,7 +90,7 @@ pub(super) fn draft(found: &Found, target: &Target, base: Option<&str>) -> Resul
 }
 
 /// The remote's `HEAD`, else the repository's default branch.
-fn default_base(found: &Found, target: &Target) -> Result<String, String> {
+pub(super) fn default_base(found: &Found, target: &Target) -> Result<String, String> {
     let remote = &target.remote;
     let head = format!("refs/remotes/{remote}/HEAD");
     let known = read_line(&found.git, &["symbolic-ref", "--quiet", "--short", &head])

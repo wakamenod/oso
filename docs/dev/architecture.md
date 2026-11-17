@@ -691,7 +691,10 @@ The UI thread never blocks on I/O or parsing:
   5a-2): `vcs/pr/create.rs` is the message's start, its title and body and the runs' arguments,
   `vcs/pr/work/draft.rs` reads what they start from on `oso-vcs-gh`, `vcs/run/pr.rs` runs them
   on `oso-vcs-run` through `Gh::start_long`, and `app/vcs/pr/create.rs` and
-  `commands::vcs::pr::create` carry them out.
+  `commands::vcs::pr::create` carry them out. Issues (step 5b-1): `vcs/pr/issue.rs` reads them
+  and makes a brief, `vcs/pr/write/issue.rs` their texts, `vcs/pr/work/issue.rs` the `gh` thread's
+  reads, `app/vcs/pr/issue.rs` the keys, opening `*Brief*` through
+  `app/sessions/worktrees.rs`'s `start_brief`, and `commands::vcs::pr::issue` the commands.
 - Stashes and branches (step 3b): `vcs/stash.rs` reads the stash list into the Stashes section
   and `vcs/branch.rs` holds what branches need that runs no git; `vcs/run/stash.rs` and
   `vcs/run/branch.rs` run them on `oso-vcs-run`, finding a stash again by its id and planning a

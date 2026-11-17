@@ -120,7 +120,9 @@ often, so it must rebuild within 2 s.
   their texts `pr/write` and the repository's `gh` thread `pr/work`, `oso-vcs-gh`, through
   `git::Gh`, with `app/vcs/pr.rs` and `commands::vcs::pr` (step 5a); making and merging is
   `pr/create`, read for on the `gh` thread (`pr/work/draft`) and run on the run thread
-  (`run/pr`), with `app/vcs/pr/create.rs` and `commands::vcs::pr::create` (step 5a-2). Its keys are listed in `commands::vcs::KEYS` and
+  (`run/pr`), with `app/vcs/pr/create.rs` and `commands::vcs::pr::create` (step 5a-2); issues are
+  `pr/issue`, with `pr/write/issue`, `pr/work/issue`, `app/vcs/pr/issue.rs` and
+  `commands::vcs::pr::issue` (step 5b-1). Its keys are listed in `commands::vcs::KEYS` and
   `commands::vcs::commit`, the commit menu is built in, and `bindings/vcs.rs` binds them;
   `app/vcs.rs` carries out what its commands ask, with `app/vcs/status.rs` (the status's own
   requests), `app/vcs/commit.rs` (messages) and `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,

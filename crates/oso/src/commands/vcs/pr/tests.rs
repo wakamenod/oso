@@ -172,3 +172,46 @@ fn a_message_s_keys_act_in_a_message_only() {
         ]
     );
 }
+
+#[test]
+fn an_issue_s_keys_act_at_the_primary_cursor_and_mean_nothing_elsewhere() {
+    use oso_core::editor::IssueAct;
+    let (mut editor, project) = crate::commands::review::tests::in_project(true);
+    let (result, _) = run(&mut editor, "github-issue-worktree", Args::NONE);
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Not in an issue's buffer")
+    );
+    let (result, _) = run(&mut editor, "github-issues", Args::NONE);
+    assert!(result.is_ok());
+    let buffer = editor.add_git_issue_list(project, "*issues: p*");
+    editor.show(buffer);
+    for name in [
+        "github-issue-visit",
+        "github-issue-worktree",
+        "github-issue-open",
+        "github-issue-copy-link",
+        "github-issue-refresh",
+    ] {
+        let (result, _) = run(&mut editor, name, Args::NONE);
+        assert!(result.is_ok(), "{name}");
+    }
+    let act = |act| GitRequest::IssueAct {
+        buffer,
+        act,
+        line: 0,
+    };
+    assert_eq!(
+        editor.take_git_requests(),
+        [
+            GitRequest::IssueList { project },
+            act(IssueAct::Visit),
+            act(IssueAct::StartWorktree),
+            act(IssueAct::Open),
+            act(IssueAct::CopyLink),
+            act(IssueAct::Refresh),
+        ]
+    );
+}

@@ -22,7 +22,9 @@
 //! - A pull request shows in an internal buffer of [`Mode::GitPr`], `*pr: #N*` or `*pr: NAME*`
 //!   for the branch's, and a repository's open ones in one of [`Mode::GitPrList`], which the host
 //!   fills as a status (step 5a). A pull request's title and body are the person's to write, in
-//!   a buffer of [`Mode::GitPrMessage`].
+//!   a buffer of [`Mode::GitPrMessage`]. A repository's open issues show in one of
+//!   [`Mode::GitIssueList`] and an issue in one of [`Mode::GitIssue`], filled as a status
+//!   (step 5b-1).
 
 use super::Editor;
 use crate::buffer::{Buffer, BufferId, Mode};
@@ -134,6 +136,25 @@ impl Editor {
         self.add_git_buffer(project, name.into(), Mode::GitPrList)
     }
 
+    /// Adds an empty issue's buffer for `project`, named `name`, shown in no window yet, which
+    /// does not wrap (step 5b-1).
+    pub fn add_git_issue(&mut self, project: ProjectId, name: impl Into<String>) -> BufferId {
+        self.add_git_buffer(project, name.into(), Mode::GitIssue)
+    }
+
+    /// Adds an empty list of a repository's issues for `project`, named `name`, as
+    /// [`Editor::add_git_issue`] does (step 5b-1).
+    pub fn add_git_issue_list(&mut self, project: ProjectId, name: impl Into<String>) -> BufferId {
+        self.add_git_buffer(project, name.into(), Mode::GitIssueList)
+    }
+
+    /// The project of the issue's buffer, or list of them, `buffer`, if it is one and is still
+    /// there (step 5b-1).
+    pub fn git_issue_of(&self, buffer: BufferId) -> Option<ProjectId> {
+        is_git_issue(self.buffer(buffer)?).then_some(())?;
+        self.git_record(buffer).map(|status| status.project)
+    }
+
     /// The project of the pull request's buffer, or list of them, `buffer`, if it is one and is
     /// still there.
     pub fn git_pr_of(&self, buffer: BufferId) -> Option<ProjectId> {
@@ -214,7 +235,10 @@ impl Editor {
             return Some(highlights);
         }
         let fits = |buffer: &&mut Buffer| {
-            is_git_status(buffer) || is_git_graph(buffer) || is_git_pr(buffer)
+            is_git_status(buffer)
+                || is_git_graph(buffer)
+                || is_git_pr(buffer)
+                || is_git_issue(buffer)
         };
         let Some(buffer) = self.buffer_mut(id).filter(fits) else {
             return Some(highlights);
@@ -336,6 +360,11 @@ pub(super) fn is_git_graph(buffer: &Buffer) -> bool {
 /// Whether `buffer` is a pull request's buffer or a list of them (step 5a).
 pub(super) fn is_git_pr(buffer: &Buffer) -> bool {
     buffer.is_internal() && matches!(buffer.mode(), Mode::GitPr | Mode::GitPrList)
+}
+
+/// Whether `buffer` is an issue's buffer or a list of them (step 5b-1).
+pub(super) fn is_git_issue(buffer: &Buffer) -> bool {
+    buffer.is_internal() && matches!(buffer.mode(), Mode::GitIssue | Mode::GitIssueList)
 }
 
 /// Whether `buffer` is a log of git's runs, which `C-x b` lists and `C-x k` kills as a status.

@@ -191,7 +191,10 @@ pub(super) const PULL_REQUEST: BuiltInMenu = BuiltInMenu {
         ),
         (
             "The repository's",
-            &[exit("l", "git-pr-list", "the open ones")],
+            &[
+                exit("l", "git-pr-list", "the open ones"),
+                exit("i", "github-issues", "its open issues"),
+            ],
         ),
     ],
     describe: None,
