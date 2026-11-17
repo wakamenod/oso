@@ -1643,8 +1643,10 @@ or not, and only opening its review cleared the state.
     every file, the changes count as not merged, as before.
   - *At a listing:* a row of the person's `*Worktrees*` or of an agent's `worktree_list` that is
     clean and merged, by ancestry or by `gh` after the rows, makes each session in that worktree
-    that is ready for review idle (the author's choice: the merge was the person's review). It
-    runs no git of its own. A session ready for review only since the row read the worktree's
+    that is ready for review idle (the author's choice: the merge was the person's review). An
+    agent's listing reaches only the sessions of its own space, whatever its part there, and none
+    for an agent in no space; the person's reaches every one (the author's choice). It runs no
+    git of its own. A session ready for review only since the row read the worktree's
     changes keeps the state, as its changes may be newer.
   - *At a removal:* a session ready for review is no longer busy for check 4 (the author's
     choice). Checks 2 and 5 already refuse a worktree whose work is uncommitted or not merged, so
@@ -1669,13 +1671,16 @@ or not, and only opening its review cleared the state.
   `gh` or worktrees being made, the job waits for one, and so does the state. On a large history
   with no commit graph, `--contains` for committed work not merged can take seconds, as check 5's
   does for a listing's row.
+- **Accepted:** an agent that can run git can make a branch look merged by writing a remote's
+  ref itself, and a removal then needs no review; its work stays in the kept branch (the
+  author's choice).
 - **Tests:** the tracker and the worker take the new word, and the tracker ignores a listing that
   read the worktree before the session became ready for review; the merged judgment runs over
   temporary repositories (no remote, not merged, a remote's `HEAD` at the branch's own copy, a
   main line of no configured remote, merged, a snapshot that is not the commit's tree, not a
   worktree of the repository, a detached `HEAD`); a clean, merged row is the work merged; and two
-  end-to-end flows. In the first, work not merged is ready for review, a listing after the merge
-  makes it idle, a turn that ends on merged work leaves it done, and the worktree is removed. In
+  end-to-end flows. In the first, work not merged is ready for review; after the merge an
+  agent's listing from outside its space leaves it so, and the person's makes it idle; a turn that ends on merged work leaves it done, and the worktree is removed. In
   the second, a removal refuses work not merged, and once it is merged takes it with no listing
   and stops its session first.
 

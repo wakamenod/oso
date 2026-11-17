@@ -218,10 +218,17 @@ impl App {
         {
             return self.session_work_judged(key, judgment, merged);
         }
-        // A worktree anyone's listing found clean and merged is the work of its sessions merged
-        // (ADR 0121, "Merged work is not ready for review, as amended").
-        if let Some((path, looked_at)) = merged_work_at(&report) {
-            self.session_work_merged(&path, looked_at);
+        // A worktree a listing found clean and merged is the work of its sessions merged (ADR
+        // 0121, "Merged work is not ready for review, as amended"): the person's listing speaks
+        // for every session there, an agent's only for those of its own space.
+        if let Some((token, path, looked_at)) = merged_work_at(&report) {
+            let person = (self.hosting.worktrees.list.as_ref()).is_some_and(|l| l.token == token);
+            let keys = if person {
+                self.sessions_at(&path)
+            } else {
+                self.agent_listing_sessions(token, &path)
+            };
+            self.session_work_merged(&keys, looked_at);
         }
         // A job an agent's session tool asked for (ADR 0121, step 6).
         // Its handlers ask for a frame only when they show something.
@@ -508,18 +515,18 @@ impl App {
 }
 
 /// The worktree a listing's `report` found clean with its branch merged, a row or `gh`'s word
-/// on one, and when the job read its changes.
-fn merged_work_at(report: &Report) -> Option<(PathBuf, Instant)> {
+/// on one: the listing's token, the path, and when the job read its changes.
+fn merged_work_at(report: &Report) -> Option<(u64, PathBuf, Instant)> {
     match report {
-        Report::Row { looked, .. } if looked.work_merged() => {
-            Some((looked.listed.path.clone(), looked.looked_at))
+        Report::Row { token, looked } if looked.work_merged() => {
+            Some((*token, looked.listed.path.clone(), looked.looked_at))
         }
         Report::Merged {
+            token,
             path,
             merged,
             clean: Some(looked_at),
-            ..
-        } if merged.is_merged() => Some((path.clone(), *looked_at)),
+        } if merged.is_merged() => Some((*token, path.clone(), *looked_at)),
         _ => None,
     }
 }

@@ -1109,7 +1109,8 @@ a switch made with its command stands until that setting changes in the file
   their states, unsaved buffers, its space, and whether it can be removed. `gh` is asked last, only for a branch that was
   pushed and that its remote's main branches do not hold. `g` lists again, and `D` removes the
   one at point. A worktree whose removal runs says `removing…` instead. A row that is clean and
-  merged makes its sessions that were ready for review idle: their work needs no review.
+  merged makes its sessions that were ready for review idle: their work needs no review. An
+  agent's `worktree_list` does so only for the sessions of its own space.
 - `M-x worktree-remove` removes the worktree of the selected buffer, or of the row at point,
   only when nothing would be lost. Each of these must hold, checked in this order:
   - it is a linked worktree of this repository;

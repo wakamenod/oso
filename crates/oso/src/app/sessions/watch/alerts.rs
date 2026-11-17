@@ -284,22 +284,23 @@ impl App {
         }
     }
 
-    /// A listing found the worktree at `path` clean and its branch merged, reading its changes
-    /// at `looked_at`: the sessions in it that were ready for review since before then need
-    /// none (ADR 0121, "Merged work is not ready for review, as amended").
-    pub(in crate::app) fn session_work_merged(
-        &mut self,
-        path: &std::path::Path,
-        looked_at: Instant,
-    ) {
-        let Some(worker) = &self.sessions else {
-            return;
-        };
-        for session in self.hosting.table().iter() {
-            if session.directory.starts_with(path) {
-                worker.send(Job::WorkMerged(session.key, looked_at));
+    /// A listing found the worktree of the sessions `keys` clean and its branch merged, reading
+    /// its changes at `looked_at`: those ready for review since before then need none (ADR
+    /// 0121, "Merged work is not ready for review, as amended").
+    pub(in crate::app) fn session_work_merged(&mut self, keys: &[SessionKey], looked_at: Instant) {
+        if let Some(worker) = &self.sessions {
+            for &key in keys {
+                worker.send(Job::WorkMerged(key, looked_at));
             }
         }
+    }
+
+    /// The hosted sessions in the worktree at `path`.
+    pub(in crate::app) fn sessions_at(&self, path: &std::path::Path) -> Vec<SessionKey> {
+        (self.hosting.table().iter())
+            .filter(|session| session.directory.starts_with(path))
+            .map(|session| session.key)
+            .collect()
     }
 
     /// A review of the session scope opened in the project at `root`: its sessions have been

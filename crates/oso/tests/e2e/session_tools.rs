@@ -9,8 +9,8 @@
 //! `[sessions] agents_start_without_asking`, the start asks nothing up to the limit, says so and
 //! marks the row, asks past the limit, asks again after `agent-starts-ask`, and asks for a
 //! `session_start` once the person no longer trusts the project (ADR 0135). A worktree
-//! session whose turn leaves work not merged is ready for review until a listing finds it
-//! merged; a turn that ends on merged work leaves it done, and a removal takes a worktree whose
+//! session whose turn leaves work not merged is ready for review until the person's listing
+//! finds it merged, as an agent's listing outside its space does not; a turn that ends on merged work leaves it done, and a removal takes a worktree whose
 //! session is ready for review once its work is merged (ADR 0121, "Merged work is not ready for
 //! review, as amended").
 //!
@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::harness::App;
-use super::worktrees::{DEADLINE, Flow, asks, terminal};
+use super::worktrees::{DEADLINE, Flow, asks, keys, terminal};
 
 /// The fake: where it runs and what it was given, a FIFO `in.PID` for its bridge's stdin, and
 /// once the flow wrote `bridge.PID`, that script run as its child, writing to `out.PID`. It
@@ -470,8 +470,9 @@ fn merge(flow: &Flow, branch: &str) {
     flow.git(&flow.repo, &["push", "-q", "origin", "main"]);
 }
 
-/// Work not merged is ready for review; once merged, a listing makes it idle, a turn that ends
-/// on it leaves it done, and its worktree is removed.
+/// Work not merged is ready for review; once merged, an agent's listing from outside its space
+/// leaves it so, the person's listing makes it idle, a turn that ends on it leaves it done, and
+/// its worktree is removed.
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn merged_work_is_not_ready_for_review() {
@@ -485,9 +486,19 @@ fn merged_work_is_not_ready_for_review() {
     });
 
     merge(&flow, name);
+    // The root's agent is in no space with it: its listing changes no state there.
     let (listed, error) = bridge.tool("worktree_list", json!({}));
     assert!(!error, "{listed}");
-    app.wait_for("idle once the listing found it merged", |state| {
+    thread::sleep(Duration::from_secs(1));
+    assert_eq!(
+        state_of(&app.state(), name).as_deref(),
+        Some("ready for review"),
+        "an agent's listing reaches only its own space's sessions"
+    );
+    // The person's listing reaches every session.
+    app.open_file(&flow.repo.join("README.md"));
+    app.send_keys(&format!("M-x {} RET", keys("worktree-list")));
+    app.wait_for("idle once the person's listing found it merged", |state| {
         state_of(state, name).as_deref() == Some("idle")
     });
 

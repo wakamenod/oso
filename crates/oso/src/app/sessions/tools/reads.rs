@@ -40,6 +40,9 @@ pub(in crate::app) struct Listing {
     rows: Vec<ListedRow>,
     /// The space an orchestrator's listing names the sessions of; others it only counts.
     scope: Option<crate::sessions::spaces::SpaceId>,
+    /// The caller's own space, whatever its part there: the only sessions a merged row of this
+    /// listing makes idle (ADR 0121, "Merged work is not ready for review, as amended").
+    own_space: Option<crate::sessions::spaces::SpaceId>,
 }
 
 #[derive(Debug)]
@@ -222,10 +225,12 @@ impl App {
     /// `worktree_list`: the linked worktrees of the caller's repository, or of the selected
     /// window's project for another agent, gathered from a listing job.
     pub(super) fn tool_worktree_list(&mut self, pending: Pending, caller: Option<Caller>) {
-        let scope = (caller.as_ref())
-            .filter(|caller| caller.scoped())
+        let own_space = (caller.as_ref())
             .and_then(|caller| caller.space.as_ref())
             .map(|space| space.id.clone());
+        let scope = (caller.as_ref())
+            .filter(|caller| caller.scoped())
+            .and(own_space.clone());
         let (lister, trust) = match &caller {
             Some(caller) => (
                 Lister::Session(caller.id.clone()),
@@ -271,8 +276,30 @@ impl App {
                 expected: None,
                 rows: Vec::new(),
                 scope,
+                own_space,
             }),
         );
+    }
+
+    /// The hosted sessions in the worktree at `path` that agent listing `token` may find
+    /// merged: those of its caller's own space only (the author's choice), so none for a
+    /// caller in no space, or once the listing has ended.
+    pub(in crate::app) fn agent_listing_sessions(
+        &self,
+        token: u64,
+        path: &Path,
+    ) -> Vec<crate::sessions::worker::SessionKey> {
+        let Some(Job::Listing(listing)) = self.hosting.tools.jobs.get(&token) else {
+            return Vec::new();
+        };
+        let Some(space) = &listing.own_space else {
+            return Vec::new();
+        };
+        (self.hosting.table.all().iter())
+            .filter(|session| session.directory.starts_with(path))
+            .filter(|session| self.session_in_space(session, space))
+            .map(|session| session.key)
+            .collect()
     }
 
     /// A listing job reported for `listing`.
