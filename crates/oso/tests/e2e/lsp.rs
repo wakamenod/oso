@@ -903,7 +903,12 @@ fn an_agent_reads_the_list_of_references_the_person_has_open() {
     let mut agent = super::agent::let_in(&mut app);
     app.send_keys("C-e");
     app.wait_for("the line's end", |state| state["cursor"]["column"] == 12);
-    app.send_keys("M-? C-n");
+    // The list opens once the answer came; a key before then moves on and drops it.
+    app.send_keys("M-?");
+    app.wait_for("the list of references", |state| {
+        state["prompts"][0]["completion"]["count"] == 3
+    });
+    app.send_keys("C-n");
     app.wait_for("the second reference selected", |state| {
         let completion = &state["prompts"][0]["completion"];
         completion["count"] == 3 && completion["selected"] == 1
