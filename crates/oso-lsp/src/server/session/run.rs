@@ -66,12 +66,11 @@ pub(super) struct Actions {
     /// out, by the request's id, against which their edits are placed (step 13, Q8).
     pub(super) edit_bases: std::collections::HashMap<i64, std::collections::HashMap<u64, u64>>,
     /// The requests of commands waiting for their answer, while which a `workspace/applyEdit`
-    /// is the UI's to answer (step 13b).
-    pub(super) executing: std::collections::HashSet<i64>,
+    /// is the UI's to answer, each with its action's title, which names that edit if the server
+    /// gives it no label (step 13b).
+    pub(super) executing: std::collections::HashMap<i64, String>,
     /// The `workspace/applyEdit` the UI is to answer, by its token, and its id, if one waits.
     pub(super) applying: Option<(u64, protocol::RequestId)>,
-    /// The last token given a `workspace/applyEdit`.
-    pub(super) apply_serial: u64,
 }
 
 /// How documents are synced until `initialize` says: not at all.

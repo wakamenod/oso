@@ -119,7 +119,7 @@ impl Session {
         &mut self,
         run: &mut Run,
         (id, ask): (i64, Ask),
-        result: &Value,
+        mut result: Value,
         took: u128,
     ) {
         let AskContext::Item { answer, index } = ask.context else {
@@ -127,20 +127,21 @@ impl Session {
             return;
         };
         let base = run.actions.edit_bases.remove(&id);
-        // Kept as resolved, but for its edit, for the command it may run (13b).
+        let Some(resolved) = protocol::resolved_action(&result) else {
+            self.fail(ask, "its resolve is no code action".to_owned());
+            return;
+        };
+        // Kept as resolved, but for its edit, read already, for the command it may run (13b):
+        // moved, not copied.
         if let Some(last) = run.actions.last_actions.as_mut()
             && (last.document, last.serial) == (ask.document, answer)
             && let Some(kept) = last.items.get_mut(index)
         {
-            *kept = result.clone();
-            if let Value::Object(fields) = kept {
+            if let Value::Object(fields) = &mut result {
                 fields.remove("edit");
             }
+            *kept = result;
         }
-        let Some(resolved) = protocol::resolved_action(result) else {
-            self.fail(ask, "its resolve is no code action".to_owned());
-            return;
-        };
         let edit = (resolved.edit).map(|edit| {
             let edit = edit.map_err(str::to_owned)?;
             self.placed(run.encoding, edit, base.as_ref())
@@ -183,6 +184,17 @@ impl Session {
             ));
         }
         Ok(params)
+    }
+
+    /// The title of the action whose command `ask` runs, as a list shows it.
+    pub(super) fn command_title(&self, run: &Run, ask: &Ask) -> Option<String> {
+        let AskContext::Item { answer, index } = ask.context else {
+            return None;
+        };
+        let action = (run.actions.last_actions.as_ref())
+            .filter(|last| (last.document, last.serial) == (ask.document, answer))
+            .and_then(|last| last.items.get(index))?;
+        Some(protocol::shown(action.get("title")?.as_str()?))
     }
 
     /// A command, request `id`, answered: its edits came while it waited.

@@ -1684,6 +1684,8 @@ fn a_declared_command_runs_and_its_edit_waits_for_the_answer_an_undeclared_one_i
                 {"request": {"method": "workspace/applyEdit", "params": {"label": "Fixed", "edit": {
                     "changes": {&here: [{"range": range(0, 4, 5), "newText": "y"}]},
                 }}}},
+                // A second while the first waits is refused.
+                {"request": {"method": "workspace/applyEdit", "params": {"edit": {"changes": {}}}}},
                 {"sleep_ms": 400},
                 {"reply": null},
             ]},
@@ -1733,6 +1735,10 @@ fn a_declared_command_runs_and_its_edit_waits_for_the_answer_an_undeclared_one_i
     assert_eq!(asked.label.as_deref(), Some("Fixed"));
     let edit = asked.edit.unwrap();
     assert_eq!(edit.open[0].edits, [(4..5, "y".to_owned())]);
+    assert!(seen.apply_edits.is_empty(), "only the first waits");
+    seen.until(LIMIT, |seen| seen.logged(r#""applied":false"#));
+    // An answer of another token is let go; the edit's own is answered.
+    seen.server.answer_apply_edit(asked.token + 100, Ok(()));
     seen.server.answer_apply_edit(asked.token, Ok(()));
     seen.until(LIMIT, |seen| seen.logged(r#""applied":true"#));
     seen.until(LIMIT, |seen| !seen.answers.is_empty());

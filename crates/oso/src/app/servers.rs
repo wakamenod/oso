@@ -1,4 +1,4 @@
-//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8, 8b, 9 and 10), on the UI thread: which server a
+//! The language servers the app runs (ADR 0138, steps 3, 4, 6, 8, 8b, 9, 10 and 13), on the UI thread: which server a
 //! buffer's open would start, starting one for a project's root and entry, what the commands
 //! ask, what each server's thread reports, the modeline's marks, and the ends that trust, the
 //! configuration and a quit bring. One server runs per root and entry. The UI thread never
@@ -58,11 +58,11 @@ pub(super) struct Servers {
     typing_rest: Option<(oso_core::editor::AskAt, std::time::Instant)>,
     /// The code actions of the list open now, and the picked one while it resolves (step 13).
     actions: Option<actions::KeptActions>,
-    resolving: Option<actions::Resolving>,
+    resolving: Option<actions::Picked>,
     /// An edit waiting for the person's yes or its files' loads (step 13b).
-    waiting: Option<applying::Waiting>,
-    /// The title of the action whose command runs, naming its `workspace/applyEdit` (13b).
-    running_command: Option<String>,
+    pending: Option<applying::PendingEdit>,
+    /// The action whose edit applied, whose command is asked for at the next sync (13b).
+    command_next: Option<actions::Picked>,
 }
 
 /// `path` in the form a server's URI of it reads back as, as the places and reports of servers
@@ -213,6 +213,8 @@ impl App {
         if self.sync_documents() {
             self.mark_servers();
         }
+        // Once the edit before it went to the server (step 13b).
+        self.run_command_next();
         for request in self.editor.take_server_requests() {
             match request {
                 ServerRequest::Start(id) => self.lsp_start(id, false),
@@ -243,7 +245,7 @@ impl App {
         // After the edits went to the server: what the person typed may ask by itself.
         self.complete_as_typed();
         // An edit waiting for its files' loads, or for a question that closed (step 13b).
-        self.edit_moves();
+        self.step_pending_edit();
     }
 
     /// `lsp-start`, or `lsp-restart` if `again`.

@@ -82,7 +82,8 @@ impl Session {
         }
         // While it waits, the server's `workspace/applyEdit` is the UI's to answer (13b).
         if ask.kind == AskKind::ExecuteCommand {
-            run.actions.executing.insert(run.next_id);
+            let title = self.command_title(run, &ask).unwrap_or_default();
+            run.actions.executing.insert(run.next_id, title);
         }
         run.request(Asked::Ask(ask), ask.kind.method(), params, ask.kind.wait())
     }
@@ -162,7 +163,7 @@ impl Session {
             AskKind::Hover => return self.answered_hover(id, ask, &result, took),
             AskKind::CodeAction => return self.offered_actions(run, (id, ask), result, took),
             AskKind::ResolveAction => {
-                return self.resolved_action(run, (id, ask), &result, took);
+                return self.resolved_action(run, (id, ask), result, took);
             }
             AskKind::ExecuteCommand => return self.executed(id, ask, took),
             AskKind::Definition | AskKind::References => {}

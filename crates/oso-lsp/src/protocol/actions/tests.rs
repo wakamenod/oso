@@ -234,6 +234,13 @@ proptest::proptest! {
             let edits: usize = edit.files.iter().map(|file| file.edits.len()).sum();
             proptest::prop_assert!(edits <= EDIT_EDITS_MAX);
         }
+        // The commands a server declares, a command's parameters and a server's own edit (13b).
+        let declared = acting(&json!({"capabilities": {"executeCommandProvider": {"commands": answer.clone()}}}));
+        proptest::prop_assert!(declared.commands.len() <= COMMANDS_MAX);
+        proptest::prop_assert!(declared.commands.iter().all(|name| name.len() <= ACTION_TITLE_BYTES_MAX));
+        let _ = execute_command_params(&answer);
+        let (label, _) = applied_edit(&json!({"label": answer.clone(), "edit": edit}));
+        proptest::prop_assert!(label.is_none_or(|label| !label.chars().any(char::is_control)));
         let taken = take_actions(answer, &list.at);
         proptest::prop_assert!(taken.len() <= list.at.len());
     }

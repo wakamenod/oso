@@ -35,14 +35,16 @@ impl Session {
             return run.send(&protocol::answer(&id, Ok(refused)));
         }
         let (label, edit) = protocol::applied_edit(params);
+        // Its own label, else the title of the action whose command it came with.
+        let label = label.or_else(|| run.actions.executing.values().next().cloned());
         let base = self.documents.sent_revisions();
         let edit = match edit {
             Some(Ok(edit)) => self.placed(run.encoding, edit, Some(&base)),
             Some(Err(why)) => Err(why.to_owned()),
             None => Err("it gives no edit".to_owned()),
         };
-        run.actions.apply_serial += 1;
-        let token = run.actions.apply_serial;
+        self.apply_serial += 1;
+        let token = self.apply_serial;
         run.actions.applying = Some((token, id));
         self.reporter
             .log("asked workspace/applyEdit, waiting for the person".to_owned());

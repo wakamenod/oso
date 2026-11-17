@@ -35,6 +35,7 @@ mod jumps;
 mod loads;
 mod log_gate;
 mod migemo;
+mod opened;
 mod projects;
 mod reloads;
 mod restart;

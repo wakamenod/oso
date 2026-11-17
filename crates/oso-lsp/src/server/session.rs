@@ -95,6 +95,9 @@ pub(in crate::server) struct Session {
     /// The documents the server knows, across its runs.
     documents: super::documents::Documents,
     /// The run's diagnostics reports, each document's last (step 6).
+    /// The last token given a `workspace/applyEdit`, across runs, so that no answer the UI
+    /// gives one run reaches another's (step 13b).
+    apply_serial: u64,
     diagnosed: super::diagnosed::Store,
 }
 
@@ -117,6 +120,7 @@ impl Session {
             crashes: Crashes::default(),
             run: 0,
             documents: super::documents::Documents::default(),
+            apply_serial: 0,
             diagnosed: super::diagnosed::Store::default(),
         }
     }

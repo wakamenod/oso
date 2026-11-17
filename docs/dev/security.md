@@ -324,9 +324,11 @@ network features.
   controls as spaces and its bidi and invisible characters written out, after what the edit
   changed, and never logged. The agent channel never
   runs the commands, which are `Person`. A file the server has no text of is the buffer that
-  holds it, unmodified, or opens through the loader only after the person's yes, never outside
-  the server's root or under a name that may hold secrets, and a loaded one judged secret
-  refuses the edit (13b). A command runs only if the server declared it, and its
+  holds it, unmodified and at the revision it had, or opens through the loader, unshown, at most
+  8 MiB, only after the person's yes to a question naming the files; never outside the server's
+  root, lexically or where links lead, in a `.git` directory, or under a name that may hold
+  secrets, and a loaded one judged secret, not there, or open under another name refuses the
+  edit, and what it opened goes (13b). A command runs only if the server declared it, and its
   `workspace/applyEdit` applies as the action's edit only while it waits; any other gets
   `applied: false`.
 - The environment is sanitized and every spawn is logged in a visible buffer.

@@ -17,6 +17,7 @@ use crate::loader::LoadError;
 use serde_json::json;
 
 use super::super::App;
+use super::super::opened::{Held, found_elsewhere, held_elsewhere};
 use crate::channel::{Connection, Reply};
 use crate::dispatch::{Given, Unshowable, unshowable};
 
@@ -338,56 +339,12 @@ fn reusable(buffer: &oso_core::buffer::Buffer) -> Option<&'static str> {
     })
 }
 
-/// What another buffer holds of the file `id`'s load opened (ADR 0087, ADR 0094).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Held {
-    /// That very file, by its device and inode, read as it is now: this buffer shows it.
-    Same(BufferId),
-    /// A file of the same device and inode, read at another time or size: a file since
-    /// replaced in that inode, or one that changed since, which cannot be told apart.
-    Stale,
-}
-
-/// The buffer, other than `id` and one the channel is still opening, that holds the file
-/// `id`'s load opened, if one does. Only by device and inode: time and size alone tell no file
-/// apart.
-fn held_elsewhere(editor: &Editor, id: BufferId) -> Option<Held> {
-    let opened = editor.buffer(id)?.baseline()?.file?;
-    opened.identity?;
-    let (other, held) = editor.buffers().find_map(|(other, buffer)| {
-        let held = buffer.baseline()?.file?;
-        (other != id && !buffer.agent_pending() && held.identity == opened.identity)
-            .then_some((other, held))
-    })?;
-    Some(if held.same_content(opened) {
-        Held::Same(other)
-    } else {
-        Held::Stale
-    })
-}
-
-/// Why a file the channel opened and read is not the one it asked for, if it is not: the
-/// load found no file there any more, so it would be a new one, which the channel never
-/// starts, or the path led, through a link, to a file of another name.
-fn found_elsewhere(
-    buffer: &oso_core::buffer::Buffer,
-    asked: Option<&std::ffi::OsStr>,
-) -> Option<&'static str> {
-    let Some(baseline) = buffer.baseline() else {
-        return Some("where the path leads could not be told");
-    };
-    if baseline.file.is_none() {
-        return Some("no file is at that path now");
-    }
-    (baseline.location.file_name() != asked).then_some("the path leads to a file of another name")
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        Held, Next, Opening, TOO_LARGE_FOR_THE_AGENT, found_elsewhere, held_elsewhere, load_failed,
-        next, reusable, take_opening,
+        Next, Opening, TOO_LARGE_FOR_THE_AGENT, load_failed, next, reusable, take_opening,
     };
+    use crate::app::opened::{Held, found_elsewhere, held_elsewhere};
     use crate::channel::Connection;
     use crate::loader::LoadError;
     use oso_core::buffer::{Baseline, Buffer, FileStamp};
