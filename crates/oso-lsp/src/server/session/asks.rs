@@ -55,8 +55,8 @@ impl Session {
             (AskKind::Completion, AskContext::Completion(invoked)) => {
                 protocol::completion_params(uri, at, invoked)
             }
-            (AskKind::CodeAction, AskContext::Range { end }) => {
-                match self.action_params(run, &ask, end, (uri, text)) {
+            (AskKind::CodeAction, AskContext::Range { start, end }) => {
+                match self.action_params(run, &ask, (start, end), (uri, text)) {
                     Ok(params) => params,
                     Err(why) => {
                         self.fail(ask, why.to_owned());
@@ -97,6 +97,7 @@ impl Session {
         });
         if let Some(older) = older {
             run.pending.remove(&older);
+            run.edit_bases.remove(&older);
             self.reporter.log(format!("cancelled request {older}"));
             run.send(&protocol::notification(
                 "$/cancelRequest",
@@ -108,6 +109,11 @@ impl Session {
             ask.kind.method(),
             run.next_id
         ));
+        // What its edits are placed against (step 13).
+        if matches!(ask.kind, AskKind::CodeAction | AskKind::ResolveAction) {
+            run.edit_bases
+                .insert(run.next_id, self.documents.sent_revisions());
+        }
         run.request(Asked::Ask(ask), ask.kind.method(), params, ask.kind.wait())
     }
 
@@ -143,7 +149,9 @@ impl Session {
             AskKind::Resolve => return self.resolved(run, (id, ask), &result, took),
             AskKind::Hover => return self.answered_hover(id, ask, &result, took),
             AskKind::CodeAction => return self.offered_actions(run, (id, ask), result, took),
-            AskKind::ResolveAction => return self.resolved_action(run, (id, ask), &result, took),
+            AskKind::ResolveAction => {
+                return self.resolved_action(run, (id, ask), &result, took);
+            }
             AskKind::Definition | AskKind::References => {}
         }
         let (located, left) = protocol::located(&result);
@@ -323,7 +331,8 @@ impl Session {
     }
 
     /// An ask whose wait ended: cancelled, and failed.
-    pub(super) fn overdue_ask(&mut self, run: &Run, id: i64, ask: Ask) -> Result<(), String> {
+    pub(super) fn overdue_ask(&mut self, run: &mut Run, id: i64, ask: Ask) -> Result<(), String> {
+        run.edit_bases.remove(&id);
         self.reporter.log(format!(
             "request {id} not answered within {} s, cancelled",
             ask.kind.wait().as_secs()
@@ -337,6 +346,7 @@ impl Session {
 
     /// The run ended: what waits fails.
     pub(super) fn fail_asks(&mut self, run: &mut Run) {
+        run.edit_bases.clear();
         let waiting: Vec<Ask> = run
             .pending
             .drain()

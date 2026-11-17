@@ -53,6 +53,14 @@ impl Documents {
         kept.given.back()?.version
     }
 
+    /// The caller's revision of the text the server has of each document that has one (step 13:
+    /// what an edit's request was asked against).
+    pub(in crate::server) fn sent_revisions(&self) -> HashMap<u64, u64> {
+        (self.0.iter())
+            .filter_map(|(id, kept)| Some((*id, kept.sent_revision()?)))
+            .collect()
+    }
+
     /// The documents whose text the server has, by path: each one's id, the caller's revision
     /// of that text, and the text.
     pub(in crate::server) fn sent_by_path(&self) -> HashMap<&Path, (u64, u64, &Rope)> {

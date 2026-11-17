@@ -53,6 +53,9 @@ pub(super) struct Run {
     pub(super) acting: protocol::Acting,
     /// The last code actions it gave, as it gave them, for their resolve (step 13).
     pub(super) last_actions: Option<LastItems>,
+    /// The revisions of the texts it had as each request for code actions or a resolve went
+    /// out, by the request's id, against which their edits are placed (step 13, Q8).
+    pub(super) edit_bases: std::collections::HashMap<i64, std::collections::HashMap<u64, u64>>,
 }
 
 /// How documents are synced until `initialize` says: not at all.

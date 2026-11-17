@@ -199,3 +199,31 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn a_diagnostic_keeps_its_data_up_to_the_bound_and_its_code_s_type() {
+    use crate::limits::DIAGNOSTIC_DATA_BYTES_MAX;
+    // `"…"` is the string's JSON: its quotes take two bytes of the bound.
+    let data = |len: usize| json!("d".repeat(len - 2));
+    let span = json!({"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}});
+    let report = |data: Value| {
+        published(&json!({"uri": "file:///w/a.rs", "diagnostics": [
+            {"range": span, "message": "m", "code": 7, "data": data},
+            {"range": span, "message": "m", "code": "E7"},
+        ]}))
+        .unwrap()
+    };
+    let at = report(data(DIAGNOSTIC_DATA_BYTES_MAX));
+    assert_eq!(
+        at.diagnostics[0].data.as_ref().map(|data| data.len()),
+        Some(DIAGNOSTIC_DATA_BYTES_MAX)
+    );
+    assert!(at.diagnostics[0].code_number && !at.diagnostics[1].code_number);
+    assert!(at.diagnostics[1].data.is_none());
+    let past = report(data(DIAGNOSTIC_DATA_BYTES_MAX + 1));
+    assert!(
+        past.diagnostics[0].data.is_none(),
+        "past the bound, none is kept"
+    );
+    assert_eq!(past.diagnostics.len(), 2, "the diagnostic itself stays");
+}

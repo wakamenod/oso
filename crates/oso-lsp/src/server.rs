@@ -20,6 +20,7 @@ mod actions;
 mod asks;
 mod diagnosed;
 mod documents;
+mod edits;
 mod outbox;
 mod pipes;
 mod policy;
@@ -40,11 +41,12 @@ use oso_core::syntax::Splice;
 use oso_platform::process::{Child, Executable, Signal};
 use serde_json::Value;
 
-pub use actions::{ActionResolved, CodeAction, CodeActions, OpenEdit, ServerEdit, UnopenedEdit};
+pub use actions::{ActionResolved, CodeAction, CodeActions};
 pub use asks::{
     Answer, Answered, Ask, AskContext, AskFailure, AskKind, Completion, Completions, Location,
     Resolved, Target,
 };
+pub use edits::{OpenEdit, ServerEdit, UnsentEdit};
 
 use crate::framing::{Frame, FrameError};
 use crate::position::Encoding;

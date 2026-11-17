@@ -27,6 +27,7 @@ use super::{Diagnosed, Event, Gate, Start, State};
 
 mod actions;
 mod asks;
+mod edits;
 mod incoming;
 mod run;
 mod sync;
@@ -313,6 +314,7 @@ impl Session {
             last_items: None,
             acting: crate::protocol::Acting::default(),
             last_actions: None,
+            edit_bases: HashMap::new(),
         };
         let root_uri = uri::from_path(&start.root).unwrap_or_default();
         let root_name = start

@@ -89,11 +89,12 @@ pub const ADDITIONAL_EDITS_BYTES_MAX: usize = 64 << 10;
 pub const CODE_ACTIONS_MAX: usize = 200;
 /// The most bytes of a code action's title, and of its kind, kept; the rest is cut (Q7).
 pub const ACTION_TITLE_BYTES_MAX: usize = 256;
-/// The most files one code action's edit may change (Q7).
+/// The most files one workspace edit may change (step 13, Q7).
 pub const EDIT_FILES_MAX: usize = 64;
-/// The most text edits one code action's edit may make, across its files (Q7).
-pub const EDIT_EDITS_MAX: usize = 10_000;
-/// The most bytes of new text one code action's edit may insert, across its files (Q7).
+/// The most text edits one workspace edit may make, across its files (step 13, Q7b): 1,000
+/// apply in about 5 ms on the UI thread, within a frame; 10,000 took 26 to 59 ms.
+pub const EDIT_EDITS_MAX: usize = 1000;
+/// The most bytes of new text one workspace edit may insert, across its files (step 13, Q7).
 pub const EDIT_BYTES_MAX: usize = 4 << 20;
 /// The most bytes of a diagnostic's `data`, as JSON, kept to give back with an ask for code
 /// actions; past it, none is kept (step 13).

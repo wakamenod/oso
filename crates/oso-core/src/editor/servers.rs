@@ -6,8 +6,8 @@
 //! answer leads to, and back (step 8, `jumps`), and the list of an answer's places (step 8b,
 //! `xref_list`); the completion popup (step 9, `popup`), with what it takes after it opened
 //! and what the person typed (step 9b); the description of what is at point in a float there
-//! (step 10, `hover`); and the list of a server's code actions and its edits applied (step 13,
-//! `code_actions`).
+//! (step 10, `hover`); and the list of a server's code actions (step 13, `code_actions`) and a
+//! server's edit applied (`server_edit`).
 //!
 //! Must not depend on: the host's servers, threads or I/O; a command asks, and the host takes
 //! the request after the command and acts on the server.
@@ -18,13 +18,14 @@ mod hover;
 mod jumps;
 mod listed;
 mod popup;
+mod server_edit;
 mod xref_list;
 
 use crate::buffer::{Buffer, BufferId};
 
 /// Where on a line a server's place is: the host turns the server's encoding into one.
 pub use super::visits::VisitColumn;
-pub use code_actions::{BufferEdit, CodeActionItem, EditApplied};
+pub use code_actions::CodeActionItem;
 pub use diagnostics_list::{DiagnosticRow, DiagnosticRows, DiagnosticsRequest};
 pub use hover::HoverShown;
 pub use jumps::AskAt;
@@ -33,6 +34,7 @@ pub use popup::{
     COMPLETION_POPUP_COLUMNS, COMPLETION_POPUP_ROWS, CompletionPopup, CompletionPopupAnswer,
     CompletionPopupItem, CompletionTyped,
 };
+pub use server_edit::{BufferEdit, EditApplied};
 pub use xref_list::{XrefKind, XrefRow, XrefRows};
 
 use super::Editor;
@@ -59,7 +61,7 @@ pub(super) struct Servers {
     /// The description shown at point, `C-c C-d` (step 10).
     pub(super) hover: hover::Hover,
     /// The list of a server's code actions, `C-c C-r` (step 13).
-    pub(super) actions: code_actions::ActionList,
+    pub(super) actions: code_actions::ActionsShown,
     log: Option<BufferId>,
 }
 
@@ -83,9 +85,9 @@ pub enum ServerRequest {
     GoToXref,
     /// `lsp-describe-at-point` (step 10).
     Describe(AskAt),
-    /// `lsp-code-actions`: the code actions from `at` to `end`, the region or the cursor's place
-    /// (step 13, Q1).
-    CodeActions { at: AskAt, end: usize },
+    /// `lsp-code-actions`: the code actions from `start` to `end`, the active region or the
+    /// primary cursor's place, asked from `at`, the cursor (step 13, Q1).
+    CodeActions { at: AskAt, start: usize, end: usize },
     /// `lsp-code-action-apply`: apply the action the list of code actions took
     /// ([`Editor::take_code_action_hit`]) (step 13).
     ApplyCodeAction,

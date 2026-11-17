@@ -1,6 +1,6 @@
 //! Tests of code actions as plain values (ADR 0138, step 13): what `initialize` says of them,
 //! the ask's parameters with the diagnostics given back, an answer's actions within the bounds,
-//! and workspace edits read whole or not at all.
+//! a title that would read as another, and a resolve.
 //!
 //! Must not depend on: `server`, threads or processes.
 
@@ -8,7 +8,9 @@ use oso_core::diagnostic::{Severity, Tags};
 use serde_json::{Value, json};
 
 use super::*;
-use crate::limits::{CODE_ACTIONS_MAX, EDIT_EDITS_MAX, EDIT_FILES_MAX};
+use crate::limits::CODE_ACTIONS_MAX;
+use crate::limits::{EDIT_EDITS_MAX, EDIT_FILES_MAX};
+use crate::protocol::workspace_edit::workspace_edit;
 
 fn range(line: u32, start: u32, end: u32) -> Value {
     json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}})
@@ -129,43 +131,18 @@ fn an_answer_gives_actions_and_commands_cut_to_their_bounds() {
 }
 
 #[test]
-fn a_workspace_edit_reads_by_version_or_by_uri_whole_or_not_at_all() {
-    let versioned = json!({"documentChanges": [{
-        "textDocument": {"uri": "file:///w/a.rs", "version": 7},
-        "edits": [{"range": range(2, 0, 3), "newText": "let"}],
-    }]});
-    let edit = workspace_edit(&versioned).unwrap();
-    assert_eq!(edit.files.len(), 1);
-    assert_eq!(
-        (edit.files[0].uri.as_str(), edit.files[0].version),
-        ("file:///w/a.rs", Some(7))
-    );
-    assert_eq!(
-        edit.files[0].edits,
-        [(Position::new(2, 0), Position::new(2, 3), "let".to_owned())]
-    );
-    // Creating, renaming or deleting a file refuses it all (Q6).
-    let create = json!({"documentChanges": [{"kind": "create", "uri": "file:///w/b.rs"}]});
-    assert!(workspace_edit(&create).is_err());
-    // A control character other than a tab or a line feed refuses it all.
-    let control = json!({"changes": {"file:///w/a.rs": [{"range": range(0, 0, 0), "newText": "a\u{1b}[2J"}]}});
-    assert!(workspace_edit(&control).is_err());
-    // Past the files' and the edits' bounds.
-    let files: serde_json::Map<String, Value> = (0..=EDIT_FILES_MAX)
-        .map(|n| (format!("file:///w/{n}.rs"), json!([])))
-        .collect();
-    assert!(workspace_edit(&json!({"changes": files})).is_err());
-    let edits: Vec<Value> = (0..=EDIT_EDITS_MAX)
-        .map(|_| json!({"range": range(0, 0, 0), "newText": ""}))
-        .collect();
-    assert!(workspace_edit(&json!({"changes": {"file:///w/a.rs": edits}})).is_err());
-    let unread = json!({"changes": {"file:///w/a.rs": [{"newText": "x"}]}});
-    assert!(workspace_edit(&unread).is_err(), "an edit with no range");
-    // A resolve's edit.
-    assert!(
-        resolved_action(&json!({"title": "x", "edit": versioned})).is_some_and(|edit| edit.is_ok())
-    );
-    assert!(resolved_action(&json!({"title": "x"})).is_none());
+fn a_title_s_bidi_and_invisible_characters_are_written_out_and_a_resolve_reads_whole() {
+    let list = code_actions(&json!([{"title": "Fix\u{202e}txt.exe\u{200b} it\n"}]));
+    assert_eq!(list.actions[0].title, "Fix\\u{202e}txt.exe\\u{200b} it ");
+    let resolved = resolved_action(&json!({
+        "title": "x",
+        "edit": {"changes": {"file:///w/a.rs": [{"range": range(0, 0, 0), "newText": "y"}]}},
+        "command": {"title": "then", "command": "fake.then", "arguments": [1]},
+    }))
+    .unwrap();
+    assert!(resolved.edit.is_some_and(|edit| edit.is_ok()));
+    assert_eq!(resolved.command.as_deref(), Some("fake.then"));
+    assert!(resolved_action(&json!({"no": "title"})).is_none());
 }
 
 /// Any JSON of a few shapes a server might send where an action or an edit goes.

@@ -135,6 +135,28 @@ fn placed(value: &Value) -> Option<Severity> {
     )
 }
 
+/// `value` as JSON, if it takes at most [`DIAGNOSTIC_DATA_BYTES_MAX`]: the writing stops
+/// there, so that a huge one costs no more than the bound.
+fn bounded_json(value: &Value) -> Option<Box<str>> {
+    /// A writer that refuses past the bound.
+    struct Bounded(Vec<u8>);
+    impl std::io::Write for Bounded {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if self.0.len() + bytes.len() > DIAGNOSTIC_DATA_BYTES_MAX {
+                return Err(std::io::ErrorKind::FileTooLarge.into());
+            }
+            self.0.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut out = Bounded(Vec::new());
+    serde_json::to_writer(&mut out, value).ok()?;
+    String::from_utf8(out.0).ok().map(String::into_boxed_str)
+}
+
 /// The range under `value`'s `range`.
 fn range(value: &Value) -> Option<(Position, Position)> {
     range_of(value.get("range")?)
@@ -182,9 +204,7 @@ fn reported(value: &Value, severity: Severity) -> Option<Reported> {
     };
     let data = (value.get("data"))
         .filter(|data| !data.is_null())
-        .and_then(|data| serde_json::to_string(data).ok())
-        .filter(|data| data.len() <= DIAGNOSTIC_DATA_BYTES_MAX)
-        .map(String::into_boxed_str);
+        .and_then(bounded_json);
     Some(Reported {
         start,
         end,

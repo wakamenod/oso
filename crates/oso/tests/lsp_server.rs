@@ -1528,12 +1528,15 @@ fn code_actions_are_asked_over_a_range_with_its_diagnostics_and_their_edits_plac
         kind: AskKind::CodeAction,
         revision: 7,
         offset,
-        context: AskContext::Range { end: offset + 1 },
+        context: AskContext::Range {
+            start: offset,
+            end: offset + 1,
+        },
     });
     seen.until(LIMIT, |seen| !seen.answers.is_empty());
     // The range, and only the diagnostic there, as the server gave it.
     assert!(
-        seen.logged(r#"asked textDocument/codeAction 1:4-1:5 diagnostics=[{"code":2304,"data":{"fix":7},"message":"Cannot find","range":{"end":{"character":5,"line":1},"start":{"character":4,"line":1}},"severity":1}]"#),
+        seen.logged(r#"asked textDocument/codeAction 1:4-1:5 1 diagnostics=[{"code":2304,"data":{"fix":7},"message":"Cannot find","range":{"end":{"character":5,"line":1},"start":{"character":4,"line":1}},"severity":1}]"#),
         "{}",
         seen.log.join("\n")
     );
@@ -1555,7 +1558,7 @@ fn code_actions_are_asked_over_a_range_with_its_diagnostics_and_their_edits_plac
     );
     let elsewhere = elsewhere.edit.as_ref().unwrap().as_ref().unwrap();
     assert_eq!(
-        (elsewhere.open.len(), elsewhere.unopened.len()),
+        (elsewhere.open.len(), elsewhere.unsent.len()),
         (0, 1),
         "a file not open"
     );
@@ -1580,7 +1583,75 @@ fn code_actions_are_asked_over_a_range_with_its_diagnostics_and_their_edits_plac
         panic!("resolved")
     };
     assert_eq!((resolved.answer, resolved.index), (5, 1));
-    let edit = resolved.edit.unwrap();
+    let edit = resolved.edit.unwrap().unwrap();
     assert_eq!(edit.open[0].edits, [(offset..offset + 1, "y".to_owned())]);
+    seen.server.shut_down();
+}
+
+#[test]
+fn an_edit_of_a_buffer_changed_while_the_server_answered_is_refused_and_64_diagnostics_go() {
+    use oso_lsp::limits::ACTION_DIAGNOSTICS_MAX;
+    use oso_lsp::server::{Answered, AskContext, AskKind, Change};
+    let dir = scratch("code-actions-late");
+    let here = oso_lsp::uri::from_path(&dir.join("a.rs")).unwrap();
+    let range = |line: u32, start: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}});
+    let many: Vec<Value> = (0..ACTION_DIAGNOSTICS_MAX + 6)
+        .map(|n| json!({"range": range(0, 0, 3), "message": format!("d{n}")}))
+        .collect();
+    let script = json!({
+        "rules": [
+            {"method": "initialize", "do": [{"reply": {"capabilities": {
+                "positionEncoding": "utf-16",
+                "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+                "codeActionProvider": true,
+            }}}]},
+            {"method": "textDocument/didOpen", "nth": 1, "do": [
+                {"notify": {"method": "textDocument/publishDiagnostics", "params": {
+                    "uri": &here, "version": 1, "diagnostics": many,
+                }}}
+            ]},
+            {"method": "textDocument/codeAction", "do": [
+                {"sleep_ms": 600},
+                {"reply": [{"title": "Late", "edit": {"changes": {here.clone(): [{"range": range(0, 0, 0), "newText": "x"}]}}}]},
+            ]},
+            {"method": "shutdown", "do": [{"reply": null}]},
+        ],
+        "log_documents": true,
+        "log_positions": true,
+        "encoding": "utf-16",
+    });
+    let mut seen = started("code-actions-late", &script, open());
+    opened(&mut seen, 1, &here, "let x = 1;\n");
+    seen.until(LIMIT, |seen| !seen.diagnosed.is_empty());
+    seen.server.ask(oso_lsp::server::Ask {
+        serial: 5,
+        document: 1,
+        kind: AskKind::CodeAction,
+        revision: 7,
+        offset: 1,
+        context: AskContext::Range { start: 1, end: 1 },
+    });
+    seen.until(LIMIT, |seen| seen.logged("asked textDocument/codeAction"));
+    let at_most =
+        format!("asked textDocument/codeAction 0:1-0:1 {ACTION_DIAGNOSTICS_MAX} diagnostics=");
+    assert!(seen.logged(&at_most), "at most 64: {}", seen.log.join("\n"));
+    // The buffer changes while the server answers.
+    seen.server.change(Change {
+        id: 1,
+        before: oso_core::rope::Rope::from("let x = 1;\n"),
+        after: oso_core::rope::Rope::from("let y = 1;\n"),
+        splices: None,
+        revision: 8,
+    });
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    let Ok(Answered::CodeActions(actions)) = seen.answers.pop().unwrap().outcome else {
+        panic!("code actions")
+    };
+    assert_eq!(
+        actions.actions[0].edit,
+        Some(Err(
+            "a buffer it edits changed while the server answered".to_owned()
+        ))
+    );
     seen.server.shut_down();
 }

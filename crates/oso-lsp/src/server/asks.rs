@@ -93,8 +93,8 @@ pub struct Ask {
 
 /// What more an ask says (step 9b): nothing, for definitions and references; why completions
 /// are asked for; for a resolve, which item or action of which answer, by its ask's serial and
-/// its place in the answer; or, for code actions, where the range asked about ends, `offset`
-/// its start (step 13). A kind with the wrong context fails.
+/// its place in the answer; or, for code actions, the range asked about, `offset` the primary
+/// cursor still (step 13). A kind with the wrong context fails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AskContext {
     #[default]
@@ -105,6 +105,7 @@ pub enum AskContext {
         index: usize,
     },
     Range {
+        start: usize,
         end: usize,
     },
 }

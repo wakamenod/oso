@@ -446,14 +446,27 @@ fn c_c_c_r_asks_for_the_code_actions_of_the_region_or_of_point() {
     let (mut d, mut editor) = followed(Some(ServerMark::Ready));
     send(&mut d, &mut editor, "C-f C-f C-c C-r");
     match editor.take_server_requests().as_slice() {
-        [ServerRequest::CodeActions { at, end }] => {
-            assert_eq!((at.offset, *end, at.agent), (2, 2, false), "point");
+        [ServerRequest::CodeActions { at, start, end }] => {
+            assert_eq!(
+                (at.offset, *start, *end, at.agent),
+                (2, 2, 2, false),
+                "point"
+            );
         }
         other => panic!("{other:?}"),
     }
     send(&mut d, &mut editor, "C-SPC C-f C-f C-f C-c C-r");
     match editor.take_server_requests().as_slice() {
-        [ServerRequest::CodeActions { at, end }] => assert_eq!((at.offset, *end), (2, 5)),
+        // The ask is from the cursor, at the region's end, as the answer is judged by it.
+        [ServerRequest::CodeActions { at, start, end }] => {
+            assert_eq!((at.offset, *start, *end), (5, 2, 5));
+        }
+        other => panic!("{other:?}"),
+    }
+    // An inactive mark is no region.
+    send(&mut d, &mut editor, "C-g C-c C-r");
+    match editor.take_server_requests().as_slice() {
+        [ServerRequest::CodeActions { start, end, .. }] => assert_eq!((*start, *end), (5, 5)),
         other => panic!("{other:?}"),
     }
 }

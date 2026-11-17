@@ -523,7 +523,7 @@ pub fn oso_lsp::protocol::published(&serde_json::value::Value) -> core::option::
 pub fn oso_lsp::protocol::references_params(&str, oso_lsp::position::Position) -> serde_json::value::Value
 pub fn oso_lsp::protocol::request(i64, &str, serde_json::value::Value) -> alloc::vec::Vec<u8>
 pub fn oso_lsp::protocol::resolved(&serde_json::value::Value) -> alloc::vec::Vec<oso_lsp::protocol::Extra>
-pub fn oso_lsp::protocol::resolved_action(&serde_json::value::Value) -> core::option::Option<core::result::Result<oso_lsp::protocol::WireEdit, &'static str>>
+pub fn oso_lsp::protocol::resolved_action(&serde_json::value::Value) -> core::option::Option<oso_lsp::protocol::OfferedAction>
 pub fn oso_lsp::protocol::server_name(&serde_json::value::Value) -> core::option::Option<&str>
 pub fn oso_lsp::protocol::sync(&serde_json::value::Value) -> oso_lsp::protocol::Sync
 pub fn oso_lsp::protocol::take_actions(serde_json::value::Value, &[usize]) -> alloc::vec::Vec<serde_json::value::Value>
@@ -554,6 +554,7 @@ pub oso_lsp::server::AskContext::Item::index: usize
 pub oso_lsp::server::AskContext::None
 pub oso_lsp::server::AskContext::Range
 pub oso_lsp::server::AskContext::Range::end: usize
+pub oso_lsp::server::AskContext::Range::start: usize
 impl core::clone::Clone for oso_lsp::server::AskContext
 pub fn oso_lsp::server::AskContext::clone(&self) -> oso_lsp::server::AskContext
 impl core::cmp::Eq for oso_lsp::server::AskContext
@@ -667,7 +668,8 @@ pub fn oso_lsp::server::Target::fmt(&self, &mut core::fmt::Formatter<'_>) -> cor
 impl core::marker::StructuralPartialEq for oso_lsp::server::Target
 pub struct oso_lsp::server::ActionResolved
 pub oso_lsp::server::ActionResolved::answer: u64
-pub oso_lsp::server::ActionResolved::edit: core::result::Result<oso_lsp::server::ServerEdit, alloc::string::String>
+pub oso_lsp::server::ActionResolved::command: core::option::Option<alloc::string::String>
+pub oso_lsp::server::ActionResolved::edit: core::option::Option<core::result::Result<oso_lsp::server::ServerEdit, alloc::string::String>>
 pub oso_lsp::server::ActionResolved::index: usize
 impl core::clone::Clone for oso_lsp::server::ActionResolved
 pub fn oso_lsp::server::ActionResolved::clone(&self) -> oso_lsp::server::ActionResolved
@@ -853,7 +855,7 @@ impl core::ops::drop::Drop for oso_lsp::server::Server
 pub fn oso_lsp::server::Server::drop(&mut self)
 pub struct oso_lsp::server::ServerEdit
 pub oso_lsp::server::ServerEdit::open: alloc::vec::Vec<oso_lsp::server::OpenEdit>
-pub oso_lsp::server::ServerEdit::unopened: alloc::vec::Vec<oso_lsp::server::UnopenedEdit>
+pub oso_lsp::server::ServerEdit::unsent: alloc::vec::Vec<oso_lsp::server::UnsentEdit>
 impl core::clone::Clone for oso_lsp::server::ServerEdit
 pub fn oso_lsp::server::ServerEdit::clone(&self) -> oso_lsp::server::ServerEdit
 impl core::cmp::Eq for oso_lsp::server::ServerEdit
@@ -886,16 +888,16 @@ impl core::clone::Clone for oso_lsp::server::Start
 pub fn oso_lsp::server::Start::clone(&self) -> oso_lsp::server::Start
 impl core::fmt::Debug for oso_lsp::server::Start
 pub fn oso_lsp::server::Start::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct oso_lsp::server::UnopenedEdit
-pub oso_lsp::server::UnopenedEdit::edits: alloc::vec::Vec<oso_lsp::protocol::Extra>
-pub oso_lsp::server::UnopenedEdit::encoding: oso_lsp::position::Encoding
-pub oso_lsp::server::UnopenedEdit::path: std::path::PathBuf
-impl core::clone::Clone for oso_lsp::server::UnopenedEdit
-pub fn oso_lsp::server::UnopenedEdit::clone(&self) -> oso_lsp::server::UnopenedEdit
-impl core::cmp::Eq for oso_lsp::server::UnopenedEdit
-impl core::cmp::PartialEq for oso_lsp::server::UnopenedEdit
-pub fn oso_lsp::server::UnopenedEdit::eq(&self, &oso_lsp::server::UnopenedEdit) -> bool
-impl core::marker::StructuralPartialEq for oso_lsp::server::UnopenedEdit
+pub struct oso_lsp::server::UnsentEdit
+pub oso_lsp::server::UnsentEdit::edits: alloc::vec::Vec<oso_lsp::protocol::Extra>
+pub oso_lsp::server::UnsentEdit::encoding: oso_lsp::position::Encoding
+pub oso_lsp::server::UnsentEdit::path: std::path::PathBuf
+impl core::clone::Clone for oso_lsp::server::UnsentEdit
+pub fn oso_lsp::server::UnsentEdit::clone(&self) -> oso_lsp::server::UnsentEdit
+impl core::cmp::Eq for oso_lsp::server::UnsentEdit
+impl core::cmp::PartialEq for oso_lsp::server::UnsentEdit
+pub fn oso_lsp::server::UnsentEdit::eq(&self, &oso_lsp::server::UnsentEdit) -> bool
+impl core::marker::StructuralPartialEq for oso_lsp::server::UnsentEdit
 pub type oso_lsp::server::Gate = alloc::boxed::Box<(dyn core::ops::function::Fn() -> core::result::Result<oso_lsp::server::Found, alloc::string::String> + core::marker::Send)>
 pub type oso_lsp::server::Wake = alloc::boxed::Box<(dyn core::ops::function::Fn() + core::marker::Send)>
 pub mod oso_lsp::uri

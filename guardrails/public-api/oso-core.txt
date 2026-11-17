@@ -2083,6 +2083,7 @@ pub oso_core::editor::ServerRequest::ApplyCodeAction
 pub oso_core::editor::ServerRequest::CodeActions
 pub oso_core::editor::ServerRequest::CodeActions::at: oso_core::editor::AskAt
 pub oso_core::editor::ServerRequest::CodeActions::end: usize
+pub oso_core::editor::ServerRequest::CodeActions::start: usize
 pub oso_core::editor::ServerRequest::Complete(oso_core::editor::AskAt)
 pub oso_core::editor::ServerRequest::Definition(oso_core::editor::AskAt)
 pub oso_core::editor::ServerRequest::Describe(oso_core::editor::AskAt)
@@ -2678,10 +2679,7 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::answer_question_third(&mut self) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::ask_with_third(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, [&'static str; 2], oso_core::minibuffer::Third) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::apply_server_edit(&mut self, &[oso_core::editor::BufferEdit]) -> core::result::Result<oso_core::editor::EditApplied, &'static str>
-pub fn oso_core::editor::Editor::code_action_disabled(&self, usize) -> core::option::Option<bool>
-pub fn oso_core::editor::Editor::open_code_actions(&mut self, &[oso_core::editor::CodeActionItem]) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
-pub fn oso_core::editor::Editor::take_code_action_hit(&mut self) -> core::option::Option<usize>
+pub fn oso_core::editor::Editor::apply_server_edit(&mut self, alloc::vec::Vec<oso_core::editor::BufferEdit>) -> core::result::Result<oso_core::editor::EditApplied, &'static str>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::around_secret(&self) -> bool
 pub fn oso_core::editor::Editor::begin_command(&mut self)
@@ -2791,6 +2789,10 @@ pub fn oso_core::editor::Editor::hover_page(&self) -> usize
 pub fn oso_core::editor::Editor::hover_screen(&self, &mut oso_core::window::Screen)
 pub fn oso_core::editor::Editor::scroll_hover(&mut self, isize) -> bool
 pub fn oso_core::editor::Editor::show_hover(&mut self, oso_core::editor::AskAt, &str, &str, bool) -> bool
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::code_action_disabled(&self, usize) -> core::option::Option<bool>
+pub fn oso_core::editor::Editor::open_code_actions(&mut self, &[oso_core::editor::CodeActionItem]) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::take_code_action_hit(&mut self) -> core::option::Option<usize>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::completion_failed(&mut self)
 pub fn oso_core::editor::Editor::completion_pending(&self) -> bool

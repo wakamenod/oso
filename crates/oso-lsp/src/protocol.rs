@@ -14,10 +14,11 @@ mod located;
 mod published;
 #[cfg(test)]
 mod tests;
+mod workspace_edit;
 
 pub use actions::{
-    Acting, ActionList, OfferedAction, WireEdit, WireFile, acting, code_action_params,
-    code_actions, resolved_action, take_actions, workspace_edit,
+    Acting, ActionList, OfferedAction, acting, code_action_params, code_actions, resolved_action,
+    take_actions,
 };
 pub use completion::{
     Completing, CompletionList, Extra, Invoked, Offered, completed, completing, completion_params,
@@ -27,6 +28,7 @@ pub use hover::{Hover, hover};
 pub use located::{Located, located, position_params, references_params};
 pub use published::{Published, Reported, published};
 use serde_json::{Map, Value, json};
+pub use workspace_edit::{WireEdit, WireFile, workspace_edit};
 
 use crate::json::{integer_in, string, uinteger};
 use crate::limits::{

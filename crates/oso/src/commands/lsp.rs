@@ -311,14 +311,21 @@ fn code_actions(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
             "No server for a buffer that may hold secrets",
         ));
     }
-    let range = ctx.editor.window().selections.primary().range();
-    let at = oso_core::editor::AskAt {
-        offset: range.start,
-        ..ctx.editor.ask_at()
+    let selections = &ctx.editor.window().selections;
+    let primary = selections.primary();
+    // The region only while it is active; an inactive mark is no region.
+    let range = if selections.mark_active().is_active() {
+        primary.range()
+    } else {
+        primary.cursor..primary.cursor
     };
+    let at = ctx.editor.ask_at();
     // The host says whether a server follows it.
-    ctx.editor
-        .request_server(ServerRequest::CodeActions { at, end: range.end });
+    ctx.editor.request_server(ServerRequest::CodeActions {
+        at,
+        start: range.start,
+        end: range.end,
+    });
     Ok(())
 }
 
