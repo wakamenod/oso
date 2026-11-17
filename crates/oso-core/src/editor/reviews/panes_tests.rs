@@ -159,6 +159,54 @@ fn the_panes_are_the_reviews_and_say_what_their_lines_are() {
 }
 
 #[test]
+fn a_paint_puts_in_both_panes_highlights_and_refuses_what_does_not_cover_them() {
+    let (mut editor, id, _) = editor_with_review(200);
+    let ((old, old_rows), (new, new_rows)) = panes();
+    // No panes yet: refused whole.
+    let paint = |text: &str, rows: Rows, highlight| {
+        let mut highlights = Highlights::new(text.len());
+        highlights.replace(0..2, [(2, Some(highlight))]);
+        (rows, highlights)
+    };
+    let refused = editor.set_review_panes_paint(
+        id,
+        paint(old, old_rows.clone(), crate::syntax::Highlight::Keyword),
+        paint(new, new_rows.clone(), crate::syntax::Highlight::Keyword),
+    );
+    assert!(refused.is_err_and(|left| left.panes.len() == 2));
+    put_panes(&mut editor, id);
+    let (old_buffer, new_buffer) = editor.review_panes(id).unwrap();
+    let left = editor.set_review_panes_paint(
+        id,
+        paint(old, old_rows.clone(), crate::syntax::Highlight::Keyword),
+        paint(new, new_rows.clone(), crate::syntax::Highlight::String),
+    );
+    assert!(left.is_ok_and(|left| left.panes.len() == 2));
+    let first =
+        |editor: &Editor, buffer| editor.buffer(buffer).unwrap().highlights().unwrap().at(0);
+    assert_eq!(
+        first(&editor, old_buffer),
+        Some(crate::syntax::Highlight::Keyword)
+    );
+    assert_eq!(
+        first(&editor, new_buffer),
+        Some(crate::syntax::Highlight::String)
+    );
+    // Highlights of another length: refused, nothing changed.
+    let short = (new_rows, Highlights::new(3));
+    let refused = editor.set_review_panes_paint(
+        id,
+        paint(old, old_rows, crate::syntax::Highlight::Type),
+        short,
+    );
+    assert!(refused.is_err());
+    assert_eq!(
+        first(&editor, old_buffer),
+        Some(crate::syntax::Highlight::Keyword)
+    );
+}
+
+#[test]
 fn panes_of_unequal_lines_are_refused_whole() {
     let mut editor = Editor::default();
     let (id, _) = editor.add_review(ProjectId(0), "*review: uncommitted p*".into());

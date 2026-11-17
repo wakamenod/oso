@@ -433,7 +433,7 @@ impl Editor {
     }
 
     /// Puts in a review buffer's highlights, returning the ones before, or these if refused.
-    fn put_review_highlights(
+    pub(super) fn put_review_highlights(
         &mut self,
         buffer: BufferId,
         highlights: Highlights,
@@ -454,7 +454,7 @@ impl Editor {
     }
 
     /// The rows of the review `id`'s panes dropped since, for a leftover to free.
-    fn take_spare_rows(&mut self, id: ReviewId) -> Vec<Rows> {
+    pub(super) fn take_spare_rows(&mut self, id: ReviewId) -> Vec<Rows> {
         self.reviews
             .get_mut(id)
             .map(|open| std::mem::take(&mut open.spare))

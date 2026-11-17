@@ -537,6 +537,7 @@ impl App {
             carried,
             reading,
             folded,
+            pane_paint,
             ..
         } = text;
         self.reviews.open[index].shown_folded = folded;
@@ -557,9 +558,7 @@ impl App {
                 }),
         };
         self.freer.free((before, left));
-        if let Some(panes) = panes {
-            self.put_in_review_panes(index, panes);
-        }
+        self.put_in_review_panes(index, panes, pane_paint);
         // The view builds the next text only now.
         self.reviews.open[index].view.taken();
         for (reading, carried) in carried {

@@ -21,12 +21,16 @@
 //!   view ends. A full schedule stops the opening until a document closes.
 //! - Until a side is highlighted whole, only its lines on screen are projected; once it is,
 //!   every line the review shows of it.
+//! - An open buffer whose text is a file's new side gives that side's runs: once its are whole,
+//!   the side's document closes or never opens. Its text is compared once a revision, and
+//!   again for each new reading.
 //! - The runs and lines held count toward a budget ([`MAX_RUNS`], in `budget`).
 //! - A side that failed or was lost stays in its diff face while the review is open; one
 //!   refused for a long line is tried again with its next text, as that costs one scan.
 //! - Nothing here logs a file's text, path or highlights.
 
 mod budget;
+mod buffers;
 mod sides;
 
 use std::collections::{HashMap, HashSet};
@@ -40,6 +44,7 @@ use oso_core::rope::Rope;
 use oso_syntax::{Failure, Language, MAX_BYTES, Outcome, Refused, Report};
 
 pub(crate) use budget::MAX_RUNS;
+pub(crate) use buffers::BufferSide;
 pub(super) use sides::{SideRuns, add_shown, index};
 use sides::{Source, lines_of, on_screen, shown_ranges, source};
 
@@ -102,6 +107,8 @@ struct SideState {
     over: Option<u64>,
     /// Its runs are whole and cover every line the reading shows of it.
     complete: bool,
+    /// The revision of an open buffer last compared with it, and whether that was whole.
+    buffer_tried: Option<(u64, bool)>,
 }
 
 impl SideState {
@@ -143,6 +150,8 @@ pub(super) struct Highlighting {
     changed: HashSet<Box<[u8]>>,
     /// Reports waiting to be taken, the latest of each key.
     reports: HashMap<u64, Report<u64>>,
+    /// The latest of each open buffer whose path a file of the review may have.
+    buffers: HashMap<Box<[u8]>, BufferSide>,
     /// Nothing more to open until something changes.
     settled: bool,
 }
@@ -162,6 +171,7 @@ impl Default for Highlighting {
             laid: HashSet::new(),
             changed: HashSet::new(),
             reports: HashMap::new(),
+            buffers: HashMap::new(),
             settled: false,
         }
     }
@@ -261,7 +271,7 @@ impl Highlighting {
 
     /// The file at `path` shows `reading` now: a side whose text changed drops its runs and
     /// closes its document.
-    pub(super) fn reading(&mut self, path: &[u8], reading: &Arc<Reading>) {
+    pub(super) fn reading(&mut self, path: &[u8], reading: &Arc<Reading>, order: &[Box<[u8]>]) {
         let file = match self.files.get_mut(path) {
             Some(file) => file,
             None => self.files.entry(path.into()).or_default(),
@@ -294,12 +304,15 @@ impl Highlighting {
             state.complete = false;
             state.refused = false;
             state.over = None;
+            state.buffer_tried = None;
             if let Some(projected) = state.projected.take() {
                 self.held = self.held.saturating_sub(budget::cost(&projected));
                 self.changed.insert(path.into());
             }
             self.close(path, side);
         }
+        // An open buffer may already hold the new side's text.
+        self.try_buffer(path, order);
     }
 
     /// The file at `path` left the review.

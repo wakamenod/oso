@@ -162,6 +162,31 @@ fn a_plain_text_file_gets_no_job() {
 }
 
 #[test]
+fn a_done_report_says_the_buffer_is_whole_until_its_next_edit() {
+    let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
+    let mut syntax = Syntax::default();
+    let job = syntax.orders(&editor).jobs.remove(0);
+    let report = |stamp, revision| Report {
+        buffer: id,
+        epoch: job.epoch,
+        stamp,
+        revision,
+        outcome: Outcome::Highlights(Highlights::new(job.text.len())),
+        done: true,
+    };
+    assert!(syntax.take(&mut editor, report(1, job.revision)).taken);
+    let revision = editor.buffer(id).unwrap().revision();
+    assert!(syntax.is_whole(id, revision));
+    edit(&mut editor, id, 0, "x");
+    let now = editor.buffer(id).unwrap().revision();
+    assert!(!syntax.is_whole(id, now), "edited since");
+    // A done report of the text before the edit says nothing of the text now.
+    let _ = syntax.orders(&editor);
+    syntax.take(&mut editor, report(2, job.revision));
+    assert!(!syntax.is_whole(id, now));
+}
+
+#[test]
 fn a_report_is_taken_and_a_failure_stops_the_buffer_and_names_only_it() {
     let (mut editor, id) = editor_with(visited("/p/secret-plan/main.rs", "fn a() {}\n"));
     let mut syntax = Syntax::default();
@@ -179,8 +204,10 @@ fn a_report_is_taken_and_a_failure_stops_the_buffer_and_names_only_it() {
     let shown = Taken {
         redraw: true,
         message: None,
+        taken: true,
     };
     assert_eq!(syntax.take(&mut editor, report), shown);
+    assert!(!syntax.is_whole(id, job.revision), "not done");
     let buffer = editor.buffer(id).unwrap();
     assert_eq!(buffer.highlights().unwrap().at(0), Some(Highlight::Keyword));
     let failed = Report {

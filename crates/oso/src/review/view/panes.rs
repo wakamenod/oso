@@ -13,6 +13,7 @@
 //! - The text is cut at the same file in both panes, by both panes' bytes together, so that the
 //!   two hold about what the unified text does.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use oso_core::load::Reloaded;
@@ -24,6 +25,7 @@ use super::State;
 use super::assemble::assemble;
 use super::cards::{Cards, Placing, Plan};
 use super::file::{Laidout, section_in};
+use super::project::{self, Run};
 use super::section::{self, Rendered, Shown, Writer};
 use crate::review::{Content, Entry, Reading};
 
@@ -68,8 +70,19 @@ impl Laidout for Sides {
 pub(super) struct Panes {
     on: bool,
     dirty: bool,
-    texts: [Rope; 2],
+    pub(super) texts: [Rope; 2],
+    /// The last texts' rows and highlights, old pane then new, for a paint (step 9).
+    last: Option<[(Rows, Highlights); 2]>,
+    /// Each file's panes in the last texts that show lines, with where each pane's section
+    /// starts in decoded bytes.
+    placed: Vec<Placed>,
 }
+
+/// A file's panes in the last texts: its path, where each pane's section starts, and both.
+type Placed = (Box<[u8]>, [usize; 2], Arc<Sides>);
+
+/// Both panes' rows and highlights, old then new, for texts that did not change.
+pub(crate) type PanePaint = [(Rows, Highlights); 2];
 
 /// Writes a filler row into whichever of `old` and `new` has fewer, until they have as many.
 fn pad(old: &mut Writer, new: &mut Writer) {
@@ -278,6 +291,26 @@ impl State {
         self.panes.on = on;
     }
 
+    /// Both panes' rows and highlights with the runs of the files in `changed` laid over them
+    /// again, the rest shared: a paint that lays out nothing (step 9). `None` while the panes
+    /// are not built, when they will be laid out anew, or when nothing in them changed.
+    pub(super) fn panes_paint(&mut self, changed: &HashSet<Box<[u8]>>) -> Option<Box<PanePaint>> {
+        if !self.panes.on || self.dirty || self.panes.dirty || changed.is_empty() {
+            return None;
+        }
+        let last = self.panes.last.as_mut()?;
+        let mut painted = false;
+        for (path, starts, pair) in &self.panes.placed {
+            if changed.contains(path) {
+                let sides = self.highlighting.sides(path);
+                project::paint(&mut last[0].1, starts[0], &pair.old, sides);
+                project::paint(&mut last[1].1, starts[1], &pair.new, sides);
+                painted = true;
+            }
+        }
+        painted.then(|| Box::new(last.clone()))
+    }
+
     /// Both panes' whole texts, laid out from each file's panes, those changed laid out again:
     /// `None` while the panes are not built, or when nothing in them changed.
     pub(super) fn panes_text(&mut self) -> Option<Box<[PaneText; 2]>> {
@@ -292,6 +325,7 @@ impl State {
         });
         let mut size = title.len();
         let mut pairs = vec![title];
+        let mut paths = vec![None];
         let folded = self.folded;
         for path in &self.order {
             let Some(file) = self.files.get_mut(path) else {
@@ -303,6 +337,7 @@ impl State {
             file.rendered.panes = kept;
             size += pair.len();
             pairs.push(pair);
+            paths.push(Some(path.clone()));
         }
         for (path, gone) in &mut self.gone {
             let room = self.max_text.saturating_sub(size);
@@ -313,20 +348,61 @@ impl State {
             size += pair.len();
             pairs.push(pair);
         }
+        let runs = self.lay_pane_runs(&pairs, paths);
         let olds: Vec<&Rendered> = pairs.iter().map(|pair| &pair.old).collect();
         let news: Vec<&Rendered> = pairs.iter().map(|pair| &pair.new).collect();
-        let mut texts = [olds, news]
-            .into_iter()
-            .enumerate()
-            .map(|(side, sections)| {
-                let built = assemble(&sections, &[], &self.panes.texts[side]);
-                self.panes.texts[side] = built.rope;
-                (built.text, built.rows, built.highlights)
-            });
+        let mut texts =
+            [olds, news]
+                .into_iter()
+                .zip(runs)
+                .enumerate()
+                .map(|(side, (sections, runs))| {
+                    let built = assemble(&sections, &runs, &self.panes.texts[side]);
+                    self.panes.texts[side] = built.rope;
+                    (built.text, built.rows, built.highlights)
+                });
         let (Some(old), Some(new)) = (texts.next(), texts.next()) else {
             return None;
         };
+        self.panes.last = Some([
+            (old.1.clone(), old.2.clone()),
+            (new.1.clone(), new.2.clone()),
+        ]);
         Some(Box::new([old, new]))
+    }
+
+    /// Each pane's sections' runs with their file's sides' merged in, or none for one that
+    /// keeps its own, and where each file's panes that show lines start, for a paint.
+    fn lay_pane_runs(
+        &mut self,
+        pairs: &[Arc<Sides>],
+        paths: Vec<Option<Box<[u8]>>>,
+    ) -> [Vec<Option<Vec<Run>>>; 2] {
+        self.panes.placed.clear();
+        let mut runs = [Vec::new(), Vec::new()];
+        let mut starts = [0, 0];
+        let paths = paths.into_iter().chain(std::iter::repeat_with(|| None));
+        for (pair, path) in pairs.iter().zip(paths) {
+            let panes = [&pair.old, &pair.new];
+            let lines = panes.iter().any(|pane| !pane.slots.is_empty());
+            let sides = match &path {
+                Some(path) if lines => self.highlighting.sides(path),
+                _ => [None, None],
+            };
+            for (side, pane) in panes.into_iter().enumerate() {
+                let merged = sides
+                    .iter()
+                    .any(Option::is_some)
+                    .then(|| project::merged(&pane.runs, &pane.slots, sides));
+                runs[side].push(merged);
+            }
+            if let Some(path) = path.filter(|_| lines) {
+                self.panes.placed.push((path, starts, Arc::clone(pair)));
+            }
+            starts[0] += pair.old.decoded;
+            starts[1] += pair.new.decoded;
+        }
+        runs
     }
 }
 

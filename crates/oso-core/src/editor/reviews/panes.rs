@@ -159,6 +159,57 @@ impl Editor {
         left
     }
 
+    /// Puts in what each line of the review `id`'s two panes is and their highlights, old pane
+    /// then new, for texts that did not change, as their sides' highlights came (ADR 0122, step
+    /// 9), and returns what they replaced. O(1).
+    ///
+    /// # Errors
+    ///
+    /// All it was given, changing nothing, when the review has no panes, or either pane's rows
+    /// do not cover its lines or its highlights its text.
+    pub fn set_review_panes_paint(
+        &mut self,
+        id: ReviewId,
+        old: (Rows, Highlights),
+        new: (Rows, Highlights),
+    ) -> Result<ReviewLeftover, ReviewLeftover> {
+        let refused = |old: (Rows, Highlights), new: (Rows, Highlights)| ReviewLeftover {
+            panes: [old, new]
+                .map(|(rows, highlights)| ReviewLeftover::of(rows, highlights, None))
+                .into(),
+            ..ReviewLeftover::none()
+        };
+        let Some((old_buffer, new_buffer)) = self.review_panes(id) else {
+            return Err(refused(old, new));
+        };
+        let covers = |buffer: BufferId, (rows, highlights): &(Rows, Highlights)| {
+            self.buffer(buffer).is_some_and(|shown| {
+                let lines = shown.text().max_point().row + 1;
+                rows.lines() + 1 >= lines && highlights.len() == shown.text().len()
+            })
+        };
+        if !covers(old_buffer, &old) || !covers(new_buffer, &new) {
+            return Err(refused(old, new));
+        }
+        let mut left = ReviewLeftover {
+            spare: self.take_spare_rows(id),
+            ..ReviewLeftover::none()
+        };
+        for (side, (buffer, (rows, highlights))) in [(old_buffer, old), (new_buffer, new)]
+            .into_iter()
+            .enumerate()
+        {
+            let mut pane = ReviewLeftover::none();
+            pane.highlights = self.put_review_highlights(buffer, highlights);
+            pane.rows = match (self.reviews.get_mut(id)).and_then(|open| open.panes.as_mut()) {
+                Some(panes) => Some(std::mem::replace(&mut panes.rows[side], rows)),
+                None => Some(rows),
+            };
+            left.panes.push(pane);
+        }
+        Ok(left)
+    }
+
     /// Makes the review `id`'s two panes' buffers, empty, named after its review buffer.
     fn make_review_panes(&mut self, id: ReviewId) -> [BufferId; 2] {
         let name = (self.review_buffer(id))
