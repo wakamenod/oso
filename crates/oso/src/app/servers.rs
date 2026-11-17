@@ -8,6 +8,7 @@
 //! Must not depend on: the window system or the drawing; this keeps the servers and tells the
 //! editor what to show.
 
+mod actions;
 mod asks;
 mod complete;
 mod diagnostics;
@@ -54,6 +55,9 @@ pub(super) struct Servers {
     xrefs: xrefs::Lists,
     /// Where the person's typing asks for completions once it has rested, and when (step 9b).
     typing_rest: Option<(oso_core::editor::AskAt, std::time::Instant)>,
+    /// The code actions of the list open now, and the picked one while it resolves (step 13).
+    actions: Option<actions::KeptActions>,
+    resolving: Option<actions::Resolving>,
 }
 
 /// `path` in the form a server's URI of it reads back as, as the places and reports of servers
@@ -87,6 +91,13 @@ struct Running {
     files: diagnostics::Files,
     /// What it said of its completions once initialized (step 9b).
     completing: Option<oso_lsp::protocol::Completing>,
+}
+
+impl Running {
+    /// The buffer of the document `document` open with it.
+    fn buffer_of(&self, document: u64) -> Option<BufferId> {
+        (self.documents.keys().copied()).find(|id| id.get() == document)
+    }
 }
 
 impl Servers {
@@ -213,6 +224,11 @@ impl App {
                     self.lsp_ask(at, oso_lsp::server::AskKind::Hover, None);
                 }
                 ServerRequest::GoToXref => self.go_to_xref(),
+                // The person's only: the commands are `Person` (step 13, Q9).
+                ServerRequest::CodeActions { at, start, end } => {
+                    self.lsp_code_actions(at, (start, end));
+                }
+                ServerRequest::ApplyCodeAction => self.apply_code_action(),
                 ServerRequest::Complete(at) => {
                     self.lsp_ask(at, oso_lsp::server::AskKind::Completion, agent);
                 }

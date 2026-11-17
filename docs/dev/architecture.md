@@ -343,7 +343,7 @@ A panicking command is caught at the command boundary
   ([ADR 0127](adr/0127-source-control-and-github.md)) and in a terminal, whose keymap holds session
   mode's keys too in a terminal that hosts an agent session ([ADR 0132](adr/0132-a-session-mode-for-hosted-sessions.md)), with the user's
   `[keys.session]` as a minor mode layer above it there, the `lsp` minor mode layer in a buffer a
-  language server follows (`C-M-n`, `C-M-p`, `M-g d`, `M-.`, `M-?`, `C-M-i`, `C-c C-d`, [ADR 0138](adr/0138-language-servers.md)), above it while one is open the layer of `C-x TAB`, the completion popup's or a description's, which any other command closes, and a layer for the user's keys, which
+  language server follows (`C-M-n`, `C-M-p`, `M-g d`, `M-.`, `M-?`, `C-M-i`, `C-c C-d`, `C-c C-r`, [ADR 0138](adr/0138-language-servers.md)), above it while one is open the layer of `C-x TAB`, the completion popup's or a description's, which any other command closes, and a layer for the user's keys, which
   the configuration file fills ([ADR 0108](adr/0108-the-user-configuration-file.md)). A question's keys
   take the global layer's place, so that no other key reaches a command. While a jump is on, its
   keymap comes before every other but a question's ([ADR 0116](adr/0116-migemo-and-jumps.md)).

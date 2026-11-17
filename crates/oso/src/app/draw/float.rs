@@ -48,7 +48,7 @@ pub(super) struct Parts<'a> {
     /// Whether the rows are kills, whose line breaks show as [`row::LINE_BREAK`] (ADR 0091).
     breaks: bool,
     /// For a project's search, each row shown: how much of it is its path and line, and where
-    /// it matches (ADR 0114).
+    /// it matches (ADR 0114); for a server's code actions, all of a disabled one's (ADR 0138).
     search_rows: Option<Vec<(usize, Vec<Range<usize>>)>>,
     /// A question's key chips, ` y ` and ` n `, and ` w ` for a third answer (empty without).
     chips: [(CellRect, Face); 3],
@@ -96,7 +96,16 @@ impl<'a> Parts<'a> {
                 .shown(rows)
                 .map(|(place, candidate)| {
                     let mut out = Vec::new();
-                    let prefix = editor.search_highlights(place, candidate.text(), &mut out)?;
+                    // A code action the server disabled is faded whole, matching nowhere, and
+                    // an enabled one matches as any candidate does (ADR 0138, step 13).
+                    let prefix = match editor.code_action_disabled(place) {
+                        Some(true) => candidate.text().len(),
+                        Some(false) => {
+                            candidates.query().highlights(candidate, &mut out);
+                            0
+                        }
+                        None => editor.search_highlights(place, candidate.text(), &mut out)?,
+                    };
                     Some((prefix, out))
                 })
                 .collect()

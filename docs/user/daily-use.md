@@ -73,8 +73,12 @@ killed. `C-M-i` completes the word before point in a popup under it, as Corfu do
 typing three letters of a word and pausing, or one of the server's characters such as `.`: typing
 narrows it, `C-n` and `C-p` move (from the last back to the first), `TAB` inserts, `RET`
 inserts once you have moved, and `C-g` or any other key closes it. An item that needs a `use`
-line adds it as it goes in; when that line is out of view, the echo area says which it is. The rest comes in later
-steps.
+line adds it as it goes in; when that line is out of view, the echo area says which it is.
+`C-c C-r` lists the server's code actions for the region, or for point, such as a fix for the
+error there or a refactoring, the one the server prefers selected; `RET` applies the one picked
+to the buffers it changes, each as one step to undo, and the echo area says what changed. One the
+server disabled is faded, with its reason. An action that changes a file no buffer holds, or runs
+a command, does nothing yet. The rest comes in later steps.
 
 A server can be changed in `config.toml`:
 

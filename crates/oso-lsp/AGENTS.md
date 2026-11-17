@@ -15,7 +15,13 @@ with an empty one for each the store lets go, for a file once its document opens
 `Diagnosed::Forgotten` at a run's end; the outbox keeps the latest of each document and file.
 Step 8 asks about documents (`server/asks.rs`, `session/asks.rs`) and reads definitions
 (`protocol/located.rs`); step 10 asks for a description, `textDocument/hover`, and reads it
-within its bounds (`protocol/hover.rs`).
+within its bounds (`protocol/hover.rs`); step 13 asks for code actions over a range with the
+diagnostics there as the server gave them, and reads an answer, a resolve and a workspace edit
+whole or not at all (`protocol/actions.rs`, `protocol/workspace_edit.rs`), placed on the
+session thread in the texts the server had as the request went out (`session/actions.rs`,
+`session/edits.rs`), as the values the UI takes (`server/actions.rs`, `server/edits.rs`); the
+last answer's actions are kept as the server gave them, but for the edits read, for a resolve
+and a command's arguments.
 
 - May depend on `oso-core` and `oso-platform` only; only the tip crate depends on it. Module
   layers are in `guardrails/layers.txt` (`[oso-lsp]`). No new dependency: JSON is

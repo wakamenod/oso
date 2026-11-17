@@ -80,6 +80,8 @@ fn report(version: Option<i32>, ranges: &[(Position, Position)]) -> Published {
                 source: String::new(),
                 code: String::new(),
                 message: "m".into(),
+                code_number: false,
+                data: None,
             })
             .collect(),
     }
