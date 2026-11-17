@@ -630,6 +630,7 @@ mod tests {
             set: &[],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .unwrap();
         assert!(child.wait().unwrap().success());
@@ -676,6 +677,7 @@ mod tests {
             set: &[],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .unwrap();
         let pid = child.id();

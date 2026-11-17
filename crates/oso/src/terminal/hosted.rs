@@ -330,6 +330,8 @@ fn launch(request: Request, ready: Box<dyn Fn() + Send>) -> io::Result<Launched>
         size,
         scrollback: settings.scrollback,
         palette,
+        // A shell's own arguments, from oso and the person's settings.
+        args_logged: true,
     };
     let terminal = Terminal::start(start, ready)?;
     Ok(Launched {

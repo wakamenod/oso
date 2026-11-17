@@ -198,6 +198,7 @@ impl Flow {
             set: &set,
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .and_then(Child::wait_with_output)
         .expect("cannot run git");
@@ -561,6 +562,7 @@ fn run_hook(command: &str, input: &str) -> (ExitStatus, String) {
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })
     .expect("cannot start the hook");
     // Dropped after the write, which closes it.

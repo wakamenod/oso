@@ -96,8 +96,9 @@ impl App {
         session.run = Run::Running { child };
         session.archived = false;
         let name = session.name.clone();
-        // The path only: the environment's values are never shown (ADR 0120).
-        self.editor.note(format!(
+        // The path only: the environment's values are never shown (ADR 0120). Not logged: an
+        // adopted or forked session's name and directory come from a transcript (ADR 0145).
+        self.editor.note_unlogged(format!(
             "Started session {name} with {} in {}",
             shell.display(),
             directory.display()

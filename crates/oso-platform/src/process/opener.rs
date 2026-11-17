@@ -62,6 +62,7 @@ pub fn open_link(url: &str, project: Option<&Path>) -> io::Result<Child> {
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })
 }
 

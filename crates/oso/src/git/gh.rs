@@ -199,6 +199,7 @@ impl Gh {
             set: &set,
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .map_err(|e| format!("cannot run gh: {e}"))?;
         let read = move |stdout| read_at_most(stdout, limit);
@@ -253,6 +254,9 @@ impl Gh {
             set: &set,
             terminal: None,
             pass_fd: None,
+            // `pr create` carries the pull request's title, the person's text: the log gives
+            // only how many arguments there are (ADR 0145).
+            args_logged: false,
         })
         .map_err(|e| format!("cannot run gh: {e}"))?;
         Long::adopt(child, input).map_err(|e| format!("cannot run gh: {e}"))

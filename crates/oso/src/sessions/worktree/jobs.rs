@@ -325,14 +325,19 @@ impl Jobs {
         live: impl Fn() -> bool + Send + 'static,
     ) {
         let gh_host = self.gh_host.clone();
+        let removals = self.removals.clone();
         self.on_repo(
             trust,
             false,
             move |_, repo, send| {
                 // One stopped while it waited for a thread runs nothing.
                 if live() {
-                    let asks = (token, pulls);
-                    list(repo, &snapshot, gh_host.as_deref(), &live, asks, send);
+                    let looking = Looking {
+                        snapshot: &snapshot,
+                        gh_host: gh_host.as_deref(),
+                        removals: &removals,
+                    };
+                    list(repo, &looking, &live, (token, pulls), send);
                 }
                 send(Report::ListEnded { token });
             },
@@ -394,9 +399,10 @@ impl Jobs {
             trust,
             false,
             move |_, repo, send| {
-                let result = match removals.running_at(&path) {
-                    Some(why) => Err(Check::Unknown(why)),
-                    None => check(repo, gh_host.as_deref(), &path, &snapshot),
+                let result = if removals.running_at(&path) {
+                    Err(Check::Removing)
+                } else {
+                    check(repo, gh_host.as_deref(), &path, &snapshot)
                 };
                 send(Report::Checked {
                     token,
@@ -461,16 +467,28 @@ fn main_of(project: &Path, hooks: &Path) -> Result<PathBuf, String> {
     }
 }
 
+/// What a listing looks with besides the repository.
+struct Looking<'a> {
+    snapshot: &'a Snapshot,
+    gh_host: Option<&'a str>,
+    /// The removals that run, whose rows say so.
+    removals: &'a remove::Removals,
+}
+
 /// A listing's work: every row looked at without `gh`, then `gh` asked for the rows that need
 /// it, while `live` says no newer listing was asked for.
 fn list(
     repo: &Repo,
-    snapshot: &Snapshot,
-    gh_host: Option<&str>,
+    looking: &Looking<'_>,
     live: &dyn Fn() -> bool,
     (token, pulls): (u64, bool),
     send: &dyn Fn(Report),
 ) {
+    let Looking {
+        snapshot,
+        gh_host,
+        removals,
+    } = *looking;
     let listed = match repo.worktrees() {
         Ok(listed) => listed,
         Err(why) => {
@@ -494,7 +512,8 @@ fn list(
             return;
         }
         let held = snapshot.held(&listed.path, &facts.hosted_idle);
-        let looked = checks::look(repo, gh.as_ref(), &facts, listed, &held, Depth::Local);
+        let mut looked = checks::look(repo, gh.as_ref(), &facts, listed, &held, Depth::Local);
+        looked.removing = removals.running_at(&looked.listed.path);
         if let (Some(tip), Some(branch)) = (&looked.gh_pending, &looked.listed.branch) {
             asks.push((looked.listed.path.clone(), branch.clone(), tip.clone()));
         }
@@ -560,6 +579,12 @@ fn check(
 
 mod remove;
 mod tree;
+
+#[cfg(test)]
+pub use remove::Phase;
+pub use remove::{Running, Stop, for_agent};
+#[cfg(all(test, unix))]
+pub use remove::{STOPPED_BEFORE_GIT, STOPPED_IN_GIT};
 
 #[cfg(test)]
 mod tests {

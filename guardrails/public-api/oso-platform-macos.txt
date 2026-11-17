@@ -525,6 +525,7 @@ pub fn oso_platform::process::PassedFd<'a>::fmt(&self, &mut core::fmt::Formatter
 impl<'a> core::marker::Copy for oso_platform::process::PassedFd<'a>
 pub struct oso_platform::process::Spawn<'a>
 pub oso_platform::process::Spawn::args: &'a [std::ffi::os_str::OsString]
+pub oso_platform::process::Spawn::args_logged: bool
 pub oso_platform::process::Spawn::cwd: core::option::Option<&'a std::path::Path>
 pub oso_platform::process::Spawn::executable: &'a oso_platform::process::Executable
 pub oso_platform::process::Spawn::inherit: &'a [&'a str]
