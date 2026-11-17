@@ -258,22 +258,7 @@ impl Session {
     /// Spawns the process and its pipe threads, and sends `initialize`.
     fn spawn(&mut self, executable: &Executable, args: &[std::ffi::OsString]) -> io::Result<Run> {
         let start = &self.start;
-        let inherit: Vec<&str> = start.inherit.iter().map(String::as_str).collect();
-        let mut child = process::spawn(&Spawn {
-            executable,
-            args,
-            cwd: Some(&start.root),
-            project: Some(&start.root),
-            inherit: &inherit,
-            stdin: Source::Piped,
-            stdout: Sink::Piped,
-            stderr: Sink::Piped,
-            own_process_group: cfg!(unix),
-            own_session: false,
-            set: &[],
-            terminal: None,
-            pass_fd: None,
-        })?;
+        let mut child = spawn_server(start, executable, args)?;
         let pipes = match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
             (Some(stdin), Some(stdout), Some(stderr)) => (stdin, stdout, stderr),
             _ => {
@@ -555,6 +540,32 @@ impl Session {
             thread::sleep(POLL);
         }
     }
+}
+
+/// Starts the server's process at `start`'s root, with its pipes and in a process group of its
+/// own, where Unix has one.
+fn spawn_server(
+    start: &Start,
+    executable: &Executable,
+    args: &[std::ffi::OsString],
+) -> io::Result<process::Child> {
+    let inherit: Vec<&str> = start.inherit.iter().map(String::as_str).collect();
+    process::spawn(&Spawn {
+        executable,
+        args,
+        cwd: Some(&start.root),
+        project: Some(&start.root),
+        inherit: &inherit,
+        stdin: Source::Piped,
+        stdout: Sink::Piped,
+        stderr: Sink::Piped,
+        own_process_group: cfg!(unix),
+        own_session: false,
+        set: &[],
+        terminal: None,
+        pass_fd: None,
+        args_logged: true,
+    })
 }
 
 /// Ends a child whose start went no further, and waits for it.

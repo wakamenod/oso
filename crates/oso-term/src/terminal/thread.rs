@@ -195,6 +195,7 @@ impl<'a> Running<'a> {
             own_session: false,
             terminal: Some(&slave),
             pass_fd: None,
+            args_logged: start.args_logged,
         })?;
         // The master sees the terminal's end only once no slave is open here.
         drop(slave);

@@ -163,6 +163,8 @@ pub enum UserEvent {
     Git(vcs::GitEvent),
     /// A graph buffer's thread reported (ADR 0127, step 4).
     Graph(vcs::GraphEvent),
+    /// A repository's `gh` thread reported (ADR 0127, step 5a).
+    Pr(vcs::PrEvent),
     /// A language server's thread reported (ADR 0138).
     Servers,
     /// A repository's thread for git's long runs reported (ADR 0127, step 1b).

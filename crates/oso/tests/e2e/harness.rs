@@ -21,6 +21,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use oso_platform::control::{ControlDir, ControlStream, Socket};
+use oso_platform::privacy::STATE_DIR_VARIABLE;
 use oso_platform::process::{Child, Executable, Sink, Source, Spawn, spawn};
 use serde_json::{Value, json};
 
@@ -127,6 +128,7 @@ pub fn start_without_a_window_system(cwd: &Path) -> (ExitStatus, String) {
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })
     .expect("cannot start the instance");
     let mut stderr = child.stderr.take().expect("stderr is piped");
@@ -601,6 +603,7 @@ impl App {
             set: &[],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .expect("cannot start oso ctl");
         let mut output = String::new();
@@ -648,6 +651,7 @@ impl App {
             set: &set,
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .expect("cannot start oso mcp")
     }
@@ -719,6 +723,15 @@ struct Process {
 impl Process {
     fn start(args: &[OsString], cwd: &Path, set: &[(&str, &std::ffi::OsStr)]) -> Self {
         compositor_is_there();
+        // Its state in the flow's own directory, beside its emergency copies, never the
+        // person's: the sessions it remembers, its spaces and its reviews' copies (ADR 0146).
+        // Instances a flow starts in one directory share it, as a restart's two do.
+        let state = cwd.join("state");
+        let mut set = set.to_vec();
+        if !set.iter().any(|(name, _)| *name == STATE_DIR_VARIABLE) {
+            set.push((STATE_DIR_VARIABLE, state.as_os_str()));
+        }
+        let set = set.as_slice();
         let mut child = spawn(&Spawn {
             executable: &oso(),
             args,
@@ -733,6 +746,7 @@ impl Process {
             set,
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .expect("cannot start the instance");
         let log = Arc::new(Mutex::new(Vec::new()));
@@ -929,6 +943,7 @@ fn run_osascript(script: &str) -> Result<(), String> {
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })
     .and_then(Child::wait_with_output)
     .expect("cannot run osascript");
@@ -974,6 +989,7 @@ fn kill(pid: u32) {
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })
     .and_then(|mut child| child.wait());
 }
@@ -996,6 +1012,7 @@ pub fn process_exists(pid: u32) -> bool {
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })
     .and_then(|mut child| child.wait())
     .expect("cannot run ps");

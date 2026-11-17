@@ -19,6 +19,9 @@
 //!   git runs, so that quitting names it.
 //! - A repository's commits show as a graph, an internal buffer of [`Mode::GitGraph`] that the
 //!   host fills as a status, one per project, `*graph: NAME*` (step 4).
+//! - A pull request shows in an internal buffer of [`Mode::GitPr`], `*pr: #N*` or `*pr: NAME*`
+//!   for the branch's, and a repository's open ones in one of [`Mode::GitPrList`], which the host
+//!   fills as a status (step 5a).
 
 use super::Editor;
 use crate::buffer::{Buffer, BufferId, Mode};
@@ -52,7 +55,8 @@ pub struct GitHeading {
 /// The most bytes a log of git's runs keeps (ADR 0127): older lines go first.
 pub const MAX_GIT_LOG: usize = 4 * 1024 * 1024;
 
-/// A status buffer's record, or a graph buffer's (step 4): which it is, its buffer's mode says.
+/// A status buffer's record, a graph buffer's (step 4), or a pull request's or a list's (step
+/// 5a): which it is, its buffer's mode says.
 #[derive(Debug)]
 struct Status {
     project: ProjectId,
@@ -115,6 +119,25 @@ impl Editor {
             .filter(|(id, _)| self.buffer(*id).is_some_and(is_git_graph))
             .find(|(_, status)| status.project == project)
             .map(|(id, _)| *id)
+    }
+
+    /// Adds an empty pull request's buffer for `project`, named `name`, shown in no window
+    /// yet, which does not wrap (step 5a).
+    pub fn add_git_pr(&mut self, project: ProjectId, name: impl Into<String>) -> BufferId {
+        self.add_git_buffer(project, name.into(), Mode::GitPr)
+    }
+
+    /// Adds an empty list of a repository's pull requests for `project`, named `name`, as
+    /// [`Editor::add_git_pr`] does (step 5a).
+    pub fn add_git_pr_list(&mut self, project: ProjectId, name: impl Into<String>) -> BufferId {
+        self.add_git_buffer(project, name.into(), Mode::GitPrList)
+    }
+
+    /// The project of the pull request's buffer, or list of them, `buffer`, if it is one and is
+    /// still there.
+    pub fn git_pr_of(&self, buffer: BufferId) -> Option<ProjectId> {
+        is_git_pr(self.buffer(buffer)?).then_some(())?;
+        self.git_record(buffer).map(|status| status.project)
     }
 
     /// Adds an internal buffer of `mode` for `project`, named `name`, told apart from another of
@@ -189,7 +212,9 @@ impl Editor {
         if self.git_record(id).is_none() {
             return Some(highlights);
         }
-        let fits = |buffer: &&mut Buffer| is_git_status(buffer) || is_git_graph(buffer);
+        let fits = |buffer: &&mut Buffer| {
+            is_git_status(buffer) || is_git_graph(buffer) || is_git_pr(buffer)
+        };
         let Some(buffer) = self.buffer_mut(id).filter(fits) else {
             return Some(highlights);
         };
@@ -305,6 +330,11 @@ pub(super) fn is_git_status(buffer: &Buffer) -> bool {
 /// Whether `buffer` is a graph buffer (step 4).
 pub(super) fn is_git_graph(buffer: &Buffer) -> bool {
     buffer.is_internal() && buffer.mode() == Mode::GitGraph
+}
+
+/// Whether `buffer` is a pull request's buffer or a list of them (step 5a).
+pub(super) fn is_git_pr(buffer: &Buffer) -> bool {
+    buffer.is_internal() && matches!(buffer.mode(), Mode::GitPr | Mode::GitPrList)
 }
 
 /// Whether `buffer` is a log of git's runs, which `C-x b` lists and `C-x k` kills as a status.

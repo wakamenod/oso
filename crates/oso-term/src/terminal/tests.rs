@@ -35,6 +35,7 @@ pub(super) fn sh(script: &str) -> Start {
         size: size(40, 6),
         scrollback: 100,
         palette: palette(),
+        args_logged: true,
     }
 }
 

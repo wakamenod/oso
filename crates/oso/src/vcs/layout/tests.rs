@@ -562,3 +562,38 @@ fn a_commit_is_found_again_by_its_id_and_its_section_folds() {
         .unwrap();
     assert!(!View::default().toggle(&again.built, row));
 }
+
+#[test]
+fn the_branch_s_pull_request_shows_under_the_head_and_another_branch_s_does_not() {
+    use crate::vcs::pr::{Counts, PrHead, State};
+    let pr = |branch: &str| PrHead {
+        number: 12,
+        title: "Add x".into(),
+        state: State::Open,
+        review: None,
+        counts: Counts::default(),
+        url: "https://github.com/o/r/pull/12".into(),
+        head: "1111111abc".into(),
+        branch: branch.into(),
+    };
+    let mut view = View {
+        pr: Some(std::sync::Arc::new(pr("main"))),
+        ..View::default()
+    };
+    let laid = lay_out(
+        &head(),
+        &["a note".into()],
+        Vec::new(),
+        &HashMap::new(),
+        &view,
+    );
+    let text = laid.text.text().to_string();
+    let lines: Vec<&str> = text.lines().collect();
+    // Under the head's lines, before the notes.
+    assert_eq!(lines[2], "PR:       #12 Add x  open", "{text}");
+    assert_eq!(lines[3], "a note", "{text}");
+    // Read before a checkout, it names another branch's: no line.
+    view.pr = Some(std::sync::Arc::new(pr("feature")));
+    let laid = lay_out(&head(), &[], Vec::new(), &HashMap::new(), &view);
+    assert!(!laid.text.text().to_string().contains("PR:"));
+}

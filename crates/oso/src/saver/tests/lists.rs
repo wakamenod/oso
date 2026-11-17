@@ -28,6 +28,7 @@ fn tool(program: &str, args: &[&std::ffi::OsStr]) {
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })
     .unwrap();
     assert!(child.wait().unwrap().success(), "{program} {args:?}");

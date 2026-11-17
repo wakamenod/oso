@@ -240,6 +240,12 @@ pub fn git_graph_keymap(registry: &Registry) -> Keymap {
     keymap
 }
 
+/// A pull request's buffer's own keymap, and a list's, above the global one in it (ADR 0127,
+/// step 5a). Empty for a registry without its commands.
+pub fn git_pr_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, vcs::PR).unwrap_or_default()
+}
+
 /// The keymap of the list of what discards kept, above the global one in it (ADR 0127, step
 /// 1c). Empty for a registry without its commands.
 pub fn git_discarded_keymap(registry: &Registry) -> Keymap {

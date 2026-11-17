@@ -247,6 +247,20 @@ network features.
   refused while something is stopped, judged on the run thread, and when oso cannot tell. Only
   a label the push's filter takes is offered to check out. These runs honour `refs/replace/`,
   as the person's own git does, where the graph's reads do not.
+- Pull requests (ADR 0127, step 5a) are read through `gh`, the person's: in a trusted project
+  only, on a thread of the repository's own, `gh` run in the empty private directory, never in
+  the repository, with `--repo` naming the repository the branch's remote's address gives, on
+  `github.com` or the host `GH_HOST` names only, its token passed by name to that host alone, and
+  each run killed after 30 s, the root looked at again before each. The head line is read only
+  for the person's `C-x g` or `g`, at most once every 30 s, and after oso's own push or checkout,
+  never for an agent's command; a pull request of another head branch is none. What GitHub gives is anyone's words: escaped on
+  its rows and cut, never acted on, and a review thread's file is visited only at a plain
+  relative path under the root, and `w` copies only a plain `https` address. Every character the
+  display boxes is escaped in what an agent reads too. The system's opener
+  (`oso_platform::process::open_link`) takes only an `https` address of plain characters, finds
+  its program and helpers with the project left out of `PATH`, and oso opens only a pull
+  request's own address on the repository's host, after the echo area shows it. Every command is `Person`; an agent
+  may read `*pr: #N*` through `text`, as data.
 - Stashes and branches from a git status (ADR 0127, step 3b) are the person's acts, `Person`,
   with the repository's hooks: a checkout runs `post-checkout` and the filters, as git's own
   does in a trusted project. A stash is named by its commit's id: an apply gives git the id, and
