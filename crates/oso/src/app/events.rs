@@ -180,6 +180,7 @@ impl App {
         self.diagnostic_at_point_if_due();
         self.xrefs_if_due();
         self.completion_if_due();
+        self.review_layout_due();
         self.quit_if_idle(event_loop);
         // Last, once every deadline is known.
         self.set_wake(event_loop);
@@ -286,6 +287,7 @@ impl App {
             self.slice_deadline(),
             self.hidden_terminals_deadline(),
             self.sessions_deadline(),
+            self.review_layout_deadline(),
             self.handover_deadline(),
             self.idle_quit.next_wake(),
         ];
