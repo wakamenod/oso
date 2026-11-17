@@ -38,6 +38,7 @@ fn what(request: Option<Request>) -> String {
             format!("carry {}", String::from_utf8_lossy(&bytes))
         }
         Some(Request::Open(_)) => "open".into(),
+        Some(Request::Stage(_)) => "stage".into(),
         Some(Request::Refresh { first }) => format!("refresh {}", first.len()),
         Some(Request::Baseline) => "baseline".into(),
     }

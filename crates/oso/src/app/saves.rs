@@ -44,7 +44,7 @@ impl App {
         self.spawn_saves(for_agent).1
     }
 
-    fn spawn_saves(&mut self, for_agent: bool) -> (Vec<BufferId>, Option<&'static str>) {
+    pub(super) fn spawn_saves(&mut self, for_agent: bool) -> (Vec<BufferId>, Option<&'static str>) {
         let mut started_saves = Vec::new();
         let mut failed = None;
         let configuration = self.configuration_directories();
@@ -97,6 +97,8 @@ impl App {
         if by == oso_core::buffer::Acted::Person && !failed {
             self.editor.note_recent_visit(buffer);
         }
+        // After the saver's own message, which a review's revert says more than (ADR 0122).
+        self.review_save_ended(buffer, !failed);
         self.look_again_after_save(buffer);
         // A shown git status of the file's repository is read again, or only marked stale if
         // the person did not start the save (ADR 0127, ADR 0118).

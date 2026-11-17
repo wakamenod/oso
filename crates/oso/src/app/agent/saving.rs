@@ -76,6 +76,8 @@ impl App {
     /// Replies `why` to the request whose save of `buffer` waited for a whitespace scan and
     /// then could not start (ADR 0113).
     pub(in crate::app) fn agent_save_not_started(&mut self, buffer: BufferId, why: &str) {
+        // A review's revert waiting for this save is done too (ADR 0122, step 5).
+        self.review_save_ended(buffer, false);
         let Some(index) = self
             .agent
             .saving

@@ -40,6 +40,8 @@ pub(super) struct Running {
     pub(super) carrying: VecDeque<Arc<Reading>>,
     /// How it shows: unified or as its two panes (ADR 0122, step 11).
     pub(super) layout: super::layout::Layout,
+    /// Its decisions, for undo, and what waits for git or a save (step 5).
+    pub(super) decisions: super::decide::Decisions,
     /// Whether the view was last told that agent cards fold.
     pub(super) folded: bool,
     /// Whether agent cards fold in the text the review buffer holds, which may still be one
