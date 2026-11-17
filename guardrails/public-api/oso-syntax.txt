@@ -1,6 +1,7 @@
 pub mod oso_syntax
 pub enum oso_syntax::Failure
 pub oso_syntax::Failure::Incompatible
+pub oso_syntax::Failure::LongLine
 pub oso_syntax::Failure::TooLarge
 pub oso_syntax::Failure::TooSlow
 impl core::clone::Clone for oso_syntax::Failure
@@ -26,6 +27,7 @@ pub fn oso_syntax::Highlighted::fmt(&self, &mut core::fmt::Formatter<'_>) -> cor
 impl core::marker::Copy for oso_syntax::Highlighted
 impl core::marker::StructuralPartialEq for oso_syntax::Highlighted
 pub enum oso_syntax::Language
+pub oso_syntax::Language::Go
 pub oso_syntax::Language::Markdown
 pub oso_syntax::Language::MarkdownInline
 pub oso_syntax::Language::Rust
