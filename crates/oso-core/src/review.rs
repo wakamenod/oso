@@ -38,6 +38,7 @@ pub use comment::{
 };
 pub use decision::Decision;
 pub use map::{BaseHunk, LineMap, base_pair};
+pub(crate) use rows::Place;
 pub use rows::{Row, RowKind, Rows, Section, Seek};
 pub use shape::{Base, Hunk, Shape, ShapeError, Side};
 

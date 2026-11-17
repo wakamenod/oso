@@ -77,6 +77,7 @@ pub oso_render::Face::DiagnosticInfo
 pub oso_render::Face::DiagnosticWarning
 pub oso_render::Face::DiffAdded
 pub oso_render::Face::DiffFileHeader
+pub oso_render::Face::DiffFiller
 pub oso_render::Face::DiffHunkHeader
 pub oso_render::Face::DiffRefineAdded
 pub oso_render::Face::DiffRefineRemoved

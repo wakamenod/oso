@@ -16,9 +16,20 @@ pub enum Language {
     MarkdownInline,
     /// TOML (`tree-sitter-toml-ng`).
     Toml,
+    /// Go (`tree-sitter-go`).
+    Go,
 }
 
 impl Language {
+    /// Every grammar, once each.
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Rust,
+        Self::Markdown,
+        Self::MarkdownInline,
+        Self::Toml,
+        Self::Go,
+    ];
+
     /// The grammar a buffer in `mode` is parsed with, if any. Markdown's inline grammar is never
     /// a buffer's: it parses the text inside Markdown's blocks.
     pub fn of(mode: Mode) -> Option<Self> {
@@ -26,9 +37,9 @@ impl Language {
             Mode::Rust => Some(Self::Rust),
             Mode::Markdown => Some(Self::Markdown),
             Mode::Toml => Some(Self::Toml),
-            // The modes of ADR 0138 have no grammar yet.
+            Mode::Go => Some(Self::Go),
+            // These modes of ADR 0138 have no grammar yet.
             Mode::Fundamental
-            | Mode::Go
             | Mode::TypeScript
             | Mode::Tsx
             | Mode::JavaScript
@@ -63,6 +74,7 @@ impl Language {
             Self::Markdown => "markdown",
             Self::MarkdownInline => "markdown_inline",
             Self::Toml => "toml",
+            Self::Go => "go",
         }
     }
 
@@ -73,6 +85,7 @@ impl Language {
             Self::Markdown => tree_sitter_md::LANGUAGE.into(),
             Self::MarkdownInline => tree_sitter_md::INLINE_LANGUAGE.into(),
             Self::Toml => tree_sitter_toml_ng::LANGUAGE.into(),
+            Self::Go => tree_sitter_go::LANGUAGE.into(),
         }
     }
 }
@@ -83,16 +96,9 @@ mod tests {
 
     use super::Language;
 
-    const ALL: [Language; 4] = [
-        Language::Rust,
-        Language::Markdown,
-        Language::MarkdownInline,
-        Language::Toml,
-    ];
-
     #[test]
     fn every_grammar_fits_the_runtime() {
-        for language in ALL {
+        for language in Language::ALL {
             let mut parser = tree_sitter::Parser::new();
             assert!(
                 parser.set_language(&language.grammar()).is_ok(),
@@ -107,6 +113,8 @@ mod tests {
         assert_eq!(Language::of(Mode::Rust), Some(Language::Rust));
         assert_eq!(Language::of(Mode::Markdown), Some(Language::Markdown));
         assert_eq!(Language::of(Mode::Toml), Some(Language::Toml));
+        assert_eq!(Language::of(Mode::Go), Some(Language::Go));
+        assert_eq!(Language::of(Mode::TypeScript), None);
         assert_eq!(Language::of(Mode::Fundamental), None);
         assert_eq!(Language::of(Mode::CopyList), None);
         assert_eq!(Language::of(Mode::CopyView), None);

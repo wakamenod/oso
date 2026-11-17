@@ -363,6 +363,7 @@ fn why(failure: Failure) -> &'static str {
         Failure::TooLarge => "it is too large",
         Failure::TooSlow => "it took too long",
         Failure::Incompatible => "this build cannot parse its language",
+        Failure::LongLine => "a line is longer than 16 KiB",
     }
 }
 

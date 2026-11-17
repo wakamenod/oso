@@ -16,7 +16,7 @@ mod menu;
 
 use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::editor::{DraftFor, Editor, ReviewId, ReviewRequest, ScopeKind};
+use oso_core::editor::{DraftFor, Editor, ReviewChoice, ReviewId, ReviewRequest, ScopeKind};
 use oso_core::project::ProjectId;
 use oso_core::review::{Author, Seek};
 
@@ -38,6 +38,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("k", "review-remove-comment"),
     ("r", "review-resolve"),
     ("a", "review-fold-agents"),
+    ("|", "review-toggle-panes"),
     ("g", "review-refresh"),
     ("C-c C-c", "review-send"),
     ("q", "review-quit"),
@@ -194,6 +195,14 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
+        name: "review-toggle-panes",
+        doc: "Show the review in two panes, its old side and its new side lined up row for row, or as one stream again.\n\nThe panes go side by side when the review's area is 160 columns wide or more, and stacked otherwise. Every window showing the review follows the choice.",
+        args: ArgSpec::None,
+        reach: Reach::Change,
+        run: review_toggle_panes,
+        state: None,
+    },
+    Command {
         name: "review-keys",
         doc: "Show the keys of a review buffer, each with what its command does, in `*Review keys*`.",
         args: ArgSpec::None,
@@ -321,9 +330,13 @@ fn current_review(ctx: &Ctx<'_>) -> Result<ReviewId, CommandError> {
 /// Moves every cursor `count` times to the next row `to` seeks, back for a negative count, as
 /// far as each goes, failing with `edge` if one stopped short.
 fn seek(ctx: &mut Ctx<'_>, to: Seek, count: isize, edge: &str) -> Result<(), CommandError> {
-    let review = current_review(ctx)?;
-    // A clone of the rows is O(1): they are shared.
-    let Some(rows) = ctx.editor.review_rows(review).cloned() else {
+    current_review(ctx)?;
+    // A clone of the rows is O(1): they are shared. A pane has rows of its own.
+    let Some(rows) = ctx
+        .editor
+        .review_rows_of(ctx.editor.window().buffer())
+        .cloned()
+    else {
         return Err(CommandError::new("Not in a review"));
     };
     let forward = count >= 0;
@@ -419,8 +432,28 @@ fn review_refresh(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     Ok(())
 }
 
+fn review_toggle_panes(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let review = current_review(ctx)?;
+    let buffer = ctx.editor.window().buffer();
+    let in_panes =
+        (ctx.editor.review_panes(review)).is_some_and(|(old, new)| buffer == old || buffer == new);
+    // The choice turns, and what shows only says which way while it is automatic.
+    let choice = match ctx.editor.review_choice(review) {
+        ReviewChoice::Panes => ReviewChoice::Unified,
+        ReviewChoice::Unified => ReviewChoice::Panes,
+        ReviewChoice::Auto if in_panes => ReviewChoice::Unified,
+        ReviewChoice::Auto => ReviewChoice::Panes,
+    };
+    ctx.editor.choose_review_layout(review, choice);
+    ctx.request_redraw();
+    Ok(())
+}
+
 fn review_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     current_review(ctx)?;
+    // A pane buries its pair: the review's one window goes back, as the review's buffer would.
+    let window = ctx.editor.window().id();
+    ctx.editor.show_review_unified(window);
     ctx.editor.walk_buffers(1).map_err(CommandError::new)?;
     ctx.request_redraw();
     Ok(())
