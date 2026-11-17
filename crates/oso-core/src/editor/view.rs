@@ -341,6 +341,8 @@ impl Editor {
             self.pass_wrap_budget(self.selected);
         }
         if self.prompts.is_empty() {
+            // Off a pane's filler rows first, and the panes no window shows go (ADR 0122).
+            self.sync_review_panes();
             // The other window of its pair goes where it is (ADR 0122).
             moved |= self.follow_pair();
             self.pass_wrap_budget(self.selected);

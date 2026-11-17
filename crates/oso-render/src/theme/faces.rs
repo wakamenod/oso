@@ -7,7 +7,7 @@ use super::palettes::Name;
 use crate::pane::Face;
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-pub(super) const FACES: [Face; 112] = [
+pub(super) const FACES: [Face; 113] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -120,6 +120,7 @@ pub(super) const FACES: [Face; 112] = [
     Face::GitLane6,
     Face::GitLane7,
     Face::GitTag,
+    Face::DiffFiller,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -242,6 +243,7 @@ pub(super) const fn index(face: Face) -> usize {
         Face::GitLane6 => 109,
         Face::GitLane7 => 110,
         Face::GitTag => 111,
+        Face::DiffFiller => 112,
     }
 }
 
@@ -321,6 +323,8 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         Face::ReviewCommentPerson => (FgCommentPerson, BgCard),
         Face::ReviewCommentAgent => (FgCommentAgent, BgCard),
         Face::ReviewOutdated => (Slate, BgCard),
+        // A pane's filler rows hold no text: a band only, faint beside the text's background.
+        Face::DiffFiller => (FgMain, BgFiller),
         // One colour each, on the text's background (ADR 0120).
         Face::TerminalColor0 => (Terminal(0), BgMain),
         Face::TerminalColor1 => (Terminal(1), BgMain),

@@ -30,6 +30,18 @@ pub enum RowKind {
     Label { comment: CommentId },
     /// The text of a comment.
     Card { comment: CommentId },
+    /// A row of one pane of two that holds nothing, so that the rows after it line up with the
+    /// other pane's (ADR 0122, Q7): motion skips it and no comment goes on it.
+    Filler,
+}
+
+/// Where a row is in a file's section, so that the same row is found in another layout of the
+/// same review, the unified text or a pane: a line of a side, or the row of a kind that comes
+/// `nth` among the section's rows of that kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Place {
+    Line { side: Side, number: u32 },
+    Row { kind: RowKind, nth: usize },
 }
 
 /// One line of a review buffer: the file it is in, what it is, and how far into its run of
@@ -202,6 +214,74 @@ impl Rows {
         })
     }
 
+    /// Where line `line` is in its file's section, and the file's path: `None` for a filler
+    /// row and past the last line. O(log of files and runs, and the runs before it).
+    pub(crate) fn place(&self, line: usize) -> Option<(&[u8], Place)> {
+        let row = self.at(line)?;
+        let place = match row.kind {
+            RowKind::Filler => return None,
+            RowKind::Lines { .. } => {
+                let (side, number) = row.line()?;
+                Place::Line { side, number }
+            }
+            kind => {
+                let (index, local) = self.section(line)?;
+                let before: usize = self.sections[index]
+                    .runs
+                    .iter()
+                    .take_while(|run| run.start + run.lines <= local)
+                    .filter(|run| run.kind == kind)
+                    .map(|run| run.lines)
+                    .sum();
+                Place::Row {
+                    kind,
+                    nth: before + row.offset,
+                }
+            }
+        };
+        Some((row.path, place))
+    }
+
+    /// The line at `place` in the section of the file at `path`: `None` for a file not shown,
+    /// and for a row the section does not hold, as a pane holds only one side's lines and
+    /// cards. O(files and the file's runs).
+    pub(crate) fn find(&self, path: &[u8], place: Place) -> Option<usize> {
+        let index = self.section_of(path)?;
+        let start = self.starts[index];
+        let mut nth = 0;
+        for run in &self.sections[index].runs {
+            match (place, run.kind) {
+                (
+                    Place::Line { side, number },
+                    RowKind::Lines {
+                        side: at, first, ..
+                    },
+                ) if side == at && number >= first && ((number - first) as usize) < run.lines => {
+                    return Some(start + run.start + (number - first) as usize);
+                }
+                (Place::Row { kind, nth: wanted }, at) if kind == at => {
+                    if wanted < nth + run.lines {
+                        return Some(start + run.start + wanted - nth);
+                    }
+                    nth += run.lines;
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// The first line of the section of the file at `path`, its header. O(files).
+    pub(crate) fn file_start(&self, path: &[u8]) -> Option<usize> {
+        Some(self.starts[self.section_of(path)?])
+    }
+
+    fn section_of(&self, path: &[u8]) -> Option<usize> {
+        self.sections
+            .iter()
+            .position(|section| *section.path == *path)
+    }
+
     /// The spans of bytes from line `line`'s start that refinement marks, in order.
     pub fn refined(&self, line: usize) -> &[Range<u32>] {
         match self.section(line) {
@@ -306,6 +386,48 @@ mod tests {
                 ],
             ),
         ])
+    }
+
+    #[test]
+    fn every_row_but_a_filler_is_found_again_by_its_place() {
+        let mut rows = sample();
+        let mut with_filler = Section::new(b"d.rs".as_slice().into());
+        for (kind, lines) in [
+            (RowKind::File, 1),
+            (RowKind::Note, 1),
+            (RowKind::Filler, 2),
+            (RowKind::Note, 2),
+        ] {
+            with_filler.push(kind, lines);
+        }
+        let mut sections: Vec<Arc<Section>> = rows.sections.iter().cloned().collect();
+        sections.push(Arc::new(with_filler));
+        rows = Rows::new(sections);
+        for line in 0..rows.lines() {
+            let found = rows.place(line);
+            if rows.at(line).unwrap().kind == RowKind::Filler {
+                assert_eq!(found, None);
+                continue;
+            }
+            let (path, place) = found.unwrap();
+            assert_eq!(rows.find(path, place), Some(line), "line {line}: {place:?}");
+        }
+        // The notes after the fillers are the second and third of the file's notes.
+        assert_eq!(
+            rows.place(rows.lines() - 1).unwrap().1,
+            Place::Row {
+                kind: RowKind::Note,
+                nth: 2
+            }
+        );
+        // A line of a side the rows do not hold, and a file not shown.
+        let missing = Place::Line {
+            side: Side::New,
+            number: 1,
+        };
+        assert_eq!(rows.find(b"c.rs", missing), None);
+        assert_eq!(rows.file_start(b"c.rs"), Some(14));
+        assert_eq!(rows.find(b"none", missing), None);
     }
 
     #[test]

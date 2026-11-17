@@ -10,6 +10,7 @@ use std::sync::Arc;
 use oso_core::review::{Anchor, CommentId};
 
 use super::cards::Cards;
+use super::panes::{self, KeptPanes};
 use super::section;
 use crate::review::{Content, Entry, Reading};
 
@@ -28,7 +29,21 @@ pub(super) struct File {
     placed: Option<Placed>,
     cut_short: bool,
     pub(super) cards: Cards,
-    pub(super) rendered: Option<Kept>,
+    pub(super) rendered: Laid,
+}
+
+/// A file's section and its two panes as last laid out, each kept while laying it out again
+/// would give the same, and cleared together.
+#[derive(Default)]
+pub(super) struct Laid {
+    pub(super) unified: Option<Kept>,
+    pub(super) panes: Option<KeptPanes>,
+}
+
+impl Laid {
+    pub(super) fn clear(&mut self) {
+        *self = Laid::default();
+    }
 }
 
 impl File {
@@ -40,7 +55,7 @@ impl File {
             placed: None,
             cut_short: false,
             cards,
-            rendered: None,
+            rendered: Laid::default(),
         }
     }
 
@@ -51,7 +66,7 @@ impl File {
         self.pending = None;
         self.placed = placed;
         self.cut_short = cut_short;
-        self.rendered = None;
+        self.rendered.clear();
     }
 
     /// The reading a carry must be for: the one waiting for its carry, else the one shown.
@@ -83,6 +98,23 @@ impl File {
             None => section::unread(&self.entry, &self.cards),
         }
     }
+
+    /// Its two panes, given the bytes the review's text has room for.
+    pub(super) fn render_panes(&self, room: usize, folded: bool) -> panes::Pair {
+        match &self.reading {
+            Some(reading) => panes::render(
+                reading,
+                room,
+                &section::Shown {
+                    cards: &self.cards,
+                    placed: self.placed.as_deref(),
+                    cut_short: self.cut_short,
+                    folded,
+                },
+            ),
+            None => panes::unread(&self.entry, &self.cards),
+        }
+    }
 }
 
 /// A file no longer listed whose comments stay to be seen: only counted if its last reading
@@ -90,7 +122,7 @@ impl File {
 pub(super) struct Gone {
     pub(super) cards: Cards,
     pub(super) withheld: bool,
-    pub(super) rendered: Option<Kept>,
+    pub(super) rendered: Laid,
 }
 
 /// A section as last laid out, with the room the text had for it.
@@ -104,12 +136,22 @@ impl Kept {
     /// none for a section with no card, or room for all of it when no card was cut.
     fn fits(&self, room: usize) -> Option<Arc<section::Rendered>> {
         let rendered = &self.rendered;
-        let same = (self.room == 0) == (room == 0)
-            && (self.room == room
-                || !rendered.cards
-                || (!rendered.cut && room >= rendered.bytes.len()));
+        let same = fits(
+            self.room,
+            room,
+            rendered.cards,
+            rendered.cut,
+            rendered.bytes.len(),
+        );
         same.then(|| Arc::clone(&self.rendered))
     }
+}
+
+/// Whether laying out again with `room` gives what was laid out with `kept` of `len` bytes: the
+/// same room, any room but none for what holds no card, or room for all of it when no card was
+/// cut.
+pub(super) fn fits(kept: usize, room: usize, cards: bool, cut: bool, len: usize) -> bool {
+    (kept == 0) == (room == 0) && (kept == room || !cards || (!cut && room >= len))
 }
 
 /// `kept`'s section if it fits `room`, else `lay_out`'s, kept for the next text.

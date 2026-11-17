@@ -366,6 +366,7 @@ In a review buffer:
 | `r` | Resolve the thread, or open it again |
 | `}`, `{` | Next and previous comment |
 | `a` | Fold the agent's comments, or show them whole |
+| `\|` | Two panes, the old side and the new side lined up, or one stream again |
 | `g` | Read the files again now |
 | `q` | Bury the review |
 | `?` | List these keys |
@@ -373,6 +374,11 @@ In a review buffer:
 A comment opens as a draft at the top: `RET` breaks a line, `C-c C-c` keeps it, and `C-g` drops
 it into the kill ring. `C-x k` closes the review, and asks first while it holds comments you
 have not sent. Sending comments to a session is not built yet.
+
+`|` shows the review as two panes that scroll together: the old side at the left and the new side
+at the right when the review's area is 160 columns wide or more, else one above the other.
+Blank rows keep the panes lined up; the cursor skips them. A comment shows in the pane of its
+side, a hunk's in the new side's. `|` again, or `q`, goes back to one window.
 
 ## Source control
 

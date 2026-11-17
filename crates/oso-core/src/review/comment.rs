@@ -29,6 +29,14 @@ impl CommentId {
     }
 }
 
+#[cfg(test)]
+impl CommentId {
+    /// The id `id`, for tests outside the model.
+    pub(crate) fn of(id: u64) -> CommentId {
+        CommentId(id)
+    }
+}
+
 /// Who wrote a comment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Author {

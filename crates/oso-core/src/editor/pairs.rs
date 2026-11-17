@@ -90,10 +90,55 @@ impl Editor {
         buffer: BufferId,
         map: RowMap,
     ) -> Result<WindowId, NoPair> {
+        self.pair_window_of(self.tiled_id(), way, buffer, map)
+    }
+
+    /// As [`Editor::pair_window`], for the tiled window `first`, which need not be selected.
+    /// The selected window stays selected; `first` leads at once.
+    pub(super) fn pair_window_of(
+        &mut self,
+        first: WindowId,
+        way: Way,
+        buffer: BufferId,
+        map: RowMap,
+    ) -> Result<WindowId, NoPair> {
         if self.buffer(buffer).is_none() {
             return Err(NoPair::NoBuffer);
         }
-        let first = self.tiled_id();
+        let splits = self.paired_splits(first, way)?;
+        let Some(first_index) = self.window_index(first) else {
+            return Err(NoPair::NoBuffer);
+        };
+        let id = WindowId::new(self.next_window);
+        self.isearch_exit();
+        self.splits = splits;
+        self.next_window += 1;
+        self.add_split_off(first_index, id);
+        self.lay_out(self.frame.size());
+        if let Some(index) = self.window_index(id) {
+            self.window_shows(index, buffer);
+        }
+        let Some(first_index) = self.window_index(first) else {
+            return Err(NoPair::NoBuffer);
+        };
+        let first_buffer = self.windows[first_index].buffer();
+        self.pairs.push(Pair {
+            windows: [first, id],
+            buffers: [first_buffer, buffer],
+            map,
+            seen: [None; 2],
+        });
+        self.lead_pair(first, Lead::Cursor);
+        Ok(id)
+    }
+
+    /// The tree with `first` split into a pair the way `way`, the new window's name the next
+    /// one, or why it cannot be. Changes nothing but the gutter a split counts.
+    pub(super) fn paired_splits(
+        &mut self,
+        first: WindowId,
+        way: Way,
+    ) -> Result<crate::frame::Splits, NoPair> {
         if self.pair_at(first).is_some() {
             return Err(NoPair::Paired);
         }
@@ -103,23 +148,7 @@ impl Editor {
         splits
             .pair(first, way, id, &self.frame)
             .map_err(|TooSmall| NoPair::TooSmall)?;
-        self.isearch_exit();
-        self.splits = splits;
-        self.next_window += 1;
-        self.add_split_off(self.tiled_index(), id);
-        self.lay_out(self.frame.size());
-        if let Some(index) = self.window_index(id) {
-            self.window_shows(index, buffer);
-        }
-        let first_buffer = self.windows[self.tiled_index()].buffer();
-        self.pairs.push(Pair {
-            windows: [first, id],
-            buffers: [first_buffer, buffer],
-            map,
-            seen: [None; 2],
-        });
-        self.lead_pair(first, Lead::Cursor);
-        Ok(id)
+        Ok(splits)
     }
 
     /// The other window of the pair `id` is in, if it is in one.
@@ -326,7 +355,7 @@ impl Editor {
     /// Shows the window at `index` from the start of line `top`, at column `left` while it
     /// does not wrap, with its primary cursor alone on line `line` where `goal` aims, its mark
     /// kept; then scrolls it as little as shows the cursor, which a narrower wrap may need.
-    fn follow_lead(
+    pub(super) fn follow_lead(
         &mut self,
         index: usize,
         (top, left): (usize, usize),

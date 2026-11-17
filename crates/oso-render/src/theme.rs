@@ -649,6 +649,7 @@ pub(crate) mod tests {
             | Face::Flash
             | Face::DiffRefineAdded
             | Face::DiffRefineRemoved
+            | Face::DiffFiller
             | Face::SessionHeader
             | Face::SessionFrontTint
             | Face::SessionPoint
@@ -803,6 +804,7 @@ pub(crate) mod tests {
                 (Face::DiffRemoved, behind_text),
                 (Face::DiffFileHeader, behind_text),
                 (Face::ReviewCommentPerson, behind_text),
+                (Face::DiffFiller, behind_text),
                 (Face::DiffRefineAdded, theme.background(Face::DiffAdded)),
                 (Face::DiffRefineRemoved, theme.background(Face::DiffRemoved)),
                 // The spaces pane's bands, and point's on a section's or the front's (ADR 0140).

@@ -95,17 +95,22 @@ enum Point {
     Comment(CommentId),
     /// A file's header, a note or the title.
     Other,
+    /// A pane's filler row, which holds nothing (ADR 0122, step 11).
+    Filler,
 }
+
+/// What the comment keys say on a pane's filler row.
+const FILLER: &str = "Nothing to comment on here";
 
 /// The review shown and what the line at the primary cursor is, refused in a prompt and
 /// outside a review.
 fn point(ctx: &Ctx<'_>) -> Result<(ReviewId, Point), CommandError> {
     let review = super::current_review(ctx)?;
+    let (window, buffer) = ctx.editor.current();
     let rows = ctx
         .editor
-        .review_rows(review)
+        .review_rows_of(window.buffer())
         .ok_or_else(|| CommandError::new("Not in a review"))?;
-    let (window, buffer) = ctx.editor.current();
     let line = buffer
         .text()
         .offset_to_point(window.selections.primary().cursor)
@@ -127,6 +132,7 @@ fn point(ctx: &Ctx<'_>) -> Result<(ReviewId, Point), CommandError> {
         },
         RowKind::Label { comment } | RowKind::Card { comment } => Point::Comment(comment),
         RowKind::File | RowKind::Note => Point::Other,
+        RowKind::Filler => Point::Filler,
     };
     Ok((review, point))
 }
@@ -135,6 +141,7 @@ fn point(ctx: &Ctx<'_>) -> Result<(ReviewId, Point), CommandError> {
 fn comment_at_point(ctx: &Ctx<'_>) -> Result<(ReviewId, CommentId), CommandError> {
     match point(ctx)? {
         (review, Point::Comment(comment)) => Ok((review, comment)),
+        (_, Point::Filler) => Err(CommandError::new(FILLER)),
         _ => Err(CommandError::new("Not on a comment")),
     }
 }
@@ -196,6 +203,7 @@ fn review_comment(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         // A reply to the comment at point (ADR 0122, Q15).
         Point::Comment(to) => DraftFor::Reply { to },
         Point::Other => return Err(CommandError::new("Comment on a line or a hunk's header")),
+        Point::Filler => return Err(CommandError::new(FILLER)),
     };
     if behind(ctx, review, &draft) {
         return Err(CommandError::new(BEHIND));
