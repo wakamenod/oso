@@ -806,8 +806,11 @@ The UI thread never blocks on I/O or parsing:
   what to send (`SessionRequest::Send`); the text is put together by pure functions
   (`sessions/send.rs::compose`). ADR 0122's review comments call the same path, their message
   composed from the review's model by `review/message.rs` and shown in `*review message*`
-  first (`app/reviews/send.rs`, step 12); so do ADR 0127's drafts, and so does `session-yank-image` (`C-c C-y`, ADR 0142), which checks the same
-  refusals first (`paste_target`), has the clipboard's worker read the image, and keeps it on
+  first (`app/reviews/send.rs`, step 12). A pull request's review resolves its sides
+  through `gh` and a fetch on the review's own thread (`review/pr.rs`, step 12b), and its
+  comments go to the session of the worktree its head branch is checked out in. ADR 0127's
+  drafts take the same path, and so does `session-yank-image` (`C-c C-y`, ADR 0142), which
+  checks the same refusals first (`paste_target`), has the clipboard's worker read the image, and keeps it on
   `sessions::images`' one `oso-images` thread, which also removes a session's images when it is
   archived and sweeps old ones (`app/sessions/watch/images.rs`). The dispatcher notes whether
   each run came through the dev socket. The worker finds message lines' senders with `[[message]]` rules

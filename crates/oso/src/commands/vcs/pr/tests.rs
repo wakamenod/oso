@@ -47,6 +47,7 @@ fn a_pull_request_s_keys_act_at_the_primary_cursor() {
         "git-pr-open",
         "git-pr-copy-link",
         "git-pr-refresh",
+        "git-pr-review",
     ] {
         let (result, _) = run(&mut editor, name, Args::NONE);
         assert!(result.is_ok(), "{name}");
@@ -62,7 +63,8 @@ fn a_pull_request_s_keys_act_at_the_primary_cursor() {
             act(PrAct::Visit),
             act(PrAct::Open),
             act(PrAct::CopyLink),
-            act(PrAct::Refresh)
+            act(PrAct::Refresh),
+            act(PrAct::Review),
         ]
     );
     // The menu's heads work from the pull request's buffer too, as of its project.

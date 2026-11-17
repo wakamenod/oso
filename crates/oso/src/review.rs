@@ -31,12 +31,15 @@
 //!   review is stale, and a newer request stops it.
 //! - Limits, each saying what it hides: 10,000 files and 32 MiB of list; a side of 8 MiB and
 //!   200,000 lines, diffed within 1 s, and 5 s of diffing per request; 64 MiB of sides and
-//!   hunks held per review; a git run of 10 s.
+//!   hunks held per review; a git run of 10 s, but a pull request's fetch, which has none.
 //! - The thread's stack is [`STACK`]: Myers' diff recurses, and needs up to half a MiB at the
 //!   line limit.
 //! - Nothing here logs a file's text; `Debug` of a reading gives its path and kind.
 //! - Its runner, [`TrustedRoot`] and its secret-name check are the `git` module's, shared with
 //!   the worktree jobs (ADR 0121) and the git status (`vcs`, ADR 0127).
+//! - A pull request's sides come from `gh` and, for commits this clone lacks, a fetch that
+//!   writes objects alone, with the review's empty hooks, on open and on each refresh the
+//!   person asks for (`pr`, step 12b); carries are answered while they wait.
 //! - Three things need no thread: `message` composes the message of the person's comments to an
 //!   agent session (step 12), [`hunk_header`] writes a hunk's header for it and the view, and
 //!   `saved` is a saved review's file format (step 6), which the app's store reads and writes.
@@ -49,6 +52,7 @@ mod list;
 #[cfg(test)]
 mod look_tests;
 pub(crate) mod message;
+pub(crate) mod pr;
 #[cfg(test)]
 mod queue_tests;
 mod read;
@@ -89,8 +93,10 @@ pub(crate) enum Request {
     /// Review `scope`: list its files and read each.
     Open(Scope),
     /// List again and read the files whose signature changed, those in `first` before the
-    /// rest.
-    Refresh { first: Vec<Box<[u8]>> },
+    /// rest. `person` if the person asked for it (`g`, or opening it again), which alone asks
+    /// `gh` again for a pull request (step 12b, Q10); a refresh of step 4's marks reads the
+    /// sides `gh` last gave.
+    Refresh { first: Vec<Box<[u8]>>, person: bool },
     /// Take a baseline of the work tree for the session scope.
     Baseline,
     /// Carry comments to a new reading (`oso_core::review::Review::carry`). It stops nothing,
@@ -102,6 +108,17 @@ pub(crate) enum Request {
     /// Look whether what the review shows is stale (step 4). It stops nothing; looks waiting
     /// are one, answered when nothing else waits.
     Look,
+}
+
+#[cfg(test)]
+impl Request {
+    /// A refresh the person asked for, `first` read first.
+    pub(crate) fn person_refresh(first: Vec<Box<[u8]>>) -> Request {
+        Request::Refresh {
+            first,
+            person: true,
+        }
+    }
 }
 
 /// Which request a failure answers.
@@ -150,6 +167,10 @@ pub(crate) enum Report {
     Staged { ticket: u64, staged: stage::Staged },
     /// A request failed; the message says why, with no file's text.
     Failed { asked: Asked, why: String },
+    /// What `gh` said of the pull request reviewed, before its listing (step 12b).
+    PrFound(pr::PrFound),
+    /// A fetch of pull request `number`'s commits from `remote` starts (step 12b).
+    Fetching { number: u64, remote: String },
 }
 
 impl fmt::Debug for Report {
@@ -205,6 +226,16 @@ impl fmt::Debug for Report {
                 .field("asked", asked)
                 .field("why", why)
                 .finish(),
+            // A title and a branch are anyone's words.
+            Self::PrFound(found) => f
+                .debug_struct("PrFound")
+                .field("number", &found.number)
+                .field("head_checked_out", &found.head_checked_out)
+                .finish_non_exhaustive(),
+            Self::Fetching { number, .. } => f
+                .debug_struct("Fetching")
+                .field("number", number)
+                .finish_non_exhaustive(),
         }
     }
 }
@@ -504,7 +535,11 @@ fn next_request(
             }
         },
     };
-    let Request::Refresh { mut first } = request else {
+    let Request::Refresh {
+        mut first,
+        mut person,
+    } = request
+    else {
         return Some(request);
     };
     while let Ok(newer) = queue.try_recv() {
@@ -512,9 +547,13 @@ fn next_request(
             Request::Carry(carry) => held.borrow_mut().carries.push_back(carry),
             Request::Stage(stage) => held.borrow_mut().stages.push_back(stage),
             Request::Look => held.borrow_mut().look = true,
-            Request::Refresh { first: more } => {
+            Request::Refresh {
+                first: more,
+                person: asked,
+            } => {
                 waiting.fetch_sub(1, Ordering::SeqCst);
                 first.extend(more);
+                person |= asked;
             }
             other => {
                 waiting.fetch_sub(1, Ordering::SeqCst);
@@ -523,7 +562,7 @@ fn next_request(
             }
         }
     }
-    Some(Request::Refresh { first })
+    Some(Request::Refresh { first, person })
 }
 
 fn asked(request: &Request) -> Asked {

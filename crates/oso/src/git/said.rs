@@ -40,6 +40,21 @@ fn hidden(c: char) -> bool {
     c.is_control() || oso_core::display_map::cell::is_invisible(c)
 }
 
+/// git's own last line in what a run wrote, among its last `looked` bytes: a `fatal: `,
+/// `error: ` or `! [` line, never a server's own error (`fatal: remote error: …`), which is
+/// its words, nor a `remote:` line. Not escaped.
+pub(crate) fn own_line(output: &str, looked: usize) -> Option<&str> {
+    let from = output.floor_char_boundary(output.len().saturating_sub(looked));
+    output[from..]
+        .split(['\n', '\r'])
+        .rev()
+        .map(str::trim)
+        .find(|line| {
+            (line.starts_with("fatal: ") || line.starts_with("error: ") || line.starts_with("! ["))
+                && !line.contains("remote error:")
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;

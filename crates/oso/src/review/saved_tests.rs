@@ -360,8 +360,12 @@ fn a_file_name_tells_projects_and_scopes_apart_but_not_baselines() {
                 to: "b".into(),
             },
         ),
+        file_name(root, &Scope::PullRequest { number: 7 }),
     ]
     .into_iter()
     .collect();
-    assert_eq!(names.len(), 7);
+    assert_eq!(names.len(), 8);
+    // A pull request's scope comes back by its number.
+    let pr = Scope::PullRequest { number: 7 };
+    assert_eq!(super::scope_from_value(&super::scope_value(&pr)), Some(pr));
 }

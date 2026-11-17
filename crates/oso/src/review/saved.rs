@@ -102,6 +102,7 @@ fn scope_key(scope: &Scope) -> String {
         Scope::Branch { base } => format!("branch\0{base}"),
         Scope::Commit { revision } => format!("commit\0{revision}"),
         Scope::Range { from, to } => format!("range\0{from}\0{to}"),
+        Scope::PullRequest { number } => format!("pr\0{number}"),
     }
 }
 
@@ -293,6 +294,7 @@ pub(crate) fn scope_value(scope: &Scope) -> Value {
         Scope::Branch { base } => json!({ "kind": "branch", "base": base }),
         Scope::Commit { revision } => json!({ "kind": "commit", "revision": revision }),
         Scope::Range { from, to } => json!({ "kind": "range", "from": from, "to": to }),
+        Scope::PullRequest { number } => json!({ "kind": "pr", "number": number }),
     }
 }
 
@@ -315,6 +317,9 @@ pub(crate) fn scope_from_value(value: &Value) -> Option<Scope> {
         "range" => Scope::Range {
             from: text("from")?,
             to: text("to")?,
+        },
+        "pr" => Scope::PullRequest {
+            number: value.get("number")?.as_u64()?,
         },
         _ => return None,
     })

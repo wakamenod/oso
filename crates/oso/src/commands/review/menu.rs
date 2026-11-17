@@ -37,7 +37,7 @@ enum Head {
 }
 
 /// The heads of the built-in review menu, by their keys, and their commands.
-const HEADS: [(&str, &str, Head); 8] = [
+const HEADS: [(&str, &str, Head); 9] = [
     ("D", "review-session", Head::Scope(ScopeKind::Session)),
     (
         "w",
@@ -49,6 +49,11 @@ const HEADS: [(&str, &str, Head); 8] = [
     ("b", "review-branch", Head::Scope(ScopeKind::Branch)),
     ("c", "review-commit", Head::Scope(ScopeKind::Commit)),
     ("r", "review-range", Head::Scope(ScopeKind::Range)),
+    (
+        "p",
+        "review-pull-request",
+        Head::Scope(ScopeKind::PullRequest),
+    ),
     ("B", "review-mark-baseline", Head::Baseline),
 ];
 
@@ -122,7 +127,10 @@ pub fn review_menu(editor: &Editor, open: &Open) -> Notes {
         match what {
             Head::Scope(scope) => {
                 let counted = trusted
-                    && !matches!(scope, ScopeKind::Commit | ScopeKind::Range)
+                    && !matches!(
+                        scope,
+                        ScopeKind::Commit | ScopeKind::Range | ScopeKind::PullRequest
+                    )
                     && (scope != ScopeKind::Session || baseline.is_some());
                 if !counted {
                     note.text = format!("{:COUNT_CELLS$}", "");

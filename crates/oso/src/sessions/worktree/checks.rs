@@ -17,7 +17,8 @@ use std::time::Instant;
 use super::facts::RepoFacts;
 use super::git::{MAX_LISTING, Repo, run, said};
 use super::merged::{self, Local, Merged};
-use super::porcelain::{self, Listed, Status};
+use super::porcelain::{self, Status};
+use crate::git::ListedWorktree;
 use crate::git::{Gh, Git, GitError};
 
 /// The most names of ignored files and directories kept, for the removal's question.
@@ -107,7 +108,7 @@ impl Check {
 /// What is known of one linked worktree.
 #[derive(Clone, Debug)]
 pub struct Looked {
-    pub listed: Listed,
+    pub listed: ListedWorktree,
     /// Check 1, from git's words alone: `Err` with why it cannot be removed.
     pub linked: Result<(), String>,
     /// Its changes, if they could be read.
@@ -160,7 +161,7 @@ pub fn look(
     repo: &Repo,
     gh: Option<&Gh>,
     facts: &RepoFacts,
-    listed: Listed,
+    listed: ListedWorktree,
     held: &Held,
     depth: Depth,
 ) -> Looked {
@@ -236,7 +237,7 @@ fn ignored(git: &Git) -> Vec<PathBuf> {
 
 /// Check 1 from git's listing: a linked worktree, not the main one, not bare, locked or
 /// prunable, whose directory is there.
-fn linked(repo: &Repo, listed: &Listed) -> Result<(), String> {
+fn linked(repo: &Repo, listed: &ListedWorktree) -> Result<(), String> {
     if listed.bare || oso_core::project::same_place(&listed.path, repo.main()) {
         return Err("it is the repository's main worktree".to_owned());
     }
@@ -353,9 +354,10 @@ mod tests {
     #[test]
     fn a_clean_merged_worktree_is_its_sessions_work_merged() {
         use super::super::merged::Merged;
-        use super::super::porcelain::{Listed, Status};
+        use super::super::porcelain::Status;
+        use crate::git::ListedWorktree;
         let mut looked = super::Looked {
-            listed: Listed {
+            listed: ListedWorktree {
                 path: PathBuf::from("/r/.claude/worktrees/a"),
                 head: None,
                 branch: Some("a".to_owned()),

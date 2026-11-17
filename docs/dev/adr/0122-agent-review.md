@@ -109,7 +109,7 @@ previous setup measured 25 ms for 206 files once the index's stat cache is copie
 | Unstaged | the index | the working tree |
 | Branch against base | `merge-base BASE HEAD` | the working tree |
 | A commit or a range | `X^` or `FROM^` (the empty tree for a root commit) | `X` or `TO` |
-| A pull request | the PR's base commit | its head commit |
+| A pull request | `merge-base BASE HEAD` of the PR's base and head commits (amended in step 12b) | its head commit |
 
 - **The session baseline** is a tree written through a throwaway index, so the person's index and
   stash are untouched: copy the real index (keeping its modification time, so its stat cache
@@ -123,9 +123,11 @@ previous setup measured 25 ms for 206 files once the index's stat cache is copie
   weeks by default. A review whose baseline is gone says so and offers the uncommitted scope.
 - **A pull request** is found with `gh pr view N --json number,title,baseRefOid,headRefOid,…` (and
   listed with `gh pr list`). Commits missing locally are fetched with `git fetch --no-tags
-  --recurse-submodules=no --refmap= REMOTE pull/N/head` into `FETCH_HEAD` only, no ref of the
-  person's moved. When the PR's branch is the one checked out, the scope is branch against base
-  instead, so the working tree shows. Posting to GitHub is not in this ADR.
+  --recurse-submodules=no --refmap= --no-write-fetch-head REMOTE pull/N/head` as objects alone
+  (amended in step 12b, where it said "into `FETCH_HEAD` only"), no ref of the person's moved. When the PR's branch is the one checked out, the scope is branch against base
+  instead, so the working tree shows, when that branch holds the PR's head commit (step 12b, as
+  built: the old side stays the PR's own merge-base, and only the new side is the work tree).
+  Posting to GitHub is not in this ADR.
 - **The menu** (`C-x v r`, a float of choices as in ADR 0117 once it lands, a completing
   prompt until then) offers each scope with its file count, counted on a worker and
   filled in as each count comes. It remembers the last choice per project.
@@ -1277,9 +1279,11 @@ What the first PR built:
   cursor's place), each reading once, each file's marks, each comment. Paths and lines are
   strings when UTF-8, else hex. Its name is a 128-bit FNV of the root and the scope, the same
   for every session baseline; the header is checked against what was asked as it is read, so a
-  name that comes out the same reads nothing. Past 16 MiB the largest readings are left out
-  first, and a review whose comments alone pass it is not written. Read back, a line this does
-  not write is left out, with the replies to a comment left out.
+  name that comes out the same reads nothing. A pull request's scope (step 12b) is saved by its
+  number, as the others are: `review-resume` and a restart open it again, running `gh` and its
+  fetch as opening one does (the author's choice, 2026-11-18). Past 16 MiB the largest readings
+  are left out first, and a review whose comments alone pass it is not written. Read back, a
+  line this does not write is left out, with the replies to a comment left out.
 - **The store** (`app/reviews/store.rs`) is one thread, `oso-review-store`, started after the
   first event, which sweeps reviews not opened for 30 days and past the 256 opened last, reads
   through `sessions::record`'s checks (a private directory, a regular file of this user's with
@@ -1832,3 +1836,92 @@ second. The author approved the plan's public items and answered its questions (
   commands, their requests and refusals; `ListedOnPrefix` from keys, with `C-u` and from the
   agent channel; the agent refused in a message; sent cards' faces; and an end-to-end flow with
   a fake session that shows, drops, edits and sends a message, then finds nothing more to send.
+
+### Step 12b: pull requests through `gh`
+
+The second PR of step 12 (Q1). The author answered the plan's Q9 to Q11 (a) on 2026-11-17,
+through the coordinator, and approved its one public item while building: **`PrAct::Review`**,
+`r` in a pull request's buffer and on one in `*pull requests*`, as only the host knows which
+pull request a list's line names. The number goes in `ReviewRequest::Open`'s `revision`, as
+the plan said, with `ScopeKind::PullRequest`, which step 3 had left refused.
+
+- **Opening:** `p` in the review menu (`review-pull-request`, `Person`, in the Revisions group)
+  reads the number, a `#` before it allowed, then digits only, at most 18 and above 0, as
+  `commands::review::pull_number` checks it for the command and the scope; `r` (`git-pr-review`, `Person`) takes the pull
+  request of the buffer, or of the list's line. The menu counts nothing for `p`, as for `c`
+  and `r`, and the review thread refuses to count one. An open review of that number is shown
+  again and read again.
+- **The sides (Q9), as built:** on the review's own thread (`review/pr.rs`), on open and on
+  each `g` (Q10), never on a timer: `gh pr view N --repo R --json
+  number,title,baseRefName,baseRefOid,headRefName,headRefOid,isCrossRepository`, `R` and the
+  remote being the ones step 5a asks about, the branch's remote, else `origin`
+  (`git::PullTarget`). `gh` runs on a thread of its own, `oso-review-gh`, so that the review's
+  stop ends the wait at once and its comments are carried meanwhile; a run a stop left waiting
+  is taken up by the next request of that pull request, so at most one runs per review. An answer of another
+  number, or with an id not whole, is refused. **The old side is `git merge-base BASE HEAD`,
+  amending this ADR's table**, which said "the PR's base commit": GitHub's "Files changed"
+  shows the merge-base, and the base itself would show its later changes reversed. The new
+  side is the head's tree, or the work tree when the head branch is the one checked out, the
+  pull request is not a fork's, and **`HEAD` holds the head commit** (`merge-base
+  --is-ancestor`): a branch behind the pull request shows its head commit, so that no commit
+  pushed to it is hidden behind the work tree (the author's choice, from the security review).
+- **Fetching:** only the side the clone lacks, `refs/pull/N/head` or `refs/heads/BASE`, with
+  `git fetch --no-tags --recurse-submodules=no --no-auto-gc --no-write-commit-graph --refmap=
+  --no-write-fetch-head -- REMOTE …`: objects alone. **`--no-write-fetch-head` amends the
+  Decision's "into `FETCH_HEAD` only"** (the author's choice): git marks each ref fetched by
+  name for merging, so a later `git merge FETCH_HEAD`, the person's or an agent's, would have
+  taken a fork's commits. It runs as `Git::for_fetch`: the review's empty hooks directory and
+  reads' variables, with the proxies, the SSH agent and a session of its own with no
+  controlling terminal. The base branch must be a plain ASCII name git takes, so no refspec
+  from GitHub can name a ref to write. The echo area says `Fetching #N's commits from REMOTE:
+  closing the review stops it`; the fetch has no time limit, as the person's own has none,
+  and the review's stop ends it (closing it, a newer request, the project no longer trusted),
+  its comments carried meanwhile. A failed one says git's own last line, never a server's own
+  error (`fatal: remote error: …`) or `remote:` words (`git::own_line`, shared with `f`). Still missing after it, the review says so and `g` asks
+  again.
+- **Where comments go (Q11):** the thread lists the worktrees and reports the one the head
+  branch is checked out in whose `HEAD` holds the head commit (none for a fork's; at most four
+  looked at, as git checks a branch out once), and the
+  review's message goes to the session there, else to the review's own as in step 12a; the
+  session `C-u C-c C-c` picked still comes first, and a failed refresh forgets the worktree, so
+  comments then go to the review's own. The echo area says `Reviewing #N, its head commit shows
+  · BRANCH · TITLE`, or `checked out here, so the work tree shows`, the fixed words first and the
+  branch and title after them, escaped, so neither reads as oso's; it is said again when any of
+  them changes.
+- **Step 4's refreshes:** a look, and a refresh that step 4's marks start, read the sides
+  `gh` last gave (`Request::Refresh`'s `person` is false): only opening and the person's `g` ask
+  `gh` (Q10). A pull request whose head is the work tree still follows the person's edits.
+- **Decisions:** accept and reject refuse in a pull request's review, as in a branch's,
+  commit's or range's (step 5): it compares commits, whatever its new side.
+- **What moved into `git`**, as `review` may use no `vcs` or `sessions` (ADR 0038's layers):
+  the remote pull requests are asked about, `git::PullTarget` (was `vcs::pr::work`'s
+  `Target`); `GH_LIMIT`; and the worktree list, its run and parser, `git::worktrees` (was
+  `sessions::worktree::porcelain`'s and `Repo::worktrees`' run), with `os_lossy`, the path
+  decoding it shares with `porcelain`, in `git::path`. `Git::line` reads git's first line for
+  the target and the pull request buffers, `Git::is_ancestor` asks `merge-base --is-ancestor`
+  for the review, the worktree jobs and the branch delete, `git::own_line` picks git's own
+  line for the review's fetch and `f`, and `Git::run_long_with` is `run_long` with a stop
+  asked and a call between pieces, which the fetch uses. The worktree list's record is
+  `ListedWorktree`. The worktree jobs' `gh` count of
+  merged pull requests is now `MERGED_ASKED`, apart from `GH_LIMIT`, a time.
+- **Deviations, approved through the coordinator:**
+  - The plan's default number, the branch's own pull request, is not built: an empty answer is
+    refused. Reviewing the branch checked out is what `b` does.
+  - No timer runs `gh` (Q10): only opening and `g`.
+  - A fetch still running when oso quits is not ended with it, as a status run's is through
+    its ender: it runs in a session of its own with no terminal, writes only objects, and goes
+    on until it ends or fails, nothing of oso stopping it then.
+- **Left as they are:** a `g` while a fetch runs stops it and the refresh starts it again, the
+  echo area saying so; objects fetched this way are reachable from no ref, so a later fetch may
+  ask for them again until the person's own fetch brings the branch.
+- **Tests:** the answer read by shape, whole ids only; against temporary repositories and a
+  stand-in `gh`: the merge-base and the head's tree, the work tree for the head checked out
+  here holding the head, and not for a fork's or a branch behind the pull request; the head
+  branch's worktree, and none of a fork's or at another commit; a fetch from a bare repository
+  holding `refs/pull/7/head`, with no ref moved, no `FETCH_HEAD` written and no fetch the next
+  time; a pull request the remote lacks; a waiting `gh` run taken up again; an answer of another number or a short id; `gh`'s
+  failure; a failed fetch's words, git's and not the server's; base names refused; a stop
+  that ends a slow `gh`'s wait at once while carries are answered, and one that asks nothing;
+  the echo area's words, escaped; the number's checks in the commands and the scope; where
+  comments go; and an end-to-end flow, `review_pr`, that reviews a listed pull request with
+  `r` and shows it again through the menu's `p`.
