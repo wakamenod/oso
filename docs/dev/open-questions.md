@@ -406,10 +406,6 @@ item notes when it must be settled.
 - Agent identity in a review: `Author::Agent` names no session yet, so "its own" comments are any
   agent's. Settle it with the agent tools (ADR 0122 step 7): since ADR 0121's step 1, a hosted
   session's bridge connection knows its session ([ADR 0122](adr/0122-agent-review.md)).
-- A public form of `oso-core`'s path judgement for secrets (`secret::judge`), so that a review
-  can give `oso_syntax::Scheduler::open` the verdict on every path a side names. Settle it before
-  ADR 0122 step 9 opens review sides, or in step 3 ([ADR 0122](adr/0122-agent-review.md),
-  step 8).
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
 - libghostty-vt's Kitty images through its Wuffs decoder or a pure-Rust one in oso: step 12

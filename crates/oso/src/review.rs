@@ -267,13 +267,6 @@ impl fmt::Debug for Reading {
 /// What a reading holds of a file.
 pub(crate) enum Content {
     /// Both sides, and the hunks between them.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the sides are refined and visited from ADR 0122's step 3c"
-        )
-    )]
     Text {
         shape: Arc<Shape>,
         old: Arc<[u8]>,

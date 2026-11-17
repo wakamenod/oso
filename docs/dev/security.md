@@ -801,6 +801,14 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   event that made it so: what waited for it never runs. Its
   queries are oso's own, compiled in, with a match limit; nothing is loaded at run time
   ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
+- Opening a review parses text the person never opened: both sides of each changed file, the
+  old one from git's history, as documents no buffer owns, which an agent's changes can reach
+  with no other step. They go through the same worker, limits, stacks and caught panics as
+  buffers, at most 8 a review at once, and only for a file every name of which is judged
+  ordinary (`Entry::verdict`, the review's own check before it reads, with
+  `Buffer::judge_name`); the scheduler refuses any other verdict. An abort in a grammar's C
+  code is not caught, as for a buffer
+  ([ADR 0122](adr/0122-agent-review.md), step 9).
 
 ### Untrusted parsers (T10)
 

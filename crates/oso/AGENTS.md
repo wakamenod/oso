@@ -87,7 +87,10 @@ often, so it must rebuild within 2 s.
   runner, `TrustedRoot` and secret-name check. `review/refine.rs` refines a change block's words,
   for a git status now and a review's view later. `review/view.rs`
   lays out a review buffer's whole text on `oso-review-view`, one thread per review, and
-  `review/view/panes.rs` its two panes, which `app/reviews/layout.rs` switches areas to, and
+  `review/view/panes.rs` its two panes, which `app/reviews/layout.rs` switches areas to;
+  `review/view/highlight.rs` opens each side as a document no buffer owns on the syntax threads,
+  through the handle `app/reviews/highlight.rs` gives it, and `review/view/project.rs` lays the
+  runs over the review's lines (step 9); and
   `review/count.rs` counts the review menu's scopes on `oso-review-count`. `review/message.rs`
   composes the message of the person's comments that `app/reviews/send.rs` pastes into the
   review's session through `send_to_session` (step 12). `review/saved.rs` is a saved review's file format

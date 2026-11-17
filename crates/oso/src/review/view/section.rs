@@ -39,6 +39,20 @@ pub(crate) struct Rendered {
     pub(crate) cut: bool,
     /// Whether it holds a card's row: one with none is laid out the same in any room but none.
     pub(crate) cards: bool,
+    /// Where each line of a side shows its text, in order, for a side's highlights (step 9).
+    pub(crate) slots: Vec<Slot>,
+    /// How many bytes it holds once decoded, which its runs cover.
+    pub(crate) decoded: usize,
+}
+
+/// Where a line of a side shows its text in a section: its side and number, and its text's
+/// span in the decoded section, from `at`, `len` bytes, after its sign.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Slot {
+    pub(crate) side: Side,
+    pub(crate) number: u32,
+    pub(crate) at: usize,
+    pub(crate) len: usize,
 }
 
 /// A file's comments and how to show them beside its reading.
@@ -64,6 +78,9 @@ pub(super) struct Writer {
     pub(super) cut: bool,
     /// Whether a card's row was written.
     cards: bool,
+    /// How many bytes it holds once decoded.
+    decoded: usize,
+    slots: Vec<Slot>,
 }
 
 impl Writer {
@@ -75,6 +92,8 @@ impl Writer {
             pending: None,
             cut: false,
             cards: false,
+            decoded: 0,
+            slots: Vec::new(),
         }
     }
 
@@ -100,6 +119,8 @@ impl Writer {
             valid,
             cut: self.cut,
             cards: self.cards,
+            slots: self.slots,
+            decoded: self.decoded,
         }
     }
 
@@ -122,10 +143,32 @@ impl Writer {
         }
     }
 
+    /// Writes line `number` of `side`, its sign then its text, as a row of `kind`, keeping where
+    /// its text is for the side's highlights.
+    pub(super) fn side_line(
+        &mut self,
+        kind: RowKind,
+        (side, number): (Side, u32),
+        sign: &[u8],
+        text: &[u8],
+        highlight: Highlight,
+    ) {
+        let at = self.decoded + decoded_len(sign);
+        let len = decoded_len(text);
+        self.slots.push(Slot {
+            side,
+            number,
+            at,
+            len,
+        });
+        self.line(kind, &[(sign, Some(highlight)), (text, Some(highlight))]);
+    }
+
     fn run(&mut self, len: usize, highlight: Option<Highlight>) {
         if len == 0 {
             return;
         }
+        self.decoded += len;
         match self.runs.last_mut() {
             Some((last, kept)) if *kept == highlight => *last += len,
             _ => self.runs.push((len, highlight)),
@@ -325,7 +368,7 @@ fn lines(writer: &mut Writer, plan: &mut Plan, index: usize, hunk: &Hunk, side: 
             side,
             first: run_first,
         };
-        writer.line(kind, &[(sign, Some(highlight)), (text, Some(highlight))]);
+        writer.side_line(kind, (side, number), sign, text, highlight);
         let before = writer.rows();
         plan.after_line(writer, side, number);
         if writer.rows() != before {
