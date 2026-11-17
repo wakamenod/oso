@@ -72,6 +72,8 @@ pub(super) fn concern(request: &GitRequest) -> Concern {
         | GitRequest::PrCreateCancel { .. }
         | GitRequest::PrRing { .. }
         | GitRequest::PrMerge { .. }
-        | GitRequest::PrConfirmed => Concern::Pr,
+        | GitRequest::PrConfirmed
+        | GitRequest::IssueList { .. }
+        | GitRequest::IssueAct { .. } => Concern::Pr,
     }
 }

@@ -48,8 +48,8 @@ impl App {
         }
     }
 
-    /// Whether the person is still where a head over the status `status` was asked: the
-    /// selected window shows it and no prompt is open.
+    /// Whether the person is still where a head over `status`, a status or another buffer such
+    /// as an issue's, was asked: the selected window shows it and no prompt is open.
     pub(super) fn still_at(&self, status: BufferId) -> bool {
         self.editor.current().0.buffer() == status && self.editor.prompt().is_none()
     }

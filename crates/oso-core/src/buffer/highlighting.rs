@@ -264,6 +264,8 @@ impl Buffer {
             | Mode::GitPr
             | Mode::GitPrList
             | Mode::GitPrMessage
+            | Mode::GitIssueList
+            | Mode::GitIssue
             | Mode::ReviewMessage
             | Mode::GitLog
             | Mode::Conversation
@@ -440,6 +442,8 @@ impl Buffer {
                     | Mode::GitGraph
                     | Mode::GitPr
                     | Mode::GitPrList
+                    | Mode::GitIssueList
+                    | Mode::GitIssue
             ) && self.internal)
     }
 

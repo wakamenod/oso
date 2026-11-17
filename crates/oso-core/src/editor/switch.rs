@@ -8,7 +8,7 @@
 
 use super::Editor;
 use super::follow::clip_selections;
-use crate::buffer::{self, Buffer, BufferId};
+use crate::buffer::{self, Buffer, BufferId, Mode};
 use crate::display_map::DisplaySnapshot;
 use crate::selection::{MarkActive, SelectionSet};
 use crate::window::{Place, Walk, Window, WindowId};
@@ -591,11 +591,9 @@ fn kept_as_users(buffer: &Buffer) -> bool {
         || super::git::is_git_log(buffer)
         || super::git::is_git_graph(buffer)
         || super::git::is_git_pr(buffer)
+        || super::git::is_git_issue(buffer)
         || (buffer.is_internal()
-            && matches!(
-                buffer.mode(),
-                crate::buffer::Mode::GitDiscarded | crate::buffer::Mode::RenamePreview
-            ))
+            && matches!(buffer.mode(), Mode::GitDiscarded | Mode::RenamePreview))
 }
 
 #[cfg(test)]

@@ -403,5 +403,9 @@ impl Page {
     }
 }
 
+mod issue;
+
+pub(crate) use issue::{issue_list_text, issue_text};
+
 #[cfg(test)]
 mod tests;

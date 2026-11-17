@@ -7,7 +7,11 @@
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
 /// Global key sequences and the commands they run.
-pub const BINDINGS: &[(&str, &str)] = &[("C-x g", "git-status"), ("C-x v l", "git-graph")];
+pub const BINDINGS: &[(&str, &str)] = &[
+    ("C-x g", "git-status"),
+    ("C-x v l", "git-graph"),
+    ("C-x v i", "github-issues"),
+];
 
 /// Key sequences and the commands they run, in a git status only.
 pub const STATUS: &[(&str, &str)] = crate::commands::vcs::KEYS;
@@ -33,6 +37,9 @@ pub const PR: &[(&str, &str)] = crate::commands::vcs::pr::KEYS;
 
 /// Key sequences and the commands they run, in a pull request's message (step 5a-2).
 pub const PR_MESSAGE: &[(&str, &str)] = crate::commands::vcs::pr::create::MESSAGE_KEYS;
+
+/// Key sequences and the commands they run, in an issue's buffer and a list of them (step 5b-1).
+pub const ISSUE: &[(&str, &str)] = crate::commands::vcs::pr::issue::KEYS;
 
 /// Key sequences and the commands they run, in the list of what discards kept.
 pub const DISCARDED: &[(&str, &str)] = crate::commands::vcs::discard::LIST_KEYS;
