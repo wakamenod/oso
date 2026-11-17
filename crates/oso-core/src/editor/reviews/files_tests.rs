@@ -112,7 +112,7 @@ fn the_pane_goes_at_the_left_of_the_review_and_takes_its_text_whole() {
     assert_eq!(columns_of(&editor, window), 80);
     let buffer = editor.review_files(id).unwrap();
     let shown = editor.buffer(buffer).unwrap();
-    assert_eq!(shown.name(), "*review files: uncommitted p*");
+    assert_eq!(shown.name(), "*review: uncommitted p \u{b7} files*");
     assert_eq!(shown.mode(), crate::buffer::Mode::ReviewFiles);
     assert!(shown.is_internal() && shown.read_only().is_some());
     assert_eq!(
@@ -269,4 +269,33 @@ fn a_cursor_on_a_file_the_filter_now_hides_goes_to_a_files_header() {
         RowKind::File,
         "on a header, at {line}"
     );
+}
+
+#[test]
+fn a_new_panes_first_text_puts_its_cursor_on_the_reviews_file() {
+    let (mut editor, id, window) = editor_with_review(120);
+    // On b.rs's second line in the review, before the pane is shown.
+    go(&mut editor, 4);
+    let pane = editor.show_review_files(id, window).unwrap();
+    editor.select_window(pane);
+    assert_eq!(line_of(&editor, pane), 0, "no text yet");
+    put_pane(&mut editor, id, &PANE);
+    assert_eq!(line_of(&editor, pane), 1, "b.rs");
+}
+
+#[test]
+fn a_review_closed_beneath_a_prompt_closes_its_panes_window_once_the_prompt_ends() {
+    let (mut editor, id, window) = editor_with_review(120);
+    let pane = editor.show_review_files(id, window).unwrap();
+    editor
+        .open_prompt("Say: ", crate::minibuffer::Kind::Text { history: None })
+        .unwrap();
+    editor.remove_review(id);
+    assert!(editor.window_by_id(pane).is_some(), "beneath the prompt");
+    editor.submit_prompt().unwrap();
+    let _ = editor.take_prompt_outcome();
+    editor.follow_cursor();
+    assert!(editor.window_by_id(pane).is_none());
+    assert_eq!(editor.frame().windows().len(), 1);
+    assert_eq!(columns_of(&editor, window), 120);
 }

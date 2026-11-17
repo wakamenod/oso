@@ -11,7 +11,7 @@
 //! - `review-filter` is `Person`: what a filter hides is the person's choice of what to read,
 //!   and its prompt opens with the filter's words in it.
 
-use oso_core::buffer::{BufferId, Mode};
+use oso_core::buffer::BufferId;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{Editor, NoPair, ReviewId};
 use oso_core::review::{Filter, RowKind, Seek};
@@ -103,7 +103,7 @@ pub const COMMANDS: &[Command] = &[
 ];
 
 /// The review whose files pane `buffer` is.
-pub(super) fn files_review(editor: &Editor, buffer: BufferId) -> Option<ReviewId> {
+fn files_review(editor: &Editor, buffer: BufferId) -> Option<ReviewId> {
     editor
         .reviews()
         .map(|(id, _)| id)
@@ -113,10 +113,13 @@ pub(super) fn files_review(editor: &Editor, buffer: BufferId) -> Option<ReviewId
 /// The review the current buffer shows, or whose files pane it is; refused elsewhere.
 pub(super) fn review_here(ctx: &Ctx<'_>) -> Result<ReviewId, CommandError> {
     super::super::not_in_prompt(ctx)?;
-    let buffer = ctx.editor.window().buffer();
-    (ctx.editor.review_of(buffer))
-        .or_else(|| files_review(ctx.editor, buffer))
+    review_shown(ctx.editor, ctx.editor.window().buffer())
         .ok_or_else(|| CommandError::new("Not in a review"))
+}
+
+/// The review `buffer` shows, or whose files pane it is.
+fn review_shown(editor: &Editor, buffer: BufferId) -> Option<ReviewId> {
+    (editor.review_of(buffer)).or_else(|| files_review(editor, buffer))
 }
 
 /// The review whose files pane the current buffer is, refused elsewhere.
@@ -132,8 +135,7 @@ pub(crate) fn prompt_text(editor: &Editor, name: &str) -> Option<String> {
     if name != FILTER {
         return None;
     }
-    let buffer = editor.tiled().0.buffer();
-    let review = (editor.review_of(buffer)).or_else(|| files_review(editor, buffer))?;
+    let review = review_shown(editor, editor.tiled().0.buffer())?;
     Some(editor.review_filter(review)?.text().to_owned())
 }
 
@@ -176,39 +178,19 @@ fn review_files(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 /// Moves the files pane's cursor `count` files on, back for a negative count, as far as it
-/// goes, failing with `edge` if it stopped short.
+/// goes.
 fn walk(ctx: &mut Ctx<'_>, count: isize) -> Result<(), CommandError> {
     let review = current_pane(ctx)?;
     // A clone of the rows is O(1): they are shared.
     let Some(rows) = ctx.editor.review_files_rows(review).cloned() else {
         return Err(CommandError::new("Not in a review's files pane"));
     };
-    let forward = count >= 0;
-    let (window, buffer) = ctx.editor.current_mut();
-    let text = buffer.text().clone();
-    let mut short = false;
-    let update = window.selections.update(|selection| {
-        let mut line = text.offset_to_point(selection.cursor).row;
-        for _ in 0..count.unsigned_abs() {
-            match rows.seek(line, Seek::File, forward) {
-                Some(next) => line = next,
-                None => {
-                    short = true;
-                    break;
-                }
-            }
-        }
-        selection.move_to(text.line_start(line));
-        Ok::<(), ()>(())
-    });
-    if update.changed {
-        ctx.request_redraw();
-    }
-    match (short, forward) {
-        (false, _) => Ok(()),
-        (true, true) => Err(CommandError::new("No next file")),
-        (true, false) => Err(CommandError::new("No file before")),
-    }
+    let edge = if count >= 0 {
+        "No next file"
+    } else {
+        "No file before"
+    };
+    super::seek_in(ctx, &rows, Seek::File, count, edge)
 }
 
 fn review_files_next(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
@@ -223,6 +205,10 @@ fn review_files_previous(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandErr
 /// review, and selects the first if `select`.
 fn show_file(ctx: &mut Ctx<'_>, select: bool) -> Result<(), CommandError> {
     let review = current_pane(ctx)?;
+    // No place leaves, or enters, a buffer that may hold secrets (ADR 0044).
+    if ctx.editor.current().1.is_secret() {
+        return Err(CommandError::new("The files pane may hold secrets now"));
+    }
     let line = {
         let (window, buffer) = ctx.editor.current();
         buffer
@@ -240,6 +226,13 @@ fn show_file(ctx: &mut Ctx<'_>, select: bool) -> Result<(), CommandError> {
         let Some(buffer) = ctx.editor.window_by_id(window).map(|shown| shown.buffer()) else {
             continue;
         };
+        if ctx
+            .editor
+            .buffer(buffer)
+            .is_none_or(|shown| shown.is_secret())
+        {
+            continue;
+        }
         let header = (ctx.editor.review_rows_of(buffer))
             .and_then(|rows| rows.line_of(&path, None))
             .zip(ctx.editor.buffer(buffer))
@@ -275,6 +268,12 @@ fn review_files_display(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> 
 
 fn review_filter(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let review = review_here(ctx)?;
+    // A filter is quoted in the review's title and saved with it (ADR 0044).
+    if ctx.answer_secret() {
+        return Err(CommandError::new(
+            "A filter holding what may be secret is not kept",
+        ));
+    }
     let filter = Filter::new(ctx.answer().unwrap_or_default());
     let said = match &filter {
         Some(filter) => format!(
@@ -290,31 +289,12 @@ fn review_filter(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn review_files_keys(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    super::super::not_in_prompt(ctx)?;
-    let mut text = String::from("Keys in a review's files pane\n\n");
-    for (keys, name) in FILES_KEYS {
-        let summary = (COMMANDS.iter().chain(super::COMMANDS))
-            .find(|command| command.name == *name)
-            .and_then(|command| command.doc.lines().next())
-            .unwrap_or_default();
-        text.push_str(&format!("{keys:<8}{name:<24}{summary}\n"));
-    }
-    text.push_str("\nIn the review, s selects the pane and / filters its files.\n");
-    let shown = ctx
-        .editor
-        .buffer_named(KEYS_BUFFER)
-        .filter(|id| ctx.editor.buffer(*id).is_some_and(|b| b.is_internal()));
-    let id = match shown {
-        Some(id) => id,
-        None => ctx
-            .editor
-            .add_internal_buffer(KEYS_BUFFER, Mode::Fundamental),
-    };
-    ctx.editor.set_internal_text(id, &text);
-    let window = ctx.editor.window().id();
-    ctx.editor.show_in(window, id);
-    ctx.request_redraw();
-    Ok(())
+    let text = super::keys_text(
+        "Keys in a review's files pane",
+        FILES_KEYS,
+        "In the review, s selects the pane and / filters its files.",
+    );
+    super::show_keys(ctx, KEYS_BUFFER, &text)
 }
 
 #[cfg(test)]

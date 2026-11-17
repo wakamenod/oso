@@ -4,7 +4,7 @@
 //!
 //! Must not depend on: `editor`, `command`, or any GPU or window-system type.
 
-use super::{Child, FrameLayout, Node, Run, SPLIT_COLUMNS, Splits, TooSmall, Way};
+use super::{FrameLayout, SPLIT_COLUMNS, Splits, TooSmall, Way};
 use crate::window::WindowId;
 
 impl Splits {
@@ -33,7 +33,7 @@ impl Splits {
             return Err(TooSmall);
         }
         self.root
-            .split_before(at, new, [first, total - first], layout);
+            .split(at, Way::Across, new, [first, total - first], true, layout);
         Ok(())
     }
 
@@ -41,59 +41,5 @@ impl Splits {
     /// or run after it, as a window split at the left gives them back.
     pub(crate) fn remove_toward_next(&mut self, window: WindowId, layout: &FrameLayout) -> bool {
         self.remove_giving(window, layout, true)
-    }
-}
-
-impl Node {
-    /// Puts `new` before the unit of `at` across, `new` taking `first` cells and the unit
-    /// `rest`.
-    fn split_before(
-        &mut self,
-        at: WindowId,
-        new: WindowId,
-        [first, rest]: [usize; 2],
-        layout: &FrameLayout,
-    ) -> bool {
-        if self.is_unit_of(at) {
-            let unit = std::mem::replace(self, Self::Window(new));
-            *self = Self::Run(Run {
-                way: Way::Across,
-                children: vec![
-                    Child {
-                        weight: first,
-                        node: Self::Window(new),
-                    },
-                    Child {
-                        weight: rest,
-                        node: unit,
-                    },
-                ],
-                pair: false,
-            });
-            return true;
-        }
-        match self {
-            Self::Window(_) => false,
-            Self::Run(run) => {
-                let Some(index) = run.children.iter().position(|c| c.node.contains(at)) else {
-                    return false;
-                };
-                if run.way == Way::Across && !run.pair && run.children[index].node.is_unit_of(at) {
-                    run.reset(layout);
-                    run.children[index].weight = rest;
-                    run.children.insert(
-                        index,
-                        Child {
-                            weight: first,
-                            node: Self::Window(new),
-                        },
-                    );
-                    return true;
-                }
-                run.children[index]
-                    .node
-                    .split_before(at, new, [first, rest], layout)
-            }
-        }
     }
 }

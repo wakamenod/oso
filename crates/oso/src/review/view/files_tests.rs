@@ -127,3 +127,33 @@ fn a_long_path_is_cut_from_the_left_and_keeps_its_name() {
         "\u{2026}\u{672c}.rs"
     );
 }
+
+#[test]
+fn nothing_is_sent_while_no_row_nor_the_title_changed() {
+    let mut state = view();
+    state.take(Tell::Files(Some(40)));
+    assert!(state.build().files.is_some());
+    // The review's own title changed: the pane's did not.
+    state.take(Tell::Said(vec!["one note".into()]));
+    assert!(state.build().files.is_none());
+    // Hidden and shown again: the pane takes its text whole.
+    state.take(Tell::Files(None));
+    state.take(Tell::Files(Some(40)));
+    assert!(state.build().files.is_some());
+}
+
+#[test]
+fn a_long_path_is_cut_reading_only_its_end() {
+    let long = "d/".repeat(1 << 19);
+    let cut = cut_left(format!("{long}name.rs").as_bytes(), 12);
+    assert_eq!(String::from_utf8(cut).unwrap(), "\u{2026}d/d/name.rs");
+    // A tab takes its cells, so a path of tabs is cut too.
+    let tabs = cut_left(&[b'\t'; 4096], 12);
+    assert!(tabs.len() <= 12, "{}", tabs.len());
+    // A cluster stays whole: no mark is left without its base.
+    let marked = cut_left("abc/e\u{301}e\u{301}.rs".as_bytes(), 6);
+    assert_eq!(
+        String::from_utf8(marked).unwrap(),
+        "\u{2026}e\u{301}e\u{301}.rs"
+    );
+}

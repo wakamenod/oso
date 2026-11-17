@@ -12,7 +12,7 @@
 use std::fmt::Write as _;
 use std::sync::Arc;
 
-use oso_core::display_map::cell::classify;
+use oso_core::display_map::text_clusters;
 use oso_core::review::{Author, RowKind, Shape};
 use oso_core::rope::Rope;
 use oso_core::syntax::Highlight;
@@ -31,6 +31,29 @@ pub(super) struct FilesPane {
     width: Option<usize>,
     dirty: bool,
     text: Rope,
+    /// The title and rows it was last built of, to send nothing when they are the same.
+    title: String,
+    rows: Vec<Arc<Rendered>>,
+}
+
+/// A file's row as last laid out, with what it shows: laid out again only when that changed.
+pub(super) struct PaneRow {
+    key: RowKey,
+    rendered: Arc<Rendered>,
+}
+
+/// What a file's row shows, its path aside, which is the file's own.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct RowKey {
+    status: Option<Status>,
+    counts: Option<(usize, usize)>,
+    person: usize,
+    agent: usize,
+    outdated: bool,
+    unread: bool,
+    mark: &'static str,
+    width: usize,
+    wide: usize,
 }
 
 /// The fewest columns a path keeps, however narrow the pane.
@@ -42,21 +65,24 @@ impl State {
         if width == self.files_pane.width {
             return;
         }
-        if self.files_pane.width.is_none() {
+        if self.files_pane.width.is_none() || width.is_none() {
             // A pane made anew takes its text whole.
             self.files_pane.text = Rope::new();
+            self.files_pane.rows.clear();
+            self.files_pane.title.clear();
         }
         self.files_pane.width = width;
         self.files_pane.dirty = true;
     }
 
-    /// The files pane's whole text, while it is built and something it shows changed.
+    /// The files pane's whole text, while it is built and something it shows changed. A row
+    /// is laid out again only when what it shows changed, and nothing is sent when no row
+    /// nor the title did.
     pub(super) fn files_text(&mut self) -> Option<Box<PaneText>> {
         let width = self.files_pane.width?;
         if !(self.dirty || self.files_pane.dirty) {
             return None;
         }
-        self.files_pane.dirty = false;
         let title = match self.filter_note() {
             Some(note) => note,
             None => format!(
@@ -64,52 +90,68 @@ impl State {
                 self.order.len() + self.gone.len()
             ),
         };
-        let mut sections: Vec<Rendered> = Vec::with_capacity(self.order.len() + 1);
+        let filtered = self.filtering.on();
+        // The widest `+n −m`, which every row pads to.
+        let mut wide = 0;
+        for path in &self.order {
+            if let Some(file) = self.files.get(path)
+                && !(filtered && file.judged.hidden())
+                && let Some(shape) = shape_of(file)
+            {
+                wide = wide.max(counts_width(counts(shape)));
+            }
+        }
+        let mut rows: Vec<Arc<Rendered>> = Vec::with_capacity(self.order.len() + 1);
+        for path in &self.order {
+            let Some(file) = self.files.get_mut(path) else {
+                continue;
+            };
+            if filtered && file.judged.hidden() {
+                continue;
+            }
+            let shape = shape_of(file).cloned();
+            let row = FileRow {
+                path,
+                status: Some(file.entry.status),
+                shape: shape.as_ref(),
+                cards: &file.cards,
+            };
+            rows.push(row.cached(&mut file.pane_row, wide, width));
+        }
+        for (path, gone) in &mut self.gone {
+            if filtered && gone.judged.hidden() {
+                continue;
+            }
+            let row = FileRow {
+                path,
+                status: None,
+                shape: None,
+                cards: &gone.cards,
+            };
+            rows.push(row.cached(&mut gone.pane_row, wide, width));
+        }
+        let pane = &mut self.files_pane;
+        let same = !pane.dirty
+            && pane.title == title
+            && pane.rows.len() == rows.len()
+            && (pane.rows.iter().zip(&rows)).all(|(then, now)| Arc::ptr_eq(then, now));
+        pane.dirty = false;
+        if same {
+            return None;
+        }
         let mut writer = Writer::new(b"");
         writer.line(
             RowKind::Note,
             &[(title.as_bytes(), Some(Highlight::DiffFileHeader))],
         );
-        sections.push(writer.done());
-        let mut rows: Vec<FileRow<'_>> = Vec::with_capacity(self.order.len());
-        for path in self.order.iter().filter(|path| self.shows(path)) {
-            let Some(file) = self.files.get(path) else {
-                continue;
-            };
-            let shape = file
-                .reading
-                .as_ref()
-                .and_then(|reading| match &reading.content {
-                    Content::Text { shape, .. } => Some(shape),
-                    _ => None,
-                });
-            rows.push(FileRow {
-                path,
-                status: Some(file.entry.status),
-                shape,
-                cards: &file.cards,
-            });
-        }
-        for (path, gone) in self.gone.iter().filter(|(path, _)| self.shows(path)) {
-            rows.push(FileRow {
-                path,
-                status: None,
-                shape: None,
-                cards: &gone.cards,
-            });
-        }
-        let counts: Vec<String> = rows.iter().map(FileRow::counts).collect();
-        let wide = counts
-            .iter()
-            .map(|count| count.chars().count())
-            .max()
-            .unwrap_or(0);
-        for (row, count) in rows.iter().zip(&counts) {
-            sections.push(row.render(count, wide, width));
-        }
-        let laid: Vec<&Rendered> = sections.iter().collect();
-        let built = assemble(&laid, &[], &self.files_pane.text);
-        self.files_pane.text = built.rope;
+        let head = writer.done();
+        let laid: Vec<&Rendered> = std::iter::once(&head)
+            .chain(rows.iter().map(|row| &**row))
+            .collect();
+        let built = assemble(&laid, &[], &pane.text);
+        pane.text = built.rope;
+        pane.title = title;
+        pane.rows = rows;
         Some(Box::new((built.text, built.rows, built.highlights)))
     }
 }
@@ -122,6 +164,27 @@ impl State {
     }
 }
 
+/// The shape of the reading a file shows, if it is text.
+fn shape_of(file: &super::file::File) -> Option<&Arc<Shape>> {
+    match &file.reading.as_ref()?.content {
+        Content::Text { shape, .. } => Some(shape),
+        _ => None,
+    }
+}
+
+/// The lines a reading puts in and takes out.
+fn counts(shape: &Shape) -> (usize, usize) {
+    (shape.hunks().iter()).fold((0, 0), |(added, removed), hunk| {
+        (added + hunk.added.len(), removed + hunk.removed.len())
+    })
+}
+
+/// The characters `+n −m` takes.
+fn counts_width((added, removed): (usize, usize)) -> usize {
+    let digits = |n: usize| n.checked_ilog10().map_or(1, |log| log as usize + 1);
+    digits(added) + digits(removed) + 3
+}
+
 /// What a file's row shows.
 struct FileRow<'a> {
     path: &'a [u8],
@@ -132,19 +195,41 @@ struct FileRow<'a> {
 }
 
 impl FileRow<'_> {
-    /// `+n −m`, or nothing for a file with no reading.
-    fn counts(&self) -> String {
-        let Some(shape) = self.shape else {
-            return String::new();
-        };
-        let (added, removed) = (shape.hunks().iter()).fold((0, 0), |(added, removed), hunk| {
-            (added + hunk.added.len(), removed + hunk.removed.len())
+    /// The row, from `kept` when what it shows is the same, else laid out and kept there.
+    fn cached(&self, kept: &mut Option<PaneRow>, wide: usize, width: usize) -> Arc<Rendered> {
+        let key = self.key(wide, width);
+        if let Some(row) = kept.as_ref().filter(|row| row.key == key) {
+            return Arc::clone(&row.rendered);
+        }
+        let rendered = Arc::new(self.render(&key));
+        *kept = Some(PaneRow {
+            key,
+            rendered: Arc::clone(&rendered),
         });
-        format!("+{added} \u{2212}{removed}")
+        rendered
     }
 
-    /// The row, `width` columns wide, its counts padded to `wide` characters.
-    fn render(&self, counts: &str, wide: usize, width: usize) -> Rendered {
+    /// What the row shows: O(the file's hunks and comments), allocating nothing.
+    fn key(&self, wide: usize, width: usize) -> RowKey {
+        let comments = &self.cards.comments;
+        let person = (comments.iter())
+            .filter(|c| c.author() == Author::Person)
+            .count();
+        RowKey {
+            status: self.status,
+            counts: self.shape.map(|shape| counts(shape)),
+            person,
+            agent: comments.len() - person,
+            outdated: comments.iter().any(|c| c.is_outdated()),
+            unread: (comments.iter()).any(|c| c.author() == Author::Agent && !c.is_read()),
+            mark: self.mark(),
+            width,
+            wide,
+        }
+    }
+
+    /// The row as `key` says, `key.width` columns wide, its counts padded to `key.wide`.
+    fn render(&self, key: &RowKey) -> Rendered {
         let mut writer = Writer::new(self.path);
         let letter = self.status.map_or(" ", status_letter);
         let letter_face = match self.status {
@@ -153,35 +238,28 @@ impl FileRow<'_> {
             Some(_) => Highlight::DiffHunkHeader,
             None => Highlight::Outdated,
         };
-        let pad = " ".repeat(wide.saturating_sub(counts.chars().count()));
-        let (added, removed) = counts.split_once(' ').unwrap_or((counts, ""));
-        let comments = &self.cards.comments;
-        let person = (comments.iter())
-            .filter(|c| c.author() == Author::Person)
-            .count();
-        let agent = comments.len() - person;
-        let mut said = String::new();
-        if !comments.is_empty() {
-            let _ = write!(said, " {person}\u{b7}{agent}");
-        }
-        let outdated = if comments.iter().any(|c| c.is_outdated()) {
-            "!"
-        } else {
-            ""
+        let (added, removed) = match key.counts {
+            Some((added, removed)) => (format!("+{added}"), format!("\u{2212}{removed}")),
+            None => (String::new(), String::new()),
         };
-        let unread = (comments.iter()).any(|c| c.author() == Author::Agent && !c.is_read());
-        let unread = if unread { "\u{2022}" } else { "" };
-        let mark = self.mark();
+        let shown = key.counts.map_or(0, counts_width);
+        let pad = " ".repeat(key.wide.saturating_sub(shown));
+        let mut said = String::new();
+        if key.person + key.agent > 0 {
+            let _ = write!(said, " {}\u{b7}{}", key.person, key.agent);
+        }
+        let outdated = if key.outdated { "!" } else { "" };
+        let unread = if key.unread { "\u{2022}" } else { "" };
         let used = 2
-            + wide
+            + key.wide
             + said.chars().count()
             + outdated.len()
             + unread.chars().count()
-            + mark.chars().count()
+            + key.mark.chars().count()
             + 2;
         let mut path = Vec::new();
         shown_path(self.path, &mut path);
-        let path = cut_left(&path, width.saturating_sub(used).max(LEAST_PATH));
+        let path = cut_left(&path, key.width.saturating_sub(used).max(LEAST_PATH));
         let path_face = self.status.is_none().then_some(Highlight::Outdated);
         let space: &[u8] = b" ";
         writer.line(
@@ -196,7 +274,7 @@ impl FileRow<'_> {
                 (said.as_bytes(), Some(Highlight::CommentPerson)),
                 (outdated.as_bytes(), Some(Highlight::Outdated)),
                 (unread.as_bytes(), Some(Highlight::CommentAgent)),
-                (mark.as_bytes(), Some(Highlight::Decided)),
+                (key.mark.as_bytes(), Some(Highlight::Decided)),
                 (b"  ", None),
                 (&path, path_face),
             ],
@@ -239,34 +317,48 @@ fn status_letter(status: Status) -> &'static str {
 }
 
 /// `path` cut from the left to at most `cells` columns, a `…` standing for what went: its end
-/// stays, and an invalid byte counts as the 4 cells `\xNN` takes.
+/// stays, whole grapheme clusters as the display counts them, an invalid byte as the 4 cells
+/// `\xNN` takes. Costs O(`cells`), whatever the path's length: only its last bytes are read.
 pub(super) fn cut_left(path: &[u8], cells: usize) -> Vec<u8> {
-    let mut pieces: Vec<(&[u8], usize)> = Vec::new();
-    for chunk in path.utf8_chunks() {
-        for (at, c) in chunk.valid().char_indices() {
-            let bytes = &chunk.valid().as_bytes()[at..at + c.len_utf8()];
-            pieces.push((bytes, classify(c.encode_utf8(&mut [0; 4])).1));
+    // No cluster takes less than a cell for 4 of its bytes but marks on a base, so these
+    // bytes hold what fits, and more.
+    let mut start = path
+        .len()
+        .saturating_sub(cells.saturating_mul(4).saturating_add(16));
+    while start > 0 && start < path.len() && path[start] & 0xc0 == 0x80 {
+        start += 1;
+    }
+    let tail = &path[start..];
+    let mut pieces: Vec<(usize, usize, usize)> = Vec::new();
+    let mut at = 0;
+    for chunk in tail.utf8_chunks() {
+        for cluster in text_clusters(chunk.valid(), 0) {
+            pieces.push((
+                at + cluster.offset,
+                cluster.text.len(),
+                cluster.cells.max(1),
+            ));
         }
-        for byte in chunk.invalid() {
-            pieces.push((std::slice::from_ref(byte), 4));
+        at += chunk.valid().len();
+        for _ in chunk.invalid() {
+            pieces.push((at, 1, 4));
+            at += 1;
         }
     }
-    let total: usize = pieces.iter().map(|(_, cells)| cells).sum();
-    if total <= cells {
+    let total: usize = pieces.iter().map(|(_, _, cells)| cells).sum();
+    if start == 0 && total <= cells {
         return path.to_vec();
     }
-    let mut kept = Vec::new();
     let mut used = 1;
-    for (bytes, width) in pieces.iter().rev() {
+    let mut from = tail.len();
+    for (offset, _, width) in pieces.iter().rev() {
         if used + width > cells {
             break;
         }
         used += width;
-        kept.push(*bytes);
+        from = *offset;
     }
     let mut out = "\u{2026}".as_bytes().to_vec();
-    for bytes in kept.iter().rev() {
-        out.extend_from_slice(bytes);
-    }
+    out.extend_from_slice(&tail[from..]);
     out
 }

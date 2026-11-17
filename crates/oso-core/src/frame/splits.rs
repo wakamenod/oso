@@ -159,7 +159,7 @@ impl Splits {
         if self.contains(new) {
             return Err(TooSmall);
         }
-        self.root.split(at, way, new, halves, layout);
+        self.root.split(at, way, new, halves, false, layout);
         Ok(())
     }
 
@@ -269,28 +269,37 @@ impl Node {
         }
     }
 
+    /// Puts `new` after the unit of `at` along `way`, or before it if `before`, the two taking
+    /// `first` and `second` cells in the order they stand.
     fn split(
         &mut self,
         at: WindowId,
         way: Way,
         new: WindowId,
         [first, second]: [usize; 2],
+        before: bool,
         layout: &FrameLayout,
     ) -> bool {
         if self.is_unit_of(at) {
             let unit = std::mem::replace(self, Self::Window(new));
+            let (one, two) = if before {
+                (Self::Window(new), unit)
+            } else {
+                (unit, Self::Window(new))
+            };
+            let children = vec![
+                Child {
+                    weight: first,
+                    node: one,
+                },
+                Child {
+                    weight: second,
+                    node: two,
+                },
+            ];
             *self = Self::Run(Run {
                 way,
-                children: vec![
-                    Child {
-                        weight: first,
-                        node: unit,
-                    },
-                    Child {
-                        weight: second,
-                        node: Self::Window(new),
-                    },
-                ],
+                children,
                 pair: false,
             });
             return true;
@@ -301,13 +310,18 @@ impl Node {
                 let Some(index) = run.children.iter().position(|c| c.node.contains(at)) else {
                     return false;
                 };
-                if run.way == way && run.children[index].node.is_unit_of(at) {
+                if run.way == way && !run.pair && run.children[index].node.is_unit_of(at) {
                     run.reset(layout);
-                    run.children[index].weight = first;
+                    let (unit, new_weight, at_index) = if before {
+                        (second, first, index)
+                    } else {
+                        (first, second, index + 1)
+                    };
+                    run.children[index].weight = unit;
                     run.children.insert(
-                        index + 1,
+                        at_index,
                         Child {
-                            weight: second,
+                            weight: new_weight,
                             node: Self::Window(new),
                         },
                     );
@@ -315,7 +329,7 @@ impl Node {
                 }
                 run.children[index]
                     .node
-                    .split(at, way, new, [first, second], layout)
+                    .split(at, way, new, [first, second], before, layout)
             }
         }
     }

@@ -111,7 +111,9 @@ impl App {
         let buffer = self.editor.add_buffer(buffer);
         self.editor.show(buffer);
         let count = taken.len();
-        let hidden = self.hidden_comments(review, &taken);
+        let hidden = self.hidden_comments(review, &taken, |path| {
+            super::secrets::withheld(&root, &held, path)
+        });
         self.reviews.sending.message = Some(Waiting {
             buffer,
             review,
@@ -131,19 +133,43 @@ impl App {
         ));
     }
 
-    /// What the echo says of `taken`'s comments on files the filter hides, which the review
-    /// does not show (step 6b): nothing while none is. O(1) a comment.
-    fn hidden_comments(&self, review: ReviewId, taken: &[Comment]) -> String {
-        let filtered = self.editor.review_filter(review).is_some();
-        let Some(rows) = self.editor.review_rows(review).filter(|_| filtered) else {
+    /// What the echo says of `taken`'s comments on files the filter hides (step 6b), judged
+    /// from the filter the editor holds, as the view judges them, not from the text it built
+    /// last; a file `withheld` says may hold secrets by its path alone. Nothing while none is.
+    /// O(the review's comments).
+    fn hidden_comments(
+        &self,
+        review: ReviewId,
+        taken: &[Comment],
+        withheld: impl Fn(&[u8]) -> bool,
+    ) -> String {
+        let (Some(filter), Some(model)) = (
+            self.editor.review_filter(review),
+            self.editor.review(review),
+        ) else {
             return String::new();
         };
-        let hidden = (taken.iter())
-            .filter(|comment| rows.line_of(comment.path(), None).is_none())
+        let mut texts: HashMap<&[u8], Vec<&str>> = (taken.iter())
+            .map(|comment| (comment.path(), Vec::new()))
+            .collect();
+        for comment in model.comments() {
+            if let Some(texts) = texts.get_mut(comment.path()) {
+                texts.push(comment.text());
+            }
+        }
+        let hidden: HashSet<&[u8]> = (texts.iter())
+            .filter(|(path, texts)| {
+                let texts: &[&str] = if withheld(path) { &[] } else { texts };
+                !filter.matches(path, texts)
+            })
+            .map(|(path, _)| *path)
+            .collect();
+        let count = (taken.iter())
+            .filter(|comment| hidden.contains(comment.path()))
             .count();
-        match hidden {
+        match count {
             0 => String::new(),
-            hidden => format!("; {hidden} on files the filter hides"),
+            count => format!("; {count} on files the filter hides"),
         }
     }
 

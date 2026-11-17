@@ -5,6 +5,7 @@
 //! Must not depend on: key presses or how a frame is drawn. Nothing here lays out a text: the
 //! view thread does, and its text goes in at O(1), what it replaces freed off the UI thread.
 
+use oso_core::buffer::BufferId;
 use oso_core::review::Filter;
 
 use crate::app::App;
@@ -15,6 +16,9 @@ use crate::review::view::{PaneText, Tell};
 pub(super) struct Told {
     filter: Option<Filter>,
     width: Option<usize>,
+    /// The pane's buffer: a new one, as when the pane was hidden and shown again since, takes
+    /// its text whole.
+    pane: Option<BufferId>,
 }
 
 impl App {
@@ -24,7 +28,8 @@ impl App {
         for index in 0..self.reviews.open.len() {
             let id = self.reviews.open[index].id;
             let filter = self.editor.review_filter(id).cloned();
-            let width = (self.editor.review_files(id))
+            let pane = self.editor.review_files(id);
+            let width = pane
                 .and_then(|buffer| {
                     self.editor
                         .windows()
@@ -37,6 +42,12 @@ impl App {
                 running.files.filter.clone_from(&filter);
                 running.view.tell(Tell::Filter(filter));
             }
+            if running.files.pane != pane && running.files.width.is_some() {
+                // The text built for the pane before goes to no pane.
+                running.files.width = None;
+                running.view.tell(Tell::Files(None));
+            }
+            running.files.pane = pane;
             if running.files.width != width {
                 running.files.width = width;
                 running.view.tell(Tell::Files(width));

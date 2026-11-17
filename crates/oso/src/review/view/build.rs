@@ -48,12 +48,14 @@ impl State {
         let mut size = sections[0].bytes.len();
         let folded = self.folded;
         let mut paths: Vec<Option<&Box<[u8]>>> = vec![None];
-        let shown: Vec<bool> = self.order.iter().map(|path| self.shows(path)).collect();
-        let gone_shown: Vec<bool> = self.gone.keys().map(|path| self.shows(path)).collect();
-        for (path, _) in self.order.iter().zip(&shown).filter(|(_, shown)| **shown) {
+        let filtered = self.filtering.on();
+        for path in &self.order {
             let Some(file) = self.files.get_mut(path) else {
                 continue;
             };
+            if filtered && file.judged.hidden() {
+                continue;
+            }
             paths.push(Some(path));
             // A file past the limit shows its header alone; one read meanwhile is laid out anew.
             let room = self.max_text.saturating_sub(size);
@@ -63,10 +65,10 @@ impl State {
             size += rendered.bytes.len();
             sections.push(rendered);
         }
-        for ((path, gone), _) in (self.gone.iter_mut())
-            .zip(&gone_shown)
-            .filter(|(_, shown)| **shown)
-        {
+        for (path, gone) in &mut self.gone {
+            if filtered && gone.judged.hidden() {
+                continue;
+            }
             let room = self.max_text.saturating_sub(size);
             let (cards, withheld) = (&gone.cards, gone.withheld);
             let rendered = section_in(&mut gone.rendered.unified, room, || {

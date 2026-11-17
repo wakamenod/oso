@@ -29,6 +29,8 @@
 //! - Comments are cards among a file's lines, from the model's latest snapshot of them; a change
 //!   to a snapshot, or to whether agent cards fold, lays out again only the files it touches. A
 //!   file that leaves the listing with comments stays, after the others, until it has none.
+//! - Told a filter, it lays out only the files it matches (`filter`); while a window shows the
+//!   review's files pane, it builds that pane's text too, a row a file shown (`files`; 6b).
 //! - Nothing here logs a file's text or a comment's.
 
 mod assemble;
@@ -60,7 +62,7 @@ use oso_core::syntax::Highlights;
 use super::{Entry, Reading};
 use cards::Cards;
 pub(crate) use cards::{HunkMark, Marks};
-use file::{File, Gone, Laid};
+use file::{File, Gone};
 use highlight::Highlighting;
 pub(crate) use highlight::{Highlighter, Progress};
 pub(crate) use panes::PaneText;
@@ -416,7 +418,7 @@ impl State {
                 let gone = Gone {
                     withheld: file.withheld(),
                     cards: file.cards,
-                    rendered: Laid::default(),
+                    ..Gone::default()
                 };
                 self.gone.insert(path.clone(), gone);
                 self.dirty = true;
@@ -521,7 +523,7 @@ impl State {
             let gone = Gone {
                 cards,
                 withheld,
-                rendered: Laid::default(),
+                ..Gone::default()
             };
             self.gone.insert(path, gone);
             self.dirty = true;

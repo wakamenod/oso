@@ -20,7 +20,6 @@ use crate::buffer::{BufferId, Mode};
 use crate::editor::{Editor, NoPair, ReviewId, ReviewLeftover};
 use crate::frame::TooSmall;
 use crate::load::{Change, Reloaded};
-use crate::motion;
 use crate::review::{Filter, Rows};
 use crate::syntax::Highlights;
 use crate::window::WindowId;
@@ -35,6 +34,17 @@ pub(in crate::editor) struct Files {
     filter: Option<Filter>,
     /// The file whose row the pane's cursor was last put on.
     followed: Option<Box<[u8]>>,
+    /// The window the pane was last shown beside, which its first text follows.
+    beside: Option<WindowId>,
+}
+
+/// What the files panes keep beside every review.
+#[derive(Debug, Default)]
+pub(in crate::editor) struct Shared {
+    /// Windows left beneath a prompt as their review closed, closed once no prompt is open.
+    stray: Vec<WindowId>,
+    /// Whether the panes are being synced, which laying out again does not start anew.
+    syncing: bool,
 }
 
 /// The pane's buffer, what each of its lines is, and whether it holds no text from the host
@@ -68,7 +78,7 @@ impl Editor {
     /// What each line of the review `id`'s files pane is: its title, then a file's header a
     /// row, by the file's path.
     pub fn review_files_rows(&self, id: ReviewId) -> Option<&Rows> {
-        self.files_rows(id)
+        Some(&self.reviews.get(id)?.files.pane.as_ref()?.rows)
     }
 
     /// Puts in the review `id`'s files pane's whole new text, with what each line is and its
@@ -118,10 +128,14 @@ impl Editor {
             pane.fresh = false;
         }
         for (index, path) in kept {
-            let line = path.and_then(|path| self.files_rows(id)?.line_of(&path, None));
+            let line = path.and_then(|path| self.review_files_rows(id)?.line_of(&path, None));
             if let Some(line) = line {
                 self.put_cursor_on_line(index, line);
             }
+        }
+        // Its first text: its cursor goes to the file of the review's beside it.
+        if fresh && let Some(beside) = self.reviews.get(id).and_then(|open| open.files.beside) {
+            self.follow_review_file(beside);
         }
         self.follow_buffer_windows(buffer);
         left
@@ -170,9 +184,10 @@ impl Editor {
         if let Some(index) = self.window_index(new) {
             self.window_shows(index, buffer);
         }
-        // Its cursor goes to the file of the review's.
+        // Its cursor goes to the file of the review's, once its text holds that file's row.
         if let Some(files) = self.reviews.get_mut(id) {
             files.files.followed = None;
+            files.files.beside = Some(window);
         }
         self.follow_review_file(window);
         Ok(new)
@@ -192,29 +207,49 @@ impl Editor {
             .filter(|window| window.buffer() == buffer)
             .map(|window| window.id())
             .collect();
-        if !shown.is_empty() {
-            self.isearch_exit();
+        let review = self.review_buffer(id);
+        self.close_files_windows(&shown, review);
+        self.drop_review_files(id);
+        true
+    }
+
+    /// Takes each of `windows` out of the tree, its columns going to the area at its right, or
+    /// shows `review` in it as the frame's only window; lays out once.
+    fn close_files_windows(&mut self, windows: &[WindowId], review: Option<BufferId>) {
+        if windows.is_empty() {
+            return;
         }
-        for window in shown {
+        self.isearch_exit();
+        let mut removed = false;
+        for window in windows {
             let mut splits = self.splits.clone();
-            if splits.remove_toward_next(window, &self.frame) {
+            if splits.remove_toward_next(*window, &self.frame) {
                 self.splits = splits;
-                self.drop_window(window);
-                self.lay_out(self.frame.size());
-            } else if let (Some(index), Some(review)) =
-                (self.window_index(window), self.review_buffer(id))
-            {
+                self.drop_window(*window);
+                removed = true;
+            } else if let (Some(index), Some(review)) = (self.window_index(*window), review) {
                 self.window_shows(index, review);
             }
         }
-        self.drop_review_files(id);
-        true
+        if removed {
+            self.lay_out(self.frame.size());
+        }
     }
 
     /// The review `id` closes: its files pane goes first, its columns back to the area beside
     /// it, and its buffer even beneath a prompt.
     pub(in crate::editor) fn close_review_files(&mut self, id: ReviewId) {
-        self.hide_review_files(id);
+        if !self.hide_review_files(id)
+            && let Some(buffer) = self.review_files(id)
+        {
+            // Beneath a prompt its windows stay, showing what its buffer's going leaves them,
+            // until no prompt is open.
+            let stray: Vec<WindowId> = (self.windows.iter())
+                .filter(|window| window.buffer() == buffer)
+                .map(|window| window.id())
+                .collect();
+            self.reviews.files.stray.extend(stray);
+        }
         self.drop_review_files(id);
     }
 
@@ -224,8 +259,9 @@ impl Editor {
             .and_then(|buffer| self.buffer(buffer))
             .map(|buffer| buffer.name().to_owned())
             .unwrap_or_default();
-        let base = name.strip_prefix("*review: ").unwrap_or(&name);
-        let buffer = self.add_internal_buffer(format!("*review files: {base}"), Mode::ReviewFiles);
+        // Named as a pane of the pair is: the review's name, then what it shows.
+        let base = name.strip_suffix('*').unwrap_or(&name);
+        let buffer = self.add_internal_buffer(format!("{base} \u{b7} files*"), Mode::ReviewFiles);
         if let Some(shown) = self.buffer_mut(buffer) {
             shown.set_wraps(false);
         }
@@ -253,11 +289,6 @@ impl Editor {
         self.drop_internal_buffer(pane.buffer);
     }
 
-    /// The rows of the review `id`'s files pane.
-    fn files_rows(&self, id: ReviewId) -> Option<&Rows> {
-        Some(&self.reviews.get(id)?.files.pane.as_ref()?.rows)
-    }
-
     /// The line the primary cursor of the window at `index` is on.
     fn window_line(&self, index: usize) -> usize {
         let window = &self.windows[index];
@@ -272,8 +303,8 @@ impl Editor {
     /// Puts the primary cursor of the window at `index` alone at the start of `line`.
     fn put_cursor_on_line(&mut self, index: usize, line: usize) {
         let (window, buffer) = self.window_mut(index);
-        let display = buffer.display();
-        let offset = motion::line_start(&display, line.min(display.row_count().saturating_sub(1)));
+        let text = buffer.text();
+        let offset = text.line_start(line.min(text.line_count().saturating_sub(1)));
         window.selections.keep_primary();
         window.selections.update(|selection| {
             selection.cursor = offset;
@@ -286,6 +317,12 @@ impl Editor {
     /// After a command: drops the files panes no window shows, hides those whose review no
     /// window shows, and has each pane's cursor follow its review's file.
     pub(in crate::editor) fn sync_review_files(&mut self) {
+        // Hiding lays out, which follows the cursors, which syncs again: once is enough.
+        if self.reviews.files.syncing {
+            return;
+        }
+        self.reviews.files.syncing = true;
+        self.close_stray_files();
         let panes: Vec<(ReviewId, BufferId)> = (self.reviews.open.iter())
             .filter_map(|open| Some((open.id, open.files.pane.as_ref()?.buffer)))
             .collect();
@@ -304,6 +341,19 @@ impl Editor {
         }
         let selected = self.windows[self.selected].id();
         self.follow_review_file(selected);
+        self.reviews.files.syncing = false;
+    }
+
+    /// Closes the files panes' windows left beneath a prompt, once none is open.
+    fn close_stray_files(&mut self) {
+        if self.reviews.files.stray.is_empty() || self.prompt().is_some() {
+            return;
+        }
+        let stray = std::mem::take(&mut self.reviews.files.stray);
+        let tiled: Vec<WindowId> = (stray.into_iter())
+            .filter(|window| self.tiled_window_index(*window).is_some())
+            .collect();
+        self.close_files_windows(&tiled, None);
     }
 
     /// Puts the cursor of each window showing the files pane of the review `window` shows on
@@ -325,25 +375,25 @@ impl Editor {
             return;
         }
         let line = self.window_line(index);
-        let Some(path) = (self.review_rows_of(buffer))
-            .and_then(|rows| rows.at(line))
-            .map(|row| Box::<[u8]>::from(row.path))
-        else {
+        let Some(row) = (self.review_rows_of(buffer)).and_then(|rows| rows.at(line)) else {
             return;
         };
+        let path = row.path;
         let followed = self
             .reviews
             .get(id)
             .and_then(|open| open.files.followed.as_deref());
-        if path.is_empty() || followed == Some(&*path) {
+        // Compared before it is copied, as this runs after every command.
+        if path.is_empty() || followed == Some(path) {
             return;
         }
         let Some(row) = self
-            .files_rows(id)
-            .and_then(|rows| rows.line_of(&path, None))
+            .review_files_rows(id)
+            .and_then(|rows| rows.line_of(path, None))
         else {
             return;
         };
+        let path = Box::<[u8]>::from(path);
         let shown: Vec<usize> = (0..self.windows.len())
             .filter(|index| self.windows[*index].buffer() == pane)
             .collect();

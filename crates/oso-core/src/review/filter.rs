@@ -7,13 +7,21 @@
 //! - Words are separated by white space; every word must match the file (Q-C).
 //! - Smart case: a word with an upper-case letter matches as typed; any other matches whatever
 //!   the case, as isearch does.
-//! - A path is matched as its bytes read as UTF-8, invalid bytes standing for themselves only
-//!   to a word that holds the same replacement.
+//! - A path is matched as its bytes, a word as UTF-8: an invalid byte matches no word.
+//! - Each word is a literal `regex` (ADR 0076's crate) built once, so matching folds and
+//!   allocates nothing, in time linear in the path and the comments; at most [`MAX_WORDS`]
+//!   words are kept.
 
 use std::sync::Arc;
 
+use regex::bytes::{Regex, RegexBuilder};
+
 /// The most bytes of text a filter keeps: a longer one is cut at a character's end.
-pub(crate) const MAX_FILTER_BYTES: usize = 1024;
+const MAX_FILTER_BYTES: usize = 1024;
+
+/// The most words a filter matches by: those after are left out, so that building one costs
+/// at most this many small regexes.
+const MAX_WORDS: usize = 32;
 
 /// What a review shows of its files: those every word matches.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,38 +29,39 @@ pub struct Filter {
     inner: Arc<Inner>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 struct Inner {
     text: Box<str>,
-    words: Box<[Word]>,
+    /// Each word, as a literal matched as typed or whatever the case.
+    words: Box<[Regex]>,
 }
 
-/// A word to match: as typed, and whether it matches whatever the case, then lower-cased.
-#[derive(Debug, PartialEq, Eq)]
-struct Word {
-    text: Box<str>,
-    folded: bool,
+/// Two filters are the same when their texts are: the words follow from the text.
+impl PartialEq for Inner {
+    fn eq(&self, other: &Self) -> bool {
+        self.text == other.text
+    }
 }
+
+impl Eq for Inner {}
 
 impl Filter {
-    /// The filter `text` says, trimmed and cut at [`MAX_FILTER_BYTES`]; `None` when it holds no
-    /// word, which shows every file.
+    /// The filter `text` says, cut at [`MAX_FILTER_BYTES`], then trimmed; `None` when it holds
+    /// no word, which shows every file.
     pub fn new(text: &str) -> Option<Filter> {
         let mut end = text.len().min(MAX_FILTER_BYTES);
         while !text.is_char_boundary(end) {
             end -= 1;
         }
         let text = text[..end].trim();
-        let words: Box<[Word]> = text
-            .split_whitespace()
-            .map(|word| {
+        let words: Box<[Regex]> = (text.split_whitespace())
+            .take(MAX_WORDS)
+            .filter_map(|word| {
                 let folded = !word.chars().any(char::is_uppercase);
-                let text = if folded {
-                    word.to_lowercase().into()
-                } else {
-                    word.into()
-                };
-                Word { text, folded }
+                RegexBuilder::new(&regex::escape(word))
+                    .case_insensitive(folded)
+                    .build()
+                    .ok()
             })
             .collect();
         (!words.is_empty()).then(|| Filter {
@@ -69,36 +78,13 @@ impl Filter {
     }
 
     /// Whether every word matches the file at `path`, by the path or by one of `comments`.
-    /// Costs the path and the comments' bytes, folded once each when a word asks for it.
+    /// Costs a pass over the path and the comments a word, allocating nothing.
     pub fn matches(&self, path: &[u8], comments: &[&str]) -> bool {
-        let path = String::from_utf8_lossy(path);
-        let folded_path = self
-            .inner
-            .words
-            .iter()
-            .any(|word| word.folded)
-            .then(|| path.to_lowercase());
-        let mut folded_comments: Option<Vec<String>> = None;
         self.inner.words.iter().all(|word| {
-            let haystack = |text: &str, folded: Option<&str>| match folded {
-                Some(folded) => folded.contains(&*word.text),
-                None => text.contains(&*word.text),
-            };
-            if word.folded {
-                if haystack(&path, folded_path.as_deref()) {
-                    return true;
-                }
-                let folded = folded_comments.get_or_insert_with(|| {
-                    comments
-                        .iter()
-                        .map(|comment| comment.to_lowercase())
-                        .collect()
-                });
-                folded.iter().any(|comment| comment.contains(&*word.text))
-            } else {
-                path.contains(&*word.text)
-                    || comments.iter().any(|comment| comment.contains(&*word.text))
-            }
+            word.is_match(path)
+                || comments
+                    .iter()
+                    .any(|comment| word.is_match(comment.as_bytes()))
         })
     }
 }

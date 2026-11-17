@@ -293,12 +293,14 @@ impl State {
         let mut size = title.len();
         let mut pairs = vec![title];
         let folded = self.folded;
-        let shown: Vec<bool> = self.order.iter().map(|path| self.shows(path)).collect();
-        let gone_shown: Vec<bool> = self.gone.keys().map(|path| self.shows(path)).collect();
-        for (path, _) in self.order.iter().zip(&shown).filter(|(_, shown)| **shown) {
+        let filtered = self.filtering.on();
+        for path in &self.order {
             let Some(file) = self.files.get_mut(path) else {
                 continue;
             };
+            if filtered && file.judged.hidden() {
+                continue;
+            }
             let room = self.max_text.saturating_sub(size);
             let mut kept = file.rendered.panes.take();
             let pair = section_in(&mut kept, room, || file.render_panes(room, folded));
@@ -306,10 +308,10 @@ impl State {
             size += pair.len();
             pairs.push(pair);
         }
-        for ((path, gone), _) in (self.gone.iter_mut())
-            .zip(&gone_shown)
-            .filter(|(_, shown)| **shown)
-        {
+        for (path, gone) in &mut self.gone {
+            if filtered && gone.judged.hidden() {
+                continue;
+            }
             let room = self.max_text.saturating_sub(size);
             let (cards, withheld) = (&gone.cards, gone.withheld);
             let pair = section_in(&mut gone.rendered.panes, room, || {

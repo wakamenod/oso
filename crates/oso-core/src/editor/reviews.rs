@@ -137,6 +137,8 @@ pub(super) struct Reviews {
     draft: Option<draft::Draft>,
     /// The models of reviews closed since the host last took them, for it to save and free.
     closed: Vec<(ReviewId, Review)>,
+    /// What the files panes keep beside every review (step 6b).
+    files: files::Shared,
 }
 
 impl Reviews {

@@ -75,3 +75,19 @@ proptest! {
         prop_assert_eq!(filter.matches(path.as_bytes(), &comments), expected);
     }
 }
+
+#[test]
+fn a_word_is_a_literal_and_words_past_the_most_are_left_out() {
+    let filter = Filter::new("a.b (x").unwrap();
+    assert!(filter.matches(b"a.b/(x", &[]));
+    assert!(!filter.matches(b"a.b", &[]), "both words must match");
+    assert!(!filter.matches(b"axb/(x", &[]), "`.` stands for itself");
+    let many: Vec<String> = (0..MAX_WORDS + 5).map(|n| format!("w{n}")).collect();
+    let filter = Filter::new(&many.join(" ")).unwrap();
+    let kept = many[..MAX_WORDS].join("/");
+    assert!(
+        filter.matches(kept.as_bytes(), &[]),
+        "the words after are left out"
+    );
+    assert_eq!(filter.text(), many.join(" "), "the text stays as typed");
+}

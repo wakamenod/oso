@@ -277,8 +277,13 @@ impl fmt::Debug for Prompt {
 
 /// How a prompt ended, for the dispatcher.
 pub enum Outcome {
-    /// The prompt `prompt` was answered with `text`.
-    Answered { prompt: PromptId, text: String },
+    /// The prompt `prompt` was answered with `text`; `secret` when the prompt's buffer may
+    /// hold secrets, as a yank of a secret kill turns it (ADR 0044).
+    Answered {
+        prompt: PromptId,
+        text: String,
+        secret: bool,
+    },
     /// A question was answered: run the command named.
     Run(&'static str),
 }
@@ -954,6 +959,7 @@ mod tests {
         let outcome = Outcome::Answered {
             prompt: PromptId(1),
             text: "hunter2".into(),
+            secret: false,
         };
         assert!(!format!("{outcome:?}").contains("hunter2"));
     }

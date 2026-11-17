@@ -62,18 +62,7 @@ pub(crate) const RESTRICTED: &str =
 /// menu takes.
 pub(crate) const MAX_NAME: usize = 80;
 
-/// `text` on one line, at most `max` characters, with no control character.
-pub(crate) fn one_line(text: &str, max: usize) -> String {
-    let mut out: String = text
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .take(max)
-        .collect();
-    if text.chars().nth(max).is_some() {
-        out.push('\u{2026}');
-    }
-    out
-}
+pub(crate) use crate::review::one_line;
 
 /// A command a person runs, with no argument.
 macro_rules! person_command {
@@ -354,6 +343,17 @@ fn seek(ctx: &mut Ctx<'_>, to: Seek, count: isize, edge: &str) -> Result<(), Com
     else {
         return Err(CommandError::new("Not in a review"));
     };
+    seek_in(ctx, &rows, to, count, edge)
+}
+
+/// [`seek`] by `rows`, those of the selected window's buffer.
+fn seek_in(
+    ctx: &mut Ctx<'_>,
+    rows: &oso_core::review::Rows,
+    to: Seek,
+    count: isize,
+    edge: &str,
+) -> Result<(), CommandError> {
     let forward = count >= 0;
     let steps = count.unsigned_abs();
     let (window, buffer) = ctx.editor.current_mut();
@@ -483,29 +483,37 @@ fn review_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn review_keys(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let text = keys_text(
+        "Keys in a review buffer",
+        KEYS,
+        "C-x v r opens the review menu; C-x k closes the review.",
+    );
+    show_keys(ctx, KEYS_BUFFER, &text)
+}
+
+/// Shows `text` in the internal buffer `name`, made once, in the selected window.
+fn show_keys(ctx: &mut Ctx<'_>, name: &str, text: &str) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
-    let text = keys_text();
     let shown = ctx
         .editor
-        .buffer_named(KEYS_BUFFER)
+        .buffer_named(name)
         .filter(|id| ctx.editor.buffer(*id).is_some_and(|b| b.is_internal()));
     let id = match shown {
         Some(id) => id,
-        None => ctx
-            .editor
-            .add_internal_buffer(KEYS_BUFFER, Mode::Fundamental),
+        None => ctx.editor.add_internal_buffer(name, Mode::Fundamental),
     };
-    ctx.editor.set_internal_text(id, &text);
+    ctx.editor.set_internal_text(id, text);
     let window = ctx.editor.window().id();
     ctx.editor.show_in(window, id);
     ctx.request_redraw();
     Ok(())
 }
 
-/// What `*Review keys*` says: each key, and its command's name and summary.
-fn keys_text() -> String {
-    let mut text = String::from("Keys in a review buffer\n\n");
-    for (keys, name) in KEYS {
+/// What a list of a review's keys says: `title`, each of `keys` with its command's name and
+/// summary, and `footer`.
+fn keys_text(title: &str, keys: &[(&str, &str)], footer: &str) -> String {
+    let mut text = format!("{title}\n\n");
+    for (keys, name) in keys {
         let summary = COMMANDS
             .iter()
             .chain(COMMENT_COMMANDS)
@@ -517,7 +525,7 @@ fn keys_text() -> String {
             .unwrap_or_default();
         text.push_str(&format!("{keys:<8}{name:<24}{summary}\n"));
     }
-    text.push_str("\nC-x v r opens the review menu; C-x k closes the review.\n");
+    text.push_str(&format!("\n{footer}\n"));
     text
 }
 

@@ -254,6 +254,10 @@ pub struct Invocation<'a> {
     pub repeats: usize,
     /// What a prompt read for the command, as its [`ArgSpec`] asked (ADR 0072).
     pub answer: Option<&'a str>,
+    /// Whether the prompt's buffer may have held secrets as it gave [`Invocation::answer`]
+    /// (ADR 0044), so that a command keeps no such answer where others read it. Set for a
+    /// command that reads one answer.
+    pub answer_secret: bool,
     /// What a second prompt read, for [`ArgSpec::Replace`] (ADR 0113),
     /// [`ArgSpec::DirectoryAndTextOnPrefix`], [`ArgSpec::ListedAndNoteUnlessRegion`] and,
     /// after a prefix argument, the base of [`ArgSpec::BranchAndBaseOnPrefix`] (ADR 0121).
@@ -329,6 +333,11 @@ impl<'a> Ctx<'a> {
     /// gave in its place. `None` for a command that reads nothing.
     pub fn answer(&self) -> Option<&'a str> {
         self.invocation.answer
+    }
+
+    /// Whether the answer came from a prompt whose buffer may hold secrets.
+    pub fn answer_secret(&self) -> bool {
+        self.invocation.answer_secret
     }
 
     /// The string to replace and its replacement, read for a command whose [`ArgSpec`] is

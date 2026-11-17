@@ -30,6 +30,9 @@ pub(super) struct File {
     cut_short: bool,
     pub(super) cards: Cards,
     pub(super) rendered: Laid,
+    /// Whether the filter hides it, and its row in the files pane (step 6b).
+    pub(super) judged: super::filter::Judged,
+    pub(super) pane_row: Option<super::files::PaneRow>,
 }
 
 /// A file's section and its two panes as last laid out, each kept while laying it out again
@@ -56,6 +59,8 @@ impl File {
             cut_short: false,
             cards,
             rendered: Laid::default(),
+            judged: super::filter::Judged::default(),
+            pane_row: None,
         }
     }
 
@@ -111,10 +116,13 @@ impl File {
 
 /// A file no longer listed whose comments stay to be seen: only counted if its last reading
 /// was withheld, as a withheld file's are.
+#[derive(Default)]
 pub(super) struct Gone {
     pub(super) cards: Cards,
     pub(super) withheld: bool,
     pub(super) rendered: Laid,
+    pub(super) judged: super::filter::Judged,
+    pub(super) pane_row: Option<super::files::PaneRow>,
 }
 
 /// What was laid out for a file, as its cache keeps it: whether it holds a card's row, whether a

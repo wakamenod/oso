@@ -568,7 +568,7 @@ fn window_not_showing(state: &Value, buffer: &Value) -> Value {
 fn the_files_pane_lists_and_shows_files_and_the_filter_hides_them_across_a_restart() {
     let scratch = Scratch::new("review-files");
     let mut app = open_review(&scratch);
-    const PANE: &str = "*review files: uncommitted proj-review*";
+    const PANE: &str = "*review: uncommitted proj-review \u{b7} files*";
     const HIDDEN: &str = "1 of 2 files hidden by \"b.rs\" \u{b7} / to change";
 
     // `s`: the pane at the review's left, selected, a row a file under its title.

@@ -130,3 +130,72 @@ fn the_panes_hide_what_the_text_hides() {
         assert_eq!(files_of(rows), ["a.rs"]);
     }
 }
+
+#[test]
+fn a_file_not_read_yet_is_matched_by_its_path_alone() {
+    let mut state = State::new("Review".into());
+    let entries: Arc<[Entry]> = vec![entry(b".env", Status::Modified)].into();
+    state.take(Tell::Listed {
+        entries,
+        more: 0,
+        cut: false,
+    });
+    let mut review = Review::new();
+    let _ = read(&mut review, b".env", vec![hunk(1, 1, &[], &[b"x\n"])]);
+    let line = Anchor::Line {
+        side: Side::New,
+        number: 1,
+    };
+    review
+        .add_comment(Author::Person, b".env", line, "todo".into())
+        .unwrap();
+    let cards = snapshot(&review, b".env");
+    // Its cards come before its reading, which is withheld.
+    state.take(Tell::Cards {
+        path: b".env".as_slice().into(),
+        comments: cards.comments,
+        reading: cards.reading,
+        marks: cards.marks,
+    });
+    state.take(Tell::Filter(Filter::new("todo")));
+    assert!(
+        files_of(&state.build().rows).is_empty(),
+        "not by its comment"
+    );
+    state.take(Tell::Filter(Filter::new("env")));
+    assert_eq!(files_of(&state.build().rows), [".env"]);
+}
+
+#[test]
+fn a_comment_changed_is_judged_again() {
+    let mut state = view();
+    state.take(Tell::Filter(Filter::new("todo")));
+    assert_eq!(files_of(&state.build().rows), ["a.rs"]);
+    let mut review = Review::new();
+    let _ = read(&mut review, b"b.rs", vec![hunk(1, 1, &[], &[b"x\n"])]);
+    let line = Anchor::Line {
+        side: Side::New,
+        number: 1,
+    };
+    review
+        .add_comment(Author::Agent, b"b.rs", line, "a todo".into())
+        .unwrap();
+    let cards = snapshot(&review, b"b.rs");
+    state.take(Tell::Cards {
+        path: b"b.rs".as_slice().into(),
+        comments: cards.comments,
+        reading: cards.reading,
+        marks: cards.marks,
+    });
+    assert_eq!(files_of(&state.build().rows), ["a.rs", "b.rs"]);
+}
+
+#[test]
+fn the_title_names_every_word_one_space_apart() {
+    let mut state = view();
+    let crafted = format!("b.rs{}zzz", " ".repeat(40));
+    state.take(Tell::Filter(Filter::new(&crafted)));
+    let _ = state.build();
+    let text = state.text.to_string();
+    assert!(text.contains("hidden by \"b.rs zzz\""), "{text}");
+}
