@@ -364,6 +364,23 @@ mod tests {
     }
 
     #[test]
+    fn the_workers_flush_answers_once_the_record_is_written() {
+        use crate::sessions::worker::{Job, Worker};
+        let scratch = Scratch::new("flush");
+        let worker = Worker::start(|_| {}).expect("the worker starts");
+        // Many writes queued, the last one wanted: the flush comes after them all.
+        for n in 1..=20 {
+            worker.send(Job::Remember {
+                directory: scratch.oso(),
+                sessions: (1..=n).map(session).collect(),
+                known: known(&[]),
+            });
+        }
+        assert!(worker.flush(std::time::Duration::from_secs(10)));
+        assert_eq!(read(&scratch.oso()).len(), 20);
+    }
+
+    #[test]
     fn what_is_written_is_read_back() {
         let scratch = Scratch::new("round");
         assert!(read(&scratch.oso()).is_empty(), "nothing yet");

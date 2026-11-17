@@ -312,6 +312,32 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
     flow.exit_with(0);
 }
 
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_space_closed_just_before_quitting_is_kept() {
+    let flow = Flow::new("spaces-quit", "");
+    let (mut app, _) = flow.start();
+    app.send_keys("C-c a O");
+    answer(&mut app, "New space for issue:", "Close then quit");
+    app.wait_for("the space", |state| {
+        space(state, "close-then-quit").is_some()
+    });
+    app.send_keys("C-c a S");
+    app.wait_for("the space menu", |state| state["menu"] == "space");
+    app.send_keys("c");
+    app.wait_for("the space closed", |state| {
+        space(state, "close-then-quit").is_some_and(|s| s["archived"] == true)
+    });
+    // At once: the exit waits for the record's write itself (ADR 0121).
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+    let mut again = flow.start_again();
+    again.wait_for("the closed space kept", |state| {
+        space(state, "close-then-quit").is_some_and(|s| s["archived"] == true)
+    });
+    flow.exit_with(0);
+}
+
 /// The list's text, as the dev state gives it.
 pub(super) fn list(state: &Value) -> String {
     state["sessions"]["list"]
