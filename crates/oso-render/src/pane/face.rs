@@ -135,6 +135,9 @@ pub enum Face {
     ReviewCommentAgent,
     /// What says a comment is outdated, dim.
     ReviewOutdated,
+    /// A comment of the person's sent to the agent: its bar, label and text, dim on the
+    /// comments' band (ADR 0122, step 12).
+    ReviewSent,
     /// A session's mark that needs the person (ADR 0131): needs input or failed, in red.
     SessionAlert,
     /// A working session's mark, in amber.

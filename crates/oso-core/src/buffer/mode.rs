@@ -45,6 +45,9 @@ pub enum Mode {
     Worktrees,
     /// A review's buffer (ADR 0122).
     Review,
+    /// `*review message*`, the message of a review's comments before it is sent to an agent
+    /// session (ADR 0122, step 12): the person's to change.
+    ReviewMessage,
     /// A terminal (ADR 0120): its keys go to the program in it, but for oso's own.
     Terminal,
     /// A directory's listing, as Emacs's dired shows it (ADR 0134).
@@ -130,6 +133,7 @@ impl Mode {
             Self::Brief => "Brief",
             Self::Worktrees => "Worktrees",
             Self::Review => "Review",
+            Self::ReviewMessage => "Review Message",
             Self::Terminal => "Terminal",
             Self::Directory => "Dired",
             Self::GitStatus => "Git",
@@ -166,6 +170,7 @@ impl Mode {
             | Self::Brief
             | Self::GitCommit
             | Self::GitPrMessage
+            | Self::ReviewMessage
             | Self::Go
             | Self::TypeScript
             | Self::Tsx

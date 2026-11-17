@@ -349,7 +349,7 @@ fn g_refreshes_q_buries_and_question_mark_lists_the_keys() {
     assert_eq!(keys.name(), "*Review keys*");
     let text = keys.text().to_string();
     for (key, name) in super::KEYS {
-        assert!(text.contains(&format!("{key:<6}{name}")), "{key} {name}");
+        assert!(text.contains(&format!("{key:<8}{name}")), "{key} {name}");
     }
     assert!(text.contains("Move every cursor to the header of the Nth next hunk"));
     // A second `?` reuses the buffer.

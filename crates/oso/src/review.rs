@@ -33,12 +33,15 @@
 //! - Nothing here logs a file's text; `Debug` of a reading gives its path and kind.
 //! - Its runner, [`TrustedRoot`] and its secret-name check are the `git` module's, shared with
 //!   the worktree jobs (ADR 0121) and the git status (`vcs`, ADR 0127).
+//! - Two things need no thread: `message` composes the message of the person's comments to an
+//!   agent session (step 12), and [`hunk_header`] writes a hunk's header for it and the view.
 
 mod batch;
 pub(crate) mod count;
 mod diff;
 mod index;
 mod list;
+pub(crate) mod message;
 #[cfg(test)]
 mod queue_tests;
 mod read;
@@ -59,7 +62,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
-use oso_core::review::{Carried, Carry, Shape};
+use oso_core::review::{Carried, Carry, Hunk, Shape};
 
 use crate::git::{Id, TrustedRoot};
 
@@ -174,6 +177,24 @@ impl fmt::Debug for Report {
                 .finish(),
         }
     }
+}
+
+/// A hunk's header, as git writes one with no context: `@@ -40,3 +40,7 @@`.
+pub(crate) fn hunk_header(hunk: &Hunk) -> String {
+    let side = |start: u32, count: usize| {
+        if count == 0 {
+            format!("{},0", start.saturating_sub(1))
+        } else if count == 1 {
+            format!("{start}")
+        } else {
+            format!("{start},{count}")
+        }
+    };
+    format!(
+        "@@ -{} +{} @@",
+        side(hunk.old_start, hunk.removed.len()),
+        side(hunk.new_start, hunk.added.len())
+    )
 }
 
 /// One reading of a file.

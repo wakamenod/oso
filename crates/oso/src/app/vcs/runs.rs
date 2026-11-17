@@ -561,7 +561,7 @@ impl App {
     }
 
     /// `name`, told apart from another buffer of that name by `<2>`, `<3>`…
-    pub(super) fn unique_name(&self, name: &str) -> String {
+    pub(in crate::app) fn unique_name(&self, name: &str) -> String {
         let mut unique = name.to_owned();
         let mut n = 1;
         while self.editor.buffer_named(&unique).is_some() {
