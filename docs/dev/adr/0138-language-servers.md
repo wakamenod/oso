@@ -2067,3 +2067,42 @@ The author answered step 11's questions on 2026-11-16, all with the first choice
   - the two parts as a send composes them, and a message that tries to pass as the lines and the ask;
   - the two commands through the dispatcher;
   - the end-to-end flow `lsp.rs` (`an_agent_reads_the_diagnostics_and_the_counts`).
+
+### Step 12: the `just perf` metrics
+
+The author answered step 12's questions on 2026-11-17, all with the first choice but Q6:
+- **Q1:** the edits to the files that define the checks: the harness, `bench.rs` and the
+  Justfile's `perf` and `perf-remote`.
+- **Q2:** the fake server is the one built beside oso; without one the phase is skipped with a
+  note.
+- **Q3:** the seven metrics below, all reported only.
+- **Q4:** no budget yet: thresholds and budgets come as [ADR 0123](0123-thresholds-for-the-report-only-metrics.md)
+  sets them, once there are numbers.
+- **Q5:** 2 runs of 200 keys each, 1 of 20 with `--quick`.
+- **Q6 (b):** the `rust-analyzer` component went into `rust-toolchain.toml` first, in a pull
+  request of its own.
+- **Q7:** Unix only.
+
+- **The phase** (`examples/perf/bench/lsp.rs`) writes a project of its own, `proj-lsp`, with a
+  `src/main.rs` of 2000 lines in `main`. Beside the harness's own configuration go the record
+  of trusted projects, naming the project's directory by its device and inode
+  (`App::start_with_files`), and a configuration that makes rust-analyzer the dev-only fake
+  server with a script. oso starts the server as it would a person's; the harness spawns
+  nothing more.
+- **Ready:** the mode line says `lsp` alike while a server starts and once it is ready, but
+  counts only what a ready server reported. So a script with nothing else to report gives one
+  note on the closing line, out of view, and the phase waits for its count, or for all 2000.
+- **The metrics,** each key press to presented frame unless it says otherwise, in the middle of
+  the file with `electric-indent-mode` off, so that the text grows by what the keys type:
+  - `lsp_type_median_ms` and `lsp_type_p99_ms`: typing with the server attached;
+  - `lsp_diag_type_p99_ms`: typing with 2000 diagnostics, one on each line, of each severity
+    in turn;
+  - `lsp_diag_cursors_type_p99_ms`: the same at 1000 cursors from `edit-lines`, the text
+    checked to grow at each;
+  - `lsp_report_type_p99_ms`: typing while each change brings a new report of 2000. The
+    reports give no version, so each is placed against the text the server was last sent;
+  - `lsp_complete_ms`: `C-M-i` on a line of its own to the state showing the popup of 5000
+    items, polled every 2 ms, the median of each run;
+  - `lsp_narrow_p99_ms`: typing into that popup, each key narrowing it.
+- **Builds:** `just perf` builds `fake-lsp-server` beside oso, and `perf-remote` copies the
+  new side's beside both sides' oso. A release build still makes none.
