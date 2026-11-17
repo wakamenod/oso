@@ -23,7 +23,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use super::facts::{MAIN_BRANCHES, RepoFacts, main_lines};
-use super::git::{MAX_LISTING, MAX_NAMES, Repo, merged_pulls, run, status};
+use super::git::{MAX_LISTING, MAX_NAMES, Repo, merged_pulls, run};
 use super::porcelain;
 use crate::git::Gh;
 use crate::git::MAX_SHORT;
@@ -236,8 +236,7 @@ fn leads_to(repo: &Repo, tip: &str, head: &str) -> bool {
     if !head.bytes().all(|b| b.is_ascii_hexdigit()) || head.len() < 40 {
         return false;
     }
-    let args = ["merge-base", "--is-ancestor", tip, head];
-    matches!(status(repo.git(), &args), Ok(Some(0)))
+    repo.git().is_ancestor(tip, head).unwrap_or(false)
 }
 
 /// The commit a branch's tip is, by its full name.

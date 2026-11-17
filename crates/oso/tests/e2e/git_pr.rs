@@ -82,11 +82,11 @@ fn stand_in_gh(scratch: &Scratch) -> std::path::PathBuf {
     bin
 }
 
-fn text(app: &mut App) -> String {
+pub(super) fn text(app: &mut App) -> String {
     rows(app, 40).join("\n")
 }
 
-fn wait_text(app: &mut App, what: &str, part: &str) -> String {
+pub(super) fn wait_text(app: &mut App, what: &str, part: &str) -> String {
     for _ in 0..200 {
         let shown = text(app);
         if shown.contains(part) {
@@ -99,7 +99,7 @@ fn wait_text(app: &mut App, what: &str, part: &str) -> String {
 
 /// An instance on `file` whose `gh` is the one in `bin`, the project trusted and its status
 /// shown.
-fn status_with_gh(scratch: &Scratch, file: &Path, bin: &Path) -> App {
+pub(super) fn status_with_gh(scratch: &Scratch, file: &Path, bin: &Path) -> App {
     set_mode(scratch.path(), 0o700);
     let config = scratch.write("conf/config.toml", b"[lsp]\nstart = \"manual\"\n");
     set_mode(&scratch.path().join("conf"), 0o700);
@@ -133,7 +133,7 @@ fn status_with_gh(scratch: &Scratch, file: &Path, bin: &Path) -> App {
     app
 }
 
-fn wait_echo(app: &mut App, what: &str, start: &str) {
+pub(super) fn wait_echo(app: &mut App, what: &str, start: &str) {
     app.wait_for(what, |state| {
         state["echo"]
             .as_str()

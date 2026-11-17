@@ -19,7 +19,7 @@ use super::remotes::{MAX_LISTED, current_branch, dropped, tip_of};
 use super::sequence::refused_while_stopped;
 use super::stream::{ended_as, stream};
 use super::{RunEnd, RunReport, Watch};
-use crate::git::{Git, MAX_SHORT, for_git};
+use crate::git::{Git, for_git};
 
 /// The most bytes of a list of branches read.
 const MAX_LIST: usize = 1024 * 1024;
@@ -149,11 +149,7 @@ fn plan_delete(git: &Git, name: &str) -> Result<DeletePlan, String> {
     let tip = tip_of(git, &full).ok_or_else(|| format!("No branch {name}"))?;
     let upstream = format!("{full}@{{upstream}}");
     let target = tip_of(git, &upstream).map_or_else(|| "HEAD".to_owned(), |_| upstream);
-    let words = ["merge-base", "--is-ancestor", &tip, &target].map(OsStr::new);
-    if git
-        .output(&words, &[], MAX_SHORT)
-        .is_ok_and(|out| out.status.success())
-    {
+    if git.is_ancestor(&tip, &target).unwrap_or(false) {
         return Ok(DeletePlan::Merged);
     }
     // Before `--branches`, a pattern names a branch without `refs/heads/`.

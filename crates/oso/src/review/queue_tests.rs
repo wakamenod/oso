@@ -40,7 +40,7 @@ fn what(request: Option<Request>) -> String {
         Some(Request::Open(_)) => "open".into(),
         Some(Request::Stage(_)) => "stage".into(),
         Some(Request::Look) => "look".into(),
-        Some(Request::Refresh { first }) => format!("refresh {}", first.len()),
+        Some(Request::Refresh { first, .. }) => format!("refresh {}", first.len()),
         Some(Request::Baseline) => "baseline".into(),
     }
 }
@@ -92,7 +92,10 @@ impl Queue {
 fn carries_stay_in_order_across_a_newer_request() {
     let q = Queue::new();
     q.ask(carry(b"a"));
-    q.ask(Request::Refresh { first: Vec::new() });
+    q.ask(Request::Refresh {
+        first: Vec::new(),
+        person: true,
+    });
     q.ask(carry(b"b"));
     q.ask(carry(b"c"));
     q.ask(Request::Baseline);
@@ -123,7 +126,10 @@ fn a_carry_is_never_counted_as_waiting() {
     q.ask(carry(b"b"));
     assert_eq!(q.next(), "carry b");
     assert_eq!(q.waiting(), 0, "taken");
-    q.ask(Request::Refresh { first: Vec::new() });
+    q.ask(Request::Refresh {
+        first: Vec::new(),
+        person: true,
+    });
     q.ask(carry(b"c"));
     assert_eq!(q.waiting(), 1);
     assert_eq!(q.next(), "refresh 0");
@@ -158,7 +164,10 @@ fn queued_carries_are_answered_as_failed_in_order_once_the_root_is_revoked() {
     for request in [
         carry(b"a"),
         carry(b"b"),
-        Request::Refresh { first: Vec::new() },
+        Request::Refresh {
+            first: Vec::new(),
+            person: true,
+        },
         carry(b"c"),
     ] {
         assert!(reviewer.ask(request));

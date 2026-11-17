@@ -14,8 +14,9 @@ use super::super::issue::{
 };
 use super::super::write::{PrLaid, issue_list_text, issue_text};
 use super::create::default_base;
-use super::{Found, Target, read_line, run, unexpected};
+use super::{Found, run, unexpected};
 use crate::git::GhAnswer;
+use crate::git::PullTarget;
 use crate::vcs::remote::check_branch;
 
 /// What a worktree session from an issue starts from.
@@ -29,7 +30,7 @@ pub(crate) struct IssueBrief {
     pub(crate) text: String,
 }
 
-pub(super) fn list(found: &Found, target: &Target) -> Result<PrLaid, String> {
+pub(super) fn list(found: &Found, target: &PullTarget) -> Result<PrLaid, String> {
     let repo = target.github.as_str();
     let words = [
         "issue",
@@ -48,12 +49,12 @@ pub(super) fn list(found: &Found, target: &Target) -> Result<PrLaid, String> {
     Ok(issue_list_text(repo, &items))
 }
 
-pub(super) fn view(found: &Found, target: &Target, number: u64) -> Result<PrLaid, String> {
+pub(super) fn view(found: &Found, target: &PullTarget, number: u64) -> Result<PrLaid, String> {
     let issue = issue(found, target, number)?;
     Ok(issue_text(&issue))
 }
 
-pub(super) fn brief(found: &Found, target: &Target, number: u64) -> Result<IssueBrief, String> {
+pub(super) fn brief(found: &Found, target: &PullTarget, number: u64) -> Result<IssueBrief, String> {
     let issue = issue(found, target, number)?;
     let (host, ..) = target.github.parts();
     let person = run(found, target, &["api", "user", "--hostname", host])
@@ -64,22 +65,24 @@ pub(super) fn brief(found: &Found, target: &Target, number: u64) -> Result<Issue
     let branch = branch_name(issue.number, &issue.title);
     check_branch(&branch).map_err(|_| "The issue gives no branch name git takes".to_owned())?;
     // A branch made before starts where it is; a new one at the remote's default branch.
-    let exists = read_line(
-        &found.git,
-        &[
+    let exists = found
+        .git
+        .line(&[
             "rev-parse",
             "--verify",
             "--quiet",
             &format!("refs/heads/{branch}"),
-        ],
-    )
-    .is_some();
+        ])
+        .is_some();
     let base = if exists {
         None
     } else {
         let default = default_base(found, target)?;
         let there = format!("refs/remotes/{}/{default}", target.remote);
-        let known = read_line(&found.git, &["rev-parse", "--verify", "--quiet", &there]).is_some();
+        let known = found
+            .git
+            .line(&["rev-parse", "--verify", "--quiet", &there])
+            .is_some();
         Some(if known { there } else { default })
     };
     Ok(IssueBrief {
@@ -92,7 +95,7 @@ pub(super) fn brief(found: &Found, target: &Target, number: u64) -> Result<Issue
 
 fn issue(
     found: &Found,
-    target: &Target,
+    target: &PullTarget,
     number: u64,
 ) -> Result<super::super::issue::Issue, String> {
     let n = number.to_string();

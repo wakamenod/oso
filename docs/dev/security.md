@@ -256,6 +256,21 @@ network features.
   refused while something is stopped, judged on the run thread, and when oso cannot tell. Only
   a label the push's filter takes is offered to check out. These runs honour `refs/replace/`,
   as the person's own git does, where the graph's reads do not.
+- A pull request's review (ADR 0122, step 12b) asks `gh` as the pull request buffers do, from
+  the review's thread, only for the person's `p`, `r` or `g` in a trusted project, never on a
+  timer. Only the whole commit ids it gives reach git; its base branch reaches git only as a
+  plain ASCII branch name, so no refspec of GitHub's can name a ref to write. The side the
+  clone lacks is fetched from the branch's remote, else `origin`, with the review's empty
+  hooks directory and reads' variables, the proxies, the SSH agent and no controlling
+  terminal (`Git::for_fetch`), as objects alone (`--refmap=`, `--no-write-fetch-head`), so no
+  ref moves and `FETCH_HEAD` names nothing of a fork's for a later merge; with no tags,
+  submodules or upkeep. The review's stop ends the fetch and the wait for `gh`; a fetch still
+  running as oso quits goes on, with no bound, until it ends or fails. A failed fetch shows
+  git's own last line, never a server's own error or `remote:` text. The work tree stands for the pull request only when
+  the head branch checked out holds its head commit, so a branch behind it hides no pushed
+  commit, and comments go to a worktree only under the same rule, and to the review's own
+  session after a failed refresh. The branch and title are escaped in the echo area, after the
+  fixed words.
 - Pull requests (ADR 0127, step 5a) are read through `gh`, the person's: in a trusted project
   only, on a thread of the repository's own, `gh` run in the empty private directory, never in
   the repository, with `--repo` naming the repository the branch's remote's address gives, on

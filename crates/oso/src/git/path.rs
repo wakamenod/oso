@@ -44,6 +44,21 @@ pub(super) fn identity_of(path: &Path) -> Option<(u64, u64)> {
     identity(&std::fs::symlink_metadata(path).ok()?)
 }
 
+/// A path from git's raw bytes: as they are on Unix, decoded as UTF-8 elsewhere, an invalid
+/// byte as U+FFFD. For a path only shown or compared with a listing's, as a worktree's or an
+/// added file's, where [`os`], which refuses such a name, would drop the whole record.
+pub(crate) fn os_lossy(bytes: &[u8]) -> std::path::PathBuf {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        std::path::PathBuf::from(OsStr::from_bytes(bytes))
+    }
+    #[cfg(not(unix))]
+    {
+        std::path::PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+    }
+}
+
 /// `bytes` as a name: on Unix any bytes, elsewhere UTF-8, as git writes paths there.
 #[cfg(unix)]
 pub(crate) fn os(bytes: &[u8]) -> io::Result<&OsStr> {
