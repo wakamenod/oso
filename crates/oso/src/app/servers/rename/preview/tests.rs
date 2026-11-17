@@ -161,11 +161,28 @@ fn a_new_text_that_breaks_lines_or_hides_a_change_is_written_out() {
 fn overlapping_or_too_large_edits_are_refused_not_shown_in_part() {
     let text = "let value = 1;\n";
     assert!(preview(&[("a.rs", text, vec![(4..9, "a"), (6..8, "b")])]).is_err());
-    let many: String = (0..60).map(|at| format!("line {at}\n")).collect();
-    let rewritten: String = (0..60).map(|at| format!("LINE {at}\n")).collect();
+    // Past the preview's bound in all.
+    let many: String = (0..20_000).map(|at| format!("line {at}\n")).collect();
+    let rewritten: String = (0..20_000).map(|at| format!("LINE {at}\n")).collect();
     assert!(preview(&[("a.rs", &many, vec![(0..many.len(), &rewritten)])]).is_err());
     let line = "x".repeat(5000);
     assert!(preview(&[("a.rs", &line, vec![(0..5000, "y")])]).is_err());
+}
+
+#[test]
+fn many_changed_lines_in_a_row_are_all_shown() {
+    let many: String = (0..120)
+        .map(|at| format!("let value_{at} = value;\n"))
+        .collect();
+    let edits: Vec<(Range<usize>, &str)> = (many.match_indices("= value;"))
+        .map(|(at, _)| (at + 2..at + 7, "count"))
+        .collect();
+    let built = preview(&[("a.rs", &many, edits)]).unwrap();
+    assert!(
+        built.contains("   120 + let value_119 = count;\n"),
+        "{built}"
+    );
+    assert!(built.contains("     1 - let value_0 = value;\n"), "{built}");
 }
 
 #[test]

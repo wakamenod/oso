@@ -2225,9 +2225,10 @@ and `Server::cancel`.
     that rewrites a whole file shows what it changes. A line longer than a row shows what
     differs from its counterpart, with 20 characters either side and its columns, over as many
     rows as it takes. Every line has its controls and bidi and invisible characters written
-    out. Edits that overlap, more than 1 MiB of a group's text, more than 50 changed lines on a
-    side, more than 2,000 changed characters of a line or more than 512 KiB of preview refuse
-    the rename rather than show it in part. `*lsp-rename*` is listed and killed as a person's
+    out. Edits that overlap, more than 1 MiB of a group's text, more than 2,000 changed
+    characters of a line or more than 512 KiB of preview refuse the rename rather than show it
+    in part: nothing that applies is left out, and 13a's 1,000 edits keep a rename well within
+    those. `*lsp-rename*` is listed and killed as a person's
     buffer is, as a git status is.
   - `y` (`lsp-rename-apply`) applies the placed edits with `Editor::apply_server_edit`, only
     while every buffer is still at the revision the preview was built from. `n`, `q` and `C-g`

@@ -13,9 +13,9 @@
 //!   nothing is cut out of what changes.
 //! - Every line shown has its controls, and its bidi and invisible characters, written as
 //!   `\u{…}`.
-//! - Past [`GROUP_BYTES_MAX`] of a group's text, [`GROUP_LINES_MAX`] changed lines on a side,
-//!   [`LINE_SHOWN_MAX`] changed characters of a line or [`PREVIEW_BYTES_MAX`] in all, or with
-//!   edits that overlap, the rename is refused rather than shown in part.
+//! - Past [`GROUP_BYTES_MAX`] of a group's text, [`LINE_SHOWN_MAX`] changed characters of a
+//!   line or [`PREVIEW_BYTES_MAX`] in all, or with edits that overlap, the rename is refused
+//!   rather than shown in part: nothing that applies is left out.
 
 use std::fmt::Write as _;
 use std::ops::Range;
@@ -32,9 +32,6 @@ const CONTEXT: usize = 20;
 
 /// The most bytes of the text a group spans.
 const GROUP_BYTES_MAX: usize = 1 << 20;
-
-/// The most lines that differ on either side of a group.
-const GROUP_LINES_MAX: usize = 50;
 
 /// The most characters shown of a line that differs.
 const LINE_SHOWN_MAX: usize = 2000;
@@ -197,9 +194,6 @@ fn write_group(
         .count();
     let old = &old[same_start..old.len() - same_end];
     let new = &new[same_start..new.len() - same_end];
-    if old.len() > GROUP_LINES_MAX || new.len() > GROUP_LINES_MAX {
-        return Err(TOO_LARGE);
-    }
     let number = first + same_start + 1;
     // Line by line, each shows the part that differs from its counterpart.
     let paired = old.len() == new.len();
