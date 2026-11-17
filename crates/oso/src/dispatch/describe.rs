@@ -108,7 +108,12 @@ impl Dispatcher {
         match found {
             Found::Runs(id, shifted) => {
                 let text = self.described(&shown(), id, shifted);
-                show_internal(editor, &mut self.describe.buffer, HELP, &text, false);
+                if show_internal(editor, &mut self.describe.buffer, HELP, &text, false)
+                    && let Some(id) = self.describe.buffer
+                {
+                    // A command's documentation is a paragraph a line, as Emacs fills it.
+                    editor.set_wraps(id, true);
+                }
             }
             Found::Says(what) => editor.echo(format!("{} {what}", shown())),
             Found::Quit => editor.echo("Quit"),

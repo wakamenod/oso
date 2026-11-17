@@ -144,6 +144,7 @@ fn describe_key_reads_a_sequence_says_what_it_runs_and_runs_nothing() {
         text.starts_with("C-x C-f runs the command find-file.\n\n"),
         "{text}"
     );
+    assert!(editor.current().1.wraps(), "its paragraphs wrap");
     // The next key runs as usual.
     send(&mut dispatcher, &mut editor, "a");
     assert_eq!(shown(&editor).1, text, "*Help* is internal and read-only");
