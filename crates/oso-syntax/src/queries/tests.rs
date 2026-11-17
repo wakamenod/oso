@@ -3,19 +3,20 @@
 //!
 //! Must not depend on: the worker; these call the module directly.
 
-use super::{Kind, Queries, source};
+use super::{Kind, Queries, slot, source};
 use crate::language::Language;
 
-const ALL: [Kind; 5] = [
-    Kind::Highlights(Language::Rust),
-    Kind::Highlights(Language::Markdown),
-    Kind::Highlights(Language::MarkdownInline),
-    Kind::Highlights(Language::Toml),
-    Kind::Injections,
-];
+const ALL: [Kind; Kind::ALL.len()] = Kind::ALL;
 
 /// The predicates tree-sitter's crate evaluates itself (ADR 0111).
 const ALLOWED: [&str; 3] = ["eq?", "match?", "any-of?"];
+
+#[test]
+fn every_query_has_a_place_of_its_own() {
+    let mut slots: Vec<usize> = ALL.into_iter().map(slot).collect();
+    slots.sort_unstable();
+    assert_eq!(slots, (0..ALL.len()).collect::<Vec<_>>());
+}
 
 #[test]
 fn every_query_compiles_once() {

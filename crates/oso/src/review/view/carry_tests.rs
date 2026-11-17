@@ -153,7 +153,14 @@ fn a_snapshot_or_folding_lays_out_only_the_files_it_touches() {
     state.take(cards_of(&review, b"b"));
     state.build();
     let section = |state: &State, path: &[u8]| {
-        Arc::clone(&state.files[path].rendered.as_ref().unwrap().rendered)
+        Arc::clone(
+            &state.files[path]
+                .rendered
+                .unified
+                .as_ref()
+                .unwrap()
+                .rendered,
+        )
     };
     let (a, b) = (section(&state, b"a"), section(&state, b"b"));
     state.take(Tell::Folded(true));

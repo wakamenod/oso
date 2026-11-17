@@ -99,8 +99,13 @@ impl App {
         let kind = match kind {
             AskKind::Definition => XrefKind::Definitions,
             AskKind::References => XrefKind::References,
-            // Completions are no places, and a description goes to its float: neither comes here.
-            AskKind::Completion | AskKind::Resolve | AskKind::Hover => return,
+            // Completions and code actions are no places, and a description goes to its float:
+            // none comes here.
+            AskKind::Completion
+            | AskKind::Resolve
+            | AskKind::Hover
+            | AskKind::CodeAction
+            | AskKind::ResolveAction => return,
         };
         let Some(running) = self.servers.running.get(index) else {
             return;

@@ -1,7 +1,9 @@
 //! What `textDocument/publishDiagnostics` carries, read within the bounds (ADR 0138,
 //! Diagnostics, step 6): the document's URI, the version it names, if any, and at most
 //! [`DIAGNOSTICS_MAX`] diagnostics, the most severe kept, each with its range as the server
-//! counts it, its severity, tags, source, code and message, cut to their bounds.
+//! counts it, its severity, tags, source, code and message, cut to their bounds, and what an ask
+//! for code actions gives back of it as the server gave it: its `data`, and whether its code was
+//! a number (step 13).
 //!
 //! Must not depend on: `server`, threads or processes; this reads values, and the session
 //! thread judges the path and places the ranges against a text.
@@ -14,7 +16,8 @@ use serde_json::Value;
 
 use crate::json::{array, integer, integer_in, string, uinteger};
 use crate::limits::{
-    DIAGNOSTIC_LABEL_BYTES_MAX, DIAGNOSTIC_MESSAGE_BYTES_MAX, DIAGNOSTICS_MAX, URI_BYTES_MAX,
+    DIAGNOSTIC_DATA_BYTES_MAX, DIAGNOSTIC_LABEL_BYTES_MAX, DIAGNOSTIC_MESSAGE_BYTES_MAX,
+    DIAGNOSTICS_MAX, URI_BYTES_MAX,
 };
 use crate::position::Position;
 
@@ -41,7 +44,12 @@ pub struct Reported {
     pub tags: Tags,
     pub source: String,
     pub code: String,
+    /// The code was a number, which goes back as one (step 13).
+    pub code_number: bool,
     pub message: String,
+    /// Its `data`, as JSON, at most [`DIAGNOSTIC_DATA_BYTES_MAX`]; given back with an ask for
+    /// code actions, as a server may need it to offer a fix (step 13).
+    pub data: Option<Box<str>>,
 }
 
 impl std::fmt::Debug for Reported {
@@ -62,7 +70,12 @@ impl Published {
         let strings: usize = self
             .diagnostics
             .iter()
-            .map(|reported| reported.source.len() + reported.code.len() + reported.message.len())
+            .map(|reported| {
+                reported.source.len()
+                    + reported.code.len()
+                    + reported.message.len()
+                    + reported.data.as_ref().map_or(0, |data| data.len())
+            })
             .sum();
         self.uri.len() + self.diagnostics.capacity() * std::mem::size_of::<Reported>() + strings
     }
@@ -122,6 +135,28 @@ fn placed(value: &Value) -> Option<Severity> {
     )
 }
 
+/// `value` as JSON, if it takes at most [`DIAGNOSTIC_DATA_BYTES_MAX`]: the writing stops
+/// there, so that a huge one costs no more than the bound.
+fn bounded_json(value: &Value) -> Option<Box<str>> {
+    /// A writer that refuses past the bound.
+    struct Bounded(Vec<u8>);
+    impl std::io::Write for Bounded {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if self.0.len() + bytes.len() > DIAGNOSTIC_DATA_BYTES_MAX {
+                return Err(std::io::ErrorKind::FileTooLarge.into());
+            }
+            self.0.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut out = Bounded(Vec::new());
+    serde_json::to_writer(&mut out, value).ok()?;
+    String::from_utf8(out.0).ok().map(String::into_boxed_str)
+}
+
 /// The range under `value`'s `range`.
 fn range(value: &Value) -> Option<(Position, Position)> {
     range_of(value.get("range")?)
@@ -167,14 +202,19 @@ fn reported(value: &Value, severity: Severity) -> Option<Reported> {
             .to_owned(),
         None => String::new(),
     };
+    let data = (value.get("data"))
+        .filter(|data| !data.is_null())
+        .and_then(bounded_json);
     Some(Reported {
         start,
         end,
         severity,
         tags,
         source: text("source", DIAGNOSTIC_LABEL_BYTES_MAX),
+        code_number: (value.get("code")).is_some_and(|code| code.is_i64() || code.is_u64()),
         code,
         message: text("message", DIAGNOSTIC_MESSAGE_BYTES_MAX),
+        data,
     })
 }
 

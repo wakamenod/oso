@@ -33,6 +33,7 @@ impl App {
     pub fn open(&mut self, path: PathBuf) {
         if let Some(buffer) = self.visit(path, loader::UNASKED) {
             self.editor.show(buffer);
+            self.await_recent(buffer, false);
         }
         self.request_redraw();
     }
@@ -233,6 +234,9 @@ impl App {
             return true;
         }
         let editorconfig = self.editorconfig_for(index, &update);
+        if self.recent_file_gone(index, id, &update) {
+            return true;
+        }
         let Some(buffer) = self.editor.buffer_mut(id) else {
             self.loads.swap_remove(index);
             return false;
@@ -268,6 +272,9 @@ impl App {
                 }
                 // The windows showing it wrap the text that came, if it wraps (ADR 0103).
                 self.editor.loaded(id);
+                if done {
+                    self.recent_loaded(id);
+                }
                 old_end.is_some_and(|end| reaches_offset(&self.editor, id, end))
             }
             // The buffer holds carried text, and only its verdict was missing.
@@ -306,6 +313,31 @@ impl App {
             self.cannot_be_saved(id);
         }
         self.try_restore_positions() || redraw
+    }
+
+    /// Whether the load at `index`, of `id`, found nothing where a file the person chose from
+    /// the recent files was: the buffer goes, unshown, the file leaves the recent files, and the
+    /// echo area says so, rather than a new file opening (ADR 0148).
+    fn recent_file_gone(&mut self, index: usize, id: BufferId, update: &LoadUpdate) -> bool {
+        if !matches!(update, LoadUpdate::Failed(LoadError::NotFound))
+            || self.recent.awaiting.get(&id) != Some(&true)
+        {
+            return false;
+        }
+        let Some(path) = self
+            .editor
+            .buffer(id)
+            .and_then(|b| b.path().map(PathBuf::from))
+        else {
+            return false;
+        };
+        let row = self.editor.recent_file_row(&path);
+        self.editor.forget_recent_file(&path);
+        self.loads.swap_remove(index);
+        self.recent.awaiting.remove(&id);
+        self.editor.kill_buffer(id);
+        self.editor.message(format!("{row} no longer exists"));
+        true
     }
 
     /// The first load of `id` failed with `e`: the buffer goes, and the agent hears why its open

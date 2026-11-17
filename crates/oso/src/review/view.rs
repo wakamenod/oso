@@ -27,8 +27,10 @@
 //!   file that leaves the listing with comments stays, after the others, until it has none.
 //! - Nothing here logs a file's text or a comment's.
 
+mod assemble;
 mod cards;
 mod file;
+mod panes;
 mod section;
 
 use std::collections::hash_map::Entry as Slot;
@@ -38,15 +40,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
-use oso_core::display_map::TabWidth;
-use oso_core::load::{Builder, Reloaded};
+use oso_core::load::Reloaded;
 use oso_core::review::{Carried, Carry, Comment, Rows, Shape};
 use oso_core::rope::Rope;
 use oso_core::syntax::Highlights;
 
 use super::{Entry, Reading};
 use cards::Cards;
-use file::{File, Gone, section_in};
+use file::{File, Gone, Laid, section_in};
+pub(crate) use panes::PaneText;
 
 /// The most bytes a review's text holds: past it, files show their header alone.
 pub(crate) const MAX_TEXT: usize = 64 * 1024 * 1024;
@@ -90,6 +92,9 @@ pub(crate) enum Tell {
     Read,
     /// What the review's title says under it, each a line: a failure, a lost trust.
     Said(Vec<String>),
+    /// Whether to build the two panes (ADR 0122, step 11), as some area shows them or is about
+    /// to.
+    Panes(bool),
 }
 
 /// How a file's comments are carried to its new reading.
@@ -111,6 +116,8 @@ pub(crate) struct Text {
     pub(crate) text: Option<Reloaded>,
     pub(crate) rows: Rows,
     pub(crate) highlights: Highlights,
+    /// The two panes' texts, old then new, while they are built and changed since the last.
+    pub(crate) panes: Option<Box<[PaneText; 2]>>,
     pub(crate) carried: Vec<(Arc<Reading>, Carried)>,
     pub(crate) reading: Option<(usize, usize)>,
     /// Whether its agent cards show folded to their first line.
@@ -190,6 +197,7 @@ struct State {
     dirty: bool,
     /// The last text's rows and highlights, for a text that did not change.
     last: Option<(Rows, Highlights)>,
+    panes: panes::Panes,
 }
 
 impl State {
@@ -210,6 +218,7 @@ impl State {
             valid: true,
             dirty: true,
             last: None,
+            panes: panes::Panes::default(),
         }
     }
 
@@ -243,6 +252,7 @@ impl State {
                 self.dirty |= said != self.said;
                 self.said = said;
             }
+            Tell::Panes(on) => self.show_panes(on),
         }
     }
 
@@ -277,7 +287,7 @@ impl State {
                 let gone = Gone {
                     withheld: file.withheld(),
                     cards: file.cards,
-                    rendered: None,
+                    rendered: Laid::default(),
                 };
                 self.gone.insert(path.clone(), gone);
                 self.dirty = true;
@@ -336,7 +346,7 @@ impl State {
         let gone = gone.map(|gone| (&gone.cards, &mut gone.rendered));
         for (cards, rendered) in files.chain(gone) {
             if cards.any_agent() {
-                *rendered = None;
+                rendered.clear();
                 self.dirty = true;
             }
         }
@@ -369,7 +379,7 @@ impl State {
     fn cards(&mut self, path: Box<[u8]>, cards: Cards) {
         if let Some(file) = self.files.get_mut(&path) {
             file.cards = cards;
-            file.rendered = None;
+            file.rendered.clear();
             self.dirty = true;
         } else if cards.comments.is_empty() {
             self.dirty |= self.gone.remove(&path).is_some();
@@ -379,7 +389,7 @@ impl State {
             let gone = Gone {
                 cards,
                 withheld,
-                rendered: None,
+                rendered: Laid::default(),
             };
             self.gone.insert(path, gone);
             self.dirty = true;
@@ -387,9 +397,11 @@ impl State {
     }
 
     /// The whole text, laid out from each file's section, those changed laid out again; or,
-    /// when nothing in it changed, `None` with the last rows and highlights.
+    /// when nothing in it changed, `None` with the last rows and highlights. The panes' texts
+    /// come with it while they are built and changed.
     fn build(&mut self) -> Text {
         let reading = self.reading_now();
+        let panes = self.panes_text();
         if !self.dirty
             && let Some((rows, highlights)) = &self.last
         {
@@ -397,20 +409,14 @@ impl State {
                 text: None,
                 rows: rows.clone(),
                 highlights: highlights.clone(),
+                panes,
                 carried: std::mem::take(&mut self.carried),
                 reading,
                 folded: self.folded,
             };
         }
         let mut sections: Vec<Arc<section::Rendered>> = Vec::with_capacity(self.order.len() + 2);
-        let mut said = self.said.clone();
-        if self.more > 0 {
-            said.push(format!("{} more files are not listed", self.more));
-        }
-        if self.cut {
-            said.push("more files may not be listed: git's listing was cut short".to_owned());
-        }
-        sections.push(Arc::new(section::title(&self.title, &said)));
+        sections.push(Arc::new(section::title(&self.title, &self.said_now())));
         let mut size = sections[0].bytes.len();
         let folded = self.folded;
         for path in &self.order {
@@ -419,57 +425,52 @@ impl State {
             };
             // A file past the limit shows its header alone; one read meanwhile is laid out anew.
             let room = self.max_text.saturating_sub(size);
-            let mut kept = file.rendered.take();
+            let mut kept = file.rendered.unified.take();
             let rendered = section_in(&mut kept, room, || file.render(room, folded));
-            file.rendered = kept;
+            file.rendered.unified = kept;
             size += rendered.bytes.len();
             sections.push(rendered);
         }
         for (path, gone) in &mut self.gone {
             let room = self.max_text.saturating_sub(size);
             let (cards, withheld) = (&gone.cards, gone.withheld);
-            let rendered = section_in(&mut gone.rendered, room, || {
+            let rendered = section_in(&mut gone.rendered.unified, room, || {
                 section::gone(path, cards, room, folded, withheld)
             });
             size += rendered.bytes.len();
             sections.push(rendered);
         }
-        let mut builder = Builder::new(Some(size as u64), TabWidth::default());
-        let mut decoded = 0;
-        for rendered in &sections {
-            builder.push(&rendered.bytes);
-            decoded += rendered.runs.iter().map(|(len, _)| len).sum::<usize>();
-        }
-        builder.finish();
-        let snapshot = builder.snapshot();
-        let mut highlights = Highlights::new(snapshot.text().len());
-        let runs = sections
-            .iter()
-            .flat_map(|rendered| rendered.runs.iter().copied());
-        highlights.replace(0..decoded, runs);
-        let rows = Rows::new(
-            sections
-                .iter()
-                .map(|rendered| Arc::clone(&rendered.section))
-                .collect(),
-        );
-        let valid = sections.iter().all(|rendered| rendered.valid);
-        let new_text = snapshot.text().clone();
-        let text = snapshot.compared_with(&self.text);
+        let sections: Vec<&section::Rendered> =
+            sections.iter().map(|rendered| &**rendered).collect();
+        let built = assemble::assemble(&sections, &self.text);
         // The same text needs no swap, which would only free it again on the UI thread.
-        let text = (text.is_changed() || !valid || !self.valid).then_some(text);
-        self.text = new_text;
-        self.valid = valid;
+        let changed = built.text.is_changed() || !built.valid || !self.valid;
+        let text = changed.then_some(built.text);
+        self.text = built.rope;
+        self.valid = built.valid;
         self.dirty = false;
-        self.last = Some((rows.clone(), highlights.clone()));
+        self.last = Some((built.rows.clone(), built.highlights.clone()));
         Text {
             text,
-            rows,
-            highlights,
+            rows: built.rows,
+            highlights: built.highlights,
+            panes,
             carried: std::mem::take(&mut self.carried),
             reading,
             folded,
         }
+    }
+
+    /// What the title says under it: what was said, and what the listing left out.
+    fn said_now(&self) -> Vec<String> {
+        let mut said = self.said.clone();
+        if self.more > 0 {
+            said.push(format!("{} more files are not listed", self.more));
+        }
+        if self.cut {
+            said.push("more files may not be listed: git's listing was cut short".to_owned());
+        }
+        said
     }
 
     /// How many of the files listed are read, while a reading runs.

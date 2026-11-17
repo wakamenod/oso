@@ -17,6 +17,24 @@ const RUST: &str = include_str!("../queries/rust/highlights.scm");
 const MARKDOWN: &str = include_str!("../queries/markdown/highlights.scm");
 const MARKDOWN_INLINE: &str = include_str!("../queries/markdown_inline/highlights.scm");
 const TOML: &str = include_str!("../queries/toml/highlights.scm");
+const GO: &str = include_str!("../queries/go/highlights.scm");
+// JavaScript, TypeScript and TSX share the ecma part, after the more specific ones: of two
+// captures with the same span the first pattern wins, a parent's and its child's too (`paint`).
+// TypeScript's `void` is a predefined type only because the typescript part comes before the
+// ecma part's keyword `"void"` (ADR 0147).
+const JAVASCRIPT: &str = concat!(
+    include_str!("../queries/jsx/highlights.scm"),
+    include_str!("../queries/ecma/highlights.scm"),
+);
+const TYPESCRIPT: &str = concat!(
+    include_str!("../queries/typescript/highlights.scm"),
+    include_str!("../queries/ecma/highlights.scm"),
+);
+const TSX: &str = concat!(
+    include_str!("../queries/typescript/highlights.scm"),
+    include_str!("../queries/jsx/highlights.scm"),
+    include_str!("../queries/ecma/highlights.scm"),
+);
 
 /// Finds, in Markdown's block tree, the text another grammar parses, as the grammar's own
 /// injection query does: the inline grammar's text, and fenced code blocks, whose info string
@@ -41,7 +59,7 @@ pub(crate) struct Prepared {
 #[derive(Default)]
 pub struct Queries {
     /// By [`slot`].
-    compiled: [Option<Compiled>; 5],
+    compiled: [Option<Compiled>; Kind::ALL.len()],
 }
 
 /// Which query of a language: its highlights, or the one that finds the text other grammars
@@ -50,6 +68,19 @@ pub struct Queries {
 pub(crate) enum Kind {
     Highlights(Language),
     Injections,
+}
+
+impl Kind {
+    /// Every query, once each: each language's highlights, and Markdown's injections.
+    pub(crate) const ALL: [Self; Language::ALL.len() + 1] = {
+        let mut all = [Self::Injections; Language::ALL.len() + 1];
+        let mut at = 0;
+        while at < Language::ALL.len() {
+            all[at] = Self::Highlights(Language::ALL[at]);
+            at += 1;
+        }
+        all
+    };
 }
 
 impl Queries {
@@ -78,6 +109,11 @@ impl Queries {
         matches!(compiled, Compiled::Ready(_))
     }
 
+    /// Whether [`Self::prepare`] has tried to compile the query, whether or not it compiled.
+    pub(crate) fn tried(&self, kind: Kind) -> bool {
+        self.compiled[slot(kind)].is_some()
+    }
+
     /// The query, once [`Self::prepare`] compiled it.
     pub(crate) fn get(&self, kind: Kind) -> Option<&Prepared> {
         match &self.compiled[slot(kind)] {
@@ -87,7 +123,8 @@ impl Queries {
     }
 }
 
-/// Where a query is kept in [`Queries`].
+/// Where a query is kept in [`Queries`]: each of [`Kind::ALL`] its own place, which a test
+/// checks.
 fn slot(kind: Kind) -> usize {
     match kind {
         Kind::Highlights(Language::Rust) => 0,
@@ -95,6 +132,10 @@ fn slot(kind: Kind) -> usize {
         Kind::Highlights(Language::MarkdownInline) => 2,
         Kind::Highlights(Language::Toml) => 3,
         Kind::Injections => 4,
+        Kind::Highlights(Language::Go) => 5,
+        Kind::Highlights(Language::JavaScript) => 6,
+        Kind::Highlights(Language::TypeScript) => 7,
+        Kind::Highlights(Language::Tsx) => 8,
     }
 }
 
@@ -106,6 +147,10 @@ fn source(kind: Kind) -> (Language, &'static str) {
         Kind::Highlights(Language::MarkdownInline) => (Language::MarkdownInline, MARKDOWN_INLINE),
         Kind::Highlights(Language::Toml) => (Language::Toml, TOML),
         Kind::Injections => (Language::Markdown, INJECTIONS),
+        Kind::Highlights(Language::Go) => (Language::Go, GO),
+        Kind::Highlights(Language::JavaScript) => (Language::JavaScript, JAVASCRIPT),
+        Kind::Highlights(Language::TypeScript) => (Language::TypeScript, TYPESCRIPT),
+        Kind::Highlights(Language::Tsx) => (Language::Tsx, TSX),
     }
 }
 

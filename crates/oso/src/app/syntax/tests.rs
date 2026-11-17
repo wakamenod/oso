@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use oso_core::buffer::{Buffer, BufferId, Replacement, Verdict};
+use oso_core::buffer::{Buffer, BufferId, Mode, Replacement, Verdict};
 use oso_core::display_map::TabWidth;
 use oso_core::editor::Editor;
 use oso_core::load::decode_all;
@@ -50,6 +50,33 @@ fn edit(editor: &mut Editor, id: BufferId, at: usize, text: &str) {
 
 fn job_ids(orders: &Orders) -> Vec<BufferId> {
     orders.jobs.iter().map(|job| job.buffer).collect()
+}
+
+/// `oso-core` says which modes can be highlighted and `oso-syntax` which have a grammar; the
+/// worker needs both (`allowed`), so a mode in one list and not the other would stay plain
+/// without a word (ADR 0147).
+#[test]
+fn a_file_mode_has_a_grammar_exactly_when_its_buffer_can_be_highlighted() {
+    for mode in [
+        Mode::Fundamental,
+        Mode::Rust,
+        Mode::Markdown,
+        Mode::Toml,
+        Mode::Go,
+        Mode::TypeScript,
+        Mode::Tsx,
+        Mode::JavaScript,
+        Mode::Latex,
+        Mode::Swift,
+    ] {
+        let mut buffer = visited("/p/a.txt", "x\n");
+        assert!(buffer.set_mode(mode), "{mode:?}");
+        assert_eq!(
+            Language::of(mode).is_some(),
+            buffer.can_highlight(),
+            "{mode:?}"
+        );
+    }
 }
 
 #[test]
@@ -196,8 +223,9 @@ fn a_report_for_a_dropped_buffer_is_ignored() {
 /// rule, tested in `oso_syntax` without timing.
 #[test]
 fn the_threads_report_highlights_and_failures() {
-    // A crafted text, made of an opener repeated, that every query is slow on.
-    let slow = "(".repeat(64 << 10);
+    // A crafted text, made of an opener repeated, that every query is slow on, in lines short
+    // enough to be parsed (ADR 0147).
+    let slow = format!("{}\n", "(".repeat(4 << 10)).repeat(16);
     let (mut editor, shown) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
     let background = editor.add_buffer(visited("/p/slow.rs", &slow));
     let (reports, received) = mpsc::channel();
@@ -241,7 +269,7 @@ enum Key {
 /// and the other document waits for it. The order inside the lane is tested in `oso_syntax`.
 #[test]
 fn documents_share_the_threads_and_a_slow_one_never_holds_a_shown_buffer_back() {
-    let slow = "(".repeat(64 << 10);
+    let slow = format!("{}\n", "(".repeat(4 << 10)).repeat(16);
     let (editor, shown) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
     let (reports, received) = mpsc::channel();
     let pool = Pool::start(move |report| drop(reports.send(report))).unwrap();

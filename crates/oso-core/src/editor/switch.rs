@@ -31,6 +31,9 @@ pub enum Preview {
     /// A buffer that may hold secrets, or whose file is not judged yet, or a secret kill:
     /// nothing of it shows.
     Withheld,
+    /// A recent file no buffer visits, which `C-x b` lists after the buffers: nothing of it
+    /// is read (ADR 0148).
+    NotOpen,
     /// The kill ring's entry `entry`, as [`Editor::kill_preview`] gives its lines (ADR 0091).
     Text { entry: u64 },
     /// What the host read of a project search's row's file, as
@@ -338,7 +341,10 @@ impl Editor {
             .candidates()
             .filter(|candidates| candidates.previews())?;
         let name = candidates.selected_candidate()?.text();
-        let id = self.buffer_named(name)?;
+        // A recent file `C-x b` lists after the buffers is not read to preview it (ADR 0148).
+        let Some(id) = self.buffer_named(name) else {
+            return self.recent_file_named(name).map(|_| Preview::NotOpen);
+        };
         let buffer = self.buffer(id)?;
         if buffer.verdict().is_withheld() {
             return Some(Preview::Withheld);

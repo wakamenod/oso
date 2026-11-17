@@ -240,13 +240,16 @@ impl Buffer {
     fn may_highlight(&self) -> bool {
         // A commit's message is highlighted by the host as it changes, not parsed (ADR 0127).
         let language = match self.mode {
-            Mode::Rust | Mode::Markdown | Mode::Toml | Mode::GitCommit => true,
-            // The modes of ADR 0138 have no grammar yet.
-            Mode::Fundamental
+            Mode::Rust
+            | Mode::Markdown
+            | Mode::Toml
             | Mode::Go
             | Mode::TypeScript
             | Mode::Tsx
             | Mode::JavaScript
+            | Mode::GitCommit => true,
+            // These modes of ADR 0138 have no grammar yet.
+            Mode::Fundamental
             | Mode::Latex
             | Mode::Swift
             | Mode::CopyList

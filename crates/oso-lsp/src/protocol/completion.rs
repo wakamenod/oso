@@ -117,7 +117,7 @@ pub fn extra_edits(value: Option<&Value>) -> Vec<Extra> {
 }
 
 /// Whether `text` holds a control character other than a tab or a line feed.
-fn has_controls(text: &str) -> bool {
+pub(super) fn has_controls(text: &str) -> bool {
     text.chars()
         .any(|c| c.is_control() && c != '\t' && c != '\n')
 }

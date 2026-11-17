@@ -157,8 +157,9 @@ impl App {
         self.restart.channel_was_on = self.agent_channel_on();
         // An agent must not see or steer the restart (ADR 0133, T-agent).
         self.stop_agent_channel();
-        // The new instance reads the sessions and spaces as it starts, before this one exits.
-        self.flush_sessions();
+        // The new instance reads the sessions, spaces and recent files as it starts, before this
+        // one exits.
+        self.flush_records();
         let waker = self.waker.clone();
         match carry::going::spawn(start, move |asked| waker.send(UserEvent::Restart(asked))) {
             Ok(()) => {

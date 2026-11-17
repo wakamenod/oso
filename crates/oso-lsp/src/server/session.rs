@@ -25,7 +25,9 @@ use super::pipes::{self};
 use super::policy::{Crashes, Flood};
 use super::{Diagnosed, Event, Gate, Start, State};
 
+mod actions;
 mod asks;
+mod edits;
 mod incoming;
 mod run;
 mod sync;
@@ -292,13 +294,12 @@ impl Session {
             diagnostics_said: now,
             look_at: now + LIVENESS_INTERVAL,
             encoding: crate::position::Encoding::Utf16,
-            sync: protocol::Sync {
-                open_close: false,
-                change: protocol::SyncKind::None,
-                save: false,
-            },
+            sync: run::NO_SYNC,
             resolves: false,
             last_items: None,
+            acting: crate::protocol::Acting::default(),
+            last_actions: None,
+            edit_bases: HashMap::new(),
         };
         let root_uri = uri::from_path(&start.root).unwrap_or_default();
         let root_name = start

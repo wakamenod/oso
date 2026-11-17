@@ -323,6 +323,11 @@ network features.
   link and through none of git's own directory, and writing a copy back makes its file there
   with no link followed, and keeps what the file held as another copy first. A file with more
   than one name, or for its owner's eyes only, is not discarded, as its copy could expose it.
+- The recent files (ADR 0148), `recent-files` in oso's state directory, are private (`0600`)
+  and hold paths and times, never contents. Only a file judged `Ordinary`, after the loader
+  has seen where its path leads, goes in, and the list read back is judged by its names again.
+  The agent channel neither reads it nor opens a file from it, and nothing on it is looked at
+  to list it.
 - Passphrase and credential prompts never enter minibuffer history, the kill
   ring or keyboard macros.
 
@@ -356,6 +361,14 @@ network features.
   server ends. What it sends is bounded as ADR 0138's table says, and `*LSP*` keeps its last
   1 MiB in memory only: method names, ids, sizes and timings, and the server's standard
   error, which may quote code it read, so it never reaches a log line or the disk.
+- A server edits a buffer only by an action the person picked from `C-c C-r`'s list (ADR 0138,
+  step 13): its edit is read whole within its bounds, applies only to open buffers still at the
+  text the server had as its request went out, never to one that may hold secrets, and names no
+  file under an automount or with a `..`; one that creates, renames or deletes a file is
+  refused, and one of more than 1,000 edits too. Its title is the server's text, shown with its
+  controls as spaces and its bidi and invisible characters written out, after what the edit
+  changed, and never logged. The agent channel never
+  runs the commands, which are `Person`. `workspace/applyEdit` still gets `applied: false`.
 - The environment is sanitized and every spawn is logged in a visible buffer.
 
 ### Dependencies (T2, T8)

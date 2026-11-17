@@ -15,8 +15,9 @@ often, so it must rebuild within 2 s.
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
   the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`, `configuration`,
-  `loads`, `reloads`, `saves`, `idle_quit`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps`, `reviews`, `dired`, `vcs`, `terminals` and `starts` (what opening and saving start, and what
-  waits for the person, ADR 0118) do the work, `control`
+  `loads`, `reloads`, `saves`, `idle_quit`, `copies`, `clipboard`, `searches`, `migemo`, `slices`, `walks`, `greps`, `wraps`, `flash`, `jumps`, `reviews`, `dired`, `vcs`, `terminals`, `recent_files` (the recent files' record, ADR 0148)
+  and `starts` (what opening and saving start, and what waits for the person, ADR 0118) do the
+  work, `control`
   answers the dev socket, and `handover` exports and imports the state of a restart, `oso dev`'s
   or `oso-restart`'s; its terminals go in `terminals/carry.rs` (the instance going) and
   `terminals/adopt.rs` (the one coming) (ADR 0120, step 11). `restart` starts `oso-restart`
@@ -58,7 +59,8 @@ often, so it must rebuild within 2 s.
   the server's thread. A server's diagnostics go into its buffers, and the message at point
   waits 300 ms there (`servers/diagnostics.rs`); its reports of files no buffer holds are kept
   there for `M-g d` and the agent channel's `diagnostics`, in one order
-  (`channel::diagnostics::ordered`); `M-g d`'s rows are built on `oso-diagnostics` (`servers/diagnostics/rows.rs`). An answer's several places, and `M-?`'s references, are listed (`servers/xrefs.rs`), their rows built on `oso-xrefs` (`servers/xrefs/rows.rs`), each file's lines read by `grep/preview/lines.rs`. `C-M-i`'s answer opens the completion popup (`servers/complete.rs`, which also asks as the person types, after a trigger character or three identifier characters at rest, and resolves the selected item; the asks themselves and who made them are `servers/asks.rs`'), whose keys are `commands/popup.rs` and `bindings/popup.rs` in the transient layer `dispatch/transient.rs` closes, drawn by `app/draw/float/popup.rs`. A server's description at point (`C-c C-d`) goes to its float from `servers/hover.rs`, drawn by `draw/float/hover.rs`, its keys in the same transient place. The fake server the tests run against is the dev-only binary
+  (`channel::diagnostics::ordered`); `M-g d`'s rows are built on `oso-diagnostics` (`servers/diagnostics/rows.rs`). An answer's several places, and `M-?`'s references, are listed (`servers/xrefs.rs`), their rows built on `oso-xrefs` (`servers/xrefs/rows.rs`), each file's lines read by `grep/preview/lines.rs`. `C-M-i`'s answer opens the completion popup (`servers/complete.rs`, which also asks as the person types, after a trigger character or three identifier characters at rest, and resolves the selected item; the asks themselves and who made them are `servers/asks.rs`'), whose keys are `commands/popup.rs` and `bindings/popup.rs` in the transient layer `dispatch/transient.rs` closes, drawn by `app/draw/float/popup.rs`. A server's description at point (`C-c C-d`) goes to its float from `servers/hover.rs`, drawn by `draw/float/hover.rs`. `C-c C-r`'s code actions are listed and
+  their edits applied from `servers/actions.rs` (step 13), its keys in the same transient place. The fake server the tests run against is the dev-only binary
   `fake-lsp-server` (`tests/fake_lsp_server/`), which `just release-safety` keeps out of
   release builds.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a
@@ -81,6 +83,7 @@ often, so it must rebuild within 2 s.
   runner, `TrustedRoot` and secret-name check. `review/refine.rs` refines a change block's words,
   for a git status now and a review's view later. `review/view.rs`
   lays out a review buffer's whole text on `oso-review-view`, one thread per review, and
+  `review/view/panes.rs` its two panes, which `app/reviews/layout.rs` switches areas to, and
   `review/count.rs` counts the review menu's scopes on `oso-review-count`. `review/message.rs`
   composes the message of the person's comments that `app/reviews/send.rs` pastes into the
   review's session through `send_to_session` (step 12). A review buffer's

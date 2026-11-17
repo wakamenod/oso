@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use super::Editor;
-use crate::buffer::{Buffer, BufferId};
+use crate::buffer::{Acted, Buffer, BufferId};
 use crate::rope::Rope;
 use crate::sum_tree::Bias;
 
@@ -25,6 +25,28 @@ pub enum VisitColumn {
     Utf16(usize),
 }
 
+/// A visit a command asked the host for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AskedVisit {
+    pub path: PathBuf,
+    /// The most bytes the load may read.
+    pub limit: u64,
+    /// Who asked: the person's visit goes in the recent files once loaded (ADR 0148).
+    pub by: Acted,
+    /// It was chosen from the recent files: a load that finds nothing there drops it from them
+    /// and opens nothing, rather than a new file (ADR 0148).
+    pub from_recent: bool,
+}
+
+/// The visits commands asked the host for, and the file a load stopped as too large.
+#[derive(Debug, Default)]
+pub(super) struct Visits {
+    /// Files commands asked to visit.
+    asked: Vec<AskedVisit>,
+    /// A file a load stopped as too large, with its size, which `C-x C-f` asks about (ADR 0087).
+    large: Option<(PathBuf, u64)>,
+}
+
 /// A file to go to a place in once a visit shows it, with the line and column.
 pub(super) type VisitPlace = (PathBuf, usize, VisitColumn);
 
@@ -33,10 +55,31 @@ impl Editor {
     /// command cannot start a load itself. A buffer that visits that path already is shown at
     /// once instead, unless the agent channel is still opening it.
     pub fn request_visit(&mut self, path: PathBuf, limit: u64) {
+        self.ask_visit(path, limit, false);
+    }
+
+    /// [`Editor::request_visit`] of a file chosen from the recent files (ADR 0148).
+    pub fn request_recent_visit(&mut self, path: PathBuf, limit: u64) {
+        self.ask_visit(path, limit, true);
+    }
+
+    fn ask_visit(&mut self, path: PathBuf, limit: u64, from_recent: bool) {
         self.visit_place = None;
         match self.find_open_buffer(|_, buffer| buffer.path() == Some(path.as_path())) {
             Some(id) => self.show(id),
-            None => self.visits.push((path, limit)),
+            None => {
+                let by = if self.runs_for_agent() {
+                    Acted::Agent
+                } else {
+                    Acted::Person
+                };
+                self.visits.asked.push(AskedVisit {
+                    path,
+                    limit,
+                    by,
+                    from_recent,
+                });
+            }
         }
     }
 
@@ -54,19 +97,28 @@ impl Editor {
 
     /// The visits commands asked for, for the host to start.
     pub fn take_visits(&mut self) -> Vec<(PathBuf, u64)> {
-        std::mem::take(&mut self.visits)
+        self.take_asked_visits()
+            .into_iter()
+            .map(|visit| (visit.path, visit.limit))
+            .collect()
+    }
+
+    /// [`Editor::take_visits`], with who asked each and whether from the recent files.
+    pub fn take_asked_visits(&mut self) -> Vec<AskedVisit> {
+        std::mem::take(&mut self.visits.asked)
     }
 
     /// Remembers that the file at `path` held `bytes` when a load stopped before reading it, so
     /// that the next `C-x C-f` of it asks (ADR 0087).
     pub fn remember_large(&mut self, path: PathBuf, bytes: u64) {
-        self.large = Some((path, bytes));
+        self.visits.large = Some((path, bytes));
     }
 
     /// The size the file at `path` had when a load stopped before it, if that is the one
     /// remembered.
     pub fn large_file(&self, path: &Path) -> Option<u64> {
-        self.large
+        self.visits
+            .large
             .as_ref()
             .filter(|(large, _)| large == path)
             .map(|(_, bytes)| *bytes)
@@ -74,7 +126,7 @@ impl Editor {
 
     /// Takes the large file remembered, as a question about it is answered.
     pub fn take_large(&mut self) -> Option<(PathBuf, u64)> {
-        self.large.take()
+        self.visits.large.take()
     }
 
     /// Asks the host to visit `path` in the selected window, as [`Editor::request_visit`]

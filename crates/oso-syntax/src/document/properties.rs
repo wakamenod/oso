@@ -21,9 +21,11 @@ use crate::language::Language;
 
 /// Pieces that edits insert: tokens of each language, line breaks, text of several bytes a
 /// character, so that points count bytes, a capital, which makes a Rust name a type with the
-/// same tree, a fence and its languages, which change how its content is highlighted, and a
-/// long one, so that an edit spans chunks.
-const PIECES: [&str; 21] = [
+/// same tree, a fence and its languages, which change how its content is highlighted, a long
+/// one, so that an edit spans chunks, Go's fence and a token of it, and TSX's fence, a tag and
+/// a template's code. New pieces go at the end,
+/// as do new seeds, so that each keeps its index.
+const PIECES: [&str; 26] = [
     "fn ",
     "{",
     "}",
@@ -45,6 +47,11 @@ const PIECES: [&str; 21] = [
     "rust",
     "toml\n",
     "let long_name = \"a string of some length to cross a chunk of the rope\"; // 日本語の文\n",
+    "go\n",
+    "func ",
+    "tsx\n",
+    "<a>",
+    "${",
 ];
 
 /// One edit as drawn: where it starts, as a fraction of the text in ten-thousandths, how many
@@ -52,7 +59,7 @@ const PIECES: [&str; 21] = [
 pub(super) type Drawn = (u32, usize, Vec<usize>);
 
 /// Texts of a few kilobytes, so that the rope's chunks of 1008 bytes split them.
-pub(super) const SEEDS: [(Language, &str, usize); 4] = [
+pub(super) const SEEDS: [(Language, &str, usize); 9] = [
     (
         Language::Rust,
         "fn main() {\n    let s = \"日本\"; // note\n    if s.is_empty() { return; }\n}\n",
@@ -72,6 +79,31 @@ pub(super) const SEEDS: [(Language, &str, usize); 4] = [
         Language::Toml,
         "[package]\nname = \"oso\" # é\n[[bin]]\nlist = [1, 2]\n",
         60,
+    ),
+    (
+        Language::Go,
+        "func (p *P) F(s string) int {\n\tr := `日本` // note\n\treturn len(s) + 'x'\n}\n",
+        40,
+    ),
+    (
+        Language::Markdown,
+        "Text.\n\n```go\nfunc f() { /* c */ }\n```\n\n- item\n\n  ```golang\n  var s = `x`\n  ```\n",
+        40,
+    ),
+    (
+        Language::JavaScript,
+        "const App = () => <div className=\"a\">{`日本 ${n}`}</div>; // note\nApp(1);\n",
+        40,
+    ),
+    (
+        Language::TypeScript,
+        "interface P<T> { x: T }\nconst f = (p: P<number>): string => `${p.x}`; // 日本\n",
+        40,
+    ),
+    (
+        Language::Tsx,
+        "export const C = ({ t }: { t: string }) => <p a={t}>日本 {t}</p>; /* c */\n",
+        40,
     ),
 ];
 

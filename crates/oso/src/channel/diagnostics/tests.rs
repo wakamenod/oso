@@ -106,6 +106,8 @@ fn file_report(at: &[(u32, u32, Severity)]) -> Published {
                 source: "clippy".into(),
                 code: String::new(),
                 message: format!("on {line}"),
+                code_number: false,
+                data: None,
             })
             .collect(),
     }

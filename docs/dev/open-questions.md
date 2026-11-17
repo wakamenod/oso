@@ -372,7 +372,9 @@ item notes when it must be settled.
   offsets. When the FoldMap or InlayMap goes below the TabMap, move it to
   the lowest layer that still sees buffer offsets, or to `DisplayMap`.
   Its API (`DisplayMap::invalid_bytes`) does not change.
-- Initial set of tree-sitter grammars, beyond Rust, Markdown and TOML.
+- Tree-sitter grammars beyond Rust, Markdown, TOML, Go, JavaScript, TypeScript and TSX
+  ([ADR 0147](adr/0147-highlighting-go-typescript-and-javascript.md)): LaTeX and Swift have
+  modes and no grammar.
 - After window splits ([ADR 0112](adr/0112-window-splits.md)):
   - `C-x 4`: `switch-to-buffer-other-window`, `find-file-other-window` and
     `kill-buffer-and-window`, with rules for where a buffer is shown, as Emacs's

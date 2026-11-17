@@ -1,5 +1,6 @@
 //! Commands that set a buffer's major mode, which names its language, and turn highlighting on
-//! and off for every buffer (ADR 0111). The modes of ADR 0138 have no grammar yet.
+//! and off for every buffer (ADR 0111). Of the modes of ADR 0138, Go, TypeScript, TSX and
+//! JavaScript have a grammar (ADR 0147); LaTeX and Swift have none yet.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -41,7 +42,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "go-mode",
-        doc: "Set the current buffer's major mode to Go.\n\nIt has no highlighting yet. In a trusted project its language server follows it once the buffer is visited again or `lsp-start` runs.",
+        doc: "Set the current buffer's major mode to Go.\n\nIts text is highlighted as Go source. Setting it again in a buffer whose highlighting stopped tries again. In a trusted project its language server follows it once the buffer is visited again or `lsp-start` runs.",
         args: ArgSpec::None,
         reach: Reach::Look,
         run: go_mode,
@@ -49,7 +50,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "typescript-mode",
-        doc: "Set the current buffer's major mode to TypeScript.\n\nIt has no highlighting yet. In a trusted project its language server follows it once the buffer is visited again or `lsp-start` runs.",
+        doc: "Set the current buffer's major mode to TypeScript.\n\nIts text is highlighted as TypeScript source. Setting it again in a buffer whose highlighting stopped tries again. In a trusted project its language server follows it once the buffer is visited again or `lsp-start` runs.",
         args: ArgSpec::None,
         reach: Reach::Look,
         run: typescript_mode,
@@ -57,7 +58,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "tsx-mode",
-        doc: "Set the current buffer's major mode to TSX.\n\nIt has no highlighting yet. In a trusted project its language server follows it once the buffer is visited again or `lsp-start` runs.",
+        doc: "Set the current buffer's major mode to TSX.\n\nIts text is highlighted as TSX source. Setting it again in a buffer whose highlighting stopped tries again. In a trusted project its language server follows it once the buffer is visited again or `lsp-start` runs.",
         args: ArgSpec::None,
         reach: Reach::Look,
         run: tsx_mode,
@@ -65,7 +66,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "javascript-mode",
-        doc: "Set the current buffer's major mode to JavaScript.\n\nIt has no highlighting yet. In a trusted project its language server follows it once the buffer is visited again or `lsp-start` runs.",
+        doc: "Set the current buffer's major mode to JavaScript.\n\nIts text is highlighted as JavaScript source. Setting it again in a buffer whose highlighting stopped tries again. In a trusted project its language server follows it once the buffer is visited again or `lsp-start` runs.",
         args: ArgSpec::None,
         reach: Reach::Look,
         run: javascript_mode,

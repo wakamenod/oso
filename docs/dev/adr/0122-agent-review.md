@@ -1250,6 +1250,125 @@ What was built:
   of a million runs, and on a 10 MB line both windows wrap.
 
 
+### Step 11: the two-pane view, part one
+
+Step 11 lands in two PRs, as the author chose: the two panes and `|` first, then the automatic
+layout by the area's width, with its end-to-end flow and numbers. The author answered the plan's
+questions (a) on 2026-11-17, through the coordinator, and approved its public items:
+
+- **Q-A:** a card goes in the pane of its side, under its line; a hunk's or an outdated one in the
+  new pane. The other pane holds filler rows as tall.
+- **Q-B:** the panes are built only while some area shows them or is about to.
+- **Q-C:** each window or pair showing a review is an area of its own; `|` sets the choice for
+  the whole review.
+- **Q-D:** `|` fixes unified or two panes, not which way they go, which follows the width.
+- **Q-E:** the 160 and 150 columns count the area's whole width in cells, its gutters and
+  dividers too, so each pane's text has somewhat less than 80.
+- **Q-F:** a pane's lines keep the `-` or `+` the unified text gives them.
+- **Q-G:** a switch to the panes selects the pane of the cursor's side, the new one for a header,
+  a note or a card of both; an agent comment is read in either window of the selected pair.
+- **Q-H:** filler rows take a face of their own, `diff.filler`.
+
+What the first PR built:
+
+- **Public items:** `RowKind::Filler`; `Editor::review_rows_of(buffer)`, the rows of a review
+  buffer or of a pane, which every command and the frame now ask; `Editor::review_panes(id)`;
+  `Editor::set_review_panes(id, old, new)`, each a text, its rows and its highlights, refused
+  whole when the two have not as many lines; `Editor::show_review_panes(window, way)` and
+  `Editor::show_review_unified(window)`; `Editor::review_areas(out)` with `ReviewArea` (window,
+  review, columns, layout) and `ReviewLayout { Unified, Panes(Way) }`. Three more follow from
+  them, which the author approved on 2026-11-17, keeping the filler band's colours as built: the
+  person's choice, held by the
+  editor beside each review as `a`'s fold is, `editor::ReviewChoice { Auto, Unified, Panes }`
+  with `Editor::review_choice(id)` and `Editor::choose_review_layout(id, choice)`;
+  `ReviewCells::fillers`; and `oso_render::Face::DiffFiller`.
+- **The panes' texts** are laid out on the review's view thread, file by file, in step:
+  headers, notes and hunks' headers in both; a hunk's removed and added lines paired in order,
+  as refinement pairs them; each line's cards under it in its own pane; filler rows padding the
+  shorter side after each row and each run of cards, so that both texts have as many lines and
+  their map is `RowMap::same`. A file's panes are kept beside its section and laid out again
+  only when it is. The text is cut at the same file in both panes, by both panes' bytes
+  together, so that the two hold about what the unified text does. The view builds them while
+  told `Tell::Panes(true)`, the first text after each such word holding them whatever else
+  changed; told `Tell::Panes(false)`, it drops them and what they were laid out from. A pane's
+  text always goes to the UI whole, compared with the one before, and a pane buffer made anew
+  takes it whole.
+- **Two more buffers a review,** `*review: <scope> <project> · old*` and `· new*`, internal,
+  read-only and truncating, made by the first panes' texts the host puts in, as it switches the
+  review's areas to them in the same step, and dropped after a command once no window shows
+  either, their rows freed off the UI thread with the review's next leftover. A restart treats
+  them as it treats the review buffer: their windows go back to what they showed before, as
+  reviews are not restored before step 6.
+  `review_of` maps them to their review, so every review key works in them, and `C-x k` in one
+  asks about the whole review. `q` in a pane shows the review unified again first, so it buries
+  the pair as one window.
+- **A switch** carries the primary cursor, each window's top and its left column by place: a
+  line of a side, or the same row of a file's header, a hunk's header, a note or a card, which a
+  pane may not hold, as an old side's card is only in the old pane; then the file's header. A
+  filler row is placed by the other pane's row beside it. The cursor keeps its column, as the
+  sign is kept. To the panes, the old pane takes the window and the new one is paired at its
+  right or below it; the pane of the cursor's side is selected if the window was. A switch is
+  refused, changing nothing, where a split would be, and waits while a review's texts would.
+  **No place crosses a switch while the review buffer or a pane may hold secrets,** as a yank
+  of a secret kill into isearch turns one: the windows start at the top, so no position in one
+  reaches a window the dev socket and the agent channel describe (ADR 0044).
+- **Motion skips filler rows:** after each command, a cursor of the selected pane on one moves
+  on the way the primary cursor went since the last command, or back when nothing lies that
+  way, at its goal column, past the whole run of filler rows at once. `c`, `e`, `k` and `r` refuse on one: "Nothing to comment on here".
+- **`|`** (`review-toggle-panes`, `Change`) turns the review's choice between two panes and
+  unified; while it is automatic, the area pressed in says which way. The host tells the view
+  to build the panes while they are chosen and an area that can hold them shows the review,
+  asks for them again once if the editor dropped them meanwhile, and switches each area as their
+  texts go in: side by side in an area of 160 columns or more, else stacked, until part two
+  judges the width. An area too small for two panes says so once, stays unified until its width
+  changes, and has no panes built for it. `Auto`, the default, shows the review unified until
+  part two.
+- **Read marks** count both windows of the selected pair, but one the frame has no room for.
+- **Faces:** `diff.filler`, a faint neutral band in each built-in theme, checked to stand apart
+  from the text's background; provisional, as the other bands are, until the author picks from
+  screenshots.
+- **Tests:** the panes' layout and their line numbers after a card or a filler; every row of a
+  pane but a filler found in the unified text; a reading with no text; the panes' texts built
+  only while asked for; a withheld file's panes, and the limit cutting both at the same file; on
+  the editor, putting them in and refusing unequal ones, both ways of switching from a line of
+  each side, a card, a header and a filler row, the areas, filler rows skipped both ways and a
+  run of a million passed at once, a switch too small, no place carried from or into a buffer
+  that may hold secrets, panes made again taking their text whole, and the panes dropped; `|`, `c` on a filler row and `q`
+  in a pane; and an end-to-end flow that turns a review into two panes and back.
+
+### Step 11: the two-pane view, part two
+
+The second PR judges the width, as Q6's choice has it, and brings `C-u |`. What it built:
+
+- **The judge** (`app/reviews/judge.rs`) keeps each area's width by its window, and judges what
+  the area wants only when it first shows, when the review's choice changes, and when its width
+  changed and then stayed the same for 100 ms; scrolling, moving and refreshing change no width,
+  so they are never judged. A width settling sets the event loop's wake, and the wake judges
+  what settled, so a drag that stops is judged without another event. What was judged stays
+  until the next judgment. An area is its window and the review it shows: a window that shows
+  another review is judged anew. An area that refused two panes, too small for them, is tried
+  again only once a new width is judged, so a drag neither retries it nor turns the panes'
+  building on and off before it settles.
+- **The rules:** while automatic, an area turns side by side at 160 columns or more and unified
+  below 150, and between the two keeps what it shows. With two panes chosen, they go side by
+  side at 160 or more and stacked below 150, and between the two keep their way (Q-D). Unified
+  chosen is unified.
+- While automatic in an area of 160 columns or more, a pane left alone, as when the other
+  window shows another buffer, is paired again: there the rule shows two panes, and `|` is the
+  way to one stream.
+- **`C-u |`** sets the review's choice back to automatic, `ReviewChoice::Auto`, which every
+  review starts with, and says so.
+- **The host** builds a review's panes while an area of it wants them, as judged, and did not
+  refuse them at its width, and switches or turns each area to what it wants.
+- **The `review` scenario** adds `review_panes_switch_ms`, from `|` to the first frame showing
+  the panes, and `review_panes_key_p99_ms`, the paced hunk and file keys in a pane; recorded
+  with no threshold, as the others.
+- **Tests:** the judge on a clock of its own (the 160 and 150 rules both ways, a drag across
+  the lines judged once where it rests, nothing judged again at the same width, a choice
+  judged at once); `C-u |`; and the end-to-end flow turning to two panes and back by the width.
+  The end-to-end window is 99 columns wide and cannot be resized over the socket, so side by
+  side by the width is left to a check by hand.
+
 ### Step 12a: sending comments to the session
 
 Step 12 lands in two PRs, as the author chose (Q1): sending first, pull requests through `gh`
