@@ -5,12 +5,14 @@
 //!
 //! Must not depend on: `app`, `dispatch`, git or the file system.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use oso_core::review::Rows;
 use oso_core::syntax::Highlights;
 
 use super::file::section_in;
+use super::project::Run;
 use super::{State, Text, assemble, project, section};
 
 impl State {
@@ -18,6 +20,8 @@ impl State {
     /// when nothing in it changed, `None` with the last rows and highlights. The panes' texts
     /// come with it while they are built and changed.
     pub(super) fn build(&mut self) -> Text {
+        // Reports told since the last batch, as when a test tells them and builds.
+        self.highlighting.take_reports(&self.order);
         let reading = self.reading_now();
         let panes = self.panes_text();
         if !self.dirty
@@ -31,7 +35,7 @@ impl State {
                 carried: std::mem::take(&mut self.carried),
                 reading,
                 folded: self.folded,
-                highlighted: self.highlighting.progress(),
+                highlighted: self.progress(),
             };
         }
         let mut sections: Vec<Arc<section::Rendered>> = Vec::with_capacity(self.order.len() + 2);
@@ -43,9 +47,6 @@ impl State {
             let Some(file) = self.files.get_mut(path) else {
                 continue;
             };
-            if let Some(reading) = &file.reading {
-                self.highlighting.reading(path, reading);
-            }
             paths.push(Some(path));
             // A file past the limit shows its header alone; one read meanwhile is laid out anew.
             let room = self.max_text.saturating_sub(size);
@@ -64,10 +65,10 @@ impl State {
             size += rendered.bytes.len();
             sections.push(rendered);
         }
-        let laid: Vec<&section::Rendered> = sections.iter().map(|rendered| &**rendered).collect();
-        let mut built = assemble::assemble(&laid, &self.text);
         let paths: Vec<Option<Box<[u8]>>> = paths.into_iter().map(|path| path.cloned()).collect();
-        self.lay_runs(&sections, paths, &mut built.highlights);
+        let runs = self.lay_runs(&sections, paths);
+        let laid: Vec<&section::Rendered> = sections.iter().map(|rendered| &**rendered).collect();
+        let built = assemble::assemble(&laid, &runs, &self.text);
         // The same text needs no swap, which would only free it again on the UI thread.
         let changed = built.text.is_changed() || !built.valid || !self.valid;
         let text = changed.then_some(built.text);
@@ -83,7 +84,7 @@ impl State {
             carried: std::mem::take(&mut self.carried),
             reading,
             folded,
-            highlighted: self.highlighting.progress(),
+            highlighted: self.progress(),
         }
     }
 
@@ -97,36 +98,53 @@ impl State {
             for (path, start, rendered) in &self.placed {
                 if changed.contains(path) {
                     let sides = self.highlighting.sides(path);
-                    project::overlay(highlights, *start, &rendered.slots, sides);
+                    project::paint(highlights, *start, rendered, sides);
                 }
             }
         }
         Some((rows.clone(), highlights.clone()))
     }
 
-    /// Lays each file's sides' runs over its section, `sections` being the text's in order and
-    /// `paths` their files' (none for the title's), and keeps where each starts for a paint.
+    /// Each section's runs with its file's sides' merged in, or none for one that keeps its
+    /// own, `sections` being the text's in order and `paths` their files' (none for the
+    /// title's); and keeps where each section that shows lines starts, for a paint, and which
+    /// files those are, as only their sides are highlighted.
     fn lay_runs(
         &mut self,
         sections: &[Arc<section::Rendered>],
         paths: Vec<Option<Box<[u8]>>>,
-        highlights: &mut Highlights,
-    ) {
+    ) -> Vec<Option<Vec<Run>>> {
         self.highlighting.take_changed();
         self.placed.clear();
+        let mut laid = HashSet::new();
+        let mut runs = Vec::with_capacity(sections.len());
         let mut start = 0;
         let paths = paths.into_iter().chain(std::iter::repeat_with(|| None));
         for (rendered, path) in sections.iter().zip(paths) {
-            if let Some(path) = path {
+            let mut merged = None;
+            if let Some(path) = path
+                && !rendered.slots.is_empty()
+            {
                 let sides = self.highlighting.sides(&path);
                 if sides.iter().any(Option::is_some) {
-                    project::overlay(highlights, start, &rendered.slots, sides);
+                    merged = Some(project::merged(&rendered.runs, &rendered.slots, sides));
                 }
-                if !rendered.slots.is_empty() {
-                    self.placed.push((path, start, Arc::clone(rendered)));
-                }
+                laid.insert(path.clone());
+                self.placed.push((path, start, Arc::clone(rendered)));
             }
-            start += rendered.runs.iter().map(|(len, _)| len).sum::<usize>();
+            runs.push(merged);
+            start += rendered.decoded;
+        }
+        self.highlighting.laid(laid);
+        runs
+    }
+
+    /// How far the sides' highlighting is, which only dev builds' timings read.
+    fn progress(&self) -> Option<super::Progress> {
+        if cfg!(any(test, feature = "dev")) {
+            self.highlighting.progress()
+        } else {
+            None
         }
     }
 

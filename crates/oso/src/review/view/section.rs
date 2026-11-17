@@ -41,6 +41,8 @@ pub(crate) struct Rendered {
     pub(crate) cards: bool,
     /// Where each line of a side shows its text, in order, for a side's highlights (step 9).
     pub(crate) slots: Vec<Slot>,
+    /// How many bytes it holds once decoded, which its runs cover.
+    pub(crate) decoded: usize,
 }
 
 /// Where a line of a side shows its text in a section: its side and number, and its text's
@@ -118,6 +120,7 @@ impl Writer {
             cut: self.cut,
             cards: self.cards,
             slots: self.slots,
+            decoded: self.decoded,
         }
     }
 

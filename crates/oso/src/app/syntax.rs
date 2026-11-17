@@ -363,6 +363,26 @@ fn changed(before: Option<&Highlights>, after: Option<&Highlights>, range: &Rang
     }
 }
 
+/// `report` with its key `key`.
+fn rekeyed<Key, Other>(report: Report<Key>, key: Other) -> Report<Other> {
+    let Report {
+        epoch,
+        stamp,
+        revision,
+        outcome,
+        done,
+        buffer: _,
+    } = report;
+    Report {
+        buffer: key,
+        epoch,
+        stamp,
+        revision,
+        outcome,
+        done,
+    }
+}
+
 /// Whether the worker may have `buffer`: highlighting is on, and the buffer may be highlighted.
 fn allowed(editor: &Editor, buffer: &oso_core::buffer::Buffer) -> bool {
     editor.font_lock() && Language::of(buffer.mode()).is_some() && buffer.can_highlight()
@@ -461,35 +481,11 @@ impl App {
 
     /// The worker highlighted, or stopped, a buffer or a review's side.
     pub(super) fn syntax_reported(&mut self, report: Report<SyntaxKey>) {
-        let Report {
-            buffer,
-            epoch,
-            stamp,
-            revision,
-            outcome,
-            done,
-        } = report;
-        let id = match buffer {
-            SyntaxKey::Buffer(id) => id,
+        let report = match report.buffer {
+            SyntaxKey::Buffer(id) => rekeyed(report, id),
             SyntaxKey::Side(review, key) => {
-                let report = Report {
-                    buffer: key,
-                    epoch,
-                    stamp,
-                    revision,
-                    outcome,
-                    done,
-                };
-                return self.review_side_reported(review, report);
+                return self.review_side_reported(review, rekeyed(report, key));
             }
-        };
-        let report = Report {
-            buffer: id,
-            epoch,
-            stamp,
-            revision,
-            outcome,
-            done,
         };
         let taken = self.syntax.take(&mut self.editor, report);
         if let Some(message) = taken.message {

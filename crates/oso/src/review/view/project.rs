@@ -1,6 +1,6 @@
 //! A side's highlights laid over a review's rows (ADR 0122, step 9): the runs of each line of a
-//! side the review shows, taken from the side's document, and put over that line's text in a
-//! section, after its sign.
+//! side the review shows, taken from the side's document, and merged with a section's own runs
+//! over that line's text, after its sign.
 //!
 //! Must not depend on: `app`, `dispatch`, git or the file system; this maps runs it is given.
 //!
@@ -11,19 +11,20 @@
 //! - Until the side is highlighted whole, what is not highlighted yet keeps its line's diff
 //!   face, so a partial report never shows text as plain that later turns coloured; once it is,
 //!   plain text takes the text's colour, as in a buffer (Q-A).
+//! - A section's runs are merged in one pass over its own runs and its slots, so a text laid
+//!   out costs its runs, and a paint one replace a section.
 //! - Nothing here panics: a line past the side's end gets nothing, and runs that do not fit a
 //!   line's text are cut, a short one ending plain.
 
-use std::ops::Range;
-
+use oso_core::decode::BOM;
 use oso_core::review::Side;
 use oso_core::rope::Rope;
 use oso_core::syntax::{Highlight, Highlights};
 
-use super::section::Slot;
+use super::section::{Rendered, Slot};
 
-/// The bytes of a UTF-8 BOM, as a side's first line holds them.
-const BOM: &[u8] = b"\xEF\xBB\xBF";
+/// A run of a section: how many decoded bytes, and what they are.
+pub(super) type Run = (usize, Option<Highlight>);
 
 /// A side's runs over the lines the review shows of it, by line number.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -49,15 +50,15 @@ impl Projected {
         self.runs.len()
     }
 
+    /// How many lines it holds, toward a review's budget.
+    pub(super) fn lines(&self) -> usize {
+        self.lines.len()
+    }
+
     /// Whether every one of `numbers` was projected.
     pub(super) fn holds_all(&self, mut numbers: impl Iterator<Item = u32>) -> bool {
         numbers.all(|number| self.line(number).is_some())
     }
-}
-
-/// Whether `bytes`, a side, starts with a BOM, which its document's text leaves out.
-pub(super) fn has_bom(bytes: &[u8]) -> bool {
-    bytes.starts_with(BOM)
 }
 
 /// The runs of `highlights`, a side's whose text is `text`, over the lines `numbers` (counted
@@ -85,28 +86,36 @@ pub(super) fn project(
             continue;
         }
         last = Some(number);
-        projected.lines.push((number, projected.runs.len()));
+        let from = projected.runs.len();
+        projected.lines.push((number, from));
         if bom && row == 0 {
-            push(&mut projected.runs, BOM.len(), None);
+            push(&mut projected.runs, from, BOM.len(), None);
         }
         let span = text.line_start(row)..text.line_end(row);
         for (run, highlight) in highlights.runs(span.clone()) {
             let run = run.start.max(span.start)..run.end.min(span.end);
-            push(&mut projected.runs, run.len(), highlight);
+            push(&mut projected.runs, from, run.len(), highlight);
         }
     }
     projected
 }
 
-fn push(runs: &mut Vec<(u32, Option<Highlight>)>, len: usize, highlight: Option<Highlight>) {
+/// Adds a run to a line's, whose first is at `from`: never merged with the line's before.
+fn push(
+    runs: &mut Vec<(u32, Option<Highlight>)>,
+    from: usize,
+    len: usize,
+    highlight: Option<Highlight>,
+) {
     let Ok(len) = u32::try_from(len) else {
         return;
     };
     if len == 0 {
         return;
     }
+    let ours = runs.len() > from;
     match runs.last_mut() {
-        Some((last, kept)) if *kept == highlight => *last += len,
+        Some((last, kept)) if ours && *kept == highlight => *last += len,
         _ => runs.push((len, highlight)),
     }
 }
@@ -123,41 +132,100 @@ fn plain(side: Side, done: bool) -> Option<Highlight> {
     })
 }
 
-/// The span of `slot`'s text in a text whose section starts at `start`.
-pub(super) fn span(start: usize, slot: &Slot) -> Range<usize> {
-    let at = start.saturating_add(slot.at);
-    at..at.saturating_add(slot.len)
+/// Walks a section's own runs, copying or skipping them a length at a time.
+struct Base<'a> {
+    runs: &'a [Run],
+    at: usize,
+    /// How far into `runs[at]` it is.
+    into: usize,
 }
 
-/// Lays `sides`' runs, old then new, over the text of `slots`, a section's that starts at
-/// `start` in `highlights`; a slot whose side has no runs for its line keeps its diff face.
-pub(super) fn overlay(
-    highlights: &mut Highlights,
-    start: usize,
-    slots: &[Slot],
-    sides: [Option<&Projected>; 2],
-) {
+impl Base<'_> {
+    /// Copies the next `len` bytes' runs to `out`, or skips them.
+    fn take(&mut self, mut len: usize, mut out: Option<&mut Vec<Run>>) {
+        while len > 0 {
+            let Some((run_len, highlight)) = self.runs.get(self.at).copied() else {
+                return;
+            };
+            let step = (run_len - self.into).min(len);
+            if let Some(out) = out.as_deref_mut() {
+                merge(out, step, highlight);
+            }
+            len -= step;
+            self.into += step;
+            if self.into == run_len {
+                self.at += 1;
+                self.into = 0;
+            }
+        }
+    }
+
+    /// Copies what is left.
+    fn rest(&mut self, out: &mut Vec<Run>) {
+        self.take(usize::MAX, Some(out));
+    }
+}
+
+fn merge(out: &mut Vec<Run>, len: usize, highlight: Option<Highlight>) {
+    if len == 0 {
+        return;
+    }
+    match out.last_mut() {
+        Some((last, kept)) if *kept == highlight => *last += len,
+        _ => out.push((len, highlight)),
+    }
+}
+
+/// `base`, a section's own runs, with `sides`' runs, old then new, over the text of `slots`,
+/// in one pass: a slot whose side has no runs for its line keeps the section's.
+pub(super) fn merged(base: &[Run], slots: &[Slot], sides: [Option<&Projected>; 2]) -> Vec<Run> {
+    let mut out = Vec::with_capacity(base.len());
+    let mut walk = Base {
+        runs: base,
+        at: 0,
+        into: 0,
+    };
+    let mut done = 0;
     for slot in slots {
+        // Slots come in order and never meet; one that does not is left as the section has it.
+        if slot.at < done {
+            continue;
+        }
+        walk.take(slot.at - done, Some(&mut out));
         let side = match slot.side {
             Side::Old => sides[0],
             Side::New => sides[1],
         };
-        let span = span(start, slot);
         match side.and_then(|projected| Some((projected, projected.line(slot.number)?))) {
             Some((projected, runs)) => {
                 let plain = plain(slot.side, projected.done);
-                let runs = runs
-                    .iter()
-                    .map(|(len, highlight)| (*len as usize, highlight.or(plain)));
+                let mut left = slot.len;
+                for (len, highlight) in runs {
+                    let len = (*len as usize).min(left);
+                    merge(&mut out, len, highlight.or(plain));
+                    left -= len;
+                }
                 // A line its side's text does not fill ends plain as well.
-                let filled: usize = runs.clone().map(|(len, _)| len).sum();
-                let rest = span.len().saturating_sub(filled);
-                highlights.replace(span, runs.chain(std::iter::once((rest, plain))));
+                merge(&mut out, left, plain);
+                walk.take(slot.len, None);
             }
-            None => {
-                let diff = plain(slot.side, false);
-                highlights.replace(span.clone(), std::iter::once((span.len(), diff)));
-            }
+            None => walk.take(slot.len, Some(&mut out)),
         }
+        done = slot.at + slot.len;
     }
+    walk.rest(&mut out);
+    out
+}
+
+/// Lays `sides`' runs over `rendered`, a section that starts at `start` in `highlights`: one
+/// replace over its span.
+pub(super) fn paint(
+    highlights: &mut Highlights,
+    start: usize,
+    rendered: &Rendered,
+    sides: [Option<&Projected>; 2],
+) {
+    let runs = merged(&rendered.runs, &rendered.slots, sides);
+    let end = start.saturating_add(rendered.decoded);
+    highlights.replace(start..end, runs);
 }

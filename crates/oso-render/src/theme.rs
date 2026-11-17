@@ -302,9 +302,9 @@ const FADED_FLOOR: f32 = 4.5;
 /// under the flash, highlighted text keeps [`Face::Text`]'s colour, so a syntax face is checked
 /// on these only (ADR 0111).
 ///
-/// A review's bands (ADR 0122) follow: behind its rows only its own faces are drawn until step 9
-/// of ADR 0122 highlights the sides, which checks the syntax faces on them too. Its refined
-/// words' bands are not here, so text on them is drawn in [`Face::Text`]'s colour.
+/// A review's bands (ADR 0122) follow: a highlighted side's lines draw syntax faces on the added
+/// and removed bands, checked there as on the current line's (step 9). Its refined words' bands
+/// are not here, so text on them is drawn in [`Face::Text`]'s colour.
 ///
 /// The spaces pane's bands (ADR 0140) follow: its marks and names keep their colours on them.
 pub(crate) const SYNTAX_FILLS: [Face; 8] = [
@@ -414,7 +414,7 @@ pub(crate) mod tests {
     }
 
     /// Plain text is read on every fill a line of it sits on, and on a selected candidate.
-    const TEXT: [(Face, f32); 12] = [
+    const TEXT: [(Face, f32); 14] = [
         (Face::Text, 7.0),
         // The spaces pane's bands (ADR 0140).
         (Face::SessionHeader, 7.0),
@@ -422,6 +422,9 @@ pub(crate) mod tests {
         // A refined word's band, and a comment's text on its card (ADR 0122).
         (Face::DiffRefineAdded, 7.0),
         (Face::DiffRefineRemoved, 7.0),
+        // A highlighted side's plain text on its line's band (ADR 0122, step 9).
+        (Face::DiffAdded, 7.0),
+        (Face::DiffRemoved, 7.0),
         (Face::ReviewCommentPerson, 7.0),
         (Face::CurrentLine, 7.0),
         (Face::Flash, 7.0),

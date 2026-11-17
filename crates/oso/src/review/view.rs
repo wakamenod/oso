@@ -2,8 +2,9 @@
 //! current reading, lays out each file's section, and builds the review buffer's whole text,
 //! its rows and its highlights, compared with the text before, for the UI to put in at O(1).
 //!
-//! Must not depend on: `app`, `dispatch`, winit, git or the file system; the caller hands in
-//! what the review's own thread read, and takes texts out.
+//! Must not depend on: `app`, `dispatch`, winit, git's runner or the file system; the caller
+//! hands in what the review's own thread read, and takes texts out. It uses git's ids and name
+//! check only, to know a side's text and to judge the paths a reading names (step 9).
 //!
 //! - One thread per review, started and dropped with it. It takes everything waiting before it
 //!   builds, so a burst of readings costs one text.
@@ -261,7 +262,21 @@ impl State {
         }
     }
 
-    fn take(&mut self, told: Tell) {
+    /// Takes what is told; whether it may change the next text. Reports wait to be taken with
+    /// the others of their batch, and what windows show orders the sides only.
+    fn take(&mut self, told: Tell) -> bool {
+        match told {
+            Tell::Syntax(report) => {
+                self.highlighting.told(report);
+                return false;
+            }
+            Tell::Shown(ranges) => {
+                self.shown = ranges;
+                self.shown_now();
+                return false;
+            }
+            _ => {}
+        }
         match told {
             Tell::Listed { entries, more, cut } => self.listed(&entries, more, cut),
             Tell::File { reading, carry } => self.file(reading, carry),
@@ -304,16 +319,15 @@ impl State {
                 self.highlighting.set(highlighter, top);
                 self.shown_now();
             }
-            Tell::Syntax(report) => self.highlighting.report(report, &self.order),
-            Tell::Shown(ranges) => {
-                self.shown = ranges;
-                self.shown_now();
-            }
+            Tell::Syntax(_) | Tell::Shown(_) => {}
         }
+        true
     }
 
     /// Tells the highlighting the lines of each side the windows show, from the ranges of the
-    /// last text they showed: at most [`MOST_SHOWN_LINES`] lines a range are looked at.
+    /// last text they showed: at most [`MOST_SHOWN_LINES`] lines a range are looked at. The
+    /// ranges are read against the last text built, which may be one the UI has not put in
+    /// yet: they only order the sides.
     fn shown_now(&mut self) {
         if !self.highlighting.is_on() {
             return;
@@ -327,12 +341,13 @@ impl State {
                     let Some(row) = rows.at(line) else {
                         break;
                     };
-                    let sides = shown.entry(row.path.into()).or_default();
-                    if let Some((side, number)) = row.line() {
-                        let lines = &mut sides[usize::from(side == oso_core::review::Side::New)];
-                        *lines = Some(lines.map_or((number, number), |(from, to)| {
-                            (from.min(number), to.max(number))
-                        }));
+                    if !shown.contains_key(row.path) {
+                        shown.insert(row.path.into(), highlight::SideRuns::default());
+                    }
+                    if let (Some((side, number)), Some(sides)) =
+                        (row.line(), shown.get_mut(row.path))
+                    {
+                        highlight::add_shown(&mut sides[highlight::index(side)], number);
                     }
                 }
             }
@@ -340,9 +355,12 @@ impl State {
         self.highlighting.show(shown);
     }
 
-    /// Opens what the sides want, after each batch told.
-    fn schedule(&mut self) {
+    /// Takes the reports that came, and opens what the sides want, after each batch told and
+    /// each text built; whether the reports changed what the next text shows.
+    fn schedule(&mut self) -> bool {
+        let changed = self.highlighting.take_reports(&self.order);
         self.highlighting.schedule(&self.order);
+        changed
     }
 
     /// Takes a new listing. A file that left a whole listing with comments stays, after the
@@ -412,13 +430,15 @@ impl State {
             Carrying::Here(carry) => {
                 let carried = carry_here(carry);
                 file.show(Arc::clone(&reading), Some(carried.placed().into()), false);
+                self.highlighting.reading(&reading.entry.path, &reading);
                 self.carried.push((reading, carried));
                 self.dirty = true;
             }
             // The file shows its reading before until its carry comes.
             Carrying::Elsewhere => file.pending = Some(reading),
             Carrying::Nothing => {
-                file.show(reading, None, false);
+                file.show(Arc::clone(&reading), None, false);
+                self.highlighting.reading(&reading.entry.path, &reading);
                 self.dirty = true;
             }
         }
@@ -460,6 +480,7 @@ impl State {
                 Some(carried.placed().into()),
                 cut_short,
             );
+            self.highlighting.reading(&reading.entry.path, &reading);
             self.carried.push((reading, carried));
             self.dirty = true;
         }
@@ -503,10 +524,7 @@ fn serve(told: &Receiver<Message>, mut send: SendText, title: String, live: &Ato
     let mut told_since = false;
     while let Ok(first) = told.recv() {
         let mut take = |message| match message {
-            Message::Tell(tell) => {
-                state.take(tell);
-                told_since = true;
-            }
+            Message::Tell(tell) => told_since |= state.take(tell),
             Message::Taken => in_flight = false,
         };
         take(first);
@@ -517,18 +535,25 @@ fn serve(told: &Receiver<Message>, mut send: SendText, title: String, live: &Ato
             return;
         }
         let scheduled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| state.schedule()));
-        if scheduled.is_err() {
-            log::warn!("a review's view failed to highlight its sides");
-            return;
+        match scheduled {
+            Ok(changed) => told_since |= changed,
+            Err(_) => {
+                log::warn!("a review's view failed to highlight its sides");
+                return;
+            }
         }
         if in_flight || !told_since {
             continue;
         }
-        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| state.build()));
+        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let text = state.build();
+            // The text says which files show lines, which are the ones whose sides open.
+            told_since = state.schedule();
+            text
+        }));
         match built {
             Ok(text) => {
                 in_flight = true;
-                told_since = false;
                 if !send(text) {
                     return;
                 }
@@ -554,6 +579,8 @@ pub(crate) fn built(title: &str, told: Vec<Tell>) -> Text {
 
 #[cfg(test)]
 mod carry_tests;
+#[cfg(test)]
+mod highlight_limits_tests;
 #[cfg(test)]
 mod highlight_tests;
 #[cfg(test)]

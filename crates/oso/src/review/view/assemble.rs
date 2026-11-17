@@ -13,6 +13,7 @@ use oso_core::review::Rows;
 use oso_core::rope::Rope;
 use oso_core::syntax::Highlights;
 
+use super::project::Run;
 use super::section::Rendered;
 
 /// One text laid out from sections: the text compared with the one before, what each line is,
@@ -25,21 +26,28 @@ pub(super) struct Assembled {
     pub(super) valid: bool,
 }
 
-/// Lays `sections` end to end as one text, compared with `before`.
-pub(super) fn assemble(sections: &[&Rendered], before: &Rope) -> Assembled {
+/// Lays `sections` end to end as one text, compared with `before`. A section's runs are
+/// `runs`' at its index where that holds some, as its sides' highlights merged in (step 9),
+/// else its own.
+pub(super) fn assemble(
+    sections: &[&Rendered],
+    runs: &[Option<Vec<Run>>],
+    before: &Rope,
+) -> Assembled {
     let size: usize = sections.iter().map(|rendered| rendered.bytes.len()).sum();
     let mut builder = Builder::new(Some(size as u64), TabWidth::default());
     let mut decoded = 0;
     for rendered in sections {
         builder.push(&rendered.bytes);
-        decoded += rendered.runs.iter().map(|(len, _)| len).sum::<usize>();
+        decoded += rendered.decoded;
     }
     builder.finish();
     let snapshot = builder.snapshot();
     let mut highlights = Highlights::new(snapshot.text().len());
-    let runs = sections
-        .iter()
-        .flat_map(|rendered| rendered.runs.iter().copied());
+    let runs = sections.iter().enumerate().flat_map(|(index, rendered)| {
+        let merged = runs.get(index).and_then(Option::as_deref);
+        merged.unwrap_or(&rendered.runs).iter().copied()
+    });
     highlights.replace(0..decoded, runs);
     let rows = Rows::new(
         sections

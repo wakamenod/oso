@@ -30,12 +30,12 @@ pub(in crate::app) struct Told {
 }
 
 /// A review's handle on the syntax threads: its sides' keys are its own.
-struct Sides {
+struct SideHighlighter {
     documents: Documents<SyntaxKey>,
     review: ReviewId,
 }
 
-impl Highlighter for Sides {
+impl Highlighter for SideHighlighter {
     fn open(
         &self,
         key: u64,
@@ -77,7 +77,7 @@ impl App {
             if on != self.reviews.sides.get(&id).is_some_and(|told| told.on) {
                 let documents = if on { self.side_documents() } else { None };
                 let highlighter = documents.map(|documents| {
-                    Box::new(Sides {
+                    Box::new(SideHighlighter {
                         documents,
                         review: id,
                     }) as Box<dyn Highlighter>
@@ -108,8 +108,12 @@ impl App {
 
     /// Hands a report of a review's side to its view; one of a review closed since is dropped.
     pub(in crate::app) fn review_side_reported(&mut self, review: ReviewId, report: Report<u64>) {
-        if let Some(index) = self.reviews.index(review) {
-            self.reviews.open[index].view.tell(Tell::Syntax(report));
+        match self.reviews.index(review) {
+            Some(index) => {
+                self.reviews.open[index].view.tell(Tell::Syntax(report));
+            }
+            // Its highlights may be a whole side's: freed off the UI thread.
+            None => self.freer.free(report),
         }
     }
 }

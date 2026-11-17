@@ -23,7 +23,7 @@ use crate::review::Content;
 use crate::review::list::Status;
 
 #[derive(Debug, Clone, PartialEq)]
-enum Call {
+pub(super) enum Call {
     Open {
         key: u64,
         language: Language,
@@ -36,18 +36,20 @@ enum Call {
 }
 
 #[derive(Clone, Default)]
-struct Recorder {
-    calls: Arc<Mutex<Vec<Call>>>,
+pub(super) struct Recorder {
+    pub(super) calls: Arc<Mutex<Vec<Call>>>,
     /// Opens past this many are refused as full.
-    room: Option<usize>,
+    pub(super) room: Option<usize>,
+    /// Every open asked for, refused ones too.
+    pub(super) asked: Arc<Mutex<usize>>,
 }
 
 impl Recorder {
-    fn calls(&self) -> Vec<Call> {
+    pub(super) fn calls(&self) -> Vec<Call> {
         self.calls.lock().unwrap().clone()
     }
 
-    fn opened(&self) -> Vec<(u64, String)> {
+    pub(super) fn opened(&self) -> Vec<(u64, String)> {
         let calls = self.calls();
         let mut opened: Vec<(u64, String)> = Vec::new();
         for call in calls {
@@ -70,6 +72,7 @@ impl Highlighter for Recorder {
         text: Rope,
         shown: Vec<Range<usize>>,
     ) -> Result<(), Refused> {
+        *self.asked.lock().unwrap() += 1;
         let mut calls = self.calls.lock().unwrap();
         let open = calls
             .iter()
@@ -97,12 +100,12 @@ impl Highlighter for Recorder {
     }
 }
 
-fn id(n: u8) -> Id {
+pub(super) fn id(n: u8) -> Id {
     Id::parse(format!("{n:040x}").as_bytes()).unwrap()
 }
 
 /// A text reading of `path` changing line 1 from `old` to `new`, with blob ids.
-fn reading(path: &[u8], old: &[u8], new: &[u8], ids: (u8, u8)) -> Arc<Reading> {
+pub(super) fn reading(path: &[u8], old: &[u8], new: &[u8], ids: (u8, u8)) -> Arc<Reading> {
     let mut entry = entry(path, Status::Modified);
     entry.old_id = id(ids.0);
     entry.new_id = id(ids.1);
@@ -120,7 +123,7 @@ fn reading(path: &[u8], old: &[u8], new: &[u8], ids: (u8, u8)) -> Arc<Reading> {
 }
 
 /// A view with `recorder` as its highlighter, the files of `readings` listed and read.
-fn state_with(recorder: &Recorder, readings: &[Arc<Reading>]) -> State {
+pub(super) fn state_with(recorder: &Recorder, readings: &[Arc<Reading>]) -> State {
     let mut state = State::new("t".into());
     state.take(Tell::Highlighter {
         highlighter: Some(Box::new(recorder.clone())),
@@ -153,13 +156,13 @@ fn state_with(recorder: &Recorder, readings: &[Arc<Reading>]) -> State {
 }
 
 /// The highlights of `text`, its first `len` bytes a keyword.
-fn keyword(text: &str, len: usize) -> Highlights {
+pub(super) fn keyword(text: &str, len: usize) -> Highlights {
     let mut highlights = Highlights::new(text.len());
     highlights.replace(0..len, [(len, Some(Highlight::Keyword))]);
     highlights
 }
 
-fn report(key: u64, outcome: Outcome, done: bool) -> Report<u64> {
+pub(super) fn report(key: u64, outcome: Outcome, done: bool) -> Report<u64> {
     Report {
         buffer: key,
         epoch: 0,
@@ -171,7 +174,7 @@ fn report(key: u64, outcome: Outcome, done: bool) -> Report<u64> {
 }
 
 /// The highlight of the byte at `needle`'s first match in the last text, plus `skip`.
-fn at(state: &State, text: &Text, needle: &str, skip: usize) -> Option<Highlight> {
+pub(super) fn at(state: &State, text: &Text, needle: &str, skip: usize) -> Option<Highlight> {
     let offset = state.text.to_string().find(needle).unwrap() + skip;
     text.highlights.at(offset)
 }
@@ -206,7 +209,7 @@ fn both_sides_of_an_ordinary_file_open_and_a_report_colours_the_lines_without_a_
         (old_text.as_str(), new_text.as_str()),
         ("fn a\n", "let b\n")
     );
-    let (old, new) = (*old, *new);
+    let new = *new;
     let before = state.build();
     assert_eq!(at(&state, &before, "+let", 1), Some(Highlight::DiffAdded));
     state.take(Tell::Syntax(report(
@@ -229,17 +232,43 @@ fn both_sides_of_an_ordinary_file_open_and_a_report_colours_the_lines_without_a_
     )));
     let late = state.build();
     assert_eq!(at(&state, &late, "+let", 1), Some(Highlight::Keyword));
+}
+
+#[test]
+fn a_side_partly_done_colours_its_lines_on_screen_only_and_keeps_its_diff_face_elsewhere() {
+    let recorder = Recorder::default();
+    let mut state = state_with(
+        &recorder,
+        &[reading(b"a.rs", b"fn a\n", b"let b\n", (1, 2))],
+    );
+    let (old, new) = (1, 2);
     state.take(Tell::Syntax(report(
-        old,
-        Outcome::Highlights(keyword("fn a\n", 2)),
-        false,
+        new,
+        Outcome::Highlights(keyword("let b\n", 3)),
+        true,
     )));
-    let partial = state.build();
+    // Partly done, off screen: nothing is projected yet.
+    let partly = |state: &mut State| {
+        state.take(Tell::Syntax(report(
+            old,
+            Outcome::Highlights(keyword("fn a\n", 2)),
+            false,
+        )));
+    };
+    partly(&mut state);
+    let off = state.build();
+    assert_eq!(at(&state, &off, "-fn", 1), Some(Highlight::DiffRemoved));
     let progress = |shown, whole| Some(super::Progress { shown, whole });
+    assert_eq!(off.highlighted, progress(false, false), "no screen known");
+    // On screen, its lines are.
+    let len = state.text.len();
+    assert!(!state.take(Tell::Shown(std::iter::once(0..len).collect())));
+    partly(&mut state);
+    let partial = state.build();
     assert_eq!(
         partial.highlighted,
-        progress(true, false),
-        "nothing on screen"
+        progress(false, false),
+        "the old side not done"
     );
     assert_eq!(at(&state, &partial, "-fn", 1), Some(Highlight::Keyword));
     assert_eq!(
@@ -433,6 +462,8 @@ fn a_full_schedule_is_tried_again_and_turning_highlighting_off_closes_everything
     assert_eq!(recorder.opened().len(), 1);
     state.schedule();
     assert_eq!(recorder.opened().len(), 1, "full, still waiting");
+    let len = state.text.len();
+    state.take(Tell::Shown(std::iter::once(0..len).collect()));
     state.take(Tell::Syntax(report(
         1,
         Outcome::Highlights(keyword("fn a\n", 2)),
@@ -447,6 +478,17 @@ fn a_full_schedule_is_tried_again_and_turning_highlighting_off_closes_everything
     assert!(recorder.opened().is_empty(), "{:?}", recorder.calls());
     let off = state.build();
     assert_eq!(at(&state, &off, "-fn", 1), Some(Highlight::DiffRemoved));
+    // On again: both sides open again, and a text laid out anew closes neither.
+    let again = Recorder::default();
+    state.take(Tell::Highlighter {
+        highlighter: Some(Box::new(again.clone())),
+        top: PathBuf::from("/top"),
+    });
+    state.schedule();
+    assert_eq!(again.opened().len(), 2);
+    state.dirty = true;
+    state.build();
+    assert_eq!(again.opened().len(), 2, "{:?}", again.calls());
 }
 
 #[test]

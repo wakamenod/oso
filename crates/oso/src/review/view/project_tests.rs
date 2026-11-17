@@ -10,7 +10,7 @@ use oso_core::review::Side;
 use oso_core::rope::Rope;
 use oso_core::syntax::{Highlight, Highlights};
 
-use super::project::{Projected, has_bom, overlay, project};
+use super::project::{Projected, merged, project};
 use super::section::Slot;
 
 /// `text` decoded as a side is, with `marks` as (start, len, highlight) runs.
@@ -65,7 +65,6 @@ fn each_line_takes_its_own_runs_cut_to_its_text() {
 fn a_bom_cr_lf_and_invalid_bytes_count_as_the_section_counts_them() {
     // The document's text has no BOM; the section's first line does.
     let bytes = b"\xEF\xBB\xBFfn\r\n\xFFx\r\n";
-    assert!(has_bom(bytes));
     let (rope, highlights) = side(bytes, &[(0, 2, Highlight::Keyword)]);
     let projected = project(&rope, true, &highlights, [1, 2], true);
     assert_eq!(
@@ -96,15 +95,53 @@ fn slot(side: Side, number: u32, at: usize, len: usize) -> Slot {
     }
 }
 
-/// A section's line `+fn a\n` at 10, its text at 11.
+/// A section's line `+fn a`, its own runs its diff face, its text after its sign.
 fn painted(sides: [Option<&Projected>; 2]) -> Vec<(usize, Option<Highlight>)> {
-    let mut highlights = Highlights::new(20);
-    highlights.replace(10..16, [(6, Some(Highlight::DiffAdded))]);
-    overlay(&mut highlights, 10, &[slot(Side::New, 1, 1, 4)], sides);
-    highlights
-        .runs(10..16)
-        .map(|(run, highlight)| (run.len(), highlight))
-        .collect()
+    merged(
+        &[(6, Some(Highlight::DiffAdded))],
+        &[slot(Side::New, 1, 1, 4)],
+        sides,
+    )
+}
+
+#[test]
+fn a_sections_runs_around_and_between_its_slots_stay_as_they_were() {
+    let (rope, highlights) = side(
+        b"fn\nlet\n",
+        &[(0, 2, Highlight::Keyword), (3, 3, Highlight::Keyword)],
+    );
+    let done = project(&rope, false, &highlights, [1, 2], true);
+    assert_eq!(
+        runs(&done, 2),
+        [(3, Some(Highlight::Keyword))],
+        "never merged across lines"
+    );
+    // A header, `+fn`, a note, `+let` and a newline, each line's runs as a section has them.
+    let base = [
+        (3, Some(Highlight::DiffFileHeader)),
+        (3, Some(Highlight::DiffAdded)),
+        (2, Some(Highlight::Outdated)),
+        (4, Some(Highlight::DiffAdded)),
+        (1, None),
+    ];
+    let slots = [slot(Side::New, 1, 4, 2), slot(Side::New, 2, 9, 3)];
+    assert_eq!(
+        merged(&base, &slots, [None, Some(&done)]),
+        [
+            (3, Some(Highlight::DiffFileHeader)),
+            (1, Some(Highlight::DiffAdded)),
+            (2, Some(Highlight::Keyword)),
+            (2, Some(Highlight::Outdated)),
+            (1, Some(Highlight::DiffAdded)),
+            (3, Some(Highlight::Keyword)),
+            (1, None),
+        ]
+    );
+    assert_eq!(
+        merged(&base, &slots, [None, None]),
+        base,
+        "no runs: as it was"
+    );
 }
 
 #[test]

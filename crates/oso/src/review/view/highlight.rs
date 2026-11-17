@@ -2,58 +2,63 @@
 //! reading opened as a document no buffer owns (step 8), the files on screen first, and each
 //! report's runs projected over the lines the review shows of that side.
 //!
-//! Must not depend on: `app`, `dispatch`, git's runs or the file system; the host's
+//! Must not depend on: `app`, `dispatch`, git's runner or the file system; the host's
 //! [`Highlighter`] takes the documents, and the host hands their reports back.
 //!
 //! - A side is opened only from a text reading, of at most 2 MiB, in a language, and only when
-//!   every path the reading names is judged ordinary by its name (ADR 0044), as the review's
-//!   thread judged it before reading: no text of a file that may hold secrets is parsed.
+//!   every path the reading names is judged ordinary by its name (ADR 0044), with the same
+//!   check the review's thread made before reading: no text of a file that may hold secrets is
+//!   parsed. A file the text cut short shows no line, so its sides are not opened.
 //! - Each text opens under a key never used before in this view, and a report counts only
 //!   while its side is open under that key: a report of a text replaced or closed is dropped.
+//!   Reports that wait together count only the latest of each key.
 //! - An old side is known by its blob: a new reading of the same blob keeps its runs and opens
-//!   nothing, unless it shows a line they lack. A new side is known by its blob too, or by its
-//!   reading when git gave none.
+//!   nothing, unless it shows a line they lack. A new side is known by its reading, as one read
+//!   from the work tree may not be the blob git named.
 //! - At most [`MAX_OPEN`] documents are open at once, those of files on screen opened first,
-//!   then the rest in the review's order; one is closed once it is done, fails or is lost.
-//! - The runs held count toward [`MAX_RUNS`]: past it, files on screen take the room of those
-//!   farthest from them, and a file off screen keeps no runs, so it is opened again only once
-//!   it shows. A side that failed or was lost stays in its diff face while the review is open;
-//!   one refused for a long line is tried again with its next text, as that costs one scan.
+//!   then the rest in the review's order; one is closed once it is done, fails or is lost, when
+//!   its text is replaced or its file leaves, and all of them when highlighting stops or the
+//!   view ends. A full schedule stops the opening until a document closes.
+//! - Until a side is highlighted whole, only its lines on screen are projected; once it is,
+//!   every line the review shows of it.
+//! - The runs and lines held count toward a budget ([`MAX_RUNS`], in `budget`).
+//! - A side that failed or was lost stays in its diff face while the review is open; one
+//!   refused for a long line is tried again with its next text, as that costs one scan.
 //! - Nothing here logs a file's text, path or highlights.
+
+mod budget;
+mod sides;
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use oso_core::buffer::{Mode, Verdict};
-use oso_core::display_map::TabWidth;
-use oso_core::load::decode_all;
+use oso_core::buffer::Verdict;
 use oso_core::review::Side;
 use oso_core::rope::Rope;
 use oso_syntax::{Failure, Language, MAX_BYTES, Outcome, Refused, Report};
 
+pub(crate) use budget::MAX_RUNS;
+pub(super) use sides::{SideRuns, add_shown, index};
+use sides::{Source, lines_of, on_screen, shown_ranges, source};
+
 use super::project::{self, Projected};
-use crate::git::{Id, os_path, path_verdict};
 use crate::review::{Content, Reading};
 
 /// The most documents a view keeps open at once: more than the 4 the worker parses at once,
 /// so that one finishing has another ready.
 pub(crate) const MAX_OPEN: usize = 8;
 
-/// The most runs a review's sides hold over its lines: about what one 2 MiB buffer can hold.
-pub(crate) const MAX_RUNS: usize = 2_000_000;
-
-/// The lines of each side the windows show of each file on screen, as the first and last
-/// number of each, old side then new, by path.
-pub(super) type ShownLines = HashMap<Box<[u8]>, [Option<(u32, u32)>; 2]>;
+/// The lines of each side the windows show of each file on screen, by path.
+pub(super) type ShownLines = HashMap<Box<[u8]>, SideRuns>;
 
 /// How far a view's highlighting is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Progress {
-    /// Every side of the files on screen that can be highlighted is.
+    /// The screen is known, some side on it is highlighted, and every side on it that can be.
     pub(crate) shown: bool,
-    /// Every side that can be highlighted is.
+    /// Some side is highlighted, and every side that can be.
     pub(crate) whole: bool,
 }
 
@@ -74,23 +79,6 @@ pub(crate) trait Highlighter: Send {
     fn close(&self, key: u64);
 }
 
-/// What text a side is of.
-#[derive(Clone, Debug)]
-enum Source {
-    Blob(Id),
-    Reading(Arc<Reading>),
-}
-
-impl PartialEq for Source {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Source::Blob(one), Source::Blob(other)) => one == other,
-            (Source::Reading(one), Source::Reading(other)) => Arc::ptr_eq(one, other),
-            _ => false,
-        }
-    }
-}
-
 /// A side's document while it is open.
 struct Open {
     key: u64,
@@ -107,12 +95,24 @@ struct SideState {
     projected: Option<Projected>,
     /// It failed or was lost: it stays in its diff face while the review is open.
     stuck: bool,
-    /// Refused for a long line: tried again only with another text.
+    /// Refused, or for a long line: tried again only with another text.
     refused: bool,
-    /// Its runs were left out as past the budget while its file was off screen.
-    over: bool,
+    /// Its runs did not fit the budget, at this count of the screen's files: it is opened
+    /// again only once other files show.
+    over: Option<u64>,
     /// Its runs are whole and cover every line the reading shows of it.
     complete: bool,
+}
+
+impl SideState {
+    /// Whether it wants its runs: it can have them and does not hold them whole yet, with
+    /// `screen` the count of the screen's files now and `shown` whether its file shows.
+    fn wants(&self, screen: u64, shown: bool) -> bool {
+        !self.stuck
+            && !self.refused
+            && !self.complete
+            && self.over.is_none_or(|at| shown && at != screen)
+    }
 }
 
 /// A file's two sides, old then new, with the reading they are of.
@@ -122,15 +122,7 @@ struct Sides {
     sides: [SideState; 2],
 }
 
-fn index(side: Side) -> usize {
-    match side {
-        Side::Old => 0,
-        Side::New => 1,
-    }
-}
-
 /// A view's highlighting of its sides.
-#[derive(Default)]
 pub(super) struct Highlighting {
     highlighter: Option<Box<dyn Highlighter>>,
     /// The work tree's top, which every path a reading names is judged under.
@@ -138,11 +130,48 @@ pub(super) struct Highlighting {
     next_key: u64,
     files: HashMap<Box<[u8]>, Sides>,
     keys: HashMap<u64, (Box<[u8]>, Side)>,
-    runs: usize,
+    /// What the runs held cost, and the most they may.
+    held: usize,
+    budget: usize,
     /// The files on screen, and the lines of each side shown, by path.
     shown: ShownLines,
+    /// Counts each change of which files are on screen.
+    screen: u64,
+    /// The files whose sections in the last text show lines.
+    laid: HashSet<Box<[u8]>>,
     /// Files whose runs changed since the last text took them.
     changed: HashSet<Box<[u8]>>,
+    /// Reports waiting to be taken, the latest of each key.
+    reports: HashMap<u64, Report<u64>>,
+    /// Nothing more to open until something changes.
+    settled: bool,
+}
+
+impl Default for Highlighting {
+    fn default() -> Self {
+        Highlighting {
+            highlighter: None,
+            top: PathBuf::new(),
+            next_key: 0,
+            files: HashMap::new(),
+            keys: HashMap::new(),
+            held: 0,
+            budget: MAX_RUNS,
+            shown: ShownLines::new(),
+            screen: 0,
+            laid: HashSet::new(),
+            changed: HashSet::new(),
+            reports: HashMap::new(),
+            settled: false,
+        }
+    }
+}
+
+impl Drop for Highlighting {
+    /// The view ended, as its review closed: nothing it opened goes on running or holds a slot.
+    fn drop(&mut self) {
+        self.close_all();
+    }
 }
 
 impl Highlighting {
@@ -155,10 +184,16 @@ impl Highlighting {
                 if side.projected.take().is_some() {
                     self.changed.insert(path.clone());
                 }
-                *side = SideState::default();
+                // The same text: only what was opened and found goes.
+                *side = SideState {
+                    source: side.source.take(),
+                    ..SideState::default()
+                };
             }
         }
-        self.runs = 0;
+        self.held = 0;
+        self.reports.clear();
+        self.settled = false;
         self.highlighter = highlighter;
         self.top = top;
     }
@@ -166,6 +201,11 @@ impl Highlighting {
     /// Whether it has a highlighter to open documents with.
     pub(super) fn is_on(&self) -> bool {
         self.highlighter.is_some()
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_budget(&mut self, budget: usize) {
+        self.budget = budget;
     }
 
     fn close_all(&mut self) {
@@ -179,6 +219,21 @@ impl Highlighting {
             for side in &mut file.sides {
                 side.open = None;
             }
+        }
+    }
+
+    /// Closes `side`'s document, if it has one open.
+    fn close(&mut self, path: &[u8], side: Side) {
+        let open = self
+            .files
+            .get_mut(path)
+            .and_then(|file| file.sides[index(side)].open.take());
+        if let Some(open) = open {
+            self.keys.remove(&open.key);
+            if let Some(highlighter) = &self.highlighter {
+                highlighter.close(open.key);
+            }
+            self.settled = false;
         }
     }
 
@@ -196,12 +251,34 @@ impl Highlighting {
         std::mem::take(&mut self.changed)
     }
 
+    /// The files whose sections in the text just built show lines: only their sides open.
+    pub(super) fn laid(&mut self, laid: HashSet<Box<[u8]>>) {
+        if laid != self.laid {
+            self.laid = laid;
+            self.settled = false;
+        }
+    }
+
     /// The file at `path` shows `reading` now: a side whose text changed drops its runs and
     /// closes its document.
     pub(super) fn reading(&mut self, path: &[u8], reading: &Arc<Reading>) {
-        let file = self.files.entry(path.into()).or_default();
+        let file = match self.files.get_mut(path) {
+            Some(file) => file,
+            None => self.files.entry(path.into()).or_default(),
+        };
+        if file
+            .reading
+            .as_ref()
+            .is_some_and(|now| Arc::ptr_eq(now, reading))
+        {
+            return;
+        }
         file.reading = Some(Arc::clone(reading));
+        self.settled = false;
         for side in [Side::Old, Side::New] {
+            let Some(file) = self.files.get_mut(path) else {
+                return;
+            };
             let source = source(reading, side);
             let state = &mut file.sides[index(side)];
             if state.source == source {
@@ -215,66 +292,67 @@ impl Highlighting {
             }
             state.source = source;
             state.complete = false;
-            if let Some(open) = state.open.take() {
-                self.keys.remove(&open.key);
-                if let Some(highlighter) = &self.highlighter {
-                    highlighter.close(open.key);
-                }
-            }
+            state.refused = false;
+            state.over = None;
             if let Some(projected) = state.projected.take() {
-                self.runs = self.runs.saturating_sub(projected.runs());
+                self.held = self.held.saturating_sub(budget::cost(&projected));
                 self.changed.insert(path.into());
             }
-            state.refused = false;
-            state.over = false;
+            self.close(path, side);
         }
     }
 
     /// The file at `path` left the review.
     pub(super) fn forget(&mut self, path: &[u8]) {
+        self.close(path, Side::Old);
+        self.close(path, Side::New);
         let Some(file) = self.files.remove(path) else {
             return;
         };
         for state in file.sides {
-            if let Some(open) = state.open {
-                self.keys.remove(&open.key);
-                if let Some(highlighter) = &self.highlighter {
-                    highlighter.close(open.key);
-                }
-            }
             if let Some(projected) = state.projected {
-                self.runs = self.runs.saturating_sub(projected.runs());
+                self.held = self.held.saturating_sub(budget::cost(&projected));
             }
         }
         self.shown.remove(path);
     }
 
-    /// What windows show: the lines of each side of each file on screen, as the first and last
-    /// number of each. Tells each open document what it shows, if that changed.
+    /// What windows show: the lines of each side of each file on screen. Tells each open
+    /// document what it shows, if that changed.
     pub(super) fn show(&mut self, shown: ShownLines) {
+        let same_files = shown.len() == self.shown.len()
+            && shown.keys().all(|path| self.shown.contains_key(path));
+        if !same_files {
+            self.screen += 1;
+            self.settled = false;
+        }
         self.shown = shown;
         let Some(highlighter) = &self.highlighter else {
             return;
         };
-        for (path, file) in &mut self.files {
-            let lines = self.shown.get(path).copied().unwrap_or([None, None]);
-            for (state, lines) in file.sides.iter_mut().zip(lines) {
-                let Some(open) = &mut state.open else {
-                    continue;
-                };
-                let ranges = shown_ranges(&open.text, lines);
-                if ranges != open.shown {
-                    open.shown.clone_from(&ranges);
-                    highlighter.show(open.key, ranges);
-                }
+        for (key, (path, side)) in &self.keys {
+            let Some(open) =
+                (self.files.get_mut(path)).and_then(|file| file.sides[index(*side)].open.as_mut())
+            else {
+                continue;
+            };
+            let runs = self
+                .shown
+                .get(path)
+                .map_or(&[][..], |runs| &runs[index(*side)]);
+            let ranges = shown_ranges(&open.text, runs);
+            if ranges != open.shown {
+                open.shown.clone_from(&ranges);
+                highlighter.show(*key, ranges);
             }
         }
     }
 
     /// Opens documents for the sides that want one, while fewer than [`MAX_OPEN`] are open:
-    /// those of files on screen first, then the others in `order`, the review's.
+    /// those of files on screen first, then the others in `order`, the review's. Nothing is
+    /// looked at again until something changes.
     pub(super) fn schedule(&mut self, order: &[Box<[u8]>]) {
-        if self.highlighter.is_none() || self.keys.len() >= MAX_OPEN {
+        if self.settled || self.highlighter.is_none() || self.keys.len() >= MAX_OPEN {
             return;
         }
         let on_screen = |at: &usize| self.shown.contains_key(&order[*at]);
@@ -282,108 +360,57 @@ impl Highlighting {
         let rest = (0..order.len()).filter(|at| !on_screen(at));
         let picks: Vec<usize> = shown.chain(rest).collect();
         for path in picks.into_iter().map(|at| &order[at]) {
-            if self.keys.len() >= MAX_OPEN {
-                return;
-            }
             for side in [Side::Old, Side::New] {
-                if self.keys.len() < MAX_OPEN {
-                    self.open(path, side);
+                if self.keys.len() >= MAX_OPEN || !self.open(path, side) {
+                    // Tried again once a document closes.
+                    return;
                 }
             }
         }
+        self.settled = true;
     }
 
-    /// How far highlighting is, while it is on: whether every side of the files on screen is
-    /// done, and whether every side is, of those that can be highlighted.
-    pub(super) fn progress(&self) -> Option<Progress> {
-        self.highlighter.as_ref()?;
-        let mut progress = Progress {
-            shown: true,
-            whole: true,
-        };
-        for (path, file) in &self.files {
-            let Some(reading) = &file.reading else {
-                continue;
-            };
-            let Content::Text { shape, .. } = &reading.content else {
-                continue;
-            };
-            let on_screen = self.shown.contains_key(path);
-            for side in [Side::Old, Side::New] {
-                let state = &file.sides[index(side)];
-                let left = !state.stuck
-                    && !state.refused
-                    && !state.complete
-                    && (!state.over || on_screen)
-                    && lines_of(shape.hunks(), side).next().is_some();
-                if left {
-                    progress.whole = false;
-                    progress.shown &= !on_screen;
-                }
-            }
+    /// Opens a document for `path`'s `side`, if it wants one and may have one; false if the
+    /// schedule is full.
+    fn open(&mut self, path: &[u8], side: Side) -> bool {
+        if !self.laid.contains(path) {
+            return true;
         }
-        Some(progress)
-    }
-
-    /// Opens a document for `path`'s `side`, if it wants one and may have one.
-    fn open(&mut self, path: &[u8], side: Side) {
-        let on_screen = self.shown.get(path).copied();
+        let on_screen = self.shown.get(path).map(|runs| &runs[index(side)]);
+        let screen = self.screen;
         let Some(file) = self.files.get_mut(path) else {
-            return;
+            return true;
         };
         let Some(reading) = &file.reading else {
-            return;
+            return true;
         };
         let Content::Text { shape, old, new } = &reading.content else {
-            return;
+            return true;
         };
         let state = &mut file.sides[index(side)];
-        let numbers = || lines_of(shape.hunks(), side);
         let wanted = state.open.is_none()
-            && !state.stuck
-            && !state.refused
-            && !state.complete
-            && (!state.over || on_screen.is_some())
-            && numbers().next().is_some();
+            && state.wants(screen, on_screen.is_some())
+            && lines_of(shape.hunks(), side).next().is_some();
         if !wanted {
-            return;
+            return true;
         }
         let bytes = match side {
             Side::Old => old,
             Side::New => new,
         };
-        let named = match side {
-            Side::Old => reading
-                .entry
-                .old_path
-                .as_deref()
-                .unwrap_or(&reading.entry.path),
-            Side::New => &reading.entry.path,
-        };
-        let language = os_path(named)
-            .ok()
-            .and_then(|name| Language::of(Mode::for_path(std::path::Path::new(name))));
-        let Some(language) = language else {
+        let language = sides::language(reading, side);
+        let verdict = reading.entry.verdict(&self.top);
+        let (Some(language), Some(highlighter)) = (language, &self.highlighter) else {
             state.refused = true;
-            return;
+            return true;
         };
-        if bytes.len() > MAX_BYTES {
+        if bytes.len() > MAX_BYTES || verdict.is_withheld() {
             state.refused = true;
-            return;
-        }
-        let verdict = verdict_of(&self.top, reading);
-        let Some(highlighter) = &self.highlighter else {
-            return;
-        };
-        if verdict.is_withheld() {
-            state.refused = true;
-            return;
+            return true;
         }
         // O(n) of at most 2 MiB, here on the view thread, never on the UI's.
-        let text = decode_all(bytes, TabWidth::default()).text().clone();
-        let bom = project::has_bom(bytes);
-        let lines = on_screen.and_then(|lines| lines[index(side)]);
-        let shown = shown_ranges(&text, lines);
+        let (text, bom) = sides::decode(bytes);
+        let shown = on_screen.map_or_else(Vec::new, |runs| shown_ranges(&text, runs));
         self.next_key += 1;
         let key = self.next_key;
         match highlighter.open(key, language, verdict, text.clone(), shown.clone()) {
@@ -395,37 +422,68 @@ impl Highlighting {
                     shown,
                 });
                 self.keys.insert(key, (path.into(), side));
+                true
             }
-            // Tried again once another closes.
-            Err(Refused::Full) => {}
-            Err(Refused::MayHoldSecrets | Refused::TooLarge) => state.refused = true,
+            Err(Refused::Full) => false,
+            Err(Refused::MayHoldSecrets | Refused::TooLarge) => {
+                state.refused = true;
+                true
+            }
         }
     }
 
-    /// Takes a report of a document this view opened: its runs over the lines shown, or the end
-    /// of that side's highlighting. A report of a key no longer open is dropped.
-    pub(super) fn report(&mut self, report: Report<u64>, order: &[Box<[u8]>]) {
+    /// Keeps a report to take with the others that came with it: only the latest of a key
+    /// counts, each being a whole snapshot, and the last of a document comes last.
+    pub(super) fn told(&mut self, report: Report<u64>) {
+        match self.reports.get(&report.buffer) {
+            Some(kept) if kept.stamp > report.stamp => {}
+            _ => {
+                self.reports.insert(report.buffer, report);
+            }
+        }
+    }
+
+    /// Takes the reports that waited; whether any changed what the text shows or how far
+    /// highlighting is.
+    pub(super) fn take_reports(&mut self, order: &[Box<[u8]>]) -> bool {
+        let reports: Vec<Report<u64>> = self.reports.drain().map(|(_, report)| report).collect();
+        let mut changed = false;
+        for report in reports {
+            changed |= self.report(report, order);
+        }
+        changed
+    }
+
+    /// Takes a report of a document this view opened: its runs over the lines it projects, or
+    /// the end of that side's highlighting. A report of a key no longer open is dropped.
+    fn report(&mut self, report: Report<u64>, order: &[Box<[u8]>]) -> bool {
         let Some((path, side)) = self.keys.get(&report.buffer).cloned() else {
-            return;
+            return false;
         };
+        let shown = self.shown.get(&path).map(|runs| runs[index(side)].clone());
         let Some(file) = self.files.get_mut(&path) else {
-            return;
+            return false;
         };
         let state = &mut file.sides[index(side)];
         let ended = report.done || !matches!(report.outcome, Outcome::Highlights(_));
         let projected = match (&report.outcome, &state.open, &file.reading) {
             (Outcome::Highlights(highlights), Some(open), Some(reading)) => {
                 let Content::Text { shape, .. } = &reading.content else {
-                    return;
+                    return false;
                 };
                 let numbers = lines_of(shape.hunks(), side);
-                Some(project::project(
-                    &open.text,
-                    open.bom,
-                    highlights,
-                    numbers,
-                    report.done,
-                ))
+                if report.done {
+                    Some(project::project(
+                        &open.text, open.bom, highlights, numbers, true,
+                    ))
+                } else {
+                    // Partly done: the lines on screen only, the rest once it is whole.
+                    let shown = shown.unwrap_or_default();
+                    let numbers = numbers.filter(|number| on_screen(&shown, *number));
+                    let projected =
+                        project::project(&open.text, open.bom, highlights, numbers, false);
+                    (projected.lines() > 0).then_some(projected)
+                }
             }
             _ => None,
         };
@@ -435,132 +493,47 @@ impl Highlighting {
             Outcome::Highlights(_) => {}
         }
         if ended {
-            self.keys.remove(&report.buffer);
-            if let (Some(open), Some(highlighter)) = (state.open.take(), &self.highlighter) {
-                highlighter.close(open.key);
-            }
+            self.close(&path, side);
         }
+        let kept = projected.is_some();
         if let Some(projected) = projected {
             self.keep(&path, side, projected, order);
         }
+        ended || kept
     }
 
-    /// Keeps `projected` as `path`'s `side`'s runs, within the budget.
-    fn keep(&mut self, path: &[u8], side: Side, projected: Projected, order: &[Box<[u8]>]) {
-        let before = self.files.get(path).and_then(|file| {
-            let state = &file.sides[index(side)];
-            state.projected.as_ref().map(Projected::runs)
-        });
-        let after = self.runs - before.unwrap_or(0) + projected.runs();
-        if after > MAX_RUNS && self.shown.contains_key(path) {
-            self.make_room(after - MAX_RUNS, path, order);
-        }
-        let Some(file) = self.files.get_mut(path) else {
-            return;
-        };
-        let state = &mut file.sides[index(side)];
-        let held = self.runs - before.unwrap_or(0);
-        if held + projected.runs() > MAX_RUNS {
-            // Off screen, or more than the room a screen's files can make.
-            if let Some(dropped) = state.projected.take() {
-                self.runs = self.runs.saturating_sub(dropped.runs());
-                self.changed.insert(path.into());
-            }
-            state.complete = false;
-            state.over = true;
-            if let Some(open) = state.open.take() {
-                self.keys.remove(&open.key);
-                if let Some(highlighter) = &self.highlighter {
-                    highlighter.close(open.key);
-                }
-            }
-            return;
-        }
-        self.runs = held + projected.runs();
-        // Projected over every line the reading shows of the side.
-        state.complete = projected.done;
-        state.projected = Some(projected);
-        self.changed.insert(path.into());
-    }
-
-    /// Drops the runs of files off screen, those farthest in `order` from `near` first, until
-    /// `needed` runs are free or none is left to drop.
-    fn make_room(&mut self, mut needed: usize, near: &[u8], order: &[Box<[u8]>]) {
-        let at = order.iter().position(|path| **path == *near).unwrap_or(0);
-        let mut far: Vec<(usize, &Box<[u8]>)> = order
-            .iter()
-            .enumerate()
-            .filter(|(_, path)| !self.shown.contains_key(*path))
-            .map(|(index, path)| (index.abs_diff(at), path))
-            .collect();
-        far.sort_unstable_by_key(|(distance, _)| std::cmp::Reverse(*distance));
-        for (_, path) in far {
-            if needed == 0 {
-                return;
-            }
-            let Some(file) = self.files.get_mut(path) else {
+    /// How far highlighting is, while it is on.
+    pub(super) fn progress(&self) -> Option<Progress> {
+        self.highlighter.as_ref()?;
+        let (mut left, mut left_shown) = (false, false);
+        let (mut done, mut done_shown) = (false, false);
+        for (path, file) in &self.files {
+            let Some(reading) = &file.reading else {
                 continue;
             };
-            for state in &mut file.sides {
-                if let Some(dropped) = state.projected.take() {
-                    needed = needed.saturating_sub(dropped.runs());
-                    self.runs = self.runs.saturating_sub(dropped.runs());
-                    state.complete = false;
-                    state.over = true;
-                    self.changed.insert(path.clone());
+            let Content::Text { shape, .. } = &reading.content else {
+                continue;
+            };
+            if !self.laid.contains(path) {
+                continue;
+            }
+            let shown = self.shown.contains_key(path);
+            for side in [Side::Old, Side::New] {
+                let state = &file.sides[index(side)];
+                if state.complete {
+                    done = true;
+                    done_shown |= shown;
+                } else if state.wants(self.screen, shown)
+                    && lines_of(shape.hunks(), side).next().is_some()
+                {
+                    left = true;
+                    left_shown |= shown;
                 }
             }
         }
+        Some(Progress {
+            shown: !self.shown.is_empty() && done_shown && !left_shown,
+            whole: done && !left,
+        })
     }
-}
-
-/// What text `reading`'s `side` is of: its blob, or the reading for a work tree file git did
-/// not hash; none for a reading that is not text.
-fn source(reading: &Arc<Reading>, side: Side) -> Option<Source> {
-    if !matches!(reading.content, Content::Text { .. }) {
-        return None;
-    }
-    let id = match side {
-        Side::Old => &reading.entry.old_id,
-        Side::New => &reading.entry.new_id,
-    };
-    Some(if id.is_zero() {
-        Source::Reading(Arc::clone(reading))
-    } else {
-        Source::Blob(id.clone())
-    })
-}
-
-/// The verdict on every path `reading` names, under `top`: ordinary only if each is.
-fn verdict_of(top: &std::path::Path, reading: &Reading) -> Verdict {
-    let entry = &reading.entry;
-    let paths = std::iter::once(&*entry.path).chain(entry.old_path.as_deref());
-    paths
-        .map(|path| path_verdict(top, path))
-        .find(|verdict| verdict.is_withheld())
-        .unwrap_or(Verdict::Ordinary)
-}
-
-/// The numbers of the lines of `side` that `hunks` show, rising.
-pub(super) fn lines_of(
-    hunks: &[oso_core::review::Hunk],
-    side: Side,
-) -> impl Iterator<Item = u32> + '_ {
-    hunks.iter().flat_map(move |hunk| {
-        let (start, lines) = match side {
-            Side::Old => (hunk.old_start, hunk.removed.len()),
-            Side::New => (hunk.new_start, hunk.added.len()),
-        };
-        (0..lines as u32).map(move |offset| start.saturating_add(offset))
-    })
-}
-
-/// The byte ranges of `text` that `lines`, a first and last line number, cover.
-fn shown_ranges(text: &Rope, lines: Option<(u32, u32)>) -> Vec<Range<usize>> {
-    let Some((first, last)) = lines else {
-        return Vec::new();
-    };
-    let first = (first as usize).saturating_sub(1);
-    let last = (last as usize).saturating_sub(1);
-    std::iter::once(text.line_start(first)..text.line_end(last)).collect()
 }

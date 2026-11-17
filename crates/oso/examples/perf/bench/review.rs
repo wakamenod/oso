@@ -351,7 +351,10 @@ fn highlighted(app: &mut App, asked: u64, frames: Vec<Value>) -> Result<(f64, f6
         .iter()
         .find(|frame| frame["shown_highlighted"] == true)
         .ok_or("the review's screen was never highlighted")?;
-    let whole = frames.last().ok_or("the review was never highlighted")?;
+    let whole = frames
+        .iter()
+        .find(|frame| frame["highlighted"] == true)
+        .ok_or("the review was never highlighted")?;
     let longest = (frames.iter())
         .filter_map(|frame| frame["ui_us"].as_u64())
         .max()

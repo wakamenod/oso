@@ -319,7 +319,7 @@ impl State {
             .into_iter()
             .enumerate()
             .map(|(side, sections)| {
-                let built = assemble(&sections, &self.panes.texts[side]);
+                let built = assemble(&sections, &[], &self.panes.texts[side]);
                 self.panes.texts[side] = built.rope;
                 (built.text, built.rows, built.highlights)
             });

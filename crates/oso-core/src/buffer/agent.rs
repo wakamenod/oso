@@ -1,6 +1,7 @@
 //! What a buffer knows of the agent channel (ADR 0085): whether the channel opened it, so
 //! that the channel saves it only once the person agrees, and whether a path's name says
-//! the file may hold secrets, which the channel refuses to open.
+//! the file may hold secrets, which the channel refuses to open, a review judges the names its
+//! files go by with, and a review's side is opened for highlighting under (ADR 0122).
 //!
 //! Must not depend on: the editor or the host's channel.
 

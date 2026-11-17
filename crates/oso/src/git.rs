@@ -7,7 +7,8 @@
 //! 0122), the worktree jobs (ADR 0121), and a git status and its commits (ADR 0127) use it.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread, nor on what uses it; this
-//! runs on the threads that run git, and waits for git.
+//! runs on the threads that run git, and waits for git. Its ids and its name check, which do no
+//! I/O, also serve a review's view thread (ADR 0122, step 9).
 
 pub(crate) mod apply;
 mod gh;
