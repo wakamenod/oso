@@ -93,6 +93,7 @@ mod send;
 
 pub use comments::COMMANDS as COMMENT_COMMANDS;
 pub use decide::COMMANDS as DECISION_COMMANDS;
+pub(crate) use decide::{open_buffer_of, place_of};
 pub use send::{COMMANDS as SEND_COMMANDS, MESSAGE_KEYS};
 
 /// The commands of reviews.

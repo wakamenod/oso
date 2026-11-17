@@ -269,8 +269,10 @@ impl App {
 
     /// Starts the review's own thread over its root, dropping the one before.
     fn start_reviewer(&mut self, index: usize) {
-        // What the thread before was carrying is carried on the view thread.
+        // What the thread before was carrying is carried on the view thread; what it was
+        // staging is answered by no one.
         self.carries_failed(index, true);
+        self.stages_lost(index);
         let serial = self.reviews.serial();
         let running = &mut self.reviews.open[index];
         running.serial = serial;
@@ -406,7 +408,7 @@ impl App {
                     more,
                     cut,
                 });
-                self.reviews.open[index].decisions.entries = Arc::clone(&entries);
+                self.reviews.open[index].decisions.listing = Arc::clone(&entries);
                 return self.forget_unlisted(index, &entries, whole);
             }
             Report::File { reading, .. } => return self.tell_file(index, reading),
@@ -414,13 +416,10 @@ impl App {
                 return self.review_carried(index, carried, cut_short);
             }
             Report::Read { .. } => Tell::Read,
-            Report::Staged { serial, staged } => return self.review_staged(index, serial, staged),
+            Report::Staged { ticket, staged } => return self.review_staged(index, ticket, staged),
             Report::Failed { asked, why } => {
                 if asked == Asked::Carry {
                     self.carries_failed(index, false);
-                }
-                if asked == Asked::Stage {
-                    self.stages_failed(index);
                 }
                 let why = one_line(&why, MAX_MESSAGE);
                 self.editor.message(format!("The review failed: {why}"));

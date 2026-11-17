@@ -120,19 +120,19 @@ fn reading(reader: &mut Reader, path: &str) -> Arc<Reading> {
             }
             _ => None,
         })
-        .unwrap()
+        .unwrap_or_else(|| panic!("no reading of {path}"))
 }
 
 /// Stages hunk `index` of `reading`, or the patch given, and says what it did.
 fn stage(reader: &mut Reader, reading: &Reading, apply: Apply, reverse: bool) -> super::Staged {
     let stage = Stage {
-        serial: 7,
+        ticket: 7,
         path: reading.entry.path.clone(),
         apply,
         reverse,
     };
     match answer(reader, Request::Stage(stage)).pop() {
-        Some(Report::Staged { serial: 7, staged }) => staged,
+        Some(Report::Staged { ticket: 7, staged }) => staged,
         other => panic!("{other:?}"),
     }
 }
@@ -189,4 +189,44 @@ fn a_hunk_is_staged_by_its_context_below_one_staged_before_and_unstaged_back() {
         staged.contains("+four more\n") && !staged.contains("25!"),
         "{staged}"
     );
+}
+
+#[test]
+fn a_quoted_name_stages_its_own_entry_and_no_other() {
+    let repo = Repo::new("stage-names");
+    let names = ["a b/c.rs", "x\"y.rs", "\u{e9}t\u{e9}.rs"];
+    for name in names {
+        repo.write(name, numbered(10).as_bytes());
+    }
+    repo.commit("base");
+    for name in names {
+        repo.write(name, numbered(10).replace("\n5\n", "\nfive\n").as_bytes());
+    }
+    let mut reader = Reader::new(&repo.root, Some(&repo.dir.join("state")));
+    // One reading of each: a file not changed since is not read again.
+    let readings: Vec<Arc<Reading>> = answer(&mut reader, Request::Open(Scope::Uncommitted))
+        .into_iter()
+        .filter_map(|report| match report {
+            Report::File { reading, .. } => Some(reading),
+            _ => None,
+        })
+        .collect();
+    for (at, name) in names.iter().enumerate() {
+        let reading = (readings.iter())
+            .find(|reading| &*reading.entry.path == name.as_bytes())
+            .unwrap_or_else(|| panic!("no reading of {name}"));
+        let (old, hunks) = hunks_of(reading);
+        stage(&mut reader, reading, Apply::Hunks { old, hunks }, false).unwrap();
+        let staged = repo.git(&["diff", "--cached", "--name-only", "-z"]);
+        let staged: Vec<&[u8]> = staged
+            .split(|byte| *byte == 0)
+            .filter(|name| !name.is_empty())
+            .collect();
+        let wanted: Vec<&[u8]> = names[..=at].iter().map(|name| name.as_bytes()).collect();
+        let mut staged = staged;
+        staged.sort_unstable();
+        let mut wanted = wanted;
+        wanted.sort_unstable();
+        assert_eq!(staged, wanted, "after {name}");
+    }
 }

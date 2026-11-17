@@ -205,14 +205,22 @@ impl Editor {
     ///
     /// Why the save did not start, [`SaveRefused::NoFile`] for no such buffer. Nothing changes.
     pub fn start_save_of(&mut self, id: BufferId) -> Result<bool, SaveRefused> {
-        self.queue_save_of(id, false)
+        self.queue_save_of(id, false, false)
     }
 
     pub(super) fn queue_save(&mut self, over: bool) -> Result<bool, SaveRefused> {
-        self.queue_save_of(self.window().buffer(), over)
+        self.queue_save_of(self.window().buffer(), over, true)
     }
 
-    fn queue_save_of(&mut self, id: BufferId, over: bool) -> Result<bool, SaveRefused> {
+    /// Queues the save of `id`, over a file changed on disk if `over`. Only a save the person
+    /// asked for in the selected window, `asking`, takes or leaves the agreement to save over a
+    /// changed file, which belongs to the question asked of that buffer.
+    fn queue_save_of(
+        &mut self,
+        id: BufferId,
+        over: bool,
+        asking: bool,
+    ) -> Result<bool, SaveRefused> {
         let persons = !self.runs_for_agent();
         let buffer = self.buffer(id).ok_or(SaveRefused::NoFile)?;
         if let Some(refused) = refusal(buffer, persons) {
@@ -225,9 +233,15 @@ impl Editor {
         // host can tell, and then it holds what the file held.
         let only_if_gone = !buffer.is_modified();
         // `y` saves over the file of the buffer the question was asked of, and no other.
-        let asked = self.save_over_asked.take();
+        let asked = if asking {
+            self.save_over_asked.take()
+        } else {
+            None
+        };
         if found.is_some() && (!over || asked != Some(id)) {
-            self.save_over_asked = Some(id);
+            if asking {
+                self.save_over_asked = Some(id);
+            }
             return Err(SaveRefused::ChangedOnDisk);
         }
         let (trimmed, kept) = if only_if_gone {

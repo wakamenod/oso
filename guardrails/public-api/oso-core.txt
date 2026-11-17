@@ -276,6 +276,8 @@ pub fn oso_core::buffer::Buffer::open_waits(&self) -> oso_core::buffer::Starts
 pub fn oso_core::buffer::Buffer::save_waits(&self) -> oso_core::buffer::Starts
 pub fn oso_core::buffer::Buffer::waits(&self) -> oso_core::buffer::Starts
 impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::changed_on_disk(&self) -> bool
+impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::diagnostics(&self) -> core::option::Option<&oso_core::diagnostic::Diagnostics>
 pub fn oso_core::buffer::Buffer::take_diagnostics(&mut self, u64, oso_core::diagnostic::Diagnostics) -> bool
 impl oso_core::buffer::Buffer

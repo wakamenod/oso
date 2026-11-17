@@ -306,11 +306,17 @@ impl Reader {
         Ok(())
     }
 
+    /// Answers `stage` by its ticket, a repository not found too.
     fn stage(&mut self, stage: super::stage::Stage, out: &mut Out<'_>) -> Result<(), ScopeError> {
-        let git = self.repository()?.git.clone();
-        let serial = stage.serial;
-        let staged = super::stage::run(&git, &mut self.batch, stage);
-        out(Report::Staged { serial, staged });
+        let ticket = stage.ticket;
+        let staged = match self.repository() {
+            Ok(repository) => {
+                let git = repository.git.clone();
+                super::stage::run(&git, &mut self.batch, stage)
+            }
+            Err(e) => Err(message(&e)),
+        };
+        out(Report::Staged { ticket, staged });
         Ok(())
     }
 

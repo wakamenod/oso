@@ -19,9 +19,12 @@ fn hunk(old_start: u32, new_start: u32, removed: &[&str], added: &[&str]) -> Hun
     }
 }
 
-/// `text` with `hunks` reverted, or undone with `undone`.
+/// `text` with `hunks` reverted, or undone with `undone`, the reading's new side being
+/// [`sides`]'s.
 fn reverted(text: &str, hunks: &[Hunk], undone: bool) -> Result<String, &'static str> {
-    let edits = revert_edits(&Rope::from(text), hunks, undone)?;
+    let (_, new, _) = sides();
+    let hunks: Vec<&Hunk> = hunks.iter().collect();
+    let edits = revert_edits(&Rope::from(text), new.as_bytes(), &hunks, undone)?;
     let mut out = text.to_owned();
     // Descending, as the editor applies them.
     for (range, put) in edits {
@@ -77,4 +80,15 @@ fn a_hunk_whose_lines_moved_is_refused_whole() {
     assert_eq!(reverted(&moved, &hunks, false), Err(CHANGED));
     let short = "a\nB1\n";
     assert_eq!(reverted(short, &hunks[..1], false), Err(CHANGED));
+}
+
+#[test]
+fn a_hunk_that_only_deletes_is_placed_by_the_lines_around_it() {
+    let (_, new, hunks) = sides();
+    // `f` went after `e`: with a line put in above, there is nothing to tell where it goes but
+    // the lines around it, which moved.
+    let moved = new.replace("d\n", "d\nmore\n");
+    assert_eq!(reverted(&moved, &hunks[2..], false), Err(CHANGED));
+    let changed = new.replace("e\n", "E\n");
+    assert_eq!(reverted(&changed, &hunks[2..], false), Err(CHANGED));
 }

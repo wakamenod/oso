@@ -44,7 +44,7 @@ impl App {
         self.spawn_saves(for_agent).1
     }
 
-    fn spawn_saves(&mut self, for_agent: bool) -> (Vec<BufferId>, Option<&'static str>) {
+    pub(super) fn spawn_saves(&mut self, for_agent: bool) -> (Vec<BufferId>, Option<&'static str>) {
         let mut started_saves = Vec::new();
         let mut failed = None;
         let configuration = self.configuration_directories();

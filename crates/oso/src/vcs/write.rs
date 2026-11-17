@@ -51,20 +51,7 @@ pub(super) fn run(git: &Git, op: &Op, initial: bool, stop: &AtomicBool) -> Resul
             nul_joined(paths),
             false,
         ),
-        Op::Apply { patch, reverse } => {
-            let mut words = vec![
-                "-c",
-                "apply.ignoreWhitespace=no",
-                "apply",
-                "--cached",
-                "--whitespace=nowarn",
-            ];
-            if *reverse {
-                words.push("-R");
-            }
-            words.push("-");
-            (words, patch.clone(), true)
-        }
+        Op::Apply { patch, reverse } => (crate::git::apply::words(*reverse), patch.clone(), true),
     };
     let out = git
         .run_long(&args(&words), &set(), Some(input), stop)
@@ -72,17 +59,8 @@ pub(super) fn run(git: &Git, op: &Op, initial: bool, stop: &AtomicBool) -> Resul
     if out.status.success() {
         return Ok(());
     }
-    let first = out
-        .stderr
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_owned();
     if refused {
-        return Err(format!(
-            "git refused the hunk, as the file changed since it was read: {first}"
-        ));
+        return Err(crate::git::apply::refused(&out.stderr));
     }
     Err(GitError::Failed {
         status: out.status.code(),

@@ -12,17 +12,16 @@
 //! - Hunks whose context meets go in one fragment, the old side's lines between them, as a hunk
 //!   not staged leaves them, as context.
 //! - A path git would quote is quoted as git writes it, so that no path can end the header.
-//! - The patch goes to `git apply --cached` on standard input, whitespace compared exactly, as
-//!   the git status stages one (ADR 0127).
+//! - The patch goes to `git apply --cached` on standard input, whitespace compared exactly, with
+//!   the git status's words (`git::apply`, ADR 0127), killed past the runner's limit.
 
 use std::ffi::OsStr;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 
 use oso_core::review::Hunk;
 
 use super::batch::{Batch, Blob};
-use crate::git::{Git, Id};
+use crate::git::{Git, Id, MAX_SHORT, read_at_most};
 
 /// How many of the old side's lines go around each hunk.
 pub(crate) const CONTEXT: usize = 3;
@@ -40,8 +39,8 @@ pub(crate) enum Apply {
 
 /// Hunks to put in the index, or to take out of it with `reverse`.
 pub(crate) struct Stage {
-    /// Which stage the host asked for, which its answer names.
-    pub(crate) serial: u64,
+    /// The host's ticket for it, which its answer names.
+    pub(crate) ticket: u64,
     pub(crate) path: Box<[u8]>,
     pub(crate) apply: Apply,
     pub(crate) reverse: bool,
@@ -63,29 +62,19 @@ pub(super) fn run(git: &Git, batch: &mut Batch, stage: Stage) -> Staged {
             Arc::from(patch(&stage.path, &old, &hunks)?)
         }
     };
-    let mut words = vec![
-        "-c",
-        "apply.ignoreWhitespace=no",
-        "apply",
-        "--cached",
-        "--whitespace=nowarn",
-    ];
-    if stage.reverse {
-        words.push("-R");
-    }
-    words.push("-");
-    let args: Vec<&OsStr> = words.iter().map(OsStr::new).collect();
-    let stop = AtomicBool::new(false);
+    // Bounded as every review run is: a run past the limit is killed, so it never holds the
+    // thread.
+    let args: Vec<&OsStr> = (crate::git::apply::words(stage.reverse).into_iter())
+        .map(OsStr::new)
+        .collect();
+    let input = Some(patch.to_vec());
     let out = git
-        .run_long(&args, &[], Some(patch.to_vec()), &stop)
+        .output_with(&args, &[], input, |stdout| read_at_most(stdout, MAX_SHORT))
         .map_err(|e| e.to_string())?;
     if out.status.success() {
         return Ok(patch);
     }
-    let first = out.stderr.lines().next().unwrap_or_default().trim();
-    Err(format!(
-        "git refused the hunk, as the file changed since it was read: {first}"
-    ))
+    Err(crate::git::apply::refused(&out.stderr))
 }
 
 /// The old side's lines, each with its line break, the last maybe without one.

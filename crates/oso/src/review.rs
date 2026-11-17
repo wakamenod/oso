@@ -129,8 +129,8 @@ pub(crate) enum Report {
     /// Comments carried; `cut_short` if matching lines ran out of time, so some may be outdated
     /// that would not have been.
     Carried { carried: Carried, cut_short: bool },
-    /// What the stage `serial` did.
-    Staged { serial: u64, staged: stage::Staged },
+    /// What the stage with the host's ticket `ticket` did, or why it could not run.
+    Staged { ticket: u64, staged: stage::Staged },
     /// A request failed; the message says why, with no file's text.
     Failed { asked: Asked, why: String },
 }
@@ -177,9 +177,9 @@ impl fmt::Debug for Report {
                 .field("cut_short", cut_short)
                 .finish_non_exhaustive(),
             // A patch holds the file's text: only whether it went in.
-            Self::Staged { serial, staged } => f
+            Self::Staged { ticket, staged } => f
                 .debug_struct("Staged")
-                .field("serial", serial)
+                .field("ticket", ticket)
                 .field("applied", &staged.is_ok())
                 .finish_non_exhaustive(),
             Self::Failed { asked, why } => f
@@ -380,8 +380,22 @@ fn serve(
             return;
         }
         let asked = asked(&request);
+        // A stage is answered by its ticket however it ends, so the host matches each.
+        let ticket = match &request {
+            Request::Stage(stage) => Some(stage.ticket),
+            _ => None,
+        };
+        let failed = |why: String| match ticket {
+            Some(ticket) => Report::Staged {
+                ticket,
+                staged: Err(why),
+            },
+            None => Report::Failed { asked, why },
+        };
         if let Err(why) = root.check() {
-            send(Report::Failed { asked, why });
+            if !send(failed(why)) {
+                return;
+            }
             continue;
         }
         let stop = || {
@@ -408,8 +422,8 @@ fn serve(
         }));
         if answered.is_err() {
             log::warn!("a review's request panicked");
-            let why = "the review's thread failed".into();
-            gone = gone || !send(Report::Failed { asked, why });
+            let why = "the review's thread failed".to_owned();
+            gone = gone || !send(failed(why));
             reader = reader.fresh();
         }
         if gone {
@@ -444,16 +458,17 @@ fn next_request(
     held: &RefCell<Waiting>,
     waiting: &AtomicUsize,
 ) -> Option<Request> {
+    // A stage first, one short git run, so that refreshes coming one after another while
+    // the agent edits never keep it waiting. Each borrow ends before the next.
+    let stage = held.borrow_mut().stages.pop_front();
+    if let Some(stage) = stage {
+        return Some(Request::Stage(stage));
+    }
     let next = held.borrow_mut().next.take();
     if next.is_none() {
-        // Each borrow ends before the next: a carry, then a stage, waiting aside.
         let carry = held.borrow_mut().carries.pop_front();
         if let Some(carry) = carry {
             return Some(Request::Carry(carry));
-        }
-        let stage = held.borrow_mut().stages.pop_front();
-        if let Some(stage) = stage {
-            return Some(Request::Stage(stage));
         }
     }
     let request = match next {
