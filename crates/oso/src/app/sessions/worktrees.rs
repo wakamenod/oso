@@ -255,12 +255,28 @@ impl App {
 
     /// `session-worktree`: opens `*Brief*` for a worktree on `branch`.
     fn open_brief(&mut self, branch: String, base: Option<String>) {
-        let (project, root) = match self.project_here() {
-            Ok(id) => match self.editor.project(id) {
-                Some(found) => (id, found.root().to_owned()),
-                None => return,
-            },
-            Err(why) => return self.editor.message(why),
+        match self.project_here() {
+            Ok(project) => self.start_brief(project, branch, base, ""),
+            Err(why) => self.editor.message(why),
+        }
+    }
+
+    /// Opens `*Brief*` for a worktree session of `project` on `branch`, from `base` or `HEAD`,
+    /// starting from `text`: empty for `session-worktree`'s, an issue's for its `w` (ADR 0127,
+    /// step 5b-1).
+    pub(in crate::app) fn start_brief(
+        &mut self,
+        project: ProjectId,
+        branch: String,
+        base: Option<String>,
+        text: &str,
+    ) {
+        let Some(root) = self
+            .editor
+            .project(project)
+            .map(|found| found.root().to_owned())
+        else {
+            return;
         };
         if let Some(open) = self.hosting.worktrees.briefs.keys().next().copied() {
             self.editor.show(open);
@@ -295,7 +311,7 @@ impl App {
         let place = slug::slug(&branch)
             .map(|slug| root.join(".claude/worktrees").join(slug))
             .unwrap_or_default();
-        let mut buffer = Buffer::from_text(BRIEF, "");
+        let mut buffer = Buffer::from_text(BRIEF, text);
         buffer.set_mode(Mode::Brief);
         // The person's brief: no agent reads or rewrites it before it is sent.
         buffer.withhold_from_agents();

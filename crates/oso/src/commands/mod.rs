@@ -135,6 +135,7 @@ const TABLES: &[&[Command]] = &[
     vcs::graph::COMMANDS,
     vcs::pr::COMMANDS,
     vcs::pr::create::COMMANDS,
+    vcs::pr::issue::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
     windows::COMMANDS,
@@ -531,6 +532,12 @@ mod tests {
         "git-pr-refresh",
         "git-pr-view",
         "git-pr-visit",
+        "github-issue-copy-link",
+        "github-issue-open",
+        "github-issue-refresh",
+        "github-issue-visit",
+        "github-issue-worktree",
+        "github-issues",
         // Whitespace's marks, which show lookalike spaces (ADR 0097).
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).
