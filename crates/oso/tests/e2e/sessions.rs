@@ -9,11 +9,11 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
+use oso_platform::process::{Child, Executable, Sink, Source, Spawn, spawn};
 use serde_json::{Value, json};
 
 use super::harness::{App, Scratch};
@@ -311,10 +311,10 @@ fn fail_then_resume(flow: &Flow, app: &mut App, id: &str) {
     );
 }
 
-/// While another process runs the conversation, a resume is refused, and y forks it. Returns
-/// the fork's id.
-fn fork_when_live(flow: &Flow, app: &mut App, id: &str) -> String {
-    let mut other = spawn(&Spawn {
+/// A process of the test's own that the registry, as Claude Code writes it in `home`, says
+/// runs conversation `id` under `name`, elsewhere.
+pub(super) fn live_elsewhere(home: &Path, id: &str, name: &str) -> Child {
+    let other = spawn(&Spawn {
         executable: &Executable::absolute("/bin/sleep").unwrap(),
         args: &["30".into()],
         cwd: None,
@@ -331,20 +331,27 @@ fn fork_when_live(flow: &Flow, app: &mut App, id: &str) -> String {
         args_logged: true,
     })
     .unwrap();
-    let sessions = flow.home.join(".claude/sessions");
+    let sessions = home.join(".claude/sessions");
     fs::create_dir_all(&sessions).unwrap();
     let entry = json!({
         "pid": other.id(),
         "sessionId": id,
         "cwd": "/elsewhere",
         "startedAt": now_ms(),
-        "name": "proj",
+        "name": name,
     });
     fs::write(
         sessions.join(format!("{}.json", other.id())),
         entry.to_string(),
     )
     .unwrap();
+    other
+}
+
+/// While another process runs the conversation, a resume is refused, and y forks it. Returns
+/// the fork's id.
+fn fork_when_live(flow: &Flow, app: &mut App, id: &str) -> String {
+    let mut other = live_elsewhere(&flow.home, id, "proj");
     flow.hold();
     flow.forget_runs();
     app.run_command("session-resume", None).unwrap();
