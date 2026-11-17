@@ -35,6 +35,8 @@ mod assemble;
 mod build;
 mod cards;
 mod file;
+mod files;
+mod filter;
 mod highlight;
 mod panes;
 mod project;
@@ -124,6 +126,10 @@ pub(crate) enum Tell {
     /// The byte ranges of the review buffer's text its windows show, for the sides on screen to
     /// go first.
     Shown(Vec<Range<usize>>),
+    /// The files to show: those this filter matches, or all (step 6b).
+    Filter(Option<oso_core::review::Filter>),
+    /// Whether to build the files pane's text, and how many columns it has.
+    Files(Option<usize>),
 }
 
 /// How a file's comments are carried to its new reading.
@@ -147,6 +153,8 @@ pub(crate) struct Text {
     pub(crate) highlights: Highlights,
     /// The two panes' texts, old then new, while they are built and changed since the last.
     pub(crate) panes: Option<Box<[PaneText; 2]>>,
+    /// The files pane's text, while it is built and changed since the last (step 6b).
+    pub(crate) files: Option<Box<PaneText>>,
     pub(crate) carried: Vec<(Arc<Reading>, Carried)>,
     pub(crate) reading: Option<(usize, usize)>,
     /// Whether its agent cards show folded to their first line.
@@ -240,6 +248,9 @@ struct State {
     highlighting: Highlighting,
     /// The byte ranges of the text the windows show, as last told.
     shown: Vec<Range<usize>>,
+    /// The files the filter hides, and the files pane's text (step 6b).
+    filtering: filter::Filtering,
+    files_pane: files::FilesPane,
 }
 
 impl State {
@@ -264,6 +275,8 @@ impl State {
             panes: panes::Panes::default(),
             highlighting: Highlighting::default(),
             shown: Vec::new(),
+            filtering: filter::Filtering::default(),
+            files_pane: files::FilesPane::default(),
         }
     }
 
@@ -320,6 +333,8 @@ impl State {
                 self.said = said;
             }
             Tell::Panes(on) => self.show_panes(on),
+            Tell::Filter(filter) => self.filter(filter),
+            Tell::Files(width) => self.show_files(width),
             Tell::Highlighter { highlighter, top } => {
                 self.highlighting.set(highlighter, top);
                 self.shown_now();
@@ -589,6 +604,10 @@ pub(crate) fn built(title: &str, told: Vec<Tell>) -> Text {
 
 #[cfg(test)]
 mod carry_tests;
+#[cfg(test)]
+mod files_tests;
+#[cfg(test)]
+mod filter_tests;
 #[cfg(test)]
 mod highlight_limits_tests;
 #[cfg(test)]

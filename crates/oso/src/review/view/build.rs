@@ -22,8 +22,12 @@ impl State {
     pub(super) fn build(&mut self) -> Text {
         // Reports told since the last batch, as when a test tells them and builds.
         self.highlighting.take_reports(&self.order);
+        if self.dirty {
+            self.refilter();
+        }
         let reading = self.reading_now();
         let panes = self.panes_text();
+        let files = self.files_text();
         if !self.dirty
             && let Some((rows, highlights)) = self.paint()
         {
@@ -32,6 +36,7 @@ impl State {
                 rows: rows.clone(),
                 highlights: highlights.clone(),
                 panes,
+                files,
                 carried: std::mem::take(&mut self.carried),
                 reading,
                 folded: self.folded,
@@ -43,7 +48,9 @@ impl State {
         let mut size = sections[0].bytes.len();
         let folded = self.folded;
         let mut paths: Vec<Option<&Box<[u8]>>> = vec![None];
-        for path in &self.order {
+        let shown: Vec<bool> = self.order.iter().map(|path| self.shows(path)).collect();
+        let gone_shown: Vec<bool> = self.gone.keys().map(|path| self.shows(path)).collect();
+        for (path, _) in self.order.iter().zip(&shown).filter(|(_, shown)| **shown) {
             let Some(file) = self.files.get_mut(path) else {
                 continue;
             };
@@ -56,7 +63,10 @@ impl State {
             size += rendered.bytes.len();
             sections.push(rendered);
         }
-        for (path, gone) in &mut self.gone {
+        for ((path, gone), _) in (self.gone.iter_mut())
+            .zip(&gone_shown)
+            .filter(|(_, shown)| **shown)
+        {
             let room = self.max_text.saturating_sub(size);
             let (cards, withheld) = (&gone.cards, gone.withheld);
             let rendered = section_in(&mut gone.rendered.unified, room, || {
@@ -81,6 +91,7 @@ impl State {
             rows: built.rows,
             highlights: built.highlights,
             panes,
+            files,
             carried: std::mem::take(&mut self.carried),
             reading,
             folded,
@@ -157,6 +168,7 @@ impl State {
         if self.cut {
             said.push("more files may not be listed: git's listing was cut short".to_owned());
         }
+        said.extend(self.filter_note());
         said
     }
 

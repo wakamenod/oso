@@ -123,6 +123,7 @@ fn running(id: ReviewId, project: ProjectId, scope: Scope, serial: u64) -> Runni
         folded: false,
         shown_folded: false,
         saving: super::keep::Saving::default(),
+        files: super::files::Told::default(),
     }
 }
 

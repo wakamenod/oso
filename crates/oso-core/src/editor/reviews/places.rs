@@ -127,6 +127,16 @@ impl Editor {
                 set = set.with_ring(*window.selections.mark_ring());
                 set.set_mark_active(window.selections.mark_active());
                 window.selections = set;
+            } else if !kept.selections.is_empty() {
+                // None has a place, as their file is hidden now (step 6b): the cursor goes to
+                // the header of the file the text change carried it into.
+                let line = (display.offset_to_display_point(window.selections.primary().cursor))
+                    .row
+                    .min(rows.lines().saturating_sub(1));
+                let header = (rows.at(line)).and_then(|row| rows.file_start(row.path));
+                if let Some(header) = header {
+                    window.selections = SelectionSet::new(offset((header, 0)));
+                }
             }
             if let Some((line, _)) = kept.top.as_ref().and_then(line_of) {
                 let start = offset((line, 0));

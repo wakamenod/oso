@@ -111,6 +111,7 @@ impl App {
         let buffer = self.editor.add_buffer(buffer);
         self.editor.show(buffer);
         let count = taken.len();
+        let hidden = self.hidden_comments(review, &taken);
         self.reviews.sending.message = Some(Waiting {
             buffer,
             review,
@@ -123,11 +124,27 @@ impl App {
         let more = match left {
             0 => String::new(),
             n => format!("; {n} more wait for the next, past 256 KiB"),
-        };
+        } + &hidden;
         self.editor.message(format!(
             "{} {to}{more}. C-c C-c pastes it, C-u C-c C-c picks the session, C-c C-k drops it",
             comments(count)
         ));
+    }
+
+    /// What the echo says of `taken`'s comments on files the filter hides, which the review
+    /// does not show (step 6b): nothing while none is. O(1) a comment.
+    fn hidden_comments(&self, review: ReviewId, taken: &[Comment]) -> String {
+        let filtered = self.editor.review_filter(review).is_some();
+        let Some(rows) = self.editor.review_rows(review).filter(|_| filtered) else {
+            return String::new();
+        };
+        let hidden = (taken.iter())
+            .filter(|comment| rows.line_of(comment.path(), None).is_none())
+            .count();
+        match hidden {
+            0 => String::new(),
+            hidden => format!("; {hidden} on files the filter hides"),
+        }
     }
 
     /// `review-message-send`: pastes the message `buffer` holds into its review's session, or

@@ -247,3 +247,26 @@ fn the_filter_is_kept_beside_the_review() {
     editor.set_review_filter(id, None);
     assert!(editor.review_filter(id).is_none());
 }
+
+#[test]
+fn a_cursor_on_a_file_the_filter_now_hides_goes_to_a_files_header() {
+    let (mut editor, id, window) = editor_with_review(120);
+    // On b.rs's second line.
+    go(&mut editor, 5);
+    let shown = [("a.rs", 3), ("c.rs", 2)];
+    let review = text(&shown);
+    let _ = editor.set_review_text(
+        id,
+        loaded(&review),
+        rows(&shown),
+        Highlights::new(review.len()),
+        &|_, _, number| Some(number),
+    );
+    let line = line_of(&editor, window);
+    let rows = editor.review_rows(id).unwrap();
+    assert_eq!(
+        rows.at(line).unwrap().kind,
+        RowKind::File,
+        "on a header, at {line}"
+    );
+}

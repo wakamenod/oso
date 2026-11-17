@@ -203,7 +203,7 @@ pub(crate) fn decoded_len(mut bytes: &[u8]) -> usize {
 }
 
 /// A path as a header shows it: a newline as `␤`, every other byte as it is.
-fn shown_path(path: &[u8], out: &mut Vec<u8>) {
+pub(super) fn shown_path(path: &[u8], out: &mut Vec<u8>) {
     for &byte in path {
         if byte == b'\n' {
             out.extend_from_slice(PATH_NEWLINE.as_bytes());
