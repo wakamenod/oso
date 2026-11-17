@@ -186,10 +186,7 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
     if let Some(report) = held_back(&order) {
         return send(report);
     }
-    let resumed = match &order.kind {
-        Kind::Resume(id) => Some(id.clone()),
-        Kind::New | Kind::Fork(_) => None,
-    };
+    let resumed = matches!(order.kind, Kind::Resume(_));
     let id = match &order.kind {
         Kind::Resume(id) => id.clone(),
         Kind::New | Kind::Fork(_) => match identity::random_bytes() {
@@ -236,6 +233,9 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
         size: given.size,
         scrollback: given.settings.scrollback,
         palette: given.palette,
+        // Its name may come from a transcript, its brief and instructions from a person or an
+        // agent: none of them reaches the log (ADR 0145).
+        args_logged: false,
     };
     let terminal = match Terminal::start(start, given.ready) {
         Ok(terminal) => terminal,
@@ -256,7 +256,7 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
     if let Some(Some(tree)) = late.and_then(|b| b.wait(BASELINE_GIVE_UP)) {
         send(Report::Baseline { token, tree });
     }
-    if resumed.is_some() {
+    if resumed {
         thread::sleep(RECHECK_AFTER);
         if live_count(&id) > 1 {
             send(Report::Twice { token });

@@ -247,6 +247,7 @@ fn another_programs_session_in_the_registry_is_listed() {
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })
     .unwrap();
     let now = SystemTime::now()

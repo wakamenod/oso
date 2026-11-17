@@ -159,6 +159,22 @@ impl Editor {
         self.add_to_messages_buffer(&shown);
     }
 
+    /// As [`Editor::note`], with no log line: for a note that names what came from outside
+    /// oso, such as a session's name taken from a Claude Code transcript (ADR 0145), which
+    /// must not reach the log.
+    pub fn note_unlogged(&mut self, text: impl Into<String>) {
+        if let Some(left_secret) = self.command_left_secret
+            && (left_secret
+                || self.shows_secret()
+                || self.passphrase_command
+                || self.agent_near_withheld())
+        {
+            return;
+        }
+        let shown = capped(log_text(&capped(text.into())));
+        self.add_to_messages_buffer(&shown);
+    }
+
     /// Whether a command is running, between [`Editor::begin_command`] and
     /// [`Editor::end_command`].
     pub(super) fn in_command(&self) -> bool {

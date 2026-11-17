@@ -80,6 +80,7 @@ fn sleeper() -> oso_platform::process::Child {
         set: &[],
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })
     .unwrap()
 }

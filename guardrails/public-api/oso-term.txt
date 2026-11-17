@@ -370,6 +370,7 @@ impl core::fmt::Debug for oso_term::Snapshot
 pub fn oso_term::Snapshot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_term::Start
 pub oso_term::Start::args: alloc::vec::Vec<std::ffi::os_str::OsString>
+pub oso_term::Start::args_logged: bool
 pub oso_term::Start::cwd: core::option::Option<std::path::PathBuf>
 pub oso_term::Start::executable: oso_platform::process::Executable
 pub oso_term::Start::inherit: alloc::vec::Vec<alloc::string::String>

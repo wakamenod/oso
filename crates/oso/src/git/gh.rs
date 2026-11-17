@@ -193,6 +193,7 @@ impl Gh {
             set: &set,
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .map_err(|e| format!("cannot run gh: {e}"))?;
         let read = move |stdout| read_at_most(stdout, limit);

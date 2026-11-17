@@ -41,6 +41,7 @@ fn request<'a>(
         set,
         terminal,
         pass_fd: None,
+        args_logged: true,
     }
 }
 
@@ -477,6 +478,7 @@ mod passed {
             set: &[],
             terminal: None,
             pass_fd: Some(PassedFd::new(writer.as_fd())),
+            args_logged: true,
         })
         .unwrap();
         drop(writer);

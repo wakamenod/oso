@@ -45,6 +45,9 @@ pub struct Start {
     /// Lines, at most `limits::SCROLLBACK_MAX`.
     pub scrollback: usize,
     pub palette: Palette,
+    /// Whether the spawn's log line gives the arguments' text: false for a hosted agent
+    /// session's, which carry its name, brief and instructions (ADR 0145).
+    pub args_logged: bool,
 }
 
 /// `Terminal::send`, `send_key`, `send_pointer` or `paste` refused input: 16 MiB wait to be
