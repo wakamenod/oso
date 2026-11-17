@@ -91,6 +91,11 @@ under [Questions](#questions), which the text below describes. The new public it
   the preview says `may hold secrets` in the annotation's face, and draws nothing of the buffer. So
   moving through the list never puts such a buffer on the screen, and nothing of ADR 0044, 0063
   and 0079's withholding turns on for it.
+- **The selected row's bar ends at the column that divides them,** as drawn above, so that it
+  marks no line of the preview, where the hollow cursor marks the place; the answer's row, above
+  the preview, keeps it across the float. ADR 0076's bar "across the whole panel" holds where no
+  preview shows. (As built, the bar had gone across the preview too until 2026-11-17, which read
+  as the preview's lines being shifted from the row selected.)
 - **A narrow frame gives up the preview:** when the list would get fewer than 20 columns, the list
   takes the whole width. A short frame gives up rows as ADR 0076 says.
 - `C-x C-f` (ADR 0087) and `M-x` have no preview.
