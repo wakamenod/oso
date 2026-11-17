@@ -180,3 +180,4 @@ fn a_shape_refuses_hunks_out_of_order_or_misnumbered() {
 
 mod comments;
 mod readings;
+mod saved;

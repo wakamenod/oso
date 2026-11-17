@@ -30,17 +30,18 @@ mod decision;
 mod map;
 mod marks;
 mod rows;
+mod saved;
 mod shape;
 
 pub use carry::{Applied, Carried, Carry};
 pub use comment::{
     Anchor, Author, Comment, CommentError, CommentId, MAX_COMMENT_BYTES, MAX_COMMENTS,
-    MAX_KEPT_LINE,
 };
 pub use decision::Decision;
 pub use map::{BaseHunk, LineMap, base_pair};
 pub(crate) use rows::Place;
 pub use rows::{Row, RowKind, Rows, Section, Seek};
+pub use saved::{RestoreError, Saved, SavedComment, SavedFile};
 pub use shape::{Base, Hunk, Shape, ShapeError, Side};
 
 use carry::Item;
@@ -78,6 +79,9 @@ struct PathState {
     added: u64,
     /// Counts changes to the marks, so marks changed since a snapshot are carried in its place.
     remarked: u64,
+    /// The current reading was restored from a saved review and no reading was applied since:
+    /// the next one marks no hunk changed (step 6, Q-J).
+    restored: bool,
 }
 
 /// A file's current reading, its hunks' hashes and the person's mark on each hunk.
@@ -155,6 +159,7 @@ impl Review {
             items,
             marked,
             unseen: false,
+            restored: state.is_some_and(|state| state.restored),
             hasher: self.hasher.clone(),
             readings: state.map_or(0, |state| state.readings),
             added: state.map_or(0, |state| state.added),
@@ -188,11 +193,17 @@ impl Review {
                     hashes: &reading.hashes,
                     marks: &reading.marks,
                 };
-                decision::carry_marks(&from, to.hunks(), &carried.hashes)
+                let (mut marks, dropped) =
+                    decision::carry_marks(&from, to.hunks(), &carried.hashes);
+                if state.restored {
+                    decision::clear_changed(&mut marks);
+                }
+                (marks, dropped)
             }
             _ => (carried.marks, carried.dropped),
         };
         state.readings += 1;
+        state.restored = false;
         for (id, placement) in carried.placed {
             let Some(comment) = self.comments.get_mut(&id) else {
                 continue;

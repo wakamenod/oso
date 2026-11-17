@@ -5537,6 +5537,31 @@ impl core::hash::Hash for oso_core::review::Decision
 pub fn oso_core::review::Decision::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::review::Decision
 impl core::marker::StructuralPartialEq for oso_core::review::Decision
+pub enum oso_core::review::RestoreError
+pub oso_core::review::RestoreError::IdTooLarge
+pub oso_core::review::RestoreError::IdTooLarge::id: oso_core::review::CommentId
+pub oso_core::review::RestoreError::Marks
+pub oso_core::review::RestoreError::Marks::file: usize
+pub oso_core::review::RestoreError::NoParent
+pub oso_core::review::RestoreError::NoParent::id: oso_core::review::CommentId
+pub oso_core::review::RestoreError::NotInReading
+pub oso_core::review::RestoreError::NotInReading::id: oso_core::review::CommentId
+pub oso_core::review::RestoreError::SameFile
+pub oso_core::review::RestoreError::SameFile::file: usize
+pub oso_core::review::RestoreError::SameId
+pub oso_core::review::RestoreError::SameId::id: oso_core::review::CommentId
+pub oso_core::review::RestoreError::TooLong
+pub oso_core::review::RestoreError::TooLong::id: oso_core::review::CommentId
+pub oso_core::review::RestoreError::TooManyComments
+impl core::clone::Clone for oso_core::review::RestoreError
+pub fn oso_core::review::RestoreError::clone(&self) -> oso_core::review::RestoreError
+impl core::cmp::Eq for oso_core::review::RestoreError
+impl core::cmp::PartialEq for oso_core::review::RestoreError
+pub fn oso_core::review::RestoreError::eq(&self, &oso_core::review::RestoreError) -> bool
+impl core::fmt::Debug for oso_core::review::RestoreError
+pub fn oso_core::review::RestoreError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::review::RestoreError
+impl core::marker::StructuralPartialEq for oso_core::review::RestoreError
 pub enum oso_core::review::RowKind
 pub oso_core::review::RowKind::Card
 pub oso_core::review::RowKind::Card::comment: oso_core::review::CommentId
@@ -5734,6 +5759,9 @@ pub fn oso_core::review::Review::seen(&mut self, &[u8], usize) -> bool
 pub fn oso_core::review::Review::set_viewed(&mut self, &[u8], usize, bool) -> bool
 pub fn oso_core::review::Review::take_released(&mut self) -> alloc::vec::Vec<alloc::sync::Arc<oso_core::review::Shape>>
 pub fn oso_core::review::Review::viewed(&self, &[u8], usize) -> bool
+impl oso_core::review::Review
+pub fn oso_core::review::Review::restore(oso_core::review::Saved) -> core::result::Result<oso_core::review::Review, oso_core::review::RestoreError>
+pub fn oso_core::review::Review::save(&self) -> oso_core::review::Saved
 impl core::clone::Clone for oso_core::review::Review
 pub fn oso_core::review::Review::clone(&self) -> oso_core::review::Review
 impl core::default::Default for oso_core::review::Review
@@ -5768,6 +5796,41 @@ impl core::default::Default for oso_core::review::Rows
 pub fn oso_core::review::Rows::default() -> oso_core::review::Rows
 impl core::fmt::Debug for oso_core::review::Rows
 pub fn oso_core::review::Rows::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::review::Saved
+pub oso_core::review::Saved::comments: alloc::vec::Vec<oso_core::review::SavedComment>
+pub oso_core::review::Saved::files: alloc::vec::Vec<oso_core::review::SavedFile>
+pub oso_core::review::Saved::next_id: u64
+impl core::clone::Clone for oso_core::review::Saved
+pub fn oso_core::review::Saved::clone(&self) -> oso_core::review::Saved
+impl core::default::Default for oso_core::review::Saved
+pub fn oso_core::review::Saved::default() -> oso_core::review::Saved
+impl core::fmt::Debug for oso_core::review::Saved
+pub fn oso_core::review::Saved::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::review::SavedComment
+pub oso_core::review::SavedComment::anchor: oso_core::review::Anchor
+pub oso_core::review::SavedComment::author: oso_core::review::Author
+pub oso_core::review::SavedComment::id: u64
+pub oso_core::review::SavedComment::outdated: bool
+pub oso_core::review::SavedComment::path: alloc::sync::Arc<[u8]>
+pub oso_core::review::SavedComment::read: bool
+pub oso_core::review::SavedComment::reply_to: core::option::Option<u64>
+pub oso_core::review::SavedComment::resolved: bool
+pub oso_core::review::SavedComment::sent: bool
+pub oso_core::review::SavedComment::shape: core::option::Option<alloc::sync::Arc<oso_core::review::Shape>>
+pub oso_core::review::SavedComment::text: alloc::sync::Arc<str>
+impl core::clone::Clone for oso_core::review::SavedComment
+pub fn oso_core::review::SavedComment::clone(&self) -> oso_core::review::SavedComment
+impl core::fmt::Debug for oso_core::review::SavedComment
+pub fn oso_core::review::SavedComment::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::review::SavedFile
+pub oso_core::review::SavedFile::dropped: usize
+pub oso_core::review::SavedFile::marks: alloc::vec::Vec<(core::option::Option<oso_core::review::Decision>, bool)>
+pub oso_core::review::SavedFile::path: alloc::boxed::Box<[u8]>
+pub oso_core::review::SavedFile::shape: alloc::sync::Arc<oso_core::review::Shape>
+impl core::clone::Clone for oso_core::review::SavedFile
+pub fn oso_core::review::SavedFile::clone(&self) -> oso_core::review::SavedFile
+impl core::fmt::Debug for oso_core::review::SavedFile
+pub fn oso_core::review::SavedFile::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::review::Section
 impl oso_core::review::Section
 pub fn oso_core::review::Section::lines(&self) -> usize
@@ -5802,7 +5865,6 @@ pub fn oso_core::review::Shape::fmt(&self, &mut core::fmt::Formatter<'_>) -> cor
 impl core::marker::StructuralPartialEq for oso_core::review::Shape
 pub const oso_core::review::MAX_COMMENTS: usize
 pub const oso_core::review::MAX_COMMENT_BYTES: usize
-pub const oso_core::review::MAX_KEPT_LINE: usize
 pub fn oso_core::review::base_pair<'a>(&'a oso_core::review::Shape, &'a oso_core::review::Shape) -> core::option::Option<(&'a [u8], &'a [u8])>
 pub mod oso_core::rope
 pub struct oso_core::rope::Chunks<'a>

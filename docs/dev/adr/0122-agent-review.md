@@ -692,8 +692,10 @@ answered its questions (a), then those of its reviews:
    line, and that case is not ported.
 3. **A commented line is compared whole.** This changes the rule in "Comments and re-anchoring":
    in memory, a comment keeps the reading its line is in (the one it was last placed in), and
-   its line there is compared with the line it is carried to, on the worker. The first 4 KiB, the
-   length and a hash of the rest (`MAX_KEPT_LINE`) are only what a saved review keeps (step 6).
+   its line there is compared with the line it is carried to, on the worker. **A saved review
+   keeps its readings' lines whole too (step 6, Q-E (a)), in place of the first 4 KiB, the
+   length and a hash of the rest planned here:** oso-core has no stable hash, and one written
+   for it could be forged by whoever reads the file. `MAX_KEPT_LINE` went with it.
 4. **Removing a comment removes its replies.** The person removes any comment; an agent removes
    only its own, and is refused when a reply is the person's. Both edit only their own comments.
    **An agent resolves or reopens** only its own comment, and only while no reply in its thread
@@ -1213,6 +1215,49 @@ What it built:
   key asks for and where it refuses; progress; the marks on the headers and their drop; and an
   end-to-end flow that views, accepts, undoes, refuses a new file, rejects with unsaved edits
   after the question, and undoes the reject.
+
+### Step 6: the files pane, the filter and persistence
+
+Step 6 lands in two PRs, as the author chose: persistence first, then the files pane and the
+filter. The author approved the plan's public items and answered its questions (a) on
+2026-11-17, through the coordinator:
+
+- **Q-A:** in the files pane, `RET` shows the file in the review and selects it, `SPC` shows it
+  and stays, with `n`/`p`, `/`, `g`, `s` or `q` and `?`; decisions are made in the review only.
+- **Q-B:** the files pane is 40 columns wide, resized as any window.
+- **Q-C:** the filter's words, separated by spaces, must all match, each by a file's path or
+  its comments' text, case-insensitive unless the word holds an upper-case letter.
+- **Q-D:** the filter applies on `RET`.
+- **Q-E:** a saved review keeps its readings' lines whole, within its 16 MiB; past them the
+  largest readings go first, and their comments come back outdated. **This changes step 1's
+  item 3.**
+- **Q-F:** a file whose name or open buffer may hold secrets keeps only its comments' places
+  and texts, and they come back outdated.
+- **Q-G:** leaving oso and `C-x k` no longer ask about unsent comments once the saved review
+  holds them, and ask as before when it could not be written.
+- **Q-H:** a restart opens again the reviews its windows showed, the project's trust checked
+  first; the windows left over, a pair's second and the files pane's, are closed and made
+  again by the review's own layout, so no `pair_windows` (step 10's item 7).
+- **Q-I:** a fresh start opens no review by itself: opening the same scope, or
+  `review-resume`, brings a saved one back.
+- **Q-J:** the first readings of a review brought back mark no hunk ` · changed`.
+- **Q-K:** `review-forget` removes a saved review at once, besides the 30-day sweep and the cap.
+- **Q-L:** two instances with one review open: the last write wins.
+
+What the first PR built:
+
+- **The model's part** (`oso_core::review::saved`): `Review::save` gives a `Saved`, plain data
+  of the files whose current reading holds a mark or a comment, or a dropped count, each as a
+  `SavedFile` (path, reading, each hunk's decision and viewed mark, dropped count), and every
+  comment as a `SavedComment` with every state, its id as a number, and the reading its anchor
+  is in, all by reference. `Review::restore` builds a review back from one, checked whole, and
+  refuses with `RestoreError` what no review saves: too many comments, a text too long, an id
+  used twice or not below the next, a reply whose parent is missing, newer or on another file,
+  an anchor its reading does not show, a comment not outdated off its file's current reading,
+  a file twice, or marks not as many as the hunks. A restored review holds the saved readings
+  as its current ones, so its first refresh carries them as any refresh does, and that first
+  carry marks no hunk changed (Q-J). The person's comments come back read, and a file keeps at
+  most 16 earlier readings, its newest comments'.
 
 ### Step 8: documents no buffer owns
 
