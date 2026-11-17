@@ -437,3 +437,24 @@ fn changes_found_merged_leave_ready_for_review() {
         [State::Idle]
     );
 }
+
+#[test]
+#[cfg(unix)]
+fn the_look_for_stranded_sessions_runs_apart_and_finds_a_gone_worktrees() {
+    use crate::sessions::identity::SessionId;
+    let scratch = std::env::temp_dir().join(format!(
+        "oso-stranded-apart-{}-{:?}",
+        std::process::id(),
+        Instant::now()
+    ));
+    fs::create_dir_all(scratch.join("repo/.git")).unwrap();
+    let id = SessionId::from_random([3; 16]);
+    let gone = scratch.join("repo/.claude/worktrees/gone");
+    let candidates = vec![(id.clone(), gone, scratch.join("repo"))];
+    assert_eq!(
+        crate::sessions::worker::stranded_apart(candidates),
+        vec![id]
+    );
+    assert!(crate::sessions::worker::stranded_apart(Vec::new()).is_empty());
+    let _ = fs::remove_dir_all(&scratch);
+}

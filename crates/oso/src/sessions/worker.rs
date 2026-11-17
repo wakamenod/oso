@@ -102,6 +102,23 @@ pub enum Job {
     Flush(SyncSender<()>),
 }
 
+/// What the worker recalled as oso starts: the sessions an earlier oso remembered, as read,
+/// and the spaces kept with them, or made from them when no spaces were kept (`migrated`), with
+/// ids for new spaces (ADR 0136).
+#[derive(Debug, PartialEq, Eq)]
+pub struct Recalled {
+    pub sessions: Vec<super::record::Remembered>,
+    pub spaces: Vec<super::spaces::Stored>,
+    pub migrated: bool,
+    /// Whether the `spaces` file could be read, or was missing: if not, sessions are placed
+    /// in this instance only, and keep the spaces their record names.
+    pub readable: bool,
+    pub fresh: Vec<super::spaces::SpaceId>,
+    /// The sessions among them a worktree removal left behind, for the app to archive
+    /// ([`super::record::stranded`], ADR 0121).
+    pub stranded: Vec<super::identity::SessionId>,
+}
+
 /// What the issue spaces ask of the worker (ADR 0136): to be kept, ids for new ones, and what
 /// the space commands look up on the disk.
 #[derive(Debug)]
@@ -177,16 +194,8 @@ pub enum Out {
     /// this rule the longest: said once for each set of rules.
     Slow(String),
     /// The sessions an earlier oso remembered, as read, and the spaces kept with them, or made
-    /// from them when no spaces were kept (`migrated`), with ids for new spaces (ADR 0136).
-    Recalled {
-        sessions: Vec<super::record::Remembered>,
-        spaces: Vec<super::spaces::Stored>,
-        migrated: bool,
-        /// Whether the `spaces` file could be read, or was missing: if not, sessions are placed
-        /// in this instance only, and keep the spaces their record names.
-        readable: bool,
-        fresh: Vec<super::spaces::SpaceId>,
-    },
+    /// from them when no spaces were kept (ADR 0136).
+    Recalled(Recalled),
     /// Ids for new spaces, as asked.
     SpaceIds(Vec<super::spaces::SpaceId>),
     /// Space `id`'s directory was made, or why not, and its members' devices and inodes.
@@ -336,6 +345,34 @@ fn probe_apart(probe: SpaceJob, out: &Arc<dyn Fn(Out) + Send + Sync>) {
     if let Err(e) = spawned {
         log::warn!("a space's look at the disk cannot start: {e}");
     }
+}
+
+/// How long the start waits for [`stranded_apart`]'s look: past it, no session is taken as
+/// stranded this time, so a mount that does not answer never holds the recall, nor the jobs
+/// after it (ADR 0121, "Removal archives its sessions").
+const STRANDED_WAIT: Duration = Duration::from_millis(250);
+
+/// [`record::stranded`](super::record::stranded) on a thread of its own, waited for at most
+/// [`STRANDED_WAIT`]: past it, or with no thread, none, and the log says so. The thread of a
+/// look that does not answer is left to end.
+fn stranded_apart(candidates: Vec<super::record::Candidate>) -> Vec<super::identity::SessionId> {
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+    let (send, answer) = mpsc::sync_channel(1);
+    let spawned = thread::Builder::new()
+        .name("oso-sessions-stranded".into())
+        .spawn(move || {
+            let _ = send.send(super::record::stranded(&candidates));
+        });
+    if let Err(e) = spawned {
+        log::warn!("the look for sessions a removed worktree left cannot start: {e}");
+        return Vec::new();
+    }
+    answer.recv_timeout(STRANDED_WAIT).unwrap_or_else(|_| {
+        log::warn!("the look for sessions a removed worktree left took over {STRANDED_WAIT:?}");
+        Vec::new()
+    })
 }
 
 /// Hands the screens in the slot to `core`, emptying it.

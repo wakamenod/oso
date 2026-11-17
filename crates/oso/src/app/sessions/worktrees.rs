@@ -38,6 +38,7 @@ use crate::sessions::worktree::checks::{Held, HostedSession};
 use crate::sessions::worktree::create::Handover;
 use crate::sessions::worktree::jobs::{Jobs, Report, Snapshot, Trust};
 use crate::sessions::worktree::list::{Row, RowText, Shown};
+pub(super) use removal::{archived_note, sessions_counted};
 
 /// The name of the buffer a brief is written in.
 const BRIEF: &str = "*Brief*";

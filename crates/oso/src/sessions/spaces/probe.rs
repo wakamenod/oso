@@ -16,6 +16,13 @@ use super::stored::{Member, unique};
 /// How many names a space's directory is tried under: its own, then `-2` and on.
 const TRIES: usize = 32;
 
+/// Whether `dir` is a repository's main checkout, as far as its `.git` tells: a directory, the
+/// person's own. Another user's repository is none of the person's.
+pub fn holds_repository(dir: &Path) -> bool {
+    fs::symlink_metadata(dir.join(".git"))
+        .is_ok_and(|meta| meta.is_dir() && crate::project::ours(&meta))
+}
+
 /// The directory under `root` in which spaces' instructions are kept, in oso's state
 /// directory, never in a space's own.
 const INSTRUCTIONS: &str = "space-instructions";

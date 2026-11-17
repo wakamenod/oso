@@ -843,7 +843,12 @@ The UI thread never blocks on I/O or parsing:
     on a thread of its own, `oso-sessions-remove`, so that a kill never leaves a worktree half
     removed (ADR 0121, "Worktree removal, as fixed"). A removal holds its worktree until git
     ends, and at most 4 run at once. The person's `worktree-remove-stop`
-    (`app/sessions/worktrees/stop.rs`) stops one through the jobs' `Removals`.
+    (`app/sessions/worktrees/stop.rs`) stops one through the jobs' `Removals`. Once git removed
+    it, `App::forget_removed_worktree` archives the sessions that were in it
+    (`hosted::Table::archive_under`); as oso starts, the sessions worker finds the records a
+    gone worktree left behind (`sessions::record::stranded`, on its own `oso-sessions-stranded`
+    thread, waited for at most 250 ms) and the app archives them (ADR
+    0121, "Removal archives its sessions, as amended").
   - Each job takes the project's trust when it is asked for (`jobs::Trust`), checks it again
     before it runs, and refuses a repository whose main checkout is not trusted too. What
     touches the disk, the new worktree's trust included, is made on the job's thread.

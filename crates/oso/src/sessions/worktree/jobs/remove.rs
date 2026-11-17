@@ -445,7 +445,10 @@ fn removing(
 /// What a removal stopped in git left at `path`: nothing, as git may have finished first; the
 /// worktree half removed; or that without its `.git`, where git finds the main repository.
 fn left_after_stop(path: &Path) -> Result<(), String> {
-    if std::fs::symlink_metadata(path).is_err() {
+    // Only a directory not found is gone: one that cannot be looked at may still be there,
+    // and a removal that ends well archives its sessions (ADR 0121).
+    let gone = std::fs::symlink_metadata(path);
+    if gone.is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
         return Ok(());
     }
     if std::fs::symlink_metadata(path.join(".git")).is_err() {

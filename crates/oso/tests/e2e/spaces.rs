@@ -173,6 +173,99 @@ fn remembered_sessions_become_spaces_of_one_repository_that_a_restart_keeps() {
     flow.exit_with(0);
 }
 
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_start_archives_the_sessions_a_gone_worktree_left_under_its_main_checkout() {
+    let flow = Flow::new("spaces-stranded", "");
+    let repo = fs::canonicalize(&flow.repo).unwrap();
+    // What an earlier oso remembered: a session at the main checkout, one in a worktree that
+    // was removed, and one in a directory gone from under no repository.
+    let gone = repo.join(".claude/worktrees/gone");
+    let elsewhere = fs::canonicalize(flow.scratch.path()).unwrap().join("moved");
+    let state = state_dir(&flow.repo);
+    fs::create_dir_all(&state).unwrap();
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o700)).unwrap();
+    let in_repo = |n: u8, name: &str, place: &Path| {
+        let line = session_line(n, name, place);
+        line.replace(
+            &format!(r#""root":"{}""#, place.display()),
+            &format!(r#""root":"{}""#, repo.display()),
+        )
+    };
+    let lines = [
+        in_repo(1, "primary", &repo),
+        in_repo(2, "stranded", &gone),
+        session_line(3, "elsewhere", &elsewhere),
+    ];
+    let record = state.join("sessions");
+    fs::write(&record, lines.join("\n") + "\n").unwrap();
+    fs::set_permissions(&record, fs::Permissions::from_mode(0o600)).unwrap();
+
+    let mut app = flow.start_again();
+    let found = app.wait_for("the stranded session archived", |state| {
+        archived(state, "stranded") == Some(true)
+    });
+    assert_eq!(archived(&found, "primary"), Some(false), "{found}");
+    assert_eq!(archived(&found, "elsewhere"), Some(false), "{found}");
+    app.send_keys(&format!("C-x b {} RET", keys("*Messages*")));
+    app.wait_for("*Messages*", |state| {
+        state["buffer"]["name"] == "*Messages*"
+    });
+    let line = "Archived 1 session: its directory is gone from under a repository";
+    super::worktrees::text_until(&mut app, "the archive's line", |lines| {
+        lines.iter().any(|text| text == line)
+    });
+    // The record keeps it archived, so that a restart neither brings it back nor counts it.
+    wait_for_sessions(&flow, "the archived session", |sessions| {
+        sessions
+            .iter()
+            .any(|s| s["name"] == "stranded" && s["archived"] == true)
+    });
+    let _ = app.exchange("exit", None);
+    app.wait_for_exit();
+
+    let mut again = flow.start_again();
+    let back = again.wait_for("the recalled sessions", |state| {
+        archived(state, "primary").is_some()
+    });
+    assert_eq!(archived(&back, "stranded"), Some(true), "{back}");
+    again.send_keys(&format!("C-x b {} RET", keys("*Messages*")));
+    again.wait_for("*Messages*", |state| {
+        state["buffer"]["name"] == "*Messages*"
+    });
+    let lines = super::worktrees::text_until(&mut again, "*Messages*", |lines| !lines.is_empty());
+    assert!(
+        !lines.iter().any(|text| text.starts_with("Archived ")),
+        "{lines:?}"
+    );
+}
+
+/// Whether the session named `name` is archived, in the dev state.
+fn archived(state: &Value, name: &str) -> Option<bool> {
+    super::worktrees::session_archived(state, name)
+}
+
+/// Waits until the sessions record in the flow's state directory holds what `holds` looks for.
+fn wait_for_sessions(flow: &Flow, what: &str, holds: impl Fn(&[Value]) -> bool) {
+    let place = state_dir(&flow.repo).join("sessions");
+    let started = Instant::now();
+    loop {
+        let sessions: Vec<Value> = fs::read_to_string(&place)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect();
+        if holds(&sessions) {
+            return;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "no {what} in the sessions record after 30s"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// The space of this name in the dev state, if there is one.
 pub(super) fn space<'a>(state: &'a Value, name: &str) -> Option<&'a Value> {
     state["sessions"]["spaces"]

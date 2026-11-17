@@ -42,13 +42,20 @@ fn recall(directory: Option<&Path>) -> Out {
             spaces::migrate::from_sessions(&mut sessions, &mut ids, spaces::stored::now_ms())
         }
     };
-    Out::Recalled {
+    // What a worktree removal left behind under the spaces' repositories (ADR 0121).
+    // Only the repositories a session is under are looked at, on a thread of their own.
+    let roots = spaces.iter().flat_map(|space| &space.members);
+    let roots = roots.map(|member| member.root.as_path());
+    let candidates = crate::sessions::record::stranded_candidates(&sessions, roots);
+    let stranded = super::stranded_apart(candidates);
+    Out::Recalled(super::Recalled {
         sessions,
         spaces,
         migrated,
         readable,
         fresh: space_ids(FRESH_SPACE_IDS),
-    }
+        stranded,
+    })
 }
 
 /// Whether `job` looks at the disk for a space command, which a thread of its own does

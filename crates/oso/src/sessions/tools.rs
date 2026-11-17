@@ -492,7 +492,7 @@ pub fn resumable(session: Resumable) -> Result<(), &'static str> {
         return Err("that session runs already");
     }
     if session.archived {
-        return Err("the person archived that session; only they resume it");
+        return Err("that session is archived; only the person resumes it");
     }
     if session.orchestrator {
         return Err("that is an orchestrator of your space; only the person resumes it");

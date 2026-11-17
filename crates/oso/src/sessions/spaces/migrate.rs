@@ -91,11 +91,7 @@ fn repository_of(place: &Path, places: &[PathBuf]) -> PathBuf {
     else {
         return place.to_owned();
     };
-    // Another user's repository is none of the person's.
-    let holds_repository = |dir: &Path| {
-        fs::symlink_metadata(dir.join(".git"))
-            .is_ok_and(|meta| meta.is_dir() && crate::project::ours(&meta))
-    };
+    let holds_repository = super::probe::holds_repository;
     let above = place
         .ancestors()
         .skip(1)

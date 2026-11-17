@@ -269,6 +269,26 @@ impl Table {
             .any(|(_, pending, _)| oso_core::project::same_place(pending, directory))
     }
 
+    /// Archives the sessions not archived yet whose directory is `path` or under it, as a
+    /// removal of the worktree at `path` does once git removed it (ADR 0121, "Removal archives
+    /// its sessions"): those that do not run, and those that run still only as oso hung them
+    /// up, as `hung_up` says of each key. Gives their ids.
+    pub fn archive_under(
+        &mut self,
+        path: &Path,
+        hung_up: impl Fn(SessionKey) -> bool,
+    ) -> Vec<SessionId> {
+        self.sessions
+            .iter_mut()
+            .filter(|session| !session.archived && session.directory.starts_with(path))
+            .filter(|session| !session.runs() || hung_up(session.key))
+            .map(|session| {
+                session.archived = true;
+                session.id.clone()
+            })
+            .collect()
+    }
+
     /// The sessions, in the order they came.
     pub fn all(&self) -> &[Hosted] {
         &self.sessions
@@ -629,6 +649,37 @@ mod tests {
         });
         assert_eq!(kept.as_deref(), Some(table.get(key).unwrap().name.as_str()));
         assert_eq!(answered.try_recv(), Ok(true));
+    }
+
+    #[test]
+    fn a_removal_archives_the_sessions_in_and_under_its_worktree_that_do_not_run() {
+        let mut table = Table::default();
+        let at = add(&mut table, 1, "/r/wt/a", "at");
+        let under = add(&mut table, 2, "/r/wt/a/crates/x", "under");
+        let sibling = add(&mut table, 3, "/r/wt/a-2", "sibling");
+        let primary = add(&mut table, 4, "/r", "primary");
+        let running = add(&mut table, 5, "/r/wt/a", "running");
+        let hung_up = add(&mut table, 6, "/r/wt/a", "hung");
+        let before = add(&mut table, 7, "/r/wt/a", "before");
+        for key in [at, under, sibling, primary, before] {
+            table.get_mut(key).unwrap().run = Run::Stopped;
+        }
+        for key in [running, hung_up] {
+            table.get_mut(key).unwrap().run = Run::Running { child: Some(9) };
+        }
+        table.get_mut(before).unwrap().archived = true;
+        let ids = table.archive_under(Path::new("/r/wt/a"), |key| key == hung_up);
+        let id = |key| table.get(key).unwrap().id.clone();
+        assert_eq!(ids, vec![id(at), id(under), id(hung_up)]);
+        let archived = |key| table.get(key).unwrap().archived;
+        assert!(archived(at) && archived(under) && archived(hung_up));
+        assert!(!archived(sibling), "a sibling with the same prefix stays");
+        assert!(!archived(primary), "the main checkout above stays");
+        assert!(!archived(running), "one that runs, not hung up, stays");
+        assert!(
+            archived(before),
+            "one archived before stays archived, not counted"
+        );
     }
 
     #[test]
