@@ -23,10 +23,16 @@ supported.
 
 ```sh
 cargo build --locked -p oso --features dev
-RUST_LOG=oso=debug,wgpu=warn ./target/debug/oso > "$SCRATCH/oso.log" 2>&1 &
+OSO_STATE_DIR="$SCRATCH/state" RUST_LOG=oso=debug,wgpu=warn \
+  ./target/debug/oso > "$SCRATCH/oso.log" 2>&1 &
 echo $! > "$SCRATCH/oso.pid"
 ```
 
+- `OSO_STATE_DIR` keeps the instance's state out of the person's (ADR 0146): the sessions
+  it remembers, its spaces, emergency copies and reviews. Without it, a session the check
+  starts, adopts or forks lands in the person's own record. Set `XDG_CONFIG_HOME` (`APPDATA`
+  on Windows) to a scratch directory too when the check needs a configuration of its own,
+  and `CLAUDE_CONFIG_DIR` when it needs transcripts of its own.
 - `$SCRATCH` is your scratchpad directory. Start the binary directly, not
   through `cargo run`, so the PID you record is the app's.
 - Run it in the background. The window opens on the user's screen and may

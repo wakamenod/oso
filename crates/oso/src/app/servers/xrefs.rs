@@ -100,7 +100,7 @@ impl App {
             AskKind::Definition => XrefKind::Definitions,
             AskKind::References => XrefKind::References,
             // Completions are no places, and a description goes to its float: neither comes here.
-            AskKind::Completion | AskKind::Hover => return,
+            AskKind::Completion | AskKind::Resolve | AskKind::Hover => return,
         };
         let Some(running) = self.servers.running.get(index) else {
             return;

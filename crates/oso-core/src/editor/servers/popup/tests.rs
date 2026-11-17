@@ -28,12 +28,15 @@ fn item(label: &str, range: Option<Range<usize>>) -> CompletionPopupItem {
         filter: None,
         text: label.into(),
         range,
+        extra: Vec::new(),
     }
 }
 
 fn answer(editor: &Editor, items: Vec<CompletionPopupItem>) -> CompletionPopupAnswer {
     let at = editor.ask_at();
     CompletionPopupAnswer {
+        serial: 1,
+        incomplete: false,
         at,
         revision: at.revision,
         items,
@@ -54,6 +57,8 @@ fn an_answer_opens_the_popup_over_the_word_matched_and_a_stale_one_does_not() {
     let mut editor = editing("let x = fo", 10);
     let items = vec![item("foo", None), item("bar", None), item("format", None)];
     let stale = CompletionPopupAnswer {
+        serial: 1,
+        incomplete: false,
         at: AskAt {
             offset: 3,
             ..editor.ask_at()

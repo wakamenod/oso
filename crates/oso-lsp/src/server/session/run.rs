@@ -45,6 +45,18 @@ pub(super) struct Run {
     pub(super) encoding: crate::position::Encoding,
     /// How the server wants documents synced, once `initialize` said.
     pub(super) sync: protocol::Sync,
+    /// It resolves completions, as `initialize` said (step 9b).
+    pub(super) resolves: bool,
+    /// The items of the last completions it gave, as it gave them, for their resolve (9b).
+    pub(super) last_items: Option<LastItems>,
+}
+
+/// The items of a document's last completions, as the server gave them: the document's id, the
+/// completions' ask's serial, and the items in the answer's order.
+pub(super) struct LastItems {
+    pub(super) document: u64,
+    pub(super) serial: u64,
+    pub(super) items: Vec<Value>,
 }
 
 impl Run {

@@ -54,6 +54,25 @@ pub fn state_home() -> Option<PathBuf> {
     backend::state_home_from(&|name| std::env::var_os(name))
 }
 
+/// The variable that names oso's own state directory in place of [`state_home`]'s `oso`
+/// (ADR 0146): for an instance whose state must not be the person's, such as a dev build in a
+/// check or the end-to-end flows. Honoured on every system and in every build.
+pub const STATE_DIR_VARIABLE: &str = "OSO_STATE_DIR";
+
+/// oso's own state directory: `$OSO_STATE_DIR` when it is set and an absolute path, else
+/// [`state_home`]'s `oso` (ADR 0146). Asks the environment and not the disk.
+pub fn state_dir() -> Option<PathBuf> {
+    state_dir_from(&|name| std::env::var_os(name))
+}
+
+/// [`state_dir`], asking `var` for the environment's variables.
+fn state_dir_from(var: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
+    match var(STATE_DIR_VARIABLE).map(PathBuf::from) {
+        Some(dir) if dir.is_absolute() => Some(dir),
+        _ => Some(backend::state_home_from(var)?.join("oso")),
+    }
+}
+
 /// The per-user directory for caches, what may be deleted at any time: `$XDG_CACHE_HOME` or
 /// `~/.cache`, `~/Library/Caches` on macOS, and `%LOCALAPPDATA%` on Windows. Only an absolute
 /// value counts. Asks the environment and not the disk.
@@ -326,10 +345,56 @@ pub(crate) fn whole_parent_list_problem(entries: &[AccessEntry]) -> Option<DirPr
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessEntry, DirProblem, ancestor_is_safe, check_dir, list_stops_making,
-        list_stops_the_way, list_stops_writing, own_list_problem, parent_is_safe,
-        parent_list_problem, way_list_problem,
+        AccessEntry, DirProblem, STATE_DIR_VARIABLE, ancestor_is_safe, check_dir,
+        list_stops_making, list_stops_the_way, list_stops_writing, own_list_problem,
+        parent_is_safe, parent_list_problem, state_dir_from, way_list_problem,
     };
+
+    /// An environment of `vars`, by name.
+    fn env(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<std::ffi::OsString> + use<> {
+        let vars: Vec<(String, String)> = vars
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+            .collect();
+        move |name| {
+            vars.iter()
+                .find(|(set, _)| set == name)
+                .map(|(_, value)| value.into())
+        }
+    }
+
+    #[test]
+    fn the_state_directory_is_the_variables_when_absolute() {
+        let absolute = if cfg!(windows) {
+            r"C:\\scratch\\state"
+        } else {
+            "/scratch/state"
+        };
+        let home = if cfg!(windows) {
+            r"C:\\Users\\me"
+        } else {
+            "/home/me"
+        };
+        let given = env(&[
+            (STATE_DIR_VARIABLE, absolute),
+            ("HOME", home),
+            ("LOCALAPPDATA", home),
+        ]);
+        assert_eq!(state_dir_from(&given), Some(absolute.into()));
+        // A relative one would name a place in the directory oso started in.
+        let relative = env(&[
+            (STATE_DIR_VARIABLE, "state"),
+            ("HOME", home),
+            ("LOCALAPPDATA", home),
+        ]);
+        let fallback = state_dir_from(&relative).unwrap();
+        assert!(
+            fallback.ends_with("oso") && fallback.starts_with(home),
+            "{fallback:?}"
+        );
+        let unset = env(&[("HOME", home), ("LOCALAPPDATA", home)]);
+        assert_eq!(state_dir_from(&unset), Some(fallback));
+    }
 
     const NOTHING: AccessEntry = AccessEntry {
         allows: false,

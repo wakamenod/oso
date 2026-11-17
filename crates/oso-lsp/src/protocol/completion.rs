@@ -19,8 +19,9 @@ use serde_json::{Value, json};
 
 use crate::json::{array, integer_in, string};
 use crate::limits::{
-    COMPLETION_ITEMS_MAX, DETAIL_BYTES_MAX, INSERT_TEXT_BYTES_MAX, LABEL_BYTES_MAX,
-    SORT_TEXT_BYTES_MAX,
+    ADDITIONAL_EDITS_BYTES_MAX, ADDITIONAL_EDITS_MAX, COMPLETION_ITEMS_MAX, DETAIL_BYTES_MAX,
+    EXTRA_EDIT_LINES_MAX, INSERT_TEXT_BYTES_MAX, LABEL_BYTES_MAX, SORT_TEXT_BYTES_MAX,
+    TRIGGERS_MAX,
 };
 use crate::position::Position;
 
@@ -39,6 +40,107 @@ pub struct Offered {
     pub range: Option<(Position, Position)>,
     /// The text it inserts: its edit's, else its `insertText`, else its label.
     pub text: String,
+    /// Its `additionalTextEdits`, as the server counts their ranges (step 9b).
+    pub extra: Vec<Extra>,
+}
+
+/// An edit a completion makes besides its own, such as rust-analyzer's added `use` line: its
+/// range as the server counts it, and its text.
+pub type Extra = (Position, Position, String);
+
+/// What a server says of its completions in `initialize`'s result (step 9b): the characters
+/// that ask for them at once, each one character, and whether it resolves an item.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Completing {
+    pub triggers: Vec<char>,
+    pub resolves: bool,
+}
+
+/// What `initialize`'s result says of completion: no trigger characters and no resolve for a
+/// server that says nothing of it.
+pub fn completing(result: &Value) -> Completing {
+    let provider = (result.get("capabilities"))
+        .and_then(|capabilities| capabilities.get("completionProvider"))
+        .filter(|provider| provider.is_object());
+    let Some(provider) = provider else {
+        return Completing::default();
+    };
+    let triggers = (provider.get("triggerCharacters"))
+        .and_then(|triggers| array(triggers, TRIGGERS_MAX))
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|trigger| {
+            let mut chars = trigger.as_str()?.chars();
+            let first = chars.next()?;
+            // One printable character, which typing can give.
+            (chars.next().is_none() && !first.is_control() && !first.is_whitespace())
+                .then_some(first)
+        })
+        .collect();
+    Completing {
+        triggers,
+        resolves: provider.get("resolveProvider") == Some(&Value::Bool(true)),
+    }
+}
+
+/// The edits `value`, an `additionalTextEdits` list, makes: at most
+/// [`ADDITIONAL_EDITS_MAX`], with at most [`ADDITIONAL_EDITS_BYTES_MAX`] of text in all, each
+/// replacing at most [`EXTRA_EDIT_LINES_MAX`] lines. A list past any, or one whose text holds a
+/// control character other than a tab or a line feed, gives none: a part of it could leave the
+/// text broken.
+pub fn extra_edits(value: Option<&Value>) -> Vec<Extra> {
+    let Some(given) = value.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    if given.len() > ADDITIONAL_EDITS_MAX {
+        return Vec::new();
+    }
+    let mut bytes = 0usize;
+    let mut edits = Vec::with_capacity(given.len());
+    for edit in given {
+        let Some(((start, end), text)) = edit
+            .get("range")
+            .and_then(range_of)
+            .zip(edit.get("newText").and_then(Value::as_str))
+        else {
+            return Vec::new();
+        };
+        bytes += text.len();
+        let lines = end.line.saturating_sub(start.line);
+        if bytes > ADDITIONAL_EDITS_BYTES_MAX || has_controls(text) || lines > EXTRA_EDIT_LINES_MAX
+        {
+            return Vec::new();
+        }
+        edits.push((start, end, text.to_owned()));
+    }
+    edits
+}
+
+/// Whether `text` holds a control character other than a tab or a line feed.
+fn has_controls(text: &str) -> bool {
+    text.chars()
+        .any(|c| c.is_control() && c != '\t' && c != '\n')
+}
+
+/// The items of `result`, a completion answer, at `at`, taken out of it as the server gave them,
+/// for their resolve.
+pub fn take_items(result: Value, at: &[usize]) -> Vec<Value> {
+    let mut items = match result {
+        Value::Array(items) => items,
+        Value::Object(mut list) => match list.remove("items") {
+            Some(Value::Array(items)) => items,
+            _ => return Vec::new(),
+        },
+        _ => return Vec::new(),
+    };
+    at.iter()
+        .map(|&at| items.get_mut(at).map(Value::take).unwrap_or_default())
+        .collect()
+}
+
+/// The edits `result`, a resolved `CompletionItem`, makes besides its own.
+pub fn resolved(result: &Value) -> Vec<Extra> {
+    extra_edits(result.get("additionalTextEdits"))
 }
 
 impl Offered {
@@ -60,6 +162,8 @@ impl Offered {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CompletionList {
     pub items: Vec<Offered>,
+    /// Where each item was in the answer's list, for its `completionItem/resolve` (step 9b).
+    pub at: Vec<usize>,
     pub incomplete: bool,
     pub left: usize,
 }
@@ -81,16 +185,20 @@ pub fn completed(result: &Value) -> CompletionList {
         };
     };
     let kept = array(items, COMPLETION_ITEMS_MAX).unwrap_or_default();
-    let mut read: Vec<(Option<String>, Offered)> = kept.iter().filter_map(one).collect();
+    let mut read: Vec<(Option<String>, Offered, usize)> = (kept.iter().enumerate())
+        .filter_map(|(at, value)| one(value).map(|(sort, item)| (sort, item, at)))
+        .collect();
     let left = given.len() - read.len();
     // The server's order: by `sortText`, else the label, then as they came.
-    read.sort_by(|(a, first), (b, second)| {
+    read.sort_by(|(a, first, _), (b, second, _)| {
         let a = a.as_deref().unwrap_or(&first.label);
         let b = b.as_deref().unwrap_or(&second.label);
         a.cmp(b)
     });
+    let at = read.iter().map(|(_, _, at)| *at).collect();
     CompletionList {
-        items: read.into_iter().map(|(_, item)| item).collect(),
+        items: read.into_iter().map(|(_, item, _)| item).collect(),
+        at,
         incomplete,
         left,
     }
@@ -127,11 +235,7 @@ fn one(value: &Value) -> Option<(Option<String>, Offered)> {
         Some(edit) => text_of(edit.get("newText")).filter(|_| range.is_some())?,
         None => text_of(value.get("insertText")).unwrap_or(&label),
     };
-    if text.len() > INSERT_TEXT_BYTES_MAX
-        || text
-            .chars()
-            .any(|c| c.is_control() && c != '\t' && c != '\n')
-    {
+    if text.len() > INSERT_TEXT_BYTES_MAX || has_controls(text) {
         return None;
     }
     let text = if snippet {
@@ -148,6 +252,7 @@ fn one(value: &Value) -> Option<(Option<String>, Offered)> {
             filter,
             range,
             text,
+            extra: extra_edits(value.get("additionalTextEdits")),
         },
     ))
 }
@@ -272,10 +377,25 @@ pub fn kind_name(kind: u8) -> &'static str {
     }
 }
 
-/// The parameters of `textDocument/completion` at `position` in `uri`, asked by the person.
-pub fn completion_params(uri: &str, position: Position) -> Value {
+/// Why completions are asked for, as the protocol's `triggerKind` (step 9b): invoked, by the
+/// person's `C-M-i` or typing that rested, one of the server's trigger characters typed, or
+/// typing on in a list the server said is incomplete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Invoked {
+    #[default]
+    Invoked,
+    Character(char),
+    Incomplete,
+}
+
+/// The parameters of `textDocument/completion` at `position` in `uri`, asked as `invoked` says.
+pub fn completion_params(uri: &str, position: Position, invoked: Invoked) -> Value {
     let mut params = super::position_params(uri, position);
-    params["context"] = json!({"triggerKind": 1});
+    params["context"] = match invoked {
+        Invoked::Invoked => json!({"triggerKind": 1}),
+        Invoked::Character(c) => json!({"triggerKind": 2, "triggerCharacter": c.to_string()}),
+        Invoked::Incomplete => json!({"triggerKind": 3}),
+    };
     params
 }
 

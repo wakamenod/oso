@@ -3,6 +3,8 @@
 //! buffer keeps open and narrows, and a server's description at point (step 10), which then
 //! closes for good, the command running as it always does; a key no keymap binds, a menu and
 //! the mouse close each.
+//! After a command, the popup follows its word, and the person's typing is noted for
+//! completing by itself (step 9b).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 
@@ -20,6 +22,17 @@ pub(super) fn close_all(editor: &mut Editor) {
 }
 
 impl Dispatcher {
+    /// After command `id` ran, `ran` well: the completion popup follows the word, and the
+    /// person's own typing is noted, which may ask for completions (ADR 0138, step 9b): never
+    /// the agent's, a replayed macro's or a host's.
+    pub(super) fn after_command(&self, editor: &mut Editor, id: CommandId, ran: bool) {
+        editor.follow_completion_popup();
+        let typed = ran && !self.not_input && !editor.macro_replaying() && !editor.runs_for_agent();
+        if typed && self.keymaps.self_insert == Some(id) {
+            editor.note_completion_typed();
+        }
+    }
+
     /// Before command `id` runs: each layer it is not one of the commands of closes, and a
     /// command run apart closes `C-x TAB`'s and the popup.
     pub(super) fn close_transient_layers(&self, editor: &mut Editor, id: CommandId, step: Step) {

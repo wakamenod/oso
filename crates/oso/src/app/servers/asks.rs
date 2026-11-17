@@ -15,7 +15,7 @@
 use oso_core::buffer::BufferId;
 use oso_core::editor::AskAt;
 use oso_core::window::WindowId;
-use oso_lsp::server::{Answer, Answered, Ask, AskKind, State};
+use oso_lsp::server::{Answer, Answered, Ask, AskContext, AskKind, State};
 
 use super::super::App;
 use crate::channel::Connection;
@@ -27,7 +27,16 @@ pub(super) struct Asker {
     window: WindowId,
     revision: u64,
     offset: usize,
-    agent: Option<Connection>,
+    who: Who,
+}
+
+/// Who asked: the person, the agent's connection whose command ran, or the host by itself, for
+/// the person's typing, of which nothing is said when it finds nothing or fails (step 9b).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Who {
+    Person,
+    Agent(Connection),
+    Host,
 }
 
 impl Asker {
@@ -36,9 +45,17 @@ impl Asker {
         self.serial
     }
 
+    /// Whether the host asked by itself, so that nothing is said of no answer.
+    pub(super) fn quiet(&self) -> bool {
+        self.who == Who::Host
+    }
+
     /// The agent's connection whose command asked, if the agent's did.
     pub(super) fn agent(&self) -> Option<Connection> {
-        self.agent
+        match self.who {
+            Who::Agent(connection) => Some(connection),
+            Who::Person | Who::Host => None,
+        }
     }
 
     /// Where it asked about `asked`, as the editor judges an answer against it.
@@ -47,7 +64,7 @@ impl Asker {
             buffer: asked,
             revision: self.revision,
             offset: self.offset,
-            agent: self.agent.is_some(),
+            agent: matches!(self.who, Who::Agent(_)),
         }
     }
 }
@@ -63,8 +80,26 @@ impl App {
         let Some(index) = self.server_to_ask(at.buffer) else {
             return;
         };
+        let who = agent.map_or(Who::Person, Who::Agent);
+        // The person's `C-M-i` invokes completions; places take no context.
+        let context = match kind {
+            AskKind::Completion => AskContext::Completion(oso_lsp::protocol::Invoked::Invoked),
+            AskKind::Definition | AskKind::References | AskKind::Resolve | AskKind::Hover => {
+                AskContext::None
+            }
+        };
+        self.send_ask(index, (at, kind, context), who);
+    }
+
+    /// Sends server `index` the ask of `kind` at `at` with `context`, and keeps `who` asked.
+    pub(super) fn send_ask(
+        &mut self,
+        index: usize,
+        (at, kind, context): (AskAt, AskKind, AskContext),
+        who: Who,
+    ) {
         // A newer ask for places stops the list that waits for its rows (step 8b).
-        if kind != AskKind::Completion
+        if matches!(kind, AskKind::Definition | AskKind::References)
             && let Some(old) = self.servers.xrefs.stop_waiting()
         {
             self.freer.free(old);
@@ -78,13 +113,14 @@ impl App {
             kind,
             revision: at.revision,
             offset: at.offset,
+            context,
         });
         let asker = Asker {
             serial,
             window: self.editor.window().id(),
             revision: at.revision,
             offset: at.offset,
-            agent,
+            who,
         };
         self.servers.running[index]
             .asked
@@ -142,8 +178,14 @@ impl App {
             Ok(Answered::Places(places)) => places,
             Ok(Answered::Completion(completions)) => {
                 match taken {
-                    Some(taken) => self.completed(taken, completions),
+                    Some(taken) => self.completed(index, taken, completions),
                     None => self.freer.free(completions),
+                }
+                return;
+            }
+            Ok(Answered::Resolved(resolved)) => {
+                if taken.is_some() {
+                    self.resolved(resolved);
                 }
                 return;
             }
@@ -151,6 +193,7 @@ impl App {
             Ok(_) => return,
             Err(why) => {
                 if let Some((asked, asker)) = taken
+                    && !asker.quiet()
                     && self.still_there(asked, &asker)
                 {
                     let name = self.servers.running[index].entry.name.clone();
@@ -204,7 +247,7 @@ impl App {
             && self.editor.prompt().is_none()
             && self.editor.isearch().is_none()
             && asker
-                .agent
+                .agent()
                 .is_none_or(|connection| self.agent_connected(connection))
     }
 }
