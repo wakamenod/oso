@@ -563,8 +563,9 @@ impl Editor {
     }
 
     /// What a review buffer's modeline says after its mode, `Review`, into `out`: how many agent
-    /// comments are unread and how far a reading is. Nothing for another buffer. Costs a look at
-    /// each comment.
+    /// comments are unread, how far a reading is and how far the person is, each after a gap,
+    /// as the fields after the state are. Nothing for another buffer. Costs a look at each
+    /// comment.
     pub(super) fn review_status_into(&self, buffer: BufferId, out: &mut String) {
         use std::fmt::Write as _;
         let Some(open) = self.reviews.holding(buffer) else {
@@ -576,10 +577,10 @@ impl Editor {
             .filter(|comment| comment.author() != Author::Person && !comment.is_read())
             .count();
         if unread > 0 {
-            let _ = write!(out, "{unread} unread  ");
+            let _ = write!(out, "  {unread} unread");
         }
         if let Some((read, listed)) = open.reading {
-            let _ = write!(out, "reading {read}/{listed}  ");
+            let _ = write!(out, "  reading {read}/{listed}");
         }
         // How far the person is (ADR 0122, step 5).
         let (decided, viewed, hunks) = open.review.progress();
@@ -587,7 +588,7 @@ impl Editor {
             let noun = if hunks == 1 { "hunk" } else { "hunks" };
             let _ = write!(
                 out,
-                "{decided} of {hunks} {noun} decided, {viewed} viewed  "
+                "  {decided} of {hunks} {noun} decided, {viewed} viewed"
             );
         }
     }
