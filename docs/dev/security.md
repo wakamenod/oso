@@ -742,6 +742,15 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   holds is judged off the UI thread by where its path really leads, links and all, as the
   loader judges a buffer's, so that a project's `conf.ts` linked to a credentials file gives
   nothing. `state`'s counts follow the same check.
+- `state`'s `list` (ADR 0138, step 15) gives the agent the list of a server's places or of a
+  project's diagnostics that the person has open, as a frame shows it: the rows shown and the
+  preview's lines, at most the float's rows and 256 bytes a line. It gives nothing while a
+  buffer that may hold secrets is shown, and never what the person typed. A row of a file whose
+  name may hold secrets, or of a buffer the channel may not read, gives its path and line only,
+  and the preview of one is withheld; the rows' paths and texts are escaped as a server's text
+  is. The preview's lines are what the person sees, as `text` gives a buffer's rows; a file
+  outside the project shows as the person sees it, as the reader withholds those that may hold
+  secrets. The agent still opens no such list itself.
 - `*Session explain*` shows
   screen text and is withheld from the agent channel, which can neither read it nor switch to
   it; what the channel's commands say or kill while it is shown stays out of its reach.

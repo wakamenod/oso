@@ -538,7 +538,8 @@ Every bound lives in `oso-lsp`'s `limits`:
 - **An agent never opens the float** (step 8's Q5): its `M-.` goes to the first of several
   definitions and says `1 of 3`, and its `M-?` is refused, as a float is the person's, and an
   agent cannot read one: `References are listed in a float, which only the person reads; search
-  the project with your own tools`, as `oso mcp` has no search tool (step 8b's Q7).
+  the project with your own tools`, as `oso mcp` has no search tool (step 8b's Q7). Since step
+  15 the agent reads the list the person has open in `state`, and the refusal says so.
 - **The `diagnostics` tool** takes a buffer or `project`, and gives at most 500 entries: the path,
   line and column (1-based, in characters), the severity, the message (2 KiB at most), the source
   and the code. ADR 0121's `@diagnostics` mention reads the same. `state` gains each buffer's
@@ -656,6 +657,8 @@ Later, after these, each with its own decisions put to the author first:
     `applied: false` only then.
 14. **Rename,** as `eglot-rename`: the new name read in a prompt, and the edits across files
     shown before they apply.
+15. **Agents see the person's lists:** `state` gives the list of places or of diagnostics the
+    person has open, as a frame shows it, so that an agent can look at what the person sees.
 
 ## Questions
 
@@ -883,7 +886,8 @@ gains `amended by 0138`.
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), the channel's methods and `oso mcp`'s tools: and
   `diagnostics`, a read tool like `text`; `state` gains each followed buffer's `server` and
   `diagnostics`, and its version goes to 3, as ADR 0118 bumped it for a buffer's new field
-  rather than keeping it as ADR 0103 has it (step 11).
+  rather than keeping it as ADR 0103 has it (step 11); a prompt that is such a list gains
+  `list`, and the version goes to 4 (step 15).
 - [ADR 0121](0121-agent-sessions-and-spaces.md), "`@diagnostics` … (M4)" and "`session-fix-error`
   (`Person`): the diagnostic at point, its 20 lines around": both are built (its Q5), as
   `session-send-diagnostics` and `session-fix-error`, the latter with the 10 lines either side,
@@ -2167,3 +2171,51 @@ As the author chose at step 13's questions (Q3, Q4, Q5), and approved this step'
 - **From this step's reviews:** a held buffer is judged again once the edit is placed, at the revision it had, so a change during the question or the loads refuses it; where a file really leads, links followed, must be in the project too; a file opened for the edit is judged as the agent channel's open judges one (`app/loads/opened.rs`): not there, of another name or open under another name refuses it, and what the edit opened then goes; a buffer still opening for the agent is not edited; a file in a `.git` directory is refused, and the question names the first files; each opens at most 8 MiB, and a buffer of another name or a directory is never shown for it; the token of a `workspace/applyEdit` is the session's, across runs, so no answer reaches another run, and the session names the edit by the action's title; an edit whose server ended goes, and one that waits for its question refuses a newer one, so no `y` answers another; and a command after its action's edit is asked at the next sync, once the edit went to the server.
 - **Public API:** `oso-lsp`: `protocol::Acting::commands` (`Acting` is no longer `Copy`), `protocol::execute_command_params`, `limits::COMMANDS_MAX`, `AskKind::ExecuteCommand`, `Answered::Executed`, `server::ApplyEdit`, `Report::apply_edits` and `Server::answer_apply_edit`. `oso-core`: `ServerRequest::ConfirmCodeAction`.
 - **Tests:** in `oso-lsp`, the declared commands within their bounds and a command's parameters; against the fake server, a declared command run with its arguments and its `workspace/applyEdit` answered once the UI does, one not declared refused, and one outside a command refused with why; and the end-to-end flow `a_code_action_opens_a_file_after_a_yes_and_a_command_s_edit_applies`.
+
+### Step 15: agents see the person's lists
+
+The author asked on 2026-11-17 that an agent can look at the lists of a server's work the person
+has open, after a preview looked wrong to them and no agent could see it, and chose the first
+choice on each of this step's questions: the rows a frame shows, not every row (Q1); the rows
+even while the person narrows them, but never what was typed (Q2); the preview's lines as drawn
+(Q3); a file outside the project as the person sees it, unless it may hold secrets or only the
+person reads it (Q4); the agent's own asks unchanged, its `M-?` refusal pointing at `state`
+(Q5); `M-g d`'s list too (Q6); `STATE_VERSION` 3 to 4 (Q7); and one pull request (Q8). The
+public items were approved with the plan.
+
+- **`oso-core`** (`editor/servers/listed_view.rs`): `Editor::listed_view` gives the innermost
+  prompt, if it lists definitions, references or a project's diagnostics, as a frame shows it
+  (`ListedView`): what it lists (`ListedOf`), how many rows match of how many, whether its rows
+  were cut or have yet to come, the rows shown (`ListedRow`: the path as the row shows it and
+  whole, the line, the rest of the row, and the open buffer it is in now) and which is
+  selected, and the preview (`ListedPreview`): withheld, nothing, or the lines from the one the
+  preview starts at, numbered as in the file, with the selected row's place among them. Each
+  line is at most `LISTED_LINE_BYTES` (256), cut at a character; only that much of a long line
+  is copied. A file's excerpt now keeps the line of its file it starts with, so that its lines
+  are numbered as the file's, and the list of places keeps what it lists and the bytes of each
+  row's path.
+- **The channel** (`channel/state/list.rs`): the innermost prompt's entry in `state` gains
+  `list`: `of` (`definitions`, `references` or `diagnostics`), `server` (the list of places'
+  server, none for diagnostics, which are every server's), `count`, `total`, `cut`, `pending`,
+  `rows` (`path`, `line` and `text`), `selected`, and `preview` (`kind` `buffer` or `file` with
+  `first_line`, `at` and `lines`, or `withheld`). What is withheld:
+  - all of it while a buffer that may hold secrets is shown;
+  - what the person typed, always;
+  - a row's text, if its file's name may hold secrets or its buffer is one the channel may not
+    read (`unreadable`), and the preview, if that row is selected or the preview's buffer is
+    such a one;
+  - the rows' paths and texts are escaped as a server's text is (`server_text`); the
+    preview's lines are as `text` gives a buffer's rows.
+  `STATE_VERSION` goes to 4, and the `state` tool's description says what `list` holds.
+- **The agent's own `M-?`** is still refused: `References are listed in a float, which only the
+  person opens; `state` gives one the person has open, and your own tools search the project`.
+- **Changes to this ADR:** "an agent cannot read one" in "What agents may do": it reads the one
+  the person has open.
+- **Public API:** `oso-core`: `editor::{ListedView, ListedRow, ListedPreview, ListedOf,
+  LISTED_LINE_BYTES}` and `Editor::listed_view`. The tip's `channel::state::state` takes the
+  list's server beside `server_of`.
+- **Tests:** in `oso-core`, a list of references split into its rows with the selected one's
+  lines, a file's row with the lines read for it numbered as in its file, a list of
+  diagnostics' rows, a long line cut at a character, and none for another prompt; in the
+  channel, the `list` of references and of diagnostics, and each withheld case; and the
+  end-to-end flow `an_agent_reads_the_list_of_references_the_person_has_open`.

@@ -67,7 +67,8 @@ the servers did. `M-x lsp-restart` starts the buffer's server again, `M-x lsp-sh
 until `M-x lsp-start`, and untrusting the project stops it. In a buffer a server follows,
 `M-.` goes to the definition at point, `M-,` goes back, and `C-M-,` forward again; each window
 keeps its own history. With several definitions, and for `M-?`, the references, a list opens,
-each row `path:line: text` with a preview of its place; `RET` goes there. A file outside any
+each row `path:line: text` with a preview of its place; `RET` goes there. An agent can look at
+the list you have open, its rows and the preview's lines, but never opens one itself. A file outside any
 project that they lead to, such as the standard library's, joins the server until its buffer is
 killed. `C-M-i` completes the word before point in a popup under it, as Corfu does, and so does
 typing three letters of a word and pausing, or one of the server's characters such as `.`: typing
