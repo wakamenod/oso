@@ -124,7 +124,7 @@ impl App {
         let edited: std::collections::HashSet<Vec<u8>> = (self.editor.buffers())
             .filter(|(_, buffer)| buffer.is_modified())
             .filter_map(|(_, buffer)| buffer.path()?.strip_prefix(root).ok())
-            .filter_map(super::git_bytes)
+            .filter_map(crate::git::name_of)
             .collect();
         if edited.is_empty() {
             return None;
@@ -245,7 +245,7 @@ impl App {
                 shown.is_secret()
                     && (shown.path())
                         .and_then(|path| path.strip_prefix(root.path()).ok())
-                        .and_then(super::git_bytes)
+                        .and_then(crate::git::name_of)
                         .is_some_and(|bytes| bytes == entry.path)
             });
             let index = self.git_repo(project, &root);
@@ -265,7 +265,7 @@ impl App {
                 && shown.path().is_some_and(|path| {
                     path.strip_prefix(root.path())
                         .ok()
-                        .and_then(super::git_bytes)
+                        .and_then(crate::git::name_of)
                         .is_some_and(|bytes| bytes == entry.path)
                 })
         });
@@ -355,7 +355,7 @@ mod tests {
     #[test]
     fn a_path_is_compared_as_git_names_it() {
         assert_eq!(
-            super::super::git_bytes(std::path::Path::new("src/a.rs")),
+            crate::git::name_of(std::path::Path::new("src/a.rs")),
             Some(b"src/a.rs".to_vec())
         );
     }

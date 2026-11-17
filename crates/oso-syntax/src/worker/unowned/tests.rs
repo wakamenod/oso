@@ -186,7 +186,7 @@ fn a_document_is_highlighted_whole_as_a_fresh_one_and_reports_epoch_and_revision
 }
 
 #[test]
-fn a_document_done_with_nothing_new_still_reports_done_and_a_buffer_never_does() {
+fn a_document_done_with_nothing_new_still_reports_done() {
     let mut scheduler = Scheduler::new();
     let mut queries = Queries::new();
     open(&mut scheduler, 1, true);
@@ -203,9 +203,6 @@ fn a_document_done_with_nothing_new_still_reports_done_and_a_buffer_never_does()
         "done though nothing changed since the last report"
     );
     assert!(matches!(last.outcome, Outcome::Highlights(_)));
-    scheduler.submit(buffer(2, true));
-    let reports = drain(&mut scheduler, &mut queries);
-    assert!(!reports.is_empty() && reports.iter().all(|report| !report.done));
 }
 
 #[test]

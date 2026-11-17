@@ -20,7 +20,7 @@ use super::pool::Pool;
 use super::{MOST_RUNS_COMPARED, Orders, Syntax, Taken, changed};
 
 /// A visited file at `path`, judged where it leads, holding `text`.
-fn visited(path: &str, text: &str) -> Buffer {
+pub(super) fn visited(path: &str, text: &str) -> Buffer {
     let path = PathBuf::from(path);
     let mut buffer = Buffer::visiting(path.clone());
     buffer.judge_secret(Some(&[path]));
@@ -28,7 +28,7 @@ fn visited(path: &str, text: &str) -> Buffer {
     buffer
 }
 
-fn editor_with(buffer: Buffer) -> (Editor, BufferId) {
+pub(super) fn editor_with(buffer: Buffer) -> (Editor, BufferId) {
     let mut editor = Editor::with_buffer(Buffer::from_text("*scratch*", ""));
     let id = editor.add_buffer(buffer);
     editor.show(id);
@@ -36,7 +36,7 @@ fn editor_with(buffer: Buffer) -> (Editor, BufferId) {
     (editor, id)
 }
 
-fn edit(editor: &mut Editor, id: BufferId, at: usize, text: &str) {
+pub(super) fn edit(editor: &mut Editor, id: BufferId, at: usize, text: &str) {
     editor
         .apply_edits(
             id,
@@ -179,8 +179,10 @@ fn a_report_is_taken_and_a_failure_stops_the_buffer_and_names_only_it() {
     let shown = Taken {
         redraw: true,
         message: None,
+        taken: true,
     };
     assert_eq!(syntax.take(&mut editor, report), shown);
+    assert!(!syntax.is_whole(id, job.revision), "not done");
     let buffer = editor.buffer(id).unwrap();
     assert_eq!(buffer.highlights().unwrap().at(0), Some(Highlight::Keyword));
     let failed = Report {

@@ -22,10 +22,13 @@
 mod cells;
 mod draft;
 mod kept;
+mod leftover;
 mod menu;
 mod panes;
 mod places;
 mod request;
+
+pub use leftover::ReviewLeftover;
 
 use std::collections::BTreeSet;
 
@@ -154,66 +157,6 @@ impl Reviews {
                     .as_ref()
                     .is_some_and(|panes| panes.buffers.contains(&buffer))
         })
-    }
-}
-
-/// What putting in a review's text or paint left over: the rows, highlights and text it
-/// replaced or did not take. They may be large, so the host frees them off the UI thread.
-#[must_use = "free it off the UI thread"]
-pub struct ReviewLeftover {
-    rows: Option<Rows>,
-    highlights: Option<Highlights>,
-    text: Option<Box<Reloaded>>,
-    /// What a pane's text left over, for the two panes.
-    panes: Vec<ReviewLeftover>,
-    /// The rows of panes dropped since the last leftover.
-    spare: Vec<Rows>,
-}
-
-impl ReviewLeftover {
-    /// Nothing left over yet.
-    fn none() -> ReviewLeftover {
-        ReviewLeftover {
-            rows: None,
-            highlights: None,
-            text: None,
-            panes: Vec::new(),
-            spare: Vec::new(),
-        }
-    }
-
-    fn of(rows: Rows, highlights: Highlights, text: Option<Reloaded>) -> ReviewLeftover {
-        ReviewLeftover {
-            rows: Some(rows),
-            highlights: Some(highlights),
-            text: text.map(Box::new),
-            panes: Vec::new(),
-            spare: Vec::new(),
-        }
-    }
-}
-
-#[cfg(test)]
-impl ReviewLeftover {
-    /// Whether it holds rows, highlights and a text.
-    pub(crate) fn holds(&self) -> (bool, bool, bool) {
-        (
-            self.rows.is_some(),
-            self.highlights.is_some(),
-            self.text.is_some(),
-        )
-    }
-}
-
-impl std::fmt::Debug for ReviewLeftover {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ReviewLeftover")
-            .field("rows", &self.rows.is_some())
-            .field("highlights", &self.highlights.is_some())
-            .field("text", &self.text.is_some())
-            .field("panes", &self.panes)
-            .field("spare", &self.spare.len())
-            .finish()
     }
 }
 
@@ -442,16 +385,12 @@ impl Editor {
         rows: Rows,
         highlights: Highlights,
     ) -> Result<ReviewLeftover, ReviewLeftover> {
-        let buffer = self
+        let Some(buffer_id) = self
             .review_buffer(id)
-            .and_then(|id| Some((id, self.buffer(id)?)));
-        let Some((buffer_id, buffer)) = buffer else {
+            .filter(|buffer| self.paint_covers(*buffer, &rows, &highlights))
+        else {
             return Err(ReviewLeftover::of(rows, highlights, None));
         };
-        let lines = buffer.text().max_point().row + 1;
-        if rows.lines() + 1 < lines || highlights.len() != buffer.text().len() {
-            return Err(ReviewLeftover::of(rows, highlights, None));
-        }
         Ok(ReviewLeftover {
             highlights: self.put_review_highlights(buffer_id, highlights),
             rows: self.put_review_rows(id, rows),
@@ -460,8 +399,22 @@ impl Editor {
         })
     }
 
+    /// Whether `rows` cover the lines of `buffer`, a review buffer or a pane, and `highlights`
+    /// its text, as a paint for a text that did not change must.
+    pub(super) fn paint_covers(
+        &self,
+        buffer: BufferId,
+        rows: &Rows,
+        highlights: &Highlights,
+    ) -> bool {
+        self.buffer(buffer).is_some_and(|shown| {
+            let lines = shown.text().max_point().row + 1;
+            rows.lines() + 1 >= lines && highlights.len() == shown.text().len()
+        })
+    }
+
     /// Puts in a review buffer's highlights, returning the ones before, or these if refused.
-    fn put_review_highlights(
+    pub(super) fn put_review_highlights(
         &mut self,
         buffer: BufferId,
         highlights: Highlights,
@@ -482,7 +435,7 @@ impl Editor {
     }
 
     /// The rows of the review `id`'s panes dropped since, for a leftover to free.
-    fn take_spare_rows(&mut self, id: ReviewId) -> Vec<Rows> {
+    pub(super) fn take_spare_rows(&mut self, id: ReviewId) -> Vec<Rows> {
         self.reviews
             .get_mut(id)
             .map(|open| std::mem::take(&mut open.spare))

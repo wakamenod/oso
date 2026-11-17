@@ -536,8 +536,8 @@ fn syntax(state: &Value) -> bool {
     state["buffer"]["syntax"] == true
 }
 
-/// A review's sides are highlighted once read (ADR 0122, step 9), and `global-font-lock-mode`
-/// turns that off and on, as it does a buffer's. Which line takes which run is the view's
+/// A review's sides are highlighted once read (ADR 0122, step 9), in its panes too, and
+/// `global-font-lock-mode` turns that off and on, as it does a buffer's. Which line takes which run is the view's
 /// unit tests'.
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
@@ -553,4 +553,10 @@ fn a_reviews_sides_are_highlighted_and_font_lock_turns_that_off_and_on() {
         app.state()["buffer"]["name"],
         "*review: uncommitted proj-review*"
     );
+    // `|`: the new side's pane is highlighted too.
+    app.send_keys("|");
+    app.wait_for("the new pane highlighted", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review \u{b7} new*" && syntax(state)
+    });
+    app.send_keys("|");
 }
