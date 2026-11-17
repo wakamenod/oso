@@ -210,7 +210,7 @@ fn lines_of(out: &mut String, hunk: &Hunk, at: Option<usize>) {
 }
 
 /// A line's text without its ending, at most [`MAX_LINE_CHARS`] characters.
-pub(crate) fn line_text(line: &[u8]) -> String {
+fn line_text(line: &[u8]) -> String {
     let line = line.strip_suffix(b"\n").unwrap_or(line);
     let line = line.strip_suffix(b"\r").unwrap_or(line);
     // No character takes more than 4 bytes, so what is shown is in these, however long the

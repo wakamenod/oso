@@ -297,9 +297,12 @@ network features.
   agent (step 6b) are read again when the person asks, shown in `*review message*` under the
   untrusted line before anything is pasted, every line quoted or fenced and escaped; only the
   person's and the repository's owners', members' and collaborators' comments go in by default,
-  the pull request's author no more than another. A log is read only of a GitHub Actions job of
-  the repository itself, by the run and job its link names, at most 8 a message, each within
-  10 s and 4 MiB. An issue's brief (step 5b-1) is its text
+  the pull request's author no more than another, and a fork's logs are left out; `C-c C-t`
+  takes them in above the end of what GitHub said, never among the person's words. Every line is
+  escaped as the display boxes it, bidi and invisible characters too, so the preview shows all
+  that is pasted. A secret-named file's hunk is not sent. A log is read only of a GitHub Actions
+  job of the repository itself, by the run and job its link names, at most 8 a message, each
+  within 10 s and 4 MiB. An issue's brief (step 5b-1) is its text
   under the line that tells the agent it is data, every line escaped, cut at 64 KiB, with only
   the comments of its author, of the login `gh` is logged in as and of the repository's owners,
   members and collaborators, each line quoted so that none passes for oso's or the person's, a

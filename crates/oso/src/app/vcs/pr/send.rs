@@ -11,6 +11,7 @@ use oso_core::project::ProjectId;
 
 use super::super::super::App;
 use super::Shows;
+use crate::commands::agent_sessions::MAX_SEND_BYTES;
 use crate::git::printable;
 use crate::vcs::pr::send::Pick;
 use crate::vcs::pr::work::{PrRequest, PrSent};
@@ -21,8 +22,8 @@ impl App {
     pub(super) fn pr_send(&mut self, index: usize, act: PrAct, row: PrRow) {
         let view = &self.gits.prs.views[index];
         let (buffer, project, built) = (view.buffer, view.project, &view.built);
-        let number = match (view.shows, &built.pull) {
-            (Shows::Pull(_), Some((number, _))) => *number,
+        let (number, url) = match (view.shows, &built.pull) {
+            (Shows::Pull(_), Some((number, url))) => (*number, url.clone()),
             _ => {
                 return self.editor.message(
                     "In a pull request's buffer, x and X send its checks, c and C its threads",
@@ -55,12 +56,18 @@ impl App {
             (PrAct::SendUnresolved, _) => Pick::Unresolved,
             _ => return,
         };
+        // One message waits at a time: none is read while one does.
+        if self.show_waiting_message() {
+            return;
+        }
         self.gits.prs.generation += 1;
         let generation = self.gits.prs.generation;
         let request = PrRequest::Send {
             generation,
             number,
+            url,
             pick,
+            limit: MAX_SEND_BYTES,
         };
         if self.ask_pr(project, request).is_some() {
             self.gits.prs.send_asked = Some((generation, buffer));

@@ -1,14 +1,16 @@
 //! A repository's thread for `gh`, `oso-vcs-gh` (ADR 0127, step 5a): it reads the pull request
 //! of the branch checked out for the status's head line, one pull request with its checks and
 //! review threads, and the open ones, lays out their texts, and opens a pull request's address;
-//! from step 5b-1 the same for issues ([`issue`]).
+//! from step 5b-1 the same for issues ([`issue`]), and from step 6b what a message for an agent
+//! session is made of ([`send`]).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
 //! takes reports out, and supplies the wake-up.
 //!
 //! - It starts only from a [`TrustedRoot`], looks at the root before each request, and finds
-//!   git as the status's thread does; git only says which branch is checked out, which remote
-//!   it pushes to and that remote's address.
+//!   git as the status's thread does; git says which branch is checked out, which remote it
+//!   pushes to and that remote's address, what a pull request starts from ([`create`]), and
+//!   which worktree holds a pull request's head ([`send`]).
 //! - `gh` is [`Gh`]'s: run in the empty private directory, never in the repository, about the
 //!   repository on `github.com` or the host `GH_HOST` names that the remote's address names
 //!   (Q2), one request at a time, each run killed past [`GH_LIMIT`]. A remote elsewhere is said,
@@ -95,7 +97,11 @@ pub(crate) enum PrRequest {
     Send {
         generation: u64,
         number: u64,
+        /// Its address, as the buffer read it: an answer of another one is refused.
+        url: String,
         pick: Pick,
+        /// The most bytes of the message, with what it leaves out.
+        limit: usize,
     },
 }
 
@@ -346,10 +352,12 @@ fn answer(
         PrRequest::Send {
             generation,
             number,
+            url,
             pick,
+            limit,
         } => PrReport::Sent {
             generation,
-            sent: send::send(found, &target, number, &pick).map(Box::new),
+            sent: send::send(found, &target, (number, &url), &pick, limit).map(Box::new),
         },
         PrRequest::Draft { generation, base } => PrReport::Drafted {
             generation,

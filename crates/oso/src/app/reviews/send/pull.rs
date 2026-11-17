@@ -8,8 +8,9 @@
 //!   it runs and the pull request's buffer is shown, else the hosted session in the worktree
 //!   its head branch is checked out in (Q4). With none, the message stays, as a review's does.
 //! - The comments of others than the person and the repository's owners, members and
-//!   collaborators are left out (Q13, amended); `C-c C-t` adds them to the message's end,
-//!   quoted, keeping what the person wrote (Q2).
+//!   collaborators are left out (Q13, amended), as a fork's logs are; `C-c C-t` takes them in,
+//!   quoted, above the end of what GitHub said, so that they stay in GitHub's part and what the
+//!   person wrote stays theirs (Q2).
 //! - Nothing on GitHub is marked: the message is dropped once pasted.
 
 use std::path::PathBuf;
@@ -20,32 +21,27 @@ use oso_core::project::ProjectId;
 use super::super::super::App;
 use super::{NAME, Origin, Waiting};
 use crate::sessions::worker::SessionKey;
+use crate::vcs::pr::send::take_in;
 use crate::vcs::pr::work::PrSent;
 
-/// What a pull request's message was made from.
+/// What a message of a pull request's checks or threads was made from.
 #[derive(Clone, Debug)]
 pub(super) struct FromPull {
     pub(super) project: ProjectId,
     pub(super) number: u64,
     /// The worktree its head branch is checked out in, if one holds its head.
     worktree: Option<PathBuf>,
-    /// The comments left out, in the message's shape, for `C-c C-t`.
+    /// What was left out, in the message's shape, for `C-c C-t`: how many comments and logs.
     others: String,
-    left_out: usize,
+    left_out: (usize, usize),
 }
 
 impl App {
     /// A message of pull request `sent.number` of `project` came: it opens in its buffer, if
     /// none waits.
     pub(in crate::app) fn open_pull_message(&mut self, project: ProjectId, sent: PrSent) {
-        if let Some(message) = &self.reviews.sending.message
-            && self.editor.buffer(message.buffer).is_some()
-        {
-            let buffer = message.buffer;
-            self.editor.show(buffer);
-            return self
-                .editor
-                .message("A message waits: C-c C-c there sends it, C-c C-k drops it");
+        if self.show_waiting_message() {
+            return;
         }
         let PrSent {
             number,
@@ -62,15 +58,15 @@ impl App {
             number,
             worktree,
             others: message.others,
-            left_out: message.left_out,
+            left_out: (message.left_out, message.logs_left_out),
         };
         let to = match self.pull_session(&from) {
             Some(key) => format!("to {}", self.review_session_name(key)),
             None => "to no session yet".to_owned(),
         };
-        let left_out = match from.left_out {
-            0 => String::new(),
-            n => format!("; {n} comments by others left out, C-c C-t takes them in"),
+        let left_out = match left_out_words(from.left_out) {
+            Some(words) => format!("; {words} left out, C-c C-t takes them in"),
+            None => String::new(),
         };
         let cut = match message.cut {
             0 => String::new(),
@@ -88,8 +84,9 @@ impl App {
         ));
     }
 
-    /// `review-message-take`: adds the comments a pull request's message `buffer` left out to
-    /// its end.
+    /// `review-message-take`: takes what the message `buffer`, of a pull request's checks or
+    /// threads, left out in, above
+    /// the end of what GitHub said.
     pub(in crate::app) fn take_review_message(&mut self, buffer: BufferId) {
         let Some(waiting) =
             (self.reviews.sending.message.as_mut()).filter(|message| message.buffer == buffer)
@@ -102,16 +99,17 @@ impl App {
                 .message("A review's message leaves out nothing to take in");
         };
         if from.others.is_empty() {
-            return self.editor.message("No comment was left out");
+            return self.editor.message("Nothing was left out");
         }
         let others = std::mem::take(&mut from.others);
-        let taken = std::mem::take(&mut from.left_out);
-        let Some(end) = self.editor.buffer(buffer).map(|b| b.text().len()) else {
+        let left_out = std::mem::take(&mut from.left_out);
+        let Some(text) = self.editor.buffer(buffer).map(|b| b.text().to_string()) else {
             return;
         };
+        let (at, put) = take_in(&text, &others);
         let edit = Replacement {
-            range: end..end,
-            text: &others,
+            range: at..at,
+            text: &put,
         };
         if let Err(e) = self.editor.apply_edits(buffer, &[edit]) {
             // What could not go in stays to take in again.
@@ -121,16 +119,17 @@ impl App {
             }) = self.reviews.sending.message.as_mut()
             {
                 from.others = others;
-                from.left_out = taken;
+                from.left_out = left_out;
             }
             return self.editor.message(format!("They cannot go in: {e}"));
         }
+        let words = left_out_words(left_out).unwrap_or_else(|| "What was left out".to_owned());
         self.editor.message(format!(
-            "{taken} comments by others are at the message's end: read them before C-c C-c"
+            "{words} taken in, above the end of what GitHub said: read them before C-c C-c"
         ));
     }
 
-    /// The session a pull request's message goes to: the one picked for it while it runs, else
+    /// The session a message of a pull request's checks or threads goes to: the one picked for it while it runs, else
     /// the one in the worktree its head branch is checked out in.
     pub(super) fn pull_session(&self, from: &FromPull) -> Option<SessionKey> {
         let picked = (self.reviews.sending.picked_pulls)
@@ -141,6 +140,19 @@ impl App {
             let worktree = from.worktree.as_deref()?;
             self.worktree_session(worktree)
         })
+    }
+}
+
+/// "3 comments and 1 log", what was left out, if anything was.
+fn left_out_words((comments, logs): (usize, usize)) -> Option<String> {
+    let count = |n: usize, one: &str| match n {
+        0 => None,
+        1 => Some(format!("1 {one}")),
+        n => Some(format!("{n} {one}s")),
+    };
+    match (count(comments, "comment"), count(logs, "log")) {
+        (Some(c), Some(l)) => Some(format!("{c} and {l}")),
+        (c, l) => c.or(l),
     }
 }
 

@@ -17,25 +17,25 @@ use std::time::Duration;
 use super::super::Bucket;
 use super::super::issue::read_login;
 use super::super::send::{
-    Log, MAX_LOGS, Pick, PrMessage, SEND_FIELDS, SendPull, compose, job_of, log_tail, read_send,
+    AgentMessage, Log, MAX_LOGS, Pick, Picked, SEND_FIELDS, SendPull, compose, job_of, log_tail,
+    read_send,
 };
 use super::{Found, checks_of, run, threads_of, unexpected};
-use crate::git::{GhAnswer, Git, PullTarget, list_worktrees};
+use crate::git::{GhAnswer, Git, Id, PullTarget, list_worktrees, may_hold_secrets};
 
 /// How long one job's log may take to read.
 const LOG_LIMIT: Duration = Duration::from_secs(10);
 /// The most bytes of a job's failed log read: one past it is not read, and says so.
 const MAX_LOG_ANSWER: usize = 4 * 1024 * 1024;
-/// The most worktrees on the head branch looked at.
-const MAX_CANDIDATES: usize = 8;
-/// The most bytes of a message: ADR 0121's sends' bound.
-pub(crate) const MAX_MESSAGE: usize = 256 << 10;
+/// The most worktrees on the head branch looked at, as ADR 0122's step 12b looks: git checks a
+/// branch out in one worktree.
+const MAX_CANDIDATES: usize = 4;
 
 /// A message made for an agent session, and where it goes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PrSent {
     pub(crate) number: u64,
-    pub(crate) message: PrMessage,
+    pub(crate) message: AgentMessage,
     /// The worktree the pull request's head is checked out in, if one is.
     pub(crate) worktree: Option<PathBuf>,
 }
@@ -43,8 +43,9 @@ pub(crate) struct PrSent {
 pub(super) fn send(
     found: &Found,
     target: &PullTarget,
-    number: u64,
+    (number, url): (u64, &str),
     pick: &Pick,
+    limit: usize,
 ) -> Result<PrSent, String> {
     let n = number.to_string();
     let repo = target.github.as_str();
@@ -56,6 +57,12 @@ pub(super) fn send(
     let pull = read_send(&answer.into_stdout()?).ok_or_else(unexpected)?;
     if pull.number != number {
         return Err(unexpected());
+    }
+    // The branch checked out may push to another repository now than when the buffer read it.
+    if !url.is_empty() && pull.url != url {
+        return Err(format!(
+            "#{number} is now another repository's: g reads it again"
+        ));
     }
     let (checks, threads) = if pick.of_threads() {
         (Vec::new(), threads_of(found, target, &n)?.0)
@@ -80,7 +87,7 @@ pub(super) fn send(
                 .then(|| job_of(&check.link, &target.github))
                 .flatten();
             let log = match job {
-                None => Log::None,
+                None => Log::NotAsked,
                 Some(_) if read >= MAX_LOGS => Log::Unread(format!(
                     "only the first {MAX_LOGS} failing jobs' logs are read"
                 )),
@@ -92,14 +99,13 @@ pub(super) fn send(
             (check, log)
         })
         .collect();
-    let message = compose(
-        &target.github,
-        &pull,
-        &checks,
-        &picked_threads,
-        &person,
-        MAX_MESSAGE,
-    );
+    let top = found.git.top();
+    let secret = |path: &str| may_hold_secrets(top, path.as_bytes());
+    let picked = Picked {
+        checks: &checks,
+        threads: &picked_threads,
+    };
+    let message = compose(&target.github, &pull, &picked, &person, &secret, limit);
     let worktree = worktree_of(&found.git, &pull);
     Ok(PrSent {
         number,
@@ -149,7 +155,8 @@ fn log_of(found: &Found, target: &PullTarget, run_id: u64, job: u64) -> Log {
 }
 
 /// The worktree `pull`'s head branch is checked out in, if git lists one still there whose
-/// commit holds the pull request's head; none for a fork's.
+/// commit, a whole id, holds the pull request's head; none for a fork's. As ADR 0122's step 12b
+/// finds it.
 fn worktree_of(git: &Git, pull: &SendPull) -> Option<PathBuf> {
     if pull.cross {
         return None;
@@ -160,8 +167,11 @@ fn worktree_of(git: &Git, pull: &SendPull) -> Option<PathBuf> {
         .filter(|listed| listed.branch.as_deref() == Some(pull.branch.as_str()))
         .take(MAX_CANDIDATES)
         .find(|listed| {
-            (listed.head.as_deref())
-                .is_some_and(|tip| git.is_ancestor(&pull.head_commit, tip).unwrap_or(false))
+            let tip = (listed.head.as_deref()).and_then(|head| Id::parse(head.as_bytes()));
+            tip.is_some_and(|tip| {
+                git.is_ancestor(pull.head.as_str(), tip.as_str())
+                    .unwrap_or(false)
+            })
         })
         .map(|listed| listed.path)
 }

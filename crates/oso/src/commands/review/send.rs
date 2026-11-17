@@ -1,6 +1,8 @@
 //! Sending a review's comments to an agent session (ADR 0122, step 12): `C-c C-c` in a review
 //! buffer gathers the person's comments that were not sent into `*review message*`, and there
-//! `C-c C-c` pastes it into the review's session and `C-c C-k` drops it.
+//! `C-c C-c` pastes it into the review's session and `C-c C-k` drops it. A message made from a
+//! pull request's checks or threads (ADR 0127, step 6b) is sent and dropped the same way, and
+//! `C-c C-t` takes in what it left out.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state.
 //! The host gathers, composes and pastes; these only ask it.
@@ -31,7 +33,7 @@ pub const COMMANDS: &[Command] = &[
     ),
     Command {
         name: "review-message-send",
-        doc: "Paste this review message into its review's agent session, not submitted, and mark the comments it holds sent.\n\nThe session is the one picked for the review with `C-u` while it runs, else the one that runs in the review's worktree, the one shown last if several do; with `C-u`, one read with completion, which the review then keeps. With none, the message stays and nothing is sent. The paste is the person's: read it in the session's input box and press Enter. A session asking for permission or another answer is refused, and the message stays. A comment changed in the review since the message was made stays unsent.",
+        doc: "Paste this message into its agent session, not submitted, and mark the comments a review's message holds sent.\n\nThe session is the one picked for the review, or the pull request, with `C-u` while it runs, else the one that runs in the review's worktree, the one shown last if several do, or for a pull request's checks or threads the one in the worktree its branch is checked out in; with `C-u`, one read with completion, which is then kept. With none, the message stays and nothing is sent. The paste is the person's: read it in the session's input box and press Enter. A session asking for permission or another answer is refused, and the message stays. A comment changed in the review since the message was made stays unsent.",
         args: ArgSpec::ListedOnPrefix {
             list: SEND_LIST,
             prompt: "Send the review message to session:",
@@ -43,12 +45,12 @@ pub const COMMANDS: &[Command] = &[
     },
     person_command!(
         "review-message-drop",
-        "Drop this review message and show its review again: nothing is sent, and its comments stay unsent.",
+        "Drop this message and show what it was made from again, its review or pull request: nothing is sent, and a review's comments stay unsent.",
         review_message_drop
     ),
     person_command!(
         "review-message-take",
-        "In a pull request's message, add the comments it left out, by others than you and the repository's owners, members and collaborators, to its end, quoted (ADR 0127, step 6b). What you wrote stays.",
+        "In a message made from a pull request's checks or threads, take in what it left out: the comments of others than you and the repository's owners, members and collaborators, and a fork's logs, quoted, above the end of what GitHub said (ADR 0127, step 6b). What you wrote stays.",
         review_message_take
     ),
 ];

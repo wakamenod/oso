@@ -676,7 +676,8 @@ topological order, children before their parents, one row each (ADR 0127, step 4
   failing one with the logs of at most 8 Actions jobs, `c` the review thread on the line and
   `C` every unresolved one, through `*review message*`: GitHub's words under a line saying they
   are data, quoted or fenced, the comments of others than you and the repository's owners,
-  members and collaborators left out and counted; `C-c C-t` there takes them in.
+  members and collaborators left out and counted, as a fork's logs are; `C-c C-t` there takes
+  them in above the end of what GitHub said.
 - Issues (step 5b-1): `C-x v i`, or `N i`, shows `*issues: NAME*`; `RET` shows `*issue: #N*` with
   its comments; `w` opens `*Brief*` for a worktree session on `issue-N-SLUG`, the issue's text
   under a line telling the agent it is data; `o` opens it, `y` copies its address, `g` reads

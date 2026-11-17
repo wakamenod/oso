@@ -1,6 +1,8 @@
 //! Sending a review's comments to an agent session (ADR 0122, step 12): the person's comments
 //! that were not sent gathered into `*review message*`, which the person reads and may change,
-//! then pasted through the one delivery path, and the comments it held marked sent.
+//! then pasted through the one delivery path, and the comments it held marked sent. A pull
+//! request's checks and review threads go through the same message (ADR 0127, step 6b,
+//! [`pull`]): it holds one message at a time, of either [`Origin`].
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here runs git or reads a
 //! file: the message is composed from the model's comments and readings, bounded at 256 KiB,
@@ -69,14 +71,8 @@ impl App {
     /// `review-send`: gathers the person's comments of `review` not sent into a message, shown
     /// in its buffer.
     pub(super) fn send_review(&mut self, review: ReviewId) {
-        if let Some(message) = &self.reviews.sending.message
-            && self.editor.buffer(message.buffer).is_some()
-        {
-            let buffer = message.buffer;
-            self.editor.show(buffer);
-            return self
-                .editor
-                .message("A review message waits: C-c C-c there sends it, C-c C-k drops it");
+        if self.show_waiting_message() {
+            return;
         }
         let Some(index) = self.reviews.index(review) else {
             return;
@@ -150,6 +146,20 @@ impl App {
         ));
     }
 
+    /// Whether a message waits to be sent, as one at a time does: it is shown, and said so.
+    pub(in crate::app) fn show_waiting_message(&mut self) -> bool {
+        let Some(buffer) = (self.reviews.sending.message.as_ref())
+            .map(|message| message.buffer)
+            .filter(|buffer| self.editor.buffer(*buffer).is_some())
+        else {
+            return false;
+        };
+        self.editor.show(buffer);
+        self.editor
+            .message("A message waits: C-c C-c there sends it, C-c C-k drops it");
+        true
+    }
+
     /// `review-message-send`: pastes the message `buffer` holds into its session, or into the
     /// one named `to`, and marks the comments a review's message took sent.
     pub(super) fn send_review_message(&mut self, buffer: BufferId, to: Option<String>) {
@@ -161,7 +171,7 @@ impl App {
                 .editor
                 .message("This is no review's message: C-c C-c in a review makes one");
         };
-        let Some(text) = self.message_to_send(buffer) else {
+        let Some(text) = self.message_to_send(buffer, &origin) else {
             return;
         };
         let key = match &to {
@@ -219,7 +229,7 @@ impl App {
     }
 
     /// The text of the message `buffer` holds, if it may be sent; else why not is said.
-    fn message_to_send(&mut self, buffer: BufferId) -> Option<String> {
+    fn message_to_send(&mut self, buffer: BufferId, origin: &Origin) -> Option<String> {
         let shown = self.editor.buffer(buffer)?;
         // A yank of a secret entry turns the message secret: what it holds stays here, as a
         // draft's does (step 3).
@@ -232,10 +242,20 @@ impl App {
         // Its length is looked at before anything is copied.
         let bytes = shown.text().len();
         if bytes > MAX_SEND_BYTES {
-            let send = self
-                .dispatcher
-                .where_is(&self.editor, "review-message-send");
-            self.editor.message(too_large(bytes, &send));
+            let too = match origin {
+                Origin::Review(_) => {
+                    let send = self
+                        .dispatcher
+                        .where_is(&self.editor, "review-message-send");
+                    too_large(bytes, &send)
+                }
+                Origin::Pull(_) => format!(
+                    "The message is {} KiB, past the 256 KiB a session takes: take some out, or \
+                     C-c C-k",
+                    bytes.div_ceil(1024)
+                ),
+            };
+            self.editor.message(too);
             return None;
         }
         let text = shown.text().to_string();
