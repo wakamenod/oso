@@ -2141,6 +2141,8 @@ pub oso_core::editor::SessionRequest::Worktree::branch: alloc::string::String
 pub oso_core::editor::SessionRequest::WorktreeList
 pub oso_core::editor::SessionRequest::WorktreeRemove(core::option::Option<std::path::PathBuf>)
 pub oso_core::editor::SessionRequest::WorktreeRemoveConfirmed
+pub oso_core::editor::SessionRequest::WorktreeRemoveStop
+pub oso_core::editor::SessionRequest::WorktreeRemoveStopConfirmed
 pub oso_core::editor::SessionRequest::YankImage(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Zoom
 impl core::clone::Clone for oso_core::editor::SessionRequest

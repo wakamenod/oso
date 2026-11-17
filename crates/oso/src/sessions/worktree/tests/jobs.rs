@@ -6,7 +6,7 @@
 //! their reports.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
@@ -16,7 +16,7 @@ use super::{Scratch, order};
 use crate::git::TrustedRoot;
 
 /// Jobs keeping their state under the scratch directory, and their reports.
-fn jobs(s: &Scratch) -> (Jobs, mpsc::Receiver<Report>) {
+pub(super) fn jobs(s: &Scratch) -> (Jobs, mpsc::Receiver<Report>) {
     let (sent, got) = mpsc::channel();
     let jobs = Jobs::new(Some(s.dir.join("job-state")), move |report| {
         let _ = sent.send(report);
@@ -25,7 +25,7 @@ fn jobs(s: &Scratch) -> (Jobs, mpsc::Receiver<Report>) {
 }
 
 /// The trust of `root`, with `trusted` the roots the record holds.
-fn trust(root: &Path, trusted: &[&Path]) -> Trust {
+pub(super) fn trust(root: &Path, trusted: &[&Path]) -> Trust {
     Trust {
         root: TrustedRoot::for_tests(root.to_owned()),
         trusted: trusted.iter().map(|p| p.to_path_buf()).collect(),
@@ -33,7 +33,7 @@ fn trust(root: &Path, trusted: &[&Path]) -> Trust {
 }
 
 /// The next report, waiting at most 20 s.
-fn next(got: &mpsc::Receiver<Report>) -> Report {
+pub(super) fn next(got: &mpsc::Receiver<Report>) -> Report {
     got.recv_timeout(Duration::from_secs(20)).expect("a report")
 }
 
@@ -181,31 +181,50 @@ fn a_removal_runs_every_check_again() {
     assert!(!made.path.exists());
 }
 
+/// Worktrees on branches `names`, each with work of its own, merged and pushed: every check
+/// of their removal holds.
+pub(super) fn merged<const N: usize>(s: &Scratch, names: [&str; N]) -> [PathBuf; N] {
+    s.with_origin();
+    let made = names.map(|name| {
+        let path = s.create(name).unwrap().path;
+        let file = format!("{name}.txt");
+        fs::write(path.join(&file), "work\n").unwrap();
+        s.git_in(&path, &["add", &file]);
+        s.git_in(&path, &["commit", "-q", "-m", "work"]);
+        path
+    });
+    let mut merge = vec!["merge", "-q", "-m", "all"];
+    merge.extend(names);
+    s.git(&merge);
+    s.git(&["push", "-q", "origin", "main"]);
+    made
+}
+
+/// Makes git's own clean check before it deletes in `worktrees` take `secs` seconds, once the
+/// file it returns exists: it re-reads a.txt through a filter, which makes `slow-running`
+/// beside it as it starts to wait. The checks before stay fast.
+pub(super) fn slowed(s: &Scratch, worktrees: &[&Path], secs: u32) -> PathBuf {
+    let slow = s.dir.join("slow");
+    let filter = format!(
+        "if [ -e '{0}' ]; then : > '{0}-running'; sleep {secs}; fi; cat",
+        slow.display()
+    );
+    s.git(&["config", "filter.slow.clean", &filter]);
+    fs::write(s.root.join(".git/info/attributes"), "a.txt filter=slow\n").unwrap();
+    for worktree in worktrees {
+        fs::write(worktree.join("a.txt"), "a\n").unwrap();
+    }
+    slow
+}
+
 /// Two removals whose git runs long leave the pool to other jobs, and a second removal of a
 /// worktree being removed is refused while the first runs (ADR 0121, "Worktree removal, as
 /// fixed").
 #[test]
 fn removals_run_off_the_pool_and_hold_their_worktree() {
     let s = Scratch::new("removals");
-    s.with_origin();
-    let one = s.create("one").unwrap().path;
-    let two = s.create("two").unwrap().path;
-    for (worktree, file) in [(&one, "b.txt"), (&two, "c.txt")] {
-        fs::write(worktree.join(file), "work\n").unwrap();
-        s.git_in(worktree, &["add", file]);
-        s.git_in(worktree, &["commit", "-q", "-m", "work"]);
-    }
-    s.git(&["merge", "-q", "-m", "both", "one", "two"]);
-    s.git(&["push", "-q", "origin", "main"]);
-    // git's own clean check before it deletes re-reads a.txt through this filter, slow only
-    // once the checks have held.
-    let slow = s.dir.join("slow");
-    let filter = format!("if [ -e '{}' ]; then sleep 3; fi; cat", slow.display());
-    s.git(&["config", "filter.slow.clean", &filter]);
-    fs::write(s.root.join(".git/info/attributes"), "a.txt filter=slow\n").unwrap();
-    for worktree in [&one, &two] {
-        fs::write(worktree.join("a.txt"), "a\n").unwrap();
-    }
+    let [one, two] = merged(&s, ["one", "two"]);
+    let slow = slowed(&s, &[&one, &two], 3);
     let (jobs, got) = jobs(&s);
     let trust = || trust(&s.root, &[&s.root]);
     for (token, path) in [(1, &one), (2, &two)] {

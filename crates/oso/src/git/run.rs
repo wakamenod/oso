@@ -28,8 +28,8 @@
 //!   and a run past [`RUN_LIMIT`] is killed and left: a process git started may still hold its output
 //!   open, and the caller does not wait for it. A write that must not be cut short runs with
 //!   no limit instead, in a group of its own that can be stopped (`long`); a worktree's
-//!   removal runs that way in a session of its own ([`Git::detached`]), and oso never stops
-//!   it (ADR 0121, "Worktree removal, as fixed").
+//!   removal runs that way in a session of its own ([`Git::detached`]), and only the person's
+//!   `worktree-remove-stop` stops it (ADR 0121, "Worktree removal, as fixed").
 //! - A run may let the repository's own hooks run ([`Git::with_own_hooks`]), for a commit,
 //!   with the variables a hook needs; a push, a pull or a fetch gets the proxies too, and runs
 //!   with no controlling terminal ([`Git::for_remote`]).
@@ -164,7 +164,8 @@ pub(crate) struct Git {
     /// own with no controlling terminal (ADR 0127, step 2).
     remote: bool,
     /// A long run starts in a session of its own with no controlling terminal, as a remote's
-    /// does, without the proxies: for a worktree's removal, which nothing stops (ADR 0121).
+    /// does, without the proxies: for a worktree's removal, which only the person's
+    /// `worktree-remove-stop` stops (ADR 0121).
     detached: bool,
     /// How long a bounded run may take: [`RUN_LIMIT`], or less in a test.
     limit: Duration,

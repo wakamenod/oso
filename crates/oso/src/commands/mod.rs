@@ -406,6 +406,8 @@ mod tests {
         "worktree-list-refresh",
         "worktree-list-remove",
         "worktree-remove-confirmed",
+        "worktree-remove-stop",
+        "worktree-remove-stop-confirmed",
         // A terminal, which runs a program and takes the person's keys (ADR 0120).
         "terminal",
         // Letting an agent read a terminal is the person's to give and to take back

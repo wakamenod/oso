@@ -1,9 +1,9 @@
 //! Running git with no time limit (ADR 0127, step 1b): a commit with its hooks, which may run a
 //! whole test suite, and a write to the index, which a kill could leave locked. Each run is the
 //! person's act, and they stop it: `C-g` sends `SIGTERM`, then `SIGKILL` after [`GRACE`].
-//! A caller may also set no stop and keep no [`Ender`]: a worktree's removal, which a stop
-//! would leave half removed (ADR 0121, "Worktree removal, as fixed"). Such a run is ended only
-//! by a [`Long`] dropped before git ends, as an error reading it drops it.
+//! A worktree's removal keeps no [`Ender`], so quitting does not end it, and its stop is the
+//! person's `worktree-remove-stop`, after a warning that the worktree is left half removed
+//! (ADR 0121, "Worktree removal, as fixed" and "Stopping a removal, as built").
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs on the threads that
 //! run git, and waits for git, but for [`Ender::end`], which the UI thread calls and which

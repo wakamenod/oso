@@ -11,6 +11,7 @@ use std::fs;
 use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 
 use oso_platform::privacy::PrivateDir;
 use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
@@ -340,7 +341,7 @@ fn a_merged_branch_is_removed_and_kept() {
         merged::merged(&repo, None, &s.facts(), "done", &tip),
         Merged::Ancestor("origin/main".into())
     );
-    checks::remove(&repo, &made.path).unwrap();
+    checks::remove(&repo, &made.path, &AtomicBool::new(false)).unwrap();
     assert!(!made.path.exists());
     assert!(
         !s.git(&["branch", "--list", "done"]).is_empty(),
@@ -369,7 +370,12 @@ fn a_removal_past_the_time_limit_is_not_cut_short() {
     s.git(&["config", "core.fsmonitor", monitor.to_str().unwrap()]);
     let limit = std::time::Duration::from_secs(1);
     let started = std::time::Instant::now();
-    checks::remove(&s.repo().with_limit(limit), &made.path).unwrap();
+    checks::remove(
+        &s.repo().with_limit(limit),
+        &made.path,
+        &AtomicBool::new(false),
+    )
+    .unwrap();
     assert!(started.elapsed() > limit);
     assert!(!made.path.exists(), "all of it went");
     assert!(!marker.exists(), "the repository's monitor did not run");
@@ -384,7 +390,7 @@ fn git_refuses_a_worktree_that_changed_after_its_checks() {
     let s = Scratch::new("late");
     let made = s.create("late").unwrap();
     fs::write(made.path.join("a.txt"), "changed\n").unwrap();
-    assert!(checks::remove(&s.repo(), &made.path).is_err());
+    assert!(checks::remove(&s.repo(), &made.path, &AtomicBool::new(false)).is_err());
     assert!(made.path.join("a.txt").is_file(), "nothing was removed");
 }
 
@@ -527,3 +533,4 @@ fn a_rows_look_leaves_gh_for_later_and_skips_it_for_a_branch_never_pushed() {
 
 mod jobs;
 mod prepare;
+mod stop;

@@ -1075,7 +1075,7 @@ a switch made with its command stands until that setting changes in the file
   and untracked files, whether its branch is merged and how that was found, its sessions and
   their states, unsaved buffers, its space, and whether it can be removed. `gh` is asked last, only for a branch that was
   pushed and that its remote's main branches do not hold. `g` lists again, and `D` removes the
-  one at point.
+  one at point. A worktree whose removal runs says `removing…` instead.
 - `M-x worktree-remove` removes the worktree of the selected buffer, or of the row at point,
   only when nothing would be lost. Each of these must hold, checked in this order:
   - it is a linked worktree of this repository;
@@ -1088,7 +1088,10 @@ a switch made with its command stands until that setting changes in the file
 
   It then asks, naming what git ignores there and will delete with it, such as `target/`. `y`
   runs every check again before it removes the worktree. It never uses `--force`, and the branch
-  is kept.
+  is kept. git has no time limit there, as a large `target/` takes time to delete.
+- `M-x worktree-remove-stop` stops a running removal: the row's at point in `*Worktrees*`,
+  else the only one. Before git runs, nothing is removed. Once git may be deleting, it asks
+  first, as the worktree is then left half removed for you to remove by hand.
 - `C-c a a` (`session-adopt`) brings a session started outside oso into oso. It completes over
   the sessions oso does not host: those Claude Code says run (`runs as process N: stop it there
   first`), then those that stopped in the last 30 days, newest first, each with its age and

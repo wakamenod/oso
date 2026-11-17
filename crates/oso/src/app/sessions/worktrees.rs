@@ -3,8 +3,9 @@
 //! `C-c C-c` makes the worktree and starts its session. `worktree-list` fills `*Worktrees*` row
 //! by row. `worktree-remove` checks first, asks, and removes only a worktree nothing would be
 //! lost from. Every git and `gh` call is a job on the `oso-sessions-git` threads, but a
-//! removal's `git worktree remove`, which runs on `oso-sessions-remove`. A made
-//! worktree is held by the issue space that made it, where its session joins (ADR 0136).
+//! removal's `git worktree remove`, which runs on `oso-sessions-remove` and which
+//! `worktree-remove-stop` stops (`stop`). A made worktree is held by the issue space that made
+//! it, where its session joins (ADR 0136).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 //!
@@ -25,6 +26,7 @@ use super::super::{App, Loop, UserEvent};
 
 mod listing;
 mod removal;
+mod stop;
 use super::hosting::Begin;
 use super::watch::Watch;
 use crate::git::TrustedRoot;
@@ -60,6 +62,8 @@ pub(in crate::app) struct Worktrees {
     list: Option<Listing>,
     /// The removal under way: checked, asked, or removing.
     removing: Option<Removing>,
+    /// The running removal whose stop the person is asked about: its job's token and path.
+    stopping: Option<(u64, PathBuf)>,
     /// The branch listing a prompt waits for, by its job's token.
     branch_wait: Option<u64>,
 }
@@ -110,6 +114,8 @@ impl App {
             SessionRequest::WorktreeList => self.list_worktrees(),
             SessionRequest::WorktreeRemove(path) => self.remove_worktree(path),
             SessionRequest::WorktreeRemoveConfirmed => self.remove_confirmed(),
+            SessionRequest::WorktreeRemoveStop => self.stop_removal(),
+            SessionRequest::WorktreeRemoveStopConfirmed => self.stop_removal_confirmed(),
             SessionRequest::StartShared => self.start_shared(),
             other => log::debug!("not a worktree request: {other:?}"),
         }

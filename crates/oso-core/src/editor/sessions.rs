@@ -108,6 +108,11 @@ pub enum SessionRequest {
     WorktreeRemove(Option<PathBuf>),
     /// The person's `y` to the removal's question (`worktree-remove-confirmed`).
     WorktreeRemoveConfirmed,
+    /// Stop a running removal: the one at point in `*Worktrees*`, else the only one
+    /// (`worktree-remove-stop`).
+    WorktreeRemoveStop,
+    /// The person's `y` to the stop's warning (`worktree-remove-stop-confirmed`).
+    WorktreeRemoveStopConfirmed,
     /// The person's `y` to "another session runs in this directory" (`session-start-shared`).
     StartShared,
     /// The person's `?` in a question the agent caused: show what it would run

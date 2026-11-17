@@ -49,20 +49,22 @@ impl App {
         });
     }
 
+    /// The row at point when `*Worktrees*` is the selected buffer: its project, and the
+    /// worktree on that line if there is one.
+    pub(super) fn row_at_point(&self) -> Option<(ProjectId, Option<PathBuf>)> {
+        let (current, buffer) = (self.editor.window().buffer(), self.editor.current().1);
+        let list = (self.hosting.worktrees.list.as_ref()).filter(|l| l.buffer == current)?;
+        let cursor = self.editor.window().selections.primary().cursor;
+        let line = buffer.text().offset_to_point(cursor).row;
+        let row = list::row_at(&list.shown, line).map(Path::to_path_buf);
+        Some((list.project, row))
+    }
+
     /// The worktree `worktree-remove` takes with no path given.
     pub(super) fn worktree_at_point(&self) -> Result<(ProjectId, PathBuf), String> {
-        let (current, buffer) = (self.editor.window().buffer(), self.editor.current().1);
-        if let Some(list) = self
-            .hosting
-            .worktrees
-            .list
-            .as_ref()
-            .filter(|l| l.buffer == current)
-        {
-            let cursor = self.editor.window().selections.primary().cursor;
-            let line = buffer.text().offset_to_point(cursor).row;
-            return list::row_at(&list.shown, line)
-                .map(|path| (list.project, path.to_owned()))
+        if let Some((project, row)) = self.row_at_point() {
+            return row
+                .map(|path| (project, path))
                 .ok_or_else(|| "No worktree on this line".to_owned());
         }
         let project = self.project_here()?;
@@ -161,6 +163,10 @@ impl App {
         {
             return;
         }
+        // A removal stopped meanwhile clears nothing: its job ends saying so.
+        if self.removal_was_stopped(token) {
+            return;
+        }
         if let Some(check) = checks::held_refusal(&self.held_at(path)) {
             self.hosting.worktrees.removing = None;
             let shown = printable(&path.display().to_string(), 200);
@@ -219,13 +225,16 @@ impl App {
             .is_none_or(|r| r.token != token)
         {
             // An earlier removal, whose git ran on while the person went on to another: what
-            // it removed is still forgotten and said.
-            if result.is_ok() {
-                self.forget_removed_worktree(path);
-                self.editor
-                    .message(format!("Removed worktree {shown}; its branch is kept"));
+            // it removed is still forgotten, and how it ended said.
+            match result {
+                Ok(_) => {
+                    self.forget_removed_worktree(path);
+                    self.editor
+                        .message(format!("Removed worktree {shown}; its branch is kept"));
+                }
+                Err(why) => self.editor.message(format!("Worktree {shown} kept: {why}")),
             }
-            return;
+            return self.relist_if_shown();
         }
         self.hosting.worktrees.removing = None;
         match result {
@@ -233,12 +242,18 @@ impl App {
                 self.forget_removed_worktree(path);
                 self.editor
                     .message(format!("Removed worktree {shown}; its branch is kept"));
-                let listing = self.hosting.worktrees.list.as_ref().map(|l| l.buffer);
-                if listing == Some(self.editor.window().buffer()) {
-                    self.list_worktrees();
-                }
             }
             Err(why) => self.editor.message(format!("Worktree {shown} kept: {why}")),
+        }
+        self.relist_if_shown();
+    }
+
+    /// Lists the worktrees again if `*Worktrees*` is the selected buffer, as a removal ended:
+    /// its row no longer says "removing…".
+    pub(in crate::app) fn relist_if_shown(&mut self) {
+        let listing = self.hosting.worktrees.list.as_ref().map(|l| l.buffer);
+        if listing == Some(self.editor.window().buffer()) {
+            self.list_worktrees();
         }
     }
 }

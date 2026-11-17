@@ -1,6 +1,7 @@
 //! What is known of one linked worktree, and the five checks `worktree-remove` runs before it
 //! removes one, in ADR 0121's order: a linked worktree of this repository; nothing uncommitted
-//! or untracked; no unsaved buffer or unsent brief; no busy session; its branch merged.
+//! or untracked; no unsaved buffer or unsent brief; no busy session; its branch merged. A
+//! worktree whose removal runs is refused before them all (`Check::Removing`).
 //!
 //! Must not depend on: `app`, `dispatch` or the UI thread; [`look`] runs on a
 //! worktree job's thread, and what only the UI thread knows (buffers, hosted sessions) comes
@@ -59,6 +60,8 @@ pub enum Check {
     Unknown(String),
     /// 1: not a linked worktree of this repository, or one git cannot remove now.
     NotLinked(String),
+    /// A removal of it runs already.
+    Removing,
     /// 2: changes not committed.
     Dirty(Status),
     /// 3: oso buffers under it with unsaved changes.
@@ -78,6 +81,7 @@ impl Check {
     pub fn why(&self) -> String {
         match self {
             Self::Unknown(why) | Self::NotLinked(why) => why.clone(),
+            Self::Removing => "a removal of it still runs".to_owned(),
             Self::Dirty(Status { changed, untracked }) => {
                 format!("{changed} changed and {untracked} untracked files are not committed")
             }
@@ -116,6 +120,8 @@ pub struct Looked {
     /// The tip of its branch, when only a merged pull request can tell whether it is merged
     /// and a row's look left `gh` to be asked after every row.
     pub gh_pending: Option<String>,
+    /// A removal of it ran when the job looked.
+    pub removing: bool,
 }
 
 /// How far [`look`] goes.
@@ -147,6 +153,7 @@ pub fn look(
         external: Vec::new(),
         busy: held.busy.clone(),
         gh_pending: None,
+        removing: false,
     };
     let git = repo.in_worktree(&looked.listed.path);
     let stop = |looked: &Looked| depth == Depth::UntilRefused && first(looked, held).is_some();
@@ -224,6 +231,9 @@ fn linked(repo: &Repo, listed: &Listed) -> Result<(), String> {
 /// The first check that does not hold, in ADR 0121's order, from what is known so far: a fact
 /// not looked at yet does not refuse here, so a removal asks for every fact first.
 pub fn first(looked: &Looked, held: &Held) -> Option<Check> {
+    if looked.removing {
+        return Some(Check::Removing);
+    }
     if let Err(why) = &looked.linked {
         return Some(Check::NotLinked(why.clone()));
     }
@@ -278,24 +288,23 @@ pub fn removable(looked: &Looked, held: &Held) -> Result<(), Check> {
 /// Removes the linked worktree at `path` with `git worktree remove`, never `--force`: git
 /// itself refuses one that has changes by then. Its branch is kept.
 ///
-/// git runs with no time limit, in a process group of its own, and nothing stops it: once it
-/// runs, every check has held and it may be deleting, and a kill would leave the worktree half
-/// removed, which check 2 then refuses. Deleting a large ignored `target/` can take longer than
-/// the 10 s of every other run (ADR 0121, "Worktree removal, as fixed"). It runs in a session of
-/// its own, with no controlling terminal, so a filter that opens the terminal fails instead of
-/// stopping. Quitting oso leaves it to finish.
+/// git runs with no time limit, in a session of its own with no controlling terminal, so a
+/// filter that opens the terminal fails instead of stopping. Once it runs, every check has held
+/// and it may be deleting, and a kill would leave the worktree half removed, which check 2 then
+/// refuses: only `stop`, set by the person's `worktree-remove-stop` after a warning, stops it.
+/// Deleting a large ignored `target/` can take longer than the 10 s of every other run (ADR
+/// 0121, "Worktree removal, as fixed"). Quitting oso leaves it to finish.
 ///
 /// # Errors
 ///
 /// What git said.
-pub fn remove(repo: &Repo, path: &Path) -> Result<(), String> {
+pub fn remove(repo: &Repo, path: &Path, stop: &AtomicBool) -> Result<(), String> {
     let Some(path) = path.to_str() else {
         return Err("its path is not UTF-8".to_owned());
     };
     let args = ["worktree", "remove", "--", path].map(OsStr::new);
-    let never = AtomicBool::new(false);
     let git = repo.git().detached();
-    let out = (git.run_long(&args, &[], None, &never)).map_err(|e| said(&e))?;
+    let out = (git.run_long(&args, &[], None, stop)).map_err(|e| said(&e))?;
     if out.status.success() {
         return Ok(());
     }
