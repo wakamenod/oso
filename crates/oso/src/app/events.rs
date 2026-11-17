@@ -101,8 +101,8 @@ impl App {
             UserEvent::Conversations(report) => self.conversations_reported(event_loop, report),
             UserEvent::DiagnosticsListed(rows) => self.diagnostics_listed(rows),
             UserEvent::XrefsListed(generation, rows) => self.xrefs_listed(generation, rows),
-            UserEvent::RenamePreviewed(generation, text) => {
-                self.rename_previewed(generation, text);
+            UserEvent::RenamePreviewed(generation, built, parts) => {
+                self.rename_previewed(generation, built, parts);
                 self.step_rename();
             }
             UserEvent::Trust => self.trust_reported(),

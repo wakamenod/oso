@@ -1310,7 +1310,7 @@ fn a_symbol_is_renamed_across_files_after_the_preview() {
     lsp_log_with(&mut app, "main.rs", "] initialized in ", 1);
     let shown = rename_to_preview(&mut app, "count");
     assert!(
-        shown.contains("renames \u{2018}value\u{2019} to \u{2018}count\u{2019}: 3 edits in 2 files (1 not open)"),
+        shown.contains("renames \u{2018}value\u{2019} to \u{2018}count\u{2019}: 3 edits in 2 files (1 opened for it, unshown)"),
         "{shown}"
     );
     assert!(shown.contains("     2 -     let value = 1;"), "{shown}");
@@ -1328,6 +1328,10 @@ fn a_symbol_is_renamed_across_files_after_the_preview() {
             .is_some_and(|echo| echo.contains("3 edits in 2 buffers, unsaved; C-x s saves"))
     });
     assert_eq!(state["buffer"]["name"], "main.rs", "{state}");
+    assert!(
+        !state["buffers"].to_string().contains("*lsp-rename*"),
+        "{state}"
+    );
     let lib_buffer = state["buffers"]
         .as_array()
         .unwrap()

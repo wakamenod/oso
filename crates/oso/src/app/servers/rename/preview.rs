@@ -1,73 +1,68 @@
 //! What `*lsp-rename*` shows of a rename's edits before they apply (ADR 0138, step 14, Q3): each
-//! file, and each changed line as it is and as it would be, built off the UI thread.
+//! buffer, and each line that changes as it is and as it would be, built off the UI thread from
+//! the very texts and ranges `y` applies.
 //!
-//! Must not depend on: the window system or the UI thread's state; this reads the file
-//! system for the preview's worker.
+//! Must not depend on: the window system or the UI thread's state; this reads only the texts it
+//! is given, never a file.
 //!
-//! - An open buffer's lines are its text's, as the server had it. A file no buffer holds is read
-//!   as a list of a server's places reads one (`grep::read_lines`): never one that may hold
-//!   secrets, reached from the server's root with no link followed, within a budget.
-//! - Lines an edit spans, or that touch, are one group, shown whole before and after.
+//! - Every file the rename edits is a buffer by now, opened for it if none held it, so what
+//!   shows is what applies: the same text, the same ranges.
+//! - Lines an edit spans, or that touch, are one group; of a group, only the lines that differ
+//!   show, so that a server that rewrites a whole file shows what it changes.
+//! - A long line shows the part that differs, with its columns, over as many rows as it takes;
+//!   nothing is cut out of what changes.
 //! - Every line shown has its controls, and its bidi and invisible characters, written as
-//!   `\u{…}`, and is cut at [`SHOWN_MAX`] characters, so that no text can pass for another
-//!   line or hide what changes.
+//!   `\u{…}`.
+//! - Past [`GROUP_BYTES_MAX`] of a group's text, [`GROUP_LINES_MAX`] changed lines on a side,
+//!   [`LINE_SHOWN_MAX`] changed characters of a line or [`PREVIEW_BYTES_MAX`] in all, or with
+//!   edits that overlap, the rename is refused rather than shown in part.
 
 use std::fmt::Write as _;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
 
 use oso_core::display_map::cell::is_invisible;
+use oso_core::editor::BufferEdit;
 use oso_core::rope::Rope;
-use oso_lsp::position::{Encoding, Position};
-use oso_lsp::protocol::Extra;
 
-use crate::grep::{RowLines, read_lines};
+/// The most characters of a preview row.
+const ROW_CHARS: usize = 200;
 
-/// The most characters of a line shown.
-const SHOWN_MAX: usize = 400;
+/// Characters shown either side of what differs in a long line.
+const CONTEXT: usize = 20;
 
-/// The most bytes read of the files no buffer holds, for one preview.
-const READ_MAX: u64 = 64 << 20;
+/// The most bytes of the text a group spans.
+const GROUP_BYTES_MAX: usize = 1 << 20;
 
-/// What a preview is built from: who renames what to what, and each file's edits.
+/// The most lines that differ on either side of a group.
+const GROUP_LINES_MAX: usize = 50;
+
+/// The most characters shown of a line that differs.
+const LINE_SHOWN_MAX: usize = 2000;
+
+/// The most bytes of a preview, which the UI thread puts in its buffer.
+const PREVIEW_BYTES_MAX: usize = 512 << 10;
+
+/// Why a rename too large to show is refused.
+const TOO_LARGE: &str = "its edits are too large to show";
+
+/// What a preview is built from: who renames what to what, how many files it opened, and each
+/// buffer's text and the path it is shown by, in the order of the edits' parts.
 pub(super) struct Snapshot {
     pub(super) server: String,
     pub(super) old: String,
     pub(super) new: String,
-    /// The server's root, as a URI reads back, which a file no buffer holds is read from.
-    pub(super) root: PathBuf,
-    pub(super) home: Option<PathBuf>,
-    pub(super) files: Vec<FileSnap>,
+    pub(super) opened: usize,
+    pub(super) files: Vec<(String, Rope)>,
 }
 
-/// One file's edits, and the path it is shown by.
-pub(super) struct FileSnap {
-    pub(super) shown: String,
-    pub(super) source: Source,
-}
-
-/// Where a file's lines are: a buffer's text, its edits in its bytes; or the file, its edits as
-/// the server counts them.
-pub(super) enum Source {
-    Text {
-        text: Rope,
-        edits: Vec<(Range<usize>, String)>,
-    },
-    File {
-        path: PathBuf,
-        edits: Vec<Extra>,
-        encoding: Encoding,
-    },
-}
-
-/// The preview's text, or `None` once `live` says it is stale.
-pub(super) fn build(snapshot: &Snapshot, live: &dyn Fn() -> bool) -> Option<String> {
-    let edits: usize = (snapshot.files.iter())
-        .map(|file| file.source.count())
-        .sum();
-    let unopened = (snapshot.files.iter())
-        .filter(|file| matches!(file.source, Source::File { .. }))
-        .count();
+/// The preview's text for `parts`, each the edits of `snapshot.files`' buffer at the same place,
+/// or why the rename is refused; `None` once `live` says it is stale.
+pub(super) fn build(
+    snapshot: &Snapshot,
+    parts: &[BufferEdit],
+    live: &dyn Fn() -> bool,
+) -> Option<Result<String, &'static str>> {
+    let edits: usize = parts.iter().map(|part| part.edits.len()).sum();
     let mut out = String::new();
     let _ = writeln!(
         out,
@@ -76,190 +71,89 @@ pub(super) fn build(snapshot: &Snapshot, live: &dyn Fn() -> bool) -> Option<Stri
         shown(&snapshot.old),
         shown(&snapshot.new),
         plural(edits, "edit"),
-        plural(snapshot.files.len(), "file"),
-        match unopened {
+        plural(parts.len(), "file"),
+        match snapshot.opened {
             0 => String::new(),
-            count => format!(" ({count} not open)"),
+            count => format!(" ({count} opened for it, unshown)"),
         }
     );
     out.push_str(
         "y applies it, each buffer's edits one step to undo; n or q leaves all as it is\n",
     );
-    let real_home = crate::walk::real_home(snapshot.home.as_deref());
-    let mut budget = READ_MAX;
-    let mut part = crate::grep::part_buffer();
-    for file in &snapshot.files {
-        if !live() {
-            return None;
-        }
+    for ((path, text), part) in snapshot.files.iter().zip(parts) {
         let _ = writeln!(
             out,
             "\n{} ({})",
-            shown(&file.shown),
-            plural(file.source.count(), "edit")
+            shown(path),
+            plural(part.edits.len(), "edit")
         );
-        let groups = match &file.source {
-            Source::Text { text, edits } => text_groups(text, edits),
-            Source::File {
-                path,
-                edits,
-                encoding,
-            } => {
-                let reading = (
-                    snapshot.root.as_path(),
-                    real_home.as_deref(),
-                    &mut part,
-                    &mut budget,
-                );
-                file_groups(path, (edits, *encoding), reading, live)?
-            }
-        };
-        for group in groups {
-            write_group(&mut out, &group);
+        match file_rows(text, &part.edits, &mut out, live)? {
+            Err(why) => return Some(Err(why)),
+            Ok(()) if out.len() > PREVIEW_BYTES_MAX => return Some(Err(TOO_LARGE)),
+            Ok(()) => {}
         }
     }
-    Some(out)
+    Some(Ok(out))
 }
 
-/// Lines `first` onwards (from 0) as they are and as the edits leave them; `None` for lines that
-/// could not be read, with the edits' new text.
-struct Group {
-    first: usize,
-    lines: Option<(String, String)>,
-    new_texts: Vec<String>,
-}
-
-impl Source {
-    fn count(&self) -> usize {
-        match self {
-            Self::Text { edits, .. } => edits.len(),
-            Self::File { edits, .. } => edits.len(),
-        }
+/// Writes the rows of `edits` of `text` to `out`; `None` once `live` says the preview is stale.
+fn file_rows(
+    text: &Rope,
+    edits: &[(Range<usize>, String)],
+    out: &mut String,
+    live: &dyn Fn() -> bool,
+) -> Option<Result<(), &'static str>> {
+    let mut order: Vec<usize> = (0..edits.len()).collect();
+    // Stable: insertions at one place keep their order, as `y` makes them.
+    order.sort_by_key(|&at| (edits[at].0.start, edits[at].0.end));
+    // `y` refuses edits that overlap, so the preview does too.
+    let overlaps = order
+        .windows(2)
+        .any(|pair| edits[pair[1]].0.start < edits[pair[0]].0.end);
+    if overlaps {
+        return Some(Err("its edits overlap"));
     }
-}
-
-/// The groups of a buffer's text's edits.
-fn text_groups(text: &Rope, edits: &[(Range<usize>, String)]) -> Vec<Group> {
-    let rows: Vec<(usize, usize)> = (edits.iter())
-        .map(|(range, _)| {
+    let rows: Vec<(usize, usize)> = (order.iter())
+        .map(|&at| {
+            let range = &edits[at].0;
             let first = text.offset_to_point(range.start).row;
             (first, text.offset_to_point(range.end).row.max(first))
         })
         .collect();
-    spans(&rows)
-        .into_iter()
-        .map(|(first, last, members)| {
-            let range = text.line_start(first)..text.line_end(last);
-            let local: Vec<(Range<usize>, &str)> = (members.iter())
-                .map(|&at| {
-                    let (edit, new) = &edits[at];
-                    let start = edit.start.clamp(range.start, range.end) - range.start;
-                    let end = edit.end.clamp(range.start, range.end) - range.start;
-                    (start..end.max(start), new.as_str())
-                })
-                .collect();
-            let before = text.slice(range).to_string();
-            let after = applied(&before, &local);
-            Group {
-                first,
-                lines: Some((before, after)),
-                new_texts: Vec::new(),
-            }
-        })
-        .collect()
-}
-
-/// The groups of a file's edits, its lines read from `root`; `None` once `live` says the
-/// preview is stale.
-fn file_groups(
-    path: &Path,
-    (edits, encoding): (&[Extra], Encoding),
-    (root, home, part, budget): (&Path, Option<&Path>, &mut Vec<u8>, &mut u64),
-    live: &dyn Fn() -> bool,
-) -> Option<Vec<Group>> {
-    let row = |position: &Position| position.line as usize;
-    let rows: Vec<(usize, usize)> = (edits.iter())
-        .map(|(start, end, _)| (row(start), row(end).max(row(start))))
-        .collect();
-    let groups = spans(&rows);
-    let mut wanted: Vec<usize> = (groups.iter())
-        .flat_map(|(first, last, _)| *first + 1..=*last + 1)
-        .collect();
-    wanted.sort_unstable();
-    wanted.dedup();
-    let read = match path.strip_prefix(root) {
-        Ok(relative) => {
-            let leads = crate::app::greps::leads(root);
-            let found = read_lines(
-                (root, leads.as_deref()),
-                (relative, &wanted),
-                home,
-                (part, budget),
-                live,
-            )?;
-            match found {
-                RowLines::Read(lines, _) => lines,
-                RowLines::Withheld | RowLines::Unreadable => Vec::new(),
-            }
+    for (first, last, members) in spans(&rows) {
+        if !live() {
+            return None;
         }
-        Err(_) => Vec::new(),
-    };
-    let line_of = |number: usize| {
-        (read.iter())
-            .find(|(at, _)| *at == number)
-            .map(|(_, bytes)| bytes)
-    };
-    Some(
-        groups
-            .into_iter()
-            .map(|(first, last, members)| {
-                let lines: Option<Vec<&Vec<u8>>> = (first + 1..=last + 1).map(line_of).collect();
-                // A line kept whole only: one cut where it was read shows no true after.
-                let whole = lines
-                    .filter(|lines| lines.iter().all(|line| line.len() < crate::grep::LINE_KEPT));
-                let lines = whole.map(|lines| {
-                    let joined = (lines.iter())
-                        .map(|line| String::from_utf8_lossy(line).into_owned())
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    let mini = Rope::from(joined.as_str());
-                    let local: Vec<(Range<usize>, &str)> = (members.iter())
-                        .map(|&at| {
-                            let (start, end, new) = &edits[at];
-                            let moved = |position: &Position| {
-                                let line = position.line.saturating_sub(first as u32);
-                                Position::new(line, position.character)
-                            };
-                            let start = oso_lsp::position::to_offset(&mini, moved(start), encoding);
-                            let end = oso_lsp::position::to_offset(&mini, moved(end), encoding);
-                            (start..end.max(start), new.as_str())
-                        })
-                        .collect();
-                    let after = applied(&joined, &local);
-                    (joined, after)
-                });
-                let new_texts = match lines {
-                    Some(_) => Vec::new(),
-                    None => (members.iter()).map(|&at| edits[at].2.clone()).collect(),
-                };
-                Group {
-                    first,
-                    lines,
-                    new_texts,
-                }
+        let span = text.line_start(first)..text.line_end(last);
+        if span.len() > GROUP_BYTES_MAX {
+            return Some(Err(TOO_LARGE));
+        }
+        let local: Vec<(Range<usize>, &str)> = (members.iter())
+            .map(|&row| {
+                let (range, new) = &edits[order[row]];
+                (
+                    range.start - span.start..range.end - span.start,
+                    new.as_str(),
+                )
             })
-            .collect(),
-    )
+            .collect();
+        let before = text.slice(span).to_string();
+        let after = applied(&before, &local);
+        if let Err(why) = write_group(out, first, &before, &after) {
+            return Some(Err(why));
+        }
+        if out.len() > PREVIEW_BYTES_MAX {
+            return Some(Err(TOO_LARGE));
+        }
+    }
+    Some(Ok(()))
 }
 
-/// The edits' rows, each `(first, last)`, joined where they overlap or touch: each group's first
-/// and last row, and its edits by their place, in the order of their rows.
+/// The edits' rows, each `(first, last)` in ascending order, joined where they overlap or
+/// touch: each group's first and last row, and its members by their place in `rows`.
 fn spans(rows: &[(usize, usize)]) -> Vec<(usize, usize, Vec<usize>)> {
-    let mut order: Vec<usize> = (0..rows.len()).collect();
-    order.sort_by_key(|&at| rows[at]);
     let mut groups: Vec<(usize, usize, Vec<usize>)> = Vec::new();
-    for at in order {
-        let (first, last) = rows[at];
+    for (at, &(first, last)) in rows.iter().enumerate() {
         match groups.last_mut() {
             Some(group) if first <= group.1 + 1 => {
                 group.1 = group.1.max(last);
@@ -271,63 +165,107 @@ fn spans(rows: &[(usize, usize)]) -> Vec<(usize, usize, Vec<usize>)> {
     groups
 }
 
-/// `text` with `edits`, ranges of its bytes, made; one that overlaps another before it is left
-/// out, as the edit itself is refused then.
+/// `text` with `edits`, ranges of its bytes in ascending order that do not overlap, made; at one
+/// place, in their order, as `y` makes them.
 fn applied(text: &str, edits: &[(Range<usize>, &str)]) -> String {
-    let mut sorted: Vec<&(Range<usize>, &str)> = edits.iter().collect();
-    sorted.sort_by_key(|(range, _)| (range.start, range.end));
     let mut out = String::with_capacity(text.len());
     let mut at = 0;
-    for (range, new) in sorted {
-        let start = text.floor_char_boundary(range.start.min(text.len()));
-        let end = text.floor_char_boundary(range.end.min(text.len()));
-        if start < at {
-            continue;
-        }
-        out.push_str(&text[at..start]);
+    for (range, new) in edits {
+        out.push_str(&text[at..range.start]);
         out.push_str(new);
-        at = end.max(start);
+        at = range.end;
     }
     out.push_str(&text[at..]);
     out
 }
 
-/// Writes `group`'s lines, each by its number from 1, as they are (`-`) and as they would be
-/// (`+`).
-fn write_group(out: &mut String, group: &Group) {
-    match &group.lines {
-        Some((before, after)) => {
-            for (at, line) in before.split('\n').enumerate() {
-                let _ = writeln!(out, "{:>6} - {}", group.first + at + 1, shown(line));
-            }
-            for (at, line) in after.split('\n').enumerate() {
-                let _ = writeln!(out, "{:>6} + {}", group.first + at + 1, shown(line));
-            }
-        }
-        None => {
-            let _ = writeln!(
-                out,
-                "{:>6}   (the line could not be read whole; the new text is)",
-                group.first + 1
-            );
-            for text in &group.new_texts {
-                for line in text.split('\n') {
-                    let _ = writeln!(out, "{:>6} + {}", group.first + 1, shown(line));
-                }
-            }
-        }
+/// Writes the lines of a group from row `first` that differ between `before` and `after`,
+/// numbered from 1: as they are (`-`), then as they would be (`+`).
+fn write_group(
+    out: &mut String,
+    first: usize,
+    before: &str,
+    after: &str,
+) -> Result<(), &'static str> {
+    let old: Vec<&str> = before.split('\n').collect();
+    let new: Vec<&str> = after.split('\n').collect();
+    let same_start = (old.iter().zip(&new)).take_while(|(a, b)| a == b).count();
+    let room = old.len().min(new.len()) - same_start;
+    let same_end = (old.iter().rev().zip(new.iter().rev()))
+        .take(room)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let old = &old[same_start..old.len() - same_end];
+    let new = &new[same_start..new.len() - same_end];
+    if old.len() > GROUP_LINES_MAX || new.len() > GROUP_LINES_MAX {
+        return Err(TOO_LARGE);
     }
+    let number = first + same_start + 1;
+    // Line by line, each shows the part that differs from its counterpart.
+    let paired = old.len() == new.len();
+    for (at, line) in old.iter().enumerate() {
+        let window = paired.then(|| differing(line, new[at]).0);
+        write_line(out, (number + at, '-'), line, window)?;
+    }
+    for (at, line) in new.iter().enumerate() {
+        let window = paired.then(|| differing(old[at], line).1);
+        write_line(out, (number + at, '+'), line, window)?;
+    }
+    Ok(())
 }
 
-/// `text` on one line: its controls and its bidi and invisible characters as `\u{…}`, cut at
-/// [`SHOWN_MAX`] characters.
+/// The characters of `a` and of `b` that differ between them: what lies between their common
+/// start and their common end.
+fn differing(a: &str, b: &str) -> (Range<usize>, Range<usize>) {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let start = (a.iter().zip(&b)).take_while(|(x, y)| x == y).count();
+    let room = a.len().min(b.len()) - start;
+    let end = (a.iter().rev().zip(b.iter().rev()))
+        .take(room)
+        .take_while(|(x, y)| x == y)
+        .count();
+    (start..a.len() - end, start..b.len() - end)
+}
+
+/// Writes `line`, number `number` with `sign`: whole if it fits a row; else the characters of
+/// `window`, what differs, and [`CONTEXT`] either side, from their columns, over as many rows as
+/// they take.
+fn write_line(
+    out: &mut String,
+    (number, sign): (usize, char),
+    line: &str,
+    window: Option<Range<usize>>,
+) -> Result<(), &'static str> {
+    let chars: Vec<char> = line.chars().collect();
+    if chars.len() <= ROW_CHARS {
+        let _ = writeln!(out, "{number:>6} {sign} {}", shown(line));
+        return Ok(());
+    }
+    let window = window.unwrap_or(0..chars.len());
+    let start = window.start.saturating_sub(CONTEXT);
+    let end = (window.end + CONTEXT).min(chars.len());
+    if end - start > LINE_SHOWN_MAX {
+        return Err(TOO_LARGE);
+    }
+    let _ = writeln!(
+        out,
+        "{number:>6} {sign} (columns {} to {} of {})",
+        start + 1,
+        end,
+        chars.len()
+    );
+    for row in chars[start..end].chunks(ROW_CHARS) {
+        let text: String = row.iter().collect();
+        let _ = writeln!(out, "       {sign} {}", shown(&text));
+    }
+    Ok(())
+}
+
+/// `text` on one line: its controls and its bidi and invisible characters as `\u{…}`.
 pub(super) fn shown(text: &str) -> String {
-    let mut out = String::with_capacity(text.len().min(SHOWN_MAX * 4));
-    for (count, c) in text.chars().enumerate() {
-        if count == SHOWN_MAX {
-            out.push('…');
-            break;
-        }
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
         if c.is_control() || is_invisible(c) {
             let _ = write!(out, "\\u{{{:x}}}", u32::from(c));
         } else {

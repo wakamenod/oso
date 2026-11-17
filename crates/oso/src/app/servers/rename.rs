@@ -1,6 +1,6 @@
 //! A rename on the UI thread (ADR 0138, step 14, as `eglot-rename`): the server checks the place,
-//! the new name is read in a prompt that names the old one, the server's edits are shown in
-//! `*lsp-rename*`, and `y` there applies them through `applying`.
+//! the new name is read in a prompt that names the old one, the server's edit opens and is
+//! judged through `applying`, and `*lsp-rename*` shows it before `y` applies it (`shown`).
 //!
 //! Must not depend on: the window system or the drawing; nothing here waits on a server or a
 //! file.
@@ -9,37 +9,36 @@
 //!   from agents.
 //! - The place is the server's range if it checks one, else the identifier at point (Q4). The
 //!   prompt starts empty, with the old name on `M-n` (Q5).
-//! - The rename waits [`RENAME_WAIT`](oso_lsp::limits::RENAME_WAIT); `C-g` stops it and the
-//!   server is told (Q7).
-//! - Before anything shows, a file the edit would refuse once applied before it opens refuses
-//!   it now (`applying::judge_unsent`), so that the preview never shows a file that may hold
-//!   secrets or lies outside the project. The preview stands for 13b's question: `y` applies,
-//!   opening the files no buffer holds, unshown and unsaved (Q9); `n`, `q` or `C-g` leaves all
-//!   as it was. One rename at a time: a newer `lsp-rename` drops an older one.
-//! - Every name shown has its controls and bidi and invisible characters written out.
+//! - The rename waits [`RENAME_WAIT`](oso_lsp::limits::RENAME_WAIT); `C-g` stops it, and the
+//!   server is told (Q7), as it is when a newer `lsp-rename` drops it.
+//! - The edit's files open as 13b opens them, unshown, judged before and once loaded, with no
+//!   question: the preview is the question, built from those buffers' texts with the ranges `y`
+//!   applies (the author's choice, 2026-11-17). `n`, `q` or `C-g` kills what was opened.
+//! - One rename at a time. An answer, a failure or a preview counts only if it is the rename's
+//!   own: its server, its buffer and its ask's serial.
+//! - Names are shown with their controls and bidi and invisible characters written out, and
+//!   never logged.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use oso_core::buffer::{BufferId, Mode};
-use oso_core::editor::AskAt;
+use oso_core::buffer::BufferId;
+use oso_core::editor::{AskAt, BufferEdit};
 use oso_core::minibuffer::PromptId;
 use oso_core::sum_tree::Bias;
 use oso_lsp::server::{AskContext, AskFailure, AskKind, Prepared, ServerEdit};
 
-use super::super::{App, UserEvent};
+use super::super::App;
 use super::applying::EditFrom;
 use super::asks::{Asker, Who};
 
+mod names;
 mod preview;
-mod snapshot;
+mod shown;
 
+use names::{NEW_NAME_MAX, identifier_at};
 use preview::shown;
-use snapshot::{NEW_NAME_MAX, identifier_at};
-
-/// The name of the buffer that shows a rename's edits.
-const PREVIEW_NAME: &str = "*lsp-rename*";
 
 /// The rename under way: its server, by its root and entry, the buffer asked about, and how far
 /// it has got.
@@ -53,31 +52,50 @@ pub(super) struct Renaming {
 /// How far a rename has got.
 #[derive(Debug)]
 enum Stage {
-    /// The server checks the place.
-    Checking,
+    /// The server checks the place, ask `serial`.
+    Checking { serial: u64 },
     /// The prompt reads the new name of `old`, asked at `at`.
     Naming {
         at: AskAt,
         old: String,
         prompt: PromptId,
     },
-    /// The server renames `old` to `new`.
-    Asked { old: String, new: String },
-    /// Its edits are read for the preview, generation `generation`.
+    /// The server renames `old` to `new`, ask `serial`.
+    Asked {
+        serial: u64,
+        old: String,
+        new: String,
+    },
+    /// Its edit's files open and are judged (`applying`).
+    Opening { old: String, new: String },
+    /// Its preview is built, generation `generation`, from the buffers it opened, `opened`
+    /// among them.
     Reading {
         generation: u64,
         old: String,
         new: String,
-        edit: ServerEdit,
+        opened: Vec<BufferId>,
     },
-    /// The preview shows them in `preview`, from `back`.
+    /// Its preview shows in `preview`, from `back`: `parts`, which `y` applies.
     Shown {
         old: String,
         new: String,
-        edit: ServerEdit,
+        parts: PlacedEdits,
+        opened: Vec<BufferId>,
         preview: BufferId,
         back: BufferId,
     },
+}
+
+/// A rename's edits placed in the buffers they change, which its preview shows and `y` applies.
+/// `Debug` gives counts only: an edit's text may quote what the server read.
+pub(crate) struct PlacedEdits(pub(in crate::app) Vec<BufferEdit>);
+
+impl std::fmt::Debug for PlacedEdits {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let edits: usize = self.0.iter().map(|part| part.edits.len()).sum();
+        write!(f, "PlacedEdits({} buffers, {edits} edits)", self.0.len())
+    }
 }
 
 /// The generation of the newest preview, which stops the build of an older one.
@@ -97,13 +115,27 @@ impl App {
         };
         let running = &self.servers.running[index];
         let server = (running.root.clone(), running.entry.name.clone());
-        let context = AskContext::None;
-        self.send_ask(index, (at, AskKind::PrepareRename, context), Who::Person);
+        self.send_ask(
+            index,
+            (at, AskKind::PrepareRename, AskContext::None),
+            Who::Person,
+        );
+        let serial = self.servers.serial;
         self.servers.rename = Some(Renaming {
             server,
             buffer: at.buffer,
-            stage: Stage::Checking,
+            stage: Stage::Checking { serial },
         });
+    }
+
+    /// Whether `taken`, server `index`'s answer, is the rename's own ask of `serial`.
+    fn rename_owns(&self, index: usize, taken: Option<&(BufferId, Asker)>, serial: u64) -> bool {
+        let Some(renaming) = self.servers.rename.as_ref() else {
+            return false;
+        };
+        self.servers.find(&renaming.server.0, &renaming.server.1) == Some(index)
+            && taken
+                .is_some_and(|(asked, asker)| *asked == renaming.buffer && asker.serial() == serial)
     }
 
     /// The server checked the place for who asked, `taken`: the prompt for the new name opens,
@@ -114,31 +146,28 @@ impl App {
         taken: Option<(BufferId, Asker)>,
         prepared: Prepared,
     ) {
-        let Some((asked, asker)) = taken.filter(|(asked, asker)| self.still_there(*asked, asker))
-        else {
-            self.servers.rename = None;
-            return;
+        let serial = match self.servers.rename.as_ref().map(|renaming| &renaming.stage) {
+            Some(Stage::Checking { serial }) => *serial,
+            _ => return,
         };
-        if !matches!(
-            self.servers.rename.as_ref().map(|renaming| &renaming.stage),
-            Some(Stage::Checking)
-        ) {
+        if !self.rename_owns(index, taken.as_ref(), serial) {
             return;
         }
+        let Some((asked, asker)) = taken.filter(|(asked, asker)| self.still_there(*asked, asker))
+        else {
+            return self.drop_rename(None);
+        };
         let name = self.servers.running[index].entry.name.clone();
         let at = asker.at(asked);
         let old = self.editor.buffer(asked).and_then(|buffer| {
             let text = buffer.text();
             match prepared {
                 Prepared::At {
-                    start,
-                    end,
-                    placeholder,
-                } => match placeholder {
-                    Some(placeholder) => Some(placeholder.into_string()),
-                    None => (start < end && end - start <= NEW_NAME_MAX)
-                        .then(|| text.slice(start..end).to_string()),
-                },
+                    placeholder: Some(placeholder),
+                    ..
+                } => Some(placeholder.into_string()),
+                Prepared::At { start, end, .. } => (start < end && end - start <= NEW_NAME_MAX)
+                    .then(|| text.slice(start..end).to_string()),
                 Prepared::Unasked => {
                     // Only the text around the cursor: a name is short.
                     let reach = NEW_NAME_MAX * 4;
@@ -151,19 +180,17 @@ impl App {
             }
         });
         let Some(old) = old.filter(|old| !old.is_empty()) else {
-            self.servers.rename = None;
+            self.drop_rename(None);
             self.editor
                 .message(format!("{name}: nothing to rename here"));
-            self.request_redraw();
-            return;
+            return self.request_redraw();
         };
         let label = format!("Rename \u{2018}{}\u{2019} to: ", shown(&old));
         let Some(prompt) = self
             .dispatcher
             .read_new_name(&mut self.editor, &label, &old)
         else {
-            self.servers.rename = None;
-            return;
+            return self.drop_rename(None);
         };
         if let Some(renaming) = self.servers.rename.as_mut() {
             renaming.stage = Stage::Naming { at, old, prompt };
@@ -174,79 +201,81 @@ impl App {
     /// `lsp-rename-to`: asks the server to rename what it checked to `name`, if the buffer is
     /// as it was then.
     pub(super) fn rename_to(&mut self, name: &str) {
-        let Some(renaming) = self.servers.rename.take() else {
+        let Some(Renaming {
+            server,
+            buffer,
+            stage: Stage::Naming { at, old, .. },
+        }) = self.servers.rename.take()
+        else {
             return;
         };
-        let Stage::Naming { at, old, .. } = renaming.stage else {
-            self.servers.rename = Some(renaming);
-            return;
-        };
-        let server_name = renaming.server.1.clone();
         let refused = if name.is_empty() {
             Some("no new name")
         } else if name == old {
             Some("the new name is the old one")
         } else if name.len() > NEW_NAME_MAX || name.chars().any(char::is_control) {
             Some("the new name is too long or holds a control character")
-        } else if self
-            .editor
-            .buffer(at.buffer)
-            .map(|buffer| buffer.revision())
-            != Some(at.revision)
-        {
+        } else if self.editor.buffer(at.buffer).map(|shown| shown.revision()) != Some(at.revision) {
             Some("the buffer changed since the place was checked")
         } else {
             None
         };
-        if let Some(why) = refused {
+        let index = self.servers.find(&server.0, &server.1);
+        let (Some(index), None) = (index, refused) else {
+            let why = refused.unwrap_or("its server ended");
             self.editor
-                .message(format!("{server_name}: not renamed: {why}"));
-            self.request_redraw();
-            return;
-        }
-        let Some(index) = self.servers.find(&renaming.server.0, &renaming.server.1) else {
-            self.editor
-                .message(format!("{server_name}: not renamed: its server ended"));
-            return;
+                .message(format!("{}: not renamed: {why}", server.1));
+            return self.request_redraw();
         };
         let context = (at, AskKind::Rename, AskContext::None);
         self.send_ask_named(index, context, Who::Person, Some(name.into()));
-        self.editor.message(format!(
-            "{server_name} renames \u{2018}{}\u{2019}… (C-g stops)",
+        // The old name is the buffer's or the server's text: shown, not logged.
+        self.editor.message_unlogged(format!(
+            "{} renames \u{2018}{}\u{2019}… (C-g stops)",
+            server.1,
             shown(&old)
         ));
+        let serial = self.servers.serial;
         self.servers.rename = Some(Renaming {
+            server,
+            buffer,
             stage: Stage::Asked {
+                serial,
                 old,
                 new: name.to_owned(),
             },
-            ..renaming
         });
         self.request_redraw();
     }
 
-    /// The server's rename came for who asked, `taken`: its files judged, and its preview built
-    /// off the UI thread.
+    /// The server's rename came for who asked, `taken`: its files open and are judged, then its
+    /// preview is built (`shown`).
     pub(super) fn renamed(
         &mut self,
         index: usize,
         taken: Option<(BufferId, Asker)>,
         edit: ServerEdit,
     ) {
-        let asked = taken.filter(|(asked, asker)| {
-            self.editor.buffer(*asked).map(|buffer| buffer.revision())
-                == Some(asker.at(*asked).revision)
+        let serial = match self.servers.rename.as_ref().map(|renaming| &renaming.stage) {
+            Some(Stage::Asked { serial, .. }) => *serial,
+            _ => return self.freer.free(edit),
+        };
+        if !self.rename_owns(index, taken.as_ref(), serial) {
+            return self.freer.free(edit);
+        }
+        let Some(Renaming {
+            server,
+            buffer,
+            stage: Stage::Asked { old, new, .. },
+        }) = self.servers.rename.take()
+        else {
+            return self.freer.free(edit);
+        };
+        let unchanged = taken.is_some_and(|(asked, asker)| {
+            self.editor.buffer(asked).map(|shown| shown.revision())
+                == Some(asker.at(asked).revision)
         });
-        let Some(renaming) = self.servers.rename.take() else {
-            self.freer.free(edit);
-            return;
-        };
-        let Stage::Asked { old, new } = renaming.stage else {
-            self.freer.free(edit);
-            return;
-        };
-        let name = renaming.server.1.clone();
-        let refused = if asked.is_none() {
+        let refused = if !unchanged {
             Some("the buffer changed while the server renamed")
         } else if edit.open.is_empty() && edit.unsent.is_empty() {
             Some("nothing to rename")
@@ -255,178 +284,49 @@ impl App {
         };
         if let Some(why) = refused {
             self.freer.free(edit);
-            self.editor.message(format!("{name}: not renamed: {why}"));
-            self.request_redraw();
-            return;
+            self.editor
+                .message(format!("{}: not renamed: {why}", server.1));
+            return self.request_redraw();
         }
-        let snapshot = match self.preview_snapshot(index, (&old, &new), &edit) {
-            Ok(snapshot) => snapshot,
-            Err(why) => {
-                self.freer.free(edit);
-                self.editor.message(format!("{name}: not renamed: {why}"));
-                self.request_redraw();
-                return;
-            }
-        };
-        let generation = self
-            .servers
-            .preview_generation
-            .fetch_add(1, Ordering::Relaxed)
-            + 1;
-        let live = Arc::clone(&self.servers.preview_generation);
-        let waker = self.waker.clone();
-        let spawned = std::thread::Builder::new()
-            .name("oso-lsp-rename".into())
-            .spawn(move || {
-                let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    preview::build(&snapshot, &|| live.load(Ordering::Relaxed) == generation)
-                }));
-                let built = built.unwrap_or_else(|_| {
-                    log::warn!("the build of a rename's preview panicked");
-                    None
-                });
-                drop(snapshot);
-                if let Some(text) = built {
-                    waker.send(UserEvent::RenamePreviewed(generation, text));
-                }
-            });
-        if spawned.is_err() {
-            log::warn!("the thread that builds a rename's preview could not start");
-            self.freer.free(edit);
-            self.editor.message(format!(
-                "{name}: not renamed: its preview could not be built"
-            ));
-            return;
-        }
-        self.servers.rename = Some(Renaming {
-            stage: Stage::Reading {
-                generation,
-                old,
-                new,
-                edit,
-            },
-            ..renaming
-        });
-    }
-
-    /// The preview of `generation` was built: shown in `*lsp-rename*`, if its rename still
-    /// waits for it.
-    pub(in crate::app) fn rename_previewed(&mut self, generation: u64, text: String) {
-        let waits = matches!(
-            self.servers.rename.as_ref().map(|renaming| &renaming.stage),
-            Some(Stage::Reading { generation: built, .. }) if *built == generation
-        );
-        let Some(renaming) = self.servers.rename.take().filter(|_| waits) else {
-            return;
-        };
-        let Stage::Reading { old, new, edit, .. } = renaming.stage else {
-            return;
-        };
-        let back = self.editor.window().buffer();
-        let preview = self
-            .editor
-            .add_internal_buffer(PREVIEW_NAME, Mode::RenamePreview);
-        if let Some(buffer) = self.editor.buffer_mut(preview) {
-            buffer.withhold_from_agents();
-        }
-        self.editor.set_internal_text(preview, &text);
-        self.editor.show(preview);
-        self.servers.rename = Some(Renaming {
-            stage: Stage::Shown {
-                old,
-                new,
-                edit,
-                preview,
-                back,
-            },
-            ..renaming
-        });
-        self.request_redraw();
-    }
-
-    /// `lsp-rename-apply`, the `y` of `*lsp-rename*`: applies the rename it shows.
-    pub(super) fn apply_rename(&mut self) {
-        let shown_now = self.editor.window().buffer();
-        let Some(renaming) = self.servers.rename.take() else {
-            return;
-        };
-        let Stage::Shown {
-            old,
-            new,
-            edit,
-            preview,
-            back,
-        } = renaming.stage
-        else {
-            self.servers.rename = Some(renaming);
-            return;
-        };
-        if shown_now != preview {
-            self.servers.rename = Some(Renaming {
-                stage: Stage::Shown {
-                    old,
-                    new,
-                    edit,
-                    preview,
-                    back,
-                },
-                ..renaming
-            });
-            return;
-        }
-        self.close_preview(preview, back);
         let title = format!(
-            "renamed \u{2018}{}\u{2019} to \u{2018}{}\u{2019}",
+            "rename \u{2018}{}\u{2019} to \u{2018}{}\u{2019}",
             shown(&old),
             shown(&new)
         );
-        self.apply_edit_of(&renaming.server, &title, edit, EditFrom::Rename);
+        self.servers.rename = Some(Renaming {
+            server: server.clone(),
+            buffer,
+            stage: Stage::Opening { old, new },
+        });
+        // Opens what no buffer holds, judges it all, and hands the placed edits to
+        // `rename_placed`, or says why not.
+        self.apply_edit_of(&server, &title, edit, EditFrom::Rename);
         self.request_redraw();
     }
 
-    /// `lsp-rename-cancel`, and `C-g` anywhere: a rename waiting for its server stops, and the
-    /// server is told; the preview, if shown in the selected window, goes.
+    /// `lsp-rename-cancel`, and `C-g` anywhere while a rename waits: it stops, and the server is
+    /// told; the preview goes only if it is the window's.
     pub(super) fn cancel_rename(&mut self) {
         let Some(renaming) = self.servers.rename.as_ref() else {
             return;
         };
         match &renaming.stage {
-            Stage::Checking | Stage::Asked { .. } => {
-                let kind = match renaming.stage {
-                    Stage::Checking => AskKind::PrepareRename,
-                    _ => AskKind::Rename,
-                };
-                if let Some(index) = self.servers.find(&renaming.server.0, &renaming.server.1) {
-                    let buffer = renaming.buffer;
-                    self.servers.running[index]
-                        .server
-                        .cancel(buffer.get(), kind);
-                    self.servers.running[index].asked.remove(&(buffer, kind));
-                }
-                self.drop_rename(Some("stopped"));
-            }
-            Stage::Shown { preview, .. } if self.editor.window().buffer() == *preview => {
+            Stage::Checking { .. }
+            | Stage::Asked { .. }
+            | Stage::Opening { .. }
+            | Stage::Reading { .. } => self.drop_rename(Some("stopped")),
+            Stage::Shown { preview, .. } if self.editor.tiled().0.buffer() == *preview => {
                 self.drop_rename(Some("not applied"));
             }
             // A `C-g` elsewhere leaves the preview; the prompt's own `C-g` closed it.
             Stage::Shown { .. } | Stage::Naming { .. } => {}
-            Stage::Reading { .. } => self.drop_rename(Some("stopped")),
         }
         self.request_redraw();
     }
 
-    /// Tells the dispatcher whether a rename waits for its server or its preview, which `C-g`
-    /// stops.
-    fn note_rename_waits(&mut self) {
-        let waits = matches!(
-            self.servers.rename.as_ref().map(|renaming| &renaming.stage),
-            Some(Stage::Checking | Stage::Asked { .. } | Stage::Reading { .. })
-        );
-        self.dispatcher.set_rename_waits(waits);
-    }
-
-    /// After each sync and each answer: a rename whose prompt closed with no name, or whose
-    /// preview was killed, goes.
+    /// After each sync and each answer: a rename whose prompt closed with no name, whose
+    /// preview was killed, or whose files were refused, goes; and the dispatcher hears whether
+    /// one waits, for `C-g`.
     pub(in crate::app) fn step_rename(&mut self) {
         let gone = match self.servers.rename.as_ref().map(|renaming| &renaming.stage) {
             Some(Stage::Naming { prompt, .. }) => !self
@@ -435,15 +335,27 @@ impl App {
                 .iter()
                 .any(|open| open.id() == *prompt),
             Some(Stage::Shown { preview, .. }) => self.editor.buffer(*preview).is_none(),
+            // `applying` said why, and killed what it opened.
+            Some(Stage::Opening { .. }) => !self.rename_opening(),
             _ => false,
         };
         if gone {
             self.drop_rename(None);
         }
-        self.note_rename_waits();
+        let waits = matches!(
+            self.servers.rename.as_ref().map(|renaming| &renaming.stage),
+            Some(
+                Stage::Checking { .. }
+                    | Stage::Asked { .. }
+                    | Stage::Opening { .. }
+                    | Stage::Reading { .. }
+            )
+        );
+        self.dispatcher.set_rename_waits(waits);
     }
 
-    /// The server's check or rename failed: the rename ends, and the echo area says why.
+    /// The server's check or rename failed: if it is the rename's own ask, the rename ends, and
+    /// the echo area says why.
     pub(super) fn rename_failed(
         &mut self,
         index: usize,
@@ -451,10 +363,15 @@ impl App {
         kind: AskKind,
         why: &AskFailure,
     ) {
-        if taken.is_none() || self.servers.rename.is_none() {
+        let serial = match self.servers.rename.as_ref().map(|renaming| &renaming.stage) {
+            Some(Stage::Checking { serial }) if kind == AskKind::PrepareRename => *serial,
+            Some(Stage::Asked { serial, .. }) if kind == AskKind::Rename => *serial,
+            _ => return,
+        };
+        if !self.rename_owns(index, taken.as_ref(), serial) {
             return;
         }
-        self.servers.rename = None;
+        self.drop_rename(None);
         let name = self.servers.running[index].entry.name.clone();
         // The server's text may quote what it read: shown, not logged.
         self.editor
@@ -462,41 +379,49 @@ impl App {
         self.request_redraw();
     }
 
-    /// Drops the rename under way, its preview with it, saying `said` of it if given.
+    /// Drops the rename under way, saying `said` of it if given: an ask that waits is cancelled
+    /// and the server told, what it opened is killed, and its preview goes.
     fn drop_rename(&mut self, said: Option<&str>) {
         let Some(renaming) = self.servers.rename.take() else {
             return;
         };
         let name = renaming.server.1.clone();
         match renaming.stage {
-            Stage::Reading { edit, .. } => {
+            Stage::Checking { .. } | Stage::Asked { .. } => {
+                let kind = match renaming.stage {
+                    Stage::Checking { .. } => AskKind::PrepareRename,
+                    _ => AskKind::Rename,
+                };
+                let found = self.servers.find(&renaming.server.0, &renaming.server.1);
+                if let Some(index) = found {
+                    let running = &mut self.servers.running[index];
+                    running.server.cancel(renaming.buffer.get(), kind);
+                    running.asked.remove(&(renaming.buffer, kind));
+                }
+            }
+            Stage::Opening { .. } => self.drop_rename_opening("stopped"),
+            Stage::Reading { opened, .. } => {
                 self.servers
                     .preview_generation
                     .fetch_add(1, Ordering::Relaxed);
-                self.freer.free(edit);
+                self.kill_opened(&opened);
             }
             Stage::Shown {
-                edit,
+                parts,
+                opened,
                 preview,
                 back,
                 ..
             } => {
                 self.close_preview(preview, back);
-                self.freer.free(edit);
+                self.kill_opened(&opened);
+                self.freer.free(parts);
             }
-            Stage::Checking | Stage::Naming { .. } | Stage::Asked { .. } => {}
+            Stage::Naming { .. } => {}
         }
         if let Some(said) = said {
             self.editor.message(format!("{name}: rename {said}"));
         }
-    }
-
-    /// Kills the preview, showing `back` where it was.
-    fn close_preview(&mut self, preview: BufferId, back: BufferId) {
-        if self.editor.window().buffer() == preview && self.editor.buffer(back).is_some() {
-            self.editor.show(back);
-        }
-        self.editor.kill_buffer(preview);
     }
 }
 

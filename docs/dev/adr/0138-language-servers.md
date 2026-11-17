@@ -2212,22 +2212,44 @@ and `Server::cancel`.
   - `lsp-rename` asks the check; its answer opens the prompt `Rename ‘old’ to: ` if nothing moved
     since, the old name with its controls written out. `RET` runs `lsp-rename-to`, which refuses
     an empty name, the old one, one too long or with a control, and a buffer changed since.
-  - The rename's edit is judged as 13b judges one before anything opens (`judge_unsent`),
-    before the preview shows. The preview is built off the UI thread
-    (`servers/rename/preview.rs`): an open buffer's lines from its text, a file no buffer holds
-    read as a list of places reads one (`grep::read_lines`). Lines an edit spans or that touch
-    are shown together, before (`-`) and after (`+`), by their numbers, each with its controls
-    and bidi and invisible characters written out and cut at 400 characters; a line not read
-    whole shows the new text only.
-  - `y` (`lsp-rename-apply`) applies it through `applying::apply_edit_of` with
-    `EditFrom::Rename`, which asks no second question but opens and judges as 13b does. `n`, `q`
-    and `C-g` (`lsp-rename-cancel`) drop it. `C-g` anywhere stops a rename that waits for its
-    server or its preview, which the host tells the dispatcher of
-    (`Dispatcher::set_rename_waits`). A newer `lsp-rename` drops an older one, and at most one
-    edit waits, as 13b has it.
+  - **Files open before the preview** (the author's choice, 2026-11-17, after this step's
+    security review): the rename's edit goes through `applying::apply_edit_of` with
+    `EditFrom::Rename`, which opens the files no buffer holds as 13b opens them, unshown and at
+    most 8 MiB, with 13b's judges before and once loaded, but asks no question. Once placed in
+    those buffers, its edits (`BufferEdit`s) go to the preview rather than apply
+    (`servers/rename/shown.rs`), so the preview shows exactly the texts and ranges `y` applies.
+    Nothing is edited before `y`.
+  - The preview is built off the UI thread (`servers/rename/preview.rs`), the edits moving to
+    its thread and back. Lines an edit spans or that touch are one group, of which only the
+    lines that differ show, before (`-`) and after (`+`), by their numbers, so that a server
+    that rewrites a whole file shows what it changes. A line longer than a row shows what
+    differs from its counterpart, with 20 characters either side and its columns, over as many
+    rows as it takes. Every line has its controls and bidi and invisible characters written
+    out. Edits that overlap, more than 1 MiB of a group's text, more than 50 changed lines on a
+    side, more than 2,000 changed characters of a line or more than 512 KiB of preview refuse
+    the rename rather than show it in part. `*lsp-rename*` is listed and killed as a person's
+    buffer is, as a git status is.
+  - `y` (`lsp-rename-apply`) applies the placed edits with `Editor::apply_server_edit`, only
+    while every buffer is still at the revision the preview was built from. `n`, `q` and `C-g`
+    (`lsp-rename-cancel`) drop it and kill what was opened for it, as a refusal does. `C-g`
+    anywhere stops a rename that waits for its server, its files or its preview, which the
+    host tells the dispatcher of (`Dispatcher::set_rename_waits`).
+  - One rename at a time: a newer `lsp-rename` drops an older one, and its ask that waits is
+    cancelled and the server told. An answer, a failure or a preview counts only if it is the
+    rename's own, by its server, its buffer and its ask's serial; at most one edit waits, as
+    13b has it.
+  - The identifier at point, for a server that checks no place first, takes the combining
+    diacritics after its letters. The old name is never logged.
 - **Changes to this ADR:** its consequence that a server never edits a buffer but within an
   insert the person made or by a code action the person picked gains the rename the person saw
-  and said yes to.
+  and said yes to. Unlike 13b's question, a rename opens the files it edits, unshown and
+  unedited, before the person's yes, so that its preview is of those very texts.
+- **From this step's reviews:** the preview read files no buffer held from disk, which `y` then
+  opened and edited as they were by then, and placed their ranges in its own way; its size was
+  unbounded and it was put in its buffer on the UI thread; a server's line numbers were
+  expanded line by line; a long line was cut, which could hide a change; `*lsp-rename*` was
+  never freed, as `kill_buffer` kept it; an older rename's answer could land under a newer
+  one; and the old name reached the log. All are fixed as above, with a test of each bound.
 - **Public API:** `oso-lsp`: `server::Prepared`, `AskKind::{PrepareRename, Rename}`,
   `Answered::{Prepared, Renamed}`, `Server::{rename, cancel}`,
   `protocol::{Renaming, renaming, prepare_rename_params, rename_params, prepared}`, and
@@ -2236,8 +2258,8 @@ and `Server::cancel`.
   `Copy`), and `Editor::offer_prompt_default`.
 - **Tests:** in `oso-lsp`, what `initialize` says, the parameters, a new name's bounds and a
   prepare's answers; in `oso-core`, the default on `M-n`; in the tip crate, the identifier at
-  point, the preview's groups, edits and escapes, a file read in its encoding and one that
-  cannot be; dispatcher tests of `M-x lsp-rename`, the prompt with `M-n`, the preview's keys,
+  point with a combining mark, the preview's groups, only the lines that differ, a long line's
+  part that differs, a long new text, the escapes, and edits that overlap or are too large; dispatcher tests of `M-x lsp-rename`, the prompt with `M-n`, the preview's keys,
   `C-g` only while one waits, and the agent refused; against the fake server, a rename checked,
   asked with its name and its edit placed, a server that checks no place, a name that does not
   fit, a file renamed refused, and one cancelled; and the end-to-end flow

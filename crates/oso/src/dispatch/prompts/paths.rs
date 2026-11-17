@@ -2,7 +2,8 @@
 //! segments (ADR 0087), and a project's files, listed as they are walked, or a line of them,
 //! searched for (ADR 0114). The mark list and the list of a project's diagnostics (ADR 0138)
 //! share their way in, as they too list before they read, and so does the list of a server's
-//! places, which the host opens (step 8b).
+//! places, which the host opens (step 8b), and its code actions' (step 13). A rename's new name
+//! is read here too, in the prompt the host opens once the server checked the place (step 14).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 
@@ -170,8 +171,8 @@ impl Dispatcher {
 
     /// Opens the prompt that reads a rename's new name for `lsp-rename-to`, which `RET` runs
     /// (ADR 0138, step 14): the host's, once the server checked the place. It says `label`, is
-    /// kept in the history `lsp-rename`, and gives `old` on `M-n` (Q5). Nothing opens while a
-    /// prompt is open; the prompt, if it opened.
+    /// kept in the history the command's spec names, and gives `old` on `M-n` (Q5). Nothing
+    /// opens while a prompt is open; the prompt, if it opened.
     pub fn read_new_name(
         &mut self,
         editor: &mut Editor,
@@ -179,11 +180,14 @@ impl Dispatcher {
         old: &str,
     ) -> Option<oso_core::minibuffer::PromptId> {
         let id = self.registry.lookup("lsp-rename-to")?;
+        let ArgSpec::NewName { history } = self.registry.get(id)?.args else {
+            return None;
+        };
         if editor.prompt().is_some() {
             return None;
         }
         let kind = oso_core::minibuffer::Kind::Text {
-            history: Some("lsp-rename"),
+            history: Some(history),
         };
         match editor.open_prompt(label, kind) {
             Ok(prompt) => {

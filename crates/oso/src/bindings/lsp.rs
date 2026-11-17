@@ -7,7 +7,7 @@
 //! follows (step 8); `C-M-i` completes at point (step 9); `C-c C-d` and `C-h .` describe what is
 //! at point in a float, which `C-v` and `M-v` scroll (step 10); and `C-c C-r` lists the code
 //! actions of the region or point, as the author's `eglot-code-actions` (step 13). A rename has
-//! no key, as `C-c` and a letter are the person's (step 14, Q2); `*lsp-rename*` has its own.
+//! no key, as `C-c` and a letter are the person's (step 14, Q2); `*lsp-rename*`'s are `rename`'s.
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
@@ -24,14 +24,6 @@ pub const LSP: &[(&str, &str)] = &[
     ("C-c C-d", "lsp-describe-at-point"),
     ("C-h .", "lsp-describe-at-point"),
     ("C-c C-r", "lsp-code-actions"),
-];
-
-/// The keys of `*lsp-rename*`, a rename's edits shown before they apply (step 14).
-pub const RENAME_PREVIEW: &[(&str, &str)] = &[
-    ("y", "lsp-rename-apply"),
-    ("n", "lsp-rename-cancel"),
-    ("q", "lsp-rename-cancel"),
-    ("C-g", "lsp-rename-cancel"),
 ];
 
 /// The keys of a server's description at point while it shows, in place of the layer of

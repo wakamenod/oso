@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use super::snapshot::{NEW_NAME_MAX, identifier_at, shown_path};
+use super::names::{NEW_NAME_MAX, identifier_at, shown_path};
 
 #[test]
 fn the_identifier_at_point_is_its_letters_digits_and_underscores() {
@@ -19,6 +19,11 @@ fn the_identifier_at_point_is_its_letters_digits_and_underscores() {
     );
     assert_eq!(identifier_at(text, 12), None, "on a blank");
     assert_eq!(identifier_at("名前 = 1", 3).as_deref(), Some("名前"));
+    // A combining mark joins the identifier it follows.
+    assert_eq!(
+        identifier_at("cafe\u{301} = 1", 2).as_deref(),
+        Some("cafe\u{301}")
+    );
     assert_eq!(identifier_at("", 0), None);
     assert_eq!(identifier_at("abc", 99).as_deref(), Some("abc"));
     let long = "a".repeat(NEW_NAME_MAX + 1);

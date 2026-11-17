@@ -35,8 +35,9 @@ use super::super::opened::{found_elsewhere, held_elsewhere};
 use super::actions::{Picked, said_of};
 
 /// Where an edit came from: a picked action, with the command to run once it applied; the
-/// server's `workspace/applyEdit` of a token, which its outcome answers; or a rename the person
-/// saw in `*lsp-rename*` and said yes to, which asks nothing more (step 14).
+/// server's `workspace/applyEdit` of a token, which its outcome answers; or a rename, whose
+/// files open with no question and whose edits, placed, go to its preview rather than apply:
+/// `*lsp-rename*` is its question (step 14).
 #[derive(Debug)]
 pub(super) enum EditFrom {
     Action(Option<Picked>),
@@ -398,6 +399,11 @@ impl App {
         }
         let name = pending.server.1.clone();
         let parts = std::mem::take(&mut pending.parts);
+        // A rename's edits, placed in the texts it opened, go to its preview (step 14).
+        if matches!(pending.from, EditFrom::Rename) {
+            let opened = std::mem::take(&mut pending.opened);
+            return self.rename_placed(&pending.server, parts, opened);
+        }
         match self.editor.apply_server_edit(parts) {
             Ok(applied) => {
                 let edits = if applied.edits == 1 { "edit" } else { "edits" };
@@ -406,12 +412,7 @@ impl App {
                 } else {
                     "buffers"
                 };
-                let mut said =
-                    format!("{} {edits} in {} {buffers}", applied.edits, applied.buffers);
-                // As Eglot leaves them (step 14, Q9).
-                if matches!(pending.from, EditFrom::Rename) {
-                    said.push_str(", unsaved; C-x s saves");
-                }
+                let said = format!("{} {edits} in {} {buffers}", applied.edits, applied.buffers);
                 self.editor
                     .message_unlogged(said_of(&name, &said, &pending.title));
                 self.edit_answered(&pending.server, &pending.from, Ok(()));
@@ -424,13 +425,33 @@ impl App {
         self.request_redraw();
     }
 
-    /// Refuses the waiting edit with `why`: what it opened goes, and its server hears why if it
-    /// asked.
-    fn drop_pending(&mut self, pending: PendingEdit, why: &str) {
-        for id in &pending.opened {
+    /// Kills the buffers an edit opened, unsaved and unshown.
+    pub(super) fn kill_opened(&mut self, opened: &[BufferId]) {
+        for id in opened {
             self.cancel_load(*id);
             self.editor.kill_buffer(*id);
         }
+    }
+
+    /// Whether a rename's edit waits for its files to open (step 14).
+    pub(super) fn rename_opening(&self) -> bool {
+        (self.servers.pending.as_ref())
+            .is_some_and(|pending| matches!(pending.from, EditFrom::Rename))
+    }
+
+    /// Drops a rename's edit that waits for its files, what it opened with it, saying `why`.
+    pub(super) fn drop_rename_opening(&mut self, why: &str) {
+        if self.rename_opening()
+            && let Some(pending) = self.servers.pending.take()
+        {
+            self.drop_pending(pending, why);
+        }
+    }
+
+    /// Refuses the waiting edit with `why`: what it opened goes, and its server hears why if it
+    /// asked.
+    fn drop_pending(&mut self, pending: PendingEdit, why: &str) {
+        self.kill_opened(&pending.opened);
         self.refuse_edit(&pending.server, &pending.title, &pending.from, why);
         self.freer.free(pending.files);
     }

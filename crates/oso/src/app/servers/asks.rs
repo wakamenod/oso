@@ -1,8 +1,9 @@
-//! The asks of a server about a buffer (ADR 0138, steps 8, 9, 10 and 13), on the UI thread: each
+//! The asks of a server about a buffer (ADR 0138, steps 8, 9, 10, 13 and 14), on the UI thread: each
 //! sent after the event's edits went to the server, who asked and where kept until its answer,
 //! and each answer routed by its kind: places to their jump or list (`places`, `xrefs`),
-//! completions to the popup (`complete`), a description to its float (`hover`), and code
-//! actions to their list and their edits (`actions`).
+//! completions to the popup (`complete`), a description to its float (`hover`), code actions to
+//! their list and their edits (`actions`), and a rename's check, edit and failure to it
+//! (`rename`).
 //!
 //! Must not depend on: the window system or the drawing; nothing here waits on a server.
 //!
