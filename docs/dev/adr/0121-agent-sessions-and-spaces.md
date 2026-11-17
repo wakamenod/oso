@@ -1675,12 +1675,13 @@ or not, and only opening its review cleared the state.
   ref itself, and a removal then needs no review; its work stays in the kept branch (the
   author's choice).
 - **Tests:** the tracker and the worker take the new word, and the tracker ignores a listing that
-  read the worktree before the session became ready for review; the merged judgment runs over
+  read the worktree before the session became ready for review; an agent's listing reaches only
+  its own space's sessions, and none for an agent in no space; the merged judgment runs over
   temporary repositories (no remote, not merged, a remote's `HEAD` at the branch's own copy, a
   main line of no configured remote, merged, a snapshot that is not the commit's tree, not a
   worktree of the repository, a detached `HEAD`); a clean, merged row is the work merged; and two
-  end-to-end flows. In the first, work not merged is ready for review; after the merge an
-  agent's listing from outside its space leaves it so, and the person's makes it idle; a turn that ends on merged work leaves it done, and the worktree is removed. In
+  end-to-end flows. In the first, work not merged is ready for review; after the merge the
+  person's listing makes it idle, and after new work merged, an agent's of its space does; a turn that ends on merged work leaves it done, and the worktree is removed. In
   the second, a removal refuses work not merged, and once it is merged takes it with no listing
   and stops its session first.
 

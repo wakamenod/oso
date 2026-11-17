@@ -9,8 +9,8 @@
 //! `[sessions] agents_start_without_asking`, the start asks nothing up to the limit, says so and
 //! marks the row, asks past the limit, asks again after `agent-starts-ask`, and asks for a
 //! `session_start` once the person no longer trusts the project (ADR 0135). A worktree
-//! session whose turn leaves work not merged is ready for review until the person's listing
-//! finds it merged, as an agent's listing outside its space does not; a turn that ends on merged work leaves it done, and a removal takes a worktree whose
+//! session whose turn leaves work not merged is ready for review until the person's listing,
+//! or an agent's of its space, finds it merged; a turn that ends on merged work leaves it done, and a removal takes a worktree whose
 //! session is ready for review once its work is merged (ADR 0121, "Merged work is not ready for
 //! review, as amended").
 //!
@@ -244,14 +244,20 @@ impl Bridge {
 /// Starts an instance in `flow`'s repository and a session at its root, and returns the
 /// instance and that session's bridge.
 fn hosted(flow: &Flow) -> (App, Bridge) {
-    let (mut app, _) = flow.start();
+    let (app, bridge, _) = hosted_with_readme(flow);
+    (app, bridge)
+}
+
+/// As [`hosted`], with the id of the `README.md` buffer the instance opened.
+fn hosted_with_readme(flow: &Flow) -> (App, Bridge, Value) {
+    let (mut app, readme) = flow.start();
     app.send_keys("C-c a c");
     let run = run_in(flow, &flow.repo);
     app.wait_for("the session's terminal", |state| {
         terminal(state, "*claude: repo*").is_some()
     });
     let bridge = Bridge::start(flow, &run);
-    (app, bridge)
+    (app, bridge, readme)
 }
 
 /// Waits for the agent's question, and answers it with `key` as the person.
@@ -458,6 +464,11 @@ fn worktree_with_work(
         terminal(state, &format!("*claude: {branch}*")).is_some()
     });
     registered_idle(flow, &run, &place);
+    // Its own bridge connects, as a real session's does once it starts: only then does oso
+    // know its process, which the registry's half of check 4 needs.
+    let mut own = Bridge::start(flow, &run);
+    let (_, error) = own.tool("session_list", json!({}));
+    assert!(!error);
     fs::write(place.join("work.txt"), "work\n").unwrap();
     flow.git(&place, &["add", "work.txt"]);
     flow.git(&place, &["commit", "-q", "--no-gpg-sign", "-m", "work"]);
@@ -470,14 +481,14 @@ fn merge(flow: &Flow, branch: &str) {
     flow.git(&flow.repo, &["push", "-q", "origin", "main"]);
 }
 
-/// Work not merged is ready for review; once merged, an agent's listing from outside its space
-/// leaves it so, the person's listing makes it idle, a turn that ends on it leaves it done, and
-/// its worktree is removed.
+/// Work not merged is ready for review; once merged, the person's listing makes it idle, a
+/// turn that ends on it leaves it done, new work makes it ready for review again until an agent
+/// of its space lists it merged, and its worktree is removed.
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn merged_work_is_not_ready_for_review() {
     let flow = Flow::with_fake("session-tools-merged-work", "", FAKE);
-    let (mut app, mut bridge) = hosted(&flow);
+    let (mut app, mut bridge, readme) = hosted_with_readme(&flow);
     let (place, run) = worktree_with_work(&mut app, &mut bridge, &flow, "e2e-merged");
     let name = "e2e-merged";
     assert_eq!(turn(&mut app, &flow, &run, name), "done");
@@ -486,21 +497,16 @@ fn merged_work_is_not_ready_for_review() {
     });
 
     merge(&flow, name);
-    // The root's agent is in no space with it: its listing changes no state there.
-    let (listed, error) = bridge.tool("worktree_list", json!({}));
-    assert!(!error, "{listed}");
-    thread::sleep(Duration::from_secs(1));
-    assert_eq!(
-        state_of(&app.state(), name).as_deref(),
-        Some("ready for review"),
-        "an agent's listing reaches only its own space's sessions"
-    );
     // The person's listing reaches every session.
-    app.open_file(&flow.repo.join("README.md"));
+    app.show_buffer(&readme);
     app.send_keys(&format!("M-x {} RET", keys("worktree-list")));
+    app.wait_for("*Worktrees*", |state| {
+        state["buffer"]["name"] == "*Worktrees*"
+    });
     app.wait_for("idle once the person's listing found it merged", |state| {
         state_of(state, name).as_deref() == Some("idle")
     });
+    // The next turn's end on merged work leaves it done; an agent of its space then lists.
 
     assert_eq!(turn(&mut app, &flow, &run, name), "done");
     // The look and the merged check that follow it take well under a second.
@@ -510,6 +516,21 @@ fn merged_work_is_not_ready_for_review() {
         Some("done"),
         "merged work after a turn is not ready for review"
     );
+    // A new commit, not merged: ready for review again, until an agent of its space lists it
+    // merged.
+    fs::write(place.join("more.txt"), "more\n").unwrap();
+    flow.git(&place, &["add", "more.txt"]);
+    flow.git(&place, &["commit", "-q", "--no-gpg-sign", "-m", "more"]);
+    turn(&mut app, &flow, &run, name);
+    app.wait_for("ready for review again", |state| {
+        state_of(state, name).as_deref() == Some("ready for review")
+    });
+    merge(&flow, name);
+    let (listed, error) = bridge.tool("worktree_list", json!({}));
+    assert!(!error, "{listed}");
+    app.wait_for("idle once its space's agent found it merged", |state| {
+        state_of(state, name).as_deref() == Some("idle")
+    });
 
     thread::sleep(AFTER_TYPING);
     let path = place.display().to_string();
