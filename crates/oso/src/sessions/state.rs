@@ -10,6 +10,8 @@
 use std::fmt;
 use std::time::{Duration, Instant};
 
+use crate::git::Id;
+
 /// What a dialog that needs the person is (ADR 0121).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Reason {
@@ -56,7 +58,7 @@ pub enum State {
     /// A turn is under way.
     Working,
     /// The turn ended, and the directory has changes since the session's baseline that no
-    /// review has shown.
+    /// review has shown and that are not merged.
     ReadyForReview,
     /// The turn ended, and the person has not seen the session since.
     Done,
@@ -78,6 +80,19 @@ impl fmt::Display for State {
             Self::Stopped => f.write_str("stopped"),
         }
     }
+}
+
+/// What a look for a session's changes found after its turn ended (ADR 0121, Q5), before a
+/// worktree job judges whether they are merged; the tracker takes the verdict as a `bool`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ChangesFound {
+    /// git failed: the state stays as it is.
+    Failed,
+    /// The tree is the baseline's.
+    None,
+    /// The tree differs from the baseline: `tree` is it, and `whole` says git read every file
+    /// that it does not ignore.
+    Some { tree: Id, whole: bool },
 }
 
 /// What the rules said of one look at the screen.
@@ -269,10 +284,11 @@ impl Tracker {
         None
     }
 
-    /// What `git diff` found after a turn ended: `changed` if the directory changed since the
-    /// session's baseline (ADR 0121, Q5). Only a session the turn left done or idle takes it.
-    pub fn changes(&mut self, changed: bool, now: Instant) -> Option<Change> {
-        if changed && matches!(self.state, State::Done | State::Idle) {
+    /// What `git diff` found after a turn ended: `unmerged` if the directory changed since the
+    /// session's baseline (ADR 0121, Q5) and those changes are not merged. Only a session the
+    /// turn left done or idle takes it.
+    pub fn changes(&mut self, unmerged: bool, now: Instant) -> Option<Change> {
+        if unmerged && matches!(self.state, State::Done | State::Idle) {
             return self.become_(State::ReadyForReview, now);
         }
         None
@@ -284,6 +300,17 @@ impl Tracker {
             return self.become_(State::Idle, now);
         }
         None
+    }
+
+    /// A listing found the session's worktree clean and its branch merged, reading its changes
+    /// at `looked_at`: its changes need no review (ADR 0121, "Merged work is not ready for
+    /// review, as amended"). A session ready for review only since then keeps it, as its
+    /// changes may be newer than what was read.
+    pub fn work_merged(&mut self, looked_at: Instant, now: Instant) -> Option<Change> {
+        if self.since > looked_at {
+            return None;
+        }
+        self.review_opened(now)
     }
 
     fn become_(&mut self, next: State, now: Instant) -> Option<Change> {

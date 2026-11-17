@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
+use std::time::Instant;
 
 use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::command::Effects;
@@ -209,6 +210,19 @@ impl App {
 
     /// A worktree job reported.
     pub(in crate::app) fn worktree_reported(&mut self, event_loop: &Loop<'_>, report: Report) {
+        if let Report::WorkMerged {
+            key,
+            judgment,
+            merged,
+        } = report
+        {
+            return self.session_work_judged(key, judgment, merged);
+        }
+        // A worktree anyone's listing found clean and merged is the work of its sessions merged
+        // (ADR 0121, "Merged work is not ready for review, as amended").
+        if let Some((path, looked_at)) = merged_work_at(&report) {
+            self.session_work_merged(&path, looked_at);
+        }
         // A job an agent's session tool asked for (ADR 0121, step 6).
         // Its handlers ask for a frame only when they show something.
         let Some(report) = self.session_tool_report(report) else {
@@ -235,6 +249,7 @@ impl App {
                 token,
                 path,
                 merged,
+                ..
             } => self.worktree_merged(token, &path, merged),
             Report::Checked {
                 token,
@@ -248,7 +263,7 @@ impl App {
                 result,
             } => self.worktree_removed(token, &path, result),
             // The person's listing ends as its rows come; only an agent's waits for the end.
-            Report::ListEnded { .. } | Report::Prepared { .. } => {}
+            Report::ListEnded { .. } | Report::Prepared { .. } | Report::WorkMerged { .. } => {}
         }
         self.request_redraw();
     }
@@ -432,8 +447,8 @@ impl App {
     }
 
     /// What the UI thread holds about the worktree at `path` alone: buffers with unsaved
-    /// changes under it, an unsent brief for it, and its hosted sessions whose screen's state
-    /// is not idle or done. The registry's half of check 4 is the job's to read.
+    /// changes under it, an unsent brief for it, and its hosted sessions that are not
+    /// [`settled`]. The registry's half of check 4 is the job's to read.
     pub(in crate::app) fn held_at(&self, path: &Path) -> Held {
         let unsaved = self
             .editor
@@ -492,6 +507,23 @@ impl App {
     }
 }
 
+/// The worktree a listing's `report` found clean with its branch merged, a row or `gh`'s word
+/// on one, and when the job read its changes.
+fn merged_work_at(report: &Report) -> Option<(PathBuf, Instant)> {
+    match report {
+        Report::Row { looked, .. } if looked.work_merged() => {
+            Some((looked.listed.path.clone(), looked.looked_at))
+        }
+        Report::Merged {
+            path,
+            merged,
+            clean: Some(looked_at),
+            ..
+        } if merged.is_merged() => Some((path.clone(), *looked_at)),
+        _ => None,
+    }
+}
+
 /// A hosted session's state as the UI thread knows it: a running session's as the sessions
 /// worker last told it (ADR 0121 step 3), while that agrees that it runs. `None` while a
 /// session starts or its live state is not known: a session that runs then counts as busy.
@@ -506,8 +538,18 @@ pub(in crate::app) fn hosted_state(session: &Hosted, watch: &Watch) -> Option<St
     }
 }
 
-/// The hosted sessions that run, neither failed nor stopped, each with whether its screen's
-/// state is idle or done: check 4's half that the UI thread knows.
+/// Whether a session in `state` is settled for check 4, and is stopped by a removal whose checks
+/// hold: idle, done or ready for review. A removal's checks 2 and 5 hold only for work committed
+/// and merged (ADR 0121, "Merged work is not ready for review, as amended").
+pub(in crate::app) fn settled(state: Option<State>) -> bool {
+    matches!(
+        state,
+        Some(State::Idle | State::Done | State::ReadyForReview)
+    )
+}
+
+/// The hosted sessions that run, neither failed nor stopped, each with whether it is
+/// [`settled`]: check 4's half that the UI thread knows.
 fn running_sessions(sessions: &[Hosted], watch: &Watch) -> Vec<HostedSession> {
     sessions
         .iter()
@@ -524,7 +566,7 @@ fn running_sessions(sessions: &[Hosted], watch: &Watch) -> Vec<HostedSession> {
                     Run::Running { child } => child,
                     _ => None,
                 },
-                settled: matches!(state, Some(State::Idle | State::Done)),
+                settled: settled(state),
             })
         })
         .collect()

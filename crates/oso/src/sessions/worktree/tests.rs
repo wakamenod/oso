@@ -352,6 +352,54 @@ fn a_merged_branch_is_removed_and_kept() {
 }
 
 #[test]
+fn a_sessions_work_is_merged_only_when_committed_on_a_merged_branch() {
+    let s = Scratch::new("work-merged");
+    let made = s.create("work").unwrap();
+    fs::write(made.path.join("b.txt"), "b\n").unwrap();
+    s.git_in(&made.path, &["add", "b.txt"]);
+    s.git_in(&made.path, &["commit", "-q", "-m", "work"]);
+    let tree_of = |revision: &str| {
+        let out = s.git_in(&made.path, &["rev-parse", &format!("{revision}^{{tree}}")]);
+        crate::git::Id::parse(out.trim_ascii_end()).unwrap()
+    };
+    let committed = tree_of("HEAD");
+    let judge = |tree: &crate::git::Id| merged::work_merged(&s.repo(), &made.path, tree);
+    let says = |tree: &crate::git::Id, what: &str| {
+        let found = judge(tree);
+        assert!(
+            matches!(&found, Merged::No(said) if said.contains(what)),
+            "{found:?}"
+        );
+    };
+    says(&committed, "no remote");
+    s.with_origin();
+    says(&committed, "as far as the remotes show");
+    // A remote's `HEAD` that points at the branch's own pushed copy, or a main line of no
+    // configured remote, is not a main line.
+    s.git(&["push", "-q", "origin", "work"]);
+    s.git(&[
+        "symbolic-ref",
+        "refs/remotes/origin/HEAD",
+        "refs/remotes/origin/work",
+    ]);
+    s.git(&["update-ref", "refs/remotes/stray/main", "work"]);
+    says(&committed, "as far as the remotes show");
+    s.git(&["merge", "-q", "work"]);
+    s.git(&["push", "-q", "origin", "main"]);
+    assert_eq!(judge(&committed), Merged::Ancestor("origin/main".into()));
+    // A snapshot that is not the checked-out tree holds work not yet in it: edited, staged or
+    // untracked files.
+    says(&tree_of("HEAD~1"), "not committed");
+    let elsewhere = merged::work_merged(&s.repo(), &s.dir, &committed);
+    assert!(
+        matches!(&elsewhere, Merged::No(said) if said.contains("not a worktree")),
+        "{elsewhere:?}"
+    );
+    s.git_in(&made.path, &["checkout", "-q", "--detach"]);
+    says(&committed, "no branch");
+}
+
+#[test]
 fn a_removal_past_the_time_limit_is_not_cut_short() {
     let s = Scratch::new("slow-remove");
     let made = s.create("slow").unwrap();

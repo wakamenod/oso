@@ -1,6 +1,7 @@
 # 0121. Agent sessions and spaces
 
-- Status: Accepted, amended by 0126, 0128, 0131, 0132, 0135, 0136, 0138, 0140, 0141, 0143 and 0145
+- Status: Accepted, amended by 0126, 0128, 0131, 0132, 0135, 0136, 0138, 0140, 0141, 0143 and 0145;
+  "Merged work is not ready for review, as amended" (2026-11-17)
 - Date: 2026-11-12
 
 ## Context
@@ -203,7 +204,7 @@ question under [Questions](#questions), but Q14 (see [The author's choices](#the
 | **needs input** | a known dialog is open: `permission`, `question`, `plan`, `elicitation` (MCP), `dialog` (other known dialogs). The reason is carried. |
 | **failed** | the process ended with a non-zero status or a signal oso did not send |
 | **working** | a turn is under way |
-| **ready for review** | the turn ended and the session's directory has changes since its baseline that no review has shown (Q5) |
+| **ready for review** | the turn ended and the session's directory has changes since its baseline that no review has shown and that are not merged (Q5; "Merged work is not ready for review, as amended") |
 | **done** | the turn ended and the person has not seen the session since |
 | **idle** | the turn ended and has been seen; or the TUI waits at its prompt |
 | **stopped** | not running: exited cleanly, stopped by the person, or restored |
@@ -259,7 +260,9 @@ question under [Questions](#questions), but Q14 (see [The author's choices](#the
 **Ready for review (Q5)** reuses ADR 0122's session baseline: when a turn ends in a trusted
 project, the worker asks `git diff --quiet <baseline>` against a fresh snapshot of the working tree;
 changes make the session `ready for review` until a review of that session is opened. In a
-restricted project the state is not used.
+restricted project the state is not used. Changes already merged do not make it ready for review,
+and a listing or a removal that finds them merged ends it ("Merged work is not ready for review, as
+amended").
 
 ### The seams to ADR 0122
 
@@ -1127,7 +1130,8 @@ questions through the coordinator, (a) for each, and the coordinator approved th
 - **A branch with no commit of its own is not merged** (the author's choice), so a fresh,
   clean worktree is refused by check 5. ADR 0126's `C-u` removal is for that case.
 - **"Busy" in check 4:** a hosted session in the worktree counts as busy unless its state is
-  idle or done *and* the registry's `status` is `idle` (the author's choice). A failed or
+  idle or done *and* the registry's `status` is `idle` (the author's choice; ready for review
+  joins idle and done in "Merged work is not ready for review, as amended"). A failed or
   stopped session is never busy. A rule for the TUI's background-task footer comes when a
   screen showing it is saved for `session-explain-file`.
   - The UI thread sends each running hosted session's process id and whether its state is idle
@@ -1385,7 +1389,8 @@ these points:
 - **An agent's `worktree_remove`** runs step 4's checks and the removal in one job, and refuses a
   worktree its own session runs in. Once the checks hold, the app clears the worktree as for the
   person's removal: what the UI holds is looked at again, its idle or done sessions are hung
-  up, so that they end stopped, and its space is closed. So an agent's removal, which asks no question, stops the
+  up, so that they end stopped, and its space is closed (and its sessions ready for review, in
+  "Merged work is not ready for review, as amended"). So an agent's removal, which asks no question, stops the
   worktree's idle or done sessions, and refuses while one works or needs input (the author's
   choice, 2026-11-14). Check 4 reads the sessions' live states for both. Its reply
   names what git ignored there, which went with it, and the echo area says which session removed
@@ -1608,6 +1613,71 @@ back open). The coordinator approved this for the author:
   one still runs, so `begin_restart` waits for the write before it starts the new one.
 - **Not covered:** `oso dev`'s supervisor starts its new instance itself, so a change made in the
   few milliseconds before a rebuilt instance starts may still be read without it.
+
+## Merged work is not ready for review, as amended
+
+Amended on 2026-11-17, with the author's choices through the coordinator. A worktree session's
+pull requests were merged into `origin/main`, but oso still called the session ready for review.
+So `worktree_remove` refused its worktree ("a session in it is busy"), and the person had to stop
+the session by hand. A session that committed work always had changes since its baseline, merged
+or not, and only opening its review cleared the state.
+
+- **The rule:** changes since the baseline make a session ready for review only when they are
+  not merged. They are merged when all of these hold:
+  - the review snapshot of the session's root, the same tree the `git diff` compares, is the tree
+    of the commit checked out there, and git read every file. So any uncommitted, staged or
+    untracked file that git does not ignore keeps the session ready for review;
+  - a branch is checked out there, not a detached `HEAD`;
+  - that branch is merged as check 5 and `worktree_list`'s `merged_how` decide: its tip is in a
+    remote's main line, or a merged pull request holds it. Being in the branch's own upstream is
+    not enough, as that only says it was pushed (the author's choice). At a turn's end only a
+    configured remote's main line counts, and never the branch's own copy that a remote's `HEAD`
+    points to.
+  - It holds for a session at a repository's main checkout too: one whose commits are in its
+    remote's main line has nothing to review.
+- **When it is judged:**
+  - *At a turn's end:* after the look finds changes, a worktree job judges whether they are
+    merged, before the worker is told. Merged changes leave the session done or idle, as the
+    turn left it. The job asks ancestry only, never `gh` (the author's choice). It runs only for
+    a trusted root whose main repository is trusted too; otherwise, or when git did not read
+    every file, the changes count as not merged, as before.
+  - *At a listing:* a row of the person's `*Worktrees*` or of an agent's `worktree_list` that is
+    clean and merged, by ancestry or by `gh` after the rows, makes each session in that worktree
+    that is ready for review idle (the author's choice: the merge was the person's review). It
+    runs no git of its own. A session ready for review only since the row read the worktree's
+    changes keeps the state, as its changes may be newer.
+  - *At a removal:* a session ready for review is no longer busy for check 4 (the author's
+    choice). Checks 2 and 5 already refuse a worktree whose work is uncommitted or not merged, so
+    a removal whose checks hold has only merged work. The removal stops such a session as it
+    stops an idle or done one, before git runs, so `worktree_remove` works without a listing
+    first. ADR 0126's planned `C-u` removal, which skips checks 2 and 5, must keep counting a
+    session ready for review as busy.
+  - Nothing polls and nothing fetches: a merge oso has not seen counts once a listing or the
+    next turn's end looks. A removal waits for neither.
+- **Cost:** the job at a turn's end runs only for a turn that left changes, on the worktree jobs'
+  pool, never the UI thread, ahead of the jobs waiting there. It runs at most 8 short git
+  processes, each with the jobs' 10 s limit, and stops at the first that refuses: the main
+  repository's check every job makes, the worktree listing, the commit's tree, the branch's
+  reflog (at most 1 MiB), the remotes' names, one listing of the remote branches and one
+  `for-each-ref --contains` of the main lines. Work not committed costs 3. It reads no registry,
+  no upstream and no remote's address, as only `gh` could use them. A listing and a removal run
+  nothing more than before.
+- **Order:** each judgment at a turn's end has a number. A job's answer counts only while its
+  number is the session's newest, so a late answer for an older turn never overrides a newer
+  turn's look. A look that failed leaves the answer to come counting.
+- **Not covered:** while both of the pool's threads run long jobs, such as listings that ask
+  `gh` or worktrees being made, the job waits for one, and so does the state. On a large history
+  with no commit graph, `--contains` for committed work not merged can take seconds, as check 5's
+  does for a listing's row.
+- **Tests:** the tracker and the worker take the new word, and the tracker ignores a listing that
+  read the worktree before the session became ready for review; the merged judgment runs over
+  temporary repositories (no remote, not merged, a remote's `HEAD` at the branch's own copy, a
+  main line of no configured remote, merged, a snapshot that is not the commit's tree, not a
+  worktree of the repository, a detached `HEAD`); a clean, merged row is the work merged; and two
+  end-to-end flows. In the first, work not merged is ready for review, a listing after the merge
+  makes it idle, a turn that ends on merged work leaves it done, and the worktree is removed. In
+  the second, a removal refuses work not merged, and once it is merged takes it with no listing
+  and stops its session first.
 
 ## Consequences
 

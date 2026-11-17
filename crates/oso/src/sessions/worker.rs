@@ -62,10 +62,14 @@ pub enum Job {
     Exited(SessionKey, Exit),
     /// The person has seen a session.
     Seen(SessionKey),
-    /// What `git diff` found after a session's turn ended.
+    /// What `git diff` found after a session's turn ended: whether it has changes that are not
+    /// merged.
     Changes(SessionKey, bool),
     /// A review of a session was opened.
     ReviewOpened(SessionKey),
+    /// A listing found a session's worktree clean and its branch merged, reading its changes
+    /// at that instant.
+    WorkMerged(SessionKey, std::time::Instant),
     /// A session is gone from oso.
     #[cfg_attr(
         not(test),
