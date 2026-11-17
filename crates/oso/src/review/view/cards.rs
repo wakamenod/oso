@@ -44,38 +44,49 @@ pub(crate) struct Cards {
     pub(crate) marks: Marks,
 }
 
-/// Each hunk's decision and viewed mark in the model's reading, by its index, and how many
-/// dropped as their hunks changed (ADR 0122, step 5).
+/// Each hunk's marks in the model's reading, by its index, and how many dropped as their hunks
+/// changed (ADR 0122, step 5).
 #[derive(Clone, Default)]
 pub(crate) struct Marks {
-    pub(crate) hunks: Vec<(Option<Decision>, bool)>,
+    pub(crate) hunks: Vec<HunkMark>,
     pub(crate) dropped: usize,
 }
 
+/// One hunk's marks: the person's decision and viewed mark, and whether it is new since the
+/// reading before and not yet looked at (step 4).
+#[derive(Clone, Copy, Default)]
+pub(crate) struct HunkMark {
+    pub(crate) decision: Option<Decision>,
+    pub(crate) viewed: bool,
+    pub(crate) changed: bool,
+}
+
 impl Cards {
-    /// What hunk `index` of `shape` says of its decision, ` · accepted · viewed`, when the
-    /// model's reading is `shape`; empty otherwise.
+    /// What hunk `index` of `shape` says of its marks, `  · accepted · viewed · changed`, when
+    /// the model's reading is `shape`; empty otherwise.
     pub(crate) fn decided(&self, shape: &Arc<Shape>, index: usize) -> String {
         let same = self
             .reading
             .as_ref()
             .is_some_and(|reading| Arc::ptr_eq(reading, shape));
-        let Some((decision, viewed)) = self.marks.hunks.get(index).filter(|_| same) else {
+        let Some(mark) = self.marks.hunks.get(index).filter(|_| same) else {
             return String::new();
         };
-        let mut said = match decision {
-            Some(Decision::Accepted) => "  \u{b7} accepted".to_owned(),
-            Some(Decision::Rejected) => "  \u{b7} rejected".to_owned(),
-            None => String::new(),
+        let decided = match mark.decision {
+            Some(Decision::Accepted) => Some("accepted"),
+            Some(Decision::Rejected) => Some("rejected"),
+            None => None,
         };
-        if *viewed {
-            said.push_str(if said.is_empty() {
-                "  \u{b7} viewed"
-            } else {
-                " \u{b7} viewed"
-            });
+        let words = [
+            decided,
+            mark.viewed.then_some("viewed"),
+            mark.changed.then_some("changed"),
+        ];
+        let words: Vec<&str> = words.into_iter().flatten().collect();
+        if words.is_empty() {
+            return String::new();
         }
-        said
+        format!("  \u{b7} {}", words.join(" \u{b7} "))
     }
 
     /// How many of `shape`'s hunks hold a decision, when the model's reading is `shape`.
@@ -88,7 +99,7 @@ impl Cards {
             .marks
             .hunks
             .iter()
-            .filter(|(decision, _)| decision.is_some());
+            .filter(|mark| mark.decision.is_some());
         same.then(|| decided.count())
     }
 

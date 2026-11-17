@@ -210,6 +210,12 @@ impl App {
             }
             Out::Changed(key, change) => {
                 log::debug!("session {key}: {}", change.state);
+                // A review of what it works in is stale (ADR 0122, step 4).
+                if change.turn_ended
+                    && let Some(root) = self.hosting.table().get(key).and_then(|it| it.root.clone())
+                {
+                    self.reviews_touched(&root);
+                }
                 self.sending_changed(key, change.state);
                 self.session_changed(key, change);
             }

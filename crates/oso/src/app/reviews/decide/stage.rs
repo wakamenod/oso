@@ -174,7 +174,7 @@ impl App {
         }
         self.editor.message(said);
         let id = self.reviews.open[index].id;
-        self.refresh_review(id);
+        self.refresh_review(id, false);
     }
 
     /// The review's thread starts over: what it was asked to stage is answered by no one, so

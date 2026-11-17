@@ -594,4 +594,6 @@ pub(crate) fn kill(ctx: &mut Ctx<'_>, review: ReviewId) -> Result<(), CommandErr
 }
 
 #[cfg(test)]
+mod pr_tests;
+#[cfg(test)]
 pub(crate) mod tests;
