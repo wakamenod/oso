@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 
+use super::long::Long;
 use super::{GitError, collect, printable, read_at_most};
 
 /// The most bytes of `gh`'s answer read.
@@ -206,6 +207,51 @@ impl Gh {
             stdout: out.stdout,
             stderr: printable(out.stderr.trim(), 300),
         })
+    }
+}
+
+impl Gh {
+    /// Starts `gh` with `args` about `repo` in `cwd`, an empty private directory, `input` on its
+    /// standard input if any, in a process group of its own with no time limit: a run the
+    /// person stops, as git's long runs are (ADR 0127, step 5a).
+    ///
+    /// # Errors
+    ///
+    /// If `gh` cannot be started.
+    pub(crate) fn start_long(
+        &self,
+        repo: &GhRepo,
+        args: &[&str],
+        cwd: &Path,
+        input: Option<Vec<u8>>,
+    ) -> Result<Long, String> {
+        let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+        let set: Vec<(&str, &OsStr)> = GH_SET
+            .iter()
+            .map(|(name, value)| (*name, OsStr::new(*value)))
+            .collect();
+        let stdin = if input.is_some() {
+            Source::Piped
+        } else {
+            Source::Closed
+        };
+        let child = spawn(&Spawn {
+            executable: &self.executable,
+            args: &args,
+            cwd: Some(cwd),
+            project: Some(self.project.as_deref().unwrap_or(cwd)),
+            inherit: &gh_inherit(repo),
+            stdin,
+            stdout: Sink::Piped,
+            stderr: Sink::Piped,
+            own_process_group: true,
+            own_session: false,
+            set: &set,
+            terminal: None,
+            pass_fd: None,
+        })
+        .map_err(|e| format!("cannot run gh: {e}"))?;
+        Long::adopt(child, input).map_err(|e| format!("cannot run gh: {e}"))
     }
 }
 

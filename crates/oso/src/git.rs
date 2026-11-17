@@ -21,7 +21,7 @@ mod trust;
 pub(crate) use gh::{Gh, GhAnswer, GhRepo, MAX_GH};
 pub(crate) use hooks::empty_hooks;
 pub(crate) use id::{Id, trim_line};
-pub(crate) use long::{Ender, GRACE, Next};
+pub(crate) use long::{Ender, GRACE, Long, Next};
 pub(crate) use path::{identity, may_hold_secrets, os as os_path};
 pub(crate) use run::{
     Git, GitError, MAX_SHORT, MAX_STDERR, Output, RUN_LIMIT, check_revision, collect, for_git,

@@ -246,6 +246,12 @@ pub fn git_pr_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, vcs::PR).unwrap_or_default()
 }
 
+/// A pull request's message's own keymap, above the global one in it (ADR 0127, step 5a-2).
+/// Empty for a registry without its commands.
+pub fn git_pr_message_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, vcs::PR_MESSAGE).unwrap_or_default()
+}
+
 /// The keymap of the list of what discards kept, above the global one in it (ADR 0127, step
 /// 1c). Empty for a registry without its commands.
 pub fn git_discarded_keymap(registry: &Registry) -> Keymap {

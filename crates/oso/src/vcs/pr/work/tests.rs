@@ -204,4 +204,114 @@ mod with_gh {
         assert!(refused.contains("not on github.com"), "{refused}");
         assert_eq!(bench.asked(), "");
     }
+
+    /// A branch `feature` with one commit past `main`, which `origin/main` names, its upstream.
+    fn feature_on_main(bench: &Bench) {
+        bench
+            .repo
+            .git(&["commit", "-q", "--allow-empty", "-m", "first"]);
+        bench
+            .repo
+            .git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        bench
+            .repo
+            .git(&["checkout", "-q", "-b", "feature", "--track", "origin/main"]);
+        bench
+            .repo
+            .git(&["commit", "-q", "--allow-empty", "-m", "Add feature"]);
+        bench.answer(
+            "repo-view",
+            r#"{"defaultBranchRef":{"name":"main"}}"#,
+            0,
+            "",
+        );
+    }
+
+    #[test]
+    fn a_branch_tracking_main_is_pushed_to_its_own_name_not_to_main() {
+        let bench = Bench::new("pr-draft-own-name");
+        feature_on_main(&bench);
+        let found = bench.found();
+        let drafted = super::super::create::draft(&found, &repo(&found), None).unwrap();
+        assert_eq!(
+            (drafted.base.as_str(), drafted.branch.as_str()),
+            ("main", "feature")
+        );
+        // origin has no feature: it is pushed there, its upstream (origin/main) kept.
+        assert!(drafted.push_first && !drafted.set_upstream);
+        assert!(
+            drafted.text.starts_with("Add feature\n"),
+            "{}",
+            drafted.text
+        );
+        bench
+            .repo
+            .git(&["update-ref", "refs/remotes/origin/feature", "HEAD"]);
+        let drafted = super::super::create::draft(&found, &repo(&found), None).unwrap();
+        assert!(!drafted.push_first, "the remote's feature has it");
+    }
+
+    #[test]
+    fn a_branch_is_not_its_own_base() {
+        let bench = Bench::new("pr-draft-own-base");
+        feature_on_main(&bench);
+        let found = bench.found();
+        let refused = super::super::create::draft(&found, &repo(&found), Some("feature"));
+        assert!(refused.unwrap_err().contains("its own base"));
+        let refused = super::super::create::draft(&found, &repo(&found), Some("-x"));
+        assert!(refused.unwrap_err().contains("Not a branch name"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_template_in_a_linked_directory_is_not_read_and_one_beside_is() {
+        let bench = Bench::new("pr-draft-template");
+        feature_on_main(&bench);
+        let outside = bench.repo.dir.join("outside");
+        fs::create_dir(&outside).unwrap();
+        fs::write(
+            outside.join("PULL_REQUEST_TEMPLATE.md"),
+            "## From outside\n",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(&outside, bench.repo.root.join(".github")).unwrap();
+        let found = bench.found();
+        let drafted = super::super::create::draft(&found, &repo(&found), None).unwrap();
+        assert!(!drafted.text.contains("From outside"), "{}", drafted.text);
+        fs::create_dir(bench.repo.root.join("docs")).unwrap();
+        fs::write(
+            bench.repo.root.join("docs/pull_request_template.md"),
+            "## Checklist\n",
+        )
+        .unwrap();
+        let drafted = super::super::create::draft(&found, &repo(&found), None).unwrap();
+        assert!(
+            drafted.text.ends_with("\n## Checklist\n"),
+            "{}",
+            drafted.text
+        );
+    }
+
+    #[test]
+    fn a_merge_is_of_the_branch_s_open_pull_request() {
+        let bench = Bench::new("pr-merge-target");
+        feature_on_main(&bench);
+        let id = "b".repeat(40);
+        let merge = format!(
+            r#"{{"number":7,"state":"OPEN","baseRefName":"main","headRefOid":"{id}","headRefName":"feature"}}"#
+        );
+        bench.answer("pr-view", &merge, 0, "");
+        let found = bench.found();
+        let target = super::super::create::merge_target(&found, &repo(&found)).unwrap();
+        assert_eq!(
+            (target.number, target.head_commit.as_str()),
+            (7, id.as_str())
+        );
+        bench.answer("pr-view", &merge.replace("OPEN", "MERGED"), 0, "");
+        let refused = super::super::create::merge_target(&found, &repo(&found)).unwrap_err();
+        assert!(refused.contains("not open"), "{refused}");
+        bench.answer("pr-view", &merge.replace("\"feature\"", "\"other\""), 0, "");
+        let refused = super::super::create::merge_target(&found, &repo(&found)).unwrap_err();
+        assert!(refused.contains("has no pull request"), "{refused}");
+    }
 }

@@ -1,7 +1,9 @@
 //! git's long runs in the app (ADR 0127, step 1b): each repository's run thread, its log,
 //! what the thread reports, stopping a run, and what quitting ends. A run is a commit, from
 //! step 2 a push, a pull or a fetch, whose progress the echo area shows too, from step 3a a
-//! continue, a skip or an abort of what is stopped, and from step 3b a stash's and a branch's.
+//! continue, a skip or an abort of what is stopped, and from step 3b a stash's and a branch's;
+//! from step 5a-2 `gh pr create` and `gh pr merge`, and what follows a run once it ended, as a
+//! pull request does its branch's push.
 //!
 //! Must not depend on: key presses or how a frame is drawn. Nothing here runs git or waits for
 //! it: each repository's run thread, `oso-vcs-run`, does, and reports here.
@@ -110,6 +112,8 @@ pub(super) struct Running {
     pub(super) draft: Option<BufferId>,
     /// What it wrote, as [`Failure::output`] keeps it.
     pub(super) output: String,
+    /// What follows it once it ended, as a pull request does its branch's push (step 5a-2).
+    pub(super) then: Option<super::pr::AfterRun>,
 }
 
 /// A commit asked for that waits for the message it starts from.
@@ -156,6 +160,7 @@ impl App {
             message,
             draft,
             output: String::new(),
+            then: None,
         });
         self.request_redraw();
     }
@@ -280,7 +285,7 @@ impl App {
         let project = self.gits.commits.repos[index].project;
         let log = self.git_log(index);
         self.editor.set_git_running(log, false);
-        let Some(run) = run else {
+        let Some(mut run) = run else {
             if let RunEnd::Refused(why) = end {
                 self.editor
                     .echo(format!("git: {}", one_line(&why, MAX_SAID)));
@@ -289,12 +294,14 @@ impl App {
         };
         self.editor.clear_echo_saying(&run.echoed);
         let seconds = run.started.elapsed().as_secs();
-        // A push changes the pull request's head, and a checkout the branch, so the `PR:` line is
-        // read again (step 5a).
-        let pushed = matches!(end, RunEnd::Done)
-            && ["git push", "git switch", "git checkout"]
+        // A push changes the pull request's head, a checkout the branch and `gh pr` the pull
+        // request, so the `PR:` line is read again (step 5a).
+        let done = matches!(end, RunEnd::Done);
+        let rereads = done
+            && ["git push", "git switch", "git checkout", "gh pr"]
                 .iter()
                 .any(|run_of| run.title.starts_with(run_of));
+        let then = run.then.take();
         let (said, ended) = match end {
             RunEnd::Done if run.kind.is_none() => ("done", run.done.clone()),
             RunEnd::Done => ("done", self.commit_done(&run)),
@@ -315,8 +322,11 @@ impl App {
             self.git_ask(status, Ask::Read);
         }
         self.graph_after_run(project);
-        if pushed {
+        if rereads {
             self.ask_pr_head(project, true);
+        }
+        if let Some(then) = then {
+            self.after_run(project, then, done);
         }
     }
 
@@ -422,6 +432,7 @@ impl App {
             message: None,
             draft: None,
             output: String::new(),
+            then: None,
         });
         self.request_redraw();
     }

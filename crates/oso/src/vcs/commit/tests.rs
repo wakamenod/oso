@@ -256,3 +256,16 @@ fn a_line_rewritten_over_many_pieces_keeps_only_its_last_part() {
     assert_eq!(log_lines(b"a\r", &mut partial), "");
     assert_eq!(log_lines(b"\nb\n", &mut partial), "a\nb\n");
 }
+
+#[test]
+fn the_ring_steps_back_and_forth_within_what_it_keeps() {
+    let mut ring = super::Ring::default();
+    assert_eq!(ring.step(None, true), None, "nothing kept");
+    ring.keep("one".into());
+    ring.keep("two".into());
+    assert_eq!(ring.step(None, true), Some(0));
+    assert_eq!(ring.step(Some(0), true), Some(1));
+    assert_eq!(ring.step(Some(1), true), None, "past the oldest");
+    assert_eq!(ring.step(Some(1), false), Some(0));
+    assert_eq!(ring.step(Some(0), false), None, "back to the person's own");
+}

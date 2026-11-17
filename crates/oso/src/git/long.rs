@@ -1,5 +1,6 @@
 //! Running git with no time limit (ADR 0127, step 1b): a commit with its hooks, which may run a
-//! whole test suite, and a write to the index, which a kill could leave locked. Each run is the
+//! whole test suite, and a write to the index, which a kill could leave locked; and from step
+//! 5a-2 `gh`'s making and merging of a pull request ([`Long::adopt`]). Each run is the
 //! person's act, and they stop it: `C-g` sends `SIGTERM`, then `SIGKILL` after [`GRACE`].
 //! A caller may also set no stop and keep no [`Ender`]: a worktree's removal, which a stop
 //! would leave half removed (ADR 0121, "Worktree removal, as fixed"). Such a run is ended only
@@ -111,7 +112,15 @@ impl Git {
         } else {
             Source::Closed
         };
-        let mut child = self.spawn_with(args, set, stdin, Sink::Piped, true)?;
+        let child = self.spawn_with(args, set, stdin, Sink::Piped, true)?;
+        Long::adopt(child, input)
+    }
+}
+
+impl Long {
+    /// The long run of `child`, started in a process group of its own with its output piped, and
+    /// its input piped if `input` is: `gh`'s too (ADR 0127, step 5a).
+    pub(crate) fn adopt(mut child: Child, input: Option<Vec<u8>>) -> Result<Long, GitError> {
         let streams = (child.stdout.take(), child.stderr.take());
         let (Some(stdout), Some(stderr)) = streams else {
             end_now(&mut child);
@@ -139,7 +148,9 @@ impl Git {
             tail: Vec::new(),
         })
     }
+}
 
+impl Git {
     /// Runs git as [`Git::start_long`] does, until it ends or `stop` is set, and keeps the
     /// start of what it wrote, at most [`MAX_STDERR`] bytes, as standard error: for a write to
     /// the index, whose failure says why there.

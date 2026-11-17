@@ -502,7 +502,7 @@ fn summary_of(name: &str) -> Option<&'static str> {
     let all = all.chain(discard::COMMANDS).chain(remote::COMMANDS);
     let all = all.chain(sequence::COMMANDS).chain(stash::COMMANDS);
     let all = all.chain(branch::COMMANDS).chain(graph::COMMANDS);
-    let mut all = all.chain(pr::COMMANDS);
+    let mut all = all.chain(pr::COMMANDS).chain(pr::create::COMMANDS);
     let found = all.find(|command| command.name == name)?;
     found.doc.lines().next()
 }

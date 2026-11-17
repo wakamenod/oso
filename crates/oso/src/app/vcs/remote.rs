@@ -23,9 +23,11 @@ use oso_core::editor::{FetchFrom, GitRequest, PullHow, PushSwitches, PushTarget}
 use oso_core::minibuffer::PromptId;
 
 use super::super::App;
+use super::pr::AfterRun;
 use super::runs::{MAX_SAID, RUNNING};
 use crate::commands::review::one_line;
 use crate::commands::vcs::remote::{REMOTES_LIST, TARGETS_LIST};
+use crate::git::printable;
 use crate::vcs::remote::{Push, fetch_title, pull_title};
 use crate::vcs::run::{Planned, RemoteRun, RunRequest, Want};
 
@@ -33,6 +35,8 @@ use crate::vcs::run::{Planned, RemoteRun, RunRequest, Want};
 pub(super) struct Planning {
     status: BufferId,
     switches: PushSwitches,
+    /// For a pull request's push (step 5a-2): the branch it must push, and what follows it.
+    then: Option<(String, AfterRun)>,
 }
 
 /// A push waiting for the answer to the prompt `prompt` it opened over the status `status`.
@@ -166,8 +170,42 @@ impl App {
             self.gits.commits.repos[index].pushes.planning = Some(Planning {
                 status: buffer,
                 switches,
+                then: None,
             });
         }
+    }
+
+    /// Pushes `branch`, the status `buffer`'s, to `remote`'s branch of that name before a pull
+    /// request is made of it (step 5a-2), setting the upstream if `set_upstream`; `then` follows
+    /// the push it plans, and nothing else. Whether the push was asked for.
+    pub(super) fn push_for_pr(
+        &mut self,
+        buffer: BufferId,
+        (remote, set_upstream): (String, bool),
+        branch: String,
+        then: AfterRun,
+    ) -> bool {
+        let Some(index) = self.remote_repo(buffer, None, false) else {
+            return false;
+        };
+        let want = Want::Remote {
+            remote,
+            set_upstream,
+        };
+        let switches = PushSwitches::default();
+        let asked = self.ask_runner(
+            index,
+            RunRequest::Remote(RemoteRun::Plan { want, switches }),
+        );
+        if asked {
+            let pushes = &mut self.gits.commits.repos[index].pushes;
+            pushes.planning = Some(Planning {
+                status: buffer,
+                switches,
+                then: Some((branch, then)),
+            });
+        }
+        asked
     }
 
     /// `y` to the question before a forced push: runs what it asked about.
@@ -185,9 +223,29 @@ impl App {
 
     /// The run thread planned a push in the repository at `index`.
     pub(super) fn push_planned(&mut self, index: usize, planned: Result<Planned, String>) {
-        let Some(wait) = self.gits.commits.repos[index].pushes.planning.take() else {
+        let Some(mut wait) = self.gits.commits.repos[index].pushes.planning.take() else {
             return;
         };
+        // A pull request's push runs only as planned for it: that branch, to its own name there.
+        if let Some((branch, then)) = wait.then.take() {
+            return match planned {
+                Ok(Planned::Ready(push)) if push.branch == branch => {
+                    self.run_push_then(index, push, Some(then));
+                }
+                Ok(Planned::Ready(push)) => self.editor.message(format!(
+                    "{} is checked out, not {}: the pull request is not made",
+                    printable(&push.branch, 80),
+                    printable(&branch, 80)
+                )),
+                Err(why) => self.editor.message(format!(
+                    "git: {}; the pull request is not made",
+                    one_line(&why, MAX_SAID)
+                )),
+                Ok(_) => self
+                    .editor
+                    .message("The push is not planned as asked: the pull request is not made"),
+            };
+        }
         let (list, command, reads, items) = match planned {
             Err(why) => {
                 // Echoed, not logged: git's words may quote the repository.
@@ -272,11 +330,19 @@ impl App {
 
     /// Starts `push`, planned, in the repository at `index`.
     fn run_push(&mut self, index: usize, push: Push) {
+        self.run_push_then(index, push, None);
+    }
+
+    /// Starts `push`, with `then` to follow it once it ended.
+    fn run_push_then(&mut self, index: usize, push: Push, then: Option<AfterRun>) {
         let title = push.title();
         let done = format!("Pushed {} to {}", push.branch, push.destination());
         let pass = self.pass_env();
         if self.ask_runner(index, RunRequest::Remote(RemoteRun::Push { push, pass })) {
             self.run_began(index, title, done);
+            if let Some(run) = self.gits.commits.repos[index].run.as_mut() {
+                run.then = then;
+            }
         }
     }
 
