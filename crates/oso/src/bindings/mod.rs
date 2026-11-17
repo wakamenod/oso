@@ -201,6 +201,12 @@ pub fn review_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, review::REVIEW).unwrap_or_default()
 }
 
+/// A review message's own keymap, above the global one in it (ADR 0122, step 12). Empty for a
+/// registry without its commands.
+pub fn review_message_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, review::MESSAGE).unwrap_or_default()
+}
+
 /// A directory listing's own keymap, above the global one in it (ADR 0134). Empty for a
 /// registry without its commands, as in tests that bring their own.
 pub fn dired_keymap(registry: &Registry) -> Keymap {

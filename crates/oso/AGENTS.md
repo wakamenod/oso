@@ -82,7 +82,9 @@ often, so it must rebuild within 2 s.
   for a git status now and a review's view later. `review/view.rs`
   lays out a review buffer's whole text on `oso-review-view`, one thread per review, and
   `review/view/panes.rs` its two panes, which `app/reviews/layout.rs` switches areas to, and
-  `review/count.rs` counts the review menu's scopes on `oso-review-count`. A review buffer's
+  `review/count.rs` counts the review menu's scopes on `oso-review-count`. `review/message.rs`
+  composes the message of the person's comments that `app/reviews/send.rs` pastes into the
+  review's session through `send_to_session` (step 12). A review buffer's
   keys are listed in `commands::review::KEYS`, which `?` reads, and bound by
   `bindings/review.rs`.
 - `src/git.rs` and `src/git/` are what every run of git shares (ADR 0127, as built): the

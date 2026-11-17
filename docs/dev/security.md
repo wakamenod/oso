@@ -207,6 +207,15 @@ network features.
   Untracked files are listed through a copy of the index, so the person's index is never
   written, and a file whose name may hold secrets, or a work tree file with more than one
   name, is listed and never read.
+- A review's comments reach an agent only as the person's paste (ADR 0122, step 12): every
+  command of it is `Person`, the message is shown first in `*review message*`, where the agent
+  channel's `Change` commands are refused, and it goes through `send_to_session`, cleaned and
+  not submitted, refused while the session asks for an answer. A file whose name may hold
+  secrets, or whose open buffer may, sends its place, never its lines, and a message turned
+  secret by a yank is not sent. A hunk's line has its control characters and line separators
+  escaped, so that a paste cannot break it into lines that read as another comment. oso puts
+  no message in the kill ring or on the clipboard, even with no session to paste into: what
+  the person copies from it is theirs.
 - A commit ([ADR 0127](adr/0127-source-control-and-github.md), step 1b) runs the repository's
   own hooks, only in a trusted project and only as the person's act: every command of it is
   `Person`, and while a commit's message is in front the agent channel's `Change` commands are

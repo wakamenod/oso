@@ -69,7 +69,7 @@ fn shown(reading: &Reading, cards: &Cards, folded: bool, room: usize) -> Rendere
 
 /// Each line as what its row is and its text, and under it a mark for each character's
 /// highlight: `h` a header, `@` a hunk's, `+` and `-` lines, `p` and `a` the person's and an
-/// agent's face, `o` outdated.
+/// agent's face, `o` outdated, `s` sent.
 fn grid(rendered: &Rendered) -> String {
     let rows = Rows::new(vec![Arc::clone(&rendered.section)]);
     let text = text_of(rendered);
@@ -99,6 +99,7 @@ fn grid(rendered: &Rendered) -> String {
                 Some(Highlight::CommentPerson) => 'p',
                 Some(Highlight::CommentAgent) => 'a',
                 Some(Highlight::Outdated) => 'o',
+                Some(Highlight::Sent) => 's',
                 _ => ' ',
             })
             .collect();
@@ -224,6 +225,30 @@ fn a_resolved_thread_folds_to_its_label() {
                 RowKind::Label { comment: alone }
             ),
         ]
+    );
+}
+
+#[test]
+fn a_sent_comment_is_dimmed_until_it_changes() {
+    let mut review = Review::new();
+    let reading = read(&mut review, PATH, vec![hunk(1, 1, &[], &[b"x\n"])]);
+    let sent = comment(&mut review, Author::Person, line(Side::New, 1), "sent");
+    comment(&mut review, Author::Person, line(Side::New, 1), "not yet");
+    review.mark_sent(&[sent]);
+    let drawn =
+        |review: &Review| grid(&shown(&reading, &snapshot(review, PATH), false, usize::MAX));
+    let before = drawn(&review);
+    // Its bar, its label and its text, dimmed; the comment not sent keeps the person's face.
+    let wanted = "label 0  |    \u{258d}You  #0\n         |    ssssssss\ncard 0   |    \u{258d}  sent\n         |    s  ssss\nlabel 1  |    \u{258d}You  #1\n         |    pppppppp\n";
+    assert!(before.contains(wanted), "{before}");
+    // An edit makes it unsent, and it is drawn as the person's again.
+    review
+        .edit_comment(Author::Person, sent, "sent again".into())
+        .unwrap();
+    let after = drawn(&review);
+    assert!(
+        after.contains("label 0  |    \u{258d}You  #0\n         |    pppppppp\n"),
+        "{after}"
     );
 }
 

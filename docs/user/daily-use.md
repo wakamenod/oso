@@ -368,12 +368,23 @@ In a review buffer:
 | `a` | Fold the agent's comments, or show them whole |
 | `\|` | Two panes, the old side and the new side lined up, or one stream again |
 | `g` | Read the files again now |
+| `C-c C-c` | Gather your comments not sent yet into a message to the session |
 | `q` | Bury the review |
 | `?` | List these keys |
 
 A comment opens as a draft at the top: `RET` breaks a line, `C-c C-c` keeps it, and `C-g` drops
 it into the kill ring. `C-x k` closes the review, and asks first while it holds comments you
-have not sent. Sending comments to a session is not built yet.
+have not sent.
+
+`C-c C-c` in the review gathers your comments that were not sent, outside threads you resolved,
+into `*review message*`: each with its file, its line or hunk and the hunk's lines. Read it and
+change it as you like, then `C-c C-c` there pastes it into the agent session that runs in the
+review's worktree, without pressing Enter: read it in the session and press Enter there.
+`C-u C-c C-c` picks another session, which the review then keeps; with no session the message
+stays, and the echo area says how to pick or start one. `C-c C-k` drops the message. A message
+holding text yanked from a secret is not sent.
+Sent comments are drawn dimmed, and an edit makes one unsent again. A session that is asking you
+something takes no paste: answer it first, and the message waits.
 
 `|` shows the review as two panes that scroll together: the old side at the left and the new side
 at the right when the review's area is 160 columns wide or more, else one above the other.

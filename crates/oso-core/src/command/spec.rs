@@ -90,6 +90,16 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
     },
+    /// One of a list the host keeps, read as [`ArgSpec::Listed`] reads it, but only with a
+    /// prefix argument, such as `C-u`; with none, the command runs at once with no answer
+    /// (ADR 0122, step 12): `C-u C-c C-c` in a review's message picks its session. Only keys
+    /// give it: the agent channel runs such a command with none. The command reads the
+    /// candidate's text with [`Ctx::answer`](super::Ctx::answer).
+    ListedOnPrefix {
+        list: &'static str,
+        prompt: &'static str,
+        history: &'static str,
+    },
     /// One of a list the host keeps, read as [`ArgSpec::Listed`] reads it; then, unless the
     /// selected window shows a region, a line of text in a prompt that says `note_prompt`, kept
     /// in the history named `note_history` (ADR 0121): a session to send to, and a note when

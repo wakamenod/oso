@@ -110,6 +110,17 @@ pub enum ReviewRequest {
     },
     /// The review was closed: stop its threads.
     Close(ReviewId),
+    /// Gather the person's comments that were not sent into a message, shown in
+    /// `*review message*` before anything goes to an agent session (step 12).
+    Send(ReviewId),
+    /// Paste the review message `buffer` holds into its review's session, or into the session
+    /// named `to`, and mark the comments it took sent.
+    MessageSend {
+        buffer: BufferId,
+        to: Option<String>,
+    },
+    /// Drop the review message `buffer` holds, sending nothing.
+    MessageDrop { buffer: BufferId },
 }
 
 /// One open review.
