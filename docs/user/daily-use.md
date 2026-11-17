@@ -395,7 +395,9 @@ something takes no paste: answer it first, and the message waits.
 `|` shows the review as two panes that scroll together: the old side at the left and the new side
 at the right when the review's area is 160 columns wide or more, else one above the other.
 Blank rows keep the panes lined up; the cursor skips them. A comment shows in the pane of its
-side, a hunk's in the new side's. `|` again, or `q`, goes back to one window.
+side, a hunk's in the new side's. `|` again, or `q`, goes back to one window. Until you press
+`|`, a review shows as two panes side by side in an area 160 columns wide or more and as one
+stream below 150, judged when the width changes; `C-u |` goes back to that.
 
 ## Source control
 
