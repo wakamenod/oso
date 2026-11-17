@@ -521,7 +521,7 @@ fn a_worktree_is_kept_until_its_work_is_merged_then_removed_with_its_branch_kept
         echo.ends_with("; its branch is kept; 1 session in it archived"),
         "{echo}"
     );
-    assert_eq!(session_archived(&state, SESSION), Some(true), "{state}");
+    assert_eq!(session_archived(&state, BRANCH), Some(true), "{state}");
     let listed = flow.git(&flow.repo, &["branch", "--list", BRANCH]);
     assert!(listed.contains(BRANCH), "the branch went");
     let lines = text_until(&mut app, "the empty list", |lines| {
