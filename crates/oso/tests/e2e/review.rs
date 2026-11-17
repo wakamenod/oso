@@ -376,9 +376,11 @@ fn a_hunk_is_viewed_accepted_rejected_and_each_undone() {
     let mut app = open_review(&scratch);
     let root = scratch.path().join("proj-review");
     let file = root.join("a.rs");
+    // Each step waits for what the one before shows, so that no key comes early.
+    seen(&mut app, "@@ -2 +2 @@");
     // The first hunk's header: viewed, then staged, then each undone.
     app.send_keys("n v");
-    rows_until(&mut app, "@@ -2 +2 @@  \u{b7} viewed");
+    seen(&mut app, "@@ -2 +2 @@  \u{b7} viewed");
     let modeline = app.state()["modeline"]
         .as_str()
         .unwrap_or_default()
@@ -396,7 +398,7 @@ fn a_hunk_is_viewed_accepted_rejected_and_each_undone() {
         !git_ran(&root, &["diff", "--cached", "--quiet"]),
         "a.rs is staged"
     );
-    rows_until(&mut app, "@@ -2 +2 @@  \u{b7} accepted \u{b7} viewed");
+    seen(&mut app, "@@ -2 +2 @@  \u{b7} accepted \u{b7} viewed");
     app.send_keys("u");
     assert_eq!(
         echo_until(&mut app, "Unstaged 1 hunk of a.rs"),
@@ -416,11 +418,18 @@ fn a_hunk_is_viewed_accepted_rejected_and_each_undone() {
 
     // Rejected while a.rs holds an unsaved edit: asked first, then reverted and saved whole.
     app.send_keys(&format!("C-x b {} RET M-> x x x RET", typing("a.rs")));
+    app.wait_for("the edit", |state| {
+        state["buffer"]["name"] == "a.rs"
+            && state["text"]["rows"]
+                .as_array()
+                .is_some_and(|rows| rows.iter().any(|row| row == "xxx"))
+    });
     // A review buffer is no C-x b default: the menu shows the open review again.
     app.send_keys("C-x v r w");
     app.wait_for("the review again", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj-review*"
     });
+    seen(&mut app, "@@ -2 +2 @@  \u{b7} viewed");
     app.send_keys("M-< n x");
     assert_eq!(
         prompt_label(&mut app).as_deref(),
@@ -436,4 +445,13 @@ fn a_hunk_is_viewed_accepted_rejected_and_each_undone() {
     app.send_keys("u");
     let back = "one\n2\nthree\nxxx\n";
     assert_eq!(file_until(&file, back), back);
+}
+
+/// Waits for a row that is `row`, failing if none shows within 5 s.
+fn seen(app: &mut App, row: &str) {
+    let shown = rows_until(app, row);
+    assert!(
+        shown.iter().any(|shown| shown == row),
+        "no {row:?} in {shown:?}"
+    );
 }

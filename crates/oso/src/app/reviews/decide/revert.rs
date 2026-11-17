@@ -26,7 +26,7 @@ use oso_core::editor::ReviewId;
 use oso_core::review::Hunk;
 use oso_core::rope::Rope;
 
-use super::{Done, Picked, hunks_said, named, new_side};
+use super::{Done, Marking, Picked, hunks_said, named, new_side};
 use crate::app::App;
 use crate::commands::review::{open_buffer_of, place_of};
 use crate::review::Reading;
@@ -77,6 +77,31 @@ fn text_line(text: &Rope, line: usize, lines: usize) -> Option<String> {
     Some(text.chunks_in_range(start..end).collect())
 }
 
+/// Checks the lines `range` of the new side `new` are in `text`, each `shift` lines on, beside
+/// the hunk at new line `hunk`; says in the log which is not, with no text.
+fn around(
+    text: &Rope,
+    new: &[&[u8]],
+    range: Range<usize>,
+    shift: isize,
+    hunk: u32,
+) -> Result<(), &'static str> {
+    let lines = text.max_point().row + 1;
+    for line in range {
+        let there = text_line(text, line.checked_add_signed(shift).ok_or(CHANGED)?, lines);
+        if there.as_deref().map(str::as_bytes) != Some(line_of(new, line)) {
+            log::debug!(
+                "a revert refused: new line {} beside the hunk at new line {hunk} differs \
+                 ({} new-side lines, {lines} in the buffer)",
+                line + 1,
+                new.len()
+            );
+            return Err(CHANGED);
+        }
+    }
+    Ok(())
+}
+
 /// The edits that put each of `hunks` back to its old lines in `text`, or to its new lines when
 /// `undone`, as undo after a revert. Each hunk's lines, and the lines around it up to the next,
 /// must be where `new_side`, the reading's new side, puts them, moved by what the hunks before
@@ -109,6 +134,10 @@ pub(in crate::app::reviews) fn revert_edits(
         let first = (hunk.new_start as usize).saturating_sub(1);
         let start_line = first.checked_add_signed(shift).ok_or(CHANGED)?;
         if start_line > lines {
+            log::debug!(
+                "a revert refused: hunk at new line {} past the {lines} lines",
+                hunk.new_start
+            );
             return Err(CHANGED);
         }
         // The lines before it, back to the last hunk's, as the new side has them.
@@ -116,12 +145,8 @@ pub(in crate::app::reviews) fn revert_edits(
         let floor = before.map_or(0, |before| {
             (before.new_start as usize).saturating_sub(1) + before.added.len()
         });
-        for line in first.saturating_sub(CONTEXT).max(floor)..first {
-            let there = text_line(text, line.checked_add_signed(shift).ok_or(CHANGED)?, lines);
-            if there.as_deref().map(str::as_bytes) != Some(line_of(&new, line)) {
-                return Err(CHANGED);
-            }
-        }
+        let range = first.saturating_sub(CONTEXT).max(floor)..first;
+        around(text, &new, range, shift, hunk.new_start)?;
         let start = if start_line < lines {
             text.line_start(start_line)
         } else {
@@ -135,6 +160,12 @@ pub(in crate::app::reviews) fn revert_edits(
             String::new()
         };
         if there != want {
+            log::debug!(
+                "a revert refused: the hunk at new line {} is not there ({} bytes from {start}, text of {})",
+                hunk.new_start,
+                want.len(),
+                text.len()
+            );
             return Err(CHANGED);
         }
         let after_shift = if undone {
@@ -150,13 +181,7 @@ pub(in crate::app::reviews) fn revert_edits(
         let until = (from + CONTEXT)
             .min(next.unwrap_or(usize::MAX))
             .min(new.len());
-        for line in from..until {
-            let at_line = line.checked_add_signed(after_shift).ok_or(CHANGED)?;
-            let there = text_line(text, at_line, lines);
-            if there.as_deref().map(str::as_bytes) != Some(line_of(&new, line)) {
-                return Err(CHANGED);
-            }
-        }
+        around(text, &new, from..until, after_shift, hunk.new_start)?;
         shift = after_shift;
         edits.push((start..end, joined(put)?));
     }
@@ -362,7 +387,7 @@ impl App {
             );
             // A reverted hunk leaves the review: its whole mark goes (Q-G).
             if !undo {
-                self.mark_picked(index, &picked, None);
+                self.mark_picked(index, &picked, Marking::Leaves);
                 self.keep_done(index, Done::Reverted { picked, reading });
             }
             self.editor.message(said);

@@ -114,6 +114,16 @@ impl Picked {
     }
 }
 
+/// What a decision does to its hunks' marks.
+#[derive(Clone, Copy)]
+enum Marking {
+    /// The hunks stay shown: their decision is this, their viewed mark kept.
+    Decided(Option<Decision>),
+    /// The hunks leave the review by the decision: their whole mark goes, so they leave
+    /// uncounted (Q-G).
+    Leaves,
+}
+
 /// One decision, as undo takes it back.
 enum Done {
     Staged {
@@ -262,17 +272,21 @@ impl App {
         Ok(Picked { path, shape, hunks })
     }
 
-    /// Marks `picked`'s hunks in the model's reading now with `decision`, or takes their whole
-    /// mark off with `None`, as for hunks that leave the review by their decision (Q-G).
-    fn mark_picked(&mut self, index: usize, picked: &Picked, decision: Option<Decision>) {
+    /// Marks `picked`'s hunks in the model's reading now as `marking` says.
+    fn mark_picked(&mut self, index: usize, picked: &Picked, marking: Marking) {
         let id = self.reviews.open[index].id;
         let Some(model) = self.editor.review_mut(id) else {
             return;
         };
         for at in picked.now(model) {
-            model.decide(&picked.path, at, decision);
-            if decision.is_none() {
-                model.set_viewed(&picked.path, at, false);
+            match marking {
+                Marking::Decided(decision) => {
+                    model.decide(&picked.path, at, decision);
+                }
+                Marking::Leaves => {
+                    model.decide(&picked.path, at, None);
+                    model.set_viewed(&picked.path, at, false);
+                }
             }
         }
         self.tell_cards(index, &picked.path);

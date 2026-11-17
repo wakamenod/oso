@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use oso_core::review::{Base, Decision};
 
-use super::{Done, Picked, hunks_said, named};
+use super::{Done, Marking, Picked, hunks_said, named};
 use crate::app::App;
 use crate::git::Id;
 use crate::review::stage::{Apply, Stage, Staged};
@@ -143,12 +143,17 @@ impl App {
                 return self.editor.message(why);
             }
         };
-        // Staged where the scope keeps showing it, it is marked; else it leaves (Q-G).
+        // In the work tree's scopes that compare with HEAD or the baseline, the index changes
+        // nothing shown: the hunk stays, marked accepted or not, its viewed mark kept. In the
+        // staged and unstaged scopes it leaves, its whole mark with it (Q-G).
         let scope = &self.reviews.open[index].scope;
-        let stays = !reverse && !matches!(scope, Scope::Unstaged);
-        let mark = match (stays, undoing.is_some()) {
-            (true, false) => Some(Decision::Accepted),
-            _ => None,
+        let stays = matches!(scope, Scope::Uncommitted | Scope::Session { .. });
+        let mark = if !stays {
+            Marking::Leaves
+        } else if reverse {
+            Marking::Decided(None)
+        } else {
+            Marking::Decided(Some(Decision::Accepted))
         };
         self.mark_picked(index, &picked, mark);
         let verb = if reverse { "Unstaged" } else { "Staged" };
