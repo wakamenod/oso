@@ -729,8 +729,8 @@ The UI thread never blocks on I/O or parsing:
   are parsed again, with their own grammars, wherever the worker highlights; a fence's
   grammar's query is compiled at the first fence of it
   ([ADR 0147](adr/0147-highlighting-go-typescript-and-javascript.md)). Buffers that may
-  hold secrets and files over 2 MiB are not parsed
-  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). The same schedule takes documents no
+  hold secrets, files over 2 MiB ([ADR 0111](adr/0111-tree-sitter-highlighting.md)) and text
+  with a line longer than 16 KiB (ADR 0147) are not parsed. The same schedule takes documents no
   buffer owns, texts that never change such as a review's sides, opened with the verdict of
   where they came from (a text that may hold secrets is refused). They run only where buffers
   no window shows do, at most 4 hold a tree at once, and a finished one gives its tree to a

@@ -18,7 +18,7 @@ use crate::queries::Queries;
 
 /// A document of `text`, highlighted to the end.
 pub(super) fn highlighted(language: Language, text: &str) -> Document {
-    let mut document = Document::new(language, Rope::from(text));
+    let mut document = Document::with_long_lines(language, Rope::from(text));
     assert_eq!(
         document.highlight(&mut Queries::new(), &[], LONG),
         Highlighted::Done
@@ -227,7 +227,7 @@ fn highlights_follow_edits_and_the_edited_lines_are_highlighted_again() {
 fn shown_text_goes_first() {
     let line = "fn f() {}\n";
     let text = line.repeat(30_000);
-    let mut document = Document::new(Language::Rust, Rope::from(text.as_str()));
+    let mut document = Document::with_long_lines(Language::Rust, Rope::from(text.as_str()));
     assert_eq!(document.parse(LONG), super::Parsed::Done);
     let shown = text.len() - 100..text.len() - 50;
     let piece = document.next_piece(std::slice::from_ref(&shown)).unwrap();
@@ -245,7 +245,7 @@ fn shown_text_goes_first() {
 #[test]
 fn a_long_line_is_cut_at_a_character() {
     let text = format!("// {}\n", "日本".repeat(100_000));
-    let mut document = Document::new(Language::Rust, Rope::from(text.as_str()));
+    let mut document = Document::with_long_lines(Language::Rust, Rope::from(text.as_str()));
     assert_eq!(document.parse(LONG), super::Parsed::Done);
     let piece = document.next_piece(&[]).unwrap();
     assert!(piece.end - piece.start <= super::highlight::PIECE);
@@ -274,7 +274,7 @@ fn an_inline_node_past_the_cap_stays_plain() {
 fn a_slice_resumes_where_it_stopped() {
     let text = "fn f() { let x = \"s\"; } // c\n".repeat(20_000);
     let whole = runs(&highlighted(Language::Rust, &text));
-    let mut document = Document::new(Language::Rust, Rope::from(text.as_str()));
+    let mut document = Document::with_long_lines(Language::Rust, Rope::from(text.as_str()));
     // Slices this short judge no piece too slow, and a slow runner meets no total limit: the
     // test holds whatever the machine's speed.
     document.limits.2 = LONG;

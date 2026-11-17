@@ -78,7 +78,7 @@ fn highlight_on_a_small_stack(
     std::thread::Builder::new()
         .stack_size(STACK)
         .spawn(move || {
-            let mut document = Document::new(language, Rope::from(text.as_str()));
+            let mut document = Document::with_long_lines(language, Rope::from(text.as_str()));
             let mut queries = Queries::new();
             // A slice leaves plain what outlasts it, so each gets somewhere.
             for _ in 0..10_000 {
@@ -159,7 +159,7 @@ fn every_three_inline_atoms_under_the_cap_fit_the_stack() {
 #[test]
 fn a_text_too_slow_for_a_slice_fails_in_a_few_slices() {
     let text = repeated(&[3], 64 << 10);
-    let mut document = Document::new(Language::Rust, Rope::from(text.as_str()));
+    let mut document = Document::with_long_lines(Language::Rust, Rope::from(text.as_str()));
     let mut queries = Queries::new();
     let mut calls = 0;
     let started = std::time::Instant::now();

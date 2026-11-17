@@ -14,6 +14,7 @@
 //!   grammar), the document stops for good.
 //! - The highlights follow each edit at once, and the lines it touched are highlighted again,
 //!   with what the next parse changes (`highlight`).
+//! - A text with a line longer than 16 KiB is not parsed (`long_line`, ADR 0147).
 
 use std::cell::Cell;
 use std::ops::ControlFlow;
@@ -63,6 +64,9 @@ pub enum Failure {
     /// The grammar, or oso's query for it, does not fit the tree-sitter runtime oso was built
     /// with.
     Incompatible,
+    /// A line is longer than 16 KiB: minified or generated text, whose tree would cost far more
+    /// than source's (ADR 0147).
+    LongLine,
 }
 
 /// One buffer's parse state. It lives on the worker, never on the UI thread.
@@ -83,6 +87,12 @@ pub struct Document {
     failed: Option<Failure>,
     /// [`FIRST_LIMIT`], [`LATER_LIMIT`] and [`highlight::HIGHLIGHT_LIMIT`], shorter in tests.
     limits: (Duration, Duration, Duration),
+    /// The longest line it parses ([`long_line::MAX_LINE_BYTES`]); tests of crafted text on one
+    /// line lift it, to reach the grammar.
+    max_line: usize,
+    /// Whether every line of `text` is known to be within `max_line`: the whole text is read
+    /// once, and a trusted edit checks the lines it touched.
+    lines_checked: bool,
     /// The worker's time highlighting took since it was last done.
     spent: Duration,
     /// How many pieces fitted in a row since pieces last shrank or grew.
@@ -123,6 +133,8 @@ impl Document {
             running: None,
             failed,
             limits: (FIRST_LIMIT, LATER_LIMIT, highlight::HIGHLIGHT_LIMIT),
+            max_line: long_line::MAX_LINE_BYTES,
+            lines_checked: false,
             spent: Duration::ZERO,
             fits: 0,
             changes: 0,
@@ -131,6 +143,14 @@ impl Document {
             fences: Pending::apart(),
             max_piece: highlight::PIECE,
         }
+    }
+
+    /// A document that parses lines of any length, for tests of crafted text on one line.
+    #[cfg(test)]
+    pub(crate) fn with_long_lines(language: Language, text: Rope) -> Self {
+        let mut document = Self::new(language, text);
+        document.max_line = usize::MAX;
+        document
     }
 
     /// The grammar it parses with.
@@ -150,6 +170,12 @@ impl Document {
             self.highlights = Highlights::new(after.len());
             return;
         }
+        if long_line::touched(after, splices, self.max_line) {
+            self.highlights = Highlights::new(after.len());
+            self.text = after.clone();
+            self.fail(Failure::LongLine);
+            return;
+        }
         self.highlights.splice(splices);
         if self.highlights.len() == after.len() {
             self.pending.map(splices);
@@ -160,6 +186,8 @@ impl Document {
             self.highlights = Highlights::new(after.len());
             self.pending.all(after.len());
             self.fences.clear();
+            // Splices that do not map say nothing of which lines changed.
+            self.lines_checked = false;
         }
         self.follow(splices, after);
     }
@@ -178,7 +206,10 @@ impl Document {
         if let Some(tree) = &mut self.tree {
             match input_edits(&self.text, after, splices) {
                 Some(edits) => edits.iter().for_each(|edit| tree.edit(edit)),
-                None => self.tree = None,
+                None => {
+                    self.tree = None;
+                    self.lines_checked = false;
+                }
             }
         }
         self.text = after.clone();
@@ -209,6 +240,13 @@ impl Document {
             }
             if self.text.len() > self.most_bytes() {
                 return self.fail(Failure::TooLarge);
+            }
+            // Once, before the first parse; a trusted edit checks the lines it touched.
+            if !self.lines_checked {
+                if long_line::any(&self.text, self.max_line) {
+                    return self.fail(Failure::LongLine);
+                }
+                self.lines_checked = true;
             }
             let now = Instant::now();
             if now >= deadline {
@@ -334,6 +372,7 @@ pub(super) fn reader<'text>(
 mod fence;
 mod highlight;
 mod inline;
+mod long_line;
 
 pub use highlight::Highlighted;
 #[cfg(test)]

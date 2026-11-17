@@ -1,6 +1,7 @@
 pub mod oso_syntax
 pub enum oso_syntax::Failure
 pub oso_syntax::Failure::Incompatible
+pub oso_syntax::Failure::LongLine
 pub oso_syntax::Failure::TooLarge
 pub oso_syntax::Failure::TooSlow
 impl core::clone::Clone for oso_syntax::Failure

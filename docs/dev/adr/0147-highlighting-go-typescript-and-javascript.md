@@ -1,6 +1,6 @@
 # 0147. Highlighting Go, TypeScript and JavaScript
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-17
 
 ## Context
@@ -111,9 +111,27 @@ with its question (Q1–Q8).
   with Markdown's, so a Markdown file compiles only the queries of the fences it has. This now
   holds for Rust's and TOML's too (below). The 16 KiB cap on a fence does not change.
 
+### Long lines (Q9)
+
+Asked after step 2's review, which found that 2 MiB of minified JavaScript, an ordinary file,
+takes about 200 MB highlighted, against the "about 130 MB at most" ADR 0111 chose its size limit
+on. The author chose (2026-11-17, through the coordinator):
+
+- **A text with a line longer than 16 KiB is not parsed, in every grammar,** and stays plain, as
+  one past the size limit does. Such lines are minified or generated code. The echo area says
+  "Highlighting stopped in NAME: a line is longer than 16 KiB", and, as after any failure,
+  setting the mode again gives it another try.
+- 16 KiB is a piece's size (ADR 0111), so a highlighted line is never cut into pieces. Measured
+  on what was at hand (As built), source lines stay far below it, and minified bundles' run to
+  hundreds of KB. VS Code stops tokenizing a line at 20,000 characters
+  (`editor.maxTokenizationLineLength`); bytes are what the worker reads, so the limit counts
+  bytes.
+- Not taken: accepting 200 MB for a minified buffer and amending ADR 0111's figure; a lower size
+  limit for JavaScript, TypeScript and TSX only, which would leave long lines in other grammars.
+
 ### What does not change
 
-- ADR 0111's limits, the secret rules (a buffer that may hold secrets, or is not judged yet, is
+- ADR 0111's other limits, the secret rules (a buffer that may hold secrets, or is not judged yet, is
   never parsed, whatever its mode), the worker's schedule and on-screen-first order.
 - Comment-aware `C-e` reads the highlights' `Comment` runs, so it works in the new modes as
   they are highlighted. Indentation ([ADR 0115](0115-indentation.md)) does not change.
@@ -144,6 +162,9 @@ gains `amended by 0147`.
 - ADR 0111, step 7: "A Markdown document now compiles Rust's and TOML's queries too, at its
   first highlight on each thread": a fence's grammar's query is compiled when a fence of it is
   first met on the thread.
+- ADR 0111, "A buffer larger than 8 MiB is not parsed" (2 MiB, by its erratum): nor is one
+  with a line longer than 16 KiB (Q9). Its "at 2 MiB, about 130 MB at most" holds for source;
+  minified text, which held about 200 MB, is no longer parsed.
 - [ADR 0138](0138-language-servers.md), "They have no highlighting until their grammars come":
   Go has it from step 1, and JavaScript, TypeScript and TSX from step 2. LaTeX and Swift still
   have none.
@@ -205,6 +226,23 @@ gains `amended by 0147`.
 - `Language::ALL` and `Kind::ALL` (crate-private) list every grammar and query once; the
   queries' table takes its length from them, and a test checks each query has a place of its
   own, so a language added in step 2 cannot be left out of the tests.
+- **Long lines (Q9),** in `document/long_line.rs`: the worker reads the whole text once, before
+  the first parse (1.6 ms for 2 MiB, release), and each trusted edit checks only the lines it
+  touched, so joining two lines past the limit stops the document too. Splices that do not map
+  the text have it read again. A line counts its bytes, without its line break;
+  `Failure::LongLine` is new and public. Tests of crafted text on one line build their documents
+  with the check lifted (`Document::with_long_lines`, tests only), so they still reach the
+  grammar. Longest lines measured, in bytes:
+
+  | Files | How many | Longest line, 99th percentile | Longest | Past 16 KiB |
+  |---|---|---|---|---|
+  | oso's Rust | 1,383 | 596 | 987 | none |
+  | oso's Markdown docs | 157 | 550 | 1,276 | none |
+  | npm's JavaScript | 1,118 | 402 | 1,714 | none |
+  | TypeScript sources of installed tools | 1,563 | 633 | 32,334 | 4 tests with one long string each |
+  | Go's standard library | 8,076 | 445 | 1,375,317 | a 17.6 KB test, and two generated tables |
+  | Minified JavaScript | 15 | 954,533 | 1,604,877 | all |
+
 - **Two lists say which modes are highlighted:** `oso-core`'s `Buffer::can_highlight`, which
   cannot see `oso-syntax`, and `Language::of`. A test in the tip crate checks they agree for
   every mode a file can have, so a mode moved in one alone does not stay plain unnoticed.

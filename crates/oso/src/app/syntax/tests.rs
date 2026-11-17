@@ -223,8 +223,9 @@ fn a_report_for_a_dropped_buffer_is_ignored() {
 /// rule, tested in `oso_syntax` without timing.
 #[test]
 fn the_threads_report_highlights_and_failures() {
-    // A crafted text, made of an opener repeated, that every query is slow on.
-    let slow = "(".repeat(64 << 10);
+    // A crafted text, made of an opener repeated, that every query is slow on, in lines short
+    // enough to be parsed (ADR 0147).
+    let slow = format!("{}\n", "(".repeat(4 << 10)).repeat(16);
     let (mut editor, shown) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
     let background = editor.add_buffer(visited("/p/slow.rs", &slow));
     let (reports, received) = mpsc::channel();
@@ -268,7 +269,7 @@ enum Key {
 /// and the other document waits for it. The order inside the lane is tested in `oso_syntax`.
 #[test]
 fn documents_share_the_threads_and_a_slow_one_never_holds_a_shown_buffer_back() {
-    let slow = "(".repeat(64 << 10);
+    let slow = format!("{}\n", "(".repeat(4 << 10)).repeat(16);
     let (editor, shown) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
     let (reports, received) = mpsc::channel();
     let pool = Pool::start(move |report| drop(reports.send(report))).unwrap();

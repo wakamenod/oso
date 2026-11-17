@@ -1006,7 +1006,8 @@ on a visit and on `C-x C-w`, and set by hand with `rust-mode`, `markdown-mode`, 
 `fundamental-mode` (`M-x`, no keys), which refuse an internal buffer. Go is highlighted too
 (ADR 0147); the five after Go's have no highlighting yet: they are there for their language
 servers (ADR 0138). Setting a mode again,
-the same one too, gives a buffer whose highlighting stopped another try. The modeline names
+the same one too, gives a buffer whose highlighting stopped another try. A file over 2 MiB, or
+with a line longer than 16 KiB (minified or generated code), stays plain (ADR 0147). The modeline names
 the mode.
 
 Off by default: **line numbers** (`global-display-line-numbers-mode`). They are absolute, the
