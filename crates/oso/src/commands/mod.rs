@@ -116,6 +116,7 @@ const TABLES: &[&[Command]] = &[
     review::COMMANDS,
     review::COMMENT_COMMANDS,
     review::DECISION_COMMANDS,
+    review::FILES_COMMANDS,
     review::SAVED_COMMANDS,
     review::SEND_COMMANDS,
     save::COMMANDS,

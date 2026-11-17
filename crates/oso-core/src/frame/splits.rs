@@ -197,13 +197,19 @@ impl Splits {
     /// A window of a pair takes the pair out with it, both its windows going (ADR 0122), and
     /// a pair that is the whole frame stays, as the only window does.
     pub(crate) fn remove(&mut self, window: WindowId, layout: &FrameLayout) -> bool {
+        self.remove_giving(window, layout, false)
+    }
+
+    /// [`Splits::remove`], the cells going to the window or run after it when `to_next`, or
+    /// before it when it is the last.
+    fn remove_giving(&mut self, window: WindowId, layout: &FrameLayout, to_next: bool) -> bool {
         if self.root.is_unit_of(window) {
             return false;
         }
         let Node::Run(run) = &mut self.root else {
             return false;
         };
-        let removed = run.remove(window, layout);
+        let removed = run.remove(window, layout, to_next);
         if run.children.len() == 1
             && let Some(child) = run.children.pop()
         {
@@ -483,13 +489,18 @@ impl Run {
         }
     }
 
-    fn remove(&mut self, window: WindowId, layout: &FrameLayout) -> bool {
+    fn remove(&mut self, window: WindowId, layout: &FrameLayout, to_next: bool) -> bool {
         let Some(index) = self.children.iter().position(|c| c.node.contains(window)) else {
             return false;
         };
         if self.children[index].node.is_unit_of(window) {
             self.reset(layout);
-            let into = if index > 0 { index - 1 } else { 1 };
+            let last = index + 1 == self.children.len();
+            let into = match (to_next, index) {
+                (true, _) if !last => index + 1,
+                (_, 0) => 1,
+                _ => index - 1,
+            };
             self.children[into].weight += self.children[index].weight;
             self.children.remove(index);
             return true;
@@ -499,7 +510,7 @@ impl Run {
         let Node::Run(run) = &mut self.children[index].node else {
             return false;
         };
-        let removed = run.remove(window, layout);
+        let removed = run.remove(window, layout, to_next);
         if run.children.len() == 1
             && let Some(lone) = run.children.pop()
         {
@@ -557,6 +568,7 @@ impl Run {
     }
 }
 
+mod aside;
 mod cells;
 mod pair;
 #[cfg(test)]

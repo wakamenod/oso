@@ -75,6 +75,7 @@ pub oso_core::buffer::Mode::Latex
 pub oso_core::buffer::Mode::Markdown
 pub oso_core::buffer::Mode::RenamePreview
 pub oso_core::buffer::Mode::Review
+pub oso_core::buffer::Mode::ReviewFiles
 pub oso_core::buffer::Mode::ReviewMessage
 pub oso_core::buffer::Mode::Rust
 pub oso_core::buffer::Mode::Sessions
@@ -3160,6 +3161,13 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::go_to_listed_mark(&mut self, &str) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::open_mark_list(&mut self, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::hide_review_files(&mut self, oso_core::editor::ReviewId) -> bool
+pub fn oso_core::editor::Editor::review_files(&self, oso_core::editor::ReviewId) -> core::option::Option<oso_core::buffer::BufferId>
+pub fn oso_core::editor::Editor::review_filter(&self, oso_core::editor::ReviewId) -> core::option::Option<&oso_core::review::Filter>
+pub fn oso_core::editor::Editor::set_review_files(&mut self, oso_core::editor::ReviewId, oso_core::load::Reloaded, oso_core::review::Rows, oso_core::syntax::Highlights) -> oso_core::editor::ReviewLeftover
+pub fn oso_core::editor::Editor::set_review_filter(&mut self, oso_core::editor::ReviewId, core::option::Option<oso_core::review::Filter>)
+pub fn oso_core::editor::Editor::show_review_files(&mut self, oso_core::editor::ReviewId, oso_core::window::WindowId) -> core::result::Result<oso_core::window::WindowId, oso_core::editor::NoPair>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::hide_side_window(&mut self) -> bool
 pub fn oso_core::editor::Editor::show_side_window(&mut self, oso_core::buffer::BufferId, usize) -> oso_core::window::WindowId
 pub fn oso_core::editor::Editor::side_window(&self) -> core::option::Option<oso_core::window::WindowId>
@@ -5760,6 +5768,19 @@ impl core::hash::Hash for oso_core::review::CommentId
 pub fn oso_core::review::CommentId::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::review::CommentId
 impl core::marker::StructuralPartialEq for oso_core::review::CommentId
+pub struct oso_core::review::Filter
+impl oso_core::review::Filter
+pub fn oso_core::review::Filter::matches(&self, &[u8], &[&str]) -> bool
+pub fn oso_core::review::Filter::new(&str) -> core::option::Option<oso_core::review::Filter>
+pub fn oso_core::review::Filter::text(&self) -> &str
+impl core::clone::Clone for oso_core::review::Filter
+pub fn oso_core::review::Filter::clone(&self) -> oso_core::review::Filter
+impl core::cmp::Eq for oso_core::review::Filter
+impl core::cmp::PartialEq for oso_core::review::Filter
+pub fn oso_core::review::Filter::eq(&self, &oso_core::review::Filter) -> bool
+impl core::fmt::Debug for oso_core::review::Filter
+pub fn oso_core::review::Filter::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::review::Filter
 pub struct oso_core::review::Hunk
 pub oso_core::review::Hunk::added: alloc::vec::Vec<alloc::boxed::Box<[u8]>>
 pub oso_core::review::Hunk::new_start: u32

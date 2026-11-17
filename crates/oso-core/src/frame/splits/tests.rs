@@ -357,6 +357,8 @@ enum Op {
     Turn(usize, bool),
     Break(usize),
     Unpair(usize),
+    Aside(usize, usize),
+    RemoveToNext(usize),
 }
 
 fn op() -> impl Strategy<Value = Op> {
@@ -370,6 +372,8 @@ fn op() -> impl Strategy<Value = Op> {
         (0usize..8, any::<bool>()).prop_map(|(w, across)| Op::Turn(w, across)),
         (0usize..8).prop_map(Op::Break),
         (0usize..8).prop_map(Op::Unpair),
+        (0usize..8, 0usize..60).prop_map(|(w, c)| Op::Aside(w, c)),
+        (0usize..8).prop_map(Op::RemoveToNext),
     ]
 }
 
@@ -446,6 +450,15 @@ proptest! {
                 }
                 Op::Unpair(w) => {
                     splits.unpair(pick(w));
+                }
+                Op::Aside(w, c) => {
+                    if splits.split_left(pick(w), WindowId::new(next), c, &frame).is_ok() {
+                        next += 1;
+                    }
+                }
+                Op::RemoveToNext(w) => {
+                    let alone = splits.only(pick(w)).iter().count() == windows.len();
+                    prop_assert_eq!(splits.remove_toward_next(pick(w), &frame), !alone);
                 }
             }
             let windows: Vec<WindowId> = splits.iter().collect();
@@ -535,4 +548,5 @@ fn shown(cells: CellRect) -> bool {
     cells.rows > 0 && cells.columns > 0
 }
 
+mod aside;
 mod removal;

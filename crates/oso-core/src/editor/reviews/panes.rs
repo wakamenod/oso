@@ -372,6 +372,8 @@ impl Editor {
             }
         }
         self.skip_review_fillers();
+        // And the files panes (step 6b).
+        self.sync_review_files();
     }
 
     /// Moves each cursor of the selected window, if it shows a pane, off a filler row: on the
@@ -425,7 +427,7 @@ impl Editor {
 
     /// Whether the review buffer or a pane of the review that `buffer` is one of may hold
     /// secrets, as a yank of a secret kill into isearch turns it, whatever the verdict was.
-    fn review_holds_secret(&self, buffer: BufferId) -> bool {
+    pub(in crate::editor) fn review_holds_secret(&self, buffer: BufferId) -> bool {
         let Some(open) = self.reviews.holding(buffer) else {
             return false;
         };

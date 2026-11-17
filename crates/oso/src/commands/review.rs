@@ -89,12 +89,14 @@ macro_rules! person_command {
 
 mod comments;
 mod decide;
+mod files;
 mod saved;
 mod send;
 
 pub use comments::COMMANDS as COMMENT_COMMANDS;
 pub use decide::COMMANDS as DECISION_COMMANDS;
 pub(crate) use decide::{open_buffer_of, place_of};
+pub use files::{COMMANDS as FILES_COMMANDS, FILES_KEYS};
 pub use saved::COMMANDS as SAVED_COMMANDS;
 pub(crate) use saved::{SAVED_LIST, lost};
 pub use send::{COMMANDS as SEND_COMMANDS, MESSAGE_KEYS};

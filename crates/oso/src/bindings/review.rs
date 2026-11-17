@@ -8,3 +8,6 @@ pub const REVIEW: &[(&str, &str)] = crate::commands::review::KEYS;
 
 /// Key sequences and the commands they run, in a review's message only (ADR 0122, step 12).
 pub const MESSAGE: &[(&str, &str)] = crate::commands::review::MESSAGE_KEYS;
+
+/// Key sequences and the commands they run, in a review's files pane only (ADR 0122, step 6b).
+pub const FILES: &[(&str, &str)] = crate::commands::review::FILES_KEYS;

@@ -27,6 +27,7 @@ use std::sync::Arc;
 mod carry;
 mod comment;
 mod decision;
+mod filter;
 mod map;
 mod marks;
 mod rows;
@@ -38,6 +39,7 @@ pub use comment::{
     Anchor, Author, Comment, CommentError, CommentId, MAX_COMMENT_BYTES, MAX_COMMENTS,
 };
 pub use decision::Decision;
+pub use filter::Filter;
 pub use map::{BaseHunk, LineMap, base_pair};
 pub(crate) use rows::Place;
 pub use rows::{Row, RowKind, Rows, Section, Seek};

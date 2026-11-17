@@ -21,6 +21,7 @@
 
 mod cells;
 mod draft;
+mod files;
 mod kept;
 mod menu;
 mod panes;
@@ -109,6 +110,8 @@ struct Open {
     /// Whether the host keeps the review across a restart, saving it as it changes (ADR 0122,
     /// step 6): its comments are then not lost with the editor.
     kept: bool,
+    /// Its files pane and its filter (step 6b).
+    files: files::Files,
 }
 
 impl Open {
@@ -250,6 +253,7 @@ impl Editor {
             panes: None,
             spare: Vec::new(),
             kept: false,
+            files: files::Files::default(),
         });
         (id, buffer)
     }
@@ -257,6 +261,7 @@ impl Editor {
     /// Closes the review `id`: its buffer goes, every window that showed it going back to
     /// where it was, and the host is asked to stop its threads.
     pub fn remove_review(&mut self, id: ReviewId) {
+        self.close_review_files(id);
         let Some(index) = self.reviews.open.iter().position(|open| open.id == id) else {
             return;
         };
