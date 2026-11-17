@@ -18,8 +18,10 @@ const MARKDOWN: &str = include_str!("../queries/markdown/highlights.scm");
 const MARKDOWN_INLINE: &str = include_str!("../queries/markdown_inline/highlights.scm");
 const TOML: &str = include_str!("../queries/toml/highlights.scm");
 const GO: &str = include_str!("../queries/go/highlights.scm");
-// JavaScript, TypeScript and TSX share the ecma part, after the more specific ones, as of two
-// patterns on one node the first wins (ADR 0147).
+// JavaScript, TypeScript and TSX share the ecma part, after the more specific ones: of two
+// captures with the same span the first pattern wins, a parent's and its child's too (`paint`).
+// TypeScript's `void` is a predefined type only because the typescript part comes before the
+// ecma part's keyword `"void"` (ADR 0147).
 const JAVASCRIPT: &str = concat!(
     include_str!("../queries/jsx/highlights.scm"),
     include_str!("../queries/ecma/highlights.scm"),

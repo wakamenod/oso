@@ -254,7 +254,7 @@ fn modes_with_a_grammar_can_be_highlighted_unless_secret() {
         buffer.set_mode(mode);
         assert_eq!(buffer.can_highlight(), can, "{mode:?}");
     }
-    for mode in [Mode::Go, Mode::Tsx] {
+    for mode in [Mode::Go, Mode::TypeScript, Mode::Tsx, Mode::JavaScript] {
         let mut buffer = Buffer::from_text("t", "package main\n");
         buffer.set_mode(mode);
         assert!(buffer.treat_as_secret());

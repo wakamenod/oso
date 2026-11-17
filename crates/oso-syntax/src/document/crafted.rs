@@ -64,15 +64,14 @@ const BYTES: usize = 16 << 10;
 /// The worker's slice (ADR 0111).
 const SLICE: Duration = Duration::from_millis(20);
 
-const LANGUAGES: [Language; 7] = [
-    Language::Rust,
-    Language::Markdown,
-    Language::Toml,
-    Language::Go,
-    Language::JavaScript,
-    Language::TypeScript,
-    Language::Tsx,
-];
+/// Every grammar a buffer can be in: all but Markdown's inline one, which parses only text
+/// under its cap inside Markdown's blocks.
+fn languages() -> Vec<Language> {
+    Language::ALL
+        .into_iter()
+        .filter(|language| *language != Language::MarkdownInline)
+        .collect()
+}
 
 /// Highlights `text` to the end in slices of `slice`, on a thread with a stack of [`STACK`], and
 /// checks what came of it.
@@ -196,21 +195,21 @@ proptest! {
     /// Any grammar, any text: it highlights to the end, and the invariants hold (ADR 0111, Q12).
     #[test]
     fn random_text_highlights_on_a_small_stack(
-        language in 0..LANGUAGES.len(),
+        language in prop::sample::select(languages()),
         text in "(\\PC|\n){0,3000}",
     ) {
-        let result = highlight_on_a_small_stack(LANGUAGES[language], text, SLICE);
+        let result = highlight_on_a_small_stack(language, text, SLICE);
         prop_assert!(result.is_ok(), "{:?}", result);
     }
 
     /// Any grammar, any few atoms, repeated past the inline cap.
     #[test]
     fn crafted_nesting_highlights_on_a_small_stack(
-        language in 0..LANGUAGES.len(),
+        language in prop::sample::select(languages()),
         atoms in prop::collection::vec(0..ATOMS.len(), 1..4),
     ) {
         let text = repeated(&atoms, BYTES);
-        let result = highlight_on_a_small_stack(LANGUAGES[language], text, SLICE);
+        let result = highlight_on_a_small_stack(language, text, SLICE);
         prop_assert!(result.is_ok(), "{:?}", result);
     }
 }

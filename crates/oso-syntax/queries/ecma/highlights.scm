@@ -5,9 +5,9 @@
 ; Written from the highlights query of tree-sitter-javascript 0.25.0
 ; (https://github.com/tree-sitter/tree-sitter-javascript), MIT, Copyright (c) 2014 Max
 ; Brunsfeld. Cut to oso's highlight classes: each capture names one, and what has none
-; (variables, parameters, punctuation, operators, a template's `${` and `}`) stays plain. Where
-; two patterns capture the same node, the first one wins; an inner node's capture paints over
-; an outer one's.
+; (variables, parameters, punctuation, operators, a template's `${` and `}`) stays plain. Of two
+; captures with the same span the first pattern wins, a parent's and its child's too; otherwise
+; an inner node's capture paints over an outer one's.
 ;
 ; Predicates: only #eq?, #match? and #any-of? (a unit test checks).
 

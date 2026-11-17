@@ -165,9 +165,14 @@ gains `amended by 0147`.
 - ADR 0111, "A buffer larger than 8 MiB is not parsed" (2 MiB, by its erratum): nor is one
   with a line longer than 16 KiB (Q9). Its "at 2 MiB, about 130 MB at most" holds for source;
   minified text, which held about 200 MB, is no longer parsed.
-- [ADR 0138](0138-language-servers.md), "They have no highlighting until their grammars come":
-  Go has it from step 1, and JavaScript, TypeScript and TSX from step 2. LaTeX and Swift still
-  have none.
+- ADR 0111, Q8: "The queries are oso's own files, in
+  `crates/oso-syntax/queries/<language>/highlights.scm`": a file may also be a part that several
+  languages share (`ecma`, `jsx`, `typescript`), and a language's query is its parts joined at
+  build time, the more specific first.
+- [ADR 0138](0138-language-servers.md), "They have no highlighting until their grammars come",
+  and its As built's "six modes with no highlighting yet" and "They have no grammar, so no
+  highlighting": Go has it from step 1, and JavaScript, TypeScript and TSX from step 2. LaTeX
+  and Swift still have none.
 
 ## Consequences
 
@@ -287,8 +292,10 @@ gains `amended by 0147`.
 - **The queries** are three files, `queries/ecma`, `queries/jsx` and `queries/typescript`,
   joined at build time (`concat!` of `include_str!`): JavaScript's is jsx then ecma,
   TypeScript's typescript then ecma, TSX's typescript, jsx, then ecma. The specific parts go
-  first, as of two patterns on one node the first wins: a component's tag (`<Button>`) is a
-  function, not a capitalised name's type. Beyond the Decision's list:
+  first, as of two captures with the same span the first pattern wins, a node's and its only
+  child's too (`paint`): a component's tag (`<Button>`) is a function, not a capitalised name's
+  type, and TypeScript's `void` a predefined type, not the ecma part's keyword. Beyond the
+  Decision's list:
   - a template string's backticks, text and escapes are `String`, and its `${` and `}` plain,
     so the code inside is drawn as code;
   - a decorator's `@` and name are `Macro`, its arguments as code;
@@ -297,7 +304,10 @@ gains `amended by 0147`.
   - TypeScript's predefined types (`string`, `number`, `void`, ...) are `Type`, an enum's
     members `Constant`, and a signature's name (in an interface, an abstract method, an
     overload) `Function`;
-  - a tag's name in a member expression (`<Menu.Item>`) is a function in both parts.
+  - a tag's name in a member expression (`<Menu.Item>`) is a function in both parts. A name of
+    three parts or more (`<A.B.C>`) and a namespaced one (`<svg:rect>`, `xlink:href`) are not
+    matched by the jsx part: their parts take the ecma part's classes (a capitalised one a
+    type, the others properties) or stay plain.
 - **Fences:** `js`, `javascript`, `jsx`, `mjs` and `cjs`; `ts`, `typescript`, `mts` and `cts`;
   `tsx`.
 - **Measured** with `syntax_perf`, release, on the author's Mac, while other builds ran. Inputs
@@ -306,23 +316,29 @@ gains `amended by 0147`.
 
   | Input, 2 MiB | Parse | Parse and highlight | In 20 ms slices | After one key | Peak memory |
   |---|---|---|---|---|---|
-  | JavaScript | 111 ms | 191 ms | 9, the longest 20.0 ms | 8.0 ms | 148 MB |
-  | TypeScript | 82 ms | 154 ms | 9, the longest 20.0 ms | 5.0 ms | 130 MB |
-  | TSX (the `.tsx` file repeated) | 62 ms | 121 ms | 6, the longest 20.0 ms | 1.1 ms | 97 MB |
-  | TSX (the TypeScript sources) | 103 ms | 186 ms | 9, the longest 20.0 ms | 25 ms | 132 MB |
-  | Minified JavaScript, 1.9 MB | 231 ms | 478 ms | 26, the longest 20.2 ms | 22 ms | 400 MB |
+  | JavaScript | 111 ms | 191 ms | 9, the longest 20.0 ms | 8.0 ms | 76 MB |
+  | TypeScript | 82 ms | 154 ms | 9, the longest 20.0 ms | 5.0 ms | 70 MB |
+  | TSX (the `.tsx` file repeated) | 62 ms | 121 ms | 6, the longest 20.0 ms | 1.1 ms | 53 MB |
+  | TSX (the TypeScript sources) | 103 ms | 186 ms | 9, the longest 20.0 ms | 25 ms | 71 MB |
+  | Minified JavaScript, 1.9 MB | 231 ms | 478 ms | 26, the longest 20.2 ms | 22 ms | 200 MB |
 
-  **A minified file is the costly case:** its tokens are dense, so its tree, and its 600,000
-  runs, take about three times the memory of source at the same size. 2 MiB of it is the most
-  memory one highlighted buffer takes in any grammar; the size limit bounds it.
+  Peak memory as in step 1: one document highlighted to its end, the rope and queries too.
+- **A minified file is the costly case:** its tokens are dense, so its tree, and its 600,000
+  runs, take about 100 times its text, against about 40 for source (Rust's 87 MB, Go's 71 MB).
+  ADR 0111 chose 2 MiB as "about 130 MB at most" a buffer, measured on source; a minified bundle
+  of 2 MiB, an ordinary file, takes about 200 MB, and the tree stays while the buffer is open.
+  Whether to accept that or lower the limit for these grammars (or for very long lines) is
+  left to the author with this step's review.
 - **Compiling the queries** takes 7.6–12 ms for JavaScript's, 13–18 ms for TypeScript's and
   17–21 ms for TSX's (Rust's 6.7–16 ms in the same runs), about a slice. A buffer's own query is
-  compiled before its first parse, as in ADR 0111; a fence's ends its piece unjudged (step 1),
-  so neither is counted against a piece.
+  compiled before its first parse, as in ADR 0111; a fence's ends its piece unjudged, one query
+  a call (step 1), so neither is counted against a piece, and a call runs past its slice by
+  one compile at most.
 - **Tests:** what the three share drawn alike in each (`assert_ecma`), JSX's tags and
   attributes, TypeScript's types, keywords, enums, signatures and decorators, a cast in
   TypeScript, a generic component in TSX; comments as one run each; line breaks plain; a
   parse of each; their fences, and other words (`node`, `react`) staying plain; a seed of each
   in the property tests, with `tsx`, a tag and `${` among the pieces; and the three in the
   random and crafted texts (`${` and a backtick, a tag, an arrow function added to the atoms).
-  oso-syntax's tests take about 4 s now, from about 1 s.
+  The crafted texts take their grammars from `Language::ALL`, and the secret check in
+  `oso-core` covers all four new modes. oso-syntax's tests take about 2–4 s now, from about 1 s.

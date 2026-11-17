@@ -1,5 +1,6 @@
 ; oso's highlight query for what TypeScript and TSX add to JavaScript (ADR 0147), before the
-; ecma part.
+; ecma part: of two captures with the same span the first pattern wins, so a predefined type
+; (`void`, `string`) is a type, not the ecma part's keyword.
 ;
 ; Written from the highlights query of tree-sitter-typescript 0.23.2
 ; (https://github.com/tree-sitter/tree-sitter-typescript), MIT, Copyright (c) 2017 Max

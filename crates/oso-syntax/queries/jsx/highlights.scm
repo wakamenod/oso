@@ -5,7 +5,9 @@
 ; Brunsfeld. A tag's name is a function, as Emacs's tsx-ts-mode draws it with a call's face, an
 ; intrinsic one (`div`) and a component (`Button`, `Menu.Item`) alike; an attribute's name is a
 ; property, which the ecma part gives it; a tag's text and its brackets stay plain. Of two
-; patterns on one node the first wins, so these come before the ecma part's naming conventions.
+; captures with the same span the first pattern wins, so these come before the ecma part's
+; naming conventions. A name of three parts or more (`<A.B.C>`) and a namespaced one
+; (`<svg:rect>`) are not matched here, and take the ecma part's classes.
 ;
 ; Predicates: only #eq?, #match? and #any-of? (a unit test checks).
 
