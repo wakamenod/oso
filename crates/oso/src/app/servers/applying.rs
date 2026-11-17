@@ -34,12 +34,14 @@ use super::super::App;
 use super::super::opened::{found_elsewhere, held_elsewhere};
 use super::actions::{Picked, said_of};
 
-/// Where an edit came from: a picked action, with the command to run once it applied, or the
-/// server's `workspace/applyEdit` of a token, which its outcome answers.
+/// Where an edit came from: a picked action, with the command to run once it applied; the
+/// server's `workspace/applyEdit` of a token, which its outcome answers; or a rename the person
+/// saw in `*lsp-rename*` and said yes to, which asks nothing more (step 14).
 #[derive(Debug)]
 pub(super) enum EditFrom {
     Action(Option<Picked>),
     Server(u64),
+    Rename,
 }
 
 /// An edit that waits for the person's yes, or for the files it opened to load: its server, by
@@ -165,7 +167,7 @@ pub(super) fn judge_loaded(
 }
 
 /// The buffers that visit any of `paths`, in one pass over the buffers.
-fn holders(editor: &Editor, paths: &[&Path]) -> HashMap<PathBuf, BufferId> {
+pub(super) fn holders(editor: &Editor, paths: &[&Path]) -> HashMap<PathBuf, BufferId> {
     let wanted: HashSet<&Path> = paths.iter().copied().collect();
     (editor.buffers())
         .filter_map(|(id, buffer)| {
@@ -255,7 +257,9 @@ impl App {
             .map(|(_, unsent)| unsent.path.as_path())
             .collect();
         let count = parts.len() + files.len();
-        let question = (!unopened.is_empty())
+        // A rename's preview was its question (step 14).
+        let renames = matches!(from, EditFrom::Rename);
+        let question = (!unopened.is_empty() && !renames)
             .then(|| question_of(&server.1, title, (count, &unopened), &root));
         let mut pending = PendingEdit {
             server: server.clone(),
@@ -267,6 +271,9 @@ impl App {
             question: None,
         };
         let Some(question) = question else {
+            if renames {
+                return self.open_and_step(pending);
+            }
             self.servers.pending = Some(pending);
             return self.step_pending_edit();
         };
@@ -294,6 +301,11 @@ impl App {
             return;
         };
         pending.question = None;
+        self.open_and_step(pending);
+    }
+
+    /// Opens the files `pending` needs that no buffer holds, unshown, and steps it.
+    fn open_and_step(&mut self, mut pending: PendingEdit) {
         for (at, unsent) in &mut pending.files {
             if *at != At::ToOpen {
                 continue;
@@ -394,7 +406,12 @@ impl App {
                 } else {
                     "buffers"
                 };
-                let said = format!("{} {edits} in {} {buffers}", applied.edits, applied.buffers);
+                let mut said =
+                    format!("{} {edits} in {} {buffers}", applied.edits, applied.buffers);
+                // As Eglot leaves them (step 14, Q9).
+                if matches!(pending.from, EditFrom::Rename) {
+                    said.push_str(", unsaved; C-x s saves");
+                }
                 self.editor
                     .message_unlogged(said_of(&name, &said, &pending.title));
                 self.edit_answered(&pending.server, &pending.from, Ok(()));

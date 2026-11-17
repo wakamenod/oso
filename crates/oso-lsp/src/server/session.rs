@@ -30,6 +30,7 @@ mod apply;
 mod asks;
 mod edits;
 mod incoming;
+mod rename;
 mod run;
 mod sync;
 
@@ -185,7 +186,9 @@ impl Session {
                         let _ = self.document(None, ask);
                     }
                 }
-                Event::Ask(ask) => self.ask_idle(ask),
+                Event::Ask(ask) | Event::Rename(ask, _) => self.ask_idle(ask),
+                // Nothing waits.
+                Event::Cancel(..) => {}
                 // No run waits for it.
                 Event::AnswerApplyEdit(..) => {}
                 // An earlier run's news.
@@ -320,6 +323,7 @@ impl Session {
             resolves: false,
             last_items: None,
             actions: run::Actions::default(),
+            renaming: crate::protocol::Renaming::default(),
         };
         let root_uri = uri::from_path(&start.root).unwrap_or_default();
         let root_name = start
@@ -452,7 +456,16 @@ impl Session {
                     return self.document(Some(run), ask).err().map(End::Crashed);
                 }
             }
-            Event::Ask(ask) => return self.ask(run, ask).err().map(End::Crashed),
+            Event::Ask(ask) => return self.ask(run, ask, None).err().map(End::Crashed),
+            Event::Rename(ask, name) => {
+                return self.ask(run, ask, Some(name)).err().map(End::Crashed);
+            }
+            Event::Cancel(document, kind) => {
+                return self
+                    .cancel_ask(run, (document, kind))
+                    .err()
+                    .map(End::Crashed);
+            }
             Event::AnswerApplyEdit(token, outcome) => {
                 return (self.answer_apply_edit(run, token, outcome))
                     .err()

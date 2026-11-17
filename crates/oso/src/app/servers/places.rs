@@ -101,7 +101,9 @@ impl App {
                 | AskKind::Hover
                 | AskKind::CodeAction
                 | AskKind::ResolveAction
-                | AskKind::ExecuteCommand => return,
+                | AskKind::ExecuteCommand
+                | AskKind::PrepareRename
+                | AskKind::Rename => return,
             };
             self.editor.message(none);
             return;

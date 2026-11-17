@@ -59,6 +59,7 @@ fn language_id(mode: Mode, path: &std::path::Path) -> &'static str {
         | Mode::GitCommit
         | Mode::GitLog
         | Mode::Conversation
+        | Mode::RenamePreview
         | Mode::GitDiscarded => "plaintext",
     }
 }

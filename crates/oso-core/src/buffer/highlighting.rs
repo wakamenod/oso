@@ -260,6 +260,7 @@ impl Buffer {
             | Mode::GitGraph
             | Mode::GitLog
             | Mode::Conversation
+            | Mode::RenamePreview
             | Mode::GitDiscarded
             | Mode::Sessions => false,
         };

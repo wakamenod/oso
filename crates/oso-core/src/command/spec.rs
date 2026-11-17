@@ -180,6 +180,11 @@ pub enum ArgSpec {
     /// and no history (ADR 0138, step 13): never from keys or by name. The command takes it with
     /// [`Editor::take_code_action_hit`](crate::editor::Editor::take_code_action_hit).
     CodeAction,
+    /// The new name of a rename, read in a prompt that says what is renamed, which the host
+    /// opens once the server checked the place, with the old name on `M-n`, and kept in the
+    /// history named `history` (ADR 0138, step 14): never from keys or by name. The command
+    /// reads it with [`Ctx::answer`](super::Ctx::answer).
+    NewName { history: &'static str },
     /// The key that ran it, read with [`Ctx::input`](super::Ctx::input) or [`Ctx::key_char`](super::Ctx::key_char), and a numeric
     /// prefix argument as with `Count`. `M-x` does not list it, as no key runs it there
     /// (ADR 0076).

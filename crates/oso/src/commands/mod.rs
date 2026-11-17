@@ -35,6 +35,7 @@ mod popup;
 mod prefix;
 mod projects;
 mod recovery;
+mod rename;
 mod replace;
 mod restart;
 pub(crate) mod review;
@@ -109,6 +110,7 @@ const TABLES: &[&[Command]] = &[
     prefix::COMMANDS,
     projects::COMMANDS,
     recovery::COMMANDS,
+    rename::COMMANDS,
     replace::COMMANDS,
     restart::COMMANDS,
     review::COMMANDS,
@@ -516,6 +518,10 @@ mod tests {
         "lsp-describe-scroll-up",
         "lsp-diagnostics",
         "lsp-go-to-xref",
+        "lsp-rename",
+        "lsp-rename-apply",
+        "lsp-rename-cancel",
+        "lsp-rename-to",
         "lsp-restart",
         "lsp-shutdown",
         "lsp-start",

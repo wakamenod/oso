@@ -92,7 +92,9 @@ impl App {
             | AskKind::Hover
             | AskKind::CodeAction
             | AskKind::ResolveAction
-            | AskKind::ExecuteCommand => AskContext::None,
+            | AskKind::ExecuteCommand
+            | AskKind::PrepareRename
+            | AskKind::Rename => AskContext::None,
         };
         self.send_ask(index, (at, kind, context), who);
     }
@@ -104,6 +106,17 @@ impl App {
         (at, kind, context): (AskAt, AskKind, AskContext),
         who: Who,
     ) {
+        self.send_ask_named(index, (at, kind, context), who, None);
+    }
+
+    /// [`App::send_ask`], with a rename's new name (step 14).
+    pub(super) fn send_ask_named(
+        &mut self,
+        index: usize,
+        (at, kind, context): (AskAt, AskKind, AskContext),
+        who: Who,
+        name: Option<Box<str>>,
+    ) {
         // A newer ask for places stops the list that waits for its rows (step 8b).
         if matches!(kind, AskKind::Definition | AskKind::References)
             && let Some(old) = self.servers.xrefs.stop_waiting()
@@ -113,14 +126,18 @@ impl App {
         self.servers.serial += 1;
         let serial = self.servers.serial;
         let running = &self.servers.running[index];
-        running.server.ask(Ask {
+        let ask = Ask {
             serial,
             document: at.buffer.get(),
             kind,
             revision: at.revision,
             offset: at.offset,
             context,
-        });
+        };
+        match name {
+            Some(name) => running.server.rename(ask, name),
+            None => running.server.ask(ask),
+        }
         let asker = Asker {
             serial,
             window: self.editor.window().id(),
@@ -205,8 +222,24 @@ impl App {
             }
             // Its edits came while it waited (step 13b).
             Ok(Answered::Executed) => return,
+            Ok(Answered::Prepared(prepared)) => {
+                self.rename_checked(index, taken, prepared);
+                self.step_rename();
+                return;
+            }
+            Ok(Answered::Renamed(edit)) => {
+                self.renamed(index, taken, edit);
+                self.step_rename();
+                return;
+            }
             // A kind a later step asks for.
             Ok(_) => return,
+            // A rename's failure ends it, wherever the person is now (step 14).
+            Err(why) if matches!(kind, AskKind::PrepareRename | AskKind::Rename) => {
+                self.rename_failed(index, taken, kind, &why);
+                self.step_rename();
+                return;
+            }
             Err(why) => {
                 if let Some((asked, asker)) = taken
                     && !asker.quiet()

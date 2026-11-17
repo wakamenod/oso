@@ -16,6 +16,7 @@ use crate::minibuffer::{
 };
 use crate::window::{ViewSize, Window};
 
+mod default;
 mod third;
 
 /// What one `C-g` did.
@@ -102,6 +103,7 @@ impl Editor {
             from_socket: false,
             walk: None,
             typed: None,
+            default: None,
             from_agent,
             completion: None,
             regexp: false,
@@ -382,6 +384,9 @@ impl Editor {
     /// [`PromptError::NoHistory`] with no history to walk, and [`PromptError::Invalid`] at
     /// its end. Nothing changes.
     pub fn walk_history(&mut self, older: bool) -> Result<(), PromptError> {
+        if let Some(walked) = self.walk_default(older) {
+            return walked;
+        }
         let Some(prompt) = self.prompts.last() else {
             return Err(PromptError::NoPrompt);
         };

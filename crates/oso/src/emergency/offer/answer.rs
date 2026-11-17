@@ -123,6 +123,7 @@ impl Offer {
             | Mode::GitCommit
             | Mode::GitLog
             | Mode::Conversation
+            | Mode::RenamePreview
             | Mode::GitDiscarded
             | Mode::Sessions => None,
             Mode::CopyList => {

@@ -127,6 +127,8 @@ pub enum UserEvent {
     DiagnosticsListed(oso_core::editor::DiagnosticRows),
     /// The rows of a list of a server's places were built (ADR 0138, step 8b).
     XrefsListed(u64, oso_core::editor::XrefRows),
+    /// The preview of a rename's edits was built, of this generation (ADR 0138, step 14).
+    RenamePreviewed(u64, String),
     /// The record of trusted projects was read, or written and read back (ADR 0114).
     Trust,
     /// A control socket request, in dev builds.

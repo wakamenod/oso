@@ -52,6 +52,11 @@ impl Dispatcher {
                 editor.message("A server's code actions are listed by C-c C-r");
                 (redraw(), Ok(()))
             }
+            // Its prompt opens only once the server checked the place (step 14).
+            ArgSpec::NewName { .. } => {
+                editor.message("A rename's new name is read by lsp-rename");
+                (redraw(), Ok(()))
+            }
             ArgSpec::File { prompt, history } => {
                 self.read_file(editor, id, prefix, prompt, history, false)
             }
@@ -153,6 +158,36 @@ impl Dispatcher {
         }
         match editor.open_code_actions(items) {
             Ok(prompt) => {
+                self.reading.push(Reading::run(id, None, prompt));
+                Some(prompt)
+            }
+            Err(error) => {
+                editor.prompt_says(error.to_string());
+                None
+            }
+        }
+    }
+
+    /// Opens the prompt that reads a rename's new name for `lsp-rename-to`, which `RET` runs
+    /// (ADR 0138, step 14): the host's, once the server checked the place. It says `label`, is
+    /// kept in the history `lsp-rename`, and gives `old` on `M-n` (Q5). Nothing opens while a
+    /// prompt is open; the prompt, if it opened.
+    pub fn read_new_name(
+        &mut self,
+        editor: &mut Editor,
+        label: &str,
+        old: &str,
+    ) -> Option<oso_core::minibuffer::PromptId> {
+        let id = self.registry.lookup("lsp-rename-to")?;
+        if editor.prompt().is_some() {
+            return None;
+        }
+        let kind = oso_core::minibuffer::Kind::Text {
+            history: Some("lsp-rename"),
+        };
+        match editor.open_prompt(label, kind) {
+            Ok(prompt) => {
+                editor.offer_prompt_default(prompt, old);
                 self.reading.push(Reading::run(id, None, prompt));
                 Some(prompt)
             }
