@@ -148,6 +148,7 @@ impl App {
         self.put_in_review_texts();
         self.sync_review_layouts();
         self.sync_review_comments();
+        self.sync_review_message();
     }
 
     fn review_request(&mut self, request: ReviewRequest) {
@@ -161,6 +162,9 @@ impl App {
             ReviewRequest::Refresh(id) => self.refresh_review(id),
             ReviewRequest::Close(id) => self.close_review(id),
             ReviewRequest::Redraw { review, path } => self.redraw_comments(review, &path),
+            ReviewRequest::Send(id) => self.send_review(id),
+            ReviewRequest::MessageSend { buffer, to } => self.send_review_message(buffer, to),
+            ReviewRequest::MessageDrop { buffer } => self.drop_review_message(buffer),
             // Visits come with a later step of ADR 0122.
             ReviewRequest::Visit { .. } => {
                 log::debug!("a review request this build does not carry out yet");
@@ -576,6 +580,7 @@ mod comments;
 mod judge;
 mod layout;
 mod menu;
+mod send;
 mod state;
 #[cfg(test)]
 #[path = "reviews_tests.rs"]

@@ -113,6 +113,7 @@ const TABLES: &[&[Command]] = &[
     restart::COMMANDS,
     review::COMMANDS,
     review::COMMENT_COMMANDS,
+    review::SEND_COMMANDS,
     save::COMMANDS,
     scroll::COMMANDS,
     session::COMMANDS,
@@ -305,6 +306,11 @@ mod tests {
         "review-keep-draft",
         "review-remove-comment",
         "review-resolve",
+        // What goes to an agent session is the person's typing, and its message theirs to
+        // change (ADR 0122, step 12).
+        "review-message-drop",
+        "review-message-send",
+        "review-send",
         // Folding the agent's comments hides what it wrote from the person, who alone chooses
         // how much of it to see.
         "review-fold-agents",

@@ -135,6 +135,9 @@ pub enum Face {
     ReviewCommentAgent,
     /// What says a comment is outdated, dim.
     ReviewOutdated,
+    /// A comment of the person's sent to the agent: its bar, label and text, dim on the
+    /// comments' band (ADR 0122, step 12).
+    ReviewSent,
     /// The band behind a pane's filler rows, which hold nothing and line it up with the other
     /// pane (ADR 0122, step 11).
     DiffFiller,

@@ -14,6 +14,7 @@
 //!   in per depth, at most three deep. Threads are walked with a stack of their own, so a long
 //!   chain of replies costs no call stack.
 //! - Past the review's text limit a card shows its label alone.
+//! - A comment sent and not changed since is drawn dimmed, its bar, label and text alike.
 //! - Nothing here logs a comment's text.
 
 use std::collections::HashMap;
@@ -268,10 +269,7 @@ impl<'a> Plan<'a> {
     /// Writes one card at `depth`: its label, then its text, unless the section is past its
     /// room.
     fn card(&self, writer: &mut Writer, comment: &Comment, depth: usize, label: &Label) {
-        let face = Some(match comment.author() {
-            Author::Person => Highlight::CommentPerson,
-            Author::Agent => Highlight::CommentAgent,
-        });
+        let (face, text_face) = faces(comment);
         let short = writer.len() >= self.room;
         writer.cut |= short;
         let indent = "  ".repeat(depth);
@@ -328,7 +326,7 @@ impl<'a> Plan<'a> {
                     (MARGIN, None),
                     (BAR.as_bytes(), face),
                     (indent.as_bytes(), None),
-                    (line.as_bytes(), None),
+                    (line.as_bytes(), text_face),
                 ],
             );
         };
@@ -339,6 +337,20 @@ impl<'a> Plan<'a> {
             row(MORE);
         }
     }
+}
+
+/// The faces of a card's bar and label, and of its text: its author's, and plain text, or,
+/// once sent and not changed since, all dimmed (ADR 0122, step 12). The one place a card's
+/// faces are picked, so every view of a card dims alike.
+fn faces(comment: &Comment) -> (Option<Highlight>, Option<Highlight>) {
+    if comment.is_sent() {
+        return (Some(Highlight::Sent), Some(Highlight::Sent));
+    }
+    let face = match comment.author() {
+        Author::Person => Highlight::CommentPerson,
+        Author::Agent => Highlight::CommentAgent,
+    };
+    (Some(face), None)
 }
 
 /// What a card's label says besides its author and number.

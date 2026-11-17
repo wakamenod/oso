@@ -120,7 +120,7 @@ impl SideLines {
 /// A hunk's header in both panes, then its removed and added lines beside each other, each
 /// line's cards under it in its own pane, and the hunk's cards in the new pane.
 fn hunk(old: &mut Writer, new: &mut Writer, plan: &mut Plan, index: usize, hunk: &Hunk) {
-    let header = section::hunk_header(hunk);
+    let header = crate::review::hunk_header(hunk);
     for writer in [&mut *old, &mut *new] {
         writer.line(
             RowKind::Hunk { hunk: index },

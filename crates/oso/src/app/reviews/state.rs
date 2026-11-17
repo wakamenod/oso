@@ -1,6 +1,7 @@
 //! What the app keeps of its reviews (ADR 0122): each open review's threads and the text that
 //! waits to go in, each project's session baseline and the threads taking one, the menu's
-//! counting threads and the root they run in, and the choices over them that need no window.
+//! counting threads and the root they run in, the message waiting to be sent and the session
+//! picked for each review (step 12), and the choices over them that need no window.
 //!
 //! Must not depend on: the editor's state beyond what a caller hands in, key presses or how a
 //! frame is drawn. Nothing here runs git: it starts, revokes and drops the threads that do.
@@ -112,6 +113,8 @@ pub(in crate::app) struct Reviews {
     /// The selected window, its first row's offset, its size and its buffer's revision when
     /// reading marks were last looked for: the same view of the same text shows nothing new.
     pub(super) looked: Option<(WindowId, usize, ViewSize, u64)>,
+    /// The review message waiting to be sent, and the session picked for each review (step 12).
+    pub(super) sending: super::send::Sending,
 }
 
 impl Reviews {
