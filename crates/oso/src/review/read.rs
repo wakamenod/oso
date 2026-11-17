@@ -91,6 +91,20 @@ impl Kept {
         }
     }
 
+    /// Whether a work tree file kept by its stamp has another now, or is no longer a file
+    /// there: a look at each, opening it as a reading does and reading nothing (step 4).
+    pub(super) fn stamps_moved(&self, top: &Directory) -> bool {
+        self.files
+            .iter()
+            .any(|(path, (signature, _))| match &signature.new {
+                NewSign::Stamp(stamp) => match side::find(top, path) {
+                    Ok(Found::File(_, now)) => now != *stamp,
+                    _ => true,
+                },
+                _ => false,
+            })
+    }
+
     #[cfg(test)]
     pub(super) fn held(&self) -> usize {
         self.held

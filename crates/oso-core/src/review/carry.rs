@@ -27,7 +27,7 @@ pub struct Carry {
     pub(super) path: Box<[u8]>,
     pub(super) to: Arc<Shape>,
     pub(super) items: Vec<Item>,
-    /// The current reading, its hunks' hashes and their marks, when any hunk is marked.
+    /// The current reading, its hunks' hashes and their marks, if the file has one.
     pub(super) marked: Option<MarkedReading>,
     pub(super) hasher: RandomState,
     pub(super) readings: u64,
@@ -52,6 +52,9 @@ pub struct Carried {
     pub(super) hashes: Arc<[u64]>,
     pub(super) marks: Vec<Mark>,
     pub(super) dropped: usize,
+    /// Where each line of the current reading is in the new one, if the file had one; boxed,
+    /// as it is large and a carry goes through queues.
+    pub(super) moved: Option<Box<LineMap>>,
     pub(super) readings: u64,
     pub(super) added: u64,
     pub(super) remarked: u64,
@@ -90,11 +93,31 @@ pub struct Applied {
     pub marks_changed: bool,
 }
 
+/// How far from a line that went its nearest line that stayed is looked for, each way.
+const NEAREST: u32 = 10_000;
+
 impl Carried {
     /// Where each comment of the snapshot goes in the new reading, by id; `None` for one that
     /// goes outdated. A comment added after the snapshot is not here.
     pub fn placed(&self) -> &[(CommentId, Option<Anchor>)] {
         &self.placed
+    }
+
+    /// The number line `number` of `side` of the reading before has in the new one, as a
+    /// cursor on it keeps its place (ADR 0122, step 4); for a line that went, that of the
+    /// nearest line that stayed, the upper one when both are as near. `None` when the file had
+    /// no reading before, or nothing near stayed.
+    pub fn line_now(&self, side: Side, number: u32) -> Option<u32> {
+        let map = self.moved.as_ref()?;
+        if let Some(now) = map.carry(side, number) {
+            return Some(now);
+        }
+        (1..=NEAREST).find_map(|away| {
+            let above = number.checked_sub(away).filter(|line| *line >= 1);
+            above
+                .and_then(|line| map.carry(side, line))
+                .or_else(|| map.carry(side, number.checked_add(away)?))
+        })
     }
 }
 
@@ -136,6 +159,20 @@ impl Carry {
             });
             placed.push((item.id, at));
         }
+        // The map from the current reading, for the places windows keep; the same map a
+        // comment in it was placed by.
+        let moved = self.marked.as_ref().map(|(from, ..)| {
+            maps.remove(&Arc::as_ptr(from)).unwrap_or_else(|| {
+                let hunks = base_pair(from, to).and_then(|(a, b)| {
+                    bases
+                        .entry((a.into(), b.into()))
+                        .or_insert_with(|| base(a, b))
+                        .as_deref()
+                });
+                LineMap::onto(from, to, &to_spans, hunks, &mut lcs)
+            })
+        });
+        let moved = moved.map(Box::new);
         let hashes: Arc<[u64]> = to
             .hunks()
             .iter()
@@ -159,6 +196,7 @@ impl Carry {
             hashes,
             marks,
             dropped,
+            moved,
             readings: self.readings,
             added: self.added,
             remarked: self.remarked,

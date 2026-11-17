@@ -7,7 +7,6 @@
 //! file, diffs or builds a review's text: a text comes whole from its view thread, goes in at
 //! O(1), and the text it replaces is freed off the UI thread. Nothing here logs a file's text.
 
-use std::collections::VecDeque;
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -149,6 +148,7 @@ impl App {
         // A file a reject opened may have loaded.
         self.go_on_reverting();
         self.sync_review_layouts();
+        self.sync_review_watches();
         self.sync_review_comments();
         self.sync_review_message();
     }
@@ -245,22 +245,8 @@ impl App {
             }
         };
         self.editor.show_in(window, buffer);
-        self.reviews.open.push(Running {
-            id,
-            project,
-            scope: scope.clone(),
-            root,
-            serial: 0,
-            reviewer: None,
-            view,
-            texts: VecDeque::new(),
-            revoked: false,
-            carrying: VecDeque::new(),
-            layout: layout::Layout::default(),
-            decisions: decide::Decisions::default(),
-            folded: false,
-            shown_folded: false,
-        });
+        let running = Running::new(id, project, scope.clone(), root, view);
+        self.reviews.open.push(running);
         let index = self.reviews.open.len() - 1;
         self.start_reviewer(index);
         self.ask_review(index, Request::Open(scope));
@@ -333,6 +319,7 @@ impl App {
         let mut first = std::mem::take(&mut self.reviews.shown);
         self.editor.shown_review_files(id, &mut first);
         self.ask_review(index, Request::Refresh { first });
+        self.review_refreshing(index);
     }
 
     /// Stops a closed review's threads, and frees the texts it left waiting.
@@ -413,9 +400,15 @@ impl App {
             }
             Report::File { reading, .. } => return self.tell_file(index, reading),
             Report::Carried { carried, cut_short } => {
-                return self.review_carried(index, carried, cut_short);
+                return self.review_carried(index, *carried, cut_short);
             }
-            Report::Read { .. } => Tell::Read,
+            Report::Read { stopped, .. } => {
+                if !stopped {
+                    self.review_read(index);
+                }
+                Tell::Read
+            }
+            Report::Stale => return self.mark_review_stale(index),
             Report::Staged { ticket, staged } => return self.review_staged(index, ticket, staged),
             Report::Failed { asked, why } => {
                 if asked == Asked::Carry {
@@ -540,8 +533,9 @@ impl App {
             .editor
             .buffer(buffer)
             .map(|shown| (shown.text().clone(), shown.display()));
+        let moved = |path: &[u8], side, number| watch::line_now(&carried, path, side, number);
         let left = match text {
-            Some(text) => self.editor.set_review_text(id, text, rows, highlights),
+            Some(text) => (self.editor).set_review_text(id, text, rows, highlights, &moved),
             None => self
                 .editor
                 .set_review_paint(id, rows, highlights)
@@ -552,7 +546,7 @@ impl App {
         };
         self.freer.free((before, left));
         if let Some(panes) = panes {
-            self.put_in_review_panes(index, panes);
+            self.put_in_review_panes(index, panes, &moved);
         }
         // The view builds the next text only now.
         self.reviews.open[index].view.taken();
@@ -561,6 +555,9 @@ impl App {
                 break;
             };
             let applied = model.apply(carried);
+            // The readings it let go are freed off the UI thread (step 4).
+            let released = model.take_released();
+            self.freer.free(released);
             self.carry_applied(index, reading, &applied);
         }
         self.editor.set_review_reading(id, reading);
@@ -593,3 +590,4 @@ mod state;
 #[cfg(test)]
 #[path = "reviews_tests.rs"]
 mod tests;
+mod watch;

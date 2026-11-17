@@ -40,6 +40,8 @@ pub(super) struct Running {
     pub(super) carrying: VecDeque<Arc<Reading>>,
     /// How it shows: unified or as its two panes (ADR 0122, step 11).
     pub(super) layout: super::layout::Layout,
+    /// What marks it stale, and its refresh once the marks settle (step 4).
+    pub(super) watch: super::watch::Watch,
     /// Its decisions, for undo, and what waits for git or a save (step 5).
     pub(super) decisions: super::decide::Decisions,
     /// Whether the view was last told that agent cards fold.
@@ -62,6 +64,33 @@ pub(super) enum Reopen {
 }
 
 impl Running {
+    /// A review of `scope` in `project`, opened now, its thread not started yet.
+    pub(super) fn new(
+        id: ReviewId,
+        project: ProjectId,
+        scope: Scope,
+        root: TrustedRoot,
+        view: View,
+    ) -> Running {
+        Running {
+            id,
+            project,
+            scope,
+            root,
+            serial: 0,
+            reviewer: None,
+            view,
+            texts: VecDeque::new(),
+            revoked: false,
+            carrying: VecDeque::new(),
+            layout: super::layout::Layout::default(),
+            watch: super::watch::Watch::default(),
+            decisions: super::decide::Decisions::default(),
+            folded: false,
+            shown_folded: false,
+        }
+    }
+
     /// What opening `scope` again does to this review, which reviews the same thing.
     pub(super) fn reopen(&self, scope: &Scope) -> Reopen {
         if self.revoked {

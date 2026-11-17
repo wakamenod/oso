@@ -41,6 +41,7 @@ impl App {
         self.look_at_configuration_again();
         self.list_adoptable_on_focus();
         self.look_at_binary();
+        self.reviews_look_now();
     }
 
     /// What follows every event, before the next is read: the input method's part, then the
@@ -177,6 +178,7 @@ impl App {
         self.xrefs_if_due();
         self.completion_if_due();
         self.review_layout_due();
+        self.review_watch_due();
         self.quit_if_idle(event_loop);
         // Last, once every deadline is known.
         self.set_wake(event_loop);
@@ -284,6 +286,7 @@ impl App {
             self.hidden_terminals_deadline(),
             self.sessions_deadline(),
             self.review_layout_deadline(),
+            self.review_watch_deadline(),
             self.handover_deadline(),
             self.idle_quit.next_wake(),
         ];

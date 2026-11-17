@@ -47,7 +47,7 @@ use oso_core::syntax::Highlights;
 
 use super::{Entry, Reading};
 use cards::Cards;
-pub(crate) use cards::Marks;
+pub(crate) use cards::{HunkMark, Marks};
 use file::{File, Gone, Laid, section_in};
 pub(crate) use panes::PaneText;
 
@@ -131,7 +131,8 @@ type SendText = Box<dyn FnMut(Text) -> bool + Send>;
 
 /// What the thread takes: what it is told, or that the UI took its last text.
 enum Message {
-    Tell(Tell),
+    /// Boxed, as a comment's snapshot makes it large.
+    Tell(Box<Tell>),
     Taken,
 }
 
@@ -159,7 +160,7 @@ impl View {
 
     /// Tells the thread `what`; `false` if it has ended.
     pub(crate) fn tell(&self, what: Tell) -> bool {
-        self.tell.send(Message::Tell(what)).is_ok()
+        self.tell.send(Message::Tell(Box::new(what))).is_ok()
     }
 
     /// Says the UI put in the last text, so that the thread may build the next.
@@ -512,7 +513,7 @@ fn serve(told: &Receiver<Message>, mut send: SendText, title: String, live: &Ato
     while let Ok(first) = told.recv() {
         let mut take = |message| match message {
             Message::Tell(tell) => {
-                state.take(tell);
+                state.take(*tell);
                 told_since = true;
             }
             Message::Taken => in_flight = false,

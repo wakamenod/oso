@@ -22,7 +22,7 @@ use oso_core::editor::ReviewId;
 use oso_core::review::{Applied, Author, Comment, CommentId, Review, RowKind, Rows};
 
 use super::super::App;
-use crate::review::view::{Carrying, Marks, Tell};
+use crate::review::view::{Carrying, HunkMark, Marks, Tell};
 use crate::review::{Content, Entry, Reading, Request};
 
 impl App {
@@ -176,7 +176,11 @@ impl App {
         let hunks = reading.as_ref().map_or(0, |shape| shape.hunks().len());
         let marks = Marks {
             hunks: (0..hunks)
-                .map(|at| (model.decision(path, at), model.viewed(path, at)))
+                .map(|at| HunkMark {
+                    decision: model.decision(path, at),
+                    viewed: model.viewed(path, at),
+                    changed: model.changed(path, at),
+                })
                 .collect(),
             dropped: model.dropped(path),
         };
@@ -254,6 +258,8 @@ impl App {
         if !std::mem::take(&mut self.reviews.person_acted) || self.editor.prompt().is_some() {
             return;
         }
+        // The hunk at the person's cursor is no longer new to them (step 4).
+        self.see_hunk_at_cursor();
         let (window, shown) = self.editor.tiled();
         let looked = (
             window.id(),

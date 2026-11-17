@@ -468,7 +468,7 @@ fn comments_are_carried_across_a_moved_old_side() {
     let Some(Report::Carried { carried, .. }) = carried.other.into_iter().next() else {
         panic!("not carried");
     };
-    assert_eq!(review.apply(carried).placed, 1);
+    assert_eq!(review.apply(*carried).placed, 1);
     let comment = review.comment(id).unwrap();
     assert_eq!(
         comment.anchor(),

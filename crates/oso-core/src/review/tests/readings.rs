@@ -247,3 +247,52 @@ fn a_file_keeps_at_most_its_limit_of_earlier_readings() {
     assert!(back[..let_go].iter().all(|&back| !back), "{back:?}");
     assert!(back[let_go..].iter().all(|&back| back), "{back:?}");
 }
+
+/// The old side `a` to `e`, and two readings of its new side: `c` made `C`, then also `top`
+/// put in above and `e` made `E`.
+fn readings_of_a_file() -> (Shape, Shape) {
+    let old = ["a", "b", "c", "d", "e"];
+    let before = diff(&old, &["a", "b", "C", "d", "e"], blob("1"));
+    let after = diff(&old, &["top", "a", "b", "C", "d", "E"], blob("1"));
+    (before, after)
+}
+
+#[test]
+fn a_line_is_followed_to_the_new_reading_or_to_the_nearest_that_stayed() {
+    let (before, after) = readings_of_a_file();
+    let review = review_of(before);
+    let carried = review
+        .carry(FILE, Arc::new(after))
+        .run(|_, _| None, |a: &[&[u8]], b: &[&[u8]]| lcs(a, b));
+    // `d` moved one down; `C` stayed in its hunk, one down too.
+    assert_eq!(carried.line_now(Side::New, 4), Some(5));
+    assert_eq!(carried.line_now(Side::New, 3), Some(4));
+    // `e` went: the nearest line that stayed is `d`, above it.
+    assert_eq!(carried.line_now(Side::New, 5), Some(5));
+    // A reading with none before follows nothing.
+    let first = Review::new()
+        .carry(FILE, Arc::new(readings_of_a_file().0))
+        .run(|_, _| None, |a: &[&[u8]], b: &[&[u8]]| lcs(a, b));
+    assert_eq!(first.line_now(Side::New, 1), None);
+}
+
+#[test]
+fn hunks_new_since_the_reading_before_are_changed_until_seen() {
+    let (before, after) = readings_of_a_file();
+    let mut review = review_of(before);
+    assert!(!review.changed(FILE, 0), "a first reading is not changed");
+    read(&mut review, after);
+    let changed: Vec<bool> = (0..3).map(|at| review.changed(FILE, at)).collect();
+    assert_eq!(changed, [true, false, true], "top and E are new, C is not");
+    assert!(review.seen(FILE, 0));
+    assert!(!review.changed(FILE, 0));
+    assert!(!review.seen(FILE, 0), "seen once");
+    // A changed hunk that goes is no decision dropped.
+    let (_, after) = readings_of_a_file();
+    let applied = read(&mut review, diff(&["a"], &["a"], blob("1")));
+    assert_eq!(applied.dropped, 0);
+    drop(after);
+    // What each reading let go is given back once.
+    assert!(review.take_released().len() >= 2);
+    assert!(review.take_released().is_empty());
+}

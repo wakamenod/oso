@@ -1064,6 +1064,53 @@ on 2026-11-14, through the coordinator, and answered its questions Q-A to Q-F (a
 - A withheld file has no line rows, so it takes no comment, and keeps its note (Q13); showing
   it on `RET` comes with part three.
 
+### Step 4: refresh while the agent edits
+
+The author approved the plan and answered its questions (a) on 2026-11-17, through the
+coordinator: looks on the review's thread (Q-A), a turn's end marking the review stale (Q-B), the
+nearest line that stayed, the upper one on a tie (Q-C), ` · changed` in `review.decided`'s face
+(Q-D), and no looks while hidden (Q-E). What it built:
+
+- **Public items:** `Carried::line_now(side, number)`, where a line of the reading before is in
+  the new one, or the nearest line of it that stayed, the upper one on a tie (step 1's item 6);
+  `Editor::set_review_text` and `set_review_panes` take `editor::Moved`, the host's map of where
+  each line of a side of a file went; `Review::take_released()` (step 1's item 15);
+  `Review::changed(path, hunk)` and `Review::seen(path, hunk)`.
+- **What marks a review stale:**
+  - a look, `Request::Look`, on the review's own thread, waiting aside as carries and stages
+    do, looks waiting being one and answered when nothing else waits, so it never stops a
+    refresh. It opens each reviewed work tree file as a reading does, reading nothing, and
+    compares its stamp; every second look it lists the scope again and compares the listing,
+    for files that came or went, the index or `HEAD`. The host asks one each second while a
+    window shows the review, and at once when oso gains the focus;
+  - a save in oso of a file under the review's root;
+  - an agent session under the review's root ending a turn, from the session tracker (ADR 0121).
+- **Debounced:** a refresh starts 200 ms after the last mark, or 1 s after the first. One runs at
+  a time: marks during it make one more once it has read every file. A review no window shows
+  makes no looks; a mark waits until a window shows it again, and then refreshes it.
+- **Places by anchor:** before a new text goes in, each window's cursors and first row are kept as
+  places, a line of a side or the row of a header, a note or a card, by step 11's
+  `Rows::place`; after, a line goes where the carry of its file moves it, to the nearest line
+  that stayed for one that went, and a row is found again, else its file's header. A cursor
+  keeps its column; its mark stays where the text change carried it. A file the text holds with
+  no carry did not change, and its lines stay. The panes keep theirs the same way.
+- **The carry** now always snapshots the file's current reading, for the map from it and to tell
+  which hunks of the new reading are new: a hunk of the new reading with no hunk of its text in
+  the one before, the k-th of one text to the k-th, is marked changed. A first reading marks
+  none.
+- **` · changed`** shows on such a hunk's header, after its decision and viewed words, until the
+  person's own cursor is in the hunk once, as only the person's input marks a comment read. It is
+  no mark of theirs: one that goes is no decision dropped, and the progress does not count it.
+- **Readings let go** by the model are given back after each carry is applied, and freed off the
+  UI thread.
+- **Not built here:** the files pane keeping its selection and filter is step 6's, with the pane.
+- **Tests:** a line followed to the new reading and to the nearest that stayed; hunks new since
+  the reading before marked changed until seen, and none dropped with them; what the model lets
+  go given back once; a cursor kept on its line across a new text by the host's map; looks
+  against a temporary repository, nothing said while nothing moved, an edit found at once, a new
+  file by the listing; and an end-to-end flow that edits a file under an open review, presses no
+  key, and finds the new hunk said changed and the cursor still on its line.
+
 ### Step 5: decisions
 
 The author approved the plan's public items and answered its questions (a) on 2026-11-17,
