@@ -320,15 +320,15 @@ gains `amended by 0147`.
   | TypeScript | 82 ms | 154 ms | 9, the longest 20.0 ms | 5.0 ms | 70 MB |
   | TSX (the `.tsx` file repeated) | 62 ms | 121 ms | 6, the longest 20.0 ms | 1.1 ms | 53 MB |
   | TSX (the TypeScript sources) | 103 ms | 186 ms | 9, the longest 20.0 ms | 25 ms | 71 MB |
-  | Minified JavaScript, 1.9 MB | 231 ms | 478 ms | 26, the longest 20.2 ms | 22 ms | 200 MB |
+  | Minified JavaScript, 1.9 MB, before Q9 | 231 ms | 478 ms | 26, the longest 20.2 ms | 22 ms | 200 MB |
 
   Peak memory as in step 1: one document highlighted to its end, the rope and queries too.
 - **A minified file is the costly case:** its tokens are dense, so its tree, and its 600,000
   runs, take about 100 times its text, against about 40 for source (Rust's 87 MB, Go's 71 MB).
   ADR 0111 chose 2 MiB as "about 130 MB at most" a buffer, measured on source; a minified bundle
-  of 2 MiB, an ordinary file, takes about 200 MB, and the tree stays while the buffer is open.
-  Whether to accept that or lower the limit for these grammars (or for very long lines) is
-  left to the author with this step's review.
+  of 2 MiB, an ordinary file, took about 200 MB, and the tree stays while the buffer is open.
+  This step's review raised it, and the author chose Q9: such a file, whose lines run to
+  hundreds of KB, is now not parsed and stays plain.
 - **Compiling the queries** takes 7.6–12 ms for JavaScript's, 13–18 ms for TypeScript's and
   17–21 ms for TSX's (Rust's 6.7–16 ms in the same runs), about a slice. A buffer's own query is
   compiled before its first parse, as in ADR 0111; a fence's ends its piece unjudged, one query
