@@ -1478,6 +1478,11 @@ fn a_description_is_asked_at_its_position_and_its_text_is_never_logged() {
 /// The fake server's script for code actions over the document at `here`: a report with a
 /// diagnostic of a numeric code and `data`, an answer of each kind of action, and a resolve.
 fn code_action_script(here: &str) -> Value {
+    // A file no document open with the server holds, as a URI of this system names one: on
+    // Windows a `file:` URI has a drive.
+    let elsewhere =
+        oso_lsp::uri::from_path(&std::env::temp_dir().join("oso-elsewhere").join("b.rs"))
+            .expect("an absolute path");
     let range = |line: u32, start: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}});
     json!({
         "rules": [
@@ -1502,7 +1507,7 @@ fn code_action_script(here: &str) -> Value {
                 ]}},
                 {"title": "Rename to y", "kind": "refactor", "data": {"id": 1}},
                 {"title": "Run it", "command": "fake.run"},
-                {"title": "Elsewhere", "edit": {"changes": {"file:///w/other/b.rs": [{"range": range(0, 0, 0), "newText": "x"}]}}},
+                {"title": "Elsewhere", "edit": {"changes": {elsewhere: [{"range": range(0, 0, 0), "newText": "x"}]}}},
                 {"title": "Old", "edit": {"documentChanges": [
                     {"textDocument": {"uri": here, "version": 0}, "edits": [{"range": range(0, 0, 0), "newText": "x"}]},
                 ]}},
