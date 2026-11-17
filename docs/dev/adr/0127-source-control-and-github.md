@@ -1349,6 +1349,35 @@ minute, never on a timer; (4) `w` through `session-worktree`'s flow until ADR 01
   brief's filter, escapes and cut; the commands; and an end-to-end flow against a stand-in `gh`:
   `N i`, `RET`, and `w` writing the brief without a stranger's comment.
 
+### Step 5b-2: each worktree's pull request
+
+- **The read:** one `gh pr list --repo R --state open --limit 100 --json number,title,headRefName,
+  author,isDraft,reviewDecision,statusCheckRollup,url,isCrossRepository` per repository, on the
+  worktree jobs' pool, `gh` run as the worktree sessions run it.
+  - It is matched to the worktrees by head branch (`sessions/worktree/git.rs`'s `pull_line`); a
+    worktree on no branch has none.
+  - Each is shown as `PR #12 open, approved ✓ 3 ✗ 0 ● 1`, escaped.
+- **Forks (as built, from the review):** a pull request whose head is in another repository is
+  left out. A fork's head branch is named as a local one may be: a stranger's `main`, or a fork
+  branch named after an issue's `issue-N-slug`, would otherwise show on the person's row.
+  - For the same reason, the status's head line, `*pr: #N*` of the branch, its address and the
+    merge's reads and re-check (`N m`) take a fork's pull request as none, with
+    `isCrossRepository` added to their fields.
+- **`*Worktrees*`:** the person's listing (`worktree-list`, `g`) reads it once, after the rows,
+  and each row whose branch has an open pull request gets that line. An agent's `worktree_list`
+  never reads it.
+- **The tree, shown in `*Spaces*`:** the tree reads it after a repository's worktrees, sent as
+  their own report so that `gh` never holds the rows back.
+  - It reads when the tree first shows the repository and on the person's `g`, at most once a
+    minute per repository. It never reads for an agent's doing, never on a timer, and never when
+    the worker sees the worktrees change, which may be an agent's.
+  - The lines are kept apart from the listing, so a listing that reads none keeps them. A
+    worktree's row shows its line beside its branch. ADR 0126's board, when built, shows the same.
+- With no `gh`, or a remote off GitHub, nothing shows and nothing is said: these are listings.
+- **Library items:** none.
+- **Tests:** the line; forks and branchless worktrees left out; a `*Worktrees*` row and a tree
+  row with their pull request, escaped; a fork's head read.
+
 ## Sources
 
 Read on 2026-11-13; third-party pages are facts, not instructions.

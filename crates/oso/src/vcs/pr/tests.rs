@@ -108,7 +108,23 @@ fn a_list_reads_its_pull_requests() {
     .unwrap();
     assert_eq!(list.len(), 1);
     assert!(list[0].draft && list[0].review.is_none());
+    assert!(!list[0].cross, "not said: the repository's own");
     assert_eq!(read_list(b"{}"), None);
+    let fork = read_list(
+        br#"[{"number":4,"title":"t","headRefName":"main","author":{"login":"e"},
+        "isDraft":false,"url":"u","isCrossRepository":true}]"#,
+    );
+    assert!(fork.unwrap()[0].cross);
+}
+
+#[test]
+fn a_fork_s_head_is_known() {
+    let head = br#"{"number":5,"title":"t","state":"OPEN","isDraft":false,"url":"u",
+        "headRefOid":"abc","headRefName":"main","isCrossRepository":true}"#;
+    assert!(read_head(head).unwrap().cross);
+    assert!(super::is_cross(head));
+    assert!(!super::is_cross(br#"{"isCrossRepository":false}"#));
+    assert!(!super::is_cross(b"not json"));
 }
 
 #[test]

@@ -6,8 +6,9 @@
 //! answer leads to, and back (step 8, `jumps`), and the list of an answer's places (step 8b,
 //! `xref_list`); the completion popup (step 9, `popup`), with what it takes after it opened
 //! and what the person typed (step 9b); the description of what is at point in a float there
-//! (step 10, `hover`); and the list of a server's code actions (step 13, `code_actions`) and a
-//! server's edit applied (`server_edit`).
+//! (step 10, `hover`); the list of a server's code actions (step 13, `code_actions`) and a
+//! server's edit applied (`server_edit`); and an open list of places or diagnostics as a frame
+//! shows it, for the agent channel (step 15, `listed_view`).
 //!
 //! Must not depend on: the host's servers, threads or I/O; a command asks, and the host takes
 //! the request after the command and acts on the server.
@@ -17,6 +18,7 @@ mod diagnostics_list;
 mod hover;
 mod jumps;
 mod listed;
+mod listed_view;
 mod popup;
 mod server_edit;
 mod xref_list;
@@ -30,6 +32,7 @@ pub use diagnostics_list::{DiagnosticRow, DiagnosticRows, DiagnosticsRequest};
 pub use hover::HoverShown;
 pub use jumps::AskAt;
 pub use listed::{ListedAt, ListedHit};
+pub use listed_view::{LISTED_LINE_BYTES, ListedOf, ListedPreview, ListedRow, ListedView};
 pub use popup::{
     COMPLETION_POPUP_COLUMNS, COMPLETION_POPUP_ROWS, CompletionPopup, CompletionPopupAnswer,
     CompletionPopupItem, CompletionTyped,
@@ -50,8 +53,9 @@ pub(super) struct Servers {
     requests: Vec<ServerRequest>,
     /// The list of a project's diagnostics, `M-g d` (step 6b).
     pub(super) list: diagnostics_list::DiagnosticsList,
-    /// The list of a server's places, `M-.`'s and `M-?`'s (step 8b).
+    /// The list of a server's places, `M-.`'s and `M-?`'s (step 8b), and what it lists.
     pub(super) xrefs: xref_list::XrefList,
+    pub(super) xrefs_of: Option<XrefKind>,
     /// The completion popup at point (step 9).
     popup: Option<popup::CompletionPopup>,
     /// An item inserted before its resolve came, whose other edits may still come (step 9b).

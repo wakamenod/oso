@@ -83,12 +83,17 @@ fn still_as_asked(gh: &Gh, github: &GhRepo, cwd: &Path, run: &PrRun) -> Result<(
         "--repo",
         github.as_str(),
         "--json",
-        "number,state,baseRefName,headRefOid,headRefName",
+        "number,state,baseRefName,headRefOid,headRefName,isCrossRepository",
     ];
     let answer = gh
         .run(github, &words, cwd, MAX_GH, GH_LIMIT)?
         .into_stdout()?;
     let now = read_merge(&answer).ok_or("gh gave an unexpected answer")?;
+    if now.cross {
+        return Err(format!(
+            "#{number} is a fork's pull request: it is not merged"
+        ));
+    }
     if !now.open {
         return Err(format!("#{number} is not open now: it is not merged"));
     }

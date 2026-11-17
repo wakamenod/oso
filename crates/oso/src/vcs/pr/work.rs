@@ -29,8 +29,9 @@ use std::time::{Duration, Instant};
 
 use super::write::{PrLaid, list_text, view_text};
 use super::{
-    CHECK_FIELDS, HEAD_FIELDS, LIST_FIELDS, PrHead, THREADS_QUERY, VIEW_FIELDS, is_pull_address,
-    read_address, read_checks, read_head, read_list, read_threads, read_view,
+    CHECK_FIELDS, HEAD_FIELDS, LIST_FIELDS, LIST_LIMIT, PrHead, THREADS_QUERY, VIEW_FIELDS,
+    is_cross, is_pull_address, read_address, read_checks, read_head, read_list, read_threads,
+    read_view,
 };
 use crate::git::{GH_LIMIT, Gh, GhAnswer, GhRepo, Git, PullTarget, TrustedRoot};
 use crate::vcs::read::{find, hooks_dir};
@@ -45,8 +46,6 @@ const OPENER_LIMIT: Duration = Duration::from_secs(2);
 const MAX_ANSWER: usize = 4 * 1024 * 1024;
 /// What `gh pr checks` exits with while some checks are still going.
 const CHECKS_PENDING: i32 = 8;
-/// How many open pull requests a list asks for.
-const LIST_LIMIT: &str = "100";
 
 /// What an address is of: a pull request or an issue.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -402,7 +401,8 @@ fn head(found: &Found, target: &PullTarget) -> Result<Option<PrHead>, String> {
         return Ok(None);
     }
     let head = read_head(&answer.into_stdout()?).ok_or_else(unexpected)?;
-    Ok((Some(&head.branch) == target.branch.as_ref()).then_some(head))
+    let ours = !head.cross && Some(&head.branch) == target.branch.as_ref();
+    Ok(ours.then_some(head))
 }
 
 fn view(found: &Found, target: &PullTarget, number: Option<u64>) -> Result<PrLaid, String> {
@@ -411,7 +411,7 @@ fn view(found: &Found, target: &PullTarget, number: Option<u64>) -> Result<PrLai
         return Err(no_pull_request(target));
     }
     let mut view = read_view(&answer.into_stdout()?).ok_or_else(unexpected)?;
-    if number.is_none() && Some(&view.branch) != target.branch.as_ref() {
+    if number.is_none() && (view.head.cross || Some(&view.branch) != target.branch.as_ref()) {
         return Err(no_pull_request(target));
     }
     let n = view.head.number.to_string();
@@ -470,12 +470,18 @@ fn list(found: &Found, target: &PullTarget) -> Result<PrLaid, String> {
 }
 
 fn address(found: &Found, target: &PullTarget) -> Result<(String, u64), String> {
-    let answer = pr_view(found, target, None, "number,url,headRefName")?;
+    let answer = pr_view(
+        found,
+        target,
+        None,
+        "number,url,headRefName,isCrossRepository",
+    )?;
     if none_found(&answer) {
         return Err(no_pull_request(target));
     }
-    let (url, number, branch) = read_address(&answer.into_stdout()?).ok_or_else(unexpected)?;
-    if Some(&branch) != target.branch.as_ref() {
+    let out = answer.into_stdout()?;
+    let (url, number, branch) = read_address(&out).ok_or_else(unexpected)?;
+    if is_cross(&out) || Some(&branch) != target.branch.as_ref() {
         return Err(no_pull_request(target));
     }
     if !is_pull_address(&url, &target.github, number) {

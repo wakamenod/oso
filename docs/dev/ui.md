@@ -672,6 +672,8 @@ topological order, children before their parents, one row each (ADR 0127, step 4
   and `M-n` walk the messages kept. `- d` makes a draft, `- b` reads the base. `N m` opens the
   merge menu: `s`, `m` or `r` after a question naming the pull request, its base, the method and
   its head; `- d` deletes the branch on the remote.
+- Each worktree's open pull request (step 5b-2) shows on its `*Worktrees*` row and beside its
+  branch in the `*Spaces*` tree, as `PR #12 open, approved ✓ 3 ✗ 0 ● 1`.
 - Issues (step 5b-1): `C-x v i`, or `N i`, shows `*issues: NAME*`; `RET` shows `*issue: #N*` with
   its comments; `w` opens `*Brief*` for a worktree session on `issue-N-SLUG`, the issue's text
   under a line telling the agent it is data; `o` opens it, `y` copies its address, `g` reads
