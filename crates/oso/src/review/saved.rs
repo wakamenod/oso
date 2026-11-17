@@ -60,7 +60,7 @@ pub(crate) struct Place {
 
 /// What the view of a review keeps besides its model.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Kept {
+pub(crate) struct SavedView {
     /// How the person chose it to show (step 11).
     pub(crate) choice: ReviewChoice,
     /// Whether agent cards fold.
@@ -70,10 +70,10 @@ pub(crate) struct Kept {
 
 /// A saved review read back.
 #[derive(Debug)]
-pub(crate) struct Read {
+pub(crate) struct Decoded {
     pub(crate) header: Header,
     pub(crate) saved: Saved,
-    pub(crate) kept: Kept,
+    pub(crate) view: SavedView,
     /// How many lines were left out as not ones this writes.
     pub(crate) left_out: usize,
 }
@@ -121,7 +121,7 @@ fn fnv128(bytes: &[u8]) -> u128 {
 pub(crate) fn encode(
     header: &Header,
     saved: &Saved,
-    kept: &Kept,
+    kept: &SavedView,
     withheld: &dyn Fn(&[u8]) -> bool,
     max: usize,
 ) -> Option<Vec<u8>> {
@@ -140,51 +140,53 @@ pub(crate) fn encode(
         })
         .collect();
     let shapes = shapes.list;
+    let head = line(&header_value(header, saved.next_id));
+    let view_line = line(&view_value(kept));
+    // Each comment once, stopping as soon as the comments alone pass the limit.
+    let mut total = head.len() + view_line.len();
+    let mut comment_lines: Vec<String> = Vec::with_capacity(comments.len());
+    for (comment, shape) in &comments {
+        let text = line(&comment_value(comment, *shape));
+        total += text.len();
+        if total > max {
+            return None;
+        }
+        comment_lines.push(text);
+    }
     let shape_lines: Vec<String> = (shapes.iter().enumerate())
         .map(|(at, shape)| line(&shape_value(at, shape)))
         .collect();
-    let head = line(&header_value(header, saved.next_id));
-    let kept_line = line(&kept_value(kept));
     let file_lines: Vec<String> = (files.iter())
         .map(|(file, shape)| line(&file_value(file, *shape)))
         .collect();
-    let comment_lines = |dropped: &HashSet<usize>| -> Vec<String> {
-        (comments.iter())
-            .map(|(comment, shape)| {
-                let shape = shape.filter(|shape| !dropped.contains(shape));
-                line(&comment_value(comment, shape))
-            })
-            .collect()
-    };
-    // Past the limit, the largest readings go first, with the files and comments on them.
+    // What each reading takes, its files' lines with it.
+    let mut taken: Vec<usize> = shape_lines.iter().map(String::len).collect();
+    for ((_, shape), text) in files.iter().zip(&file_lines) {
+        taken[*shape] += text.len();
+    }
+    total += taken.iter().sum::<usize>();
+    // Past the limit, the largest readings go first, with the files on them; the comments on
+    // them go outdated.
     let mut dropped: HashSet<usize> = HashSet::new();
     let mut by_size: Vec<usize> = (0..shape_lines.len()).collect();
     by_size.sort_by_key(|at| std::cmp::Reverse(shape_lines[*at].len()));
-    let fixed = head.len()
-        + kept_line.len()
-        + comment_lines(&dropped)
-            .iter()
-            .map(String::len)
-            .sum::<usize>();
-    let mut total = fixed
-        + shape_lines.iter().map(String::len).sum::<usize>()
-        + file_lines.iter().map(String::len).sum::<usize>();
     for at in by_size {
         if total <= max {
             break;
         }
         dropped.insert(at);
-        total -= shape_lines[at].len();
-        for ((_, shape), text) in files.iter().zip(&file_lines) {
-            if *shape == at {
-                total -= text.len();
+        total -= taken[at];
+    }
+    if !dropped.is_empty() {
+        for ((comment, shape), text) in comments.iter().zip(&mut comment_lines) {
+            if shape.is_some_and(|shape| dropped.contains(&shape)) {
+                *text = line(&comment_value(comment, None));
             }
         }
     }
-    let comment_lines = comment_lines(&dropped);
     let mut out: Vec<u8> = Vec::with_capacity(total.min(max));
     out.extend_from_slice(head.as_bytes());
-    out.extend_from_slice(kept_line.as_bytes());
+    out.extend_from_slice(view_line.as_bytes());
     for (at, text) in shape_lines.iter().enumerate() {
         if !dropped.contains(&at) {
             out.extend_from_slice(text.as_bytes());
@@ -295,7 +297,7 @@ pub(crate) fn scope_value(scope: &Scope) -> Value {
 }
 
 /// The scope [`scope_value`] wrote.
-pub(crate) fn scope_of(value: &Value) -> Option<Scope> {
+pub(crate) fn scope_from_value(value: &Value) -> Option<Scope> {
     let text = |name: &str| value.get(name)?.as_str().map(str::to_owned);
     Some(match value.get("kind")?.as_str()? {
         "session" => Scope::Session {
@@ -318,7 +320,7 @@ pub(crate) fn scope_of(value: &Value) -> Option<Scope> {
     })
 }
 
-fn kept_value(kept: &Kept) -> Value {
+fn view_value(kept: &SavedView) -> Value {
     let choice = match kept.choice {
         ReviewChoice::Auto => "auto",
         ReviewChoice::Unified => "unified",
@@ -336,7 +338,7 @@ fn kept_value(kept: &Kept) -> Value {
     json!({ "kept": { "choice": choice, "folded": kept.folded, "place": place } })
 }
 
-fn kept_of(value: &Value) -> Option<Kept> {
+fn view_of(value: &Value) -> Option<SavedView> {
     let choice = match value.get("choice")?.as_str()? {
         "auto" => ReviewChoice::Auto,
         "unified" => ReviewChoice::Unified,
@@ -357,7 +359,7 @@ fn kept_of(value: &Value) -> Option<Kept> {
             Some(Place { path, line })
         }
     };
-    Some(Kept {
+    Some(SavedView {
         choice,
         folded: value.get("folded")?.as_bool()?,
         place,
@@ -375,7 +377,7 @@ fn header_of(line: &[u8]) -> Option<(Header, u64)> {
     let count = |name: &str| usize::try_from(value.get(name)?.as_u64()?).ok();
     let header = Header {
         root,
-        scope: scope_of(value.get("scope")?)?,
+        scope: scope_from_value(value.get("scope")?)?,
         opened: value.get("opened")?.as_u64()?,
         comments: count("comments")?,
         unsent: count("unsent")?,
@@ -392,14 +394,15 @@ pub(crate) fn header(bytes: &[u8]) -> Option<Header> {
 
 /// The saved review `bytes` hold, or why it is not one: no header of this version. Lines that
 /// are not ones this writes are left out, and counted.
-pub(crate) fn decode(bytes: &[u8]) -> Result<Read, &'static str> {
+pub(crate) fn decode(bytes: &[u8]) -> Result<Decoded, &'static str> {
     let mut lines = bytes.split(|byte| *byte == b'\n');
     let (header, next_id) = (lines.next())
         .and_then(header_of)
         .ok_or("not a saved review of this version")?;
-    let mut kept = Kept::default();
+    let mut view = SavedView::default();
     let mut shapes: HashMap<u64, Arc<Shape>> = HashMap::new();
     let mut files = Vec::new();
+    let mut current: HashMap<Box<[u8]>, Arc<Shape>> = HashMap::new();
     let mut comments: Vec<SavedComment> = Vec::new();
     let mut ids: HashSet<u64> = HashSet::new();
     let mut left_out = 0;
@@ -409,7 +412,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Read, &'static str> {
             continue;
         };
         let taken = if let Some(found) = value.get("kept") {
-            kept_of(found).map(|found| kept = found).is_some()
+            view_of(found).map(|found| view = found).is_some()
         } else if let Some(at) = value.get("shape").filter(|_| value.get("base").is_some()) {
             match (at.as_u64(), shape_of(&value)) {
                 (Some(at), Some(shape)) => shapes.insert(at, Arc::new(shape)).is_none(),
@@ -417,11 +420,22 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Read, &'static str> {
             }
         } else if value.get("file").is_some() {
             file_of(&value, &shapes)
-                .map(|file| files.push(file))
+                .map(|file| {
+                    current.insert(file.path.clone(), Arc::clone(&file.shape));
+                    files.push(file);
+                })
                 .is_some()
         } else if value.get("comment").is_some() {
-            // A reply to a comment left out goes with it.
+            // A reply to a comment left out goes with it, and one placed on another reading
+            // than its file's current one, as a save never writes it, is outdated.
             comment_of(&value, &shapes)
+                .map(|mut comment| {
+                    let on_current = (comment.shape.as_ref())
+                        .zip(current.get(&*comment.path))
+                        .is_some_and(|(shape, current)| Arc::ptr_eq(shape, current));
+                    comment.outdated |= !on_current;
+                    comment
+                })
                 .filter(|comment| comment.reply_to.is_none_or(|to| ids.contains(&to)))
                 .map(|comment| {
                     ids.insert(comment.id);
@@ -433,14 +447,14 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Read, &'static str> {
         };
         left_out += usize::from(!taken);
     }
-    Ok(Read {
+    Ok(Decoded {
         header,
         saved: Saved {
             files,
             comments,
             next_id,
         },
-        kept,
+        view,
         left_out,
     })
 }

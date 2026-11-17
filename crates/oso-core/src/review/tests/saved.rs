@@ -265,12 +265,10 @@ fn a_save_keeps_only_files_with_something_on_them() {
 }
 
 #[test]
-fn a_comment_on_a_reading_equal_to_the_current_one_is_put_on_it() {
+fn a_comment_off_its_files_current_reading_comes_back_outdated_and_then_carried() {
     let review = everything();
     let mut saved = review.save();
-    // Readings read back from disk are new values, not the review's references.
-    let current = Arc::new((*saved.files[0].shape).clone());
-    saved.files[0].shape = Arc::clone(&current);
+    // Copies of the reading, not the file's own: no whole reading is compared to find out.
     for comment in &mut saved.comments {
         if !comment.outdated {
             comment.shape = comment
@@ -279,8 +277,17 @@ fn a_comment_on_a_reading_equal_to_the_current_one_is_put_on_it() {
                 .map(|shape| Arc::new((**shape).clone()));
         }
     }
-    let back = Review::restore(saved).unwrap();
-    assert_eq!(seen_whole(&back), seen_whole(&review));
+    let mut back = Review::restore(saved).unwrap();
+    assert!(back.comments().all(Comment::is_outdated));
+    // The next reading carries them from their copy, as from any earlier reading.
+    let current = Arc::new((**review.file(FILE).unwrap()).clone());
+    read_at(&mut back, FILE, &current);
+    let other = Arc::new(Shape::new(blob("1"), vec![hunk(1, &[], 1, &["x"])]).unwrap());
+    read_at(&mut back, OTHER, &other);
+    let mut original = review;
+    read_at(&mut original, FILE, &current);
+    read_at(&mut original, OTHER, &other);
+    assert_eq!(seen_whole(&back), seen_whole(&original));
 }
 
 #[test]
@@ -383,12 +390,11 @@ fn a_restore_refuses_comments_no_review_saves() {
         RestoreError::NotInReading { id }
     );
     assert_eq!(
-        refused(&|saved| {
-            saved.comments[0].shape = Some(Arc::new(diff(&["q"], &["r"], blob("9"))));
-            saved.comments[0].anchor = new_line(1);
-        }),
-        RestoreError::NotInReading { id },
-        "not outdated, on a reading that is not the current one"
+        refused(&|saved| saved.next_id = u64::MAX),
+        RestoreError::IdTooLarge {
+            id: CommentId(u64::MAX)
+        },
+        "an id that could overflow"
     );
 }
 
@@ -412,6 +418,10 @@ fn a_restore_refuses_files_and_counts_no_review_saves() {
         refused(&|saved| {
             saved.files[0].marks.pop();
         }),
+        RestoreError::Marks { file: 0 }
+    );
+    assert_eq!(
+        refused(&|saved| saved.files[0].dropped = usize::MAX),
         RestoreError::Marks { file: 0 }
     );
     let mut many = Saved {
@@ -587,12 +597,18 @@ fn every_change_of_a_review_counts_and_a_save_does_not() {
     changed(&review, "a reading");
     review.clear_dropped(FILE);
     changed(&review, "dropped cleared");
+    review.remove_file(FILE);
+    changed(&review, "a file with a comment gone");
     review.remove_comment(Author::Agent, id).unwrap();
     changed(&review, "a removal");
-    review.remove_file(FILE);
-    changed(&review, "a file gone");
     let _ = review.save();
     assert_eq!(review.revision(), last);
+    // What a save does not hold counts nothing: a reading of a file with nothing on it.
+    let other = Arc::new(diff(&["x"], &["y"], blob("2")));
+    read_at(&mut review, OTHER, &other);
+    let again = Arc::new(diff(&["x"], &["z"], blob("2")));
+    read_at(&mut review, OTHER, &again);
+    assert_eq!(review.revision(), last, "nothing on that file");
     assert!(review.edit_comment(Author::Person, id, "x".into()).is_err());
     assert_eq!(review.revision(), last, "a refused change counts nothing");
 }

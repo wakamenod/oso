@@ -455,7 +455,8 @@ Limits for crafted input, each saying what it hides:
   dependency. It sits on `guardrails/layers.txt`'s `oso-core` line with `project`, and
   `editor` holds the open reviews.
 - **`crates/oso/src/review/`** (new tip-crate module): the git and `gh` runner, the diff worker
-  (`similar`), the seams, persistence, and the channel methods' bodies. A new line entry beside
+  (`similar`), the seams, persistence's file format (the thread that reads and writes it is the
+  app's, `app/reviews/store.rs`, as built in step 6), and the channel methods' bodies. A new line entry beside
   `walk` in `[oso]`.
 - **`oso-syntax`** gains documents no buffer owns, for the old side and files not open (new public
   API, this ADR; its items are approved at step 8).
@@ -634,6 +635,10 @@ The author answered every question on 2026-11-12, through the coordinator: (a) f
   that no kill appends to (step 3).
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), "What the channel can do" and the `oso mcp` tool
   list: the review methods and tools above join them, with the reach given for each.
+- [ADR 0090](0090-oso-dev-carries-unsaved-text.md), the state a restart carries: it
+  gains an optional `reviews`, each review its windows show by root and scope, which the new
+  instance opens again; one this does not write is left out, never refusing the restart
+  (step 6).
 - [ADR 0103](0103-soft-wrap-in-a-window.md), "A prompt's window never wraps": a review comment's
   draft's window wraps, as a tiled window does (step 3).
 - [ADR 0111](0111-tree-sitter-highlighting.md), "the worker a tree per buffer": the workers also
@@ -1300,7 +1305,8 @@ What the first PR built:
   run compares with the saved one.
 - **A restart (Q-H):** the state gains an optional `reviews`, each a root, a scope and the
   windows that showed it (`carry/reviews.rs`), an entry this does not write being left out,
-  never refusing the restart. `export-state` saves the reviews first. The new instance opens
+  never refusing the restart. `export-state` saves the reviews first, and waits for them only
+  when it handed one over. The new instance opens
   each in the first of its windows once a buffer's project has that root and is trusted, within
   30 s, closing the others, which the review's layout makes again. Until then the windows show
   what was behind the review.
@@ -1308,6 +1314,36 @@ What the first PR built:
   end-to-end flows do, so that a benchmark never writes the person's saved reviews; the `review`
   scenario adds `review_resume_first_screen_ms`, a review with 20 comments closed and opened
   again, recorded with no threshold.
+- **Answering the reviews** (security, architecture and performance, 2026-11-17):
+  - A review's own thread opens at once; what it reports waits until the saved review was
+    read and put in, so reading the file and git's listing run together.
+  - `Review::revision` counts only changes of what a save holds: a reading of a file with no
+    comment or mark, and a hunk seen, count nothing. The store writes nothing when a review's
+    bytes, its header's date aside, are those it wrote last.
+  - What may hold secrets is judged on the store's thread, each path once, by name, by the name
+    before a rename, and by every buffer seen to hold secrets or to be withheld from agents
+    while a review was open in this run, not only at the save.
+  - Each write goes through a part of its own, `NAME.PID.N.part`; parts an hour old are swept.
+    The store keeps the list in memory after reading the directory once, when it is first
+    idle, so neither the sweep nor a list stands before a read as oso starts. A header's date
+    is that of the last write, and the sweep goes by it; one dated past 30 days ahead goes
+    too.
+  - A file whose header names another review is never written over. A saved file whose lines
+    were left out says so as it comes back.
+  - A comment saved on another reading than its file's current one comes back outdated and is
+    carried from it, so no whole reading is compared to place it. `next_id` and the dropped
+    counts are bounded, and a saved reading holds at most 200,000 lines a side.
+  - A closed review's write that fails says how many of the person's comments were lost; a
+    review whose store ended is no longer kept, and asks.
+  - `encode` serializes each line once and stops as soon as the comments alone pass 16 MiB.
+  - The cursor goes back by `Rows::line_of`, a new public item: O(1) for the file, then its
+    runs.
+  - `review-resume` candidates are unique, two of one text told apart by their files' names,
+    and a pick that matches more than one is refused.
+  - A resumed or restarted session review compares with its own saved baseline, and the
+    project's baseline in this run is left as it is: `open_scope` opens a scope as it was kept.
+  - The restart's `reviews` are written by `carry::export`, from the same windows as the state's,
+    at most 64, and left out when they would not fit.
 - **Tests:** the file's round trip, secrets (no line of such a file in the bytes), the limit,
   non-UTF-8 bytes, lines left out, the header and names; the store against a private
   directory (modes, a second name, a link, too large, a name not a saved review's, the sweep,

@@ -1,11 +1,13 @@
 //! Reviews in the app (ADR 0122): what review commands ask of the host, carried out on the UI
 //! thread. Each open review has its own `oso-review` thread, which runs git and diffs, and its
 //! own `oso-review-view` thread, which lays out the review buffer's text; the review menu's
-//! counts come from `oso-review-count`. What they report is put in here, in order.
+//! counts come from `oso-review-count`, and saved reviews are read and written on
+//! `oso-review-store` (`keep`, `store`, step 6). What they report is put in here, in order.
 //!
-//! Must not depend on: key presses or how a frame is drawn. Nothing here runs git, reads a
-//! file, diffs or builds a review's text: a text comes whole from its view thread, goes in at
-//! O(1), and the text it replaces is freed off the UI thread. Nothing here logs a file's text.
+//! Must not depend on: key presses or how a frame is drawn. Nothing here runs git, reads or
+//! writes a file, diffs or builds a review's text: a text comes whole from its view thread,
+//! goes in at O(1), and the text it replaces is freed off the UI thread. Nothing here logs a
+//! file's text.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -200,11 +202,18 @@ impl App {
             Ok(scope) => scope,
             Err(why) => return self.editor.message(why),
         };
+        self.editor.set_last_scope(project, kind);
+        self.open_scope(project, scope);
+    }
+
+    /// Opens a review of `scope` in `project`, or shows the one open and reads it again: as a
+    /// request names it, or as a saved review or a restart kept it, a session review with its
+    /// own baseline (step 6).
+    pub(super) fn open_scope(&mut self, project: ProjectId, scope: Scope) {
         let Some(root) = TrustedRoot::of(&self.editor, project) else {
             return self.editor.message(RESTRICTED);
         };
-        self.editor.set_last_scope(project, kind);
-        if kind == ScopeKind::Session {
+        if matches!(scope, Scope::Session { .. }) {
             self.session_review_opened(root.path());
         }
         let window = self.editor.tiled().0.id();
@@ -258,8 +267,10 @@ impl App {
         self.reviews.open.push(running);
         let index = self.reviews.open.len() - 1;
         self.start_reviewer(index);
-        // What was saved of it is read first (step 6).
-        self.open_saved(index, scope);
+        // What was saved of it is read meanwhile, and what its thread reports waits for it
+        // (step 6).
+        self.open_saved(index, &scope);
+        self.ask_review(index, Request::Open(scope));
         self.request_redraw();
     }
 
@@ -334,11 +345,25 @@ impl App {
 
     /// Stops a closed review's threads, and frees the texts it left waiting.
     fn close_review(&mut self, id: ReviewId) {
-        if let Some(running) = self.reviews.close(id) {
-            // What it held is saved at once (step 6).
-            self.save_closed_review(&running);
-            self.freer.free(running.texts);
+        match self.reviews.close(id) {
+            Some(running) => {
+                // What it held is saved at once (step 6).
+                self.save_closed_review(&running);
+                self.freer.free(running.texts);
+            }
+            // A review that never started its threads: its model is only freed.
+            None => self.freer.free(self.editor.take_closed_review(id)),
         }
+    }
+
+    /// The project oso knows whose root is `root`, by a buffer in it or an open review.
+    pub(super) fn project_with_root(&self, root: &std::path::Path) -> Option<ProjectId> {
+        (self.editor.buffers())
+            .filter_map(|(_, buffer)| buffer.project())
+            .chain(self.reviews.open.iter().map(|running| running.project))
+            .find(|project| {
+                (self.editor.project(*project)).is_some_and(|known| known.root() == root)
+            })
     }
 
     /// A review's threads sent something.
@@ -369,6 +394,10 @@ impl App {
     fn review_report(&mut self, review: ReviewId, serial: u64, report: Report) {
         let Some(index) = self.reviews.current(review, serial) else {
             return self.freer.free(report);
+        };
+        // While its saved review is read, the model may not take a reading yet (step 6).
+        let Err(report) = self.hold_review_report(index, serial, report) else {
+            return;
         };
         let tell = match report {
             Report::Listed {
@@ -519,6 +548,7 @@ mod judge;
 mod keep;
 mod layout;
 mod menu;
+mod secrets;
 mod send;
 mod state;
 mod store;

@@ -67,8 +67,12 @@ pub(super) fn review(
     std::fs::write(&config, "[lsp]\nstart = \"manual\"\n")
         .map_err(|e| format!("{}: {e}", config.display()))?;
     let mut metrics: [Vec<f64>; 7] = Default::default();
+    // One state directory for every instance, so that the review saved by one is read by the
+    // next (ADR 0122, step 6).
+    let state = dir.file("state");
     for run in 0..runs {
-        let mut app = App::start_with_config(exe, Some(&root.join(name(0))), Some(&config))?;
+        let env = [("OSO_STATE_DIR", state.as_path())];
+        let mut app = App::start_with_env(exe, Some(&root.join(name(0))), Some(&config), &env)?;
         app.wait_until("loaded file", LOAD_TIMEOUT, |t| {
             t["load"]["done_us"].is_u64()
         })?;
@@ -110,7 +114,15 @@ pub(super) fn review(
         let read = frames.last().ok_or("g showed nothing")?;
         metrics[5].push(since(asked, read));
 
+        close_with_comments(&mut app)?;
+        app.stop();
+        let mut app = App::start_with_env(exe, Some(&root.join(name(0))), Some(&config), &env)?;
+        app.wait_until("loaded file", LOAD_TIMEOUT, |t| {
+            t["load"]["done_us"].is_u64()
+        })?;
+        trust(&mut app)?;
         metrics[6].push(resume(&mut app)?);
+        app.send_keys("C-x k")?;
         app.stop();
     }
     let [first, whole, keys, switch, pane_keys, refresh, resume] = metrics;
@@ -127,10 +139,9 @@ pub(super) fn review(
 /// How many comments the review holds when it is closed and opened again.
 const RESUMED_COMMENTS: usize = 20;
 
-/// A comment on each of the first [`RESUMED_COMMENTS`] hunks, the review closed, which saves
-/// it (ADR 0122, step 6), and opened again: how soon its first file shows, its saved review
-/// read first and carried by the first readings.
-fn resume(app: &mut App) -> Result<f64, String> {
+/// A comment on each of the first [`RESUMED_COMMENTS`] hunks, then the review closed, which
+/// saves it (ADR 0122, step 6).
+fn close_with_comments(app: &mut App) -> Result<(), String> {
     app.send_keys("M-<")?;
     for _ in 0..RESUMED_COMMENTS {
         app.send_keys("n c x C-c C-c")?;
@@ -138,6 +149,13 @@ fn resume(app: &mut App) -> Result<f64, String> {
     settle(app)?;
     app.send_keys("C-x k")?;
     settle(app)?;
+    Ok(())
+}
+
+/// In a new process, the review closed before opened again: how soon its first file shows,
+/// its saved review read meanwhile and carried by the first readings. Its comments must have
+/// come back.
+fn resume(app: &mut App) -> Result<f64, String> {
     app.send_keys("C-x v r")?;
     settle(app)?;
     let asked = unix_us();
@@ -147,7 +165,14 @@ fn resume(app: &mut App) -> Result<f64, String> {
         .iter()
         .find(|frame| frame["read"].as_u64() >= Some(1) || frame["done"] == true)
         .ok_or("the review opened again showed no file")?;
-    Ok(since(asked, first))
+    let first = since(asked, first);
+    let brought = format!("{RESUMED_COMMENTS} saved comments brought back");
+    wait_for_state(app, "the saved comments", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.contains(&brought))
+    })?;
+    Ok(first)
 }
 
 /// `|` in the review: how soon its two panes show, then the p99 of `count` paced keys in a pane,

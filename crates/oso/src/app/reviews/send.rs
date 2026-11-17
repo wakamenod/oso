@@ -21,7 +21,6 @@
 //! - One message at a time: `C-c C-c` in a review while one is open shows it.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::path::PathBuf;
 
 use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::editor::ReviewId;
@@ -92,15 +91,10 @@ impl App {
                 shape: model.file(comment.path()).map(|shape| &**shape),
             })
             .collect();
-        // A file may hold secrets by its name, or as an open buffer of it does, as the git
-        // status judges it (ADR 0127).
-        let held: HashSet<PathBuf> = (self.editor.buffers())
-            .filter(|(_, buffer)| buffer.is_secret() || buffer.verdict().is_withheld())
-            .filter_map(|(_, buffer)| buffer.path().map(PathBuf::from))
-            .collect();
+        // A file may hold secrets by its name, or as an open buffer of it does (`secrets`).
+        let held = super::secrets::held_paths(&self.editor);
         let composed = compose(&scope, &items, MAX_SEND_BYTES, |path| {
-            crate::git::may_hold_secrets(&root, path)
-                || crate::git::os_path(path).is_ok_and(|path| held.contains(&root.join(path)))
+            super::secrets::withheld(&root, &held, path)
         });
         if composed.taken == 0 {
             return self

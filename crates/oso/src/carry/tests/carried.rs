@@ -28,7 +28,7 @@ fn a_modified_file_is_carried_with_what_was_known_of_it_and_no_text_in_the_state
         true,
         "it may hand over, not be closed"
     );
-    let (state, exported) = super::super::export(&editor, &[], None, &[], 7, None).unwrap();
+    let (state, exported) = super::super::export(&editor, &[], None, &[], 7, None, &[]).unwrap();
     assert!(
         !state.to_string().contains(TYPED),
         "the state names lengths only"

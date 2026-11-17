@@ -99,8 +99,8 @@ fn withheld(path: &[u8]) -> bool {
     path == SECRET
 }
 
-fn round_trip(review: &Review, max: usize) -> (Vec<u8>, Read) {
-    let kept = Kept {
+fn round_trip(review: &Review, max: usize) -> (Vec<u8>, Decoded) {
+    let kept = SavedView {
         choice: ReviewChoice::Panes,
         folded: true,
         place: Some(Place {
@@ -110,7 +110,7 @@ fn round_trip(review: &Review, max: usize) -> (Vec<u8>, Read) {
     };
     let bytes = encode(&header(), &review.save(), &kept, &withheld, max).unwrap();
     let read = decode(&bytes).unwrap();
-    assert_eq!(read.kept, kept);
+    assert_eq!(read.view, kept);
     assert_eq!(read.header, header());
     (bytes, read)
 }
@@ -183,7 +183,7 @@ fn past_the_limit_the_largest_readings_go_first() {
     let whole = encode(
         &header(),
         &review.save(),
-        &Kept::default(),
+        &SavedView::default(),
         &|_| false,
         MAX_BYTES,
     )
@@ -191,7 +191,7 @@ fn past_the_limit_the_largest_readings_go_first() {
     let bytes = encode(
         &header(),
         &review.save(),
-        &Kept::default(),
+        &SavedView::default(),
         &|_| false,
         5_000,
     )
@@ -209,7 +209,16 @@ fn past_the_limit_the_largest_readings_go_first() {
     assert!(!outdated(b"small"));
     assert!(outdated(b"large"));
     // Comments alone past the limit: nothing is written.
-    assert!(encode(&header(), &review.save(), &Kept::default(), &|_| false, 300).is_none());
+    assert!(
+        encode(
+            &header(),
+            &review.save(),
+            &SavedView::default(),
+            &|_| false,
+            300
+        )
+        .is_none()
+    );
 }
 
 #[test]
@@ -240,7 +249,7 @@ fn bytes_that_are_not_utf_8_come_back_as_they_were() {
     let bytes = encode(
         &header(),
         &review.save(),
-        &Kept::default(),
+        &SavedView::default(),
         &|_| false,
         MAX_BYTES,
     )
@@ -255,7 +264,7 @@ fn lines_this_does_not_write_are_left_out_with_the_replies_to_them() {
     let bytes = encode(
         &header(),
         &review.save(),
-        &Kept::default(),
+        &SavedView::default(),
         &withheld,
         MAX_BYTES,
     )
@@ -289,7 +298,7 @@ fn a_header_says_what_the_review_is_from_its_first_line_alone() {
     let bytes = encode(
         &header(),
         &review().save(),
-        &Kept::default(),
+        &SavedView::default(),
         &withheld,
         MAX_BYTES,
     )
@@ -305,7 +314,7 @@ fn a_header_says_what_the_review_is_from_its_first_line_alone() {
     let bytes = encode(
         &session,
         &Saved::default(),
-        &Kept::default(),
+        &SavedView::default(),
         &withheld,
         MAX_BYTES,
     )

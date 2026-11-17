@@ -86,6 +86,17 @@ struct PathState {
     restored: bool,
 }
 
+impl PathState {
+    /// Whether [`Review::save`] holds this path's reading: it holds a mark or a comment, or
+    /// marks dropped. A comment on an earlier reading counts too, as its file's state does.
+    fn is_saved(&self) -> bool {
+        !self.comments.is_empty()
+            || self.dropped > 0
+            || (self.reading.as_ref())
+                .is_some_and(|reading| reading.marks.iter().any(|m| m.is_set()))
+    }
+}
+
 /// A file's current reading, its hunks' hashes and the person's mark on each hunk.
 #[derive(Clone, Debug)]
 struct Reading {
@@ -99,9 +110,10 @@ impl Review {
         Review::default()
     }
 
-    /// A count of the review's changes: it differs whenever a reading, comment or mark
-    /// changed since it was last asked, so that the host saves the review only then (ADR
-    /// 0122, step 6).
+    /// A count of the changes of what [`Review::save`] holds: it differs whenever a comment, a
+    /// decision or viewed mark, or the reading of a file holding one, changed since it was last
+    /// asked, so that the host saves the review only then (ADR 0122, step 6). A reading of a
+    /// file holding none, and a hunk seen, count nothing.
     pub fn revision(&self) -> u64 {
         self.revision
     }
@@ -121,12 +133,15 @@ impl Review {
     /// Takes the file at `path` out of the review: its comments go outdated, kept to come back
     /// with a later reading, and its decisions drop.
     pub fn remove_file(&mut self, path: &[u8]) {
-        self.revision += 1;
         let Some(state) = self.files.get_mut(path) else {
             return;
         };
+        if state.is_saved() {
+            self.revision += 1;
+        }
         if let Some(reading) = state.reading.take() {
-            state.dropped += reading.marks.iter().filter(|mark| mark.is_set()).count();
+            let set = reading.marks.iter().filter(|mark| mark.is_set()).count();
+            state.dropped = state.dropped.saturating_add(set);
             self.progress.count(&reading.marks, true);
             self.released.push(reading.shape);
         }
@@ -182,8 +197,8 @@ impl Review {
     /// applied changes nothing and asks to be carried again. A comment the snapshot missed is
     /// outdated until then.
     pub fn apply(&mut self, carried: Carried) -> Applied {
-        self.revision += 1;
         let state = self.files.entry(carried.path).or_default();
+        let saved_before = state.is_saved();
         if carried.readings != state.readings {
             return Applied {
                 again: true,
@@ -247,7 +262,7 @@ impl Review {
             }
         }
         let_go(state, &mut self.comments, &to, &mut self.released);
-        state.dropped += dropped;
+        state.dropped = state.dropped.saturating_add(dropped);
         applied.dropped = dropped;
         if let Some(before) = state.reading.take() {
             self.progress.count(&before.marks, true);
@@ -259,6 +274,10 @@ impl Review {
             hashes: carried.hashes,
             marks,
         });
+        // Only a reading a save holds counts as a change (step 6).
+        if saved_before || state.is_saved() {
+            self.revision += 1;
+        }
         applied
     }
 
@@ -433,7 +452,7 @@ impl Review {
     fn insert(&mut self, mut comment: Comment) -> CommentId {
         self.revision += 1;
         let id = CommentId(self.next_id);
-        self.next_id += 1;
+        self.next_id = self.next_id.saturating_add(1);
         comment.id = id;
         let state = self.files.entry(Box::from(&*comment.path)).or_default();
         state.comments.insert(id);
@@ -502,7 +521,15 @@ impl Review {
             .copied()
     }
 
-    fn change_mark(&mut self, path: &[u8], index: usize, change: impl FnOnce(&mut Mark)) -> bool {
+    /// Changes the mark on hunk `index` of `path`'s current reading; `saved` if a save holds
+    /// what it changes, which then counts as a change of the review.
+    fn change_mark(
+        &mut self,
+        path: &[u8],
+        index: usize,
+        saved: bool,
+        change: impl FnOnce(&mut Mark),
+    ) -> bool {
         let Some(state) = self.files.get_mut(path) else {
             return false;
         };
@@ -514,7 +541,7 @@ impl Review {
             return false;
         };
         self.progress.count(std::slice::from_ref(mark), true);
-        self.revision += 1;
+        self.revision += u64::from(saved);
         change(mark);
         self.progress.count(std::slice::from_ref(mark), false);
         state.remarked += 1;

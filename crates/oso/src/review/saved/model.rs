@@ -54,8 +54,18 @@ pub(super) fn shape_of(value: &Value) -> Option<Shape> {
             })
         })
         .collect::<Option<Vec<Hunk>>>()?;
+    // No more lines a side than a review diffs (`review::read`).
+    let (removed, added) = (hunks.iter()).fold((0usize, 0usize), |(removed, added), hunk| {
+        (removed + hunk.removed.len(), added + hunk.added.len())
+    });
+    if removed > MAX_SIDE_LINES || added > MAX_SIDE_LINES {
+        return None;
+    }
     Shape::new(base, hunks).ok()
 }
+
+/// The most lines a side of a saved reading holds, as a review diffs no side longer.
+const MAX_SIDE_LINES: usize = 200_000;
 
 pub(super) fn file_value(file: &SavedFile, shape: usize) -> Value {
     let marks: Vec<&str> = (file.marks.iter())

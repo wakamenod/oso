@@ -37,8 +37,9 @@
 //! - Nothing here logs a file's text; `Debug` of a reading gives its path and kind.
 //! - Its runner, [`TrustedRoot`] and its secret-name check are the `git` module's, shared with
 //!   the worktree jobs (ADR 0121) and the git status (`vcs`, ADR 0127).
-//! - Two things need no thread: `message` composes the message of the person's comments to an
-//!   agent session (step 12), and [`hunk_header`] writes a hunk's header for it and the view.
+//! - Three things need no thread: `message` composes the message of the person's comments to an
+//!   agent session (step 12), [`hunk_header`] writes a hunk's header for it and the view, and
+//!   `saved` is a saved review's file format (step 6), which the app's store reads and writes.
 
 mod batch;
 pub(crate) mod count;

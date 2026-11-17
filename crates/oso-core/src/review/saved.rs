@@ -71,18 +71,25 @@ pub enum RestoreError {
     TooLong { id: CommentId },
     /// Two comments have this id.
     SameId { id: CommentId },
-    /// A comment's id is not below the next id.
+    /// A comment's id is not below the next id, or the next id is past any a review reaches.
     IdTooLarge { id: CommentId },
     /// A reply's parent is missing, newer than the reply, or on another file.
     NoParent { id: CommentId },
-    /// A comment's anchor is not a line or hunk its reading shows, or it is not outdated and
-    /// has no current reading.
+    /// A comment's anchor is not a line or hunk its reading shows.
     NotInReading { id: CommentId },
     /// Two files have this path, at this index of the files.
     SameFile { file: usize },
-    /// A file's marks are not as many as its reading's hunks.
+    /// A file's marks are not as many as its reading's hunks, or more dropped than any review
+    /// drops.
     Marks { file: usize },
 }
+
+/// The largest next id a saved review may hold: far past any a review reaches, and far from
+/// the last number, so that adding to it never overflows.
+const MAX_ID: u64 = 1 << 53;
+
+/// The most dropped marks a saved file may hold.
+const MAX_DROPPED: usize = 1 << 32;
 
 impl Review {
     /// The review as it is saved: the files whose current reading holds a mark or a comment,
@@ -136,8 +143,8 @@ impl Review {
     }
 
     /// The review `saved` holds, checked whole: refused if any comment or file is one no
-    /// review saves. A comment that is not outdated is put on its file's current reading,
-    /// which its reading must equal; the person's comments are read; a file keeps at most
+    /// review saves. A comment on its file's current reading, the same `Arc`, is carried with
+    /// it; one on any other reading is outdated; the person's comments are read; a file keeps at most
     /// [`MAX_KEPT_READINGS`] earlier readings, those of its newer comments, and comments on
     /// the others stay outdated for good. Costs the hunks of every reading, to hash them.
     pub fn restore(saved: Saved) -> Result<Review, RestoreError> {
@@ -149,12 +156,17 @@ impl Review {
         if comments.len() > MAX_COMMENTS {
             return Err(RestoreError::TooManyComments);
         }
+        if next_id > MAX_ID {
+            return Err(RestoreError::IdTooLarge {
+                id: CommentId(next_id),
+            });
+        }
         let mut review = Review {
             next_id,
             ..Review::default()
         };
         for (index, file) in files.into_iter().enumerate() {
-            if file.marks.len() != file.shape.hunks().len() {
+            if file.marks.len() != file.shape.hunks().len() || file.dropped > MAX_DROPPED {
                 return Err(RestoreError::Marks { file: index });
             }
             if review.files.contains_key(&file.path) {
@@ -237,21 +249,20 @@ impl Review {
         let current = (self.files.get(&*saved.path))
             .and_then(|state| state.reading.as_ref())
             .map(|reading| &reading.shape);
-        let shape = match (current, saved.shape) {
-            // On the current reading: the review's own, so that it is carried with it.
-            (Some(current), Some(shape)) if Arc::ptr_eq(current, &shape) || **current == *shape => {
-                Some(Arc::clone(current))
-            }
-            (_, shape) if saved.outdated => shape,
-            _ => return Err(RestoreError::NotInReading { id }),
-        };
-        let reading = u64::from(!saved.outdated);
+        // On the current reading, by reference, as a save writes it: carried with it. On any
+        // other, outdated, and carried from it; a reading equal to the current one is not
+        // looked for, which would compare whole readings once per comment.
+        let on_current = (current.zip(saved.shape.as_ref()))
+            .is_some_and(|(current, shape)| Arc::ptr_eq(current, shape));
+        let outdated = saved.outdated || !on_current;
+        let shape = saved.shape;
+        let reading = u64::from(!outdated);
         Ok(Comment {
             id,
             author: saved.author,
             path: saved.path,
             anchor: saved.anchor,
-            outdated: saved.outdated || shape.is_none(),
+            outdated: outdated || shape.is_none(),
             shape,
             reading,
             text: saved.text,

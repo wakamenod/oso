@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use oso_core::window::WindowId;
 
 use crate::app::App;
+use crate::carry;
 use crate::carry::reviews::ReviewEntry;
 use crate::git::TrustedRoot;
 use crate::review::Scope;
@@ -35,42 +36,24 @@ pub(super) struct Handed {
 }
 
 impl App {
-    /// The tiled windows in the order a restart's state lists them: the tree's, without the
-    /// side window.
-    fn handed_windows(&self) -> Vec<WindowId> {
-        let side = self.editor.side_window();
-        (self.editor.frame().windows().iter())
-            .map(|(id, _)| *id)
-            .filter(|id| Some(*id) != side)
-            .collect()
-    }
-
-    /// The reviews this instance's windows show, for a restart to open again.
-    pub(in crate::app) fn reviews_to_hand_over(&self) -> Vec<ReviewEntry> {
-        let windows = self.handed_windows();
+    /// The reviews this instance's windows may show, for a restart to open again: each its
+    /// root, scope and id, whose windows the state finds.
+    pub(in crate::app) fn reviews_to_hand_over(&self) -> Vec<carry::reviews::Shown> {
         (self.reviews.open.iter())
             .filter(|running| !running.revoked)
-            .filter_map(|running| {
-                let shown: Vec<usize> = (windows.iter().enumerate())
-                    .filter(|(_, id)| {
-                        (self.editor.window_by_id(**id)).is_some_and(|window| {
-                            self.editor.review_of(window.buffer()) == Some(running.id)
-                        })
-                    })
-                    .map(|(at, _)| at)
-                    .collect();
-                (!shown.is_empty()).then(|| ReviewEntry {
-                    root: running.root.path().to_owned(),
-                    scope: running.scope.clone(),
-                    windows: shown,
-                })
+            .map(|running| carry::reviews::Shown {
+                root: running.root.path().to_owned(),
+                scope: running.scope.clone(),
+                review: running.id,
             })
             .collect()
     }
 
     /// A restart carried `entries`: each waits for its project, by the windows that showed it.
     pub(in crate::app) fn reviews_handed_over(&mut self, entries: Vec<ReviewEntry>) {
-        let windows = self.handed_windows();
+        let windows: Vec<WindowId> = (carry::tiled_windows(&self.editor).iter())
+            .map(|window| window.id())
+            .collect();
         let until = Instant::now() + WAIT;
         for entry in entries {
             let shown: Vec<WindowId> = (entry.windows.iter())
@@ -97,11 +80,7 @@ impl App {
         let mut index = 0;
         while index < self.reviews.handed.len() {
             let handed = &self.reviews.handed[index];
-            let project = (self.editor.buffers())
-                .filter_map(|(_, buffer)| buffer.project())
-                .find(|project| {
-                    (self.editor.project(*project)).is_some_and(|known| known.root() == handed.root)
-                })
+            let project = (self.project_with_root(&handed.root))
                 .filter(|project| TrustedRoot::of(&self.editor, *project).is_some());
             match project {
                 Some(project) => {
@@ -127,15 +106,9 @@ impl App {
         else {
             return;
         };
-        // A session review compares with the baseline taken in this run, else the saved one.
-        if let Scope::Session { baseline } = &scope
-            && self.reviews.baseline(project).is_none()
-        {
-            self.reviews.baselines.push((project, baseline.clone()));
-        }
-        let (kind, revision) = super::keep::kind_and_revision(&scope);
         self.editor.select_window(first);
-        self.open_review(project, kind, revision);
+        // A session review compares with the baseline it had (step 6).
+        self.open_scope(project, scope);
         for window in windows.into_iter().filter(|id| *id != first) {
             if self.editor.window_by_id(window).is_some() {
                 self.editor.select_window(window);

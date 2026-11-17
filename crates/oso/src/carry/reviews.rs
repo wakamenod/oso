@@ -3,20 +3,54 @@
 //! state's windows. What a review held is not in the state: the new instance reads it from
 //! the saved review the old one wrote before it went.
 //!
-//! Must not depend on: `app`, `server` or the editor; these are pure functions of values.
+//! Must not depend on: `app`; the state's writer finds which windows show each review.
 //!
 //! An entry that is not one this writes is left out, never refusing the restart: the window
-//! then shows what it showed behind the review, as before step 6.
+//! then shows what it showed behind the review, as before step 6. Past [`MAX_REVIEWS`], or
+//! when they would not fit in the state, the reviews are left out too. A scope is written as a
+//! saved review writes it (`review::saved`), so that a change of that format changes this
+//! one: the reader takes both.
 
 use std::path::PathBuf;
 
+use oso_core::editor::{Editor, ReviewId};
+use oso_core::window::Window;
 use serde_json::{Map, Value, json};
 
 use crate::review::Scope;
-use crate::review::saved::{scope_of, scope_value};
+use crate::review::saved::{scope_from_value, scope_value};
 
 /// The most reviews a state opens again.
-const MAX_REVIEWS: usize = 64;
+pub const MAX_REVIEWS: usize = 64;
+
+/// An open review the state may name: its project's root, its scope, and the review, whose
+/// windows the state finds.
+#[derive(Debug, Clone)]
+pub struct Shown {
+    pub root: PathBuf,
+    pub scope: Scope,
+    pub review: ReviewId,
+}
+
+/// The entries of `shown` that `tiled`, the state's windows in its order, show, at most
+/// [`MAX_REVIEWS`].
+pub(super) fn entries(editor: &Editor, tiled: &[&Window], shown: &[Shown]) -> Vec<ReviewEntry> {
+    shown
+        .iter()
+        .filter_map(|review| {
+            let windows: Vec<usize> = (tiled.iter().enumerate())
+                .filter(|(_, window)| editor.review_of(window.buffer()) == Some(review.review))
+                .map(|(at, _)| at)
+                .collect();
+            (!windows.is_empty()).then(|| ReviewEntry {
+                root: review.root.clone(),
+                scope: review.scope.clone(),
+                windows,
+            })
+        })
+        .take(MAX_REVIEWS)
+        .collect()
+}
 
 /// A review to open again: its project's root, its scope, and the windows that showed it, the
 /// first to show it again in.
@@ -63,7 +97,7 @@ pub(super) fn parse(state: &Map<String, Value>, windows: usize) -> Vec<ReviewEnt
                 .collect::<Option<_>>()?;
             (root.is_absolute() && !shown.is_empty()).then_some(ReviewEntry {
                 root,
-                scope: scope_of(entry.get("scope")?)?,
+                scope: scope_from_value(entry.get("scope")?)?,
                 windows: shown,
             })
         })

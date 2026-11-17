@@ -328,6 +328,17 @@ network features.
   has seen where its path leads, goes in, and the list read back is judged by its names again.
   The agent channel neither reads it nor opens a file from it, and nothing on it is looked at
   to list it.
+- Saved reviews (ADR 0122, step 6), `reviews/*.review` in oso's state directory, are private
+  (`0700`, files `0600`) and hold file contents: the hunk lines of the readings a review's
+  comments and marks are on, with the comments' texts, the person's and the agent's. Nothing of
+  a file whose name, or name before a rename, may hold secrets is written, nor of one whose
+  buffer was seen to hold secrets or to be withheld from agents while a review was open, but its
+  comments' places and texts. A file is written whole through a part of its own write and read
+  only as a regular file of this user's with one name, at most 16 MiB, its header checked to
+  name the project and scope asked, and the model checked whole before it is used. A process
+  of the same user, an agent's shell among them, can write the file: what it says (comments'
+  authors, decisions and viewed marks, a session review's baseline) is taken as written, as
+  the person's other state files are.
 - Passphrase and credential prompts never enter minibuffer history, the kill
   ring or keyboard macros.
 
