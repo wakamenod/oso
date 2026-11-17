@@ -107,8 +107,8 @@ struct SideState {
     over: Option<u64>,
     /// Its runs are whole and cover every line the reading shows of it.
     complete: bool,
-    /// The revision of an open buffer last compared with it, and whether that was whole.
-    buffer_tried: Option<(u64, bool)>,
+    /// The revision of the open buffer last compared with it, and whether its text was this.
+    buffer_same: Option<(u64, bool)>,
 }
 
 impl SideState {
@@ -152,6 +152,8 @@ pub(super) struct Highlighting {
     reports: HashMap<u64, Report<u64>>,
     /// The latest of each open buffer whose path a file of the review may have.
     buffers: HashMap<Box<[u8]>, BufferSide>,
+    /// The paths of the buffers to try with the next batch.
+    pending_buffers: HashSet<Box<[u8]>>,
     /// Nothing more to open until something changes.
     settled: bool,
 }
@@ -172,6 +174,7 @@ impl Default for Highlighting {
             changed: HashSet::new(),
             reports: HashMap::new(),
             buffers: HashMap::new(),
+            pending_buffers: HashSet::new(),
             settled: false,
         }
     }
@@ -203,6 +206,9 @@ impl Highlighting {
         }
         self.held = 0;
         self.reports.clear();
+        // The host offers every buffer again once highlighting is on.
+        self.buffers.clear();
+        self.pending_buffers.clear();
         self.settled = false;
         self.highlighter = highlighter;
         self.top = top;
@@ -271,7 +277,7 @@ impl Highlighting {
 
     /// The file at `path` shows `reading` now: a side whose text changed drops its runs and
     /// closes its document.
-    pub(super) fn reading(&mut self, path: &[u8], reading: &Arc<Reading>, order: &[Box<[u8]>]) {
+    pub(super) fn reading(&mut self, path: &[u8], reading: &Arc<Reading>) {
         let file = match self.files.get_mut(path) {
             Some(file) => file,
             None => self.files.entry(path.into()).or_default(),
@@ -304,7 +310,7 @@ impl Highlighting {
             state.complete = false;
             state.refused = false;
             state.over = None;
-            state.buffer_tried = None;
+            state.buffer_same = None;
             if let Some(projected) = state.projected.take() {
                 self.held = self.held.saturating_sub(budget::cost(&projected));
                 self.changed.insert(path.into());
@@ -312,7 +318,9 @@ impl Highlighting {
             self.close(path, side);
         }
         // An open buffer may already hold the new side's text.
-        self.try_buffer(path, order);
+        if self.buffers.contains_key(path) {
+            self.pending_buffers.insert(path.into());
+        }
     }
 
     /// The file at `path` left the review.
@@ -328,6 +336,8 @@ impl Highlighting {
             }
         }
         self.shown.remove(path);
+        self.buffers.remove(path);
+        self.pending_buffers.remove(path);
     }
 
     /// What windows show: the lines of each side of each file on screen. Tells each open
@@ -340,6 +350,10 @@ impl Highlighting {
             self.settled = false;
         }
         self.shown = shown;
+        // A buffer kept for a file now on screen gives its runs again.
+        let buffers = &self.buffers;
+        let kept = self.shown.keys().filter(|path| buffers.contains_key(*path));
+        self.pending_buffers.extend(kept.cloned());
         let Some(highlighter) = &self.highlighter else {
             return;
         };
@@ -460,7 +474,7 @@ impl Highlighting {
     /// highlighting is.
     pub(super) fn take_reports(&mut self, order: &[Box<[u8]>]) -> bool {
         let reports: Vec<Report<u64>> = self.reports.drain().map(|(_, report)| report).collect();
-        let mut changed = false;
+        let mut changed = self.take_buffers(order);
         for report in reports {
             changed |= self.report(report, order);
         }

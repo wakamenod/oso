@@ -639,7 +639,9 @@ The author answered every question on 2026-11-12, through the coordinator: (a) f
 - [ADR 0111](0111-tree-sitter-highlighting.md), "the worker a tree per buffer": the workers also
   parse documents no buffer owns, a review's sides, under the same limits and secret rules. And
   the contrast tests: syntax faces, and plain text, are also checked at 7:1 on a review's added
-  and removed bands, where a side's highlighted lines draw them (step 9).
+  and removed bands, where a side's highlighted lines draw them (step 9). And "reports go only
+  when the highlights changed": a buffer's report also goes once for each epoch and revision its
+  whole text is highlighted at, even with nothing new, saying it is done (step 9).
 - [ADR 0112](0112-window-splits.md), the window tree: it gains a pair of windows that scroll
   together and are closed and resized together.
 
@@ -1350,25 +1352,36 @@ The second PR brings the two panes' paint and an open buffer's highlights. The a
   merged in one pass, and a paint of both panes goes with the unified one when only runs
   changed and the panes are built and not laid out anew.
 - **An open buffer (Q-C, Q-D):** after each report a buffer takes, and for every open buffer
-  when a review's highlighting turns on, the UI hands each such review's view an O(1) copy of
-  the buffer's text and highlights, its path under the review's top as git spells it, its
-  revision, and whether it is highlighted whole at that revision (no edit since its done
-  report). Never a buffer that may hold secrets, whose highlights it does not show. The view
-  keeps the latest of each path and compares it with the new side's text, decoded as the loader
-  decodes it and its BOM left out, once a revision and again for each new reading of the file:
-  O(1) when the lengths differ, as after most edits, else O(n) on the view thread. When they are
-  the same, the buffer's runs are the new side's: every line the review shows of it once the
-  buffer's are whole, which closes the side's document or keeps it from opening, else those on
-  screen, the side's document still parsing. A buffer edited since its reading is another text,
-  so the side's own document is used.
+  when a review's highlighting turns on, the UI offers each such review's view an O(1) copy of
+  the buffer's text and highlights, its path under the review's top as git names it
+  (`git::name_of`, which the git status's withheld paths now use too), its revision, its
+  language, and whether it is highlighted whole in the worker's current start of it, at that
+  revision: the glue keeps the epoch and revision of each buffer's done report, so a mode set
+  again or highlighting turned off and on at the same revision is not whole until its own.
+  Never a buffer that may hold secrets, whose highlights it does not show. The view keeps the
+  latest of each path, only those of the review's files once it lists them and none while
+  highlighting is off, and tries them with the next batch, so that offers that come together
+  cost one comparison; again when the file shows a new reading or comes on screen, so that runs
+  the budget dropped come back. It compares the buffer's text with the new side's, decoded as
+  the loader decodes it and its BOM left out, once a revision: O(1) when the buffer is shorter
+  than the side's bytes or more than three times longer, as after most edits, else O(n) on the
+  view thread, with a decoded copy only for a side with invalid bytes. While they are the
+  same, each try takes the buffer's runs as the new side's: every line the review shows of it
+  once the buffer's are whole, which closes the side's document or keeps it from opening, else
+  those on screen, the side's document still parsing. Never while highlighting is off, for a
+  file the text cut short, past 2 MiB, or from a buffer in another language than the side's
+  path says. A buffer edited since its reading is another text, so the side's own document is
+  used.
 - **The bands** stay as part one set them: the author approved them from screenshots.
 - **Tests:** the editor's pane paint and its refusals; the view's panes taking the runs as
   laid out and as a paint, and no paint with nothing changed; a buffer's whole runs taken and
-  the side's document closed, another text not taken, the same revision not compared again, a
-  buffer not whole colouring the lines on screen, and a new reading trying the buffer kept
-  again; the comparison of a buffer's text and a side's; a buffer's done report once a
-  revision, and not again for a shown change; the glue's whole mark, gone with an edit; a path
-  as git spells it; and the end-to-end flow showing the new pane highlighted after `|`.
+  the side's document closed, another text or another language not taken; a buffer not whole
+  colouring the lines on screen once the file shows, and a new reading trying the buffer kept
+  again; nothing kept or taken while highlighting is off, and none for a withheld reading; the
+  comparison of a buffer's text and a side's; a buffer's done report once a revision, and not
+  again for a shown change; the glue's whole mark, gone with an edit and with a new start at
+  the same revision; a buffer offered only when ordinary and under the top; a path as git
+  names it; and the end-to-end flow showing the new pane highlighted after `|`.
 
 ### Step 10: a pair of windows that scroll together
 

@@ -9,6 +9,7 @@
 //!   U+FFFD and a first BOM left out, so that its offsets are those of the review's lines,
 //!   whose bytes the section decodes the same way. No display map is built for it.
 
+use std::cmp::Ordering;
 use std::ops::Range;
 use std::path::Path;
 use std::sync::Arc;
@@ -131,14 +132,22 @@ pub(super) fn has_bom(bytes: &[u8]) -> bool {
 }
 
 /// Whether `text`, a buffer's, is `bytes`, a side, as the loader decodes it: a BOM left out.
-/// O(n), and O(1) when their lengths differ, as they do after most edits.
+/// O(1) when the buffer is shorter, or more than three times longer, as after most edits; else
+/// O(n), and a decoded copy only when the buffer is longer than the side's bytes, as a side with
+/// invalid bytes is once decoded.
 pub(super) fn same_text(bytes: &[u8], text: &Rope) -> bool {
     let rest = bytes.strip_prefix(BOM).unwrap_or(bytes);
-    if std::str::from_utf8(rest).is_ok() {
-        return same_bytes(rest, text);
+    // Decoding only grows a text, each invalid byte to a U+FFFD of three: the same length
+    // means the same bytes, as the buffer's are UTF-8, and a shorter one cannot be it.
+    match text.len().cmp(&rest.len()) {
+        Ordering::Less => false,
+        Ordering::Equal => same_bytes(rest, text),
+        Ordering::Greater if text.len() > rest.len().saturating_mul(3) => false,
+        Ordering::Greater => {
+            let (decoded, _) = decoded(bytes);
+            same_bytes(decoded.as_bytes(), text)
+        }
     }
-    let (decoded, _) = decoded(bytes);
-    same_bytes(decoded.as_bytes(), text)
 }
 
 /// Whether `text` holds `bytes`, chunk by chunk.

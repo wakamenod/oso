@@ -280,7 +280,10 @@ impl State {
                 self.shown_now();
                 return false;
             }
-            Tell::Buffer(buffer) => return self.highlighting.buffer(*buffer, &self.order),
+            Tell::Buffer(buffer) => {
+                self.highlighting.offer_buffer(*buffer);
+                return false;
+            }
             _ => {}
         }
         match told {
@@ -411,6 +414,7 @@ impl State {
                 self.files.insert(path.clone(), file);
             }
         }
+        self.highlighting.keep_listed_buffers();
         let same = self.more == more && self.cut == cut && before == self.order;
         self.dirty |= !same;
         self.more = more;
@@ -436,8 +440,7 @@ impl State {
             Carrying::Here(carry) => {
                 let carried = carry_here(carry);
                 file.show(Arc::clone(&reading), Some(carried.placed().into()), false);
-                self.highlighting
-                    .reading(&reading.entry.path, &reading, &self.order);
+                self.highlighting.reading(&reading.entry.path, &reading);
                 self.carried.push((reading, carried));
                 self.dirty = true;
             }
@@ -445,8 +448,7 @@ impl State {
             Carrying::Elsewhere => file.pending = Some(reading),
             Carrying::Nothing => {
                 file.show(Arc::clone(&reading), None, false);
-                self.highlighting
-                    .reading(&reading.entry.path, &reading, &self.order);
+                self.highlighting.reading(&reading.entry.path, &reading);
                 self.dirty = true;
             }
         }
@@ -488,8 +490,7 @@ impl State {
                 Some(carried.placed().into()),
                 cut_short,
             );
-            self.highlighting
-                .reading(&reading.entry.path, &reading, &self.order);
+            self.highlighting.reading(&reading.entry.path, &reading);
             self.carried.push((reading, carried));
             self.dirty = true;
         }

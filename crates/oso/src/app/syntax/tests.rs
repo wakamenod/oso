@@ -20,7 +20,7 @@ use super::pool::Pool;
 use super::{MOST_RUNS_COMPARED, Orders, Syntax, Taken, changed};
 
 /// A visited file at `path`, judged where it leads, holding `text`.
-fn visited(path: &str, text: &str) -> Buffer {
+pub(super) fn visited(path: &str, text: &str) -> Buffer {
     let path = PathBuf::from(path);
     let mut buffer = Buffer::visiting(path.clone());
     buffer.judge_secret(Some(&[path]));
@@ -28,7 +28,7 @@ fn visited(path: &str, text: &str) -> Buffer {
     buffer
 }
 
-fn editor_with(buffer: Buffer) -> (Editor, BufferId) {
+pub(super) fn editor_with(buffer: Buffer) -> (Editor, BufferId) {
     let mut editor = Editor::with_buffer(Buffer::from_text("*scratch*", ""));
     let id = editor.add_buffer(buffer);
     editor.show(id);
@@ -36,7 +36,7 @@ fn editor_with(buffer: Buffer) -> (Editor, BufferId) {
     (editor, id)
 }
 
-fn edit(editor: &mut Editor, id: BufferId, at: usize, text: &str) {
+pub(super) fn edit(editor: &mut Editor, id: BufferId, at: usize, text: &str) {
     editor
         .apply_edits(
             id,
@@ -159,31 +159,6 @@ fn a_job_carries_the_edits_since_the_last_and_what_windows_show() {
 fn a_plain_text_file_gets_no_job() {
     let (editor, _) = editor_with(visited("/p/notes.txt", "fn a() {}\n"));
     assert!(Syntax::default().orders(&editor).jobs.is_empty());
-}
-
-#[test]
-fn a_done_report_says_the_buffer_is_whole_until_its_next_edit() {
-    let (mut editor, id) = editor_with(visited("/p/main.rs", "fn a() {}\n"));
-    let mut syntax = Syntax::default();
-    let job = syntax.orders(&editor).jobs.remove(0);
-    let report = |stamp, revision| Report {
-        buffer: id,
-        epoch: job.epoch,
-        stamp,
-        revision,
-        outcome: Outcome::Highlights(Highlights::new(job.text.len())),
-        done: true,
-    };
-    assert!(syntax.take(&mut editor, report(1, job.revision)).taken);
-    let revision = editor.buffer(id).unwrap().revision();
-    assert!(syntax.is_whole(id, revision));
-    edit(&mut editor, id, 0, "x");
-    let now = editor.buffer(id).unwrap().revision();
-    assert!(!syntax.is_whole(id, now), "edited since");
-    // A done report of the text before the edit says nothing of the text now.
-    let _ = syntax.orders(&editor);
-    syntax.take(&mut editor, report(2, job.revision));
-    assert!(!syntax.is_whole(id, now));
 }
 
 #[test]

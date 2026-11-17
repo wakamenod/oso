@@ -15,6 +15,8 @@
 //!   window was; a header, a note or a card's row of both sides goes to the new pane.
 //! - After each command, a cursor of the selected pane on a filler row moves on the way the
 //!   primary cursor went, or back when nothing lies that way.
+//! - A paint puts in both panes' rows and highlights for texts that did not change, as their
+//!   sides' highlights came (step 9), refused whole when either does not cover its pane.
 
 use crate::buffer::{BufferId, Mode};
 use crate::display_map::DisplayPoint;
@@ -138,14 +140,7 @@ impl Editor {
         };
         for (side, (text, rows, highlights)) in [old, new].into_iter().enumerate() {
             let mut pane = self.put_generated_text(buffers[side], text, highlights);
-            pane.rows = match self
-                .reviews
-                .get_mut(id)
-                .and_then(|open| open.panes.as_mut())
-            {
-                Some(panes) => Some(std::mem::replace(&mut panes.rows[side], rows)),
-                None => Some(rows),
-            };
+            pane.rows = Some(self.put_pane_rows(id, side, rows));
             left.panes.push(pane);
         }
         let paired: Vec<WindowId> = (self.windows.iter())
@@ -182,13 +177,9 @@ impl Editor {
         let Some((old_buffer, new_buffer)) = self.review_panes(id) else {
             return Err(refused(old, new));
         };
-        let covers = |buffer: BufferId, (rows, highlights): &(Rows, Highlights)| {
-            self.buffer(buffer).is_some_and(|shown| {
-                let lines = shown.text().max_point().row + 1;
-                rows.lines() + 1 >= lines && highlights.len() == shown.text().len()
-            })
-        };
-        if !covers(old_buffer, &old) || !covers(new_buffer, &new) {
+        if !self.paint_covers(old_buffer, &old.0, &old.1)
+            || !self.paint_covers(new_buffer, &new.0, &new.1)
+        {
             return Err(refused(old, new));
         }
         let mut left = ReviewLeftover {
@@ -201,13 +192,19 @@ impl Editor {
         {
             let mut pane = ReviewLeftover::none();
             pane.highlights = self.put_review_highlights(buffer, highlights);
-            pane.rows = match (self.reviews.get_mut(id)).and_then(|open| open.panes.as_mut()) {
-                Some(panes) => Some(std::mem::replace(&mut panes.rows[side], rows)),
-                None => Some(rows),
-            };
+            pane.rows = Some(self.put_pane_rows(id, side, rows));
             left.panes.push(pane);
         }
         Ok(left)
+    }
+
+    /// Puts in what each line of the review `id`'s pane `side` is, returning the rows before, or
+    /// these if it has no panes.
+    fn put_pane_rows(&mut self, id: ReviewId, side: usize, rows: Rows) -> Rows {
+        match (self.reviews.get_mut(id)).and_then(|open| open.panes.as_mut()) {
+            Some(panes) => std::mem::replace(&mut panes.rows[side], rows),
+            None => rows,
+        }
     }
 
     /// Makes the review `id`'s two panes' buffers, empty, named after its review buffer.

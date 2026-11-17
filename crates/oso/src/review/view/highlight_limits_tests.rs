@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use oso_core::syntax::{Highlight, Highlights};
-use oso_syntax::Outcome;
+use oso_syntax::{Language, Outcome};
 
 use super::highlight_tests::{Recorder, at, id, keyword, reading, report, state_with};
 use super::section::tests::{entry, hunk};
@@ -253,7 +253,7 @@ fn the_panes_take_each_sides_runs_laid_out_and_as_a_paint() {
 }
 
 /// An open buffer of `path` holding `text` at `revision`, its first `keyword_len` bytes a
-/// keyword.
+/// keyword, in Rust.
 fn buffer(path: &[u8], (text, revision): (&str, u64), keyword_len: usize, whole: bool) -> Tell {
     Tell::Buffer(Box::new(BufferSide {
         path: path.into(),
@@ -261,7 +261,14 @@ fn buffer(path: &[u8], (text, revision): (&str, u64), keyword_len: usize, whole:
         text: oso_core::rope::Rope::from(text),
         highlights: keyword(text, keyword_len),
         whole,
+        language: Some(Language::Rust),
     }))
+}
+
+/// Offers `buffer` to `state`; whether its batch changed what the text shows.
+fn offer(state: &mut State, buffer: Tell) -> bool {
+    assert!(!state.take(buffer), "an offer waits for its batch");
+    state.schedule()
 }
 
 #[test]
@@ -272,18 +279,23 @@ fn an_open_buffers_whole_runs_are_its_files_new_sides_and_its_document_closes() 
         &[reading(b"a.rs", b"fn a\n", b"let b\n", (1, 2))],
     );
     assert_eq!(recorder.opened().len(), 2, "both sides open first");
-    // Another text: not the side's.
-    assert!(!state.take(buffer(b"a.rs", ("let c\n", 6), 3, true)));
+    // Another text, or the same in another language: not the side's.
+    assert!(!offer(&mut state, buffer(b"a.rs", ("let c\n", 6), 3, true)));
+    let Tell::Buffer(mut other) = buffer(b"a.rs", ("let b\n", 7), 3, true) else {
+        unreachable!()
+    };
+    other.language = Some(Language::Markdown);
+    assert!(!offer(&mut state, Tell::Buffer(other)));
     // The side's text, whole: its runs, and the new side's document closes.
-    assert!(state.take(buffer(b"a.rs", ("let b\n", 7), 3, true)));
+    assert!(offer(&mut state, buffer(b"a.rs", ("let b\n", 8), 3, true)));
     let text = state.build();
     assert_eq!(at(&state, &text, "+let", 1), Some(Highlight::Keyword));
     assert_eq!(at(&state, &text, "+let", 4), None, "whole: plain");
     let opened = recorder.opened();
     assert_eq!(opened.len(), 1, "{opened:?}");
     assert_eq!(opened[0].1, "fn a\n", "the old side's only");
-    // The same revision again changes nothing.
-    assert!(!state.take(buffer(b"a.rs", ("let b\n", 7), 3, true)));
+    // Whole already: the next offer changes nothing.
+    assert!(!offer(&mut state, buffer(b"a.rs", ("let b\n", 8), 3, true)));
 }
 
 #[test]
@@ -293,17 +305,14 @@ fn a_buffer_not_whole_colours_the_lines_on_screen_and_a_new_reading_tries_it_aga
         &recorder,
         &[reading(b"a.rs", b"fn a\n", b"let b\n", (1, 2))],
     );
-    // Nothing on screen: a buffer partly highlighted gives nothing yet.
-    assert!(!state.take(buffer(b"a.rs", ("let b\n", 7), 3, false)));
+    // Nothing on screen: a buffer partly highlighted gives nothing yet; once on screen, the
+    // buffer kept gives its lines there.
+    assert!(!offer(
+        &mut state,
+        buffer(b"a.rs", ("let b\n", 7), 3, false)
+    ));
     all_shown(&mut state);
-    let tell = Tell::Buffer(Box::new(BufferSide {
-        path: b"a.rs".to_vec().into(),
-        revision: 8,
-        text: oso_core::rope::Rope::from("let b\n"),
-        highlights: keyword("let b\n", 3),
-        whole: false,
-    }));
-    assert!(state.take(tell));
+    assert!(state.schedule(), "on screen: tried again");
     let text = state.build();
     assert_eq!(at(&state, &text, "+let", 1), Some(Highlight::Keyword));
     assert_eq!(
@@ -315,8 +324,8 @@ fn a_buffer_not_whole_colours_the_lines_on_screen_and_a_new_reading_tries_it_aga
         recorder.opened().iter().any(|(_, text)| text == "let b\n"),
         "its document stays"
     );
-    // A new reading of the same text: the buffer kept is tried again, whole this time.
-    assert!(state.take(buffer(b"a.rs", ("let b\n", 9), 3, true)));
+    // Offered whole, then a new reading of the same text: the buffer kept is tried again.
+    assert!(offer(&mut state, buffer(b"a.rs", ("let b\n", 9), 3, true)));
     let again = reading(b"a.rs", b"fn a\n", b"let b\n", (1, 3));
     state.take(Tell::File {
         reading: again,
@@ -325,4 +334,45 @@ fn a_buffer_not_whole_colours_the_lines_on_screen_and_a_new_reading_tries_it_aga
     let text = state.build();
     assert_eq!(at(&state, &text, "+let", 1), Some(Highlight::Keyword));
     assert_eq!(at(&state, &text, "+let", 4), None);
+}
+
+#[test]
+fn no_buffer_is_kept_or_taken_while_highlighting_is_off_and_a_withheld_reading_takes_none() {
+    let recorder = Recorder::default();
+    let mut state = state_with(
+        &recorder,
+        &[reading(b"a.rs", b"fn a\n", b"let b\n", (1, 2))],
+    );
+    state.take(Tell::Highlighter {
+        highlighter: None,
+        top: PathBuf::new(),
+    });
+    assert!(!offer(&mut state, buffer(b"a.rs", ("let b\n", 7), 3, true)));
+    // A new reading the buffer's text is: still nothing while off.
+    let again = reading(b"a.rs", b"fn a\n", b"let b\n", (1, 3));
+    state.take(Tell::File {
+        reading: again,
+        carry: Carrying::Nothing,
+    });
+    let text = state.build();
+    assert_eq!(at(&state, &text, "+let", 1), Some(Highlight::DiffAdded));
+    // On again, a withheld reading of the file takes none of an offer.
+    state.take(Tell::Highlighter {
+        highlighter: Some(Box::new(recorder.clone())),
+        top: PathBuf::from("/top"),
+    });
+    let mut entry = entry(b"a.rs", Status::Modified);
+    entry.new_id = id(9);
+    state.take(Tell::File {
+        reading: Arc::new(Reading {
+            entry,
+            content: Content::Withheld,
+        }),
+        carry: Carrying::Nothing,
+    });
+    state.build();
+    assert!(!offer(
+        &mut state,
+        buffer(b"a.rs", ("let b\n", 10), 3, true)
+    ));
 }

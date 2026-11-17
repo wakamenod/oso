@@ -18,6 +18,9 @@
 //! - Each job carries the UI's epoch for its buffer, which a new start moves on, and each report
 //!   the epoch of the document it is of and a stamp in the order slices ended, so that the UI
 //!   drops a report from before a new start, or one that comes after a later one.
+//! - A report goes when the highlights changed, and once for each epoch and revision a buffer is
+//!   highlighted whole at, saying it is done (ADR 0122, step 9); a document no buffer owns says
+//!   so in its last.
 //! - A document no buffer owns (ADR 0122), such as a review's side, has a slot of its own whose
 //!   text never changes ([`unowned`]). It runs only where background buffers do, one thread
 //!   at a time, so a shown buffer always has a thread.

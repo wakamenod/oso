@@ -217,6 +217,16 @@ pub(super) fn merged(base: &[Run], slots: &[Slot], sides: [Option<&Projected>; 2
     out
 }
 
+/// `rendered`'s runs with `sides`' merged in, or none when it shows no line of a side or they
+/// have no runs, and it keeps its own: as a text is laid out, the unified one or a pane.
+pub(super) fn section_runs(
+    rendered: &Rendered,
+    sides: [Option<&Projected>; 2],
+) -> Option<Vec<Run>> {
+    let some = !rendered.slots.is_empty() && sides.iter().any(Option::is_some);
+    some.then(|| merged(&rendered.runs, &rendered.slots, sides))
+}
+
 /// Lays `sides`' runs over `rendered`, a section that starts at `start` in `highlights`: one
 /// replace over its span.
 pub(super) fn paint(

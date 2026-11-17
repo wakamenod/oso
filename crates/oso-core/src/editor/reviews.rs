@@ -414,21 +414,31 @@ impl Editor {
         rows: Rows,
         highlights: Highlights,
     ) -> Result<ReviewLeftover, ReviewLeftover> {
-        let buffer = self
+        let Some(buffer_id) = self
             .review_buffer(id)
-            .and_then(|id| Some((id, self.buffer(id)?)));
-        let Some((buffer_id, buffer)) = buffer else {
+            .filter(|buffer| self.paint_covers(*buffer, &rows, &highlights))
+        else {
             return Err(ReviewLeftover::of(rows, highlights, None));
         };
-        let lines = buffer.text().max_point().row + 1;
-        if rows.lines() + 1 < lines || highlights.len() != buffer.text().len() {
-            return Err(ReviewLeftover::of(rows, highlights, None));
-        }
         Ok(ReviewLeftover {
             highlights: self.put_review_highlights(buffer_id, highlights),
             rows: self.put_review_rows(id, rows),
             spare: self.take_spare_rows(id),
             ..ReviewLeftover::none()
+        })
+    }
+
+    /// Whether `rows` cover the lines of `buffer`, a review buffer or a pane, and `highlights`
+    /// its text, as a paint for a text that did not change must.
+    pub(super) fn paint_covers(
+        &self,
+        buffer: BufferId,
+        rows: &Rows,
+        highlights: &Highlights,
+    ) -> bool {
+        self.buffer(buffer).is_some_and(|shown| {
+            let lines = shown.text().max_point().row + 1;
+            rows.lines() + 1 >= lines && highlights.len() == shown.text().len()
         })
     }
 

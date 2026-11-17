@@ -186,7 +186,7 @@ fn a_document_is_highlighted_whole_as_a_fresh_one_and_reports_epoch_and_revision
 }
 
 #[test]
-fn a_document_done_with_nothing_new_still_reports_done_and_a_buffer_once_a_revision() {
+fn a_document_done_with_nothing_new_still_reports_done() {
     let mut scheduler = Scheduler::new();
     let mut queries = Queries::new();
     open(&mut scheduler, 1, true);
@@ -203,23 +203,6 @@ fn a_document_done_with_nothing_new_still_reports_done_and_a_buffer_once_a_revis
         "done though nothing changed since the last report"
     );
     assert!(matches!(last.outcome, Outcome::Highlights(_)));
-    // A buffer: its whole text's report is done; shown again at the same revision, it is not
-    // said again, and a new revision is done once more.
-    scheduler.submit(buffer(2, true));
-    let reports = drain(&mut scheduler, &mut queries);
-    assert_eq!(reports.last().map(|report| report.done), Some(true));
-    assert_eq!(reports.iter().filter(|report| report.done).count(), 1);
-    let mut again = buffer(2, false);
-    again.edits = Some(Vec::new());
-    scheduler.submit(again);
-    let reports = drain(&mut scheduler, &mut queries);
-    assert!(reports.iter().all(|report| !report.done), "{reports:?}");
-    let mut next = buffer(2, true);
-    next.revision = 2;
-    next.edits = Some(Vec::new());
-    scheduler.submit(next);
-    let reports = drain(&mut scheduler, &mut queries);
-    assert_eq!(reports.iter().filter(|report| report.done).count(), 1);
 }
 
 #[test]

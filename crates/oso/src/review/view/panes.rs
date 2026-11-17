@@ -12,6 +12,8 @@
 //!   new pane: the other pane holds filler rows as tall, so that the panes stay in step.
 //! - The text is cut at the same file in both panes, by both panes' bytes together, so that the
 //!   two hold about what the unified text does.
+//! - Each pane's lines take their sides' runs as the unified text's do (step 9), and when only
+//!   those changed, a paint of both lays out nothing.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -390,11 +392,7 @@ impl State {
                 _ => [None, None],
             };
             for (side, pane) in panes.into_iter().enumerate() {
-                let merged = sides
-                    .iter()
-                    .any(Option::is_some)
-                    .then(|| project::merged(&pane.runs, &pane.slots, sides));
-                runs[side].push(merged);
+                runs[side].push(project::section_runs(pane, sides));
             }
             if let Some(path) = path.filter(|_| lines) {
                 self.panes.placed.push((path, starts, Arc::clone(pair)));

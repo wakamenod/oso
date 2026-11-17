@@ -68,8 +68,10 @@ pub(super) struct Syntax {
     present: HashMap<BufferId, (Mode, bool)>,
     /// The description shown at point when `shown` was built, and its revision.
     described: Option<(BufferId, u64)>,
-    /// The revision each buffer was last reported highlighted whole at (ADR 0122, step 9).
-    whole: HashMap<BufferId, u64>,
+    /// The epoch and revision each buffer was last reported highlighted whole at (ADR 0122,
+    /// step 9): a new start at the same revision, as a mode set again or highlighting turned
+    /// off and on, is not whole until its own done report.
+    whole: HashMap<BufferId, (u64, u64)>,
 }
 
 /// The buffers the worker may have: every buffer of the user's, and a server's description
@@ -320,7 +322,8 @@ impl Syntax {
                 taken = buffer.take_highlights(report.revision, highlights);
                 // Whole at its revision only if no edit came since.
                 if taken && report.done && report.revision == buffer.revision() {
-                    self.whole.insert(report.buffer, report.revision);
+                    self.whole
+                        .insert(report.buffer, (report.epoch, report.revision));
                 }
                 None
             }
@@ -349,9 +352,11 @@ impl Syntax {
         }
     }
 
-    /// Whether buffer `id`'s whole text is highlighted at `revision`, its revision now.
+    /// Whether buffer `id`'s whole text is highlighted at `revision`, its revision now, in the
+    /// worker's current start of it.
     pub(super) fn is_whole(&self, id: BufferId, revision: u64) -> bool {
-        self.whole.get(&id) == Some(&revision)
+        let epoch = self.sent.get(&id).map(|sent| sent.epoch);
+        epoch.is_some_and(|epoch| self.whole.get(&id) == Some(&(epoch, revision)))
     }
 }
 
@@ -522,3 +527,5 @@ impl App {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod whole_tests;

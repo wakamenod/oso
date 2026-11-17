@@ -128,10 +128,7 @@ impl State {
             if let Some(path) = path
                 && !rendered.slots.is_empty()
             {
-                let sides = self.highlighting.sides(&path);
-                if sides.iter().any(Option::is_some) {
-                    merged = Some(project::merged(&rendered.runs, &rendered.slots, sides));
-                }
+                merged = project::section_runs(rendered, self.highlighting.sides(&path));
                 laid.insert(path.clone());
                 self.placed.push((path, start, Arc::clone(rendered)));
             }

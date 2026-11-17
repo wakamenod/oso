@@ -887,8 +887,9 @@ The UI thread never blocks on I/O or parsing:
   to its review's view in O(1); the view projects its runs over the review's lines
   (`review/view/project.rs`) and sends a paint that lays out nothing, which goes in through
   `set_review_paint` at O(1), and the panes' through `set_review_panes_paint`. An open
-  buffer whose text a file's new side is gives its highlights instead, handed to the view as an
-  O(1) copy after each report it takes (ADR 0122, step 9).
+  buffer whose text a file's new side is, handed to the view as an O(1) copy after each report
+  it takes, gives that side's runs: all of them once the buffer is highlighted whole, when the
+  side's own document closes; before that, those of its lines on screen (ADR 0122, step 9).
 
 ### Configuration
 

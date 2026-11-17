@@ -13,15 +13,16 @@
 //! - A report is handed on in O(1), and the ranges shown are read with two seeks a window.
 
 use std::ops::Range;
-use std::path::{Component, Path};
+use std::path::Path;
 
 use oso_core::buffer::{BufferId, Verdict};
-use oso_core::editor::ReviewId;
+use oso_core::editor::{Editor, ReviewId};
 use oso_core::rope::Rope;
 use oso_syntax::{Language, Refused, Report};
 
 use super::super::App;
-use super::super::syntax::{Documents, SyntaxKey};
+use super::super::syntax::{Documents, Syntax, SyntaxKey};
+use crate::git::name_of;
 use crate::review::view::{BufferSide, Highlighter, Tell, View};
 
 /// What the app last told a review's view about its sides.
@@ -122,7 +123,7 @@ impl App {
                 .sides
                 .get(&running.id)
                 .is_some_and(|told| told.on)
-                && let Some(side) = self.buffer_side(id, running.root.path())
+                && let Some(side) = buffer_side(&self.editor, &self.syntax, id, running.root.path())
             {
                 running.view.tell(Tell::Buffer(Box::new(side)));
             }
@@ -133,29 +134,10 @@ impl App {
     /// `root`.
     fn tell_review_buffers(&self, view: &View, root: &Path) {
         for (id, _) in self.editor.buffers() {
-            if let Some(side) = self.buffer_side(id, root) {
+            if let Some(side) = buffer_side(&self.editor, &self.syntax, id, root) {
                 view.tell(Tell::Buffer(Box::new(side)));
             }
         }
-    }
-
-    /// Buffer `id` as a side of a review of the work tree at `root`: its path under `root` as
-    /// git spells it, an O(1) copy of its text and highlights, and whether those are whole.
-    /// None for a buffer elsewhere, or one that may hold secrets, which shows no highlights.
-    fn buffer_side(&self, id: BufferId, root: &Path) -> Option<BufferSide> {
-        let buffer = self.editor.buffer(id)?;
-        if buffer.verdict().is_withheld() {
-            return None;
-        }
-        let highlights = buffer.highlights()?.clone();
-        let path = git_path(buffer.path()?.strip_prefix(root).ok()?)?;
-        Some(BufferSide {
-            path,
-            revision: buffer.revision(),
-            text: buffer.text().clone(),
-            highlights,
-            whole: self.syntax.is_whole(id, buffer.revision()),
-        })
     }
 
     /// Hands a report of a review's side to its view; one of a review closed since is dropped.
@@ -170,36 +152,83 @@ impl App {
     }
 }
 
-/// `relative`, a path under a work tree's top, as git spells it: its names joined by `/`.
-/// None for one that leaves the top or names nothing.
-fn git_path(relative: &Path) -> Option<Box<[u8]>> {
-    let mut path = Vec::new();
-    for component in relative.components() {
-        let Component::Normal(name) = component else {
-            return None;
-        };
-        if !path.is_empty() {
-            path.push(b'/');
-        }
-        path.extend_from_slice(name.as_encoded_bytes());
+/// Buffer `id` as a side of a review of the work tree at `root`: its path under `root` as git
+/// spells it, an O(1) copy of its text and highlights, and whether those are whole. None for a
+/// buffer elsewhere, or one that may hold secrets, which shows no highlights either.
+fn buffer_side(editor: &Editor, syntax: &Syntax, id: BufferId, root: &Path) -> Option<BufferSide> {
+    let buffer = editor.buffer(id)?;
+    if buffer.verdict().is_withheld() {
+        return None;
     }
-    (!path.is_empty()).then(|| path.into())
+    let highlights = buffer.highlights()?.clone();
+    let path = name_of(buffer.path()?.strip_prefix(root).ok()?)?.into_boxed_slice();
+    Some(BufferSide {
+        path,
+        revision: buffer.revision(),
+        text: buffer.text().clone(),
+        highlights,
+        whole: syntax.is_whole(id, buffer.revision()),
+        language: Language::of(buffer.mode()),
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
-    use super::git_path;
+    use oso_core::buffer::{Buffer, BufferId};
+    use oso_core::display_map::TabWidth;
+    use oso_core::editor::Editor;
+    use oso_core::load::decode_all;
+    use oso_syntax::{Outcome, Report};
+
+    use super::super::super::syntax::Syntax;
+    use super::buffer_side;
+
+    /// An editor with `path` visited, judged as its name says, and highlighted.
+    fn highlighted(path: &str) -> (Editor, Syntax, BufferId) {
+        let path = PathBuf::from(path);
+        let mut buffer = Buffer::visiting(path.clone());
+        buffer.judge_secret(Some(&[path]));
+        buffer.apply_load(decode_all(b"fn a() {}\n", TabWidth::default()));
+        let mut editor = Editor::with_buffer(Buffer::from_text("*scratch*", ""));
+        let id = editor.add_buffer(buffer);
+        editor.show(id);
+        let mut syntax = Syntax::default();
+        if let Some(job) = syntax.orders(&editor).jobs.pop() {
+            let report = Report {
+                buffer: id,
+                epoch: job.epoch,
+                stamp: 1,
+                revision: job.revision,
+                outcome: Outcome::Highlights(oso_core::syntax::Highlights::new(job.text.len())),
+                done: true,
+            };
+            syntax.take(&mut editor, report);
+        }
+        (editor, syntax, id)
+    }
 
     #[test]
-    fn a_path_under_the_top_is_spelled_as_git_spells_it() {
-        assert_eq!(
-            git_path(Path::new("src/a.rs")).as_deref(),
-            Some(&b"src/a.rs"[..])
+    fn an_ordinary_buffer_under_the_top_is_offered_whole_and_no_other() {
+        let top = Path::new("/p");
+        let (editor, syntax, id) = highlighted("/p/src/a.rs");
+        let side = buffer_side(&editor, &syntax, id, top).expect("offered");
+        assert_eq!(&*side.path, b"src/a.rs");
+        assert!(side.whole);
+        assert_eq!(side.language, Some(oso_syntax::Language::Rust));
+        assert!(
+            buffer_side(&editor, &syntax, id, Path::new("/q")).is_none(),
+            "elsewhere"
         );
-        assert_eq!(git_path(Path::new("a.rs")).as_deref(), Some(&b"a.rs"[..]));
-        assert_eq!(git_path(Path::new("../a.rs")), None);
-        assert_eq!(git_path(Path::new("")), None);
+        // A name that may hold secrets: never offered, as it is never highlighted either.
+        let (editor, syntax, id) = highlighted("/p/.ssh/config.rs");
+        assert!(buffer_side(&editor, &syntax, id, top).is_none());
+        // One not judged yet.
+        let mut editor = Editor::with_buffer(Buffer::from_text("*scratch*", ""));
+        let mut unjudged = Buffer::visiting(PathBuf::from("/p/b.rs"));
+        unjudged.apply_load(decode_all(b"fn b() {}\n", TabWidth::default()));
+        let id = editor.add_buffer(unjudged);
+        assert!(buffer_side(&editor, &Syntax::default(), id, top).is_none());
     }
 }
