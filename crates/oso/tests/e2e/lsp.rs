@@ -1344,7 +1344,7 @@ fn a_symbol_is_renamed_across_files_after_the_preview() {
     assert!(rows.to_string().contains("let count = 1;"), "{rows}");
     assert!(rows.to_string().contains("{count}"), "{rows}");
     // One step to undo in the buffer.
-    app.send_keys("C-/");
+    app.send_keys("C-z");
     let rows = app.call("get-text", Some(json!({ "start_row": 1, "rows": 2 })));
     assert!(rows.to_string().contains("let value = 1;"), "{rows}");
     assert!(rows.to_string().contains("{value}"), "{rows}");
