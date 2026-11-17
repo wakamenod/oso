@@ -238,15 +238,15 @@ fn a_buffer_that_may_hold_secrets_shows_and_takes_none() {
     assert!(!buffer.keeps_highlighting(), "nor of its edits");
 }
 
-/// Go has a grammar (ADR 0147); the other modes of ADR 0138 have none yet. A Go buffer that
-/// may hold secrets is never highlighted, as any other is not.
+/// Go, TypeScript, TSX and JavaScript have a grammar (ADR 0147); LaTeX and Swift have none yet.
+/// A buffer of theirs that may hold secrets is never highlighted, as any other is not.
 #[test]
 fn modes_with_a_grammar_can_be_highlighted_unless_secret() {
     for (mode, can) in [
         (Mode::Go, true),
-        (Mode::TypeScript, false),
-        (Mode::Tsx, false),
-        (Mode::JavaScript, false),
+        (Mode::TypeScript, true),
+        (Mode::Tsx, true),
+        (Mode::JavaScript, true),
         (Mode::Latex, false),
         (Mode::Swift, false),
     ] {
@@ -254,11 +254,13 @@ fn modes_with_a_grammar_can_be_highlighted_unless_secret() {
         buffer.set_mode(mode);
         assert_eq!(buffer.can_highlight(), can, "{mode:?}");
     }
-    let mut go = Buffer::from_text("t.go", "package main\n");
-    go.set_mode(Mode::Go);
-    assert!(go.treat_as_secret());
-    assert!(!go.can_highlight());
-    assert!(!go.keeps_highlighting());
+    for mode in [Mode::Go, Mode::TypeScript, Mode::Tsx, Mode::JavaScript] {
+        let mut buffer = Buffer::from_text("t", "package main\n");
+        buffer.set_mode(mode);
+        assert!(buffer.treat_as_secret());
+        assert!(!buffer.can_highlight(), "{mode:?}");
+        assert!(!buffer.keeps_highlighting(), "{mode:?}");
+    }
 }
 
 #[test]

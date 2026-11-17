@@ -7,7 +7,9 @@ use std::ops::Range;
 use std::time::{Duration, Instant};
 
 use oso_core::rope::Rope;
-use oso_core::syntax::Highlight::{self, Comment, Constant, Function, Keyword, Markup, Property};
+use oso_core::syntax::Highlight::{
+    self, Comment, Constant, Function, Keyword, Markup, Property, Type,
+};
 use oso_core::syntax::Splice;
 
 use super::fence::MAX_FENCE_BYTES;
@@ -133,6 +135,30 @@ fn a_piece_that_compiles_a_query_is_done_again() {
         .find(|done| *done != Highlighted::Paused);
     assert_eq!(done, Some(Highlighted::Done));
     assert!(has(text, "g", Function));
+}
+
+#[test]
+fn javascript_and_typescript_fences_take_their_grammars() {
+    let text = "```js\nfunction a() {}\n```\n\n```JSX\nconst x = <b />;\n```\n\n\
+                ```mjs\nexport const c = 1;\n```\n\n```typescript\ninterface D {}\n```\n\n\
+                ```ts\ntype E = number;\n```\n\n```tsx\nconst f = <F<string> />;\n```\n\n\
+                ```cts\nlet g: boolean;\n```\n";
+    for (part, highlight) in [
+        ("a", Function),
+        ("b", Function),
+        ("export", Keyword),
+        ("interface", Keyword),
+        ("E", Type),
+        ("F", Function),
+        ("string", Type),
+        ("boolean", Type),
+    ] {
+        assert!(has(text, part, highlight), "{part:?} as {highlight:?}");
+    }
+    for other in ["javascripts", "node", "react"] {
+        let fence = format!("```{other}\nfunction a() {{}}\n```\n");
+        assert!(plain(&fence, "function a() {}"), "{other}");
+    }
 }
 
 #[test]

@@ -18,16 +18,25 @@ pub enum Language {
     Toml,
     /// Go (`tree-sitter-go`).
     Go,
+    /// JavaScript, JSX among it (`tree-sitter-javascript`).
+    JavaScript,
+    /// TypeScript (`tree-sitter-typescript`).
+    TypeScript,
+    /// TypeScript with JSX, a grammar of its own (`tree-sitter-typescript`).
+    Tsx,
 }
 
 impl Language {
     /// Every grammar, once each.
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 8] = [
         Self::Rust,
         Self::Markdown,
         Self::MarkdownInline,
         Self::Toml,
         Self::Go,
+        Self::JavaScript,
+        Self::TypeScript,
+        Self::Tsx,
     ];
 
     /// The grammar a buffer in `mode` is parsed with, if any. Markdown's inline grammar is never
@@ -38,11 +47,11 @@ impl Language {
             Mode::Markdown => Some(Self::Markdown),
             Mode::Toml => Some(Self::Toml),
             Mode::Go => Some(Self::Go),
+            Mode::JavaScript => Some(Self::JavaScript),
+            Mode::TypeScript => Some(Self::TypeScript),
+            Mode::Tsx => Some(Self::Tsx),
             // These modes of ADR 0138 have no grammar yet.
             Mode::Fundamental
-            | Mode::TypeScript
-            | Mode::Tsx
-            | Mode::JavaScript
             | Mode::Latex
             | Mode::Swift
             | Mode::CopyList
@@ -74,6 +83,9 @@ impl Language {
             Self::MarkdownInline => "markdown_inline",
             Self::Toml => "toml",
             Self::Go => "go",
+            Self::JavaScript => "javascript",
+            Self::TypeScript => "typescript",
+            Self::Tsx => "tsx",
         }
     }
 
@@ -85,6 +97,9 @@ impl Language {
             Self::MarkdownInline => tree_sitter_md::INLINE_LANGUAGE.into(),
             Self::Toml => tree_sitter_toml_ng::LANGUAGE.into(),
             Self::Go => tree_sitter_go::LANGUAGE.into(),
+            Self::JavaScript => tree_sitter_javascript::LANGUAGE.into(),
+            Self::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+            Self::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
         }
     }
 }
@@ -113,7 +128,11 @@ mod tests {
         assert_eq!(Language::of(Mode::Markdown), Some(Language::Markdown));
         assert_eq!(Language::of(Mode::Toml), Some(Language::Toml));
         assert_eq!(Language::of(Mode::Go), Some(Language::Go));
-        assert_eq!(Language::of(Mode::TypeScript), None);
+        assert_eq!(Language::of(Mode::JavaScript), Some(Language::JavaScript));
+        assert_eq!(Language::of(Mode::TypeScript), Some(Language::TypeScript));
+        assert_eq!(Language::of(Mode::Tsx), Some(Language::Tsx));
+        assert_eq!(Language::of(Mode::Latex), None);
+        assert_eq!(Language::of(Mode::Swift), None);
         assert_eq!(Language::of(Mode::Fundamental), None);
         assert_eq!(Language::of(Mode::CopyList), None);
         assert_eq!(Language::of(Mode::CopyView), None);

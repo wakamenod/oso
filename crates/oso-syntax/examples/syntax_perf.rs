@@ -31,7 +31,14 @@ fn main() {
         Some("fenced") => (Language::Markdown, true),
         Some("toml") => (Language::Toml, false),
         Some("go") => (Language::Go, false),
-        _ => return eprintln!("usage: syntax_perf rust|markdown|fenced|toml|go FILE..."),
+        Some("javascript") => (Language::JavaScript, false),
+        Some("typescript") => (Language::TypeScript, false),
+        Some("tsx") => (Language::Tsx, false),
+        _ => {
+            return eprintln!(
+                "usage: syntax_perf rust|markdown|fenced|toml|go|javascript|typescript|tsx FILE..."
+            );
+        }
     };
     let mut text = String::new();
     let files: Vec<String> = args.collect();
