@@ -261,6 +261,7 @@ impl Buffer {
             | Mode::GitPr
             | Mode::GitPrList
             | Mode::GitPrMessage
+            | Mode::ReviewMessage
             | Mode::GitLog
             | Mode::Conversation
             | Mode::GitDiscarded

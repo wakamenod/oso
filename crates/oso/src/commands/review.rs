@@ -39,6 +39,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("r", "review-resolve"),
     ("a", "review-fold-agents"),
     ("g", "review-refresh"),
+    ("C-c C-c", "review-send"),
     ("q", "review-quit"),
     ("?", "review-keys"),
 ];
@@ -82,8 +83,10 @@ macro_rules! person_command {
 }
 
 mod comments;
+mod send;
 
 pub use comments::COMMANDS as COMMENT_COMMANDS;
+pub use send::{COMMANDS as SEND_COMMANDS, MESSAGE_KEYS};
 
 /// The commands of reviews.
 pub const COMMANDS: &[Command] = &[
@@ -450,10 +453,11 @@ fn keys_text() -> String {
         let summary = COMMANDS
             .iter()
             .chain(COMMENT_COMMANDS)
+            .chain(SEND_COMMANDS)
             .find(|command| command.name == *name)
             .and_then(|command| command.doc.lines().next())
             .unwrap_or_default();
-        text.push_str(&format!("{keys:<6}{name:<24}{summary}\n"));
+        text.push_str(&format!("{keys:<8}{name:<24}{summary}\n"));
     }
     text.push_str("\nC-x v r opens the review menu; C-x k closes the review.\n");
     text

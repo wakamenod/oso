@@ -10,6 +10,7 @@ use std::path::Path;
 
 use oso_core::buffer::BufferId;
 use oso_core::editor::{Editor, RowAction, SessionRequest};
+use oso_core::project::same_place;
 
 use crate::app::App;
 use crate::sessions::list::{Key, Line};
@@ -100,8 +101,30 @@ impl App {
         }
     }
 
+    /// The hosted session that runs in `root` with a terminal, the one shown last first.
+    pub(in crate::app) fn worktree_session(&self, root: &Path) -> Option<SessionKey> {
+        let order = self.editor.buffers_by_recency();
+        let table = self.hosting.table();
+        table
+            .iter()
+            .filter(|session| !session.archived && session.runs())
+            .filter(|session| same_place(&session.directory, root))
+            .filter_map(|session| {
+                let buffer = session
+                    .buffer
+                    .filter(|b| self.editor.buffer(*b).is_some())?;
+                let at = order
+                    .iter()
+                    .position(|b| *b == buffer)
+                    .unwrap_or(usize::MAX);
+                Some((at, session.key))
+            })
+            .min_by_key(|(at, _)| *at)
+            .map(|(_, key)| key)
+    }
+
     /// The hosted session whose terminal's buffer is called `name`.
-    pub(super) fn session_named(&self, name: &str) -> Option<SessionKey> {
+    pub(in crate::app) fn session_named(&self, name: &str) -> Option<SessionKey> {
         self.hosting.table().iter().find_map(|session| {
             let buffer = session.buffer?;
             (self.editor.buffer(buffer)?.name() == name).then_some(session.key)

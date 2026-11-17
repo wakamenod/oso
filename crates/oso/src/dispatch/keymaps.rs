@@ -88,6 +88,7 @@ pub(super) struct Keymaps {
     pub(super) git_graph: Keymap,
     pub(super) git_pr: Keymap,
     pub(super) git_pr_message: Keymap,
+    pub(super) review_message: Keymap,
     /// A terminal's own keys, above the global ones in a terminal's buffer (ADR 0120).
     pub(super) terminal: Keymap,
     /// A terminal's own keys and session mode's, in a terminal's buffer that hosts a session
@@ -144,6 +145,7 @@ impl Keymaps {
             git_graph: bindings::git_graph_keymap(registry),
             git_pr: bindings::git_pr_keymap(registry),
             git_pr_message: bindings::git_pr_message_keymap(registry),
+            review_message: bindings::review_message_keymap(registry),
             terminal: bindings::terminal_keymap(registry),
             session_help: SessionHelp::new(&session, registry),
             session,
@@ -154,7 +156,7 @@ impl Keymaps {
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 36] {
+    pub(super) fn all(&self) -> [&Keymap; 37] {
         let Self {
             global,
             user,
@@ -187,6 +189,7 @@ impl Keymaps {
             git_graph,
             git_pr,
             git_pr_message,
+            review_message,
             terminal,
             session,
             user_session,
@@ -226,6 +229,7 @@ impl Keymaps {
             git_graph,
             git_pr,
             git_pr_message,
+            review_message,
             terminal,
             session,
             user_session,
@@ -336,6 +340,7 @@ impl Keymaps {
                 Mode::GitGraph => Some(&self.git_graph),
                 Mode::GitPr | Mode::GitPrList => Some(&self.git_pr),
                 Mode::GitPrMessage => Some(&self.git_pr_message),
+                Mode::ReviewMessage => Some(&self.review_message),
                 Mode::Markdown => Some(&self.markdown),
                 Mode::Brief => Some(&self.worktrees[0]),
                 Mode::Worktrees => Some(&self.worktrees[1]),

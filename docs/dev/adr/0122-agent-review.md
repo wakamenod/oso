@@ -1249,3 +1249,83 @@ What was built:
   Two ignored tests time moving in step in a release build: over two texts of 1 GB and a map
   of a million runs, and on a 10 MB line both windows wrap.
 
+
+### Step 12a: sending comments to the session
+
+Step 12 lands in two PRs, as the author chose (Q1): sending first, pull requests through `gh`
+second. The author approved the plan's public items and answered its questions (a) on
+2026-11-17, through the coordinator, and approved one more item while building
+(`ArgSpec::ListedOnPrefix`). What the first PR built:
+
+- **Public items:** `Mode::ReviewMessage`; `ReviewRequest::{Send(ReviewId), MessageSend {
+  buffer, to }, MessageDrop { buffer }}`; `command::ArgSpec::ListedOnPrefix { list, prompt,
+  history }`, one of a host's lists read only with a prefix argument, as `TextOnPrefix` reads
+  text; and the face `review.sent`, as `Highlight::Sent` and `oso_render`'s `Face::ReviewSent`.
+  The plan's `Editor::mark_review_sent` was not needed: the host marks through `Review::mark_sent`.
+- **`C-c C-c` in a review (`review-send`, `Person`)** gathers the person's comments and replies
+  that were not sent, outdated ones included, leaving out every comment in a thread the person
+  resolved (Q3), in the order the review buffer shows their labels, then those it does not show
+  (past the text's limit) by file and id. The message is composed on the UI thread from the
+  model alone, as a reading's shape holds its hunks' lines, and is bounded at 256 KiB, the
+  limit of ADR 0121's sends: the comments past it stay unsent, and the echo area says how many.
+- **The message** begins with the Decision's line and `Scope: uncommitted, in oso.`, then, per
+  comment, `## PATH  L42 (new)` (a hunk comment as the lines it spans, `L40-L48 (new)`, or
+  `(old)` for a hunk that only removes), the hunk in a `diff` fence one backtick longer than any
+  run in it, `In reply to the agent's #12: FIRST LINE` for a reply, and `Comment: TEXT`. A hunk
+  of more than 60 lines is cut to the 30 around the comment (a hunk comment's first 30), saying
+  how many were left out above and below; a line is cut at 500 characters. An outdated comment
+  goes as `## PATH  (outdated, was L42 (new))` with no hunk (Q4), and a file whose name may hold
+  secrets with its place and `(The file may hold secrets: its lines are not sent.)`. Paths and
+  the replied-to comment's first line, at most 200 characters, are escaped as git's text is
+  shown, so a name cannot start a line that reads as another comment's.
+- **`*review message*`** opens in the selected window in `ReviewMessage` mode, and the echo area
+  names the session it goes to. It is the person's to change: the agent channel reads it but
+  every `Change` command is refused in it, as in a commit's message (Q7). One message waits at a
+  time; `C-c C-c` in a review while it is open shows it again.
+- **There, `C-c C-c` (`review-message-send`, `Person`)** pastes the buffer's text through ADR
+  0121's `send_to_session`, the one delivery path, as the person's bracketed paste, not
+  submitted, and shows the session. The session is the one the person picked for the review
+  while it runs, else the hosted session that runs in the review's root, the one shown last
+  first (Q5). **`C-u C-c C-c`** reads one by completion over `session-send`'s list, and the
+  review keeps it, in memory, until the review closes or the session is gone. **`C-c C-k`
+  (`review-message-drop`) drops the message, in place of the Decision's `C-g`,** which stays
+  `keyboard-quit` in a buffer the person types in, as in a commit's and a pull request's
+  message (Q2).
+- **A paste refused** (the session asks for permission or another answer, is not judged yet,
+  reads a password, or holds a full-screen view) leaves the message open and every comment
+  unsent, saying why (Q6). **With no session, the message stays too, and nothing goes to the
+  kill ring, in place of the Decision's "the message goes to the kill ring":** the message may
+  hold an agent's words, which ADR 0074 keeps off the OS clipboard (Q-G), and a terminal runs
+  where the kill ring stood in for one. The echo area names `C-u C-c C-c` and the keys that start
+  a session.
+- **Marking sent (Q8):** once pasted, the comments the message was made from are marked sent
+  if the review still holds each saying what it said when the message was made, whatever the
+  person changed in the message. A comment edited to other words or removed meanwhile stays
+  unsent, and the echo area counts both. The buffer is then killed.
+- **Sent cards are dimmed:** a sent comment's bar, label and text are drawn in `review.sent`,
+  the outdated note's slate on the comments' band, its contrast checked as a label's against
+  the band; an edit draws it in the person's face again. The face is picked in one place for
+  every view of a card.
+- **The menu's line under its title** no longer ends with "comments go to the kill ring until
+  sending exists", and names no session: the menu reads the editor alone, and the session is
+  named when the message opens and once it is pasted. **The head `S`, the session comments go
+  to, is not built:** `C-u C-c C-c` picks it (Q5).
+- **The Deliver seam is no trait:** the message goes through `send_to_session` alone, ADR
+  0121's one delivery path, as a trait with one implementation would add nothing. Which comments
+  go, and in what order, is decided in the tip crate (`app/reviews/send.rs`), as the order is
+  the review buffer's rows'.
+- **Secrets, and what a paste makes of a line:** a file whose open buffer may hold secrets
+  (secret, or withheld from agents) sends its place alone too, as the git status judges one; a
+  message that a yank of a secret entry turned secret is not sent, saying so. A hunk's line has
+  its control characters but tabs, and the line and paragraph separators, escaped as `\u{d}`,
+  since a paste makes a lone `\r` a line break that the preview did not show.
+- **Marking sent (Q8), as built:** a comment counts as unchanged while its text is the one the
+  message was made from, compared as text: an edit back to the same words changes nothing the
+  message holds.
+- **Tests:** the message's text, its places, fences, cuts, outdated and secret files, replies,
+  escaped paths and its size, with a property that no line of a hunk closes its fence or becomes
+  several once pasted; the order
+  of the gathered comments and what is left out; which comments count as unchanged; the
+  commands, their requests and refusals; `ListedOnPrefix` from keys, with `C-u` and from the
+  agent channel; the agent refused in a message; sent cards' faces; and an end-to-end flow with
+  a fake session that shows, drops, edits and sends a message, then finds nothing more to send.
