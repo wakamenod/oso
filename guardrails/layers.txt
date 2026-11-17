@@ -81,9 +81,11 @@ carry vcs
 # `review`, which runs git and diffs for a review (ADR 0122). `dired` builds the directory
 # editor's listings, which `lister`'s threads run (ADR 0134).
 channel dired project review walk
-# `git` is what every run of git shares: the runner, the runs with no time limit, object ids,
-# the trusted root, git's names and the empty hooks directory (ADR 0127, as built), for
-# `review`, `sessions`, `vcs` and `app`.
+# `git` is what every run of git and `gh` shares: the runner and its reads (ancestry too), the
+# runs with no time limit, object ids, the trusted root, git's names and which may hold
+# secrets, the empty hooks directory, `git apply`'s words, `gh` and a pull request's target,
+# the listed worktrees, and run text made safe to show (ADR 0127, as built), for `review`,
+# `sessions`, `vcs`, `commands` and `app`.
 git
 
 [oso-syntax]
