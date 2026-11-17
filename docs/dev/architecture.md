@@ -763,6 +763,7 @@ The UI thread never blocks on I/O or parsing:
   terminal's (`app/terminals/start.rs`). The app's table of hosted sessions (`sessions/hosted.rs`, glue in
   `app/sessions/hosting.rs`) holds each session's buffer and its `claude`'s process id
   (`oso_term::Terminal::pid`); the set oso remembers, `sessions` in the state directory
+  (`oso_platform::privacy::state_dir()`, which `OSO_STATE_DIR` moves, ADR 0146)
   (`sessions/record.rs`), is read and written on `oso-sessions`. A bridge's claim of a session is
   judged on the UI thread by one pure function (`sessions/bridge.rs`) when the channel's server
   asks (`Event::Claims`).

@@ -21,6 +21,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use oso_platform::control::{ControlDir, ControlStream, Socket};
+use oso_platform::privacy::STATE_DIR_VARIABLE;
 use oso_platform::process::{Child, Executable, Sink, Source, Spawn, spawn};
 use serde_json::{Value, json};
 
@@ -719,6 +720,15 @@ struct Process {
 impl Process {
     fn start(args: &[OsString], cwd: &Path, set: &[(&str, &std::ffi::OsStr)]) -> Self {
         compositor_is_there();
+        // Its state in the flow's own directory, beside its emergency copies, never the
+        // person's: the sessions it remembers, its spaces and its reviews' copies (ADR 0146).
+        // Instances a flow starts in one directory share it, as a restart's two do.
+        let state = cwd.join("state");
+        let mut set = set.to_vec();
+        if !set.iter().any(|(name, _)| *name == STATE_DIR_VARIABLE) {
+            set.push((STATE_DIR_VARIABLE, state.as_os_str()));
+        }
+        let set = set.as_slice();
         let mut child = spawn(&Spawn {
             executable: &oso(),
             args,
