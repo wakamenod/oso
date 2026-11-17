@@ -26,6 +26,7 @@ pub(super) struct Load {
     editorconfig: Option<loader::EditorConfigFound>,
 }
 
+pub(super) mod opened;
 impl App {
     /// Visits `path` in the selected window: a buffer named after the file
     /// shows at once, read-only, and fills in as a background thread loads
@@ -345,7 +346,8 @@ impl App {
     /// Emacs's dired does (ADR 0141).
     fn first_load_failed(&mut self, id: BufferId, e: &LoadError) {
         let path = (self.editor.buffer(id)).and_then(|buffer| buffer.path().map(PathBuf::from));
-        let listed = if self.agent_load_failed(id, e) {
+        // A server's edit opened it: it says why itself, and lists no directory.
+        let listed = if self.agent_load_failed(id, e) || self.opened_for_an_edit(id) {
             None
         } else if let (LoadError::Directory, Some(directory)) = (e, path) {
             Some(directory)
@@ -430,7 +432,8 @@ impl App {
         };
         buffer.set_baseline(baseline);
         self.editor.request_project(id);
-        self.shows_the_one_open(index, id)
+        // A server's edit that opened it judges another name itself, and shows nothing.
+        !self.opened_for_an_edit(id) && self.shows_the_one_open(index, id)
     }
 
     /// If another buffer visits the very file the load of `id` opened, by its device and inode,
@@ -467,6 +470,11 @@ impl App {
         // the person: no message, and no question for their next `C-x C-f`.
         if buffer.agent_pending() {
             self.refuse_agent_open(id, super::agent::TOO_LARGE_FOR_THE_AGENT);
+            self.editor.kill_buffer(id);
+            return;
+        }
+        // A server's edit opened it, which then says it could not.
+        if self.opened_for_an_edit(id) {
             self.editor.kill_buffer(id);
             return;
         }

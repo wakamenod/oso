@@ -157,7 +157,13 @@ fn initialize_claims_only_what_the_steps_use() {
             "window": {"workDoneProgress": true},
             "workspace": {
                 "configuration": true,
-                "workspaceEdit": {"documentChanges": true, "resourceOperations": []},
+                "workspaceEdit": {
+                    "documentChanges": true,
+                    "resourceOperations": [],
+                    "failureHandling": "transactional",
+                },
+                "applyEdit": true,
+                "executeCommand": {},
             },
             "textDocument": {
                 "synchronization": {"didSave": true},

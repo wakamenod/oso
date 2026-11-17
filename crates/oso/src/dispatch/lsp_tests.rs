@@ -516,3 +516,15 @@ fn the_agent_s_c_c_c_r_is_refused_and_asks_nothing() {
     }
     assert!(editor.take_server_requests().is_empty());
 }
+
+#[test]
+fn the_question_s_yes_asks_the_host_to_apply_the_waiting_action() {
+    use oso_core::editor::ServerRequest;
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    editor.ask("apply?", "lsp-code-action-confirm").unwrap();
+    send(&mut d, &mut editor, "y");
+    assert_eq!(
+        editor.take_server_requests(),
+        [ServerRequest::ConfirmCodeAction]
+    );
+}

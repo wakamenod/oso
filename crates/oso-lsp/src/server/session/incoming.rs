@@ -58,6 +58,10 @@ impl Session {
         match incoming {
             Incoming::Answer { id, outcome } => self.answer(run, id, outcome, now)?,
             Incoming::Stray => self.reporter.log("an answer to no request".into()),
+            // While a command it ran waits, its edit is the UI's to answer (step 13b).
+            Incoming::Request { id, method, params } if method == "workspace/applyEdit" => {
+                self.apply_edit_asked(run, id, &params)?;
+            }
             Incoming::Request { id, method, params } => {
                 let answer = protocol::answer_for(
                     &method,
@@ -104,7 +108,7 @@ impl Session {
                 run.sync = protocol::sync(&result);
                 let completing = protocol::completing(&result);
                 run.resolves = completing.resolves;
-                run.acting = protocol::acting(&result);
+                run.actions.acting = protocol::acting(&result);
                 self.reporter.completing(completing);
                 self.open_documents(run)?;
                 let name = protocol::server_name(&result)
