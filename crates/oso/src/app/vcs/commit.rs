@@ -287,13 +287,8 @@ impl App {
         let Some(at) = self.draft_index(buffer) else {
             return;
         };
-        let next = match (self.gits.commits.drafts[at].ring_at, older) {
-            (None, true) => Some(0),
-            (Some(n), true) => Some(n + 1),
-            (Some(n), false) => n.checked_sub(1),
-            (None, false) => None,
-        };
         let ring = &self.gits.commits.ring;
+        let next = ring.step(self.gits.commits.drafts[at].ring_at, older);
         let Some((next, kept)) = next.and_then(|n| Some((n, ring.get(n)?.to_owned()))) else {
             let which = if older { "older" } else { "newer" };
             return self.editor.message(format!("No {which} message kept"));
@@ -388,6 +383,12 @@ impl App {
             .commits
             .drafts
             .retain(|draft| draft.buffer != buffer);
+        self.close_message(buffer, project);
+    }
+
+    /// Kills a message's `buffer`, a commit's or a pull request's, showing `project`'s status in
+    /// each window that showed it.
+    pub(super) fn close_message(&mut self, buffer: BufferId, project: Option<ProjectId>) {
         if let Some(status) = project.and_then(|project| self.editor.git_status_buffer(project)) {
             let showing: Vec<WindowId> = (self.editor.windows())
                 .filter(|window| window.buffer() == buffer)

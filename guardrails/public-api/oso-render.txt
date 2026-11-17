@@ -130,6 +130,7 @@ pub oso_render::Face::Region
 pub oso_render::Face::ReviewCommentAgent
 pub oso_render::Face::ReviewCommentPerson
 pub oso_render::Face::ReviewOutdated
+pub oso_render::Face::ReviewSent
 pub oso_render::Face::SearchCurrent
 pub oso_render::Face::SearchMatch
 pub oso_render::Face::SecondaryCursor

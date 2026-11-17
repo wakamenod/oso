@@ -27,8 +27,13 @@ use crate::vcs::pr::PrHead;
 use crate::vcs::pr::work::{PrReport, PrRequest, PrWorker};
 use crate::vcs::pr::write::{PrBuilt, PrLaid, PrRow};
 
+mod create;
+
+pub(super) use create::AfterRun;
+
 /// Why a restricted project gets no pull request.
-const RESTRICTED: &str = "Pull requests are read through gh, which this project is not trusted to run: M-x trust-project";
+const RESTRICTED: &str =
+    "Pull requests go through gh, which this project is not trusted to run: M-x trust-project";
 
 /// The least time between two reads of a status's `PR:` line the person asked for.
 const HEAD_EVERY: Duration = Duration::from_secs(30);
@@ -54,6 +59,8 @@ impl std::fmt::Debug for PrEvent {
 pub(super) struct Prs {
     repos: Vec<PrRepo>,
     views: Vec<PrBuffer>,
+    /// Making and merging pull requests (step 5a-2).
+    create: create::Creating,
     serial: u64,
     generation: u64,
 }
@@ -101,6 +108,21 @@ impl App {
                 self.ask_pr(project, PrRequest::Address);
             }
             GitRequest::PrAct { buffer, act, line } => self.pr_act(buffer, act, line),
+            GitRequest::PrCreate {
+                project,
+                draft,
+                ask_base,
+            } => self.pr_create_asked(project, draft, ask_base),
+            GitRequest::PrCreateBase { project, base } => self.pr_base_answered(project, base),
+            GitRequest::PrCreateFinish { buffer } => self.finish_pr(buffer),
+            GitRequest::PrCreateCancel { buffer } => self.cancel_pr(buffer),
+            GitRequest::PrRing { buffer, older } => self.walk_pr_ring(buffer, older),
+            GitRequest::PrMerge {
+                project,
+                method,
+                delete_branch,
+            } => self.start_merge(project, method, delete_branch),
+            GitRequest::PrConfirmed => self.pr_confirmed(),
             // The others are not pull requests' (`requests::concern`).
             _ => {}
         }
@@ -265,6 +287,12 @@ impl App {
             PrReport::View { generation, laid } => self.pr_text(generation, laid),
             PrReport::List { generation, laid } => self.pr_text(generation, laid),
             PrReport::Address(Ok((url, number))) => self.open_pr_address(project, url, number),
+            PrReport::Drafted { generation, draft } => {
+                self.pr_drafted(project, generation, draft);
+            }
+            PrReport::MergeAsked { generation, merge } => {
+                self.pr_merge_read(project, generation, merge);
+            }
             PrReport::Address(Err(why)) | PrReport::Opened(why) => {
                 self.editor.message(printable(&why, super::MAX_MESSAGE));
             }
@@ -356,6 +384,7 @@ impl App {
     /// repositories no longer trusted, revoking their roots so that nothing queued runs and
     /// what comes back late is dropped; and puts in a text that waited.
     pub(super) fn sync_prs(&mut self) {
+        self.sync_pr_drafts();
         let editor = &self.editor;
         let gone: Vec<usize> = (self.gits.prs.views.iter().enumerate())
             .filter(|(_, view)| editor.git_pr_of(view.buffer).is_none())

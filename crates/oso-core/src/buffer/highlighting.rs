@@ -260,6 +260,8 @@ impl Buffer {
             | Mode::GitGraph
             | Mode::GitPr
             | Mode::GitPrList
+            | Mode::GitPrMessage
+            | Mode::ReviewMessage
             | Mode::GitLog
             | Mode::Conversation
             | Mode::RenamePreview

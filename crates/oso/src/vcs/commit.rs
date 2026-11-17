@@ -253,6 +253,18 @@ impl Ring {
     pub(crate) fn len(&self) -> usize {
         self.kept.len()
     }
+
+    /// The message `M-p` (`older`) or `M-n` shows from `at`, the one shown, `None` for the
+    /// person's own: an older one, a newer one, or none past either end.
+    pub(crate) fn step(&self, at: Option<usize>, older: bool) -> Option<usize> {
+        let next = match (at, older) {
+            (None, true) => Some(0),
+            (Some(n), true) => Some(n + 1),
+            (Some(n), false) => n.checked_sub(1),
+            (None, false) => None,
+        };
+        next.filter(|&n| n < self.kept.len())
+    }
 }
 
 /// The hooks in `hooks`, the repository's hooks directory, that a commit runs and that may

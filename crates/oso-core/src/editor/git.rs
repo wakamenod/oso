@@ -21,7 +21,8 @@
 //!   host fills as a status, one per project, `*graph: NAME*` (step 4).
 //! - A pull request shows in an internal buffer of [`Mode::GitPr`], `*pr: #N*` or `*pr: NAME*`
 //!   for the branch's, and a repository's open ones in one of [`Mode::GitPrList`], which the host
-//!   fills as a status (step 5a).
+//!   fills as a status (step 5a). A pull request's title and body are the person's to write, in
+//!   a buffer of [`Mode::GitPrMessage`].
 
 use super::Editor;
 use crate::buffer::{Buffer, BufferId, Mode};

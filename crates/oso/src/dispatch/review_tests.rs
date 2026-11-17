@@ -78,7 +78,7 @@ fn the_menu_says_each_count_in_one_width_and_why_a_head_cannot_run() {
         line.starts_with("Review \u{b7} oso \u{b7} ~/src/oso"),
         "{line}"
     );
-    assert!(line.ends_with("comments go to the kill ring until sending exists"));
+    assert!(!line.contains("kill ring"), "{line}");
 }
 
 // Unix only, as the trust tests elsewhere are: without a drive, the path is not absolute on

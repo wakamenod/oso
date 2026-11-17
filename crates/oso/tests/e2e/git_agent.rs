@@ -25,7 +25,7 @@ use super::worktrees::{Flow, keys, terminal};
 /// screen a flow writes to `screen` printed, and, once the flow wrote `bridge.PID`, that script
 /// run as its child over the FIFO `in.PID`, writing to `out.PID`. `DIR` is the scratch
 /// directory.
-const FAKE: &str = r#"#!/bin/sh
+pub(super) const FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 printf '%s\0' "$(pwd -P)" "$@" > "$dir/tmp.$$"
 mkfifo "$dir/in.$$"
@@ -56,14 +56,14 @@ exit "$(cat "$dir/go")"
 
 const WORKING: &str = include_str!("../../src/sessions/screens/working.txt");
 
-const END: &str = "\u{1b}[201~";
+pub(super) const END: &str = "\u{1b}[201~";
 
 /// How long the channel waits after the person's last key before it changes anything, and a
 /// moment more.
 const AFTER_TYPING: Duration = Duration::from_millis(1200);
 
 /// What the fake has read once it holds `pastes` whole bracketed pastes.
-fn pastes(flow: &Flow, pastes: usize) -> String {
+pub(super) fn pastes(flow: &Flow, pastes: usize) -> String {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let read = fs::read_to_string(flow.scratch.path().join("input")).unwrap_or_default();
@@ -75,7 +75,7 @@ fn pastes(flow: &Flow, pastes: usize) -> String {
     }
 }
 
-fn echo(state: &Value) -> String {
+pub(super) fn echo(state: &Value) -> String {
     state["echo"].as_str().unwrap_or_default().to_owned()
 }
 
@@ -87,14 +87,14 @@ fn request_id(read: &str) -> String {
 
 /// Shows the buffer `name` again with `C-x b`, as the person does after a paste showed the
 /// session.
-fn back_to(app: &mut App, name: &str) {
+pub(super) fn back_to(app: &mut App, name: &str) {
     app.send_keys(&format!("C-x b {} RET", keys(name)));
     app.wait_for(name, |state| state["buffer"]["name"] == name);
 }
 
 /// An instance in `flow`'s repository, its README changed, with a session at its root judged
 /// working, which a paste waits for, and that session's bridge.
-fn hosted(flow: &Flow) -> (App, Bridge) {
+pub(super) fn hosted(flow: &Flow) -> (App, Bridge) {
     for (name, value) in [
         ("user.name", "e2e"),
         ("user.email", "e2e@example.invalid"),

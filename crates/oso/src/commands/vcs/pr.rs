@@ -159,5 +159,7 @@ fn refresh(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     act(ctx, PrAct::Refresh)
 }
 
+pub mod create;
+
 #[cfg(test)]
 mod tests;

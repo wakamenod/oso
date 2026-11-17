@@ -45,6 +45,9 @@ pub enum Mode {
     Worktrees,
     /// A review's buffer (ADR 0122).
     Review,
+    /// `*review message*`, the message of a review's comments before it is sent to an agent
+    /// session (ADR 0122, step 12): the person's to change.
+    ReviewMessage,
     /// A terminal (ADR 0120): its keys go to the program in it, but for oso's own.
     Terminal,
     /// A directory's listing, as Emacs's dired shows it (ADR 0134).
@@ -59,6 +62,9 @@ pub enum Mode {
     GitPr,
     /// A repository's open pull requests, `*pull requests: NAME*` (ADR 0127, step 5a).
     GitPrList,
+    /// A pull request's title and body being written, `*pull request: BRANCH*` (ADR 0127, step
+    /// 5a-2): its first line the title, the rest the body.
+    GitPrMessage,
     /// A commit's message being written, `*commit: NAME*`, as magit's `git-commit-mode`
     /// (ADR 0127, step 1b).
     GitCommit,
@@ -129,12 +135,14 @@ impl Mode {
             Self::Brief => "Brief",
             Self::Worktrees => "Worktrees",
             Self::Review => "Review",
+            Self::ReviewMessage => "Review Message",
             Self::Terminal => "Terminal",
             Self::Directory => "Dired",
             Self::GitStatus => "Git",
             Self::GitGraph => "Git Graph",
             Self::GitPr => "Git PR",
             Self::GitPrList => "Git PRs",
+            Self::GitPrMessage => "Git PR Message",
             Self::GitCommit => "Git Commit",
             Self::GitLog => "Git Log",
             Self::GitDiscarded => "Git Discarded",
@@ -164,6 +172,8 @@ impl Mode {
             Self::Fundamental
             | Self::Brief
             | Self::GitCommit
+            | Self::GitPrMessage
+            | Self::ReviewMessage
             | Self::Go
             | Self::TypeScript
             | Self::Tsx

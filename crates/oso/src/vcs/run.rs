@@ -4,7 +4,7 @@
 //! pushes, pulls and fetches (`remotes`), and planning where a push goes; from step 3a,
 //! continuing, skipping and aborting what is stopped (`sequence`); from step 3b, stashing
 //! (`stash`) and branches (`branch`); from step 4b, a graph's tags, cherry-picks and reverts
-//! (`graph`).
+//! (`graph`); from step 5a-2, making and merging pull requests, `gh`'s long runs (`pr`).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
 //! takes reports out, and supplies the wake-up.
@@ -45,6 +45,7 @@ use crate::git::{Ender, Git, MAX_SHORT, TrustedRoot, os_path, trim_line};
 
 mod branch;
 mod graph;
+mod pr;
 mod remotes;
 mod sequence;
 mod stash;
@@ -102,6 +103,8 @@ pub(crate) enum RunRequest {
         run: super::graph::GraphRun,
         pass: Vec<String>,
     },
+    /// Make or merge a pull request through `gh`, as `run` says (step 5a-2).
+    Pr { run: super::pr::create::PrRun },
 }
 
 /// What a remote's request asks for, with the names `pass` passes on to the hooks of a run.
@@ -258,6 +261,18 @@ impl Drop for Runner {
     }
 }
 
+/// git for the repository at `root`, found once and kept in `git`, while the root holds.
+fn git_for(root: &TrustedRoot, state: Option<&Path>, git: &mut Option<Git>) -> Result<Git, String> {
+    root.check()?;
+    if let Some(git) = git {
+        return Ok(Git::clone(git));
+    }
+    let hooks = hooks_dir(state)?;
+    let found = find(root.path(), &hooks)?;
+    *git = Some(found.clone());
+    Ok(found)
+}
+
 fn serve(
     queue: &Receiver<RunRequest>,
     mut send: impl FnMut(RunReport) -> bool,
@@ -267,15 +282,7 @@ fn serve(
     let root = watch.root;
     let mut git = None;
     while let Ok(request) = queue.recv() {
-        let found = root.check().and_then(|()| match &git {
-            Some(git) => Ok(Git::clone(git)),
-            None => {
-                let hooks = hooks_dir(state)?;
-                let found = find(root.path(), &hooks)?;
-                git = Some(found.clone());
-                Ok(found)
-            }
-        });
+        let found = git_for(root, state, &mut git);
         let reports = match (found, request) {
             (Err(why), RunRequest::Message) => vec![RunReport::Message(Err(why))],
             (found, RunRequest::Subjects) => vec![RunReport::Subjects {
@@ -309,6 +316,10 @@ fn serve(
             }
             (Ok(git), RunRequest::Graph { run, pass }) => {
                 let end = graph::run(&git, &run, &pass, watch, &mut send);
+                vec![ended(watch, end)]
+            }
+            (Ok(git), RunRequest::Pr { run }) => {
+                let end = pr::run(&git, (root, state), &run, watch, &mut send);
                 vec![ended(watch, end)]
             }
             (Ok(git), RunRequest::Remote(request)) => {

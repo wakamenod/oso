@@ -65,6 +65,13 @@ pub(super) fn concern(request: &GitRequest) -> Concern {
         GitRequest::PrView { .. }
         | GitRequest::PrList { .. }
         | GitRequest::PrOpen { .. }
-        | GitRequest::PrAct { .. } => Concern::Pr,
+        | GitRequest::PrAct { .. }
+        | GitRequest::PrCreate { .. }
+        | GitRequest::PrCreateBase { .. }
+        | GitRequest::PrCreateFinish { .. }
+        | GitRequest::PrCreateCancel { .. }
+        | GitRequest::PrRing { .. }
+        | GitRequest::PrMerge { .. }
+        | GitRequest::PrConfirmed => Concern::Pr,
     }
 }

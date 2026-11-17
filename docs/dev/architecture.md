@@ -687,7 +687,11 @@ The UI thread never blocks on I/O or parsing:
   the head line's parts, `*pr: #N*` and the list, and `vcs/pr/work.rs` runs `gh` on
   `oso-vcs-gh`, one thread per repository, through `git/gh.rs`'s runner; `app/vcs/pr.rs` keeps
   the buffers, puts the head line in the status's view and carries out the keys, and
-  `commands::vcs::pr` holds the menu's heads and the buffers' keys.
+  `commands::vcs::pr` holds the menu's heads and the buffers' keys. Making and merging (step
+  5a-2): `vcs/pr/create.rs` is the message's start, its title and body and the runs' arguments,
+  `vcs/pr/work/draft.rs` reads what they start from on `oso-vcs-gh`, `vcs/run/pr.rs` runs them
+  on `oso-vcs-run` through `Gh::start_long`, and `app/vcs/pr/create.rs` and
+  `commands::vcs::pr::create` carry them out.
 - Stashes and branches (step 3b): `vcs/stash.rs` reads the stash list into the Stashes section
   and `vcs/branch.rs` holds what branches need that runs no git; `vcs/run/stash.rs` and
   `vcs/run/branch.rs` run them on `oso-vcs-run`, finding a stash again by its id and planning a
@@ -786,8 +790,9 @@ The UI thread never blocks on I/O or parsing:
   refuses a session that cannot take a paste (`sessions/send.rs::refusal`, pure), pastes with
   the terminal's own paste, never submitted, and shows the session. Commands only describe
   what to send (`SessionRequest::Send`); the text is put together by pure functions
-  (`sessions/send.rs::compose`). ADR 0122's review comments and ADR 0127's drafts call the
-  same path, and so does `session-yank-image` (`C-c C-y`, ADR 0142), which checks the same
+  (`sessions/send.rs::compose`). ADR 0122's review comments call the same path, their message
+  composed from the review's model by `review/message.rs` and shown in `*review message*`
+  first (`app/reviews/send.rs`, step 12); so do ADR 0127's drafts, and so does `session-yank-image` (`C-c C-y`, ADR 0142), which checks the same
   refusals first (`paste_target`), has the clipboard's worker read the image, and keeps it on
   `sessions::images`' one `oso-images` thread, which also removes a session's images when it is
   archived and sweeps old ones (`app/sessions/watch/images.rs`). The dispatcher notes whether
@@ -804,7 +809,8 @@ The UI thread never blocks on I/O or parsing:
     its bounded collector. A removal's `git worktree remove` alone has no time limit and runs
     on a thread of its own, `oso-sessions-remove`, so that a kill never leaves a worktree half
     removed (ADR 0121, "Worktree removal, as fixed"). A removal holds its worktree until git
-    ends, and at most 4 run at once.
+    ends, and at most 4 run at once. The person's `worktree-remove-stop`
+    (`app/sessions/worktrees/stop.rs`) stops one through the jobs' `Removals`.
   - Each job takes the project's trust when it is asked for (`jobs::Trust`), checks it again
     before it runs, and refuses a repository whose main checkout is not trusted too. What
     touches the disk, the new worktree's trust included, is made on the job's thread.

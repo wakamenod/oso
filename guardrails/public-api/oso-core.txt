@@ -65,6 +65,7 @@ pub oso_core::buffer::Mode::GitGraph
 pub oso_core::buffer::Mode::GitLog
 pub oso_core::buffer::Mode::GitPr
 pub oso_core::buffer::Mode::GitPrList
+pub oso_core::buffer::Mode::GitPrMessage
 pub oso_core::buffer::Mode::GitStatus
 pub oso_core::buffer::Mode::Go
 pub oso_core::buffer::Mode::JavaScript
@@ -72,6 +73,7 @@ pub oso_core::buffer::Mode::Latex
 pub oso_core::buffer::Mode::Markdown
 pub oso_core::buffer::Mode::RenamePreview
 pub oso_core::buffer::Mode::Review
+pub oso_core::buffer::Mode::ReviewMessage
 pub oso_core::buffer::Mode::Rust
 pub oso_core::buffer::Mode::Sessions
 pub oso_core::buffer::Mode::Swift
@@ -423,6 +425,10 @@ pub oso_core::command::ArgSpec::ListedAndNoteUnlessRegion::list: &'static str
 pub oso_core::command::ArgSpec::ListedAndNoteUnlessRegion::note_history: &'static str
 pub oso_core::command::ArgSpec::ListedAndNoteUnlessRegion::note_prompt: &'static str
 pub oso_core::command::ArgSpec::ListedAndNoteUnlessRegion::prompt: &'static str
+pub oso_core::command::ArgSpec::ListedOnPrefix
+pub oso_core::command::ArgSpec::ListedOnPrefix::history: &'static str
+pub oso_core::command::ArgSpec::ListedOnPrefix::list: &'static str
+pub oso_core::command::ArgSpec::ListedOnPrefix::prompt: &'static str
 pub oso_core::command::ArgSpec::Mark
 pub oso_core::command::ArgSpec::Mark::prompt: &'static str
 pub oso_core::command::ArgSpec::Menu
@@ -1524,10 +1530,29 @@ pub oso_core::editor::GitRequest::PrAct
 pub oso_core::editor::GitRequest::PrAct::act: oso_core::editor::PrAct
 pub oso_core::editor::GitRequest::PrAct::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::PrAct::line: usize
+pub oso_core::editor::GitRequest::PrConfirmed
+pub oso_core::editor::GitRequest::PrCreate
+pub oso_core::editor::GitRequest::PrCreate::ask_base: bool
+pub oso_core::editor::GitRequest::PrCreate::draft: bool
+pub oso_core::editor::GitRequest::PrCreate::project: oso_core::project::ProjectId
+pub oso_core::editor::GitRequest::PrCreateBase
+pub oso_core::editor::GitRequest::PrCreateBase::base: alloc::string::String
+pub oso_core::editor::GitRequest::PrCreateBase::project: oso_core::project::ProjectId
+pub oso_core::editor::GitRequest::PrCreateCancel
+pub oso_core::editor::GitRequest::PrCreateCancel::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::PrCreateFinish
+pub oso_core::editor::GitRequest::PrCreateFinish::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::GitRequest::PrList
 pub oso_core::editor::GitRequest::PrList::project: oso_core::project::ProjectId
+pub oso_core::editor::GitRequest::PrMerge
+pub oso_core::editor::GitRequest::PrMerge::delete_branch: bool
+pub oso_core::editor::GitRequest::PrMerge::method: oso_core::editor::MergeMethod
+pub oso_core::editor::GitRequest::PrMerge::project: oso_core::project::ProjectId
 pub oso_core::editor::GitRequest::PrOpen
 pub oso_core::editor::GitRequest::PrOpen::project: oso_core::project::ProjectId
+pub oso_core::editor::GitRequest::PrRing
+pub oso_core::editor::GitRequest::PrRing::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::PrRing::older: bool
 pub oso_core::editor::GitRequest::PrView
 pub oso_core::editor::GitRequest::PrView::checks: bool
 pub oso_core::editor::GitRequest::PrView::number: core::option::Option<u64>
@@ -1802,6 +1827,19 @@ pub fn oso_core::editor::MacroEvent::eq(&self, &oso_core::editor::MacroEvent) ->
 impl core::fmt::Debug for oso_core::editor::MacroEvent
 pub fn oso_core::editor::MacroEvent::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::MacroEvent
+pub enum oso_core::editor::MergeMethod
+pub oso_core::editor::MergeMethod::Merge
+pub oso_core::editor::MergeMethod::Rebase
+pub oso_core::editor::MergeMethod::Squash
+impl core::clone::Clone for oso_core::editor::MergeMethod
+pub fn oso_core::editor::MergeMethod::clone(&self) -> oso_core::editor::MergeMethod
+impl core::cmp::Eq for oso_core::editor::MergeMethod
+impl core::cmp::PartialEq for oso_core::editor::MergeMethod
+pub fn oso_core::editor::MergeMethod::eq(&self, &oso_core::editor::MergeMethod) -> bool
+impl core::fmt::Debug for oso_core::editor::MergeMethod
+pub fn oso_core::editor::MergeMethod::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::MergeMethod
+impl core::marker::StructuralPartialEq for oso_core::editor::MergeMethod
 pub enum oso_core::editor::NoPair
 pub oso_core::editor::NoPair::NoBuffer
 pub oso_core::editor::NoPair::Paired
@@ -1990,6 +2028,11 @@ pub enum oso_core::editor::ReviewRequest
 pub oso_core::editor::ReviewRequest::Baseline
 pub oso_core::editor::ReviewRequest::Baseline::project: oso_core::project::ProjectId
 pub oso_core::editor::ReviewRequest::Close(oso_core::editor::ReviewId)
+pub oso_core::editor::ReviewRequest::MessageDrop
+pub oso_core::editor::ReviewRequest::MessageDrop::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::ReviewRequest::MessageSend
+pub oso_core::editor::ReviewRequest::MessageSend::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::ReviewRequest::MessageSend::to: core::option::Option<alloc::string::String>
 pub oso_core::editor::ReviewRequest::Open
 pub oso_core::editor::ReviewRequest::Open::project: oso_core::project::ProjectId
 pub oso_core::editor::ReviewRequest::Open::revision: core::option::Option<alloc::string::String>
@@ -1998,6 +2041,7 @@ pub oso_core::editor::ReviewRequest::Redraw
 pub oso_core::editor::ReviewRequest::Redraw::path: alloc::boxed::Box<[u8]>
 pub oso_core::editor::ReviewRequest::Redraw::review: oso_core::editor::ReviewId
 pub oso_core::editor::ReviewRequest::Refresh(oso_core::editor::ReviewId)
+pub oso_core::editor::ReviewRequest::Send(oso_core::editor::ReviewId)
 pub oso_core::editor::ReviewRequest::Visit
 pub oso_core::editor::ReviewRequest::Visit::number: u32
 pub oso_core::editor::ReviewRequest::Visit::old_side: bool
@@ -2182,6 +2226,8 @@ pub oso_core::editor::SessionRequest::Worktree::branch: alloc::string::String
 pub oso_core::editor::SessionRequest::WorktreeList
 pub oso_core::editor::SessionRequest::WorktreeRemove(core::option::Option<std::path::PathBuf>)
 pub oso_core::editor::SessionRequest::WorktreeRemoveConfirmed
+pub oso_core::editor::SessionRequest::WorktreeRemoveStop
+pub oso_core::editor::SessionRequest::WorktreeRemoveStopConfirmed
 pub oso_core::editor::SessionRequest::YankImage(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Zoom
 impl core::clone::Clone for oso_core::editor::SessionRequest
@@ -5966,6 +6012,7 @@ pub oso_core::syntax::Highlight::Macro
 pub oso_core::syntax::Highlight::Markup
 pub oso_core::syntax::Highlight::Outdated
 pub oso_core::syntax::Highlight::Property
+pub oso_core::syntax::Highlight::Sent
 pub oso_core::syntax::Highlight::SessionAlert
 pub oso_core::syntax::Highlight::SessionDone
 pub oso_core::syntax::Highlight::SessionFront

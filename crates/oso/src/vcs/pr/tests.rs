@@ -8,7 +8,7 @@ use proptest::prelude::*;
 
 use super::{
     Bucket, Counts, Review, State, is_plain_link, is_plain_path, is_pull_address, read_checks,
-    read_head, read_list, read_threads, read_view, seconds,
+    read_default_branch, read_head, read_list, read_merge, read_threads, read_view, seconds,
 };
 
 const HEAD: &str = r#"{"number":12,"title":"Add x","state":"OPEN","isDraft":false,
@@ -181,6 +181,25 @@ fn times_read_as_github_writes_them() {
     }
 }
 
+#[test]
+fn a_default_branch_and_a_merge_read_by_shape() {
+    assert_eq!(
+        read_default_branch(br#"{"defaultBranchRef":{"name":"main"}}"#).as_deref(),
+        Some("main")
+    );
+    assert_eq!(read_default_branch(b"{}"), None);
+    let id = "a".repeat(40);
+    let merge = format!(
+        r#"{{"number":3,"state":"OPEN","baseRefName":"main","headRefOid":"{id}","headRefName":"f"}}"#
+    );
+    let read = read_merge(merge.as_bytes()).unwrap();
+    assert!(read.open && read.head_commit == id && read.branch == "f");
+    // A head that is not a whole commit id is no merge's.
+    assert_eq!(read_merge(merge.replace(&id, "HEAD").as_bytes()), None);
+    let closed = merge.replace("OPEN", "CLOSED");
+    assert!(!read_merge(closed.as_bytes()).unwrap().open);
+}
+
 proptest! {
     #[test]
     fn no_reader_panics(bytes in proptest::collection::vec(any::<u8>(), 0..512)) {
@@ -189,6 +208,8 @@ proptest! {
         let _ = read_checks(&bytes);
         let _ = read_threads(&bytes);
         let _ = read_list(&bytes);
+        let _ = read_default_branch(&bytes);
+        let _ = read_merge(&bytes);
     }
 
     #[test]

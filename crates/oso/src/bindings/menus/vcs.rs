@@ -4,7 +4,7 @@
 //!
 //! Must not depend on: `dispatch`, `app` or winit; menus are data.
 
-use super::{BuiltInMenu, exit, switch};
+use super::{BuiltInMenu, exit, open, switch};
 
 /// Committing (ADR 0127, step 1b), from a git status's `c`, as magit's commit transient: its
 /// switches, then each kind, with fixup and squash onto the commit at point (step 2).
@@ -162,19 +162,64 @@ pub(super) const BRANCH: BuiltInMenu = BuiltInMenu {
     describe: None,
 };
 
-/// Pull requests (ADR 0127, step 5a), from a git status's `N`, through `gh`.
+/// Pull requests (ADR 0127, step 5a), from a git status's `N`, through `gh`: reading them, and
+/// from step 5a-2 making one, with its switches, and the merge menu.
 pub(super) const PULL_REQUEST: BuiltInMenu = BuiltInMenu {
     name: "pull-request",
     title: "Pull request",
-    groups: &[(
-        "The branch's pull request",
-        &[
-            exit("v", "git-pr-view", "view"),
-            exit("k", "git-pr-checks", "checks"),
-            exit("o", "git-pr-browse", "open in the browser"),
-            exit("l", "git-pr-list", "the open ones"),
-        ],
-    )],
+    groups: &[
+        (
+            "Arguments",
+            &[
+                switch("- d", crate::commands::vcs::pr::create::DRAFT, "draft"),
+                switch(
+                    "- b",
+                    crate::commands::vcs::pr::create::BASE,
+                    "into a base read",
+                ),
+            ],
+        ),
+        (
+            "The branch's pull request",
+            &[
+                exit("v", "git-pr-view", "view"),
+                exit("k", "git-pr-checks", "checks"),
+                exit("o", "git-pr-browse", "open in the browser"),
+                exit("c", "git-pr-create", "create"),
+                open("m", "pull-request-merge", "merge"),
+            ],
+        ),
+        (
+            "The repository's",
+            &[exit("l", "git-pr-list", "the open ones")],
+        ),
+    ],
+    describe: None,
+};
+
+/// Merging the branch's pull request (ADR 0127, step 5a-2), from the pull request menu's `m`:
+/// each head asks first, naming the pull request, its base, the method and its head.
+pub(super) const PULL_REQUEST_MERGE: BuiltInMenu = BuiltInMenu {
+    name: "pull-request-merge",
+    title: "Merge the pull request",
+    groups: &[
+        (
+            "Arguments",
+            &[switch(
+                "- d",
+                crate::commands::vcs::pr::create::DELETE_BRANCH,
+                "delete the branch on the remote",
+            )],
+        ),
+        (
+            "Merge",
+            &[
+                exit("s", "git-pr-merge-squash", "squashed"),
+                exit("m", "git-pr-merge-commit", "with a merge commit"),
+                exit("r", "git-pr-merge-rebase", "rebased"),
+            ],
+        ),
+    ],
     describe: None,
 };
 

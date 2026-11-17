@@ -202,6 +202,12 @@ pub fn review_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, review::REVIEW).unwrap_or_default()
 }
 
+/// A review message's own keymap, above the global one in it (ADR 0122, step 12). Empty for a
+/// registry without its commands.
+pub fn review_message_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, review::MESSAGE).unwrap_or_default()
+}
+
 /// `*lsp-rename*`'s own keymap, above the global one (ADR 0138, step 14). Empty for a registry
 /// without its commands, as in tests that bring their own.
 pub fn rename_preview_keymap(registry: &Registry) -> Keymap {
@@ -251,6 +257,12 @@ pub fn git_graph_keymap(registry: &Registry) -> Keymap {
 /// step 5a). Empty for a registry without its commands.
 pub fn git_pr_keymap(registry: &Registry) -> Keymap {
     Keymap::from_table(registry, vcs::PR).unwrap_or_default()
+}
+
+/// A pull request's message's own keymap, above the global one in it (ADR 0127, step 5a-2).
+/// Empty for a registry without its commands.
+pub fn git_pr_message_keymap(registry: &Registry) -> Keymap {
+    Keymap::from_table(registry, vcs::PR_MESSAGE).unwrap_or_default()
 }
 
 /// The keymap of the list of what discards kept, above the global one in it (ADR 0127, step

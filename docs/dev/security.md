@@ -207,6 +207,15 @@ network features.
   Untracked files are listed through a copy of the index, so the person's index is never
   written, and a file whose name may hold secrets, or a work tree file with more than one
   name, is listed and never read.
+- A review's comments reach an agent only as the person's paste (ADR 0122, step 12): every
+  command of it is `Person`, the message is shown first in `*review message*`, where the agent
+  channel's `Change` commands are refused, and it goes through `send_to_session`, cleaned and
+  not submitted, refused while the session asks for an answer. A file whose name may hold
+  secrets, or whose open buffer may, sends its place, never its lines, and a message turned
+  secret by a yank is not sent. A hunk's line has its control characters and line separators
+  escaped, so that a paste cannot break it into lines that read as another comment. oso puts
+  no message in the kill ring or on the clipboard, even with no session to paste into: what
+  the person copies from it is theirs.
 - A commit ([ADR 0127](adr/0127-source-control-and-github.md), step 1b) runs the repository's
   own hooks, only in a trusted project and only as the person's act: every command of it is
   `Person`, and while a commit's message is in front the agent channel's `Change` commands are
@@ -259,8 +268,19 @@ network features.
   display boxes is escaped in what an agent reads too. The system's opener
   (`oso_platform::process::open_link`) takes only an `https` address of plain characters, finds
   its program and helpers with the project left out of `PATH`, and oso opens only a pull
-  request's own address on the repository's host, after the echo area shows it. Every command is `Person`; an agent
-  may read `*pr: #N*` through `text`, as data.
+  request's own address on the repository's host, after the echo area shows it. Every command
+  is `Person`; an agent may read `*pr: #N*` through `text`, as data. Making and merging (step 5a-2) are the person's
+  runs on the run thread: `gh pr create` and `gh pr merge` with every value bound to its flag
+  and the body on standard input, each value quoted in the log, the branch's remote and the
+  project's trust looked at again before `gh` runs. The push before one goes to the remote's
+  branch of the same name, never to an upstream of another name, and the pull request follows
+  that push alone. A merge comes only after a question naming the pull request, its repository,
+  its base, the method and its head; just before it the run thread reads again that it is open
+  and into that base, and `--match-head-commit` makes `gh` refuse it if its head moved. A
+  question or a message `gh` answers late opens nothing over what the person does now. A pull request's message is
+  the person's: an agent's command does not change it. A template is read only as a regular
+  file under the root, never through a linked directory, at most 64 KiB, never one whose name
+  may hold secrets.
 - Stashes and branches from a git status (ADR 0127, step 3b) are the person's acts, `Person`,
   with the repository's hooks: a checkout runs `post-checkout` and the filters, as git's own
   does in a trusted project. A stash is named by its commit's id: an apply gives git the id, and
@@ -631,9 +651,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   - Every git run has no hook and no file system monitor of the repository's, as a review's
     has, `git worktree add` included. It fetches nothing and is killed after 10 s, except a
     removal's `git worktree remove`: it runs only after every check held, has no time limit,
-    and oso never stops it, as a kill would leave the worktree half removed. Revoking the
-    project's trust does not end it either. It runs in a session of its own with no
-    controlling terminal, so what it starts cannot wait on the terminal oso was started from.
+    and only the person's `worktree-remove-stop` stops it, after a warning, as a kill leaves
+    the worktree half removed. Neither an agent nor revoking the project's trust ends it. It
+    runs in a session of its own with no controlling terminal, so what it starts cannot wait
+    on the terminal oso was started from.
     While it runs, its worktree is held: a second removal of it, its checks and a session
     started in it are refused, and at most 4 removals run at once.
   - A linked worktree is run in only once its claim and the main repository's record of it

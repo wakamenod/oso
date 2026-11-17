@@ -29,6 +29,10 @@ pub struct Mapped {
 /// What is wrong, naming the command: an argument of the wrong kind or one missing, or a
 /// passphrase, which only a prompt reads. Each caller bounds counts where it reads them
 /// ([`oso_core::command::MAX_REMOTE_COUNT`]).
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm for each argument spec, each a few lines"
+)]
 pub fn map(
     name: &str,
     spec: ArgSpec,
@@ -54,6 +58,11 @@ pub fn map(
         )),
         // The host's lists, of sessions and spaces, are read only in their prompt (ADR 0121).
         (ArgSpec::Listed { .. } | ArgSpec::ListedAndNoteUnlessRegion { .. }, _) => Err(format!(
+            "{name} reads one of a list, which only its prompt takes, from keys"
+        )),
+        // With no prefix it reads nothing (ADR 0122, step 12).
+        (ArgSpec::ListedOnPrefix { .. }, Given::Nothing) => plain(Args::NONE),
+        (ArgSpec::ListedOnPrefix { .. }, _) => Err(format!(
             "{name} reads one of a list, which only its prompt takes, from keys"
         )),
         // A menu reads keys, and no channel opens one (ADR 0117).
