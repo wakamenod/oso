@@ -47,6 +47,11 @@ impl Dispatcher {
                 editor.message("A server's places are listed by M-. and M-?");
                 (redraw(), Ok(()))
             }
+            // Its list opens only once a server's answer comes (step 13).
+            ArgSpec::CodeAction => {
+                editor.message("A server's code actions are listed by C-c C-r");
+                (redraw(), Ok(()))
+            }
             ArgSpec::File { prompt, history } => {
                 self.read_file(editor, id, prefix, prompt, history, false)
             }
@@ -123,6 +128,30 @@ impl Dispatcher {
             return None;
         }
         match editor.open_xref_list(kind, generation, root) {
+            Ok(prompt) => {
+                self.reading.push(Reading::run(id, None, prompt));
+                Some(prompt)
+            }
+            Err(error) => {
+                editor.prompt_says(error.to_string());
+                None
+            }
+        }
+    }
+
+    /// Opens the list of `items`, a server's code actions, for `lsp-code-action-apply`, which
+    /// `RET` runs (ADR 0138, step 13): the host's, once a server's answer comes. Nothing opens
+    /// while a prompt is open; the list's prompt, if it opened.
+    pub fn list_code_actions(
+        &mut self,
+        editor: &mut Editor,
+        items: &[oso_core::editor::CodeActionItem],
+    ) -> Option<oso_core::minibuffer::PromptId> {
+        let id = self.registry.lookup("lsp-code-action-apply")?;
+        if editor.prompt().is_some() {
+            return None;
+        }
+        match editor.open_code_actions(items) {
             Ok(prompt) => {
                 self.reading.push(Reading::run(id, None, prompt));
                 Some(prompt)

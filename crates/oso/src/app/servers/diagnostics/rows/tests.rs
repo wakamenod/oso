@@ -63,6 +63,8 @@ fn report(at: &[(u32, Severity)]) -> Arc<Published> {
             source: "clippy".into(),
             code: String::new(),
             message: format!("on line {line}\nmore"),
+            code_number: false,
+            data: None,
         })
         .collect();
     Arc::new(Published {

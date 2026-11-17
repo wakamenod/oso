@@ -500,13 +500,14 @@ Every bound lives in `oso-lsp`'s `limits`:
   | `M-g d` | `lsp-diagnostics` |
   | `C-M-i` | `completion-at-point` |
   | `C-c C-d`, `C-h .` | `lsp-describe-at-point` |
+  | `C-c C-r` | `lsp-code-actions` (step 13) |
 
 - **`M-,` is `lsp-go-back` only there.** In every other buffer it stays `previous-buffer`
   ([ADR 0088](0088-switching-and-killing-buffers.md)), as the author's set-up binds it in buffers
   with a server only. `M-/` stays `next-buffer` everywhere.
 - The layer goes when the server stops following the buffer, so a buffer whose server stopped
   has `M-,` as `previous-buffer` again. A crashed server that starts again keeps it on.
-- `C-c C-r` is left free for code actions (a later step).
+- `C-c C-r` is left free for code actions (a later step); step 13 binds it.
 
 ### What agents may do (Q24)
 
@@ -520,6 +521,7 @@ Every bound lives in `oso-lsp`'s `limits`:
 | `lsp-describe-scroll-up`, `-down`, `-close` (step 10) | `Person` | the description's own keys |
 | `diagnostics` tool on `oso mcp` | read, like `text` | reads the reports oso holds |
 | `session-send-diagnostics`, `session-fix-error` (step 11) | `Person` | the person's paste into a session, as `session-send` |
+| `C-c C-r`, `lsp-code-action-apply` (step 13) | `Person` | an interactive float, and edits the person picks |
 
 - **A definition the agent asks for opens as the channel's `open` does:** a target whose name
   matches the secret patterns is refused, a file is shown only once judged ordinary, it counts
@@ -886,8 +888,9 @@ gains `amended by 0138`.
   is installed.
 - A language server runs only for a trusted project and is started only by the person. A broken
   or hostile server can slow only its own threads, and never blocks the UI thread, edits a
-  buffer but within an insert the person made (a completion's edits besides its own, step 9b),
-  opens a file by itself, or makes oso reach another computer.
+  buffer but within an insert the person made (a completion's edits besides its own, step 9b)
+  or by a code action the person picked from its list (step 13), opens a file by itself, or
+  makes oso reach another computer.
 - oso gains a crate, and `oso-core` gains `diagnostic`, `window::jumps`, ADR 0118's enum,
   completion at point and six modes with no highlighting yet. The renderer gains a wavy underline and three faces in each theme.
 - The gutter gains a column in buffers a server follows, and `M-,` means another thing there.
@@ -2067,3 +2070,36 @@ The author answered step 11's questions on 2026-11-16, all with the first choice
   - the two parts as a send composes them, and a message that tries to pass as the lines and the ask;
   - the two commands through the dispatcher;
   - the end-to-end flow `lsp.rs` (`an_agent_reads_the_diagnostics_and_the_counts`).
+
+### Step 13a: code actions in open buffers
+
+The author answered step 13's questions on 2026-11-17, all with the first choice:
+- **Q1:** the region if one is active, else the primary cursor's place, with the diagnostics there, every kind of action.
+- **Q2:** always a list, in the server's order, the preferred one selected, each with its kind; a disabled one faded, with its reason, and refused.
+- **Q3:** a file no buffer holds opens through the loader and is left unsaved; one that may hold secrets, or is outside the server's root, refuses the whole action (13b).
+- **Q4:** applied at once when every edit is in an open buffer; otherwise a question with the counts first (13b).
+- **Q5:** only commands the server declared, and a `workspace/applyEdit` only within that command's 10 s (13b).
+- **Q6:** no file created, renamed or deleted.
+- **Q7:** the bounds below.
+- **Q8:** one undo step a buffer; a buffer changed since the server's text refuses the whole action.
+- **Q9:** `Person` only.
+- **Q10:** no lightbulb.
+- **Q11:** two pull requests: 13a, edits in open buffers, the list and resolve; 13b, files no buffer holds, the question, commands and `workspace/applyEdit`.
+
+- **`oso-lsp`:**
+  - `initialize` claims `codeAction` with literal support for every kind, `isPreferred`, `disabled`, `data` and a resolve of `edit`, and `workspaceEdit` with `documentChanges` and no resource operations. It reads `codeActionProvider` and its `resolveProvider` (`protocol::Acting`).
+  - `AskKind::CodeAction` asks over a range, `AskContext::Range`'s end beside the ask's offset, with the diagnostics of the document's last report that overlap it, if the report is of the text asked about: at most 64, each as the server gave it, its code a number if it was one and its `data` (at most 4 KiB as JSON, kept with each report, `Reported::{code_number, data}`). It waits 10 s, as a definition does. The trigger is always `Invoked`: nothing asks by itself (Q10).
+  - An answer keeps at most 200 actions, `Command`s and `CodeAction`s, in its order (`protocol::code_actions`), a title or a kind cut at 256 bytes with its controls as spaces.
+  - A workspace edit reads whole or not at all (`protocol::workspace_edit`): `documentChanges`, else `changes`; at most 64 files, 10,000 edits and 4 MiB of new text, with no control character but a tab or a line feed; one with a file created, renamed or deleted is refused (Q6).
+  - The session thread places an edit of a document open with the server in the text the server has, and one that names a version must name that text's, or it is refused; the others are kept as the server counts them, with the encoding, for 13b (`server::{ServerEdit, OpenEdit, UnopenedEdit}`). A path under an automount, or with a `..`, refuses the whole edit.
+  - While the server resolves, the last answer's actions are kept as it gave them, and `AskKind::ResolveAction` sends the picked one, by its answer's serial and its place, as 9b's resolve does (`Answered::ActionResolved`). A bare `Command` is never resolved.
+- **`oso-core`** (`editor/servers/code_actions.rs`):
+  - `Editor::open_code_actions` opens the list (`CodeActionItem`), `Editor::code_action_disabled` tells the draw which row to fade, and `RET` gives the picked action to `lsp-code-action-apply` (`ArgSpec::CodeAction`, `Editor::take_code_action_hit`); on a disabled one it says the reason and the list stays.
+  - `Editor::apply_server_edit` applies a server's edit of buffers (`BufferEdit`) whole or not at all: every buffer there, holding no secrets, writable and at the server's revision, and no two edits overlapping, the insertions at one place joined in the server's order. Each buffer's edits are one step (`EditApplied`).
+- **The tip crate** (`app/servers/actions.rs`):
+  - `lsp-code-actions` (`Person`) on `C-c C-r` in the `lsp` layer asks over the region or point; the answer opens the list if nothing moved since, or the echo area says `<server>: no code actions here`.
+  - The picked action applies its edit, or resolves first; the echo area names the server and the action: `<server>: “<title>”: 1 edit in 1 buffer`, or why nothing changed. Until 13b, an action that changes a file no buffer the server follows holds, or runs a command, changes nothing and says so.
+  - A disabled action's row is faded whole, through the search rows' prefix (`draw/float.rs`).
+- **Changes to this ADR:** its consequence that a server never edits a buffer but within an insert the person made gains the code action the person picked. `workspace/applyEdit` still gets `applied: false` until 13b.
+- **Public API:** `oso-lsp`: `server::{CodeActions, CodeAction, ServerEdit, OpenEdit, UnopenedEdit, ActionResolved}`, `AskKind::{CodeAction, ResolveAction}`, `AskContext::Range`, `Answered::{CodeActions, ActionResolved}`, `protocol::{Acting, acting, ActionList, OfferedAction, WireEdit, WireFile, code_action_params, code_actions, take_actions, resolved_action, workspace_edit}`, `Reported::{code_number, data}`, and `limits::{CODE_ACTIONS_MAX, ACTION_TITLE_BYTES_MAX, EDIT_FILES_MAX, EDIT_EDITS_MAX, EDIT_BYTES_MAX, DIAGNOSTIC_DATA_BYTES_MAX, ACTION_DIAGNOSTICS_MAX}`. `oso-core`: `editor::{CodeActionItem, BufferEdit, EditApplied}`, `ServerRequest::{CodeActions, ApplyCodeAction}`, `Editor::{open_code_actions, code_action_disabled, take_code_action_hit, apply_server_edit}`, and `ArgSpec::CodeAction`.
+- **Tests:** in `oso-lsp`, what `initialize` says, the ask's parameters with a diagnostic given back, an answer's actions and commands within their bounds, and workspace edits read whole or not at all; in `oso-core`, the list as it reads with the preferred selected, a disabled one refused, the action `RET` took, an edit applied one step a buffer, and one stale, overlapping, of a buffer gone or of a secret one changing nothing; dispatcher tests of `C-c C-r` over point and the region, `RET` in the list, and the agent refused; against the fake server, the ask's range and diagnostics, the actions' edits placed, one not open, one of an older text, and a resolve; and the end-to-end flow `code_actions_are_listed_picked_resolved_and_applied_one_step_each`.

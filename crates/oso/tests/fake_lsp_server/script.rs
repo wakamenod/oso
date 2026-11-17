@@ -23,7 +23,8 @@
 //! applying each change with positions in `"encoding"` (`"utf-8"`, or `"utf-16"` unless it says),
 //! and writes `doc <uri> v<version> len=<bytes> hash=<FNV-1a 64, hex>` after each open and
 //! change, and `closed <uri>` after a close. With `"log_positions": true`, a request with a
-//! `position` writes `asked <method> <line>:<character>`, and `$/cancelRequest` writes
+//! `position` writes `asked <method> <line>:<character>`, one with a `range`, a code action's,
+//! `asked <method> <line>:<character>-<line>:<character> diagnostics=<JSON>`, and `$/cancelRequest` writes
 //! `cancel <id>`. A request no rule matches gets `MethodNotFound`, a notification nothing,
 //! and `exit` ends the server with 0. The actions:
 //!
@@ -410,6 +411,15 @@ fn asked(method: &str, message: &Value) -> Option<Action> {
     let params = &message["params"];
     let line = if method == "$/cancelRequest" {
         format!("cancel {}\n", params["id"])
+    } else if let Some(range) = params.get("range") {
+        // A code action's ask: its range and the diagnostics it gives back (step 13).
+        let at = |end: &str| format!("{}:{}", range[end]["line"], range[end]["character"]);
+        format!(
+            "asked {method} {}-{} diagnostics={}\n",
+            at("start"),
+            at("end"),
+            params["context"]["diagnostics"]
+        )
     } else {
         let position = params.get("position")?;
         format!(

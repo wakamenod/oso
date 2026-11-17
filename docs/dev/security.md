@@ -316,6 +316,12 @@ network features.
   server ends. What it sends is bounded as ADR 0138's table says, and `*LSP*` keeps its last
   1 MiB in memory only: method names, ids, sizes and timings, and the server's standard
   error, which may quote code it read, so it never reaches a log line or the disk.
+- A server edits a buffer only by an action the person picked from `C-c C-r`'s list (ADR 0138,
+  step 13): its edit is read whole within its bounds, applies only to open buffers still at the
+  text the server had, never to one that may hold secrets, and names no file under an
+  automount or with a `..`; one that creates, renames or deletes a file is refused. Its title is
+  the server's text, shown with its controls as spaces and never logged. The agent channel never
+  runs the commands, which are `Person`. `workspace/applyEdit` still gets `applied: false`.
 - The environment is sanitized and every spawn is logged in a visible buffer.
 
 ### Dependencies (T2, T8)

@@ -1,7 +1,9 @@
 //! What `textDocument/publishDiagnostics` carries, read within the bounds (ADR 0138,
 //! Diagnostics, step 6): the document's URI, the version it names, if any, and at most
 //! [`DIAGNOSTICS_MAX`] diagnostics, the most severe kept, each with its range as the server
-//! counts it, its severity, tags, source, code and message, cut to their bounds.
+//! counts it, its severity, tags, source, code and message, cut to their bounds, and what an ask
+//! for code actions gives back of it as the server gave it: its `data`, and whether its code was
+//! a number (step 13).
 //!
 //! Must not depend on: `server`, threads or processes; this reads values, and the session
 //! thread judges the path and places the ranges against a text.
@@ -14,7 +16,8 @@ use serde_json::Value;
 
 use crate::json::{array, integer, integer_in, string, uinteger};
 use crate::limits::{
-    DIAGNOSTIC_LABEL_BYTES_MAX, DIAGNOSTIC_MESSAGE_BYTES_MAX, DIAGNOSTICS_MAX, URI_BYTES_MAX,
+    DIAGNOSTIC_DATA_BYTES_MAX, DIAGNOSTIC_LABEL_BYTES_MAX, DIAGNOSTIC_MESSAGE_BYTES_MAX,
+    DIAGNOSTICS_MAX, URI_BYTES_MAX,
 };
 use crate::position::Position;
 
@@ -41,7 +44,12 @@ pub struct Reported {
     pub tags: Tags,
     pub source: String,
     pub code: String,
+    /// The code was a number, which goes back as one (step 13).
+    pub code_number: bool,
     pub message: String,
+    /// Its `data`, as JSON, at most [`DIAGNOSTIC_DATA_BYTES_MAX`]; given back with an ask for
+    /// code actions, as a server may need it to offer a fix (step 13).
+    pub data: Option<Box<str>>,
 }
 
 impl std::fmt::Debug for Reported {
@@ -62,7 +70,12 @@ impl Published {
         let strings: usize = self
             .diagnostics
             .iter()
-            .map(|reported| reported.source.len() + reported.code.len() + reported.message.len())
+            .map(|reported| {
+                reported.source.len()
+                    + reported.code.len()
+                    + reported.message.len()
+                    + reported.data.as_ref().map_or(0, |data| data.len())
+            })
             .sum();
         self.uri.len() + self.diagnostics.capacity() * std::mem::size_of::<Reported>() + strings
     }
@@ -167,14 +180,21 @@ fn reported(value: &Value, severity: Severity) -> Option<Reported> {
             .to_owned(),
         None => String::new(),
     };
+    let data = (value.get("data"))
+        .filter(|data| !data.is_null())
+        .and_then(|data| serde_json::to_string(data).ok())
+        .filter(|data| data.len() <= DIAGNOSTIC_DATA_BYTES_MAX)
+        .map(String::into_boxed_str);
     Some(Reported {
         start,
         end,
         severity,
         tags,
         source: text("source", DIAGNOSTIC_LABEL_BYTES_MAX),
+        code_number: (value.get("code")).is_some_and(|code| code.is_i64() || code.is_u64()),
         code,
         message: text("message", DIAGNOSTIC_MESSAGE_BYTES_MAX),
+        data,
     })
 }
 

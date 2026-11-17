@@ -506,6 +506,9 @@ mod tests {
         "global-whitespace-mode",
         // The theme, which is the person's and is remembered on disk (ADR 0089).
         "load-theme",
+        // A server's code actions edit buffers by the person's pick (ADR 0138, step 13, Q9).
+        "lsp-code-action-apply",
+        "lsp-code-actions",
         "lsp-describe-at-point",
         "lsp-describe-close",
         "lsp-describe-scroll-down",

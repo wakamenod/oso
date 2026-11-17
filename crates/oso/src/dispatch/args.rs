@@ -77,6 +77,10 @@ pub fn map(
         (ArgSpec::Xref, _) => Err(format!(
             "{name} reads a place of a server's answer, which only its list takes, from keys"
         )),
+        // So are a server's code actions (step 13).
+        (ArgSpec::CodeAction, _) => Err(format!(
+            "{name} reads a server's code action, which only its list takes, from keys"
+        )),
         (ArgSpec::KillEntry { .. }, _) => Err(format!(
             "{name} reads a kill, which only its prompt takes, from keys"
         )),

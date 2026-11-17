@@ -1034,3 +1034,105 @@ fn typing_opens_the_completion_popup_and_a_resolved_use_line_goes_in_with_it() {
     app.wait_for("closed", |state| state["popup"].is_null());
     lsp_log_with(&mut app, "main.rs", "resolved with 1 more edits", 1);
 }
+
+/// The fake server's rules for code actions in the file at `uri`: one with its edit, one
+/// disabled, and the preferred one, whose edit comes with its resolve.
+fn code_action_rules(uri: &str) -> Value {
+    let range = |line: u32, start: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}});
+    json!([
+        {"method": "initialize", "do": [{"reply": {"capabilities": {
+            "positionEncoding": "utf-8",
+            "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+            "codeActionProvider": {"resolveProvider": true},
+        }}}]},
+        {"method": "textDocument/codeAction", "do": [{"reply": [
+            {"title": "Add a comment", "kind": "refactor", "edit": {"changes": {uri: [
+                {"range": range(0, 0, 0), "newText": "// hi\n"},
+            ]}}},
+            {"title": "Inline it", "kind": "refactor.inline", "disabled": {"reason": "nothing to inline"}},
+            {"title": "Rename to start", "kind": "quickfix", "isPreferred": true, "data": {"id": 1}},
+        ]}]},
+        {"method": "codeAction/resolve", "do": [{"reply": {
+            "title": "Rename to start",
+            "edit": {"changes": {uri: [{"range": range(0, 3, 7), "newText": "start"}]}},
+        }}]},
+        {"method": "shutdown", "do": [{"reply": null}]},
+    ])
+}
+
+/// `C-c C-r` lists the server's code actions, the preferred one selected and a disabled one
+/// refused; `RET` resolves the picked action's edit and applies it, and another applies at once,
+/// each one step to undo.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn code_actions_are_listed_picked_resolved_and_applied_one_step_each() {
+    let scratch = Scratch::new("lsp-code-actions");
+    set_mode(scratch.path(), 0o700);
+    let root = project(&scratch, "proj-lsp", &["main.rs"]);
+    let uri = oso_lsp::uri::from_path(&root.join("src/main.rs")).unwrap();
+    let rules = code_action_rules(&uri);
+    let config = config(&scratch, &rules);
+    let record = scratch.write("conf/trusted-projects", record_line(&root).as_bytes());
+    set_mode(&record, 0o600);
+    let mut app = App::start_with_file_config_and_env(
+        &root.join("src/main.rs"),
+        scratch.path(),
+        &config,
+        &[],
+    );
+    app.wait_until_ready();
+    lsp_log_with(&mut app, "main.rs", "] initialized in ", 1);
+    let text = |app: &mut App| {
+        app.call("get-text", Some(json!({ "start_row": 0, "rows": 3 })))
+            .to_string()
+    };
+
+    app.send_keys("C-c C-r");
+    let state = app.wait_for("the list of code actions", |state| {
+        state["prompts"][0]["completion"]["count"] == 3
+    });
+    let prompt = &state["prompts"][0];
+    assert_eq!(prompt["prompt"], "Code action:");
+    assert_eq!(
+        prompt["completion"]["rows"],
+        json!(["Add a comment", "Inline it", "Rename to start"]),
+        "{prompt}"
+    );
+    assert_eq!(prompt["completion"]["selected"], 2, "the preferred one");
+    // A disabled one is refused, and the list stays.
+    app.send_keys("C-p RET");
+    app.wait_for("refused", |state| {
+        state["prompts"][0]["message"] == "This code action is disabled: nothing to inline"
+    });
+    app.send_keys("C-n RET");
+    app.wait_for("resolved and applied", |state| {
+        state["prompts"].as_array().is_some_and(Vec::is_empty)
+    });
+    lsp_log_with(&mut app, "main.rs", "resolved a code action", 1);
+    app.wait_for("renamed", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.contains("1 edit in 1 buffer"))
+    });
+    assert!(text(&mut app).contains("fn start()"), "{}", text(&mut app));
+
+    // Another applies at once, its edit in the answer.
+    app.send_keys("C-c C-r");
+    app.wait_for("the list again", |state| {
+        state["prompts"][0]["completion"]["count"] == 3
+    });
+    app.send_keys("C-p C-p RET");
+    app.wait_for("commented", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.contains("Add a comment"))
+    });
+    assert!(text(&mut app).contains("// hi"), "{}", text(&mut app));
+    app.send_keys("C-/");
+    app.wait_for("one step undone", |state| state["cursor"]["row"] == 0);
+    let after = text(&mut app);
+    assert!(
+        !after.contains("// hi") && after.contains("fn start()"),
+        "{after}"
+    );
+}

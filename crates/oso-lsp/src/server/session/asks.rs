@@ -2,7 +2,7 @@
 //! a request at the position its offset is in the text the server has, a newer one cancelling
 //! the older of its kind for the document, and each answer, the places of a definition or the
 //! text of a description, or the end of its wait or of the run, becomes an [`Answer`] for the
-//! UI.
+//! UI. Code actions' are in `actions`.
 //!
 //! Must not depend on: the process or the pipes; the run sends, and the reporter hands over.
 
@@ -54,6 +54,25 @@ impl Session {
             (AskKind::References, AskContext::None) => protocol::references_params(uri, at),
             (AskKind::Completion, AskContext::Completion(invoked)) => {
                 protocol::completion_params(uri, at, invoked)
+            }
+            (AskKind::CodeAction, AskContext::Range { end }) => {
+                match self.action_params(run, &ask, end, (uri, text)) {
+                    Ok(params) => params,
+                    Err(why) => {
+                        self.fail(ask, why.to_owned());
+                        return Ok(());
+                    }
+                }
+            }
+            (AskKind::ResolveAction, AskContext::Item { answer, index }) => {
+                let action = (run.last_actions.as_ref())
+                    .filter(|last| (last.document, last.serial) == (ask.document, answer))
+                    .and_then(|last| last.items.get(index).cloned());
+                let Some(action) = action else {
+                    self.fail(ask, "its code actions are gone".to_owned());
+                    return Ok(());
+                };
+                action
             }
             // The item as the server gave it, if it is one of its last completions'.
             (AskKind::Resolve, AskContext::Item { answer, index }) => {
@@ -123,6 +142,8 @@ impl Session {
             AskKind::Completion => return self.completed(run, (id, ask), result, took),
             AskKind::Resolve => return self.resolved(run, (id, ask), &result, took),
             AskKind::Hover => return self.answered_hover(id, ask, &result, took),
+            AskKind::CodeAction => return self.offered_actions(run, (id, ask), result, took),
+            AskKind::ResolveAction => return self.resolved_action(run, (id, ask), &result, took),
             AskKind::Definition | AskKind::References => {}
         }
         let (located, left) = protocol::located(&result);
@@ -329,7 +350,7 @@ impl Session {
         }
     }
 
-    fn fail(&mut self, ask: Ask, why: String) {
+    pub(super) fn fail(&mut self, ask: Ask, why: String) {
         self.answer_failed(ask, AskFailure::Other(why));
     }
 
@@ -362,7 +383,7 @@ const AUTOMOUNTS: &[&str] = if cfg!(target_os = "macos") {
 
 /// Whether `path` is under one of the [`AUTOMOUNTS`], in any case on macOS, whose file
 /// system is usually blind to it, or has a `..` that could lead there.
-fn automounted(path: &std::path::Path) -> bool {
+pub(super) fn automounted(path: &std::path::Path) -> bool {
     use std::path::Component;
     if path.components().any(|part| part == Component::ParentDir) {
         return true;

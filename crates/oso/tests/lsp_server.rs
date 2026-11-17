@@ -1467,3 +1467,120 @@ fn a_description_is_asked_at_its_position_and_its_text_is_never_logged() {
     );
     seen.server.shut_down();
 }
+
+/// The fake server's script for code actions over the document at `here`: a report with a
+/// diagnostic of a numeric code and `data`, an answer of each kind of action, and a resolve.
+fn code_action_script(here: &str) -> Value {
+    let range = |line: u32, start: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}});
+    json!({
+        "rules": [
+            {"method": "initialize", "do": [{"reply": {"capabilities": {
+                "positionEncoding": "utf-16",
+                "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+                "codeActionProvider": {"resolveProvider": true},
+            }}}]},
+            {"method": "textDocument/didOpen", "nth": 1, "do": [
+                {"notify": {"method": "textDocument/publishDiagnostics", "params": {
+                    "uri": here,
+                    "version": 1,
+                    "diagnostics": [
+                        {"range": range(1, 4, 5), "severity": 1, "code": 2304, "message": "Cannot find", "data": {"fix": 7}},
+                        {"range": range(0, 0, 2), "severity": 2, "message": "elsewhere"},
+                    ],
+                }}}
+            ]},
+            {"method": "textDocument/codeAction", "do": [{"reply": [
+                {"title": "Import `x`", "kind": "quickfix", "isPreferred": true, "edit": {"documentChanges": [
+                    {"textDocument": {"uri": here, "version": 1}, "edits": [{"range": range(0, 0, 0), "newText": "use x;\n"}]},
+                ]}},
+                {"title": "Rename to y", "kind": "refactor", "data": {"id": 1}},
+                {"title": "Run it", "command": "fake.run"},
+                {"title": "Elsewhere", "edit": {"changes": {"file:///w/other/b.rs": [{"range": range(0, 0, 0), "newText": "x"}]}}},
+                {"title": "Old", "edit": {"documentChanges": [
+                    {"textDocument": {"uri": here, "version": 0}, "edits": [{"range": range(0, 0, 0), "newText": "x"}]},
+                ]}},
+            ]}]},
+            {"method": "codeAction/resolve", "do": [{"reply": {
+                "title": "Rename to y",
+                "edit": {"changes": {here: [{"range": range(1, 4, 5), "newText": "y"}]}},
+            }}]},
+            {"method": "shutdown", "do": [{"reply": null}]},
+        ],
+        "log_documents": true,
+        "log_positions": true,
+        "encoding": "utf-16",
+    })
+}
+
+#[test]
+fn code_actions_are_asked_over_a_range_with_its_diagnostics_and_their_edits_placed() {
+    use oso_lsp::server::{Answered, AskContext, AskKind};
+    let dir = scratch("code-actions");
+    let here = oso_lsp::uri::from_path(&dir.join("a.rs")).unwrap();
+    let script = code_action_script(&here);
+    let mut seen = started("code-actions", &script, open());
+    opened(&mut seen, 1, &here, "fn a() {}\nlet x = 1;\n");
+    seen.until(LIMIT, |seen| !seen.diagnosed.is_empty());
+    let offset = "fn a() {}\nlet ".len();
+    seen.server.ask(oso_lsp::server::Ask {
+        serial: 5,
+        document: 1,
+        kind: AskKind::CodeAction,
+        revision: 7,
+        offset,
+        context: AskContext::Range { end: offset + 1 },
+    });
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    // The range, and only the diagnostic there, as the server gave it.
+    assert!(
+        seen.logged(r#"asked textDocument/codeAction 1:4-1:5 diagnostics=[{"code":2304,"data":{"fix":7},"message":"Cannot find","range":{"end":{"character":5,"line":1},"start":{"character":4,"line":1}},"severity":1}]"#),
+        "{}",
+        seen.log.join("\n")
+    );
+    let Ok(Answered::CodeActions(actions)) = seen.answers.pop().unwrap().outcome else {
+        panic!("code actions")
+    };
+    let [import, rename, run, elsewhere, old] = &actions.actions[..] else {
+        panic!("{actions:?}")
+    };
+    assert!(import.preferred);
+    let edit = import.edit.as_ref().unwrap().as_ref().unwrap();
+    assert_eq!(edit.open.len(), 1);
+    assert_eq!((edit.open[0].document, edit.open[0].revision), (1, 7));
+    assert_eq!(edit.open[0].edits, [(0..0, "use x;\n".to_owned())]);
+    assert!(rename.edit.is_none() && rename.resolves);
+    assert!(
+        run.command.is_some() && !run.resolves,
+        "a bare command is never resolved"
+    );
+    let elsewhere = elsewhere.edit.as_ref().unwrap().as_ref().unwrap();
+    assert_eq!(
+        (elsewhere.open.len(), elsewhere.unopened.len()),
+        (0, 1),
+        "a file not open"
+    );
+    assert!(
+        old.edit.as_ref().unwrap().is_err(),
+        "made for an older text"
+    );
+    // The picked one resolves, by the answer's serial and its place.
+    seen.server.ask(oso_lsp::server::Ask {
+        serial: 6,
+        document: 1,
+        kind: AskKind::ResolveAction,
+        revision: 7,
+        offset,
+        context: AskContext::Item {
+            answer: 5,
+            index: 1,
+        },
+    });
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    let Ok(Answered::ActionResolved(resolved)) = seen.answers.pop().unwrap().outcome else {
+        panic!("resolved")
+    };
+    assert_eq!((resolved.answer, resolved.index), (5, 1));
+    let edit = resolved.edit.unwrap();
+    assert_eq!(edit.open[0].edits, [(offset..offset + 1, "y".to_owned())]);
+    seen.server.shut_down();
+}

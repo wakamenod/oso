@@ -13,8 +13,10 @@
 //! hands the UI a set for each open document, placed against the text the report names and
 //! mapped forward, and each other file's report as it is kept, shared ([`Diagnosed`], 6b).
 //!
-//! Step 8 asks it about documents ([`Server::ask`]) and hands back its answers ([`Answer`]).
+//! Step 8 asks it about documents ([`Server::ask`]) and hands back its answers ([`Answer`]);
+//! step 13's code actions among them ([`CodeActions`]).
 
+mod actions;
 mod asks;
 mod diagnosed;
 mod documents;
@@ -38,6 +40,7 @@ use oso_core::syntax::Splice;
 use oso_platform::process::{Child, Executable, Signal};
 use serde_json::Value;
 
+pub use actions::{ActionResolved, CodeAction, CodeActions, OpenEdit, ServerEdit, UnopenedEdit};
 pub use asks::{
     Answer, Answered, Ask, AskContext, AskFailure, AskKind, Completion, Completions, Location,
     Resolved, Target,

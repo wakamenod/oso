@@ -355,6 +355,7 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     | ArgSpec::Mark { .. }
                     | ArgSpec::Diagnostics { .. }
                     | ArgSpec::Xref
+                    | ArgSpec::CodeAction
                     | ArgSpec::File { .. }
                     | ArgSpec::Directory { .. }
                     | ArgSpec::Target { .. }

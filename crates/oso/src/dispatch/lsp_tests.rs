@@ -439,3 +439,67 @@ fn only_the_person_s_typing_is_noted_for_completion() {
     assert!(ran.is_err(), "{ran:?}");
     assert!(editor.take_completion_typed().is_none());
 }
+
+#[test]
+fn c_c_c_r_asks_for_the_code_actions_of_the_region_or_of_point() {
+    use oso_core::editor::ServerRequest;
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    send(&mut d, &mut editor, "C-f C-f C-c C-r");
+    match editor.take_server_requests().as_slice() {
+        [ServerRequest::CodeActions { at, end }] => {
+            assert_eq!((at.offset, *end, at.agent), (2, 2, false), "point");
+        }
+        other => panic!("{other:?}"),
+    }
+    send(&mut d, &mut editor, "C-SPC C-f C-f C-f C-c C-r");
+    match editor.take_server_requests().as_slice() {
+        [ServerRequest::CodeActions { at, end }] => assert_eq!((at.offset, *end), (2, 5)),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn ret_in_the_list_of_code_actions_asks_the_host_to_apply_the_one_picked() {
+    use oso_core::editor::{CodeActionItem, ServerRequest};
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    let item = |title: &str, preferred| CodeActionItem {
+        title: title.into(),
+        kind: Some("quickfix".into()),
+        preferred,
+        disabled: None,
+    };
+    let items = [item("Remove it", false), item("Import it", true)];
+    assert!(d.list_code_actions(&mut editor, &items).is_some());
+    assert!(
+        d.list_code_actions(&mut editor, &items).is_none(),
+        "not over a prompt"
+    );
+    send(&mut d, &mut editor, "RET");
+    assert!(editor.prompt().is_none());
+    assert_eq!(
+        editor.take_server_requests(),
+        [ServerRequest::ApplyCodeAction]
+    );
+    assert_eq!(editor.take_code_action_hit(), Some(1), "the preferred one");
+    // By name, it opens nothing.
+    let name: Vec<String> = "lsp-code-action-apply".chars().map(String::from).collect();
+    send(&mut d, &mut editor, &format!("M-x {} RET", name.join(" ")));
+    assert!(editor.take_server_requests().is_empty());
+}
+
+#[test]
+fn the_agent_s_c_c_c_r_is_refused_and_asks_nothing() {
+    use super::args::Given;
+    use oso_core::command::Reach;
+    let (mut d, mut editor) = followed(Some(ServerMark::Ready));
+    for name in ["lsp-code-actions", "lsp-code-action-apply"] {
+        for reach in [Reach::Look, Reach::Change] {
+            let ran = d.run_for_agent(&mut editor, name, Given::Nothing, reach);
+            assert!(
+                ran.is_err() || ran.is_ok_and(|(_, done)| done.is_err()),
+                "{name}"
+            );
+        }
+    }
+    assert!(editor.take_server_requests().is_empty());
+}

@@ -176,6 +176,10 @@ pub enum ArgSpec {
     /// never from keys or by name. The command takes the row with
     /// [`Editor::take_xref_hit`](crate::editor::Editor::take_xref_hit).
     Xref,
+    /// A language server's code action, read in the list the host opens once an answer comes,
+    /// and no history (ADR 0138, step 13): never from keys or by name. The command takes it with
+    /// [`Editor::take_code_action_hit`](crate::editor::Editor::take_code_action_hit).
+    CodeAction,
     /// The key that ran it, read with [`Ctx::input`](super::Ctx::input) or [`Ctx::key_char`](super::Ctx::key_char), and a numeric
     /// prefix argument as with `Count`. `M-x` does not list it, as no key runs it there
     /// (ADR 0076).

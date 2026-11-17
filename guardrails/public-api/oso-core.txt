@@ -386,6 +386,7 @@ pub oso_core::command::ArgSpec::Buffer
 pub oso_core::command::ArgSpec::Buffer::history: &'static str
 pub oso_core::command::ArgSpec::Buffer::prompt: &'static str
 pub oso_core::command::ArgSpec::Buffer::purpose: oso_core::command::BufferPurpose
+pub oso_core::command::ArgSpec::CodeAction
 pub oso_core::command::ArgSpec::Command
 pub oso_core::command::ArgSpec::Command::history: &'static str
 pub oso_core::command::ArgSpec::Command::prompt: &'static str
@@ -2078,6 +2079,10 @@ pub fn oso_core::editor::ServerFace::fmt(&self, &mut core::fmt::Formatter<'_>) -
 impl core::marker::Copy for oso_core::editor::ServerFace
 impl core::marker::StructuralPartialEq for oso_core::editor::ServerFace
 pub enum oso_core::editor::ServerRequest
+pub oso_core::editor::ServerRequest::ApplyCodeAction
+pub oso_core::editor::ServerRequest::CodeActions
+pub oso_core::editor::ServerRequest::CodeActions::at: oso_core::editor::AskAt
+pub oso_core::editor::ServerRequest::CodeActions::end: usize
 pub oso_core::editor::ServerRequest::Complete(oso_core::editor::AskAt)
 pub oso_core::editor::ServerRequest::Definition(oso_core::editor::AskAt)
 pub oso_core::editor::ServerRequest::Describe(oso_core::editor::AskAt)
@@ -2321,6 +2326,16 @@ impl core::fmt::Debug for oso_core::editor::AskAt
 pub fn oso_core::editor::AskAt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::AskAt
 impl core::marker::StructuralPartialEq for oso_core::editor::AskAt
+pub struct oso_core::editor::BufferEdit
+pub oso_core::editor::BufferEdit::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::BufferEdit::edits: alloc::vec::Vec<(core::ops::range::Range<usize>, alloc::string::String)>
+pub oso_core::editor::BufferEdit::revision: u64
+impl core::clone::Clone for oso_core::editor::BufferEdit
+pub fn oso_core::editor::BufferEdit::clone(&self) -> oso_core::editor::BufferEdit
+impl core::cmp::Eq for oso_core::editor::BufferEdit
+impl core::cmp::PartialEq for oso_core::editor::BufferEdit
+pub fn oso_core::editor::BufferEdit::eq(&self, &oso_core::editor::BufferEdit) -> bool
+impl core::marker::StructuralPartialEq for oso_core::editor::BufferEdit
 pub struct oso_core::editor::ClipboardWrite
 pub oso_core::editor::ClipboardWrite::id: u64
 pub oso_core::editor::ClipboardWrite::pieces: alloc::vec::Vec<oso_core::kill::Piece>
@@ -2329,6 +2344,17 @@ impl oso_core::editor::ClipboardWrite
 pub fn oso_core::editor::ClipboardWrite::text(&self) -> alloc::string::String
 impl core::fmt::Debug for oso_core::editor::ClipboardWrite
 pub fn oso_core::editor::ClipboardWrite::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::CodeActionItem
+pub oso_core::editor::CodeActionItem::disabled: core::option::Option<alloc::string::String>
+pub oso_core::editor::CodeActionItem::kind: core::option::Option<alloc::string::String>
+pub oso_core::editor::CodeActionItem::preferred: bool
+pub oso_core::editor::CodeActionItem::title: alloc::string::String
+impl core::clone::Clone for oso_core::editor::CodeActionItem
+pub fn oso_core::editor::CodeActionItem::clone(&self) -> oso_core::editor::CodeActionItem
+impl core::cmp::Eq for oso_core::editor::CodeActionItem
+impl core::cmp::PartialEq for oso_core::editor::CodeActionItem
+pub fn oso_core::editor::CodeActionItem::eq(&self, &oso_core::editor::CodeActionItem) -> bool
+impl core::marker::StructuralPartialEq for oso_core::editor::CodeActionItem
 pub struct oso_core::editor::CommitSwitches
 pub oso_core::editor::CommitSwitches::allow_empty: bool
 pub oso_core::editor::CommitSwitches::no_verify: bool
@@ -2500,6 +2526,18 @@ impl core::clone::Clone for oso_core::editor::DiagnosticsRequest
 pub fn oso_core::editor::DiagnosticsRequest::clone(&self) -> oso_core::editor::DiagnosticsRequest
 impl core::fmt::Debug for oso_core::editor::DiagnosticsRequest
 pub fn oso_core::editor::DiagnosticsRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::EditApplied
+pub oso_core::editor::EditApplied::buffers: usize
+pub oso_core::editor::EditApplied::edits: usize
+impl core::clone::Clone for oso_core::editor::EditApplied
+pub fn oso_core::editor::EditApplied::clone(&self) -> oso_core::editor::EditApplied
+impl core::cmp::Eq for oso_core::editor::EditApplied
+impl core::cmp::PartialEq for oso_core::editor::EditApplied
+pub fn oso_core::editor::EditApplied::eq(&self, &oso_core::editor::EditApplied) -> bool
+impl core::fmt::Debug for oso_core::editor::EditApplied
+pub fn oso_core::editor::EditApplied::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::EditApplied
+impl core::marker::StructuralPartialEq for oso_core::editor::EditApplied
 pub struct oso_core::editor::Editor
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_buffer(&mut self, oso_core::buffer::Buffer) -> oso_core::buffer::BufferId
@@ -2639,6 +2677,11 @@ pub fn oso_core::editor::Editor::walk_history(&mut self, bool) -> core::result::
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::answer_question_third(&mut self) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::ask_with_third(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, [&'static str; 2], oso_core::minibuffer::Third) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::apply_server_edit(&mut self, &[oso_core::editor::BufferEdit]) -> core::result::Result<oso_core::editor::EditApplied, &'static str>
+pub fn oso_core::editor::Editor::code_action_disabled(&self, usize) -> core::option::Option<bool>
+pub fn oso_core::editor::Editor::open_code_actions(&mut self, &[oso_core::editor::CodeActionItem]) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::take_code_action_hit(&mut self) -> core::option::Option<usize>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::around_secret(&self) -> bool
 pub fn oso_core::editor::Editor::begin_command(&mut self)

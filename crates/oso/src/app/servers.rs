@@ -8,6 +8,7 @@
 //! Must not depend on: the window system or the drawing; this keeps the servers and tells the
 //! editor what to show.
 
+mod actions;
 mod asks;
 mod complete;
 mod diagnostics;
@@ -54,6 +55,8 @@ pub(super) struct Servers {
     xrefs: xrefs::Lists,
     /// Where the person's typing asks for completions once it has rested, and when (step 9b).
     typing_rest: Option<(oso_core::editor::AskAt, std::time::Instant)>,
+    /// The code actions of the list open now, or of the picked one resolving (step 13).
+    actions: Option<actions::KeptActions>,
 }
 
 /// `path` in the form a server's URI of it reads back as, as the places and reports of servers
@@ -213,6 +216,9 @@ impl App {
                     self.lsp_ask(at, oso_lsp::server::AskKind::Hover, None);
                 }
                 ServerRequest::GoToXref => self.go_to_xref(),
+                // The person's only: the commands are `Person` (step 13, Q9).
+                ServerRequest::CodeActions { at, end } => self.lsp_code_actions(at, end),
+                ServerRequest::ApplyCodeAction => self.apply_code_action(),
                 ServerRequest::Complete(at) => {
                     self.lsp_ask(at, oso_lsp::server::AskKind::Completion, agent);
                 }

@@ -25,6 +25,8 @@ fn report(uri: &str, count: usize, message_bytes: usize) -> Published {
                 source: String::new(),
                 code: String::new(),
                 message: "m".repeat(message_bytes),
+                code_number: false,
+                data: None,
             })
             .collect(),
     }
