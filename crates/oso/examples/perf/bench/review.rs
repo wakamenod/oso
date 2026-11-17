@@ -98,23 +98,9 @@ pub(super) fn review(
         }
         metrics[2].push(percentile(&samples, 99.0));
 
-        // `|`: the panes are laid out on the view thread, then the window switches to them.
-        let asked = unix_us();
-        app.send_keys("|")?;
-        let frames = until_read(&mut app, asked)?;
-        let shown = frames.first().ok_or("`|` showed no panes")?;
-        metrics[3].push(since(asked, shown));
-        settle(&mut app)?;
-        let samples = paced_keys(&mut app, &KEYS, count, &mut keys)?;
-        if samples.len() != count {
-            return Err(format!(
-                "{count} keys in the panes drew {} frames",
-                samples.len()
-            ));
-        }
-        metrics[4].push(percentile(&samples, 99.0));
-        app.send_keys("|")?;
-        settle(&mut app)?;
+        let (switch, pane_keys) = panes(&mut app, count, &mut keys)?;
+        metrics[3].push(switch);
+        metrics[4].push(pane_keys);
 
         change(&root, run)?;
         let asked = unix_us();
@@ -132,6 +118,35 @@ pub(super) fn review(
     report.add("review_panes_key_p99_ms", pane_keys);
     report.add("review_refresh_ms", refresh);
     Ok(())
+}
+
+/// `|` in the review: how soon its two panes show, then the p99 of `count` paced keys in a pane,
+/// and `|` back to one stream.
+fn panes(app: &mut App, count: usize, keys: &mut Lcg) -> Result<(f64, f64), String> {
+    // The panes are laid out on the view thread, then the window switches to them.
+    let asked = unix_us();
+    app.send_keys("|")?;
+    let frames = until_read(app, asked)?;
+    let shown = frames.first().ok_or("`|` showed no panes")?;
+    let switch = since(asked, shown);
+    // The keys are timed in a pane, not in a review the switch left unified. The window, 800
+    // by 600, is under 160 columns, so the review opened unified and `|` turns it.
+    wait_for_state(app, "the panes", |state| {
+        state["buffer"]["name"]
+            .as_str()
+            .is_some_and(|name| name.ends_with(" \u{b7} new*"))
+    })?;
+    settle(app)?;
+    let samples = paced_keys(app, &KEYS, count, keys)?;
+    if samples.len() != count {
+        return Err(format!(
+            "{count} keys in the panes drew {} frames",
+            samples.len()
+        ));
+    }
+    app.send_keys("|")?;
+    settle(app)?;
+    Ok((switch, percentile(&samples, 99.0)))
 }
 
 /// A file's name: in a few directories, as a project's are.

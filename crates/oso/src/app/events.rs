@@ -174,6 +174,7 @@ impl App {
         self.diagnostic_at_point_if_due();
         self.xrefs_if_due();
         self.completion_if_due();
+        self.review_layout_due();
         self.quit_if_idle(event_loop);
         // Last, once every deadline is known.
         self.set_wake(event_loop);

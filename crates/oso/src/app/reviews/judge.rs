@@ -15,7 +15,7 @@
 
 use std::time::{Duration, Instant};
 
-use oso_core::editor::{ReviewChoice, ReviewLayout};
+use oso_core::editor::{ReviewChoice, ReviewId, ReviewLayout};
 use oso_core::frame::Way;
 use oso_core::window::WindowId;
 
@@ -32,13 +32,15 @@ pub(super) const SETTLE: Duration = Duration::from_millis(100);
 #[derive(Clone, Copy, Debug)]
 struct Seen {
     window: WindowId,
+    /// The review it shows: a window showing another review is another area.
+    review: ReviewId,
     columns: usize,
     since: Instant,
     /// The width and the choice it was judged at, and what it wants, once judged.
     judged: Option<(usize, ReviewChoice, ReviewLayout)>,
 }
 
-/// What each area a review shows in wants, by its window.
+/// What each area a review shows in wants, by its window and review.
 #[derive(Debug, Default)]
 pub(super) struct Judge {
     seen: Vec<Seen>,
@@ -68,12 +70,19 @@ fn wanted(choice: ReviewChoice, columns: usize, shown: ReviewLayout) -> ReviewLa
 }
 
 impl Judge {
-    /// Takes the areas as they are at `now`, each by its window and width: a width that
-    /// changed starts settling, and areas gone are forgotten.
-    pub(super) fn see(&mut self, areas: impl IntoIterator<Item = (WindowId, usize)>, now: Instant) {
+    /// Takes the areas as they are at `now`, each by its window, its review and its width: a
+    /// width that changed starts settling, and areas gone are forgotten, as is one whose window
+    /// shows another review now.
+    pub(super) fn see(
+        &mut self,
+        areas: impl IntoIterator<Item = (WindowId, ReviewId, usize)>,
+        now: Instant,
+    ) {
         let mut seen = Vec::with_capacity(self.seen.len());
-        for (window, columns) in areas {
-            let before = self.seen.iter().find(|seen| seen.window == window).copied();
+        for (window, review, columns) in areas {
+            let before = (self.seen.iter())
+                .find(|seen| seen.window == window && seen.review == review)
+                .copied();
             seen.push(match before {
                 Some(before) if before.columns == columns => before,
                 Some(before) => Seen {
@@ -83,6 +92,7 @@ impl Judge {
                 },
                 None => Seen {
                     window,
+                    review,
                     columns,
                     since: now,
                     judged: None,
@@ -115,10 +125,11 @@ impl Judge {
         seen.judged.map(|(.., want)| want)
     }
 
-    /// What the area of `window` wanted when last judged, judging nothing.
-    pub(super) fn wanted(&self, window: WindowId) -> Option<ReviewLayout> {
+    /// What the area of `window` wanted when last judged, and the width it was judged at,
+    /// judging nothing.
+    pub(super) fn wanted(&self, window: WindowId) -> Option<(ReviewLayout, usize)> {
         let seen = self.seen.iter().find(|seen| seen.window == window)?;
-        seen.judged.map(|(.., want)| want)
+        seen.judged.map(|(columns, _, want)| (want, columns))
     }
 
     /// When the next width settles, to be judged then, if one is settling.

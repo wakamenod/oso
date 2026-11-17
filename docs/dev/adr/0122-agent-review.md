@@ -1343,12 +1343,19 @@ The second PR judges the width, as Q6's choice has it, and brings `C-u |`. What 
 - **The judge** (`app/reviews/judge.rs`) keeps each area's width by its window, and judges what
   the area wants only when it first shows, when the review's choice changes, and when its width
   changed and then stayed the same for 100 ms; scrolling, moving and refreshing change no width,
-  so they are never judged. A width settling sets the event loop's wake, so a drag that stops
-  is judged without another event. What was judged stays until the next judgment.
+  so they are never judged. A width settling sets the event loop's wake, and the wake judges
+  what settled, so a drag that stops is judged without another event. What was judged stays
+  until the next judgment. An area is its window and the review it shows: a window that shows
+  another review is judged anew. An area that refused two panes, too small for them, is tried
+  again only once a new width is judged, so a drag neither retries it nor turns the panes'
+  building on and off before it settles.
 - **The rules:** while automatic, an area turns side by side at 160 columns or more and unified
   below 150, and between the two keeps what it shows. With two panes chosen, they go side by
   side at 160 or more and stacked below 150, and between the two keep their way (Q-D). Unified
   chosen is unified.
+- While automatic in an area of 160 columns or more, a pane left alone, as when the other
+  window shows another buffer, is paired again: there the rule shows two panes, and `|` is the
+  way to one stream.
 - **`C-u |`** sets the review's choice back to automatic, `ReviewChoice::Auto`, which every
   review starts with, and says so.
 - **The host** builds a review's panes while an area of it wants them, as judged, and did not

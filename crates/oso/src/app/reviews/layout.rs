@@ -37,22 +37,33 @@ pub(super) struct Layout {
 
 impl App {
     /// Whether the review at `index` has its panes built: an area of it wants them, as last
-    /// judged, and did not refuse them at its width.
+    /// judged, and did not refuse them at the width it was judged at, so that a drag does not
+    /// turn them on and off before its width settles.
     fn takes_review_panes(&self, index: usize) -> bool {
         let running = &self.reviews.open[index];
         let refused = &running.layout.refused;
         (self.reviews.areas.iter())
             .filter(|area| area.review == running.id)
-            .filter(|area| !refused.contains(&(area.window, area.columns)))
-            .any(|area| {
-                let wanted = self.reviews.judge.wanted(area.window);
-                matches!(wanted, Some(ReviewLayout::Panes(_)))
+            .filter_map(|area| Some((area.window, self.reviews.judge.wanted(area.window)?)))
+            .any(|(window, (want, columns))| {
+                matches!(want, ReviewLayout::Panes(_)) && !refused.contains(&(window, columns))
             })
     }
 
     /// When the width's judge next looks at an area whose width settles.
     pub(in crate::app) fn review_layout_deadline(&self) -> Option<Instant> {
         self.reviews.judge.deadline()
+    }
+
+    /// Judges the areas whose width has settled, once its deadline passed with no event, as
+    /// when a drag of the frame's edge stops.
+    pub(in crate::app) fn review_layout_due(&mut self) {
+        if self
+            .review_layout_deadline()
+            .is_some_and(|deadline| deadline <= Instant::now())
+        {
+            self.sync_review_layouts();
+        }
     }
 
     /// Puts the panes' texts of the review at `index` in and switches its areas to them at
@@ -82,7 +93,10 @@ impl App {
         self.editor.review_areas(&mut areas);
         let now = Instant::now();
         let judge = &mut self.reviews.judge;
-        judge.see(areas.iter().map(|area| (area.window, area.columns)), now);
+        judge.see(
+            (areas.iter()).map(|area| (area.window, area.review, area.columns)),
+            now,
+        );
         for area in &areas {
             let choice = self.editor.review_choice(area.review);
             judge.want(area.window, choice, area.layout, now);
@@ -127,7 +141,7 @@ impl App {
         let Some(index) = self.reviews.index(area.review) else {
             return false;
         };
-        let Some(want) = self.reviews.judge.wanted(area.window) else {
+        let Some((want, judged_at)) = self.reviews.judge.wanted(area.window) else {
             return false;
         };
         let shown = self
@@ -142,8 +156,9 @@ impl App {
         if area.layout == want || panes.is_none() {
             return false;
         }
+        // Refused at the width it was judged at: tried again once a new width is judged.
         let refused = &mut self.reviews.open[index].layout.refused;
-        if refused.contains(&(area.window, area.columns)) {
+        if refused.contains(&(area.window, judged_at)) {
             return false;
         }
         match self.editor.show_review_panes(area.window, way) {
@@ -151,7 +166,7 @@ impl App {
             Err(why) => {
                 // One width a window: the last it refused at.
                 refused.retain(|(window, _)| *window != area.window);
-                refused.push((area.window, area.columns));
+                refused.push((area.window, judged_at));
                 self.editor.message(format!("No two panes here: {why}"));
                 false
             }

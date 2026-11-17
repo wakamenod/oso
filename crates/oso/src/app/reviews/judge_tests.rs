@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 
-use oso_core::editor::{ReviewChoice, ReviewLayout};
+use oso_core::editor::{ReviewChoice, ReviewId, ReviewLayout};
 use oso_core::frame::Way;
 use oso_core::window::WindowId;
 
@@ -20,9 +20,17 @@ fn window() -> WindowId {
     oso_core::editor::Editor::default().window().id()
 }
 
-/// A judge that saw the area at `columns` at `at`.
+/// Two reviews' ids.
+fn reviews() -> (ReviewId, ReviewId) {
+    let (mut editor, project) = crate::commands::review::tests::in_project(true);
+    let (a, _) = editor.add_review(project, "a".into());
+    let (b, _) = editor.add_review(project, "b".into());
+    (a, b)
+}
+
+/// A judge that saw the area at `columns` at `at`, showing the first review.
 fn seen(judge: &mut Judge, columns: usize, at: Instant) {
-    judge.see([(window(), columns)], at);
+    judge.see([(window(), reviews().0, columns)], at);
 }
 
 #[test]
@@ -103,4 +111,21 @@ fn a_choice_is_judged_at_once_and_an_area_gone_is_forgotten() {
     judge.see([], soon);
     assert_eq!(judge.wanted(window()), None);
     assert_eq!(judge.want(window(), AUTO, UNIFIED, soon), None);
+}
+
+#[test]
+fn a_window_showing_another_review_is_judged_anew() {
+    let start = Instant::now();
+    let (a, b) = reviews();
+    let mut judge = Judge::default();
+    // At 170 the first review went side by side, then the window narrowed to 155 and kept it.
+    judge.see([(window(), a, 170)], start);
+    assert_eq!(judge.want(window(), AUTO, UNIFIED, start), Some(ACROSS));
+    let later = start + SETTLE * 2;
+    judge.see([(window(), a, 155)], start + SETTLE);
+    assert_eq!(judge.want(window(), AUTO, ACROSS, later), Some(ACROSS));
+    // The second review in it, at 155, keeps what it shows: unified.
+    judge.see([(window(), b, 155)], later);
+    assert_eq!(judge.want(window(), AUTO, UNIFIED, later), Some(UNIFIED));
+    assert_eq!(judge.wanted(window()), Some((UNIFIED, 155)));
 }
