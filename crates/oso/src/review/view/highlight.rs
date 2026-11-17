@@ -21,12 +21,16 @@
 //!   view ends. A full schedule stops the opening until a document closes.
 //! - Until a side is highlighted whole, only its lines on screen are projected; once it is,
 //!   every line the review shows of it.
+//! - An open buffer whose text is a file's new side gives that side's runs: once its are whole,
+//!   the side's document closes or never opens. Its text is compared once a revision, and
+//!   again for each new reading.
 //! - The runs and lines held count toward a budget ([`MAX_RUNS`], in `budget`).
 //! - A side that failed or was lost stays in its diff face while the review is open; one
 //!   refused for a long line is tried again with its next text, as that costs one scan.
 //! - Nothing here logs a file's text, path or highlights.
 
 mod budget;
+mod buffers;
 mod sides;
 
 use std::collections::{HashMap, HashSet};
@@ -40,6 +44,7 @@ use oso_core::rope::Rope;
 use oso_syntax::{Failure, Language, MAX_BYTES, Outcome, Refused, Report};
 
 pub(crate) use budget::MAX_RUNS;
+pub(crate) use buffers::BufferSide;
 pub(super) use sides::{SideRuns, add_shown, index};
 use sides::{Source, lines_of, on_screen, shown_ranges, source};
 
@@ -102,6 +107,8 @@ struct SideState {
     over: Option<u64>,
     /// Its runs are whole and cover every line the reading shows of it.
     complete: bool,
+    /// The revision of the open buffer last compared with it, and whether its text was this.
+    buffer_same: Option<(u64, bool)>,
 }
 
 impl SideState {
@@ -143,6 +150,10 @@ pub(super) struct Highlighting {
     changed: HashSet<Box<[u8]>>,
     /// Reports waiting to be taken, the latest of each key.
     reports: HashMap<u64, Report<u64>>,
+    /// The latest of each open buffer whose path a file of the review may have.
+    buffers: HashMap<Box<[u8]>, BufferSide>,
+    /// The paths of the buffers to try with the next batch.
+    pending_buffers: HashSet<Box<[u8]>>,
     /// Nothing more to open until something changes.
     settled: bool,
 }
@@ -162,6 +173,8 @@ impl Default for Highlighting {
             laid: HashSet::new(),
             changed: HashSet::new(),
             reports: HashMap::new(),
+            buffers: HashMap::new(),
+            pending_buffers: HashSet::new(),
             settled: false,
         }
     }
@@ -193,6 +206,9 @@ impl Highlighting {
         }
         self.held = 0;
         self.reports.clear();
+        // The host offers every buffer again once highlighting is on.
+        self.buffers.clear();
+        self.pending_buffers.clear();
         self.settled = false;
         self.highlighter = highlighter;
         self.top = top;
@@ -294,11 +310,16 @@ impl Highlighting {
             state.complete = false;
             state.refused = false;
             state.over = None;
+            state.buffer_same = None;
             if let Some(projected) = state.projected.take() {
                 self.held = self.held.saturating_sub(budget::cost(&projected));
                 self.changed.insert(path.into());
             }
             self.close(path, side);
+        }
+        // An open buffer may already hold the new side's text.
+        if self.buffers.contains_key(path) {
+            self.pending_buffers.insert(path.into());
         }
     }
 
@@ -315,6 +336,8 @@ impl Highlighting {
             }
         }
         self.shown.remove(path);
+        self.buffers.remove(path);
+        self.pending_buffers.remove(path);
     }
 
     /// What windows show: the lines of each side of each file on screen. Tells each open
@@ -327,6 +350,10 @@ impl Highlighting {
             self.settled = false;
         }
         self.shown = shown;
+        // A buffer kept for a file now on screen gives its runs again.
+        let buffers = &self.buffers;
+        let kept = self.shown.keys().filter(|path| buffers.contains_key(*path));
+        self.pending_buffers.extend(kept.cloned());
         let Some(highlighter) = &self.highlighter else {
             return;
         };
@@ -447,7 +474,7 @@ impl Highlighting {
     /// highlighting is.
     pub(super) fn take_reports(&mut self, order: &[Box<[u8]>]) -> bool {
         let reports: Vec<Report<u64>> = self.reports.drain().map(|(_, report)| report).collect();
-        let mut changed = false;
+        let mut changed = self.take_buffers(order);
         for report in reports {
             changed |= self.report(report, order);
         }

@@ -468,6 +468,7 @@ impl App {
             carried,
             reading,
             folded,
+            pane_paint,
             ..
         } = text;
         self.reviews.open[index].shown_folded = folded;
@@ -490,9 +491,7 @@ impl App {
                 }),
         };
         self.freer.free((before, left));
-        if let Some(panes) = panes {
-            self.put_in_review_panes(index, panes, &moved);
-        }
+        self.put_in_review_panes(index, panes, pane_paint, &moved);
         if let Some(files) = files {
             self.put_in_review_files(index, files);
         }

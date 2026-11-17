@@ -27,7 +27,7 @@ pub(crate) use hooks::empty_hooks;
 pub(crate) use id::{Id, trim_line};
 pub(crate) use long::{Ender, GRACE, Long, Next};
 pub(crate) use path::{
-    identity, may_hold_secrets, os as os_path, os_lossy, verdict as path_verdict,
+    identity, may_hold_secrets, name_of, os as os_path, os_lossy, verdict as path_verdict,
 };
 pub(crate) use run::{
     Git, GitError, MAX_SHORT, MAX_STDERR, Output, RUN_LIMIT, check_revision, collect, for_git,

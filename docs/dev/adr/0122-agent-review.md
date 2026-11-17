@@ -646,7 +646,9 @@ The author answered every question on 2026-11-12, through the coordinator: (a) f
 - [ADR 0111](0111-tree-sitter-highlighting.md), "the worker a tree per buffer": the workers also
   parse documents no buffer owns, a review's sides, under the same limits and secret rules. And
   the contrast tests: syntax faces, and plain text, are also checked at 7:1 on a review's added
-  and removed bands, where a side's highlighted lines draw them (step 9).
+  and removed bands, where a side's highlighted lines draw them (step 9). And "reports go only
+  when the highlights changed": a buffer's report also goes once for each epoch and revision its
+  whole text is highlighted at, even with nothing new, saying it is done (step 9).
 - [ADR 0112](0112-window-splits.md), the window tree: it gains a pair of windows that scroll
   together and are closed and resized together.
 
@@ -1526,7 +1528,7 @@ building (below). What the first PR built:
 
 - **Public items:** `oso_syntax::Report::done`, true on a document no buffer owns' last report,
   which comes even when nothing changed since the one before, so that its caller can close it
-  (a buffer's is always false); and `Buffer::judge_name(&Path) -> Verdict`, the verdict on a
+  (a buffer's too since part two, below); and `Buffer::judge_name(&Path) -> Verdict`, the verdict on a
   path by its name alone, beside `Buffer::name_may_hold_secrets`. **The plan named it
   `oso_core::secret::judge_name`; the author chose an associated function of `Buffer` instead
   (2026-11-17), as `secret` is a private module and a public one would need an ADR of its own.**
@@ -1586,8 +1588,8 @@ building (below). What the first PR built:
 - **The bands (Q-B):** syntax faces, and plain text, are now checked at 7:1 on the added and
   removed bands, as on the current line's. To meet it, dark's added band went from `#13291c` to
   `#0f2016`, and light's removed band from `#fbe4e6` to `#ffe5ee`, a little pinker than the
-  plan's `#fce8ea` to stay 0.05 OKLab from the added band; both stay provisional until the
-  author picks from screenshots. Under the words refinement marks, text keeps the text's
+  plan's `#fce8ea` to stay 0.05 OKLab from the added band; the author approved both from
+  screenshots on 2026-11-17. Under the words refinement marks, text keeps the text's
   colour, as built in step 3, since a syntax face is only 3.6:1 there in dark.
 - **The `review` scenario** adds `review_highlight_first_screen_ms`, from `C-x v r w` to the
   first frame whose sides on screen are highlighted, `review_highlight_whole_ms`, to the first
@@ -1609,6 +1611,53 @@ building (below). What the first PR built:
   nothing new; the theme's pairs; the scene drawing a review line's syntax over its band and
   the text's colour under refined words; and an end-to-end flow in which a review's sides are
   highlighted and `global-font-lock-mode` turns that off and on.
+
+### Step 9: highlighting the sides, part two
+
+The second PR brings the two panes' paint and an open buffer's highlights. The author chose, on
+2026-11-17 through the coordinator, that `Report::done` say a buffer is highlighted whole too
+(option (a) of three: not, and keep parsing the side; or leave the reuse out). What it built:
+
+- **Public items:** `Editor::set_review_panes_paint(id, old, new)`, each pane's rows and
+  highlights for texts that did not change, put in at O(1), refused whole, changing nothing,
+  when the review has no panes or either pane's rows do not cover its lines or its highlights
+  its text. **`Report::done` is now true for a buffer too,** once for each revision its whole
+  text is highlighted at, forced as a document's last report is, even with nothing new since
+  the report before; the field and its type are unchanged.
+- **The panes:** each pane's sections take their file's sides' runs as the unified text's do,
+  merged in one pass, and a paint of both panes goes with the unified one when only runs
+  changed and the panes are built and not laid out anew.
+- **An open buffer (Q-C, Q-D):** after each report a buffer takes, and for every open buffer
+  when a review's highlighting turns on, the UI offers each such review's view an O(1) copy of
+  the buffer's text and highlights, its path under the review's top as git names it
+  (`git::name_of`, which the git status's withheld paths now use too), its revision, its
+  language, and whether it is highlighted whole in the worker's current start of it, at that
+  revision: the glue keeps the epoch and revision of each buffer's done report, so a mode set
+  again or highlighting turned off and on at the same revision is not whole until its own.
+  Never a buffer that may hold secrets, whose highlights it does not show. The view keeps the
+  latest of each path, only those of the review's files once it lists them and none while
+  highlighting is off, and tries them with the next batch, so that offers that come together
+  cost one comparison; again when the file shows a new reading or comes on screen, so that runs
+  the budget dropped come back. It compares the buffer's text with the new side's, decoded as
+  the loader decodes it and its BOM left out, once a revision: O(1) when the buffer is shorter
+  than the side's bytes or more than three times longer, as after most edits, else O(n) on the
+  view thread, with a decoded copy only for a side with invalid bytes. While they are the
+  same, each try takes the buffer's runs as the new side's: every line the review shows of it
+  once the buffer's are whole, which closes the side's document or keeps it from opening, else
+  those on screen, the side's document still parsing. Never while highlighting is off, for a
+  file the text cut short, past 2 MiB, or from a buffer in another language than the side's
+  path says. A buffer edited since its reading is another text, so the side's own document is
+  used.
+- **The bands** stay as part one set them: the author approved them from screenshots.
+- **Tests:** the editor's pane paint and its refusals; the view's panes taking the runs as
+  laid out and as a paint, and no paint with nothing changed; a buffer's whole runs taken and
+  the side's document closed, another text or another language not taken; a buffer not whole
+  colouring the lines on screen once the file shows, and a new reading trying the buffer kept
+  again; nothing kept or taken while highlighting is off, and none for a withheld reading; the
+  comparison of a buffer's text and a side's; a buffer's done report once a revision, and not
+  again for a shown change; the glue's whole mark, gone with an edit and with a new start at
+  the same revision; a buffer offered only when ordinary and under the top; a path as git
+  names it; and the end-to-end flow showing the new pane highlighted after `|`.
 
 ### Step 10: a pair of windows that scroll together
 
