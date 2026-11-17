@@ -73,6 +73,15 @@ pub(crate) fn one_line(text: &str, max: usize) -> String {
     out
 }
 
+/// The pull request `text` names: digits only, no sign, at most 18 of them, above 0.
+pub(crate) fn pull_number(text: &str) -> Option<u64> {
+    let digits = !text.is_empty() && text.len() <= 18 && text.bytes().all(|b| b.is_ascii_digit());
+    digits
+        .then(|| text.parse().ok())
+        .flatten()
+        .filter(|&n| n > 0)
+}
+
 /// A command a person runs, with no argument.
 macro_rules! person_command {
     ($name:literal, $doc:literal, $run:ident) => {
@@ -149,6 +158,17 @@ pub const COMMANDS: &[Command] = &[
         },
         reach: Reach::Person,
         run: review_range,
+        state: None,
+    },
+    Command {
+        name: "review-pull-request",
+        doc: "Review a pull request of the current buffer's project's GitHub repository, its number read in a prompt.\n\n`gh` says its base and head, and their commits are fetched from the remote when this clone lacks them, as objects alone: no ref moves, and `FETCH_HEAD` stays as it was. The old side is where the head left the base (`git merge-base`), as GitHub's \"Files changed\" shows it; the new side is its head, or the work tree when its head branch is the one checked out and holds its head. `g` asks `gh` again. Comments go to the session whose worktree has its head branch checked out. git and `gh` run only in a trusted project, on a worker.",
+        args: ArgSpec::Text {
+            prompt: "Review pull request #",
+            history: "review-pull-request",
+        },
+        reach: Reach::Person,
+        run: review_pull_request,
         state: None,
     },
     person_command!(
@@ -312,6 +332,13 @@ fn review_range(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         }
         _ => Err(CommandError::new("A range is FROM..TO")),
     }
+}
+
+fn review_pull_request(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let answer = ctx.answer().unwrap_or_default().trim();
+    let number = pull_number(answer.strip_prefix('#').unwrap_or(answer))
+        .ok_or_else(|| CommandError::new("A pull request is named by its number"))?;
+    open(ctx, ScopeKind::PullRequest, Some(number.to_string()))
 }
 
 fn review_mark_baseline(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -566,5 +593,7 @@ pub(crate) fn kill(ctx: &mut Ctx<'_>, review: ReviewId) -> Result<(), CommandErr
     Ok(())
 }
 
+#[cfg(test)]
+mod pr_tests;
 #[cfg(test)]
 pub(crate) mod tests;

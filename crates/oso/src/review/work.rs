@@ -19,6 +19,7 @@ use oso_platform::file_meta::Directory;
 use super::batch::{Batch, Blob};
 use super::diff;
 use super::index::Scratch;
+use super::pr;
 use super::read::{self, Context, Kept};
 use super::scope::{self, Scope, ScopeError};
 use super::{Asked, Entry, Report, Request};
@@ -48,6 +49,12 @@ pub(super) struct Reader {
     scope: Option<Scope>,
     kept: Kept,
     generation: u64,
+    /// The pull request `gh` is being asked about, left waiting by a stop, which a newer request
+    /// of it takes up rather than asking again (step 12b).
+    asking: Option<pr::Asking>,
+    /// The sides `gh` last gave, and for which pull request: looks and refreshes the person did
+    /// not ask for read these, asking `gh` nothing (step 12b, Q10).
+    pr_sides: Option<(u64, scope::Sides)>,
     /// The last listing, which a look compares with; and how many looks were made.
     listed: Option<Arc<[Entry]>>,
     looks: u64,
@@ -75,6 +82,8 @@ impl Reader {
             scope: None,
             kept: Kept::default(),
             generation: 0,
+            asking: None,
+            pr_sides: None,
             listed: None,
             looks: 0,
         }
@@ -99,7 +108,7 @@ impl Reader {
         let asked = super::asked(&request);
         let answered = match request {
             Request::Open(scope) => self.open(&scope, stop, carries, out),
-            Request::Refresh { first } => self.refresh(&first, stop, carries, out),
+            Request::Refresh { first, person } => self.refresh(&first, person, stop, carries, out),
             Request::Baseline => self.baseline(stop, out),
             Request::Carry(carry) => self.carry(carry, out),
             Request::Stage(stage) => self.stage(stage, out),
@@ -125,6 +134,10 @@ impl Reader {
         scope: &Scope,
         stop: &dyn Fn() -> bool,
     ) -> Result<(usize, usize), ScopeError> {
+        if matches!(scope, Scope::PullRequest { .. }) {
+            // Counting one would ask `gh`, which only the person's open or `g` does.
+            return Err(ScopeError::Refused("a pull request is not counted".into()));
+        }
         let (git, index) = {
             let repository = self.repository()?;
             (repository.git.clone(), repository.index.clone())
@@ -204,12 +217,13 @@ impl Reader {
             self.kept.clear();
         }
         self.scope = Some(scope.clone());
-        self.refresh(&[], stop, carries, out)
+        self.refresh(&[], true, stop, carries, out)
     }
 
     fn refresh(
         &mut self,
         first: &[Box<[u8]>],
+        person: bool,
         stop: &dyn Fn() -> bool,
         carries: &mut Carries<'_>,
         out: &mut Out<'_>,
@@ -221,8 +235,9 @@ impl Reader {
             let repository = self.repository()?;
             (repository.git.clone(), repository.index.clone())
         };
-        // Resolved again each time: `HEAD`, a branch or the index may have moved.
-        let listed = scope::resolve(&git, &scope, stop).and_then(|sides| {
+        // Resolved again each time: `HEAD`, a branch, the index or a pull request moves.
+        let sides = self.sides(&git, &scope, person, stop, carries, out);
+        let listed = sides.and_then(|sides| {
             let listing = scope::list(&git, &sides, &index, self.scratch.as_mut(), stop)?;
             Ok((sides, listing))
         });
@@ -269,10 +284,8 @@ impl Reader {
             // A file's comments are carried as they come, the running request going on. Their
             // time is not the request's: its budget moves on by what they took.
             let started = Instant::now();
-            while let Some(carry) = carries() {
-                if !out(carry_caught(&git, cx.batch, carry)) {
-                    return Ok(());
-                }
+            if !carry_waiting(&git, cx.batch, carries, out) {
+                return Ok(());
             }
             cx.budget += started.elapsed();
             if stop() {
@@ -298,6 +311,61 @@ impl Reader {
             stopped: false,
         });
         Ok(())
+    }
+
+    /// What `scope` compares now: a pull request's through `gh`, what it found said to the
+    /// host first, and the carries that come meanwhile answered as they come; but for a refresh
+    /// the person did not ask for, the sides `gh` last gave (step 12b, Q10).
+    fn sides(
+        &mut self,
+        git: &Git,
+        scope: &Scope,
+        person: bool,
+        stop: &dyn Fn() -> bool,
+        carries: &mut Carries<'_>,
+        out: &mut Out<'_>,
+    ) -> Result<scope::Sides, ScopeError> {
+        let Scope::PullRequest { number } = scope else {
+            return scope::resolve(git, scope, stop);
+        };
+        if !person && let Some(sides) = self.pulled(*number) {
+            return Ok(sides);
+        }
+        let state = self.state.clone().ok_or_else(|| {
+            ScopeError::Refused("oso has no state directory, so it runs no gh".into())
+        })?;
+        let batch = &mut self.batch;
+        let mut tell = |meanwhile: pr::Meanwhile<'_>| match meanwhile {
+            pr::Meanwhile::Idle => carry_waiting(git, batch, carries, out),
+            pr::Meanwhile::Fetching { number, remote } => out(Report::Fetching {
+                number,
+                remote: remote.to_owned(),
+            }),
+        };
+        let mut waits = pr::Waits {
+            stop,
+            tell: &mut tell,
+        };
+        let asking = &mut self.asking;
+        let (sides, found) = pr::resolve(git, &state, *number, asking, &mut waits)?;
+        self.pr_sides = Some((*number, sides.clone()));
+        if !out(Report::PrFound(found)) {
+            return Err(ScopeError::Stopped);
+        }
+        Ok(sides)
+    }
+
+    /// Reviews pull request `number` as if `gh` had given `sides`, for tests that ask no `gh`.
+    #[cfg(test)]
+    pub(super) fn pulled_for_tests(&mut self, number: u64, sides: scope::Sides) {
+        self.scope = Some(Scope::PullRequest { number });
+        self.pr_sides = Some((number, sides));
+    }
+
+    /// The sides `gh` last gave for pull request `number`, if it was asked.
+    fn pulled(&self, number: u64) -> Option<scope::Sides> {
+        let (asked, sides) = self.pr_sides.as_ref()?;
+        (*asked == number).then(|| sides.clone())
     }
 
     fn baseline(&mut self, stop: &dyn Fn() -> bool, out: &mut Out<'_>) -> Result<(), ScopeError> {
@@ -328,7 +396,14 @@ impl Reader {
         let top = Directory::open(git.top()).ok();
         let mut stale = top.is_some_and(|top| self.kept.stamps_moved(&top, stop));
         if !stale && self.looks.is_multiple_of(2) {
-            let sides = scope::resolve(&git, &scope, stop)?;
+            let sides = match &scope {
+                // A pull request's sides are what `gh` last gave: a look asks it nothing.
+                Scope::PullRequest { number } => match self.pulled(*number) {
+                    Some(sides) => sides,
+                    None => return Ok(()),
+                },
+                scope => scope::resolve(&git, scope, stop)?,
+            };
             let listing = scope::list(&git, &sides, &index, self.scratch.as_mut(), stop)?;
             stale = self.listed.as_deref() != Some(&listing.entries[..]);
         }
@@ -357,6 +432,21 @@ impl Reader {
         out(carry_with(&git, &mut self.batch, carry));
         Ok(())
     }
+}
+
+/// Answers each carry waiting, as it comes; `false` once the host has gone.
+fn carry_waiting(
+    git: &Git,
+    batch: &mut Batch,
+    carries: &mut Carries<'_>,
+    out: &mut Out<'_>,
+) -> bool {
+    while let Some(carry) = carries() {
+        if !out(carry_caught(git, batch, carry)) {
+            return false;
+        }
+    }
+    true
 }
 
 /// [`carry_with`], answered as a failed carry if it panics, so that each carry asked is
@@ -472,6 +562,7 @@ fn message(error: &ScopeError) -> String {
         }
         ScopeError::Copy(e) => format!("cannot copy the index: {e}"),
         ScopeError::Stopped => "stopped".into(),
+        ScopeError::Refused(said) => said.clone(),
     }
 }
 

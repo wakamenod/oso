@@ -240,7 +240,7 @@ impl App {
             match self.reviews.open[index].refresher.due(now, shown) {
                 Due::Refresh => {
                     let id = self.reviews.open[index].id;
-                    self.refresh_review(id);
+                    self.refresh_review(id, false);
                 }
                 Due::Look => self.ask_review(index, Request::Look),
                 Due::Nothing => {}

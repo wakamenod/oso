@@ -4,7 +4,9 @@
 //! person's act, and they stop it: `C-g` sends `SIGTERM`, then `SIGKILL` after [`GRACE`].
 //! A worktree's removal keeps no [`Ender`], so quitting does not end it, and its stop is the
 //! person's `worktree-remove-stop`, after a warning that the worktree is left half removed
-//! (ADR 0121, "Worktree removal, as fixed" and "Stopping a removal, as built").
+//! (ADR 0121, "Worktree removal, as fixed" and "Stopping a removal, as built"). Nor does a
+//! review's fetch of a pull request's objects ([`Git::run_long_with`], ADR 0122, step 12b),
+//! which the review's own stop ends, and which goes on after oso quits.
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; this runs on the threads that
 //! run git, and waits for git, but for [`Ender::end`], which the UI thread calls and which
@@ -161,27 +163,53 @@ impl Git {
         input: Option<Vec<u8>>,
         stop: &AtomicBool,
     ) -> Result<Output, GitError> {
-        let mut long = self.start_long(args, set, input)?;
         let mut said = Vec::new();
-        loop {
-            if stop.load(Ordering::SeqCst) {
-                long.stop();
-            }
-            match long.next(POLL)? {
-                Next::Out(piece) => {
+        let status = self.run_long_with(
+            args,
+            set,
+            input,
+            &|| stop.load(Ordering::SeqCst),
+            &mut |piece| {
+                if let Some(piece) = piece {
                     let room = MAX_STDERR.saturating_sub(said.len()).min(piece.len());
                     said.extend_from_slice(&piece[..room]);
                 }
-                Next::Quiet => {}
+            },
+        )?;
+        Ok(Output {
+            stdout: Vec::new(),
+            cut: false,
+            status,
+            stderr: String::from_utf8_lossy(&said).into_owned(),
+        })
+    }
+
+    /// Runs git as [`Git::start_long`] does, until it ends or `stop` says so, handing
+    /// `between` each piece it writes, and `None` each [`POLL`] it writes nothing, so that the
+    /// caller answers what waits meanwhile (a review's carries, ADR 0122, step 12b); how it
+    /// ended.
+    ///
+    /// # Errors
+    ///
+    /// If git cannot be started or talked to, or [`GitError::Stopped`] once it was stopped.
+    pub(crate) fn run_long_with(
+        &self,
+        args: &[&OsStr],
+        set: &[(&str, &OsStr)],
+        input: Option<Vec<u8>>,
+        stop: &dyn Fn() -> bool,
+        between: &mut dyn FnMut(Option<&[u8]>),
+    ) -> Result<ExitStatus, GitError> {
+        let mut long = self.start_long(args, set, input)?;
+        loop {
+            if stop() {
+                long.stop();
+            }
+            match long.next(POLL)? {
+                Next::Out(piece) => between(Some(&piece)),
+                Next::Quiet => between(None),
                 Next::Ended(_) if long.stopped() => return Err(GitError::Stopped),
-                Next::Ended(status) => {
-                    return Ok(Output {
-                        stdout: Vec::new(),
-                        cut: false,
-                        status,
-                        stderr: String::from_utf8_lossy(&said).into_owned(),
-                    });
-                }
+                Next::Ended(status) => return Ok(status),
             }
         }
     }

@@ -12,6 +12,7 @@
 //! | Branch | `merge-base BASE HEAD` | the work tree, untracked included |
 //! | Commit | its first parent (the empty tree for a root commit) | the commit |
 //! | Range | `FROM`'s first parent | `TO` |
+//! | Pull request | `merge-base BASE HEAD` of the pull request | its head, or the work tree (`pr`) |
 //!
 //! Untracked files are listed through a copy of the index in which they are marked as to be
 //! added (`git add -A -N`), which writes no file's contents into the repository. The baseline
@@ -44,13 +45,26 @@ const MAX_STAGE_RECORD: u64 = 8 * 1024;
 /// resolved to ids before git sees anything else.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Scope {
-    Session { baseline: Id },
+    Session {
+        baseline: Id,
+    },
     Uncommitted,
     Staged,
     Unstaged,
-    Branch { base: String },
-    Commit { revision: String },
-    Range { from: String, to: String },
+    Branch {
+        base: String,
+    },
+    Commit {
+        revision: String,
+    },
+    Range {
+        from: String,
+        to: String,
+    },
+    /// Resolved through `gh` on the review's thread (`pr`), never by [`resolve`] nor counted.
+    PullRequest {
+        number: u64,
+    },
 }
 
 /// Where a scope's new side comes from.
@@ -91,6 +105,9 @@ pub(crate) enum ScopeError {
     /// The request was stopped between two runs of git, as its root was revoked or a newer
     /// request came.
     Stopped,
+    /// Why a pull request cannot be reviewed now: what `gh` or a fetch said, escaped, or what
+    /// oso refused of its answer.
+    Refused(String),
 }
 
 impl From<GitError> for ScopeError {
@@ -173,12 +190,8 @@ pub(crate) fn resolve(
             go_on(stop)?;
             let head = commit(git, "HEAD")?;
             go_on(stop)?;
-            let args = [OsStr::new("merge-base"), base.as_os_str(), head.as_os_str()];
-            let out = git.run(&args, &[], MAX_SHORT)?;
-            let fork =
-                Id::parse(trim_line(&out)).ok_or(GitError::Unexpected("not an object id"))?;
             Sides {
-                old: Some(fork),
+                old: Some(merge_base(git, &base, &head)?),
                 new: work_tree,
             }
         }
@@ -200,7 +213,17 @@ pub(crate) fn resolve(
                 new: New::Tree(to),
             }
         }
+        Scope::PullRequest { .. } => {
+            return Err(GitError::Unexpected("a pull request is resolved through gh").into());
+        }
     })
+}
+
+/// Where `head` left `base`: the commit `git merge-base` names.
+pub(super) fn merge_base(git: &Git, base: &Id, head: &Id) -> Result<Id, ScopeError> {
+    let args = [OsStr::new("merge-base"), base.as_os_str(), head.as_os_str()];
+    let out = git.run(&args, &[], MAX_SHORT)?;
+    Ok(Id::parse(trim_line(&out)).ok_or(GitError::Unexpected("not an object id"))?)
 }
 
 /// The files `sides` differ in. `index` is the repository's index, copied into `scratch` when

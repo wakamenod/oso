@@ -117,7 +117,13 @@ fn a_request_told_to_stop_reads_no_file() {
     );
     assert_eq!((files, stopped), (0, Some(true)));
     // The next refresh reads what the stopped one left.
-    let again = ask(&mut reader, Request::Refresh { first: Vec::new() });
+    let again = ask(
+        &mut reader,
+        Request::Refresh {
+            first: Vec::new(),
+            person: true,
+        },
+    );
     assert_eq!(again.paths(), ["a.txt"]);
     assert_eq!(again.stopped, Some(false));
 }
@@ -133,7 +139,13 @@ fn what_a_review_holds_is_counted_and_let_go() {
     // Both sides, and each hunk line with its cost.
     assert_eq!(reader.held(), 4 + 4 + 2 * (4 + 16));
     repo.commit("second");
-    ask(&mut reader, Request::Refresh { first: Vec::new() });
+    ask(
+        &mut reader,
+        Request::Refresh {
+            first: Vec::new(),
+            person: true,
+        },
+    );
     assert_eq!(reader.held(), 0, "a file no longer listed is let go");
 }
 
@@ -178,10 +190,22 @@ fn a_file_with_another_name_is_withheld_until_it_has_one() {
         answers.reading("notes.txt").content,
         Content::Withheld
     ));
-    let again = ask(&mut reader, Request::Refresh { first: Vec::new() });
+    let again = ask(
+        &mut reader,
+        Request::Refresh {
+            first: Vec::new(),
+            person: true,
+        },
+    );
     assert!(again.readings.is_empty(), "{:?}", again.paths());
     fs::remove_file(repo.root.join(".env")).unwrap();
-    let alone = ask(&mut reader, Request::Refresh { first: Vec::new() });
+    let alone = ask(
+        &mut reader,
+        Request::Refresh {
+            first: Vec::new(),
+            person: true,
+        },
+    );
     assert_eq!(added(alone.reading("notes.txt")), ["SECRET=1\n"]);
 }
 

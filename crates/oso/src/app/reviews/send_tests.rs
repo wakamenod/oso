@@ -8,7 +8,7 @@ use std::sync::Arc;
 use oso_core::review::{Anchor, Author, Base, CommentId, Hunk, Review, RowKind, Rows, Section};
 use oso_core::review::{Shape, Side};
 
-use super::{same_text, unsent};
+use super::{places, same_text, unsent};
 
 const A: &[u8] = b"a.rs";
 const B: &[u8] = b"b.rs";
@@ -118,4 +118,29 @@ fn a_comment_edited_since_it_was_taken_is_not_the_same() {
         .edit_comment(Author::Person, id, "on 1".into())
         .unwrap();
     assert!(same_text(review.comment(id).unwrap(), &taken));
+}
+
+#[test]
+fn a_pull_request_s_comments_go_where_its_head_is_checked_out_first() {
+    use std::path::{Path, PathBuf};
+
+    use crate::review::pr::PrFound;
+
+    let root = Path::new("/repo");
+    let found = |worktree: Option<&str>| PrFound {
+        number: 7,
+        title: String::new(),
+        head_branch: "feature".into(),
+        worktree: worktree.map(PathBuf::from),
+        head_checked_out: false,
+    };
+    let looked = |found: Option<&PrFound>| -> Vec<PathBuf> {
+        places(found, root).map(Path::to_path_buf).collect()
+    };
+    assert_eq!(looked(None), [PathBuf::from("/repo")]);
+    assert_eq!(looked(Some(&found(None))), [PathBuf::from("/repo")]);
+    assert_eq!(
+        looked(Some(&found(Some("/trees/feature")))),
+        [PathBuf::from("/trees/feature"), PathBuf::from("/repo")]
+    );
 }
