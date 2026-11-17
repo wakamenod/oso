@@ -854,7 +854,11 @@ The UI thread never blocks on I/O or parsing:
   by token before the person's own worktree commands see them. In an issue space
   ([ADR 0136](adr/0136-issue-spaces.md) step 4), `sessions::tools::repo` says which repository
   a call's `repo` names, and `app/sessions/tools/space.rs` gives a caller its part in its space
-  and scopes an orchestrator's calls to the space's sessions and repositories.
+  and scopes an orchestrator's calls to the space's sessions and repositories. An
+  orchestrator's `session_resume` ([ADR 0153](adr/0153-agents-resume-sessions.md)) is
+  `app/sessions/tools/resume.rs`: `sessions::tools::resumable` says which session it takes, and
+  `App::resume_hosted` (`app/sessions/hosting/resume.rs`), the body of `session-resume`, resumes it; the start thread's live check
+  refuses it, with no fork offered (`App::session_tool_live`).
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.

@@ -466,13 +466,14 @@ tools besides oso's editing ones:
 | `session_list`, `session_state` | Read the sessions oso hosts and their states. |
 | `session_start` | Start a session in the repository or one of its worktrees. Asks you first. |
 | `start_worktree_session` | Start a session in a new worktree, with a brief. Asks you first. |
+| `session_resume` | For a space's orchestrator: resume a stopped session of its space with its conversation, as `C-c a r` does. Asks you first. |
 | `worktree_list` | List the repository's worktrees, as `M-x worktree-list` does. |
 | `worktree_remove` | Remove a finished worktree, under the same rules as `M-x worktree-remove`. |
 | `space_status` | Read the session's issue space: its repositories, their trust, the orchestrator's name, its sessions. |
 | `draft_set` | Give back the commit message draft `C-c C-d` asked for. It goes in your message buffer; nothing is committed. |
 
 A tool that starts a session asks you in oso first. The question names the session that asks
-and what would start. `y` allows it, `n` or `C-g` refuses it, and `?` shows the whole brief. A refusal
+and what would start. `y` allows it, `n` or `C-g` refuses it, and `?` shows the whole brief of a start. A refusal
 holds for the same request for a minute. After 20 such calls, a session's tools wait until you
 type in its terminal. To let sessions you started start sessions without the question, see
 [Session settings](#session-settings).
@@ -519,7 +520,8 @@ runs. `pane_width` is where the pane starts; `<` and `>` in it change it for thi
 The `[sessions.notify]` values shown are the defaults.
 
 `agents_start_without_asking` lets a session you started, with a key or a `y`, start sessions
-through `start_worktree_session` and `session_start` without asking you, in a trusted project
+through `start_worktree_session` and `session_start`, and a space's orchestrator resume a stopped
+session of its space through `session_resume`, without asking you, in a trusted project
 only, up to `agents_start_limit` running sessions each; past that it asks again. With
 `agents_start_limit = "none"` no limit makes it ask, but a session can still start at most 20
 sessions each time you type in it. A session started this way asks for its own. A session an

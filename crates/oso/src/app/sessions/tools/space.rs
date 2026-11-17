@@ -256,7 +256,7 @@ impl App {
 }
 
 /// Whether `place` is `path` or inside it, by ADR 0114's comparison of each part.
-fn in_place(place: &Path, path: &Path) -> bool {
+pub(super) fn in_place(place: &Path, path: &Path) -> bool {
     place.ancestors().any(|above| same(above, path))
 }
 

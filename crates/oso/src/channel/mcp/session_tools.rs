@@ -21,6 +21,7 @@ pub(super) fn method(name: &str) -> Option<(&'static str, &'static [&'static str
         "session_start" => &["directory", "name", "brief", "repo", "with_dirs"],
         "space_status" => &[],
         "draft_set" => &["kind", "id", "text"],
+        "session_resume" => &["session"],
         _ => return None,
     };
     let method = METHODS.into_iter().find(|method| *method == name)?;
@@ -132,6 +133,16 @@ pub(super) fn acting() -> Vec<Value> {
                 "text": { "type": "string", "description": "The message: its subject line, a blank line and its body, at most 16 KiB." },
             }),
             &["kind", "id", "text"],
+            false,
+            false,
+        ),
+        tool(
+            "session_resume",
+            "For a space's orchestrator: resume a stopped or failed session of your space, by its id or name from session_list, in its own buffer, under its name and in its directory, with its conversation (claude --resume). It is refused while that conversation runs in another process: stop it there first; oso never forks it for you. The person is asked first, unless their configuration lets your session start sessions without asking; the call returns once the session runs again, and its `asked` says which happened. It sends the session no prompt: message it with SendMessage once it runs. The person resumes your space's earlier orchestrators and archived sessions themselves.",
+            json!({
+                "session": { "type": "string", "description": "A stopped session's id or name, from session_list." },
+            }),
+            &["session"],
             false,
             false,
         ),

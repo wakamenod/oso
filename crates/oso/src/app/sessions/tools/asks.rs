@@ -5,7 +5,8 @@
 //! agent causes does. On the person's `y` the worktree is made and the session starts, as the
 //! person's act; on `n` or `C-g` the same call from the same session is refused for a minute.
 //! When the person's configuration lets the caller start sessions without asking, no question
-//! opens and `starting` runs the plan at once (ADR 0135).
+//! opens and `starting` runs the plan at once (ADR 0135). `session_resume`'s plan is asked and
+//! carried out the same way (ADR 0153).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -61,6 +62,8 @@ pub(super) enum Plan {
     /// A session to start, and for an orchestrator's call the space's repository whose trust
     /// is asked again before it starts.
     Start(Begin, Option<crate::git::TrustedRoot>),
+    /// A stopped session of the caller's space to resume (ADR 0153).
+    Resume(super::resume::Resuming),
 }
 
 impl Plan {
@@ -69,13 +72,15 @@ impl Plan {
         match self {
             Self::Worktree { origin, .. } => *origin = now,
             Self::Start(begin, _) => begin.origin = now,
+            // Its call's `unasked` says it: a resume keeps the session's origin (ADR 0153).
+            Self::Resume(_) => {}
         }
     }
 }
 
 /// What a call's question says, what `?` shows, and what the echo area says of a start
 /// without asking.
-struct Words(String, String, String);
+pub(super) struct Words(pub(super) String, pub(super) String, pub(super) String);
 
 /// A call whose job looks before the person is asked.
 #[derive(Debug)]
@@ -371,7 +376,11 @@ impl App {
             brief.map(rules::lines),
             shared,
         );
-        let details = details(&caller.name, &label, brief.unwrap_or("(no brief)"));
+        let details = details(
+            &caller.name,
+            &label,
+            &brief_said(brief.unwrap_or("(no brief)")),
+        );
         let lines = brief.map(rules::lines);
         let said =
             rules::start_started(&caller.name, &shown(&directory), lines, &self.explain_key());
@@ -405,7 +414,7 @@ impl App {
     /// Starts `plan`, `caller`'s call on `target`, at once when the person's configuration lets
     /// it start without asking (ADR 0135), else asks the person; `trusted` when the project it
     /// starts in is trusted now.
-    fn ask_or_start(
+    pub(super) fn ask_or_start(
         &mut self,
         mut pending: Pending,
         caller: &Caller,
@@ -569,13 +578,21 @@ fn worktree_words(
     let label = rules::also_reads(label, reads);
     let said = rules::worktree_started(caller, &place, branch, start, lines, explain);
     let said = rules::also_reads(said, reads);
-    let details = details(caller, &label, brief);
+    let details = details(caller, &label, &brief_said(brief));
     Words(label, details, said)
 }
 
-fn details(caller: &str, label: &str, brief: &str) -> String {
+/// What `?` shows of a start's brief.
+fn brief_said(brief: &str) -> String {
     format!(
-        "Session {} asks:\n\n  {label}\n\ny allows it, n or C-g refuses it.\n\nThe brief, which the new session gets after oso's header and hand-off facts:\n\n{brief}\n",
+        "The brief, which the new session gets after oso's header and hand-off facts:\n\n{brief}"
+    )
+}
+
+/// What `?` shows: who asks, the question, and `more`.
+pub(super) fn details(caller: &str, label: &str, more: &str) -> String {
+    format!(
+        "Session {} asks:\n\n  {label}\n\ny allows it, n or C-g refuses it.\n\n{more}\n",
         rules::quoted(caller)
     )
 }

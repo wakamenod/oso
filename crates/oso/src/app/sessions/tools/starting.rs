@@ -1,6 +1,6 @@
 //! What a session tool's call runs once it may: on the person's `y`, or at once when the
 //! person's configuration lets a session they started start sessions without asking, within
-//! `sessions::tools::starts_without_asking`'s rules (ADR 0121 step 6, ADR 0135).
+//! `sessions::tools::starts_without_asking`'s rules (ADR 0121 step 6, ADR 0135, ADR 0153).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -30,13 +30,14 @@ impl App {
         })
     }
 
-    /// How many sessions `parent` started without asking that run, are being got ready, or
-    /// wait for their worktree.
+    /// How many sessions `parent` started or resumed without asking that run, are being got
+    /// ready, or wait for their worktree (ADR 0135, ADR 0153).
     fn unasked_children(&self, parent: &SessionId) -> usize {
+        let resumed = &self.hosting.tools.resumed;
         let running = self.hosting.table().all().iter().filter(|session| {
-            session.origin == Origin::Unasked
-                && session.runs()
-                && session.parent.as_ref() == Some(parent)
+            let started =
+                session.origin == Origin::Unasked && session.parent.as_ref() == Some(parent);
+            session.runs() && (started || resumed.get(&session.key) == Some(parent))
         });
         running.count()
             + self.hosting.readying_unasked(parent)
@@ -85,6 +86,7 @@ impl App {
             Plan::Start(_, Some(root)) if !self.still_trusted(&root) => {
                 pending.answer(Err("the repository is no longer trusted".into()));
             }
+            Plan::Resume(resuming) => self.carry_out_resume(pending, resuming, said),
             Plan::Start(mut begin, _) => {
                 // As the directories to read stand at the person's `y`.
                 begin.space = self.space_now(begin.space.take());

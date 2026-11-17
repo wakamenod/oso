@@ -73,7 +73,7 @@ const fn reads(name: &'static str) -> Tool {
 
 /// The tools, the reading ones first. A change here is a change of what an agent may do: the
 /// test below spells the table out, so that review sees it.
-pub const TOOLS: [Tool; 8] = [
+pub const TOOLS: [Tool; 9] = [
     reads("session_list"),
     reads("session_state"),
     // It runs git and `gh` with no question, as the author chose (ADR 0121, step 4).
@@ -111,6 +111,15 @@ pub const TOOLS: [Tool; 8] = [
         name: "draft_set",
         reach: Reach::Change,
         asks: Asks::No,
+        destructive: false,
+        outside: false,
+    },
+    // A space's orchestrator resumes a stopped session of its space, as `session-resume` does,
+    // and as ADR 0135 lets a start go without asking (ADR 0153).
+    Tool {
+        name: "session_resume",
+        reach: Reach::Change,
+        asks: Asks::UnlessAllowed,
         destructive: false,
         outside: false,
     },
@@ -417,6 +426,67 @@ pub fn start_question(
         quoted(caller),
         quoted(directory)
     )
+}
+
+/// The question of `session_resume`: `caller` resumes session `name` in `directory`.
+pub fn resume_question(caller: &str, name: &str, directory: &str) -> String {
+    format!(
+        "let session {} resume session {} in {}?",
+        quoted(caller),
+        quoted(name),
+        quoted(directory)
+    )
+}
+
+/// What the echo area says of a `session_resume` that went ahead with no question (ADR 0153).
+pub fn resume_started(caller: &str, name: &str, directory: &str) -> String {
+    format!(
+        "session {} is resuming session {} in {}, without asking",
+        quoted(caller),
+        quoted(name),
+        quoted(directory)
+    )
+}
+
+/// What `session_resume` knows of the session it would resume (ADR 0153).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Resumable {
+    /// It is the calling session.
+    pub caller: bool,
+    /// Its `claude` runs, or is being started.
+    pub runs: bool,
+    /// The person archived it.
+    pub archived: bool,
+    /// It is an orchestrator of the space, current or earlier: the person's to resume.
+    pub orchestrator: bool,
+    /// Its terminal buffer is there, which the resume runs in again.
+    pub buffer: bool,
+}
+
+/// Whether an orchestrator's `session_resume` may resume a session of its space, or why not:
+/// only a stopped or failed one, not archived, that is no orchestrator and still has its
+/// buffer, and never the caller (ADR 0153).
+///
+/// # Errors
+///
+/// Why it is refused, for the agent.
+pub fn resumable(session: Resumable) -> Result<(), &'static str> {
+    if session.caller {
+        return Err("that is your own session");
+    }
+    if session.runs {
+        return Err("that session runs already");
+    }
+    if session.archived {
+        return Err("the person archived that session; only they resume it");
+    }
+    if session.orchestrator {
+        return Err("that is an orchestrator of your space; only the person resumes it");
+    }
+    if !session.buffer {
+        return Err("that session's buffer is gone; only the person resumes it");
+    }
+    Ok(())
 }
 
 /// `said`, a question or what the echo area says of a start, with the directories the new

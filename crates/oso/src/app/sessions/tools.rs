@@ -40,6 +40,7 @@ use crate::sessions::worktree::jobs::{Report, Trust};
 mod asks;
 mod reads;
 mod remove;
+mod resume;
 mod space;
 mod starting;
 
@@ -70,6 +71,9 @@ pub(in crate::app) struct Tools {
     pub(in crate::app) agent_starts: AgentStarts,
     /// `agent-starts-ask` since: every start asks, until `agent-starts-allow` or oso restarts.
     pub(in crate::app) agent_starts_held: bool,
+    /// The sessions an agent resumed without asking, by key, with the session that resumed
+    /// them: each counts toward that caller's limit while it runs (ADR 0153). Memory only.
+    resumed: HashMap<SessionKey, SessionId>,
 }
 
 /// A call whose reply waits.
@@ -240,6 +244,9 @@ impl App {
             (Call::SpaceStatus, caller) => {
                 let status = self.space_status(caller.as_ref());
                 pending.answer(status);
+            }
+            (Call::Resume { session }, Some(caller)) => {
+                self.tool_session_resume(pending, &tool, &caller, &session);
             }
             (Call::DraftSet { id, text }, Some(caller)) => {
                 let set = self.admit_tool(&tool, &caller, &id).and_then(|()| {

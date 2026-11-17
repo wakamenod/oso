@@ -1,6 +1,6 @@
 //! Hosted sessions in the app (ADR 0121): starting, resuming and forking them at the person's
-//! command, the start thread's reports and the remembered set; `bridge`: the connections that
-//! hold a session. The work that touches files and processes is on the start thread and the
+//! command, or at an agent's tool's (ADR 0153), the start thread's reports and the remembered
+//! set; `bridge`: the connections that hold a session. The work that touches files and processes is on the start thread and the
 //! sessions worker; this only decides and carries out.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
@@ -27,6 +27,7 @@ mod bridge;
 mod carried;
 mod fork;
 mod record;
+mod resume;
 mod terminal;
 
 use fork::ForkFrom;
@@ -353,54 +354,7 @@ impl App {
         }
     }
 
-    /// `session-resume`: the stopped session whose terminal is `buffer`, in the same buffer.
-    pub(in crate::app) fn resume_session(&mut self, buffer: BufferId) {
-        let Some(session) = self.hosting.table.by_buffer(buffer) else {
-            self.editor.message("This buffer holds no session");
-            return;
-        };
-        if session.runs() {
-            self.editor
-                .message(format!("Session {} runs", session.name));
-            return;
-        }
-        let (key, kind, name, directory, root) = (
-            session.key,
-            Kind::Resume(session.id.clone()),
-            session.name.clone(),
-            session.directory.clone(),
-            session.root.clone(),
-        );
-        // An orchestrator's command line is made again from its space as it is now: the CLI
-        // keeps neither its `--add-dir`s nor its prompt (ADR 0136, step 3).
-        let space = match self.orchestrator_start_for(key) {
-            Ok(space) => space,
-            Err(why) => return self.editor.message(why),
-        };
-        self.turn_agent_channel_on_for_a_session();
-        if let Some(session) = self.hosting.table.get_mut(key) {
-            session.run = Run::Starting;
-        }
-        let terminal = self.session_terminal(key, &name, Some(buffer), true);
-        self.order_session(Order {
-            token: key,
-            kind,
-            name,
-            directory,
-            project: root,
-            // A resume takes no baseline: the session keeps the one it had.
-            trusted: None,
-            state: super::super::reviews::state(),
-            claude: self.configuration.session_claude().map(Path::to_path_buf),
-            terminal,
-            brief: None,
-            steer_worktrees: self.configuration.steer_worktrees(),
-            check_shared: false,
-            space,
-        });
-    }
-
-    fn order_session(&self, order: Order) {
+    pub(super) fn order_session(&self, order: Order) {
         let waker = std::sync::Mutex::new(self.waker.clone());
         start::spawn(order, move |report| {
             waker
@@ -437,7 +391,10 @@ impl App {
             } => {
                 let adopted = self.take_adoption(token);
                 self.session_not_started(token);
-                self.offer_fork(token, adopted, pid, directory.as_deref());
+                // An agent's resume is refused: only the person's word forks a conversation.
+                if !self.session_tool_live(token, pid, directory.as_deref()) {
+                    self.offer_fork(token, adopted, pid, directory.as_deref());
+                }
             }
             Report::Baseline { token, tree } => {
                 self.session_baseline_to_review(token, &tree);
@@ -488,6 +445,7 @@ impl App {
     /// A start that did not happen: a held name goes, and a resumed session is stopped again.
     /// The agent channel goes off again if this start turned it on and nothing else needs it.
     fn session_not_started(&mut self, token: SessionKey) {
+        self.forget_agent_resume(token);
         self.session_terminal_not_started(token);
         self.hosting.baselines.remove(&token);
         if self.hosting.table.release(token).is_some() {

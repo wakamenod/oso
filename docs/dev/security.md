@@ -648,6 +648,11 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   `?` shows the whole brief. No tool types into a terminal, answers a session's dialog, passes a
   permission flag or reads Claude Code's token files; a guard test keeps the tools' files from
   the terminal and the process module.
+  - A space's orchestrator's `session_resume` ([ADR 0153](adr/0153-agents-resume-sessions.md))
+    takes only a stopped session of its space that is no orchestrator and not archived. It asks
+    as a start does, or goes without asking under ADR 0135's rules, counted toward the limit
+    while it runs. A conversation a live process runs is refused, and the agent never forks
+    one.
   - An agent's `worktree_remove` asks nothing once every check holds (the author's choice), and
     `worktree_list` runs git and `gh` without a question; both need a trusted project.
   - Each session may make 20 calls that change or ask until the person types in its terminal,
