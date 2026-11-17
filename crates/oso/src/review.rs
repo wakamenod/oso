@@ -25,6 +25,10 @@
 //!   between the files of a running request and when nothing runs, so that a file's comments
 //!   never stop a refresh (ADR 0122, step 3b). Before each, the root is checked as before a
 //!   request, and a newer request stops the run of them, the rest waiting.
+//! - A look (step 4) is no newer request either: looks waiting are one, answered when nothing
+//!   else waits. It opens each reviewed work tree file as a reading does, reading nothing, to
+//!   compare its stamp, and each second look lists the scope again; it says only whether the
+//!   review is stale, and a newer request stops it.
 //! - Limits, each saying what it hides: 10,000 files and 32 MiB of list; a side of 8 MiB and
 //!   200,000 lines, diffed within 1 s, and 5 s of diffing per request; 64 MiB of sides and
 //!   hunks held per review; a git run of 10 s.
@@ -41,6 +45,8 @@ pub(crate) mod count;
 mod diff;
 mod index;
 mod list;
+#[cfg(test)]
+mod look_tests;
 pub(crate) mod message;
 #[cfg(test)]
 mod queue_tests;
@@ -91,6 +97,9 @@ pub(crate) enum Request {
     /// Put hunks in the index or take them out (step 5). It stops nothing, and is answered once
     /// the running request ends.
     Stage(stage::Stage),
+    /// Look whether what the review shows is stale (step 4). It stops nothing; looks waiting
+    /// are one, answered when nothing else waits.
+    Look,
 }
 
 /// Which request a failure answers.
@@ -101,6 +110,7 @@ pub(crate) enum Asked {
     Baseline,
     Carry,
     Stage,
+    Look,
 }
 
 /// What the review's thread found. Each listing, the readings after it and the `Read` that
@@ -128,7 +138,12 @@ pub(crate) enum Report {
     BaselineGone,
     /// Comments carried; `cut_short` if matching lines ran out of time, so some may be outdated
     /// that would not have been.
-    Carried { carried: Carried, cut_short: bool },
+    Carried {
+        carried: Box<Carried>,
+        cut_short: bool,
+    },
+    /// A look found the review stale: a reviewed file, the listing, the index or `HEAD` moved.
+    Stale,
     /// What the stage with the host's ticket `ticket` did, or why it could not run.
     Staged { ticket: u64, staged: stage::Staged },
     /// A request failed; the message says why, with no file's text.
@@ -172,6 +187,7 @@ impl fmt::Debug for Report {
                 .field("left_out", left_out)
                 .finish(),
             Self::BaselineGone => f.write_str("BaselineGone"),
+            Self::Stale => f.write_str("Stale"),
             Self::Carried { cut_short, .. } => f
                 .debug_struct("Carried")
                 .field("cut_short", cut_short)
@@ -296,6 +312,8 @@ pub(crate) struct Reviewer {
 struct Waiting {
     carries: VecDeque<Carry>,
     stages: VecDeque<stage::Stage>,
+    /// Whether a look waits.
+    look: bool,
     next: Option<Request>,
 }
 
@@ -342,7 +360,10 @@ impl Reviewer {
 /// Sends `request` on `requests`, counted in `waiting` unless it is a carry or a stage; `false`
 /// if the thread has ended.
 fn send_request(requests: &Sender<Request>, waiting: &AtomicUsize, request: Request) -> bool {
-    let counted = !matches!(request, Request::Carry(_) | Request::Stage(_));
+    let counted = !matches!(
+        request,
+        Request::Carry(_) | Request::Stage(_) | Request::Look
+    );
     if counted {
         waiting.fetch_add(1, Ordering::SeqCst);
     }
@@ -440,6 +461,7 @@ fn pull(queue: &Receiver<Request>, held: &RefCell<Waiting>, waiting: &AtomicUsiz
         match queue.try_recv() {
             Ok(Request::Carry(carry)) => held.carries.push_back(carry),
             Ok(Request::Stage(stage)) => held.stages.push_back(stage),
+            Ok(Request::Look) => held.look = true,
             Ok(other) => {
                 waiting.fetch_sub(1, Ordering::SeqCst);
                 held.next = Some(other);
@@ -470,11 +492,17 @@ fn next_request(
         if let Some(carry) = carry {
             return Some(Request::Carry(carry));
         }
+        // A look last, when nothing else waits: a refresh coming reads what it would find.
+        if std::mem::take(&mut held.borrow_mut().look) {
+            return Some(Request::Look);
+        }
     }
     let request = match next {
         Some(request) => request,
         None => match queue.recv().ok()? {
-            request @ (Request::Carry(_) | Request::Stage(_)) => return Some(request),
+            request @ (Request::Carry(_) | Request::Stage(_) | Request::Look) => {
+                return Some(request);
+            }
             request => {
                 waiting.fetch_sub(1, Ordering::SeqCst);
                 request
@@ -488,6 +516,7 @@ fn next_request(
         match newer {
             Request::Carry(carry) => held.borrow_mut().carries.push_back(carry),
             Request::Stage(stage) => held.borrow_mut().stages.push_back(stage),
+            Request::Look => held.borrow_mut().look = true,
             Request::Refresh { first: more } => {
                 waiting.fetch_sub(1, Ordering::SeqCst);
                 first.extend(more);
@@ -509,5 +538,6 @@ fn asked(request: &Request) -> Asked {
         Request::Baseline => Asked::Baseline,
         Request::Carry(_) => Asked::Carry,
         Request::Stage(_) => Asked::Stage,
+        Request::Look => Asked::Look,
     }
 }

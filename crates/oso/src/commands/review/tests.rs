@@ -85,7 +85,13 @@ pub(crate) fn with_review(editor: &mut Editor, project: ProjectId) -> ReviewId {
     let window = editor.window().id();
     editor.show_in(window, buffer);
     let text = decode_all(TEXT.as_bytes(), Default::default()).compared_with(&Rope::new());
-    let _ = editor.set_review_text(review, text, rows(), Highlights::new(TEXT.len()));
+    let _ = editor.set_review_text(
+        review,
+        text,
+        rows(),
+        Highlights::new(TEXT.len()),
+        &|_, _, number| Some(number),
+    );
     review
 }
 
@@ -205,7 +211,13 @@ pub(crate) fn with_comments(editor: &mut Editor, project: ProjectId) -> (ReviewI
     b.push(lines(Side::New, 1), 1);
     let rows = Rows::new(vec![Arc::new(title), Arc::new(a), Arc::new(b)]);
     let text = decode_all(COMMENTED.as_bytes(), Default::default()).compared_with(&Rope::new());
-    let _ = editor.set_review_text(review, text, rows, Highlights::new(COMMENTED.len()));
+    let _ = editor.set_review_text(
+        review,
+        text,
+        rows,
+        Highlights::new(COMMENTED.len()),
+        &|_, _, number| Some(number),
+    );
     let comments = Comments {
         mine,
         agents_reply,
@@ -456,7 +468,12 @@ fn put_panes(editor: &mut Editor, review: ReviewId) {
         let loaded = decode_all(text.as_bytes(), Default::default()).compared_with(&Rope::new());
         (loaded, rows, Highlights::new(text.len()))
     };
-    let _ = editor.set_review_panes(review, pane(&old, Side::Old), pane(&new, Side::New));
+    let _ = editor.set_review_panes(
+        review,
+        pane(&old, Side::Old),
+        pane(&new, Side::New),
+        &|_, _, number| Some(number),
+    );
 }
 
 #[test]

@@ -12,7 +12,7 @@ label 1  |    ▍Agent  #1 · new · outdated, was hunk 2
          |    aaaaaaaaaaaaaaaaooooooooooooooooooooooo
 card 1   |    ▍  was on the second hunk
          |    a
-hunk     |@@ -2 +2,2 @@
+hunk     |@@ -2 +2,2 @@  · changed
          |@@@@@@@@@@@@@
 line     |-old two
          |--------
@@ -52,7 +52,7 @@ label 4  |    ▍Agent  #4 · new
          |    aaaaaaaaaaaaaaaa
 card 4   |    ▍  on the hunk
          |    a
-hunk     |@@ -8,0 +10 @@
+hunk     |@@ -8,0 +10 @@  · changed
          |@@@@@@@@@@@@@@
 line     |+put in
          |+++++++

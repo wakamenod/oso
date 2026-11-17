@@ -22,11 +22,13 @@ pub enum Decision {
     Rejected,
 }
 
-/// What the person marked on one hunk.
+/// What the person marked on one hunk, and whether it is new since the reading before and not
+/// yet looked at, which is no mark of theirs and drops with no word.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct Mark {
     pub(super) decision: Option<Decision>,
     pub(super) viewed: bool,
+    pub(super) changed: bool,
 }
 
 impl Mark {
@@ -58,27 +60,20 @@ struct Group {
 }
 
 /// The marks of `from` carried to the hunks `to`, whose hashes are `hashes`, and how many
-/// marked hunks found no hunk with their text. Only texts some marked hunk has are compared.
+/// marked hunks found no hunk with their text. Hunks of one text pair in order, the k-th with
+/// the k-th; a hunk of `to` that pairs with none is new since `from`, and marked changed (ADR
+/// 0122, step 4).
 pub(super) fn carry_marks(from: &Marked<'_>, to: &[Hunk], hashes: &[u64]) -> (Vec<Mark>, usize) {
     let mut marks = vec![Mark::default(); to.len()];
     let mut groups: HashMap<u64, Vec<Group>> = HashMap::new();
-    for (index, mark) in from.marks.iter().enumerate() {
-        if mark.is_set() {
-            groups.entry(from.hashes[index]).or_default();
-        }
-    }
-    if groups.is_empty() {
-        return (marks, 0);
-    }
     let sides = [(from.hunks, from.hashes, true), (to, hashes, false)];
     for (hunks, hashes, is_from) in sides {
         for (index, (hunk, hash)) in hunks.iter().zip(hashes).enumerate() {
-            let Some(bucket) = groups.get_mut(hash) else {
-                continue;
-            };
-            let found = bucket
-                .iter_mut()
-                .find(|group| same(&from.hunks[group.from[0]], hunk));
+            let bucket = groups.entry(*hash).or_default();
+            let found = bucket.iter_mut().find(|group| {
+                let first = group.from.first().map(|at| &from.hunks[*at]);
+                first.is_some_and(|first| same(first, hunk))
+            });
             match (found, is_from) {
                 (Some(group), true) => group.from.push(index),
                 (Some(group), false) => group.to.push(index),
@@ -86,7 +81,7 @@ pub(super) fn carry_marks(from: &Marked<'_>, to: &[Hunk], hashes: &[u64]) -> (Ve
                     from: vec![index],
                     to: Vec::new(),
                 }),
-                (None, false) => {}
+                (None, false) => marks[index].changed = true,
             }
         }
     }
@@ -98,6 +93,10 @@ pub(super) fn carry_marks(from: &Marked<'_>, to: &[Hunk], hashes: &[u64]) -> (Ve
                 Some(&there) => marks[there] = mark,
                 None => dropped += usize::from(mark.is_set()),
             }
+        }
+        // More of one text than before: those past the ones before are new.
+        for &there in group.to.iter().skip(group.from.len()) {
+            marks[there].changed = true;
         }
     }
     (marks, dropped)

@@ -22,7 +22,7 @@ use oso_core::editor::ReviewId;
 use oso_core::review::{Applied, Author, Comment, CommentId, Review, RowKind, Rows};
 
 use super::super::App;
-use crate::review::view::{Carrying, Marks, Tell};
+use crate::review::view::{Carrying, HunkMark, Marks, Tell};
 use crate::review::{Content, Entry, Reading, Request};
 
 impl App {
@@ -100,7 +100,11 @@ impl App {
         // carried, or dropped, are said on the new reading (step 5).
         let marked = (self.editor.review(id)).is_some_and(|model| {
             let hunks = model.file(path).map_or(0, |shape| shape.hunks().len());
-            (0..hunks).any(|at| model.decision(path, at).is_some() || model.viewed(path, at))
+            (0..hunks).any(|at| {
+                model.decision(path, at).is_some()
+                    || model.viewed(path, at)
+                    || model.changed(path, at)
+            })
         });
         if applied.outdated > 0 || again || applied.dropped > 0 || marked {
             self.tell_cards(index, path);
@@ -176,7 +180,11 @@ impl App {
         let hunks = reading.as_ref().map_or(0, |shape| shape.hunks().len());
         let marks = Marks {
             hunks: (0..hunks)
-                .map(|at| (model.decision(path, at), model.viewed(path, at)))
+                .map(|at| HunkMark {
+                    decision: model.decision(path, at),
+                    viewed: model.viewed(path, at),
+                    changed: model.changed(path, at),
+                })
                 .collect(),
             dropped: model.dropped(path),
         };
@@ -214,6 +222,9 @@ impl App {
                 commented.push(path.clone());
             }
         }
+        // The readings it let go are freed off the UI thread (step 4).
+        let released = model.take_released();
+        self.freer.free(released);
         // A file gone takes no comment, so it waits for no carry.
         for path in &gone {
             self.editor.set_review_file_behind(id, path, false);
@@ -223,10 +234,28 @@ impl App {
         }
     }
 
+    /// The comments of the review's file to carry to `reading`, for a text reading.
+    pub(super) fn carry_for(
+        &self,
+        review: ReviewId,
+        reading: &Arc<Reading>,
+    ) -> Option<oso_core::review::Carry> {
+        let Content::Text { shape, .. } = &reading.content else {
+            return None;
+        };
+        let carry = (self.editor.review(review)?).carry(&reading.entry.path, Arc::clone(shape));
+        // A file new to a review read once, or back in it, was not seen (step 4).
+        let read = (self.reviews.index(review)).is_some_and(|at| self.reviews.open[at].read_once);
+        Some(if read { carry.unseen() } else { carry })
+    }
+
     /// The person's own input came: a key, typed text or the wheel, so that what the selected
     /// review window shows after it counts as read.
     pub(in crate::app) fn note_person_acted(&mut self) {
         self.reviews.person_acted = true;
+        let (window, shown) = self.editor.tiled();
+        let cursor = window.selections.primary().cursor;
+        self.reviews.acted_on = Some((window.buffer(), shown.revision(), cursor));
     }
 
     /// After commands and events: tells each view whether agent cards fold, when that changed,
@@ -254,6 +283,8 @@ impl App {
         if !std::mem::take(&mut self.reviews.person_acted) || self.editor.prompt().is_some() {
             return;
         }
+        // The hunk at the person's cursor is no longer new to them (step 4).
+        self.see_hunk_at_cursor();
         let (window, shown) = self.editor.tiled();
         let looked = (
             window.id(),
