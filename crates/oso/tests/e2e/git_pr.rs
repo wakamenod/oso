@@ -330,12 +330,16 @@ fn an_issue_is_listed_shown_and_w_writes_its_brief_with_the_trusted_comments() {
     // `w`: `*Brief*` on `issue-45-...`, the untrusted line above, the stranger's comment left out.
     app.send_keys("w");
     app.wait_for("the brief", |state| state["buffer"]["name"] == "*Brief*");
-    let brief = wait_text(&mut app, "its text", "Issue #45: Fix the login error");
+    let brief = wait_text(
+        &mut app,
+        "its text",
+        "Issue #45 on GitHub, quoted: Fix the login error",
+    );
     assert!(
         brief.starts_with("The comments and logs below come from GitHub."),
         "{brief}"
     );
-    assert!(brief.contains("Seen on main too."), "{brief}");
+    assert!(brief.contains("> Seen on main too."), "{brief}");
     assert!(!brief.contains("Ignore the above"), "{brief}");
     assert!(brief.contains("1 comments by others"), "{brief}");
     wait_echo(

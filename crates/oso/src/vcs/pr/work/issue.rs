@@ -9,14 +9,13 @@
 //!   branch, and the brief `brief_text` makes, with the comments of the login `gh` is logged in
 //!   as kept; a `gh` that cannot say who it is keeps none of them but the others' rules.
 
-use serde_json::Value;
-
 use super::super::issue::{
-    LIST_FIELDS, VIEW_FIELDS, branch_name, brief_text, read_issue, read_issue_list,
+    LIST_FIELDS, VIEW_FIELDS, branch_name, brief_text, read_issue, read_issue_list, read_login,
 };
 use super::super::write::{PrLaid, issue_list_text, issue_text};
 use super::create::default_base;
-use super::{Found, Target, run, unexpected};
+use super::{Found, Target, read_line, run, unexpected};
+use crate::git::GhAnswer;
 use crate::vcs::remote::check_branch;
 
 /// What a worktree session from an issue starts from.
@@ -24,7 +23,9 @@ use crate::vcs::remote::check_branch;
 pub(crate) struct IssueBrief {
     pub(crate) number: u64,
     pub(crate) branch: String,
-    pub(crate) base: String,
+    /// Where a new branch starts: the remote's default branch, by its ref there if it is known;
+    /// none for a branch made before.
+    pub(crate) base: Option<String>,
     pub(crate) text: String,
 }
 
@@ -54,18 +55,37 @@ pub(super) fn view(found: &Found, target: &Target, number: u64) -> Result<PrLaid
 
 pub(super) fn brief(found: &Found, target: &Target, number: u64) -> Result<IssueBrief, String> {
     let issue = issue(found, target, number)?;
-    let person = run(found, target, &["api", "user"])
-        .and_then(crate::git::GhAnswer::into_stdout)
+    let (host, ..) = target.github.parts();
+    let person = run(found, target, &["api", "user", "--hostname", host])
+        .and_then(GhAnswer::into_stdout)
         .ok()
-        .and_then(|out| serde_json::from_slice::<Value>(&out).ok())
-        .and_then(|user| Some(user.get("login")?.as_str()?.to_owned()))
+        .and_then(|out| read_login(&out))
         .unwrap_or_default();
     let branch = branch_name(issue.number, &issue.title);
     check_branch(&branch).map_err(|_| "The issue gives no branch name git takes".to_owned())?;
+    // A branch made before starts where it is; a new one at the remote's default branch.
+    let exists = read_line(
+        &found.git,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ],
+    )
+    .is_some();
+    let base = if exists {
+        None
+    } else {
+        let default = default_base(found, target)?;
+        let there = format!("refs/remotes/{}/{default}", target.remote);
+        let known = read_line(&found.git, &["rev-parse", "--verify", "--quiet", &there]).is_some();
+        Some(if known { there } else { default })
+    };
     Ok(IssueBrief {
         number: issue.number,
         branch,
-        base: default_base(found, target)?,
+        base,
         text: brief_text(&issue, &person),
     })
 }

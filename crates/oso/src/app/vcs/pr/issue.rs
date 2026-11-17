@@ -15,9 +15,9 @@ use oso_core::editor::IssueAct;
 use oso_core::project::ProjectId;
 
 use super::super::super::App;
-use super::PrBuffer;
+use super::{PrBuffer, Shows};
 use crate::git::printable;
-use crate::vcs::pr::work::{IssueBrief, PrRequest};
+use crate::vcs::pr::work::{GhItem, IssueBrief, PrRequest};
 use crate::vcs::pr::write::PrRow;
 
 impl App {
@@ -32,13 +32,13 @@ impl App {
         // The issue on the line, in a list; the buffer's own, else.
         let at = match view.built.row(line) {
             PrRow::Pull(at) => view.built.pulls.get(at).cloned(),
-            _ if !view.list => view.built.pull.clone(),
+            _ if !view.shows.is_list() => view.built.pull.clone(),
             _ => None,
         };
         match (act, at) {
             (IssueAct::Refresh, _) => self.read_pr(index),
-            (IssueAct::Visit, Some((number, _))) if view.list => {
-                self.show_github(project, (Some(number), false, true), false);
+            (IssueAct::Visit, Some((number, _))) if view.shows.is_list() => {
+                self.show_github(project, Shows::Issue(number), false);
             }
             (IssueAct::Visit, _) => self.editor.message("Nothing here to visit"),
             (IssueAct::Open, Some((number, url))) => {
@@ -47,7 +47,7 @@ impl App {
                 let request = PrRequest::Open {
                     url,
                     number,
-                    issue: true,
+                    item: GhItem::Issue,
                 };
                 self.ask_pr(project, request);
             }
@@ -94,6 +94,6 @@ impl App {
                 .editor
                 .message("The issue's brief is read: w asks again");
         }
-        self.start_brief(project, brief.branch, Some(brief.base), &brief.text);
+        self.start_brief(project, brief.branch, brief.base, &brief.text);
     }
 }

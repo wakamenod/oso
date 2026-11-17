@@ -1325,6 +1325,17 @@ minute, never on a timer; (4) `w` through `session-worktree`'s flow until ADR 01
   author, of that login and of the repository's owners, members and collaborators are in, the
   others counted (Q13). The person reads and changes it before `C-c C-c` sends it. It opens only if
   the person is still where they asked.
+- **The brief** quotes every line GitHub said with `> `, so that none can pass for oso's or the
+  person's, says first how many comments were left out, and marks where GitHub's words end; a
+  deleted account (`ghost`, or no login) never counts as the issue's author. The branch starts at
+  the remote's default branch by its ref there (`refs/remotes/R/BRANCH`) when that is known, and a
+  branch `issue-N-SLUG` made before starts where it is.
+- **Agents** may read `*issues: NAME*` and `*issue: #N*` through `text`, as data, every comment
+  in it, as a pull request's buffer; the filter is the brief's, which no agent reads before it is
+  sent.
+- **Deviations:** (1) comments left out of the brief are counted, not listed for `t` to take in, as
+  `*Brief*` has no such key; the person adds what they want. (2) The list reads `number, title,
+  labels, author, updatedAt, url`, not the assignees.
 - **Library items** (approved): `Mode::{GitIssueList, GitIssue}`, `GitRequest::{IssueList,
   IssueAct}`, `editor::IssueAct`, and `Editor::{add_git_issue, add_git_issue_list,
   git_issue_of}`, the issue buffers' records.

@@ -1,6 +1,7 @@
 //! Pull requests as `gh` gives them (ADR 0127, step 5a): what its JSON answers say of a branch's
 //! pull request, one pull request with its checks, review threads and conversation, and a
-//! repository's open ones, read by shape into plain values.
+//! repository's open ones, read by shape into plain values; and from step 5b-1 issues
+//! ([`issue`]).
 //!
 //! Must not depend on: `app`, `dispatch`, processes or the file system; these are pure
 //! functions over the bytes `gh` wrote, which its thread reads ([`work`]) and the text is made
@@ -437,7 +438,7 @@ fn counts_of(value: Option<&Value>) -> Counts {
     counts
 }
 
-pub(super) fn comment_of(value: &Value, hunk: Option<&Value>) -> Option<Comment> {
+fn comment_of(value: &Value, hunk: Option<&Value>) -> Option<Comment> {
     Some(Comment {
         author: login(value.get("author")),
         association: (value.get("authorAssociation").and_then(text)).unwrap_or_default(),
@@ -447,7 +448,7 @@ pub(super) fn comment_of(value: &Value, hunk: Option<&Value>) -> Option<Comment>
 }
 
 /// A login, or `ghost` for an account that is gone, as GitHub shows it.
-pub(super) fn login(author: Option<&Value>) -> String {
+fn login(author: Option<&Value>) -> String {
     (author.and_then(|author| author.get("login")).and_then(text))
         .unwrap_or_else(|| "ghost".to_owned())
 }
@@ -459,7 +460,7 @@ fn count(value: Option<&Value>) -> usize {
 }
 
 /// A string's text, at most [`MAX_TEXT`] bytes of it, cut at a character.
-pub(super) fn text(value: &Value) -> Option<String> {
+fn text(value: &Value) -> Option<String> {
     let text = value.as_str()?;
     let mut end = text.len().min(MAX_TEXT);
     while !text.is_char_boundary(end) {

@@ -1,6 +1,7 @@
 //! A repository's thread for `gh`, `oso-vcs-gh` (ADR 0127, step 5a): it reads the pull request
 //! of the branch checked out for the status's head line, one pull request with its checks and
-//! review threads, and the open ones, lays out their texts, and opens a pull request's address.
+//! review threads, and the open ones, lays out their texts, and opens a pull request's address;
+//! from step 5b-1 the same for issues ([`issue`]).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
 //! takes reports out, and supplies the wake-up.
@@ -49,6 +50,13 @@ const CHECKS_PENDING: i32 = 8;
 /// How many open pull requests a list asks for.
 const LIST_LIMIT: &str = "100";
 
+/// What an address is of: a pull request or an issue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GhItem {
+    Pull,
+    Issue,
+}
+
 /// What the thread is asked to do.
 #[derive(Debug)]
 pub(crate) enum PrRequest {
@@ -63,11 +71,11 @@ pub(crate) enum PrRequest {
     List { generation: u64 },
     /// The address of the branch's pull request, for the echo area to show before it opens.
     Address,
-    /// Open `url`, the address of pull request `number`, or of issue `number` if `issue`.
+    /// Open `url`, the address of `item` `number`.
     Open {
         url: String,
         number: u64,
-        issue: bool,
+        item: GhItem,
     },
     /// What a pull request of the branch starts from, into `base` or the remote's default
     /// (step 5a-2).
@@ -303,8 +311,8 @@ fn answer(
             laid: list(found, &target).map(Box::new),
         },
         PrRequest::Address => PrReport::Address(address(found, &target)),
-        PrRequest::Open { url, number, issue } => {
-            PrReport::Opened(open(&target.github, (&url, number, issue), root.path()))
+        PrRequest::Open { url, number, item } => {
+            PrReport::Opened(open(&target.github, (&url, number, item), root.path()))
         }
         PrRequest::IssueList { generation } => PrReport::List {
             generation,
@@ -524,11 +532,10 @@ fn address(found: &Found, target: &Target) -> Result<(String, u64), String> {
 /// Opens `url` with the system's opener, if it is pull request `number`'s own address on
 /// `repo`'s host, or issue `number`'s if `issue`, leaving `project` out of the opener's `PATH`;
 /// what that came to.
-fn open(repo: &GhRepo, (url, number, issue): (&str, u64, bool), project: &Path) -> String {
-    let own = if issue {
-        super::issue::is_issue_address(url, repo, number)
-    } else {
-        is_pull_address(url, repo, number)
+fn open(repo: &GhRepo, (url, number, item): (&str, u64, GhItem), project: &Path) -> String {
+    let own = match item {
+        GhItem::Issue => super::issue::is_issue_address(url, repo, number),
+        GhItem::Pull => is_pull_address(url, repo, number),
     };
     if !own {
         return format!(

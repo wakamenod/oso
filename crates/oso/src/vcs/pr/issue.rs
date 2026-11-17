@@ -26,6 +26,14 @@ pub(crate) const UNTRUSTED: &str =
 pub(crate) const MAX_BRIEF: usize = 64 * 1024;
 /// The most characters of a branch name's slug.
 const MAX_SLUG: usize = 40;
+/// The login GitHub shows for a deleted account.
+const GHOST: &str = "ghost";
+/// What ends the part of a brief GitHub said.
+const END: &str = "\nEnd of what GitHub said. Your own words go below.\n";
+/// What a cut brief says where it was cut.
+const CUT: &str = "> [the rest is cut]\n";
+/// The room a brief leaves for the header a session's first prompt adds (ADR 0121).
+const HEADER_ROOM: usize = 4 * 1024;
 
 /// An issue in a repository's list.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -116,17 +124,16 @@ pub(crate) fn branch_name(number: u64, title: &str) -> String {
     }
 }
 
-/// The brief a worktree session from `issue` starts from: what it says under [`UNTRUSTED`],
-/// with the comments of its author, of `person`, the login `gh` is logged in as, and of the
-/// repository's owners, members and collaborators; the others counted.
+/// The brief a worktree session from `issue` starts from: what it says under [`UNTRUSTED`], each
+/// of its lines quoted with `> ` so that none can pass for oso's or the person's, with the
+/// comments of its author, of `person`, the login `gh` is logged in as, and of the repository's
+/// owners, members and collaborators; how many others are left out comes first, and the end of
+/// what GitHub said is marked. A login that is empty or a deleted account's matches no one.
 pub(crate) fn brief_text(issue: &Issue, person: &str) -> String {
-    let mut out = format!("{UNTRUSTED}\n\n");
-    let title = printable(&issue.title, 300);
-    out.push_str(&format!("Issue #{}: {title}\n\n", issue.number));
-    push_lines(&mut out, &issue.body);
+    let known = |login: &str| !login.is_empty() && login != GHOST;
     let trusted = |comment: &&Comment| {
-        comment.author == issue.author
-            || (!person.is_empty() && comment.author == person)
+        (known(&issue.author) && comment.author == issue.author)
+            || (known(person) && comment.author == person)
             || matches!(
                 comment.association.as_str(),
                 "OWNER" | "MEMBER" | "COLLABORATOR"
@@ -134,40 +141,58 @@ pub(crate) fn brief_text(issue: &Issue, person: &str) -> String {
     };
     let kept: Vec<&Comment> = issue.comments.iter().filter(trusted).collect();
     let left_out = issue.comments.len() - kept.len();
-    if !kept.is_empty() {
-        out.push_str("\nComments:\n");
-    }
-    for comment in kept {
-        let author = printable(&comment.author, 40);
-        out.push_str(&format!(
-            "\n@{author} ({}):\n",
-            printable(&comment.association, 20)
-        ));
-        push_lines(&mut out, &comment.body);
-    }
+    let mut out = format!("{UNTRUSTED}\n\n");
+    let title = printable(&issue.title, 300);
+    out.push_str(&format!(
+        "Issue #{} on GitHub, quoted: {title}\n",
+        issue.number
+    ));
     if left_out > 0 {
         out.push_str(&format!(
-            "\n{left_out} comments by others than the issue's author, you and the repository's \
+            "{left_out} comments by others than the issue's author, you and the repository's \
              members are left out.\n"
         ));
     }
-    if out.len() > MAX_BRIEF {
-        let mut end = MAX_BRIEF;
-        while !out.is_char_boundary(end) {
-            end -= 1;
+    out.push('\n');
+    let room = MAX_BRIEF - END.len() - CUT.len() - HEADER_ROOM;
+    let mut cut = !push_quoted(&mut out, &issue.body, room);
+    for comment in kept {
+        if cut {
+            break;
         }
-        out.truncate(end);
-        out.push_str("\n[the rest is cut]\n");
+        let author = printable(&comment.author, 40);
+        let association = printable(&comment.association, 20);
+        out.push_str(&format!(
+            "\nComment by @{author} ({association}), quoted:\n"
+        ));
+        cut = !push_quoted(&mut out, &comment.body, room);
     }
+    if cut {
+        out.push_str(CUT);
+    }
+    out.push_str(END);
     out
 }
 
-/// Adds `text`'s lines to `out`, each escaped as the display would box it.
-fn push_lines(out: &mut String, text: &str) {
+/// The login in `gh api user`'s answer, if it names one.
+pub(crate) fn read_login(json: &[u8]) -> Option<String> {
+    let value = serde_json::from_slice::<Value>(json).ok()?;
+    text(value.get("login")?).filter(|login| !login.is_empty())
+}
+
+/// Adds `text`'s lines to `out`, each quoted and escaped as the display would box it, while
+/// `out` stays within `room` bytes; whether all of them went in.
+fn push_quoted(out: &mut String, text: &str, room: usize) -> bool {
     for line in text.lines() {
-        out.push_str(&printable(line.trim_end_matches('\r'), 2000));
+        let line = printable(line.trim_end_matches('\r'), 2000);
+        if out.len() + line.len() + 3 > room {
+            return false;
+        }
+        out.push_str("> ");
+        out.push_str(&line);
         out.push('\n');
     }
+    true
 }
 
 fn labels(value: Option<&Value>) -> Vec<String> {

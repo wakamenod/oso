@@ -272,8 +272,10 @@ network features.
   the person's: an agent's command does not change it. An issue's brief (step 5b-1) is its text
   under the line that tells the agent it is data, every line escaped, cut at 64 KiB, with only
   the comments of its author, of the login `gh` is logged in as and of the repository's owners,
-  members and collaborators; the person reads it in `*Brief*` before it is sent. Only an issue's
-  own address opens. A template is read only as a regular
+  members and collaborators, each line quoted so that none passes for oso's or the person's, a
+  deleted account never counting as the author; the person reads it in `*Brief*` before it is
+  sent. An agent may read `*issue: #N*` through `text`, every comment in it, as data, as a pull
+  request's. Only an issue's own address opens. A template is read only as a regular
   file under the root, never through a linked directory, at most 64 KiB, never one whose name
   may hold secrets.
 - Stashes and branches from a git status (ADR 0127, step 3b) are the person's acts, `Person`,

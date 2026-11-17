@@ -119,7 +119,7 @@ often, so it must rebuild within 2 s.
   run on the run thread (`run/graph`) (step 4b). Pull requests are `pr`'s: `gh`'s answers read,
   their texts `pr/write` and the repository's `gh` thread `pr/work`, `oso-vcs-gh`, through
   `git::Gh`, with `app/vcs/pr.rs` and `commands::vcs::pr` (step 5a); making and merging is
-  `pr/create`, read for on the `gh` thread (`pr/work/draft`) and run on the run thread
+  `pr/create`, read for on the `gh` thread (`pr/work/create`) and run on the run thread
   (`run/pr`), with `app/vcs/pr/create.rs` and `commands::vcs::pr::create` (step 5a-2); issues are
   `pr/issue`, with `pr/write/issue`, `pr/work/issue`, `app/vcs/pr/issue.rs` and
   `commands::vcs::pr::issue` (step 5b-1). Its keys are listed in `commands::vcs::KEYS` and

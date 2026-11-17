@@ -689,7 +689,7 @@ The UI thread never blocks on I/O or parsing:
   the buffers, puts the head line in the status's view and carries out the keys, and
   `commands::vcs::pr` holds the menu's heads and the buffers' keys. Making and merging (step
   5a-2): `vcs/pr/create.rs` is the message's start, its title and body and the runs' arguments,
-  `vcs/pr/work/draft.rs` reads what they start from on `oso-vcs-gh`, `vcs/run/pr.rs` runs them
+  `vcs/pr/work/create.rs` reads what they start from on `oso-vcs-gh`, `vcs/run/pr.rs` runs them
   on `oso-vcs-run` through `Gh::start_long`, and `app/vcs/pr/create.rs` and
   `commands::vcs::pr::create` carry them out. Issues (step 5b-1): `vcs/pr/issue.rs` reads them
   and makes a brief, `vcs/pr/write/issue.rs` their texts, `vcs/pr/work/issue.rs` the `gh` thread's
