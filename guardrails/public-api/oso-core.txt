@@ -62,6 +62,8 @@ pub oso_core::buffer::Mode::Fundamental
 pub oso_core::buffer::Mode::GitCommit
 pub oso_core::buffer::Mode::GitDiscarded
 pub oso_core::buffer::Mode::GitGraph
+pub oso_core::buffer::Mode::GitIssue
+pub oso_core::buffer::Mode::GitIssueList
 pub oso_core::buffer::Mode::GitLog
 pub oso_core::buffer::Mode::GitPr
 pub oso_core::buffer::Mode::GitPrList
@@ -1526,6 +1528,12 @@ pub oso_core::editor::GitRequest::GraphAnswer::buffer: oso_core::buffer::BufferI
 pub oso_core::editor::GitRequest::GraphAnswer::text: alloc::string::String
 pub oso_core::editor::GitRequest::GraphToggle
 pub oso_core::editor::GitRequest::GraphToggle::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::IssueAct
+pub oso_core::editor::GitRequest::IssueAct::act: oso_core::editor::IssueAct
+pub oso_core::editor::GitRequest::IssueAct::buffer: oso_core::buffer::BufferId
+pub oso_core::editor::GitRequest::IssueAct::line: usize
+pub oso_core::editor::GitRequest::IssueList
+pub oso_core::editor::GitRequest::IssueList::project: oso_core::project::ProjectId
 pub oso_core::editor::GitRequest::PrAct
 pub oso_core::editor::GitRequest::PrAct::act: oso_core::editor::PrAct
 pub oso_core::editor::GitRequest::PrAct::buffer: oso_core::buffer::BufferId
@@ -1665,6 +1673,21 @@ impl core::fmt::Display for oso_core::editor::IndentError
 pub fn oso_core::editor::IndentError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::IndentError
 impl core::marker::StructuralPartialEq for oso_core::editor::IndentError
+pub enum oso_core::editor::IssueAct
+pub oso_core::editor::IssueAct::CopyLink
+pub oso_core::editor::IssueAct::Open
+pub oso_core::editor::IssueAct::Refresh
+pub oso_core::editor::IssueAct::StartWorktree
+pub oso_core::editor::IssueAct::Visit
+impl core::clone::Clone for oso_core::editor::IssueAct
+pub fn oso_core::editor::IssueAct::clone(&self) -> oso_core::editor::IssueAct
+impl core::cmp::Eq for oso_core::editor::IssueAct
+impl core::cmp::PartialEq for oso_core::editor::IssueAct
+pub fn oso_core::editor::IssueAct::eq(&self, &oso_core::editor::IssueAct) -> bool
+impl core::fmt::Debug for oso_core::editor::IssueAct
+pub fn oso_core::editor::IssueAct::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::IssueAct
+impl core::marker::StructuralPartialEq for oso_core::editor::IssueAct
 pub enum oso_core::editor::JumpActionError
 pub oso_core::editor::JumpActionError::Cursor(oso_core::editor::CursorError)
 pub oso_core::editor::JumpActionError::Edit(oso_core::buffer::EditError)
@@ -2189,6 +2212,7 @@ pub oso_core::editor::ServerRequest::CodeActions::at: oso_core::editor::AskAt
 pub oso_core::editor::ServerRequest::CodeActions::end: usize
 pub oso_core::editor::ServerRequest::CodeActions::start: usize
 pub oso_core::editor::ServerRequest::Complete(oso_core::editor::AskAt)
+pub oso_core::editor::ServerRequest::ConfirmCodeAction
 pub oso_core::editor::ServerRequest::Definition(oso_core::editor::AskAt)
 pub oso_core::editor::ServerRequest::Describe(oso_core::editor::AskAt)
 pub oso_core::editor::ServerRequest::GoToXref
@@ -2677,12 +2701,15 @@ pub fn oso_core::editor::Editor::windows(&self) -> impl core::iter::traits::exac
 pub fn oso_core::editor::Editor::with_buffer(oso_core::buffer::Buffer) -> Self
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_git_graph(&mut self, oso_core::project::ProjectId, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::Editor::add_git_issue(&mut self, oso_core::project::ProjectId, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::Editor::add_git_issue_list(&mut self, oso_core::project::ProjectId, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::add_git_pr(&mut self, oso_core::project::ProjectId, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::add_git_pr_list(&mut self, oso_core::project::ProjectId, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::add_git_status(&mut self, oso_core::project::ProjectId, impl core::convert::Into<alloc::string::String>) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::append_git_log(&mut self, oso_core::buffer::BufferId, &str)
 pub fn oso_core::editor::Editor::git_graph_buffer(&self, oso_core::project::ProjectId) -> core::option::Option<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::git_graph_of(&self, oso_core::buffer::BufferId) -> core::option::Option<oso_core::project::ProjectId>
+pub fn oso_core::editor::Editor::git_issue_of(&self, oso_core::buffer::BufferId) -> core::option::Option<oso_core::project::ProjectId>
 pub fn oso_core::editor::Editor::git_outline(&self, oso_core::buffer::BufferId) -> &[oso_core::editor::GitHeading]
 pub fn oso_core::editor::Editor::git_points(&self, oso_core::buffer::BufferId) -> alloc::vec::Vec<(oso_core::window::WindowId, usize)>
 pub fn oso_core::editor::Editor::git_pr_of(&self, oso_core::buffer::BufferId) -> core::option::Option<oso_core::project::ProjectId>

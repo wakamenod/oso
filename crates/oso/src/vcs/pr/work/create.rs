@@ -99,7 +99,7 @@ pub(super) fn draft(
 }
 
 /// The remote's `HEAD`, else the repository's default branch.
-fn default_base(found: &Found, target: &PullTarget) -> Result<String, String> {
+pub(super) fn default_base(found: &Found, target: &PullTarget) -> Result<String, String> {
     let remote = &target.remote;
     let head = format!("refs/remotes/{remote}/HEAD");
     let known = found

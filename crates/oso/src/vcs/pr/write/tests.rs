@@ -173,3 +173,46 @@ proptest! {
         prop_assert_eq!(laid.built.rows.len(), text.lines().count());
     }
 }
+
+#[test]
+fn an_issue_s_lines_and_a_list_s_name_what_they_show() {
+    use super::super::issue::{Issue, IssueListed};
+    use super::{issue_list_text, issue_text};
+    let listed = [IssueListed {
+        number: 45,
+        title: "t\u{202e}".into(),
+        labels: vec!["bug".into()],
+        author: "ann".into(),
+        updated: "2026-11-16T12:00:00Z".into(),
+        url: "https://github.com/o/r/issues/45".into(),
+    }];
+    let laid = issue_list_text("github.com/o/r", &listed);
+    let text = laid.text.text().to_string();
+    assert!(
+        text.contains("#45    t\\u{202e}  [bug]  @ann  2026-11-16"),
+        "{text}"
+    );
+    assert_eq!(laid.built.row(1), PrRow::Pull(0));
+    assert_eq!(
+        laid.built.pulls,
+        [(45, "https://github.com/o/r/issues/45".to_owned())]
+    );
+    let issue = Issue {
+        number: 45,
+        title: "t".into(),
+        body: "b".into(),
+        state: "OPEN".into(),
+        author: "ann".into(),
+        labels: Vec::new(),
+        url: "https://github.com/o/r/issues/45".into(),
+        comments: vec![comment("Seen")],
+    };
+    let laid = issue_text(&issue);
+    let text = laid.text.text().to_string();
+    assert!(text.starts_with("#45 t\nState:    open"), "{text}");
+    assert_eq!(laid.built.rows.len(), text.lines().count());
+    assert_eq!(
+        laid.built.pull,
+        Some((45, "https://github.com/o/r/issues/45".into()))
+    );
+}

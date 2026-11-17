@@ -22,31 +22,66 @@ use serde_json::{Map, Value, json};
 
 use super::published::Reported;
 use super::workspace_edit::{WireEdit, workspace_edit};
-use crate::limits::{ACTION_TITLE_BYTES_MAX, CODE_ACTIONS_MAX};
+use crate::json::array;
+use crate::limits::{ACTION_TITLE_BYTES_MAX, CODE_ACTIONS_MAX, COMMANDS_MAX};
 use crate::position::Position;
 
-/// What `initialize`'s result says of code actions: whether the server offers them, and
-/// whether it resolves one's edit once picked.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// What `initialize`'s result says of code actions: whether the server offers them, whether it
+/// resolves one's edit once picked, and the commands it runs, by name, which are the only ones
+/// oso asks it to run (13b, Q5): at most [`COMMANDS_MAX`], each at most
+/// [`ACTION_TITLE_BYTES_MAX`] bytes.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Acting {
     pub offers: bool,
     pub resolves: bool,
+    pub commands: Vec<String>,
 }
 
 /// What `initialize`'s result says of code actions: none from a server that says nothing.
 pub fn acting(result: &Value) -> Acting {
-    let provider = (result.get("capabilities")).and_then(|caps| caps.get("codeActionProvider"));
-    match provider {
-        Some(Value::Bool(offers)) => Acting {
-            offers: *offers,
-            resolves: false,
-        },
-        Some(provider @ Value::Object(_)) => Acting {
-            offers: true,
-            resolves: provider.get("resolveProvider") == Some(&Value::Bool(true)),
-        },
-        _ => Acting::default(),
+    let capabilities = result.get("capabilities");
+    let provider = capabilities.and_then(|caps| caps.get("codeActionProvider"));
+    let (offers, resolves) = match provider {
+        Some(Value::Bool(offers)) => (*offers, false),
+        Some(provider @ Value::Object(_)) => (
+            true,
+            provider.get("resolveProvider") == Some(&Value::Bool(true)),
+        ),
+        _ => (false, false),
+    };
+    let commands = (capabilities)
+        .and_then(|caps| caps.get("executeCommandProvider"))
+        .and_then(|provider| provider.get("commands"))
+        .and_then(|commands| array(commands, COMMANDS_MAX))
+        .unwrap_or_default()
+        .iter()
+        .filter_map(Value::as_str)
+        .filter(|name| name.len() <= ACTION_TITLE_BYTES_MAX)
+        .map(str::to_owned)
+        .collect();
+    Acting {
+        offers,
+        resolves,
+        commands,
     }
+}
+
+/// `workspace/executeCommand`'s parameters for `action`, a kept action as the server gave it: a
+/// bare `Command`, or a `CodeAction`'s `command`; its name and arguments as given, and the name,
+/// to check against the ones the server declared. `None` for an action that runs none.
+pub fn execute_command_params(action: &Value) -> Option<(String, Value)> {
+    let command = match action.get("command")? {
+        Value::String(_) => action,
+        command @ Value::Object(_) => command,
+        _ => return None,
+    };
+    let name = command.get("command")?.as_str()?.to_owned();
+    let mut params = Map::new();
+    params.insert("command".into(), Value::String(name.clone()));
+    if let Some(arguments) = command.get("arguments") {
+        params.insert("arguments".into(), arguments.clone());
+    }
+    Some((name, Value::Object(params)))
 }
 
 /// `textDocument/codeAction`'s parameters: the range from `start` to `end` of the document at
@@ -216,9 +251,18 @@ fn offered(value: &Value) -> Option<OfferedAction> {
     })
 }
 
+/// What a server's `workspace/applyEdit` asks (13b): its label, cut as a title is, and its
+/// edit, read whole or not, or `None` if it gives none.
+pub(crate) fn applied_edit(
+    params: &Value,
+) -> (Option<String>, Option<Result<WireEdit, &'static str>>) {
+    let label = params.get("label").and_then(Value::as_str).map(shown);
+    (label, params.get("edit").map(workspace_edit))
+}
+
 /// `text` cut at [`ACTION_TITLE_BYTES_MAX`], at a character, its controls as spaces and its
 /// bidi and invisible characters as `\u{…}`.
-fn shown(text: &str) -> String {
+pub(crate) fn shown(text: &str) -> String {
     let kept = &text[..text.floor_char_boundary(ACTION_TITLE_BYTES_MAX)];
     let mut out = String::with_capacity(kept.len());
     for c in kept.chars() {

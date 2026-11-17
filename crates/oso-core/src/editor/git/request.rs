@@ -180,6 +180,21 @@ pub enum PrAct {
     Review,
 }
 
+/// What a key asks of an issue's buffer, or of a list of them, at a line (ADR 0127, step 5b-1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IssueAct {
+    /// Read it again (`g`).
+    Refresh,
+    /// In a list, show the issue on the line (`RET`).
+    Visit,
+    /// Open the issue in the browser, after the echo area shows its address (`o`).
+    Open,
+    /// Copy the issue's address (`y`).
+    CopyLink,
+    /// Start a worktree session from the issue, its brief made from it (`w`).
+    StartWorktree,
+}
+
 /// How `N m` merges a pull request (ADR 0127, step 5a): `gh pr merge`'s `--squash`, `--merge`
 /// or `--rebase`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -354,4 +369,12 @@ pub enum GitRequest {
     },
     /// The `y` to a pull request's question: to push first, or to merge.
     PrConfirmed,
+    /// Show `project`'s repository's open issues (`C-x v i`, `N i`; step 5b-1).
+    IssueList { project: ProjectId },
+    /// What `act` asks of `line` of the issue's buffer, or list of them, `buffer`.
+    IssueAct {
+        buffer: BufferId,
+        act: IssueAct,
+        line: usize,
+    },
 }

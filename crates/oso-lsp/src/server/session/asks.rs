@@ -8,7 +8,8 @@
 
 use std::time::Instant;
 
-use serde_json::json;
+use oso_core::rope::Rope;
+use serde_json::{Value, json};
 
 use crate::position;
 use crate::protocol::{self, Outcome};
@@ -46,47 +47,10 @@ impl Session {
             self.fail(ask, "the server does not have this text yet".to_owned());
             return Ok(());
         };
-        let at = position::from_offset(text, ask.offset, run.encoding);
-        let params = match (ask.kind, ask.context) {
-            (AskKind::Definition | AskKind::Hover, AskContext::None) => {
-                protocol::position_params(uri, at)
-            }
-            (AskKind::References, AskContext::None) => protocol::references_params(uri, at),
-            (AskKind::Completion, AskContext::Completion(invoked)) => {
-                protocol::completion_params(uri, at, invoked)
-            }
-            (AskKind::CodeAction, AskContext::Range { start, end }) => {
-                match self.action_params(run, &ask, (start, end), (uri, text)) {
-                    Ok(params) => params,
-                    Err(why) => {
-                        self.fail(ask, why.to_owned());
-                        return Ok(());
-                    }
-                }
-            }
-            (AskKind::ResolveAction, AskContext::Item { answer, index }) => {
-                let action = (run.last_actions.as_ref())
-                    .filter(|last| (last.document, last.serial) == (ask.document, answer))
-                    .and_then(|last| last.items.get(index).cloned());
-                let Some(action) = action else {
-                    self.fail(ask, "its code actions are gone".to_owned());
-                    return Ok(());
-                };
-                action
-            }
-            // The item as the server gave it, if it is one of its last completions'.
-            (AskKind::Resolve, AskContext::Item { answer, index }) => {
-                let item = (run.last_items.as_ref())
-                    .filter(|last| (last.document, last.serial) == (ask.document, answer))
-                    .and_then(|last| last.items.get(index).cloned());
-                let Some(item) = item else {
-                    self.fail(ask, "its completions are gone".to_owned());
-                    return Ok(());
-                };
-                item
-            }
-            _ => {
-                self.fail(ask, "an ask of this kind takes another context".to_owned());
+        let params = match self.ask_params(run, &ask, (uri, text)) {
+            Ok(params) => params,
+            Err(why) => {
+                self.fail(ask, why);
                 return Ok(());
             }
         };
@@ -97,7 +61,8 @@ impl Session {
         });
         if let Some(older) = older {
             run.pending.remove(&older);
-            run.edit_bases.remove(&older);
+            run.actions.edit_bases.remove(&older);
+            run.actions.executing.remove(&older);
             self.reporter.log(format!("cancelled request {older}"));
             run.send(&protocol::notification(
                 "$/cancelRequest",
@@ -111,10 +76,56 @@ impl Session {
         ));
         // What its edits are placed against (step 13).
         if matches!(ask.kind, AskKind::CodeAction | AskKind::ResolveAction) {
-            run.edit_bases
+            run.actions
+                .edit_bases
                 .insert(run.next_id, self.documents.sent_revisions());
         }
+        // While it waits, the server's `workspace/applyEdit` is the UI's to answer (13b).
+        if ask.kind == AskKind::ExecuteCommand {
+            let title = self.command_title(run, &ask).unwrap_or_default();
+            run.actions.executing.insert(run.next_id, title);
+        }
         run.request(Asked::Ask(ask), ask.kind.method(), params, ask.kind.wait())
+    }
+
+    /// The parameters of `ask`'s request, about `text`, the document's at `uri`, or why it
+    /// cannot be asked.
+    fn ask_params(
+        &self,
+        run: &Run,
+        ask: &Ask,
+        (uri, text): (&str, &Rope),
+    ) -> Result<Value, String> {
+        let at = position::from_offset(text, ask.offset, run.encoding);
+        Ok(match (ask.kind, ask.context) {
+            (AskKind::Definition | AskKind::Hover, AskContext::None) => {
+                protocol::position_params(uri, at)
+            }
+            (AskKind::References, AskContext::None) => protocol::references_params(uri, at),
+            (AskKind::Completion, AskContext::Completion(invoked)) => {
+                protocol::completion_params(uri, at, invoked)
+            }
+            (AskKind::CodeAction, AskContext::Range { start, end }) => {
+                self.action_params(run, ask, (start, end), (uri, text))?
+            }
+            (AskKind::ExecuteCommand, AskContext::Item { answer, index }) => {
+                self.command_params(run, ask.document, (answer, index))?
+            }
+            (AskKind::ResolveAction, AskContext::Item { answer, index }) => {
+                let action = (run.actions.last_actions.as_ref())
+                    .filter(|last| (last.document, last.serial) == (ask.document, answer))
+                    .and_then(|last| last.items.get(index).cloned());
+                action.ok_or("its code actions are gone")?
+            }
+            // The item as the server gave it, if it is one of its last completions'.
+            (AskKind::Resolve, AskContext::Item { answer, index }) => {
+                let item = (run.last_items.as_ref())
+                    .filter(|last| (last.document, last.serial) == (ask.document, answer))
+                    .and_then(|last| last.items.get(index).cloned());
+                item.ok_or("its completions are gone")?
+            }
+            _ => return Err("an ask of this kind takes another context".to_owned()),
+        })
     }
 
     /// The answer to `ask`, request `id`, which was due by `deadline`.
@@ -129,6 +140,8 @@ impl Session {
         let took = (now + ask.kind.wait())
             .saturating_duration_since(deadline)
             .as_millis();
+        // A command that answered no longer takes a `workspace/applyEdit` (13b).
+        run.actions.executing.remove(&id);
         let result = match outcome {
             Outcome::Result(result) => result,
             Outcome::Error { code, message } => {
@@ -150,8 +163,9 @@ impl Session {
             AskKind::Hover => return self.answered_hover(id, ask, &result, took),
             AskKind::CodeAction => return self.offered_actions(run, (id, ask), result, took),
             AskKind::ResolveAction => {
-                return self.resolved_action(run, (id, ask), &result, took);
+                return self.resolved_action(run, (id, ask), result, took);
             }
+            AskKind::ExecuteCommand => return self.executed(id, ask, took),
             AskKind::Definition | AskKind::References => {}
         }
         let (located, left) = protocol::located(&result);
@@ -332,7 +346,8 @@ impl Session {
 
     /// An ask whose wait ended: cancelled, and failed.
     pub(super) fn overdue_ask(&mut self, run: &mut Run, id: i64, ask: Ask) -> Result<(), String> {
-        run.edit_bases.remove(&id);
+        run.actions.edit_bases.remove(&id);
+        run.actions.executing.remove(&id);
         self.reporter.log(format!(
             "request {id} not answered within {} s, cancelled",
             ask.kind.wait().as_secs()
@@ -346,7 +361,8 @@ impl Session {
 
     /// The run ended: what waits fails.
     pub(super) fn fail_asks(&mut self, run: &mut Run) {
-        run.edit_bases.clear();
+        run.actions.edit_bases.clear();
+        run.actions.executing.clear();
         let waiting: Vec<Ask> = run
             .pending
             .drain()

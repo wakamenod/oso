@@ -26,6 +26,7 @@ use super::policy::{Crashes, Flood};
 use super::{Diagnosed, Event, Gate, Start, State};
 
 mod actions;
+mod apply;
 mod asks;
 mod edits;
 mod incoming;
@@ -94,6 +95,9 @@ pub(in crate::server) struct Session {
     /// The documents the server knows, across its runs.
     documents: super::documents::Documents,
     /// The run's diagnostics reports, each document's last (step 6).
+    /// The last token given a `workspace/applyEdit`, across runs, so that no answer the UI
+    /// gives one run reaches another's (step 13b).
+    apply_serial: u64,
     diagnosed: super::diagnosed::Store,
 }
 
@@ -116,6 +120,7 @@ impl Session {
             crashes: Crashes::default(),
             run: 0,
             documents: super::documents::Documents::default(),
+            apply_serial: 0,
             diagnosed: super::diagnosed::Store::default(),
         }
     }
@@ -181,6 +186,8 @@ impl Session {
                     }
                 }
                 Event::Ask(ask) => self.ask_idle(ask),
+                // No run waits for it.
+                Event::AnswerApplyEdit(..) => {}
                 // An earlier run's news.
                 Event::Frame(..) | Event::ReadEnd(..) | Event::WriteFailed(..) => {}
             }
@@ -297,9 +304,7 @@ impl Session {
             sync: run::NO_SYNC,
             resolves: false,
             last_items: None,
-            acting: crate::protocol::Acting::default(),
-            last_actions: None,
-            edit_bases: HashMap::new(),
+            actions: run::Actions::default(),
         };
         let root_uri = uri::from_path(&start.root).unwrap_or_default();
         let root_name = start
@@ -433,6 +438,11 @@ impl Session {
                 }
             }
             Event::Ask(ask) => return self.ask(run, ask).err().map(End::Crashed),
+            Event::AnswerApplyEdit(token, outcome) => {
+                return (self.answer_apply_edit(run, token, outcome))
+                    .err()
+                    .map(End::Crashed);
+            }
             Event::Frame(id, frame) if id == run.id => {
                 return self.frame(run, frame).err().map(End::Crashed);
             }
