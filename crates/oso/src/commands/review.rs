@@ -196,7 +196,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "review-toggle-panes",
-        doc: "Show the review in two panes, its old side and its new side lined up row for row, or as one stream again.\n\nThe panes go side by side when the review's area is 160 columns wide or more, and stacked otherwise. Every window showing the review follows the choice.",
+        doc: "Show the review in two panes, its old side and its new side lined up row for row, or as one stream again.\n\nThe panes go side by side when the review's area is 160 columns wide or more, and stacked below 150. Every window showing the review follows the choice. With a prefix argument, the review shows as each area's width has it again, as it does at first: two panes side by side from 160 columns, one stream below 150.",
         args: ArgSpec::None,
         reach: Reach::Change,
         run: review_toggle_panes,
@@ -432,8 +432,15 @@ fn review_refresh(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     Ok(())
 }
 
-fn review_toggle_panes(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+fn review_toggle_panes(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     let review = current_review(ctx)?;
+    // `C-u |`: as each area's width has it again.
+    if args.raw().is_some() {
+        ctx.editor.choose_review_layout(review, ReviewChoice::Auto);
+        ctx.editor.message("Two panes or one by the width");
+        ctx.request_redraw();
+        return Ok(());
+    }
     let buffer = ctx.editor.window().buffer();
     let in_panes =
         (ctx.editor.review_panes(review)).is_some_and(|(old, new)| buffer == old || buffer == new);
