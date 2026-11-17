@@ -71,6 +71,8 @@ tree-sitter = { version = "=0.27.1", default-features = false, features = ["std"
 tree-sitter-rust = "=0.24.2"
 tree-sitter-md = { version = "=0.5.4", default-features = false }
 tree-sitter-toml-ng = "=0.7.0"
+# ADR 0147. No external scanner.
+tree-sitter-go = "=0.25.0"
 
 # Dev-only (the `dev` features, ADR 0016). Release builds never contain them.
 # Deflate for screenshot PNGs. Pure Rust, forbids `unsafe`.

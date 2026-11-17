@@ -215,7 +215,9 @@ one layer:
   in the tree, split, resized and deleted as one, whose buffer lines line up by a
   `window::RowMap` their owner gives ([ADR 0122](adr/0122-agent-review.md), step 10). After
   each command (not while a prompt is open) and each turn of the wheel, the other window goes
-  to the aligned line, but never while either shows a buffer that may hold secrets.
+  to the aligned line, but never while either shows a buffer that may hold secrets. A review's
+  two panes line up by filler rows, which the cursor of the selected pane skips after each
+  command (step 11).
 - Floating windows are positioned freely above the tree. They show the
   minibuffer. A server's description at point is a float with no window, showing a buffer
   of its own; menus and the completion popup at point are floats with no window. Their

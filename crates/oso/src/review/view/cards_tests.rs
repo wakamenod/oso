@@ -87,6 +87,7 @@ fn grid(rendered: &Rendered) -> String {
             RowKind::Lines { .. } => "line".to_owned(),
             RowKind::Label { comment } => format!("label {}", comment.get()),
             RowKind::Card { comment } => format!("card {}", comment.get()),
+            RowKind::Filler => "filler".to_owned(),
         };
         let marks: String = line
             .char_indices()

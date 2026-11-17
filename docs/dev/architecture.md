@@ -725,10 +725,12 @@ The UI thread never blocks on I/O or parsing:
   in `oso-core` (`syntax::Highlights`) that follows edits with the buffer, and the worker's
   reports replace it, mapped through the edits made since. Colour is applied when glyph
   instances are built, so a highlight never reshapes a row, and a report draws a frame only
-  if a window shows runs it changed. Markdown's inline text and its fenced Rust and TOML are
-  parsed again, with their own grammars, wherever the worker highlights. Buffers that may
-  hold secrets and files over 2 MiB are not parsed
-  ([ADR 0111](adr/0111-tree-sitter-highlighting.md)). The same schedule takes documents no
+  if a window shows runs it changed. Markdown's inline text and its fenced Rust, TOML and Go
+  are parsed again, with their own grammars, wherever the worker highlights; a fence's
+  grammar's query is compiled at the first fence of it
+  ([ADR 0147](adr/0147-highlighting-go-typescript-and-javascript.md)). Buffers that may
+  hold secrets, files over 2 MiB ([ADR 0111](adr/0111-tree-sitter-highlighting.md)) and text
+  with a line longer than 16 KiB (ADR 0147) are not parsed. The same schedule takes documents no
   buffer owns, texts that never change such as a review's sides, opened with the verdict of
   where they came from (a text that may hold secrets is refused). They run only where buffers
   no window shows do, at most 4 hold a tree at once, and a finished one gives its tree to a
@@ -861,6 +863,13 @@ The UI thread never blocks on I/O or parsing:
   (`review/count.rs`), an epoch per opening of the menu. A review buffer's added and removed
   lines, headers and cards are bands the window fills behind its text for the rows in view
   (`Editor::review_cells`).
+- While the person chose two panes and an area shows the review, the view thread also lays
+  out its old and new sides as two panes in step, filler rows padding the shorter side
+  (`review/view/panes.rs`), and the UI puts both in as two more buffers of the review just as
+  `app/reviews/layout.rs` switches each area to them, side by side from 160 columns, stacked
+  below. The editor carries the cursor across a switch by place, moves it off filler rows after
+  each command, and drops the panes once no window shows them
+  (`oso_core::editor` `reviews/panes.rs`; ADR 0122, step 11).
 
 ### Configuration
 

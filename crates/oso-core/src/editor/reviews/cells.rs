@@ -1,6 +1,6 @@
 //! The backgrounds of a review window's rows in view (ADR 0122, "The views"): added and
-//! removed lines, the words refinement marked in them, headers and cards, as cells for a
-//! frame; and the refined words of a git status's rows in view, from its highlights (ADR 0127,
+//! removed lines, the words refinement marked in them, headers, cards and a pane's filler rows,
+//! as cells for a frame; and the refined words of a git status's rows in view, from its highlights (ADR 0127,
 //! step 1c).
 //!
 //! Must not depend on: `command` or `keymap`, or the renderer; this says which cells, and the
@@ -28,6 +28,8 @@ pub struct ReviewCells {
     pub refine_removed: Vec<CellRect>,
     pub headers: Vec<CellRect>,
     pub cards: Vec<CellRect>,
+    /// A pane's filler rows, which line it up with the other pane.
+    pub fillers: Vec<CellRect>,
     /// Room for the byte spans of a row's refined words.
     spans: Vec<Range<usize>>,
 }
@@ -41,6 +43,7 @@ impl ReviewCells {
         self.refine_removed.clear();
         self.headers.clear();
         self.cards.clear();
+        self.fillers.clear();
         self.spans.clear();
     }
 }
@@ -57,6 +60,7 @@ fn band(kind: RowKind) -> Band {
         RowKind::File | RowKind::Hunk { .. } => Band::Header,
         RowKind::Label { .. } | RowKind::Card { .. } => Band::Card,
         RowKind::Note => Band::None,
+        RowKind::Filler => Band::Filler,
     }
 }
 
@@ -66,6 +70,7 @@ enum Band {
     Removed,
     Header,
     Card,
+    Filler,
     None,
 }
 
@@ -78,11 +83,8 @@ impl Editor {
         let Some((shown_window, shown, regions)) = self.window_in_tree(window) else {
             return;
         };
-        let Some(review) = self.review_of(shown_window.buffer()) else {
+        let Some(rows) = self.review_rows_of(shown_window.buffer()) else {
             return self.git_refined_cells(window, screen, out);
-        };
-        let Some(rows) = self.review_rows(review) else {
-            return;
         };
         let area = regions.text;
         let display = shown.display();
@@ -98,6 +100,7 @@ impl Editor {
                 Band::Removed => &mut out.removed,
                 Band::Header => &mut out.headers,
                 Band::Card => &mut out.cards,
+                Band::Filler => &mut out.fillers,
                 Band::None => continue,
             };
             let at = area.row + index;

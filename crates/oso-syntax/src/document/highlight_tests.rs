@@ -18,7 +18,7 @@ use crate::queries::Queries;
 
 /// A document of `text`, highlighted to the end.
 pub(super) fn highlighted(language: Language, text: &str) -> Document {
-    let mut document = Document::new(language, Rope::from(text));
+    let mut document = Document::with_long_lines(language, Rope::from(text));
     assert_eq!(
         document.highlight(&mut Queries::new(), &[], LONG),
         Highlighted::Done
@@ -133,6 +133,53 @@ fn toml_captures() {
 }
 
 #[test]
+fn go_captures() {
+    let text = "package main\n\nimport \"fmt\"\n\nconst Limit = 10\n\n\
+                type Point[T any] struct {\n\tX, Y T\n}\n\n\
+                // Below is below.\nfunc (p *Point[T]) Below(n int) bool {\n\
+                \tq := Point[int]{X: 1}\n\tfmt.Println(`raw`, 'r', 2.5i, nil, iota, true)\n\
+                \tgo p.run[int]()\nloop:\n\tfor range make(chan int) {\n\t\tbreak loop\n\t}\n\
+                \treturn len(q.X) > n\n}\n";
+    assert_has(
+        Language::Go,
+        text,
+        &[
+            ("package", Keyword),
+            ("\"fmt\"", String),
+            ("const", Keyword),
+            ("Limit", Constant),
+            ("10", Constant),
+            ("Point", Type),
+            ("any", Type),
+            ("struct", Keyword),
+            ("X", Property),
+            ("// Below is below.", Comment),
+            ("Below", Function),
+            ("int", Type),
+            ("Println", Function),
+            ("`raw`", String),
+            ("'r'", String),
+            ("2.5i", Constant),
+            ("nil", Constant),
+            ("iota", Constant),
+            ("true", Constant),
+            ("go", Keyword),
+            ("run", Function),
+            ("loop", Keyword),
+            ("make", Function),
+            ("chan", Keyword),
+            ("len", Function),
+        ],
+    );
+    // A package's name, like a variable, is plain.
+    let runs = runs(&highlighted(Language::Go, text));
+    assert!(
+        !runs.iter().any(|(run, _)| run == "fmt" || run == "q"),
+        "{runs:?}"
+    );
+}
+
+#[test]
 fn line_breaks_are_never_highlighted() {
     let cases = [
         (
@@ -141,6 +188,7 @@ fn line_breaks_are_never_highlighted() {
         ),
         (Language::Markdown, "Setext *a\nb*\n===\n\n> q\n> r\n"),
         (Language::Toml, "s = \"\"\"\nmulti\n\"\"\"\n"),
+        (Language::Go, "var s = `raw\nlines`\n/* a\nb */\n"),
     ];
     for (language, text) in cases {
         let document = highlighted(language, text);
@@ -179,7 +227,7 @@ fn highlights_follow_edits_and_the_edited_lines_are_highlighted_again() {
 fn shown_text_goes_first() {
     let line = "fn f() {}\n";
     let text = line.repeat(30_000);
-    let mut document = Document::new(Language::Rust, Rope::from(text.as_str()));
+    let mut document = Document::with_long_lines(Language::Rust, Rope::from(text.as_str()));
     assert_eq!(document.parse(LONG), super::Parsed::Done);
     let shown = text.len() - 100..text.len() - 50;
     let piece = document.next_piece(std::slice::from_ref(&shown)).unwrap();
@@ -197,7 +245,7 @@ fn shown_text_goes_first() {
 #[test]
 fn a_long_line_is_cut_at_a_character() {
     let text = format!("// {}\n", "日本".repeat(100_000));
-    let mut document = Document::new(Language::Rust, Rope::from(text.as_str()));
+    let mut document = Document::with_long_lines(Language::Rust, Rope::from(text.as_str()));
     assert_eq!(document.parse(LONG), super::Parsed::Done);
     let piece = document.next_piece(&[]).unwrap();
     assert!(piece.end - piece.start <= super::highlight::PIECE);
@@ -226,7 +274,7 @@ fn an_inline_node_past_the_cap_stays_plain() {
 fn a_slice_resumes_where_it_stopped() {
     let text = "fn f() { let x = \"s\"; } // c\n".repeat(20_000);
     let whole = runs(&highlighted(Language::Rust, &text));
-    let mut document = Document::new(Language::Rust, Rope::from(text.as_str()));
+    let mut document = Document::with_long_lines(Language::Rust, Rope::from(text.as_str()));
     // Slices this short judge no piece too slow, and a slow runner meets no total limit: the
     // test holds whatever the machine's speed.
     document.limits.2 = LONG;
@@ -288,6 +336,15 @@ fn a_trailing_comment_is_one_run() {
     );
     let toml = "a = 1 # \"s\" true 2 [x]\n";
     assert_has(Language::Toml, toml, &[("# \"s\" true 2 [x]", Comment)]);
+    let go = "func f() { g(1) } // TODO: \"s\" 2 nil f()\nvar x = 1 /* `y` */\n";
+    assert_has(
+        Language::Go,
+        go,
+        &[
+            ("// TODO: \"s\" 2 nil f()", Comment),
+            ("/* `y` */", Comment),
+        ],
+    );
 }
 
 /// A full-width space is no white space to Rust: before `//`, it leaves an error that takes the

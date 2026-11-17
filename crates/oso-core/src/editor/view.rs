@@ -322,6 +322,10 @@ impl Editor {
     /// selected window left of the command's wrap budget. Not while a prompt is open: the
     /// wheel scrolls the window beneath it and leaves its cursors (ADR 0072); they follow once
     /// it closes.
+    ///
+    /// Then, with no prompt open, a review's pane selected moves its cursors off filler rows,
+    /// and the panes of a review no window shows are dropped, as the host puts them in only as
+    /// it switches an area to them (ADR 0122, step 11); and the other window of a pair follows.
     pub fn follow_cursor(&mut self) -> bool {
         // So does the preview's wrap, which a command may have moved (ADR 0100), and a
         // description's (ADR 0138).
@@ -341,6 +345,8 @@ impl Editor {
             self.pass_wrap_budget(self.selected);
         }
         if self.prompts.is_empty() {
+            // Off a pane's filler rows first, and the panes no window shows go (ADR 0122).
+            self.sync_review_panes();
             // The other window of its pair goes where it is (ADR 0122).
             moved |= self.follow_pair();
             self.pass_wrap_budget(self.selected);
