@@ -90,6 +90,8 @@ impl Dispatcher {
     /// Text from a key or an input method, recorded in a keyboard macro as it comes (ADR 0113),
     /// and run as one command: an undo step of its own if an input method `commit`ted it.
     pub(super) fn take_text(&mut self, editor: &mut Editor, text: &str, commit: bool) -> Effects {
+        // Text is no key: it ends `describe-key`'s read and goes on as it would (ADR 0150).
+        self.stop_describing();
         let event = || MacroEvent::Text {
             text: text.to_owned(),
             commit,
@@ -342,7 +344,12 @@ impl Dispatcher {
         }
         if !editor.macro_replaying() {
             for event in std::mem::take(&mut self.macros.held) {
-                effects = effects.union(self.feed(editor, &event));
+                // A key of the window's, held as `<held>`, is kept again as it runs (ADR 0150).
+                let ran = match event {
+                    MacroEvent::Key(key) => self.handle_key(editor, key),
+                    event => self.feed(editor, &event),
+                };
+                effects = effects.union(ran);
             }
         }
         effects
@@ -350,7 +357,7 @@ impl Dispatcher {
 
     fn feed(&mut self, editor: &mut Editor, event: &MacroEvent) -> Effects {
         match event {
-            MacroEvent::Key(key) => self.handle_key(editor, *key),
+            MacroEvent::Key(key) => self.take_key(editor, *key),
             MacroEvent::Text { text, commit: true } => self.commit_text(editor, text),
             MacroEvent::Text {
                 text,

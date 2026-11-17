@@ -15,7 +15,7 @@ use oso_core::editor::{Editor, MacroEvent};
 use oso_core::key::Key;
 use oso_core::key::KeyPress;
 use oso_core::keymap::Layers;
-use oso_core::keymap::{CANCEL, KeyResolver, Keymap, Resolution, is_cancel};
+use oso_core::keymap::{KeyResolver, Keymap, Resolution};
 
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
@@ -29,6 +29,7 @@ pub use agent::{Unshowable, unshowable};
 pub use args::Given;
 pub(crate) use buffers::size;
 mod clipboard;
+mod describe;
 mod extended;
 mod held;
 mod hold_all;
@@ -36,6 +37,7 @@ mod host;
 pub use hold_all::{Cancelled, holds_input};
 mod jump;
 mod keymaps;
+mod lossage;
 mod macros;
 mod menus;
 pub use menus::{Described, HeadNow, OpenMenu};
@@ -45,6 +47,7 @@ mod run_command;
 mod session_help;
 mod shown;
 mod terminal;
+mod text_input;
 mod transient;
 
 use keymaps::Keymaps;
@@ -110,6 +113,10 @@ pub struct Dispatcher {
     from_socket: bool,
     /// Where each `session-yank-image` the host has not taken came from (ADR 0142).
     image_yanks: clipboard::ImageYanks,
+    /// The keys received last, for `view-lossage` (ADR 0150).
+    lossage: lossage::Lossage,
+    /// The sequence `describe-key` reads (ADR 0150).
+    describe: describe::DescribeKey,
     /// `RET` or `TAB`, held while a worker matches the input (ADR 0096).
     completion_held: Option<held::HeldTake>,
     /// Whether the last input made the cursor flash, until the host takes it (ADR 0097).
@@ -144,6 +151,8 @@ impl Dispatcher {
         let macros = macros::MacroInput::new(&registry);
         let menus = menus::MenuSet::new(bindings::built_in_menus(&registry));
         let image_yanks = clipboard::ImageYanks::new(&registry);
+        let lossage = lossage::Lossage::new(&registry);
+        let describe = describe::DescribeKey::new(&registry);
         #[cfg(any(test, feature = "dev"))]
         let isearch_commands = bindings::isearch_commands(&registry);
         #[cfg(any(test, feature = "dev"))]
@@ -175,6 +184,8 @@ impl Dispatcher {
             held_during_all: hold_all::HeldDuringAll::default(),
             from_socket: false,
             image_yanks,
+            lossage,
+            describe,
             completion_held: None,
             view_jumped: None,
             not_input: false,
@@ -283,77 +294,6 @@ impl Dispatcher {
         effects
     }
 
-    /// Inserts `text`, which may hold several characters, as a key that types
-    /// them would: through the text command of the active keymaps, as one command
-    /// and one undo step. A pending prefix makes it an undefined key sequence.
-    /// A key that types several characters comes through here.
-    pub fn insert_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
-        self.take_text(editor, text, false)
-    }
-
-    /// Starts an input method's composition, which counts as a key: keys never reach
-    /// oso during one (ADR 0069).
-    pub fn begin_composition(&mut self, editor: &mut Editor) {
-        if self.hold_composition() {
-            return;
-        }
-        self.as_input(editor, |_, _| ());
-    }
-
-    /// Inserts an input method's commit, as [`Dispatcher::insert_text`] does, but
-    /// always as an undo step of its own, even of one character (ADR 0069).
-    pub fn commit_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
-        self.take_text(editor, text, true)
-    }
-
-    fn run_text(&mut self, editor: &mut Editor, text: &str, step: Step) -> Effects {
-        // Text changes the input, so a key held for its older result is dropped (ADR 0096).
-        self.drop_held_completion();
-        // Text answers no question, and says so, as another key does.
-        if editor
-            .prompt()
-            .is_some_and(|prompt| prompt.kind().is_question())
-        {
-            editor.prompt_says(crate::commands::answer_hint(editor));
-            return Effects {
-                redraw: true,
-                ..Effects::default()
-            };
-        }
-        // A menu binds no text: its `foreign-keys` says what text does there (ADR 0117).
-        if self.menu_refuses_text(editor) {
-            return Effects::default();
-        }
-        if !self.resolver.pending().is_empty() {
-            let pending = self.resolver.pending();
-            log::debug!("{} and text are undefined", masked(pending, true));
-            // The text stays out of it, as it does from a log.
-            let keys = masked(pending, reads_passphrase(editor));
-            editor.echo(format!("{keys} is undefined"));
-            self.resolver.reset();
-            self.forget_keys(editor);
-            return Effects::default();
-        }
-        let reading = self.keymaps.reading(editor);
-        let text_command = self
-            .keymaps
-            .active(&reading, self.prefix, editor)
-            .text_command();
-        match text_command {
-            Some(id) if !text.is_empty() => {
-                self.drop_branch_wait(editor);
-                let args = Args::with_prefix(self.prefix.take());
-                let invocation = Invocation {
-                    input: text,
-                    ..Invocation::default()
-                };
-                let effects = self.execute(editor, id, args, invocation, step).0;
-                effects.union(self.after_prompts(editor))
-            }
-            _ => Effects::default(),
-        }
-    }
-
     /// An undefined or cancelled key sequence drops the prefix argument, ends a run of one
     /// command and drops a wait for the branches (ADR 0121).
     fn forget_keys(&mut self, editor: &mut Editor) {
@@ -386,6 +326,7 @@ impl Dispatcher {
             _ => 0,
         };
         self.last = Some((id, repeats));
+        self.lossage_ran(id);
         self.close_transient_layers(editor, id, step);
         // The person's answer to the agent's question, `y`, `n` or `C-g`, lets nothing go
         // (ADR 0118, Q11).
@@ -414,6 +355,7 @@ impl Dispatcher {
                 editor.end_undo_group();
                 // `session-help` says the keys the dispatcher holds (ADR 0132).
                 self.keymaps.session_help.answer(id, editor);
+                let _ = self.answer_view_lossage(id, editor) || self.answer_describe_key(id);
                 self.image_yanks.note(id, self.from_socket);
             }
             Err(ExecuteError::Failed { error, .. }) => {
@@ -459,16 +401,37 @@ impl Dispatcher {
     /// area empties first, as in Emacs, but for what waits behind keys in progress, and
     /// then says what the key left.
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
+        // Every key received is kept for `view-lossage`, before anything takes it (ADR 0150).
+        self.lossage_key(editor, key);
+        let effects = self.take_key(editor, key);
+        self.lossage_close();
+        effects
+    }
+
+    /// Handles `key` as [`Self::handle_key`] does, without keeping it for `view-lossage`: a
+    /// keyboard macro's key is not kept, as in Emacs.
+    pub(super) fn take_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
         // A replay takes a key from the window first: `C-g` stops it before anything else.
+        // A key held to run later is kept as `<held>`: where it runs is not known yet (ADR 0150).
         if let Some(done) = self.macro_before(editor, (Some(key), || MacroEvent::Key(key))) {
+            self.lossage_held(key);
             return done;
         }
         if let Some(done) = self.hold_during_all(editor, hold_all::Held::Key(key, self.from_socket))
         {
+            self.lossage_held(key);
             return done;
         }
         if self.hold_key(key) {
+            self.lossage_held(key);
             return Effects::default();
+        }
+        // `describe-key` reads the sequence and runs nothing, in a terminal too.
+        if self.describing() {
+            self.macro_key(editor, key);
+            let described = self.as_input(editor, |this, editor| this.describe_takes(editor, key));
+            self.macro_after(editor);
+            return described.unwrap_or_default();
         }
         // A key for a terminal's program is recorded as any key is; one typed at a password
         // prompt drops the recording (ADR 0120, Q17).
@@ -499,18 +462,8 @@ impl Dispatcher {
             return effects;
         }
         let reading = self.keymaps.reading(editor);
-        let mut layers = self.keymaps.active(&reading, self.prefix, editor);
-        // `C-g` is never the user's, Shift or not: under a prefix it cancels whatever is bound,
-        // and on its own it runs what the defaults bind (ADR 0108, ADR 0110).
-        let cancels = is_cancel(key);
-        let key = if cancels && !self.resolver.pending().is_empty() {
-            CANCEL
-        } else {
-            key
-        };
-        if cancels {
-            layers.user = None;
-        }
+        let pending = !self.resolver.pending().is_empty();
+        let (layers, key) = (self.keymaps).for_key(&reading, self.prefix, pending, editor, key);
         let (id, shifted) = match self.resolver.feed(&layers, key) {
             Resolution::Command(id) => (id, false),
             // A shifted key that only its unshifted form binds (ADR 0071).
@@ -552,7 +505,7 @@ impl Dispatcher {
                     let keys = masked(keys, reads_passphrase(editor));
                     editor.echo(format!("{keys} is undefined"));
                 }
-                self.forget_keys(editor);
+                self.note_undefined_and_forget(editor);
                 return Effects::default();
             }
             Resolution::Cancelled => {
@@ -628,6 +581,8 @@ mod file_tests;
 mod grid_tests;
 #[cfg(test)]
 mod held_tests;
+#[cfg(test)]
+mod help_tests;
 #[cfg(test)]
 mod idle_exit_tests;
 #[cfg(test)]

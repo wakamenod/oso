@@ -13,7 +13,8 @@
 use oso_core::buffer::{Buffer, Mode, ServerMark};
 use oso_core::command::{CommandId, Prefix, Registry};
 use oso_core::editor::Editor;
-use oso_core::keymap::{Keymap, Layers};
+use oso_core::key::KeyPress;
+use oso_core::keymap::{CANCEL, Keymap, Layers, is_cancel};
 use oso_core::minibuffer::Kind;
 
 use crate::bindings;
@@ -259,6 +260,26 @@ impl Keymaps {
         [&self.prefix[1], &self.prefix[0], minor, transient, minor]
     }
 
+    /// The layers `key` resolves through, and the key to feed: [`Keymaps::active`]'s, but
+    /// `C-g` is never the user's, Shift or not. With keys `pending` it cancels whatever is
+    /// bound, and on its own it runs what the defaults bind (ADR 0108, ADR 0110). A key that
+    /// runs and `describe-key` both resolve through this (ADR 0150).
+    pub(super) fn for_key<'a>(
+        &'a self,
+        reading: &'a [&'a Keymap; 5],
+        prefix: Option<Prefix>,
+        pending: bool,
+        editor: &Editor,
+        key: KeyPress,
+    ) -> (Layers<'a>, KeyPress) {
+        let mut layers = self.active(reading, prefix, editor);
+        let cancels = is_cancel(key);
+        if cancels {
+            layers.user = None;
+        }
+        (layers, if cancels && pending { CANCEL } else { key })
+    }
+
     /// The keymaps active now. A question's keys take the global keymap's place, so that
     /// no other key reaches a command, and a prompt's go above it (ADR 0072), a completion's
     /// with them (ADR 0076), and a draft's in their place (ADR 0122). So do isearch's, and a
@@ -467,7 +488,17 @@ impl Dispatcher {
 /// What the dispatcher is reading now: a prefix key, a prefix argument, or text as typed.
 impl Dispatcher {
     /// The keys of the pending prefix, empty if none is pending.
+    #[cfg(any(test, feature = "dev"))]
     pub fn pending(&self) -> &[oso_core::key::KeyPress] {
+        self.resolver.pending()
+    }
+
+    /// The keys of the pending prefix a restart carries: none while `describe-key` reads, as
+    /// its keys run nothing and the next instance would run them as a prefix (ADR 0150).
+    pub fn pending_to_carry(&self) -> &[oso_core::key::KeyPress] {
+        if self.describing() {
+            return &[];
+        }
         self.resolver.pending()
     }
 
@@ -478,10 +509,12 @@ impl Dispatcher {
     }
 
     /// Whether the next key is read as a key rather than typed: a prefix key is
-    /// pending, a prefix argument reads digits or a minus, or a menu is open. The input method
-    /// stays off then, as a letter or a digit would start a composition (ADR 0069, ADR 0117).
+    /// pending, a prefix argument reads digits or a minus, a menu is open, or `describe-key`
+    /// reads (ADR 0150). The input method stays off then, as a letter or a digit would start a
+    /// composition (ADR 0069, ADR 0117).
     pub fn reads_keys(&self) -> bool {
         self.menu_open()
+            || self.describing()
             || !self.resolver.pending().is_empty()
             || self
                 .prefix
@@ -489,7 +522,7 @@ impl Dispatcher {
     }
 
     /// Whether text would go in as typed now: no prefix key or prefix argument waits, no
-    /// question or menu is open, and what is active takes text. A commit the window layer makes
+    /// question or menu is open, `describe-key` reads nothing, and what is active takes text. A commit the window layer makes
     /// unasked waits otherwise, so that it neither takes a prefix argument nor is lost
     /// (ADR 0077).
     pub fn types_text(&self, editor: &Editor) -> bool {
@@ -500,6 +533,7 @@ impl Dispatcher {
             || self.prefix.is_some()
             || !self.resolver.pending().is_empty()
             || self.menu_open()
+            || self.describing()
         {
             return false;
         }

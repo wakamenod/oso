@@ -13,6 +13,7 @@ mod cursors;
 mod dired;
 mod edit;
 mod files;
+mod help;
 mod indent;
 mod isearch;
 mod jump;
@@ -57,6 +58,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     dired::BINDINGS,
     edit::BINDINGS,
     files::BINDINGS,
+    help::BINDINGS,
     indent::BINDINGS,
     isearch::BINDINGS,
     jump::BINDINGS,
