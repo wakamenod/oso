@@ -35,6 +35,8 @@ events, which the tip crate's winit adapter builds too, and on macOS the window 
 - Every `unsafe` block needs a `// SAFETY:` comment.
 - Processes are spawned only through `oso-platform::process` (ADR 0010,
   ADR 0047, ADR 0120), in every build.
+  `process::open_link` starts the system's opener on an `https` address of plain
+  characters (ADR 0127, step 5a); which addresses may open is the caller's to decide.
   There is no network code.
 - Each OS backend sits in its own `cfg`-gated module. Linux and Windows
   must keep building and passing tests in CI (Tier 2).

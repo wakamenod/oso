@@ -637,6 +637,13 @@ topological order, children before their parents, one row each (ADR 0127, step 4
   status's to go on with.
 - It reads 2,000 commits at a time, the next as point nears the end, up to 50,000, then says a
   narrower scope shows the rest. At most 16 lanes are drawn, `┄` past them.
+- Pull requests (step 5a), through `gh`: the status's head says `PR:       #12 TITLE  open,
+  approved  ✓ 12 ✗ 1 ● 2`, `stale` if it is not the commit checked out. `N` opens the pull
+  request menu: `v` shows `*pr: NAME*` (its state, branches, description, checks, review
+  threads, unresolved first, and the conversation), `k` the same at its checks, `o` opens it in
+  the browser after the echo area shows its address, `l` lists the open ones. In those buffers
+  `RET` visits a thread's file at its line, shows a check's address, or shows a listed one; `o`
+  opens, `w` copies an address, `g` reads it again.
 
 ## Echo area
 

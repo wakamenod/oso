@@ -22,6 +22,7 @@ mod git_agent;
 mod git_commit;
 mod git_discard;
 mod git_graph;
+mod git_pr;
 mod git_remote;
 mod git_sequence;
 mod git_stash_branch;

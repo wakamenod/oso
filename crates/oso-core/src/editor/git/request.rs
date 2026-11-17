@@ -162,6 +162,21 @@ pub enum GraphAct {
     Confirmed,
 }
 
+/// What a key asks of a pull request's buffer, or of a list of them, at a line (ADR 0127, step
+/// 5a).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrAct {
+    /// Read it again (`g`).
+    Refresh,
+    /// Visit what the line names: a review thread's file at its line, a check's address in the
+    /// echo area, or, in a list, the pull request (`RET`).
+    Visit,
+    /// Open the pull request in the browser, after the echo area shows its address (`o`).
+    Open,
+    /// Copy the address the line names, or the pull request's (`w`).
+    CopyLink,
+}
+
 /// What a command asks of the host for git (ADR 0127).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GitRequest {
@@ -283,4 +298,22 @@ pub enum GitRequest {
     },
     /// What a prompt a graph's act opened read, over the graph `buffer` (step 4b).
     GraphAnswer { buffer: BufferId, text: String },
+    /// Show the pull request of `project`'s branch checked out, or the one numbered `number`,
+    /// in `*pr: #N*`, at its checks if `checks` (`N v`, `N k`; step 5a).
+    PrView {
+        project: ProjectId,
+        number: Option<u64>,
+        checks: bool,
+    },
+    /// Show `project`'s repository's open pull requests (`N l`).
+    PrList { project: ProjectId },
+    /// Open the pull request of `project`'s branch in the browser, after the echo area shows
+    /// its address (`N o`).
+    PrOpen { project: ProjectId },
+    /// What `act` asks of `line` of the pull request's buffer, or list of them, `buffer`.
+    PrAct {
+        buffer: BufferId,
+        act: PrAct,
+        line: usize,
+    },
 }
