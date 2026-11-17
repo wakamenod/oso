@@ -672,6 +672,8 @@ topological order, children before their parents, one row each (ADR 0127, step 4
   and `M-n` walk the messages kept. `- d` makes a draft, `- b` reads the base. `N m` opens the
   merge menu: `s`, `m` or `r` after a question naming the pull request, its base, the method and
   its head; `- d` deletes the branch on the remote.
+- Each worktree's open pull request (step 5b-2) shows on its `*Worktrees*` row and beside its
+  branch in the `*Spaces*` tree, as `PR #12 open, approved ✓ 3 ✗ 0 ● 1`.
 - In `*pr: #N*` (step 6b), `x` sends the check on the line to an agent session, `X` every
   failing one with the logs of at most 8 Actions jobs, `c` the review thread on the line and
   `C` every unresolved one, through `*review message*`: GitHub's words under a line saying they

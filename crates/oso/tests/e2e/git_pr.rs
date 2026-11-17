@@ -2,9 +2,10 @@
 //! takes from `OSO_DEV_GH`:
 //! the status's `PR:` line, `N v` showing the branch's pull request with its checks and review
 //! threads, `N l` the open ones, `RET` there one of them, and every run of `gh` asked about the
-//! remote's repository, outside the project; and `X` and `C` writing a message for an agent
-//! session of the failing checks, with a log's tail, and the unresolved threads, a stranger's
-//! comment left out until `C-c C-t` (step 6b).
+//! remote's repository, outside the project; a worktree's row in `*Worktrees*` with its
+//! branch's open pull request, never a fork's (step 5b-2); and `X` and `C` writing a message
+//! for an agent session of the failing checks, with a log's tail, and the unresolved threads, a
+//! stranger's comment left out until `C-c C-t` (step 6b).
 //!
 //! Must not depend on: the app's internals, a real `gh` or the network. The readers, the texts
 //! and the thread's runs have their own tests.
@@ -76,7 +77,7 @@ fn stand_in_gh(scratch: &Scratch) -> std::path::PathBuf {
          'pr checks') cat '{b}/checks.json'; exit 8 ;;\n\
          'run view') cat '{b}/log.txt' ;;\n\
          'api graphql') cat '{b}/threads.json' ;;\n\
-         'pr list') cat '{b}/list.json' ;;\n\
+         'pr list') case \"$*\" in *'--state merged'*) echo '[]' ;; *) cat '{b}/list.json' ;; esac ;;\n\
          *) exit 1 ;;\nesac\n"
     );
     let gh = bin.join("gh");
@@ -481,4 +482,62 @@ fn failing_checks_and_threads_go_to_a_message_without_a_stranger_s_comment_until
 
     // The log was read of the repository's own job, outside the project.
     assert_log_read(&bin, &root);
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_worktree_s_row_shows_its_branch_s_open_pull_request_and_never_a_fork_s() {
+    let scratch = Scratch::new("git-worktree-pulls");
+    let file = project(&scratch);
+    let root = scratch.path().join("proj-git");
+    git(
+        &root,
+        &["remote", "add", "origin", "https://github.com/o/r.git"],
+    );
+    for branch in ["feature", "fix"] {
+        let path = root.join(".claude/worktrees").join(branch);
+        let path = path.to_str().unwrap();
+        git(&root, &["worktree", "add", "-q", "-b", branch, path]);
+    }
+    let bin = stand_in_gh(&scratch);
+    // A fork's pull request from a branch named as the person's `fix`, then the person's own.
+    fs::write(
+        bin.join("list.json"),
+        r#"[{"number":21,"title":"Fork fix","headRefName":"fix","author":{"login":"eve"},
+"isDraft":false,"reviewDecision":"","statusCheckRollup":[],"url":"https://github.com/o/r/pull/21",
+"isCrossRepository":true},
+{"number":13,"title":"Add y","headRefName":"feature","author":{"login":"ann"},"isDraft":false,
+"reviewDecision":"APPROVED","statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"}],
+"url":"https://github.com/o/r/pull/13","isCrossRepository":false}]"#,
+    )
+    .unwrap();
+    let mut app = status_with_gh(&scratch, &file, &bin);
+
+    // Back to the project's file: `worktree-list` lists its repository.
+    app.send_keys("C-x b RET");
+    app.wait_for("the file", |state| state["buffer"]["name"] == "a.txt");
+    app.send_keys(&format!("M-x {} RET", typing("worktree-list")));
+    app.wait_for("*Worktrees*", |state| {
+        state["buffer"]["name"] == "*Worktrees*"
+    });
+    let shown = wait_text(
+        &mut app,
+        "the pull request's line",
+        "\n  PR #13 open, approved ✓ 1 ✗ 0 ● 0\n",
+    );
+    assert!(shown.contains(".claude/worktrees/fix  fix"), "{shown}");
+    assert!(
+        !shown.contains("PR #21"),
+        "a fork's is never the row's: {shown}"
+    );
+
+    // One read of the open ones, of the remote's repository, outside the project.
+    let asked = fs::read_to_string(bin.join("asked")).unwrap();
+    let open: Vec<&str> = (asked.lines())
+        .filter(|line| line.contains("pr list") && line.contains("--state open"))
+        .collect();
+    assert_eq!(open.len(), 1, "{asked}");
+    assert!(open[0].contains("--repo github.com/o/r"), "{asked}");
+    let cwd = open[0].split(" | ").next().unwrap_or_default();
+    assert!(!Path::new(cwd).starts_with(&root), "{asked}");
 }

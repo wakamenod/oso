@@ -31,17 +31,21 @@ pub(crate) const MAX_THREAD_COMMENTS: usize = 50;
 const MAX_TEXT: usize = 64 * 1024;
 
 /// The fields of `gh pr view --json` the status's head line reads.
-pub(crate) const HEAD_FIELDS: &str =
-    "number,title,state,isDraft,reviewDecision,statusCheckRollup,url,headRefOid,headRefName";
+pub(crate) const HEAD_FIELDS: &str = "number,title,state,isDraft,reviewDecision,\
+statusCheckRollup,url,headRefOid,headRefName,isCrossRepository";
 /// The fields of `gh pr view --json` a pull request's buffer reads.
 pub(crate) const VIEW_FIELDS: &str = "number,title,state,isDraft,reviewDecision,\
-statusCheckRollup,url,headRefOid,author,baseRefName,headRefName,body,comments";
+statusCheckRollup,url,headRefOid,author,baseRefName,headRefName,body,comments,isCrossRepository";
 /// The fields of `gh pr checks --json`.
 pub(crate) const CHECK_FIELDS: &str =
     "name,state,bucket,link,workflow,startedAt,completedAt,description";
 /// The fields of `gh pr list --json`.
-pub(crate) const LIST_FIELDS: &str =
-    "number,title,headRefName,author,isDraft,reviewDecision,statusCheckRollup,url";
+pub(crate) const LIST_FIELDS: &str = "number,title,headRefName,author,isDraft,reviewDecision,\
+statusCheckRollup,url,isCrossRepository";
+/// How many open pull requests a list asks for.
+pub(crate) const LIST_LIMIT: &str = "100";
+/// The most bytes of a list of pull requests read.
+pub(crate) const MAX_LIST: usize = 4 * 1024 * 1024;
 
 /// The review threads of a pull request, one fixed query, its owner, name and number given as
 /// variables, never written into it.
@@ -124,6 +128,8 @@ pub(crate) struct PrHead {
     pub(crate) head: String,
     /// Its head branch, which must be the branch it was asked for.
     pub(crate) branch: String,
+    /// Whether its head is in another repository, a fork's: never the branch's own (step 5b-2).
+    pub(crate) cross: bool,
 }
 
 /// A check's outcome, as `gh pr checks` buckets it.
@@ -198,6 +204,8 @@ pub(crate) struct Listed {
     pub(crate) review: Option<Review>,
     pub(crate) counts: Counts,
     pub(crate) url: String,
+    /// Whether its head is in another repository, a fork's.
+    pub(crate) cross: bool,
 }
 
 /// The branch's pull request in `gh pr view --json` [`HEAD_FIELDS`]'s answer.
@@ -303,6 +311,7 @@ pub(crate) fn read_list(json: &[u8]) -> Option<Vec<Listed>> {
             review: review_of(item.get("reviewDecision")),
             counts: counts_of(item.get("statusCheckRollup")),
             url: item.get("url").and_then(text).unwrap_or_default(),
+            cross: cross_of(item),
         })
     };
     Some(items.iter().take(MAX_ITEMS).filter_map(listed).collect())
@@ -345,6 +354,7 @@ pub(crate) struct MergeRead {
     pub(crate) base: String,
     pub(crate) head_commit: String,
     pub(crate) branch: String,
+    pub(crate) cross: bool,
 }
 
 /// The pull request to merge in `gh pr view`'s answer.
@@ -361,6 +371,7 @@ pub(crate) fn read_merge(json: &[u8]) -> Option<MergeRead> {
         base: text(value.get("baseRefName")?)?,
         head_commit,
         branch: text(value.get("headRefName")?)?,
+        cross: cross_of(&value),
     })
 }
 
@@ -403,7 +414,19 @@ fn head_of(value: &Value) -> Option<PrHead> {
         url: value.get("url").and_then(text).unwrap_or_default(),
         head: value.get("headRefOid").and_then(text).unwrap_or_default(),
         branch: value.get("headRefName").and_then(text).unwrap_or_default(),
+        cross: cross_of(value),
     })
+}
+
+/// Whether `value` says its head is in another repository; an answer that does not say is taken
+/// as of the repository itself, as `gh` always says it when asked.
+fn cross_of(value: &Value) -> bool {
+    value.get("isCrossRepository").and_then(Value::as_bool) == Some(true)
+}
+
+/// Whether `gh pr view --json …,isCrossRepository`'s answer is a fork's pull request.
+pub(crate) fn is_cross(json: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(json).is_ok_and(|value| cross_of(&value))
 }
 
 fn review_of(value: Option<&Value>) -> Option<Review> {
