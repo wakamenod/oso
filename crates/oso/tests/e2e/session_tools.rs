@@ -484,7 +484,7 @@ fn worktree_with_work(
         "start_worktree_session",
         json!({ "branch": branch, "brief": "Fix the parser" }),
     );
-    answer(app, "y");
+    answer(app, bridge, "y");
     let (started, error) = bridge.result(id);
     assert!(!error, "{started}");
     let run = run_in(flow, &place);
