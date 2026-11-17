@@ -144,6 +144,14 @@ fn moving(test: &str) -> Moving {
         space(state, "fix-login-error").is_some_and(|s| s["members"] == json!([other_root]))
     });
 
+    // The person turns the channel on, as an outside session reaches oso only then.
+    app.run_command("agent-channel-start", None).unwrap();
+    app.wait_for("the channel", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.starts_with("Agent  "))
+    });
+
     // The outside session, in the trusted repository.
     let repo = fs::canonicalize(&flow.repo).unwrap();
     flow.scratch.write(
@@ -156,14 +164,15 @@ fn moving(test: &str) -> Moving {
     assert!(refused.contains("no open space is named"), "{refused}");
 
     let question = allow(&mut app, "Agent: move session");
-    let repo_text = repo.display().to_string();
     assert!(question.contains("\"outside-fix\""), "{question}");
-    // The process as the system names it, not as the registry entry says.
-    assert!(question.contains("(\"sh\", pid "), "{question}");
-    assert!(
-        question.contains(&format!("adding repository \"{repo_text}\"")),
-        "{question}"
-    );
+    // The process as the system names it, the shell that runs the script, not as the registry
+    // entry says.
+    assert!(!question.contains("(\"claude\""), "{question}");
+    assert!(question.contains("sh\", pid "), "{question}");
+    // A long path keeps its end, which names it.
+    let tail = format!("{}/repo\" to it?", test);
+    assert!(question.contains(", adding repository \""), "{question}");
+    assert!(question.contains(&tail), "{question}");
     let reply = result(&flow, 3);
     assert!(
         reply.contains("\"moving\": true") || reply.contains("\"moving\":true"),
@@ -171,7 +180,9 @@ fn moving(test: &str) -> Moving {
     );
     assert!(reply.contains("/exit"), "{reply}");
 
-    let state = app.wait_for("the waiting buffer", |state| waiting(state).is_some());
+    let state = app.wait_for("the wait", |state| {
+        echo(state).starts_with("Moving \"outside-fix\" into space \"fix-login-error\"")
+    });
     let members = &space(&state, "fix-login-error").unwrap()["members"];
     assert_eq!(members.as_array().map(Vec::len), Some(2), "{members}");
     Moving {
@@ -182,13 +193,9 @@ fn moving(test: &str) -> Moving {
     }
 }
 
-/// The id of `*moving: outside-fix*`, while it is there.
-fn waiting(state: &Value) -> Option<Value> {
-    let buffers = state["buffers"].as_array()?;
-    let buffer = buffers
-        .iter()
-        .find(|b| b["name"] == "*moving: outside-fix*")?;
-    Some(buffer["id"].clone())
+/// What the echo area says.
+fn echo(state: &Value) -> &str {
+    state["echo"].as_str().unwrap_or_default()
 }
 
 /// The person's `/exit` where the outside session runs: it ends, within the flow's deadline.
@@ -229,7 +236,7 @@ fn a_session_started_outside_oso_moves_into_a_space_once_it_stopped_there() {
         .app
         .wait_for("the moved session in its space", |state| {
             session(state, "outside-fix").is_some_and(|s| s["space"] == "fix-login-error")
-                && waiting(state).is_none()
+                && echo(state) == "Moved \"outside-fix\" into space \"fix-login-error\""
         });
     moving.flow.scratch.write("go", b"0");
 }
@@ -238,15 +245,19 @@ fn a_session_started_outside_oso_moves_into_a_space_once_it_stopped_there() {
 #[ignore = "opens windows; run with `just e2e`"]
 fn killing_the_waiting_buffer_cancels_the_move() {
     let mut moving = moving("space-move-cancel");
-    let state = moving.app.state();
-    let buffer = waiting(&state).expect("the waiting buffer");
-    moving.app.show_buffer(&buffer);
+    // The waiting buffer is internal, and `C-x b` and `C-x k` take it as a person's.
+    moving.app.send_keys("C-x b");
+    answer(
+        &mut moving.app,
+        "Switch to buffer:",
+        "*moving: outside-fix*",
+    );
+    moving.app.wait_for("the waiting buffer", |state| {
+        state["buffer"]["name"] == "*moving: outside-fix*"
+    });
     moving.app.send_keys("C-x k RET");
     moving.app.wait_for("the move cancelled", |state| {
-        waiting(state).is_none()
-            && state["echo"]
-                .as_str()
-                .is_some_and(|echo| echo.contains("was cancelled"))
+        state["buffer"]["name"] != "*moving: outside-fix*" && echo(state).contains("was cancelled")
     });
     // The outside session ends, and nothing resumes it.
     exit_outside(&mut moving);
