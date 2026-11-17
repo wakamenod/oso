@@ -250,10 +250,11 @@ fn find_definition(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 fn find_references(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
     let at = ctx.editor.ask_at();
-    // The list is a float, which the agent cannot read (ADR 0138, step 8's Q5): it asks nothing.
+    // The list is a float only the person opens (ADR 0138, step 8's Q5): the agent asks
+    // nothing, and reads one the person has open in its state (step 15).
     if at.agent {
         return Err(CommandError::new(
-            "References are listed in a float, which only the person reads; search the project with your own tools",
+            "References are listed in a float, which only the person opens; `state` gives one the person has open, and your own tools search the project",
         ));
     }
     if ctx.editor.current().1.is_secret() {

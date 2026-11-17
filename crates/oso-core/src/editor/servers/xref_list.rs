@@ -28,6 +28,7 @@ use crate::editor::{CompletionStyle, Editor, Preview};
 use crate::minibuffer::{PromptError, PromptId};
 
 use super::listed::{Listed, ListedAt, ListedHit, file_column};
+use super::listed_view::RowOf;
 
 /// What a list of a server's places lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,6 +67,8 @@ impl fmt::Debug for XrefRow {
 
 /// What a row keeps beside its candidate.
 pub(in crate::editor) struct XrefPlace {
+    /// The bytes of the path at the start of the candidate's text.
+    shown: usize,
     path: PathBuf,
     line: usize,
     at: ListedAt,
@@ -102,6 +105,7 @@ impl XrefRows {
                     text.push_str(&row.text);
                 }
                 places.push(XrefPlace {
+                    shown: row.shown.len(),
                     path: row.path,
                     line: row.line,
                     at: row.at,
@@ -145,6 +149,7 @@ impl Editor {
         };
         let id = self.open_completion_as(kind.label(), "lsp-xrefs", Arc::from([]), style)?;
         self.servers.xrefs.open(id, generation, root);
+        self.servers.xrefs_of = Some(kind);
         Ok(id)
     }
 
@@ -235,6 +240,24 @@ impl Editor {
         let hit = self.servers.xrefs.hit_of(self, at, whole);
         self.servers.xrefs.hit = Some(hit);
         Some(answer)
+    }
+
+    /// What the list of places lists, and whether its rows have yet to come or were cut.
+    pub(super) fn xrefs_state(&self) -> (Option<XrefKind>, bool, bool) {
+        let list = &self.servers.xrefs;
+        (self.servers.xrefs_of, list.pending, list.cut)
+    }
+
+    /// The row `item` of the list of places, for its view.
+    pub(super) fn xref_row_of(&self, item: usize, _: &str) -> Option<RowOf> {
+        let list = &self.servers.xrefs;
+        let place = list.places.get(item)?;
+        Some(RowOf {
+            path: place.shown,
+            file: place.path.clone(),
+            line: place.line,
+            open: list.open_now(self, item, place.at).map(|(id, _)| id),
+        })
     }
 
     /// The row the last list of places' `RET` took, once.

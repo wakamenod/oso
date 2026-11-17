@@ -20,11 +20,14 @@ use oso_core::sum_tree::Bias;
 use oso_core::window::Window;
 use serde_json::{Value, json};
 
+mod list;
+
 /// The state's version. Bumped on incompatible changes and, since ADR 0118, on new fields of
 /// each buffer's, which an agent may check before it reads them; new fields of a window's
 /// keep it. 2 added each buffer's `waits` (ADR 0118, Q6); 3 each buffer's `server` and
-/// `diagnostics` (ADR 0138, step 11).
-pub const STATE_VERSION: u32 = 3;
+/// `diagnostics` (ADR 0138, step 11); 4 a prompt's `list`, the person's list of a server's
+/// places or of diagnostics (ADR 0138, step 15).
+pub const STATE_VERSION: u32 = 4;
 
 /// The most text of the selected window's rows the state holds, in bytes.
 pub const MAX_VISIBLE_TEXT: usize = 64 * 1024;
@@ -45,12 +48,13 @@ pub fn unreadable(buffer: &Buffer) -> bool {
 /// The state: every buffer the person has, every tiled window, the selected window's rows,
 /// the echo area, the prompts open, the outermost first, and `menu`, the name of the menu the
 /// person has open, or null (ADR 0117). `server_of` names the language server that follows a
-/// buffer, for each buffer's `server` (ADR 0138, step 11).
+/// buffer, for each buffer's `server` (ADR 0138, step 11), and `list_server` the server of the
+/// list of places open, for the innermost prompt's `list` (step 15).
 pub fn state(
     editor: &Editor,
     menu: Option<&str>,
     buffer_offset: usize,
-    server_of: &dyn Fn(BufferId) -> Option<String>,
+    (server_of, list_server): (&dyn Fn(BufferId) -> Option<String>, Option<&str>),
 ) -> Value {
     let shows_secret = editor.shows_secret();
     let (window, buffer) = editor.tiled();
@@ -91,6 +95,14 @@ pub fn state(
             state
         }).collect::<Vec<_>>(),
     });
+    // The person's list of a server's work is the innermost prompt, as only it previews.
+    if let Some(list) = list::list_state(editor, list_server)
+        && let Some(innermost) = state["prompts"]
+            .as_array_mut()
+            .and_then(|all| all.last_mut())
+    {
+        innermost["list"] = list;
+    }
     // Keys in progress show in the echo area, and say what and when the person types.
     if !shows_secret
         && !editor.echo_withheld()
@@ -387,7 +399,7 @@ mod tests {
 
     /// The state with no language server named.
     fn state(editor: &Editor, menu: Option<&str>, buffer_offset: usize) -> serde_json::Value {
-        super::state(editor, menu, buffer_offset, &|_| None)
+        super::state(editor, menu, buffer_offset, (&|_| None, None))
     }
 
     fn editor(text: &str) -> Editor {
@@ -420,7 +432,7 @@ mod tests {
         let mut editor = editor("let x = 1;\n");
         let id = editor.tiled().0.buffer();
         let plain = state(&editor, None, 0);
-        assert_eq!(plain["version"], 3);
+        assert_eq!(plain["version"], 4);
         assert!(
             plain["buffers"][0].get("server").is_none(),
             "none follows it"
@@ -447,7 +459,7 @@ mod tests {
         );
         let revision = buffer.revision();
         assert!(buffer.take_diagnostics(revision, set));
-        let state = super::state(&editor, None, 0, &|_| Some("rust-analyzer".into()));
+        let state = super::state(&editor, None, 0, (&|_| Some("rust-analyzer".into()), None));
         let shown = &state["buffers"][0];
         assert_eq!(
             shown["server"],
@@ -459,7 +471,7 @@ mod tests {
         );
         // One the channel may not read says neither, as `diagnostics` refuses it.
         editor.buffer_mut(id).unwrap().withhold_from_agents();
-        let state = super::state(&editor, None, 0, &|_| Some("rust-analyzer".into()));
+        let state = super::state(&editor, None, 0, (&|_| Some("rust-analyzer".into()), None));
         let shown = &state["buffers"][0];
         assert!(shown.get("server").is_none() && shown.get("diagnostics").is_none());
     }

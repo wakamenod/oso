@@ -36,7 +36,7 @@ impl App {
             &self.editor,
             self.dispatcher.menu_name(),
             buffer_offset,
-            &|id| self.server_name(id),
+            (&|id| self.server_name(id), self.xrefs_server()),
         ))
     }
 

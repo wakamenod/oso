@@ -29,6 +29,7 @@ use crate::minibuffer::{PromptError, PromptId};
 use crate::project::MAX_ROW_BYTES as ROW_MESSAGE_BYTES;
 
 use super::listed::{Listed, ListedAt, ListedHit, file_column};
+use super::listed_view::RowOf;
 
 /// The rows the host should build for the list of a project's diagnostics. `Debug` gives its
 /// generation only.
@@ -315,6 +316,25 @@ impl Editor {
             .hit_of(self, (item, at), (whole, line));
         self.servers.list.listed.hit = Some(hit);
         Some(answer)
+    }
+
+    /// Whether the list of diagnostics' rows have yet to come, and whether the host left some
+    /// out.
+    pub(super) fn diagnostics_state(&self) -> (bool, bool) {
+        let listed = &self.servers.list.listed;
+        (listed.pending, listed.cut)
+    }
+
+    /// The row `item` of the list of diagnostics, whose candidate reads `text`, for its view.
+    pub(super) fn diagnostic_row_of(&self, item: usize, text: &str) -> Option<RowOf> {
+        let listed = &self.servers.list.listed;
+        let place = listed.places.get(item)?;
+        Some(RowOf {
+            path: place.path,
+            file: listed.root.join(text.get(..place.path)?),
+            line: place.line,
+            open: self.open_place(item, place.at).map(|(id, _)| id),
+        })
     }
 
     /// The row the last list's `RET` took, once.

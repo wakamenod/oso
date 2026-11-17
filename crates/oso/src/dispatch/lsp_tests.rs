@@ -252,7 +252,7 @@ fn the_agent_s_m_question_is_refused_and_asks_nothing_and_its_m_dot_asks() {
         Reach::Look,
     );
     let why = ran.unwrap().1.unwrap_err();
-    assert!(why.contains("only the person reads"), "{why}");
+    assert!(why.contains("only the person opens"), "{why}");
     assert!(editor.take_server_requests().is_empty(), "nothing asked");
     let ran = d.run_for_agent(
         &mut editor,

@@ -302,6 +302,13 @@ impl App {
         self.request_redraw();
     }
 
+    /// The name of the server of the list of places open, or of the last one, for the agent's
+    /// `state` (step 15).
+    pub(in crate::app) fn xrefs_server(&self) -> Option<&str> {
+        let (_, name) = self.servers.xrefs.server.as_ref()?;
+        Some(name)
+    }
+
     /// `lsp-go-to-xref`: goes to the row the list took, as an answer's jump goes, the file of a
     /// place outside any project joining the server that gave it.
     pub(super) fn go_to_xref(&mut self) {
