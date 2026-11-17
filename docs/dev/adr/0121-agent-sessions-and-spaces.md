@@ -1,6 +1,6 @@
 # 0121. Agent sessions and spaces
 
-- Status: Accepted, amended by 0126, 0128, 0131, 0132, 0135, 0136, 0138, 0140, 0141, 0143, 0145 and 0151;
+- Status: Accepted, amended by 0126, 0128, 0131, 0132, 0135, 0136, 0138, 0140, 0141, 0143, 0145, 0151 and 0153;
   "Merged work is not ready for review, as amended" (2026-11-17)
 - Date: 2026-11-12
 

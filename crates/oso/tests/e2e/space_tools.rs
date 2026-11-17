@@ -6,18 +6,25 @@
 //! which then belongs to the space. `session_start` and `worktree_list` name the repository too.
 //! `with_dirs` gives the worker another trusted repository of the space to read, and refuses a
 //! directory in none (ADR 0136, step 4b). A renamed space's orchestrator keeps its role.
+//! `session_resume` resumes a stopped worker of the space in its own buffer without asking, as
+//! the configuration allows, the resumed one counted toward the limit; past it, it asks and `n`
+//! refuses it for a minute; a conversation that runs in another process is refused, not forked,
+//! and the caller, an unknown name and a running session are refused (ADR 0153).
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: which repository
 //! `repo` names and the scope have their own tests.
 
 use std::fs;
 use std::path::PathBuf;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::session_tools::{Bridge, FAKE, answer, run_in};
+use super::session_tools::{Bridge, FAKE, Run, answer, run_in, runs};
+use super::sessions::live_elsewhere;
 use super::spaces::{PrivateRoot, answer as reply_with, space, trust_restricted};
-use super::worktrees::{Flow, asks};
+use super::worktrees::{DEADLINE, Flow, asks, terminal};
 
 /// A space of the flow's repository and an untrusted `other` one, made with `C-c a O`, and its
 /// orchestrator started with `o`: the instance, the orchestrator's bridge and `other`.
@@ -157,4 +164,152 @@ fn an_orchestrator_works_through_the_repositories_of_its_space() {
     assert!(!error, "{status}");
     assert_eq!(status["space"], "login-fix");
     assert_eq!(status["you_orchestrate"], true, "{status}");
+}
+
+/// The state `session_list` gives session `name`, as `bridge` sees it.
+fn state_of(bridge: &mut Bridge, name: &str) -> String {
+    let (state, error) = bridge.tool("session_state", json!({ "session": name }));
+    assert!(!error, "{state}");
+    state["state"].as_str().unwrap_or_default().to_owned()
+}
+
+/// The fake's run `run` exits with status 0, and session `name` is stopped then.
+fn stop(flow: &Flow, bridge: &mut Bridge, run: &Run, name: &str) {
+    flow.scratch.write(&format!("go.{}", run.pid), b"0");
+    let deadline = Instant::now() + DEADLINE;
+    while state_of(bridge, name) != "stopped" {
+        assert!(Instant::now() < deadline, "{name} did not stop");
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// The fake's run that resumed conversation `id`, once it is there.
+fn resumed_run(flow: &Flow, id: &str) -> Run {
+    let resume = format!("--resume={id}");
+    let deadline = Instant::now() + DEADLINE;
+    loop {
+        if let Some(run) = runs(flow)
+            .into_iter()
+            .find(|run| run.args.contains(&resume))
+        {
+            return run;
+        }
+        assert!(Instant::now() < deadline, "nothing resumed {id}");
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// How many runs of the fake resumed conversation `id`.
+fn resumes_of(flow: &Flow, id: &str) -> usize {
+    let resume = format!("--resume={id}");
+    runs(flow)
+        .iter()
+        .filter(|run| run.args.contains(&resume))
+        .count()
+}
+
+/// A worker named `name` in a new worktree on `branch` of the space's repository, started as
+/// the call says; its id and its run.
+fn worker(
+    flow: &Flow,
+    bridge: &mut Bridge,
+    name: &str,
+    asked: Option<&mut crate::harness::App>,
+) -> (String, Run) {
+    let call = json!({ "branch": name, "brief": "Work.", "name": name, "repo": "repo" });
+    let started = match asked {
+        None => {
+            let (started, error) = bridge.tool("start_worktree_session", call);
+            assert!(!error, "{started}");
+            assert_eq!(started["asked"], false, "{started}");
+            started
+        }
+        Some(app) => {
+            let id = bridge.call("start_worktree_session", call);
+            answer(app, bridge, "y");
+            let (started, error) = bridge.result(id);
+            assert!(!error, "{started}");
+            assert_eq!(started["asked"], true, "{started}");
+            started
+        }
+    };
+    let id = started["session"]["id"].as_str().unwrap().to_owned();
+    let run = run_in(flow, &flow.repo.join(".claude/worktrees").join(name));
+    (id, run)
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_orchestrator_resumes_the_stopped_sessions_of_its_space() {
+    let spaces = PrivateRoot::new("space-resume");
+    let config = format!(
+        "agents_start_without_asking = true\nagents_start_limit = 1\n\n[spaces]\nroot = \"{}\"\n",
+        spaces.0.display()
+    );
+    let flow = Flow::with_fake("space-resume", &config, FAKE);
+    let (mut app, mut bridge, _) = orchestrated(&flow, &spaces);
+
+    // One worker starts without asking, the limit's one; the next asks, and the person allows it.
+    let (a, run_a) = worker(&flow, &mut bridge, "wa", None);
+    let (b, run_b) = worker(&flow, &mut bridge, "wb", Some(&mut app));
+    stop(&flow, &mut bridge, &run_a, "wa");
+    stop(&flow, &mut bridge, &run_b, "wb");
+
+    // What no resume takes: the caller, a name none has, a session that runs.
+    let (said, error) = bridge.tool("session_resume", json!({ "session": "fix-login" }));
+    assert!(
+        error && said.to_string().contains("your own session"),
+        "{said}"
+    );
+    let (said, error) = bridge.tool("session_resume", json!({ "session": "nobody" }));
+    assert!(error && said.to_string().contains("no session"), "{said}");
+
+    // Nothing runs that the caller started without asking: wb resumes without asking, in its
+    // own buffer, in its worktree, and is no new session.
+    let (resumed, error) = bridge.tool("session_resume", json!({ "session": "wb" }));
+    assert!(!error, "{resumed}");
+    assert_eq!(resumed["asked"], false, "{resumed}");
+    assert_eq!(resumed["session"]["id"], b.as_str());
+    let run = resumed_run(&flow, &b);
+    assert_eq!(
+        run.cwd,
+        fs::canonicalize(flow.repo.join(".claude/worktrees/wb")).unwrap()
+    );
+    assert_eq!(app.state()["prompts"], json!([]), "nobody was asked");
+    let state = app.wait_for("wb running in its buffer", |state| {
+        terminal(state, "*claude: wb*").is_some()
+    });
+    assert!(
+        terminal(&state, "*claude: wb<2>*").is_none(),
+        "no second buffer"
+    );
+    let (listed, _) = bridge.tool("session_list", json!({}));
+    assert_eq!(listed["sessions"].as_array().unwrap().len(), 3, "{listed}");
+
+    // wb counts toward the limit of 1 while it runs: wa's resume asks, and `n` refuses it,
+    // then for a minute without asking.
+    let id = bridge.call("session_resume", json!({ "session": a }));
+    let question = answer(&mut app, &bridge, "n");
+    assert!(question.contains("resume session \"wa\""), "{question}");
+    let (said, error) = bridge.result(id);
+    assert!(error && said.to_string().contains("refused"), "{said}");
+    let (said, error) = bridge.tool("session_resume", json!({ "session": "wa" }));
+    assert!(error && said.to_string().contains("a moment ago"), "{said}");
+    assert_eq!(resumes_of(&flow, &a), 0);
+    let (said, error) = bridge.tool("session_resume", json!({ "session": "wb" }));
+    assert!(error && said.to_string().contains("runs already"), "{said}");
+
+    // wb stopped, its conversation run by another process: refused, with no fork offered.
+    stop(&flow, &mut bridge, &run, "wb");
+    let mut other = live_elsewhere(&flow.home, &b, "wb");
+    let (said, error) = bridge.tool("session_resume", json!({ "session": "wb" }));
+    let pid = other.id().to_string();
+    assert!(error && said.to_string().contains(&pid), "{said}");
+    assert!(said.to_string().contains("stop it there first"), "{said}");
+    assert_eq!(app.state()["prompts"], json!([]), "no fork is offered");
+    assert_eq!(resumes_of(&flow, &b), 1, "nothing ran");
+    assert_eq!(state_of(&mut bridge, "wb"), "stopped");
+    let _ = other.kill();
+    let _ = other.wait();
+    flow.exit_with(0);
 }

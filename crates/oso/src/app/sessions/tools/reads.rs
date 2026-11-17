@@ -101,31 +101,7 @@ impl App {
 
     /// `session_state`: one session, by its id or its name.
     pub(super) fn session_state(&self, caller: Option<&Caller>, session: &str) -> Reply {
-        let within = match caller {
-            Some(_) => None,
-            None => Some(self.outside_root()?),
-        };
-        let all = self.hosting.table.all();
-        let seen = |s: &&crate::sessions::hosted::Hosted| {
-            within
-                .as_deref()
-                .is_none_or(|root| s.directory.starts_with(root))
-                && self.caller_sees(caller, s)
-        };
-        let by_id = all.iter().filter(seen).find(|s| s.id.as_str() == session);
-        let found = match by_id {
-            Some(found) => found,
-            None => {
-                let mut named = all.iter().filter(seen).filter(|s| s.name == session);
-                match (named.next(), named.next()) {
-                    (Some(found), None) => found,
-                    (Some(_), Some(_)) => {
-                        return Err("several sessions have that name; give its id".into());
-                    }
-                    (None, _) => return Err("no session has that id or name".into()),
-                }
-            }
-        };
+        let found = self.find_session(caller, session)?;
         let now = (Instant::now(), now_ms());
         let mut state = self.session_json(found, caller.map(|c| &c.id), now);
         // A review keyed to a session comes with ADR 0122's later steps.
@@ -183,6 +159,39 @@ impl App {
             "sessions": sessions,
             "more_sessions": more,
         }))
+    }
+
+    /// The session `session` names, by its id or else its name, among those `caller` sees:
+    /// within the selected window's project for a connection that is no hosted session.
+    ///
+    /// # Errors
+    ///
+    /// Why none is found, for the agent: none, or several of that name.
+    pub(super) fn find_session(
+        &self,
+        caller: Option<&Caller>,
+        session: &str,
+    ) -> Result<&crate::sessions::hosted::Hosted, String> {
+        let within = match caller {
+            Some(_) => None,
+            None => Some(self.outside_root()?),
+        };
+        let all = self.hosting.table.all();
+        let seen = |s: &&crate::sessions::hosted::Hosted| {
+            within
+                .as_deref()
+                .is_none_or(|root| s.directory.starts_with(root))
+                && self.caller_sees(caller, s)
+        };
+        if let Some(found) = all.iter().filter(seen).find(|s| s.id.as_str() == session) {
+            return Ok(found);
+        }
+        let mut named = all.iter().filter(seen).filter(|s| s.name == session);
+        match (named.next(), named.next()) {
+            (Some(found), None) => Ok(found),
+            (Some(_), Some(_)) => Err("several sessions have that name; give its id".into()),
+            (None, _) => Err("no session has that id or name".into()),
+        }
     }
 
     /// A reply for a session, as `session_list` and `session_state` give it, with its state as

@@ -40,12 +40,14 @@ use crate::sessions::worktree::jobs::{Report, Trust};
 
 mod asks;
 mod moving;
+mod question;
 mod reads;
 mod remove;
+mod resume;
 mod space;
 mod starting;
 
-pub(in crate::app) use asks::Question;
+pub(in crate::app) use question::Question;
 use reads::Listing;
 
 /// What a call that would ask is told while another agent's question waits.
@@ -74,6 +76,9 @@ pub(in crate::app) struct Tools {
     pub(in crate::app) agent_starts: AgentStarts,
     /// `agent-starts-ask` since: every start asks, until `agent-starts-allow` or oso restarts.
     pub(in crate::app) agent_starts_held: bool,
+    /// The sessions an agent resumed without asking, by key, with the session that resumed
+    /// them: each counts toward that caller's limit while it runs (ADR 0153). Memory only.
+    resumed: HashMap<SessionKey, SessionId>,
 }
 
 /// A call whose reply waits.
@@ -232,12 +237,10 @@ impl App {
     fn carry_tool(&mut self, pending: Pending, tool: Tool, call: Call, caller: Option<Caller>) {
         match (call, caller) {
             (Call::List { offset }, caller) => {
-                let listed = self.session_list(caller.as_ref(), offset);
-                pending.answer(listed);
+                pending.answer(self.session_list(caller.as_ref(), offset))
             }
             (Call::State { session }, caller) => {
-                let state = self.session_state(caller.as_ref(), &session);
-                pending.answer(state);
+                pending.answer(self.session_state(caller.as_ref(), &session))
             }
             (Call::WorktreeList { repo }, caller) => match self.scoped(caller, repo.as_deref()) {
                 Ok(caller) => self.tool_worktree_list(pending, caller),
@@ -249,9 +252,9 @@ impl App {
                     Err(why) => pending.answer(Err(why)),
                 }
             }
-            (Call::SpaceStatus, caller) => {
-                let status = self.space_status(caller.as_ref());
-                pending.answer(status);
+            (Call::SpaceStatus, caller) => pending.answer(self.space_status(caller.as_ref())),
+            (Call::Resume { session }, Some(caller)) => {
+                self.tool_session_resume(pending, &tool, &caller, &session);
             }
             (Call::DraftSet { id, text }, Some(caller)) => {
                 let set = self.admit_tool(&tool, &caller, &id).and_then(|()| {

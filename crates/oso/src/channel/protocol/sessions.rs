@@ -21,6 +21,8 @@
 //!   message oso asked for with `id` (ADR 0127, step 6a).
 //! - `move_to_space`: `{"space": "fix-login"}`, the open space a session started outside oso
 //!   moves into (ADR 0151).
+//! - `session_resume`: `{"session": "ID or name"}`, a stopped session of the caller's space
+//!   (ADR 0153).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -30,7 +32,7 @@ use serde_json::{Map, Value};
 use super::{MAX_PATH, only, short};
 
 /// The methods of this module, as the tools that call them are named.
-pub const METHODS: [&str; 9] = [
+pub const METHODS: [&str; 10] = [
     "session_list",
     "session_state",
     "worktree_list",
@@ -40,6 +42,7 @@ pub const METHODS: [&str; 9] = [
     "space_status",
     "draft_set",
     "move_to_space",
+    "session_resume",
 ];
 
 /// The longest brief a session takes, in bytes, as the person's `*Brief*` (ADR 0121).
@@ -103,6 +106,10 @@ pub enum Call {
     MoveToSpace {
         space: String,
     },
+    /// A stopped session to resume, by its id or its name (ADR 0153).
+    Resume {
+        session: String,
+    },
 }
 
 /// How long the server holds a call's reply for the UI.
@@ -130,6 +137,7 @@ impl Call {
             Self::SpaceStatus => "space_status",
             Self::DraftSet { .. } => "draft_set",
             Self::MoveToSpace { .. } => "move_to_space",
+            Self::Resume { .. } => "session_resume",
         }
     }
 
@@ -140,9 +148,10 @@ impl Call {
                 Hold::Usual
             }
             Self::WorktreeList { .. } | Self::WorktreeRemove { .. } => Hold::Job(JOB_REPLY_WITHIN),
-            Self::StartWorktree { .. } | Self::Start { .. } | Self::MoveToSpace { .. } => {
-                Hold::Person
-            }
+            Self::StartWorktree { .. }
+            | Self::Start { .. }
+            | Self::MoveToSpace { .. }
+            | Self::Resume { .. } => Hold::Person,
         }
     }
 }
@@ -191,6 +200,9 @@ pub fn parse(method: &str, params: &Map<String, Value>) -> Option<Result<Call, S
         "move_to_space" => only(params, method, &["space"])
             .and_then(|()| text(params, method, "space", MAX_SPACE_NAME))
             .map(|space| Call::MoveToSpace { space }),
+        "session_resume" => only(params, method, &["session"])
+            .and_then(|()| text(params, method, "session", MAX_NAME))
+            .map(|session| Call::Resume { session }),
         _ => return None,
     })
 }
@@ -377,6 +389,7 @@ mod tests {
                 json!({ "kind": "commit", "id": "1a2b3c4d", "text": "Fix it" }),
             ),
             call("move_to_space", json!({ "space": "fix-login" })),
+            call("session_resume", json!({ "session": "api" })),
         ];
         assert_eq!(calls.len(), METHODS.len());
         for (call, method) in calls.into_iter().zip(METHODS) {
@@ -470,6 +483,10 @@ mod tests {
         assert!(call("session_state", json!({ "session": long })).is_err());
         assert!(call("session_state", json!({})).is_err());
         assert!(call("session_state", json!({ "session": "" })).is_err());
+        let long = "b".repeat(MAX_NAME + 1);
+        assert!(call("session_resume", json!({ "session": long })).is_err());
+        assert!(call("session_resume", json!({})).is_err());
+        assert!(call("session_resume", json!({ "session": "x", "brief": "y" })).is_err());
         assert!(call("session_list", json!({ "offset": -1 })).is_err());
         assert!(call("worktree_list", json!({ "x": 1 })).is_err());
         assert!(call("worktree_remove", json!({ "path": "relative" })).is_err());
@@ -518,6 +535,8 @@ mod tests {
         .unwrap();
         assert_eq!(start.hold(), Hold::Person);
         assert!(!format!("{start:?}").contains("secret"));
+        let resume = call("session_resume", json!({ "session": "api" })).unwrap();
+        assert_eq!(resume.hold(), Hold::Person);
         assert_eq!(call("session_list", json!({})).unwrap().hold(), Hold::Usual);
         let moving = call("move_to_space", json!({ "space": "x" })).unwrap();
         assert_eq!(moving.hold(), Hold::Person);

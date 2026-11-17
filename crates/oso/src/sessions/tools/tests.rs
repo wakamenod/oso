@@ -8,9 +8,9 @@ use std::time::{Duration, Instant};
 use oso_core::command::Reach;
 
 use super::{
-    Asks, Branch, Guard, MAX_CALLS, REFUSED_FOR, Refusal, StartLimit, TOOLS, Unasked, quoted,
-    start_question, start_started, starts_without_asking, tool, worktree_question,
-    worktree_started,
+    Asks, Branch, Guard, MAX_CALLS, REFUSED_FOR, Refusal, Resumable, StartLimit, TOOLS, Unasked,
+    quoted, resumable, resume_question, resume_started, start_question, start_started,
+    starts_without_asking, tool, worktree_question, worktree_started,
 };
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
@@ -54,6 +54,14 @@ fn the_tools_and_their_reach() {
             ("draft_set", Reach::Change, Asks::No, true, false),
             // The one tool that acts for an outside connection, which asks each time (ADR 0151).
             ("move_to_space", Reach::Change, Asks::Each, true, true),
+            // As a start, by ADR 0135's rules (ADR 0153).
+            (
+                "session_resume",
+                Reach::Change,
+                Asks::UnlessAllowed,
+                true,
+                false
+            ),
         ]
     );
     let destructive: Vec<_> = TOOLS
@@ -342,4 +350,71 @@ fn a_question_names_each_directory_the_new_session_also_reads() {
         said,
         "let it start? It also reads 2 more directories: \"/web\", \"/a\\u{202e}b\"."
     );
+}
+
+/// A resume takes a stopped session of the space with its buffer, and refuses the caller, one
+/// that runs, an archived one and an orchestrator (ADR 0153).
+#[test]
+fn only_a_stopped_session_with_its_buffer_is_resumed() {
+    let stopped = Resumable {
+        buffer: true,
+        ..Resumable::default()
+    };
+    assert_eq!(resumable(stopped), Ok(()));
+    let refused = [
+        Resumable {
+            caller: true,
+            ..stopped
+        },
+        Resumable {
+            runs: true,
+            ..stopped
+        },
+        Resumable {
+            archived: true,
+            ..stopped
+        },
+        Resumable {
+            orchestrator: true,
+            ..stopped
+        },
+        Resumable {
+            buffer: false,
+            ..stopped
+        },
+    ];
+    for session in refused {
+        assert!(resumable(session).is_err(), "{session:?}");
+    }
+}
+
+/// The resume's question and its line quote what an agent or a repository named.
+#[test]
+fn a_resume_names_both_sessions_and_the_directory_quoted() {
+    assert_eq!(
+        resume_question("fix-login", "api", "/r/.claude/worktrees/api"),
+        "let session \"fix-login\" resume session \"api\" in \"/r/.claude/worktrees/api\"?"
+    );
+    let said = resume_started("fix-login", "a\u{202e}b", "/r");
+    assert!(said.contains("\\u{202e}"), "{said}");
+    assert!(said.ends_with(", without asking"), "{said}");
+}
+
+/// A resume goes without asking by the same rule as a start, the resumed sessions counted
+/// toward the limit (ADR 0153).
+#[test]
+fn a_resume_goes_without_asking_as_a_start_does() {
+    let resume = tool("session_resume").unwrap();
+    let unasked = |live_unasked| {
+        starts_without_asking(Unasked {
+            tool: resume.asks,
+            allowed: true,
+            caller: Origin::Person,
+            trusted: true,
+            live_unasked,
+            limit: StartLimit::Most(4),
+        })
+    };
+    assert!(unasked(3));
+    assert!(!unasked(4), "past the limit it asks");
 }
