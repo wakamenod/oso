@@ -14,13 +14,15 @@
 //!   and the message names it, quoting nothing of its text or its path.
 //! - With `global-font-lock-mode` off, no buffer is allowed, so every one is dropped.
 //! - A report asks for a frame only if a window shows runs it changed.
+//! - The threads know a text by [`SyntaxKey`]: a buffer, or a review's side, whose report goes
+//!   to the review's view thread untouched (ADR 0122, step 9).
 
 use std::collections::HashMap;
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
 use oso_core::buffer::{Buffer, BufferId, Mode};
-use oso_core::editor::{Editor, Preview};
+use oso_core::editor::{Editor, Preview, ReviewId};
 use oso_core::syntax::Highlights;
 use oso_core::window::{Scroll, ViewSize, Window, WindowId};
 use oso_syntax::{Failure, Job, Language, Outcome, Report};
@@ -29,12 +31,21 @@ use super::App;
 
 mod pool;
 
+pub(in crate::app) use pool::Documents;
 use pool::Pool;
+
+/// What the syntax threads know a text by: a buffer, or a side of a review that its view thread
+/// opened under a number of its own (ADR 0122, step 9).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum SyntaxKey {
+    Buffer(BufferId),
+    Side(ReviewId, u64),
+}
 
 /// What the UI keeps of highlighting.
 #[derive(Default)]
 pub(super) struct Syntax {
-    pool: Option<Pool<BufferId>>,
+    pool: Option<Pool<SyntaxKey>>,
     /// The threads could not start: no buffer is highlighted this session.
     broken: bool,
     /// What each buffer the worker has was sent last.
@@ -389,13 +400,34 @@ impl App {
     }
 
     fn send_syntax(&mut self, orders: Orders) {
-        if orders.is_empty() {
+        if orders.is_empty() || (orders.jobs.is_empty() && self.syntax.pool.is_none()) {
             return;
         }
+        let Some(pool) = self.syntax_pool() else {
+            return;
+        };
+        pool.send(Orders {
+            drops: orders.drops.into_iter().map(SyntaxKey::Buffer).collect(),
+            jobs: (orders.jobs.into_iter())
+                .map(|job| Job {
+                    buffer: SyntaxKey::Buffer(job.buffer),
+                    language: job.language,
+                    epoch: job.epoch,
+                    revision: job.revision,
+                    text: job.text,
+                    edits: job.edits,
+                    shown: job.shown,
+                })
+                .collect(),
+        });
+    }
+
+    /// The syntax threads, started at the first call; none if they could not start.
+    fn syntax_pool(&mut self) -> Option<&Pool<SyntaxKey>> {
+        if self.syntax.broken {
+            return None;
+        }
         if self.syntax.pool.is_none() {
-            if orders.jobs.is_empty() {
-                return;
-            }
             let waker = self.waker.clone();
             let report = move |report| {
                 // False only once the event loop is gone.
@@ -411,17 +443,54 @@ impl App {
                         broken: true,
                         ..Syntax::default()
                     };
-                    return;
+                    return None;
                 }
             }
         }
-        if let Some(pool) = &self.syntax.pool {
-            pool.send(orders);
-        }
+        self.syntax.pool.as_ref()
     }
 
-    /// The worker highlighted, or stopped, a buffer.
-    pub(super) fn syntax_reported(&mut self, report: Report<BufferId>) {
+    /// A handle for a review's view to open its sides with, starting the threads; none while
+    /// highlighting is off or its threads could not start.
+    pub(super) fn side_documents(&mut self) -> Option<Documents<SyntaxKey>> {
+        if !self.editor.font_lock() {
+            return None;
+        }
+        Some(self.syntax_pool()?.documents())
+    }
+
+    /// The worker highlighted, or stopped, a buffer or a review's side.
+    pub(super) fn syntax_reported(&mut self, report: Report<SyntaxKey>) {
+        let Report {
+            buffer,
+            epoch,
+            stamp,
+            revision,
+            outcome,
+            done,
+        } = report;
+        let id = match buffer {
+            SyntaxKey::Buffer(id) => id,
+            SyntaxKey::Side(review, key) => {
+                let report = Report {
+                    buffer: key,
+                    epoch,
+                    stamp,
+                    revision,
+                    outcome,
+                    done,
+                };
+                return self.review_side_reported(review, report);
+            }
+        };
+        let report = Report {
+            buffer: id,
+            epoch,
+            stamp,
+            revision,
+            outcome,
+            done,
+        };
         let taken = self.syntax.take(&mut self.editor, report);
         if let Some(message) = taken.message {
             self.editor.message(message);

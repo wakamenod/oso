@@ -433,10 +433,13 @@ pub(crate) mod tests {
 
     /// Highlighted text is read on the background, on [`SYNTAX_FILLS`], and on a float's
     /// background, where the preview of `switch-to-buffer` and the mark list draws it.
-    const SYNTAX_PAIRS: [(Face, f32); 3] = [
+    const SYNTAX_PAIRS: [(Face, f32); 5] = [
         (Face::Text, 7.0),
         (SYNTAX_FILLS[0], 7.0),
         (Face::Float, 7.0),
+        // A review's lines of a side, highlighted over their bands (ADR 0122, step 9).
+        (Face::DiffAdded, 7.0),
+        (Face::DiffRemoved, 7.0),
     ];
 
     /// An escape's label sits wherever text can: on every fill behind buffer text, a review's

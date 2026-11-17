@@ -13,7 +13,15 @@ impl Buffer {
     /// every buffer is judged by (ADR 0044). Only a name: where a link leads is the loader's
     /// to find.
     pub fn name_may_hold_secrets(path: &Path) -> bool {
-        crate::secret::judge_name(path) == Verdict::SecretName
+        Self::judge_name(path) == Verdict::SecretName
+    }
+
+    /// The verdict on `path` by its name alone, as it is spelled, by the patterns every buffer
+    /// is judged by (ADR 0044): [`Verdict::SecretName`] or [`Verdict::Ordinary`]. Only a name:
+    /// where a link leads is the loader's to find. A text read from such a path, as a review's
+    /// side (ADR 0122), is opened for highlighting with this verdict.
+    pub fn judge_name(path: &Path) -> Verdict {
+        crate::secret::judge_name(path)
     }
 
     /// Notes that the agent channel opened it.

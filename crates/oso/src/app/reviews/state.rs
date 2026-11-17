@@ -104,6 +104,10 @@ pub(in crate::app) struct Reviews {
     pub(super) next_serial: u64,
     /// Room for the paths of the files a review's windows show.
     pub(super) shown: Vec<Box<[u8]>>,
+    /// Room for the byte ranges every window shows, for the sides on screen (step 9).
+    pub(super) ranges: Vec<(oso_core::buffer::BufferId, std::ops::Range<usize>)>,
+    /// What each open review's view was last told about highlighting its sides (step 9).
+    pub(super) sides: std::collections::HashMap<ReviewId, super::highlight::Told>,
     /// The areas of the frame reviews show in, as last looked at, and what each wants.
     pub(super) areas: Vec<ReviewArea>,
     pub(super) judge: super::judge::Judge,

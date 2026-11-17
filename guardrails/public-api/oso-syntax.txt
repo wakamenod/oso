@@ -117,6 +117,7 @@ impl core::default::Default for oso_syntax::Queries
 pub fn oso_syntax::Queries::default() -> oso_syntax::Queries
 pub struct oso_syntax::Report<Key>
 pub oso_syntax::Report::buffer: Key
+pub oso_syntax::Report::done: bool
 pub oso_syntax::Report::epoch: u64
 pub oso_syntax::Report::outcome: oso_syntax::Outcome
 pub oso_syntax::Report::revision: u64

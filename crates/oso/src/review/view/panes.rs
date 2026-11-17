@@ -112,7 +112,7 @@ impl SideLines {
             side: self.side,
             first: self.first,
         };
-        writer.line(kind, &[(sign, Some(highlight)), (text, Some(highlight))]);
+        writer.side_line(kind, (self.side, number), sign, text, highlight);
         self.after = Some(writer.rows());
     }
 }

@@ -149,6 +149,7 @@ impl App {
         // A file a reject opened may have loaded.
         self.go_on_reverting();
         self.sync_review_layouts();
+        self.sync_review_sides();
         self.sync_review_comments();
         self.sync_review_message();
     }
@@ -520,10 +521,14 @@ impl App {
     }
 
     fn put_in_review_text(&mut self, index: usize, text: Text) {
+        #[cfg(feature = "dev")]
+        let began = std::time::Instant::now();
         let id = self.reviews.open[index].id;
         let Some(buffer) = self.editor.review_buffer(id) else {
             return self.freer.free(text);
         };
+        #[cfg(feature = "dev")]
+        let highlighted = text.highlighted;
         let Text {
             text,
             rows,
@@ -532,6 +537,7 @@ impl App {
             carried,
             reading,
             folded,
+            ..
         } = text;
         self.reviews.open[index].shown_folded = folded;
         // Kept, at O(1), so that the text it replaces is freed off the UI thread, with the rows
@@ -565,11 +571,11 @@ impl App {
         }
         self.editor.set_review_reading(id, reading);
         #[cfg(feature = "dev")]
-        self.timings.review_text(crate::dev::ReviewText {
-            read: reading.map_or(0, |(read, _)| read),
-            listed: reading.map_or(0, |(_, listed)| listed),
-            done: reading.is_none(),
-        });
+        self.timings.review_text(crate::dev::ReviewText::of(
+            reading,
+            highlighted.map(|progress| (progress.shown, progress.whole)),
+            began.elapsed(),
+        ));
     }
 
     /// Revokes the roots of the reviews, baselines and counts of projects no longer trusted.
@@ -585,6 +591,7 @@ impl App {
 
 mod comments;
 mod decide;
+mod highlight;
 mod judge;
 mod layout;
 mod menu;

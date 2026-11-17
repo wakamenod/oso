@@ -68,6 +68,7 @@ fn faces(scene: &Scene) -> Vec<Face> {
         Face::SyntaxComment,
         Face::SyntaxString,
         Face::SyntaxKeyword,
+        Face::DiffAdded,
     ];
     scene
         .quads()
@@ -197,6 +198,38 @@ fn text_keeps_its_colour_under_the_fills_and_the_flash_but_not_on_the_band() {
     );
     let (k, t) = (Face::SyntaxKeyword, Face::Text);
     assert_eq!(faces(&scene), [k, t, t, t, t, t, k]);
+}
+
+/// A review's line of a side, highlighted (ADR 0122, step 9): syntax colours over its added or
+/// removed band, and the text's colour under the words refinement marked.
+#[test]
+fn a_reviews_line_keeps_syntax_colour_on_its_band_but_not_under_refined_words() {
+    let text = "+abcdef";
+    let buffer = Buffer::from_text("t", text);
+    let runs = highlights(
+        text,
+        &[
+            (0..1, Highlight::DiffAdded),
+            (1..text.len(), Highlight::Keyword),
+        ],
+    );
+    let (band, refined) = ([rect(0, 0, 1, 7)], [rect(0, 3, 1, 2)]);
+    let fills: [(Face, &[CellRect]); 2] =
+        [(Face::DiffAdded, &band), (Face::DiffRefineAdded, &refined)];
+    let look = Look {
+        highlights: Some(&runs),
+        fills: &fills,
+        ..Look::default()
+    };
+    let mut scene = Scene::new(LIMITS, theme());
+    let content = view(&buffer, 1, look);
+    build(
+        &mut scene,
+        &[pane(0, rect(0, 0, 1, 20), 0, content)],
+        &mut FakeAtlas::default(),
+    );
+    let (a, k, t) = (Face::DiffAdded, Face::SyntaxKeyword, Face::Text);
+    assert_eq!(faces(&scene), [a, k, k, t, t, k, k]);
 }
 
 #[test]

@@ -1,7 +1,8 @@
 //! The review benchmark (ADR 0122): a repository of 57 files with some 5,000 lines changed in
 //! its work tree, reviewed with `C-x v r w`: how soon its first screen and its whole text are
 //! shown, keys moving between its hunks and files, `|` showing it as two panes and keys in them
-//! (ADR 0122, step 11), and `g` after one file changed. Recorded, with no threshold yet.
+//! (ADR 0122, step 11), `g` after one file changed, and how soon its sides are highlighted
+//! (step 9). Recorded, with no threshold yet.
 //!
 //! Must not depend on: anything but the harness's own pacing and settling, from the module
 //! above, its temporary directories, which are removed however the phase ends, and git, which
@@ -42,7 +43,10 @@ const POLL: Duration = Duration::from_millis(10);
 
 /// Opening, moving in, showing as two panes and refreshing a review, in new processes, as
 /// `review_open_first_screen_ms`, `review_open_whole_ms`, `review_key_p99_ms`,
-/// `review_panes_switch_ms`, `review_panes_key_p99_ms` and `review_refresh_ms`.
+/// `review_panes_switch_ms`, `review_panes_key_p99_ms` and `review_refresh_ms`; and, as its
+/// sides' highlights come on (step 9), `review_highlight_first_screen_ms`,
+/// `review_highlight_whole_ms` and the UI thread's longest time putting a text in,
+/// `review_put_in_max_ms`.
 pub(super) fn review(
     exe: &Path,
     runs: usize,
@@ -65,7 +69,7 @@ pub(super) fn review(
     let config = dir.file("config.toml");
     std::fs::write(&config, "[lsp]\nstart = \"manual\"\n")
         .map_err(|e| format!("{}: {e}", config.display()))?;
-    let mut metrics: [Vec<f64>; 6] = Default::default();
+    let mut metrics: [Vec<f64>; 9] = Default::default();
     for run in 0..runs {
         let mut app = App::start_with_config(exe, Some(&root.join(name(0))), Some(&config))?;
         app.wait_until("loaded file", LOAD_TIMEOUT, |t| {
@@ -84,6 +88,10 @@ pub(super) fn review(
         let whole = frames.last().ok_or("the review showed nothing")?;
         metrics[0].push(since(asked, first));
         metrics[1].push(since(asked, whole));
+        let (shown, highlighted, longest) = highlighted(&mut app, asked, frames)?;
+        metrics[6].push(shown);
+        metrics[7].push(highlighted);
+        metrics[8].push(longest);
 
         let mut keys = Lcg(run as u64 + 1);
         app.send_keys("n")?;
@@ -110,13 +118,26 @@ pub(super) fn review(
         metrics[5].push(since(asked, read));
         app.stop();
     }
-    let [first, whole, keys, switch, pane_keys, refresh] = metrics;
+    let [
+        first,
+        whole,
+        keys,
+        switch,
+        pane_keys,
+        refresh,
+        highlighted_screen,
+        highlighted,
+        put_in,
+    ] = metrics;
     report.add("review_open_first_screen_ms", first);
     report.add("review_open_whole_ms", whole);
     report.add("review_key_p99_ms", keys);
     report.add("review_panes_switch_ms", switch);
     report.add("review_panes_key_p99_ms", pane_keys);
     report.add("review_refresh_ms", refresh);
+    report.add("review_highlight_first_screen_ms", highlighted_screen);
+    report.add("review_highlight_whole_ms", highlighted);
+    report.add("review_put_in_max_ms", put_in);
     Ok(())
 }
 
@@ -317,6 +338,55 @@ fn until_read(app: &mut App, asked: u64) -> Result<Vec<Value>, String> {
             ));
         }
         thread::sleep(POLL);
+    }
+}
+
+/// As a review's sides' highlights come on after its text, the files on screen first (step 9):
+/// milliseconds from `asked` to the first frame that shows the sides on screen highlighted, to
+/// the first that shows them all, and the UI thread's longest time putting a text in, over
+/// `frames` and those after them.
+fn highlighted(app: &mut App, asked: u64, frames: Vec<Value>) -> Result<(f64, f64, f64), String> {
+    let frames = until_highlighted(app, frames)?;
+    let shown = frames
+        .iter()
+        .find(|frame| frame["shown_highlighted"] == true)
+        .ok_or("the review's screen was never highlighted")?;
+    let whole = frames.last().ok_or("the review was never highlighted")?;
+    let longest = (frames.iter())
+        .filter_map(|frame| frame["ui_us"].as_u64())
+        .max()
+        .unwrap_or(0);
+    Ok((
+        since(asked, shown),
+        since(asked, whole),
+        longest as f64 / 1000.0,
+    ))
+}
+
+/// `frames`, then the frames after them, until one shows every side highlighted.
+fn until_highlighted(app: &mut App, mut frames: Vec<Value>) -> Result<Vec<Value>, String> {
+    let started = Instant::now();
+    loop {
+        if frames
+            .last()
+            .is_some_and(|frame| frame["highlighted"] == true)
+        {
+            return Ok(frames);
+        }
+        if started.elapsed() > READ_WITHIN {
+            return Err(format!(
+                "the review was not highlighted within {READ_WITHIN:?}: {:?}",
+                frames.last()
+            ));
+        }
+        thread::sleep(POLL);
+        let timings = app.timings()?;
+        frames.extend(
+            timings["review_frames"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default(),
+        );
     }
 }
 

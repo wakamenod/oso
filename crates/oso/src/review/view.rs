@@ -28,13 +28,18 @@
 //! - Nothing here logs a file's text or a comment's.
 
 mod assemble;
+mod build;
 mod cards;
 mod file;
+mod highlight;
 mod panes;
+mod project;
 mod section;
 
 use std::collections::hash_map::Entry as Slot;
 use std::collections::{BTreeMap, HashMap};
+use std::ops::Range;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -48,11 +53,17 @@ use oso_core::syntax::Highlights;
 use super::{Entry, Reading};
 use cards::Cards;
 pub(crate) use cards::Marks;
-use file::{File, Gone, Laid, section_in};
+use file::{File, Gone, Laid};
+use highlight::Highlighting;
+pub(crate) use highlight::{Highlighter, Progress};
 pub(crate) use panes::PaneText;
 
 /// The most bytes a review's text holds: past it, files show their header alone.
 pub(crate) const MAX_TEXT: usize = 64 * 1024 * 1024;
+
+/// The most lines of one range windows show that are looked at for the sides on screen: more
+/// than any screen holds.
+const MOST_SHOWN_LINES: usize = 1024;
 
 /// What the view thread is told.
 pub(crate) enum Tell {
@@ -97,6 +108,17 @@ pub(crate) enum Tell {
     /// Whether to build the two panes (ADR 0122, step 11), as some area shows them or is about
     /// to.
     Panes(bool),
+    /// What highlights the sides (step 9), with the work tree's top that every path a reading
+    /// names is judged under; none to stop, as with highlighting off.
+    Highlighter {
+        highlighter: Option<Box<dyn Highlighter>>,
+        top: PathBuf,
+    },
+    /// A report of a side's document this view opened.
+    Syntax(oso_syntax::Report<u64>),
+    /// The byte ranges of the review buffer's text its windows show, for the sides on screen to
+    /// go first.
+    Shown(Vec<Range<usize>>),
 }
 
 /// How a file's comments are carried to its new reading.
@@ -124,6 +146,12 @@ pub(crate) struct Text {
     pub(crate) reading: Option<(usize, usize)>,
     /// Whether its agent cards show folded to their first line.
     pub(crate) folded: bool,
+    /// How far its sides' highlighting is, while it is on (step 9).
+    #[cfg_attr(
+        not(any(test, feature = "dev")),
+        expect(dead_code, reason = "dev builds time it for the review benchmark")
+    )]
+    pub(crate) highlighted: Option<Progress>,
 }
 
 /// Hands a text to the event loop; `false` once it is gone.
@@ -199,7 +227,13 @@ struct State {
     dirty: bool,
     /// The last text's rows and highlights, for a text that did not change.
     last: Option<(Rows, Highlights)>,
+    /// Each file's section in the last text, with where it starts there in decoded bytes, for
+    /// its sides' runs to be laid over it.
+    placed: Vec<(Box<[u8]>, usize, Arc<section::Rendered>)>,
     panes: panes::Panes,
+    highlighting: Highlighting,
+    /// The byte ranges of the text the windows show, as last told.
+    shown: Vec<Range<usize>>,
 }
 
 impl State {
@@ -220,7 +254,10 @@ impl State {
             valid: true,
             dirty: true,
             last: None,
+            placed: Vec::new(),
             panes: panes::Panes::default(),
+            highlighting: Highlighting::default(),
+            shown: Vec::new(),
         }
     }
 
@@ -263,7 +300,49 @@ impl State {
                 self.said = said;
             }
             Tell::Panes(on) => self.show_panes(on),
+            Tell::Highlighter { highlighter, top } => {
+                self.highlighting.set(highlighter, top);
+                self.shown_now();
+            }
+            Tell::Syntax(report) => self.highlighting.report(report, &self.order),
+            Tell::Shown(ranges) => {
+                self.shown = ranges;
+                self.shown_now();
+            }
         }
+    }
+
+    /// Tells the highlighting the lines of each side the windows show, from the ranges of the
+    /// last text they showed: at most [`MOST_SHOWN_LINES`] lines a range are looked at.
+    fn shown_now(&mut self) {
+        if !self.highlighting.is_on() {
+            return;
+        }
+        let mut shown = highlight::ShownLines::new();
+        if let Some((rows, _)) = &self.last {
+            for range in &self.shown {
+                let first = self.text.offset_to_point(range.start).row;
+                let last = self.text.offset_to_point(range.end).row;
+                for line in first..=last.min(first + MOST_SHOWN_LINES) {
+                    let Some(row) = rows.at(line) else {
+                        break;
+                    };
+                    let sides = shown.entry(row.path.into()).or_default();
+                    if let Some((side, number)) = row.line() {
+                        let lines = &mut sides[usize::from(side == oso_core::review::Side::New)];
+                        *lines = Some(lines.map_or((number, number), |(from, to)| {
+                            (from.min(number), to.max(number))
+                        }));
+                    }
+                }
+            }
+        }
+        self.highlighting.show(shown);
+    }
+
+    /// Opens what the sides want, after each batch told.
+    fn schedule(&mut self) {
+        self.highlighting.schedule(&self.order);
     }
 
     /// Takes a new listing. A file that left a whole listing with comments stays, after the
@@ -291,9 +370,11 @@ impl State {
                 continue;
             };
             if file.cards.comments.is_empty() {
+                self.highlighting.forget(path);
                 continue;
             }
             if whole {
+                self.highlighting.forget(path);
                 let gone = Gone {
                     withheld: file.withheld(),
                     cards: file.cards,
@@ -405,95 +486,6 @@ impl State {
             self.dirty = true;
         }
     }
-
-    /// The whole text, laid out from each file's section, those changed laid out again; or,
-    /// when nothing in it changed, `None` with the last rows and highlights. The panes' texts
-    /// come with it while they are built and changed.
-    fn build(&mut self) -> Text {
-        let reading = self.reading_now();
-        let panes = self.panes_text();
-        if !self.dirty
-            && let Some((rows, highlights)) = &self.last
-        {
-            return Text {
-                text: None,
-                rows: rows.clone(),
-                highlights: highlights.clone(),
-                panes,
-                carried: std::mem::take(&mut self.carried),
-                reading,
-                folded: self.folded,
-            };
-        }
-        let mut sections: Vec<Arc<section::Rendered>> = Vec::with_capacity(self.order.len() + 2);
-        sections.push(Arc::new(section::title(&self.title, &self.said_now())));
-        let mut size = sections[0].bytes.len();
-        let folded = self.folded;
-        for path in &self.order {
-            let Some(file) = self.files.get_mut(path) else {
-                continue;
-            };
-            // A file past the limit shows its header alone; one read meanwhile is laid out anew.
-            let room = self.max_text.saturating_sub(size);
-            let mut kept = file.rendered.unified.take();
-            let rendered = section_in(&mut kept, room, || file.render(room, folded));
-            file.rendered.unified = kept;
-            size += rendered.bytes.len();
-            sections.push(rendered);
-        }
-        for (path, gone) in &mut self.gone {
-            let room = self.max_text.saturating_sub(size);
-            let (cards, withheld) = (&gone.cards, gone.withheld);
-            let rendered = section_in(&mut gone.rendered.unified, room, || {
-                section::gone(path, cards, room, folded, withheld)
-            });
-            size += rendered.bytes.len();
-            sections.push(rendered);
-        }
-        let sections: Vec<&section::Rendered> =
-            sections.iter().map(|rendered| &**rendered).collect();
-        let built = assemble::assemble(&sections, &self.text);
-        // The same text needs no swap, which would only free it again on the UI thread.
-        let changed = built.text.is_changed() || !built.valid || !self.valid;
-        let text = changed.then_some(built.text);
-        self.text = built.rope;
-        self.valid = built.valid;
-        self.dirty = false;
-        self.last = Some((built.rows.clone(), built.highlights.clone()));
-        Text {
-            text,
-            rows: built.rows,
-            highlights: built.highlights,
-            panes,
-            carried: std::mem::take(&mut self.carried),
-            reading,
-            folded,
-        }
-    }
-
-    /// What the title says under it: what was said, and what the listing left out.
-    fn said_now(&self) -> Vec<String> {
-        let mut said = self.said.clone();
-        if self.more > 0 {
-            said.push(format!("{} more files are not listed", self.more));
-        }
-        if self.cut {
-            said.push("more files may not be listed: git's listing was cut short".to_owned());
-        }
-        said
-    }
-
-    /// How many of the files listed are read, while a reading runs.
-    fn reading_now(&self) -> Option<(usize, usize)> {
-        self.reading.then(|| {
-            let read = self
-                .files
-                .values()
-                .filter(|file| file.reading.is_some())
-                .count();
-            (read, self.order.len())
-        })
-    }
 }
 
 /// Carries the comments of a file with none to place: nothing is matched, only hunks hashed.
@@ -522,6 +514,11 @@ fn serve(told: &Receiver<Message>, mut send: SendText, title: String, live: &Ato
             take(more);
         }
         if !live.load(Ordering::SeqCst) {
+            return;
+        }
+        let scheduled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| state.schedule()));
+        if scheduled.is_err() {
+            log::warn!("a review's view failed to highlight its sides");
             return;
         }
         if in_flight || !told_since {
@@ -557,5 +554,9 @@ pub(crate) fn built(title: &str, told: Vec<Tell>) -> Text {
 
 #[cfg(test)]
 mod carry_tests;
+#[cfg(test)]
+mod highlight_tests;
+#[cfg(test)]
+mod project_tests;
 #[cfg(test)]
 mod tests;

@@ -203,6 +203,7 @@ impl core::marker::StructuralPartialEq for oso_core::buffer::Baseline
 pub struct oso_core::buffer::Buffer
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::agent_pending(&self) -> bool
+pub fn oso_core::buffer::Buffer::judge_name(&std::path::Path) -> oso_core::buffer::Verdict
 pub fn oso_core::buffer::Buffer::mark_opened_by_agent(&mut self)
 pub fn oso_core::buffer::Buffer::name_may_hold_secrets(&std::path::Path) -> bool
 pub fn oso_core::buffer::Buffer::opened_by_agent(&self) -> bool

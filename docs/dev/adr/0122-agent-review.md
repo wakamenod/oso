@@ -1238,6 +1238,80 @@ through the coordinator).
   - In the tip crate, two real threads: a crafted document that fails as too slow, beside a
     shown buffer that is highlighted first, and a second document that waits for it.
 
+### Step 9: highlighting the sides, part one
+
+Step 9 lands in two PRs, as the author chose: the documents, the projection onto the unified
+view, the secrets item, the bound and the band colours first; the two panes' paint and reusing an
+open buffer's highlights second. The author answered the plan's questions Q-A to Q-J (a) on
+2026-11-17, through the coordinator, and approved its public items, one of them changed while
+building (below). What the first PR built:
+
+- **Public items:** `oso_syntax::Report::done`, true on a document no buffer owns' last report,
+  which comes even when nothing changed since the one before, so that its caller can close it
+  (a buffer's is always false); and `Buffer::judge_name(&Path) -> Verdict`, the verdict on a
+  path by its name alone, beside `Buffer::name_may_hold_secrets`. **The plan named it
+  `oso_core::secret::judge_name`; the author chose an associated function of `Buffer` instead
+  (2026-11-17), as `secret` is a private module and a public one would need an ADR of its own.**
+  `Editor::set_review_panes_paint` comes with the second PR.
+- **Keys:** the syntax threads know a text by `SyntaxKey`, a buffer or a review's side
+  (`Side(ReviewId, n)`), the number one the review's view gives each text it opens, never twice.
+  The pool hands out `Documents`, a handle that opens, shows and closes documents from any
+  thread. A side's report is handed on by the UI to its review's view in O(1).
+- **On the view thread** (`review/view/highlight.rs`): each side of a text reading is opened
+  as a document, its text decoded as the loader decodes it (O(n), at most 2 MiB, never on the UI
+  thread), in the language of the path it was read from, the old path for the old side, and
+  with the verdict on every path the reading names, as the review's thread judged them before
+  reading (`git::path_verdict`, which `git::may_hold_secrets` is now made of). A side of a file
+  that may hold secrets, past 2 MiB, or in no language with a grammar is never opened. At most
+  8 documents are open at once, the files on screen first, then the review's order; each is
+  closed once done, failed, lost, replaced by a new text, when its file leaves the review, when
+  the review closes, and all of them when highlighting is turned off.
+- **Known by its blob (Q-I):** an old side, and a new side git gave an id, is known by its
+  blob, so a new reading of the same blob keeps its runs at once and opens nothing, unless the
+  reading shows a line they lack. A work tree file git did not hash is known by its reading.
+- **Projection** (`review/view/project.rs`): each line of a side the review shows takes its
+  side's runs, cut to its text, over its text in the section, after its sign, which keeps its
+  diff face. Each section records where each line of a side shows its text as it is laid out
+  (`Slot`). A side's first line skips a BOM, which the document's text leaves out; CR LF and
+  invalid bytes count as the section counts them. **Plain text (Q-A):** once a side is
+  highlighted whole, its text that is nothing in particular is drawn in the text's colour; until
+  then it keeps its line's diff face, so a partial report never shows text plain that later
+  turns coloured. A line whose side has no runs, or none yet, keeps its diff face.
+- **A paint lays out nothing:** when only the sides' runs changed, the view lays them over the
+  sections they touch in its last highlights, which share all but those runs, and sends no text,
+  which the UI puts in through `set_review_paint` at O(1). A text laid out again takes each
+  file's runs too. One text or paint is in flight at a time, as before, so reports that come
+  meanwhile cost one paint.
+- **The bound (Q-F):** the runs held over the review's lines count toward 2,000,000, about
+  what one 2 MiB buffer holds. Past it, a file on screen takes the room of the files farthest
+  from it in the review's order, and a file off screen keeps none and is opened again only once
+  it shows.
+- **Failures (Q-H):** a side that took too long or was lost stays in its diff face while the
+  review is open; one refused for a line over 16 KiB (ADR 0147) is tried again with its next
+  text, as that costs one scan.
+- **The files on screen:** after each event, the host tells each review's view the byte ranges
+  its windows show of the review buffer, only when they changed, and the view finds their rows,
+  at most 1024 lines a range, and tells each open document which lines of it show.
+- **The bands (Q-B):** syntax faces are now checked at 7:1 on the added and removed bands, as on
+  the current line's. To meet it, dark's added band went from `#13291c` to `#0f2016`, and
+  light's removed band from `#fbe4e6` to `#ffe5ee`, a little pinker to stay 0.05 OKLab from the
+  added band; both stay provisional until the author picks from screenshots. Under the words
+  refinement marks, text keeps the text's colour, as built in step 3, since a syntax face is
+  only 3.6:1 there in dark.
+- **The `review` scenario** adds `review_highlight_first_screen_ms`, from `C-x v r w` to the
+  first frame whose sides on screen are highlighted, `review_highlight_whole_ms`, to the first
+  whose every side is, and `review_put_in_max_ms`, the UI thread's longest time putting in a
+  text or a paint; recorded with no threshold, as the others. Dev builds report both with each
+  frame that shows a review's text.
+- **Tests:** the projection (each line's runs, a BOM, CR LF and invalid bytes, lines past the end,
+  partial and whole sides, a line with no runs, a short side); the view with a stand-in
+  highlighter (what opens, with which verdict and key, and what never does: a secret name, a
+  secret old path of a rename, no language, past 2 MiB; a report's runs in a paint with no text;
+  the cap, the files on screen first, a done side letting the next open; the same old blob kept
+  and a new text reopened; failures; a full schedule; turning highlighting off; a file that
+  leaves); the scheduler's last report done with nothing new; the theme's pairs; and the scene
+  drawing a review line's syntax over its band and the text's colour under refined words.
+
 ### Step 10: a pair of windows that scroll together
 
 A pair is two tiled windows whose buffer lines line up by a row map their owner gives, closed and
