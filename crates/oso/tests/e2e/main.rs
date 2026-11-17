@@ -42,6 +42,7 @@ mod menus;
 mod png;
 mod projects;
 mod prompts;
+mod recent_files;
 mod recovery;
 mod reload;
 mod replace;

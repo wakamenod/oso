@@ -1,0 +1,126 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: budget\\nhiring\\n"
+---
+keys: C-x b
+│budget                                                                                              │
+:o                                                                                                   :
+│hiring                                                                                              │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+--- plan.md  1:0  Fundamental  UTF-8 LF                                                              -
+"                                                                                                    "
+float at row 1, column 19: 19 x 62
+│ 1/4 Switch to buffer:                                        │
+:                       ^                                      :
+│>*Messages*          0  …│o                                   │
+│ plan.md            14  …│                                    │
+│ ~/notes/todo.md  file   │                                    │
+│ ~/src/main.rs  file     │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+
+keys: C-n C-n
+│budget                                                                                              │
+:o                                                                                                   :
+│hiring                                                                                              │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+--- plan.md  1:0  Fundamental  UTF-8 LF                                                              -
+"                                                                                                    "
+float at row 1, column 19: 19 x 62
+│ 3/4 Switch to buffer:                                        │
+:                       ^                                      :
+│ *Messages*          0  …│not open                            │
+│ plan.md            14  …│                                    │
+│>~/notes/todo.md  file   │                                    │
+│ ~/src/main.rs  file     │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+
+keys: C-g
+│budget                                                                                              │
+:^                                                                                                   :
+│hiring                                                                                              │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+=-- plan.md  1:0  Fundamental  UTF-8 LF                                                              =
+"Quit                                                                                                "

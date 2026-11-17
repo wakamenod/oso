@@ -82,6 +82,7 @@ pub(super) fn preview_row(
             let (text, _) = spans_row(&["may hold secrets"], preview.columns);
             text
         }
+        Some(Preview::NotOpen) if index == 0 => spans_row(&["not open"], preview.columns).0,
         // A kill's lines, as the float draws them (ADR 0091).
         Some(Preview::Text { entry }) => {
             let lines = editor.kill_preview(entry, preview.rows, preview.columns);

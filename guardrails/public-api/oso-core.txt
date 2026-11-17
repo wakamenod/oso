@@ -442,6 +442,9 @@ pub oso_core::command::ArgSpec::ProjectFile
 pub oso_core::command::ArgSpec::ProjectFile::history: &'static str
 pub oso_core::command::ArgSpec::ProjectSearch
 pub oso_core::command::ArgSpec::ProjectSearch::history: &'static str
+pub oso_core::command::ArgSpec::RecentFile
+pub oso_core::command::ArgSpec::RecentFile::history: &'static str
+pub oso_core::command::ArgSpec::RecentFile::prompt: &'static str
 pub oso_core::command::ArgSpec::Replace
 pub oso_core::command::ArgSpec::Replace::regexp: bool
 pub oso_core::command::ArgSpec::Target
@@ -1874,6 +1877,7 @@ pub oso_core::editor::Preview::Buffer::start: usize
 pub oso_core::editor::Preview::Excerpt
 pub oso_core::editor::Preview::Excerpt::cursor: usize
 pub oso_core::editor::Preview::Excerpt::revision: u64
+pub oso_core::editor::Preview::NotOpen
 pub oso_core::editor::Preview::Text
 pub oso_core::editor::Preview::Text::entry: u64
 pub oso_core::editor::Preview::Withheld
@@ -2395,6 +2399,19 @@ impl core::fmt::Debug for oso_core::editor::AskAt
 pub fn oso_core::editor::AskAt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::AskAt
 impl core::marker::StructuralPartialEq for oso_core::editor::AskAt
+pub struct oso_core::editor::AskedVisit
+pub oso_core::editor::AskedVisit::by: oso_core::buffer::Acted
+pub oso_core::editor::AskedVisit::from_recent: bool
+pub oso_core::editor::AskedVisit::limit: u64
+pub oso_core::editor::AskedVisit::path: std::path::PathBuf
+impl core::clone::Clone for oso_core::editor::AskedVisit
+pub fn oso_core::editor::AskedVisit::clone(&self) -> oso_core::editor::AskedVisit
+impl core::cmp::Eq for oso_core::editor::AskedVisit
+impl core::cmp::PartialEq for oso_core::editor::AskedVisit
+pub fn oso_core::editor::AskedVisit::eq(&self, &oso_core::editor::AskedVisit) -> bool
+impl core::fmt::Debug for oso_core::editor::AskedVisit
+pub fn oso_core::editor::AskedVisit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::AskedVisit
 pub struct oso_core::editor::ClipboardWrite
 pub oso_core::editor::ClipboardWrite::id: u64
 pub oso_core::editor::ClipboardWrite::pieces: alloc::vec::Vec<oso_core::kill::Piece>
@@ -2977,6 +2994,14 @@ pub fn oso_core::editor::Editor::view_sample(&self) -> oso_core::editor::ViewSam
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::follow_text(&mut self) -> bool
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::forget_recent_file(&mut self, &std::path::Path)
+pub fn oso_core::editor::Editor::note_recent_visit(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::recent_file_named(&self, &str) -> core::option::Option<&std::path::Path>
+pub fn oso_core::editor::Editor::recent_file_row(&self, &std::path::Path) -> alloc::string::String
+pub fn oso_core::editor::Editor::recent_files(&self) -> &[std::path::PathBuf]
+pub fn oso_core::editor::Editor::remember_recent_files(&mut self, impl core::iter::traits::collect::IntoIterator<Item = std::path::PathBuf>)
+pub fn oso_core::editor::Editor::take_recent_changes(&mut self) -> oso_core::editor::RecentChanges
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::go_to_listed_mark(&mut self, &str) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::open_mark_list(&mut self, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 impl oso_core::editor::Editor
@@ -3030,9 +3055,11 @@ pub fn oso_core::editor::Editor::yank_pop(&mut self) -> core::result::Result<(),
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::large_file(&self, &std::path::Path) -> core::option::Option<u64>
 pub fn oso_core::editor::Editor::remember_large(&mut self, std::path::PathBuf, u64)
+pub fn oso_core::editor::Editor::request_recent_visit(&mut self, std::path::PathBuf, u64)
 pub fn oso_core::editor::Editor::request_visit(&mut self, std::path::PathBuf, u64)
 pub fn oso_core::editor::Editor::request_visit_at(&mut self, std::path::PathBuf, u64, usize, usize)
 pub fn oso_core::editor::Editor::request_visit_at_column(&mut self, std::path::PathBuf, u64, usize, oso_core::editor::VisitColumn)
+pub fn oso_core::editor::Editor::take_asked_visits(&mut self) -> alloc::vec::Vec<oso_core::editor::AskedVisit>
 pub fn oso_core::editor::Editor::take_large(&mut self) -> core::option::Option<(std::path::PathBuf, u64)>
 pub fn oso_core::editor::Editor::take_visits(&mut self) -> alloc::vec::Vec<(std::path::PathBuf, u64)>
 impl oso_core::editor::Editor
@@ -3443,6 +3470,21 @@ impl core::fmt::Debug for oso_core::editor::PushSwitches
 pub fn oso_core::editor::PushSwitches::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::PushSwitches
 impl core::marker::StructuralPartialEq for oso_core::editor::PushSwitches
+pub struct oso_core::editor::RecentChanges
+pub oso_core::editor::RecentChanges::forgotten: alloc::vec::Vec<std::path::PathBuf>
+pub oso_core::editor::RecentChanges::shown: alloc::vec::Vec<std::path::PathBuf>
+impl oso_core::editor::RecentChanges
+pub fn oso_core::editor::RecentChanges::is_empty(&self) -> bool
+impl core::clone::Clone for oso_core::editor::RecentChanges
+pub fn oso_core::editor::RecentChanges::clone(&self) -> oso_core::editor::RecentChanges
+impl core::cmp::Eq for oso_core::editor::RecentChanges
+impl core::cmp::PartialEq for oso_core::editor::RecentChanges
+pub fn oso_core::editor::RecentChanges::eq(&self, &oso_core::editor::RecentChanges) -> bool
+impl core::default::Default for oso_core::editor::RecentChanges
+pub fn oso_core::editor::RecentChanges::default() -> oso_core::editor::RecentChanges
+impl core::fmt::Debug for oso_core::editor::RecentChanges
+pub fn oso_core::editor::RecentChanges::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::RecentChanges
 pub struct oso_core::editor::Replace
 impl oso_core::editor::Replace
 pub fn oso_core::editor::Replace::around_secret(&self) -> bool
@@ -3735,6 +3777,8 @@ pub const oso_core::editor::COMPLETION_POPUP_ROWS: usize
 pub const oso_core::editor::MAX_GIT_LOG: usize
 pub const oso_core::editor::MAX_MACRO_EVENTS: usize
 pub const oso_core::editor::MAX_MACRO_TEXT: usize
+pub const oso_core::editor::MAX_RECENT_FILES: usize
+pub const oso_core::editor::MAX_RECENT_PATH: usize
 pub const oso_core::editor::SCRATCH: &str
 pub fn oso_core::editor::row_text(&str) -> alloc::string::String
 pub mod oso_core::editorconfig
