@@ -49,6 +49,9 @@ pub(super) struct Running {
     /// Whether agent cards fold in the text the review buffer holds, which may still be one
     /// built before the view was told otherwise.
     pub(super) shown_folded: bool,
+    /// Whether every file of a listing was read once, after which a file's first reading is
+    /// new to the person (step 4).
+    pub(super) read_once: bool,
 }
 
 /// What opening a review that is open already does.
@@ -88,6 +91,7 @@ impl Running {
             decisions: super::decide::Decisions::default(),
             folded: false,
             shown_folded: false,
+            read_once: false,
         }
     }
 

@@ -5645,6 +5645,7 @@ pub fn oso_core::review::Carried::fmt(&self, &mut core::fmt::Formatter<'_>) -> c
 pub struct oso_core::review::Carry
 impl oso_core::review::Carry
 pub fn oso_core::review::Carry::run<B, F>(self, B, F) -> oso_core::review::Carried where B: core::ops::function::FnMut(&[u8], &[u8]) -> core::option::Option<alloc::vec::Vec<oso_core::review::BaseHunk>>, F: core::ops::function::FnMut(&[&[u8]], &[&[u8]]) -> alloc::vec::Vec<(usize, usize)>
+pub fn oso_core::review::Carry::unseen(self) -> oso_core::review::Carry
 impl core::clone::Clone for oso_core::review::Carry
 pub fn oso_core::review::Carry::clone(&self) -> oso_core::review::Carry
 impl core::fmt::Debug for oso_core::review::Carry

@@ -20,7 +20,7 @@ use crate::commands::review::{MAX_NAME, RESTRICTED, one_line};
 use crate::git::{Id, TrustedRoot};
 use crate::review::count::Counted;
 use crate::review::view::{Tell, Text, View};
-use crate::review::{Asked, Content, Reading, Report, Request, Reviewer, Scope};
+use crate::review::{Asked, Report, Request, Reviewer, Scope};
 pub(in crate::app) use state::Reviews;
 use state::{Baseliner, Reopen, Running};
 
@@ -402,8 +402,9 @@ impl App {
             Report::Carried { carried, cut_short } => {
                 return self.review_carried(index, *carried, cut_short);
             }
-            Report::Read { .. } => {
+            Report::Read { stopped, .. } => {
                 self.refresh_ended(index);
+                self.reviews.open[index].read_once |= !stopped;
                 Tell::Read
             }
             Report::Stale => return self.mark_review_stale(index),
@@ -462,19 +463,6 @@ impl App {
             other => self.freer.free(other),
         }
         self.request_redraw();
-    }
-
-    /// The comments of the review's file to carry to `reading`, for a text reading.
-    fn carry_for(
-        &self,
-        review: ReviewId,
-        reading: &Arc<Reading>,
-    ) -> Option<oso_core::review::Carry> {
-        let Content::Text { shape, .. } = &reading.content else {
-            return None;
-        };
-        let model = self.editor.review(review)?;
-        Some(model.carry(&reading.entry.path, Arc::clone(shape)))
     }
 
     /// `tree` is `project`'s baseline from now on: the session review compares with it.

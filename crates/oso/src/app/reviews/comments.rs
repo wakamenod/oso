@@ -234,6 +234,21 @@ impl App {
         }
     }
 
+    /// The comments of the review's file to carry to `reading`, for a text reading.
+    pub(super) fn carry_for(
+        &self,
+        review: ReviewId,
+        reading: &Arc<Reading>,
+    ) -> Option<oso_core::review::Carry> {
+        let Content::Text { shape, .. } = &reading.content else {
+            return None;
+        };
+        let carry = (self.editor.review(review)?).carry(&reading.entry.path, Arc::clone(shape));
+        // A file new to a review read once, or back in it, was not seen (step 4).
+        let read = (self.reviews.index(review)).is_some_and(|at| self.reviews.open[at].read_once);
+        Some(if read { carry.unseen() } else { carry })
+    }
+
     /// The person's own input came: a key, typed text or the wheel, so that what the selected
     /// review window shows after it counts as read.
     pub(in crate::app) fn note_person_acted(&mut self) {

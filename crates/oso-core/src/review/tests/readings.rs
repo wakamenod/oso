@@ -288,11 +288,32 @@ fn hunks_new_since_the_reading_before_are_changed_until_seen() {
     assert!(!review.changed(FILE, 0));
     assert!(!review.seen(FILE, 0), "seen once");
     // A changed hunk that goes is no decision dropped.
-    let (_, after) = readings_of_a_file();
     let applied = read(&mut review, diff(&["a"], &["a"], blob("1")));
     assert_eq!(applied.dropped, 0);
-    drop(after);
     // What each reading let go is given back once.
     assert!(review.take_released().len() >= 2);
     assert!(review.take_released().is_empty());
+}
+
+#[test]
+fn a_file_new_to_a_review_already_seen_has_every_hunk_changed() {
+    let (before, after) = readings_of_a_file();
+    let mut review = Review::new();
+    let unseen = |review: &Review, shape: Shape| {
+        review
+            .carry(FILE, Arc::new(shape))
+            .unseen()
+            .run(|_, _| None, |a: &[&[u8]], b: &[&[u8]]| lcs(a, b))
+    };
+    let carried = unseen(&review, before);
+    review.apply(carried);
+    assert!(review.changed(FILE, 0), "its one hunk was not seen");
+    let applied = review.progress();
+    assert_eq!(applied.0, 0, "no decision is counted for it");
+    // A file with a reading is carried as before: only its new hunks are changed.
+    assert!(review.seen(FILE, 0));
+    let carried = unseen(&review, after);
+    review.apply(carried);
+    let changed: Vec<bool> = (0..3).map(|at| review.changed(FILE, at)).collect();
+    assert_eq!(changed, [true, false, true]);
 }

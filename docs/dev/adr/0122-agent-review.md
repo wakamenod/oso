@@ -1076,7 +1076,7 @@ nearest line that stayed, the upper one on a tie (Q-C), ` · changed` in `review
   (step 1's item 6), and `Carried::maps_from()`, the reading that map is from;
   `Editor::set_review_text` and `set_review_panes` take `editor::LineMoves`, the host's map of
   where each line of a side of a file went; `Review::take_released()` (step 1's item 15);
-  `Review::changed(path, hunk)` and `Review::seen(path, hunk)`.
+  `Review::changed(path, hunk)` and `Review::seen(path, hunk)`; `Carry::unseen()`.
 - **What marks a review stale:**
   - a look, `Request::Look`, on the review's own thread, waiting aside as carries and stages
     do, looks waiting being one and answered when nothing else waits, so it never stops a
@@ -1106,8 +1106,10 @@ nearest line that stayed, the upper one on a tie (Q-C), ` · changed` in `review
   those the text change carried. The panes keep theirs the same way, and follow their cursors.
 - **The carry** now always snapshots the file's current reading, for the map from it and to tell
   which hunks of the new reading are new: a hunk of the new reading with no hunk of its text in
-  the one before, the k-th of one text to the k-th, is marked changed. A first reading marks
-  none, as a file new to the listing, or one that left it and came back. A carry made on the
+  the one before, the k-th of one text to the k-th, is marked changed. A review's first
+  readings mark none; once every file of a listing was read, a file's first reading marks
+  every hunk, as a file new to the listing, or one that left it and came back, was not seen
+  (`Carry::unseen`, the author's choice on 2026-11-17). A carry made on the
   view's thread, for a file with no comment to place, now matches the lines both readings put
   in within 100 ms, reading no old side: a file whose old side moved keeps no line there, and
   its windows go to the nearest row shown.
@@ -1126,7 +1128,7 @@ nearest line that stayed, the upper one on a tie (Q-C), ` · changed` in `review
 - **Not built here:** the files pane keeping its selection and filter is step 6's, with the pane.
 - **Tests:** a line followed to the new reading and to the nearest that stayed, by a carry made
   on the view's thread too; hunks new since the reading before marked changed until seen, and
-  none dropped with them; what the model lets go given back once; cursors kept on their lines
+  none dropped with them; every hunk of a file new to a review already seen; what the model lets go given back once; cursors kept on their lines
   across a new text by the host's map, two inside the span the text change rewrote among them;
   the nearest row of a side; the refresher's debounce, one refresh at a time however it ends,
   a refresh that cannot start, a hidden review and looks on a fake clock; looks against a

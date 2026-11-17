@@ -390,7 +390,8 @@ you are; a file says when decisions dropped because the agent changed their hunk
 
 A review shown reads its files again by itself when they change: when the agent saves, ends a
 turn, or edits from a shell, and when you save. Your cursor stays on its line. A hunk new since
-the last reading says `· changed` until your cursor has been in it. `g` reads now.
+the last reading, or of a file new to the review, says `· changed` until your cursor has been
+in it. `g` reads now.
 | `\|` | Two panes, the old side and the new side lined up, or one stream again |
 | `g` | Read the files again now |
 | `C-c C-c` | Gather your comments not sent yet into a message to the session |

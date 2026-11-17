@@ -29,6 +29,8 @@ pub struct Carry {
     pub(super) items: Vec<Item>,
     /// The current reading, its hunks' hashes and their marks, if the file has one.
     pub(super) marked: Option<MarkedReading>,
+    /// Whether the person saw no reading of the file before, though they saw the review's.
+    pub(super) unseen: bool,
     pub(super) hasher: RandomState,
     pub(super) readings: u64,
     pub(super) added: u64,
@@ -132,6 +134,14 @@ impl Carried {
 }
 
 impl Carry {
+    /// The file is new to a review the person already saw, or came back to it: each hunk of
+    /// its first reading is marked changed, as no reading of it was seen (step 4). A file with
+    /// a reading is carried as before.
+    pub fn unseen(mut self) -> Carry {
+        self.unseen = self.marked.is_none();
+        self
+    }
+
     /// Places every comment in the new reading and carries the marks. `base` is asked for the
     /// hunks between two old blobs ([`base_pair`]), at most once per pair, and answers `None`
     /// when they cannot be compared; `lcs` is the matcher of [`LineMap::new`], which must bound
@@ -199,7 +209,13 @@ impl Carry {
                 };
                 decision::carry_marks(&from, to.hunks(), &hashes)
             }
-            None => (vec![Mark::default(); to.hunks().len()], 0),
+            None => {
+                let mark = Mark {
+                    changed: self.unseen,
+                    ..Mark::default()
+                };
+                (vec![mark; to.hunks().len()], 0)
+            }
         };
         Carried {
             path: self.path,

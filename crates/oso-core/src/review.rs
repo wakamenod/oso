@@ -154,6 +154,7 @@ impl Review {
             to,
             items,
             marked,
+            unseen: false,
             hasher: self.hasher.clone(),
             readings: state.map_or(0, |state| state.readings),
             added: state.map_or(0, |state| state.added),
