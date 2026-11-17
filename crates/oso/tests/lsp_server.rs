@@ -1748,3 +1748,174 @@ fn a_declared_command_runs_and_its_edit_waits_for_the_answer_an_undeclared_one_i
     ));
     seen.server.shut_down();
 }
+
+/// A script whose server renames, checking a place first if `prepares`, its rename's edit given
+/// by `renamed`, in UTF-16.
+fn rename_script(renamed: Value, prepare: Option<Value>) -> Value {
+    let provider = match &prepare {
+        Some(_) => json!({"prepareProvider": true}),
+        None => json!(true),
+    };
+    let mut rules = vec![
+        json!({"method": "initialize", "do": [{"reply": {"capabilities": {
+            "positionEncoding": "utf-16",
+            "textDocumentSync": {"openClose": true, "change": 2, "save": true},
+            "renameProvider": provider,
+        }}}]}),
+        json!({"method": "textDocument/rename", "do": [renamed]}),
+        json!({"method": "shutdown", "do": [{"reply": null}]}),
+    ];
+    if let Some(prepare) = prepare {
+        rules.insert(
+            1,
+            json!({"method": "textDocument/prepareRename", "do": [{"reply": prepare}]}),
+        );
+    }
+    json!({"rules": rules, "log_documents": true, "log_positions": true, "encoding": "utf-16"})
+}
+
+fn rename_ask(kind: oso_lsp::server::AskKind, serial: u64, offset: usize) -> oso_lsp::server::Ask {
+    oso_lsp::server::Ask {
+        serial,
+        document: 1,
+        kind,
+        revision: 7,
+        offset,
+        context: oso_lsp::server::AskContext::None,
+    }
+}
+
+#[test]
+fn a_rename_checks_its_place_asks_with_its_name_and_places_its_edit() {
+    use oso_lsp::server::{Answered, AskKind, Prepared};
+    let dir = scratch("rename");
+    let here = oso_lsp::uri::from_path(&dir.join("a.rs")).unwrap();
+    let there = oso_lsp::uri::from_path(&dir.join("b.rs")).unwrap();
+    let range = |line: u32, start: u32, end: u32| json!({"start": {"line": line, "character": start}, "end": {"line": line, "character": end}});
+    let renamed = json!({"reply": {"changes": {
+        here.clone(): [{"range": range(1, 4, 5), "newText": "count"}, {"range": range(1, 8, 9), "newText": "count"}],
+        there: [{"range": range(3, 0, 1), "newText": "count"}],
+    }}});
+    let prepare = json!({"range": range(1, 4, 5), "placeholder": "x\u{202e}"});
+    let script = rename_script(renamed, Some(prepare));
+    let mut seen = started("rename", &script, open());
+    opened(&mut seen, 1, &here, "fn a() {}\nlet x = x;\n");
+    let offset = "fn a() {}\nlet ".len();
+    seen.server
+        .ask(rename_ask(AskKind::PrepareRename, 1, offset));
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    seen.until(LIMIT, |seen| {
+        seen.logged("asked textDocument/prepareRename 1:4")
+    });
+    let Ok(Answered::Prepared(prepared)) = seen.answers.pop().unwrap().outcome else {
+        panic!("prepared")
+    };
+    assert_eq!(
+        prepared,
+        Prepared::At {
+            start: offset,
+            end: offset + 1,
+            placeholder: Some("x\\u{202e}".into()),
+        }
+    );
+    seen.server
+        .rename(rename_ask(AskKind::Rename, 2, offset), "count".into());
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    seen.until(LIMIT, |seen| seen.logged("asked textDocument/rename 1:4"));
+    let answer = seen.answers.pop().unwrap();
+    assert_eq!((answer.serial, answer.kind), (2, AskKind::Rename));
+    let Ok(Answered::Renamed(edit)) = answer.outcome else {
+        panic!("renamed")
+    };
+    assert_eq!(edit.open.len(), 1);
+    assert_eq!((edit.open[0].document, edit.open[0].revision), (1, 7));
+    let at = "fn a() {}\nlet x = ".len();
+    assert_eq!(
+        edit.open[0].edits,
+        [
+            (offset..offset + 1, "count".to_owned()),
+            (at..at + 1, "count".to_owned())
+        ]
+    );
+    assert_eq!(edit.unsent.len(), 1, "a file not open");
+    assert!(
+        seen.logged("renamed with 3 edits in 2 files"),
+        "{:?}",
+        seen.log
+    );
+    assert!(
+        !seen.log.iter().any(|line| line.contains("count")),
+        "no new name or edit's text is logged: {:?}",
+        seen.log
+    );
+    seen.server.shut_down();
+}
+
+#[test]
+fn a_server_that_checks_no_place_is_not_asked_and_a_rename_needs_a_name_that_fits() {
+    use oso_lsp::server::{Answered, AskFailure, AskKind, Prepared};
+    let dir = scratch("rename-unasked");
+    let here = oso_lsp::uri::from_path(&dir.join("a.rs")).unwrap();
+    let script = rename_script(json!({"reply": null}), None);
+    let mut seen = started("rename-unasked", &script, open());
+    opened(&mut seen, 1, &here, "let x = 1;\n");
+    seen.server.ask(rename_ask(AskKind::PrepareRename, 1, 4));
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    let Ok(Answered::Prepared(prepared)) = seen.answers.pop().unwrap().outcome else {
+        panic!("prepared")
+    };
+    assert_eq!(prepared, Prepared::Unasked);
+    assert!(!seen.logged("textDocument/prepareRename"), "{:?}", seen.log);
+    let failed = |seen: &mut Seen| match seen.answers.pop().unwrap().outcome {
+        Err(AskFailure::Other(why)) => why,
+        other => panic!("{other:?}"),
+    };
+    // Through `ask`, with no name; with a control; and one the server renames nothing with.
+    seen.server.ask(rename_ask(AskKind::Rename, 2, 4));
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert!(failed(&mut seen).contains("new name"));
+    seen.server
+        .rename(rename_ask(AskKind::Rename, 3, 4), "a\nb".into());
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert!(failed(&mut seen).contains("new name"));
+    seen.server
+        .rename(rename_ask(AskKind::Rename, 4, 4), "y".into());
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert!(failed(&mut seen).contains("renamed nothing"));
+    seen.server.shut_down();
+}
+
+#[test]
+fn a_rename_that_renames_a_file_is_refused_and_one_cancelled_is_not_answered() {
+    use oso_lsp::server::{AskFailure, AskKind};
+    let dir = scratch("rename-refused");
+    let here = oso_lsp::uri::from_path(&dir.join("a.rs")).unwrap();
+    let renames_file = json!({"reply": {"documentChanges": [
+        {"kind": "rename", "oldUri": here.clone(), "newUri": format!("{here}.old")},
+    ]}});
+    let script = rename_script(renames_file, None);
+    let mut seen = started("rename-refused", &script, open());
+    opened(&mut seen, 1, &here, "let x = 1;\n");
+    seen.server
+        .rename(rename_ask(AskKind::Rename, 1, 4), "y".into());
+    seen.until(LIMIT, |seen| !seen.answers.is_empty());
+    assert!(matches!(
+        seen.answers.pop().unwrap().outcome,
+        Err(AskFailure::Other(_))
+    ));
+    seen.server.shut_down();
+
+    // One that waits: cancelled, the server told, and no answer comes.
+    let script = rename_script(json!({"hang": true}), None);
+    let mut seen = started("rename-cancelled", &script, open());
+    opened(&mut seen, 1, &here, "let x = 1;\n");
+    seen.server
+        .rename(rename_ask(AskKind::Rename, 1, 4), "y".into());
+    seen.until(LIMIT, |seen| seen.logged("asked textDocument/rename"));
+    seen.server.cancel(1, AskKind::Rename);
+    // The server's standard error says it heard, in its own time.
+    seen.until(LIMIT, |seen| seen.logged("stderr: cancel "));
+    assert!(seen.logged("cancelled request"), "{:?}", seen.log);
+    assert!(seen.answers.is_empty(), "{:?}", seen.answers);
+    seen.server.shut_down();
+}

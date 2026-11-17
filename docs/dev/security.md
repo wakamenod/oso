@@ -345,6 +345,12 @@ network features.
   edit, and what it opened goes (13b). A command runs only if the server declared it, and its
   `workspace/applyEdit` applies as the action's edit only while it waits; any other gets
   `applied: false`.
+- A rename (`M-x lsp-rename`, step 14) is the person's alone, as its commands are `Person`. Its
+  edit goes the same way, judged before anything shows, so that no file that may hold secrets or
+  lies outside the root reaches `*lsp-rename*`, which is withheld from agents. Every line it
+  changes is shown before and after, its controls and bidi and invisible characters written
+  out, before the person's `y`; the new name is at most 256 bytes with no control, and neither
+  it nor an edit's text is logged.
 - The environment is sanitized and every spawn is logged in a visible buffer.
 
 ### Dependencies (T2, T8)

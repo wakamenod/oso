@@ -896,8 +896,8 @@ gains `amended by 0138`.
 - A language server runs only for a trusted project and is started only by the person. A broken
   or hostile server can slow only its own threads, and never blocks the UI thread, edits a
   buffer but within an insert the person made (a completion's edits besides its own, step 9b)
-  or by a code action the person picked from its list (step 13), opens a file by itself, or
-  makes oso reach another computer.
+  or by a code action the person picked from its list (step 13), or a rename the person saw
+  and said yes to (step 14), opens a file by itself, or makes oso reach another computer.
 - oso gains a crate, and `oso-core` gains `diagnostic`, `window::jumps`, ADR 0118's enum,
   completion at point and six modes with no highlighting yet. The renderer gains a wavy underline and three faces in each theme.
 - The gutter gains a column in buffers a server follows, and `M-,` means another thing there.
@@ -2163,3 +2163,82 @@ As the author chose at step 13's questions (Q3, Q4, Q5), and approved this step'
 - **From this step's reviews:** a held buffer is judged again once the edit is placed, at the revision it had, so a change during the question or the loads refuses it; where a file really leads, links followed, must be in the project too; a file opened for the edit is judged as the agent channel's open judges one (`app/opened.rs`): not there, of another name or open under another name refuses it, and what the edit opened then goes; a buffer still opening for the agent is not edited; a file in a `.git` directory is refused, and the question names the first files; each opens at most 8 MiB, and a buffer of another name or a directory is never shown for it; the token of a `workspace/applyEdit` is the session's, across runs, so no answer reaches another run, and the session names the edit by the action's title; an edit whose server ended goes, and one that waits for its question refuses a newer one, so no `y` answers another; and a command after its action's edit is asked at the next sync, once the edit went to the server.
 - **Public API:** `oso-lsp`: `protocol::Acting::commands` (`Acting` is no longer `Copy`), `protocol::execute_command_params`, `limits::COMMANDS_MAX`, `AskKind::ExecuteCommand`, `Answered::Executed`, `server::ApplyEdit`, `Report::apply_edits` and `Server::answer_apply_edit`. `oso-core`: `ServerRequest::ConfirmCodeAction`.
 - **Tests:** in `oso-lsp`, the declared commands within their bounds and a command's parameters; against the fake server, a declared command run with its arguments and its `workspace/applyEdit` answered once the UI does, one not declared refused, and one outside a command refused with why; and the end-to-end flow `a_code_action_opens_a_file_after_a_yes_and_a_command_s_edit_applies`.
+
+### Step 14: rename
+
+The author answered step 14's questions on 2026-11-17: Q1 (a), one pull request after 13b; Q2
+(b), no key, as `C-c` and a letter are the person's by Emacs's convention; Q3 (a), the
+`*lsp-rename*` preview; and the first choice on Q4 to Q10. On the public items, they approved
+`Editor::offer_prompt_default` as a prompt feature of its own, `ServerRequest` losing `Copy`,
+and `Server::cancel`.
+
+- **Q1:** one pull request on 13b's path for files no buffer holds.
+- **Q2:** `M-x lsp-rename` only.
+- **Q3:** `*lsp-rename*` shows every line the rename changes before it applies.
+- **Q4:** a server's check of the place (`prepareRename`) when it offers one; else the
+  identifier at point.
+- **Q5:** the prompt starts empty, with the old name on `M-n`, as Eglot's.
+- **Q6:** a rename that creates, renames or deletes a file is refused whole, as a code action's.
+- **Q7:** it waits 30 s; `C-g` stops it, and the server is told with `$/cancelRequest`.
+- **Q8:** 13a's bounds: at most 64 files, 1,000 edits and 4 MiB.
+- **Q9:** what it changes is left unsaved, as Eglot leaves it; the echo area says `C-x s` saves.
+- **Q10:** the person's only: every command is `Person`, and the preview is withheld from agents.
+
+- **`oso-lsp`:**
+  - `initialize` claims `rename` with `prepareSupport` and no change annotations, and reads
+    `renameProvider` and its `prepareProvider` (`protocol::Renaming`).
+  - `AskKind::PrepareRename` asks at the primary cursor, as a definition does, and waits as
+    long. A server that checks no place first is not asked: the session answers at once,
+    `Prepared::Unasked`, as it does for `defaultBehavior`. A range is placed in the text asked
+    about; its placeholder is cut at 256 bytes and shown on one line. `null` is
+    `Prepared::Nothing`.
+  - `AskKind::Rename` goes through `Server::rename`, with the new name beside the ask, as
+    `AskContext` is `Copy`. One through `Server::ask`, with no name, fails, as does a name that
+    is empty, past `NEW_NAME_BYTES_MAX` (256) or holds a control. It waits `RENAME_WAIT` (30 s).
+    Its answer is a workspace edit read whole or not at all and placed against the revisions
+    the server had as the request went out, as a code action's (`Answered::Renamed`); `null` is
+    nothing renamed. `*LSP*` has the counts only, never the name or an edit's text.
+  - `Server::cancel(document, kind)` stops the ask that waits and tells the server, as a newer
+    ask of its kind always did; it gets no answer.
+- **`oso-core`:**
+  - `Editor::offer_prompt_default` gives an open prompt a default, which `M-n` shows from what
+    was typed and `M-p` gives back from, as Emacs's future history; it is never an answer by
+    itself, and a passphrase takes none (`editor/prompts/default.rs`).
+  - `ArgSpec::NewName` is read only in the prompt the host opens once the server checked the
+    place, as `ArgSpec::Xref` and `CodeAction` are. `Mode::RenamePreview` gives `*lsp-rename*`
+    its keys. `ServerRequest` gains `Rename`, `RenameTo`, `ApplyRename` and `CancelRename`,
+    and is no longer `Copy`.
+- **The tip crate** (`app/servers/rename.rs`, `commands/rename.rs`):
+  - `lsp-rename` asks the check; its answer opens the prompt `Rename ‘old’ to: ` if nothing moved
+    since, the old name with its controls written out. `RET` runs `lsp-rename-to`, which refuses
+    an empty name, the old one, one too long or with a control, and a buffer changed since.
+  - The rename's edit is judged as 13b judges one before anything opens (`judge_unsent`),
+    before the preview shows. The preview is built off the UI thread
+    (`servers/rename/preview.rs`): an open buffer's lines from its text, a file no buffer holds
+    read as a list of places reads one (`grep::read_lines`). Lines an edit spans or that touch
+    are shown together, before (`-`) and after (`+`), by their numbers, each with its controls
+    and bidi and invisible characters written out and cut at 400 characters; a line not read
+    whole shows the new text only.
+  - `y` (`lsp-rename-apply`) applies it through `applying::apply_edit_of` with
+    `EditFrom::Rename`, which asks no second question but opens and judges as 13b does. `n`, `q`
+    and `C-g` (`lsp-rename-cancel`) drop it. `C-g` anywhere stops a rename that waits for its
+    server or its preview, which the host tells the dispatcher of
+    (`Dispatcher::set_rename_waits`). A newer `lsp-rename` drops an older one, and at most one
+    edit waits, as 13b has it.
+- **Changes to this ADR:** its consequence that a server never edits a buffer but within an
+  insert the person made or by a code action the person picked gains the rename the person saw
+  and said yes to.
+- **Public API:** `oso-lsp`: `server::Prepared`, `AskKind::{PrepareRename, Rename}`,
+  `Answered::{Prepared, Renamed}`, `Server::{rename, cancel}`,
+  `protocol::{Renaming, renaming, prepare_rename_params, rename_params, prepared}`, and
+  `limits::{RENAME_WAIT, NEW_NAME_BYTES_MAX}`. `oso-core`: `buffer::Mode::RenamePreview`,
+  `ArgSpec::NewName`, `ServerRequest::{Rename, RenameTo, ApplyRename, CancelRename}` (no longer
+  `Copy`), and `Editor::offer_prompt_default`.
+- **Tests:** in `oso-lsp`, what `initialize` says, the parameters, a new name's bounds and a
+  prepare's answers; in `oso-core`, the default on `M-n`; in the tip crate, the identifier at
+  point, the preview's groups, edits and escapes, a file read in its encoding and one that
+  cannot be; dispatcher tests of `M-x lsp-rename`, the prompt with `M-n`, the preview's keys,
+  `C-g` only while one waits, and the agent refused; against the fake server, a rename checked,
+  asked with its name and its edit placed, a server that checks no place, a name that does not
+  fit, a file renamed refused, and one cancelled; and the end-to-end flow
+  `a_symbol_is_renamed_across_files_after_the_preview`.
