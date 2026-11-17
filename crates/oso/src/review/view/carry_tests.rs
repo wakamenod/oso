@@ -281,3 +281,26 @@ fn a_withheld_file_that_leaves_shows_only_its_count() {
         "{text}"
     );
 }
+
+#[test]
+fn a_carry_made_here_follows_the_lines_both_readings_put_in() {
+    let mut review = Review::new();
+    let _ = read(
+        &mut review,
+        b"a",
+        vec![hunk(1, 1, &[], &[b"one\n", b"two\n"])],
+    );
+    // A line goes in above: `one` and `two`, new lines 1 and 2, are 2 and 3 now.
+    let reading = text_reading(
+        b"a",
+        vec![hunk(1, 1, &[], &[b"zero\n", b"one\n", b"two\n"])],
+    );
+    let carried = carry_here(review.carry(b"a", shape_of(&reading)));
+    assert_eq!(carried.line_now(Side::New, 1), Some(2));
+    assert_eq!(carried.line_now(Side::New, 2), Some(3));
+    assert!(
+        carried
+            .maps_from()
+            .is_some_and(|from| review.file(b"a") == Some(from))
+    );
+}

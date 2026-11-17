@@ -2,7 +2,8 @@
 //! with `C-x v r w`, its review buffer read whole with each file's header, hunk and lines, `n`
 //! moving to the first hunk, `g` reading a file changed meanwhile, and `q` going back; and the
 //! person's comments: typed in a draft, kept as a card, edited, dropped to the kill ring,
-//! removed and yanked back, and asked about before the review closes.
+//! removed and yanked back, and asked about before the review closes; and its sides highlighted,
+//! as `global-font-lock-mode` allows.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The sections'
 //! text, the rows and the keys have their own tests.
@@ -465,5 +466,58 @@ fn seen(app: &mut App, row: &str) {
     assert!(
         shown.iter().any(|shown| shown == row),
         "no {row:?} in {shown:?}"
+    );
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_edit_made_under_an_open_review_shows_with_the_cursor_kept_on_its_line() {
+    let scratch = Scratch::new("review-refresh");
+    let mut app = open_review(&scratch);
+    let file = scratch.path().join("proj-review/a.rs");
+    seen(&mut app, "+2");
+    // On `+2`, a.rs's new line 2.
+    app.send_keys("n C-n C-n");
+    assert_eq!(cursor(&app.state()), (4, 0));
+    // The agent puts a line in at the top, and no key is pressed: the review shows it.
+    std::fs::write(&file, b"zero\none\n2\nthree\n").unwrap();
+    seen(&mut app, "+zero");
+    let shown = rows(&mut app, 20);
+    let at = shown.iter().position(|row| row == "+2").expect("the line");
+    assert_eq!(
+        cursor(&app.state()).0,
+        at as u64,
+        "the cursor stays on +2: {shown:?}"
+    );
+    // A hunk new since the reading before says so until the cursor is in it.
+    assert!(
+        shown
+            .iter()
+            .any(|row| row.starts_with("@@ -0,0 +1 @@") && row.ends_with("changed")),
+        "{shown:?}"
+    );
+}
+
+/// Whether the current buffer shows a run of a syntax class.
+fn syntax(state: &Value) -> bool {
+    state["buffer"]["syntax"] == true
+}
+
+/// A review's sides are highlighted once read (ADR 0122, step 9), and `global-font-lock-mode`
+/// turns that off and on, as it does a buffer's. Which line takes which run is the view's
+/// unit tests'.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_reviews_sides_are_highlighted_and_font_lock_turns_that_off_and_on() {
+    let scratch = Scratch::new("review-highlight");
+    let mut app = open_review(&scratch);
+    app.wait_for("the sides highlighted", syntax);
+    app.run_command("global-font-lock-mode", None).unwrap();
+    app.wait_for("the sides plain", |state| !syntax(state));
+    app.run_command("global-font-lock-mode", None).unwrap();
+    app.wait_for("the sides highlighted again", syntax);
+    assert_eq!(
+        app.state()["buffer"]["name"],
+        "*review: uncommitted proj-review*"
     );
 }

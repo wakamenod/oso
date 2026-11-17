@@ -68,7 +68,12 @@ impl App {
 
     /// Puts the panes' texts of the review at `index` in and switches its areas to them at
     /// once, if it takes them, else frees them.
-    pub(super) fn put_in_review_panes(&mut self, index: usize, panes: Box<[PaneText; 2]>) {
+    pub(super) fn put_in_review_panes(
+        &mut self,
+        index: usize,
+        panes: Box<[PaneText; 2]>,
+        moved: oso_core::editor::LineMoves<'_>,
+    ) {
         if !self.takes_review_panes(index) {
             return self.freer.free(panes);
         }
@@ -79,7 +84,7 @@ impl App {
             .map(|shown| (shown.text().clone(), shown.display()))
             .collect();
         let [old, new] = *panes;
-        let left = self.editor.set_review_panes(id, old, new);
+        let left = self.editor.set_review_panes(id, old, new, moved);
         self.freer.free((before, left));
         self.reviews.open[index].layout.asked_again = false;
         self.sync_review_layouts();

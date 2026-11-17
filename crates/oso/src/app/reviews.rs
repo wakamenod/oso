@@ -21,7 +21,7 @@ use crate::git::{Id, TrustedRoot};
 use crate::review::count::Counted;
 use crate::review::pr::PrFound;
 use crate::review::view::{Tell, Text, View};
-use crate::review::{Asked, Content, Reading, Report, Request, Reviewer};
+use crate::review::{Asked, Report, Request, Reviewer};
 use scope::{fetching_said, found_said, same_scope, scope_label, scope_of};
 pub(in crate::app) use state::Reviews;
 use state::{Baseliner, Reopen, Running};
@@ -101,6 +101,8 @@ impl App {
         // A file a reject opened may have loaded.
         self.go_on_reverting();
         self.sync_review_layouts();
+        self.sync_review_sides();
+        self.sync_review_watches();
         self.sync_review_comments();
         self.sync_review_message();
     }
@@ -113,7 +115,7 @@ impl App {
                 revision,
             } => self.open_review(project, scope, revision),
             ReviewRequest::Baseline { project } => self.take_baseline(project),
-            ReviewRequest::Refresh(id) => self.refresh_review(id),
+            ReviewRequest::Refresh(id) => self.refresh_review(id, true),
             ReviewRequest::Close(id) => self.close_review(id),
             ReviewRequest::Redraw { review, path } => self.redraw_comments(review, &path),
             ReviewRequest::Send(id) => self.send_review(id),
@@ -167,7 +169,7 @@ impl App {
             running.scope = scope.clone();
             match reopen {
                 // A revoked review starts over with the scope, as `g` would.
-                Reopen::Refresh | Reopen::Restart => self.refresh_review(id),
+                Reopen::Refresh | Reopen::Restart => self.refresh_review(id, true),
                 Reopen::Open => self.ask_review(index, Request::Open(scope)),
             }
             return self.request_redraw();
@@ -198,7 +200,8 @@ impl App {
             }
         };
         self.editor.show_in(window, buffer);
-        (self.reviews.open).push(Running::new(id, project, scope.clone(), root, view));
+        let running = Running::new(id, project, scope.clone(), root, view);
+        self.reviews.open.push(running);
         let index = self.reviews.open.len() - 1;
         self.start_reviewer(index);
         self.ask_review(index, Request::Open(scope));
@@ -247,9 +250,10 @@ impl App {
         }
     }
 
-    /// Reads the review's files again, those its windows show first. A review whose project
-    /// was trusted again starts over from a new root.
-    fn refresh_review(&mut self, id: ReviewId) {
+    /// Reads the review's files again, those its windows show first; `person` if the person
+    /// asked, which alone asks `gh` again for a pull request. A review whose project was trusted
+    /// again starts over from a new root.
+    fn refresh_review(&mut self, id: ReviewId, person: bool) {
         let Some(index) = self.reviews.index(id) else {
             return;
         };
@@ -270,7 +274,8 @@ impl App {
         }
         let mut first = std::mem::take(&mut self.reviews.shown);
         self.editor.shown_review_files(id, &mut first);
-        self.ask_review(index, Request::Refresh { first });
+        self.ask_review(index, Request::Refresh { first, person });
+        self.refresh_started(index);
     }
 
     /// Stops a closed review's threads, and frees the texts it left waiting.
@@ -351,11 +356,24 @@ impl App {
             }
             Report::File { reading, .. } => return self.tell_file(index, reading),
             Report::Carried { carried, cut_short } => {
-                return self.review_carried(index, carried, cut_short);
+                return self.review_carried(index, *carried, cut_short);
             }
-            Report::Read { .. } => Tell::Read,
+            Report::Read { stopped, .. } => {
+                self.refresh_ended(index);
+                self.reviews.open[index].read_once |= !stopped;
+                Tell::Read
+            }
+            Report::Stale => return self.mark_review_stale(index),
             Report::Staged { ticket, staged } => return self.review_staged(index, ticket, staged),
+            // A look nobody asked for tells nothing of its failure: the next `g` says why.
+            Report::Failed {
+                asked: Asked::Look,
+                why,
+            } => return log::debug!("a review's look failed: {}", one_line(&why, MAX_MESSAGE)),
             Report::Failed { asked, why } => {
+                if matches!(asked, Asked::Open | Asked::Refresh) {
+                    self.refresh_ended(index);
+                }
                 if asked == Asked::Carry {
                     self.carries_failed(index, false);
                 } else {
@@ -367,6 +385,7 @@ impl App {
                 Tell::Said(vec![why])
             }
             Report::BaselineGone => {
+                self.refresh_ended(index);
                 let project = self.reviews.open[index].project;
                 self.forget_baseline(project);
                 let gone = "the session's baseline is gone: B takes another";
@@ -426,19 +445,6 @@ impl App {
         self.request_redraw();
     }
 
-    /// The comments of the review's file to carry to `reading`, for a text reading.
-    fn carry_for(
-        &self,
-        review: ReviewId,
-        reading: &Arc<Reading>,
-    ) -> Option<oso_core::review::Carry> {
-        let Content::Text { shape, .. } = &reading.content else {
-            return None;
-        };
-        let model = self.editor.review(review)?;
-        Some(model.carry(&reading.entry.path, Arc::clone(shape)))
-    }
-
     /// `tree` is `project`'s baseline from now on: the session review compares with it.
     fn keep_baseline(&mut self, project: ProjectId, tree: Id) {
         self.reviews.baselines.retain(|(id, _)| *id != project);
@@ -482,10 +488,14 @@ impl App {
     }
 
     fn put_in_review_text(&mut self, index: usize, text: Text) {
+        #[cfg(feature = "dev")]
+        let began = std::time::Instant::now();
         let id = self.reviews.open[index].id;
         let Some(buffer) = self.editor.review_buffer(id) else {
             return self.freer.free(text);
         };
+        #[cfg(feature = "dev")]
+        let highlighted = text.highlighted;
         let Text {
             text,
             rows,
@@ -494,6 +504,7 @@ impl App {
             carried,
             reading,
             folded,
+            ..
         } = text;
         self.reviews.open[index].shown_folded = folded;
         // Kept, at O(1), so that the text it replaces is freed off the UI thread, with the rows
@@ -502,8 +513,10 @@ impl App {
             .editor
             .buffer(buffer)
             .map(|shown| (shown.text().clone(), shown.display()));
+        let lines = watch::Lines::new(self.editor.review(id), &carried);
+        let moved = |path: &[u8], side, number| lines.line_now(path, side, number);
         let left = match text {
-            Some(text) => self.editor.set_review_text(id, text, rows, highlights),
+            Some(text) => (self.editor).set_review_text(id, text, rows, highlights, &moved),
             None => self
                 .editor
                 .set_review_paint(id, rows, highlights)
@@ -514,7 +527,7 @@ impl App {
         };
         self.freer.free((before, left));
         if let Some(panes) = panes {
-            self.put_in_review_panes(index, panes);
+            self.put_in_review_panes(index, panes, &moved);
         }
         // The view builds the next text only now.
         self.reviews.open[index].view.taken();
@@ -523,15 +536,18 @@ impl App {
                 break;
             };
             let applied = model.apply(carried);
+            // The readings it let go are freed off the UI thread (step 4).
+            let released = model.take_released();
+            self.freer.free(released);
             self.carry_applied(index, reading, &applied);
         }
         self.editor.set_review_reading(id, reading);
         #[cfg(feature = "dev")]
-        self.timings.review_text(crate::dev::ReviewText {
-            read: reading.map_or(0, |(read, _)| read),
-            listed: reading.map_or(0, |(_, listed)| listed),
-            done: reading.is_none(),
-        });
+        self.timings.review_text(crate::dev::ReviewText::of(
+            reading,
+            highlighted.map(|progress| (progress.shown, progress.whole)),
+            began.elapsed(),
+        ));
     }
 
     /// Revokes the roots of the reviews, baselines and counts of projects no longer trusted.
@@ -547,6 +563,7 @@ impl App {
 
 mod comments;
 mod decide;
+mod highlight;
 mod judge;
 mod layout;
 mod menu;
@@ -556,3 +573,4 @@ mod state;
 #[cfg(test)]
 #[path = "reviews_tests.rs"]
 mod tests;
+mod watch;

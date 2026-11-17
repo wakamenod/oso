@@ -2,8 +2,9 @@
 //! current reading, lays out each file's section, and builds the review buffer's whole text,
 //! its rows and its highlights, compared with the text before, for the UI to put in at O(1).
 //!
-//! Must not depend on: `app`, `dispatch`, winit, git or the file system; the caller hands in
-//! what the review's own thread read, and takes texts out.
+//! Must not depend on: `app`, `dispatch`, winit, git's runner or the file system; the caller
+//! hands in what the review's own thread read, and takes texts out. It uses git's ids and name
+//! check only, to know a side's text and to judge the paths a reading names (step 9).
 //!
 //! - One thread per review, started and dropped with it. It takes everything waiting before it
 //!   builds, so a burst of readings costs one text.
@@ -18,27 +19,36 @@
 //!   rows and highlights, which cost O(1) to share.
 //! - The text is cut near [`MAX_TEXT`]: the limit is looked at before each section, so the one
 //!   that passes it is whole, and the files after it show their header and a note.
-//! - Comments are carried here when a file has none to place, which costs hashing alone; a file
-//!   with comments is carried on the review's own thread, which reads old sides, and keeps the
-//!   section it showed until that carry comes. A carry is applied by the UI only when the text
-//!   holding it goes in, so the model's reading of a file is the one its text shows.
+//! - Comments are carried here when a file has none to place, which costs hashing and matching
+//!   the lines both readings put in, within [`HERE_DEADLINE`], for the map the windows keep
+//!   their places by (step 4); old sides are not read, so a file whose old side moved keeps no
+//!   line there, and its windows go to the nearest row shown. A file with comments is carried
+//!   on the review's own thread, which reads old sides, and keeps the section it showed until
+//!   that carry comes. A carry is applied by the UI only when the text holding it goes in, so
+//!   the model's reading of a file is the one its text shows.
 //! - Comments are cards among a file's lines, from the model's latest snapshot of them; a change
 //!   to a snapshot, or to whether agent cards fold, lays out again only the files it touches. A
 //!   file that leaves the listing with comments stays, after the others, until it has none.
 //! - Nothing here logs a file's text or a comment's.
 
 mod assemble;
+mod build;
 mod cards;
 mod file;
+mod highlight;
 mod panes;
+mod project;
 mod section;
 
 use std::collections::hash_map::Entry as Slot;
 use std::collections::{BTreeMap, HashMap};
+use std::ops::Range;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use oso_core::load::Reloaded;
 use oso_core::review::{Carried, Carry, Comment, Rows, Shape};
@@ -47,12 +57,18 @@ use oso_core::syntax::Highlights;
 
 use super::{Entry, Reading};
 use cards::Cards;
-pub(crate) use cards::Marks;
-use file::{File, Gone, Laid, section_in};
+pub(crate) use cards::{HunkMark, Marks};
+use file::{File, Gone, Laid};
+use highlight::Highlighting;
+pub(crate) use highlight::{Highlighter, Progress};
 pub(crate) use panes::PaneText;
 
 /// The most bytes a review's text holds: past it, files show their header alone.
 pub(crate) const MAX_TEXT: usize = 64 * 1024 * 1024;
+
+/// The most lines of one range windows show that are looked at for the sides on screen: more
+/// than any screen holds.
+const MOST_SHOWN_LINES: usize = 1024;
 
 /// What the view thread is told.
 pub(crate) enum Tell {
@@ -97,6 +113,17 @@ pub(crate) enum Tell {
     /// Whether to build the two panes (ADR 0122, step 11), as some area shows them or is about
     /// to.
     Panes(bool),
+    /// What highlights the sides (step 9), with the work tree's top that every path a reading
+    /// names is judged under; none to stop, as with highlighting off.
+    Highlighter {
+        highlighter: Option<Box<dyn Highlighter>>,
+        top: PathBuf,
+    },
+    /// A report of a side's document this view opened.
+    Syntax(oso_syntax::Report<u64>),
+    /// The byte ranges of the review buffer's text its windows show, for the sides on screen to
+    /// go first.
+    Shown(Vec<Range<usize>>),
 }
 
 /// How a file's comments are carried to its new reading.
@@ -124,6 +151,12 @@ pub(crate) struct Text {
     pub(crate) reading: Option<(usize, usize)>,
     /// Whether its agent cards show folded to their first line.
     pub(crate) folded: bool,
+    /// How far its sides' highlighting is, while it is on (step 9).
+    #[cfg_attr(
+        not(any(test, feature = "dev")),
+        expect(dead_code, reason = "dev builds time it for the review benchmark")
+    )]
+    pub(crate) highlighted: Option<Progress>,
 }
 
 /// Hands a text to the event loop; `false` once it is gone.
@@ -131,7 +164,8 @@ type SendText = Box<dyn FnMut(Text) -> bool + Send>;
 
 /// What the thread takes: what it is told, or that the UI took its last text.
 enum Message {
-    Tell(Tell),
+    /// Boxed, as a comment's snapshot makes it large.
+    Tell(Box<Tell>),
     Taken,
 }
 
@@ -159,7 +193,7 @@ impl View {
 
     /// Tells the thread `what`; `false` if it has ended.
     pub(crate) fn tell(&self, what: Tell) -> bool {
-        self.tell.send(Message::Tell(what)).is_ok()
+        self.tell.send(Message::Tell(Box::new(what))).is_ok()
     }
 
     /// Says the UI put in the last text, so that the thread may build the next.
@@ -199,7 +233,13 @@ struct State {
     dirty: bool,
     /// The last text's rows and highlights, for a text that did not change.
     last: Option<(Rows, Highlights)>,
+    /// Each file's section in the last text, with where it starts there in decoded bytes, for
+    /// its sides' runs to be laid over it.
+    placed: Vec<(Box<[u8]>, usize, Arc<section::Rendered>)>,
     panes: panes::Panes,
+    highlighting: Highlighting,
+    /// The byte ranges of the text the windows show, as last told.
+    shown: Vec<Range<usize>>,
 }
 
 impl State {
@@ -220,11 +260,28 @@ impl State {
             valid: true,
             dirty: true,
             last: None,
+            placed: Vec::new(),
             panes: panes::Panes::default(),
+            highlighting: Highlighting::default(),
+            shown: Vec::new(),
         }
     }
 
-    fn take(&mut self, told: Tell) {
+    /// Takes what is told; whether it may change the next text. Reports wait to be taken with
+    /// the others of their batch, and what windows show orders the sides only.
+    fn take(&mut self, told: Tell) -> bool {
+        match told {
+            Tell::Syntax(report) => {
+                self.highlighting.told(report);
+                return false;
+            }
+            Tell::Shown(ranges) => {
+                self.shown = ranges;
+                self.shown_now();
+                return false;
+            }
+            _ => {}
+        }
         match told {
             Tell::Listed { entries, more, cut } => self.listed(&entries, more, cut),
             Tell::File { reading, carry } => self.file(reading, carry),
@@ -263,7 +320,52 @@ impl State {
                 self.said = said;
             }
             Tell::Panes(on) => self.show_panes(on),
+            Tell::Highlighter { highlighter, top } => {
+                self.highlighting.set(highlighter, top);
+                self.shown_now();
+            }
+            Tell::Syntax(_) | Tell::Shown(_) => {}
         }
+        true
+    }
+
+    /// Tells the highlighting the lines of each side the windows show, from the ranges of the
+    /// last text they showed: at most [`MOST_SHOWN_LINES`] lines a range are looked at. The
+    /// ranges are read against the last text built, which may be one the UI has not put in
+    /// yet: they only order the sides.
+    fn shown_now(&mut self) {
+        if !self.highlighting.is_on() {
+            return;
+        }
+        let mut shown = highlight::ShownLines::new();
+        if let Some((rows, _)) = &self.last {
+            for range in &self.shown {
+                let first = self.text.offset_to_point(range.start).row;
+                let last = self.text.offset_to_point(range.end).row;
+                for line in first..=last.min(first + MOST_SHOWN_LINES) {
+                    let Some(row) = rows.at(line) else {
+                        break;
+                    };
+                    if !shown.contains_key(row.path) {
+                        shown.insert(row.path.into(), highlight::SideRuns::default());
+                    }
+                    if let (Some((side, number)), Some(sides)) =
+                        (row.line(), shown.get_mut(row.path))
+                    {
+                        highlight::add_shown(&mut sides[highlight::index(side)], number);
+                    }
+                }
+            }
+        }
+        self.highlighting.show(shown);
+    }
+
+    /// Takes the reports that came, and opens what the sides want, after each batch told and
+    /// each text built; whether the reports changed what the next text shows.
+    fn schedule(&mut self) -> bool {
+        let changed = self.highlighting.take_reports(&self.order);
+        self.highlighting.schedule(&self.order);
+        changed
     }
 
     /// Takes a new listing. A file that left a whole listing with comments stays, after the
@@ -291,9 +393,11 @@ impl State {
                 continue;
             };
             if file.cards.comments.is_empty() {
+                self.highlighting.forget(path);
                 continue;
             }
             if whole {
+                self.highlighting.forget(path);
                 let gone = Gone {
                     withheld: file.withheld(),
                     cards: file.cards,
@@ -331,13 +435,15 @@ impl State {
             Carrying::Here(carry) => {
                 let carried = carry_here(carry);
                 file.show(Arc::clone(&reading), Some(carried.placed().into()), false);
+                self.highlighting.reading(&reading.entry.path, &reading);
                 self.carried.push((reading, carried));
                 self.dirty = true;
             }
             // The file shows its reading before until its carry comes.
             Carrying::Elsewhere => file.pending = Some(reading),
             Carrying::Nothing => {
-                file.show(reading, None, false);
+                file.show(Arc::clone(&reading), None, false);
+                self.highlighting.reading(&reading.entry.path, &reading);
                 self.dirty = true;
             }
         }
@@ -379,6 +485,7 @@ impl State {
                 Some(carried.placed().into()),
                 cut_short,
             );
+            self.highlighting.reading(&reading.entry.path, &reading);
             self.carried.push((reading, carried));
             self.dirty = true;
         }
@@ -405,100 +512,16 @@ impl State {
             self.dirty = true;
         }
     }
-
-    /// The whole text, laid out from each file's section, those changed laid out again; or,
-    /// when nothing in it changed, `None` with the last rows and highlights. The panes' texts
-    /// come with it while they are built and changed.
-    fn build(&mut self) -> Text {
-        let reading = self.reading_now();
-        let panes = self.panes_text();
-        if !self.dirty
-            && let Some((rows, highlights)) = &self.last
-        {
-            return Text {
-                text: None,
-                rows: rows.clone(),
-                highlights: highlights.clone(),
-                panes,
-                carried: std::mem::take(&mut self.carried),
-                reading,
-                folded: self.folded,
-            };
-        }
-        let mut sections: Vec<Arc<section::Rendered>> = Vec::with_capacity(self.order.len() + 2);
-        sections.push(Arc::new(section::title(&self.title, &self.said_now())));
-        let mut size = sections[0].bytes.len();
-        let folded = self.folded;
-        for path in &self.order {
-            let Some(file) = self.files.get_mut(path) else {
-                continue;
-            };
-            // A file past the limit shows its header alone; one read meanwhile is laid out anew.
-            let room = self.max_text.saturating_sub(size);
-            let mut kept = file.rendered.unified.take();
-            let rendered = section_in(&mut kept, room, || file.render(room, folded));
-            file.rendered.unified = kept;
-            size += rendered.bytes.len();
-            sections.push(rendered);
-        }
-        for (path, gone) in &mut self.gone {
-            let room = self.max_text.saturating_sub(size);
-            let (cards, withheld) = (&gone.cards, gone.withheld);
-            let rendered = section_in(&mut gone.rendered.unified, room, || {
-                section::gone(path, cards, room, folded, withheld)
-            });
-            size += rendered.bytes.len();
-            sections.push(rendered);
-        }
-        let sections: Vec<&section::Rendered> =
-            sections.iter().map(|rendered| &**rendered).collect();
-        let built = assemble::assemble(&sections, &self.text);
-        // The same text needs no swap, which would only free it again on the UI thread.
-        let changed = built.text.is_changed() || !built.valid || !self.valid;
-        let text = changed.then_some(built.text);
-        self.text = built.rope;
-        self.valid = built.valid;
-        self.dirty = false;
-        self.last = Some((built.rows.clone(), built.highlights.clone()));
-        Text {
-            text,
-            rows: built.rows,
-            highlights: built.highlights,
-            panes,
-            carried: std::mem::take(&mut self.carried),
-            reading,
-            folded,
-        }
-    }
-
-    /// What the title says under it: what was said, and what the listing left out.
-    fn said_now(&self) -> Vec<String> {
-        let mut said = self.said.clone();
-        if self.more > 0 {
-            said.push(format!("{} more files are not listed", self.more));
-        }
-        if self.cut {
-            said.push("more files may not be listed: git's listing was cut short".to_owned());
-        }
-        said
-    }
-
-    /// How many of the files listed are read, while a reading runs.
-    fn reading_now(&self) -> Option<(usize, usize)> {
-        self.reading.then(|| {
-            let read = self
-                .files
-                .values()
-                .filter(|file| file.reading.is_some())
-                .count();
-            (read, self.order.len())
-        })
-    }
 }
 
-/// Carries the comments of a file with none to place: nothing is matched, only hunks hashed.
+/// How long one carry made here may match lines for.
+const HERE_DEADLINE: Duration = Duration::from_millis(100);
+
+/// Carries the comments of a file with none to place: hunks hashed, and the lines both readings
+/// put in matched within [`HERE_DEADLINE`], with no old side read.
 fn carry_here(carry: Carry) -> Carried {
-    carry.run(|_, _| None, |_, _| Vec::new())
+    let deadline = Instant::now() + HERE_DEADLINE;
+    carry.run(|_, _| None, |a, b| super::diff::matches(a, b, deadline))
 }
 
 /// Takes what is told, everything waiting at once, and hands out a text after each batch once
@@ -511,10 +534,7 @@ fn serve(told: &Receiver<Message>, mut send: SendText, title: String, live: &Ato
     let mut told_since = false;
     while let Ok(first) = told.recv() {
         let mut take = |message| match message {
-            Message::Tell(tell) => {
-                state.take(tell);
-                told_since = true;
-            }
+            Message::Tell(tell) => told_since |= state.take(*tell),
             Message::Taken => in_flight = false,
         };
         take(first);
@@ -524,14 +544,26 @@ fn serve(told: &Receiver<Message>, mut send: SendText, title: String, live: &Ato
         if !live.load(Ordering::SeqCst) {
             return;
         }
+        let scheduled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| state.schedule()));
+        match scheduled {
+            Ok(changed) => told_since |= changed,
+            Err(_) => {
+                log::warn!("a review's view failed to highlight its sides");
+                return;
+            }
+        }
         if in_flight || !told_since {
             continue;
         }
-        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| state.build()));
+        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let text = state.build();
+            // The text says which files show lines, which are the ones whose sides open.
+            told_since = state.schedule();
+            text
+        }));
         match built {
             Ok(text) => {
                 in_flight = true;
-                told_since = false;
                 if !send(text) {
                     return;
                 }
@@ -557,5 +589,11 @@ pub(crate) fn built(title: &str, told: Vec<Tell>) -> Text {
 
 #[cfg(test)]
 mod carry_tests;
+#[cfg(test)]
+mod highlight_limits_tests;
+#[cfg(test)]
+mod highlight_tests;
+#[cfg(test)]
+mod project_tests;
 #[cfg(test)]
 mod tests;

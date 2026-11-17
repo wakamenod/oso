@@ -76,6 +76,10 @@ pub struct Report<Key> {
     /// text never changes.
     pub revision: u64,
     pub outcome: Outcome,
+    /// Whether this is a document no buffer owns highlighted whole: its last report, which
+    /// comes even when nothing changed since the one before, so that its slot may be closed.
+    /// Always false for a buffer's.
+    pub done: bool,
 }
 
 /// New highlights, or the end of highlighting in a buffer.
@@ -415,23 +419,29 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
         slot.checked_out = false;
         let document = checkout.document?;
         let (epoch, revision) = (slot.epoch, slot.revision);
-        let report = |outcome| Report {
+        let report = |outcome, done| Report {
             buffer: checkout.buffer,
             epoch,
             stamp,
             revision,
             outcome,
+            done,
         };
         if let Highlighted::Failed(failure) = outcome {
             if let Some(slot) = self.remove(&checkout.buffer) {
                 self.bury(slot);
             }
             self.doomed.push(document);
-            return Some(report(Outcome::Failed(failure)));
+            return Some(report(Outcome::Failed(failure), false));
         }
-        let sent = due(slot, &document, outcome).then(|| {
+        let unowned_done =
+            outcome == Highlighted::Done && matches!(slot.kind, Kind::Unowned { .. });
+        let sent = (unowned_done || due(slot, &document, outcome)).then(|| {
             slot.reported = Some((document.changes(), Instant::now()));
-            report(Outcome::Highlights(document.highlights().clone()))
+            report(
+                Outcome::Highlights(document.highlights().clone()),
+                unowned_done,
+            )
         });
         if let Kind::Unowned { place, finished } = &mut slot.kind {
             if outcome == Highlighted::Done {
@@ -470,6 +480,7 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             stamp,
             revision: slot.revision,
             outcome: Outcome::Lost,
+            done: false,
         };
         if let Some(slot) = self.remove(&checkout.buffer) {
             self.bury(slot);

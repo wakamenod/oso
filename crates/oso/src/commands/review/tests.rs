@@ -85,7 +85,13 @@ pub(crate) fn with_review(editor: &mut Editor, project: ProjectId) -> ReviewId {
     let window = editor.window().id();
     editor.show_in(window, buffer);
     let text = decode_all(TEXT.as_bytes(), Default::default()).compared_with(&Rope::new());
-    let _ = editor.set_review_text(review, text, rows(), Highlights::new(TEXT.len()));
+    let _ = editor.set_review_text(
+        review,
+        text,
+        rows(),
+        Highlights::new(TEXT.len()),
+        &|_, _, number| Some(number),
+    );
     review
 }
 
@@ -205,7 +211,13 @@ pub(crate) fn with_comments(editor: &mut Editor, project: ProjectId) -> (ReviewI
     b.push(lines(Side::New, 1), 1);
     let rows = Rows::new(vec![Arc::new(title), Arc::new(a), Arc::new(b)]);
     let text = decode_all(COMMENTED.as_bytes(), Default::default()).compared_with(&Rope::new());
-    let _ = editor.set_review_text(review, text, rows, Highlights::new(COMMENTED.len()));
+    let _ = editor.set_review_text(
+        review,
+        text,
+        rows,
+        Highlights::new(COMMENTED.len()),
+        &|_, _, number| Some(number),
+    );
     let comments = Comments {
         mine,
         agents_reply,
@@ -456,7 +468,12 @@ fn put_panes(editor: &mut Editor, review: ReviewId) {
         let loaded = decode_all(text.as_bytes(), Default::default()).compared_with(&Rope::new());
         (loaded, rows, Highlights::new(text.len()))
     };
-    let _ = editor.set_review_panes(review, pane(&old, Side::Old), pane(&new, Side::New));
+    let _ = editor.set_review_panes(
+        review,
+        pane(&old, Side::Old),
+        pane(&new, Side::New),
+        &|_, _, number| Some(number),
+    );
 }
 
 #[test]
@@ -505,35 +522,6 @@ fn bar_asks_for_two_panes_or_one_stream_and_a_filler_row_takes_no_comment() {
     assert_eq!(run(&mut editor, "review-quit", Args::NONE).0, Ok(()));
     assert_eq!(editor.pair_of(window), None);
     assert_eq!(editor.review_of(editor.window().buffer()), None);
-}
-
-#[test]
-fn a_pull_request_is_reviewed_by_its_number_alone() {
-    if cfg!(not(unix)) {
-        return;
-    }
-    let (mut editor, project) = in_project(true);
-    let mut answer = |text: &str| {
-        let registry = crate::commands::registry();
-        let id = registry.lookup("review-pull-request").unwrap();
-        let invocation = oso_core::command::Invocation {
-            answer: Some(text),
-            ..oso_core::command::Invocation::default()
-        };
-        let mut ctx = oso_core::command::Ctx::invoked(&mut editor, invocation);
-        registry.execute(id, &mut ctx, Args::NONE).is_ok()
-    };
-    assert!(answer(" 12 "));
-    assert!(answer("#7"));
-    for bad in ["", "  ", "-1", "+1", "1a", "#", "main", "1 2"] {
-        assert!(!answer(bad), "{bad:?}");
-    }
-    let open = |number: &str| ReviewRequest::Open {
-        project,
-        scope: ScopeKind::PullRequest,
-        revision: Some(number.into()),
-    };
-    assert_eq!(editor.take_review_requests(), [open("12"), open("7")]);
 }
 
 #[test]

@@ -696,6 +696,10 @@ topological order, children before their parents, one row each (ADR 0127, step 4
   `*Messages*` and the log, and goes from the line once the window moves on. An
   undefined key and "Quit" reach only the line
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
+- `C-h l` shows the last 300 keys oso received in `*Lossage*`, each with what it ran, and
+  `C-h k` reads a key sequence and says in `*Help*` what it runs, without running it. Keys typed
+  where secrets may be show as `<hidden>`, as do characters sent to a terminal
+  ([ADR 0150](adr/0150-view-lossage-and-describe-key.md)).
 
 ## Emergency copies
 

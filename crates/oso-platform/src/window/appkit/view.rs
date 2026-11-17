@@ -11,8 +11,10 @@
 //! - While oso has the input method off, as in a buffer that may hold secrets, no text and no
 //!   marked text from it is taken, and text marked meanwhile is dropped at the next key.
 //! - A key press comes only from a key-down AppKit dispatches: the event `keyDown:` handles,
-//!   or Command-`.`, for which the window sends `cancelOperation:` instead. Text from anything
-//!   else, such as Dictation or the Character Viewer, is a commit, never a key.
+//!   Command-`.`, for which the window sends `cancelOperation:` instead, or the "Show Help
+//!   menu" key (Command-Shift-`/` on ANSI and JIS layouts), which AppKit offers to
+//!   `performKeyEquivalent:` and would then take for itself. Text from anything else, such as Dictation or the Character Viewer,
+//!   is a commit, never a key.
 
 use std::cell::{Cell, RefCell};
 use std::panic::AssertUnwindSafe;
@@ -33,7 +35,7 @@ use objc2_quartz_core::{CALayer, CAMetalLayer};
 
 use super::keys::{self, Route};
 use super::{Delivery, State};
-use super::{cancel, input_client, key_text};
+use super::{diverted, input_client, key_text};
 use crate::window::MouseAction::{Moved, Press, Release};
 use crate::window::MouseButton::{Left, Middle, Right};
 use crate::window::utf16;
@@ -60,8 +62,9 @@ pub(super) struct Ivars {
     /// its own: what it sends with no key in hand is not taken until the next key, as a reply
     /// may come late.
     muted: Cell<bool>,
-    /// The key-down last routed, which a `cancelOperation:` never routes again.
-    routed: Cell<Option<cancel::Stamp>>,
+    /// The key-down last routed, which a `cancelOperation:` or `performKeyEquivalent:` never
+    /// routes again.
+    routed: Cell<Option<diverted::Stamp>>,
 }
 
 define_class!(
@@ -158,8 +161,24 @@ define_class!(
         #[unsafe(method(cancelOperation:))]
         fn cancel_operation(&self, _sender: Option<&AnyObject>) {
             let (nested, routed) = (self.ivars().state.in_event.get(), self.ivars().routed.get());
-            if let Some(event) = cancel::diverted_key(self, nested, routed) {
+            if let Some(event) = diverted::cancel_key(self, nested, routed) {
                 self.ivars().state.during_event(|| self.route_key(&event));
+            }
+        }
+
+        /// The "Show Help menu" key, which AppKit takes for itself if the view declines it:
+        /// Command-Shift on the key with code 44, oso's `M-?` on ANSI and JIS layouts
+        /// (ADR 0152). Every other key equivalent goes on as AppKit sends it.
+        #[unsafe(method(performKeyEquivalent:))]
+        fn perform_key_equivalent(&self, event: &NSEvent) -> bool {
+            let (nested, routed) = (self.ivars().state.in_event.get(), self.ivars().routed.get());
+            if diverted::is_help_menu_key(self, event, nested, routed) {
+                self.ivars().state.during_event(|| self.route_key(event));
+                true
+            } else {
+                // SAFETY: NSView's own `performKeyEquivalent:`, which takes an `NSEvent *` and
+                // returns a `BOOL`.
+                unsafe { msg_send![super(self), performKeyEquivalent: event] }
             }
         }
 
@@ -442,7 +461,7 @@ impl OsoView {
 
     /// Decides where a key goes: to oso, or to the input method first.
     fn route_key(&self, event: &NSEvent) {
-        self.ivars().routed.set(Some(cancel::stamp(event)));
+        self.ivars().routed.set(Some(diverted::stamp(event)));
         self.ivars().muted.set(false);
         let held = keys::held(event.modifierFlags());
         self.note_modifiers(held);

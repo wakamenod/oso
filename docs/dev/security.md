@@ -529,6 +529,15 @@ shown, boxed or escaped.
   dumps are disabled with `RLIMIT_CORE` on Unix, soft and hard. Windows has no such limit for a process to set.
   The panic hook prints the location and the stack and never the message, also for a panic caught at the
   command boundary ([ADR 0028](adr/0028-secrets-handling.md), [ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
+- `view-lossage` keeps the last 300 keys oso received, in memory only: never saved, logged or
+  carried over a restart. A key typed where secrets may be (a buffer that may hold them, a
+  passphrase prompt, or a prompt, isearch or jump over such a buffer) is kept as `<hidden>`,
+  with nothing of what it ran, and so is a character sent to a terminal's program, which may be
+  a password the terminal has not yet seen asked for. A run of hidden keys is one line. A key
+  held to run later is kept as `<held>` until it runs, where it is judged. `*Lossage*` is
+  withheld from the agent channel, and the channel can run neither `view-lossage` nor
+  `describe-key`, which reads no key where secrets may be
+  ([ADR 0150](adr/0150-view-lossage-and-describe-key.md)).
 - Saving (T5) writes a temporary file beside the real file, follows symbolic links to
   find it, and renames it over that file, so a crash leaves the old file or the whole
   new one, unless the file system cannot sync, which the message then says. The text goes only to where the buffer's file was: if a link or a directory
@@ -814,6 +823,14 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   event that made it so: what waited for it never runs. Its
   queries are oso's own, compiled in, with a match limit; nothing is loaded at run time
   ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
+- Opening a review parses text the person never opened: both sides of each changed file, the
+  old one from git's history, as documents no buffer owns, which an agent's changes can reach
+  with no other step. They go through the same worker, limits, stacks and caught panics as
+  buffers, at most 8 a review at once, and only for a file every name of which is judged
+  ordinary (`Entry::verdict`, the review's own check before it reads, with
+  `Buffer::judge_name`); the scheduler refuses any other verdict. An abort in a grammar's C
+  code is not caught, as for a buffer
+  ([ADR 0122](adr/0122-agent-review.md), step 9).
 
 ### Untrusted parsers (T10)
 

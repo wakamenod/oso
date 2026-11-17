@@ -99,6 +99,11 @@ impl App {
         }
         // After the saver's own message, which a review's revert says more than (ADR 0122).
         self.review_save_ended(buffer, !failed);
+        // A review of the file's project is stale (ADR 0122, step 4).
+        if !failed && let Some(path) = self.editor.buffer(buffer).and_then(|shown| shown.path()) {
+            let path = path.to_path_buf();
+            self.reviews_touched(&path);
+        }
         self.look_again_after_save(buffer);
         // A shown git status of the file's repository is read again, or only marked stale if
         // the person did not start the save (ADR 0127, ADR 0118).

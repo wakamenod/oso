@@ -112,7 +112,7 @@ impl SideLines {
             side: self.side,
             first: self.first,
         };
-        writer.line(kind, &[(sign, Some(highlight)), (text, Some(highlight))]);
+        writer.side_line(kind, (self.side, number), sign, text, highlight);
         self.after = Some(writer.rows());
     }
 }
@@ -319,7 +319,7 @@ impl State {
             .into_iter()
             .enumerate()
             .map(|(side, sections)| {
-                let built = assemble(&sections, &self.panes.texts[side]);
+                let built = assemble(&sections, &[], &self.panes.texts[side]);
                 self.panes.texts[side] = built.rope;
                 (built.text, built.rows, built.highlights)
             });

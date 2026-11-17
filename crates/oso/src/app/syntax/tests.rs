@@ -174,6 +174,7 @@ fn a_report_is_taken_and_a_failure_stops_the_buffer_and_names_only_it() {
         stamp: 1,
         revision: job.revision,
         outcome: Outcome::Highlights(highlights),
+        done: false,
     };
     let shown = Taken {
         redraw: true,
@@ -188,6 +189,7 @@ fn a_report_is_taken_and_a_failure_stops_the_buffer_and_names_only_it() {
         stamp: 2,
         revision: job.revision,
         outcome: Outcome::Failed(Failure::TooSlow),
+        done: false,
     };
     let message = syntax.take(&mut editor, failed).message.unwrap();
     assert_eq!(message, "Highlighting stopped in main.rs: it took too long");
@@ -213,6 +215,7 @@ fn a_report_for_a_dropped_buffer_is_ignored() {
         stamp: 1,
         revision: job.revision,
         outcome: Outcome::Highlights(Highlights::new(job.text.len())),
+        done: false,
     };
     assert_eq!(syntax.take(&mut editor, report), Taken::default());
     assert!(editor.buffer(id).unwrap().highlights().is_none());
@@ -249,6 +252,7 @@ fn the_threads_report_highlights_and_failures() {
         stamp: u64::MAX,
         revision: 0,
         outcome: Outcome::Failed(Failure::TooSlow),
+        done: false,
     };
     let message = syntax.take(&mut editor, failed).message;
     assert_eq!(
@@ -274,7 +278,7 @@ fn documents_share_the_threads_and_a_slow_one_never_holds_a_shown_buffer_back() 
     let (reports, received) = mpsc::channel();
     let pool = Pool::start(move |report| drop(reports.send(report))).unwrap();
     let open = |key, verdict, text: &str, shown| {
-        pool.open(
+        pool.documents().open(
             Key::Document(key),
             Language::Rust,
             verdict,
@@ -330,10 +334,11 @@ fn documents_share_the_threads_and_a_slow_one_never_holds_a_shown_buffer_back() 
         "the second document took the lane's thread"
     );
     // Done: showing it again starts nothing, and closing it frees nothing more.
-    pool.show(Key::Document(2), std::iter::once(0..4).collect());
+    pool.documents()
+        .show(Key::Document(2), std::iter::once(0..4).collect());
     let late = received.recv_timeout(Duration::from_millis(100));
     assert!(late.is_err(), "a report after the end: {late:?}");
-    pool.close(Key::Document(2));
+    pool.documents().close(Key::Document(2));
 }
 
 #[test]
@@ -363,6 +368,7 @@ fn a_report_asks_for_a_frame_only_if_a_shown_run_changed() {
             stamp,
             revision: job.revision,
             outcome: Outcome::Highlights(highlights),
+            done: false,
         };
         syntax.take(editor, report).redraw
     };
@@ -391,6 +397,7 @@ fn a_report_from_before_a_new_start_or_older_than_one_taken_is_dropped() {
             stamp,
             revision: job.revision,
             outcome: Outcome::Highlights(highlights),
+            done: false,
         }
     };
     let at_start = |editor: &Editor| {
@@ -447,6 +454,7 @@ fn setting_the_mode_again_gives_a_stopped_buffer_another_try() {
         stamp: 1,
         revision: job.revision,
         outcome: Outcome::Failed(Failure::TooSlow),
+        done: false,
     };
     assert!(syntax.take(&mut editor, failed).message.is_some());
     assert!(syntax.orders(&editor).jobs.is_empty(), "stopped");
@@ -528,6 +536,7 @@ fn a_report_for_a_buffer_only_previewed_asks_for_a_frame() {
         stamp: 1,
         revision: job.revision,
         outcome: Outcome::Highlights(highlights),
+        done: false,
     };
     assert!(syntax.take(&mut editor, report).redraw);
 }

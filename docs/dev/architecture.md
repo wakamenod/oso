@@ -893,6 +893,13 @@ The UI thread never blocks on I/O or parsing:
   below. The editor carries the cursor across a switch by place, moves it off filler rows after
   each command, and drops the panes once no window shows them
   (`oso_core::editor` `reviews/panes.rs`; ADR 0122, step 11).
+- The view thread also highlights each side of a text reading (`review/view/highlight.rs`):
+  it opens each as a document no buffer owns on the syntax threads, through the
+  `Documents` handle the app gives it (`app/reviews/highlight.rs`), keyed
+  `SyntaxKey::Side`, files on screen first and at most 8 at once. The UI hands each report on
+  to its review's view in O(1); the view projects its runs over the review's lines
+  (`review/view/project.rs`) and sends a paint that lays out nothing, which goes in through
+  `set_review_paint` at O(1) (ADR 0122, step 9).
 
 ### Configuration
 

@@ -150,7 +150,9 @@ const SPINNING: Duration = Duration::from_secs(5);
 /// gives the UI thread's time on each frame over [`SPINNING`], in ms: the spinner's frames.
 fn spinning(app: &mut App, scratch: &Path) -> Result<Vec<f64>, String> {
     let work = scratch.join("work");
-    std::fs::write(&work, WORKING).map_err(|e| format!("{}: {e}", work.display()))?;
+    // Staged and renamed: a fake that saw the file before it was written would show it empty,
+    // once, and never work.
+    write_screen(&scratch.join("work.new"), &work, WORKING)?;
     let deadline = Instant::now() + WITHIN;
     loop {
         let state = app.call("get-state", None)?;
@@ -215,17 +217,33 @@ fn photon(app: &mut App, scratch: &Path) -> Result<f64, String> {
         let wrote = unix_us();
         write_screen(&staged, &screen, PERMISSION)?;
         wait_for_needs(app, true)?;
-        let timings = app.timings()?;
-        let shown = timings["needs_input_frames"]
-            .as_array()
-            .and_then(|frames| frames.iter().filter_map(serde_json::Value::as_u64).min())
-            .ok_or("no frame counted the dialog")?;
+        let shown = counted_frame(app)?;
         samples.push(shown.saturating_sub(wrote) as f64 / 1000.0);
     }
     Ok(crate::report::median(&samples))
 }
 
-/// Has every fake print `text`: the one file each looks at.
+/// When the first frame that counts the dialog was presented. `get-state` can tell of the
+/// dialog before that frame is presented, so the timings are read again until one has.
+fn counted_frame(app: &mut App) -> Result<u64, String> {
+    let deadline = Instant::now() + WITHIN;
+    loop {
+        let timings = app.timings()?;
+        let shown = timings["needs_input_frames"]
+            .as_array()
+            .and_then(|frames| frames.iter().filter_map(serde_json::Value::as_u64).min());
+        if let Some(shown) = shown {
+            return Ok(shown);
+        }
+        if Instant::now() > deadline {
+            return Err("no frame counted the dialog".into());
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// Has every fake print `text`: writes it to `screen`, one of the files each looks at, all at
+/// once, by a rename from `staged`, so that no fake reads it half written.
 fn write_screen(staged: &Path, screen: &Path, text: &str) -> Result<(), String> {
     std::fs::write(staged, text).map_err(|e| format!("{}: {e}", staged.display()))?;
     std::fs::rename(staged, screen).map_err(|e| format!("{}: {e}", screen.display()))

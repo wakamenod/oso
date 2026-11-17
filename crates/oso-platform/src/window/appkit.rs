@@ -11,8 +11,8 @@
 //! - A panic in the handler stops the loop, and no handler method runs again; `run` then
 //!   resumes it. The panic hook has written what is at risk by then (ADR 0062).
 
-mod cancel;
 mod delegates;
+mod diverted;
 mod gate;
 mod handles;
 mod input_client;

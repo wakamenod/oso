@@ -350,13 +350,13 @@ fn a_refresh_reads_only_what_changed_and_shown_files_first() {
     }
     let mut reader = repo.reader();
     assert_eq!(open(&mut reader, Scope::Uncommitted).readings.len(), 3);
-    let again = ask(&mut reader, Request::Refresh { first: Vec::new() });
+    let again = ask(&mut reader, Request::person_refresh(Vec::new()));
     assert_eq!(again.entries.len(), 3);
     assert!(again.readings.is_empty(), "{:?}", again.paths());
     repo.write("b.txt", b"z\nz\n");
     repo.write("c.txt", b"w\nw\n");
     let first = vec![Box::from(&b"c.txt"[..])];
-    let changed = ask(&mut reader, Request::Refresh { first });
+    let changed = ask(&mut reader, Request::person_refresh(first));
     assert_eq!(changed.paths(), ["c.txt", "b.txt"]);
 }
 
@@ -468,7 +468,7 @@ fn comments_are_carried_across_a_moved_old_side() {
     let Some(Report::Carried { carried, .. }) = carried.other.into_iter().next() else {
         panic!("not carried");
     };
-    assert_eq!(review.apply(carried).placed, 1);
+    assert_eq!(review.apply(*carried).placed, 1);
     let comment = review.comment(id).unwrap();
     assert_eq!(
         comment.anchor(),
@@ -580,7 +580,7 @@ fn a_carry_waiting_during_a_refresh_is_answered_between_files_and_stops_nothing(
     repo.write("b.txt", b"1\n2\n3\n");
     let mut said = Vec::new();
     reader.answer(
-        Request::Refresh { first: Vec::new() },
+        Request::person_refresh(Vec::new()),
         &|| false,
         &mut || carry.take(),
         &mut |report| {
