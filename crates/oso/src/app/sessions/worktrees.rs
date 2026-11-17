@@ -30,6 +30,7 @@ mod stop;
 use super::hosting::Begin;
 use super::watch::Watch;
 use crate::git::TrustedRoot;
+use crate::git::printable;
 use crate::sessions::hosted::{Hosted, Run};
 use crate::sessions::identity::SessionId;
 use crate::sessions::state::State;
@@ -38,7 +39,6 @@ use crate::sessions::worktree::checks::{Held, HostedSession};
 use crate::sessions::worktree::create::{Created, Handover, Order, Step};
 use crate::sessions::worktree::jobs::{Jobs, Report, Snapshot, Trust};
 use crate::sessions::worktree::list::{Row, RowText, Shown};
-use crate::sessions::worktree::porcelain::printable;
 use crate::sessions::worktree::slug;
 
 /// The name of the buffer a brief is written in.

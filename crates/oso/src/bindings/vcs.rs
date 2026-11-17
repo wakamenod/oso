@@ -27,5 +27,9 @@ pub const GRAPH: &[(&str, &str)] = crate::commands::vcs::graph::KEYS;
 /// Key sequences and the built-in menus they open, in a graph only.
 pub const GRAPH_MENUS: &[(&str, &str)] = crate::commands::vcs::graph::MENUS;
 
+/// Key sequences and the commands they run, in a pull request's buffer and a list of them
+/// (step 5a).
+pub const PR: &[(&str, &str)] = crate::commands::vcs::pr::KEYS;
+
 /// Key sequences and the commands they run, in the list of what discards kept.
 pub const DISCARDED: &[(&str, &str)] = crate::commands::vcs::discard::LIST_KEYS;

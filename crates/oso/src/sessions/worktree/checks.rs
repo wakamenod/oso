@@ -14,10 +14,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 
 use super::facts::RepoFacts;
-use super::git::{Gh, MAX_LISTING, Repo, run, said};
+use super::git::{MAX_LISTING, Repo, run, said};
 use super::merged::{self, Local, Merged};
 use super::porcelain::{self, Listed, Status};
-use crate::git::{Git, GitError};
+use crate::git::{Gh, Git, GitError};
 
 /// The most names of ignored files and directories kept, for the removal's question.
 pub const MAX_IGNORED: usize = 1_000;

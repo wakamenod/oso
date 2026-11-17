@@ -97,10 +97,7 @@ pub use cursors::{CursorError, Toward};
 pub use diagnostics::DiagnosticCells;
 pub use file_preview::{Excerpt, FilePreviewRead, FilePreviewRequest, PreviewAt};
 pub use files::Looked;
-pub use git::{
-    BranchAction, CommitKind, CommitSwitches, FetchFrom, GitHeading, GitLines, GitRequest,
-    GitShown, GraphAct, GraphScope, MAX_GIT_LOG, PullHow, PushSwitches, PushTarget, StashAction,
-};
+pub use git::*;
 pub use gutter::Gutter;
 pub use indent::{IndentError, Shift};
 pub use isearch::{Isearch, MatchCells};

@@ -220,7 +220,7 @@ fn same_directory(a: &fs::Metadata, b: &fs::Metadata) -> bool {
 
 /// The branch name, as git normalises it, refused if git would not take it as a branch.
 fn checked_branch(repo: &Repo, name: &str) -> Result<Branch, String> {
-    let refused = || format!("Not a branch name: {}", porcelain::printable(name, 80));
+    let refused = || format!("Not a branch name: {}", crate::git::printable(name, 80));
     check_revision(name).map_err(|_| refused())?;
     let out = run(
         repo.git(),
@@ -243,8 +243,8 @@ fn refuse_checked_out(repo: &Repo, branch: &str) -> Result<(), String> {
     match listed.iter().find(|w| w.branch.as_deref() == Some(branch)) {
         Some(w) => Err(format!(
             "Branch {} is checked out already, in {}",
-            porcelain::printable(branch, 120),
-            porcelain::printable(&w.path.display().to_string(), 200)
+            crate::git::printable(branch, 120),
+            crate::git::printable(&w.path.display().to_string(), 200)
         )),
         None => Ok(()),
     }
@@ -274,7 +274,7 @@ pub(super) fn resolve(
 ) -> Result<Resolved, String> {
     let branch = checked_branch(repo, name)?;
     refuse_checked_out(repo, &branch.name)?;
-    let shown = porcelain::printable(&branch.name, 120);
+    let shown = crate::git::printable(&branch.name, 120);
     let base = match (&branch.tip, base) {
         (Some(_), Some(_)) => {
             return Err(format!(
@@ -300,7 +300,7 @@ fn base_of(git: &Git, typed: Option<&str>) -> Result<(String, String), String> {
         .resolve(revision, "commit")
         .map_err(|e| said(&e))?
         .map(|id| id.as_str().to_owned())
-        .ok_or_else(|| format!("Not a commit: {}", porcelain::printable(revision, 80)))?;
+        .ok_or_else(|| format!("Not a commit: {}", crate::git::printable(revision, 80)))?;
     let name = match typed {
         Some(typed) => typed.to_owned(),
         None => run(

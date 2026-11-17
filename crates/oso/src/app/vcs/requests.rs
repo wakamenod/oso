@@ -24,6 +24,8 @@ pub(super) enum Concern {
     Branch,
     /// The graph of a repository's commits (step 4).
     Graph,
+    /// Pull requests through `gh` (step 5a).
+    Pr,
 }
 
 /// Where `request` is carried out.
@@ -60,5 +62,9 @@ pub(super) fn concern(request: &GitRequest) -> Concern {
         | GitRequest::GraphToggle { .. }
         | GitRequest::GraphAct { .. }
         | GitRequest::GraphAnswer { .. } => Concern::Graph,
+        GitRequest::PrView { .. }
+        | GitRequest::PrList { .. }
+        | GitRequest::PrOpen { .. }
+        | GitRequest::PrAct { .. } => Concern::Pr,
     }
 }

@@ -8,7 +8,7 @@
 //! git in [`remote`]; and from step 3a a stopped merge, rebase, pick, revert or `git am`
 //! ([`sequence`]), which the head shows and `C-c C-c`, `C-c C-s` and `C-c C-k` go on with;
 //! and from step 3b stashes ([`stash`]) and branches ([`branch`]); and from step 4 the graph of
-//! a repository's commits ([`graph`]).
+//! a repository's commits ([`graph`]); and from step 5a pull requests through `gh` ([`pr`]).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in
 //! and takes reports out, and supplies the wake-up.
@@ -38,6 +38,7 @@ pub(crate) mod history;
 pub(crate) mod keep;
 pub(crate) mod layout;
 pub(crate) mod patch;
+pub(crate) mod pr;
 pub(crate) mod read;
 pub(crate) mod remote;
 pub(crate) mod run;

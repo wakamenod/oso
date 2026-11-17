@@ -57,6 +57,8 @@ pub(super) struct Keymaps {
     pub(super) popup: [Keymap; 2],
     /// The commands the popup stays open for: its own, and typing.
     pub(super) popup_commands: Vec<CommandId>,
+    /// `self-insert-command`, the person's typing of which may complete by itself (step 9b).
+    pub(super) self_insert: Option<CommandId>,
     /// The keys of a server's description at point, in the layer's place while it shows
     /// (ADR 0138, Hover), and the commands it runs rather than closes for.
     pub(super) hover: Keymap,
@@ -84,6 +86,7 @@ pub(super) struct Keymaps {
     pub(super) git_discarded: Keymap,
     /// A graph's own keys, above the global ones (ADR 0127, step 4).
     pub(super) git_graph: Keymap,
+    pub(super) git_pr: Keymap,
     /// A terminal's own keys, above the global ones in a terminal's buffer (ADR 0120).
     pub(super) terminal: Keymap,
     /// A terminal's own keys and session mode's, in a terminal's buffer that hosts a session
@@ -124,6 +127,7 @@ impl Keymaps {
             rigid_commands: bindings::rigid_commands(registry),
             popup,
             popup_commands,
+            self_insert: registry.lookup("self-insert-command"),
             hover: bindings::hover_keymap(registry),
             hover_commands: bindings::hover_commands(registry),
             markdown: bindings::markdown_keymap(registry),
@@ -137,6 +141,7 @@ impl Keymaps {
             conversations: bindings::conversation_keymaps(registry),
             git_discarded: bindings::git_discarded_keymap(registry),
             git_graph: bindings::git_graph_keymap(registry),
+            git_pr: bindings::git_pr_keymap(registry),
             terminal: bindings::terminal_keymap(registry),
             session_help: SessionHelp::new(&session, registry),
             session,
@@ -147,7 +152,7 @@ impl Keymaps {
 
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 34] {
+    pub(super) fn all(&self) -> [&Keymap; 35] {
         let Self {
             global,
             user,
@@ -164,6 +169,7 @@ impl Keymaps {
             rigid_commands: _,
             popup: [popup, popup_moved],
             popup_commands: _,
+            self_insert: _,
             hover,
             hover_commands: _,
             markdown,
@@ -177,6 +183,7 @@ impl Keymaps {
             conversations: [searching, conversation],
             git_discarded,
             git_graph,
+            git_pr,
             terminal,
             session,
             user_session,
@@ -214,6 +221,7 @@ impl Keymaps {
             conversation,
             git_discarded,
             git_graph,
+            git_pr,
             terminal,
             session,
             user_session,
@@ -322,6 +330,7 @@ impl Keymaps {
                 Mode::Conversation => Some(&self.conversations[1]),
                 Mode::GitDiscarded => Some(&self.git_discarded),
                 Mode::GitGraph => Some(&self.git_graph),
+                Mode::GitPr | Mode::GitPrList => Some(&self.git_pr),
                 Mode::Markdown => Some(&self.markdown),
                 Mode::Brief => Some(&self.worktrees[0]),
                 Mode::Worktrees => Some(&self.worktrees[1]),

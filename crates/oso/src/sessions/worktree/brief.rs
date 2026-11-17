@@ -9,7 +9,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use super::porcelain::printable;
+use crate::git::printable;
 
 /// The most bytes the whole first prompt takes.
 pub const MAX_BRIEF: usize = 64 * 1024;

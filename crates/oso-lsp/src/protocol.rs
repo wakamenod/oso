@@ -14,7 +14,10 @@ mod published;
 #[cfg(test)]
 mod tests;
 
-pub use completion::{CompletionList, Offered, completed, completion_params, kind_name, plain};
+pub use completion::{
+    Completing, CompletionList, Extra, Invoked, Offered, completed, completing, completion_params,
+    extra_edits, kind_name, plain, resolved, take_items,
+};
 pub use hover::{Hover, hover};
 pub use located::{Located, located, position_params, references_params};
 pub use published::{Published, Reported, published};
@@ -210,9 +213,13 @@ pub fn initialize_params(start: &Initialize<'_>) -> Value {
                 },
                 "definition": {"linkSupport": true},
                 "references": {},
-                // Plain text only (Q22); `resolve` comes with step 9b.
+                // Plain text only (Q22), and the edits besides an item's own resolved (9b).
                 "completion": {
-                    "completionItem": {"snippetSupport": false, "insertReplaceSupport": true},
+                    "completionItem": {
+                        "snippetSupport": false,
+                        "insertReplaceSupport": true,
+                        "resolveSupport": {"properties": ["additionalTextEdits"]},
+                    },
                     "contextSupport": true,
                 },
                 "hover": {"contentFormat": ["markdown", "plaintext"]},

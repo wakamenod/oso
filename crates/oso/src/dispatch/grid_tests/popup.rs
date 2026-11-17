@@ -35,10 +35,13 @@ fn popped(text: &str, (rows, columns): (usize, usize), at: usize, labels: &[&str
             filter: None,
             text: (*label).into(),
             range: None,
+            extra: Vec::new(),
         })
         .collect();
     let at = editor.ask_at();
     let answer = CompletionPopupAnswer {
+        serial: 1,
+        incomplete: false,
         at,
         revision: at.revision,
         items,

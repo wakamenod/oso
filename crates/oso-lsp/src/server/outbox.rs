@@ -39,6 +39,7 @@ struct Waiting {
     /// replaces it in O(1), however many wait.
     waiting_at: HashMap<Key, usize>,
     answers: Vec<Answer>,
+    completing: Option<crate::protocol::Completing>,
 }
 
 /// What a waiting set of diagnostics is of: an open document, or a file.
@@ -61,6 +62,7 @@ impl Default for Waiting {
             diagnostics: Vec::new(),
             waiting_at: HashMap::new(),
             answers: Vec::new(),
+            completing: None,
         }
     }
 }
@@ -91,6 +93,7 @@ impl Outbox {
                 mem::take(&mut waiting.diagnostics)
             },
             answers: mem::take(&mut waiting.answers),
+            completing: waiting.completing.take(),
         })
     }
 
@@ -141,6 +144,13 @@ impl Reporter {
         } else {
             self.due = true;
         }
+    }
+
+    /// What the server said of its completions, for the UI (step 9b).
+    pub(super) fn completing(&mut self, completing: crate::protocol::Completing) {
+        self.outbox
+            .with(|waiting| waiting.completing = Some(completing));
+        self.due = true;
     }
 
     /// A line for `*LSP*`.

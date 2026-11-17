@@ -16,10 +16,19 @@ impl App {
     /// Carries out what the status's own commands asked.
     pub(super) fn git_status_request(&mut self, request: GitRequest) {
         match request {
-            GitRequest::Status { project } => self.open_git_status(project),
+            GitRequest::Status { project } => {
+                self.open_git_status(project);
+                // The `PR:` line is the person's to ask for, as `gh` talks to GitHub (step 5a).
+                if !self.gits.by_agent && self.editor.project_trusted(project) {
+                    self.ask_pr_head(project, false);
+                }
+            }
             GitRequest::Refresh { buffer } => {
                 if let Some(index) = self.git_index(buffer) {
                     self.git_ask(index, Ask::Read);
+                    if !self.gits.by_agent {
+                        self.ask_pr_head(self.gits.open[index].project, false);
+                    }
                 }
             }
             GitRequest::Toggle { buffer, line } => self.toggle_git(buffer, line),

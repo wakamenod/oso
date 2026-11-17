@@ -10,8 +10,8 @@ use std::path::Path;
 
 use super::super::super::App;
 use crate::git::GRACE;
+use crate::git::printable;
 use crate::sessions::worktree::jobs::{Running, Stop};
-use crate::sessions::worktree::porcelain::printable;
 
 impl App {
     /// `worktree-remove-stop`: the removal at point in `*Worktrees*`, else the only one that
