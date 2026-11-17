@@ -1,8 +1,8 @@
 //! The view's comments: a file waiting for its carry keeps its section, carries for readings
 //! no longer current are dropped, a carry goes in the next text, a snapshot or folding lays out
 //! only the files it touches, a file that leaves a whole listing with comments stays last,
-//! counted alone if it was withheld, one a cut listing left out stays as it was, and the text's
-//! limit.
+//! counted alone if it was withheld or its name may hold secrets, read or not, one a cut listing
+//! left out stays as it was, and the text's limit.
 //!
 //! Must not depend on: `app`, `dispatch` or winit; these drive the view's state.
 
@@ -280,6 +280,170 @@ fn a_withheld_file_that_leaves_shows_only_its_count() {
         text.ends_with("reading\u{2026}\nno longer changed  a  \u{b7} 1 comment\n"),
         "{text}"
     );
+}
+
+/// A model with a comment on line 1 of `path`, which the view has not been told of.
+fn commented_on(path: &[u8]) -> Review {
+    let mut review = Review::new();
+    let _ = read(&mut review, path, vec![hunk(1, 1, &[], &[b"one\n"])]);
+    let on_one = Anchor::Line {
+        side: Side::New,
+        number: 1,
+    };
+    review
+        .add_comment(Author::Person, path, on_one, "a card".into())
+        .unwrap();
+    review
+}
+
+/// The text after `entry` was listed with the model's comments on it and never read, then left
+/// a whole listing.
+fn left_unread(review: &Review, entry: Entry) -> String {
+    let path = entry.path.clone();
+    let mut state = State::new("t".into());
+    state.take(Tell::Listed {
+        entries: vec![entry].into(),
+        more: 0,
+        cut: false,
+    });
+    state.take(cards_of(review, &path));
+    state.build();
+    state.take(Tell::Listed {
+        entries: vec![super::section::tests::entry(b"b", Status::Modified)].into(),
+        more: 0,
+        cut: false,
+    });
+    state.take(cards_of(review, &path));
+    state.build();
+    state.text.to_string()
+}
+
+#[test]
+fn a_file_named_as_holding_secrets_that_leaves_unread_shows_only_its_count() {
+    let review = commented_on(b".env");
+    let text = left_unread(&review, entry(b".env", Status::Modified));
+    assert!(
+        text.ends_with("no longer changed  .env  \u{b7} 1 comment\n"),
+        "{text}"
+    );
+    assert!(!text.contains("a card"), "{text}");
+}
+
+#[test]
+fn a_file_renamed_from_a_name_holding_secrets_that_leaves_unread_shows_only_its_count() {
+    let review = commented_on(b"config");
+    let renamed = Entry {
+        old_path: Some(b".ssh/config".as_slice().into()),
+        ..entry(b"config", Status::Renamed)
+    };
+    let text = left_unread(&review, renamed);
+    assert!(
+        text.ends_with("no longer changed  config  \u{b7} 1 comment\n"),
+        "{text}"
+    );
+    assert!(!text.contains("a card"), "{text}");
+}
+
+#[test]
+fn an_ordinary_file_that_leaves_unread_shows_its_cards() {
+    let review = commented_on(b"a");
+    let text = left_unread(&review, entry(b"a", Status::Modified));
+    assert!(
+        text.contains("no longer changed  a  \u{b7} 1 comment\n"),
+        "{text}"
+    );
+    assert!(text.contains("a card"), "{text}");
+}
+
+#[test]
+fn comments_on_a_file_never_listed_show_only_their_count_if_its_name_may_hold_secrets() {
+    let review = commented_on(b".aws/credentials");
+    let mut state = State::new("t".into());
+    state.take(cards_of(&review, b".aws/credentials"));
+    state.build();
+    let text = state.text.to_string();
+    assert!(
+        text.ends_with("no longer changed  .aws/credentials  \u{b7} 1 comment\n"),
+        "{text}"
+    );
+    assert!(!text.contains("a card"), "{text}");
+    // An ordinary one shows its cards.
+    let review = commented_on(b"a");
+    let mut state = State::new("t".into());
+    state.take(cards_of(&review, b"a"));
+    state.build();
+    assert!(state.text.to_string().contains("a card"));
+}
+
+#[test]
+fn a_file_named_as_holding_secrets_is_judged_under_the_work_trees_top() {
+    let review = commented_on(b"config");
+    let mut state = State::new("t".into());
+    state.take(Tell::Highlighter {
+        highlighter: None,
+        top: PathBuf::from("/home/someone/.ssh"),
+    });
+    state.take(cards_of(&review, b"config"));
+    state.build();
+    let text = state.text.to_string();
+    assert!(text.contains("1 comment\n"), "{text}");
+    assert!(!text.contains("a card"), "{text}");
+}
+
+/// Lists `entries`, all of the listing.
+fn listed(state: &mut State, entries: Vec<Entry>) {
+    state.take(Tell::Listed {
+        entries: entries.into(),
+        more: 0,
+        cut: false,
+    });
+}
+
+#[test]
+fn a_withheld_file_listed_again_and_gone_before_its_reading_shows_only_its_count() {
+    let (mut state, review, reading) = commented();
+    state.take(Tell::File {
+        reading: Arc::new(Reading {
+            entry: reading.entry.clone(),
+            content: Content::Withheld,
+        }),
+        carry: Carrying::Nothing,
+    });
+    let other = entry(b"b", Status::Modified);
+    listed(&mut state, vec![other.clone()]);
+    // Listed again, and gone again before a reading of it comes.
+    listed(
+        &mut state,
+        vec![entry(b"a", Status::Modified), other.clone()],
+    );
+    listed(&mut state, vec![other]);
+    state.take(cards_of(&review, b"a"));
+    state.build();
+    let text = state.text.to_string();
+    assert!(
+        text.ends_with("no longer changed  a  \u{b7} 1 comment\n"),
+        "{text}"
+    );
+    assert!(!text.contains("a card"), "{text}");
+}
+
+#[test]
+fn a_file_listed_later_as_renamed_from_a_name_holding_secrets_shows_only_its_count_once_gone() {
+    let (mut state, review, reading) = commented();
+    let renamed = Entry {
+        old_path: Some(b".env".as_slice().into()),
+        ..reading.entry.clone()
+    };
+    listed(&mut state, vec![renamed]);
+    listed(&mut state, vec![entry(b"b", Status::Modified)]);
+    state.take(cards_of(&review, b"a"));
+    state.build();
+    let text = state.text.to_string();
+    assert!(
+        text.ends_with("no longer changed  a  \u{b7} 1 comment\n"),
+        "{text}"
+    );
+    assert!(!text.contains("a card"), "{text}");
 }
 
 #[test]
