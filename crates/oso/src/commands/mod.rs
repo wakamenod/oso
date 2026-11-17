@@ -113,6 +113,7 @@ const TABLES: &[&[Command]] = &[
     restart::COMMANDS,
     review::COMMANDS,
     review::COMMENT_COMMANDS,
+    review::SEND_COMMANDS,
     save::COMMANDS,
     scroll::COMMANDS,
     session::COMMANDS,
@@ -133,6 +134,7 @@ const TABLES: &[&[Command]] = &[
     vcs::branch::COMMANDS,
     vcs::graph::COMMANDS,
     vcs::pr::COMMANDS,
+    vcs::pr::create::COMMANDS,
     view::COMMANDS,
     whitespace::COMMANDS,
     windows::COMMANDS,
@@ -304,6 +306,11 @@ mod tests {
         "review-keep-draft",
         "review-remove-comment",
         "review-resolve",
+        // What goes to an agent session is the person's typing, and its message theirs to
+        // change (ADR 0122, step 12).
+        "review-message-drop",
+        "review-message-send",
+        "review-send",
         // Folding the agent's comments hides what it wrote from the person, who alone chooses
         // how much of it to see.
         "review-fold-agents",
@@ -407,6 +414,8 @@ mod tests {
         "worktree-list-refresh",
         "worktree-list-remove",
         "worktree-remove-confirmed",
+        "worktree-remove-stop",
+        "worktree-remove-stop-confirmed",
         // A terminal, which runs a program and takes the person's keys (ADR 0120).
         "terminal",
         // Letting an agent read a terminal is the person's to give and to take back
@@ -505,9 +514,19 @@ mod tests {
         "git-graph-toggle-all",
         "git-pr-browse",
         "git-pr-checks",
+        "git-pr-confirmed",
         "git-pr-copy-link",
+        "git-pr-create",
+        "git-pr-create-base",
+        "git-pr-create-cancel",
+        "git-pr-create-finish",
         "git-pr-list",
+        "git-pr-merge-commit",
+        "git-pr-merge-rebase",
+        "git-pr-merge-squash",
+        "git-pr-next-message",
         "git-pr-open",
+        "git-pr-previous-message",
         "git-pr-refresh",
         "git-pr-view",
         "git-pr-visit",

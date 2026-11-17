@@ -1513,13 +1513,14 @@ deletion.
   `worktree-remove` and an agent's `worktree_remove` alike. This is an exception to "a time
   limit of 10 s each" above and to step 4's "every git run for worktrees is ADR 0122's runner
   … 10 s". It sits beside ADR 0126's exception for `worktree-create`'s fetch and `git worktree
-  add`. Once git runs, every check has held and git may be deleting. So oso never asks it to
-  stop: not on a time limit, `C-g`, revoking the project's trust or quitting oso. Only an error
-  reading the run, or a panic of its thread, ends it, as it ends any long run. It runs on ADR
-  0127's long runner with the same arguments and environment as every other run, but in a
-  session of its own with no controlling terminal, as a remote's run is: a filter that opens
-  the terminal fails instead of stopping. Unlike ADR 0127's long runs, it is not the person's
-  act to stop, and it keeps no `Ender`. On Windows, git gets no group or session of its own
+  add`. Once git runs, every check has held and git may be deleting. So oso does not stop it
+  on a time limit, `C-g`, revoking the project's trust or quitting oso. Only the person's
+  `worktree-remove-stop` does, after a warning ("Stopping a removal, as built" below). An
+  error reading the run, or a panic of its thread, ends it too, as it ends any long run. It
+  runs on ADR 0127's long runner with the same arguments and environment as every other run,
+  but in a session of its own with no controlling terminal, as a remote's run is: a filter
+  that opens the terminal fails instead of stopping. Unlike ADR 0127's long runs, it keeps no
+  `Ender`, and `C-g` does not reach it. On Windows, git gets no group or session of its own
   (ADR 0127, Q6). Every other git and `gh` run of a check or a listing keeps its 10 s.
 - **It runs on a thread of its own, `oso-sessions-remove`,** once the checks held and the app
   cleared the worktree. The job's pool thread is then free, so two large removals do not hold up
@@ -1538,10 +1539,56 @@ deletion.
     deletion of its own, and git's deletion of the tracked files could still be slow;
   - finishing a half-removed worktree. git finishes one only with `--force`, which this ADR
     keeps from agents; ADR 0126's planned `C-u` removal, the person's, after typing `yes`, is
-    the way to finish one. With the fix, oso leaves no worktree half removed in its own
-    removals;
+    the way to finish one. With the fix, oso leaves a worktree half removed only when the
+    person stops its removal and confirms the warning;
   - a longer limit. oso cannot tell from outside when git starts deleting, so any limit could
     stop it partway.
+
+## Stopping a removal, as built
+
+Built on 2026-11-17, after the fix above, as the follow-up the author asked for: a removal that
+hangs, in a filter for instance, had no way to end. The author chose each recommended answer.
+
+- **`worktree-remove-stop` (`Person`, `M-x` only, no key)** stops the removal of the row at
+  point in `*Worktrees*`, matched by the path it was asked for or its resolved path; a row with
+  no removal stops none. Off any row, it stops the only one that runs, or says how many run
+  and to put point on one. It stops the person's own removals and agents' alike; no agent can
+  stop one.
+- **Before git runs,** it stops at once with no question, and nothing is removed: the job ends
+  with "stopped by the person before git ran: nothing was removed". That holds from the moment
+  the removal is asked for, while its job still waits for one of the pool's threads, through
+  its checks, to the wait for the app to clear the worktree. A stop during the checks takes
+  effect when they end, each bounded at 10 s. Up to then nothing is cleared: no session is hung
+  up. A stop that lands after the app cleared the worktree, before git starts, says that its
+  idle sessions were stopped.
+- **Each removal is in one phase, changed by one atomic step:** before git, in git, or
+  stopped. The command's quiet stop moves only "before git" to "stopped"; the removal's own
+  thread moves only "before git" to "in git". So a stop never reaches git without the
+  question, and git never starts after a stop.
+- **Once git may be deleting,** it asks first, with `y` or `n`, the warning first, as the
+  question's float shows its first lines: "Leave it half removed? git may be deleting worktree
+  PATH. A stop keeps what git deleted deleted (tracked files are in its branch), maybe its .git
+  too; you remove the rest by hand." PATH keeps its last 48 characters. On `y`, git's session
+  gets `SIGTERM`, then `SIGKILL` after ADR 0127's 5 s grace. The question names the removal by
+  its job, so a `y` never stops a later removal of the same path.
+- **After a stop in git, the job looks at what is left.** The directory gone: removed, as git
+  may have finished first. Its `.git` gone: half removed, and git run there now finds the main
+  repository, so the message says to remove the directory by hand, then run `git worktree
+  prune`. Else: "stopped by the person while git ran: it may be half removed", as git may have
+  been stopped before it deleted anything. The echo area says which. An agent whose call still
+  waits hears only that the worktree is left for the person, not to remove or change it: the
+  by-hand steps are the person's. The space keeps a worktree not known to be gone.
+- **`*Worktrees*` marks a worktree whose removal runs** with "removing…" instead of its
+  verdict, and an agent's `worktree_list` says "a removal of it still runs" as the reason it is
+  kept (`Check::Removing`), the same words a second removal is refused with. When a removal
+  ends, a shown `*Worktrees*` is listed again.
+- **The jobs' `Removals`** keep each removal by its job's token, entered when it is asked for:
+  the path as it was asked for, its resolved path once its job has started, and its phase. The
+  UI thread finds a removal by its token and reads no file; nothing reads a file under their
+  lock.
+- **Unchanged:** quitting oso and revoking trust still do not stop a removal (the author
+  accepted both, 2026-11-17), and a half-removed worktree is still the person's to remove, or
+  ADR 0126's planned `C-u` removal's.
 
 ## The record at an exit, as built
 
@@ -1561,7 +1608,6 @@ back open). The coordinator approved this for the author:
   one still runs, so `begin_restart` waits for the write before it starts the new one.
 - **Not covered:** `oso dev`'s supervisor starts its new instance itself, so a change made in the
   few milliseconds before a rebuilt instance starts may still be read without it.
-
 
 ## Consequences
 

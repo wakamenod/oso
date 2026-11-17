@@ -76,7 +76,8 @@ open documents, and text with bidirectional controls (T3, T8 and T10 in
 
 On macOS, `rust-analyzer` on `PATH` is usually rustup's proxy. It picks the toolchain from the
 project's `rust-toolchain.toml`, and can download one. In oso's own repository the pinned
-toolchain has no `rust-analyzer` component, and the proxy falls back to another toolchain's.
+toolchain had no `rust-analyzer` component, and the proxy fell back to another toolchain's;
+it has one since step 12's first pull request.
 
 ### What Emacs does
 
@@ -133,7 +134,7 @@ The author chose on 2026-11-15, through the coordinator:
 - (a) on every other question.
 
 Code actions and rename come in later steps. The author approved the crate `oso-lsp` and its
-edges, and the change to `rust-toolchain.toml` in step 12. The text names the question each part
+edges, and the change to `rust-toolchain.toml`, made at the start of step 12. The text names the question each part
 answers, and the steps are under [Steps](#steps).
 
 ### Which servers (Q2)
@@ -598,7 +599,9 @@ Every bound lives in `oso-lsp`'s `limits`:
 
 - **`rust-toolchain.toml` gains the `rust-analyzer` component,** so rustup's proxy runs the pinned
   toolchain's server, whose proc-macro server matches the compiler. This file defines the checks;
-  the author approved the change, in step 12.
+  the author approved the change, which went in on its own at the start of step 12, so that what
+  fetching the component costs every toolchain install and CI job is seen apart from the
+  metrics (step 12's Q6).
 
 ### Steps
 
@@ -640,7 +643,8 @@ Each step is one pull request. No step spawns anything before step 1 has merged.
 10. **Hover:** `C-c C-d` and `C-h .`.
 11. **Agents:** the `diagnostics` tool, `state`'s fields, the tool descriptions, and ADR 0121's
     `@diagnostics`.
-12. **The `just perf` metrics,** and the `rust-analyzer` component in `rust-toolchain.toml`.
+12. **The `just perf` metrics,** after the `rust-analyzer` component in `rust-toolchain.toml`,
+    which goes in first in a pull request of its own.
 
 Steps 5, 6 and 7, and 8 to 10, can run beside each other once step 4 has merged. Windows builds
 and tests in CI in each step.

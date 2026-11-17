@@ -78,6 +78,9 @@ fn m_x_offers_the_worktree_commands_outside_their_list() {
             .map(|item| item.binding())
     };
     assert_eq!(binding("session-worktree"), Some("C-c a w"));
+    // M-x only, with no key of its own (the author's choice).
+    assert!(listed("worktree-remove-stop"));
+    assert_eq!(binding("worktree-remove-stop"), Some(""));
     // The list's own keys are offered in the list alone.
     assert!(!listed("worktree-list-refresh"));
     assert!(!listed("worktree-list-remove"));
