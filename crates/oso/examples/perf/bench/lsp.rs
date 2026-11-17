@@ -272,10 +272,11 @@ fn ready(app: &mut App, script: Script) -> Result<(), String> {
     }
 }
 
-/// Puts a cursor on each of [`CURSORS`] lines from the cursor's down, with `edit-lines`, and
-/// fails unless there are that many.
+/// Puts a cursor at the start of each of [`CURSORS`] lines of `main` from its first, with
+/// `edit-lines`, and fails unless there are that many. From the first, as the typing before has
+/// moved the cursor below the middle, fewer than that many lines from the end.
 fn many_cursors(app: &mut App) -> Result<(), String> {
-    app.send_keys("C-a C-SPC")?;
+    app.send_keys("M-< C-n C-SPC")?;
     let down = json!({ "name": "next-line", "arg": CURSORS - 1 });
     app.call("run-command", Some(down))?;
     app.call("run-command", Some(json!({ "name": "edit-lines" })))?;
