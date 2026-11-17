@@ -880,6 +880,16 @@ The UI thread never blocks on I/O or parsing:
   below. The editor carries the cursor across a switch by place, moves it off filler rows after
   each command, and drops the panes once no window shows them
   (`oso_core::editor` `reviews/panes.rs`; ADR 0122, step 11).
+- A review is saved as it changes to `reviews/` under the state directory, one JSON Lines file
+  per project and scope (`review/saved.rs`), by one `oso-review-store` thread
+  (`app/reviews/store.rs`), which also reads a saved review back and builds its model with
+  `Review::restore`, so that the UI thread puts it in at O(1) before the review's own thread
+  lists anything; the first readings then carry it as any refresh does. The UI thread
+  (`app/reviews/keep.rs`) hands over a snapshot, references to the model's readings and
+  comments, a second after the last change, when a review closes (`Editor::take_closed_review`)
+  and before oso goes or restarts. A restart's state names the reviews its windows show, which
+  the new instance opens again once their projects are known and trusted
+  (`app/reviews/handed.rs`; ADR 0122, step 6).
 
 ### Configuration
 

@@ -11,6 +11,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use oso_platform::control::{ControlDir, ControlStream, Socket};
+use oso_platform::privacy::STATE_DIR_VARIABLE;
 use serde_json::{Value, json};
 
 use crate::process;
@@ -107,6 +108,11 @@ impl App {
             "XDG_CONFIG_HOME"
         };
         command.env(variable, &config_home);
+        // A state directory of its own too (ADR 0146), so that what an instance remembers, its
+        // sessions, recent files and saved reviews (ADR 0122, step 6), is never the person's.
+        if !env.iter().any(|(name, _)| *name == STATE_DIR_VARIABLE) {
+            command.env(STATE_DIR_VARIABLE, config_home.join("state"));
+        }
         if let Some(file) = file {
             command.arg("--").arg(file);
         }

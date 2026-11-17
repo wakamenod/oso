@@ -42,7 +42,8 @@ const POLL: Duration = Duration::from_millis(10);
 
 /// Opening, moving in, showing as two panes and refreshing a review, in new processes, as
 /// `review_open_first_screen_ms`, `review_open_whole_ms`, `review_key_p99_ms`,
-/// `review_panes_switch_ms`, `review_panes_key_p99_ms` and `review_refresh_ms`.
+/// `review_panes_switch_ms`, `review_panes_key_p99_ms`, `review_refresh_ms` and
+/// `review_resume_first_screen_ms`.
 pub(super) fn review(
     exe: &Path,
     runs: usize,
@@ -65,7 +66,7 @@ pub(super) fn review(
     let config = dir.file("config.toml");
     std::fs::write(&config, "[lsp]\nstart = \"manual\"\n")
         .map_err(|e| format!("{}: {e}", config.display()))?;
-    let mut metrics: [Vec<f64>; 6] = Default::default();
+    let mut metrics: [Vec<f64>; 7] = Default::default();
     for run in 0..runs {
         let mut app = App::start_with_config(exe, Some(&root.join(name(0))), Some(&config))?;
         app.wait_until("loaded file", LOAD_TIMEOUT, |t| {
@@ -108,16 +109,45 @@ pub(super) fn review(
         let frames = until_read(&mut app, asked)?;
         let read = frames.last().ok_or("g showed nothing")?;
         metrics[5].push(since(asked, read));
+
+        metrics[6].push(resume(&mut app)?);
         app.stop();
     }
-    let [first, whole, keys, switch, pane_keys, refresh] = metrics;
+    let [first, whole, keys, switch, pane_keys, refresh, resume] = metrics;
     report.add("review_open_first_screen_ms", first);
     report.add("review_open_whole_ms", whole);
     report.add("review_key_p99_ms", keys);
     report.add("review_panes_switch_ms", switch);
     report.add("review_panes_key_p99_ms", pane_keys);
     report.add("review_refresh_ms", refresh);
+    report.add("review_resume_first_screen_ms", resume);
     Ok(())
+}
+
+/// How many comments the review holds when it is closed and opened again.
+const RESUMED_COMMENTS: usize = 20;
+
+/// A comment on each of the first [`RESUMED_COMMENTS`] hunks, the review closed, which saves
+/// it (ADR 0122, step 6), and opened again: how soon its first file shows, its saved review
+/// read first and carried by the first readings.
+fn resume(app: &mut App) -> Result<f64, String> {
+    app.send_keys("M-<")?;
+    for _ in 0..RESUMED_COMMENTS {
+        app.send_keys("n c x C-c C-c")?;
+    }
+    settle(app)?;
+    app.send_keys("C-x k")?;
+    settle(app)?;
+    app.send_keys("C-x v r")?;
+    settle(app)?;
+    let asked = unix_us();
+    app.send_keys("w")?;
+    let frames = until_read(app, asked)?;
+    let first = frames
+        .iter()
+        .find(|frame| frame["read"].as_u64() >= Some(1) || frame["done"] == true)
+        .ok_or("the review opened again showed no file")?;
+    Ok(since(asked, first))
 }
 
 /// `|` in the review: how soon its two panes show, then the p99 of `count` paced keys in a pane,
