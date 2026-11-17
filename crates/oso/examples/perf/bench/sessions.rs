@@ -215,14 +215,29 @@ fn photon(app: &mut App, scratch: &Path) -> Result<f64, String> {
         let wrote = unix_us();
         write_screen(&staged, &screen, PERMISSION)?;
         wait_for_needs(app, true)?;
-        let timings = app.timings()?;
-        let shown = timings["needs_input_frames"]
-            .as_array()
-            .and_then(|frames| frames.iter().filter_map(serde_json::Value::as_u64).min())
-            .ok_or("no frame counted the dialog")?;
+        let shown = counted_frame(app)?;
         samples.push(shown.saturating_sub(wrote) as f64 / 1000.0);
     }
     Ok(crate::report::median(&samples))
+}
+
+/// When the first frame that counts the dialog was presented. `get-state` can tell of the
+/// dialog before that frame is presented, so the timings are read again until one has.
+fn counted_frame(app: &mut App) -> Result<u64, String> {
+    let deadline = Instant::now() + WITHIN;
+    loop {
+        let timings = app.timings()?;
+        let shown = timings["needs_input_frames"]
+            .as_array()
+            .and_then(|frames| frames.iter().filter_map(serde_json::Value::as_u64).min());
+        if let Some(shown) = shown {
+            return Ok(shown);
+        }
+        if Instant::now() > deadline {
+            return Err("no frame counted the dialog".into());
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
 }
 
 /// Has every fake print `text`: the one file each looks at.
