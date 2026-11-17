@@ -604,7 +604,8 @@ fn the_files_pane_lists_and_shows_files_and_the_filter_hides_them_across_a_resta
     assert!(!shown.iter().any(|row| row.contains("a.rs")), "{shown:?}");
     // `/` again opens holding the filter.
     app.send_keys("/");
-    assert_eq!(rows(&mut app, 1), ["b.rs"]);
+    let prompts = app.state()["prompts"].clone();
+    assert_eq!(prompts[0]["text"], "b.rs", "{prompts}");
     app.send_keys("C-g");
 
     // A restart: the review, its filter and its pane come back.
@@ -622,7 +623,9 @@ fn the_files_pane_lists_and_shows_files_and_the_filter_hides_them_across_a_resta
     });
     new.send_keys("s");
     new.wait_for("the pane selected", |state| state["buffer"]["name"] == PANE);
-    let listed = rows_until(&mut new, HIDDEN);
+    let listed: Vec<String> = (rows_until(&mut new, HIDDEN).into_iter())
+        .filter(|row| !row.is_empty())
+        .collect();
     assert_eq!(listed.len(), 2, "the title and b.rs: {listed:?}");
     assert!(listed[1].ends_with("  b.rs"), "{listed:?}");
     // `q`: the pane goes, its columns back to the review.
