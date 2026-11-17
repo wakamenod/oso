@@ -90,6 +90,8 @@ impl App {
                 | SessionRequest::WorktreeList
                 | SessionRequest::WorktreeRemove(_)
                 | SessionRequest::WorktreeRemoveConfirmed
+                | SessionRequest::WorktreeRemoveStop
+                | SessionRequest::WorktreeRemoveStopConfirmed
                 | SessionRequest::StartShared => {
                     self.worktree_request(request);
                     continue;

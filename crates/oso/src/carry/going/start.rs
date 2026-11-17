@@ -166,6 +166,7 @@ impl NewInstance {
             set: &[],
             terminal: None,
             pass_fd: Some(PassedFd::new(theirs.as_fd())),
+            args_logged: true,
         })
         .map_err(|e| format!("cannot start {}: {e}", executable.path().display()))?;
         // Only the child holds its end now, so its going ends the pair here.

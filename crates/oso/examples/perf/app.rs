@@ -65,7 +65,37 @@ impl App {
         config: Option<&Path>,
         env: &[(&str, &Path)],
     ) -> Result<Self, String> {
+        Self::start_with(exe, file, config, env, &[])
+    }
+
+    /// Starts `exe` as [`App::start_with_config`] does, with `files` written beside the
+    /// configuration file first, each by its name, as only this user may read or change them:
+    /// such as the record of trusted projects (ADR 0114) a language server needs (ADR 0138).
+    pub fn start_with_files(
+        exe: &Path,
+        file: Option<&Path>,
+        config: Option<&Path>,
+        files: &[(&str, &[u8])],
+    ) -> Result<Self, String> {
+        Self::start_with(exe, file, config, &[], files)
+    }
+
+    fn start_with(
+        exe: &Path,
+        file: Option<&Path>,
+        config: Option<&Path>,
+        env: &[(&str, &Path)],
+        files: &[(&str, &[u8])],
+    ) -> Result<Self, String> {
         let config_home = config_home(config)?;
+        for (name, text) in files {
+            let path = config_home.join("oso").join(name);
+            let wrote = std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()));
+            if let Err(e) = wrote.and_then(|()| set_mode(&path, 0o600)) {
+                let _ = std::fs::remove_dir_all(&config_home);
+                return Err(e);
+            }
+        }
         let mut command = process::command(exe);
         for (name, value) in env {
             command.env(name, value);

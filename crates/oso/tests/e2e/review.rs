@@ -48,6 +48,7 @@ pub(super) fn git(root: &Path, args: &[&str]) {
         set: &set,
         terminal: None,
         pass_fd: None,
+        args_logged: true,
     })
     .and_then(|mut child| child.wait())
     .expect("cannot run git");

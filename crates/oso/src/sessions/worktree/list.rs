@@ -95,6 +95,7 @@ pub fn row_lines(main: &Path, row: &Row) -> RowText {
     };
     let verdict = match checks::removable(looked, &row.held) {
         Ok(()) => "removable".to_owned(),
+        Err(checks::Check::Removing) => "removing…".to_owned(),
         Err(check) => format!("kept: {}", check.why()),
     };
     let mut lines = vec![format!("{}  {branch}", printable(&path, MAX_FIELD))];
@@ -171,6 +172,7 @@ mod tests {
                 external: Vec::new(),
                 busy: Vec::new(),
                 gh_pending: None,
+                removing: false,
             },
             held: Held::default(),
             sessions: Vec::new(),
@@ -244,5 +246,19 @@ mod tests {
                 .text
                 .contains("No linked worktrees.")
         );
+    }
+
+    #[test]
+    fn a_worktree_being_removed_says_so_before_any_other_check() {
+        let dirty = Status {
+            changed: 3,
+            untracked: 0,
+        };
+        let mut removing = row("a", dirty, Merged::No("not merged".into()));
+        removing.looked.removing = true;
+        removing.looked.linked = Err("its directory is gone".into());
+        let shown = render(Path::new("/r"), &[removing], 0);
+        assert!(shown.text.contains("\n  removing…\n"), "{}", shown.text);
+        assert!(!shown.text.contains("kept:"), "{}", shown.text);
     }
 }

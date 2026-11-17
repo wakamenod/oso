@@ -214,6 +214,7 @@ fn quoted_text_reaches_the_shell_as_it_is() {
             set: &[],
             terminal: None,
             pass_fd: None,
+            args_logged: true,
         })
         .unwrap();
         let output = child.wait_with_output().unwrap();

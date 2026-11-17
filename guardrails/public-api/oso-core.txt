@@ -2225,6 +2225,8 @@ pub oso_core::editor::SessionRequest::Worktree::branch: alloc::string::String
 pub oso_core::editor::SessionRequest::WorktreeList
 pub oso_core::editor::SessionRequest::WorktreeRemove(core::option::Option<std::path::PathBuf>)
 pub oso_core::editor::SessionRequest::WorktreeRemoveConfirmed
+pub oso_core::editor::SessionRequest::WorktreeRemoveStop
+pub oso_core::editor::SessionRequest::WorktreeRemoveStopConfirmed
 pub oso_core::editor::SessionRequest::YankImage(oso_core::buffer::BufferId)
 pub oso_core::editor::SessionRequest::Zoom
 impl core::clone::Clone for oso_core::editor::SessionRequest
@@ -2743,6 +2745,7 @@ pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<all
 pub fn oso_core::editor::Editor::message_unlogged(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::messages_buffer(&self) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::note(&mut self, impl core::convert::Into<alloc::string::String>)
+pub fn oso_core::editor::Editor::note_unlogged(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::place_behind_internal_of(&self, oso_core::window::WindowId) -> core::option::Option<(oso_core::buffer::BufferId, &oso_core::selection::SelectionSet, oso_core::window::Scroll)>
 pub fn oso_core::editor::Editor::restore_kept_place(&mut self, oso_core::buffer::BufferId, oso_core::selection::SelectionSet, oso_core::window::Scroll) -> bool
 pub fn oso_core::editor::Editor::restore_kept_place_in(&mut self, oso_core::window::WindowId, oso_core::buffer::BufferId, oso_core::selection::SelectionSet, oso_core::window::Scroll) -> bool
