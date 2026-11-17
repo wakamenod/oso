@@ -319,10 +319,11 @@ fn past_the_texts_room_cards_show_their_label_alone() {
             RowKind::Label { comment: first },
             RowKind::Card { comment: first },
             RowKind::Card { comment: first },
+            // `y`, line 2, starts a run of its own after the card.
             RowKind::Lines {
                 hunk: 0,
                 side: Side::New,
-                first: 1
+                first: 2
             },
             RowKind::Label { comment: second },
         ]
@@ -496,4 +497,52 @@ fn text_lines_split_at_every_break() {
     assert_eq!(split("\n"), [""]);
     assert_eq!(split("a\r\n\r\nb\r"), ["a", "", "b"]);
     assert_eq!(split("a\n\rb"), ["a", "", "b"]);
+}
+
+#[test]
+fn a_line_after_a_card_keeps_its_own_number() {
+    let mut review = Review::new();
+    let reading = read(
+        &mut review,
+        PATH,
+        vec![hunk(
+            2,
+            2,
+            &[b"old two\n", b"old three\n"],
+            &[b"new two\n", b"new three\n", b"new four\n"],
+        )],
+    );
+    comment(
+        &mut review,
+        Author::Person,
+        line(Side::Old, 2),
+        "on old two",
+    );
+    comment(
+        &mut review,
+        Author::Person,
+        line(Side::New, 2),
+        "on new two",
+    );
+    comment(
+        &mut review,
+        Author::Agent,
+        line(Side::New, 3),
+        "on new three",
+    );
+    let rendered = shown(&reading, &snapshot(&review, PATH), false, usize::MAX);
+    let rows = Rows::new(vec![Arc::clone(&rendered.section)]);
+    let lines: Vec<_> = (0..rows.lines())
+        .filter_map(|line| rows.at(line)?.line())
+        .collect();
+    assert_eq!(
+        lines,
+        vec![
+            (Side::Old, 2),
+            (Side::Old, 3),
+            (Side::New, 2),
+            (Side::New, 3),
+            (Side::New, 4),
+        ]
+    );
 }
