@@ -189,6 +189,16 @@ impl Walk {
     }
 }
 
+/// Whether the file at `path` may hold secrets, as the loader would judge a buffer of it: by
+/// its name, and every place its links lead through. One nobody can resolve is taken to.
+pub fn file_may_hold_secrets(path: &Path) -> bool {
+    Buffer::name_may_hold_secrets(path)
+        || match resolve(path) {
+            Resolved::Paths(paths) => paths.iter().any(|path| Buffer::name_may_hold_secrets(path)),
+            Resolved::Unknown(_) => true,
+        }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -399,5 +409,36 @@ mod tests {
             assert_eq!(resolve(&a).paths(), None);
             fs::remove_dir_all(directory).unwrap();
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod secret_link_tests {
+    use std::fs;
+
+    use super::file_may_hold_secrets;
+
+    #[test]
+    fn a_file_whose_link_leads_to_a_secret_file_may_hold_secrets() {
+        use std::os::unix::fs::symlink;
+        let name = format!("oso-agent-secret-file-{}", std::process::id());
+        let dir = fs::canonicalize(std::env::temp_dir()).unwrap().join(name);
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(dir.join(".env"), b"KEY=1\n").unwrap();
+        fs::write(dir.join("src/plain.ts"), b"x\n").unwrap();
+        symlink(dir.join(".env"), dir.join("src/conf.ts")).unwrap();
+        symlink(dir.join("gone"), dir.join("src/dangling.ts")).unwrap();
+        assert!(!file_may_hold_secrets(&dir.join("src/plain.ts")));
+        assert!(
+            file_may_hold_secrets(&dir.join("src/conf.ts")),
+            "its link leads to `.env`"
+        );
+        assert!(
+            file_may_hold_secrets(&dir.join("src/dangling.ts")),
+            "nobody can tell"
+        );
+        assert!(file_may_hold_secrets(&dir.join(".env")));
+        fs::remove_dir_all(dir).unwrap();
     }
 }

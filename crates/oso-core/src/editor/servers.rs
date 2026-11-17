@@ -6,8 +6,9 @@
 //! answer leads to, and back (step 8, `jumps`), and the list of an answer's places (step 8b,
 //! `xref_list`); the completion popup (step 9, `popup`), with what it takes after it opened
 //! and what the person typed (step 9b); the description of what is at point in a float there
-//! (step 10, `hover`); and the list of a server's code actions (step 13, `code_actions`) and a
-//! server's edit applied (`server_edit`).
+//! (step 10, `hover`); the list of a server's code actions (step 13, `code_actions`) and a
+//! server's edit applied (`server_edit`); and an open list of places or diagnostics as a frame
+//! shows it, for the agent channel (step 15, `listed_view`).
 //!
 //! Must not depend on: the host's servers, threads or I/O; a command asks, and the host takes
 //! the request after the command and acts on the server.

@@ -62,7 +62,7 @@ pub use error::LoadError;
 use identity::same_stamp;
 pub use identity::stamp_of;
 pub(crate) use identity::{same_file, surely_same_file};
-pub use resolve::{Resolved, location, own_spelling, parent, resolve};
+pub use resolve::{Resolved, file_may_hold_secrets, location, own_spelling, parent, resolve};
 pub use watch::Watcher;
 
 /// Bytes read at a time.

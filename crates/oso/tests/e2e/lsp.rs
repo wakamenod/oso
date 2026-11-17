@@ -934,13 +934,12 @@ fn an_agent_reads_the_list_of_references_the_person_has_open() {
         (&json!(2), &json!("pub fn main() {}"))
     );
     let preview = &list["preview"];
-    let (first, at) = (preview["first_line"].as_u64(), preview["at"].as_u64());
+    let at = preview["at"].as_u64().unwrap_or(u64::MAX) as usize;
     assert_eq!(
-        first.zip(at).map(|(first, at)| first + at),
-        Some(1),
+        preview["rows"][at],
+        json!({ "line": 1, "text": "fn main() {}" }),
         "{list}"
     );
-    assert_eq!(preview["lines"][0], "fn main() {}", "{list}");
 
     app.send_keys("C-g");
     app.wait_for("the list closed", |state| state["prompts"] == json!([]));

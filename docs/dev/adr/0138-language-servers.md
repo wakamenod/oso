@@ -2177,45 +2177,66 @@ As the author chose at step 13's questions (Q3, Q4, Q5), and approved this step'
 The author asked on 2026-11-17 that an agent can look at the lists of a server's work the person
 has open, after a preview looked wrong to them and no agent could see it, and chose the first
 choice on each of this step's questions: the rows a frame shows, not every row (Q1); the rows
-even while the person narrows them, but never what was typed (Q2); the preview's lines as drawn
-(Q3); a file outside the project as the person sees it, unless it may hold secrets or only the
-person reads it (Q4); the agent's own asks unchanged, its `M-?` refusal pointing at `state`
+even while the person narrows them, but never the input itself (Q2); the preview's rows as
+drawn (Q3); a file outside the project as the person sees it, unless it may hold secrets or only
+the person reads it (Q4); the agent's own asks unchanged, its `M-?` refusal pointing at `state`
 (Q5); `M-g d`'s list too (Q6); `STATE_VERSION` 3 to 4 (Q7); and one pull request (Q8). The
-public items were approved with the plan.
+public items were approved with the plan, and their final names after the reviews.
 
 - **`oso-core`** (`editor/servers/listed_view.rs`): `Editor::listed_view` gives the innermost
   prompt, if it lists definitions, references or a project's diagnostics, as a frame shows it
   (`ListedView`): what it lists (`ListedOf`), how many rows match of how many, whether its rows
-  were cut or have yet to come, the rows shown (`ListedRow`: the path as the row shows it and
-  whole, the line, the rest of the row, and the open buffer it is in now) and which is
-  selected, and the preview (`ListedPreview`): withheld, nothing, or the lines from the one the
-  preview starts at, numbered as in the file, with the selected row's place among them. Each
-  line is at most `LISTED_LINE_BYTES` (256), cut at a character; only that much of a long line
-  is copied. A file's excerpt now keeps the line of its file it starts with, so that its lines
-  are numbered as the file's, and the list of places keeps what it lists and the bytes of each
-  row's path.
+  were cut or have yet to come, the rows shown (`ListedRow`: the path as the row shows it,
+  `shown`, and whole, `path`; the line; the rest of the row; and the open buffer that holds its
+  place) and which is selected, and the preview (`ListedPreview`): withheld, nothing, or the rows
+  it draws (`Rows`), each its line, numbered as in its file, and the columns it draws, with the
+  row of the selected row's place.
+  - The preview's rows are those `Editor::preview_screen` gives the frame: a line the preview
+    wraps is several rows, and one it scrolls left to its place shows from there. Each is at
+    most `LISTED_LINE_BYTES` (256), cut at a character; only that much of a long one is copied.
+  - Each list keeps where a row's own text starts in it, beside the bytes of its path, so the
+    view splits no row by its form. A file's excerpt keeps the line of its file it starts with.
+  - A row's buffer is the one it was listed in while it is there, else the one that visits its
+    file (`find_open_buffer`, which skips one the channel is still opening). No row's place is
+    mapped through the edits since; only the preview maps the selected one's.
 - **The channel** (`channel/state/list.rs`): the innermost prompt's entry in `state` gains
   `list`: `of` (`definitions`, `references` or `diagnostics`), `server` (the list of places'
-  server, none for diagnostics, which are every server's), `count`, `total`, `cut`, `pending`,
-  `rows` (`path`, `line` and `text`), `selected`, and `preview` (`kind` `buffer` or `file` with
-  `first_line`, `at` and `lines`, or `withheld`). What is withheld:
+  server, named once its list opened; none for diagnostics, which are every server's), `count`,
+  `total`, `cut`, `pending`, `rows` (`path`, `line` and `text`), `selected`, and `preview`
+  (`kind` `buffer` or `file` with `rows`, each `line` and `text`, and `at`; or `withheld`). What
+  is withheld:
   - all of it while a buffer that may hold secrets is shown;
-  - what the person typed, always;
+  - the person's input itself, always, though the rows shown follow it;
   - a row's text, if its file's name may hold secrets or its buffer is one the channel may not
-    read (`unreadable`), and the preview, if that row is selected or the preview's buffer is
-    such a one;
+    read (`unreadable`) or is still opening, and the preview, if that row is selected or the
+    preview's buffer is such a one;
   - the rows' paths and texts are escaped as a server's text is (`server_text`); the
-    preview's lines are as `text` gives a buffer's rows.
+    preview's rows are as `text` gives a buffer's rows.
   `STATE_VERSION` goes to 4, and the `state` tool's description says what `list` holds.
+- **`M-g d` leaves out a file whose path really leads to one that may hold secrets** (the
+  author's choice after the security review): its rows are built off the UI thread, and each
+  file no buffer holds whose rows would go is judged there as the `diagnostics` tool judges one,
+  links and all (`loader::file_may_hold_secrets`, moved from the channel's reads so that both
+  share it). Its diagnostics show neither to the person nor to an agent, as `oso-lsp` already
+  drops a report for a name that may hold secrets.
 - **The agent's own `M-?`** is still refused: `References are listed in a float, which only the
   person opens; `state` gives one the person has open, and your own tools search the project`.
 - **Changes to this ADR:** "an agent cannot read one" in "What agents may do": it reads the one
   the person has open.
+- **From this step's reviews:** the preview's lines were taken from each line's start, one per
+  row, where the frame wraps them or scrolls left to the place; each row's place was mapped
+  through the edits since, and each file row matched against every buffer's path; the row's
+  text was split back off by its form; the server was named before its list opened, so a newer
+  answer's could name the open one; a buffer the channel is still opening was not taken as
+  hidden; and `M-g d` listed a file's diagnostics by its server's name for it only. All are
+  fixed as above, with a test of each.
 - **Public API:** `oso-core`: `editor::{ListedView, ListedRow, ListedPreview, ListedOf,
   LISTED_LINE_BYTES}` and `Editor::listed_view`. The tip's `channel::state::state` takes the
   list's server beside `server_of`.
 - **Tests:** in `oso-core`, a list of references split into its rows with the selected one's
-  lines, a file's row with the lines read for it numbered as in its file, a list of
-  diagnostics' rows, a long line cut at a character, and none for another prompt; in the
-  channel, the `list` of references and of diagnostics, and each withheld case; and the
-  end-to-end flow `an_agent_reads_the_list_of_references_the_person_has_open`.
+  row, a file's row with the rows read for it numbered as in its file, a list of diagnostics'
+  rows, a row of a buffer edited since, a long row cut at a character, a place deep in a long
+  line, a line the preview wraps, and none for another prompt; in the tip crate, `M-g d`'s rows
+  leaving out a file judged to may hold secrets, and the channel's `list` of references, of a
+  file's row and of diagnostics, with each withheld case and the input typed in no field; and
+  the end-to-end flow `an_agent_reads_the_list_of_references_the_person_has_open`.

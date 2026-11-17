@@ -10,7 +10,8 @@ use std::path::PathBuf;
 use oso_core::buffer::{Baseline, Buffer};
 use oso_core::diagnostic::Severity;
 use oso_core::editor::{
-    DiagnosticRow, DiagnosticRows, Editor, ListedAt, VisitColumn, XrefKind, XrefRow, XrefRows,
+    DiagnosticRow, DiagnosticRows, Editor, Excerpt, FilePreviewRead, ListedAt, VisitColumn,
+    XrefKind, XrefRow, XrefRows,
 };
 use oso_core::frame::FrameSize;
 use serde_json::{Value, json};
@@ -113,16 +114,12 @@ fn a_list_of_references_shows_its_rows_the_selected_one_and_its_preview_s_lines(
     );
     let preview = &list["preview"];
     assert_eq!(preview["kind"], "buffer");
-    let (first, at) = (
-        preview["first_line"].as_u64().unwrap(),
-        preview["at"].as_u64().unwrap(),
-    );
+    let at = preview["at"].as_u64().unwrap() as usize;
     assert_eq!(
-        first + at,
-        40,
+        preview["rows"][at],
+        json!({ "line": 40, "text": "\t\tx40 := f40()" }),
         "the selected row's line, where the person sees it"
     );
-    assert_eq!(preview["lines"][at as usize], "\t\tx40 := f40()");
     assert_eq!(STATE_VERSION, 4);
 }
 
@@ -203,4 +200,80 @@ fn a_list_of_diagnostics_names_no_server_and_writes_a_message_s_controls_out() {
     assert_eq!(list["of"], "diagnostics");
     assert_eq!(list["server"], Value::Null);
     assert_eq!(list["rows"][0]["text"], "error: undefined: x\\u{202e}y");
+}
+
+/// A row of `/w/b.go`, which no list opened, at line `line`.
+fn file_row(line: usize) -> XrefRow {
+    XrefRow {
+        shown: "b.go".into(),
+        path: PathBuf::from("/w/b.go"),
+        line,
+        at: ListedAt::File {
+            column: VisitColumn::Utf16(1),
+        },
+        text: format!("y{line}").into(),
+    }
+}
+
+#[test]
+fn a_file_s_row_shows_the_rows_read_for_it_numbered_as_in_its_file() {
+    let mut editor = editor_on(&go_text());
+    references(&mut editor, vec![file_row(30)], 0);
+    let read = editor.take_preview_request().expect("a read of b.go");
+    let bytes: String = (25..=35).map(|n| format!("\ty{n}\n")).collect();
+    let excerpt = Excerpt::new(bytes.as_bytes(), 25, (30, VisitColumn::Utf16(1)), None);
+    editor.preview_read(read.generation, FilePreviewRead::Text(excerpt));
+    let list = list(&editor);
+    assert_eq!(
+        list["rows"][0],
+        json!({ "path": "b.go", "line": 30, "text": "y30" })
+    );
+    let preview = &list["preview"];
+    assert_eq!(preview["kind"], "file");
+    let at = preview["at"].as_u64().unwrap() as usize;
+    assert_eq!(preview["rows"][at], json!({ "line": 30, "text": "\ty30" }));
+}
+
+#[test]
+fn a_file_s_row_whose_file_a_withheld_buffer_holds_gives_its_place_only() {
+    let mut editor = editor_on(&go_text());
+    let path = PathBuf::from("/w/b.go");
+    let mut held = Buffer::visiting(path.clone());
+    held.apply_load(oso_core::load::decode_all(
+        b"y1\n",
+        oso_core::display_map::TabWidth::default(),
+    ));
+    held.judge_secret(Some(std::slice::from_ref(&path)));
+    let held = editor.add_buffer(held);
+    editor.buffer_mut(held).unwrap().withhold_from_agents();
+    references(&mut editor, vec![file_row(1)], 0);
+    let list = list(&editor);
+    assert_eq!(
+        list["rows"][0],
+        json!({ "path": "b.go", "line": 1, "text": null })
+    );
+    assert_eq!(list["preview"], json!({ "kind": "withheld" }));
+}
+
+#[test]
+fn what_the_person_typed_is_in_no_field_of_the_list() {
+    let text = go_text();
+    let mut editor = editor_on(&text);
+    let rows = vec![open_row(&editor, &text, 10), open_row(&editor, &text, 40)];
+    references(&mut editor, rows, 0);
+    // Typed in the list's input, which is matched again after each command.
+    let input = editor.prompt().unwrap().buffer();
+    let typed = oso_core::buffer::Replacement {
+        range: 0..0,
+        text: "zq4",
+    };
+    editor.apply_edits(input, &[typed]).unwrap();
+    editor.match_completion();
+    let state = state(&editor, None, 0, (&|_| None, Some("gopls")));
+    let list = state["prompts"][0]["list"].to_string();
+    assert!(!list.contains("zq4"), "{list}");
+    assert_eq!(
+        state["prompts"][0]["list"]["count"], 0,
+        "the rows follow it"
+    );
 }

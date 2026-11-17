@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use super::*;
-use crate::buffer::{Baseline, Buffer, FileStamp};
+use crate::buffer::{Baseline, Buffer, BufferId, FileStamp};
 use crate::diagnostic::Severity;
 use crate::display_map::TabWidth;
 use crate::editor::{
@@ -105,7 +105,7 @@ fn a_list_of_references_gives_its_rows_split_and_the_selected_one_s_lines() {
     );
     assert_eq!(view.selected, Some(1));
     let read: Vec<_> = (view.rows.iter())
-        .map(|row| (row.path, row.line, row.text, row.buffer))
+        .map(|row| (row.shown, row.line, row.text, row.buffer))
         .collect();
     assert_eq!(
         read,
@@ -115,21 +115,19 @@ fn a_list_of_references_gives_its_rows_split_and_the_selected_one_s_lines() {
             ("~/b.go", 9, "", None),
         ]
     );
-    assert_eq!(view.rows[2].file, Path::new("/h/b.go"));
-    let ListedPreview::Lines {
-        buffer,
-        first_line,
-        at,
-        lines,
-    } = view.preview
-    else {
-        panic!("lines");
+    assert_eq!(view.rows[2].path, Path::new("/h/b.go"));
+    let ListedPreview::Rows { buffer, at, rows } = view.preview else {
+        panic!("rows");
     };
     assert_eq!(buffer, Some(id));
     let at = at.expect("the row's line shows");
-    assert_eq!(first_line + at, 40, "the selected row's line");
-    assert_eq!(lines[at], "\t\tx40 := f40()");
-    assert_eq!(lines[0], format!("\t\tx{first_line} := f{first_line}()"));
+    assert_eq!(
+        rows[at],
+        (40, "\t\tx40 := f40()".to_owned()),
+        "the selected row's line"
+    );
+    let (first, _) = rows[0];
+    assert_eq!(rows[0].1, format!("\t\tx{first} := f{first}()"));
 }
 
 #[test]
@@ -156,19 +154,16 @@ fn a_file_s_row_gives_the_lines_read_for_it_numbered_as_in_its_file() {
     let view = editor.listed_view().unwrap();
     assert_eq!(view.of, ListedOf::Definitions);
     assert_eq!(view.rows[0].buffer, None);
-    let ListedPreview::Lines {
-        buffer,
-        first_line,
-        at,
-        lines,
-    } = view.preview
-    else {
-        panic!("lines");
+    let ListedPreview::Rows { buffer, at, rows } = view.preview else {
+        panic!("rows");
     };
     assert_eq!(buffer, None);
     let at = at.expect("the row's line shows");
-    assert_eq!(first_line + at, 30);
-    assert_eq!(lines[at], "\ty30");
+    assert_eq!(
+        rows[at],
+        (30, "\ty30".to_owned()),
+        "numbered as in its file"
+    );
 }
 
 #[test]
@@ -196,21 +191,17 @@ fn a_list_of_diagnostics_gives_each_row_s_severity_and_message_as_its_text() {
     assert_eq!(view.selected, Some(0));
     let row = &view.rows[0];
     assert_eq!(
-        (row.path, row.line, row.text),
+        (row.shown, row.line, row.text),
         ("src/c.go", 7, "error: undefined: x")
     );
-    assert_eq!(row.file, Path::new("/w/oso/src/c.go"));
+    assert_eq!(row.path, Path::new("/w/oso/src/c.go"));
 }
 
-#[test]
-fn a_long_line_of_the_preview_is_cut_at_a_character() {
-    let long = format!(
-        "{}é{}\n",
-        "a".repeat(LISTED_LINE_BYTES - 1),
-        "b".repeat(5000)
-    );
-    let text = format!("x\n{long}y\n");
-    let mut editor = editor_on(&text);
+/// An editor on `text` in a frame `columns` wide, with a list of references to the place at
+/// `offset` on its line `line` open.
+fn listing_at(text: &str, columns: usize, (line, offset): (usize, usize)) -> (Editor, BufferId) {
+    let mut editor = editor_on(text);
+    editor.set_frame_size(FrameSize { rows: 40, columns });
     let id = editor.tiled().0.buffer();
     let revision = editor.buffer(id).unwrap().revision();
     editor
@@ -219,25 +210,80 @@ fn a_long_line_of_the_preview_is_cut_at_a_character() {
     let row = XrefRow {
         shown: "a.go".into(),
         path: PathBuf::from("/w/oso/a.go"),
-        line: 2,
+        line,
         at: ListedAt::Open {
             buffer: id,
-            offset: 2,
+            offset,
             revision,
         },
         text: "".into(),
     };
     editor.xref_listed(XrefRows::new(5, vec![row], false));
-    let ListedPreview::Lines { lines, at, .. } = editor.listed_view().unwrap().preview else {
-        panic!("lines");
+    (editor, id)
+}
+
+#[test]
+fn a_long_row_of_the_preview_is_cut_at_a_character() {
+    let long = format!(
+        "{}é{}\n",
+        "a".repeat(LISTED_LINE_BYTES - 1),
+        "b".repeat(5000)
+    );
+    let text = format!("x\n{long}y\n");
+    // Wide enough that the preview draws more than a row keeps.
+    let (editor, _) = listing_at(&text, 1200, (2, 2));
+    let ListedPreview::Rows { rows, at, .. } = editor.listed_view().unwrap().preview else {
+        panic!("rows");
     };
-    let line = &lines[at.unwrap()];
+    let (line, shown) = &rows[at.unwrap()];
+    assert_eq!(*line, 2);
     assert_eq!(
-        line.len(),
+        shown.len(),
         LISTED_LINE_BYTES - 1,
         "the `é` across the bound left out"
     );
-    assert!(line.bytes().all(|byte| byte == b'a'));
+    assert!(shown.bytes().all(|byte| byte == b'a'));
+}
+
+#[test]
+fn a_place_deep_in_a_long_line_shows_as_the_preview_scrolls_to_it() {
+    let long = format!("{}PLACE{}\n", "a".repeat(2000), "b".repeat(2000));
+    let text = format!("x\n{long}y\n");
+    let (editor, _) = listing_at(&text, 160, (2, 2 + 2000));
+    let ListedPreview::Rows { rows, at, .. } = editor.listed_view().unwrap().preview else {
+        panic!("rows");
+    };
+    let (line, shown) = &rows[at.unwrap()];
+    assert_eq!(*line, 2);
+    assert!(
+        shown.contains("PLACE"),
+        "the columns the preview draws: {shown}"
+    );
+    assert!(shown.len() < 200, "only those");
+}
+
+#[test]
+fn a_line_the_preview_wraps_is_one_row_for_each_part_it_draws() {
+    let long = format!("{}\n", "w".repeat(300));
+    let text = format!("x\n{long}y\n");
+    let (mut editor, id) = listing_at(&text, 160, (2, 2 + 250));
+    editor.set_wraps(id, true);
+    crate::editor::wrap_tests::settle(&mut editor);
+    // As after each command, the preview's wrap at its own width.
+    editor.fit_preview();
+    let ListedPreview::Rows { rows, at, .. } = editor.listed_view().unwrap().preview else {
+        panic!("rows");
+    };
+    let twos: Vec<_> = rows.iter().filter(|(line, _)| *line == 2).collect();
+    assert!(twos.len() > 1, "line 2 wraps over several rows: {rows:?}");
+    let joined: String = twos.iter().map(|(_, shown)| shown.as_str()).collect();
+    // A float with one candidate has few rows: the parts it draws, each once.
+    assert!(joined.len() <= 300 && joined.bytes().all(|byte| byte == b'w'));
+    assert!(
+        twos.iter().all(|(_, shown)| shown.len() < 300),
+        "each one part"
+    );
+    assert_eq!(rows[at.unwrap()].0, 2);
 }
 
 #[test]
@@ -253,4 +299,39 @@ fn any_other_prompt_has_no_view() {
         )
         .unwrap();
     assert!(editor.listed_view().is_none());
+}
+
+#[test]
+fn a_row_of_a_buffer_edited_since_still_names_it_without_mapping_its_place() {
+    let text = go_text();
+    let mut editor = editor_on(&text);
+    let id = editor.tiled().0.buffer();
+    let revision = editor.buffer(id).unwrap().revision();
+    editor
+        .open_xref_list(XrefKind::References, 6, PathBuf::from("/w/oso"))
+        .unwrap();
+    let row = |line: usize| XrefRow {
+        shown: "a.go".into(),
+        path: PathBuf::from("/w/oso/a.go"),
+        line,
+        at: ListedAt::Open {
+            buffer: id,
+            offset: line_start(&text, line),
+            revision,
+        },
+        text: "".into(),
+    };
+    editor.xref_listed(XrefRows::new(6, vec![row(10), row(20)], false));
+    let replacement = crate::buffer::Replacement {
+        range: 0..0,
+        text: "// new\n",
+    };
+    editor.apply_edits(id, &[replacement]).unwrap();
+    let view = editor.listed_view().unwrap();
+    assert!(view.rows.iter().all(|row| row.buffer == Some(id)));
+    // The selected row's preview still follows it through the edit, a line down.
+    let ListedPreview::Rows { rows, at, .. } = view.preview else {
+        panic!("rows");
+    };
+    assert_eq!(rows[at.unwrap()].0, 11);
 }

@@ -28,8 +28,7 @@ use crate::editor::{CompletionStyle, Editor, Preview};
 use crate::minibuffer::{PromptError, PromptId};
 use crate::project::MAX_ROW_BYTES as ROW_MESSAGE_BYTES;
 
-use super::listed::{Listed, ListedAt, ListedHit, file_column};
-use super::listed_view::RowOf;
+use super::listed::{Listed, ListedAt, ListedHit, RowParts, file_column};
 
 /// The rows the host should build for the list of a project's diagnostics. `Debug` gives its
 /// generation only.
@@ -75,8 +74,10 @@ impl fmt::Debug for DiagnosticRow {
 /// What a row keeps beside its candidate. The path itself is read from the candidate's text,
 /// which starts with it.
 pub(in crate::editor) struct RowPlace {
-    /// The bytes of the path at the start of the candidate's text.
+    /// The bytes of the path at the start of the candidate's text, and where what follows its
+    /// line starts in it.
     path: usize,
+    text: usize,
     line: usize,
     at: ListedAt,
 }
@@ -115,7 +116,10 @@ impl DiagnosticRows {
             .map(|row| {
                 // Runs of blanks are one, so that no text the server pads out passes as oso's.
                 let message = first_line(&row.message).split_whitespace();
-                let mut text = format!("{}:{}: {}:", row.path, row.line, row.severity.word());
+                let mut text = format!("{}:{}: ", row.path, row.line);
+                let starts = text.len();
+                text.push_str(row.severity.word());
+                text.push(':');
                 let start = text.len();
                 for word in message {
                     if text.len() - start >= ROW_MESSAGE_BYTES {
@@ -139,6 +143,7 @@ impl DiagnosticRows {
                     .join(" ");
                 places.push(RowPlace {
                     path: row.path.len(),
+                    text: starts,
                     line: row.line,
                     at: row.at,
                 });
@@ -318,22 +323,16 @@ impl Editor {
         Some(answer)
     }
 
-    /// Whether the list of diagnostics' rows have yet to come, and whether the host left some
-    /// out.
-    pub(super) fn diagnostics_state(&self) -> (bool, bool) {
-        let listed = &self.servers.list.listed;
-        (listed.pending, listed.cut)
-    }
-
     /// The row `item` of the list of diagnostics, whose candidate reads `text`, for its view.
-    pub(super) fn diagnostic_row_of(&self, item: usize, text: &str) -> Option<RowOf> {
+    pub(super) fn diagnostic_parts(&self, item: usize, text: &str) -> Option<RowParts> {
         let listed = &self.servers.list.listed;
         let place = listed.places.get(item)?;
-        Some(RowOf {
-            path: place.path,
-            file: listed.root.join(text.get(..place.path)?),
+        Some(RowParts {
+            shown: place.path,
+            text: place.text,
+            path: listed.root.join(text.get(..place.path)?),
             line: place.line,
-            open: self.open_place(item, place.at).map(|(id, _)| id),
+            at: place.at,
         })
     }
 

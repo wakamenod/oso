@@ -1,22 +1,31 @@
 //! What a frame shows of an open list of a server's work (ADR 0138, step 15), for a reader that
 //! cannot see the frame, such as the agent channel's `state`: what it lists, the rows shown,
-//! split into each row's path, line and text, the selected one, and the preview's lines.
+//! split into each row's path, line and text, the selected one, and the preview's rows.
 //!
 //! Must not depend on: the channel, the host or I/O; this reads only what the lists keep and
 //! what the preview shows. What a reader may be given of it is the reader's to judge.
 //!
-//! - Only the rows a frame shows are given, at most the float's rows, and each line of the
-//!   preview at most [`LISTED_LINE_BYTES`], so a view costs O(the float's rows) however long the list.
-//! - A row of an open buffer names it as it is now, so that a reader can judge it, and every
-//!   row its whole path.
+//! - Only the rows a frame shows are given, at most the float's rows, and of each of the
+//!   preview's rows the columns it draws, at most [`LISTED_LINE_BYTES`], so a view costs
+//!   O(the float's rows) however long the list or its lines.
+//! - The preview's rows are those [`Editor::preview_screen`] gives the frame: a line the
+//!   preview wraps is several rows, and one it scrolls left to its place shows from there.
+//! - A row of an open buffer names it, so that a reader can judge it, and every row its whole
+//!   path. No row's place is mapped through the edits since; only the preview does that, for
+//!   the row selected.
 
 use std::path::{Path, PathBuf};
 
 use crate::buffer::BufferId;
+use crate::display_map::DisplayPoint;
+use crate::editor::file_preview::Lister;
 use crate::editor::{Editor, Preview};
-use crate::rope::Rope;
+use crate::sum_tree::Bias;
+use crate::window::Screen;
 
-/// The most bytes of a line of the preview a view gives, cut at a character.
+use super::listed::{ListedAt, RowParts};
+
+/// The most bytes of a row of the preview a view gives, cut at a character.
 pub const LISTED_LINE_BYTES: usize = 256;
 
 /// What an open list lists.
@@ -31,10 +40,10 @@ pub enum ListedOf {
 }
 
 /// A row shown: its path as it shows it and whole, its line from 1, the rest of its text, and
-/// the open buffer whose place it is, if one is now. `Debug` says nothing of it.
+/// the open buffer it is in, if one holds it. `Debug` says nothing of it.
 pub struct ListedRow<'a> {
-    pub path: &'a str,
-    pub file: PathBuf,
+    pub shown: &'a str,
+    pub path: PathBuf,
     pub line: usize,
     pub text: &'a str,
     pub buffer: Option<BufferId>,
@@ -52,14 +61,13 @@ pub enum ListedPreview {
     Nothing,
     /// What may hold secrets, of which nothing shows.
     Withheld,
-    /// Lines from the line `first_line`, from 1, of the open buffer `buffer`, or of the file
-    /// read for it if `None`, the selected row's place on the line `at` of them, each at most
-    /// [`LISTED_LINE_BYTES`].
-    Lines {
+    /// The rows it draws of the open buffer `buffer`, or of the file read for it if `None`:
+    /// each its line, from 1 as in its file, and the columns it draws, at most
+    /// [`LISTED_LINE_BYTES`]; the selected row's place is on the row `at`.
+    Rows {
         buffer: Option<BufferId>,
-        first_line: usize,
         at: Option<usize>,
-        lines: Vec<String>,
+        rows: Vec<(usize, String)>,
     },
 }
 
@@ -68,7 +76,7 @@ impl std::fmt::Debug for ListedPreview {
         match self {
             Self::Nothing => f.write_str("Nothing"),
             Self::Withheld => f.write_str("Withheld"),
-            Self::Lines { .. } => f.debug_struct("Lines").finish_non_exhaustive(),
+            Self::Rows { .. } => f.debug_struct("Rows").finish_non_exhaustive(),
         }
     }
 }
@@ -88,31 +96,24 @@ pub struct ListedView<'a> {
     pub preview: ListedPreview,
 }
 
-/// What a list keeps of a row, for its view: the bytes of the path that starts its text, its
-/// whole path, its line, and the open buffer it is in now, as its list finds it.
-pub(super) struct RowOf {
-    pub(super) path: usize,
-    pub(super) file: PathBuf,
-    pub(super) line: usize,
-    pub(super) open: Option<BufferId>,
-}
-
 impl Editor {
     /// The innermost prompt as a frame shows it, if it lists a server's places or a project's
     /// diagnostics; `None` for any other prompt.
     pub fn listed_view(&self) -> Option<ListedView<'_>> {
-        let (of, pending, cut) = if self.lists_xrefs() {
-            let (kind, pending, cut) = self.xrefs_state();
-            let of = match kind? {
-                super::XrefKind::Definitions => ListedOf::Definitions,
-                super::XrefKind::References => ListedOf::References,
-            };
-            (of, pending, cut)
-        } else if self.lists_diagnostics() {
-            let (pending, cut) = self.diagnostics_state();
-            (ListedOf::Diagnostics, pending, cut)
-        } else {
-            return None;
+        let (of, pending, cut) = match self.previewing()? {
+            Lister::Xrefs => {
+                let of = match self.xrefs_kind()? {
+                    super::XrefKind::Definitions => ListedOf::Definitions,
+                    super::XrefKind::References => ListedOf::References,
+                };
+                (of, self.xrefs_pending(), self.xrefs_cut())
+            }
+            Lister::Diagnostics => (
+                ListedOf::Diagnostics,
+                self.diagnostics_pending(),
+                self.diagnostics_cut(),
+            ),
+            Lister::Search => return None,
         };
         let candidates = self.prompts.last()?.candidates()?;
         let mut rows = Vec::new();
@@ -122,26 +123,26 @@ impl Editor {
                 continue;
             };
             let text = candidate.text();
-            let row = match of {
-                ListedOf::Diagnostics => self.diagnostic_row_of(item, text),
-                ListedOf::Definitions | ListedOf::References => self.xref_row_of(item, text),
+            let parts = match of {
+                ListedOf::Diagnostics => self.diagnostic_parts(item, text),
+                ListedOf::Definitions | ListedOf::References => self.xref_parts(item),
             };
-            let Some(row) = row else {
+            let Some(parts) = parts else {
                 continue;
             };
-            let (Some(path), Some(rest)) = (text.get(..row.path), text.get(row.path..)) else {
+            let (Some(shown), Some(rest)) = (text.get(..parts.shown), text.get(parts.text..))
+            else {
                 continue;
             };
             if candidates.selected() == Some(place) {
                 selected = Some(rows.len());
             }
-            let buffer = row.open.or_else(|| self.buffer_of_file(&row.file));
             rows.push(ListedRow {
-                path,
-                file: row.file,
-                line: row.line,
-                text: after_line(rest, row.line),
-                buffer,
+                shown,
+                buffer: self.buffer_holding(&parts),
+                path: parts.path,
+                line: parts.line,
+                text: rest,
             });
         }
         Some(ListedView {
@@ -156,74 +157,65 @@ impl Editor {
         })
     }
 
-    /// The open buffer that visits `file`, if one does.
-    fn buffer_of_file(&self, file: &Path) -> Option<BufferId> {
-        self.buffers()
-            .find(|(_, buffer)| buffer.path() == Some(file))
-            .map(|(id, _)| id)
+    /// The open buffer that holds a row's place: the one it was listed in, if it is still
+    /// there, whether or not its place is still known, else the one that visits its file, as
+    /// the preview finds one (none the channel is still opening). O(the buffers) at most, each
+    /// a length check or a compare of the path's bytes.
+    fn buffer_holding(&self, parts: &RowParts) -> Option<BufferId> {
+        if let ListedAt::Open { buffer, .. } = parts.at
+            && self.buffer(buffer).is_some()
+        {
+            return Some(buffer);
+        }
+        let path = parts.path.as_os_str();
+        self.find_open_buffer(|_, buffer| buffer.path().map(Path::as_os_str) == Some(path))
     }
 
-    /// What the preview of the innermost prompt shows, as lines.
+    /// The rows the preview of the innermost prompt draws, as [`Editor::preview_screen`] gives
+    /// the frame them.
     fn listed_preview(&self) -> ListedPreview {
-        let rows = self
-            .prompt_layout()
-            .map_or(0, |layout| layout.regions.preview.rows);
-        match self.preview() {
-            Some(Preview::Buffer { id, start, cursor }) => {
-                let Some(buffer) = self.buffer(id) else {
+        let (display, text, cursor, buffer, before) = match self.preview() {
+            Some(Preview::Buffer { id, cursor, .. }) => {
+                let Some(held) = self.buffer(id) else {
                     return ListedPreview::Nothing;
                 };
-                lines_of(buffer.text(), (start, cursor), rows, Some(id), 0)
+                (held.display(), held.text(), cursor, Some(id), 0)
             }
             Some(Preview::Excerpt { cursor, .. }) => {
-                let (Some((text, _, start)), Some(excerpt)) =
+                let (Some((text, display, _)), Some(excerpt)) =
                     (self.shown_excerpt(), self.read_excerpt())
                 else {
                     return ListedPreview::Nothing;
                 };
                 // The excerpt's first line is its file's `first_line`.
-                lines_of(text, (start, cursor), rows, None, excerpt.first_line() - 1)
+                (display, text, cursor, None, excerpt.first_line() - 1)
             }
-            Some(Preview::Withheld) => ListedPreview::Withheld,
-            Some(Preview::NotOpen | Preview::Text { .. }) | None => ListedPreview::Nothing,
+            Some(Preview::Withheld) => return ListedPreview::Withheld,
+            Some(Preview::NotOpen | Preview::Text { .. }) | None => return ListedPreview::Nothing,
+        };
+        let mut screen = Screen::default();
+        self.preview_screen(&mut screen);
+        let rows = (screen.rows().iter())
+            .map(|row| {
+                let drawn = screen.drawn(row);
+                let at = |column, bias| {
+                    display.display_point_to_offset(DisplayPoint::new(row.line, column), bias)
+                };
+                let start = at(drawn.start, Bias::Left);
+                // No more than a row keeps is copied of a long one.
+                let end = at(drawn.end, Bias::Right).clamp(start, start + LISTED_LINE_BYTES);
+                let end = text.clip_offset(end, Bias::Left).max(start);
+                let shown = text.chunks_in_range(start..end).collect();
+                (before + row.line + 1, shown)
+            })
+            .collect();
+        let point = display.offset_to_display_point(cursor.min(text.len()));
+        ListedPreview::Rows {
+            buffer,
+            at: screen.row_of(point),
+            rows,
         }
     }
-}
-
-/// The `rows` lines of `text` from the one that holds `start`, the one that holds `cursor`
-/// marked, numbered from 1 past `before` lines that `text` leaves out.
-fn lines_of(
-    text: &Rope,
-    (start, cursor): (usize, usize),
-    rows: usize,
-    buffer: Option<BufferId>,
-    before: usize,
-) -> ListedPreview {
-    let first = text.offset_to_point(start.min(text.len())).row;
-    let hit = text.offset_to_point(cursor.min(text.len())).row;
-    let last = (first + rows).min(text.max_point().row + 1);
-    let lines = (first..last)
-        .map(|row| {
-            // No more than a cut keeps is copied of a long line.
-            let start = text.line_start(row);
-            let end = text.line_end(row).min(start + LISTED_LINE_BYTES);
-            let end = text.clip_offset(end, crate::sum_tree::Bias::Left);
-            text.slice(start..end).to_string()
-        })
-        .collect();
-    ListedPreview::Lines {
-        buffer,
-        first_line: before + first + 1,
-        at: hit.checked_sub(first).filter(|at| *at < last - first),
-        lines,
-    }
-}
-
-/// What follows `:line:` and a blank in what follows a row's path.
-fn after_line(rest: &str, line: usize) -> &str {
-    let number = format!(":{line}:");
-    let rest = rest.strip_prefix(number.as_str()).unwrap_or(rest);
-    rest.strip_prefix(' ').unwrap_or(rest)
 }
 
 #[cfg(test)]

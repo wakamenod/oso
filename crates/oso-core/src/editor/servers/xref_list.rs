@@ -27,8 +27,7 @@ use crate::editor::file_preview::{Lister, PreviewAt, Wanted};
 use crate::editor::{CompletionStyle, Editor, Preview};
 use crate::minibuffer::{PromptError, PromptId};
 
-use super::listed::{Listed, ListedAt, ListedHit, file_column};
-use super::listed_view::RowOf;
+use super::listed::{Listed, ListedAt, ListedHit, RowParts, file_column};
 
 /// What a list of a server's places lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,8 +66,10 @@ impl fmt::Debug for XrefRow {
 
 /// What a row keeps beside its candidate.
 pub(in crate::editor) struct XrefPlace {
-    /// The bytes of the path at the start of the candidate's text.
+    /// The bytes of the path at the start of the candidate's text, and where the line's text
+    /// starts in it.
     shown: usize,
+    text: usize,
     path: PathBuf,
     line: usize,
     at: ListedAt,
@@ -102,10 +103,12 @@ impl XrefRows {
                 let mut text = format!("{}:{}:", row.shown, row.line);
                 if !row.text.is_empty() {
                     text.push(' ');
-                    text.push_str(&row.text);
                 }
+                let starts = text.len();
+                text.push_str(&row.text);
                 places.push(XrefPlace {
                     shown: row.shown.len(),
+                    text: starts,
                     path: row.path,
                     line: row.line,
                     at: row.at,
@@ -242,21 +245,20 @@ impl Editor {
         Some(answer)
     }
 
-    /// What the list of places lists, and whether its rows have yet to come or were cut.
-    pub(super) fn xrefs_state(&self) -> (Option<XrefKind>, bool, bool) {
-        let list = &self.servers.xrefs;
-        (self.servers.xrefs_of, list.pending, list.cut)
+    /// What the list of places open lists, if one is.
+    pub(super) fn xrefs_kind(&self) -> Option<XrefKind> {
+        self.servers.xrefs_of.filter(|_| self.lists_xrefs())
     }
 
     /// The row `item` of the list of places, for its view.
-    pub(super) fn xref_row_of(&self, item: usize, _: &str) -> Option<RowOf> {
-        let list = &self.servers.xrefs;
-        let place = list.places.get(item)?;
-        Some(RowOf {
-            path: place.shown,
-            file: place.path.clone(),
+    pub(super) fn xref_parts(&self, item: usize) -> Option<RowParts> {
+        let place = self.servers.xrefs.places.get(item)?;
+        Some(RowParts {
+            shown: place.shown,
+            text: place.text,
+            path: place.path.clone(),
             line: place.line,
-            open: list.open_now(self, item, place.at).map(|(id, _)| id),
+            at: place.at,
         })
     }
 
@@ -268,6 +270,9 @@ impl Editor {
     /// Forgets the list of places, once its prompt has closed; its places, each with its path,
     /// are freed off the UI thread.
     pub(in crate::editor) fn forget_xref_list(&mut self, closed: PromptId) {
+        if self.servers.xrefs.prompt == Some(closed) {
+            self.servers.xrefs_of = None;
+        }
         if let Some(places) = self.servers.xrefs.close(closed)
             && !places.is_empty()
         {
