@@ -198,6 +198,12 @@ impl App {
                 return self.editor.message(format!("Cannot start the review: {e}"));
             }
         };
+        // The top its files' names are judged under, before highlighting is ever on.
+        let top = root.path().to_path_buf();
+        view.tell(Tell::Highlighter {
+            highlighter: None,
+            top,
+        });
         self.editor.show_in(window, buffer);
         let running = Running::new(id, project, scope.clone(), root, view);
         self.reviews.open.push(running);

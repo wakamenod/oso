@@ -387,8 +387,9 @@ pub(crate) fn unread(entry: &Entry, cards: &Cards) -> Rendered {
 }
 
 /// The section of a file that left the review with comments on it: its header and every card,
-/// outdated, or, if its last reading was withheld as it may hold secrets, the header alone,
-/// with how many it has. `room` is as for [`render`].
+/// outdated, or, if `withheld` as it may hold secrets (a reading of it was withheld, or a name
+/// it had may hold secrets, read or not), the header alone, with how many it has. `room` is as
+/// for [`render`].
 pub(crate) fn gone(
     path: &[u8],
     cards: &Cards,

@@ -39,6 +39,7 @@ mod highlight;
 mod panes;
 mod project;
 mod section;
+mod withheld;
 
 use std::collections::hash_map::Entry as Slot;
 use std::collections::{BTreeMap, HashMap};
@@ -114,7 +115,7 @@ pub(crate) enum Tell {
     /// to.
     Panes(bool),
     /// What highlights the sides (step 9), with the work tree's top that every path a reading
-    /// names is judged under; none to stop, as with highlighting off.
+    /// or a gone file names is judged under (told at start too); none to stop, as off.
     Highlighter {
         highlighter: Option<Box<dyn Highlighter>>,
         top: PathBuf,
@@ -216,6 +217,7 @@ struct State {
     order: Vec<Box<[u8]>>,
     files: HashMap<Box<[u8]>, File>,
     gone: BTreeMap<Box<[u8]>, Gone>,
+    held: withheld::Held,
     /// Whether agent cards fold to their first line.
     folded: bool,
     /// The most bytes the text holds: [`MAX_TEXT`], less in tests.
@@ -250,6 +252,7 @@ impl State {
             order: Vec::new(),
             files: HashMap::new(),
             gone: BTreeMap::new(),
+            held: withheld::Held::default(),
             folded: false,
             max_text: MAX_TEXT,
             more: 0,
@@ -376,7 +379,7 @@ impl State {
         let whole = more == 0 && !cut;
         let before = std::mem::take(&mut self.order);
         let mut files = std::mem::take(&mut self.files);
-        self.order = entries.iter().map(|entry| entry.path.clone()).collect();
+        self.order = self.held.listed(self.highlighting.top(), entries);
         for entry in entries {
             let file = match files.remove(&entry.path) {
                 Some(file) => file,
@@ -399,7 +402,7 @@ impl State {
             if whole {
                 self.highlighting.forget(path);
                 let gone = Gone {
-                    withheld: file.withheld(),
+                    withheld: self.held.left(self.highlighting.top(), &file),
                     cards: file.cards,
                     rendered: Laid::default(),
                 };
@@ -501,8 +504,7 @@ impl State {
         } else if cards.comments.is_empty() {
             self.dirty |= self.gone.remove(&path).is_some();
         } else {
-            // A file gone stays withheld once it was.
-            let withheld = self.gone.get(&path).is_some_and(|gone| gone.withheld);
+            let withheld = self.held.told(self.highlighting.top(), &path);
             let gone = Gone {
                 cards,
                 withheld,
