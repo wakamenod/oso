@@ -81,7 +81,7 @@ impl Running {
     fn answer(&self, allow: bool) -> Connection {
         let request = self.next();
         assert!(
-            matches!(request.event, Event::Asks(_)),
+            matches!(request.event, Event::Asks { .. }),
             "{:?}",
             request.event
         );
@@ -201,7 +201,7 @@ fn a_client_that_goes_while_it_waits_closes_its_question() {
     let mut client = running.connect();
     client.send("version", None);
     let asking = running.next();
-    assert!(matches!(asking.event, Event::Asks(_)));
+    assert!(matches!(asking.event, Event::Asks { .. }));
     drop(client);
     let gone = running.next();
     assert_eq!(gone.connection, asking.connection);
@@ -312,7 +312,7 @@ fn the_turn_to_ask_is_back_when_the_ui_hears_a_client_went() {
 fn a_question_the_editor_cannot_take_locks_no_one_out() {
     let first = Arc::new(AtomicBool::new(true));
     let running = Running::with(move |request, _| {
-        !(matches!(request.event, Event::Asks(_)) && first.swap(false, Ordering::AcqRel))
+        !(matches!(request.event, Event::Asks { .. }) && first.swap(false, Ordering::AcqRel))
     });
     let mut client = running.connect();
     client.send("version", None);

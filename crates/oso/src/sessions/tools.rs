@@ -45,7 +45,8 @@ pub struct Tool {
     /// The MCP hint that it may destroy what cannot be had back.
     pub destructive: bool,
     /// Whether a connection that is no hosted session's bridge may call it (the author's
-    /// choice, step 6): only the reading tools, within the selected window's project.
+    /// choice, step 6): the reading tools, within the selected window's project, and
+    /// `move_to_space`, which asks each time (ADR 0151).
     pub outside: bool,
 }
 
@@ -73,7 +74,7 @@ const fn reads(name: &'static str) -> Tool {
 
 /// The tools, the reading ones first. A change here is a change of what an agent may do: the
 /// test below spells the table out, so that review sees it.
-pub const TOOLS: [Tool; 8] = [
+pub const TOOLS: [Tool; 9] = [
     reads("session_list"),
     reads("session_state"),
     // It runs git and `gh` with no question, as the author chose (ADR 0121, step 4).
@@ -113,6 +114,14 @@ pub const TOOLS: [Tool; 8] = [
         asks: Asks::No,
         destructive: false,
         outside: false,
+    },
+    // Only an outside session's, which moves into a space on the person's `y` (ADR 0151).
+    Tool {
+        name: "move_to_space",
+        reach: Reach::Change,
+        asks: Asks::Each,
+        destructive: false,
+        outside: true,
     },
 ];
 

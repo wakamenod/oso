@@ -26,7 +26,8 @@ use oso_lsp::position::Encoding;
 use oso_lsp::protocol::Published;
 use oso_lsp::server::Diagnosed;
 
-use super::super::{App, Freer, UserEvent};
+use super::super::freer::Freer;
+use super::super::{App, UserEvent};
 use super::documents::Open;
 
 /// The reports of a server's files that no document open with it holds, by path, each with the

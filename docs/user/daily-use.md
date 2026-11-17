@@ -479,7 +479,21 @@ type in its terminal. To let sessions you started start sessions without the que
 
 Claude Code run in a plain `M-x terminal`, or outside oso, is not a session. If you gave it
 `oso mcp` as an MCP server yourself, it reaches oso only after `M-x agent-channel-start`, and
-each connection asks you first. Of the session tools, it gets only the reading ones.
+each connection asks you first. Of the session tools, it gets the reading ones, and
+`move_to_space`.
+
+### Moving a session into a space
+
+To move a Claude Code session started outside oso into one of oso's spaces, open the space in
+oso, then tell the session "move to oso's space NAME". Its `move_to_space` asks you in oso: the
+question names the session, the directory it runs in, and the repository it adds to the space
+if the space does not have it yet. The repository must be one oso trusts.
+
+On `y`, the session ends its turn and asks you to type `/exit` where it runs. Once that process
+has ended, oso resumes the conversation in the same directory, in that space, with your own
+settings: flags the outside run had, such as `--model` or a permission mode, are not carried.
+While oso waits, a buffer `*moving: NAME*` says so; kill it to cancel. If the process still
+runs after 5 minutes, oso resumes nothing; stop it there and use `session-adopt`.
 
 ## Claude Code in a plain terminal
 

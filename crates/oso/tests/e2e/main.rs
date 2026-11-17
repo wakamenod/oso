@@ -54,6 +54,7 @@ mod session_tools;
 mod sessions;
 mod sessions_tree;
 mod space_handover;
+mod space_move;
 mod space_tools;
 mod spaces;
 mod starts;

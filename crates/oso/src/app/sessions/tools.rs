@@ -38,6 +38,7 @@ use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::jobs::{Report, Trust};
 
 mod asks;
+mod moving;
 mod reads;
 mod remove;
 mod space;
@@ -59,6 +60,8 @@ pub(in crate::app) struct Tools {
     starts: HashMap<SessionKey, Pending>,
     /// The question of a tool that asks, before and while it is asked.
     question: Option<Question>,
+    /// A `move_to_space` call whose asker is being looked for (ADR 0151).
+    looking: Option<moving::Looking>,
     /// When each caller's recent worktree listings started, for their limit.
     listings: HashMap<Lister, Vec<Instant>>,
     /// `*Agent request*`, while it is shown for a question.
@@ -213,7 +216,15 @@ impl App {
                 .map_or_else(|| "an agent".to_owned(), |c| printable(&c.name, 40));
             self.agent_log(&format!("{}: from {who}", tool.name));
         }
-        self.carry_tool(pending, tool, call, caller);
+        match (call, caller) {
+            // Only a session started outside oso moves (ADR 0151).
+            (Call::MoveToSpace { space }, None) => self.tool_move_to_space(pending, space),
+            (Call::MoveToSpace { .. }, Some(_)) => pending.answer(Err(
+                "your session is oso's already; move_to_space is for a session started outside oso"
+                    .into(),
+            )),
+            (call, caller) => self.carry_tool(pending, tool, call, caller),
+        }
     }
 
     /// Carries out `call` of `tool` from `caller`, admitted to the channel.
@@ -293,7 +304,10 @@ impl App {
                 };
                 self.tool_session_start(pending, &tool, &caller, call);
             }
-            (_, None) => pending.answer(Err("this tool is only for a session oso started".into())),
+            // `session_tool` carried it out already.
+            (Call::MoveToSpace { .. }, _) | (_, None) => {
+                pending.answer(Err("this tool is only for a session oso started".into()));
+            }
         }
     }
 
@@ -538,6 +552,8 @@ impl App {
         tools
             .listings
             .retain(|lister, _| !matches!(lister, Lister::Outside(of) if ours(*of)));
+        // A move's look that waits for nothing any more (ADR 0151).
+        tools.looking.take_if(|looking| ours(looking.connection()));
         let closes = tools
             .question
             .as_ref()
@@ -552,6 +568,7 @@ impl App {
     pub(in crate::app) fn sync_session_tools(&mut self) {
         self.ask_about_a_tool();
         self.end_slow_jobs();
+        self.sync_moves();
     }
 }
 

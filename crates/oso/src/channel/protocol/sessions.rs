@@ -19,6 +19,8 @@
 //! - `space_status`: the caller's space, its repositories and its sessions.
 //! - `draft_set`: `{"kind": "commit", "id": "1a2b3c4d", "text": "…"}`, the draft of the commit
 //!   message oso asked for with `id` (ADR 0127, step 6a).
+//! - `move_to_space`: `{"space": "fix-login"}`, the open space a session started outside oso
+//!   moves into (ADR 0151).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -28,7 +30,7 @@ use serde_json::{Map, Value};
 use super::{MAX_PATH, only, short};
 
 /// The methods of this module, as the tools that call them are named.
-pub const METHODS: [&str; 8] = [
+pub const METHODS: [&str; 9] = [
     "session_list",
     "session_state",
     "worktree_list",
@@ -37,6 +39,7 @@ pub const METHODS: [&str; 8] = [
     "session_start",
     "space_status",
     "draft_set",
+    "move_to_space",
 ];
 
 /// The longest brief a session takes, in bytes, as the person's `*Brief*` (ADR 0121).
@@ -45,6 +48,8 @@ pub const MAX_BRIEF: usize = 64 * 1024;
 pub const MAX_NAME: usize = 255;
 /// The longest draft taken, in bytes (ADR 0127, step 6a).
 pub const MAX_DRAFT: usize = 16 * 1024;
+/// The longest space name taken, in bytes, as a space's name is (ADR 0136).
+pub const MAX_SPACE_NAME: usize = 48;
 /// The longest request id taken, in bytes.
 const MAX_ID: usize = 64;
 /// The most directories a call's `with_dirs` names.
@@ -93,6 +98,11 @@ pub enum Call {
         id: String,
         text: String,
     },
+    /// A session started outside oso asks to move into the open space named `space` (ADR
+    /// 0151).
+    MoveToSpace {
+        space: String,
+    },
 }
 
 /// How long the server holds a call's reply for the UI.
@@ -119,6 +129,7 @@ impl Call {
             Self::Start { .. } => "session_start",
             Self::SpaceStatus => "space_status",
             Self::DraftSet { .. } => "draft_set",
+            Self::MoveToSpace { .. } => "move_to_space",
         }
     }
 
@@ -129,7 +140,9 @@ impl Call {
                 Hold::Usual
             }
             Self::WorktreeList { .. } | Self::WorktreeRemove { .. } => Hold::Job(JOB_REPLY_WITHIN),
-            Self::StartWorktree { .. } | Self::Start { .. } => Hold::Person,
+            Self::StartWorktree { .. } | Self::Start { .. } | Self::MoveToSpace { .. } => {
+                Hold::Person
+            }
         }
     }
 }
@@ -175,6 +188,9 @@ pub fn parse(method: &str, params: &Map<String, Value>) -> Option<Result<Call, S
         "session_start" => parse_start(params),
         "space_status" => only(params, method, &[]).map(|()| Call::SpaceStatus),
         "draft_set" => parse_draft(params),
+        "move_to_space" => only(params, method, &["space"])
+            .and_then(|()| text(params, method, "space", MAX_SPACE_NAME))
+            .map(|space| Call::MoveToSpace { space }),
         _ => return None,
     })
 }
@@ -360,7 +376,9 @@ mod tests {
                 "draft_set",
                 json!({ "kind": "commit", "id": "1a2b3c4d", "text": "Fix it" }),
             ),
+            call("move_to_space", json!({ "space": "fix-login" })),
         ];
+        assert_eq!(calls.len(), METHODS.len());
         for (call, method) in calls.into_iter().zip(METHODS) {
             assert_eq!(call.unwrap().name(), method);
         }
@@ -482,6 +500,13 @@ mod tests {
         );
         assert!(call("session_start", json!({ "directory": "r" })).is_err());
         assert!(call("session_start", json!({ "brief": 3 })).is_err());
+        let space = "s".repeat(super::MAX_SPACE_NAME);
+        assert!(call("move_to_space", json!({ "space": space })).is_ok());
+        let over = "s".repeat(super::MAX_SPACE_NAME + 1);
+        assert!(call("move_to_space", json!({ "space": over })).is_err());
+        assert!(call("move_to_space", json!({})).is_err());
+        assert!(call("move_to_space", json!({ "space": "" })).is_err());
+        assert!(call("move_to_space", json!({ "space": "x", "pid": 1 })).is_err());
     }
 
     #[test]
@@ -494,6 +519,8 @@ mod tests {
         assert_eq!(start.hold(), Hold::Person);
         assert!(!format!("{start:?}").contains("secret"));
         assert_eq!(call("session_list", json!({})).unwrap().hold(), Hold::Usual);
+        let moving = call("move_to_space", json!({ "space": "x" })).unwrap();
+        assert_eq!(moving.hold(), Hold::Person);
         assert!(matches!(
             call("worktree_list", json!({})).unwrap().hold(),
             Hold::Job(_)

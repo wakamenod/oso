@@ -633,8 +633,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   nothing, and allows what it cannot read. It steers Claude, and is no boundary.
 - The agents' session tools ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 6) act
   only for a session oso started, proven by its bridge, and only within its repository; any
-  other connection may only read, within the selected window's project. Starting a session asks
-  the person each time, from the window only, after a quiet moment, and the process starts on
+  other connection may only read, within the selected window's project, or ask to move into a
+  space. Starting a session asks the person each time, from the window only, after a quiet
+  moment, and the process starts on
   the person's `y`, as the person's act; the question quotes and escapes every name in it, and
   `?` shows the whole brief. No tool types into a terminal, answers a session's dialog, passes a
   permission flag or reads Claude Code's token files; a guard test keeps the tools' files from
@@ -646,6 +647,14 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     new connection resets neither, and a branch's refusal by the name git resolved it to.
   - A tool's worktree jobs take the trust of the session's open project as it is at the call,
     and again at the person's `y`, so a project the person no longer trusts runs nothing.
+  - `move_to_space` ([ADR 0151](adr/0151-moving-a-session-into-a-space.md)) is the one tool
+    that acts for an outside connection, and it asks the person each time. The agent names only
+    a space; the conversation, its directory and its process come from the registry entry of
+    the bridge's parent, matched to when that parent started as the connection came. Its
+    repository must be trusted, and the question names it when the `y` adds it to the space.
+    Nothing starts until the outside process has ended, and the start thread reads the registry
+    again, so two processes never run one conversation. The moved session counts as started on
+    the person's `y` (ADR 0135), which the question says.
   - `draft_set` ([ADR 0127](adr/0127-source-control-and-github.md), step 6a) asks nothing: it
     writes only the commit message whose newest request, pasted by the person's `C-c C-d`,
     named its 32-bit id, from the session it was pasted into, in that worktree of a trusted

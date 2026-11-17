@@ -118,6 +118,15 @@ impl App {
     /// records it, the one before kept as an earlier one; started by one, it is a worker of
     /// that space (ADR 0136, step 4).
     pub(in crate::app) fn space_session_started(&mut self, key: SessionKey) {
+        // A session that moved into a space at its request is in that space (ADR 0151).
+        if let Some(space) = self.hosting.moves.landing.remove(&key) {
+            if let Some(session) = self.hosting.table.get_mut(key) {
+                session.space = Some(space);
+                self.hosting.unsaved = true;
+                self.sessions_touched();
+            }
+            return;
+        }
         let Some(space) = self.hosting.spaces.starting.remove(&key) else {
             return self.worker_joined(key);
         };

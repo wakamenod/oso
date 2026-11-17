@@ -20,8 +20,9 @@ use crate::app::{App, UserEvent};
 use crate::commands::agent_sessions::{ADOPT_LIST, is_adopt_prompt};
 use crate::git::TrustedRoot;
 use crate::sessions::adopt::{self, Found, Offered, Order as ListOrder, RegistryNames};
-use crate::sessions::identity::cleaned;
+use crate::sessions::identity::{Origin, cleaned};
 use crate::sessions::registry::{is_plain_directory, shown_directory};
+use crate::sessions::spaces::SpaceId;
 use crate::sessions::start::{Kind, Order};
 use crate::sessions::transcripts::Cache;
 use crate::sessions::worker::SessionKey;
@@ -72,6 +73,17 @@ pub(super) struct Adoption {
     pub(super) from: ForkFrom,
     /// The registry said it was busy, the last time this oso saw it.
     busy: bool,
+    /// The space it moved into at its own request, by its name (ADR 0151).
+    moved_into: Option<String>,
+}
+
+/// Where a conversation that asked to move lands (ADR 0151).
+#[derive(Debug)]
+pub(super) struct Landing {
+    pub(super) space: SpaceId,
+    pub(super) space_name: String,
+    /// Its space is the one in front, so the selected window shows it.
+    pub(super) shown: bool,
 }
 
 /// The name an adopted session asks for: its own, if any of it is left once cleaned, else its
@@ -199,7 +211,13 @@ impl App {
     /// Adopts the conversation `pick` stands for: resumes it as a hosted session in the
     /// directory it ran in, through the start thread, which refuses a live one and offers a
     /// fork. `session-adopt`'s answer and `session-search`'s `RET` (ADR 0145) come here.
-    pub(in crate::app) fn adopt_conversation(&mut self, mut pick: adopt::Pick) {
+    pub(in crate::app) fn adopt_conversation(&mut self, pick: adopt::Pick) {
+        self.adopt_into(pick, None);
+    }
+
+    /// Adopts `pick` as [`App::adopt_conversation`] does, or, for a session that asked to
+    /// move, into `landing`'s space, as started on the person's `y` (ADR 0151).
+    pub(super) fn adopt_into(&mut self, mut pick: adopt::Pick, landing: Option<Landing>) {
         if let Some((_, busy)) = self.hosting.adopting.names.get(&pick.id) {
             pick.busy |= busy;
         }
@@ -252,10 +270,24 @@ impl App {
                 name: name.clone(),
             },
             busy: pick.busy,
+            moved_into: landing.as_ref().map(|landing| landing.space_name.clone()),
         };
         self.hosting.adopting.pending.insert(key, adoption);
         self.turn_agent_channel_on_for_a_session();
-        let terminal = self.session_terminal(key, &name, None, true);
+        let shown = landing.as_ref().is_none_or(|landing| landing.shown);
+        let terminal = self.session_terminal(key, &name, None, shown);
+        if let Some(landing) = landing {
+            // It asked, and the person said `y` (ADR 0151, Q4).
+            self.hosting.origins.insert(key, (Origin::Answered, None));
+            // Its space shows it once entered.
+            let spaces = self.watch.spaces_mut();
+            if !landing.shown
+                && let Some(at) = spaces.find(&landing.space)
+            {
+                spaces.showed(at, Some(terminal.buffer), None);
+            }
+            self.hosting.moves.landing.insert(key, landing.space);
+        }
         self.order_session(Order {
             token: key,
             kind: Kind::Resume(pick.id),
@@ -292,6 +324,7 @@ impl App {
     /// The adoption started with `key`, if it is one, as its start was refused or it is
     /// ready: what it forks if offered, and what the echo area says.
     pub(super) fn take_adoption(&mut self, key: SessionKey) -> Option<Adoption> {
+        self.hosting.moves.landing.remove(&key);
         self.hosting.adopting.pending.remove(&key)
     }
 
@@ -299,7 +332,13 @@ impl App {
     /// out.
     pub(super) fn session_adopted(&mut self, adopted: &Adoption) {
         let name = &adopted.from.name;
-        let said = if adopted.busy {
+        let said = if let Some(space) = &adopted.moved_into {
+            format!(
+                "Moved {} into space {}",
+                crate::sessions::tools::quoted(name),
+                crate::sessions::tools::quoted(space)
+            )
+        } else if adopted.busy {
             format!(
                 "Adopted {name}: it was working when it stopped, so its last turn may be cut \
                  short; ask it to go on"
