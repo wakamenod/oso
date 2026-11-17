@@ -33,14 +33,12 @@ use super::{
     is_cross, is_pull_address, read_address, read_checks, read_head, read_list, read_threads,
     read_view,
 };
-use crate::git::{Gh, GhAnswer, GhRepo, Git, MAX_SHORT, TrustedRoot, trim_line};
-use crate::vcs::read::{args, find, hooks_dir, set};
+use crate::git::{GH_LIMIT, Gh, GhAnswer, GhRepo, Git, PullTarget, TrustedRoot};
+use crate::vcs::read::{find, hooks_dir};
 
 /// What a request that panicked is answered.
 const PANICKED: &str = "gh's thread failed: ask again";
 
-/// How long one run of `gh` may take.
-pub(crate) const GH_LIMIT: Duration = Duration::from_secs(30);
 /// How long the system's opener is waited for.
 const OPENER_LIMIT: Duration = Duration::from_secs(2);
 /// The most bytes of one of `gh`'s answers read: a pull request with its conversation, or its
@@ -292,7 +290,7 @@ fn answer(
     let Some(found) = found.as_ref() else {
         return refused(&request, PANICKED.into());
     };
-    let target = match target_of(&found.git) {
+    let target = match PullTarget::of(&found.git) {
         Ok(target) => target,
         Err(why) => return refused(&request, why),
     };
@@ -351,54 +349,14 @@ fn find_all(root: &TrustedRoot, state: Option<&Path>) -> Result<Found, String> {
     })
 }
 
-/// What `gh` is asked about: the repository on GitHub of the remote the branch checked out
-/// pushes to, else `origin`'s, and the branch, if one is checked out.
-struct Target {
-    github: GhRepo,
-    branch: Option<String>,
-    /// The remote the branch pushes to, else `origin`.
-    remote: String,
-}
-
-/// The first line git writes for `words`, if it says one.
-fn read_line(git: &Git, words: &[&str]) -> Option<String> {
-    let out = git.run(&args(words), &set(), MAX_SHORT).ok()?;
-    let line = std::str::from_utf8(trim_line(&out)).ok()?.to_owned();
-    (!line.is_empty()).then_some(line)
-}
-
-fn target_of(git: &Git) -> Result<Target, String> {
-    let read = |words: &[&str]| read_line(git, words);
-    let branch = read(&["symbolic-ref", "--quiet", "--short", "HEAD"])
-        .filter(|branch| !branch.starts_with('-'));
-    let remote = branch
-        .as_deref()
-        .and_then(|branch| {
-            let head = format!("refs/heads/{branch}");
-            read(&["for-each-ref", "--format=%(upstream:remotename)", &head])
-        })
-        .unwrap_or_else(|| "origin".to_owned());
-    let url = read(&["remote", "get-url", "--", &remote])
-        .ok_or_else(|| format!("No remote {remote}: a pull request is a GitHub remote's"))?;
-    let gh_host = std::env::var("GH_HOST").ok();
-    let github = GhRepo::from_url(&url, gh_host.as_deref()).ok_or_else(|| {
-        format!("{remote} is not on github.com or the host GH_HOST names: gh is not asked")
-    })?;
-    Ok(Target {
-        github,
-        branch,
-        remote,
-    })
-}
-
 /// The repository on GitHub the branch checked out's remote names now, as `git` says, for the
 /// run thread to check a pull request's run against (step 5a-2).
 pub(crate) fn branch_repo(git: &Git) -> Result<GhRepo, String> {
-    target_of(git).map(|target| target.github)
+    PullTarget::of(git).map(|target| target.github)
 }
 
 /// Runs `gh` with `words` about `target`'s repository, once the root is still trusted.
-fn run(found: &Found, target: &Target, words: &[&str]) -> Result<GhAnswer, String> {
+fn run(found: &Found, target: &PullTarget, words: &[&str]) -> Result<GhAnswer, String> {
     found
         .root
         .check()
@@ -409,7 +367,7 @@ fn run(found: &Found, target: &Target, words: &[&str]) -> Result<GhAnswer, Strin
 /// `gh pr view` of `number`, or of the branch checked out.
 fn pr_view(
     found: &Found,
-    target: &Target,
+    target: &PullTarget,
     number: Option<u64>,
     fields: &str,
 ) -> Result<GhAnswer, String> {
@@ -432,12 +390,12 @@ fn none_found(answer: &GhAnswer) -> bool {
 }
 
 /// Why the branch has none.
-fn no_pull_request(target: &Target) -> String {
+fn no_pull_request(target: &PullTarget) -> String {
     let branch = target.branch.as_deref().unwrap_or("HEAD");
     format!("{branch} has no pull request: N c makes one")
 }
 
-fn head(found: &Found, target: &Target) -> Result<Option<PrHead>, String> {
+fn head(found: &Found, target: &PullTarget) -> Result<Option<PrHead>, String> {
     let answer = pr_view(found, target, None, HEAD_FIELDS)?;
     if none_found(&answer) {
         return Ok(None);
@@ -447,7 +405,7 @@ fn head(found: &Found, target: &Target) -> Result<Option<PrHead>, String> {
     Ok(ours.then_some(head))
 }
 
-fn view(found: &Found, target: &Target, number: Option<u64>) -> Result<PrLaid, String> {
+fn view(found: &Found, target: &PullTarget, number: Option<u64>) -> Result<PrLaid, String> {
     let answer = pr_view(found, target, number, VIEW_FIELDS)?;
     if none_found(&answer) {
         return Err(no_pull_request(target));
@@ -492,7 +450,7 @@ fn view(found: &Found, target: &Target, number: Option<u64>) -> Result<PrLaid, S
     Ok(view_text(&view))
 }
 
-fn list(found: &Found, target: &Target) -> Result<PrLaid, String> {
+fn list(found: &Found, target: &PullTarget) -> Result<PrLaid, String> {
     let repo = target.github.as_str();
     let words = [
         "pr",
@@ -511,7 +469,7 @@ fn list(found: &Found, target: &Target) -> Result<PrLaid, String> {
     Ok(list_text(repo, &items))
 }
 
-fn address(found: &Found, target: &Target) -> Result<(String, u64), String> {
+fn address(found: &Found, target: &PullTarget) -> Result<(String, u64), String> {
     let answer = pr_view(
         found,
         target,

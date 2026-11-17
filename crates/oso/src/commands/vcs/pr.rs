@@ -1,7 +1,8 @@
 //! Source control's commands for pull requests (ADR 0127, step 5a): the pull request menu's
 //! heads, `N v` to show the branch's, `N k` its checks, `N l` the repository's open ones and
 //! `N o` to open the branch's in the browser, and the keys of `*pr: #N*` and of the list:
-//! reading it again, visiting what a line names, opening and copying an address.
+//! reading it again, visiting what a line names, opening and copying an address, and reviewing
+//! a pull request's changes (ADR 0122, step 12b).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command asks the host, which runs `gh`
 //! on the repository's thread for it. Every command here runs `gh`, opens a program or writes
@@ -19,6 +20,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("o", "git-pr-open"),
     ("w", "git-pr-copy-link"),
     ("g", "git-pr-refresh"),
+    ("r", "git-pr-review"),
     ("n", "next-line"),
     ("p", "previous-line"),
     ("q", "quit-window"),
@@ -78,6 +80,11 @@ pub const COMMANDS: &[Command] = &[
         "git-pr-refresh",
         "In a pull request's buffer, or a list of them, read it again (`g`).",
         refresh
+    ),
+    command!(
+        "git-pr-review",
+        "In a pull request's buffer, or at a pull request in a list, review its changes (`r`), as `review-pull-request` does.",
+        review
     ),
 ];
 
@@ -157,6 +164,10 @@ fn copy_link(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn refresh(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     act(ctx, PrAct::Refresh)
+}
+
+fn review(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    act(ctx, PrAct::Review)
 }
 
 pub mod create;

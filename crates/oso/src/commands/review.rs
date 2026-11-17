@@ -14,7 +14,6 @@
 
 mod menu;
 
-use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::{DraftFor, Editor, ReviewChoice, ReviewId, ReviewRequest, ScopeKind};
 use oso_core::project::ProjectId;
@@ -51,9 +50,6 @@ pub const KEYS: &[(&str, &str)] = &[
     ("?", "review-keys"),
 ];
 
-/// What the buffer `review-keys` shows is named.
-const KEYS_BUFFER: &str = "*Review keys*";
-
 /// Why a review cannot open in a restricted project (ADR 0122, "Restricted projects").
 pub(crate) const RESTRICTED: &str =
     "Reviewing runs git, which this project is not trusted to run: M-x trust-project";
@@ -63,6 +59,15 @@ pub(crate) const RESTRICTED: &str =
 pub(crate) const MAX_NAME: usize = 80;
 
 pub(crate) use crate::review::one_line;
+
+/// The pull request `text` names: digits only, no sign, at most 18 of them, above 0.
+pub(crate) fn pull_number(text: &str) -> Option<u64> {
+    let digits = !text.is_empty() && text.len() <= 18 && text.bytes().all(|b| b.is_ascii_digit());
+    digits
+        .then(|| text.parse().ok())
+        .flatten()
+        .filter(|&n| n > 0)
+}
 
 /// A command a person runs, with no argument.
 macro_rules! person_command {
@@ -81,6 +86,7 @@ macro_rules! person_command {
 mod comments;
 mod decide;
 mod files;
+mod keys;
 mod saved;
 mod send;
 
@@ -148,6 +154,17 @@ pub const COMMANDS: &[Command] = &[
         run: review_range,
         state: None,
     },
+    Command {
+        name: "review-pull-request",
+        doc: "Review a pull request of the current buffer's project's GitHub repository, its number read in a prompt.\n\n`gh` says its base and head, and their commits are fetched from the remote when this clone lacks them, as objects alone: no ref moves, and `FETCH_HEAD` stays as it was. The old side is where the head left the base (`git merge-base`), as GitHub's \"Files changed\" shows it; the new side is its head, or the work tree when its head branch is the one checked out and holds its head. `g` asks `gh` again. Comments go to the session whose worktree has its head branch checked out. git and `gh` run only in a trusted project, on a worker.",
+        args: ArgSpec::Text {
+            prompt: "Review pull request #",
+            history: "review-pull-request",
+        },
+        reach: Reach::Person,
+        run: review_pull_request,
+        state: None,
+    },
     person_command!(
         "review-mark-baseline",
         "Take a baseline of the current buffer's project's work tree, for `review-session`.\n\nIt writes the work tree, untracked files included, as a tree that nothing references, as `git add` does; git keeps it for its prune grace period. git runs only in a trusted project, on a worker.",
@@ -211,7 +228,7 @@ pub const COMMANDS: &[Command] = &[
         doc: "Show the keys of a review buffer, each with what its command does, in `*Review keys*`.",
         args: ArgSpec::None,
         reach: Reach::Look,
-        run: review_keys,
+        run: keys::review_keys,
         state: None,
     },
     person_command!(
@@ -309,6 +326,13 @@ fn review_range(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         }
         _ => Err(CommandError::new("A range is FROM..TO")),
     }
+}
+
+fn review_pull_request(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let answer = ctx.answer().unwrap_or_default().trim();
+    let number = pull_number(answer.strip_prefix('#').unwrap_or(answer))
+        .ok_or_else(|| CommandError::new("A pull request is named by its number"))?;
+    open(ctx, ScopeKind::PullRequest, Some(number.to_string()))
 }
 
 fn review_mark_baseline(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -482,53 +506,6 @@ fn review_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     Ok(())
 }
 
-fn review_keys(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    let text = keys_text(
-        "Keys in a review buffer",
-        KEYS,
-        "C-x v r opens the review menu; C-x k closes the review.",
-    );
-    show_keys(ctx, KEYS_BUFFER, &text)
-}
-
-/// Shows `text` in the internal buffer `name`, made once, in the selected window.
-fn show_keys(ctx: &mut Ctx<'_>, name: &str, text: &str) -> Result<(), CommandError> {
-    super::not_in_prompt(ctx)?;
-    let shown = ctx
-        .editor
-        .buffer_named(name)
-        .filter(|id| ctx.editor.buffer(*id).is_some_and(|b| b.is_internal()));
-    let id = match shown {
-        Some(id) => id,
-        None => ctx.editor.add_internal_buffer(name, Mode::Fundamental),
-    };
-    ctx.editor.set_internal_text(id, text);
-    let window = ctx.editor.window().id();
-    ctx.editor.show_in(window, id);
-    ctx.request_redraw();
-    Ok(())
-}
-
-/// What a list of a review's keys says: `title`, each of `keys` with its command's name and
-/// summary, and `footer`.
-fn keys_text(title: &str, keys: &[(&str, &str)], footer: &str) -> String {
-    let mut text = format!("{title}\n\n");
-    for (keys, name) in keys {
-        let summary = COMMANDS
-            .iter()
-            .chain(COMMENT_COMMANDS)
-            .chain(DECISION_COMMANDS)
-            .chain(SEND_COMMANDS)
-            .chain(FILES_COMMANDS)
-            .find(|command| command.name == *name)
-            .and_then(|command| command.doc.lines().next())
-            .unwrap_or_default();
-        text.push_str(&format!("{keys:<8}{name:<24}{summary}\n"));
-    }
-    text.push_str(&format!("\n{footer}\n"));
-    text
-}
-
 /// How many comments of the person's in the review `id` were not sent, an open draft for it
 /// counted as one, unless it edits a comment counted already.
 pub(crate) fn unsent(editor: &Editor, id: ReviewId) -> usize {
@@ -597,5 +574,7 @@ pub(crate) fn kill(ctx: &mut Ctx<'_>, review: ReviewId) -> Result<(), CommandErr
     Ok(())
 }
 
+#[cfg(test)]
+mod pr_tests;
 #[cfg(test)]
 pub(crate) mod tests;

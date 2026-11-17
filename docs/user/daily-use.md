@@ -360,6 +360,7 @@ removed; once git may be deleting, it asks first, as the worktree is then left h
 | `b` | The branch against its base |
 | `c` | One commit |
 | `r` | A range of commits, `FROM..TO` |
+| `p` | A pull request, by its number, through `gh` |
 | `B` | Take a new baseline now |
 
 Each is a command too, such as `M-x review-uncommitted`. Reviews run git, so the project must
@@ -420,6 +421,14 @@ holding text yanked from a secret is not sent.
 Sent comments are drawn dimmed, and an edit makes one unsent again. A session that is asking you
 something takes no paste: answer it first, and the message waits.
 
+A pull request's review (`p`, or `r` on one in `*pull requests*` or in `*pr: #N*`) shows what
+GitHub's "Files changed" shows: its head against where it left its base. When its head branch
+is the one checked out and holds the pull request's head, the work tree shows instead, with
+your changes not yet pushed; a branch behind it shows its head. Its commits are fetched from
+the remote when this clone lacks them, moving none of your branches and leaving `FETCH_HEAD`
+as it was; closing the review stops the fetch, and `g` asks `gh` again. Its comments go to the
+session in the worktree its head branch is checked out in.
+
 `|` shows the review as two panes that scroll together: the old side at the left and the new side
 at the right when the review's area is 160 columns wide or more, else one above the other.
 Blank rows keep the panes lined up; the cursor skips them. A comment shows in the pane of its
@@ -446,7 +455,7 @@ project must be trusted.
 | `z` | The stash menu: `z` stash, `a` apply, `p` pop, `k` drop the stash at point; `- u` takes untracked files |
 | `b` | The branch menu: `b` check out, `c` make and check out, `n` make, `m` rename, `k` delete |
 | `l` | The log menu: `l` the graph of the branch, `a` of every ref, `o` of another; `C-x v l` from anywhere |
-| `N` | The pull request menu, through `gh`: `v` the branch's pull request, `k` its checks, `o` open it in the browser, `c` create one (`- d` a draft, `- b` into a base you name), `m` merge it, `l` the open ones, `i` the open issues (`C-x v i` from anywhere; there `w` starts a worktree session from one) |
+| `N` | The pull request menu, through `gh`: `v` the branch's pull request, `k` its checks, `o` open it in the browser, `c` create one (`- d` a draft, `- b` into a base you name), `m` merge it, `l` the open ones, `i` the open issues (`C-x v i` from anywhere; there `w` starts a worktree session from one); `r` in a pull request's buffer, or on one in the list, reviews its changes |
 | `f u` / `f a` | Fetch the upstream's remote, or every remote |
 | `RET` | Visit the file, or review the commit at point |
 | `$` | Show what git's runs wrote; `C-g` stops one |

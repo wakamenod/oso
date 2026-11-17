@@ -289,12 +289,12 @@ fn review_filter(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn review_files_keys(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    let text = super::keys_text(
+    let text = super::keys::keys_text(
         "Keys in a review's files pane",
         FILES_KEYS,
         "In the review, s selects the pane and / filters its files.",
     );
-    super::show_keys(ctx, KEYS_BUFFER, &text)
+    super::keys::show_keys(ctx, KEYS_BUFFER, &text)
 }
 
 #[cfg(test)]

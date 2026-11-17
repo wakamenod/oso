@@ -85,7 +85,13 @@ fn a_conflicted_file_is_listed_once_and_read_once() {
             matches!(answers.reading("a.txt").content, Content::Conflicted),
             "{scope:?}"
         );
-        let again = ask(&mut reader, Request::Refresh { first: Vec::new() });
+        let again = ask(
+            &mut reader,
+            Request::Refresh {
+                first: Vec::new(),
+                person: true,
+            },
+        );
         assert!(again.readings.is_empty(), "{scope:?}: {:?}", again.paths());
     }
     let unstaged = open(&mut reader, Scope::Unstaged);

@@ -19,10 +19,12 @@ use oso_core::project::ProjectId;
 
 use super::{App, UserEvent};
 use crate::commands::review::{MAX_NAME, RESTRICTED, one_line};
-use crate::git::{Id, TrustedRoot};
+use crate::git::TrustedRoot;
 use crate::review::count::Counted;
+use crate::review::pr::PrFound;
 use crate::review::view::{Tell, Text, View};
 use crate::review::{Asked, Report, Request, Reviewer, Scope};
+use scope::{fetching_said, found_said, same_scope, scope_label, scope_of};
 pub(in crate::app) use state::Reviews;
 use state::{Reopen, Running};
 
@@ -87,55 +89,6 @@ fn now() -> u64 {
         .map_or(0, |now| now.as_secs())
 }
 
-/// What a review's name and title call its scope.
-fn scope_label(scope: &Scope) -> String {
-    let label = match scope {
-        Scope::Session { .. } => "session".to_owned(),
-        Scope::Uncommitted => "uncommitted".to_owned(),
-        Scope::Unstaged => "unstaged".to_owned(),
-        Scope::Staged => "staged".to_owned(),
-        Scope::Branch { base } => format!("branch {base}"),
-        Scope::Commit { revision } => format!("commit {revision}"),
-        Scope::Range { from, to } => format!("range {from}..{to}"),
-    };
-    one_line(&label, MAX_NAME)
-}
-
-/// Whether `a` and `b` review the same thing: the session scope whatever its baseline.
-fn same_scope(a: &Scope, b: &Scope) -> bool {
-    matches!((a, b), (Scope::Session { .. }, Scope::Session { .. })) || a == b
-}
-
-/// The scope a request names, or why it cannot be reviewed.
-fn scope_of(
-    scope: ScopeKind,
-    revision: Option<String>,
-    baseline: Option<Id>,
-) -> Result<Scope, &'static str> {
-    let revision = || revision.clone().ok_or("No revision was named");
-    Ok(match scope {
-        ScopeKind::Session => Scope::Session {
-            baseline: baseline.ok_or("No baseline: B takes one")?,
-        },
-        ScopeKind::Uncommitted => Scope::Uncommitted,
-        ScopeKind::Unstaged => Scope::Unstaged,
-        ScopeKind::Staged => Scope::Staged,
-        ScopeKind::Branch => Scope::Branch { base: revision()? },
-        ScopeKind::Commit => Scope::Commit {
-            revision: revision()?,
-        },
-        ScopeKind::Range => {
-            let range = revision()?;
-            let (from, to) = range.split_once("..").ok_or("A range is FROM..TO")?;
-            Scope::Range {
-                from: from.to_owned(),
-                to: to.to_owned(),
-            }
-        }
-        ScopeKind::PullRequest => return Err("Pull requests cannot be reviewed yet"),
-    })
-}
-
 impl App {
     /// After commands and after each event: revokes the roots of projects no longer trusted,
     /// first, so that nothing asked runs git for one, then carries out what review commands
@@ -173,7 +126,7 @@ impl App {
                 revision,
             } => self.open_review(project, scope, revision),
             ReviewRequest::Baseline { project } => self.take_baseline(project),
-            ReviewRequest::Refresh(id) => self.refresh_review(id),
+            ReviewRequest::Refresh(id) => self.refresh_review(id, true),
             ReviewRequest::Close(id) => self.close_review(id),
             ReviewRequest::Redraw { review, path } => self.redraw_comments(review, &path),
             ReviewRequest::Send(id) => self.send_review(id),
@@ -235,7 +188,7 @@ impl App {
             running.scope = scope.clone();
             match reopen {
                 // A revoked review starts over with the scope, as `g` would.
-                Reopen::Refresh | Reopen::Restart => self.refresh_review(id),
+                Reopen::Refresh | Reopen::Restart => self.refresh_review(id, true),
                 Reopen::Open => self.ask_review(index, Request::Open(scope)),
             }
             return self.request_redraw();
@@ -319,9 +272,10 @@ impl App {
         }
     }
 
-    /// Reads the review's files again, those its windows show first. A review whose project
-    /// was trusted again starts over from a new root.
-    fn refresh_review(&mut self, id: ReviewId) {
+    /// Reads the review's files again, those its windows show first; `person` if the person
+    /// asked, which alone asks `gh` again for a pull request. A review whose project was trusted
+    /// again starts over from a new root.
+    fn refresh_review(&mut self, id: ReviewId, person: bool) {
         let Some(index) = self.reviews.index(id) else {
             return;
         };
@@ -342,7 +296,7 @@ impl App {
         }
         let mut first = std::mem::take(&mut self.reviews.shown);
         self.editor.shown_review_files(id, &mut first);
-        self.ask_review(index, Request::Refresh { first });
+        self.ask_review(index, Request::Refresh { first, person });
         self.refresh_started(index);
     }
 
@@ -437,6 +391,9 @@ impl App {
                 }
                 if asked == Asked::Carry {
                     self.carries_failed(index, false);
+                } else {
+                    // What `gh` said may be stale now: comments go to the review's own session.
+                    self.reviews.open[index].pr = None;
                 }
                 let why = one_line(&why, MAX_MESSAGE);
                 self.editor.message(format!("The review failed: {why}"));
@@ -451,8 +408,29 @@ impl App {
                 Tell::Said(vec![gone.to_owned()])
             }
             Report::Baseline { .. } => return,
+            Report::PrFound(found) => return self.review_pr_found(index, found),
+            Report::Fetching { number, remote } => {
+                self.editor.message(fetching_said(number, &remote));
+                return self.request_redraw();
+            }
         };
         self.reviews.open[index].view.tell(tell);
+    }
+
+    /// Keeps what `gh` said of a review's pull request, saying it once what is said of it
+    /// changed.
+    fn review_pr_found(&mut self, index: usize, found: PrFound) {
+        let running = &mut self.reviews.open[index];
+        let said = found_said(&found);
+        let new = running
+            .pr
+            .as_ref()
+            .is_none_or(|was| found_said(was) != said);
+        running.pr = Some(found);
+        if new {
+            self.editor.message(said);
+            self.request_redraw();
+        }
     }
 
     /// Puts in each review's waiting texts, in order, while nothing holds them.
@@ -562,6 +540,7 @@ mod judge;
 mod keep;
 mod layout;
 mod menu;
+mod scope;
 mod secrets;
 mod send;
 mod state;

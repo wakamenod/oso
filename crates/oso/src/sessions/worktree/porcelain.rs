@@ -1,5 +1,6 @@
-//! What git prints, parsed (ADR 0121, "Worktree sessions"): the `-z` outputs of `git worktree
-//! list`, `git status`, `git ls-files`, `git for-each-ref` and `git log -g`, read as raw bytes.
+//! What git prints, parsed (ADR 0121, "Worktree sessions"): the `-z` outputs of `git status`,
+//! `git ls-files`, `git for-each-ref` and `git log -g`, read as raw bytes. `git worktree list`'s
+//! is the `git` module's (`git::worktrees`), shared with a review (ADR 0122, step 12b).
 //! Git's output is untrusted: a path or a branch name may hold any byte, so nothing here
 //! panics, every list has a bound, and [`printable`] makes text safe to show a person.
 //!
@@ -8,91 +9,10 @@
 
 use std::path::PathBuf;
 
-use crate::git::printable;
+use crate::git::{os_lossy, printable};
 
 /// The most characters [`status_lines`] shows of one entry.
 const MAX_LINE_CHARS: usize = 1024;
-
-/// One worktree as `git worktree list --porcelain -z` gives it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Listed {
-    /// Where it is.
-    pub path: PathBuf,
-    /// The commit checked out, when git named one in UTF-8.
-    pub head: Option<String>,
-    /// The branch's short name, without `refs/heads/`, when it is UTF-8.
-    pub branch: Option<String>,
-    /// The main worktree of a bare repository.
-    pub bare: bool,
-    /// No branch is checked out.
-    pub detached: bool,
-    /// `git worktree lock` holds it.
-    pub locked: bool,
-    /// Git would prune it: its directory is gone.
-    pub prunable: bool,
-}
-
-/// The worktrees of `git worktree list --porcelain -z`: fields each ended by NUL, a record ended
-/// by an empty field. Fields are `worktree <path>`, `HEAD <oid>`, `branch refs/heads/<name>`,
-/// `bare`, `detached`, `locked[ <reason>]` and `prunable[ <reason>]`; others are ignored. A
-/// record without `worktree` is dropped. At most `max` records are kept.
-pub fn worktrees(bytes: &[u8], max: usize) -> Vec<Listed> {
-    let mut listed = Vec::new();
-    let mut record: Option<Listed> = None;
-    for field in ended(bytes) {
-        if listed.len() >= max {
-            break;
-        }
-        if field.is_empty() {
-            listed.extend(record.take());
-        } else if let Some(path) = field.strip_prefix(b"worktree ") {
-            // A record git did not end goes in as it is.
-            let next = Listed {
-                path: path_of(path),
-                ..Listed::default()
-            };
-            listed.extend(record.replace(next));
-        } else if let Some(record) = record.as_mut() {
-            read_field(record, field);
-        }
-    }
-    listed.extend(record);
-    listed.truncate(max);
-    listed
-}
-
-/// The NUL-ended fields of `bytes`: what follows the last NUL is no field, as when output was
-/// cut short.
-fn ended(bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
-    let end = bytes.iter().rposition(|&b| b == 0);
-    end.map(|end| &bytes[..end])
-        .into_iter()
-        .flat_map(|fields| fields.split(|&b| b == 0))
-}
-
-/// Sets what `field` says on `record`.
-fn read_field(record: &mut Listed, field: &[u8]) {
-    let flag = |name: &[u8]| {
-        field == name || (field.starts_with(name) && field.get(name.len()) == Some(&b' '))
-    };
-    if let Some(oid) = field.strip_prefix(b"HEAD ") {
-        record.head = std::str::from_utf8(oid).ok().map(str::to_owned);
-    } else if let Some(name) = field.strip_prefix(b"branch ") {
-        let name = name.strip_prefix(b"refs/heads/").unwrap_or(name);
-        record.branch = std::str::from_utf8(name)
-            .ok()
-            .filter(|name| !name.is_empty())
-            .map(str::to_owned);
-    } else if field == b"bare" {
-        record.bare = true;
-    } else if field == b"detached" {
-        record.detached = true;
-    } else if flag(b"locked") {
-        record.locked = true;
-    } else if flag(b"prunable") {
-        record.prunable = true;
-    }
-}
 
 /// Counts from `git status --porcelain -z --untracked-files=all`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -175,7 +95,7 @@ pub fn paths(bytes: &[u8], max: usize) -> Vec<PathBuf> {
         .split(|&b| b == 0)
         .filter(|field| !field.is_empty())
         .take(max)
-        .map(path_of)
+        .map(os_lossy)
         .collect()
 }
 
@@ -226,19 +146,6 @@ pub fn made_a_commit(reflog: &[u8]) -> bool {
                 .iter()
                 .any(|start| subject.starts_with(start))
         })
-}
-
-/// A path from git's raw bytes: as they are on Unix, decoded as UTF-8 elsewhere.
-fn path_of(bytes: &[u8]) -> PathBuf {
-    #[cfg(unix)]
-    {
-        use std::os::unix::ffi::OsStrExt;
-        PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
-    }
-    #[cfg(not(unix))]
-    {
-        PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
-    }
 }
 
 #[cfg(test)]

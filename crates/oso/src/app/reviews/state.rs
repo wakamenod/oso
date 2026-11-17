@@ -49,6 +49,8 @@ pub(super) struct Running {
     /// Whether agent cards fold in the text the review buffer holds, which may still be one
     /// built before the view was told otherwise.
     pub(super) shown_folded: bool,
+    /// What `gh` last said of the pull request it reviews (step 12b).
+    pub(super) pr: Option<crate::review::pr::PrFound>,
     /// Whether every file of a listing was read once, after which a file's first reading is
     /// new to the person (step 4).
     pub(super) read_once: bool,
@@ -98,6 +100,7 @@ impl Running {
             read_once: false,
             saving: super::keep::Saving::default(),
             files: super::files::Told::default(),
+            pr: None,
         }
     }
 

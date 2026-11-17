@@ -85,7 +85,7 @@ impl App {
         let reviews = self.reviews_to_hand_over();
         carry::export(
             &self.editor,
-            self.dispatcher.pending(),
+            self.dispatcher.pending_to_carry(),
             self.frame(),
             &self.handover.restore,
             self.handover.exports + 1,

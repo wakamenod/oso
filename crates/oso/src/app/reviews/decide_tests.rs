@@ -1,12 +1,13 @@
 //! A reject's edits: a changed, a put-in and a taken-out hunk reverted, several at once, undone
-//! back to the new side, and refused where the lines moved.
+//! back to the new side, and refused where the lines moved; and which scopes take decisions.
 //!
 //! Must not depend on: the app's threads, git or files; the edits are made on a text here.
 
 use oso_core::review::Hunk;
 use oso_core::rope::Rope;
 
-use super::revert_edits;
+use super::{revert_edits, work_tree};
+use crate::review::Scope;
 use crate::review::stage::CHANGED;
 
 fn hunk(old_start: u32, new_start: u32, removed: &[&str], added: &[&str]) -> Hunk {
@@ -91,4 +92,26 @@ fn a_hunk_that_only_deletes_is_placed_by_the_lines_around_it() {
     assert_eq!(reverted(&moved, &hunks[2..], false), Err(CHANGED));
     let changed = new.replace("e\n", "E\n");
     assert_eq!(reverted(&changed, &hunks[2..], false), Err(CHANGED));
+}
+
+#[test]
+fn only_the_work_tree_s_scopes_take_accept_and_reject() {
+    assert_eq!(work_tree(&Scope::Uncommitted), Ok(true));
+    assert_eq!(work_tree(&Scope::Unstaged), Ok(true));
+    assert_eq!(work_tree(&Scope::Staged), Ok(false));
+    for scope in [
+        Scope::Commit {
+            revision: "HEAD".into(),
+        },
+        Scope::Branch {
+            base: "main".into(),
+        },
+        Scope::Range {
+            from: "a".into(),
+            to: "b".into(),
+        },
+        Scope::PullRequest { number: 7 },
+    ] {
+        assert!(work_tree(&scope).is_err(), "{scope:?}");
+    }
 }
