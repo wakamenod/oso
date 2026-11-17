@@ -83,6 +83,11 @@ impl Writer {
         self.bytes.len()
     }
 
+    /// How many lines it holds.
+    fn rows(&self) -> usize {
+        self.section.lines() + self.pending.map_or(0, |(_, lines)| lines)
+    }
+
     fn done(mut self) -> Rendered {
         if let Some((kind, lines)) = self.pending.take() {
             self.section.push(kind, lines);
@@ -299,15 +304,22 @@ fn lines(writer: &mut Writer, plan: &mut Plan, index: usize, hunk: &Hunk, side: 
         Side::Old => (&hunk.removed, hunk.old_start, b"-", Highlight::DiffRemoved),
         Side::New => (&hunk.added, hunk.new_start, b"+", Highlight::DiffAdded),
     };
-    let kind = RowKind::Lines {
-        hunk: index,
-        side,
-        first,
-    };
+    // A card after a line ends the run of lines, so the next run is numbered from its own
+    // first line, as a row's line is its run's first plus how far into the run it is.
+    let mut run_first = first;
     for (number, line) in (first..).zip(lines) {
         let (text, _) = without_ending(line);
+        let kind = RowKind::Lines {
+            hunk: index,
+            side,
+            first: run_first,
+        };
         writer.line(kind, &[(sign, Some(highlight)), (text, Some(highlight))]);
+        let before = writer.rows();
         plan.after_line(writer, side, number);
+        if writer.rows() != before {
+            run_first = number.saturating_add(1);
+        }
     }
 }
 
