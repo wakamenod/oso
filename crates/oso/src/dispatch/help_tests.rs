@@ -306,7 +306,7 @@ fn the_agent_channel_reads_nothing_of_the_lossage() {
     let (mut dispatcher, mut editor) = on_notes();
     send(&mut dispatcher, &mut editor, "a C-h l");
     assert_eq!(shown(&editor).0, "*Lossage*");
-    let state = crate::channel::state::state(&editor, None, 0, &|_| None);
+    let state = crate::channel::state::state(&editor, None, 0, (&|_| None, None));
     assert!(state["text"].is_null(), "{state}");
 }
 
