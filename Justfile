@@ -306,7 +306,7 @@ pixel-tests:
 
 # Benchmark an optimized build with the dev feature; windows open and take the focus. `just perf OUT --quick` tries it out
 perf out="target/perf/perf.json" *args="":
-    cargo build --locked --release --target-dir {{perf_target}} -p oso --features dev --bin oso --example perf
+    cargo build --locked --release --target-dir {{perf_target}} -p oso --features dev --bin oso --bin fake-lsp-server --example perf
     {{perf_target}}/release/examples/perf run --oso {{perf_target}}/release/oso --out "{{out}}" {{args}}
 
 # Benchmark the working tree against BASE on the ssh host OSO_PERF_HOST, in PAIRS alternating pairs, built with FEATURES, the base with BASE_FEATURES if given. It builds here and only runs there, so builds here may go on meanwhile
@@ -331,12 +331,14 @@ perf-remote base="origin/main" pairs="3" features="dev" base_features="" *args="
     # The base from git alone, built apart; the harness of the working tree runs both sides.
     git archive "$rev" | tar -x -C "$src"
     cargo build --locked --release --manifest-path "$src/Cargo.toml" --target-dir "$PWD/{{perf_remote_target}}/base" -p oso --features "$base_features" --bin oso
-    cargo build --locked --release --target-dir {{perf_remote_target}}/new -p oso --features "{{features}}" --bin oso --example perf
+    cargo build --locked --release --target-dir {{perf_remote_target}}/new -p oso --features "{{features}}" --bin oso --bin fake-lsp-server --example perf
     echo "base: {{base}} at ${rev:0:7} with $base_features; new: $new with {{features}}; host: $host" | tee "$out/what.txt"
     ssh "$host" "mkdir -p oso-perf/$run"
     rsync -q "{{perf_remote_target}}/base/release/oso" "$host:oso-perf/$run/oso-base"
     rsync -q "{{perf_remote_target}}/new/release/oso" "$host:oso-perf/$run/oso-new"
     rsync -q "{{perf_remote_target}}/new/release/examples/perf" "$host:oso-perf/$run/perf"
+    # Beside both sides' oso, where the harness looks for it (ADR 0138, step 12).
+    rsync -q "{{perf_remote_target}}/new/release/fake-lsp-server" "$host:oso-perf/$run/fake-lsp-server"
     # Base first in each pair. Swapping during a run makes it worth less, so each says how much.
     ssh "$host" bash -s -- "$run" "{{pairs}}" {{args}} <<'REMOTE' | tee -a "$out/what.txt"
     set -euo pipefail
