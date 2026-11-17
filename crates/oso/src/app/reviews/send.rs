@@ -122,6 +122,9 @@ impl App {
         let buffer = self.editor.add_buffer(buffer);
         self.editor.show(buffer);
         let count = taken.len();
+        let hidden = self.hidden_comments(review, &taken, |path| {
+            super::secrets::withheld(&root, &held, path)
+        });
         self.reviews.sending.message = Some(Waiting {
             buffer,
             origin: Origin::Review(review),
@@ -134,11 +137,51 @@ impl App {
         let more = match left {
             0 => String::new(),
             n => format!("; {n} more wait for the next, past 256 KiB"),
-        };
+        } + &hidden;
         self.editor.message(format!(
             "{} {to}{more}. C-c C-c pastes it, C-u C-c C-c picks the session, C-c C-k drops it",
             comments(count)
         ));
+    }
+
+    /// What the echo says of `taken`'s comments on files the filter hides (step 6b), judged
+    /// from the filter the editor holds, as the view judges them, not from the text it built
+    /// last; a file `withheld` says may hold secrets by its path alone. Nothing while none is.
+    /// O(the review's comments).
+    fn hidden_comments(
+        &self,
+        review: ReviewId,
+        taken: &[Comment],
+        withheld: impl Fn(&[u8]) -> bool,
+    ) -> String {
+        let (Some(filter), Some(model)) = (
+            self.editor.review_filter(review),
+            self.editor.review(review),
+        ) else {
+            return String::new();
+        };
+        let mut texts: HashMap<&[u8], Vec<&str>> = (taken.iter())
+            .map(|comment| (comment.path(), Vec::new()))
+            .collect();
+        for comment in model.comments() {
+            if let Some(texts) = texts.get_mut(comment.path()) {
+                texts.push(comment.text());
+            }
+        }
+        let hidden: HashSet<&[u8]> = (texts.iter())
+            .filter(|(path, texts)| {
+                let texts: &[&str] = if withheld(path) { &[] } else { texts };
+                !filter.matches(path, texts)
+            })
+            .map(|(path, _)| *path)
+            .collect();
+        let count = (taken.iter())
+            .filter(|comment| hidden.contains(comment.path()))
+            .count();
+        match count {
+            0 => String::new(),
+            count => format!("; {count} on files the filter hides"),
+        }
     }
 
     /// Whether a message waits to be sent, as one at a time does: it is shown, and said so.

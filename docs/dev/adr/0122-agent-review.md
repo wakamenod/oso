@@ -1139,7 +1139,8 @@ nearest line that stayed, the upper one on a tie (Q-C), ` · changed` in `review
   scope with untracked files. Putting in a text costs, per window, its selections (at most 256)
   and its first row: each an O(1) lookup of its file, a line map lookup, and for a line that
   went up to 2,000 more, then the file's runs.
-- **Not built here:** the files pane keeping its selection and filter is step 6's, with the pane.
+- **Not built here:** the files pane keeping its selection and filter is step 6's, with the pane
+  (built in its second PR).
 - **Tests:** a line followed to the new reading and to the nearest that stayed, by a carry made
   on the view's thread too; hunks new since the reading before marked changed until seen, and
   none dropped with them; every hunk of a file new to a review already seen; what the model lets go given back once; cursors kept on their lines
@@ -1358,6 +1359,69 @@ What the first PR built:
   directory (modes, a second name, a link, too large, a name not a saved review's, the sweep,
   the cap, the thread's order); when a change is saved; scopes back; the commands; and two
   end-to-end flows, a comment kept across `C-x k` and across a restart.
+
+What the second PR built (the files pane and the filter). The author approved its public items
+and answers on 2026-11-17, through the coordinator, each the recommended one:
+
+- **Public items:** `oso_core::review::Filter` (`new`, `text`, `matches`); `Editor::review_filter`
+  and `set_review_filter`; `review_files`, `set_review_files` (it takes `Highlights`, as
+  `set_review_text` does), `show_review_files`, `hide_review_files`, and `review_files_rows`, added
+  as the pane's commands were built; `buffer::Mode::ReviewFiles`; and, for the reviews' answer
+  below, `Outcome::Answered`'s and `Invocation`'s `secret` flags (`Ctx::answer_secret`). The
+  pane's state is the editor's (`oso_core::editor` `reviews/files.rs`), beside its review's,
+  not the model's as "Crates and layers" first put it. The pane's rows are a
+  `review::Rows`: a title section, then one section a file holding its header alone, so that a
+  text put in keeps each window's row by its file's path. The tree splits a window, or a whole
+  pair, at its left, and gives a window's cells back to the one at its right, crate-private
+  (`frame/splits/aside.rs`).
+- **The filter (Q-C, Q-D):** its words, cut at 1 KiB and at most 32, must each match a file's
+  path, its path before a rename, or a comment's text, case-insensitive unless the word holds an
+  upper-case letter; each is a literal `regex`, so matching folds and allocates nothing. A
+  file's comments are matched only once its reading is known and not withheld: a file that may
+  hold secrets, one not read yet and one gone are matched by their paths alone, so that whether
+  one hides never tells of words the review does not show. The view thread judges it once a
+  text is built and lays out neither the text nor the panes for the files it hides; the title
+  says "3 of 57 files hidden by "x" · / to change". `/` (`review-filter`, `Person`: what hides is
+  the person's choice of what to read) opens holding the filter, `M-p` giving back an empty
+  prompt, and an empty answer shows every file; an answer from a prompt that may hold secrets,
+  as a yank of a secret kill turns it, is refused, as the filter is quoted and saved. The title
+  quotes its words one space apart. A cursor on a file the filter now hides goes to
+  the header of the file shown at its line.
+- **The pane (Q-A, Q-B):** `s` in the review shows the pane 40 columns wide at the left of the
+  review's area, a pair's whole, and selects it; `s` or `q` in it closes it, its columns going
+  back to the review. Each row is the file's status letter, `+n −m` padded to the widest, its
+  comments as the person's·the agent's, `!` when one is outdated, `•` while an agent's is unread,
+  `✓` when every hunk is decided or viewed and `◐` when some are, then its path, cut from the
+  left so that its name stays; its title is "57 files · / to filter", or the filter's note. The
+  view thread builds its text while a window shows it, at the pane's width, and the UI puts it
+  in at O(1). `n`/`p` walk its files, `SPC` puts the file's header at the top of each window
+  showing the review, `RET` selects the first too, `g` reads the files again and `?` lists its
+  keys; nothing is decided from it. After a command its cursor follows the review's file, never
+  from the pane and never while a buffer may hold secrets; it closes once no window shows it or
+  its review.
+- **Answering the reviews** (security, architecture and performance, 2026-11-17):
+  - Each file keeps its verdict and what it was judged by, its comments by address, so a text
+    built judges again only the files that changed, or all once the filter did; the build
+    loops read each file's own verdict, with no set of paths.
+  - Each pane row is kept until what it shows changed, and no text is sent while no row nor
+    the title changed. A path is cut by display clusters from its end, reading at most 4 bytes
+    a cell of it, so a long path, or one of tabs, costs the pane's width.
+  - The pane is named as a pane of the pair is, `*review: … · files*`, so the editor parses no
+    name of the host's; its first text puts its cursor on the review's file; hiding lays out
+    once, and the pane's sync does not start again inside its own layout; a review closed
+    beneath a prompt closes its pane's windows once the prompt ends.
+  - `RET` and `SPC` move no place out of a pane, or into a review, that may hold secrets
+    (ADR 0044). The send echo judges what the filter hides from the filter the editor holds,
+    not from the text built last. The tree's split before a window is `Node::split`'s.
+- **Saving:** the saved view keeps the filter and whether the pane shows, both optional as a
+  file saved before reads; a review brought back sets its filter and shows its pane again at
+  the left of the window showing it, selecting nothing, and a restart's state lists a review's
+  windows before its pane's, which it closes (Q-H). The send echo adds "; N on files the filter
+  hides".
+- **Tests:** the filter's words; the tree's left split; the pane shown, its text put in, hidden,
+  dropped and following; the view's filter and the pane's text; the commands and keys, the
+  prompt's prefill through the dispatcher; the saved view read before and after; and an
+  end-to-end flow, the pane and the filter across a restart.
 
 ### Step 8: documents no buffer owns
 

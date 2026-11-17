@@ -240,6 +240,19 @@ impl fmt::Debug for Report {
     }
 }
 
+/// `text` on one line, at most `max` characters, with no control character.
+pub(crate) fn one_line(text: &str, max: usize) -> String {
+    let mut out: String = text
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .take(max)
+        .collect();
+    if text.chars().nth(max).is_some() {
+        out.push('\u{2026}');
+    }
+    out
+}
+
 /// A hunk's header, as git writes one with no context: `@@ -40,3 +40,7 @@`.
 pub(crate) fn hunk_header(hunk: &Hunk) -> String {
     let side = |start: u32, count: usize| {

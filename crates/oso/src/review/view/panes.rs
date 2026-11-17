@@ -329,10 +329,14 @@ impl State {
         let mut pairs = vec![title];
         let mut paths = vec![None];
         let folded = self.folded;
+        let filtered = self.filtering.on();
         for path in &self.order {
             let Some(file) = self.files.get_mut(path) else {
                 continue;
             };
+            if filtered && file.judged.hidden() {
+                continue;
+            }
             let room = self.max_text.saturating_sub(size);
             let mut kept = file.rendered.panes.take();
             let pair = section_in(&mut kept, room, || file.render_panes(room, folded));
@@ -342,6 +346,9 @@ impl State {
             paths.push(Some(path.clone()));
         }
         for (path, gone) in &mut self.gone {
+            if filtered && gone.judged.hidden() {
+                continue;
+            }
             let room = self.max_text.saturating_sub(size);
             let (cards, withheld) = (&gone.cards, gone.withheld);
             let pair = section_in(&mut gone.rendered.panes, room, || {

@@ -257,6 +257,7 @@ impl Buffer {
             | Mode::Brief
             | Mode::Worktrees
             | Mode::Review
+            | Mode::ReviewFiles
             | Mode::Terminal
             | Mode::Directory
             | Mode::GitStatus
@@ -434,7 +435,7 @@ impl Buffer {
     /// `*Spaces*`, a directory's listing (ADR 0134) or a git status (ADR 0127), which are
     /// internal.
     fn generated(&self) -> bool {
-        self.mode == Mode::Review
+        matches!(self.mode, Mode::Review | Mode::ReviewFiles)
             || (matches!(
                 self.mode,
                 Mode::Sessions

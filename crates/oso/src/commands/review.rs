@@ -42,6 +42,8 @@ pub const KEYS: &[(&str, &str)] = &[
     ("v", "review-viewed"),
     ("u", "review-undo"),
     ("|", "review-toggle-panes"),
+    ("s", "review-files"),
+    ("/", "review-filter"),
     ("g", "review-refresh"),
     ("C-c C-c", "review-send"),
     ("q", "review-quit"),
@@ -56,18 +58,7 @@ pub(crate) const RESTRICTED: &str =
 /// menu takes.
 pub(crate) const MAX_NAME: usize = 80;
 
-/// `text` on one line, at most `max` characters, with no control character.
-pub(crate) fn one_line(text: &str, max: usize) -> String {
-    let mut out: String = text
-        .chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .take(max)
-        .collect();
-    if text.chars().nth(max).is_some() {
-        out.push('\u{2026}');
-    }
-    out
-}
+pub(crate) use crate::review::one_line;
 
 /// The pull request `text` names: digits only, no sign, at most 18 of them, above 0.
 pub(crate) fn pull_number(text: &str) -> Option<u64> {
@@ -94,6 +85,7 @@ macro_rules! person_command {
 
 mod comments;
 mod decide;
+mod files;
 mod keys;
 mod saved;
 mod send;
@@ -101,6 +93,8 @@ mod send;
 pub use comments::COMMANDS as COMMENT_COMMANDS;
 pub use decide::COMMANDS as DECISION_COMMANDS;
 pub(crate) use decide::{open_buffer_of, place_of};
+pub(crate) use files::prompt_text;
+pub use files::{COMMANDS as FILES_COMMANDS, FILES_KEYS};
 pub use saved::COMMANDS as SAVED_COMMANDS;
 pub(crate) use saved::{SAVED_LIST, lost};
 pub use send::{COMMANDS as SEND_COMMANDS, MESSAGE_KEYS};
@@ -373,6 +367,17 @@ fn seek(ctx: &mut Ctx<'_>, to: Seek, count: isize, edge: &str) -> Result<(), Com
     else {
         return Err(CommandError::new("Not in a review"));
     };
+    seek_in(ctx, &rows, to, count, edge)
+}
+
+/// [`seek`] by `rows`, those of the selected window's buffer.
+fn seek_in(
+    ctx: &mut Ctx<'_>,
+    rows: &oso_core::review::Rows,
+    to: Seek,
+    count: isize,
+    edge: &str,
+) -> Result<(), CommandError> {
     let forward = count >= 0;
     let steps = count.unsigned_abs();
     let (window, buffer) = ctx.editor.current_mut();
@@ -458,7 +463,8 @@ fn review_previous_file(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandErro
 }
 
 fn review_refresh(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    let review = current_review(ctx)?;
+    // From the files pane too (step 6b).
+    let review = files::review_here(ctx)?;
     ctx.editor.request_review(ReviewRequest::Refresh(review));
     ctx.editor
         .message("Reading the review's files again\u{2026}");

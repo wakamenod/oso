@@ -159,7 +159,7 @@ impl Splits {
         if self.contains(new) {
             return Err(TooSmall);
         }
-        self.root.split(at, way, new, halves, layout);
+        self.root.split(at, way, new, halves, false, layout);
         Ok(())
     }
 
@@ -197,13 +197,19 @@ impl Splits {
     /// A window of a pair takes the pair out with it, both its windows going (ADR 0122), and
     /// a pair that is the whole frame stays, as the only window does.
     pub(crate) fn remove(&mut self, window: WindowId, layout: &FrameLayout) -> bool {
+        self.remove_giving(window, layout, false)
+    }
+
+    /// [`Splits::remove`], the cells going to the window or run after it when `to_next`, or
+    /// before it when it is the last.
+    fn remove_giving(&mut self, window: WindowId, layout: &FrameLayout, to_next: bool) -> bool {
         if self.root.is_unit_of(window) {
             return false;
         }
         let Node::Run(run) = &mut self.root else {
             return false;
         };
-        let removed = run.remove(window, layout);
+        let removed = run.remove(window, layout, to_next);
         if run.children.len() == 1
             && let Some(child) = run.children.pop()
         {
@@ -263,28 +269,37 @@ impl Node {
         }
     }
 
+    /// Puts `new` after the unit of `at` along `way`, or before it if `before`, the two taking
+    /// `first` and `second` cells in the order they stand.
     fn split(
         &mut self,
         at: WindowId,
         way: Way,
         new: WindowId,
         [first, second]: [usize; 2],
+        before: bool,
         layout: &FrameLayout,
     ) -> bool {
         if self.is_unit_of(at) {
             let unit = std::mem::replace(self, Self::Window(new));
+            let (one, two) = if before {
+                (Self::Window(new), unit)
+            } else {
+                (unit, Self::Window(new))
+            };
+            let children = vec![
+                Child {
+                    weight: first,
+                    node: one,
+                },
+                Child {
+                    weight: second,
+                    node: two,
+                },
+            ];
             *self = Self::Run(Run {
                 way,
-                children: vec![
-                    Child {
-                        weight: first,
-                        node: unit,
-                    },
-                    Child {
-                        weight: second,
-                        node: Self::Window(new),
-                    },
-                ],
+                children,
                 pair: false,
             });
             return true;
@@ -295,13 +310,18 @@ impl Node {
                 let Some(index) = run.children.iter().position(|c| c.node.contains(at)) else {
                     return false;
                 };
-                if run.way == way && run.children[index].node.is_unit_of(at) {
+                if run.way == way && !run.pair && run.children[index].node.is_unit_of(at) {
                     run.reset(layout);
-                    run.children[index].weight = first;
+                    let (unit, new_weight, at_index) = if before {
+                        (second, first, index)
+                    } else {
+                        (first, second, index + 1)
+                    };
+                    run.children[index].weight = unit;
                     run.children.insert(
-                        index + 1,
+                        at_index,
                         Child {
-                            weight: second,
+                            weight: new_weight,
                             node: Self::Window(new),
                         },
                     );
@@ -309,7 +329,7 @@ impl Node {
                 }
                 run.children[index]
                     .node
-                    .split(at, way, new, [first, second], layout)
+                    .split(at, way, new, [first, second], before, layout)
             }
         }
     }
@@ -483,13 +503,18 @@ impl Run {
         }
     }
 
-    fn remove(&mut self, window: WindowId, layout: &FrameLayout) -> bool {
+    fn remove(&mut self, window: WindowId, layout: &FrameLayout, to_next: bool) -> bool {
         let Some(index) = self.children.iter().position(|c| c.node.contains(window)) else {
             return false;
         };
         if self.children[index].node.is_unit_of(window) {
             self.reset(layout);
-            let into = if index > 0 { index - 1 } else { 1 };
+            let last = index + 1 == self.children.len();
+            let into = match (to_next, index) {
+                (true, _) if !last => index + 1,
+                (_, 0) => 1,
+                _ => index - 1,
+            };
             self.children[into].weight += self.children[index].weight;
             self.children.remove(index);
             return true;
@@ -499,7 +524,7 @@ impl Run {
         let Node::Run(run) = &mut self.children[index].node else {
             return false;
         };
-        let removed = run.remove(window, layout);
+        let removed = run.remove(window, layout, to_next);
         if run.children.len() == 1
             && let Some(lone) = run.children.pop()
         {
@@ -557,6 +582,7 @@ impl Run {
     }
 }
 
+mod aside;
 mod cells;
 mod pair;
 #[cfg(test)]

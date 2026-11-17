@@ -324,6 +324,8 @@ impl Editor {
         let id = prompt.id;
         // Also not if a buffer that may hold secrets came beneath it since it opened.
         let records = !prompt.around_secret && !prompt.from_socket && !self.shows_secret();
+        let secret =
+            (self.prompt_windows().last()).is_some_and(|window| self.shown(window).is_secret());
         self.note_kill_pick();
         if let Some(prompt) = self.close_innermost()
             && records
@@ -334,7 +336,11 @@ impl Editor {
         {
             self.histories.record(name, recorded);
         }
-        self.outcome = Some(Outcome::Answered { prompt: id, text });
+        self.outcome = Some(Outcome::Answered {
+            prompt: id,
+            text,
+            secret,
+        });
         Ok(())
     }
 

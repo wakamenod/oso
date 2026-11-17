@@ -629,6 +629,8 @@ mod rename_tests;
 #[cfg(test)]
 mod replace_tests;
 #[cfg(test)]
+mod review_files_tests;
+#[cfg(test)]
 mod review_tests;
 #[cfg(test)]
 mod save_tests;

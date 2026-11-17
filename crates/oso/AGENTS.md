@@ -95,7 +95,9 @@ often, so it must rebuild within 2 s.
   `review/view/highlight.rs` opens each side as a document no buffer owns on the syntax threads,
   through the handle `app/reviews/highlight.rs` gives it, which also offers it the open
   buffers whose text a new side may be (`review/view/highlight/buffers.rs`), and
-  `review/view/project.rs` lays the runs over the review's lines (step 9); and
+  `review/view/project.rs` lays the runs over the review's lines (step 9); `review/view/filter.rs`
+  judges which files a review's filter hides and `review/view/files.rs` lays out its files pane,
+  which `app/reviews/files.rs` puts in and `commands/review/files.rs` drives (step 6b); and
   `review/count.rs` counts the review menu's scopes on `oso-review-count`. `review/message.rs`
   composes the message of the person's comments that `app/reviews/send.rs` pastes into the
   review's session through `send_to_session` (step 12). `review/pr.rs` resolves a pull

@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use oso_core::editor::ReviewChoice;
-use oso_core::review::{Saved, SavedComment, SavedFile, Shape, Side};
+use oso_core::review::{Filter, Saved, SavedComment, SavedFile, Shape, Side};
 use serde_json::{Map, Value, json};
 
 use model::{comment_of, comment_value, file_of, file_value, shape_of, shape_value};
@@ -66,6 +66,9 @@ pub(crate) struct SavedView {
     /// Whether agent cards fold.
     pub(crate) folded: bool,
     pub(crate) place: Option<Place>,
+    /// The words that say which files it shows, and whether its files pane shows (step 6b).
+    pub(crate) filter: Option<Filter>,
+    pub(crate) files: bool,
 }
 
 /// A saved review read back.
@@ -340,7 +343,16 @@ fn view_value(kept: &SavedView) -> Value {
         }
         Value::Object(value)
     });
-    json!({ "kept": { "choice": choice, "folded": kept.folded, "place": place } })
+    let filter = kept.filter.as_ref().map(Filter::text);
+    json!({
+        "kept": {
+            "choice": choice,
+            "folded": kept.folded,
+            "place": place,
+            "filter": filter,
+            "files": kept.files,
+        }
+    })
 }
 
 fn view_of(value: &Value) -> Option<SavedView> {
@@ -364,10 +376,21 @@ fn view_of(value: &Value) -> Option<SavedView> {
             Some(Place { path, line })
         }
     };
+    // Neither is in a review saved before step 6b; a filter read is cut as one typed is.
+    let filter = match value.get("filter") {
+        None | Some(Value::Null) => None,
+        Some(filter) => Filter::new(filter.as_str()?),
+    };
+    let files = match value.get("files") {
+        None => false,
+        Some(files) => files.as_bool()?,
+    };
     Some(SavedView {
         choice,
         folded: value.get("folded")?.as_bool()?,
         place,
+        filter,
+        files,
     })
 }
 

@@ -29,13 +29,18 @@
 //! - Comments are cards among a file's lines, from the model's latest snapshot of them; a change
 //!   to a snapshot, or to whether agent cards fold, lays out again only the files it touches. A
 //!   file that leaves the listing with comments stays, after the others, until it has none.
+//! - Told a filter, it lays out only the files it matches (`filter`); while a window shows the
+//!   review's files pane, it builds that pane's text too, a row a file shown (`files`; 6b).
 //! - Nothing here logs a file's text or a comment's.
 
 mod assemble;
 mod build;
 mod cards;
 mod file;
+mod files;
+mod filter;
 mod highlight;
+mod listed;
 mod panes;
 mod project;
 mod section;
@@ -59,7 +64,7 @@ use oso_core::syntax::Highlights;
 use super::{Entry, Reading};
 use cards::Cards;
 pub(crate) use cards::{HunkMark, Marks};
-use file::{File, Gone, Laid};
+use file::{File, Gone};
 use highlight::Highlighting;
 pub(crate) use highlight::{BufferSide, Highlighter, Progress};
 pub(crate) use panes::{PanePaint, PaneText};
@@ -127,6 +132,10 @@ pub(crate) enum Tell {
     Shown(Vec<Range<usize>>),
     /// An open buffer whose text a file's new side may be.
     Buffer(Box<BufferSide>),
+    /// The files to show: those this filter matches, or all (step 6b).
+    Filter(Option<oso_core::review::Filter>),
+    /// Whether to build the files pane's text, and how many columns it has.
+    Files(Option<usize>),
 }
 
 /// How a file's comments are carried to its new reading.
@@ -153,6 +162,8 @@ pub(crate) struct Text {
     /// Or, when their texts did not change, their rows and highlights, as the sides' runs
     /// changed (step 9).
     pub(crate) pane_paint: Option<Box<PanePaint>>,
+    /// The files pane's text, while it is built and changed since the last (step 6b).
+    pub(crate) files: Option<Box<PaneText>>,
     pub(crate) carried: Vec<(Arc<Reading>, Carried)>,
     pub(crate) reading: Option<(usize, usize)>,
     /// Whether its agent cards show folded to their first line.
@@ -247,6 +258,9 @@ struct State {
     highlighting: Highlighting,
     /// The byte ranges of the text the windows show, as last told.
     shown: Vec<Range<usize>>,
+    /// The files the filter hides, and the files pane's text (step 6b).
+    filtering: filter::Filtering,
+    files_pane: files::FilesPane,
 }
 
 impl State {
@@ -272,6 +286,8 @@ impl State {
             panes: panes::Panes::default(),
             highlighting: Highlighting::default(),
             shown: Vec::new(),
+            filtering: filter::Filtering::default(),
+            files_pane: files::FilesPane::default(),
         }
     }
 
@@ -332,6 +348,8 @@ impl State {
                 self.said = said;
             }
             Tell::Panes(on) => self.show_panes(on),
+            Tell::Filter(filter) => self.filter(filter),
+            Tell::Files(width) => self.show_files(width),
             Tell::Highlighter { highlighter, top } => {
                 self.highlighting.set(highlighter, top);
                 self.shown_now();
@@ -378,56 +396,6 @@ impl State {
         let changed = self.highlighting.take_reports(&self.order);
         self.highlighting.schedule(&self.order);
         changed
-    }
-
-    /// Takes a new listing. A file that left a whole listing with comments stays, after the
-    /// others, as no longer changed. A cut listing tells nothing of the files it left out, as
-    /// the model's files keep them: one with comments stays shown as it was, after the listed
-    /// ones.
-    fn listed(&mut self, entries: &[Entry], more: usize, cut: bool) {
-        let whole = more == 0 && !cut;
-        let before = std::mem::take(&mut self.order);
-        let mut files = std::mem::take(&mut self.files);
-        self.order = self.held.listed(self.highlighting.top(), entries);
-        for entry in entries {
-            let file = match files.remove(&entry.path) {
-                Some(file) => file,
-                None => {
-                    let cards = self.gone.remove(&entry.path).map(|gone| gone.cards);
-                    File::new(entry.clone(), cards.unwrap_or_default())
-                }
-            };
-            self.files.insert(entry.path.clone(), file);
-        }
-        // In the order they were shown.
-        for path in &before {
-            let Some(file) = files.remove(path) else {
-                continue;
-            };
-            if file.cards.comments.is_empty() {
-                self.highlighting.forget(path);
-                continue;
-            }
-            if whole {
-                self.highlighting.forget(path);
-                let gone = Gone {
-                    withheld: self.held.left(self.highlighting.top(), &file),
-                    cards: file.cards,
-                    rendered: Laid::default(),
-                };
-                self.gone.insert(path.clone(), gone);
-                self.dirty = true;
-            } else {
-                self.order.push(path.clone());
-                self.files.insert(path.clone(), file);
-            }
-        }
-        self.highlighting.keep_listed_buffers();
-        let same = self.more == more && self.cut == cut && before == self.order;
-        self.dirty |= !same;
-        self.more = more;
-        self.cut = cut;
-        self.reading = true;
     }
 
     /// Takes a file's new reading: shown now, or once its carry comes.
@@ -500,27 +468,6 @@ impl State {
             );
             self.highlighting.reading(&reading.entry.path, &reading);
             self.carried.push((reading, carried));
-            self.dirty = true;
-        }
-    }
-
-    /// Takes the model's snapshot of a file's comments. A file not listed keeps a section while
-    /// it has any.
-    fn cards(&mut self, path: Box<[u8]>, cards: Cards) {
-        if let Some(file) = self.files.get_mut(&path) {
-            file.cards = cards;
-            file.rendered.clear();
-            self.dirty = true;
-        } else if cards.comments.is_empty() {
-            self.dirty |= self.gone.remove(&path).is_some();
-        } else {
-            let withheld = self.held.told(self.highlighting.top(), &path);
-            let gone = Gone {
-                cards,
-                withheld,
-                rendered: Laid::default(),
-            };
-            self.gone.insert(path, gone);
             self.dirty = true;
         }
     }
@@ -601,6 +548,10 @@ pub(crate) fn built(title: &str, told: Vec<Tell>) -> Text {
 
 #[cfg(test)]
 mod carry_tests;
+#[cfg(test)]
+mod files_tests;
+#[cfg(test)]
+mod filter_tests;
 #[cfg(test)]
 mod highlight_limits_tests;
 #[cfg(test)]

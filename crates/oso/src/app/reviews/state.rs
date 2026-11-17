@@ -56,6 +56,8 @@ pub(super) struct Running {
     pub(super) read_once: bool,
     /// How it is saved across restarts (step 6).
     pub(super) saving: super::keep::Saving,
+    /// What its view was told of its files pane and filter (step 6b).
+    pub(super) files: super::files::Told,
 }
 
 /// What opening a review that is open already does.
@@ -97,6 +99,7 @@ impl Running {
             shown_folded: false,
             read_once: false,
             saving: super::keep::Saving::default(),
+            files: super::files::Told::default(),
             pr: None,
         }
     }

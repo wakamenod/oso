@@ -45,6 +45,8 @@ pub enum Mode {
     Worktrees,
     /// A review's buffer (ADR 0122).
     Review,
+    /// A review's files pane: one row a file (ADR 0122, step 6b).
+    ReviewFiles,
     /// `*review message*`, the message of a review's comments before it is sent to an agent
     /// session (ADR 0122, step 12): the person's to change.
     ReviewMessage,
@@ -142,6 +144,7 @@ impl Mode {
             Self::Brief => "Brief",
             Self::Worktrees => "Worktrees",
             Self::Review => "Review",
+            Self::ReviewFiles => "Review Files",
             Self::ReviewMessage => "Review Message",
             Self::Terminal => "Terminal",
             Self::Directory => "Dired",
@@ -194,6 +197,7 @@ impl Mode {
             | Self::CopyView
             | Self::Worktrees
             | Self::Review
+            | Self::ReviewFiles
             | Self::Terminal
             | Self::Directory
             | Self::GitStatus

@@ -298,20 +298,31 @@ impl Dispatcher {
             _ => editor.open_prompt(prompt, kind),
         };
         match opened {
-            Ok(prompt) => self.reading.push(Reading {
-                id,
-                prefix: args.raw(),
-                prompt,
-                passphrase: kind == Kind::Passphrase,
-                then: if runs_answer {
-                    Then::RunAnswer
-                } else if opens_menu {
-                    Then::OpenMenu
-                } else {
-                    Then::Run
-                },
-                switches: Vec::new(),
-            }),
+            Ok(prompt) => {
+                // `review-filter` opens holding the review's filter, `M-p` giving back an empty
+                // prompt (ADR 0122, step 6b).
+                let command = self.registry.get(id).map(|command| command.name);
+                if let Some(text) =
+                    command.and_then(|name| crate::commands::review::prompt_text(editor, name))
+                {
+                    editor.offer_prompt_default(prompt, text);
+                    let _ = editor.walk_history(false);
+                }
+                self.reading.push(Reading {
+                    id,
+                    prefix: args.raw(),
+                    prompt,
+                    passphrase: kind == Kind::Passphrase,
+                    then: if runs_answer {
+                        Then::RunAnswer
+                    } else if opens_menu {
+                        Then::OpenMenu
+                    } else {
+                        Then::Run
+                    },
+                    switches: Vec::new(),
+                });
+            }
             // The innermost prompt is where the person looks.
             Err(error) => editor.prompt_says(error.to_string()),
         }
@@ -399,8 +410,15 @@ impl Dispatcher {
         }
     }
 
-    /// Runs what `reading` waited for, now that its prompt answered `text`.
-    fn answered(&mut self, editor: &mut Editor, reading: &Reading, text: &str) -> Effects {
+    /// Runs what `reading` waited for, now that its prompt answered `text`, from a buffer that
+    /// may have held secrets if `secret`.
+    fn answered(
+        &mut self,
+        editor: &mut Editor,
+        reading: &Reading,
+        text: &str,
+        secret: bool,
+    ) -> Effects {
         let args = Args::with_prefix(reading.prefix);
         match &reading.then {
             Then::RunAnswer => self.run_answer(editor, text, args),
@@ -430,6 +448,7 @@ impl Dispatcher {
                 let switches: Vec<&str> = reading.switches.iter().map(String::as_str).collect();
                 let invocation = Invocation {
                     answer: Some(text),
+                    answer_secret: secret,
                     switches: &switches,
                     ..Invocation::default()
                 };
@@ -446,7 +465,11 @@ impl Dispatcher {
         let mut effects = Effects::default();
         for _ in 0..MOST_FOLLOW_UPS {
             let ran = match editor.take_prompt_outcome() {
-                Some(Outcome::Answered { prompt, text }) => {
+                Some(Outcome::Answered {
+                    prompt,
+                    text,
+                    secret,
+                }) => {
                     let waiting = self
                         .reading
                         .iter()
@@ -456,7 +479,7 @@ impl Dispatcher {
                     self.passphrase_next =
                         waiting.as_ref().is_some_and(|reading| reading.passphrase);
                     self.forget_closed(editor);
-                    waiting.map(|reading| self.answered(editor, &reading, &text))
+                    waiting.map(|reading| self.answered(editor, &reading, &text, secret))
                 }
                 Some(Outcome::Run(name)) => {
                     // What the person's `y` to the agent's question runs is the agent's, so

@@ -22,11 +22,15 @@ impl State {
     pub(super) fn build(&mut self) -> Text {
         // Reports told since the last batch, as when a test tells them and builds.
         self.highlighting.take_reports(&self.order);
+        if self.dirty {
+            self.refilter();
+        }
         // The files whose sides' runs changed, for a paint of the unified text and the panes.
         let changed = self.highlighting.take_changed();
         let reading = self.reading_now();
         let pane_paint = self.panes_paint(&changed);
         let panes = self.panes_text();
+        let files = self.files_text();
         if !self.dirty
             && let Some((rows, highlights)) = self.paint(&changed)
         {
@@ -35,6 +39,7 @@ impl State {
                 rows: rows.clone(),
                 highlights: highlights.clone(),
                 panes,
+                files,
                 pane_paint,
                 carried: std::mem::take(&mut self.carried),
                 reading,
@@ -47,10 +52,14 @@ impl State {
         let mut size = sections[0].bytes.len();
         let folded = self.folded;
         let mut paths: Vec<Option<&Box<[u8]>>> = vec![None];
+        let filtered = self.filtering.on();
         for path in &self.order {
             let Some(file) = self.files.get_mut(path) else {
                 continue;
             };
+            if filtered && file.judged.hidden() {
+                continue;
+            }
             paths.push(Some(path));
             // A file past the limit shows its header alone; one read meanwhile is laid out anew.
             let room = self.max_text.saturating_sub(size);
@@ -61,6 +70,9 @@ impl State {
             sections.push(rendered);
         }
         for (path, gone) in &mut self.gone {
+            if filtered && gone.judged.hidden() {
+                continue;
+            }
             let room = self.max_text.saturating_sub(size);
             let (cards, withheld) = (&gone.cards, gone.withheld);
             let rendered = section_in(&mut gone.rendered.unified, room, || {
@@ -85,6 +97,7 @@ impl State {
             rows: built.rows,
             highlights: built.highlights,
             panes,
+            files,
             pane_paint,
             carried: std::mem::take(&mut self.carried),
             reading,
@@ -157,6 +170,7 @@ impl State {
         if self.cut {
             said.push("more files may not be listed: git's listing was cut short".to_owned());
         }
+        said.extend(self.filter_note());
         said
     }
 

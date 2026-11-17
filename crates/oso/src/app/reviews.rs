@@ -109,6 +109,8 @@ impl App {
         // A file a reject opened may have loaded.
         self.go_on_reverting();
         self.sync_review_layouts();
+        // The files pane's width and the filter (step 6b).
+        self.sync_review_files();
         self.sync_review_sides();
         self.sync_review_watches();
         self.sync_review_comments();
@@ -469,6 +471,7 @@ impl App {
             rows,
             highlights,
             panes,
+            files,
             carried,
             reading,
             folded,
@@ -496,6 +499,9 @@ impl App {
         };
         self.freer.free((before, left));
         self.put_in_review_panes(index, panes, pane_paint, &moved);
+        if let Some(files) = files {
+            self.put_in_review_files(index, files);
+        }
         // The view builds the next text only now.
         self.reviews.open[index].view.taken();
         for (reading, carried) in carried {
@@ -533,6 +539,7 @@ impl App {
 mod baseline;
 mod comments;
 mod decide;
+mod files;
 mod handed;
 mod highlight;
 mod judge;

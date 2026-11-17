@@ -928,6 +928,12 @@ The UI thread never blocks on I/O or parsing:
   and before oso goes or restarts. A restart's state names the reviews its windows show, which
   the new instance opens again once their projects are known and trusted
   (`app/reviews/handed.rs`; ADR 0122, step 6).
+- A review's files pane is a narrow window at the left of its area, one row a file, whose
+  text the view thread builds beside the review's while a window shows it
+  (`review/view/files.rs`) and the UI puts in at O(1) (`app/reviews/files.rs`); the editor
+  makes, follows and drops it (`oso_core::editor` `reviews/files.rs`). The view is told the
+  review's filter and lays out only the files it matches (`review/view/filter.rs`; ADR 0122,
+  step 6).
 
 ### Configuration
 

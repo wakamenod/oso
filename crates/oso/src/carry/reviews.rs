@@ -38,11 +38,24 @@ pub(super) fn entries(editor: &Editor, tiled: &[&Window], shown: &[Shown]) -> Ve
     shown
         .iter()
         .filter_map(|review| {
-            let windows: Vec<usize> = (tiled.iter().enumerate())
-                .filter(|(_, window)| editor.review_of(window.buffer()) == Some(review.review))
-                .map(|(at, _)| at)
+            let shows = |at: &usize, pane: bool| {
+                let buffer = tiled[*at].buffer();
+                if pane {
+                    editor.review_files(review.review) == Some(buffer)
+                } else {
+                    editor.review_of(buffer) == Some(review.review)
+                }
+            };
+            // The review's own windows first, which it opens in; its files pane's after, which
+            // close and come back as the review saved them (step 6b).
+            let windows: Vec<usize> = (0..tiled.len())
+                .filter(|at| shows(at, false))
+                .chain((0..tiled.len()).filter(|at| shows(at, true)))
                 .collect();
-            (!windows.is_empty()).then(|| ReviewEntry {
+            if !windows.first().is_some_and(|at| shows(at, false)) {
+                return None;
+            }
+            Some(ReviewEntry {
                 root: review.root.clone(),
                 scope: review.scope.clone(),
                 windows,
