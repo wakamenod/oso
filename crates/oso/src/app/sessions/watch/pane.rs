@@ -12,6 +12,7 @@
 mod mouse;
 mod rows;
 
+use crate::sessions::worktree::git::{OpenPull, pull_line};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -27,6 +28,10 @@ use crate::sessions::worker::Job;
 pub(super) struct Pane {
     /// Each project's worktrees as git last listed them, by the project's root.
     listed: HashMap<PathBuf, Vec<Worktree>>,
+    /// When each repository's open pull requests were last asked for, and what they were: kept
+    /// apart from the listing, so that a listing that reads none keeps them (ADR 0127, 5b-2).
+    pulls_read: HashMap<PathBuf, std::time::Instant>,
+    pulls: HashMap<PathBuf, Vec<OpenPull>>,
     /// Projects whose listing was asked for and has not come.
     asked: HashSet<PathBuf>,
     /// The `worktrees` directories the worker watches, as last told.
@@ -140,8 +145,14 @@ impl App {
     /// `root`'s worktrees: as listed, else its main checkout and `held`, the worktrees spaces
     /// hold in it.
     fn worktrees_of(&self, root: &Path, held: &[PathBuf]) -> Vec<Worktree> {
-        if let Some(listed) = self.watch.view.pane.listed.get(root) {
-            return listed.clone();
+        let pane = &self.watch.view.pane;
+        if let Some(listed) = pane.listed.get(root) {
+            let pulls = pane.pulls.get(root).map_or(&[][..], Vec::as_slice);
+            let mut listed = listed.clone();
+            for worktree in &mut listed {
+                worktree.pull = pull_line(pulls, worktree.branch.as_deref());
+            }
+            return listed;
         }
         let main = Worktree {
             path: root.to_owned(),
@@ -235,7 +246,9 @@ impl App {
             return;
         };
         self.watch.view.pane.asked.insert(root.to_owned());
-        self.worktree_jobs().tree_worktrees(trust, root.to_owned());
+        let pulls = self.pulls_due(root);
+        self.worktree_jobs()
+            .tree_worktrees(trust, root.to_owned(), pulls);
     }
 
     /// The trust a job for the repository at `root` runs under: through a buffer of it, or of
@@ -293,28 +306,56 @@ impl App {
     /// The worker saw these projects' worktrees change: each is listed again.
     pub(in crate::app) fn worktrees_moved(&mut self, roots: &[PathBuf]) {
         for root in roots {
-            self.relist(root);
+            // A change the worker saw may be an agent's: it never asks `gh`.
+            self.relist(root, false);
         }
         self.watch.stale = true;
+    }
+
+    /// The open pull requests of the tree's repository at `root` came.
+    pub(in crate::app) fn tree_pulls(&mut self, root: PathBuf, pulls: Vec<OpenPull>) {
+        self.watch.view.pane.pulls.insert(root, pulls);
+        self.watch.stale = true;
+    }
+
+    /// Whether `root`'s open pull requests are asked for with its worktrees now: not for an
+    /// agent's doing, and at most once a minute (ADR 0127, step 5b-2).
+    fn pulls_due(&mut self, root: &Path) -> bool {
+        if self.gits.by_agent {
+            return false;
+        }
+        let last = self.watch.view.pane.pulls_read.get(root);
+        if last.is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(60)) {
+            return false;
+        }
+        self.watch
+            .view
+            .pane
+            .pulls_read
+            .insert(root.to_owned(), std::time::Instant::now());
+        true
     }
 
     /// `g`: every project is listed again.
     pub(super) fn relist_projects(&mut self) {
         let roots: Vec<PathBuf> = self.watch.view.pane.listed.keys().cloned().collect();
         for root in roots {
-            self.relist(&root);
+            self.relist(&root, true);
         }
         self.watch.stale = true;
     }
 
-    /// Lists `root` again, keeping its rows until the new listing comes.
-    fn relist(&mut self, root: &Path) {
+    /// Lists `root` again, keeping its rows until the new listing comes, with its open pull
+    /// requests if `pulls` and they are due: the person's `g`, never the worker's change.
+    fn relist(&mut self, root: &Path, pulls: bool) {
         if self.watch.view.pane.asked.contains(root) {
             return;
         }
         if let Some(trust) = self.trusted_project(root) {
             self.watch.view.pane.asked.insert(root.to_owned());
-            self.worktree_jobs().tree_worktrees(trust, root.to_owned());
+            let pulls = pulls && self.pulls_due(root);
+            self.worktree_jobs()
+                .tree_worktrees(trust, root.to_owned(), pulls);
         }
     }
 }

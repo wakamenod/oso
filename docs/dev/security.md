@@ -284,7 +284,11 @@ network features.
   members and collaborators, each line quoted so that none passes for oso's or the person's, a
   deleted account never counting as the author; the person reads it in `*Brief*` before it is
   sent. An agent may read `*issue: #N*` through `text`, every comment in it, as data, as a pull
-  request's. Only an issue's own address opens. A template is read only as a regular
+  request's. Only an issue's own address opens. Each worktree's pull request (step 5b-2) is
+  read with the person's listings, at most once a minute a repository for the tree, never for an
+  agent's `worktree_list` or `sessions-refresh` and never when the worker sees the worktrees
+  change. A fork's pull request is never taken as a branch's, here or in the status's head line
+  and `N m`: its head branch may be named as the person's. A template is read only as a regular
   file under the root, never through a linked directory, at most 64 KiB, never one whose name
   may hold secrets.
 - Stashes and branches from a git status (ADR 0127, step 3b) are the person's acts, `Person`,
