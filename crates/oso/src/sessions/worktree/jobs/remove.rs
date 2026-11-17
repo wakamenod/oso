@@ -375,11 +375,16 @@ impl Jobs {
                     Ok(ignored) => {
                         removing(repo.clone(), token, path, ignored, held, report_later);
                     }
-                    Err(why) => send(Report::Removed {
-                        token,
-                        path,
-                        result: Err(why),
-                    }),
+                    Err(why) => {
+                        // Let go of the entry first, as `removing` does, so that what the app
+                        // does on the report sees the removal ended.
+                        drop(held);
+                        send(Report::Removed {
+                            token,
+                            path,
+                            result: Err(why),
+                        });
+                    }
                 }
             },
             move |why| Report::Removed {
