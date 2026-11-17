@@ -5,7 +5,7 @@
 
 use objc2::rc::{AutoreleasePool, Retained};
 use objc2_app_kit::{NSEvent, NSEventModifierFlags};
-use objc2_foundation::NSString;
+use objc2_foundation::{NSString, ns_string};
 
 use super::keys;
 use crate::window::{Held, SystemKey};
@@ -71,4 +71,11 @@ pub(super) fn system_key(text: Option<&str>) -> SystemKey<'_> {
         Some(text) => SystemKey::Character(text),
         None => SystemKey::Unidentified,
     }
+}
+
+/// Whether the key is `g` on the layout, whatever is held.
+pub(super) fn is_g(event: &NSEvent) -> bool {
+    event
+        .charactersByApplyingModifiers(NSEventModifierFlags::empty())
+        .is_some_and(|text| text.isEqualToString(ns_string!("g")))
 }

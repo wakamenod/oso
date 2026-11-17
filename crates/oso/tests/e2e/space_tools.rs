@@ -92,7 +92,7 @@ fn an_orchestrator_works_through_the_repositories_of_its_space() {
     assert!(error && said.to_string().contains("not trusted"), "{said}");
     // A session at a repository's main checkout is asked about after git looked at it; `n`.
     let id = bridge.call("session_start", json!({ "repo": "repo" }));
-    let question = answer(&mut app, "n");
+    let question = answer(&mut app, &bridge, "n");
     assert!(question.contains("repo"), "{question}");
     let (said, error) = bridge.result(id);
     assert!(error, "{said}");
@@ -125,7 +125,7 @@ fn an_orchestrator_works_through_the_repositories_of_its_space() {
     let mut call = start(Some("repo"));
     call["with_dirs"] = json!([other_real.display().to_string()]);
     let id = bridge.call("start_worktree_session", call);
-    let question = answer(&mut app, "y");
+    let question = answer(&mut app, &bridge, "y");
     assert!(question.contains("fix/login"), "{question}");
     assert!(question.contains("It also reads"), "{question}");
     let (started, error) = bridge.result(id);

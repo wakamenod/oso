@@ -1,6 +1,6 @@
 //! Worktree jobs as the app asks for them (ADR 0121): listing branches for `session-worktree`,
 //! making a worktree, listing a repository's worktrees row by row, checking one before its
-//! removal and removing it. Each runs on the [`Pool`], only for a trusted root whose main
+//! removal and removing it, and judging whether a session's work is merged at its turn's end. Each runs on the [`Pool`], only for a trusted root whose main
 //! repository is trusted too, and tells the app what it found through the function the app
 //! gives.
 //!
@@ -19,14 +19,15 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use std::sync::mpsc::SyncSender;
+use std::time::Instant;
 
 use super::checks::{self, Check, Depth, Held, HostedSession, Looked};
 use super::create::{self, Created, Order, Step};
 use super::facts::RepoFacts;
 use super::git::{Repo, said};
-use super::merged::{self, Merged};
+use super::merged::Merged;
 use super::pool::Pool;
 use super::prepare::{self, Prepare, Prepared};
 use crate::git::Gh;
@@ -34,6 +35,7 @@ use crate::git::MAX_SHORT;
 use crate::git::TrustedRoot;
 use crate::project::{Trusted, linked_worktree};
 use crate::sessions::spaces::Member;
+use crate::sessions::worker::SessionKey;
 
 /// Why a job refuses a repository whose main checkout is not trusted.
 pub const MAIN_UNTRUSTED: &str =
@@ -133,11 +135,21 @@ pub enum Report {
         root: PathBuf,
         pulls: Vec<super::git::OpenPull>,
     },
-    /// What `gh` said of a listed row's branch, after every row.
+    /// What `gh` said of a listed row's branch, after every row; `clean`, when the row's look
+    /// began, if it found nothing uncommitted or untracked there.
     Merged {
         token: u64,
         path: PathBuf,
         merged: Merged,
+        clean: Option<Instant>,
+    },
+    /// Whether the work of the session `key`, whose turn ended with changes since its
+    /// baseline, is merged (ADR 0121, "Merged work is not ready for review, as amended"), for
+    /// the app's judgment `judgment`.
+    WorkMerged {
+        key: SessionKey,
+        judgment: u64,
+        merged: bool,
     },
     /// A removal's checks held again: the app clears the worktree, then says [`Go`].
     Clear { token: u64, path: PathBuf, go: Go },
@@ -291,63 +303,6 @@ impl Jobs {
         );
     }
 
-    /// Lists the linked worktrees of the repository, a row each as it is looked at, then what
-    /// `gh` says of the rows that need it. A newer listing stops this one.
-    pub fn list(&self, token: u64, trust: Trust, snapshot: Snapshot) {
-        let number = self.listing.fetch_add(1, Ordering::SeqCst) + 1;
-        let newest = Arc::clone(&self.listing);
-        self.list_while(token, (trust, true), snapshot, move || {
-            newest.load(Ordering::SeqCst) == number
-        });
-    }
-
-    /// Lists as [`Self::list`] does, for an agent's `worktree_list`, until `stop` is set: no
-    /// listing of the person's stops it, and it stops none of theirs.
-    pub fn list_for_agent(
-        &self,
-        token: u64,
-        trust: Trust,
-        snapshot: Snapshot,
-        stop: Arc<AtomicBool>,
-    ) {
-        // An agent's listing asks `gh` for no open pull request (ADR 0127, step 5b-2).
-        self.list_while(token, (trust, false), snapshot, move || {
-            !stop.load(Ordering::SeqCst)
-        });
-    }
-
-    /// A listing that goes on while `live` says so, and says when it ended.
-    fn list_while(
-        &self,
-        token: u64,
-        (trust, pulls): (Trust, bool),
-        snapshot: Snapshot,
-        live: impl Fn() -> bool + Send + 'static,
-    ) {
-        let gh_host = self.gh_host.clone();
-        let removals = self.removals.clone();
-        self.on_repo(
-            trust,
-            false,
-            move |_, repo, send| {
-                // One stopped while it waited for a thread runs nothing.
-                if live() {
-                    let looking = Looking {
-                        snapshot: &snapshot,
-                        gh_host: gh_host.as_deref(),
-                        removals: &removals,
-                    };
-                    list(repo, &looking, &live, (token, pulls), send);
-                }
-                send(Report::ListEnded { token });
-            },
-            move |why| Report::Listed {
-                token,
-                result: Err(why),
-            },
-        );
-    }
-
     /// Looks at what an agent's session tool would do, before the person is asked.
     ///
     /// `with` are the directories the new session also reads, each with its repository's
@@ -467,84 +422,6 @@ fn main_of(project: &Path, hooks: &Path) -> Result<PathBuf, String> {
     }
 }
 
-/// What a listing looks with besides the repository.
-struct Looking<'a> {
-    snapshot: &'a Snapshot,
-    gh_host: Option<&'a str>,
-    /// The removals that run, whose rows say so.
-    removals: &'a remove::Removals,
-}
-
-/// A listing's work: every row looked at without `gh`, then `gh` asked for the rows that need
-/// it, while `live` says no newer listing was asked for.
-fn list(
-    repo: &Repo,
-    looking: &Looking<'_>,
-    live: &dyn Fn() -> bool,
-    (token, pulls): (u64, bool),
-    send: &dyn Fn(Report),
-) {
-    let Looking {
-        snapshot,
-        gh_host,
-        removals,
-    } = *looking;
-    let listed = match repo.worktrees() {
-        Ok(listed) => listed,
-        Err(why) => {
-            return send(Report::Listed {
-                token,
-                result: Err(why),
-            });
-        }
-    };
-    // The first is the main worktree.
-    let linked: Vec<_> = listed.into_iter().skip(1).collect();
-    send(Report::Listed {
-        token,
-        result: Ok(linked.len()),
-    });
-    let gh = Gh::find(repo.main());
-    let facts = RepoFacts::gather(repo, gh_host, &snapshot.hosted);
-    let mut asks = Vec::new();
-    for listed in linked {
-        if !live() {
-            return;
-        }
-        let held = snapshot.held(&listed.path, &facts.hosted_idle);
-        let mut looked = checks::look(repo, gh.as_ref(), &facts, listed, &held, Depth::Local);
-        looked.removing = removals.running_at(&looked.listed.path);
-        if let (Some(tip), Some(branch)) = (&looked.gh_pending, &looked.listed.branch) {
-            asks.push((looked.listed.path.clone(), branch.clone(), tip.clone()));
-        }
-        send(Report::Row {
-            token,
-            looked: Box::new(looked),
-        });
-    }
-    let Some(gh) = gh else {
-        return;
-    };
-    if pulls
-        && live()
-        && let Some((_, github)) = &facts.github
-        && let Ok(pulls) = super::git::open_pulls(&gh, github, repo.hooks())
-    {
-        send(Report::Pulls { token, pulls });
-    }
-    for (path, branch, tip) in asks {
-        if !live() {
-            return;
-        }
-        let merged = merged::by_pull_request(repo, &gh, &facts, &branch, &tip);
-        send(Report::Merged {
-            token,
-            path,
-            merged,
-        });
-    }
-}
-
 /// The checks of a removal of the worktree at `path`: what git ignores there, or the first
 /// check that refuses.
 fn check(
@@ -577,6 +454,8 @@ fn check(
     checks::removable(&looked, &held).map(|()| looked.ignored)
 }
 
+mod judge;
+mod list;
 mod remove;
 mod tree;
 

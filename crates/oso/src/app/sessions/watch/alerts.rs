@@ -1,10 +1,10 @@
 //! When a session wants the person (ADR 0121 step 3): the notices of states, said in the echo
 //! area and asked of the system as attention; the marks' blink; the person's look at a
 //! session, held 2 s before it counts; and the look for changes after a turn ends, which makes
-//! a session ready for review.
+//! a session ready for review unless a worktree job finds those changes merged.
 //!
 //! Must not depend on: how a frame is drawn, key presses, or the worker's thread. Git runs
-//! on a review's thread (ADR 0122), never here.
+//! on a review's thread (ADR 0122) or a worktree job's, never here.
 
 use std::time::{Duration, Instant};
 
@@ -15,8 +15,9 @@ use crate::app::{App, UserEvent};
 use crate::git::TrustedRoot;
 use crate::review::{self, Reviewer};
 use crate::sessions::attention::Seen as Where;
-use crate::sessions::state::State;
+use crate::sessions::state::{ChangesFound, State};
 use crate::sessions::worker::{Job, SessionKey};
+use crate::sessions::worktree::jobs::Trust;
 
 /// How long a session must stay in front of the person before it counts as seen (ADR 0121).
 pub(in crate::app) const SEEN_AFTER: Duration = Duration::from_secs(2);
@@ -51,6 +52,11 @@ pub(super) struct Looks {
     /// and its thread dropped.
     running: Vec<Look>,
     waiting: Vec<SessionKey>,
+    /// The newest judgment asked of a worktree job, by session, until it answers: an older
+    /// one's late answer is dropped, as a newer turn's look has judged since.
+    judging: std::collections::HashMap<SessionKey, u64>,
+    /// The last judgment's number.
+    judged: u64,
 }
 
 impl std::fmt::Debug for Looks {
@@ -58,6 +64,7 @@ impl std::fmt::Debug for Looks {
         f.debug_struct("Looks")
             .field("running", &self.running.len())
             .field("waiting", &self.waiting)
+            .field("judging", &self.judging)
             .finish()
     }
 }
@@ -184,8 +191,14 @@ impl App {
         let waker = std::sync::Mutex::new(self.waker.clone());
         let started = Reviewer::start(trusted, self.hosting.state_directory(), move |report| {
             let changed = match report {
-                review::Report::Baseline { tree, .. } => Some(tree.as_str() != baseline),
-                review::Report::Failed { .. } => None,
+                review::Report::Baseline { tree, .. } if tree.as_str() == baseline => {
+                    ChangesFound::None
+                }
+                review::Report::Baseline { tree, left_out } => ChangesFound::Some {
+                    tree: tree.clone(),
+                    whole: left_out == 0,
+                },
+                review::Report::Failed { .. } => ChangesFound::Failed,
                 _ => return true,
             };
             waker
@@ -208,18 +221,86 @@ impl App {
         }
     }
 
-    /// A look for session `key`'s changes ended: `None` if git failed, which leaves its
-    /// state as it is.
-    pub(in crate::app) fn session_changes(&mut self, key: SessionKey, changed: Option<bool>) {
-        self.watch.looks.running.retain(|look| look.key != key);
-        if let (Some(changed), Some(worker)) = (changed, &self.sessions) {
-            worker.send(Job::Changes(key, changed));
+    /// A look for session `key`'s changes ended: a failed one leaves its state as it is.
+    /// Changes git read whole go to a worktree job first, which judges whether they are merged
+    /// (ADR 0121, "Merged work is not ready for review, as amended").
+    pub(in crate::app) fn session_changes(&mut self, key: SessionKey, changed: ChangesFound) {
+        let at = self
+            .watch
+            .looks
+            .running
+            .iter()
+            .position(|look| look.key == key);
+        let look = at.map(|at| self.watch.looks.running.remove(at));
+        // A look that judged is the newest: a worktree job's answer still to come is stale. A
+        // failed one judged nothing, so an answer to come still counts.
+        if changed != ChangesFound::Failed {
+            self.watch.looks.judging.remove(&key);
+        }
+        match changed {
+            ChangesFound::Failed => {}
+            ChangesFound::None => self.session_changes_judged(key, false),
+            ChangesFound::Some { tree, whole } => match look {
+                Some(look) if whole => {
+                    let trust = Trust {
+                        root: look.root.clone(),
+                        trusted: self.trusted_list(),
+                    };
+                    self.watch.looks.judged += 1;
+                    let judgment = self.watch.looks.judged;
+                    self.watch.looks.judging.insert(key, judgment);
+                    self.worktree_jobs().work_merged(key, judgment, trust, tree);
+                }
+                _ => self.session_changes_judged(key, true),
+            },
         }
         if let Some(next) =
             (!self.watch.looks.waiting.is_empty()).then(|| self.watch.looks.waiting.remove(0))
         {
             self.look_for_changes(next);
         }
+    }
+
+    /// A worktree job's answer to judgment `judgment` of session `key`: whether the changes
+    /// its turn left are merged. Only the newest judgment's answer counts.
+    pub(in crate::app) fn session_work_judged(
+        &mut self,
+        key: SessionKey,
+        judgment: u64,
+        merged: bool,
+    ) {
+        if self.watch.looks.judging.get(&key) != Some(&judgment) {
+            return;
+        }
+        self.watch.looks.judging.remove(&key);
+        self.session_changes_judged(key, !merged);
+    }
+
+    /// Session `key`'s turn ended with changes since its baseline that are not merged, if
+    /// `unmerged`.
+    fn session_changes_judged(&mut self, key: SessionKey, unmerged: bool) {
+        if let Some(worker) = &self.sessions {
+            worker.send(Job::Changes(key, unmerged));
+        }
+    }
+
+    /// A listing found the worktree of the sessions `keys` clean and its branch merged, reading
+    /// its changes at `looked_at`: those ready for review since before then need none (ADR
+    /// 0121, "Merged work is not ready for review, as amended").
+    pub(in crate::app) fn session_work_merged(&mut self, keys: &[SessionKey], looked_at: Instant) {
+        if let Some(worker) = &self.sessions {
+            for &key in keys {
+                worker.send(Job::WorkMerged(key, looked_at));
+            }
+        }
+    }
+
+    /// The hosted sessions in the worktree at `path`.
+    pub(in crate::app) fn sessions_at(&self, path: &std::path::Path) -> Vec<SessionKey> {
+        (self.hosting.table().iter())
+            .filter(|session| session.directory.starts_with(path))
+            .map(|session| session.key)
+            .collect()
     }
 
     /// A review of the session scope opened in the project at `root`: its sessions have been

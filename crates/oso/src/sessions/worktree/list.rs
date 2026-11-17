@@ -178,6 +178,7 @@ mod tests {
                 busy: Vec::new(),
                 gh_pending: None,
                 removing: false,
+                looked_at: std::time::Instant::now(),
             },
             held: Held::default(),
             sessions: Vec::new(),

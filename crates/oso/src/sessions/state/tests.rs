@@ -224,3 +224,35 @@ fn a_state_names_its_reason() {
         "needs input (elicitation)"
     );
 }
+
+#[test]
+fn merged_work_needs_no_review() {
+    let start = Instant::now();
+    let (mut tracker, at) = working(start);
+    tracker.verdict(SIGN, at);
+    assert_eq!(
+        tracker.work_merged(at, at + ms(5)),
+        None,
+        "only a session ready for review takes it"
+    );
+    assert_eq!(
+        state(tracker.changes(true, at + ms(10))),
+        Some(State::ReadyForReview)
+    );
+    assert_eq!(
+        tracker.work_merged(at + ms(5), at + ms(15)),
+        None,
+        "a listing that read the worktree before the changes says nothing of them"
+    );
+    assert_eq!(
+        state(tracker.work_merged(at + ms(12), at + ms(20))),
+        Some(State::Idle)
+    );
+    assert_eq!(tracker.work_merged(at + ms(20), at + ms(30)), None);
+    tracker.verdict(Target::Working, at + ms(40));
+    assert_eq!(
+        tracker.work_merged(at + ms(45), at + ms(50)),
+        None,
+        "a word that comes while the next turn runs"
+    );
+}

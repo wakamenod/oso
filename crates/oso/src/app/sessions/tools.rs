@@ -406,7 +406,8 @@ impl App {
             | Report::Clear { .. }
             | Report::Tree { .. }
             | Report::TreePulls { .. }
-            | Report::Pulls { .. } => {
+            | Report::Pulls { .. }
+            | Report::WorkMerged { .. } => {
                 return Some(report);
             }
         };

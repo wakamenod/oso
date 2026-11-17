@@ -700,7 +700,7 @@ The UI thread never blocks on I/O or parsing:
   `commands::vcs::pr::create` carry them out. Issues (step 5b-1): `vcs/pr/issue.rs` reads them
   and makes a brief, `vcs/pr/write/issue.rs` their texts, `vcs/pr/work/issue.rs` the `gh` thread's
   reads, `app/vcs/pr/issue.rs` the keys, opening `*Brief*` through
-  `app/sessions/worktrees.rs`'s `start_brief`, and `commands::vcs::pr::issue` the commands.
+  `app/sessions/worktrees/brief.rs`'s `start_brief`, and `commands::vcs::pr::issue` the commands.
   Each worktree's open pull request (step 5b-2) is read by `sessions/worktree/git.rs`, the
   first use of `vcs::pr` from `sessions`, on the worktree jobs' pool, as described under the
   worktree jobs.
@@ -813,7 +813,8 @@ The UI thread never blocks on I/O or parsing:
   each run came through the dev socket. The worker finds message lines' senders with `[[message]]` rules
   (`sessions/messages.rs`) after each verdict, and tells the app when a session is first judged
   and when a hold rule starts or stops matching (`Out::Judged`).
-- Worktree sessions (`crates/oso/src/sessions/worktree/`, glue in `app/sessions/worktrees.rs`,
+- Worktree sessions (`crates/oso/src/sessions/worktree/`, glue in `app/sessions/worktrees.rs`
+  and its children, the brief's in `brief.rs`,
   [ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 4) run as jobs on `oso-sessions-git`,
   at most 2 threads, beside the sessions worker so that its rules never wait on git.
   - The jobs list branches, make a worktree (`create.rs`: brief and hand-off facts, `git
@@ -829,7 +830,7 @@ The UI thread never blocks on I/O or parsing:
     before it runs, and refuses a repository whose main checkout is not trusted too. What
     touches the disk, the new worktree's trust included, is made on the job's thread.
   - A job reads the repository's remotes, main branches, GitHub repository and the registry's
-    sessions once (`facts.rs`). A listing sends every row without `gh`, then, for the person's
+    sessions once (`facts.rs`). A listing (`jobs/list.rs`) sends every row without `gh`, then, for the person's
     listing only, the repository's open pull requests (`Report::Pulls`, ADR 0127 step 5b-2),
     then what `gh` says of the rows that need it (`Report::Merged`); a newer listing stops an
     older one. The tree's listing sends its worktrees, then, when asked, the open pull requests
