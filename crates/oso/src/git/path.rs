@@ -9,15 +9,21 @@ use std::fs::Metadata;
 use std::io;
 use std::path::Path;
 
-use oso_core::buffer::Buffer;
+use oso_core::buffer::{Buffer, Verdict};
 
 /// Whether the file at `path` under `top`, the trusted root, may hold secrets, by its name
 /// (ADR 0044).
 pub(crate) fn may_hold_secrets(top: &Path, path: &[u8]) -> bool {
-    let Ok(path) = os(path) else {
-        return true;
-    };
-    Buffer::name_may_hold_secrets(&top.join(path))
+    verdict(top, path).is_withheld()
+}
+
+/// The verdict on the file at `path` under `top`, the trusted root, by its name (ADR 0044): a
+/// name that is no path here is [`Verdict::Unresolved`], which withholds it too.
+pub(crate) fn verdict(top: &Path, path: &[u8]) -> Verdict {
+    match os(path) {
+        Ok(path) => Buffer::judge_name(&top.join(path)),
+        Err(_) => Verdict::Unresolved,
+    }
 }
 
 /// The device and inode `metadata` names, where the system has them.

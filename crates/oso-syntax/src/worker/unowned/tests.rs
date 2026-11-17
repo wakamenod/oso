@@ -173,6 +173,7 @@ fn a_document_is_highlighted_whole_as_a_fresh_one_and_reports_epoch_and_revision
         panic!("{} reports", reports.len());
     };
     assert_eq!((report.buffer, report.epoch, report.revision), (1, 0, 0));
+    assert!(report.done, "its last report says it is done");
     let Outcome::Highlights(highlights) = &report.outcome else {
         panic!("{:?}", report.outcome);
     };
@@ -182,6 +183,29 @@ fn a_document_is_highlighted_whole_as_a_fresh_one_and_reports_epoch_and_revision
         fresh.highlights().runs(0..TEXT.len()).collect::<Vec<_>>()
     );
     assert!(runs.iter().any(|(_, highlight)| highlight.is_some()));
+}
+
+#[test]
+fn a_document_done_with_nothing_new_still_reports_done_and_a_buffer_never_does() {
+    let mut scheduler = Scheduler::new();
+    let mut queries = Queries::new();
+    open(&mut scheduler, 1, true);
+    let mut checkout = scheduler.take_next().unwrap();
+    assert_eq!(checkout.run_for(&mut queries, LONG), Highlighted::Done);
+    // Given back as if work were left: reported, not done, and queued again.
+    let first = scheduler.give_back(checkout, Highlighted::Paused).unwrap();
+    assert!(!first.done);
+    let mut checkout = scheduler.take_next().unwrap();
+    assert_eq!(checkout.run_for(&mut queries, LONG), Highlighted::Done);
+    let last = scheduler.give_back(checkout, Highlighted::Done).unwrap();
+    assert!(
+        last.done,
+        "done though nothing changed since the last report"
+    );
+    assert!(matches!(last.outcome, Outcome::Highlights(_)));
+    scheduler.submit(buffer(2, true));
+    let reports = drain(&mut scheduler, &mut queries);
+    assert!(!reports.is_empty() && reports.iter().all(|report| !report.done));
 }
 
 #[test]

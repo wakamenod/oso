@@ -2,7 +2,7 @@
 //! NUL-separated, never parsed from patch headers.
 //!
 //! Must not depend on: `app`, `dispatch`, `batch` or git's runner; this parses bytes it is
-//! given, and takes only object ids from the shared git module.
+//! given, and takes only object ids and the name check from the shared git module.
 //!
 //! At most [`MAX_FILES`] are kept; the rest are counted. Line counts and whether a file is
 //! binary come from the review's own reading, not from git.
@@ -10,7 +10,11 @@
 //! A conflicted file is listed once, as unmerged: git writes it again for a stage it compares,
 //! and that record is dropped.
 
-use crate::git::Id;
+use std::path::Path;
+
+use oso_core::buffer::Verdict;
+
+use crate::git::{Id, path_verdict};
 
 /// The most files a review lists.
 pub(crate) const MAX_FILES: usize = 10_000;
@@ -49,6 +53,19 @@ pub(crate) struct Entry {
     pub(crate) old_id: Id,
     /// The new side's blob, all zeros when it is a work tree file git did not hash.
     pub(crate) new_id: Id,
+}
+
+impl Entry {
+    /// The verdict on every path the entry names, its path and the one it came from, under
+    /// `top`, by their names (ADR 0044): ordinary only if each is. The review's thread reads
+    /// no text of an entry withheld so, and its view parses none (step 9).
+    pub(crate) fn verdict(&self, top: &Path) -> Verdict {
+        let paths = std::iter::once(&*self.path).chain(self.old_path.as_deref());
+        paths
+            .map(|path| path_verdict(top, path))
+            .find(|verdict| verdict.is_withheld())
+            .unwrap_or(Verdict::Ordinary)
+    }
 }
 
 /// A parsed list.

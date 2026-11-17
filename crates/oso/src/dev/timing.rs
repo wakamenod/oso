@@ -106,6 +106,33 @@ pub struct ReviewText {
     pub read: usize,
     pub listed: usize,
     pub done: bool,
+    /// Every side on screen that can be highlighted is (ADR 0122, step 9).
+    pub shown_highlighted: bool,
+    /// Every side that can be highlighted is.
+    pub highlighted: bool,
+    /// The UI thread's time putting the text in, in microseconds.
+    pub ui_us: u32,
+}
+
+impl ReviewText {
+    /// A text whose reading is `reading`, files read of those listed or `None` once done, whose
+    /// sides on screen and whose sides in all are highlighted as `highlighted` says, and that
+    /// took the UI thread `ui` to put in.
+    pub fn of(
+        reading: Option<(usize, usize)>,
+        highlighted: Option<(bool, bool)>,
+        ui: Duration,
+    ) -> Self {
+        let (shown_highlighted, highlighted) = highlighted.unwrap_or_default();
+        ReviewText {
+            read: reading.map_or(0, |(read, _)| read),
+            listed: reading.map_or(0, |(_, listed)| listed),
+            done: reading.is_none(),
+            shown_highlighted,
+            highlighted,
+            ui_us: micros_u32(ui),
+        }
+    }
 }
 
 /// The first presented frame. A frame skipped while the window is hidden
@@ -194,8 +221,12 @@ impl Timings {
         }
     }
 
-    /// A review's new text went in, its reading as far as `text` says.
-    pub fn review_text(&mut self, text: ReviewText) {
+    /// A review's new text went in, its reading as far as `text` says. The UI's time is the
+    /// longest of the texts put in since the last frame.
+    pub fn review_text(&mut self, mut text: ReviewText) {
+        if let Some(before) = self.review_text {
+            text.ui_us = text.ui_us.max(before.ui_us);
+        }
         self.review_text = Some(text);
     }
 
@@ -283,7 +314,15 @@ impl Timings {
         let reviews: Vec<Value> = std::mem::take(&mut self.review_frames)
             .into_iter()
             .map(|(at, text)| {
-                json!({ "unix_us": at, "read": text.read, "listed": text.listed, "done": text.done })
+                json!({
+                    "unix_us": at,
+                    "read": text.read,
+                    "listed": text.listed,
+                    "done": text.done,
+                    "shown_highlighted": text.shown_highlighted,
+                    "highlighted": text.highlighted,
+                    "ui_us": text.ui_us,
+                })
             })
             .collect();
         json!({
@@ -343,13 +382,19 @@ mod tests {
             read: 2,
             listed: 5,
             done: false,
+            shown_highlighted: false,
+            highlighted: false,
+            ui_us: 7,
         };
         timings.review_text(text);
+        // A quicker one before the frame: the longest time is kept.
+        timings.review_text(super::ReviewText { ui_us: 3, ..text });
         timings.frame_presented(true, false);
         timings.frame_presented(true, false);
         let taken = timings.take();
         let frames = taken["review_frames"].as_array().unwrap();
         assert_eq!(frames.len(), 1, "one frame showed it");
+        assert_eq!(frames[0]["ui_us"], 7);
         assert_eq!(frames[0]["read"], 2);
         assert_eq!(frames[0]["listed"], 5);
         assert_eq!(frames[0]["done"], false);

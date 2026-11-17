@@ -101,7 +101,7 @@ pub enum UserEvent {
     /// A wrap job panicked, so its window asks for it again.
     WrapLost,
     /// The syntax worker highlighted a buffer, or stopped (ADR 0111).
-    Syntax(oso_syntax::Report<BufferId>),
+    Syntax(oso_syntax::Report<syntax::SyntaxKey>),
     /// The completion worker built a list or matched an input (ADR 0096).
     Completion(oso_core::complete::CompletionReport),
     /// A completion job panicked on the worker.
