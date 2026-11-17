@@ -280,6 +280,7 @@ impl App {
             self.slice_deadline(),
             self.hidden_terminals_deadline(),
             self.sessions_deadline(),
+            self.review_layout_deadline(),
             self.handover_deadline(),
             self.idle_quit.next_wake(),
         ];

@@ -573,6 +573,7 @@ impl App {
 }
 
 mod comments;
+mod judge;
 mod layout;
 mod menu;
 mod state;

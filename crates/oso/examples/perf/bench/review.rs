@@ -1,7 +1,7 @@
 //! The review benchmark (ADR 0122): a repository of 57 files with some 5,000 lines changed in
 //! its work tree, reviewed with `C-x v r w`: how soon its first screen and its whole text are
-//! shown, keys moving between its hunks and files, and `g` after one file changed. Recorded,
-//! with no threshold yet.
+//! shown, keys moving between its hunks and files, `|` showing it as two panes and keys in them
+//! (ADR 0122, step 11), and `g` after one file changed. Recorded, with no threshold yet.
 //!
 //! Must not depend on: anything but the harness's own pacing and settling, from the module
 //! above, its temporary directories, which are removed however the phase ends, and git, which
@@ -40,9 +40,9 @@ const TRUST_WITHIN: Duration = Duration::from_secs(20);
 /// How often to look.
 const POLL: Duration = Duration::from_millis(10);
 
-/// Opening, moving in and refreshing a review, in new processes, as
-/// `review_open_first_screen_ms`, `review_open_whole_ms`, `review_key_p99_ms` and
-/// `review_refresh_ms`.
+/// Opening, moving in, showing as two panes and refreshing a review, in new processes, as
+/// `review_open_first_screen_ms`, `review_open_whole_ms`, `review_key_p99_ms`,
+/// `review_panes_switch_ms`, `review_panes_key_p99_ms` and `review_refresh_ms`.
 pub(super) fn review(
     exe: &Path,
     runs: usize,
@@ -65,7 +65,7 @@ pub(super) fn review(
     let config = dir.file("config.toml");
     std::fs::write(&config, "[lsp]\nstart = \"manual\"\n")
         .map_err(|e| format!("{}: {e}", config.display()))?;
-    let mut metrics: [Vec<f64>; 4] = Default::default();
+    let mut metrics: [Vec<f64>; 6] = Default::default();
     for run in 0..runs {
         let mut app = App::start_with_config(exe, Some(&root.join(name(0))), Some(&config))?;
         app.wait_until("loaded file", LOAD_TIMEOUT, |t| {
@@ -98,18 +98,38 @@ pub(super) fn review(
         }
         metrics[2].push(percentile(&samples, 99.0));
 
+        // `|`: the panes are laid out on the view thread, then the window switches to them.
+        let asked = unix_us();
+        app.send_keys("|")?;
+        let frames = until_read(&mut app, asked)?;
+        let shown = frames.first().ok_or("`|` showed no panes")?;
+        metrics[3].push(since(asked, shown));
+        settle(&mut app)?;
+        let samples = paced_keys(&mut app, &KEYS, count, &mut keys)?;
+        if samples.len() != count {
+            return Err(format!(
+                "{count} keys in the panes drew {} frames",
+                samples.len()
+            ));
+        }
+        metrics[4].push(percentile(&samples, 99.0));
+        app.send_keys("|")?;
+        settle(&mut app)?;
+
         change(&root, run)?;
         let asked = unix_us();
         app.send_keys("g")?;
         let frames = until_read(&mut app, asked)?;
         let read = frames.last().ok_or("g showed nothing")?;
-        metrics[3].push(since(asked, read));
+        metrics[5].push(since(asked, read));
         app.stop();
     }
-    let [first, whole, keys, refresh] = metrics;
+    let [first, whole, keys, switch, pane_keys, refresh] = metrics;
     report.add("review_open_first_screen_ms", first);
     report.add("review_open_whole_ms", whole);
     report.add("review_key_p99_ms", keys);
+    report.add("review_panes_switch_ms", switch);
+    report.add("review_panes_key_p99_ms", pane_keys);
     report.add("review_refresh_ms", refresh);
     Ok(())
 }
