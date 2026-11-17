@@ -458,7 +458,8 @@ fn state_of(state: &Value, name: &str) -> Option<String> {
 }
 
 /// Has session `name`, run `run` of the fake, take a turn that ends: working, then done or,
-/// with changes not merged, ready for review. Returns the state the turn ended in.
+/// with changes not merged, ready for review. Returns the first state seen after working:
+/// done can be passed unseen on the way to ready for review.
 fn turn(app: &mut App, flow: &Flow, run: &Run, name: &str) -> String {
     print(flow, run, WORKING);
     app.wait_for("working", |state| {
@@ -519,7 +520,13 @@ fn merged_work_is_not_ready_for_review() {
     let (mut app, mut bridge, readme) = hosted_with_readme(&flow);
     let (place, run) = worktree_with_work(&mut app, &mut bridge, &flow, "e2e-merged");
     let name = "e2e-merged";
-    assert_eq!(turn(&mut app, &flow, &run, name), "done");
+    // Done lasts only while the look and the merged check run, which a fast machine can pass
+    // between two reads of the state.
+    let ended = turn(&mut app, &flow, &run, name);
+    assert!(
+        matches!(ended.as_str(), "done" | "ready for review"),
+        "{ended}"
+    );
     app.wait_for("ready for review", |state| {
         state_of(state, name).as_deref() == Some("ready for review")
     });
