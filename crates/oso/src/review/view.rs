@@ -47,6 +47,7 @@ use oso_core::syntax::Highlights;
 
 use super::{Entry, Reading};
 use cards::Cards;
+pub(crate) use cards::Marks;
 use file::{File, Gone, Laid, section_in};
 pub(crate) use panes::PaneText;
 
@@ -79,12 +80,13 @@ pub(crate) enum Tell {
         carried: Carried,
         cut_short: bool,
     },
-    /// The model's comments on the file at `path` now, oldest first, and its reading of the
-    /// file.
+    /// The model's comments on the file at `path` now, oldest first, its reading of the file,
+    /// and the person's decisions on that reading's hunks.
     Cards {
         path: Box<[u8]>,
         comments: Vec<Comment>,
         reading: Option<Arc<Shape>>,
+        marks: Marks,
     },
     /// Whether agent cards fold to their first line.
     Folded(bool),
@@ -245,7 +247,15 @@ impl State {
                 path,
                 comments,
                 reading,
-            } => self.cards(path, Cards { comments, reading }),
+                marks,
+            } => self.cards(
+                path,
+                Cards {
+                    comments,
+                    reading,
+                    marks,
+                },
+            ),
             Tell::Folded(folded) => self.fold(folded),
             Tell::Read => self.reading = false,
             Tell::Said(said) => {

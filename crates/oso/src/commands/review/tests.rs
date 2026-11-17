@@ -506,3 +506,52 @@ fn bar_asks_for_two_panes_or_one_stream_and_a_filler_row_takes_no_comment() {
     assert_eq!(editor.pair_of(window), None);
     assert_eq!(editor.review_of(editor.window().buffer()), None);
 }
+
+#[test]
+fn the_decision_keys_ask_for_the_hunk_at_point_and_refuse_elsewhere() {
+    let (mut editor, project) = in_project(true);
+    let review = with_review(&mut editor, project);
+    // The first hunk's header, then its added line.
+    for line in [2, 4] {
+        put_at(&mut editor, &[line]);
+        assert_eq!(run(&mut editor, "review-accept", Args::NONE).0, Ok(()));
+        assert_eq!(run(&mut editor, "review-reject", Args::NONE).0, Ok(()));
+        assert_eq!(run(&mut editor, "review-viewed", Args::NONE).0, Ok(()));
+        let asked = |kind: fn(ReviewId, Box<[u8]>, Vec<usize>) -> ReviewRequest| {
+            kind(review, b"a".as_slice().into(), vec![0])
+        };
+        assert_eq!(
+            editor.take_review_requests(),
+            [
+                asked(|review, path, hunks| ReviewRequest::Accept {
+                    review,
+                    path,
+                    hunks
+                }),
+                asked(|review, path, hunks| ReviewRequest::Reject {
+                    review,
+                    path,
+                    hunks
+                }),
+                asked(|review, path, hunks| ReviewRequest::Viewed {
+                    review,
+                    path,
+                    hunks
+                }),
+            ]
+        );
+    }
+    // The title is no hunk; a file header with no reading in the model has none to decide on.
+    put_at(&mut editor, &[0]);
+    assert_eq!(
+        run(&mut editor, "review-accept", Args::NONE).0,
+        Err("Not on a hunk".to_owned())
+    );
+    put_at(&mut editor, &[1]);
+    assert_eq!(
+        run(&mut editor, "review-viewed", Args::NONE).0,
+        Err("No hunk to decide on".to_owned())
+    );
+    assert_eq!(run(&mut editor, "review-undo", Args::NONE).0, Ok(()));
+    assert_eq!(editor.take_review_requests(), [ReviewRequest::Undo(review)]);
+}

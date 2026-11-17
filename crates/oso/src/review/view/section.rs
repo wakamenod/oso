@@ -18,7 +18,7 @@
 use std::fmt::Write as _;
 use std::sync::Arc;
 
-use oso_core::review::{Anchor, CommentId, Hunk, RowKind, Section, Side};
+use oso_core::review::{Anchor, CommentId, Hunk, RowKind, Section, Shape, Side};
 use oso_core::syntax::Highlight;
 
 use super::cards::{self, Cards, Placing, Plan};
@@ -193,13 +193,14 @@ fn size(bytes: u64) -> String {
     }
 }
 
-/// The file's header line: its status, its path (and the one it came from), its counts, and
-/// how many comments it has.
+/// The file's header line: its status, its path (and the one it came from), its counts, how
+/// many comments it has, and how many of the hunks of `shape`, its reading, are decided.
 pub(super) fn header(
     writer: &mut Writer,
     entry: &Entry,
     counts: Option<(usize, usize)>,
     cards: &Cards,
+    shape: Option<&Arc<Shape>>,
 ) {
     let mut text = Vec::new();
     text.extend_from_slice(status_word(entry.status).as_bytes());
@@ -215,8 +216,31 @@ pub(super) fn header(
     if let Some(count) = cards::count(&cards.comments) {
         text.extend_from_slice(count.as_bytes());
     }
+    let decided = shape.and_then(|shape| {
+        let decided = cards.decided_count(shape).filter(|decided| *decided > 0)?;
+        Some(format!(
+            "  \u{b7} {decided}/{} decided",
+            shape.hunks().len()
+        ))
+    });
     let highlight = Some(Highlight::DiffFileHeader);
-    writer.line(RowKind::File, &[(&text, highlight)]);
+    let decided = decided.unwrap_or_default();
+    writer.line(
+        RowKind::File,
+        &[
+            (&text, highlight),
+            (decided.as_bytes(), Some(Highlight::Decided)),
+        ],
+    );
+}
+
+/// The note on decisions that dropped as their hunks changed, if any did.
+pub(super) fn dropped_note(cards: &Cards) -> Option<String> {
+    match cards.marks.dropped {
+        0 => None,
+        1 => Some("1 decision dropped: its hunk changed".to_owned()),
+        n => Some(format!("{n} decisions dropped: their hunks changed")),
+    }
 }
 
 /// Lets `write!` append to a byte vector.
@@ -314,7 +338,7 @@ fn lines(writer: &mut Writer, plan: &mut Plan, index: usize, hunk: &Hunk, side: 
 /// its reading.
 pub(crate) fn unread(entry: &Entry, cards: &Cards) -> Rendered {
     let mut writer = Writer::new(&entry.path);
-    header(&mut writer, entry, None, cards);
+    header(&mut writer, entry, None, cards, None);
     writer.note("reading\u{2026}");
     writer.done()
 }
@@ -350,11 +374,11 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Rendered 
     let entry = &reading.entry;
     let cards = shown.cards;
     let mut writer = Writer::new(&entry.path);
-    header(&mut writer, entry, reading.counts(), cards);
     let shape = match &reading.content {
         Content::Text { shape, .. } => Some(shape),
         _ => None,
     };
+    header(&mut writer, entry, reading.counts(), cards, shape);
     let placing = Placing::of(shape, cards, shown.placed);
     let shape = shape.map(|shape| &**shape);
     let mut plan = Plan::new(&cards.comments, shape, placing, shown.folded, room);
@@ -368,16 +392,23 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Rendered 
     match &reading.content {
         Content::Text { shape, .. } => {
             ending_notes(&mut writer, shape.hunks());
+            if let Some(note) = dropped_note(cards) {
+                writer.note(&note);
+            }
             if shown.cut_short {
                 writer.note("comments not carried in time: some show as outdated");
             }
             plan.outdated(&mut writer);
             for (index, hunk) in shape.hunks().iter().enumerate() {
                 let text = hunk_header(hunk);
+                let said = cards.decided(shape, index);
                 let highlight = Some(Highlight::DiffHunkHeader);
                 writer.line(
                     RowKind::Hunk { hunk: index },
-                    &[(text.as_bytes(), highlight)],
+                    &[
+                        (text.as_bytes(), highlight),
+                        (said.as_bytes(), Some(Highlight::Decided)),
+                    ],
                 );
                 lines(&mut writer, &mut plan, index, hunk, Side::Old);
                 lines(&mut writer, &mut plan, index, hunk, Side::New);

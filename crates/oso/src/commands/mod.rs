@@ -115,6 +115,7 @@ const TABLES: &[&[Command]] = &[
     restart::COMMANDS,
     review::COMMANDS,
     review::COMMENT_COMMANDS,
+    review::DECISION_COMMANDS,
     review::SEND_COMMANDS,
     save::COMMANDS,
     scroll::COMMANDS,
@@ -303,6 +304,12 @@ mod tests {
         "review-staged",
         "review-uncommitted",
         "review-unstaged",
+        // Decisions stage, revert and save at the person's word, and viewed is their record
+        // of what they read: no agent tool decides (ADR 0122, step 5).
+        "review-accept",
+        "review-reject",
+        "review-undo",
+        "review-viewed",
         // The person's comments are theirs alone to write (ADR 0122, Q11).
         "review-comment",
         "review-edit-comment",

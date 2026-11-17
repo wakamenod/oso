@@ -9,6 +9,7 @@
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread, nor on what uses it; this
 //! runs on the threads that run git, and waits for git.
 
+pub(crate) mod apply;
 mod gh;
 mod hooks;
 mod id;

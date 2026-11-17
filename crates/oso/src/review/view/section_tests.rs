@@ -228,3 +228,60 @@ proptest! {
         prop_assert_eq!(decoded_len(&text), loaded.text().len());
     }
 }
+
+/// The file the decisions are on.
+const PATH: &[u8] = b"a.rs";
+
+#[test]
+fn decisions_show_on_their_hunks_header_and_the_files() {
+    let mut review = oso_core::review::Review::new();
+    let reading = crate::review::view::cards::tests::read(
+        &mut review,
+        PATH,
+        vec![
+            hunk(2, 2, &[b"two\n"], &[b"2\n"]),
+            hunk(6, 6, &[b"six\n"], &[b"6\n"]),
+        ],
+    );
+    review.decide(PATH, 0, Some(oso_core::review::Decision::Accepted));
+    review.set_viewed(PATH, 0, true);
+    review.set_viewed(PATH, 1, true);
+    let rendered = decided_shown(&reading, &review);
+    let text = text_of(&rendered);
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].ends_with("  \u{b7} 1/2 decided"), "{text}");
+    assert_eq!(lines[1], "@@ -2 +2 @@  \u{b7} accepted \u{b7} viewed");
+    assert!(lines.contains(&"@@ -6 +6 @@  \u{b7} viewed"), "{text}");
+    // Read again with the second hunk rewritten: the first keeps its marks, the second's drop
+    // and are said; and the reading before, shown with this snapshot, marks nothing.
+    let other = crate::review::view::cards::tests::read(
+        &mut review,
+        PATH,
+        vec![
+            hunk(2, 2, &[b"two\n"], &[b"2\n"]),
+            hunk(6, 6, &[b"six\n"], &[b"VI\n"]),
+        ],
+    );
+    let again = text_of(&decided_shown(&other, &review));
+    assert!(
+        again.contains("1 decision dropped: its hunk changed\n@@ -2 +2 @@  \u{b7} accepted"),
+        "{again}"
+    );
+    let stale = text_of(&decided_shown(&reading, &review));
+    assert!(
+        !stale.contains("decided") && !stale.contains("accepted"),
+        "{stale}"
+    );
+}
+
+/// `reading` laid out with the model's comments and marks.
+fn decided_shown(reading: &Reading, review: &oso_core::review::Review) -> Rendered {
+    let cards = crate::review::view::cards::tests::snapshot(review, PATH);
+    let shown = Shown {
+        cards: &cards,
+        placed: None,
+        cut_short: false,
+        folded: false,
+    };
+    render(reading, usize::MAX, &shown)
+}

@@ -23,6 +23,7 @@ mod cells;
 mod draft;
 mod menu;
 mod panes;
+mod request;
 
 use std::collections::BTreeSet;
 
@@ -30,7 +31,7 @@ use super::Editor;
 use crate::buffer::{BufferId, Mode, Rewrap};
 use crate::load::{Change, Reloaded};
 use crate::project::ProjectId;
-use crate::review::{Author, Review, RowKind, Rows, Side};
+use crate::review::{Author, Review, RowKind, Rows};
 use crate::sum_tree::Bias;
 use crate::syntax::Highlights;
 
@@ -38,6 +39,7 @@ pub use cells::ReviewCells;
 pub use draft::DraftFor;
 pub use menu::{Count, ScopeMenu};
 pub use panes::{ReviewArea, ReviewChoice, ReviewLayout};
+pub use request::ReviewRequest;
 
 /// A review's id, never reused while the editor runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -80,47 +82,6 @@ impl ScopeKind {
             Self::PullRequest => 7,
         }
     }
-}
-
-/// What commands ask of the host for reviews.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ReviewRequest {
-    /// Open a review of `scope` in `project`; `revision` is a commit's, a range's `FROM..TO`
-    /// or the branch's base, as the person gave it or the menu found it. A branch with none
-    /// has its base found first.
-    Open {
-        project: ProjectId,
-        scope: ScopeKind,
-        revision: Option<String>,
-    },
-    /// Take a baseline of the project's work tree for the session scope.
-    Baseline { project: ProjectId },
-    /// Read the review's files again now.
-    Refresh(ReviewId),
-    /// Build the file's section again, as its comments changed.
-    Redraw { review: ReviewId, path: Box<[u8]> },
-    /// Go to line `number` of `side` of the file in its source, or in its old side when
-    /// `old_side`.
-    Visit {
-        review: ReviewId,
-        path: Box<[u8]>,
-        side: Side,
-        number: u32,
-        old_side: bool,
-    },
-    /// The review was closed: stop its threads.
-    Close(ReviewId),
-    /// Gather the person's comments that were not sent into a message, shown in
-    /// `*review message*` before anything goes to an agent session (step 12).
-    Send(ReviewId),
-    /// Paste the review message `buffer` holds into its review's session, or into the session
-    /// named `to`, and mark the comments it took sent.
-    MessageSend {
-        buffer: BufferId,
-        to: Option<String>,
-    },
-    /// Drop the review message `buffer` holds, sending nothing.
-    MessageDrop { buffer: BufferId },
 }
 
 /// One open review.
@@ -599,6 +560,15 @@ impl Editor {
         }
         if let Some((read, listed)) = open.reading {
             let _ = write!(out, "reading {read}/{listed}  ");
+        }
+        // How far the person is (ADR 0122, step 5).
+        let (decided, viewed, hunks) = open.review.progress();
+        if hunks > 0 {
+            let noun = if hunks == 1 { "hunk" } else { "hunks" };
+            let _ = write!(
+                out,
+                "{decided} of {hunks} {noun} decided, {viewed} viewed  "
+            );
         }
     }
 }

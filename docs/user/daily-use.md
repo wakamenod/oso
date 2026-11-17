@@ -378,6 +378,16 @@ In a review buffer:
 | `r` | Resolve the thread, or open it again |
 | `}`, `{` | Next and previous comment |
 | `a` | Fold the agent's comments, or show them whole |
+| `A` | Accept the hunk at point, or the file's on its header: stage it |
+| `x` | Reject it: put its old lines back in the file and save it (in the staged review, unstage it) |
+| `v` | Mark it viewed, or clear the mark |
+| `u` | Undo the last decision |
+
+`A` and `x` work in a review of your work tree or index, not of a commit, branch or range, and
+on a modified file's hunks, not a new, deleted, renamed, binary or linked file's. `x` asks first
+when the file's buffer holds unsaved edits, as it saves the whole buffer. A hunk's header says
+what you decided, the file's header how many of its hunks you decided, and the modeline how far
+you are; a file says when decisions dropped because the agent changed their hunks.
 | `\|` | Two panes, the old side and the new side lined up, or one stream again |
 | `g` | Read the files again now |
 | `C-c C-c` | Gather your comments not sent yet into a message to the session |

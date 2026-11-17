@@ -23,6 +23,7 @@ fn cards_of(review: &Review, path: &[u8]) -> Tell {
         path: path.into(),
         comments: cards.comments,
         reading: cards.reading,
+        marks: Default::default(),
     }
 }
 
