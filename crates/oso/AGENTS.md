@@ -60,7 +60,8 @@ often, so it must rebuild within 2 s.
   waits 300 ms there (`servers/diagnostics.rs`); its reports of files no buffer holds are kept
   there for `M-g d` and the agent channel's `diagnostics`, in one order
   (`channel::diagnostics::ordered`); `M-g d`'s rows are built on `oso-diagnostics` (`servers/diagnostics/rows.rs`). An answer's several places, and `M-?`'s references, are listed (`servers/xrefs.rs`), their rows built on `oso-xrefs` (`servers/xrefs/rows.rs`), each file's lines read by `grep/preview/lines.rs`. `C-M-i`'s answer opens the completion popup (`servers/complete.rs`, which also asks as the person types, after a trigger character or three identifier characters at rest, and resolves the selected item; the asks themselves and who made them are `servers/asks.rs`'), whose keys are `commands/popup.rs` and `bindings/popup.rs` in the transient layer `dispatch/transient.rs` closes, drawn by `app/draw/float/popup.rs`. A server's description at point (`C-c C-d`) goes to its float from `servers/hover.rs`, drawn by `draw/float/hover.rs`. `C-c C-r`'s code actions are listed and
-  their edits applied from `servers/actions.rs` (step 13), its keys in the same transient place. The fake server the tests run against is the dev-only binary
+  their edits applied from `servers/actions.rs`, files no buffer holds opened after the person's
+  yes and a command's `workspace/applyEdit` applied from `servers/applying.rs` (step 13), its keys in the same transient place. The fake server the tests run against is the dev-only binary
   `fake-lsp-server` (`tests/fake_lsp_server/`), which `just release-safety` keeps out of
   release builds.
 - `src/sessions.rs` and `src/sessions/` are agent sessions (ADR 0121): the rules that read a
@@ -124,8 +125,10 @@ often, so it must rebuild within 2 s.
   run on the run thread (`run/graph`) (step 4b). Pull requests are `pr`'s: `gh`'s answers read,
   their texts `pr/write` and the repository's `gh` thread `pr/work`, `oso-vcs-gh`, through
   `git::Gh`, with `app/vcs/pr.rs` and `commands::vcs::pr` (step 5a); making and merging is
-  `pr/create`, read for on the `gh` thread (`pr/work/draft`) and run on the run thread
-  (`run/pr`), with `app/vcs/pr/create.rs` and `commands::vcs::pr::create` (step 5a-2). Its keys are listed in `commands::vcs::KEYS` and
+  `pr/create`, read for on the `gh` thread (`pr/work/create`) and run on the run thread
+  (`run/pr`), with `app/vcs/pr/create.rs` and `commands::vcs::pr::create` (step 5a-2); issues are
+  `pr/issue`, with `pr/write/issue`, `pr/work/issue`, `app/vcs/pr/issue.rs` and
+  `commands::vcs::pr::issue` (step 5b-1). Its keys are listed in `commands::vcs::KEYS` and
   `commands::vcs::commit`, the commit menu is built in, and `bindings/vcs.rs` binds them;
   `app/vcs.rs` carries out what its commands ask, with `app/vcs/status.rs` (the status's own
   requests), `app/vcs/commit.rs` (messages) and `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,

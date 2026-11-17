@@ -94,6 +94,9 @@ pub enum ServerRequest {
     /// `lsp-code-action-apply`: apply the action the list of code actions took
     /// ([`Editor::take_code_action_hit`]) (step 13).
     ApplyCodeAction,
+    /// `lsp-code-action-confirm`, the `y` of the question before an edit opens files no buffer
+    /// holds (step 13b, Q4).
+    ConfirmCodeAction,
 }
 
 impl Editor {
