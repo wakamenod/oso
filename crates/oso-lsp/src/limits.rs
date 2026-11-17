@@ -103,6 +103,9 @@ pub const EDIT_BYTES_MAX: usize = 4 << 20;
 pub const DIAGNOSTIC_DATA_BYTES_MAX: usize = 4 << 10;
 /// The most diagnostics given with one ask for code actions, those of the range (step 13).
 pub const ACTION_DIAGNOSTICS_MAX: usize = 64;
+/// The most bytes of a rename's new name, and of a prepare's placeholder as it is shown
+/// (step 14).
+pub const NEW_NAME_BYTES_MAX: usize = 256;
 
 /// The most bytes queued for the writer. Sync cannot drop a message, so past this the
 /// server is stopped (step 3).
@@ -116,6 +119,8 @@ pub const INITIALIZE_WAIT: Duration = Duration::from_secs(60);
 /// How long a definition or references request may take (step 8), and a code action's
 /// (step 13, Q7).
 pub const DEFINITION_WAIT: Duration = Duration::from_secs(10);
+/// How long a rename may take: a server may read the whole workspace for one (step 14, Q7).
+pub const RENAME_WAIT: Duration = Duration::from_secs(30);
 /// How long a completion or hover request may take (steps 9 and 10).
 pub const COMPLETION_WAIT: Duration = Duration::from_secs(3);
 /// How long `shutdown` may take (step 3).

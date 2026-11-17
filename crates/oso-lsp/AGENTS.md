@@ -23,6 +23,10 @@ session thread in the texts the server had as the request went out (`session/act
 last answer's actions are kept as the server gave them, but for the edits read, for a resolve
 and a command's arguments. Step 13b runs a declared command and hands the UI the server's
 `workspace/applyEdit` while it waits, whose answer waits for the UI (`session/apply.rs`).
+Step 14 checks a rename's place, asked only of a server that checks one first, and asks the
+rename with its name beside the ask (`Server::rename`), its edit placed as a code action's
+(`protocol/rename.rs`, `session/rename.rs`); `Server::cancel` stops an ask and tells the
+server.
 
 - May depend on `oso-core` and `oso-platform` only; only the tip crate depends on it. Module
   layers are in `guardrails/layers.txt` (`[oso-lsp]`). No new dependency: JSON is

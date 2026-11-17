@@ -188,6 +188,7 @@ fn initialize_claims_only_what_the_steps_use() {
                     "dataSupport": true,
                     "resolveSupport": {"properties": ["edit"]},
                 },
+                "rename": {"prepareSupport": true},
                 "publishDiagnostics": {
                     "versionSupport": true,
                     "tagSupport": {"valueSet": [1, 2]},

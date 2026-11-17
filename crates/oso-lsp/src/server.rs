@@ -44,7 +44,7 @@ use serde_json::Value;
 pub use actions::{ActionResolved, ApplyEdit, CodeAction, CodeActions};
 pub use asks::{
     Answer, Answered, Ask, AskContext, AskFailure, AskKind, Completion, Completions, Location,
-    Resolved, Target,
+    Prepared, Resolved, Target,
 };
 pub use edits::{OpenEdit, ServerEdit, UnsentEdit};
 
@@ -65,6 +65,10 @@ enum Event {
     Close(u64),
     Save(u64),
     Ask(Ask),
+    /// A rename, with its new name (step 14).
+    Rename(Ask, Box<str>),
+    /// Stop waiting for the ask of this kind about this document (step 14).
+    Cancel(u64, AskKind),
     /// The UI's answer to the server's `workspace/applyEdit` of this token (13b).
     AnswerApplyEdit(u64, Result<(), String>),
     Frame(u64, Frame),
@@ -292,6 +296,19 @@ impl Server {
     /// server does not run, or the document's text there is not the one `ask` names.
     pub fn ask(&self, ask: Ask) {
         let _ = self.events.send(Event::Ask(ask));
+    }
+
+    /// Asks the server to rename what is at `ask`'s place to `name` (step 14), as
+    /// [`Server::ask`] asks: `ask`'s kind is [`AskKind::Rename`], and its context none. A
+    /// rename sent through [`Server::ask`] fails, having no name.
+    pub fn rename(&self, ask: Ask, name: Box<str>) {
+        let _ = self.events.send(Event::Rename(ask, name));
+    }
+
+    /// Stops waiting for the ask of `kind` about document `document`, if one waits, and tells
+    /// the server with `$/cancelRequest` (step 14): the ask gets no answer.
+    pub fn cancel(&self, document: u64, kind: AskKind) {
+        let _ = self.events.send(Event::Cancel(document, kind));
     }
 
     /// Answers the server's `workspace/applyEdit` of `token` (step 13b): `applied: true`, or

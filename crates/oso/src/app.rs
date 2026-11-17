@@ -1,8 +1,7 @@
-//! The application: the window, the event loop handler and the glue
-//! between them and the editor (ADR 0004). It turns the window's events into key
-//! presses, wheel scrolling and frames, starts file loads and saves and takes
-//! in what they report. This file holds the state and what the concerns share;
-//! each concern has a module, and `shell` alone knows the window system (ADR 0070).
+//! The application: the window, the event loop handler and the glue between them and the editor
+//! (ADR 0004). It turns the window's events into key presses, wheel scrolling and frames, starts
+//! file loads and saves and takes in what they report. This file holds the state and what the
+//! concerns share; each concern has a module, and `shell` alone knows the window system (ADR 0070).
 //!
 //! Must not depend on: wgpu or OS bindings. Editor logic belongs in oso-core
 //! and commands, not here.
@@ -53,9 +52,8 @@ mod trims;
 mod vcs;
 mod walks;
 mod wraps;
-// The window system: oso's own layer on macOS, and winit on Windows and Linux (ADR 0070,
-// stage 3).
-// Both give the same loop, window and waker, under the one name.
+// The window system, the same loop, window and waker under the one name: oso's own layer on
+// macOS, and winit on Windows and Linux (ADR 0070, stage 3).
 #[cfg(target_os = "macos")]
 mod native;
 #[cfg(not(target_os = "macos"))]
@@ -128,6 +126,8 @@ pub enum UserEvent {
     DiagnosticsListed(oso_core::editor::DiagnosticRows),
     /// The rows of a list of a server's places were built (ADR 0138, step 8b).
     XrefsListed(u64, oso_core::editor::XrefRows),
+    /// A rename's preview of this generation, or why not, and its edits back (ADR 0138, step 14).
+    RenamePreviewed(u64, Result<String, &'static str>, servers::PlacedEdits),
     /// The record of trusted projects was read, or written and read back (ADR 0114).
     Trust,
     /// A control socket request, in dev builds.

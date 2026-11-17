@@ -129,6 +129,7 @@ impl Offer {
             | Mode::ReviewMessage
             | Mode::GitLog
             | Mode::Conversation
+            | Mode::RenamePreview
             | Mode::GitDiscarded
             | Mode::Sessions => None,
             Mode::CopyList => {

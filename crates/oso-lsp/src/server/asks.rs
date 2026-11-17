@@ -1,7 +1,7 @@
 //! What the UI asks a server about a document, and what comes back (ADR 0138, Go to definition
 //! and back, step 8): the definitions or references at a byte offset, the completions there
-//! (step 9), the description of what is there (Hover, step 10), and the code actions of a range
-//! (step 13).
+//! (step 9), the description of what is there (Hover, step 10), the code actions of a range
+//! (step 13), and a rename's check of the place and its edit (step 14).
 //!
 //! Must not depend on: the session's loop or the pipes; these are the values that cross
 //! between the UI and the session thread.
@@ -9,15 +9,15 @@
 //! - One ask of each kind for each document is in flight; a newer one cancels the older with
 //!   `$/cancelRequest`, and the older gets no answer.
 //! - Each waits at most its kind's wait ([`AskKind::wait`]): a definition or references
-//!   or code actions [`DEFINITION_WAIT`], a completion or a description [`COMPLETION_WAIT`]; a
-//!   run that ends fails what waits.
+//!   or code actions [`DEFINITION_WAIT`], a completion or a description [`COMPLETION_WAIT`], a
+//!   rename [`RENAME_WAIT`]; a run that ends fails what waits.
 //! - An answer wakes the UI at once.
 
 use std::ops::Range;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::limits::{COMPLETION_WAIT, DEFINITION_WAIT};
+use crate::limits::{COMPLETION_WAIT, DEFINITION_WAIT, RENAME_WAIT};
 use crate::position::{Encoding, Position};
 use crate::protocol::Hover;
 
@@ -41,6 +41,12 @@ pub enum AskKind {
     /// `workspace/executeCommand` of an action of the last code actions, a command the server
     /// declared (step 13b).
     ExecuteCommand,
+    /// `textDocument/prepareRename` at the place (step 14): answered at once, without asking,
+    /// by a server that does not check a place first.
+    PrepareRename,
+    /// `textDocument/rename` at the place, to the name [`Server::rename`](super::Server::rename)
+    /// gives beside the ask (step 14).
+    Rename,
 }
 
 impl AskKind {
@@ -55,6 +61,8 @@ impl AskKind {
             Self::CodeAction => "textDocument/codeAction",
             Self::ResolveAction => "codeAction/resolve",
             Self::ExecuteCommand => "workspace/executeCommand",
+            Self::PrepareRename => "textDocument/prepareRename",
+            Self::Rename => "textDocument/rename",
         }
     }
 
@@ -65,8 +73,10 @@ impl AskKind {
             | Self::References
             | Self::CodeAction
             | Self::ResolveAction
-            | Self::ExecuteCommand => DEFINITION_WAIT,
+            | Self::ExecuteCommand
+            | Self::PrepareRename => DEFINITION_WAIT,
             Self::Completion | Self::Resolve | Self::Hover => COMPLETION_WAIT,
+            Self::Rename => RENAME_WAIT,
         }
     }
 
@@ -81,6 +91,7 @@ impl AskKind {
             Self::CodeAction => "code actions",
             Self::ResolveAction => "code action",
             Self::ExecuteCommand => "command",
+            Self::PrepareRename | Self::Rename => "rename",
         }
     }
 }
@@ -160,6 +171,25 @@ pub enum Answered {
     /// A command ran (step 13b): its edits, if any, came as `workspace/applyEdit` while it
     /// waited.
     Executed,
+    /// What a rename's check of the place said (step 14).
+    Prepared(Prepared),
+    /// A rename's edit, placed as a code action's is (step 14).
+    Renamed(super::ServerEdit),
+}
+
+/// What a rename's check of the place said (step 14): the range it would rename, in bytes of the
+/// caller's text of the ask's revision, with the server's placeholder for the name, shown on one
+/// line; nothing asked, by a server that checks no place first, or that leaves the identifier at
+/// point to the caller; or nothing to rename there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Prepared {
+    At {
+        start: usize,
+        end: usize,
+        placeholder: Option<Box<str>>,
+    },
+    Unasked,
+    Nothing,
 }
 
 /// What an item's `completionItem/resolve` gave: the item, by its answer's serial and its place
