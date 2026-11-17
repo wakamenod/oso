@@ -1,4 +1,4 @@
-//! Streaming one long run of git to its end (ADR 0127, steps 1b and 2): what it writes goes out
+//! Streaming one long run of git, or of `gh` (step 5a-2), to its end (ADR 0127, steps 1b and 2): what it writes goes out
 //! as log lines, its time each second and, for a push, a pull or a fetch, its progress; a stop,
 //! the root's revocation or the event loop's going ends it.
 //!
@@ -12,7 +12,7 @@ use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use super::{FLUSH, MAX_FLUSH, RunEnd, RunReport, Watch};
-use crate::git::{Git, Next};
+use crate::git::{Git, Long, Next};
 use crate::vcs::{commit, remote};
 
 /// How a streamed run ended.
@@ -60,11 +60,23 @@ pub(super) fn stream(
     progress: bool,
 ) -> Result<Streamed, String> {
     let args: Vec<&OsStr> = words.iter().map(OsStr::new).collect();
-    let mut long = git
+    let long = git
         .start_long(&args, &[], input)
         .map_err(|e| e.to_string())?;
-    *watch.ender.lock().unwrap_or_else(PoisonError::into_inner) = Some(long.ender());
     let line = format!("$ git {}\n", words.join(" "));
+    Ok(stream_long(long, line, watch, send, progress))
+}
+
+/// Streams `long`, a run started already, whose log begins with `line`, as [`stream`] does: a
+/// run of `gh` too (step 5a-2).
+pub(super) fn stream_long(
+    mut long: Long,
+    line: String,
+    watch: &Watch<'_>,
+    send: &mut impl FnMut(RunReport) -> bool,
+    progress: bool,
+) -> Streamed {
+    *watch.ender.lock().unwrap_or_else(PoisonError::into_inner) = Some(long.ender());
     if !send(RunReport::Began { line }) {
         long.stop();
     }
@@ -127,11 +139,11 @@ pub(super) fn stream(
     if let Some(text) = pending.take() {
         send(RunReport::Output(text));
     }
-    Ok(Streamed {
+    Streamed {
         status,
         stopped: long.stopped(),
         tail,
-    })
+    }
 }
 
 /// Adds `lines` to `tail`, keeping its last [`remote::MAX_LOOKED`] bytes from a line's start.

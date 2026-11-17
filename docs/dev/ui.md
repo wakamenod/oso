@@ -427,6 +427,14 @@ project and how long ago the baseline was taken. Only a trusted project runs git
   stays open, and `C-g` keeps its text.
 - An agent's comment counts as read once you have had it whole on screen, unfolded, after a key
   of yours.
+- `C-c C-c` gathers your comments that were not sent, outside threads you resolved, in the
+  order the review shows them, into `*review message*` (ADR 0122, step 12): a line saying what
+  to do, the scope, then each comment's `## path  L42 (new)`, its hunk in a `diff` fence (cut to
+  30 lines around the comment past 60), the comment it replies to, and `Comment: …`. The echo
+  area names the session it goes to. The buffer is yours: an agent may read it, never change it.
+  There `C-c C-c` pastes it into the session, as `session-send` does, not submitted, and `C-u
+  C-c C-c` picks the session by completion; `C-c C-k` drops it and shows the review again. Once pasted, the comments it
+  held are drawn dimmed, but any changed meanwhile; one message waits at a time.
 - `C-x k` closes the review, asking first while comments of yours that were not sent, or a draft,
   would be lost; a review not shown is shown before the question.
 - In a restricted project the commands and the menu's heads say "Reviewing runs git, which this
@@ -644,6 +652,12 @@ topological order, children before their parents, one row each (ADR 0127, step 4
   the browser after the echo area shows its address, `l` lists the open ones. In those buffers
   `RET` visits a thread's file at its line, shows a check's address, or shows a listed one; `o`
   opens, `w` copies an address, `g` reads it again.
+- Making and merging (step 5a-2): `N c` opens `*pull request: BRANCH*`, the branch's commit's
+  message or its commits' subjects above the template, its first line the title; `C-c C-c` makes
+  it, asking first to push a branch with no upstream or ahead of it, `C-c C-k` cancels, `M-p`
+  and `M-n` walk the messages kept. `- d` makes a draft, `- b` reads the base. `N m` opens the
+  merge menu: `s`, `m` or `r` after a question naming the pull request, its base, the method and
+  its head; `- d` deletes the branch on the remote.
 
 ## Echo area
 
@@ -1082,7 +1096,7 @@ a switch made with its command stands until that setting changes in the file
   and untracked files, whether its branch is merged and how that was found, its sessions and
   their states, unsaved buffers, its space, and whether it can be removed. `gh` is asked last, only for a branch that was
   pushed and that its remote's main branches do not hold. `g` lists again, and `D` removes the
-  one at point.
+  one at point. A worktree whose removal runs says `removing…` instead.
 - `M-x worktree-remove` removes the worktree of the selected buffer, or of the row at point,
   only when nothing would be lost. Each of these must hold, checked in this order:
   - it is a linked worktree of this repository;
@@ -1095,7 +1109,10 @@ a switch made with its command stands until that setting changes in the file
 
   It then asks, naming what git ignores there and will delete with it, such as `target/`. `y`
   runs every check again before it removes the worktree. It never uses `--force`, and the branch
-  is kept.
+  is kept. git has no time limit there, as a large `target/` takes time to delete.
+- `M-x worktree-remove-stop` stops a running removal: the row's at point in `*Worktrees*`,
+  else the only one. Before git runs, nothing is removed. Once git may be deleting, it asks
+  first, as the worktree is then left half removed for you to remove by hand.
 - `C-c a a` (`session-adopt`) brings a session started outside oso into oso. It completes over
   the sessions oso does not host: those Claude Code says run (`runs as process N: stop it there
   first`), then those that stopped in the last 30 days, newest first, each with its age and

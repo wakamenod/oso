@@ -17,7 +17,7 @@ use crate::channel::{Connection, Reply};
 use crate::git::printable;
 use crate::sessions::tools::Tool;
 use crate::sessions::worktree::checks;
-use crate::sessions::worktree::jobs::{Asked, Go, Report};
+use crate::sessions::worktree::jobs::{self, Asked, Go, Report};
 
 /// The most names of what git ignored a reply gives.
 const NAMES: usize = 20;
@@ -83,6 +83,10 @@ impl App {
     /// [`Go`] calls the removal off, which its
     /// [`Report::Removed`] then says.
     pub(super) fn tool_clear(&mut self, token: u64, path: &Path, go: Go) {
+        // A removal the person stopped meanwhile clears nothing: its job ends saying so.
+        if self.removal_was_stopped(token) {
+            return;
+        }
         if let Some(check) = checks::held_refusal(&self.held_at(path)) {
             // Its call hears why now; the job's end then says only that it was called off.
             if let Some(Job::Removing(removing)) = self.hosting.tools.jobs.get_mut(&token)
@@ -144,8 +148,10 @@ impl App {
             Err(why) => {
                 self.agent_log("worktree_remove: kept");
                 self.editor.message(format!("Worktree {place} kept: {why}"));
-                answer(Err(format!("kept: {why}")));
+                // A stop's words for the person are not the agent's to act on.
+                answer(Err(format!("kept: {}", jobs::for_agent(&why))));
             }
         }
+        self.relist_if_shown();
     }
 }

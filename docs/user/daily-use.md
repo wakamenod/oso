@@ -335,7 +335,9 @@ removes the worktree at point. `M-x worktree-remove` removes a worktree only whe
   branch with no commit of its own does not.
 
 It asks first, naming the git-ignored files that go with the worktree. It stops the idle
-sessions there, never forces, and never deletes the branch.
+sessions there, never forces, and never deletes the branch. While a removal runs, its row in
+`*Worktrees*` says `removing…`. `M-x worktree-remove-stop` stops it: before git runs, nothing is
+removed; once git may be deleting, it asks first, as the worktree is then left half removed.
 
 ## Review changes
 
@@ -369,12 +371,23 @@ In a review buffer:
 | `}`, `{` | Next and previous comment |
 | `a` | Fold the agent's comments, or show them whole |
 | `g` | Read the files again now |
+| `C-c C-c` | Gather your comments not sent yet into a message to the session |
 | `q` | Bury the review |
 | `?` | List these keys |
 
 A comment opens as a draft at the top: `RET` breaks a line, `C-c C-c` keeps it, and `C-g` drops
 it into the kill ring. `C-x k` closes the review, and asks first while it holds comments you
-have not sent. Sending comments to a session is not built yet.
+have not sent.
+
+`C-c C-c` in the review gathers your comments that were not sent, outside threads you resolved,
+into `*review message*`: each with its file, its line or hunk and the hunk's lines. Read it and
+change it as you like, then `C-c C-c` there pastes it into the agent session that runs in the
+review's worktree, without pressing Enter: read it in the session and press Enter there.
+`C-u C-c C-c` picks another session, which the review then keeps; with no session the message
+stays, and the echo area says how to pick or start one. `C-c C-k` drops the message. A message
+holding text yanked from a secret is not sent.
+Sent comments are drawn dimmed, and an edit makes one unsent again. A session that is asking you
+something takes no paste: answer it first, and the message waits.
 
 ## Source control
 
@@ -395,7 +408,7 @@ project must be trusted.
 | `z` | The stash menu: `z` stash, `a` apply, `p` pop, `k` drop the stash at point; `- u` takes untracked files |
 | `b` | The branch menu: `b` check out, `c` make and check out, `n` make, `m` rename, `k` delete |
 | `l` | The log menu: `l` the graph of the branch, `a` of every ref, `o` of another; `C-x v l` from anywhere |
-| `N` | The pull request menu, through `gh`: `v` the branch's pull request, `k` its checks, `o` open it in the browser, `l` the open ones |
+| `N` | The pull request menu, through `gh`: `v` the branch's pull request, `k` its checks, `o` open it in the browser, `c` create one (`- d` a draft, `- b` into a base you name), `m` merge it, `l` the open ones |
 | `f u` / `f a` | Fetch the upstream's remote, or every remote |
 | `RET` | Visit the file, or review the commit at point |
 | `$` | Show what git's runs wrote; `C-g` stops one |

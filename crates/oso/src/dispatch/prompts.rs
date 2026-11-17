@@ -229,6 +229,9 @@ impl Dispatcher {
             Some(ArgSpec::Listed {
                 prompt, history, ..
             }) => (prompt, Kind::Complete { history }),
+            Some(ArgSpec::ListedOnPrefix {
+                prompt, history, ..
+            }) if args.raw().is_some() => (prompt, Kind::Complete { history }),
             Some(ArgSpec::Menu { prompt, history }) => (prompt, Kind::Complete { history }),
             Some(ArgSpec::Buffer {
                 prompt,
@@ -269,7 +272,11 @@ impl Dispatcher {
                 editor.open_completion(prompt, history, editor.theme_candidates())
             }
             // Sessions and spaces complete over what the host last listed (ADR 0121).
-            Kind::Complete { history } if let Some(ArgSpec::Listed { list, .. }) = spec => {
+            Kind::Complete { history }
+                if let Some(
+                    ArgSpec::Listed { list, .. } | ArgSpec::ListedOnPrefix { list, .. },
+                ) = spec =>
+            {
                 let items = editor.listed_candidates(list);
                 let style = CompletionStyle {
                     given_order: crate::commands::agent_sessions::listed_in_given_order(list)

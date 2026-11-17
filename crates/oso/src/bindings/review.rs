@@ -5,3 +5,6 @@
 
 /// Key sequences and the commands they run, in a review buffer only.
 pub const REVIEW: &[(&str, &str)] = crate::commands::review::KEYS;
+
+/// Key sequences and the commands they run, in a review's message only (ADR 0122, step 12).
+pub const MESSAGE: &[(&str, &str)] = crate::commands::review::MESSAGE_KEYS;

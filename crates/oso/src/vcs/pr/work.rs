@@ -65,6 +65,14 @@ pub(crate) enum PrRequest {
     Address,
     /// Open `url`, the address of pull request `number`.
     Open { url: String, number: u64 },
+    /// What a pull request of the branch starts from, into `base` or the remote's default
+    /// (step 5a-2).
+    Draft {
+        generation: u64,
+        base: Option<String>,
+    },
+    /// The branch's pull request, open, to merge (step 5a-2).
+    MergeAsk { generation: u64 },
 }
 
 /// What the thread found.
@@ -88,6 +96,16 @@ pub(crate) enum PrReport {
     Address(Result<(String, u64), String>),
     /// What opening an address came to, for the echo area.
     Opened(String),
+    /// What a pull request's message starts from.
+    Drafted {
+        generation: u64,
+        draft: Result<Drafted, String>,
+    },
+    /// The pull request to merge.
+    MergeAsked {
+        generation: u64,
+        merge: Result<MergeTarget, String>,
+    },
 }
 
 impl std::fmt::Debug for PrReport {
@@ -98,6 +116,8 @@ impl std::fmt::Debug for PrReport {
             Self::List { .. } => "List",
             Self::Address(_) => "Address",
             Self::Opened(_) => "Opened",
+            Self::Drafted { .. } => "Drafted",
+            Self::MergeAsked { .. } => "MergeAsked",
         };
         f.debug_tuple(kind).finish_non_exhaustive()
     }
@@ -176,12 +196,14 @@ fn latest(batch: Vec<PrRequest>) -> Vec<PrRequest> {
         PrRequest::Head { .. } => 0,
         PrRequest::View { .. } => 1,
         PrRequest::List { .. } => 2,
+        PrRequest::Draft { .. } => 4,
+        PrRequest::MergeAsk { .. } => 5,
         PrRequest::Address | PrRequest::Open { .. } => 3,
     };
     let mut kept: Vec<PrRequest> = Vec::with_capacity(batch.len());
     for request in batch {
         let read = kind(&request);
-        if read < 3 {
+        if read != 3 {
             kept.retain(|old| kind(old) != read);
         }
         kept.push(request);
@@ -206,6 +228,14 @@ fn refused(request: &PrRequest, why: String) -> PrReport {
         },
         PrRequest::Address => PrReport::Address(Err(why)),
         PrRequest::Open { .. } => PrReport::Opened(why),
+        PrRequest::Draft { generation, .. } => PrReport::Drafted {
+            generation: *generation,
+            draft: Err(why),
+        },
+        PrRequest::MergeAsk { generation } => PrReport::MergeAsked {
+            generation: *generation,
+            merge: Err(why),
+        },
     }
 }
 
@@ -245,6 +275,14 @@ fn answer(
         PrRequest::Open { url, number } => {
             PrReport::Opened(open(&target.github, &url, number, root.path()))
         }
+        PrRequest::Draft { generation, base } => PrReport::Drafted {
+            generation,
+            draft: create::draft(found, &target, base.as_deref()),
+        },
+        PrRequest::MergeAsk { generation } => PrReport::MergeAsked {
+            generation,
+            merge: create::merge_target(found, &target),
+        },
     }
 }
 
@@ -268,14 +306,19 @@ fn find_all(root: &TrustedRoot, state: Option<&Path>) -> Result<Found, String> {
 struct Target {
     github: GhRepo,
     branch: Option<String>,
+    /// The remote the branch pushes to, else `origin`.
+    remote: String,
+}
+
+/// The first line git writes for `words`, if it says one.
+fn read_line(git: &Git, words: &[&str]) -> Option<String> {
+    let out = git.run(&args(words), &set(), MAX_SHORT).ok()?;
+    let line = std::str::from_utf8(trim_line(&out)).ok()?.to_owned();
+    (!line.is_empty()).then_some(line)
 }
 
 fn target_of(git: &Git) -> Result<Target, String> {
-    let read = |words: &[&str]| -> Option<String> {
-        let out = git.run(&args(words), &set(), MAX_SHORT).ok()?;
-        let line = std::str::from_utf8(trim_line(&out)).ok()?.to_owned();
-        (!line.is_empty()).then_some(line)
-    };
+    let read = |words: &[&str]| read_line(git, words);
     let branch = read(&["symbolic-ref", "--quiet", "--short", "HEAD"])
         .filter(|branch| !branch.starts_with('-'));
     let remote = branch
@@ -291,7 +334,17 @@ fn target_of(git: &Git) -> Result<Target, String> {
     let github = GhRepo::from_url(&url, gh_host.as_deref()).ok_or_else(|| {
         format!("{remote} is not on github.com or the host GH_HOST names: gh is not asked")
     })?;
-    Ok(Target { github, branch })
+    Ok(Target {
+        github,
+        branch,
+        remote,
+    })
+}
+
+/// The repository on GitHub the branch checked out's remote names now, as `git` says, for the
+/// run thread to check a pull request's run against (step 5a-2).
+pub(crate) fn branch_repo(git: &Git) -> Result<GhRepo, String> {
+    target_of(git).map(|target| target.github)
 }
 
 /// Runs `gh` with `words` about `target`'s repository, once the root is still trusted.
@@ -462,6 +515,10 @@ fn open(repo: &GhRepo, url: &str, number: u64, project: &Path) -> String {
 fn unexpected() -> String {
     "gh gave an unexpected answer".to_owned()
 }
+
+mod create;
+
+pub(crate) use create::{Drafted, MergeTarget};
 
 #[cfg(test)]
 mod tests;
