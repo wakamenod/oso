@@ -38,6 +38,10 @@ pub const KEYS: &[(&str, &str)] = &[
     ("k", "review-remove-comment"),
     ("r", "review-resolve"),
     ("a", "review-fold-agents"),
+    ("A", "review-accept"),
+    ("x", "review-reject"),
+    ("v", "review-viewed"),
+    ("u", "review-undo"),
     ("|", "review-toggle-panes"),
     ("g", "review-refresh"),
     ("C-c C-c", "review-send"),
@@ -93,9 +97,12 @@ macro_rules! person_command {
 }
 
 mod comments;
+mod decide;
 mod send;
 
 pub use comments::COMMANDS as COMMENT_COMMANDS;
+pub use decide::COMMANDS as DECISION_COMMANDS;
+pub(crate) use decide::{open_buffer_of, place_of};
 pub use send::{COMMANDS as SEND_COMMANDS, MESSAGE_KEYS};
 
 /// The commands of reviews.
@@ -520,6 +527,7 @@ fn keys_text() -> String {
         let summary = COMMANDS
             .iter()
             .chain(COMMENT_COMMANDS)
+            .chain(DECISION_COMMANDS)
             .chain(SEND_COMMANDS)
             .find(|command| command.name == *name)
             .and_then(|command| command.doc.lines().next())

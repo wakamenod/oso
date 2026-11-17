@@ -269,7 +269,7 @@ previous setup measured 25 ms for 206 files once the index's stat cache is copie
 
 ### Decisions: accept, reject, viewed (Q12, Q13, Q19)
 
-- **Per hunk:** `a` accepts (stages), `x` rejects (reverts), `v` marks viewed. On a file header
+- **Per hunk:** `a` accepts (stages; `A` as built in step 5), `x` rejects (reverts), `v` marks viewed. On a file header
   they apply to every hunk of the file. In the staged scope, `x` unstages.
 - **A decision is keyed by the hunk's content:** its path and the exact text of its removed and
   added lines, not their numbers. A hash finds candidates and the text decides (Q19). When the
@@ -277,7 +277,8 @@ previous setup measured 25 ms for 206 files once the index's stat cache is copie
   header says "2 decisions dropped: their hunks changed" until the person looks. A decision is
   never carried to changed code.
 - **Accept stages exactly the hunk shown:** oso builds a patch from the review's hunk (with the
-  context lines read from the old side) and runs `git apply --cached --unidiff-zero` with it on
+  context lines read from the old side) and runs `git apply --cached --unidiff-zero` (with no
+  `--unidiff-zero`, as built in step 5) with it on
   standard input. If the file moved on since the reading, the index still gets what the person
   saw, or git refuses and the review says so.
 - **Reject edits the file through a buffer (Q13):** the file is opened (or its buffer used), the
@@ -468,7 +469,7 @@ Limits for crafted input, each saying what it hides:
 
 ### Keys
 
-In a review buffer: `n`/`p` hunk, `N`/`P` file, `{`/`}` comment, `c` comment, `e` edit, `k`
+In a review buffer (accept is `A`, as built in step 5): `n`/`p` hunk, `N`/`P` file, `{`/`}` comment, `c` comment, `e` edit, `k`
 remove, `r` resolve, `a` accept, `x` reject, `v` viewed, `u` undo a decision, `s` files pane, `/`
 filter, `|` two panes, `RET` source, `g` refresh now, `C-c C-c` send, `q` bury. `C-x v r` opens the
 menu. The exact keys are settled in step 3 with the author.
@@ -1065,6 +1066,84 @@ on 2026-11-14, through the coordinator, and answered its questions Q-A to Q-F (a
 - A withheld file has no line rows, so it takes no comment, and keeps its note (Q13); showing
   it on `RET` comes with part three.
 
+### Step 5: decisions
+
+The author approved the plan's public items and answered its questions (a) on 2026-11-17,
+through the coordinator:
+
+- **Q-A:** `A` accepts, as `a` folds agent cards since step 3b. **This changes "Keys":** `a`
+  is not accept.
+- **Q-B:** accept and reject refuse outside the work tree's scopes: a commit's, a branch's or a
+  range's review says so.
+- **Q-C:** reject asks y/n when the file's buffer holds unsaved edits, as it saves the whole
+  buffer.
+- **Q-D:** a file reject opened stays open, unshown, so its undo is in the buffer too.
+- **Q-E:** accept and reject refuse an added, deleted, renamed or binary file, saying why.
+- **Q-F:** decisions are words on the headers, and progress is in the modeline.
+- **Q-G:** a hunk that leaves the review by its own decision is not counted as changed.
+
+What it built:
+
+- **Public items:** `ReviewRequest::Accept`, `Reject` and `Undo`, as planned, and
+  `ReviewRequest::Viewed`, as `v` goes to the host too, which keeps the undo list beside the
+  patches it applied; `Review::progress()`, counted as marks change so that a modeline asks at
+  O(1); `Editor::start_save_of(buffer)`, as `start_save` saves only the selected window's
+  buffer, which leaves the agreement to save over another buffer's changed file alone;
+  `Buffer::changed_on_disk()`, crate-private before; `syntax::Highlight::Decided` and
+  `oso_render::Face::ReviewDecided` (`review.decided`). Opening the file unshown needed no
+  item: the host's own visit makes the buffer, and only shows it when asked to.
+- **Accept** stages on the review's own thread, a `Stage` waiting beside carries, so it stops no
+  refresh, answered once the running request ends and before any other waiting, so that
+  refreshes while the agent edits never starve it; each is answered by its ticket however it
+  ends, and at most 16 wait. The run is the runner's, killed past its limit. The patch is built from the hunks and the
+  old side's blob the reading names, with up to 3 of its lines around each hunk, hunks whose
+  context meets in one fragment, a path git would quote quoted; each hunk's removed lines are
+  checked to be the old side's where it says first. It goes to `git -c
+  apply.ignoreWhitespace=no apply --cached --whitespace=nowarn -` on standard input, as the git
+  status stages, and git places it by its context in an index holding other staged hunks, or
+  refuses it. **This changes "Accept stages exactly the hunk shown": no `--unidiff-zero`,** as
+  a hunk with no context is placed by its numbers alone. In the staged scope, `x` unstages the
+  same way with `-R`, and `A` says it is staged already.
+- **Reject** finds the file's open buffer, or opens it unshown, and once it has loaded and no
+  save of it runs:
+  - checks it is the very file the review read: its real place, links followed, is the
+    project's root joined with the path, so no link, of the file or a directory on the way,
+    leads elsewhere; no buffer that may hold secrets; and no file changed on disk since it was
+    read; a link's entry is refused outright;
+  - checks each hunk's new lines, and up to 3 lines around it by the reading's new side, are
+    where the reading put them, so a hunk that only deletes is placed too;
+  - replaces them with the old lines as one edit, which undoes as one step, and saves it with
+    `start_save_of`, started at once as the person's.
+
+  The command asks first while the buffer holds unsaved edits, finding it as the host does.
+  A hunk moved since says "that hunk changed; look again", and nothing changes. The save
+  cleans up as any does: a missing final newline goes in, and trailing white space on the
+  lines put back goes while the cleanup is on.
+- **Viewed** sets the model's mark, or clears it when every hunk at point has it.
+- **Undo** (`u`) takes back the review's last decision, of at most 1,000 kept and 64 MiB of
+  patches: the same patch the other way, the reverse edit checked the same way, put back where
+  the revert left the old lines, or the viewed marks it set cleared. It refuses while a decision
+  is under way, and a failed undo keeps its decision to undo again. No decision starts while
+  another is under way.
+- **Hunks are named** by the model's reading they were picked in and their index, shared; once
+  the model holds a newer reading each is found again by its text, the k-th of one text to the
+  k-th. `A` on a file header leaves out hunks accepted already.
+- **Marks:** a hunk's header says `  · accepted` or `  · viewed`, a file's header
+  `  · 1/2 decided`, in `review.decided`, and a note says how many decisions dropped as their
+  hunks changed, until the person decides on the file again. They show only on the reading the
+  model's marks are of, in the unified text and in both panes, and are told again with every
+  reading of a file that has any. A hunk staged where the scope stops showing it, unstaged, or
+  reverted loses its whole mark, so it leaves uncounted (Q-G): a rejected hunk always leaves,
+  so no header says "rejected". The modeline says `7 of 12 hunks decided, 3 viewed`.
+- **Reach:** every decision key is `Person`; no agent tool decides.
+- **Tests:** the patch's context, counts, fragments, last line and quoting, and a hunk that
+  moved; against a temporary repository, a hunk staged by its context below one staged before,
+  refused once in, and unstaged with the same patch; a reject's edits for a changed, a put-in
+  and a taken-out hunk, several at once, undone, and refused where the lines moved; what each
+  key asks for and where it refuses; progress; the marks on the headers and their drop; and an
+  end-to-end flow that views, accepts, undoes, refuses a new file, rejects with unsaved edits
+  after the question, and undoes the reject.
+
 ### Step 8: documents no buffer owns
 
 The author approved the plan's API and its nine answers, each the recommended one (2026-11-13,
@@ -1503,6 +1582,8 @@ the plan said, with `ScopeKind::PullRequest`, which step 3 had left refused.
   · BRANCH · TITLE`, or `checked out here, so the work tree shows`, the fixed words first and the
   branch and title after them, escaped, so neither reads as oso's; it is said again when any of
   them changes.
+- **Decisions:** accept and reject refuse in a pull request's review, as in a branch's,
+  commit's or range's (step 5): it compares commits, whatever its new side.
 - **What moved into `git`**, as `review` may use no `vcs` or `sessions` (ADR 0038's layers):
   the remote pull requests are asked about, `git::PullTarget` (was `vcs::pr::work`'s
   `Target`); `GH_LIMIT`; and the worktree list, its run and parser, `git::worktrees` (was

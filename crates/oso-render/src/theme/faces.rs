@@ -7,7 +7,7 @@ use super::palettes::Name;
 use crate::pane::Face;
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-pub(super) const FACES: [Face; 114] = [
+pub(super) const FACES: [Face; 115] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -122,6 +122,7 @@ pub(super) const FACES: [Face; 114] = [
     Face::GitTag,
     Face::ReviewSent,
     Face::DiffFiller,
+    Face::ReviewDecided,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -246,6 +247,7 @@ pub(super) const fn index(face: Face) -> usize {
         Face::GitTag => 111,
         Face::ReviewSent => 112,
         Face::DiffFiller => 113,
+        Face::ReviewDecided => 114,
     }
 }
 
@@ -395,6 +397,7 @@ pub(super) fn faces(face: Face) -> (Name, Name) {
         Face::GitTag => (Gold, BgMain),
         // Dim, as an outdated comment's note, on the comments' band (ADR 0122, step 12).
         Face::ReviewSent => (Slate, BgCard),
+        Face::ReviewDecided => (Teal, BgHeader),
         // A language server's diagnostics (ADR 0138): a wavy line, a sign and a count, each in
         // the foreground, in red, amber and blue, as Flymake and VS Code draw them. A
         // warning's is the warning face's amber.

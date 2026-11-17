@@ -348,6 +348,7 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::ReviewMessage
         | Mode::GitLog
         | Mode::Conversation
+        | Mode::RenamePreview
         | Mode::GitDiscarded
         | Mode::Sessions => true,
         Mode::Fundamental

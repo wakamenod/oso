@@ -79,8 +79,13 @@ error there or a refactoring, the one the server prefers selected; `RET` applies
 to the buffers it changes, each as one step to undo, and the echo area says what changed. One the
 server disabled is faded, with its reason. An action that changes a file no buffer holds asks
 first, `apply to N files, M not open?`; `y` opens them, unshown and unsaved, and applies it. An
-action that runs a command of the server's applies what the server then changes. The rest
-comes in later steps.
+action that runs a command of the server's applies what the server then changes.
+`M-x lsp-rename` renames what is at point, as Eglot's `eglot-rename`: the prompt names the old
+name, which `M-n` gives, and `*lsp-rename*` then shows every line the rename changes, in every
+file, as it is and as it would be. `y` applies it, each buffer's edits one step to undo, opening
+the files no buffer holds unshown; nothing is saved, and `C-x s` saves. `n`, `q` or `C-g` leaves
+everything as it was, and `C-g` while the server works stops it. It has no key, as `C-c` and a
+letter are yours to bind.
 
 A server can be changed in `config.toml`:
 
@@ -373,6 +378,16 @@ In a review buffer:
 | `r` | Resolve the thread, or open it again |
 | `}`, `{` | Next and previous comment |
 | `a` | Fold the agent's comments, or show them whole |
+| `A` | Accept the hunk at point, or the file's on its header: stage it |
+| `x` | Reject it: put its old lines back in the file and save it (in the staged review, unstage it) |
+| `v` | Mark it viewed, or clear the mark |
+| `u` | Undo the last decision |
+
+`A` and `x` work in a review of your work tree or index, not of a commit, branch or range, and
+on a modified file's hunks, not a new, deleted, renamed, binary or linked file's. `x` asks first
+when the file's buffer holds unsaved edits, as it saves the whole buffer. A hunk's header says
+what you decided, the file's header how many of its hunks you decided, and the modeline how far
+you are; a file says when decisions dropped because the agent changed their hunks.
 | `\|` | Two panes, the old side and the new side lined up, or one stream again |
 | `g` | Read the files again now |
 | `C-c C-c` | Gather your comments not sent yet into a message to the session |

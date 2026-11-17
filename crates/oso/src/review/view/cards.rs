@@ -20,7 +20,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use oso_core::review::{Anchor, Author, Comment, CommentId, RowKind, Shape, Side};
+use oso_core::review::{Anchor, Author, Comment, CommentId, Decision, RowKind, Shape, Side};
 use oso_core::syntax::Highlight;
 
 use super::section::Writer;
@@ -35,14 +35,63 @@ const BAR: &str = "\u{258d}";
 /// What stands for the lines of a folded agent card after its first.
 const MORE: &str = "\u{2026}";
 
-/// A file's comments as the model last said them, and the model's reading of the file then.
+/// A file's comments as the model last said them, and the model's reading of the file then,
+/// with what the person decided on each of its hunks.
 #[derive(Clone, Default)]
 pub(crate) struct Cards {
     pub(crate) comments: Vec<Comment>,
     pub(crate) reading: Option<Arc<Shape>>,
+    pub(crate) marks: Marks,
+}
+
+/// Each hunk's decision and viewed mark in the model's reading, by its index, and how many
+/// dropped as their hunks changed (ADR 0122, step 5).
+#[derive(Clone, Default)]
+pub(crate) struct Marks {
+    pub(crate) hunks: Vec<(Option<Decision>, bool)>,
+    pub(crate) dropped: usize,
 }
 
 impl Cards {
+    /// What hunk `index` of `shape` says of its decision, ` · accepted · viewed`, when the
+    /// model's reading is `shape`; empty otherwise.
+    pub(crate) fn decided(&self, shape: &Arc<Shape>, index: usize) -> String {
+        let same = self
+            .reading
+            .as_ref()
+            .is_some_and(|reading| Arc::ptr_eq(reading, shape));
+        let Some((decision, viewed)) = self.marks.hunks.get(index).filter(|_| same) else {
+            return String::new();
+        };
+        let mut said = match decision {
+            Some(Decision::Accepted) => "  \u{b7} accepted".to_owned(),
+            Some(Decision::Rejected) => "  \u{b7} rejected".to_owned(),
+            None => String::new(),
+        };
+        if *viewed {
+            said.push_str(if said.is_empty() {
+                "  \u{b7} viewed"
+            } else {
+                " \u{b7} viewed"
+            });
+        }
+        said
+    }
+
+    /// How many of `shape`'s hunks hold a decision, when the model's reading is `shape`.
+    pub(crate) fn decided_count(&self, shape: &Arc<Shape>) -> Option<usize> {
+        let same = self
+            .reading
+            .as_ref()
+            .is_some_and(|reading| Arc::ptr_eq(reading, shape));
+        let decided = self
+            .marks
+            .hunks
+            .iter()
+            .filter(|(decision, _)| decision.is_some());
+        same.then(|| decided.count())
+    }
+
     /// Whether an agent wrote any of them, so that folding agent cards changes the file.
     pub(crate) fn any_agent(&self) -> bool {
         self.comments

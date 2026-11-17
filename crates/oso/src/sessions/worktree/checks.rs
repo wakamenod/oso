@@ -12,6 +12,7 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
+use std::time::Instant;
 
 use super::facts::RepoFacts;
 use super::git::{MAX_LISTING, Repo, run, said};
@@ -43,13 +44,16 @@ pub struct HostedSession {
     pub name: String,
     /// Its `claude`'s process id, while it runs.
     pub pid: Option<u32>,
-    /// The state its screen gives is idle or done.
+    /// The state its screen gives is idle, done or ready for review. A session ready for
+    /// review in a worktree checks 2 and 5 let go has its work committed and merged.
     pub settled: bool,
 }
 
 /// Whether a hosted session that runs is busy, for check 4 (the author's choice, ADR 0121):
-/// unless its screen's state is idle or done *and* Claude Code's registry says `idle` for its
-/// process (`registry_idle`). Each half alone can miss a turn or a background task.
+/// unless its screen's state is idle, done or ready for review *and* Claude Code's registry
+/// says `idle` for its process (`registry_idle`). Each half alone can miss a turn or a
+/// background task. Ready for review is settled because checks 2 and 5 refuse its work unless
+/// it is committed and merged ("Merged work is not ready for review, as amended").
 pub fn busy(session: &HostedSession, registry_idle: bool) -> bool {
     !(session.settled && registry_idle)
 }
@@ -123,6 +127,22 @@ pub struct Looked {
     pub gh_pending: Option<String>,
     /// A removal of it ran when the job looked.
     pub removing: bool,
+    /// When the job began to read its changes.
+    pub looked_at: Instant,
+}
+
+impl Looked {
+    /// Whether its changes were read and none is uncommitted or untracked: check 2 holds.
+    pub fn clean(&self) -> bool {
+        self.status
+            .is_some_and(|status| status.changed == 0 && status.untracked == 0)
+    }
+
+    /// Whether it is clean and its branch is known to be merged: what a session in it changed
+    /// needs no review (ADR 0121, "Merged work is not ready for review, as amended").
+    pub fn work_merged(&self) -> bool {
+        self.clean() && self.merged.as_ref().is_some_and(Merged::is_merged)
+    }
 }
 
 /// How far [`look`] goes.
@@ -146,6 +166,7 @@ pub fn look(
     depth: Depth,
 ) -> Looked {
     let mut looked = Looked {
+        looked_at: Instant::now(),
         linked: linked(repo, &listed),
         listed,
         status: None,
@@ -328,6 +349,49 @@ mod tests {
             pid: Some(42),
             settled,
         }
+    }
+
+    #[test]
+    fn a_clean_merged_worktree_is_its_sessions_work_merged() {
+        use super::super::merged::Merged;
+        use super::super::porcelain::Status;
+        use crate::git::ListedWorktree;
+        let mut looked = super::Looked {
+            listed: ListedWorktree {
+                path: PathBuf::from("/r/.claude/worktrees/a"),
+                head: None,
+                branch: Some("a".to_owned()),
+                bare: false,
+                detached: false,
+                locked: false,
+                prunable: false,
+            },
+            linked: Ok(()),
+            status: Some(Status::default()),
+            merged: Some(Merged::Ancestor("origin/main".to_owned())),
+            ignored: Vec::new(),
+            external: Vec::new(),
+            busy: Vec::new(),
+            gh_pending: None,
+            removing: false,
+            looked_at: std::time::Instant::now(),
+        };
+        assert!(looked.work_merged());
+        looked.status = Some(Status {
+            changed: 0,
+            untracked: 1,
+        });
+        assert!(
+            !looked.work_merged(),
+            "an untracked file is work not merged"
+        );
+        looked.status = None;
+        assert!(!looked.work_merged(), "changes not read");
+        looked.status = Some(Status::default());
+        looked.merged = Some(Merged::No("not merged: never pushed".to_owned()));
+        assert!(!looked.work_merged());
+        looked.merged = None;
+        assert!(!looked.work_merged(), "not asked yet");
     }
 
     #[test]

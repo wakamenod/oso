@@ -1,6 +1,6 @@
 //! Worktree jobs as the app asks for them (ADR 0121): listing branches for `session-worktree`,
 //! making a worktree, listing a repository's worktrees row by row, checking one before its
-//! removal and removing it. Each runs on the [`Pool`], only for a trusted root whose main
+//! removal and removing it, and judging whether a session's work is merged at its turn's end. Each runs on the [`Pool`], only for a trusted root whose main
 //! repository is trusted too, and tells the app what it found through the function the app
 //! gives.
 //!
@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::SyncSender;
+use std::time::Instant;
 
 use super::checks::{self, Check, Depth, Held, HostedSession, Looked};
 use super::create::{self, Created, Order, Step};
@@ -33,6 +34,7 @@ use crate::git::MAX_SHORT;
 use crate::git::TrustedRoot;
 use crate::project::{Trusted, linked_worktree};
 use crate::sessions::spaces::Member;
+use crate::sessions::worker::SessionKey;
 
 /// Why a job refuses a repository whose main checkout is not trusted.
 pub const MAIN_UNTRUSTED: &str =
@@ -121,11 +123,21 @@ pub enum Report {
     },
     /// One row of a listing.
     Row { token: u64, looked: Box<Looked> },
-    /// What `gh` said of a listed row's branch, after every row.
+    /// What `gh` said of a listed row's branch, after every row; `clean`, when the row's look
+    /// began, if it found nothing uncommitted or untracked there.
     Merged {
         token: u64,
         path: PathBuf,
         merged: Merged,
+        clean: Option<Instant>,
+    },
+    /// Whether the work of the session `key`, whose turn ended with changes since its
+    /// baseline, is merged (ADR 0121, "Merged work is not ready for review, as amended"), for
+    /// the app's judgment `judgment`.
+    WorkMerged {
+        key: SessionKey,
+        judgment: u64,
+        merged: bool,
     },
     /// A removal's checks held again: the app clears the worktree, then says [`Go`].
     Clear { token: u64, path: PathBuf, go: Go },
@@ -500,7 +512,13 @@ fn list(
         let mut looked = checks::look(repo, gh.as_ref(), &facts, listed, &held, Depth::Local);
         looked.removing = removals.running_at(&looked.listed.path);
         if let (Some(tip), Some(branch)) = (&looked.gh_pending, &looked.listed.branch) {
-            asks.push((looked.listed.path.clone(), branch.clone(), tip.clone()));
+            let clean = looked.clean().then_some(looked.looked_at);
+            asks.push((
+                looked.listed.path.clone(),
+                branch.clone(),
+                tip.clone(),
+                clean,
+            ));
         }
         send(Report::Row {
             token,
@@ -510,7 +528,7 @@ fn list(
     let Some(gh) = gh else {
         return;
     };
-    for (path, branch, tip) in asks {
+    for (path, branch, tip, clean) in asks {
         if !live() {
             return;
         }
@@ -519,6 +537,7 @@ fn list(
             token,
             path,
             merged,
+            clean,
         });
     }
 }
@@ -555,6 +574,7 @@ fn check(
     checks::removable(&looked, &held).map(|()| looked.ignored)
 }
 
+mod judge;
 mod remove;
 mod tree;
 

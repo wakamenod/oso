@@ -38,6 +38,23 @@ fn a_decision_stays_with_its_hunks_text_and_drops_when_it_changes() {
 }
 
 #[test]
+fn progress_counts_the_decided_and_viewed_hunks_of_every_current_reading() {
+    let base = blob("1");
+    let mut review = review_of(
+        Shape::new(
+            base,
+            vec![hunk(1, &["a"], 1, &["A"]), hunk(5, &["b"], 5, &["B"])],
+        )
+        .unwrap(),
+    );
+    assert_eq!(review.progress(), (0, 0, 2));
+    review.decide(FILE, 0, Some(Decision::Accepted));
+    review.set_viewed(FILE, 0, true);
+    review.set_viewed(FILE, 1, true);
+    assert_eq!(review.progress(), (1, 2, 2));
+}
+
+#[test]
 fn clearing_a_decision_keeps_the_viewed_mark() {
     let mut review = review_of(diff(&["a"], &["b"], blob("1")));
     review.decide(FILE, 0, Some(Decision::Rejected));

@@ -700,7 +700,7 @@ The UI thread never blocks on I/O or parsing:
   `commands::vcs::pr::create` carry them out. Issues (step 5b-1): `vcs/pr/issue.rs` reads them
   and makes a brief, `vcs/pr/write/issue.rs` their texts, `vcs/pr/work/issue.rs` the `gh` thread's
   reads, `app/vcs/pr/issue.rs` the keys, opening `*Brief*` through
-  `app/sessions/worktrees.rs`'s `start_brief`, and `commands::vcs::pr::issue` the commands.
+  `app/sessions/worktrees/brief.rs`'s `start_brief`, and `commands::vcs::pr::issue` the commands.
   Checks and threads to the agent (step 6b): `vcs/pr/send.rs` composes the message,
   `vcs/pr/work/send.rs` reads what it is made of on `oso-vcs-gh`, `app/vcs/pr/send.rs` the
   keys, and ADR 0122's `app/reviews/send.rs` shows and pastes it, its pull requests' part in
@@ -817,7 +817,8 @@ The UI thread never blocks on I/O or parsing:
   each run came through the dev socket. The worker finds message lines' senders with `[[message]]` rules
   (`sessions/messages.rs`) after each verdict, and tells the app when a session is first judged
   and when a hold rule starts or stops matching (`Out::Judged`).
-- Worktree sessions (`crates/oso/src/sessions/worktree/`, glue in `app/sessions/worktrees.rs`,
+- Worktree sessions (`crates/oso/src/sessions/worktree/`, glue in `app/sessions/worktrees.rs`
+  and its children, the brief's in `brief.rs`,
   [ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 4) run as jobs on `oso-sessions-git`,
   at most 2 threads, beside the sessions worker so that its rules never wait on git.
   - The jobs list branches, make a worktree (`create.rs`: brief and hand-off facts, `git

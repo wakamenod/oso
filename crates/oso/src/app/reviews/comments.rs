@@ -22,13 +22,15 @@ use oso_core::editor::ReviewId;
 use oso_core::review::{Applied, Author, Comment, CommentId, Review, RowKind, Rows};
 
 use super::super::App;
-use crate::review::view::{Carrying, Tell};
+use crate::review::view::{Carrying, Marks, Tell};
 use crate::review::{Content, Entry, Reading, Request};
 
 impl App {
     /// Tells the view the review's file has a new reading, its comments carried at once when
     /// it has none, and on the review's own thread when it has some.
     pub(super) fn tell_file(&mut self, index: usize, reading: Arc<Reading>) {
+        // A reject checks the lines around a hunk by the reading's new side (step 5).
+        self.reviews.open[index].decisions.keep_reading(&reading);
         let id = self.reviews.open[index].id;
         let commented = self
             .editor
@@ -94,8 +96,13 @@ impl App {
         // A stale carry asks again too.
         let again = applied.again || behind;
         // The view placed the file's cards by this carry, as the model now does, unless some
-        // went outdated, which the model may say otherwise, or came meanwhile.
-        if applied.outdated > 0 || again {
+        // went outdated, which the model may say otherwise, or came meanwhile; and the marks
+        // carried, or dropped, are said on the new reading (step 5).
+        let marked = (self.editor.review(id)).is_some_and(|model| {
+            let hunks = model.file(path).map_or(0, |shape| shape.hunks().len());
+            (0..hunks).any(|at| model.decision(path, at).is_some() || model.viewed(path, at))
+        });
+        if applied.outdated > 0 || again || applied.dropped > 0 || marked {
             self.tell_cards(index, path);
         }
         if again {
@@ -166,10 +173,18 @@ impl App {
         // Each clone costs counts: the text and the path are shared.
         let comments: Vec<Comment> = model.comments_on(path).cloned().collect();
         let reading = model.file(path).cloned();
+        let hunks = reading.as_ref().map_or(0, |shape| shape.hunks().len());
+        let marks = Marks {
+            hunks: (0..hunks)
+                .map(|at| (model.decision(path, at), model.viewed(path, at)))
+                .collect(),
+            dropped: model.dropped(path),
+        };
         self.reviews.open[index].view.tell(Tell::Cards {
             path: path.into(),
             comments,
             reading,
+            marks,
         });
     }
 

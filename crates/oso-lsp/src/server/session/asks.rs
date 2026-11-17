@@ -2,7 +2,7 @@
 //! a request at the position its offset is in the text the server has, a newer one cancelling
 //! the older of its kind for the document, and each answer, the places of a definition or the
 //! text of a description, or the end of its wait or of the run, becomes an [`Answer`] for the
-//! UI. Code actions' are in `actions`.
+//! UI. Code actions' are in `actions`, a rename's in `rename`.
 //!
 //! Must not depend on: the process or the pipes; the run sends, and the reporter hands over.
 
@@ -31,8 +31,14 @@ impl Session {
         self.fail(ask, NOT_RUNNING.to_owned());
     }
 
-    /// An ask during a run: a request, or an answer at once saying why not.
-    pub(super) fn ask(&mut self, run: &mut Run, ask: Ask) -> Result<(), String> {
+    /// An ask during a run, with a rename's new name: a request, or an answer at once saying
+    /// why not.
+    pub(super) fn ask(
+        &mut self,
+        run: &mut Run,
+        ask: Ask,
+        name: Option<Box<str>>,
+    ) -> Result<(), String> {
         if !run.ready || run.stopping.is_some() {
             // A run asked to stop before it was ready is not starting.
             let why = if run.ready || run.stopping.is_some() {
@@ -43,11 +49,18 @@ impl Session {
             self.fail(ask, why.to_owned());
             return Ok(());
         }
+        // A server that checks no place first is not asked to (step 14).
+        if let Some(why) = self.answered_unasked(run, &ask) {
+            if let Err(why) = why {
+                self.fail(ask, why.to_owned());
+            }
+            return Ok(());
+        }
         let Some((uri, text)) = self.documents.as_sent(ask.document, ask.revision) else {
             self.fail(ask, "the server does not have this text yet".to_owned());
             return Ok(());
         };
-        let params = match self.ask_params(run, &ask, (uri, text)) {
+        let params = match self.ask_params(run, (&ask, name.as_deref()), (uri, text)) {
             Ok(params) => params,
             Err(why) => {
                 self.fail(ask, why);
@@ -55,27 +68,17 @@ impl Session {
             }
         };
         // The older of its kind for the document is moot.
-        let older = run.pending.iter().find_map(|(id, (asked, _))| match asked {
-            Asked::Ask(kept) if (kept.document, kept.kind) == (ask.document, ask.kind) => Some(*id),
-            _ => None,
-        });
-        if let Some(older) = older {
-            run.pending.remove(&older);
-            run.actions.edit_bases.remove(&older);
-            run.actions.executing.remove(&older);
-            self.reporter.log(format!("cancelled request {older}"));
-            run.send(&protocol::notification(
-                "$/cancelRequest",
-                json!({"id": older}),
-            ))?;
-        }
+        self.cancel_ask(run, (ask.document, ask.kind))?;
         self.reporter.log(format!(
             "asked {} (request {})",
             ask.kind.method(),
             run.next_id
         ));
         // What its edits are placed against (step 13).
-        if matches!(ask.kind, AskKind::CodeAction | AskKind::ResolveAction) {
+        if matches!(
+            ask.kind,
+            AskKind::CodeAction | AskKind::ResolveAction | AskKind::Rename
+        ) {
             run.actions
                 .edit_bases
                 .insert(run.next_id, self.documents.sent_revisions());
@@ -88,12 +91,35 @@ impl Session {
         run.request(Asked::Ask(ask), ask.kind.method(), params, ask.kind.wait())
     }
 
+    /// Stops waiting for the ask of `kind` about `document`, if one waits, and tells the server.
+    pub(super) fn cancel_ask(
+        &mut self,
+        run: &mut Run,
+        (document, kind): (u64, AskKind),
+    ) -> Result<(), String> {
+        let older = run.pending.iter().find_map(|(id, (asked, _))| match asked {
+            Asked::Ask(kept) if (kept.document, kept.kind) == (document, kind) => Some(*id),
+            _ => None,
+        });
+        if let Some(older) = older {
+            run.pending.remove(&older);
+            run.actions.edit_bases.remove(&older);
+            run.actions.executing.remove(&older);
+            self.reporter.log(format!("cancelled request {older}"));
+            run.send(&protocol::notification(
+                "$/cancelRequest",
+                json!({"id": older}),
+            ))?;
+        }
+        Ok(())
+    }
+
     /// The parameters of `ask`'s request, about `text`, the document's at `uri`, or why it
     /// cannot be asked.
     fn ask_params(
         &self,
         run: &Run,
-        ask: &Ask,
+        (ask, name): (&Ask, Option<&str>),
         (uri, text): (&str, &Rope),
     ) -> Result<Value, String> {
         let at = position::from_offset(text, ask.offset, run.encoding);
@@ -123,6 +149,12 @@ impl Session {
                     .filter(|last| (last.document, last.serial) == (ask.document, answer))
                     .and_then(|last| last.items.get(index).cloned());
                 item.ok_or("its completions are gone")?
+            }
+            (AskKind::PrepareRename, AskContext::None) => protocol::prepare_rename_params(uri, at),
+            (AskKind::Rename, AskContext::None) => {
+                let name = name.filter(|name| protocol::new_name_fits(name));
+                let name = name.ok_or("a rename takes a new name, short and with no control")?;
+                protocol::rename_params(uri, at, name)
             }
             _ => return Err("an ask of this kind takes another context".to_owned()),
         })
@@ -166,6 +198,8 @@ impl Session {
                 return self.resolved_action(run, (id, ask), result, took);
             }
             AskKind::ExecuteCommand => return self.executed(id, ask, took),
+            AskKind::PrepareRename => return self.prepared_rename(run, (id, ask), &result, took),
+            AskKind::Rename => return self.renamed(run, (id, ask), &result, took),
             AskKind::Definition | AskKind::References => {}
         }
         let (located, left) = protocol::located(&result);
