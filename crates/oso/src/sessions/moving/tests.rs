@@ -11,8 +11,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::{
-    Asker, GIVE_UP, LATE, Look, NOT_FOUND, Step, called, details, gave_up, look, question, running,
-    step,
+    Asker, GIVE_UP, Held, LATE, Look, NOT_FOUND, POLL, Recorded, Step, called, details, gave_up,
+    judge, look, question, running, spawn_wait, step,
 };
 use crate::sessions::identity::SessionId;
 use crate::sessions::spaces::Member;
@@ -48,10 +48,15 @@ impl Scratch {
 
     /// The registry, holding an entry of [`PID`] that ran in `cwd` from `started`.
     fn registry(&self, cwd: &str, started: SystemTime) -> PathBuf {
+        self.registry_of(cwd, started, "interactive")
+    }
+
+    /// The registry, holding an entry of [`PID`] of `kind` that ran in `cwd` from `started`.
+    fn registry_of(&self, cwd: &str, started: SystemTime, kind: &str) -> PathBuf {
         let dir = self.dir("registry");
         let ms = started.duration_since(UNIX_EPOCH).unwrap().as_millis();
         let entry = format!(
-            r#"{{"pid":{PID},"sessionId":"{ID}","cwd":"{cwd}","startedAt":{ms},"name":"api-fix","status":"busy"}}"#
+            r#"{{"pid":{PID},"sessionId":"{ID}","cwd":"{cwd}","startedAt":{ms},"name":"api-fix","kind":"{kind}","status":"busy"}}"#
         );
         fs::write(dir.join(format!("{PID}.json")), entry).unwrap();
         dir
@@ -73,6 +78,7 @@ fn asked(home: &Path, trusted: &[PathBuf]) -> Look {
     Look {
         pid: PID,
         started: started(),
+        program: Some("claude".into()),
         trusted: Arc::from(trusted),
         home: Some(home.to_path_buf()),
     }
@@ -94,7 +100,7 @@ fn the_asker_is_the_bridges_parent_by_its_registry_entry() {
     assert_eq!(asker.pid, PID);
     assert_eq!(asker.name.as_deref(), Some("api-fix"));
     assert_eq!(asker.directory, cwd);
-    assert!(asker.busy);
+    assert_eq!(asker.program.as_deref(), Some("claude"));
     assert_eq!(asker.main.root, repo);
     assert!(asker.main.identity.is_some());
     assert_eq!(asker.worktree, None);
@@ -122,6 +128,10 @@ fn an_entry_that_is_not_the_parents_as_it_connected_is_refused() {
         look(Some(&registry), &asked(&home, &[]), still).unwrap_err(),
         NOT_FOUND
     );
+    // A run with `-p` does not move.
+    let printing = scratch.registry_of(&cwd, started(), "print");
+    let why = look(Some(&printing), &asked(&home, &[]), still).unwrap_err();
+    assert!(why.contains("interactive"), "{why}");
     // The parent ended, and another process has its id now.
     let registry = scratch.registry(&cwd, started());
     let another = |_| Ok(Some(started() + Duration::from_secs(60)));
@@ -202,8 +212,14 @@ fn the_wait_stops_once_the_process_ended_and_gives_up_after_five_minutes() {
     // The process with the id must be the one that started then.
     assert!(running(PID, started(), still));
     assert!(!running(PID, started(), |_| Ok(None)));
-    let other = |_| Ok(Some(started() + Duration::from_secs(1)));
+    let other = |_| Ok(Some(started() + Duration::from_secs(30)));
     assert!(!running(PID, started(), other));
+    // Linux counts a start from boot, which moves when the clock is set: within the
+    // registry's slack it is the same process, or a resume could fork the conversation.
+    let stepped = |_| Ok(Some(started() + Duration::from_secs(1)));
+    assert!(running(PID, started(), stepped));
+    let back = |_| Ok(Some(started() - Duration::from_secs(1)));
+    assert!(running(PID, started(), back));
     // A system that cannot tell keeps the wait going: a resume could fork the conversation.
     assert!(running(PID, started(), |_| Err(io::Error::other("no"))));
 }
@@ -213,9 +229,9 @@ fn asker(directory: &str) -> Asker {
         pid: PID,
         started: started(),
         id: SessionId::parse(ID).unwrap(),
+        program: Some("claude".into()),
         name: Some("api-fix".into()),
         directory: PathBuf::from(directory),
-        busy: false,
         main: Member {
             root: PathBuf::from("/w/api"),
             identity: None,
@@ -234,7 +250,7 @@ fn the_question_names_the_session_its_directory_and_what_is_added() {
     let label = question("api-fix", &asking, "fix-login", None);
     assert_eq!(
         label,
-        "move session \"api-fix\" (claude, pid 4242, in \"/w/api/src\", outside oso) into space \
+        "move session \"api-fix\" (\"claude\", pid 4242, in \"/w/api/src\", outside oso) into space \
          \"fix-login\"? It stops there first, then resumes here with your settings and may \
          start sessions as yours do."
     );
@@ -243,9 +259,24 @@ fn the_question_names_the_session_its_directory_and_what_is_added() {
         adding.contains("into space \"fix-login\", adding repository \"/w/api\" to it?"),
         "{adding}"
     );
-    let shown = details(&label, &asking, "fix-login");
+    let shown = details(&label, &asking, "fix-login", None);
     assert!(shown.contains(ID), "{shown}");
     assert!(shown.contains("/exit"), "{shown}");
+    // The question names the process as the system does, not as the registry says.
+    let mut shell = asker("/w/api/src");
+    shell.program = Some("sh".into());
+    let label = question("api-fix", &shell, "fix-login", None);
+    assert!(label.contains("(\"sh\", pid 4242"), "{label}");
+    shell.program = None;
+    let label = question("api-fix", &shell, "fix-login", None);
+    assert!(label.contains("(a process with no name, pid"), "{label}");
+    // `?` shows a long path whole, and says which space a worktree leaves.
+    let long = format!("/w/{}/api", "d".repeat(200));
+    let mut deep = asker(&long);
+    deep.worktree = Some(PathBuf::from(&long));
+    let shown = details(&label, &deep, "fix-login", Some("other"));
+    assert!(shown.contains(&long), "{shown}");
+    assert!(shown.contains("which leaves space \"other\""), "{shown}");
 }
 
 #[test]
@@ -257,4 +288,81 @@ fn registry_text_is_escaped_in_every_word() {
     assert!(label.contains("\\u{202e}"), "{label}");
     let said = gave_up("\u{202e}name");
     assert!(!said.contains('\u{202e}'), "{said}");
+}
+
+#[test]
+fn a_move_is_judged_by_the_record_the_trust_and_the_space() {
+    let asking = asker("/w/api/src");
+    let held = |record, trusted, member, members| Held {
+        record,
+        trusted,
+        member,
+        members,
+    };
+    // A new repository joins the space; one it has does not.
+    assert_eq!(judge(&asking, "s", &held(None, true, false, 1)), Ok(true));
+    assert_eq!(judge(&asking, "s", &held(None, true, true, 16)), Ok(false));
+    // A full space, an untrusted repository.
+    let full = judge(&asking, "s", &held(None, true, false, 16)).unwrap_err();
+    assert!(full.contains("16 repositories"), "{full}");
+    let untrusted = judge(&asking, "s", &held(None, false, true, 1)).unwrap_err();
+    assert!(untrusted.contains("trust-project"), "{untrusted}");
+    // oso's record: a running one forks, another directory or an orchestrator does not move,
+    // and a stopped one in the same directory does.
+    let recorded = |runs, directory: &'static str, orchestrates| Recorded {
+        name: "api-fix",
+        runs,
+        directory: Path::new(directory),
+        orchestrates,
+    };
+    let running = held(Some(recorded(true, "/w/api/src", false)), true, true, 1);
+    assert!(
+        judge(&asking, "s", &running)
+            .unwrap_err()
+            .contains("runs this")
+    );
+    let elsewhere = held(Some(recorded(false, "/w/other", false)), true, true, 1);
+    assert!(
+        judge(&asking, "s", &elsewhere)
+            .unwrap_err()
+            .contains("another directory")
+    );
+    let orchestrator = held(Some(recorded(false, "/w/api/src", true)), true, true, 1);
+    assert!(
+        judge(&asking, "s", &orchestrator)
+            .unwrap_err()
+            .contains("orchestrator")
+    );
+    let stopped = held(Some(recorded(false, "/w/api/src", false)), true, false, 1);
+    assert_eq!(judge(&asking, "s", &stopped), Ok(true));
+}
+
+#[test]
+fn the_wait_ends_when_told_without_a_step() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc;
+    // This test's own process runs all along, so only `stop` ends the wait.
+    let pid = std::process::id();
+    let then = oso_platform::process::start_time(pid).unwrap().unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let (sent, steps) = mpsc::channel();
+    let (ended, done) = mpsc::channel::<()>();
+    spawn_wait(pid, then, Arc::clone(&stop), move |step| {
+        let _ = &ended;
+        sent.send(step).is_ok()
+    })
+    .unwrap();
+    stop.store(true, Ordering::Release);
+    // The thread drops `send`, and with it `ended`, within a poll.
+    let gone = done.recv_timeout(POLL * 4);
+    assert_eq!(gone, Err(mpsc::RecvTimeoutError::Disconnected));
+    assert!(steps.try_recv().is_err());
+}
+
+#[test]
+fn a_space_name_is_as_long_as_the_channel_takes() {
+    assert_eq!(
+        crate::channel::protocol::sessions::MAX_SPACE_NAME,
+        crate::sessions::spaces::stored::MAX_NAME
+    );
 }

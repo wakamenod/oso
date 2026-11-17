@@ -352,6 +352,7 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::GitDiscarded
         | Mode::Sessions => true,
         Mode::Fundamental
+        | Mode::SessionMove
         | Mode::Rust
         | Mode::Markdown
         | Mode::Toml

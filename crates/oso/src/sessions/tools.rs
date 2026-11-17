@@ -247,6 +247,11 @@ const FIELD: usize = 80;
 /// control or bidirectional character can change how the question reads. Past [`FIELD`]
 /// characters its middle goes, so that a path keeps the end that names it.
 pub fn quoted(text: &str) -> String {
+    quoted_within(text, FIELD)
+}
+
+/// `text` quoted as [`quoted`] quotes it, its middle going only past `field` characters.
+pub fn quoted_within(text: &str, field: usize) -> String {
     let mut escaped = String::with_capacity(text.len());
     for c in text.chars() {
         match c {
@@ -259,11 +264,11 @@ pub fn quoted(text: &str) -> String {
         }
     }
     let count = escaped.chars().count();
-    if count > FIELD {
-        let head: String = escaped.chars().take(FIELD / 4).collect();
+    if count > field {
+        let head: String = escaped.chars().take(field / 4).collect();
         let tail: String = escaped
             .chars()
-            .skip(count - (FIELD - FIELD / 4 - 1))
+            .skip(count - (field - field / 4 - 1))
             .collect();
         escaped = format!("{head}…{tail}");
     }

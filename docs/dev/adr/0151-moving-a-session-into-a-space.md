@@ -61,8 +61,10 @@ stdio MCP servers. So:
   it does for a hosted session's bridge.
 - On a thread of its own (`oso-session-move`), oso reads the registry entry named by that
   parent's process id, `<pid>.json`, with ADR 0121's reader and bounds. The entry must name a
-  conversation and a directory, and its `procStart` (or `startedAt`) must match when the
-  parent started. The process with that id now must have started then too.
+  conversation and a directory, its `kind`, if given, must be `interactive`, and its
+  `procStart` (or `startedAt`) must match when the parent started. The process with that id
+  now must have started then too, within the registry's 2 s: Linux counts a start from boot,
+  which moves when the clock is set.
 - The entry's directory must be absolute with no `.` or `..` part, as `session-adopt` holds
   it, and must be its own real path, so that the space's repository and the resume agree.
 - Its project is found as ADR 0114 finds a file's, from that directory up. A linked worktree
@@ -80,7 +82,8 @@ registry".
 - oso trusts the repository, by its path and identity as ADR 0136 keys a member's. Otherwise
   the call is refused: the person trusts it with `trust-project`, then the agent asks again.
 - oso does not run that conversation. A stopped session of oso's record with that id is
-  resumed in its own buffer (Q5), and only when it ran in the same directory.
+  resumed in its own buffer (Q5), and only when it ran in the same directory and is no
+  space's orchestrator.
 - A space holds at most 16 repositories, as before.
 - The loop guard and the person's refusals are kept by the conversation's id, as an outside
   caller has no hosted session. Only one move waits at a time, and no other agent's question
@@ -88,33 +91,41 @@ registry".
 
 ### The question
 
-`Agent: move session "NAME" (claude, pid 812, in DIR, outside oso) into space X, adding
+`Agent: move session "NAME" ("claude", pid 812, in DIR, outside oso) into space X, adding
 repository R to it? It stops there first, then resumes here with your settings and may start
 sessions as yours do. (y or n)`
 
 - `, adding repository R to it` is there only when R is not a member yet.
+- `"claude"` is the parent's name as the system gives it, not the registry's word: any process
+  of the person's can start `oso mcp` and write an entry, and the question names what runs.
 - NAME and DIR come from the registry, so each is escaped and cut as ADR 0121's names are.
 - It is asked as every agent's question is: from the keyboard only, after 500 ms with no key.
-  `?` shows the conversation's id, its directory, the repository, the space, and that
-  background work in the old process ends with it.
+  `?` shows the conversation's id, its directory, the repository and a worktree whole, up to
+  1024 characters, the space, the space a held worktree leaves, and that background work in
+  the old process ends with it.
 
 ### After the person's `y`
 
 1. Trust is checked again. The repository joins the space if it is not a member, and a linked
-   worktree is held by the space.
+   worktree is held by the space, which takes it from a space that held it.
 2. The tool replies. The reply tells the agent to end its turn now with one short line, and to
    call no more tools: in step 1, the line tells the person to type `/exit` there. That line
    is the note the other editor's terminal keeps, since oso cannot write there.
-3. An internal buffer `*moving: NAME*` says what oso waits for. Killing it cancels the move.
+3. An internal buffer `*moving: NAME*` says what oso waits for. Killing it cancels the move:
+   it is killed as a person's buffer is, as a rename's preview is (`Mode::SessionMove`).
 4. A thread watches the outside process every 500 ms, by its id and start time. At 120 s the
    echo area says: "NAME still runs outside oso: type /exit there; oso resumes it once it
    stops". At 5 minutes oso gives up: nothing is resumed, and the echo area says to stop it
-   there and use `session-adopt`. An oso exit during the wait drops the move the same way.
-5. Once the process has ended, oso resumes the conversation as `session-adopt` does: in the
+   there and use `session-adopt`. An oso exit or `oso-restart` during the wait drops the move
+   the same way. What the echo area says names the session, so none of it is logged.
+5. Once the process has ended, oso checks again that it trusts the repository and that X is
+   open and holds it; otherwise nothing is resumed, and the echo area says why. Then it resumes
+   the conversation as `session-adopt` does: in the
    directory it ran in, under the name it would give it, through the start thread, which reads
    the registry again and refuses a live id. Its origin is `Answered`, and its space is X.
    No prompt is typed. It is shown in the selected window when X is the space in front.
-   Otherwise entering X shows it. The echo area says "Moved NAME into space X".
+   Otherwise entering X shows it. The echo area says "Moved NAME into space X". A stopped
+   session of oso's record resumes in its buffer the same way, its origin `Answered` now.
 
 ### Stopping the outside process (step 2)
 
@@ -124,8 +135,10 @@ sessions as yours do. (y or n)`
   Then, if its parent is still the process the entry names and started when it says, it sends
   `SIGTERM` to it through `oso_platform::process::terminate_parent`. It never sends
   `SIGKILL`.
-- A parent's process id cannot be given to another process while its child, the bridge,
-  runs, so this is safer than oso signalling a process it did not start.
+- The bridge checks that its parent is still the process the entry names right before the
+  signal: once a parent ends, its child is given to another and its id can be reused. On
+  Linux, a pidfd holds the process across the check. This is still safer than oso signalling
+  a process it did not start, by an id read earlier.
 - If the turn does not end, for example at a permission prompt, nothing is stopped, and
   step 1's `/exit` at 120 s applies.
 - Windows has no such stop, so the move waits for the person's `/exit` there.
@@ -155,7 +168,13 @@ sessions as yours do. (y or n)`
 - An outside conversation that was told to move, for example by text it read, gains the
   hosted tools only through the person's `y` to a question that says so.
 - Any process of the person's can write the registry. A forged entry can name only a
-  conversation and a directory of the person's own, and the question shows both.
+  conversation and a directory of the person's own. The question shows the name, the
+  directory and the process as the system names it, and `?` the conversation's id; a process
+  that can rewrite the entry could edit the transcript as well.
+- The bridge's parent is read as the connection comes, and its start time a moment later, as
+  the question about the connection is asked. A parent that ended between the two, its id
+  given to another `claude` meanwhile, would be taken for that one; the question would name
+  that session.
 
 ### Code
 
@@ -164,19 +183,20 @@ sessions as yours do. (y or n)`
   are; `app/sessions/hosting/moving.rs`: the wait and the resume.
 - `channel::Event::Asks` carries the parent's start time, and the app keeps each outside
   connection's peer while it is open.
+- `oso_core::buffer::Mode::SessionMove`, the waiting buffer's mode, which the person may kill.
 - Step 2: `oso_platform::process::terminate_parent` (Unix), and the bridge's watch in
   `channel/mcp`.
 
 ### The work, in steps
 
 1. The tool, its checks, the question, the wait for the person's `/exit`, and the resume into
-   the space. This works on every system.
+   the space. Where the system gives no start time, as on Windows now, the call is refused.
 2. The bridge stops its parent once the turn has ended.
 
 ## Changes to accepted ADRs
 
 Each passage below stays in its ADR as written; what holds now follows it. The statuses of
-ADRs 0085, 0121 and 0136 gain `amended by 0151`.
+ADRs 0085, 0121, 0135 and 0136 gain `amended by 0151`.
 
 - [ADR 0121](0121-agent-sessions-and-spaces.md), step 6, "Any other connection may only read,
   within the selected window's project": an outside connection may also call
@@ -189,6 +209,10 @@ ADRs 0085, 0121 and 0136 gain `amended by 0151`.
 - [ADR 0136](0136-issue-spaces.md), "No tool makes, closes or reopens a space, adds or removes
   a repository": `move_to_space` adds the moved session's repository on the person's `y` to a
   question that names it.
+- [ADR 0135](0135-agents-start-sessions-without-asking.md), "An outside connection still has
+  no starting tools, and no setting gives it any": an outside connection's `move_to_space`
+  resumes its own conversation in oso on the person's `y`, never unasked, and the session it
+  becomes counts as started on that `y`.
 
 ## Consequences
 

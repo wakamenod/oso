@@ -73,8 +73,8 @@ pub(super) struct Adoption {
     pub(super) from: ForkFrom,
     /// The registry said it was busy, the last time this oso saw it.
     busy: bool,
-    /// The space it moved into at its own request, by its name (ADR 0151).
-    moved_into: Option<String>,
+    /// The space it moved into at its own request, and that space's name (ADR 0151).
+    moved_into: Option<(SpaceId, String)>,
 }
 
 /// Where a conversation that asked to move lands (ADR 0151).
@@ -270,7 +270,8 @@ impl App {
                 name: name.clone(),
             },
             busy: pick.busy,
-            moved_into: landing.as_ref().map(|landing| landing.space_name.clone()),
+            moved_into: (landing.as_ref())
+                .map(|landing| (landing.space.clone(), landing.space_name.clone())),
         };
         self.hosting.adopting.pending.insert(key, adoption);
         self.turn_agent_channel_on_for_a_session();
@@ -286,7 +287,6 @@ impl App {
             {
                 spaces.showed(at, Some(terminal.buffer), None);
             }
-            self.hosting.moves.landing.insert(key, landing.space);
         }
         self.order_session(Order {
             token: key,
@@ -324,15 +324,23 @@ impl App {
     /// The adoption started with `key`, if it is one, as its start was refused or it is
     /// ready: what it forks if offered, and what the echo area says.
     pub(super) fn take_adoption(&mut self, key: SessionKey) -> Option<Adoption> {
-        self.hosting.moves.landing.remove(&key);
-        self.hosting.adopting.pending.remove(&key)
+        let adoption = self.hosting.adopting.pending.remove(&key)?;
+        // A move's origin, if a start that did not happen left it (ADR 0151).
+        self.hosting.origins.remove(&key);
+        Some(adoption)
+    }
+
+    /// The space the session being started with `key` moves into at its request (ADR 0151).
+    pub(in crate::app) fn moving_into(&self, key: SessionKey) -> Option<&SpaceId> {
+        let adoption = self.hosting.adopting.pending.get(&key)?;
+        adoption.moved_into.as_ref().map(|(space, _)| space)
     }
 
     /// The adopted session `adopted` started: the echo area says so, and the list leaves it
     /// out.
     pub(super) fn session_adopted(&mut self, adopted: &Adoption) {
         let name = &adopted.from.name;
-        let said = if let Some(space) = &adopted.moved_into {
+        let said = if let Some((_, space)) = &adopted.moved_into {
             format!(
                 "Moved {} into space {}",
                 crate::sessions::tools::quoted(name),

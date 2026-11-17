@@ -8,7 +8,8 @@
 //! they started (ADR 0135).
 //!
 //! - A connection proven to be a hosted session's bridge calls as that session. Any other
-//!   connection may only read, within the selected window's project (the author's choice).
+//!   connection may only read, within the selected window's project (the author's choice), or
+//!   ask to move its own session into a space, which asks the person each time (ADR 0151).
 //! - A tool that asks puts its question to the person once they are free, as the connection's
 //!   own question waits, and its reply waits for the answer and for what the answer starts.
 //! - A call that changes something is counted, and refused past the loop guard or within a

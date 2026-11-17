@@ -650,8 +650,10 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   - `move_to_space` ([ADR 0151](adr/0151-moving-a-session-into-a-space.md)) is the one tool
     that acts for an outside connection, and it asks the person each time. The agent names only
     a space; the conversation, its directory and its process come from the registry entry of
-    the bridge's parent, matched to when that parent started as the connection came. Its
-    repository must be trusted, and the question names it when the `y` adds it to the space.
+    the bridge's parent, matched to when that parent started as the connection came. The
+    question names that process as the system does, since any process of the person's can
+    write an entry. Its repository must be trusted, at the call, at the `y` and again before
+    the resume, and the question names it when the `y` adds it to the space.
     Nothing starts until the outside process has ended, and the start thread reads the registry
     again, so two processes never run one conversation. The moved session counts as started on
     the person's `y` (ADR 0135), which the question says.

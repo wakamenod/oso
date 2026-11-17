@@ -7,9 +7,10 @@
 //! before the resume, so that two processes never run one conversation.
 //!
 //! - One move waits at a time. Killing its `*moving: NAME*` buffer cancels it.
-//! - A move that gives up, or an oso exit while it waits, resumes nothing.
+//! - A move that gives up, an oso exit while it waits, or a space closed or left by the
+//!   repository meanwhile resumes nothing.
+//! - What the echo area says names the session as the registry does, so none of it is logged.
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -19,6 +20,7 @@ use super::adopt::Landing;
 use crate::app::{App, UserEvent};
 use crate::git::printable;
 use crate::sessions::adopt::Pick;
+use crate::sessions::identity::Origin;
 use crate::sessions::moving::{self, Asker, Step};
 use crate::sessions::spaces::SpaceId;
 use crate::sessions::tools::quoted;
@@ -54,8 +56,6 @@ struct Waiting {
 pub(in crate::app) struct Moves {
     next: u64,
     waiting: Option<Waiting>,
-    /// The space each moved session being started goes in, by its key.
-    pub(in crate::app) landing: HashMap<SessionKey, SpaceId>,
 }
 
 impl Moves {
@@ -78,7 +78,7 @@ impl App {
         let said = moving::waiting(&moving.name, &moving.space_name);
         let buffer = self.editor.add_internal_buffer(
             format!("*moving: {}*", printable(&moving.name, 40)),
-            Mode::Fundamental,
+            Mode::SessionMove,
         );
         self.editor.set_internal_text(buffer, &format!("{said}\n"));
         let stop = Arc::new(AtomicBool::new(false));
@@ -95,9 +95,9 @@ impl App {
         if let Err(e) = spawned {
             log::warn!("cannot watch a session that moves: {e}");
             self.editor.kill_buffer(buffer);
-            return self.editor.message(moving::gave_up(&moving.name));
+            return self.editor.message_unlogged(moving::gave_up(&moving.name));
         }
-        self.editor.message(said);
+        self.editor.message_unlogged(said);
         self.hosting.moves.waiting = Some(Waiting {
             token,
             moving,
@@ -118,12 +118,13 @@ impl App {
             Step::Late => {
                 if let Some(waiting) = &moves.waiting {
                     let said = moving::late(&waiting.moving.name);
-                    self.editor.message(said);
+                    self.editor.message_unlogged(said);
                 }
             }
             Step::GiveUp => {
                 if let Some(waiting) = self.end_wait() {
-                    self.editor.message(moving::gave_up(&waiting.moving.name));
+                    self.editor
+                        .message_unlogged(moving::gave_up(&waiting.moving.name));
                 }
             }
             Step::Stopped => {
@@ -154,7 +155,7 @@ impl App {
             return;
         }
         if let Some(waiting) = self.end_wait() {
-            self.editor.message(format!(
+            self.editor.message_unlogged(format!(
                 "The move of {} was cancelled; oso resumes nothing",
                 quoted(&waiting.moving.name)
             ));
@@ -162,13 +163,24 @@ impl App {
         }
     }
 
-    /// The outside process of `moving` ended: its conversation resumes, in its space.
+    /// The outside process of `moving` ended: its conversation resumes, in its space, if
+    /// oso still trusts its repository and that space is still open and holds it.
     fn resume_moved(&mut self, moving: Moving) {
+        if self.member_trust(&moving.asker.main).is_none() {
+            let why = moving::untrusted_meanwhile(&moving.name);
+            return self.editor.message_unlogged(why);
+        }
         let spaces = self.watch.spaces();
-        let at = spaces.find(&moving.space);
-        let shown = at.is_some() && spaces.current() == at;
+        let Some(at) = spaces.find(&moving.space).filter(|&at| {
+            spaces.get(at).is_some_and(|space| space.is_open())
+                && (spaces.stored(at)).is_some_and(|s| s.has_member(&moving.asker.main.root))
+        }) else {
+            return (self.editor)
+                .message_unlogged(moving::space_gone(&moving.name, &moving.space_name));
+        };
+        let shown = spaces.current() == Some(at);
         if let Some(key) = moving.reuse {
-            return self.resume_moved_record(key, &moving);
+            return self.resume_moved_record(key, &moving, at, shown);
         }
         let pick = Pick {
             id: moving.asker.id.clone(),
@@ -188,28 +200,33 @@ impl App {
     }
 
     /// `key`, the stopped session of oso's record that `moving` moves, resumes in its own
-    /// buffer, in `moving`'s space now (ADR 0151, Q5).
-    fn resume_moved_record(&mut self, key: SessionKey, moving: &Moving) {
+    /// buffer, in `moving`'s space now, the space at `at`, shown if it is in front, and as
+    /// started on the person's `y` (ADR 0151, Q4 and Q5).
+    fn resume_moved_record(&mut self, key: SessionKey, moving: &Moving, at: usize, shown: bool) {
         let Some(session) = self.hosting.table.get_mut(key).filter(|s| !s.runs()) else {
-            return self.editor.message(format!(
+            return self.editor.message_unlogged(format!(
                 "Session {} runs in oso already",
                 quoted(&moving.name)
             ));
         };
         session.space = Some(moving.space.clone());
+        session.origin = Origin::Answered;
         let buffer = session.buffer;
         self.hosting.unsaved = true;
         self.sessions_touched();
         match buffer.filter(|&buffer| self.editor.buffer(buffer).is_some()) {
             Some(buffer) => {
-                self.resume_session(buffer);
-                self.editor.message(format!(
+                if !shown {
+                    self.watch.spaces_mut().showed(at, Some(buffer), None);
+                }
+                self.resume_session_shown(buffer, shown);
+                self.editor.message_unlogged(format!(
                     "Moved {} into space {}",
                     quoted(&moving.name),
                     quoted(&moving.space_name)
                 ));
             }
-            None => self.editor.message(format!(
+            None => self.editor.message_unlogged(format!(
                 "Session {} is in space {} now; resume it from *Spaces*",
                 quoted(&moving.name),
                 quoted(&moving.space_name)

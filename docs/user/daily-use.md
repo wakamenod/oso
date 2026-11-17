@@ -492,8 +492,9 @@ if the space does not have it yet. The repository must be one oso trusts.
 On `y`, the session ends its turn and asks you to type `/exit` where it runs. Once that process
 has ended, oso resumes the conversation in the same directory, in that space, with your own
 settings: flags the outside run had, such as `--model` or a permission mode, are not carried.
-While oso waits, a buffer `*moving: NAME*` says so; kill it to cancel. If the process still
-runs after 5 minutes, oso resumes nothing; stop it there and use `session-adopt`.
+While oso waits, a buffer `*moving: NAME*` says so; kill it with `C-x k` to cancel. If the
+process still runs after 5 minutes, or you close the space or stop trusting the repository
+meanwhile, oso resumes nothing; use `session-adopt` once it has stopped.
 
 ## Claude Code in a plain terminal
 

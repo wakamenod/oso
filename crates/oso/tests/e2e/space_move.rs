@@ -6,7 +6,8 @@
 //! repository it adds, and on `y` tells the agent to end its turn. oso then waits, resuming
 //! nothing while the outside process runs. Once that ends, as `/exit` would end it, the
 //! conversation resumes in oso with step 1's fake `claude`, in the directory it ran in, in that
-//! space, which now holds both repositories.
+//! space, which now holds both repositories. Killing the waiting buffer instead cancels it:
+//! nothing resumes once the outside process ends.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: which registry
 //! entry is the asker's, the repository found, the wait's steps and the question's words have
@@ -115,10 +116,19 @@ fn allow(app: &mut crate::harness::App, start: &str) -> String {
     asks(&state).unwrap_or_default()
 }
 
-#[test]
-#[ignore = "opens windows; run with `just e2e`"]
-fn a_session_started_outside_oso_moves_into_a_space_once_it_stopped_there() {
-    let flow = Flow::with_fake("space-move", "", FAKE);
+/// A move under way: the instance, the outside session, the repository it runs in.
+struct Moving {
+    flow: Flow,
+    app: crate::harness::App,
+    outside: oso_platform::process::Child,
+    repo: std::path::PathBuf,
+}
+
+/// Makes a space of another repository, starts the outside session in the flow's trusted
+/// repository, lets it in and answers `y` to its move, then waits for oso's waiting buffer.
+/// It also checks the refusal of a space that is none, the question's words and the reply.
+fn moving(test: &str) -> Moving {
+    let flow = Flow::with_fake(test, "", FAKE);
     // The space's repository, which oso need not trust, and the outside session's, trusted.
     let other = flow.scratch.path().join("other");
     fs::create_dir(&other).unwrap();
@@ -140,7 +150,7 @@ fn a_session_started_outside_oso_moves_into_a_space_once_it_stopped_there() {
         "move-requests.jsonl",
         requests("fix-login-error").as_bytes(),
     );
-    let mut outside = start_outside(&flow, &app, &repo);
+    let outside = start_outside(&flow, &app, &repo);
     allow(&mut app, "Agent: let");
     let refused = result(&flow, 2);
     assert!(refused.contains("no open space is named"), "{refused}");
@@ -148,6 +158,8 @@ fn a_session_started_outside_oso_moves_into_a_space_once_it_stopped_there() {
     let question = allow(&mut app, "Agent: move session");
     let repo_text = repo.display().to_string();
     assert!(question.contains("\"outside-fix\""), "{question}");
+    // The process as the system names it, not as the registry entry says.
+    assert!(question.contains("(\"sh\", pid "), "{question}");
     assert!(
         question.contains(&format!("adding repository \"{repo_text}\"")),
         "{question}"
@@ -159,33 +171,87 @@ fn a_session_started_outside_oso_moves_into_a_space_once_it_stopped_there() {
     );
     assert!(reply.contains("/exit"), "{reply}");
 
-    // It waits while the outside process runs, and resumes nothing.
-    let state = app.wait_for("the waiting buffer", |state| {
-        state["buffers"]
-            .as_array()
-            .is_some_and(|buffers| buffers.iter().any(|b| b["name"] == "*moving: outside-fix*"))
-    });
+    let state = app.wait_for("the waiting buffer", |state| waiting(state).is_some());
     let members = &space(&state, "fix-login-error").unwrap()["members"];
     assert_eq!(members.as_array().map(Vec::len), Some(2), "{members}");
-    thread::sleep(Duration::from_secs(2));
+    Moving {
+        flow,
+        app,
+        outside,
+        repo,
+    }
+}
+
+/// The id of `*moving: outside-fix*`, while it is there.
+fn waiting(state: &Value) -> Option<Value> {
+    let buffers = state["buffers"].as_array()?;
+    let buffer = buffers
+        .iter()
+        .find(|b| b["name"] == "*moving: outside-fix*")?;
+    Some(buffer["id"].clone())
+}
+
+/// The person's `/exit` where the outside session runs: it ends, within the flow's deadline.
+fn exit_outside(moving: &mut Moving) {
+    moving.flow.scratch.write("exit", b"");
+    let deadline = Instant::now() + DEADLINE;
+    while moving
+        .outside
+        .try_wait()
+        .expect("the outside session")
+        .is_none()
+    {
+        assert!(Instant::now() < deadline, "the outside session did not end");
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_session_started_outside_oso_moves_into_a_space_once_it_stopped_there() {
+    let mut moving = moving("space-move");
+    // It waits while the outside process runs, and resumes nothing.
+    thread::sleep(Duration::from_millis(1500));
     assert!(
-        runs(&flow).is_empty(),
+        runs(&moving.flow).is_empty(),
         "a resume ran while the outside process ran"
     );
 
     // The person's `/exit` there: it resumes here, in its directory, in the space.
-    flow.scratch.write("exit", b"");
-    outside.wait().expect("the outside session ends");
-    let run = run_in(&flow, &repo);
+    exit_outside(&mut moving);
+    let run = run_in(&moving.flow, &moving.repo);
     assert!(
         run.args.iter().any(|arg| arg == &format!("--resume={ID}")),
         "{:?}",
         run.args
     );
-    app.wait_for("the moved session in its space", |state| {
-        session(state, "outside-fix").is_some_and(|s| s["space"] == "fix-login-error")
+    moving
+        .app
+        .wait_for("the moved session in its space", |state| {
+            session(state, "outside-fix").is_some_and(|s| s["space"] == "fix-login-error")
+                && waiting(state).is_none()
+        });
+    moving.flow.scratch.write("go", b"0");
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn killing_the_waiting_buffer_cancels_the_move() {
+    let mut moving = moving("space-move-cancel");
+    let state = moving.app.state();
+    let buffer = waiting(&state).expect("the waiting buffer");
+    moving.app.show_buffer(&buffer);
+    moving.app.send_keys("C-x k RET");
+    moving.app.wait_for("the move cancelled", |state| {
+        waiting(state).is_none()
+            && state["echo"]
+                .as_str()
+                .is_some_and(|echo| echo.contains("was cancelled"))
     });
-    flow.scratch.write("go", b"0");
+    // The outside session ends, and nothing resumes it.
+    exit_outside(&mut moving);
+    thread::sleep(Duration::from_millis(1500));
+    assert!(runs(&moving.flow).is_empty(), "a cancelled move resumed");
 }
 
 /// Waits until the project of the buffer just opened is found, so that `space-new` takes it.

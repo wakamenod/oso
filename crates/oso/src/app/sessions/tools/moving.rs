@@ -15,7 +15,6 @@
 use std::sync::{Mutex, PoisonError};
 use std::time::Instant;
 
-use oso_platform::control::PeerProcess;
 use serde_json::json;
 
 use super::super::super::{App, UserEvent};
@@ -55,8 +54,10 @@ impl App {
         let Some(outsider) = self.outsider(pending.connection) else {
             return pending.answer(Err("oso does not know this connection's process".into()));
         };
-        let (pid, started) = match (&outsider.peer.parent, outsider.parent_started) {
-            (Some(parent), Some(started)) => (PeerProcess::pid(parent), started),
+        let (pid, program, started) = match (&outsider.peer.parent, outsider.parent_started) {
+            (Some(parent), Some(started)) => {
+                (parent.pid(), parent.name().map(str::to_owned), started)
+            }
             _ => {
                 return pending.answer(Err(
                     "the system does not say which process started this connection, or when".into(),
@@ -66,6 +67,7 @@ impl App {
         let look = Look {
             pid,
             started,
+            program,
             trusted: self.trusted_list(),
             home: oso_platform::privacy::home(),
         };
@@ -108,10 +110,12 @@ impl App {
     /// The open space named `name`, by its place and its id.
     fn open_space(&self, name: &str) -> Result<(usize, SpaceId), String> {
         let spaces = self.watch.spaces();
-        let open = (spaces.iter()).position(|space| space.is_open() && space.name() == name);
-        match open {
-            Some(at) => Ok((at, spaces.get(at).map(|s| s.id().clone()).ok_or("")?)),
-            None if spaces.archived_named(name).is_some() => Err(format!(
+        let found = spaces
+            .named(name)
+            .and_then(|at| Some((at, spaces.get(at)?)));
+        match found {
+            Some((at, space)) if space.is_open() => Ok((at, space.id().clone())),
+            Some(_) => Err(format!(
                 "space {} is closed: the person reopens it with space-reopen",
                 quoted(name)
             )),
@@ -149,38 +153,30 @@ impl App {
         let name = moving::called(asker.name.as_deref(), &asker.id);
         // A conversation oso runs would fork; a stopped one of its record resumes in its own
         // buffer, where it ran.
-        let reuse = match self.hosting.table().iter().find(|s| s.id == asker.id) {
-            Some(session) if session.runs() => {
-                return Err(format!(
-                    "oso runs this conversation already, as session {}",
-                    quoted(&session.name)
-                ));
-            }
-            Some(session) if session.directory != asker.directory => {
-                return Err(
-                    "oso's record holds this conversation in another directory: stop \
-                     it here and the person resumes it in oso"
-                        .into(),
-                );
-            }
-            Some(session) => Some(session.key),
-            None => None,
+        let spaces = self.watch.spaces();
+        let found = self.hosting.table().iter().find(|s| s.id == asker.id);
+        let record = found.map(|session| moving::Recorded {
+            name: &session.name,
+            runs: session.runs(),
+            directory: &session.directory,
+            orchestrates: (spaces.iter())
+                .any(|s| s.stored.orchestrator.as_ref() == Some(&session.id)),
+        });
+        let stored = spaces.stored(at).ok_or("the space is gone")?;
+        let held = moving::Held {
+            record,
+            trusted: self.member_trust(&asker.main).is_some(),
+            member: stored.has_member(&asker.main.root),
+            members: stored.members.len(),
         };
-        if self.member_trust(&asker.main).is_none() {
-            return Err(format!(
-                "oso does not trust repository {}: the person trusts it with trust-project, \
-                 then ask again",
-                quoted(&asker.main.root.display().to_string())
-            ));
-        }
-        let stored = self.watch.spaces().stored(at).ok_or("the space is gone")?;
-        let adds = !stored.has_member(&asker.main.root);
-        if adds && stored.members.len() >= MAX_MEMBERS {
-            return Err(format!(
-                "space {} holds {MAX_MEMBERS} repositories, the most it may",
-                quoted(space)
-            ));
-        }
+        let adds = moving::judge(&asker, space, &held)?;
+        let reuse = found.map(|session| session.key);
+        // The space that holds the worktree now, which the move takes it from.
+        let held_by = (asker.worktree.as_deref())
+            .and_then(|worktree| spaces.holding(worktree))
+            .filter(|&other| other != at)
+            .and_then(|other| spaces.get(other))
+            .map(|other| other.name().to_owned());
         (self.hosting.tools.guard)
             .admit(&asker.id, TOOL, space, Instant::now())
             .map_err(|refusal| refusal.why().to_owned())?;
@@ -189,7 +185,7 @@ impl App {
         }
         let added = adds.then_some(asker.main.root.as_path());
         let label = moving::question(&name, &asker, space, added);
-        let details = moving::details(&label, &asker, space);
+        let details = moving::details(&label, &asker, space, held_by.as_deref());
         let caller = asker.id.clone();
         let plan = Plan::Move(Box::new(Moving {
             asker,

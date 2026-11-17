@@ -1139,6 +1139,17 @@ a switch made with its command stands until that setting changes in the file
   directory. A picked one is resumed in a new buffer, `*claude: NAME*`, in the directory it ran
   in, under the name it had. A live one is refused until it is stopped where it runs, and `y`
   forks it instead. If it was working when it stopped, the echo area says to ask it to go on.
+- A session started outside oso that calls `move_to_space`
+  ([ADR 0151](adr/0151-moving-a-session-into-a-space.md)) asks, as every agent question does:
+  `Agent: move session "NAME" ("claude", pid N, in "DIR", outside oso) into space "X", adding
+  repository "R" to it? …`, the process named as the system names it, and `adding …` only for
+  a repository the space lacks; `?` shows the conversation's id and the whole paths. On `y`
+  an internal buffer `*moving: NAME*` says what oso waits for, and the echo area asks for
+  `/exit` where the session runs. At 120 s it says so again; at 5 minutes, or when the space
+  closed or lost the repository meanwhile, oso resumes nothing and says to use
+  `session-adopt`. Killing `*moving: NAME*` with `C-x k` cancels. Once the outside process has
+  ended, `*claude: NAME*` resumes in its directory, in space X, and the echo area says
+  `Moved "NAME" into space "X"`. None of these lines is logged.
 - `C-c a /` (`session-search`) finds a session by what was said in it
   ([ADR 0145](adr/0145-searching-past-agent-conversations.md)). It opens a centred float,
   `Search conversations (all):`, over every Claude Code conversation on this machine, of every

@@ -360,6 +360,12 @@ impl App {
 
     /// `session-resume`: the stopped session whose terminal is `buffer`, in the same buffer.
     pub(in crate::app) fn resume_session(&mut self, buffer: BufferId) {
+        self.resume_session_shown(buffer, true);
+    }
+
+    /// Resumes the stopped session whose terminal is `buffer`, shown in the selected window
+    /// if `shown`.
+    pub(in crate::app) fn resume_session_shown(&mut self, buffer: BufferId, shown: bool) {
         let Some(session) = self.hosting.table.by_buffer(buffer) else {
             self.editor.message("This buffer holds no session");
             return;
@@ -386,7 +392,7 @@ impl App {
         if let Some(session) = self.hosting.table.get_mut(key) {
             session.run = Run::Starting;
         }
-        let terminal = self.session_terminal(key, &name, Some(buffer), true);
+        let terminal = self.session_terminal(key, &name, Some(buffer), shown);
         self.order_session(Order {
             token: key,
             kind,
