@@ -91,8 +91,9 @@ impl App {
         // What the save starts is settled first, so that the agent's reply says what waits.
         let by = self.save_starts(buffer, failed, report.elsewhere());
         self.agent_save_ended(&report);
-        self.review_save_ended(buffer, !failed);
         saver::apply(&mut self.editor, report);
+        // After the saver's own message, which a review's revert says more than (ADR 0122).
+        self.review_save_ended(buffer, !failed);
         self.look_again_after_save(buffer);
         // A shown git status of the file's repository is read again, or only marked stale if
         // the person did not start the save (ADR 0127, ADR 0118).
