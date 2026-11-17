@@ -19,13 +19,14 @@ use crate::sessions::hosted::{New, Run, Table};
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
 use crate::sessions::start::{self, Kind, Order, Ready, Report};
-use crate::sessions::worker::{Job, SessionKey};
+use crate::sessions::worker::SessionKey;
 
 mod adopt;
 mod begin;
 mod bridge;
 mod carried;
 mod fork;
+mod record;
 mod terminal;
 
 use fork::ForkFrom;
@@ -189,28 +190,6 @@ impl App {
     pub(in crate::app) fn remember_sessions(&mut self) {
         self.hosting.unsaved = true;
         self.sessions_touched();
-    }
-
-    /// After an event: hands the sessions to the worker to remember, keeping another
-    /// instance's, if they changed, and the spaces to keep, if they did (ADR 0136).
-    pub(in crate::app) fn save_sessions(&mut self) {
-        let (Some(worker), Some(directory)) = (&self.sessions, &self.hosting.directory) else {
-            return;
-        };
-        if std::mem::take(&mut self.hosting.unsaved) {
-            worker.send(Job::Remember {
-                directory: directory.clone(),
-                sessions: self.hosting.table.remembered(),
-                known: self.hosting.table.known().clone(),
-            });
-        }
-        if let Some((spaces, known)) = self.watch.spaces_mut().take_unsaved() {
-            worker.send(Job::Space(crate::sessions::worker::SpaceJob::Remember {
-                directory: directory.clone(),
-                spaces,
-                known,
-            }));
-        }
     }
 
     /// `claude`: a new session in `directory`, else the selected buffer's project root, else
