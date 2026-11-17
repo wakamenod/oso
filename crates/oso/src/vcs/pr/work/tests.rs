@@ -315,4 +315,66 @@ mod with_gh {
         let refused = super::super::create::merge_target(&found, &repo(&found)).unwrap_err();
         assert!(refused.contains("has no pull request"), "{refused}");
     }
+
+    /// Pull request #12 of `main` at `head`, a fork's if `fork`.
+    fn pull_at(head: &str, fork: bool) -> String {
+        format!(
+            r#"{{"number":12,"url":"https://github.com/o/r/pull/12","baseRefName":"main",
+            "headRefName":"main","headRefOid":"{head}","isCrossRepository":{fork}}}"#
+        )
+    }
+
+    #[test]
+    fn a_send_reads_eight_logs_at_most_and_finds_the_worktree_that_holds_the_head() {
+        use crate::vcs::pr::send::Pick;
+        let bench = Bench::new("pr-send");
+        bench.repo.write("a.txt", b"a\n");
+        bench.repo.commit("a");
+        let head = String::from_utf8(bench.repo.git(&["rev-parse", "HEAD"])).unwrap();
+        let head = head.trim();
+        let checks: Vec<String> = (1..=9)
+            .map(|n| {
+                format!(
+                    r#"{{"name":"job{n}","bucket":"fail","workflow":"CI",
+                    "link":"https://github.com/o/r/actions/runs/7/job/{n}"}}"#
+                )
+            })
+            .collect();
+        bench.answer("pr-checks", &format!("[{}]", checks.join(",")), 0, "");
+        bench.answer("api-user", r#"{"login":"me"}"#, 0, "");
+        bench.answer("run-view", "error: broke\n", 0, "");
+        let url = "https://github.com/o/r/pull/12";
+        let send = |found: &Found| {
+            super::super::send::send(found, &repo(found), (12, url), &Pick::Failing, 256 << 10)
+        };
+        bench.answer("pr-view", &pull_at(head, false), 0, "");
+        let found = bench.found();
+        let sent = send(&found).unwrap();
+        assert_eq!(
+            bench.asked().matches("run view 7").count(),
+            8,
+            "{}",
+            bench.asked()
+        );
+        assert!(
+            sent.message.text.contains("only the first 8"),
+            "{}",
+            sent.message.text
+        );
+        let root = std::fs::canonicalize(&bench.repo.root).unwrap();
+        let worktree = sent
+            .worktree
+            .map(|path| std::fs::canonicalize(path).unwrap());
+        assert_eq!(worktree, Some(root), "the root holds the head");
+        // A fork's pull request has no worktree; nor has a head no worktree holds.
+        bench.answer("pr-view", &pull_at(head, true), 0, "");
+        assert_eq!(send(&found).unwrap().worktree, None);
+        let elsewhere = "1111111111111111111111111111111111111111";
+        bench.answer("pr-view", &pull_at(elsewhere, false), 0, "");
+        assert_eq!(send(&found).unwrap().worktree, None);
+        // An answer of another repository's pull request is refused.
+        let other = pull_at(head, false).replace("o/r/pull", "x/y/pull");
+        bench.answer("pr-view", &other, 0, "");
+        assert!(send(&found).unwrap_err().contains("another repository"));
+    }
 }

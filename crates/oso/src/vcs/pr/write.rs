@@ -50,6 +50,8 @@ pub(crate) struct PrBuilt {
     pub(crate) threads: Vec<(String, Option<u64>)>,
     /// The checks' addresses.
     pub(crate) links: Vec<String>,
+    /// The checks' names, beside their addresses (step 6b).
+    pub(crate) check_names: Vec<String>,
     /// The listed pull requests' numbers and addresses.
     pub(crate) pulls: Vec<(u64, String)>,
     /// The pull request's number and address, for a pull request's buffer.
@@ -240,6 +242,7 @@ fn checks(page: &mut Page, checks: &[Check]) {
             );
         }
         page.links.push(check.link.clone());
+        page.check_names.push(check.name.clone());
         let row = PrRow::Check(page.links.len() - 1);
         page.end(row);
     }
@@ -347,6 +350,7 @@ struct Page {
     rows: Vec<PrRow>,
     threads: Vec<(String, Option<u64>)>,
     links: Vec<String>,
+    check_names: Vec<String>,
     pulls: Vec<(u64, String)>,
     full: bool,
 }
@@ -419,6 +423,7 @@ impl Page {
                 rows: self.rows,
                 threads: self.threads,
                 links: self.links,
+                check_names: self.check_names,
                 pulls: self.pulls,
                 pull,
                 checks_line,

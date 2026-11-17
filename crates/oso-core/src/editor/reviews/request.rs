@@ -74,4 +74,7 @@ pub enum ReviewRequest {
     Resume(String),
     /// Remove the saved review the host listed as this candidate, now.
     Forget(String),
+    /// Add what a message made from a pull request's checks or threads left out, above the end
+    /// of what GitHub said (`C-c C-t`, ADR 0127, step 6b).
+    MessageTake { buffer: BufferId },
 }

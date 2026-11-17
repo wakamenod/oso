@@ -674,6 +674,12 @@ topological order, children before their parents, one row each (ADR 0127, step 4
   its head; `- d` deletes the branch on the remote.
 - Each worktree's open pull request (step 5b-2) shows on its `*Worktrees*` row and beside its
   branch in the `*Spaces*` tree, as `PR #12 open, approved ✓ 3 ✗ 0 ● 1`.
+- In `*pr: #N*` (step 6b), `x` sends the check on the line to an agent session, `X` every
+  failing one with the logs of at most 8 Actions jobs, `c` the review thread on the line and
+  `C` every unresolved one, through `*review message*`: GitHub's words under a line saying they
+  are data, quoted or fenced, the comments of others than you and the repository's owners,
+  members and collaborators left out and counted, as a fork's logs are; `C-c C-t` there takes
+  them in above the end of what GitHub said.
 - Issues (step 5b-1): `C-x v i`, or `N i`, shows `*issues: NAME*`; `RET` shows `*issue: #N*` with
   its comments; `w` opens `*Brief*` for a worktree session on `issue-N-SLUG`, the issue's text
   under a line telling the agent it is data; `o` opens it, `y` copies its address, `g` reads
@@ -1147,6 +1153,18 @@ a switch made with its command stands until that setting changes in the file
   directory. A picked one is resumed in a new buffer, `*claude: NAME*`, in the directory it ran
   in, under the name it had. A live one is refused until it is stopped where it runs, and `y`
   forks it instead. If it was working when it stopped, the echo area says to ask it to go on.
+- A session started outside oso that calls `move_to_space`
+  ([ADR 0151](adr/0151-moving-a-session-into-a-space.md)) asks, as every agent question does:
+  `Agent: move session "NAME" ("claude", pid N, in "DIR", outside oso) into space "X", adding
+  repository "R" to it? …`, the process named as the system names it, and `adding …` only for
+  a repository the space lacks; `?` shows the conversation's id and the whole paths. On `y`
+  an internal buffer `*moving: NAME*` says what oso waits for, and the echo area says the
+  session stops where it runs once its turn ends, or to type `/exit` there; its bridge stops
+  it then. At 120 s the echo area asks for `/exit`; at 5 minutes, or when the space
+  closed or lost the repository meanwhile, oso resumes nothing and says to use
+  `session-adopt`. Killing `*moving: NAME*` with `C-x k` cancels. Once the outside process has
+  ended, `*claude: NAME*` resumes in its directory, in space X, and the echo area says
+  `Moved "NAME" into space "X"`. None of these lines is logged.
 - `C-c a /` (`session-search`) finds a session by what was said in it
   ([ADR 0145](adr/0145-searching-past-agent-conversations.md)). It opens a centred float,
   `Search conversations (all):`, over every Claude Code conversation on this machine, of every

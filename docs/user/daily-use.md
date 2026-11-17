@@ -421,6 +421,13 @@ holding text yanked from a secret is not sent.
 Sent comments are drawn dimmed, and an edit makes one unsent again. A session that is asking you
 something takes no paste: answer it first, and the message waits.
 
+In `*pr: #N*`, `x` sends the check on the line to the agent, `X` every failing one with the end
+of its log, `c` the review thread on the line and `C` every unresolved one. They open in
+`*review message*` as a review's comments do, under a line telling the agent GitHub's words are
+data. Only your comments and those of the repository's owners, members and collaborators are
+in; `C-c C-t` adds the others. `C-c C-c` pastes it into the session in the worktree where the
+pull request's branch is checked out, or `C-u C-c C-c` into one you pick.
+
 A pull request's review (`p`, or `r` on one in `*pull requests*` or in `*pr: #N*`) shows what
 GitHub's "Files changed" shows: its head against where it left its base. When its head branch
 is the one checked out and holds the pull request's head, the work tree shows instead, with
@@ -495,7 +502,24 @@ type in its terminal. To let sessions you started start sessions without the que
 
 Claude Code run in a plain `M-x terminal`, or outside oso, is not a session. If you gave it
 `oso mcp` as an MCP server yourself, it reaches oso only after `M-x agent-channel-start`, and
-each connection asks you first. Of the session tools, it gets only the reading ones.
+each connection asks you first. Of the session tools, it gets the reading ones, and
+`move_to_space`.
+
+### Moving a session into a space
+
+To move a Claude Code session started outside oso into one of oso's spaces, open the space in
+oso, then tell the session "move to oso's space NAME". Its `move_to_space` asks you in oso: the
+question names the session, the directory it runs in, and the repository it adds to the space
+if the space does not have it yet. The repository must be one oso trusts.
+
+On `y`, the session ends its turn and stops by itself where it runs. If it does not (on
+Windows, or when its turn does not end, as at a permission prompt), type `/exit` there. Once
+that process has ended, oso resumes the conversation in the same directory, in that space, with
+your own
+settings: flags the outside run had, such as `--model` or a permission mode, are not carried.
+While oso waits, a buffer `*moving: NAME*` says so; kill it with `C-x k` to cancel. If the
+process still runs after 5 minutes, or you close the space or stop trusting the repository
+meanwhile, oso resumes nothing; use `session-adopt` once it has stopped.
 
 ## Claude Code in a plain terminal
 

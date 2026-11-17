@@ -76,7 +76,10 @@ often, so it must rebuild within 2 s.
   (`registry`) and oso's record (`record`) are read off the UI thread, and a bridge's claim is
   judged by one pure function (`bridge`). `session-adopt` reads Claude Code's transcripts
   (`transcripts`) only for ids, names, times and directories, on its own
-  `oso-session-adopt-list` thread (`adopt`). `session-search` alone reads what was said in
+  `oso-session-adopt-list` thread (`adopt`). A session started outside oso that asks to move
+  into a space (`moving`, ADR 0151) is found from the registry on `oso-session-move`, and its
+  process and its registry entry are watched on `oso-session-move-wait`; once its turn
+  ended, its bridge stops its own parent (`channel/mcp/moving.rs`, step 2). `session-search` alone reads what was said in
   them, prompts and replies only, held in memory on `oso-history` (`history`, ADR 0145); no
   agent gets it, and none of it is logged. The clipboard's images a session is given
   (`images`, ADR 0142) are written, converted by `sips` and removed on one `oso-images` thread,
@@ -85,7 +88,8 @@ often, so it must rebuild within 2 s.
 - `src/review.rs` runs git and diffs for an agent review on `oso-review` (ADR 0122), only for
   a trusted project's root, and git only through `oso_platform::process`, with `src/git.rs`'s
   runner, `TrustedRoot` and secret-name check. `review/refine.rs` refines a change block's words,
-  for a git status now and a review's view later. `review/view.rs`
+  for a git status now and a review's view later; `review/message.rs`'s fence rule
+  (`backticks`) serves `vcs/pr/send` too. `review/view.rs`
   lays out a review buffer's whole text on `oso-review-view`, one thread per review, and
   `review/view/panes.rs` its two panes, which `app/reviews/layout.rs` switches areas to;
   `review/view/highlight.rs` opens each side as a document no buffer owns on the syntax threads,
@@ -142,7 +146,10 @@ often, so it must rebuild within 2 s.
   `pr/create`, read for on the `gh` thread (`pr/work/create`) and run on the run thread
   (`run/pr`), with `app/vcs/pr/create.rs` and `commands::vcs::pr::create` (step 5a-2); issues are
   `pr/issue`, with `pr/write/issue`, `pr/work/issue`, `app/vcs/pr/issue.rs` and
-  `commands::vcs::pr::issue` (step 5b-1). Its keys are listed in `commands::vcs::KEYS` and
+  `commands::vcs::pr::issue` (step 5b-1); checks and threads sent to an agent session are
+  composed by `pr/send` from what `pr/work/send` reads, with `app/vcs/pr/send.rs`, and shown and
+  pasted by ADR 0122's `app/reviews/send.rs` (`send/pull.rs`) (step 6b). Its keys are listed in
+  `commands::vcs::KEYS` and
   `commands::vcs::commit`, the commit menu is built in, and `bindings/vcs.rs` binds them;
   `app/vcs.rs` carries out what its commands ask, with `app/vcs/status.rs` (the status's own
   requests), `app/vcs/commit.rs` (messages) and `app/vcs/runs.rs` (runs and their log). What a commit asks of the worktree's agent session,

@@ -438,6 +438,10 @@ item notes when it must be settled.
   (for example `sessions::table::Session`), move `SessionKey` out of the worker, and call the
   directory `App::new` takes the state directory. Renaming earlier would churn steps 3 to 6,
   which build on step 1 ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 1 as built).
+- Check on the current Claude Code CLI before ADR 0151 step 2: that a registry entry's `status`
+  turns `idle` when a turn ends, and that `SIGTERM` after an idle turn leaves the transcript
+  whole. Step 1's flows use a fake `claude`
+  ([ADR 0151](adr/0151-moving-a-session-into-a-space.md)).
 - Dictation: the author deferred it on 2026-11-13. [ADR 0129](adr/0129-dictation.md) stays
   Proposed with its questions open (where recognition runs, the text, the key, the language, the
   macOS microphone permission).

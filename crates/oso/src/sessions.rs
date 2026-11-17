@@ -28,6 +28,8 @@
 //! - `spaces`: each project's window tree, zoom and last buffers.
 //! - `transcripts`: the ids, names, times and directories of Claude Code's conversations, and
 //!   `adopt`: what `session-adopt` offers, found on a thread of its own.
+//! - `moving`: a session started outside oso that asks to move into a space (ADR 0151): who
+//!   asks, where it runs, and the wait for it to stop there.
 //! - `history`: what was said in them, held and searched for `session-search` on a thread of
 //!   its own (ADR 0145).
 //! - `messages`: who sent a session a message, from its screen.
@@ -47,6 +49,7 @@ pub mod images;
 pub mod launch;
 pub mod list;
 pub mod messages;
+pub mod moving;
 pub mod recap;
 pub mod record;
 pub mod registry;

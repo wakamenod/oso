@@ -48,6 +48,10 @@ fn a_pull_request_s_keys_act_at_the_primary_cursor() {
         "git-pr-copy-link",
         "git-pr-refresh",
         "git-pr-review",
+        "git-pr-send-check",
+        "git-pr-send-failing",
+        "git-pr-send-thread",
+        "git-pr-send-unresolved",
     ] {
         let (result, _) = run(&mut editor, name, Args::NONE);
         assert!(result.is_ok(), "{name}");
@@ -65,8 +69,20 @@ fn a_pull_request_s_keys_act_at_the_primary_cursor() {
             act(PrAct::CopyLink),
             act(PrAct::Refresh),
             act(PrAct::Review),
+            act(PrAct::SendCheck),
+            act(PrAct::SendFailing),
+            act(PrAct::SendThread),
+            act(PrAct::SendUnresolved),
         ]
     );
+    for (key, name) in [
+        ("x", "git-pr-send-check"),
+        ("X", "git-pr-send-failing"),
+        ("c", "git-pr-send-thread"),
+        ("C", "git-pr-send-unresolved"),
+    ] {
+        assert!(KEYS.contains(&(key, name)), "{key}");
+    }
     // The menu's heads work from the pull request's buffer too, as of its project.
     let (result, _) = run(&mut editor, "git-pr-list", Args::NONE);
     assert!(result.is_ok());
