@@ -133,8 +133,17 @@ fn fills_of(
 ) -> (Vec<(Vec<CellRect>, char)>, JumpCells) {
     let mut region = Vec::new();
     editor.region_cells(id, screen, &mut region);
+    // A frame finds the matches in view within a few milliseconds of the clock, so a busy
+    // machine can draw fewer: the fullest of a few tries is what an idle frame draws, as a frame
+    // cut short is only ever a part of it.
     let mut found = oso_core::editor::MatchCells::default();
-    editor.isearch_cells(id, screen, &mut found);
+    for _ in 0..8 {
+        let mut tried = oso_core::editor::MatchCells::default();
+        editor.isearch_cells(id, screen, &mut tried);
+        if tried.others.len() + tried.current.len() > found.others.len() + found.current.len() {
+            found = tried;
+        }
+    }
     let mut jump = JumpCells::default();
     editor.jump_cells(id, screen, &mut jump);
     let mut trailing = Vec::new();
