@@ -364,7 +364,7 @@ mod spaces;
 fn a_worktree_s_row_shows_its_branch_s_pull_request() {
     let mut with = worktree("/r/.claude/worktrees/w", "feature", Some(1));
     with.pull = Some("PR #12 open\u{202e}".into());
-    let (name, tag) = super::worktree::names_for_tests(&with);
+    let (name, tag) = super::worktree::names(&with);
     assert_eq!(name, "w");
     let tag = tag.unwrap();
     assert!(tag.starts_with("feature, PR #12 open"), "{tag}");

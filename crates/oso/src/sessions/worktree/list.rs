@@ -244,6 +244,21 @@ mod tests {
     }
 
     #[test]
+    fn a_row_shows_its_branch_s_pull_request_escaped() {
+        let mut with = row("a", Status::default(), Merged::No("not merged".into()));
+        with.pull = Some("PR #7 open\u{1b}[2J ✓ 1".into());
+        let shown = render(Path::new("/r"), &[with], 0);
+        assert!(
+            shown.text.contains("; not merged\n  PR #7 open"),
+            "{}",
+            shown.text
+        );
+        assert!(!shown.text.contains('\u{1b}'));
+        let without = row("b", Status::default(), Merged::No("not merged".into()));
+        assert!(!render(Path::new("/r"), &[without], 0).text.contains("PR #"));
+    }
+
+    #[test]
     fn an_empty_list_says_so() {
         assert!(
             render(Path::new("/r"), &[], 0)

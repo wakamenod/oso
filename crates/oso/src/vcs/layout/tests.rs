@@ -575,6 +575,7 @@ fn the_branch_s_pull_request_shows_under_the_head_and_another_branch_s_does_not(
         url: "https://github.com/o/r/pull/12".into(),
         head: "1111111abc".into(),
         branch: branch.into(),
+        cross: false,
     };
     let mut view = View {
         pr: Some(std::sync::Arc::new(pr("main"))),

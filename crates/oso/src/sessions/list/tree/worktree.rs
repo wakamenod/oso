@@ -195,15 +195,9 @@ fn label<'e>(entry: &'e Entry, dir: &str) -> Option<&'e str> {
     (named_after && !entry.title.is_empty()).then_some(entry.title.as_str())
 }
 
-/// [`names`], for the tree's tests.
-#[cfg(test)]
-pub(super) fn names_for_tests(worktree: &Worktree) -> (String, Option<String>) {
-    names(worktree)
-}
-
 /// What a worktree's row names: the main checkout's branch, marked `primary`, or a linked
 /// worktree's directory, with its branch where that differs.
-fn names(worktree: &Worktree) -> (String, Option<String>) {
+pub(super) fn names(worktree: &Worktree) -> (String, Option<String>) {
     let dir = dir_name(&worktree.path);
     let branch = worktree.branch.as_deref().map(clean);
     let pull = worktree.pull.as_deref().map(clean);

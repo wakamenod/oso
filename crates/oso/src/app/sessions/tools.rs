@@ -405,6 +405,7 @@ impl App {
             | Report::Checked { .. }
             | Report::Clear { .. }
             | Report::Tree { .. }
+            | Report::TreePulls { .. }
             | Report::Pulls { .. } => {
                 return Some(report);
             }

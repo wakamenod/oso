@@ -9,7 +9,8 @@
 //! - Each job checks its root again before it runs anything: a project no longer trusted, or
 //!   whose root is no longer the directory that was trusted, runs no git.
 //! - A listing looks at every row without `gh` first, then asks `gh` only for the rows that
-//!   need it. A newer listing stops an older one between rows.
+//!   need it, and for the person's listing the repository's open pull requests (ADR 0127, step
+//!   5b-2). A newer listing stops an older one between rows.
 //! - A removal runs every check again, in the same job as `git worktree remove`. Once they hold,
 //!   it asks the app to clear the worktree (stop its idle sessions) and waits for the app's
 //!   word before git removes it. git then runs with no time limit, on a thread of its own
@@ -125,7 +126,12 @@ pub enum Report {
     /// step 5b-2), after every row.
     Pulls {
         token: u64,
-        pulls: Vec<(String, String)>,
+        pulls: Vec<super::git::OpenPull>,
+    },
+    /// The open pull requests of the tree's repository at `root`, after its worktrees.
+    TreePulls {
+        root: PathBuf,
+        pulls: Vec<super::git::OpenPull>,
     },
     /// What `gh` said of a listed row's branch, after every row.
     Merged {
@@ -290,7 +296,7 @@ impl Jobs {
     pub fn list(&self, token: u64, trust: Trust, snapshot: Snapshot) {
         let number = self.listing.fetch_add(1, Ordering::SeqCst) + 1;
         let newest = Arc::clone(&self.listing);
-        self.list_while(token, trust, snapshot, move || {
+        self.list_while(token, (trust, true), snapshot, move || {
             newest.load(Ordering::SeqCst) == number
         });
     }
@@ -304,14 +310,17 @@ impl Jobs {
         snapshot: Snapshot,
         stop: Arc<AtomicBool>,
     ) {
-        self.list_while(token, trust, snapshot, move || !stop.load(Ordering::SeqCst));
+        // An agent's listing asks `gh` for no open pull request (ADR 0127, step 5b-2).
+        self.list_while(token, (trust, false), snapshot, move || {
+            !stop.load(Ordering::SeqCst)
+        });
     }
 
     /// A listing that goes on while `live` says so, and says when it ended.
     fn list_while(
         &self,
         token: u64,
-        trust: Trust,
+        (trust, pulls): (Trust, bool),
         snapshot: Snapshot,
         live: impl Fn() -> bool + Send + 'static,
     ) {
@@ -322,7 +331,8 @@ impl Jobs {
             move |_, repo, send| {
                 // One stopped while it waited for a thread runs nothing.
                 if live() {
-                    list(repo, &snapshot, gh_host.as_deref(), &live, token, send);
+                    let asks = (token, pulls);
+                    list(repo, &snapshot, gh_host.as_deref(), &live, asks, send);
                 }
                 send(Report::ListEnded { token });
             },
@@ -458,7 +468,7 @@ fn list(
     snapshot: &Snapshot,
     gh_host: Option<&str>,
     live: &dyn Fn() -> bool,
-    token: u64,
+    (token, pulls): (u64, bool),
     send: &dyn Fn(Report),
 ) {
     let listed = match repo.worktrees() {
@@ -496,7 +506,9 @@ fn list(
     let Some(gh) = gh else {
         return;
     };
-    if let Some((_, github)) = &facts.github
+    if pulls
+        && live()
+        && let Some((_, github)) = &facts.github
         && let Ok(pulls) = super::git::open_pulls(&gh, github, repo.hooks())
     {
         send(Report::Pulls { token, pulls });

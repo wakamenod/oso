@@ -4,6 +4,7 @@
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
+use crate::sessions::worktree::git::{OpenPull, pull_line};
 use std::path::Path;
 
 use oso_core::buffer::{Buffer, Mode};
@@ -135,7 +136,7 @@ impl App {
     }
 
     /// The repository's open pull requests came: each row whose branch is one's shows it.
-    pub(super) fn worktree_pulls(&mut self, token: u64, pulls: &[(String, String)]) {
+    pub(super) fn worktree_pulls(&mut self, token: u64, pulls: &[OpenPull]) {
         let Some(list) = self
             .hosting
             .worktrees
@@ -146,17 +147,7 @@ impl App {
             return;
         };
         for at in 0..list.rows.len() {
-            let branch = list.rows[at].looked.listed.branch.clone();
-            let pull = branch.and_then(|branch| {
-                let short = branch
-                    .strip_prefix("refs/heads/")
-                    .unwrap_or(&branch)
-                    .to_owned();
-                pulls
-                    .iter()
-                    .find(|(head, _)| *head == short)
-                    .map(|(_, line)| line.clone())
-            });
+            let pull = pull_line(pulls, list.rows[at].looked.listed.branch.as_deref());
             if pull != list.rows[at].pull {
                 list.rows[at].pull = pull;
                 list.lines[at] = list::row_lines(&list.main, &list.rows[at]);

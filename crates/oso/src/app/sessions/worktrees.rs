@@ -231,6 +231,7 @@ impl App {
                 merged,
             } => self.worktree_merged(token, &path, merged),
             Report::Pulls { token, pulls } => self.worktree_pulls(token, &pulls),
+            Report::TreePulls { root, pulls } => self.tree_pulls(root, pulls),
             Report::Checked {
                 token,
                 path,
