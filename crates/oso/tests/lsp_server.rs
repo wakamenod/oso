@@ -1616,7 +1616,8 @@ fn an_edit_of_a_buffer_changed_while_the_server_answered_is_refused_and_64_diagn
                 }}}
             ]},
             {"method": "textDocument/codeAction", "do": [
-                {"sleep_ms": 600},
+                // Long enough for the change below to go first on a slow runner.
+                {"sleep_ms": 2000},
                 {"reply": [{"title": "Late", "edit": {"changes": {here.clone(): [{"range": range(0, 0, 0), "newText": "x"}]}}}]},
             ]},
             {"method": "shutdown", "do": [{"reply": null}]},
@@ -1636,10 +1637,11 @@ fn an_edit_of_a_buffer_changed_while_the_server_answered_is_refused_and_64_diagn
         offset: 1,
         context: AskContext::Range { start: 1, end: 1 },
     });
-    seen.until(LIMIT, |seen| seen.logged("asked textDocument/codeAction"));
+    // The fake server's own line, which comes in its own time: oso's log says
+    // `asked textDocument/codeAction (request …)` as it asks, which is not it.
     let at_most =
         format!("asked textDocument/codeAction 0:1-0:1 {ACTION_DIAGNOSTICS_MAX} diagnostics=");
-    assert!(seen.logged(&at_most), "at most 64: {}", seen.log.join("\n"));
+    seen.until(LIMIT, |seen| seen.logged(&at_most));
     // The buffer changes while the server answers.
     seen.server.change(Change {
         id: 1,
