@@ -1,8 +1,12 @@
-//! The key a `cancelOperation:` stands for. AppKit's window sends it to the first responder in
-//! place of `keyDown:` for Command-`.`, so `M-.` reaches oso only this way (ADR 0149). The
-//! event is AppKit's current one, which stays current after its dispatch, so one is taken only
-//! once, and never while another event is being handled. A `cancelOperation:` with no such key,
-//! as from Accessibility or a stray sender, is no key.
+//! The keys AppKit's dispatch never sends to `keyDown:`, which the view takes where AppKit
+//! does send them. For Command-`.`, the window sends `cancelOperation:` to the first responder
+//! in its place, so `M-.` reaches oso only that way (ADR 0149); the event is AppKit's current
+//! one, which stays current after its dispatch, so one is taken only once, and never while
+//! another event is being handled, and a `cancelOperation:` with no such key, as from
+//! Accessibility or a stray sender, is no key. macOS's "Show Help menu" key, Command-Shift on
+//! the key with code 44 (`/` on ANSI and JIS layouts, so `M-?`), AppKit offers to the view's
+//! `performKeyEquivalent:`, then takes for itself as a symbolic hot key, with or without a
+//! Help menu, so that key reaches oso only from there (ADR 0152).
 //!
 //! Must not depend on: the run loop's hooks, the delegates or the view's state, which the view
 //! passes in.
@@ -34,21 +38,49 @@ pub(super) fn stamp(event: &NSEvent) -> Stamp {
 /// The key-down AppKit is dispatching, if `view` got `cancelOperation:` in place of `keyDown:`
 /// for it: one for `view`'s window, with Command held, that is not the key-down the view
 /// routed last (`routed`), while no event is being handled (`nested`).
-pub(super) fn diverted_key(
+pub(super) fn cancel_key(
     view: &NSView,
     nested: bool,
     routed: Option<Stamp>,
 ) -> Option<Retained<NSEvent>> {
     let event = NSApplication::sharedApplication(view.mtm()).currentEvent()?;
+    let (ours, fresh) = ours_and_fresh(view, &event, nested, routed)?;
+    let held = keys::held(event.modifierFlags());
+    keys::is_cancel_key(held, ours, fresh).then_some(event)
+}
+
+/// Whether `event`, which AppKit offers to `view`'s `performKeyEquivalent:`, is the "Show
+/// Help menu" key AppKit would take next: a key-down with Command and Shift alone on the key
+/// with code 44, for `view`'s window, that is not the key-down the view routed last
+/// (`routed`), while no event is being handled (`nested`). The key is read first, as nearly
+/// every key equivalent is another and needs no more reading.
+pub(super) fn is_help_menu_key(
+    view: &NSView,
+    event: &NSEvent,
+    nested: bool,
+    routed: Option<Stamp>,
+) -> bool {
+    // A key code only a key event has: the type first.
+    event.r#type() == NSEventType::KeyDown
+        && keys::is_help_menu_key(keys::held(event.modifierFlags()), event.keyCode())
+        && ours_and_fresh(view, event, nested, routed) == Some((true, true))
+}
+
+/// For a key-down, whether it is for `view`'s window, and whether it is new ([`is_fresh`]);
+/// `None` for any other event.
+fn ours_and_fresh(
+    view: &NSView,
+    event: &NSEvent,
+    nested: bool,
+    routed: Option<Stamp>,
+) -> Option<(bool, bool)> {
     if event.r#type() != NSEventType::KeyDown {
         return None;
     }
     let ours = view
         .window()
         .is_some_and(|window| window.windowNumber() == event.windowNumber());
-    let fresh = is_fresh(nested, routed, stamp(&event));
-    let held = keys::held(event.modifierFlags());
-    keys::is_diverted_key(held, ours, fresh).then_some(event)
+    Some((ours, is_fresh(nested, routed, stamp(event))))
 }
 
 /// Whether the key-down stamped `now` is new: not the one the view routed last (`routed`),
