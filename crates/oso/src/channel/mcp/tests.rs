@@ -132,6 +132,7 @@ fn initializes_without_connecting_and_lists_its_tools() {
             "start_worktree_session",
             "session_start",
             "draft_set",
+            "move_to_space",
             "session_resume",
         ]
     );
@@ -152,6 +153,8 @@ fn initializes_without_connecting_and_lists_its_tools() {
     }
     assert_eq!(hint("worktree_remove", "destructiveHint"), true);
     assert_eq!(hint("start_worktree_session", "readOnlyHint"), false);
+    assert_eq!(hint("move_to_space", "readOnlyHint"), false);
+    assert_eq!(hint("move_to_space", "destructiveHint"), false);
     assert_eq!(
         asked.borrow().connects,
         0,

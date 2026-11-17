@@ -52,6 +52,8 @@ fn the_tools_and_their_reach() {
             ),
             // It writes only the caller's worktree's message, for oso's request (ADR 0127).
             ("draft_set", Reach::Change, Asks::No, true, false),
+            // The one tool that acts for an outside connection, which asks each time (ADR 0151).
+            ("move_to_space", Reach::Change, Asks::Each, true, true),
             // As a start, by ADR 0135's rules (ADR 0153).
             (
                 "session_resume",
@@ -76,13 +78,18 @@ fn every_tool_keeps_the_rules_of_reach() {
     for t in &TOOLS {
         // No tool is the person's: those never reach the channel.
         assert_ne!(t.reach, Reach::Person, "{}", t.name);
-        // What changes or asks counts, and only it; only what reads is open to outsiders.
+        // What changes or asks counts, and only it; only what reads, or asks each time, is
+        // open to outsiders.
         assert_eq!(
             t.counted(),
             t.reach == Reach::Change || t.asks == Asks::Each
         );
         assert_eq!(t.read_only(), t.reach == Reach::Look && t.asks == Asks::No);
-        assert!(!t.outside || t.read_only(), "{}", t.name);
+        assert!(
+            !t.outside || t.read_only() || t.asks == Asks::Each,
+            "{}",
+            t.name
+        );
         assert!(!t.destructive || t.counted(), "{}", t.name);
         assert_eq!(tool(t.name), Some(t));
     }

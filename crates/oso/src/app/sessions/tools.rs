@@ -8,7 +8,8 @@
 //! they started (ADR 0135).
 //!
 //! - A connection proven to be a hosted session's bridge calls as that session. Any other
-//!   connection may only read, within the selected window's project (the author's choice).
+//!   connection may only read, within the selected window's project (the author's choice), or
+//!   ask to move its own session into a space, which asks the person each time (ADR 0151).
 //! - A tool that asks puts its question to the person once they are free, as the connection's
 //!   own question waits, and its reply waits for the answer and for what the answer starts.
 //! - A call that changes something is counted, and refused past the loop guard or within a
@@ -38,13 +39,15 @@ use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::jobs::{Report, Trust};
 
 mod asks;
+mod moving;
+mod question;
 mod reads;
 mod remove;
 mod resume;
 mod space;
 mod starting;
 
-pub(in crate::app) use asks::Question;
+pub(in crate::app) use question::Question;
 use reads::Listing;
 
 /// What a call that would ask is told while another agent's question waits.
@@ -60,6 +63,8 @@ pub(in crate::app) struct Tools {
     starts: HashMap<SessionKey, Pending>,
     /// The question of a tool that asks, before and while it is asked.
     question: Option<Question>,
+    /// A `move_to_space` call whose asker is being looked for (ADR 0151).
+    looking: Option<moving::Looking>,
     /// When each caller's recent worktree listings started, for their limit.
     listings: HashMap<Lister, Vec<Instant>>,
     /// `*Agent request*`, while it is shown for a question.
@@ -217,19 +222,25 @@ impl App {
                 .map_or_else(|| "an agent".to_owned(), |c| printable(&c.name, 40));
             self.agent_log(&format!("{}: from {who}", tool.name));
         }
-        self.carry_tool(pending, tool, call, caller);
+        match (call, caller) {
+            // Only a session started outside oso moves (ADR 0151).
+            (Call::MoveToSpace { space }, None) => self.tool_move_to_space(pending, space),
+            (Call::MoveToSpace { .. }, Some(_)) => pending.answer(Err(
+                "your session is oso's already; move_to_space is for a session started outside oso"
+                    .into(),
+            )),
+            (call, caller) => self.carry_tool(pending, tool, call, caller),
+        }
     }
 
     /// Carries out `call` of `tool` from `caller`, admitted to the channel.
     fn carry_tool(&mut self, pending: Pending, tool: Tool, call: Call, caller: Option<Caller>) {
         match (call, caller) {
             (Call::List { offset }, caller) => {
-                let listed = self.session_list(caller.as_ref(), offset);
-                pending.answer(listed);
+                pending.answer(self.session_list(caller.as_ref(), offset))
             }
             (Call::State { session }, caller) => {
-                let state = self.session_state(caller.as_ref(), &session);
-                pending.answer(state);
+                pending.answer(self.session_state(caller.as_ref(), &session))
             }
             (Call::WorktreeList { repo }, caller) => match self.scoped(caller, repo.as_deref()) {
                 Ok(caller) => self.tool_worktree_list(pending, caller),
@@ -241,10 +252,7 @@ impl App {
                     Err(why) => pending.answer(Err(why)),
                 }
             }
-            (Call::SpaceStatus, caller) => {
-                let status = self.space_status(caller.as_ref());
-                pending.answer(status);
-            }
+            (Call::SpaceStatus, caller) => pending.answer(self.space_status(caller.as_ref())),
             (Call::Resume { session }, Some(caller)) => {
                 self.tool_session_resume(pending, &tool, &caller, &session);
             }
@@ -300,7 +308,10 @@ impl App {
                 };
                 self.tool_session_start(pending, &tool, &caller, call);
             }
-            (_, None) => pending.answer(Err("this tool is only for a session oso started".into())),
+            // `session_tool` carried it out already.
+            (Call::MoveToSpace { .. }, _) | (_, None) => {
+                pending.answer(Err("this tool is only for a session oso started".into()));
+            }
         }
     }
 
@@ -545,6 +556,8 @@ impl App {
         tools
             .listings
             .retain(|lister, _| !matches!(lister, Lister::Outside(of) if ours(*of)));
+        // A move's look that waits for nothing any more (ADR 0151).
+        tools.looking.take_if(|looking| ours(looking.connection()));
         let closes = tools
             .question
             .as_ref()
@@ -559,6 +572,7 @@ impl App {
     pub(in crate::app) fn sync_session_tools(&mut self) {
         self.ask_about_a_tool();
         self.end_slow_jobs();
+        self.sync_moves();
     }
 }
 

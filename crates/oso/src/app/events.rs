@@ -120,6 +120,8 @@ impl App {
             UserEvent::SessionStart(report) => self.session_start_reported(report),
             UserEvent::ImageKept(key, kept) => self.image_kept(key, *kept),
             UserEvent::Adoptable(found) => self.adoptable_found(*found),
+            UserEvent::MoveLooked(token, found) => self.move_looked(token, *found),
+            UserEvent::MoveWaited(token, step) => self.move_waited(token, step),
             UserEvent::SessionChanges(key, changed) => self.session_changes(key, changed),
             UserEvent::Worktree(report) => self.worktree_reported(event_loop, *report),
             UserEvent::Review(event) => self.review_reported(event),

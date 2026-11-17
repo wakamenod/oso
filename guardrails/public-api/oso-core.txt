@@ -77,6 +77,7 @@ pub oso_core::buffer::Mode::RenamePreview
 pub oso_core::buffer::Mode::Review
 pub oso_core::buffer::Mode::ReviewMessage
 pub oso_core::buffer::Mode::Rust
+pub oso_core::buffer::Mode::SessionMove
 pub oso_core::buffer::Mode::Sessions
 pub oso_core::buffer::Mode::Swift
 pub oso_core::buffer::Mode::Terminal
@@ -1911,6 +1912,7 @@ pub enum oso_core::editor::PrAct
 pub oso_core::editor::PrAct::CopyLink
 pub oso_core::editor::PrAct::Open
 pub oso_core::editor::PrAct::Refresh
+pub oso_core::editor::PrAct::Review
 pub oso_core::editor::PrAct::Visit
 impl core::clone::Clone for oso_core::editor::PrAct
 pub fn oso_core::editor::PrAct::clone(&self) -> oso_core::editor::PrAct
@@ -2962,6 +2964,7 @@ pub fn oso_core::editor::Editor::review_areas(&self, &mut alloc::vec::Vec<oso_co
 pub fn oso_core::editor::Editor::review_choice(&self, oso_core::editor::ReviewId) -> oso_core::editor::ReviewChoice
 pub fn oso_core::editor::Editor::review_panes(&self, oso_core::editor::ReviewId) -> core::option::Option<(oso_core::buffer::BufferId, oso_core::buffer::BufferId)>
 pub fn oso_core::editor::Editor::set_review_panes(&mut self, oso_core::editor::ReviewId, (oso_core::load::Reloaded, oso_core::review::Rows, oso_core::syntax::Highlights), (oso_core::load::Reloaded, oso_core::review::Rows, oso_core::syntax::Highlights), oso_core::editor::LineMoves<'_>) -> oso_core::editor::ReviewLeftover
+pub fn oso_core::editor::Editor::set_review_panes_paint(&mut self, oso_core::editor::ReviewId, (oso_core::review::Rows, oso_core::syntax::Highlights), (oso_core::review::Rows, oso_core::syntax::Highlights)) -> core::result::Result<oso_core::editor::ReviewLeftover, oso_core::editor::ReviewLeftover>
 pub fn oso_core::editor::Editor::show_review_panes(&mut self, oso_core::window::WindowId, oso_core::frame::Way) -> core::result::Result<(), oso_core::editor::NoPair>
 pub fn oso_core::editor::Editor::show_review_unified(&mut self, oso_core::window::WindowId) -> bool
 impl oso_core::editor::Editor

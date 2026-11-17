@@ -256,6 +256,21 @@ network features.
   refused while something is stopped, judged on the run thread, and when oso cannot tell. Only
   a label the push's filter takes is offered to check out. These runs honour `refs/replace/`,
   as the person's own git does, where the graph's reads do not.
+- A pull request's review (ADR 0122, step 12b) asks `gh` as the pull request buffers do, from
+  the review's thread, only for the person's `p`, `r` or `g` in a trusted project, never on a
+  timer. Only the whole commit ids it gives reach git; its base branch reaches git only as a
+  plain ASCII branch name, so no refspec of GitHub's can name a ref to write. The side the
+  clone lacks is fetched from the branch's remote, else `origin`, with the review's empty
+  hooks directory and reads' variables, the proxies, the SSH agent and no controlling
+  terminal (`Git::for_fetch`), as objects alone (`--refmap=`, `--no-write-fetch-head`), so no
+  ref moves and `FETCH_HEAD` names nothing of a fork's for a later merge; with no tags,
+  submodules or upkeep. The review's stop ends the fetch and the wait for `gh`; a fetch still
+  running as oso quits goes on, with no bound, until it ends or fails. A failed fetch shows
+  git's own last line, never a server's own error or `remote:` text. The work tree stands for the pull request only when
+  the head branch checked out holds its head commit, so a branch behind it hides no pushed
+  commit, and comments go to a worktree only under the same rule, and to the review's own
+  session after a failed refresh. The branch and title are escaped in the echo area, after the
+  fixed words.
 - Pull requests (ADR 0127, step 5a) are read through `gh`, the person's: in a trusted project
   only, on a thread of the repository's own, `gh` run in the empty private directory, never in
   the repository, with `--repo` naming the repository the branch's remote's address gives, on
@@ -642,8 +657,9 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
   nothing, and allows what it cannot read. It steers Claude, and is no boundary.
 - The agents' session tools ([ADR 0121](adr/0121-agent-sessions-and-spaces.md), step 6) act
   only for a session oso started, proven by its bridge, and only within its repository; any
-  other connection may only read, within the selected window's project. Starting a session asks
-  the person each time, from the window only, after a quiet moment, and the process starts on
+  other connection may only read, within the selected window's project, or ask to move into a
+  space. Starting a session asks the person each time, from the window only, after a quiet
+  moment, and the process starts on
   the person's `y`, as the person's act; the question quotes and escapes every name in it, and
   `?` shows the whole brief. No tool types into a terminal, answers a session's dialog, passes a
   permission flag or reads Claude Code's token files; a guard test keeps the tools' files from
@@ -660,6 +676,16 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     new connection resets neither, and a branch's refusal by the name git resolved it to.
   - A tool's worktree jobs take the trust of the session's open project as it is at the call,
     and again at the person's `y`, so a project the person no longer trusts runs nothing.
+  - `move_to_space` ([ADR 0151](adr/0151-moving-a-session-into-a-space.md)) is the one tool
+    that acts for an outside connection, and it asks the person each time. The agent names only
+    a space; the conversation, its directory and its process come from the registry entry of
+    the bridge's parent, matched to when that parent started as the connection came. The
+    question names that process as the system does, since any process of the person's can
+    write an entry. Its repository must be trusted, at the call, at the `y` and again before
+    the resume, and the question names it when the `y` adds it to the space.
+    Nothing starts until the outside process has ended, and the start thread reads the registry
+    again, so two processes never run one conversation. The moved session counts as started on
+    the person's `y` (ADR 0135), which the question says.
   - `draft_set` ([ADR 0127](adr/0127-source-control-and-github.md), step 6a) asks nothing: it
     writes only the commit message whose newest request, pasted by the person's `C-c C-d`,
     named its 32-bit id, from the session it was pasted into, in that worktree of a trusted

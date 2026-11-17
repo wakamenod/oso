@@ -45,7 +45,8 @@ pub struct Tool {
     /// The MCP hint that it may destroy what cannot be had back.
     pub destructive: bool,
     /// Whether a connection that is no hosted session's bridge may call it (the author's
-    /// choice, step 6): only the reading tools, within the selected window's project.
+    /// choice, step 6): the reading tools, within the selected window's project, and
+    /// `move_to_space`, which asks each time (ADR 0151).
     pub outside: bool,
 }
 
@@ -73,7 +74,7 @@ const fn reads(name: &'static str) -> Tool {
 
 /// The tools, the reading ones first. A change here is a change of what an agent may do: the
 /// test below spells the table out, so that review sees it.
-pub const TOOLS: [Tool; 9] = [
+pub const TOOLS: [Tool; 10] = [
     reads("session_list"),
     reads("session_state"),
     // It runs git and `gh` with no question, as the author chose (ADR 0121, step 4).
@@ -113,6 +114,14 @@ pub const TOOLS: [Tool; 9] = [
         asks: Asks::No,
         destructive: false,
         outside: false,
+    },
+    // Only an outside session's, which moves into a space on the person's `y` (ADR 0151).
+    Tool {
+        name: "move_to_space",
+        reach: Reach::Change,
+        asks: Asks::Each,
+        destructive: false,
+        outside: true,
     },
     // A space's orchestrator resumes a stopped session of its space, as `session-resume` does,
     // and as ADR 0135 lets a start go without asking (ADR 0153).
@@ -247,6 +256,11 @@ const FIELD: usize = 80;
 /// control or bidirectional character can change how the question reads. Past [`FIELD`]
 /// characters its middle goes, so that a path keeps the end that names it.
 pub fn quoted(text: &str) -> String {
+    quoted_within(text, FIELD)
+}
+
+/// `text` quoted as [`quoted`] quotes it, its middle going only past `field` characters.
+pub fn quoted_within(text: &str, field: usize) -> String {
     let mut escaped = String::with_capacity(text.len());
     for c in text.chars() {
         match c {
@@ -259,11 +273,11 @@ pub fn quoted(text: &str) -> String {
         }
     }
     let count = escaped.chars().count();
-    if count > FIELD {
-        let head: String = escaped.chars().take(FIELD / 4).collect();
+    if count > field {
+        let head: String = escaped.chars().take(field / 4).collect();
         let tail: String = escaped
             .chars()
-            .skip(count - (FIELD - FIELD / 4 - 1))
+            .skip(count - (field - field / 4 - 1))
             .collect();
         escaped = format!("{head}…{tail}");
     }

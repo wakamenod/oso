@@ -18,6 +18,9 @@
 //! - Each job carries the UI's epoch for its buffer, which a new start moves on, and each report
 //!   the epoch of the document it is of and a stamp in the order slices ended, so that the UI
 //!   drops a report from before a new start, or one that comes after a later one.
+//! - A report goes when the highlights changed, and once for each epoch and revision a buffer is
+//!   highlighted whole at, saying it is done (ADR 0122, step 9); a document no buffer owns says
+//!   so in its last.
 //! - A document no buffer owns (ADR 0122), such as a review's side, has a slot of its own whose
 //!   text never changes ([`unowned`]). It runs only where background buffers do, one thread
 //!   at a time, so a shown buffer always has a thread.
@@ -76,9 +79,10 @@ pub struct Report<Key> {
     /// text never changes.
     pub revision: u64,
     pub outcome: Outcome,
-    /// Whether this is a document no buffer owns highlighted whole: its last report, which
-    /// comes even when nothing changed since the one before, so that its slot may be closed.
-    /// Always false for a buffer's.
+    /// Whether its text is highlighted whole: a document no buffer owns' last report, so that
+    /// its slot may be closed, and a buffer's once for each revision its whole text is
+    /// highlighted at (ADR 0122, step 9). Each comes even when nothing changed since the
+    /// report before.
     pub done: bool,
 }
 
@@ -183,6 +187,8 @@ struct Slot {
     /// Whether it was in the lane when a thread last checked it out: a background buffer that
     /// a window shows during its slice still holds the lane.
     taken_in_lane: bool,
+    /// The epoch and revision a buffer last reported done at, so that it does once each.
+    done_at: Option<(u64, u64)>,
 }
 
 impl Slot {
@@ -212,6 +218,7 @@ impl Slot {
             reported: None,
             kind: Kind::Buffer,
             taken_in_lane: false,
+            done_at: None,
         }
     }
 }
@@ -434,15 +441,20 @@ impl<Key: Copy + Eq + Hash> Scheduler<Key> {
             self.doomed.push(document);
             return Some(report(Outcome::Failed(failure), false));
         }
-        let unowned_done =
-            outcome == Highlighted::Done && matches!(slot.kind, Kind::Unowned { .. });
-        let sent = (unowned_done || due(slot, &document, outcome)).then(|| {
+        // A document's last report, and a buffer's once a revision, says it is done, even
+        // with nothing new since the one before.
+        let done = outcome == Highlighted::Done
+            && match slot.kind {
+                Kind::Unowned { .. } => true,
+                Kind::Buffer => slot.done_at != Some((epoch, revision)),
+            };
+        let sent = (done || due(slot, &document, outcome)).then(|| {
             slot.reported = Some((document.changes(), Instant::now()));
-            report(
-                Outcome::Highlights(document.highlights().clone()),
-                unowned_done,
-            )
+            report(Outcome::Highlights(document.highlights().clone()), done)
         });
+        if done {
+            slot.done_at = Some((epoch, revision));
+        }
         if let Kind::Unowned { place, finished } = &mut slot.kind {
             if outcome == Highlighted::Done {
                 // Its text never changes: the tree is of no more use, and a thread frees it.

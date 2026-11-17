@@ -26,6 +26,7 @@ mod begin;
 mod bridge;
 mod carried;
 mod fork;
+mod moving;
 mod record;
 mod resume;
 mod terminal;
@@ -34,6 +35,7 @@ use fork::ForkFrom;
 
 pub(in crate::app) use adopt::Adopting;
 pub(in crate::app) use begin::Begin;
+pub(in crate::app) use moving::{Moves, Moving};
 
 /// What the app keeps of its hosted sessions.
 #[derive(Debug, Default)]
@@ -74,6 +76,8 @@ pub(in crate::app) struct Hosting {
     pub(in crate::app) trusts: HashMap<SessionKey, TrustedRoot>,
     /// The agents' session tools (ADR 0121 step 6).
     pub(in crate::app) tools: super::tools::Tools,
+    /// Sessions started outside oso that move into a space (ADR 0151).
+    pub(in crate::app) moves: Moves,
 }
 
 impl Hosting {
@@ -117,6 +121,7 @@ impl Hosting {
             worktrees: super::worktrees::Worktrees::default(),
             trusts: HashMap::new(),
             tools: super::tools::Tools::default(),
+            moves: Moves::default(),
         }
     }
 }

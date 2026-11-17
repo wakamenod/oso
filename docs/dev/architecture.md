@@ -799,6 +799,15 @@ The UI thread never blocks on I/O or parsing:
   line, `history/preview.rs` makes a preview's text; glue in `app/sessions/conversations.rs`).
   Its prompt is the project search's (`oso-core`'s `editor/project_search/conversations.rs`),
   and its `RET` adopts through `session-adopt`'s start.
+  A session started outside oso that asks to move into a space with `move_to_space`
+  ([ADR 0151](adr/0151-moving-a-session-into-a-space.md)) is known by the registry entry of its
+  bridge's parent, found with its repository on a short `oso-session-move` thread
+  (`sessions/moving.rs`); the channel's server reads when that parent started as the
+  connection comes (`Event::Asks`), and the app keeps it with the connection
+  (`app/agent.rs`). The call's checks and question are `app/sessions/tools/moving.rs`'; on the
+  person's `y`, `oso-session-move-wait` watches the outside process, and once it has ended
+  `app/sessions/hosting/moving.rs` resumes the conversation through `session-adopt`'s start,
+  in that space.
 - Sending to a session ([ADR 0121](adr/0121-agent-sessions-and-spaces.md) step 5) has one
   delivery path on the UI thread, `App::send_to_session` (`app/sessions/watch/sending.rs`): it
   refuses a session that cannot take a paste (`sessions/send.rs::refusal`, pure), pastes with
@@ -806,8 +815,11 @@ The UI thread never blocks on I/O or parsing:
   what to send (`SessionRequest::Send`); the text is put together by pure functions
   (`sessions/send.rs::compose`). ADR 0122's review comments call the same path, their message
   composed from the review's model by `review/message.rs` and shown in `*review message*`
-  first (`app/reviews/send.rs`, step 12); so do ADR 0127's drafts, and so does `session-yank-image` (`C-c C-y`, ADR 0142), which checks the same
-  refusals first (`paste_target`), has the clipboard's worker read the image, and keeps it on
+  first (`app/reviews/send.rs`, step 12). A pull request's review resolves its sides
+  through `gh` and a fetch on the review's own thread (`review/pr.rs`, step 12b), and its
+  comments go to the session of the worktree its head branch is checked out in. ADR 0127's
+  drafts take the same path, and so does `session-yank-image` (`C-c C-y`, ADR 0142), which
+  checks the same refusals first (`paste_target`), has the clipboard's worker read the image, and keeps it on
   `sessions::images`' one `oso-images` thread, which also removes a session's images when it is
   archived and sweeps old ones (`app/sessions/watch/images.rs`). The dispatcher notes whether
   each run came through the dev socket. The worker finds message lines' senders with `[[message]]` rules
@@ -896,7 +908,10 @@ The UI thread never blocks on I/O or parsing:
   `SyntaxKey::Side`, files on screen first and at most 8 at once. The UI hands each report on
   to its review's view in O(1); the view projects its runs over the review's lines
   (`review/view/project.rs`) and sends a paint that lays out nothing, which goes in through
-  `set_review_paint` at O(1) (ADR 0122, step 9).
+  `set_review_paint` at O(1), and the panes' through `set_review_panes_paint`. An open
+  buffer whose text a file's new side is, handed to the view as an O(1) copy after each report
+  it takes, gives that side's runs: all of them once the buffer is highlighted whole, when the
+  side's own document closes; before that, those of its lines on screen (ADR 0122, step 9).
 
 ### Configuration
 

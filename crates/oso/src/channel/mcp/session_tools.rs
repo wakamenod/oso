@@ -21,6 +21,7 @@ pub(super) fn method(name: &str) -> Option<(&'static str, &'static [&'static str
         "session_start" => &["directory", "name", "brief", "repo", "with_dirs"],
         "space_status" => &[],
         "draft_set" => &["kind", "id", "text"],
+        "move_to_space" => &["space"],
         "session_resume" => &["session"],
         _ => return None,
     };
@@ -133,6 +134,16 @@ pub(super) fn acting() -> Vec<Value> {
                 "text": { "type": "string", "description": "The message: its subject line, a blank line and its body, at most 16 KiB." },
             }),
             &["kind", "id", "text"],
+            false,
+            false,
+        ),
+        tool(
+            "move_to_space",
+            "Only for a session started outside oso, when the person asks you to move to one of oso's spaces: oso asks the person, then this conversation goes on in oso, in that space, once this process has ended. On success, end your turn at once with the one line the reply gives, and call no more tools. Two processes must never run one conversation: do not resume it anywhere yourself.",
+            json!({
+                "space": { "type": "string", "description": "The open space's name, as the person gave it." },
+            }),
+            &["space"],
             false,
             false,
         ),

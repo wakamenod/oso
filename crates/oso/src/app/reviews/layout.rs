@@ -22,7 +22,7 @@ use oso_core::editor::{ReviewArea, ReviewLayout};
 use oso_core::window::WindowId;
 
 use crate::app::App;
-use crate::review::view::{PaneText, Tell};
+use crate::review::view::{PanePaint, PaneText, Tell};
 
 /// What an open review keeps of how it shows.
 #[derive(Debug, Default)]
@@ -67,16 +67,30 @@ impl App {
     }
 
     /// Puts the panes' texts of the review at `index` in and switches its areas to them at
-    /// once, if it takes them, else frees them.
+    /// once, or only their rows and highlights for texts that did not change (ADR 0122, step
+    /// 9), if it takes them, else frees them.
     pub(super) fn put_in_review_panes(
         &mut self,
         index: usize,
-        panes: Box<[PaneText; 2]>,
+        panes: Option<Box<[PaneText; 2]>>,
+        paint: Option<Box<PanePaint>>,
         moved: oso_core::editor::LineMoves<'_>,
     ) {
-        if !self.takes_review_panes(index) {
-            return self.freer.free(panes);
+        if panes.is_none() && paint.is_none() {
+            return;
         }
+        if !self.takes_review_panes(index) {
+            return self.freer.free((panes, paint));
+        }
+        if let Some(paint) = paint {
+            let id = self.reviews.open[index].id;
+            let [old, new] = *paint;
+            let left = self.editor.set_review_panes_paint(id, old, new);
+            self.freer.free(left.unwrap_or_else(|left| left));
+        }
+        let Some(panes) = panes else {
+            return;
+        };
         let id = self.reviews.open[index].id;
         let before: Vec<_> = (self.editor.review_panes(id).into_iter())
             .flat_map(|(old, new)| [old, new])

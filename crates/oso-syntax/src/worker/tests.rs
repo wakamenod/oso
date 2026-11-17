@@ -284,3 +284,21 @@ fn reports_carry_the_epoch_of_their_start_and_stamps_in_order() {
     assert_eq!(second[0].epoch, 2);
     assert!(second[0].stamp > first[0].stamp);
 }
+
+#[test]
+fn a_buffer_says_it_is_done_once_for_each_revision_highlighted_whole() {
+    let mut scheduler = Scheduler::new();
+    let mut queries = Queries::new();
+    scheduler.submit(shown(job(2, 1, "fn a() {}\n", None)));
+    let reports = drain(&mut scheduler, &mut queries);
+    assert_eq!(reports.last().map(|report| report.done), Some(true));
+    assert_eq!(reports.iter().filter(|report| report.done).count(), 1);
+    // Shown elsewhere at the same revision: not said again.
+    scheduler.submit(job(2, 1, "fn a() {}\n", Some(Vec::new())));
+    let reports = drain(&mut scheduler, &mut queries);
+    assert!(reports.iter().all(|report| !report.done), "{reports:?}");
+    // A new revision is done once more.
+    scheduler.submit(shown(job(2, 2, "fn a() {}\n", Some(Vec::new()))));
+    let reports = drain(&mut scheduler, &mut queries);
+    assert_eq!(reports.iter().filter(|report| report.done).count(), 1);
+}

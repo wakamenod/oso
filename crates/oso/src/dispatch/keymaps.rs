@@ -379,7 +379,8 @@ impl Keymaps {
             | Mode::Tsx
             | Mode::JavaScript
             | Mode::Latex
-            | Mode::Swift => None,
+            | Mode::Swift
+            | Mode::SessionMove => None,
             Mode::Review => Some(&self.review),
             Mode::Directory => Some(&self.dired),
             Mode::RenamePreview => Some(&self.rename_preview),

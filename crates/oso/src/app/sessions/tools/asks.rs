@@ -6,7 +6,7 @@
 //! person's act; on `n` or `C-g` the same call from the same session is refused for a minute.
 //! When the person's configuration lets the caller start sessions without asking, no question
 //! opens and `starting` runs the plan at once (ADR 0135). `session_resume`'s plan is asked and
-//! carried out the same way (ADR 0153).
+//! carried out the same way (ADR 0153). The question itself is `question`'s.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -14,11 +14,9 @@ use std::time::Instant;
 
 use std::path::{Path, PathBuf};
 
-use oso_core::buffer::{Buffer, Mode};
-use oso_core::minibuffer::PromptId;
-
 use super::super::super::App;
 use super::super::hosting::Begin;
+use super::question::details;
 use super::{Caller, Job, Pending, shown};
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
@@ -26,26 +24,6 @@ use crate::sessions::tools::{self as rules, Branch, Tool};
 use crate::sessions::worktree::create::{Handover, Order};
 use crate::sessions::worktree::jobs::{Report, Trust};
 use crate::sessions::worktree::prepare::{Prepare, Prepared};
-
-/// The name of the buffer `?` shows.
-const DETAILS: &str = "*Agent request*";
-/// What the agent is told when the person says no.
-const REFUSED: &str =
-    "the person refused it; that is their decision: do not reach the same effect another way";
-
-/// A tool's question, before and while it is asked.
-#[derive(Debug)]
-pub(in crate::app) struct Question {
-    pub(super) pending: Pending,
-    caller: SessionId,
-    /// What the refusal is kept for: the branch, or the directory.
-    target: String,
-    label: String,
-    /// What `?` shows.
-    details: String,
-    pub(super) plan: Plan,
-    asked: Option<PromptId>,
-}
 
 /// What the person's `y` runs.
 #[derive(Debug)]
@@ -62,6 +40,8 @@ pub(super) enum Plan {
     /// A session to start, and for an orchestrator's call the space's repository whose trust
     /// is asked again before it starts.
     Start(Begin, Option<crate::git::TrustedRoot>),
+    /// A session started outside oso that moves into a space (ADR 0151).
+    Move(Box<super::super::hosting::Moving>),
     /// A stopped session of the caller's space to resume (ADR 0153).
     Resume(super::resume::Resuming),
 }
@@ -72,6 +52,8 @@ impl Plan {
         match self {
             Self::Worktree { origin, .. } => *origin = now,
             Self::Start(begin, _) => begin.origin = now,
+            // It always asks.
+            Self::Move(_) => {}
             // Its call's `unasked` says it: a resume keeps the session's origin (ADR 0153).
             Self::Resume(_) => {}
         }
@@ -439,126 +421,7 @@ impl App {
         } else {
             format!("{label} It started without asking itself.")
         };
-        self.hosting.tools.question = Some(super::Question {
-            pending,
-            caller: caller.id.clone(),
-            target,
-            label,
-            details,
-            plan,
-            asked: None,
-        });
-        self.ask_about_a_tool();
-    }
-
-    /// Asks the waiting tool's question once the person is free, and takes the answer once it
-    /// has closed.
-    pub(super) fn ask_about_a_tool(&mut self) {
-        let Some(question) = &self.hosting.tools.question else {
-            return;
-        };
-        match question.asked {
-            None => {
-                if !self.agent_question_may_open() {
-                    return;
-                }
-                let label = question.label.clone();
-                match self.editor.ask_for_agent(
-                    label,
-                    "agent-channel-allow",
-                    crate::app::agent::AGENT_VERBS,
-                ) {
-                    Ok(id) => {
-                        if let Some(question) = &mut self.hosting.tools.question {
-                            question.asked = Some(id);
-                        }
-                        self.note_agent_question_opened();
-                        self.request_redraw();
-                    }
-                    Err(e) => {
-                        if let Some(question) = self.hosting.tools.question.take() {
-                            question.pending.answer(Err(e.to_string()));
-                        }
-                    }
-                }
-            }
-            Some(id) => {
-                if self.editor.prompts().iter().any(|prompt| prompt.id() == id) {
-                    return;
-                }
-                let Some(question) = self.hosting.tools.question.take() else {
-                    return;
-                };
-                self.hide_question_details();
-                if self.editor.take_agent_allowed() {
-                    self.agent_log(&format!("{}: allowed", question.pending.tool));
-                    self.carry_out(question.pending, question.plan, None);
-                } else {
-                    let tool = question.pending.tool;
-                    self.hosting.tools.guard.refused(
-                        &question.caller,
-                        tool,
-                        &question.target,
-                        Instant::now(),
-                    );
-                    self.agent_log(&format!("{tool}: refused"));
-                    question.pending.answer(Err(REFUSED.into()));
-                }
-            }
-        }
-    }
-
-    /// The open question of a session tool, if one is asked.
-    pub(in crate::app) fn session_tool_question(&self) -> Option<PromptId> {
-        self.hosting.tools.question.as_ref().and_then(|q| q.asked)
-    }
-
-    /// The question's connection went: it closes, and nothing it asked for runs.
-    pub(super) fn close_tool_question(&mut self) {
-        let Some(question) = self.hosting.tools.question.take() else {
-            return;
-        };
-        self.hide_question_details();
-        if let Some(id) = question.asked {
-            self.orphan_agent_question(id);
-        }
-    }
-
-    /// `?` in the tool's open question: `*Agent request*` shows what it would run.
-    pub(in crate::app) fn show_question_details(&mut self) {
-        let Some(question) = self
-            .hosting
-            .tools
-            .question
-            .as_ref()
-            .filter(|question| question.asked.is_some())
-        else {
-            return self
-                .editor
-                .message("This question has nothing more to show");
-        };
-        let text = question.details.clone();
-        let kept = self.hosting.tools.details;
-        let id = match kept.filter(|&id| self.editor.buffer(id).is_some_and(Buffer::is_internal)) {
-            Some(id) => id,
-            None => self.editor.add_internal_buffer(DETAILS, Mode::Fundamental),
-        };
-        self.hosting.tools.details = Some(id);
-        // The agent's own request: no agent reads it back, as none reads `*Brief*`.
-        if let Some(buffer) = self.editor.buffer_mut(id) {
-            buffer.withhold_from_agents();
-        }
-        self.editor.set_internal_text(id, &text);
-        self.editor.show(id);
-        self.request_redraw();
-    }
-
-    fn hide_question_details(&mut self) {
-        if let Some(id) = self.hosting.tools.details.take()
-            && self.editor.buffer(id).is_some()
-        {
-            self.editor.kill_buffer(id);
-        }
+        self.queue_question(pending, (caller.id.clone(), target), (label, details), plan);
     }
 }
 
@@ -586,13 +449,5 @@ fn worktree_words(
 fn brief_said(brief: &str) -> String {
     format!(
         "The brief, which the new session gets after oso's header and hand-off facts:\n\n{brief}"
-    )
-}
-
-/// What `?` shows: who asks, the question, and `more`.
-pub(super) fn details(caller: &str, label: &str, more: &str) -> String {
-    format!(
-        "Session {} asks:\n\n  {label}\n\ny allows it, n or C-g refuses it.\n\n{more}\n",
-        rules::quoted(caller)
     )
 }

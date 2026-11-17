@@ -17,12 +17,19 @@ use crate::sessions::worker::SessionKey;
 impl App {
     /// `session-resume`: the stopped session whose terminal is `buffer`, in the same buffer.
     pub(in crate::app) fn resume_session(&mut self, buffer: BufferId) {
+        self.resume_session_shown(buffer, true);
+    }
+
+    /// Resumes the stopped session whose terminal is `buffer`, as the person's act, shown in
+    /// the selected window if `shown`: `session-resume`, and a session moved into a space
+    /// (ADR 0151).
+    pub(in crate::app) fn resume_session_shown(&mut self, buffer: BufferId, shown: bool) {
         let Some(session) = self.hosting.table.by_buffer(buffer) else {
             self.editor.message("This buffer holds no session");
             return;
         };
         let key = session.key;
-        match self.resume_hosted(key, true) {
+        match self.resume_hosted(key, shown) {
             // The person's resume: no agent resumed it any more (ADR 0153).
             Ok(()) => self.forget_agent_resume(key),
             Err(why) => self.editor.message(why),

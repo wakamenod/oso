@@ -154,14 +154,15 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::{Row, render, row_at};
+    use crate::git::ListedWorktree;
     use crate::sessions::worktree::checks::{Held, Looked};
     use crate::sessions::worktree::merged::Merged;
-    use crate::sessions::worktree::porcelain::{Listed, Status};
+    use crate::sessions::worktree::porcelain::Status;
 
     fn row(name: &str, status: Status, merged: Merged) -> Row {
         Row {
             looked: Looked {
-                listed: Listed {
+                listed: ListedWorktree {
                     path: PathBuf::from(format!("/r/.claude/worktrees/{name}")),
                     head: Some("a".repeat(40)),
                     branch: Some(name.to_owned()),

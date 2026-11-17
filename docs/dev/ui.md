@@ -413,7 +413,8 @@ planned.
 An agent's changes are reviewed in a review buffer ([ADR 0122](adr/0122-agent-review.md)),
 `*review: <scope> <project>*`, opened from the `review` menu on `C-x v r`: `D` since the session's
 baseline, `w` uncommitted, `u` unstaged, `s` staged, `b` the branch against its base (`C-u b`
-names it), `c` a commit, `r` a range `FROM..TO`, and `B` takes a baseline, keeping the menu open.
+names it), `c` a commit, `r` a range `FROM..TO`, `p` a pull request by its number (step 12b),
+and `B` takes a baseline, keeping the menu open.
 Each head's note counts the files it would show, as they come; the line under the title names the
 project and how long ago the baseline was taken. Only a trusted project runs git.
 
@@ -661,7 +662,10 @@ topological order, children before their parents, one row each (ADR 0127, step 4
   threads, unresolved first, and the conversation), `k` the same at its checks, `o` opens it in
   the browser after the echo area shows its address, `l` lists the open ones. In those buffers
   `RET` visits a thread's file at its line, shows a check's address, or shows a listed one; `o`
-  opens, `w` copies an address, `g` reads it again.
+  opens, `w` copies an address, `g` reads it again, and `r` reviews the pull request (ADR
+  0122, step 12b), `*review: pull request #N <project>*`, the echo area saying `Reviewing #N,
+  its head commit shows · BRANCH · TITLE` (or `checked out here, so the work tree shows`),
+  and `Fetching #N's commits from REMOTE: closing the review stops it` while it fetches.
 - Making and merging (step 5a-2): `N c` opens `*pull request: BRANCH*`, the branch's commit's
   message or its commits' subjects above the template, its first line the title; `C-c C-c` makes
   it, asking first to push a branch with no upstream or ahead of it, `C-c C-k` cancels, `M-p`
@@ -1143,6 +1147,17 @@ a switch made with its command stands until that setting changes in the file
   directory. A picked one is resumed in a new buffer, `*claude: NAME*`, in the directory it ran
   in, under the name it had. A live one is refused until it is stopped where it runs, and `y`
   forks it instead. If it was working when it stopped, the echo area says to ask it to go on.
+- A session started outside oso that calls `move_to_space`
+  ([ADR 0151](adr/0151-moving-a-session-into-a-space.md)) asks, as every agent question does:
+  `Agent: move session "NAME" ("claude", pid N, in "DIR", outside oso) into space "X", adding
+  repository "R" to it? …`, the process named as the system names it, and `adding …` only for
+  a repository the space lacks; `?` shows the conversation's id and the whole paths. On `y`
+  an internal buffer `*moving: NAME*` says what oso waits for, and the echo area asks for
+  `/exit` where the session runs. At 120 s it says so again; at 5 minutes, or when the space
+  closed or lost the repository meanwhile, oso resumes nothing and says to use
+  `session-adopt`. Killing `*moving: NAME*` with `C-x k` cancels. Once the outside process has
+  ended, `*claude: NAME*` resumes in its directory, in space X, and the echo area says
+  `Moved "NAME" into space "X"`. None of these lines is logged.
 - `C-c a /` (`session-search`) finds a session by what was said in it
   ([ADR 0145](adr/0145-searching-past-agent-conversations.md)). It opens a centred float,
   `Search conversations (all):`, over every Claude Code conversation on this machine, of every

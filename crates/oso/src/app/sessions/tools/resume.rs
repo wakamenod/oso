@@ -10,7 +10,8 @@
 use std::path::Path;
 
 use super::super::super::App;
-use super::asks::{Plan, Words, details};
+use super::asks::{Plan, Words};
+use super::question::details;
 use super::space::in_place;
 use super::{Caller, Pending, shown};
 use crate::sessions::hosted::Hosted;

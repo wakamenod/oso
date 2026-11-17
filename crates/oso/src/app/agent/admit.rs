@@ -9,11 +9,12 @@ use std::time::Instant;
 use serde_json::Value;
 
 use oso_core::editor::Editor;
-use oso_platform::control::PeerProcess;
+use oso_platform::control::{Peer, PeerProcess};
 
 use super::super::{App, UserEvent};
 use super::AGENT_VERBS;
 use crate::channel;
+use crate::channel::Connection;
 
 /// Whether the question about a connection waits: for a prompt to close, for keys `typing`
 /// or a composition, for a jump (ADR 0116), whose keys it would take, for a keyboard
@@ -28,7 +29,20 @@ fn question_waits(editor: &Editor, typing: bool) -> bool {
         || crate::dispatch::holds_input(editor)
 }
 
+/// A connection the person let in, as the system named it when it came.
+#[derive(Debug, Clone)]
+pub(in crate::app) struct Outsider {
+    pub(in crate::app) peer: Peer,
+    /// When the peer's parent started, read as it connected.
+    pub(in crate::app) parent_started: Option<std::time::SystemTime>,
+}
+
 impl App {
+    /// What the system said of `connection`, one the person let in, as it came.
+    pub(in crate::app) fn outsider(&self, connection: Connection) -> Option<&Outsider> {
+        self.agent.outside.get(&connection)
+    }
+
     /// Starts the channel at launch, as the configuration file called `file` says
     /// (ADR 0108). Each connection still asks the person.
     pub(in crate::app) fn start_agent_channel_as_configured(&mut self, file: &str) {
@@ -143,6 +157,7 @@ impl App {
             }
         }
         self.agent.connected.clear();
+        self.agent.outside.clear();
         self.session_tools_gone(None);
         self.session_bridge_gone(None);
         self.forget_undo_of(None);
@@ -225,6 +240,11 @@ impl App {
                 if self.editor.take_agent_allowed() {
                     let _ = asking.reply.send(Ok(Value::Null));
                     self.agent.connected.push(asking.connection);
+                    let outsider = Outsider {
+                        peer: asking.peer,
+                        parent_started: asking.parent_started,
+                    };
+                    self.agent.outside.insert(asking.connection, outsider);
                     self.agent_log(&format!("{who}: let in"));
                 } else {
                     let _ = asking

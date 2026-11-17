@@ -391,7 +391,7 @@ impl App {
                 self.keep_done(index, Done::Reverted { picked, reading });
             }
             self.editor.message(said);
-            self.refresh_review(review);
+            self.refresh_review(review, false);
         }
     }
 }

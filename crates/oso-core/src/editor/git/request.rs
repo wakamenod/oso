@@ -175,6 +175,9 @@ pub enum PrAct {
     Open,
     /// Copy the address the line names, or the pull request's (`w`).
     CopyLink,
+    /// Review the pull request, or the one the line names in a list, as ADR 0122's pull
+    /// request scope (`r`, ADR 0122, step 12b).
+    Review,
 }
 
 /// What a key asks of an issue's buffer, or of a list of them, at a line (ADR 0127, step 5b-1).

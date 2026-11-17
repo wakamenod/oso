@@ -47,6 +47,7 @@ mod recovery;
 mod reload;
 mod replace;
 mod review;
+mod review_pr;
 mod review_send;
 #[cfg(target_os = "macos")]
 mod secure;
@@ -54,6 +55,7 @@ mod session_tools;
 mod sessions;
 mod sessions_tree;
 mod space_handover;
+mod space_move;
 mod space_tools;
 mod spaces;
 mod starts;
