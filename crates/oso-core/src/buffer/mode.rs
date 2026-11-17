@@ -27,7 +27,7 @@ pub enum Mode {
     Markdown,
     /// TOML.
     Toml,
-    /// Go source (ADR 0138: a mode for its language server, with no highlighting yet).
+    /// Go source (ADR 0138), highlighted (ADR 0147).
     Go,
     /// TypeScript.
     TypeScript,
