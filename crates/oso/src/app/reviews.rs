@@ -146,6 +146,7 @@ impl App {
             self.review_request(request);
         }
         self.put_in_review_texts();
+        self.sync_review_layouts();
         self.sync_review_comments();
         self.sync_review_message();
     }
@@ -253,6 +254,7 @@ impl App {
             texts: VecDeque::new(),
             revoked: false,
             carrying: VecDeque::new(),
+            layout: layout::Layout::default(),
             folded: false,
             shown_folded: false,
         });
@@ -519,6 +521,7 @@ impl App {
             text,
             rows,
             highlights,
+            panes,
             carried,
             reading,
             folded,
@@ -541,6 +544,9 @@ impl App {
                 }),
         };
         self.freer.free((before, left));
+        if let Some(panes) = panes {
+            self.put_in_review_panes(index, panes);
+        }
         // The view builds the next text only now.
         self.reviews.open[index].view.taken();
         for (reading, carried) in carried {
@@ -571,6 +577,7 @@ impl App {
 }
 
 mod comments;
+mod layout;
 mod menu;
 mod send;
 mod state;

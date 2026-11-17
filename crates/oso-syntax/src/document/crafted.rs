@@ -24,7 +24,7 @@ use crate::language::Language;
 use crate::queries::Queries;
 
 /// What the texts are made of: openers and fillers of each grammar.
-const ATOMS: [&str; 20] = [
+const ATOMS: [&str; 21] = [
     "[",
     "a",
     "](",
@@ -45,6 +45,7 @@ const ATOMS: [&str; 20] = [
     "\n",
     "```rust\n",
     "~~~toml\n",
+    "func(",
 ];
 
 /// The stack of the thread the texts are highlighted on: an eighth of the 8 MiB step 4 gives
@@ -60,7 +61,12 @@ const BYTES: usize = 16 << 10;
 /// The worker's slice (ADR 0111).
 const SLICE: Duration = Duration::from_millis(20);
 
-const LANGUAGES: [Language; 3] = [Language::Rust, Language::Markdown, Language::Toml];
+const LANGUAGES: [Language; 4] = [
+    Language::Rust,
+    Language::Markdown,
+    Language::Toml,
+    Language::Go,
+];
 
 /// Highlights `text` to the end in slices of `slice`, on a thread with a stack of [`STACK`], and
 /// checks what came of it.
@@ -72,7 +78,7 @@ fn highlight_on_a_small_stack(
     std::thread::Builder::new()
         .stack_size(STACK)
         .spawn(move || {
-            let mut document = Document::new(language, Rope::from(text.as_str()));
+            let mut document = Document::with_long_lines(language, Rope::from(text.as_str()));
             let mut queries = Queries::new();
             // A slice leaves plain what outlasts it, so each gets somewhere.
             for _ in 0..10_000 {
@@ -153,7 +159,7 @@ fn every_three_inline_atoms_under_the_cap_fit_the_stack() {
 #[test]
 fn a_text_too_slow_for_a_slice_fails_in_a_few_slices() {
     let text = repeated(&[3], 64 << 10);
-    let mut document = Document::new(Language::Rust, Rope::from(text.as_str()));
+    let mut document = Document::with_long_lines(Language::Rust, Rope::from(text.as_str()));
     let mut queries = Queries::new();
     let mut calls = 0;
     let started = std::time::Instant::now();

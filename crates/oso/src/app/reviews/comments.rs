@@ -253,20 +253,41 @@ impl App {
         if self.reviews.looked.replace(looked) == Some(looked) {
             return;
         }
-        let mut screen = std::mem::take(&mut self.reviews.screen);
-        self.editor.screen_of(window, &mut screen);
-        let lines = screen.rows().iter().map(|row| row.line);
-        let (first, last) = lines.fold((usize::MAX, 0), |(lo, hi), line| {
-            (lo.min(line), hi.max(line))
-        });
-        self.reviews.screen = screen;
-        let (Some(rows), Some(model)) = (self.editor.review_rows(id), self.editor.review(id))
-        else {
-            return;
+        // Both panes of a pair are in view, the person reading across them (ADR 0122, Q-G).
+        // Not one the frame has no room for, which shows nothing.
+        let has_cells = |window| {
+            (self.editor.regions(window))
+                .is_some_and(|regions| regions.text.rows > 0 && regions.text.columns > 0)
         };
+        let other = (self.editor.pair_of(window))
+            .filter(|&other| has_cells(other))
+            .filter(|&other| {
+                (self.editor.window_by_id(other))
+                    .is_some_and(|other| self.editor.review_of(other.buffer()) == Some(id))
+            });
         let folded = self.editor.agents_folded(id)
             || (self.reviews.index(id)).is_some_and(|index| self.reviews.open[index].shown_folded);
-        let (read, mut paths) = read_in_view(rows, model, first, last, folded);
+        let (mut read, mut paths) = (Vec::new(), Vec::new());
+        let mut screen = std::mem::take(&mut self.reviews.screen);
+        for window in std::iter::once(window).chain(other) {
+            self.editor.screen_of(window, &mut screen);
+            let lines = screen.rows().iter().map(|row| row.line);
+            let (first, last) = lines.fold((usize::MAX, 0), |(lo, hi), line| {
+                (lo.min(line), hi.max(line))
+            });
+            let shown = self
+                .editor
+                .window_by_id(window)
+                .map(|window| window.buffer());
+            let rows = shown.and_then(|shown| self.editor.review_rows_of(shown));
+            let (Some(rows), Some(model)) = (rows, self.editor.review(id)) else {
+                continue;
+            };
+            let (more, more_paths) = read_in_view(rows, model, first, last, folded);
+            read.extend(more);
+            paths.extend(more_paths);
+        }
+        self.reviews.screen = screen;
         if read.is_empty() {
             return;
         }
@@ -274,6 +295,7 @@ impl App {
             model.mark_read(&read);
         }
         if let Some(index) = self.reviews.index(id) {
+            paths.sort_unstable();
             paths.dedup();
             for path in paths {
                 self.tell_cards(index, &path);

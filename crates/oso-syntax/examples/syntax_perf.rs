@@ -1,5 +1,6 @@
 //! Measures highlighting on a large file: the first parse and highlight, in one call and in
-//! the worker's slices, and the same after one key typed in the middle (ADR 0111, as built).
+//! the worker's slices, and the same after one key typed in the middle (ADR 0111 and ADR 0147,
+//! as built).
 //!
 //! Must not depend on: the editor; it calls a document directly.
 //!
@@ -29,7 +30,8 @@ fn main() {
         Some("markdown") => (Language::Markdown, false),
         Some("fenced") => (Language::Markdown, true),
         Some("toml") => (Language::Toml, false),
-        _ => return eprintln!("usage: syntax_perf rust|markdown|fenced|toml FILE..."),
+        Some("go") => (Language::Go, false),
+        _ => return eprintln!("usage: syntax_perf rust|markdown|fenced|toml|go FILE..."),
     };
     let mut text = String::new();
     let files: Vec<String> = args.collect();
@@ -62,7 +64,9 @@ fn main() {
         "{} bytes, {runs} runs: parse {parsed:.1?}, parse and highlight {first:.1?}",
         text.len()
     );
-    // Again in the worker's slices of 20 ms: how many, and the longest.
+    // Again in the worker's slices of 20 ms: how many, and the longest. Its queries are
+    // compiled afresh, in the slices, as on a worker's first document.
+    let mut queries = Queries::new();
     let mut sliced = Document::new(language, Rope::from(text.as_str()));
     let (mut slices, mut longest) = (0, Duration::ZERO);
     loop {

@@ -9,7 +9,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use oso_core::editor::ReviewId;
+use oso_core::editor::{ReviewArea, ReviewId};
 use oso_core::project::ProjectId;
 use oso_core::window::{Screen, ViewSize, WindowId};
 
@@ -38,6 +38,8 @@ pub(super) struct Running {
     /// The readings whose comments the review's own thread carries, in the order asked, which
     /// is the order it answers.
     pub(super) carrying: VecDeque<Arc<Reading>>,
+    /// How it shows: unified or as its two panes (ADR 0122, step 11).
+    pub(super) layout: super::layout::Layout,
     /// Whether the view was last told that agent cards fold.
     pub(super) folded: bool,
     /// Whether agent cards fold in the text the review buffer holds, which may still be one
@@ -100,6 +102,8 @@ pub(in crate::app) struct Reviews {
     pub(super) next_serial: u64,
     /// Room for the paths of the files a review's windows show.
     pub(super) shown: Vec<Box<[u8]>>,
+    /// The areas of the frame reviews show in, as last looked at.
+    pub(super) areas: Vec<ReviewArea>,
     /// Room for the rows a review window shows, to find the comments read.
     pub(super) screen: Screen,
     /// Whether the person's own input came since reading marks were last looked for: what the

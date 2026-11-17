@@ -179,7 +179,8 @@ pub(super) struct Behind<'a> {
 
 /// The fills behind a window's text, from the back: `*Spaces*`' bands, in the side window only
 /// (ADR 0140), the current line's band, a review's bands
-/// (added and removed lines, their refined words, file headers and comment cards), trailing
+/// (added and removed lines, a pane's filler rows, their refined words, file headers and
+/// comment cards), trailing
 /// whitespace, then the current match first, so that it always has room, a jump's matches as
 /// isearch's others (ADR 0116), and the regions over the matches.
 fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
@@ -192,6 +193,7 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
         (Face::CurrentLine, &cells.band[..]),
         (Face::DiffAdded, &cells.review.added[..]),
         (Face::DiffRemoved, &cells.review.removed[..]),
+        (Face::DiffFiller, &cells.review.fillers[..]),
         (Face::DiffRefineAdded, &cells.review.refine_added[..]),
         (Face::DiffRefineRemoved, &cells.review.refine_removed[..]),
         (Face::DiffFileHeader, &cells.review.headers[..]),
@@ -205,7 +207,7 @@ fn fills_of(cells: &WindowCells) -> [(Face, &[CellRect]); FILLS] {
 }
 
 /// How many lists of cells a window fills behind its text.
-const FILLS: usize = 16;
+const FILLS: usize = 17;
 
 /// A jump's labels in a window over its text: each label's first key in [`Face::JumpLabel`],
 /// and the keys after it in [`Face::JumpLabelNext`], in the order the editor gives them, by

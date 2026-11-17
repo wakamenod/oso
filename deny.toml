@@ -85,4 +85,5 @@ deny = [
     { crate = "tree-sitter-rust", wrappers = ["oso-syntax"], reason = "C parsers stay in oso-syntax (ADR 0111)" },
     { crate = "tree-sitter-md", wrappers = ["oso-syntax"], reason = "C parsers stay in oso-syntax (ADR 0111)" },
     { crate = "tree-sitter-toml-ng", wrappers = ["oso-syntax"], reason = "C parsers stay in oso-syntax (ADR 0111)" },
+    { crate = "tree-sitter-go", wrappers = ["oso-syntax"], reason = "C parsers stay in oso-syntax (ADR 0111, ADR 0147)" },
 ]
