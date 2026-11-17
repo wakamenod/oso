@@ -194,7 +194,12 @@ fn a_hunk_is_staged_by_its_context_below_one_staged_before_and_unstaged_back() {
 #[test]
 fn a_quoted_name_stages_its_own_entry_and_no_other() {
     let repo = Repo::new("stage-names");
-    let names = ["a b/c.rs", "x\"y.rs", "\u{e9}t\u{e9}.rs"];
+    // A quote is no file name on Windows; a space and a letter past ASCII are on both.
+    let names: &[&str] = if cfg!(windows) {
+        &["a b/c.rs", "\u{e9}t\u{e9}.rs"]
+    } else {
+        &["a b/c.rs", "x\"y.rs", "\u{e9}t\u{e9}.rs"]
+    };
     for name in names {
         repo.write(name, numbered(10).as_bytes());
     }
