@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use oso_core::editor::{ReviewChoice, ReviewId};
-use oso_core::review::{Author, Review};
+use oso_core::review::{Author, Filter, Review};
 
 use super::ReviewEvent;
 use super::state::Running;
@@ -57,8 +57,8 @@ pub(super) struct Saving {
     pub(super) waiting: bool,
     held: Vec<(u64, Report)>,
     /// The model's revision and the view's choices last handed to the store, and as last seen.
-    handed: Option<(u64, ReviewChoice, bool)>,
-    seen: Option<(u64, ReviewChoice, bool)>,
+    handed: Option<(u64, Choices)>,
+    seen: Option<(u64, Choices)>,
     /// When it first changed since, and last.
     first: Option<Instant>,
     last: Option<Instant>,
@@ -70,6 +70,16 @@ pub(super) struct Saving {
     place_handed: Option<Place>,
     /// The files with restored comments the view was not told of yet.
     pub(super) untold: HashSet<Box<[u8]>>,
+}
+
+/// What a review's view keeps besides its cursor: its layout chosen, agent cards folded, its
+/// filter, and whether its files pane shows (step 6b). A filter's clone is O(1).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Choices {
+    choice: ReviewChoice,
+    folded: bool,
+    filter: Option<Filter>,
+    files: bool,
 }
 
 /// The app's side of saved reviews: the store's thread, once started, the saved reviews as
@@ -248,12 +258,22 @@ impl App {
         self.reviews.open[index].saving.untold = untold;
         self.editor.choose_review_layout(id, view.choice);
         self.editor.fold_agents(id, view.folded);
+        self.editor.set_review_filter(id, view.filter.clone());
+        if view.files {
+            self.show_files_again(id);
+        }
         let saving = &mut self.reviews.open[index].saving;
         saving.place_handed.clone_from(&view.place);
         saving.place = view.place;
         // Nothing to save until it changes.
         let revision = self.editor.review(id).map_or(0, Review::revision);
-        saving.handed = Some((revision, view.choice, view.folded));
+        let choices = Choices {
+            choice: view.choice,
+            folded: view.folded,
+            filter: view.filter,
+            files: view.files,
+        };
+        saving.handed = Some((revision, choices));
         let noun = if comments == 1 { "comment" } else { "comments" };
         if left_out > 0 {
             log::info!("{left_out} lines of a saved review were left out");
@@ -307,14 +327,32 @@ impl App {
     }
 
     /// The review at `index`'s model revision and view choices, as they would be handed over.
-    fn saving_state(&self, index: usize) -> Option<(u64, ReviewChoice, bool)> {
+    fn saving_state(&self, index: usize) -> Option<(u64, Choices)> {
         let id = self.reviews.open[index].id;
         let model = self.editor.review(id)?;
-        Some((
-            model.revision(),
-            self.editor.review_choice(id),
-            self.editor.agents_folded(id),
-        ))
+        Some((model.revision(), self.choices(id)))
+    }
+
+    /// The review `id`'s view choices now.
+    fn choices(&self, id: ReviewId) -> Choices {
+        Choices {
+            choice: self.editor.review_choice(id),
+            folded: self.editor.agents_folded(id),
+            filter: self.editor.review_filter(id).cloned(),
+            files: self.editor.review_files(id).is_some(),
+        }
+    }
+
+    /// Shows the files pane of the review `id` brought back at the left of the first window
+    /// showing it, selecting nothing; none while no window shows it or there is no room.
+    fn show_files_again(&mut self, id: ReviewId) {
+        let review = self.editor.review_buffer(id);
+        let window = (self.editor.windows())
+            .find(|window| Some(window.buffer()) == review)
+            .map(|window| window.id());
+        if let Some(window) = window {
+            let _ = self.editor.show_review_files(id, window);
+        }
     }
 
     /// When the next review is due to be saved.
@@ -388,10 +426,13 @@ impl App {
             comments: saved.comments.len(),
             unsent,
         };
+        let choices = self.choices(running.id);
         let view = SavedView {
-            choice: self.editor.review_choice(running.id),
-            folded: self.editor.agents_folded(running.id),
+            choice: choices.choice,
+            folded: choices.folded,
             place: self.review_place(running.id),
+            filter: choices.filter,
+            files: choices.files,
         };
         Some(Snapshot {
             header,
@@ -408,7 +449,8 @@ impl App {
     /// thread.
     pub(super) fn save_closed_review(&mut self, running: &Running) {
         let model = self.editor.take_closed_review(running.id);
-        let changed = model.as_ref().map(Review::revision) != running.saving.handed.map(|h| h.0);
+        let changed =
+            model.as_ref().map(Review::revision) != running.saving.handed.as_ref().map(|h| h.0);
         let name = running.saving.name.clone();
         let snapshot = match (changed, name) {
             (true, Some(name)) => self
@@ -418,9 +460,11 @@ impl App {
         };
         if let Some((name, mut snapshot)) = snapshot {
             // The view went with the review: its choices and cursor as last handed stand.
-            if let Some((_, choice, folded)) = running.saving.handed {
-                snapshot.view.choice = choice;
-                snapshot.view.folded = folded;
+            if let Some((_, choices)) = &running.saving.handed {
+                snapshot.view.choice = choices.choice;
+                snapshot.view.folded = choices.folded;
+                snapshot.view.filter.clone_from(&choices.filter);
+                snapshot.view.files = choices.files;
             }
             snapshot.view.place.clone_from(&running.saving.place_handed);
             let unsent = snapshot.header.unsent;

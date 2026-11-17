@@ -43,6 +43,8 @@ pub const KEYS: &[(&str, &str)] = &[
     ("v", "review-viewed"),
     ("u", "review-undo"),
     ("|", "review-toggle-panes"),
+    ("s", "review-files"),
+    ("/", "review-filter"),
     ("g", "review-refresh"),
     ("C-c C-c", "review-send"),
     ("q", "review-quit"),
@@ -96,6 +98,7 @@ mod send;
 pub use comments::COMMANDS as COMMENT_COMMANDS;
 pub use decide::COMMANDS as DECISION_COMMANDS;
 pub(crate) use decide::{open_buffer_of, place_of};
+pub(crate) use files::prompt_text;
 pub use files::{COMMANDS as FILES_COMMANDS, FILES_KEYS};
 pub use saved::COMMANDS as SAVED_COMMANDS;
 pub(crate) use saved::{SAVED_LIST, lost};
@@ -436,7 +439,8 @@ fn review_previous_file(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandErro
 }
 
 fn review_refresh(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    let review = current_review(ctx)?;
+    // From the files pane too (step 6b).
+    let review = files::review_here(ctx)?;
     ctx.editor.request_review(ReviewRequest::Refresh(review));
     ctx.editor
         .message("Reading the review's files again\u{2026}");
@@ -507,6 +511,7 @@ fn keys_text() -> String {
             .chain(COMMENT_COMMANDS)
             .chain(DECISION_COMMANDS)
             .chain(SEND_COMMANDS)
+            .chain(FILES_COMMANDS)
             .find(|command| command.name == *name)
             .and_then(|command| command.doc.lines().next())
             .unwrap_or_default();

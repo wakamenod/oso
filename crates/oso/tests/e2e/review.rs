@@ -554,3 +554,80 @@ fn a_reviews_sides_are_highlighted_and_font_lock_turns_that_off_and_on() {
         "*review: uncommitted proj-review*"
     );
 }
+
+/// The first window of `state` not showing `buffer`.
+fn window_not_showing(state: &Value, buffer: &Value) -> Value {
+    let windows = state["windows"].as_array().cloned().unwrap_or_default();
+    (windows.into_iter())
+        .find(|window| window["buffer"] != *buffer)
+        .unwrap_or_default()
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_files_pane_lists_and_shows_files_and_the_filter_hides_them_across_a_restart() {
+    let scratch = Scratch::new("review-files");
+    let mut app = open_review(&scratch);
+    const PANE: &str = "*review files: uncommitted proj-review*";
+    const HIDDEN: &str = "1 of 2 files hidden by \"b.rs\" \u{b7} / to change";
+
+    // `s`: the pane at the review's left, selected, a row a file under its title.
+    app.send_keys("s");
+    app.wait_for("the pane", |state| state["buffer"]["name"] == PANE);
+    assert_eq!(window_count(&mut app), 2);
+    let pane = app.state()["buffer"]["id"].clone();
+    let listed = rows_until(&mut app, "2 files \u{b7} / to filter");
+    assert!(
+        listed.iter().any(|row| row.ends_with("  a.rs"))
+            && listed.iter().any(|row| row.ends_with("  b.rs")),
+        "{listed:?}"
+    );
+
+    // `n n SPC`: b.rs's header at the review's top, the pane still selected; `RET` selects it.
+    app.send_keys("n n SPC");
+    let state = app.state();
+    assert_eq!(state["buffer"]["name"], PANE);
+    let review = window_not_showing(&state, &pane);
+    assert_eq!(review["scroll"]["start"], review["selections"][0]["cursor"]);
+    app.send_keys("RET");
+    let state = app.wait_for("the review selected", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+    });
+    let row = usize::try_from(cursor(&state).0).unwrap();
+    let shown = rows(&mut app, row + 1);
+    assert!(shown[row].contains("b.rs"), "on b.rs's header: {shown:?}");
+
+    // `/`: only b.rs, the title saying what is hidden, the pane too.
+    app.send_keys(&format!("/ {} RET", typing("b.rs")));
+    let shown = rows_until(&mut app, HIDDEN);
+    assert!(shown.iter().any(|row| row == HIDDEN), "{shown:?}");
+    assert!(!shown.iter().any(|row| row.contains("a.rs")), "{shown:?}");
+    // `/` again opens holding the filter.
+    app.send_keys("/");
+    assert_eq!(rows(&mut app, 1), ["b.rs"]);
+    app.send_keys("C-g");
+
+    // A restart: the review, its filter and its pane come back.
+    let config = scratch.path().join("config.toml");
+    let mut new = App::start_with_config(None, scratch.path(), &config);
+    new.wait_until_ready();
+    let _ = super::handover::hand_over(&mut app, &mut new);
+    new.wait_for("the review again", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+    });
+    let shown = rows_until(&mut new, HIDDEN);
+    assert!(shown.iter().any(|row| row == HIDDEN), "{shown:?}");
+    new.wait_for("the pane again", |state| {
+        state["windows"].as_array().map_or(0, Vec::len) == 2
+    });
+    new.send_keys("s");
+    new.wait_for("the pane selected", |state| state["buffer"]["name"] == PANE);
+    let listed = rows_until(&mut new, HIDDEN);
+    assert_eq!(listed.len(), 2, "the title and b.rs: {listed:?}");
+    assert!(listed[1].ends_with("  b.rs"), "{listed:?}");
+    // `q`: the pane goes, its columns back to the review.
+    new.send_keys("q");
+    new.wait_for("the pane gone", |state| {
+        state["windows"].as_array().map_or(0, Vec::len) == 1
+    });
+}

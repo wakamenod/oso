@@ -298,20 +298,31 @@ impl Dispatcher {
             _ => editor.open_prompt(prompt, kind),
         };
         match opened {
-            Ok(prompt) => self.reading.push(Reading {
-                id,
-                prefix: args.raw(),
-                prompt,
-                passphrase: kind == Kind::Passphrase,
-                then: if runs_answer {
-                    Then::RunAnswer
-                } else if opens_menu {
-                    Then::OpenMenu
-                } else {
-                    Then::Run
-                },
-                switches: Vec::new(),
-            }),
+            Ok(prompt) => {
+                // `review-filter` opens holding the review's filter, `M-p` giving back an empty
+                // prompt (ADR 0122, step 6b).
+                let command = self.registry.get(id).map(|command| command.name);
+                if let Some(text) =
+                    command.and_then(|name| crate::commands::review::prompt_text(editor, name))
+                {
+                    editor.offer_prompt_default(prompt, text);
+                    let _ = editor.walk_history(false);
+                }
+                self.reading.push(Reading {
+                    id,
+                    prefix: args.raw(),
+                    prompt,
+                    passphrase: kind == Kind::Passphrase,
+                    then: if runs_answer {
+                        Then::RunAnswer
+                    } else if opens_menu {
+                        Then::OpenMenu
+                    } else {
+                        Then::Run
+                    },
+                    switches: Vec::new(),
+                });
+            }
             // The innermost prompt is where the person looks.
             Err(error) => editor.prompt_says(error.to_string()),
         }

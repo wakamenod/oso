@@ -65,6 +65,12 @@ impl Editor {
         Some(self.reviews.get(id)?.files.pane.as_ref()?.buffer)
     }
 
+    /// What each line of the review `id`'s files pane is: its title, then a file's header a
+    /// row, by the file's path.
+    pub fn review_files_rows(&self, id: ReviewId) -> Option<&Rows> {
+        self.files_rows(id)
+    }
+
     /// Puts in the review `id`'s files pane's whole new text, with what each line is and its
     /// highlights, at O(1) as [`Editor::set_review_text`] does, each window keeping its row by
     /// its file's path. The host calls it only while [`Editor::review_waits`] is false, and

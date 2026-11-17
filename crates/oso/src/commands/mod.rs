@@ -330,6 +330,8 @@ mod tests {
         // comments (ADR 0122, step 6).
         "review-forget",
         "review-resume",
+        // What the filter hides is the person's choice of what to read (ADR 0122, step 6b).
+        "review-filter",
         // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
         "consult-mark",
         // The completion popup is a float for the keyboard (ADR 0138, step 9).

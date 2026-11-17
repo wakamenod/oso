@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use oso_core::editor::ReviewChoice;
-use oso_core::review::{Anchor, Author, Base, Decision, Hunk, Review, Saved, Shape, Side};
+use oso_core::review::{Anchor, Author, Base, Decision, Filter, Hunk, Review, Saved, Shape, Side};
 
 use super::*;
 
@@ -107,6 +107,8 @@ fn round_trip(review: &Review, max: usize) -> (Vec<u8>, Decoded) {
             path: FILE.into(),
             line: Some((Side::New, 3)),
         }),
+        filter: Filter::new("src todo"),
+        files: true,
     };
     let bytes = encode(&header(), &review.save(), &kept, &withheld, max).unwrap();
     let read = decode(&bytes).unwrap();
@@ -364,4 +366,28 @@ fn a_file_name_tells_projects_and_scopes_apart_but_not_baselines() {
     .into_iter()
     .collect();
     assert_eq!(names.len(), 7);
+}
+
+#[test]
+fn a_view_kept_before_the_files_pane_reads_with_no_filter_and_no_pane() {
+    let kept = serde_json::json!({ "choice": "auto", "folded": false, "place": null });
+    let view = super::view_of(&kept).unwrap();
+    assert_eq!(view.filter, None);
+    assert!(!view.files);
+    // A filter read back is cut and trimmed as one typed is; one of no word is none.
+    let long = "x".repeat(4096);
+    let kept = serde_json::json!({
+        "choice": "auto", "folded": false, "place": null, "filter": long, "files": true,
+    });
+    let view = super::view_of(&kept).unwrap();
+    assert_eq!(view.filter.unwrap().text().len(), 1024);
+    assert!(view.files);
+    let blank = serde_json::json!({
+        "choice": "auto", "folded": false, "place": null, "filter": "  ",
+    });
+    assert_eq!(super::view_of(&blank).unwrap().filter, None);
+    let wrong = serde_json::json!({
+        "choice": "auto", "folded": false, "place": null, "filter": 3,
+    });
+    assert!(super::view_of(&wrong).is_none());
 }
