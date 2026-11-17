@@ -1064,6 +1064,78 @@ on 2026-11-14, through the coordinator, and answered its questions Q-A to Q-F (a
 - A withheld file has no line rows, so it takes no comment, and keeps its note (Q13); showing
   it on `RET` comes with part three.
 
+### Step 4: refresh while the agent edits
+
+The author approved the plan and answered its questions (a) on 2026-11-17, through the
+coordinator: looks on the review's thread (Q-A), a turn's end marking the review stale (Q-B), the
+nearest line that stayed, the upper one on a tie (Q-C), ` · changed` in `review.decided`'s face
+(Q-D), and no looks while hidden (Q-E). What it built:
+
+- **Public items:** `Carried::line_now(side, number)`, where a line of the reading before is in
+  the new one, or the nearest line of it that stayed within 1,000 lines, the upper one on a tie
+  (step 1's item 6), and `Carried::maps_from()`, the reading that map is from;
+  `Editor::set_review_text` and `set_review_panes` take `editor::LineMoves`, the host's map of
+  where each line of a side of a file went; `Review::take_released()` (step 1's item 15);
+  `Review::changed(path, hunk)` and `Review::seen(path, hunk)`; `Carry::unseen()`.
+- **What marks a review stale:**
+  - a look, `Request::Look`, on the review's own thread, waiting aside as carries and stages
+    do, looks waiting being one and answered when nothing else waits, so it never stops a
+    refresh, and a refresh asked stops it between files. It opens each reviewed work tree file
+    as a reading does, reading nothing, and compares its stamp; every second look it lists the
+    scope again and compares the listing, for files that came or went, the index or `HEAD`. The
+    host asks one each second while a window shows the review and oso's window is not hidden,
+    and at once when a window shows it again, oso's window shows again or gains the focus. A
+    look that fails tells nothing; the next `g` says why;
+  - a save in oso of a file under the review's root;
+  - an agent session under the review's root ending a turn, from the session tracker (ADR 0121).
+- **Debounced:** a refresh starts 200 ms after the last mark, or 1 s after the first. One runs at
+  a time: marks during it make one more once it ends, whether it read every file, was stopped or
+  failed. Marks that settle are taken even when the refresh cannot start, so nothing comes due
+  again at once. A review no window shows makes no looks; a mark waits until a window shows it
+  again, and then refreshes it. A review whose project is no longer trusted, or whose thread
+  ended, takes no mark and makes no look: the person's `g` starts it over.
+- **Places by anchor:** before a new text goes in, each window's cursors, marks and first row are
+  kept as places, a line of a side or the row of a header, a note or a card, by step 11's
+  `Rows::place`; after, the selections are made again from them, so that two cursors the text
+  change put on one offset keep their own lines. A line goes where the carry of its file moves
+  it, to the nearest line that stayed for one that went; one the new text does not show, or one
+  with nothing near, goes to the nearest row its side shows, and a row the text no longer holds
+  to its file's header. A cursor keeps its column. A file the text holds with no carry did not
+  change, and its lines stay; a carry made from another reading than the one shown, as when
+  texts waited under a prompt, is not followed. A window with more than 256 selections keeps
+  those the text change carried. The panes keep theirs the same way, and follow their cursors.
+- **The carry** now always snapshots the file's current reading, for the map from it and to tell
+  which hunks of the new reading are new: a hunk of the new reading with no hunk of its text in
+  the one before, the k-th of one text to the k-th, is marked changed. A review's first
+  readings mark none; once every file of a listing was read, a file's first reading marks
+  every hunk, as a file new to the listing, or one that left it and came back, was not seen
+  (`Carry::unseen`, the author's choice on 2026-11-17). A carry made on the
+  view's thread, for a file with no comment to place, now matches the lines both readings put
+  in within 100 ms, reading no old side: a file whose old side moved keeps no line there, and
+  its windows go to the nearest row shown.
+- **` · changed`** shows on such a hunk's header, after its decision and viewed words, until the
+  person's own input moves their cursor into the hunk in the text that was in front of them: a
+  cursor a refresh or the agent put there, a text put in after their key, or a file whose rows
+  the model lags marks nothing. It is no mark of theirs: one that goes is no decision dropped,
+  and the progress does not count it.
+- **Readings let go** by the model are given back after each carry is applied and after files
+  leave the listing, and freed off the UI thread.
+- **Costs:** a look's stamps cost one open per reviewed work tree file per second on the
+  review's thread; its listing, a git run each 2 s, an index copy and `git add -A -N` for a
+  scope with untracked files. Putting in a text costs, per window, its selections (at most 256)
+  and its first row: each an O(1) lookup of its file, a line map lookup, and for a line that
+  went up to 2,000 more, then the file's runs.
+- **Not built here:** the files pane keeping its selection and filter is step 6's, with the pane.
+- **Tests:** a line followed to the new reading and to the nearest that stayed, by a carry made
+  on the view's thread too; hunks new since the reading before marked changed until seen, and
+  none dropped with them; every hunk of a file new to a review already seen; what the model lets go given back once; cursors kept on their lines
+  across a new text by the host's map, two inside the span the text change rewrote among them;
+  the nearest row of a side; the refresher's debounce, one refresh at a time however it ends,
+  a refresh that cannot start, a hidden review and looks on a fake clock; looks against a
+  temporary repository, nothing said while nothing moved, an edit found at once, a new file by
+  the listing; and an end-to-end flow that edits a file under an open review, presses no key,
+  and finds the new hunk said changed and the cursor still on its line.
+
 ### Step 5: decisions
 
 The author approved the plan's public items and answered its questions (a) on 2026-11-17,

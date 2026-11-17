@@ -128,6 +128,11 @@ impl LineMap {
         }
     }
 
+    /// Whether it carries no line at all.
+    pub(super) fn carries_nothing(&self) -> bool {
+        matches!(self.kind, Kind::Nothing)
+    }
+
     /// The number that line `number` of `side` of the first reading has on that side of the
     /// second, or `None` when the second does not have it: it changed, or it went. A number
     /// returned may be of a line the second reading no longer shows, which the caller checks.

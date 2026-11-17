@@ -67,6 +67,8 @@ pub struct Worktree {
     pub made: Option<SystemTime>,
     /// When git last changed in it, for the quiet row.
     pub active: Option<SystemTime>,
+    /// Its branch's open pull request, as its row shows it (ADR 0127, step 5b-2).
+    pub pull: Option<String>,
 }
 
 /// An open space of the tree (ADR 0136): its repositories, each with the worktrees the space

@@ -28,6 +28,7 @@ mod carry;
 mod comment;
 mod decision;
 mod map;
+mod marks;
 mod rows;
 mod shape;
 
@@ -44,6 +45,7 @@ pub use shape::{Base, Hunk, Shape, ShapeError, Side};
 
 use carry::Item;
 use decision::{Mark, Marked};
+use marks::Progress;
 
 /// The most earlier readings a file's outdated comments keep to come back by.
 const MAX_KEPT_READINGS: usize = 16;
@@ -58,32 +60,8 @@ pub struct Review {
     /// The marks of every current reading, counted as they change, so that a modeline asks
     /// at O(1).
     progress: Progress,
-}
-
-/// How many hunks of the current readings hold a decision, a viewed mark, and in all.
-#[derive(Clone, Copy, Debug, Default)]
-struct Progress {
-    decided: usize,
-    viewed: usize,
-    hunks: usize,
-}
-
-impl Progress {
-    /// Counts `marks` in, or out with `out`.
-    fn count(&mut self, marks: &[Mark], out: bool) {
-        let decided = marks.iter().filter(|mark| mark.decision.is_some()).count();
-        let viewed = marks.iter().filter(|mark| mark.viewed).count();
-        let step = |total: &mut usize, by: usize| {
-            *total = if out {
-                total.saturating_sub(by)
-            } else {
-                *total + by
-            };
-        };
-        step(&mut self.decided, decided);
-        step(&mut self.viewed, viewed);
-        step(&mut self.hunks, marks.len());
-    }
+    /// Readings let go since [`Review::take_released`], for the host to free off the UI thread.
+    released: Vec<Arc<Shape>>,
 }
 
 /// What the review keeps of one path, read now or once.
@@ -136,6 +114,7 @@ impl Review {
         if let Some(reading) = state.reading.take() {
             state.dropped += reading.marks.iter().filter(|mark| mark.is_set()).count();
             self.progress.count(&reading.marks, true);
+            self.released.push(reading.shape);
         }
         state.readings += 1;
         for id in &state.comments {
@@ -162,9 +141,10 @@ impl Review {
                 })
             })
             .collect();
+        // The current reading always: its lines' map keeps the windows' places, and its hunks
+        // tell which of the new reading's are new.
         let marked = state
             .and_then(|state| state.reading.as_ref())
-            .filter(|reading| reading.marks.iter().any(|mark| mark.is_set()))
             .map(|reading| {
                 let shape = Arc::clone(&reading.shape);
                 (shape, Arc::clone(&reading.hashes), reading.marks.clone())
@@ -174,6 +154,7 @@ impl Review {
             to,
             items,
             marked,
+            unseen: false,
             hasher: self.hasher.clone(),
             readings: state.map_or(0, |state| state.readings),
             added: state.map_or(0, |state| state.added),
@@ -243,22 +224,12 @@ impl Review {
                 comment.outdated = true;
             }
         }
-        let kept = kept_readings(state, &self.comments, &to);
-        for id in &state.comments {
-            if let Some(comment) = self.comments.get_mut(id)
-                && comment.outdated
-                && let Some(shape) = &comment.shape
-                && !Arc::ptr_eq(shape, &to)
-                && !kept.contains(&Arc::as_ptr(shape))
-            {
-                // Its reading is let go: it stays outdated for good.
-                comment.shape = None;
-            }
-        }
+        let_go(state, &mut self.comments, &to, &mut self.released);
         state.dropped += dropped;
         applied.dropped = dropped;
-        if let Some(before) = &state.reading {
+        if let Some(before) = state.reading.take() {
             self.progress.count(&before.marks, true);
+            self.released.push(before.shape);
         }
         self.progress.count(&marks, false);
         state.reading = Some(Reading {
@@ -421,51 +392,6 @@ impl Review {
         }
     }
 
-    /// Records, or clears with `None`, the decision on hunk `hunk` of `path`; `false` when the
-    /// current reading has no such hunk.
-    pub fn decide(&mut self, path: &[u8], hunk: usize, decision: Option<Decision>) -> bool {
-        self.change_mark(path, hunk, |mark| mark.decision = decision)
-    }
-
-    /// The decision on hunk `hunk` of `path`.
-    pub fn decision(&self, path: &[u8], hunk: usize) -> Option<Decision> {
-        self.mark(path, hunk)?.decision
-    }
-
-    /// Marks hunk `hunk` of `path` viewed, or not; `false` when there is no such hunk.
-    pub fn set_viewed(&mut self, path: &[u8], hunk: usize, viewed: bool) -> bool {
-        self.change_mark(path, hunk, |mark| mark.viewed = viewed)
-    }
-
-    /// Whether hunk `hunk` of `path` is marked viewed.
-    pub fn viewed(&self, path: &[u8], hunk: usize) -> bool {
-        self.mark(path, hunk).is_some_and(|mark| mark.viewed)
-    }
-
-    /// How many decisions and viewed marks on `path` dropped because their hunks changed or
-    /// the file left the review, since [`Review::clear_dropped`].
-    pub fn dropped(&self, path: &[u8]) -> usize {
-        self.files.get(path).map_or(0, |state| state.dropped)
-    }
-
-    /// How far the person is through the review: the hunks of every current reading that hold a
-    /// decision, those marked viewed, and all of them. O(1): counted as marks change.
-    pub fn progress(&self) -> (usize, usize, usize) {
-        let Progress {
-            decided,
-            viewed,
-            hunks,
-        } = self.progress;
-        (decided, viewed, hunks)
-    }
-
-    /// Forgets the dropped count of `path`, once the person looked.
-    pub fn clear_dropped(&mut self, path: &[u8]) {
-        if let Some(state) = self.files.get_mut(path) {
-            state.dropped = 0;
-        }
-    }
-
     fn check_room(&self, text: &str) -> Result<(), CommentError> {
         if text.len() > MAX_COMMENT_BYTES {
             return Err(CommentError::TooLong);
@@ -564,6 +490,28 @@ impl Review {
         self.progress.count(std::slice::from_ref(mark), false);
         state.remarked += 1;
         true
+    }
+}
+
+/// Lets go of the readings `state`'s outdated comments keep past what they may, `to` being its
+/// new one: those comments stay outdated for good, and the readings go to `released`.
+fn let_go(
+    state: &PathState,
+    comments: &mut BTreeMap<CommentId, Comment>,
+    to: &Arc<Shape>,
+    released: &mut Vec<Arc<Shape>>,
+) {
+    let kept = kept_readings(state, comments, to);
+    for id in &state.comments {
+        if let Some(comment) = comments.get_mut(id)
+            && comment.outdated
+            && let Some(shape) = &comment.shape
+            && !Arc::ptr_eq(shape, to)
+            && !kept.contains(&Arc::as_ptr(shape))
+            && let Some(shape) = comment.shape.take()
+        {
+            released.push(shape);
+        }
     }
 }
 

@@ -717,7 +717,7 @@ fn an_agent_reads_the_diagnostics_and_the_counts() {
     assert_eq!(answer["more"], 0);
 
     let state = agent.call("state", None).unwrap();
-    assert_eq!(state["version"], 3);
+    assert_eq!(state["version"], 4);
     let buffer = state["buffers"]
         .as_array()
         .unwrap()
@@ -891,6 +891,68 @@ fn references_are_listed_by_file_and_one_is_gone_to_at_once() {
     app.wait_for("the one reference", |state| {
         state["cursor"]["column"] == 3 && state["echo"] == "1 reference"
     });
+}
+
+/// The agent reads the list of references the person has open as the person sees it: its rows,
+/// the one selected and the preview's lines; its own `M-?` is still refused, and says where to
+/// look (ADR 0138, step 15).
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_agent_reads_the_list_of_references_the_person_has_open() {
+    let (_scratch, mut app, _) = answering_places("lsp-agent-references");
+    let mut agent = super::agent::let_in(&mut app);
+    app.send_keys("C-e");
+    app.wait_for("the line's end", |state| state["cursor"]["column"] == 12);
+    // The list opens once the answer came; a key before then moves on and drops it.
+    app.send_keys("M-?");
+    app.wait_for("the list of references", |state| {
+        state["prompts"][0]["completion"]["count"] == 3
+    });
+    app.send_keys("C-n");
+    app.wait_for("the second reference selected", |state| {
+        let completion = &state["prompts"][0]["completion"];
+        completion["count"] == 3 && completion["selected"] == 1
+    });
+    let started = std::time::Instant::now();
+    let list = loop {
+        let state = agent.call("state", None).unwrap();
+        let list = state["prompts"][0]["list"].clone();
+        if list["selected"] == 1 && list["preview"]["kind"] == "buffer" {
+            break list;
+        }
+        assert!(started.elapsed().as_secs() < 10, "no list: {state}");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    assert_eq!(list["of"], "references");
+    assert_eq!(list["server"], "rust-analyzer");
+    assert_eq!(list["count"], 3);
+    let rows = &list["rows"];
+    assert_eq!(
+        rows[0],
+        json!({ "path": "src/main.rs", "line": 1, "text": "fn main() {}" }),
+        "{list}"
+    );
+    let outside = rows[2]["path"].as_str().unwrap_or_default();
+    assert!(outside.ends_with("std.rs"), "{list}");
+    assert_eq!(
+        (&rows[2]["line"], &rows[2]["text"]),
+        (&json!(2), &json!("pub fn main() {}"))
+    );
+    let preview = &list["preview"];
+    let at = preview["at"].as_u64().unwrap_or(u64::MAX) as usize;
+    assert_eq!(
+        preview["rows"][at],
+        json!({ "line": 1, "text": "fn main() {}" }),
+        "{list}"
+    );
+
+    app.send_keys("C-g");
+    app.wait_for("the list closed", |state| state["prompts"] == json!([]));
+    std::thread::sleep(std::time::Duration::from_millis(1300));
+    let why = agent
+        .run("lsp-find-references", None, "look")
+        .expect_err("the agent's own M-? is refused");
+    assert!(why.contains("`state`"), "{why}");
 }
 
 /// `C-M-i` asks for completions and opens the popup under the word, its items matched against

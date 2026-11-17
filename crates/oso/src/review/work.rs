@@ -21,7 +21,7 @@ use super::diff;
 use super::index::Scratch;
 use super::read::{self, Context, Kept};
 use super::scope::{self, Scope, ScopeError};
-use super::{Asked, Report, Request};
+use super::{Asked, Entry, Report, Request};
 use crate::git::Id;
 use crate::git::trim_line;
 use crate::git::{Git, GitError, MAX_SHORT};
@@ -48,6 +48,9 @@ pub(super) struct Reader {
     scope: Option<Scope>,
     kept: Kept,
     generation: u64,
+    /// The last listing, which a look compares with; and how many looks were made.
+    listed: Option<Arc<[Entry]>>,
+    looks: u64,
 }
 
 type Out<'a> = dyn FnMut(Report) -> bool + 'a;
@@ -72,6 +75,8 @@ impl Reader {
             scope: None,
             kept: Kept::default(),
             generation: 0,
+            listed: None,
+            looks: 0,
         }
     }
 
@@ -98,6 +103,7 @@ impl Reader {
             Request::Baseline => self.baseline(stop, out),
             Request::Carry(carry) => self.carry(carry, out),
             Request::Stage(stage) => self.stage(stage, out),
+            Request::Look => self.look(stop, out),
         };
         if let Err(e) = answered {
             out(match e {
@@ -235,6 +241,7 @@ impl Reader {
         let generation = self.generation;
         self.kept.keep_only(&listing.entries);
         let entries: Arc<[_]> = listing.entries.into();
+        self.listed = Some(Arc::clone(&entries));
         let listed = Report::Listed {
             generation,
             entries: Arc::clone(&entries),
@@ -306,6 +313,31 @@ impl Reader {
         Ok(())
     }
 
+    /// Looks whether the review is stale (step 4): a reviewed work tree file's stamp moved, or,
+    /// each second look, the listing is another, as files came or went, or the index or `HEAD`
+    /// moved. Says [`Report::Stale`] if so, else nothing.
+    fn look(&mut self, stop: &dyn Fn() -> bool, out: &mut Out<'_>) -> Result<(), ScopeError> {
+        let Some(scope) = self.scope.clone() else {
+            return Ok(());
+        };
+        let (git, index) = {
+            let repository = self.repository()?;
+            (repository.git.clone(), repository.index.clone())
+        };
+        self.looks += 1;
+        let top = Directory::open(git.top()).ok();
+        let mut stale = top.is_some_and(|top| self.kept.stamps_moved(&top, stop));
+        if !stale && self.looks.is_multiple_of(2) {
+            let sides = scope::resolve(&git, &scope, stop)?;
+            let listing = scope::list(&git, &sides, &index, self.scratch.as_mut(), stop)?;
+            stale = self.listed.as_deref() != Some(&listing.entries[..]);
+        }
+        if stale {
+            out(Report::Stale);
+        }
+        Ok(())
+    }
+
     /// Answers `stage` by its ticket, a repository not found too.
     fn stage(&mut self, stage: super::stage::Stage, out: &mut Out<'_>) -> Result<(), ScopeError> {
         let ticket = stage.ticket;
@@ -374,7 +406,10 @@ fn carry_with(git: &Git, batch: &mut Batch, carry: Carry) -> Report {
         },
     );
     let cut_short = cut_short || Instant::now() >= deadline;
-    Report::Carried { carried, cut_short }
+    Report::Carried {
+        carried: Box::new(carried),
+        cut_short,
+    }
 }
 
 /// The repository whose work tree's top is `root`: git to run there, and its index. git never

@@ -27,8 +27,10 @@ pub struct Carry {
     pub(super) path: Box<[u8]>,
     pub(super) to: Arc<Shape>,
     pub(super) items: Vec<Item>,
-    /// The current reading, its hunks' hashes and their marks, when any hunk is marked.
+    /// The current reading, its hunks' hashes and their marks, if the file has one.
     pub(super) marked: Option<MarkedReading>,
+    /// Whether the person saw no reading of the file before, though they saw the review's.
+    pub(super) unseen: bool,
     pub(super) hasher: RandomState,
     pub(super) readings: u64,
     pub(super) added: u64,
@@ -52,6 +54,9 @@ pub struct Carried {
     pub(super) hashes: Arc<[u64]>,
     pub(super) marks: Vec<Mark>,
     pub(super) dropped: usize,
+    /// The current reading as the snapshot was taken, and where each of its lines is in the
+    /// new one, if the file had one; boxed, as it is large and a carry goes through queues.
+    pub(super) moved: Option<Box<(Arc<Shape>, LineMap)>>,
     pub(super) readings: u64,
     pub(super) added: u64,
     pub(super) remarked: u64,
@@ -90,15 +95,53 @@ pub struct Applied {
     pub marks_changed: bool,
 }
 
+/// How far from a line that went its nearest line that stayed is looked for, each way: a
+/// cursor farther from any is put on the nearest row its side shows.
+const NEAREST: u32 = 1_000;
+
 impl Carried {
     /// Where each comment of the snapshot goes in the new reading, by id; `None` for one that
     /// goes outdated. A comment added after the snapshot is not here.
     pub fn placed(&self) -> &[(CommentId, Option<Anchor>)] {
         &self.placed
     }
+
+    /// The number line `number` of `side` of the reading before has in the new one, as a
+    /// cursor on it keeps its place (ADR 0122, step 4); for a line that went, that of the
+    /// nearest line that stayed, the upper one when both are as near. `None` when the file had
+    /// no reading before, or nothing near stayed.
+    pub fn line_now(&self, side: Side, number: u32) -> Option<u32> {
+        let (_, map) = self.moved.as_deref()?;
+        if map.carries_nothing() {
+            return None;
+        }
+        if let Some(now) = map.carry(side, number) {
+            return Some(now);
+        }
+        (1..=NEAREST).find_map(|away| {
+            let above = number.checked_sub(away).filter(|line| *line >= 1);
+            above
+                .and_then(|line| map.carry(side, line))
+                .or_else(|| map.carry(side, number.checked_add(away)?))
+        })
+    }
+
+    /// The reading [`Carried::line_now`] maps from: the file's current one as the snapshot was
+    /// taken, which a window showing another must not follow.
+    pub fn maps_from(&self) -> Option<&Arc<Shape>> {
+        self.moved.as_deref().map(|(from, _)| from)
+    }
 }
 
 impl Carry {
+    /// The file is new to a review the person already saw, or came back to it: each hunk of
+    /// its first reading is marked changed, as no reading of it was seen (step 4). A file with
+    /// a reading is carried as before.
+    pub fn unseen(mut self) -> Carry {
+        self.unseen = self.marked.is_none();
+        self
+    }
+
     /// Places every comment in the new reading and carries the marks. `base` is asked for the
     /// hunks between two old blobs ([`base_pair`]), at most once per pair, and answers `None`
     /// when they cannot be compared; `lcs` is the matcher of [`LineMap::new`], which must bound
@@ -136,6 +179,22 @@ impl Carry {
             });
             placed.push((item.id, at));
         }
+        // The map from the current reading, for the places windows keep; the same map a
+        // comment in it was placed by.
+        let moved = self.marked.as_ref().map(|(from, ..)| {
+            maps.remove(&Arc::as_ptr(from)).unwrap_or_else(|| {
+                let hunks = base_pair(from, to).and_then(|(a, b)| {
+                    bases
+                        .entry((a.into(), b.into()))
+                        .or_insert_with(|| base(a, b))
+                        .as_deref()
+                });
+                LineMap::onto(from, to, &to_spans, hunks, &mut lcs)
+            })
+        });
+        let moved = (self.marked.as_ref())
+            .zip(moved)
+            .map(|((from, ..), map)| Box::new((Arc::clone(from), map)));
         let hashes: Arc<[u64]> = to
             .hunks()
             .iter()
@@ -150,7 +209,13 @@ impl Carry {
                 };
                 decision::carry_marks(&from, to.hunks(), &hashes)
             }
-            None => (vec![Mark::default(); to.hunks().len()], 0),
+            None => {
+                let mark = Mark {
+                    changed: self.unseen,
+                    ..Mark::default()
+                };
+                (vec![mark; to.hunks().len()], 0)
+            }
         };
         Carried {
             path: self.path,
@@ -159,6 +224,7 @@ impl Carry {
             hashes,
             marks,
             dropped,
+            moved,
             readings: self.readings,
             added: self.added,
             remarked: self.remarked,

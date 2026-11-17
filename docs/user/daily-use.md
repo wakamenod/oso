@@ -67,7 +67,8 @@ the servers did. `M-x lsp-restart` starts the buffer's server again, `M-x lsp-sh
 until `M-x lsp-start`, and untrusting the project stops it. In a buffer a server follows,
 `M-.` goes to the definition at point, `M-,` goes back, and `C-M-,` forward again; each window
 keeps its own history. With several definitions, and for `M-?`, the references, a list opens,
-each row `path:line: text` with a preview of its place; `RET` goes there. A file outside any
+each row `path:line: text` with a preview of its place; `RET` goes there. An agent can look at
+the list you have open, its rows and the preview's lines, but never opens one itself. A file outside any
 project that they lead to, such as the standard library's, joins the server until its buffer is
 killed. `C-M-i` completes the word before point in a popup under it, as Corfu does, and so does
 typing three letters of a word and pausing, or one of the server's characters such as `.`: typing
@@ -387,6 +388,11 @@ on a modified file's hunks, not a new, deleted, renamed, binary or linked file's
 when the file's buffer holds unsaved edits, as it saves the whole buffer. A hunk's header says
 what you decided, the file's header how many of its hunks you decided, and the modeline how far
 you are; a file says when decisions dropped because the agent changed their hunks.
+
+A review shown reads its files again by itself when they change: when the agent saves, ends a
+turn, or edits from a shell, and when you save. Your cursor stays on its line. A hunk new since
+the last reading, or of a file new to the review, says `· changed` until your cursor has been
+in it. `g` reads now.
 | `\|` | Two panes, the old side and the new side lined up, or one stream again |
 | `g` | Read the files again now |
 | `C-c C-c` | Gather your comments not sent yet into a message to the session |

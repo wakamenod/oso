@@ -94,6 +94,8 @@ impl Excerpt {
             display,
             cursor,
             identity: None,
+            // Its lines are no file's.
+            first_line: 1,
         }
     }
 }

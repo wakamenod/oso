@@ -48,7 +48,13 @@ fn put_in(editor: &mut Editor, id: super::ReviewId, files: &[(&str, usize)]) -> 
     let (text, rows) = review_text(files);
     let old = editor.buffer(buffer).unwrap().text().clone();
     let reloaded = decode_all(text.as_bytes(), TabWidth::default()).compared_with(&old);
-    editor.set_review_text(id, reloaded, rows, Highlights::new(text.len()))
+    editor.set_review_text(
+        id,
+        reloaded,
+        rows,
+        Highlights::new(text.len()),
+        &|_, _, number| Some(number),
+    )
 }
 
 fn editor_with_review() -> (Editor, super::ReviewId) {
@@ -145,7 +151,13 @@ fn put_in_closed(editor: &mut Editor, id: super::ReviewId) -> ReviewLeftover {
     let (text, rows) = review_text(&[("a.rs", 1)]);
     let reloaded =
         decode_all(text.as_bytes(), TabWidth::default()).compared_with(&crate::rope::Rope::new());
-    editor.set_review_text(id, reloaded, rows, Highlights::new(text.len()))
+    editor.set_review_text(
+        id,
+        reloaded,
+        rows,
+        Highlights::new(text.len()),
+        &|_, _, number| Some(number),
+    )
 }
 
 #[test]
@@ -259,4 +271,94 @@ fn the_menu_keeps_only_its_latest_openings_counts() {
     assert_eq!(menu.generation(), third);
     let menu = editor.scope_menu(project).unwrap();
     assert_eq!(menu.baseline_taken(), Some(60));
+}
+
+#[test]
+fn a_new_text_keeps_each_cursor_and_top_on_its_line_by_the_hosts_map() {
+    let (mut editor, id) = editor_with_review();
+    let _ = put_in(&mut editor, id, &[("a.rs", 3), ("b.rs", 2)]);
+    // On `+line 1` of a.rs, its new line 2, the window's top on a.rs's hunk header.
+    let buffer = editor.review_buffer(id).unwrap();
+    let at = editor.buffer(buffer).unwrap().text().line_start(3);
+    editor.current_mut().0.selections = SelectionSet::new(at);
+    // The agent put a line in above it: a.rs has one more, and line 2 is line 3 now.
+    let (text, rows) = review_text(&[("a.rs", 4), ("b.rs", 2)]);
+    let old = editor.buffer(buffer).unwrap().text().clone();
+    let reloaded = decode_all(text.as_bytes(), TabWidth::default()).compared_with(&old);
+    let moved =
+        |path: &[u8], _, number: u32| Some(if path == b"a.rs" { number + 1 } else { number });
+    let _ = editor.set_review_text(id, reloaded, rows, Highlights::new(text.len()), &moved);
+    let (window, shown) = editor.current();
+    let line = shown
+        .text()
+        .offset_to_point(window.selections.primary().cursor)
+        .row;
+    assert_eq!(line, 4, "on a.rs's new line 3");
+    // A line that went with nothing near stays where the text change carried it.
+    let (text, rows) = review_text(&[("a.rs", 1), ("b.rs", 2)]);
+    let old = editor.buffer(buffer).unwrap().text().clone();
+    let reloaded = decode_all(text.as_bytes(), TabWidth::default()).compared_with(&old);
+    let _ = editor.set_review_text(
+        id,
+        reloaded,
+        rows,
+        Highlights::new(text.len()),
+        &|_, _, _| None,
+    );
+    let (window, shown) = editor.current();
+    let line = shown
+        .text()
+        .offset_to_point(window.selections.primary().cursor)
+        .row;
+    assert!(line <= shown.text().max_point().row);
+}
+
+#[test]
+fn cursors_inside_the_span_a_new_text_changes_each_keep_their_own_line() {
+    let (mut editor, id) = editor_with_review();
+    let _ = put_in(&mut editor, id, &[("a.rs", 3)]);
+    let buffer = editor.review_buffer(id).unwrap();
+    // On `+line 1` and `+line 2`, a.rs's new lines 2 and 3, the second primary.
+    let text = editor.buffer(buffer).unwrap().text().clone();
+    let set = SelectionSet::from_parts(
+        vec![
+            crate::selection::Selection::at(text.line_start(3)),
+            crate::selection::Selection::at(text.line_start(4)),
+        ],
+        1,
+    )
+    .unwrap();
+    editor.current_mut().0.selections = set;
+    // Every line of a.rs is rewritten, one more put in above: the text change meets both
+    // cursors at one edge, but each follows its line by the host's map.
+    let (text, rows) = review_text(&[("a.rs", 4)]);
+    let text = text.replace("+line", "+LINE");
+    let old = editor.buffer(buffer).unwrap().text().clone();
+    let reloaded = decode_all(text.as_bytes(), TabWidth::default()).compared_with(&old);
+    let moved = |_: &[u8], _, number: u32| Some(number + 1);
+    let _ = editor.set_review_text(id, reloaded, rows, Highlights::new(text.len()), &moved);
+    let (window, shown) = editor.current();
+    let lines: Vec<usize> = (window.selections.iter())
+        .map(|it| shown.text().offset_to_point(it.cursor).row)
+        .collect();
+    assert_eq!(lines, [4, 5]);
+    let primary = window.selections.primary().cursor;
+    assert_eq!(shown.text().offset_to_point(primary).row, 5);
+}
+
+#[test]
+fn the_modeline_says_how_far_a_reading_is_apart_from_the_encoding() {
+    let (mut editor, id) = editor_with_review();
+    let _ = put_in(&mut editor, id, &[("a.rs", 1)]);
+    editor.set_review_reading(id, Some((1, 3)));
+    let mut status = crate::editor::Status::default();
+    editor.status_into(editor.tiled().0.id(), &mut status);
+    // Each field after the state after a gap: once "LF0 of 4 hunks decided" ran together.
+    let at = status
+        .state
+        .find("reading 1/3")
+        .expect("the reading is said");
+    assert!(status.state[..at].ends_with("  "), "{:?}", status.state);
+    assert!(!status.state[..at - 2].ends_with(' '), "{:?}", status.state);
+    assert!(status.state.ends_with("reading 1/3"), "{:?}", status.state);
 }

@@ -1,6 +1,7 @@
 //! Writing pull requests' texts (ADR 0127, step 5a): the status's head line for a branch's pull
 //! request, `*pr: #N*` with its checks, review threads and conversation, and a repository's
-//! list, with their faces and the table of what each line names.
+//! list, with their faces and the table of what each line names; and a worktree's row's line
+//! for its pull request (step 5b-2).
 //!
 //! Must not depend on: `app`, `dispatch`, `gh` or the file system; pure functions of what
 //! `gh` gave.
@@ -90,6 +91,29 @@ pub(crate) fn head_parts(head: &PrHead, tip: Option<&str>) -> Vec<(String, Optio
         parts.push(("  stale".to_owned(), Some(Highlight::Outdated)));
     }
     parts
+}
+
+/// A worktree's pull request as its row shows it (step 5b-2): `PR #12 open, approved ✓ 3 ✗ 0
+/// ● 1`, its words escaped.
+pub(crate) fn pull_summary(item: &Listed) -> String {
+    let state = if item.draft {
+        State::Draft
+    } else {
+        State::Open
+    };
+    let mut line = format!("PR #{} {}", item.number, state.word());
+    if let Some(review) = item.review {
+        line.push_str(&format!(", {}", review.words()));
+    }
+    let counts: String = counts_parts(item.counts)
+        .into_iter()
+        .map(|(text, _)| text)
+        .collect();
+    if !counts.is_empty() {
+        line.push(' ');
+        line.push_str(counts.trim_start());
+    }
+    printable(&line, 200)
 }
 
 /// `view`'s text, its checks and threads with it.
