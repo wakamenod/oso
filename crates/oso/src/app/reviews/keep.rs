@@ -68,6 +68,8 @@ pub(super) struct Saving {
     pub(super) place: Option<Place>,
     /// Where the cursor was as it was last handed to the store, which a review closed keeps.
     place_handed: Option<Place>,
+    /// The files with restored comments the view was not told of yet.
+    pub(super) untold: HashSet<Box<[u8]>>,
 }
 
 /// The app's side of saved reviews: the store's thread, once started, the saved reviews as
@@ -237,6 +239,13 @@ impl App {
         };
         let empty = std::mem::replace(model, review);
         self.freer.free(empty);
+        // The view draws a file's cards from what it is told of its comments: each file's once,
+        // as its first reading comes, or once a listing says it left (`comments`).
+        let untold: HashSet<Box<[u8]>> = (self.editor.review(id).into_iter())
+            .flat_map(Review::comments)
+            .map(|comment| Box::from(comment.path()))
+            .collect();
+        self.reviews.open[index].saving.untold = untold;
         self.editor.choose_review_layout(id, view.choice);
         self.editor.fold_agents(id, view.folded);
         let saving = &mut self.reviews.open[index].saving;

@@ -29,6 +29,14 @@ impl App {
     /// Tells the view the review's file has a new reading, its comments carried at once when
     /// it has none, and on the review's own thread when it has some.
     pub(super) fn tell_file(&mut self, index: usize, reading: Arc<Reading>) {
+        // A file's restored comments, as its first reading comes (step 6).
+        if self.reviews.open[index]
+            .saving
+            .untold
+            .remove(&*reading.entry.path)
+        {
+            self.tell_cards(index, &reading.entry.path);
+        }
         // A reject checks the lines around a hunk by the reading's new side (step 5).
         self.reviews.open[index].decisions.keep_reading(&reading);
         let id = self.reviews.open[index].id;
@@ -230,6 +238,17 @@ impl App {
             self.editor.set_review_file_behind(id, path, false);
         }
         for path in commented {
+            self.tell_cards(index, &path);
+        }
+        // Restored comments of files the listing does not hold, which no reading tells.
+        let listed: std::collections::HashSet<&[u8]> =
+            entries.iter().map(|entry| &*entry.path).collect();
+        let untold: Vec<Box<[u8]>> = (self.reviews.open[index].saving.untold.iter())
+            .filter(|path| !listed.contains(&***path))
+            .cloned()
+            .collect();
+        for path in untold {
+            self.reviews.open[index].saving.untold.remove(&path);
             self.tell_cards(index, &path);
         }
     }
