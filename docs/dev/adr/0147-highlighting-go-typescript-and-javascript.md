@@ -276,3 +276,53 @@ gains `amended by 0147`.
   `gopher` staying plain; a fence's query compiled only at its first fence, and a piece that
   compiles one ending as `Compiled` and then done; and in `oso-core`,
   which modes can be highlighted, and that a Go buffer that may hold secrets cannot.
+
+### Step 2: JavaScript, TypeScript and TSX
+
+- `tree-sitter-javascript =0.25.0` and `tree-sitter-typescript =0.23.2` were added on their own
+  commit, with their `deny.toml` entries.
+- **`Language::JavaScript`, `Language::TypeScript` and `Language::Tsx`** (public), from
+  `Mode::JavaScript`, `Mode::TypeScript` and `Mode::Tsx`, which `Buffer::can_highlight` now
+  allows. LaTeX and Swift are the modes of ADR 0138 left without a grammar.
+- **The queries** are three files, `queries/ecma`, `queries/jsx` and `queries/typescript`,
+  joined at build time (`concat!` of `include_str!`): JavaScript's is jsx then ecma,
+  TypeScript's typescript then ecma, TSX's typescript, jsx, then ecma. The specific parts go
+  first, as of two patterns on one node the first wins: a component's tag (`<Button>`) is a
+  function, not a capitalised name's type. Beyond the Decision's list:
+  - a template string's backticks, text and escapes are `String`, and its `${` and `}` plain,
+    so the code inside is drawn as code;
+  - a decorator's `@` and name are `Macro`, its arguments as code;
+  - a `#!` line is `Comment`; private names (`#items`) are properties, or functions where
+    declared or called as methods;
+  - TypeScript's predefined types (`string`, `number`, `void`, ...) are `Type`, an enum's
+    members `Constant`, and a signature's name (in an interface, an abstract method, an
+    overload) `Function`;
+  - a tag's name in a member expression (`<Menu.Item>`) is a function in both parts.
+- **Fences:** `js`, `javascript`, `jsx`, `mjs` and `cjs`; `ts`, `typescript`, `mts` and `cts`;
+  `tsx`.
+- **Measured** with `syntax_perf`, release, on the author's Mac, while other builds ran. Inputs
+  were packages installed on that machine: npm's own JavaScript, TypeScript sources from
+  another tool's packages, and its one `.tsx` file (12 KB) repeated:
+
+  | Input, 2 MiB | Parse | Parse and highlight | In 20 ms slices | After one key | Peak memory |
+  |---|---|---|---|---|---|
+  | JavaScript | 111 ms | 191 ms | 9, the longest 20.0 ms | 8.0 ms | 148 MB |
+  | TypeScript | 82 ms | 154 ms | 9, the longest 20.0 ms | 5.0 ms | 130 MB |
+  | TSX (the `.tsx` file repeated) | 62 ms | 121 ms | 6, the longest 20.0 ms | 1.1 ms | 97 MB |
+  | TSX (the TypeScript sources) | 103 ms | 186 ms | 9, the longest 20.0 ms | 25 ms | 132 MB |
+  | Minified JavaScript, 1.9 MB | 231 ms | 478 ms | 26, the longest 20.2 ms | 22 ms | 400 MB |
+
+  **A minified file is the costly case:** its tokens are dense, so its tree, and its 600,000
+  runs, take about three times the memory of source at the same size. 2 MiB of it is the most
+  memory one highlighted buffer takes in any grammar; the size limit bounds it.
+- **Compiling the queries** takes 7.6–12 ms for JavaScript's, 13–18 ms for TypeScript's and
+  17–21 ms for TSX's (Rust's 6.7–16 ms in the same runs), about a slice. A buffer's own query is
+  compiled before its first parse, as in ADR 0111; a fence's ends its piece unjudged (step 1),
+  so neither is counted against a piece.
+- **Tests:** what the three share drawn alike in each (`assert_ecma`), JSX's tags and
+  attributes, TypeScript's types, keywords, enums, signatures and decorators, a cast in
+  TypeScript, a generic component in TSX; comments as one run each; line breaks plain; a
+  parse of each; their fences, and other words (`node`, `react`) staying plain; a seed of each
+  in the property tests, with `tsx`, a tag and `${` among the pieces; and the three in the
+  random and crafted texts (`${` and a backtick, a tag, an arrow function added to the atoms).
+  oso-syntax's tests take about 4 s now, from about 1 s.

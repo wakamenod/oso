@@ -179,6 +179,166 @@ fn go_captures() {
     );
 }
 
+const ECMA: &str = "#!/usr/bin/env node\nimport { readFile } from \"fs\";\n\
+                    const MAX_SIZE = 10, Answer = 42;\n// note\n\
+                    export async function load(path, opts = {}) {\n\
+                    \tconst text = await readFile(path, 'utf8');\n\
+                    \tconst re = /a+b/g;\n\tthis.size = text.length;\n\
+                    \treturn `size ${text.trim()} of ${path}`;\n}\n\
+                    class Shelf extends Base {\n\t#items = [];\n\tget count() { return null; }\n\
+                    \tadd(x) { this.#items.push(x); super.add(undefined, true, 1.5); }\n}\n\
+                    const square = (n) => n * n;\n";
+
+/// What JavaScript, TypeScript and TSX share, as each draws it.
+#[track_caller]
+fn assert_ecma(language: Language) {
+    assert_has(
+        language,
+        ECMA,
+        &[
+            ("#!/usr/bin/env node", Comment),
+            ("import", Keyword),
+            ("\"fs\"", String),
+            ("MAX_SIZE", Constant),
+            ("Answer", Type),
+            ("// note", Comment),
+            ("async", Keyword),
+            ("load", Function),
+            ("await", Keyword),
+            ("readFile", Function),
+            ("'utf8'", String),
+            ("/a+b/g", String),
+            ("this", Keyword),
+            ("size", Property),
+            ("length", Property),
+            ("`size ", String),
+            ("trim", Function),
+            (" of ", String),
+            ("`", String),
+            ("class", Keyword),
+            ("Shelf", Type),
+            ("#items", Property),
+            ("get", Keyword),
+            ("count", Function),
+            ("null", Constant),
+            ("push", Function),
+            ("super", Keyword),
+            ("undefined", Constant),
+            ("true", Constant),
+            ("1.5", Constant),
+            ("square", Function),
+        ],
+    );
+    // A template's code is code: its names stay plain.
+    let runs = runs(&highlighted(language, ECMA));
+    assert!(
+        !runs.iter().any(|(run, _)| run == "text" || run == "path"),
+        "{runs:?}"
+    );
+}
+
+#[test]
+fn javascript_captures() {
+    assert_ecma(Language::JavaScript);
+    let jsx = "const App = () => (\n\t<Menu.Item onClick={go} label=\"x\">\n\
+               \t\t<div className='a'>Hello {name}</div>\n\t\t<Button />\n\t</Menu.Item>\n);\n";
+    assert_has(
+        Language::JavaScript,
+        jsx,
+        &[
+            ("App", Function),
+            ("Menu", Function),
+            ("Item", Function),
+            ("onClick", Property),
+            ("\"x\"", String),
+            ("div", Function),
+            ("className", Property),
+            ("Button", Function),
+        ],
+    );
+    let runs = runs(&highlighted(Language::JavaScript, jsx));
+    assert!(
+        !runs.iter().any(|(run, _)| run.contains("Hello")),
+        "{runs:?}"
+    );
+}
+
+const TYPESCRIPT: &str = "interface Point<T> { x: T; area(): number; }\n\
+                          type Id = string | undefined;\n\
+                          enum Color { Red, Green = 2 }\n\
+                          declare function f(a: Point<number>): a is Point<number>;\n\
+                          abstract class Shape implements Drawn {\n\
+                          \tprivate readonly name: string = 'shape';\n\
+                          \t@Input() size?: number;\n\tabstract draw(): void;\n}\n\
+                          const n = f(p) satisfies boolean;\n";
+
+#[test]
+fn typescript_captures() {
+    assert_ecma(Language::TypeScript);
+    assert_has(
+        Language::TypeScript,
+        TYPESCRIPT,
+        &[
+            ("interface", Keyword),
+            ("Point", Type),
+            ("T", Type),
+            ("x", Property),
+            ("area", Function),
+            ("number", Type),
+            ("type", Keyword),
+            ("Id", Type),
+            ("string", Type),
+            ("enum", Keyword),
+            ("Red", Constant),
+            ("Green", Constant),
+            ("declare", Keyword),
+            ("f", Function),
+            ("is", Keyword),
+            ("abstract", Keyword),
+            ("Shape", Type),
+            ("implements", Keyword),
+            ("private", Keyword),
+            ("readonly", Keyword),
+            ("'shape'", String),
+            ("@Input", Macro),
+            ("draw", Function),
+            ("void", Type),
+            ("satisfies", Keyword),
+            ("boolean", Type),
+        ],
+    );
+    // `<T>value` is a cast in TypeScript; TSX has no such cast.
+    assert_has(
+        Language::TypeScript,
+        "const v = <Point>p;\n",
+        &[("Point", Type)],
+    );
+}
+
+#[test]
+fn tsx_captures() {
+    assert_ecma(Language::Tsx);
+    assert_has(
+        Language::Tsx,
+        TYPESCRIPT,
+        &[("interface", Keyword), ("Red", Constant)],
+    );
+    let tsx = "export function Card({ title }: Props): JSX.Element {\n\
+               \treturn <section aria-label={title}><Header<string> text=\"t\" /></section>;\n}\n";
+    assert_has(
+        Language::Tsx,
+        tsx,
+        &[
+            ("Card", Function),
+            ("Props", Type),
+            ("section", Function),
+            ("Header", Function),
+            ("string", Type),
+            ("text", Property),
+        ],
+    );
+}
+
 #[test]
 fn line_breaks_are_never_highlighted() {
     let cases = [
@@ -189,6 +349,9 @@ fn line_breaks_are_never_highlighted() {
         (Language::Markdown, "Setext *a\nb*\n===\n\n> q\n> r\n"),
         (Language::Toml, "s = \"\"\"\nmulti\n\"\"\"\n"),
         (Language::Go, "var s = `raw\nlines`\n/* a\nb */\n"),
+        (Language::JavaScript, "const s = `a\nb`;\n/* a\nb */\n"),
+        (Language::TypeScript, "let s: string = `a\n${x}\nb`;\n"),
+        (Language::Tsx, "const e = <div>\n\ttext\n</div>;\n"),
     ];
     for (language, text) in cases {
         let document = highlighted(language, text);
@@ -345,6 +508,17 @@ fn a_trailing_comment_is_one_run() {
             ("/* `y` */", Comment),
         ],
     );
+    let ecma = "f(1); // TODO: \"s\" 2 null f() <div>\nlet x = 1; /** @param {string} y `z` */\n";
+    for language in [Language::JavaScript, Language::TypeScript, Language::Tsx] {
+        assert_has(
+            language,
+            ecma,
+            &[
+                ("// TODO: \"s\" 2 null f() <div>", Comment),
+                ("/** @param {string} y `z` */", Comment),
+            ],
+        );
+    }
 }
 
 /// A full-width space is no white space to Rust: before `//`, it leaves an error that takes the

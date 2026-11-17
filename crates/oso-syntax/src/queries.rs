@@ -18,6 +18,21 @@ const MARKDOWN: &str = include_str!("../queries/markdown/highlights.scm");
 const MARKDOWN_INLINE: &str = include_str!("../queries/markdown_inline/highlights.scm");
 const TOML: &str = include_str!("../queries/toml/highlights.scm");
 const GO: &str = include_str!("../queries/go/highlights.scm");
+// JavaScript, TypeScript and TSX share the ecma part, after the more specific ones, as of two
+// patterns on one node the first wins (ADR 0147).
+const JAVASCRIPT: &str = concat!(
+    include_str!("../queries/jsx/highlights.scm"),
+    include_str!("../queries/ecma/highlights.scm"),
+);
+const TYPESCRIPT: &str = concat!(
+    include_str!("../queries/typescript/highlights.scm"),
+    include_str!("../queries/ecma/highlights.scm"),
+);
+const TSX: &str = concat!(
+    include_str!("../queries/typescript/highlights.scm"),
+    include_str!("../queries/jsx/highlights.scm"),
+    include_str!("../queries/ecma/highlights.scm"),
+);
 
 /// Finds, in Markdown's block tree, the text another grammar parses, as the grammar's own
 /// injection query does: the inline grammar's text, and fenced code blocks, whose info string
@@ -116,6 +131,9 @@ fn slot(kind: Kind) -> usize {
         Kind::Highlights(Language::Toml) => 3,
         Kind::Injections => 4,
         Kind::Highlights(Language::Go) => 5,
+        Kind::Highlights(Language::JavaScript) => 6,
+        Kind::Highlights(Language::TypeScript) => 7,
+        Kind::Highlights(Language::Tsx) => 8,
     }
 }
 
@@ -128,6 +146,9 @@ fn source(kind: Kind) -> (Language, &'static str) {
         Kind::Highlights(Language::Toml) => (Language::Toml, TOML),
         Kind::Injections => (Language::Markdown, INJECTIONS),
         Kind::Highlights(Language::Go) => (Language::Go, GO),
+        Kind::Highlights(Language::JavaScript) => (Language::JavaScript, JAVASCRIPT),
+        Kind::Highlights(Language::TypeScript) => (Language::TypeScript, TYPESCRIPT),
+        Kind::Highlights(Language::Tsx) => (Language::Tsx, TSX),
     }
 }
 

@@ -94,6 +94,13 @@ fn each_language_parses_its_text() {
             "package main\n\nfunc main() {\n\ts := \"日本\"\n}\n",
             "source_file",
         ),
+        (Language::JavaScript, "const a = <p>日本</p>;\n", "program"),
+        (
+            Language::TypeScript,
+            "const a: string = <string>b;\n",
+            "program",
+        ),
+        (Language::Tsx, "const a: string = <p>日本</p>;\n", "program"),
     ];
     for (language, text, root) in cases {
         let document = parsed(language, text);

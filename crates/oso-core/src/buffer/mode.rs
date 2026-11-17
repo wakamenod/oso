@@ -29,11 +29,11 @@ pub enum Mode {
     Toml,
     /// Go source (ADR 0138), highlighted (ADR 0147).
     Go,
-    /// TypeScript.
+    /// TypeScript (ADR 0138), highlighted (ADR 0147).
     TypeScript,
-    /// TypeScript with JSX, `.tsx`.
+    /// TypeScript with JSX, `.tsx` (ADR 0138), highlighted with a grammar of its own (ADR 0147).
     Tsx,
-    /// JavaScript, JSX among it.
+    /// JavaScript, JSX among it (ADR 0138), highlighted (ADR 0147).
     JavaScript,
     /// LaTeX.
     Latex,
