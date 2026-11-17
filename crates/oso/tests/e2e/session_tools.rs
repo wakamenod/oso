@@ -110,6 +110,8 @@ fn quoted(word: &str) -> String {
 pub(super) struct Bridge {
     input: File,
     output: PathBuf,
+    /// Where the server's standard error goes.
+    errors: PathBuf,
     next: u64,
 }
 
@@ -157,6 +159,7 @@ impl Bridge {
         let mut bridge = Bridge {
             input,
             output: dir.join(format!("out.{}", run.pid)),
+            errors: dir.join(format!("err.{}", run.pid)),
             next: 1,
         };
         let id = bridge.send(
@@ -212,6 +215,17 @@ impl Bridge {
         }
     }
 
+    /// What the server wrote so far, to standard output and standard error, for a flow that
+    /// fails waiting on it.
+    fn said(&self) -> String {
+        let read = |path: &Path| fs::read_to_string(path).unwrap_or_default();
+        format!(
+            "its stdout:\n{}\nits stderr:\n{}",
+            read(&self.output),
+            read(&self.errors)
+        )
+    }
+
     /// The result of the tool call `id`: what it said, parsed if it is JSON, and whether it is
     /// an error.
     pub(super) fn result(&self, id: u64) -> (Value, bool) {
@@ -244,11 +258,25 @@ fn hosted(flow: &Flow) -> (App, Bridge) {
     (app, bridge)
 }
 
-/// Waits for the agent's question, and answers it with `key` as the person.
-pub(super) fn answer(app: &mut App, key: &str) -> String {
-    let state = app.wait_for("the agent's question", |state| {
-        asks(state).is_some_and(|prompt| prompt.starts_with("Agent: "))
-    });
+/// Waits for the question an agent's call on `bridge` asks, and answers it with `key` as the
+/// person. One that does not come fails with what was asked instead, the echo area and what
+/// the bridge said, which tell a call that never reached the app from another question.
+pub(super) fn answer(app: &mut App, bridge: &Bridge, key: &str) -> String {
+    let deadline = Instant::now() + DEADLINE;
+    let state = loop {
+        let state = app.state();
+        if asks(&state).is_some_and(|prompt| prompt.starts_with("Agent: ")) {
+            break state;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no agent's question after {DEADLINE:?}; asked instead: {}; the echo area: {}; the bridge: {}",
+            state["prompts"],
+            state["echo"],
+            bridge.said(),
+        );
+        thread::sleep(Duration::from_millis(100));
+    };
     thread::sleep(QUIET);
     app.send_keys(key);
     asks(&state).unwrap_or_default()
@@ -295,7 +323,7 @@ fn an_allowed_worktree_session_starts_and_its_finished_worktree_is_removed() {
         "start_worktree_session",
         json!({ "branch": "e2e-agent", "brief": "Fix the parser" }),
     );
-    let question = answer(&mut app, "y");
+    let question = answer(&mut app, &bridge, "y");
     assert!(question.contains("e2e-agent"), "{question}");
     let (started, error) = bridge.result(id);
     assert!(!error, "{started}");
@@ -351,7 +379,7 @@ fn an_idle_session_carried_over_a_restart_is_judged_and_its_worktree_removed() {
         "start_worktree_session",
         json!({ "branch": "e2e-idle", "brief": "Fix the parser" }),
     );
-    answer(&mut old, "y");
+    answer(&mut old, &bridge, "y");
     let (started, error) = bridge.result(id);
     assert!(!error, "{started}");
     let run = run_in(&flow, &place);
@@ -420,7 +448,7 @@ fn a_refused_worktree_session_is_refused_again_without_asking() {
     let call = json!({ "branch": "e2e-refused", "brief": "Fix the parser" });
 
     let id = bridge.call("start_worktree_session", call.clone());
-    answer(&mut app, "n");
+    answer(&mut app, &bridge, "n");
     let (said, error) = bridge.result(id);
     assert!(error, "{said}");
     assert!(
@@ -504,7 +532,7 @@ fn a_worktree_session_starts_without_asking_up_to_the_limit_and_asks_past_it() {
         "start_worktree_session",
         json!({ "branch": "e2e-asked", "brief": "Fix the lexer" }),
     );
-    let question = answer(&mut app, "n");
+    let question = answer(&mut app, &bridge, "n");
     assert!(question.contains("e2e-asked"), "{question}");
     let (said, error) = bridge.result(id);
     assert!(error, "{said}");
@@ -559,7 +587,7 @@ fn after_agent_starts_ask_a_start_asks_again() {
         "start_worktree_session",
         json!({ "branch": "e2e-held", "brief": "Fix the parser" }),
     );
-    answer(&mut app, "n");
+    answer(&mut app, &bridge, "n");
     let (said, error) = bridge.result(id);
     assert!(error, "{said}");
     assert_eq!(runs(&flow).len(), 1, "a second fake ran");
@@ -601,7 +629,7 @@ fn a_session_in_its_own_directory_starts_without_asking_until_the_project_is_unt
     });
     thread::sleep(AFTER_TYPING);
     let id = bridge.call("session_start", json!({ "brief": "Look again" }));
-    answer(&mut app, "n");
+    answer(&mut app, &bridge, "n");
     let (said, error) = bridge.result(id);
     assert!(error, "{said}");
     flow.exit_with(0);

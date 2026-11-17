@@ -77,8 +77,10 @@ line adds it as it goes in; when that line is out of view, the echo area says wh
 `C-c C-r` lists the server's code actions for the region, or for point, such as a fix for the
 error there or a refactoring, the one the server prefers selected; `RET` applies the one picked
 to the buffers it changes, each as one step to undo, and the echo area says what changed. One the
-server disabled is faded, with its reason. An action that changes a file no buffer holds, or runs
-a command, does nothing yet. The rest comes in later steps.
+server disabled is faded, with its reason. An action that changes a file no buffer holds asks
+first, `apply to N files, M not open?`; `y` opens them, unshown and unsaved, and applies it. An
+action that runs a command of the server's applies what the server then changes. The rest
+comes in later steps.
 
 A server can be changed in `config.toml`:
 
@@ -416,7 +418,7 @@ project must be trusted.
 | `z` | The stash menu: `z` stash, `a` apply, `p` pop, `k` drop the stash at point; `- u` takes untracked files |
 | `b` | The branch menu: `b` check out, `c` make and check out, `n` make, `m` rename, `k` delete |
 | `l` | The log menu: `l` the graph of the branch, `a` of every ref, `o` of another; `C-x v l` from anywhere |
-| `N` | The pull request menu, through `gh`: `v` the branch's pull request, `k` its checks, `o` open it in the browser, `c` create one (`- d` a draft, `- b` into a base you name), `m` merge it, `l` the open ones |
+| `N` | The pull request menu, through `gh`: `v` the branch's pull request, `k` its checks, `o` open it in the browser, `c` create one (`- d` a draft, `- b` into a base you name), `m` merge it, `l` the open ones, `i` the open issues (`C-x v i` from anywhere; there `w` starts a worktree session from one) |
 | `f u` / `f a` | Fetch the upstream's remote, or every remote |
 | `RET` | Visit the file, or review the commit at point |
 | `$` | Show what git's runs wrote; `C-g` stops one |

@@ -65,6 +65,8 @@ impl Language {
             | Mode::GitGraph
             | Mode::GitPr
             | Mode::GitPrList
+            | Mode::GitIssueList
+            | Mode::GitIssue
             | Mode::GitCommit
             | Mode::GitPrMessage
             | Mode::ReviewMessage

@@ -100,7 +100,8 @@ impl App {
                 | AskKind::Resolve
                 | AskKind::Hover
                 | AskKind::CodeAction
-                | AskKind::ResolveAction => return,
+                | AskKind::ResolveAction
+                | AskKind::ExecuteCommand => return,
             };
             self.editor.message(none);
             return;

@@ -40,6 +40,7 @@ struct Waiting {
     waiting_at: HashMap<Key, usize>,
     answers: Vec<Answer>,
     completing: Option<crate::protocol::Completing>,
+    apply_edits: Vec<super::ApplyEdit>,
 }
 
 /// What a waiting set of diagnostics is of: an open document, or a file.
@@ -63,6 +64,7 @@ impl Default for Waiting {
             waiting_at: HashMap::new(),
             answers: Vec::new(),
             completing: None,
+            apply_edits: Vec::new(),
         }
     }
 }
@@ -94,6 +96,7 @@ impl Outbox {
             },
             answers: mem::take(&mut waiting.answers),
             completing: waiting.completing.take(),
+            apply_edits: mem::take(&mut waiting.apply_edits),
         })
     }
 
@@ -144,6 +147,13 @@ impl Reporter {
         } else {
             self.due = true;
         }
+    }
+
+    /// A server's `workspace/applyEdit` for the UI, which wakes it at once: the server waits
+    /// (step 13b).
+    pub(super) fn apply_edit(&mut self, edit: super::ApplyEdit) {
+        self.outbox.with(|waiting| waiting.apply_edits.push(edit));
+        self.wake_now();
     }
 
     /// What the server said of its completions, for the UI (step 9b).

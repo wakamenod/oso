@@ -56,3 +56,14 @@ pub struct ActionResolved {
     pub edit: Option<Result<ServerEdit, String>>,
     pub command: Option<String>,
 }
+
+/// A server's `workspace/applyEdit` that came while one of its commands waited (13b): its token,
+/// which the UI's answer names ([`Server::answer_apply_edit`](super::Server::answer_apply_edit)),
+/// the label it gave, cut as a title is, and its edit, placed, or why it cannot be applied. The
+/// server waits for the answer; one that comes at any other time is refused at once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplyEdit {
+    pub token: u64,
+    pub label: Option<String>,
+    pub edit: Result<ServerEdit, String>,
+}

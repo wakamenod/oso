@@ -1,6 +1,7 @@
 //! A repository's thread for `gh`, `oso-vcs-gh` (ADR 0127, step 5a): it reads the pull request
 //! of the branch checked out for the status's head line, one pull request with its checks and
-//! review threads, and the open ones, lays out their texts, and opens a pull request's address.
+//! review threads, and the open ones, lays out their texts, and opens a pull request's address;
+//! from step 5b-1 the same for issues ([`issue`]).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread; the caller hands requests in,
 //! takes reports out, and supplies the wake-up.
@@ -49,6 +50,13 @@ const CHECKS_PENDING: i32 = 8;
 /// How many open pull requests a list asks for.
 const LIST_LIMIT: &str = "100";
 
+/// What an address is of: a pull request or an issue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GhItem {
+    Pull,
+    Issue,
+}
+
 /// What the thread is asked to do.
 #[derive(Debug)]
 pub(crate) enum PrRequest {
@@ -63,8 +71,12 @@ pub(crate) enum PrRequest {
     List { generation: u64 },
     /// The address of the branch's pull request, for the echo area to show before it opens.
     Address,
-    /// Open `url`, the address of pull request `number`.
-    Open { url: String, number: u64 },
+    /// Open `url`, the address of `item` `number`.
+    Open {
+        url: String,
+        number: u64,
+        item: GhItem,
+    },
     /// What a pull request of the branch starts from, into `base` or the remote's default
     /// (step 5a-2).
     Draft {
@@ -73,6 +85,12 @@ pub(crate) enum PrRequest {
     },
     /// The branch's pull request, open, to merge (step 5a-2).
     MergeAsk { generation: u64 },
+    /// The repository's open issues (step 5b-1).
+    IssueList { generation: u64 },
+    /// Issue `number`, with its comments.
+    IssueView { generation: u64, number: u64 },
+    /// What a worktree session from issue `number` starts from.
+    IssueBrief { generation: u64, number: u64 },
 }
 
 /// What the thread found.
@@ -106,6 +124,11 @@ pub(crate) enum PrReport {
         generation: u64,
         merge: Result<MergeTarget, String>,
     },
+    /// What a worktree session from an issue starts from (step 5b-1).
+    IssueBriefed {
+        generation: u64,
+        brief: Result<IssueBrief, String>,
+    },
 }
 
 impl std::fmt::Debug for PrReport {
@@ -118,6 +141,7 @@ impl std::fmt::Debug for PrReport {
             Self::Opened(_) => "Opened",
             Self::Drafted { .. } => "Drafted",
             Self::MergeAsked { .. } => "MergeAsked",
+            Self::IssueBriefed { .. } => "IssueBriefed",
         };
         f.debug_tuple(kind).finish_non_exhaustive()
     }
@@ -198,6 +222,9 @@ fn latest(batch: Vec<PrRequest>) -> Vec<PrRequest> {
         PrRequest::List { .. } => 2,
         PrRequest::Draft { .. } => 4,
         PrRequest::MergeAsk { .. } => 5,
+        PrRequest::IssueList { .. } => 6,
+        PrRequest::IssueView { .. } => 7,
+        PrRequest::IssueBrief { .. } => 8,
         PrRequest::Address | PrRequest::Open { .. } => 3,
     };
     let mut kept: Vec<PrRequest> = Vec::with_capacity(batch.len());
@@ -236,6 +263,18 @@ fn refused(request: &PrRequest, why: String) -> PrReport {
             generation: *generation,
             merge: Err(why),
         },
+        PrRequest::IssueList { generation } => PrReport::List {
+            generation: *generation,
+            laid: Err(why),
+        },
+        PrRequest::IssueView { generation, .. } => PrReport::View {
+            generation: *generation,
+            laid: Err(why),
+        },
+        PrRequest::IssueBrief { generation, .. } => PrReport::IssueBriefed {
+            generation: *generation,
+            brief: Err(why),
+        },
     }
 }
 
@@ -272,9 +311,21 @@ fn answer(
             laid: list(found, &target).map(Box::new),
         },
         PrRequest::Address => PrReport::Address(address(found, &target)),
-        PrRequest::Open { url, number } => {
-            PrReport::Opened(open(&target.github, &url, number, root.path()))
+        PrRequest::Open { url, number, item } => {
+            PrReport::Opened(open(&target.github, (&url, number, item), root.path()))
         }
+        PrRequest::IssueList { generation } => PrReport::List {
+            generation,
+            laid: issue::list(found, &target).map(Box::new),
+        },
+        PrRequest::IssueView { generation, number } => PrReport::View {
+            generation,
+            laid: issue::view(found, &target, number).map(Box::new),
+        },
+        PrRequest::IssueBrief { generation, number } => PrReport::IssueBriefed {
+            generation,
+            brief: issue::brief(found, &target, number),
+        },
         PrRequest::Draft { generation, base } => PrReport::Drafted {
             generation,
             draft: create::draft(found, &target, base.as_deref()),
@@ -479,9 +530,14 @@ fn address(found: &Found, target: &Target) -> Result<(String, u64), String> {
 }
 
 /// Opens `url` with the system's opener, if it is pull request `number`'s own address on
-/// `repo`'s host, leaving `project` out of the opener's `PATH`; what that came to.
-fn open(repo: &GhRepo, url: &str, number: u64, project: &Path) -> String {
-    if !is_pull_address(url, repo, number) {
+/// `repo`'s host, or issue `number`'s if `issue`, leaving `project` out of the opener's `PATH`;
+/// what that came to.
+fn open(repo: &GhRepo, (url, number, item): (&str, u64, GhItem), project: &Path) -> String {
+    let own = match item {
+        GhItem::Issue => super::issue::is_issue_address(url, repo, number),
+        GhItem::Pull => is_pull_address(url, repo, number),
+    };
+    if !own {
         return format!(
             "Not opened: not the address of #{number} on {}",
             repo.as_str()
@@ -517,8 +573,10 @@ fn unexpected() -> String {
 }
 
 mod create;
+mod issue;
 
 pub(crate) use create::{Drafted, MergeTarget};
+pub(crate) use issue::IssueBrief;
 
 #[cfg(test)]
 mod tests;

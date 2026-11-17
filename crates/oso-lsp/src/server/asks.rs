@@ -38,6 +38,9 @@ pub enum AskKind {
     CodeAction,
     /// `codeAction/resolve` of an action of the last code actions (step 13).
     ResolveAction,
+    /// `workspace/executeCommand` of an action of the last code actions, a command the server
+    /// declared (step 13b).
+    ExecuteCommand,
 }
 
 impl AskKind {
@@ -51,15 +54,18 @@ impl AskKind {
             Self::Hover => "textDocument/hover",
             Self::CodeAction => "textDocument/codeAction",
             Self::ResolveAction => "codeAction/resolve",
+            Self::ExecuteCommand => "workspace/executeCommand",
         }
     }
 
     /// How long its answer is waited for (ADR 0138's table).
     pub fn wait(self) -> Duration {
         match self {
-            Self::Definition | Self::References | Self::CodeAction | Self::ResolveAction => {
-                DEFINITION_WAIT
-            }
+            Self::Definition
+            | Self::References
+            | Self::CodeAction
+            | Self::ResolveAction
+            | Self::ExecuteCommand => DEFINITION_WAIT,
             Self::Completion | Self::Resolve | Self::Hover => COMPLETION_WAIT,
         }
     }
@@ -74,6 +80,7 @@ impl AskKind {
             Self::Hover => "description",
             Self::CodeAction => "code actions",
             Self::ResolveAction => "code action",
+            Self::ExecuteCommand => "command",
         }
     }
 }
@@ -150,6 +157,9 @@ pub enum Answered {
     CodeActions(super::CodeActions),
     /// A resolved code action's edit (step 13).
     ActionResolved(super::ActionResolved),
+    /// A command ran (step 13b): its edits, if any, came as `workspace/applyEdit` while it
+    /// waited.
+    Executed,
 }
 
 /// What an item's `completionItem/resolve` gave: the item, by its answer's serial and its place

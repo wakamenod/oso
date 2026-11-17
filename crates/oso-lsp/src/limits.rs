@@ -85,6 +85,8 @@ pub const LOCATIONS_MAX: usize = 1000;
 pub const ADDITIONAL_EDITS_MAX: usize = 16;
 /// The most bytes of text those edits may insert in all (step 9).
 pub const ADDITIONAL_EDITS_BYTES_MAX: usize = 64 << 10;
+/// The most commands a server's `executeCommandProvider` names that are kept (step 13b).
+pub const COMMANDS_MAX: usize = 256;
 /// The most code actions kept of one answer (step 13, Q7).
 pub const CODE_ACTIONS_MAX: usize = 200;
 /// The most bytes of a code action's title, and of its kind, kept; the rest is cut (Q7).
