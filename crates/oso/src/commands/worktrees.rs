@@ -82,6 +82,22 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
+        name: "worktree-remove-stop",
+        doc: "Stop a running worktree removal: the one at point in `*Worktrees*`, else the only one that runs.\n\nBefore git runs, it stops at once and nothing is removed. Once git may be deleting, it asks first: what git deleted stays deleted, and the worktree is left half removed, for the person to remove by hand. git then gets `SIGTERM`, and `SIGKILL` 5 s later. Neither quitting oso nor an agent stops a removal.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: worktree_remove_stop,
+        state: None,
+    },
+    Command {
+        name: "worktree-remove-stop-confirmed",
+        doc: "Stop the removal `worktree-remove-stop` asked about, as its question's `y` does.\n\nThe worktree may be left half removed. Only the question runs it.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: worktree_remove_stop_confirmed,
+        state: None,
+    },
+    Command {
         name: "session-start-shared",
         doc: "Start the session that was asked about in a directory where another session runs, as the question's `y` does.\n\nThe two sessions then change the same files; a worktree (`session-worktree`) keeps them apart. Only the question runs it.",
         args: ArgSpec::None,
@@ -156,6 +172,23 @@ fn worktree_remove_confirmed(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandEr
     }
     ctx.editor
         .request_session(SessionRequest::WorktreeRemoveConfirmed);
+    Ok(())
+}
+
+fn worktree_remove_stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    ctx.editor
+        .request_session(SessionRequest::WorktreeRemoveStop);
+    Ok(())
+}
+
+fn worktree_remove_stop_confirmed(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    if !ctx.confirmed() {
+        return Err(CommandError::new("worktree-remove-stop asks this itself"));
+    }
+    ctx.editor
+        .request_session(SessionRequest::WorktreeRemoveStopConfirmed);
     Ok(())
 }
 
@@ -276,10 +309,15 @@ mod tests {
             Ok(())
         );
         assert_eq!(
+            run_as(&mut editor, "worktree-remove-stop", Invocation::default()),
+            Ok(())
+        );
+        assert_eq!(
             editor.take_session_requests(),
             [
                 SessionRequest::WorktreeList,
-                SessionRequest::WorktreeRemove(None)
+                SessionRequest::WorktreeRemove(None),
+                SessionRequest::WorktreeRemoveStop
             ]
         );
     }
@@ -287,7 +325,11 @@ mod tests {
     #[test]
     fn the_answers_run_only_from_their_questions() {
         let mut editor = editor("");
-        for name in ["worktree-remove-confirmed", "session-start-shared"] {
+        for name in [
+            "worktree-remove-confirmed",
+            "worktree-remove-stop-confirmed",
+            "session-start-shared",
+        ] {
             assert!(
                 run_as(&mut editor, name, Invocation::default()).is_err(),
                 "{name}"
@@ -299,6 +341,10 @@ mod tests {
             Ok(())
         );
         assert_eq!(
+            run_as(&mut editor, "worktree-remove-stop-confirmed", confirmed()),
+            Ok(())
+        );
+        assert_eq!(
             run_as(&mut editor, "session-start-shared", confirmed()),
             Ok(())
         );
@@ -306,6 +352,7 @@ mod tests {
             editor.take_session_requests(),
             [
                 SessionRequest::WorktreeRemoveConfirmed,
+                SessionRequest::WorktreeRemoveStopConfirmed,
                 SessionRequest::StartShared
             ]
         );

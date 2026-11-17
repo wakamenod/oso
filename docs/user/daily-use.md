@@ -331,7 +331,9 @@ removes the worktree at point. `M-x worktree-remove` removes a worktree only whe
   branch with no commit of its own does not.
 
 It asks first, naming the git-ignored files that go with the worktree. It stops the idle
-sessions there, never forces, and never deletes the branch.
+sessions there, never forces, and never deletes the branch. While a removal runs, its row in
+`*Worktrees*` says `removing…`. `M-x worktree-remove-stop` stops it: before git runs, nothing is
+removed; once git may be deleting, it asks first, as the worktree is then left half removed.
 
 ## Review changes
 
