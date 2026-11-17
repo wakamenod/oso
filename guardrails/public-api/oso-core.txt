@@ -1756,6 +1756,28 @@ pub fn oso_core::editor::ListedHit::eq(&self, &oso_core::editor::ListedHit) -> b
 impl core::fmt::Debug for oso_core::editor::ListedHit
 pub fn oso_core::editor::ListedHit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::ListedHit
+pub enum oso_core::editor::ListedOf
+pub oso_core::editor::ListedOf::Definitions
+pub oso_core::editor::ListedOf::Diagnostics
+pub oso_core::editor::ListedOf::References
+impl core::clone::Clone for oso_core::editor::ListedOf
+pub fn oso_core::editor::ListedOf::clone(&self) -> oso_core::editor::ListedOf
+impl core::cmp::Eq for oso_core::editor::ListedOf
+impl core::cmp::PartialEq for oso_core::editor::ListedOf
+pub fn oso_core::editor::ListedOf::eq(&self, &oso_core::editor::ListedOf) -> bool
+impl core::fmt::Debug for oso_core::editor::ListedOf
+pub fn oso_core::editor::ListedOf::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::ListedOf
+impl core::marker::StructuralPartialEq for oso_core::editor::ListedOf
+pub enum oso_core::editor::ListedPreview
+pub oso_core::editor::ListedPreview::Nothing
+pub oso_core::editor::ListedPreview::Rows
+pub oso_core::editor::ListedPreview::Rows::at: core::option::Option<usize>
+pub oso_core::editor::ListedPreview::Rows::buffer: core::option::Option<oso_core::buffer::BufferId>
+pub oso_core::editor::ListedPreview::Rows::rows: alloc::vec::Vec<(usize, alloc::string::String)>
+pub oso_core::editor::ListedPreview::Withheld
+impl core::fmt::Debug for oso_core::editor::ListedPreview
+pub fn oso_core::editor::ListedPreview::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum oso_core::editor::ListingOrder
 pub oso_core::editor::ListingOrder::Date
 pub oso_core::editor::ListingOrder::Name
@@ -3206,6 +3228,8 @@ pub fn oso_core::editor::Editor::set_listed(&mut self, &'static str, alloc::sync
 pub fn oso_core::editor::Editor::set_session_marks(&mut self, oso_core::editor::SessionMarks)
 pub fn oso_core::editor::Editor::take_session_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::SessionRequest>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::listed_view(&self) -> core::option::Option<oso_core::editor::ListedView<'_>>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::load_theme(&mut self, &str) -> core::result::Result<(), oso_core::editor::NoSuchTheme>
 pub fn oso_core::editor::Editor::set_theme_pair(&mut self, [usize; 2])
 pub fn oso_core::editor::Editor::set_themes(&mut self, alloc::vec::Vec<(&'static str, &'static str)>, usize)
@@ -3451,6 +3475,25 @@ impl core::fmt::Debug for oso_core::editor::LabelCells
 pub fn oso_core::editor::LabelCells::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::LabelCells
 pub struct oso_core::editor::Leftover
+pub struct oso_core::editor::ListedRow<'a>
+pub oso_core::editor::ListedRow::buffer: core::option::Option<oso_core::buffer::BufferId>
+pub oso_core::editor::ListedRow::line: usize
+pub oso_core::editor::ListedRow::path: std::path::PathBuf
+pub oso_core::editor::ListedRow::shown: &'a str
+pub oso_core::editor::ListedRow::text: &'a str
+impl core::fmt::Debug for oso_core::editor::ListedRow<'_>
+pub fn oso_core::editor::ListedRow<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::ListedView<'a>
+pub oso_core::editor::ListedView::count: usize
+pub oso_core::editor::ListedView::cut: bool
+pub oso_core::editor::ListedView::of: oso_core::editor::ListedOf
+pub oso_core::editor::ListedView::pending: bool
+pub oso_core::editor::ListedView::preview: oso_core::editor::ListedPreview
+pub oso_core::editor::ListedView::rows: alloc::vec::Vec<oso_core::editor::ListedRow<'a>>
+pub oso_core::editor::ListedView::selected: core::option::Option<usize>
+pub oso_core::editor::ListedView::total: usize
+impl<'a> core::fmt::Debug for oso_core::editor::ListedView<'a>
+pub fn oso_core::editor::ListedView<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::Listing
 pub oso_core::editor::Listing::details: bool
 pub oso_core::editor::Listing::directory: std::path::PathBuf
@@ -3921,6 +3964,7 @@ impl core::fmt::Debug for oso_core::editor::XrefRows
 pub fn oso_core::editor::XrefRows::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub const oso_core::editor::COMPLETION_POPUP_COLUMNS: usize
 pub const oso_core::editor::COMPLETION_POPUP_ROWS: usize
+pub const oso_core::editor::LISTED_LINE_BYTES: usize
 pub const oso_core::editor::MAX_GIT_LOG: usize
 pub const oso_core::editor::MAX_MACRO_EVENTS: usize
 pub const oso_core::editor::MAX_MACRO_TEXT: usize

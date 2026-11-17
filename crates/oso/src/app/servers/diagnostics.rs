@@ -150,7 +150,7 @@ impl App {
         let spawned = std::thread::Builder::new()
             .name("oso-diagnostics".into())
             .spawn(move || {
-                let built = rows::build(&snapshot, &|| {
+                let built = rows::build(&snapshot, crate::loader::file_may_hold_secrets, &|| {
                     live.load(Ordering::Relaxed) == snapshot.generation
                 });
                 // The snapshot's sets and reports are freed here too.
