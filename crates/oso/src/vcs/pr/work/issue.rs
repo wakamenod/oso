@@ -65,13 +65,15 @@ pub(super) fn brief(found: &Found, target: &PullTarget, number: u64) -> Result<I
     let branch = branch_name(issue.number, &issue.title);
     check_branch(&branch).map_err(|_| "The issue gives no branch name git takes".to_owned())?;
     // A branch made before starts where it is; a new one at the remote's default branch.
-    let exists = (found.git.line(&[
-        "rev-parse",
-        "--verify",
-        "--quiet",
-        &format!("refs/heads/{branch}"),
-    ]))
-    .is_some();
+    let exists = found
+        .git
+        .line(&[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{branch}"),
+        ])
+        .is_some();
     let base = if exists {
         None
     } else {
