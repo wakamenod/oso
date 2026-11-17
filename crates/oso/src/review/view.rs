@@ -44,6 +44,7 @@ mod listed;
 mod panes;
 mod project;
 mod section;
+mod withheld;
 
 use std::collections::hash_map::Entry as Slot;
 use std::collections::{BTreeMap, HashMap};
@@ -119,7 +120,7 @@ pub(crate) enum Tell {
     /// to.
     Panes(bool),
     /// What highlights the sides (step 9), with the work tree's top that every path a reading
-    /// names is judged under; none to stop, as with highlighting off.
+    /// or a gone file names is judged under (told at start too); none to stop, as off.
     Highlighter {
         highlighter: Option<Box<dyn Highlighter>>,
         top: PathBuf,
@@ -232,6 +233,7 @@ struct State {
     order: Vec<Box<[u8]>>,
     files: HashMap<Box<[u8]>, File>,
     gone: BTreeMap<Box<[u8]>, Gone>,
+    held: withheld::Held,
     /// Whether agent cards fold to their first line.
     folded: bool,
     /// The most bytes the text holds: [`MAX_TEXT`], less in tests.
@@ -269,6 +271,7 @@ impl State {
             order: Vec::new(),
             files: HashMap::new(),
             gone: BTreeMap::new(),
+            held: withheld::Held::default(),
             folded: false,
             max_text: MAX_TEXT,
             more: 0,

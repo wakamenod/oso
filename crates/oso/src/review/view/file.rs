@@ -114,7 +114,8 @@ impl File {
     }
 }
 
-/// A file no longer listed whose comments stay to be seen: only counted if its last reading
+/// A file no longer listed whose comments stay to be seen: only counted if a name it had in the
+/// view may hold secrets (ADR 0044), read or not, or once a reading of it
 /// was withheld, as a withheld file's are.
 #[derive(Default)]
 pub(super) struct Gone {

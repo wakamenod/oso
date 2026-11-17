@@ -49,6 +49,7 @@ fn view() -> PrView {
             workflow: "CI".into(),
             link: "https://x/1".into(),
             took: Some(65),
+            description: String::new(),
         }],
         threads: vec![Thread {
             path: "src/a.rs".into(),

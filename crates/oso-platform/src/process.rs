@@ -17,6 +17,8 @@
 //!   values.
 //! - [`account_shell`] reads the account's login shell from the user database.
 //! - [`start_time`] says when a process started, by its ID (ADR 0121).
+//! - [`terminate_parent`] asks this process's own parent to end, only while it is its parent
+//!   (ADR 0151, step 2).
 //! - [`open_link`] opens an `https` address with the system's opener (ADR 0127, step 5a).
 //! - A caller can pass one descriptor, which the child finds as its descriptor 3
 //!   ([`PassedFd`]): `oso-restart`'s end of the pair for the instance it starts (ADR 0133).
@@ -31,6 +33,8 @@
 mod account;
 mod child;
 mod opener;
+#[cfg(unix)]
+mod parent;
 pub mod pty;
 mod started;
 #[cfg(unix)]
@@ -399,6 +403,29 @@ pub fn account_shell() -> Option<PathBuf> {
 /// another user's process is not ours to read, or on a system this does not support.
 pub fn start_time(pid: u32) -> std::io::Result<Option<std::time::SystemTime>> {
     started::of(pid)
+}
+
+/// Asks this process's parent to end with `SIGTERM`, if `parent` is its parent now: `oso mcp`
+/// stops the Claude Code session that started it once that session moved into oso (ADR 0151).
+/// It signals no other process, never sends `SIGKILL`, and never the first process.
+///
+/// # Errors
+///
+/// `NotFound` if `parent` is not this process's parent; `Unsupported` where there are no
+/// signals, as on Windows; or why the system did not send it.
+pub fn terminate_parent(parent: u32) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        parent::terminate(parent)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = parent;
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "this system has no signal to ask a process to end",
+        ))
+    }
 }
 
 /// The directories of `path`, a `PATH` value, that may supply a program: only

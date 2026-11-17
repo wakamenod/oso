@@ -71,6 +71,9 @@ pub(super) struct Agent {
     started: Option<Instant>,
     /// The connections the person let in.
     connected: Vec<Connection>,
+    /// What the system said of each connection the person let in, while it is open: an
+    /// outside session that asks to move is known by its parent (ADR 0151).
+    outside: HashMap<Connection, admit::Outsider>,
     /// The connection that waits for the person, and its question once it is asked.
     asking: Option<Asking>,
     /// The questions the channel's commands caused, with the connection that caused each.
@@ -108,6 +111,7 @@ pub(super) struct Agent {
 struct Asking {
     connection: Connection,
     peer: Peer,
+    parent_started: Option<std::time::SystemTime>,
     reply: std::sync::mpsc::Sender<Reply>,
     question: Option<PromptId>,
 }
@@ -217,7 +221,10 @@ impl App {
             return;
         }
         match event {
-            Event::Asks(peer) => {
+            Event::Asks {
+                peer,
+                parent_started,
+            } => {
                 let Some(reply) = reply else { return };
                 if self.agent.asking.is_some() {
                     let _ = reply.send(Err("another agent waits for the person's answer".into()));
@@ -226,6 +233,7 @@ impl App {
                 self.agent.asking = Some(Asking {
                     connection,
                     peer,
+                    parent_started,
                     reply,
                     question: None,
                 });
@@ -259,6 +267,7 @@ impl App {
                     // Each replies when it can: at once, after a job, or after the person's
                     // answer and what it started (ADR 0121, step 6).
                     Op::Session(call) => self.session_tool(connection, call, reply),
+                    Op::MoveWait => self.move_wait(connection, reply),
                     // This replies once the save its command started has ended, if it started
                     // one, or the undo it began (ADR 0119).
                     Op::Run { name, arg, reach } => {
@@ -327,6 +336,7 @@ impl App {
     /// A connection closed, or the channel stopped under it.
     fn agent_gone(&mut self, connection: Connection) {
         self.agent.connected.retain(|&open| open != connection);
+        self.agent.outside.remove(&connection);
         self.session_tools_gone(Some(connection));
         self.session_bridge_gone(Some(connection));
         saving::forget_saves_of(&mut self.agent.saving, connection);
@@ -401,7 +411,8 @@ impl App {
             | Op::Diagnostics(_)
             | Op::Open { .. }
             | Op::Run { .. }
-            | Op::Session(_) => Err("not here".into()),
+            | Op::Session(_)
+            | Op::MoveWait => Err("not here".into()),
         }
     }
 

@@ -195,6 +195,7 @@ impl Editor {
             | Mode::GitLog
             | Mode::Conversation
             | Mode::RenamePreview
+            | Mode::SessionMove
             | Mode::GitDiscarded
             | Mode::Sessions => {}
             Mode::CopyList => self.leave_internal(),

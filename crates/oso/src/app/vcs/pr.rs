@@ -30,6 +30,7 @@ use crate::vcs::pr::write::{PrBuilt, PrLaid, PrRow};
 
 mod create;
 mod issue;
+mod send;
 
 pub(super) use create::AfterRun;
 
@@ -63,6 +64,9 @@ pub(super) struct Prs {
     views: Vec<PrBuffer>,
     /// The issue brief being read for `w`: its generation, and the buffer it was asked from.
     issue_brief: Option<(u64, BufferId)>,
+    /// The message for an agent session being read (step 6b): its generation, and the buffer
+    /// it was asked from.
+    send_asked: Option<(u64, BufferId)>,
     /// Making and merging pull requests (step 5a-2).
     create: create::Creating,
     serial: u64,
@@ -328,6 +332,7 @@ impl App {
             PrReport::IssueBriefed { generation, brief } => {
                 self.issue_briefed(project, generation, brief);
             }
+            PrReport::Sent { generation, sent } => self.pr_sent(project, generation, sent),
             PrReport::MergeAsked { generation, merge } => {
                 self.pr_merge_read(project, generation, merge);
             }
@@ -500,6 +505,10 @@ impl App {
                 Some((_, url)) => self.copy_pr_link(&url),
                 None => self.editor.message("No address here"),
             },
+            (
+                PrAct::SendCheck | PrAct::SendFailing | PrAct::SendThread | PrAct::SendUnresolved,
+                row,
+            ) => self.pr_send(index, act, row),
             (PrAct::Review, row) => {
                 let listed = match row {
                     PrRow::Pull(at) => pull(at),

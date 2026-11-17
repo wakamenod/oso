@@ -35,7 +35,7 @@ mod sides;
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use oso_core::buffer::Verdict;
@@ -212,6 +212,11 @@ impl Highlighting {
         self.settled = false;
         self.highlighter = highlighter;
         self.top = top;
+    }
+
+    /// The work tree's top, which every path a reading names is judged under.
+    pub(super) fn top(&self) -> &Path {
+        &self.top
     }
 
     /// Whether it has a highlighter to open documents with.

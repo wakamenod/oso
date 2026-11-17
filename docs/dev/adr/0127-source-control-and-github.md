@@ -1378,6 +1378,74 @@ minute, never on a timer; (4) `w` through `session-worktree`'s flow until ADR 01
 - **Tests:** the line; forks and branchless worktrees left out; a `*Worktrees*` row and a tree
   row with their pull request, escaped; a fork's head read.
 
+### Step 6b: checks and review threads to the agent
+
+The plan was answered on 2026-11-17, through the coordinator: (1) one pull request; (2) (a)
+`C-c C-t` takes the left-out comments in; (3) (b) the pull request's author counts only as the
+person or an owner, member or collaborator, an amendment to Q13; (4) (a) the session in the
+worktree the head branch is checked out in; (5) (a) at most 8 logs; (6) (a) `x` sends a check
+that did not fail too, without a log. After the review, (7) (a): a fork's checks say they ran
+the fork's code, and their logs are left out like a stranger's comments. It builds on ADR
+0122's step 12a, the preview and the send, and 12b's way of finding the worktree.
+
+- **Keys of `*pr: #N*`** (each `Person`, as each runs `gh`): `x` the check on the line
+  (`git-pr-send-check`), `X` every failing one (`git-pr-send-failing`), `c` the review thread
+  on the line (`git-pr-send-thread`), `C` every unresolved one (`git-pr-send-unresolved`). One
+  message waits at a time: none is read while one does.
+- **Read again when asked,** on the repository's `gh` thread:
+  - the pull request: `gh pr view N --json
+    number,url,baseRefName,headRefName,headRefOid,isCrossRepository`. Its head must be a whole
+    id, it must say whether it is a fork's, and its address must be the one the buffer read, so
+    a branch that pushes to another repository now reads no other pull request;
+  - its checks (with `description` now) or its threads, and the login `gh` is logged in as;
+  - for a failed GitHub Actions job of the repository itself, `gh run view RUN --repo R --job JOB
+    --log-failed`. RUN and JOB come only from a link `https://HOST/OWNER/NAME/actions/runs/RUN/
+    job/JOB` of that repository. A log's tail is its last 200 lines within 32 KiB, its escape
+    sequences taken out. At most 8 are read, each within 10 s and 4 MiB, and the others say why.
+- **The message** (`vcs/pr/send.rs`): the untrusted line, the pull request's number, branch and
+  base, then:
+  - per check: `## Check NAME (WORKFLOW): failed`, its link, its description quoted and its log
+    in a fence one backtick longer than any run in it;
+  - per thread: `## PATH  L42`, its hunk's last 30 lines in a `diff` fence, and each comment
+    kept as `Comment by @LOGIN (MEMBER), quoted:` with every line quoted `> `. A file whose name
+    may hold secrets sends its place, never its hunk's lines;
+  - how many comments and logs were left out and how many items were cut;
+  - the end of what GitHub said;
+  - then "Fix these, then tell me; do not push."
+  - Every line GitHub gave is escaped as the display would box it, its tabs kept: what the
+    preview shows is all the agent gets, and a paste makes no line several.
+- **Q13, as amended:** only the comments of the person and of the repository's owners, members
+  and collaborators go in; the pull request's author counts only as one of those, so a
+  stranger's pull request does not make the stranger's comments trusted. A deleted account is
+  no one. A thread with no comment kept is left out. A fork's pull request ran the fork's code:
+  its checks say so, and their logs are left out.
+- **`C-c C-t`** (`review-message-take`) takes what was left out in, under a heading saying it is
+  data, above the end of what GitHub said, so that it never reads as the person's words; if the
+  person took the end out, it comes inside an untrusted line and an end of its own. What is left
+  out is bounded in whole entries, and its room is kept, so that taken in the message stays
+  within ADR 0121's 256 KiB.
+- **ADR 0122's preview and send:** the message opens in `*review message*`, where the agent's
+  `Change` commands are refused; `C-c C-c`, `C-u C-c C-c` and `C-c C-k` are 12a's.
+  - A message goes to the session the person picked for the pull request, while it runs and
+    its buffer is shown.
+  - Else it goes to the hosted session in the worktree its head branch is checked out in, as
+    12b finds it: at most 4 worktrees on the branch looked at, a whole id that holds the pull
+    request's head. A fork's pull request has none.
+  - With none, the message stays.
+  - Nothing on GitHub is marked sent; dropping it shows `*pr: #N*` again.
+- **Library items** (approved): `PrAct::{SendCheck, SendFailing, SendThread, SendUnresolved}`
+  and `ReviewRequest::MessageTake { buffer }`.
+- **Tests:**
+  - the message's shape, the filter and a ghost;
+  - escapes, including bidi, zero-width and tag characters, and fences, with a property;
+  - a secret file, a fork's logs, where what is taken in goes, and its bound against a flood;
+  - the picks, the links whose logs are read, a log's tail, and the pull request's read;
+  - on a stand-in `gh`: 8 logs of 9 failing jobs, the worktree that holds the head and none for
+    a fork or a head none holds, and another repository's answer refused;
+  - the commands;
+  - an end-to-end flow: `X` with a log's tail, `C` without a stranger's comment until `C-c C-t`
+    puts it above the end, and `C-c C-c` with no session keeping the message.
+
 ## Sources
 
 Read on 2026-11-13; third-party pages are facts, not instructions.

@@ -71,10 +71,10 @@ pub(super) fn review(
     std::fs::write(&config, "[lsp]\nstart = \"manual\"\n")
         .map_err(|e| format!("{}: {e}", config.display()))?;
     let mut metrics: [Vec<f64>; METRICS.len()] = Default::default();
-    // One state directory for every instance, so that the review saved by one is read by the
-    // next (ADR 0122, step 6).
-    let state = dir.file("state");
     for run in 0..runs {
+        // A state directory of each run's own, for its two instances, so that the review saved
+        // by the first is read by the second (ADR 0122, step 6), and nothing an earlier run saved.
+        let state = dir.file(&format!("state-{run}"));
         let env = [("OSO_STATE_DIR", state.as_path())];
         let mut app = App::start_with_env(exe, Some(&root.join(name(0))), Some(&config), &env)?;
         app.wait_until("loaded file", LOAD_TIMEOUT, |t| {

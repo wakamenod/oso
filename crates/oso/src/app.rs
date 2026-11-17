@@ -25,6 +25,7 @@ mod draw;
 mod events;
 mod files;
 mod flash;
+mod freer;
 mod greps;
 mod handover;
 mod idle_quit;
@@ -151,6 +152,10 @@ pub enum UserEvent {
     SessionStart(crate::sessions::start::Report),
     /// The list `session-adopt` completes over was made (ADR 0121).
     Adoptable(Box<crate::sessions::adopt::Found>),
+    /// The look for a session that asks to move into a space ended, by its token (ADR 0151).
+    MoveLooked(u64, Box<Result<crate::sessions::moving::Asker, String>>),
+    /// The wait for a moving session's outside process took a step, by its token (ADR 0151).
+    MoveWaited(u64, crate::sessions::moving::Step),
     /// What a look for a session's changes after its turn ended found (ADR 0121 step 3).
     SessionChanges(SessionKey, ChangesFound),
     /// A worktree job found something (ADR 0121 step 4).
@@ -205,7 +210,7 @@ pub struct App {
     configuration: configuration::Configuration,
     /// Drops what the UI thread is done with and would take long to drop: a reloaded file's
     /// text, a replaced user keymap.
-    freer: Freer,
+    freer: freer::Freer,
     /// An exit waiting for running saves, once this instance has agreed to go.
     leaving: Leaving,
     /// Since when no terminal is busy, while an exit waits for that (ADR 0133).
@@ -340,29 +345,6 @@ impl ShownTheme {
     }
 }
 
-/// The thread that drops what the UI thread is done with, or none if it could not start.
-struct Freer(Option<std::sync::mpsc::Sender<Box<dyn Send>>>);
-
-impl Freer {
-    fn start() -> Self {
-        let (freer, freed) = std::sync::mpsc::channel::<Box<dyn Send>>();
-        // Freeing a large file's text can take longer than a frame, so it is done there.
-        let started = std::thread::Builder::new()
-            .name("oso-free".into())
-            .spawn(move || freed.iter().for_each(drop))
-            .is_ok();
-        Self(started.then_some(freer))
-    }
-
-    /// Drops `value` on the freeing thread, or here if it could not start.
-    fn free<T: Send + 'static>(&self, value: T) {
-        if let Some(freer) = &self.0 {
-            // A thread that has gone hands it back in the error, and it is dropped here.
-            drop(freer.send(Box::new(value)));
-        }
-    }
-}
-
 /// The home directory as the environment names it, if absolute (`oso_platform::privacy::home`).
 /// It is what `~` stands for, and never a project (ADR 0114).
 fn home() -> Option<std::path::PathBuf> {
@@ -409,7 +391,7 @@ impl App {
             loads: Vec::new(),
             disk,
             configuration,
-            freer: Freer::start(),
+            freer: freer::Freer::start(),
             leaving: Leaving::with_cell(emergency.agreement_cell()),
             idle_quit: idle_quit::IdleClock::default(),
             offer: emergency.offer(),

@@ -74,6 +74,7 @@ impl Language {
             | Mode::GitLog
             | Mode::Conversation
             | Mode::RenamePreview
+            | Mode::SessionMove
             | Mode::GitDiscarded
             | Mode::Sessions => None,
         }

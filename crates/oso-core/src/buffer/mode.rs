@@ -83,6 +83,9 @@ pub enum Mode {
     Conversation,
     /// A rename's edits shown before they apply, `*lsp-rename*` (ADR 0138, step 14).
     RenamePreview,
+    /// What oso waits for while a session started outside it moves into a space,
+    /// `*moving: NAME*`; killing it cancels the move (ADR 0151).
+    SessionMove,
 }
 
 impl Mode {
@@ -157,6 +160,7 @@ impl Mode {
             Self::GitDiscarded => "Git Discarded",
             Self::Conversation => "Conversation",
             Self::RenamePreview => "Rename",
+            Self::SessionMove => "Session Move",
         }
     }
 
@@ -205,6 +209,7 @@ impl Mode {
             | Self::GitLog
             | Self::Conversation
             | Self::RenamePreview
+            | Self::SessionMove
             | Self::GitDiscarded
             | Self::Sessions => None,
         }

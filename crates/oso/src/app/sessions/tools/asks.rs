@@ -61,6 +61,8 @@ pub(super) enum Plan {
     /// A session to start, and for an orchestrator's call the space's repository whose trust
     /// is asked again before it starts.
     Start(Begin, Option<crate::git::TrustedRoot>),
+    /// A session started outside oso that moves into a space (ADR 0151).
+    Move(Box<super::super::hosting::Moving>),
 }
 
 impl Plan {
@@ -69,6 +71,8 @@ impl Plan {
         match self {
             Self::Worktree { origin, .. } => *origin = now,
             Self::Start(begin, _) => begin.origin = now,
+            // It always asks.
+            Self::Move(_) => {}
         }
     }
 }
@@ -430,9 +434,21 @@ impl App {
         } else {
             format!("{label} It started without asking itself.")
         };
+        self.queue_question(pending, (caller.id.clone(), target), (label, details), plan);
+    }
+
+    /// Puts `plan`'s question `label`, with `details` behind `?`, to the person once they are
+    /// free: `caller`'s call on `target`, whose `n` refuses the same call for a minute.
+    pub(super) fn queue_question(
+        &mut self,
+        pending: Pending,
+        (caller, target): (SessionId, String),
+        (label, details): (String, String),
+        plan: Plan,
+    ) {
         self.hosting.tools.question = Some(super::Question {
             pending,
-            caller: caller.id.clone(),
+            caller,
             target,
             label,
             details,

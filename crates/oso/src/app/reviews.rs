@@ -134,6 +134,7 @@ impl App {
             ReviewRequest::MessageDrop { buffer } => self.drop_review_message(buffer),
             ReviewRequest::Resume(pick) => self.resume_review(&pick),
             ReviewRequest::Forget(pick) => self.forget_review(&pick),
+            ReviewRequest::MessageTake { buffer } => self.take_review_message(buffer),
             // Visits come with a later step of ADR 0122.
             ReviewRequest::Visit { .. } => {
                 log::debug!("a review request this build does not carry out yet");
@@ -218,6 +219,12 @@ impl App {
                 return self.editor.message(format!("Cannot start the review: {e}"));
             }
         };
+        // The top its files' names are judged under, before highlighting is ever on.
+        let top = root.path().to_path_buf();
+        view.tell(Tell::Highlighter {
+            highlighter: None,
+            top,
+        });
         self.editor.show_in(window, buffer);
         let running = Running::new(id, project, scope.clone(), root, view);
         self.reviews.open.push(running);

@@ -16,7 +16,7 @@ impl State {
         let whole = more == 0 && !cut;
         let before = std::mem::take(&mut self.order);
         let mut files = std::mem::take(&mut self.files);
-        self.order = entries.iter().map(|entry| entry.path.clone()).collect();
+        self.order = self.held.listed(self.highlighting.top(), entries);
         for entry in entries {
             let file = match files.remove(&entry.path) {
                 Some(file) => file,
@@ -39,7 +39,7 @@ impl State {
             if whole {
                 self.highlighting.forget(path);
                 let gone = Gone {
-                    withheld: file.withheld(),
+                    withheld: self.held.left(self.highlighting.top(), &file),
                     cards: file.cards,
                     ..Gone::default()
                 };
@@ -68,8 +68,7 @@ impl State {
         } else if cards.comments.is_empty() {
             self.dirty |= self.gone.remove(&path).is_some();
         } else {
-            // A file gone stays withheld once it was.
-            let withheld = self.gone.get(&path).is_some_and(|gone| gone.withheld);
+            let withheld = self.held.told(self.highlighting.top(), &path);
             let gone = Gone {
                 cards,
                 withheld,

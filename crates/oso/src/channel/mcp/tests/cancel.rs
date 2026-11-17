@@ -213,3 +213,64 @@ fn a_cancel_that_lands_as_the_call_ends_makes_the_next_call_connect_again() {
         "the closed connection was dropped"
     );
 }
+
+/// A channel that lets a move into a space through, and holds the bridge's `move_wait` until
+/// its connection is closed (ADR 0151, step 2).
+#[cfg(unix)]
+struct Moves(Waited);
+
+#[cfg(unix)]
+impl Link for Moves {
+    fn call(&mut self, method: &str, _: Value) -> Result<Value, Failed> {
+        match method {
+            "version" => Ok(json!({ "protocol": crate::channel::protocol::PROTOCOL_VERSION })),
+            "move_to_space" => Ok(json!({ "moving": true })),
+            "move_wait" => Waiting(Arc::clone(&self.0)).wait(),
+            other => panic!("{other} ran while the move waited"),
+        }
+    }
+
+    fn closer(&self) -> Option<Box<dyn Fn() + Send>> {
+        Waiting(Arc::clone(&self.0)).closer()
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_request_the_agent_sends_while_the_bridge_waits_for_its_turn_cuts_the_wait() {
+    let waited: Waited = Arc::default();
+    let link = Arc::clone(&waited);
+    let connect: Connect =
+        Box::new(move || Ok(Box::new(Moves(Arc::clone(&link))) as Box<dyn Link>));
+    let mut bridge = Bridge::new(connect);
+    let steps = vec![
+        Step::Line(call("move_to_space", &json!({ "space": "s" }))),
+        Step::Started,
+        // The agent did not end its turn: the bridge must not hold this one back.
+        Step::Line(ping(7)),
+    ];
+    let input = Script {
+        steps: steps.into(),
+        line: Cursor::default(),
+        waited: Arc::clone(&waited),
+    };
+    let mut output = Vec::new();
+    let input = Box::new(BufReader::new(input));
+    assert_eq!(serve(&mut bridge, input, false, &mut output), 0);
+    let lines: Vec<Value> = String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(
+        lines[0]["result"]["content"][0]["text"]
+            .as_str()
+            .is_some_and(|text| text.contains("moving"))
+    );
+    assert_eq!(lines[1]["id"], 7);
+    assert!(
+        waited.0.lock().unwrap().1,
+        "the wait's connection was closed"
+    );
+}

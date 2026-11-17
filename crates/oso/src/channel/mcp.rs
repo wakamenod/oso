@@ -23,6 +23,8 @@
 //!   Looking and changing are
 //!   separate tools, so that the agent's own permission rules can allow one and ask for the
 //!   other.
+//! - Once the person agreed that this bridge's session moves into a space, the bridge stops
+//!   its own parent after that session's turn has ended (`moving`, ADR 0151, step 2).
 
 use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, Write};
@@ -91,6 +93,9 @@ struct Bridge {
     /// The hosted session this bridge says it serves, from `OSO_SESSION`, which oso believes
     /// only if it started this bridge's parent as that session (ADR 0121).
     session: Option<String>,
+    /// The request whose move into a space the person agreed to, once its response is out
+    /// (ADR 0151, step 2).
+    moved: Option<Value>,
 }
 
 /// The variable that names a hosted session to its bridge (ADR 0121, "The bridge and the
@@ -105,6 +110,7 @@ impl Bridge {
             link: None,
             interrupt: Arc::default(),
             session: None,
+            moved: None,
         }
     }
 
@@ -200,7 +206,12 @@ impl Bridge {
         };
         let (method, params) = channel_request(name, arguments).map_err(|why| (-32602, why))?;
         Ok(match self.call(id, method, params) {
-            Ok(result) => Some(tool_result(&result.to_string(), false)),
+            Ok(result) => {
+                if moving::agreed(name, &result) {
+                    self.moved = Some(id.clone());
+                }
+                Some(tool_result(&result.to_string(), false))
+            }
             Err(Failed::Cancelled) => None,
             Err(failed) => Some(tool_result(&failed.message(), true)),
         })
@@ -549,9 +560,14 @@ fn serve<W: Write>(
                 return 0;
             }
         }
+        // The agent has the reply that tells it to end its turn (ADR 0151, step 2).
+        if let Some(id) = bridge.moved.take() {
+            bridge.stop_parent_once_idle(&id);
+        }
     }
 }
 
+mod moving;
 mod session_tools;
 mod stdin;
 mod tools;

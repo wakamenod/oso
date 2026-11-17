@@ -178,6 +178,15 @@ pub enum PrAct {
     /// Review the pull request, or the one the line names in a list, as ADR 0122's pull
     /// request scope (`r`, ADR 0122, step 12b).
     Review,
+    /// Send the check on the line to an agent session, through `*review message*` (`x`, ADR
+    /// 0127, step 6b).
+    SendCheck,
+    /// Send every failing check (`X`).
+    SendFailing,
+    /// Send the review thread on the line (`c`).
+    SendThread,
+    /// Send every unresolved review thread (`C`).
+    SendUnresolved,
 }
 
 /// What a key asks of an issue's buffer, or of a list of them, at a line (ADR 0127, step 5b-1).

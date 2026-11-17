@@ -1064,7 +1064,8 @@ on 2026-11-14, through the coordinator, and answered its questions Q-A to Q-F (a
   draft staying open, so that no comment is placed by another reading's lines.
 - **A file that leaves the listing** with comments is taken out of the model, its comments
   outdated, and stays under the listed files as `no longer changed  <path>` with its cards
-  (Q-E (a)), or with its count alone if its last reading was withheld. A listing cut short, at
+  (Q-E (a)), or with its count alone if a reading of it was withheld or a name it had in the
+  review may hold secrets (ADR 0044), read or not. A listing cut short, at
   10,000 files or by git's output, tells nothing of the files it left out: one with comments
   stays in the model and on screen as it was, after the listed files.
 - **Read:** an agent comment is marked read once its label and every row of its text shown were
