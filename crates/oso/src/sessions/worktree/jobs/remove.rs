@@ -36,8 +36,8 @@ pub const STOPPED_BEFORE_GIT: &str = "stopped by the person before git ran: noth
 pub const STOPPED_AFTER_CLEAR: &str = "stopped by the person before git ran: nothing was \
      removed, though its idle sessions were stopped";
 /// Why a removal the person stopped while git ran ended, its `.git` still there.
-pub const STOPPED_IN_GIT: &str = "stopped by the person while git ran: it is half removed. What \
-     git deleted stays deleted (tracked files are in its branch); remove the rest by hand";
+pub const STOPPED_IN_GIT: &str = "stopped by the person while git ran: it may be half removed. \
+     What git deleted stays deleted (tracked files are in its branch); remove the rest by hand";
 /// Why a removal the person stopped while git ran ended, its `.git` gone.
 pub const STOPPED_WITHOUT_GIT_FILE: &str = "stopped by the person while git ran: it is half \
      removed and its .git is gone, so git run there reaches the main repository. Remove the \

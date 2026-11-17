@@ -1565,19 +1565,19 @@ hangs, in a filter for instance, had no way to end. The author chose each recomm
   stopped. The command's quiet stop moves only "before git" to "stopped"; the removal's own
   thread moves only "before git" to "in git". So a stop never reaches git without the
   question, and git never starts after a stop.
-- **Once git may be deleting,** it asks first, with `y` or `n`: "Stop removing worktree PATH? git
-  may be deleting: it is left half removed, maybe without its .git. What git deleted stays
-  deleted (tracked files are in its branch); remove the rest by hand." On `y`, git's session
-  gets `SIGTERM`, then `SIGKILL` after ADR 0127's 5 s grace. The question names the removal
-  by its job, so a `y` never stops a later removal of the same path, and names its path
-  resolved, its end kept when it is long.
+- **Once git may be deleting,** it asks first, with `y` or `n`, the warning first, as the
+  question's float shows its first lines: "Leave it half removed? git may be deleting worktree
+  PATH. A stop keeps what git deleted deleted (tracked files are in its branch), maybe its .git
+  too; you remove the rest by hand." PATH keeps its last 48 characters. On `y`, git's session
+  gets `SIGTERM`, then `SIGKILL` after ADR 0127's 5 s grace. The question names the removal by
+  its job, so a `y` never stops a later removal of the same path.
 - **After a stop in git, the job looks at what is left.** The directory gone: removed, as git
   may have finished first. Its `.git` gone: half removed, and git run there now finds the main
   repository, so the message says to remove the directory by hand, then run `git worktree
-  prune`. Else: "stopped by the person while git ran: it is half removed". The echo area says
-  which. An agent whose call still waits hears only that the worktree is left for the person,
-  not to remove or change it: the by-hand steps are the person's. The space keeps a worktree
-  not known to be gone.
+  prune`. Else: "stopped by the person while git ran: it may be half removed", as git may have
+  been stopped before it deleted anything. The echo area says which. An agent whose call still
+  waits hears only that the worktree is left for the person, not to remove or change it: the
+  by-hand steps are the person's. The space keeps a worktree not known to be gone.
 - **`*Worktrees*` marks a worktree whose removal runs** with "removing…" instead of its
   verdict, and an agent's `worktree_list` says "a removal of it still runs" as the reason it is
   kept (`Check::Removing`), the same words a second removal is refused with. When a removal

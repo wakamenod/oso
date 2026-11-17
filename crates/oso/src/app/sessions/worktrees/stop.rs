@@ -28,13 +28,15 @@ impl App {
             Ok(target) => target.clone(),
             Err(why) => return self.editor.message(why),
         };
-        let shown = shown_end(target.path());
+        let shown = shown_end(target.path(), 120);
         match jobs.stop_removal_before_git(target.id) {
             Stop::Ask => {
+                // The warning goes first: the question's float shows its first lines.
+                let place = shown_end(target.path(), 48);
                 let question = format!(
-                    "Stop removing worktree {shown}? git may be deleting: it is left half \
-                     removed, maybe without its .git. What git deleted stays deleted (tracked \
-                     files are in its branch); remove the rest by hand."
+                    "Leave it half removed? git may be deleting worktree {place}. A stop keeps \
+                     what git deleted deleted (tracked files are in its branch), maybe its .git \
+                     too; you remove the rest by hand."
                 );
                 match self.editor.ask(question, "worktree-remove-stop-confirmed") {
                     Ok(_) => {
@@ -53,7 +55,7 @@ impl App {
         let Some((id, path)) = self.hosting.worktrees.stopping.take() else {
             return self.editor.message("No removal waits to be stopped");
         };
-        let shown = shown_end(&path);
+        let shown = shown_end(&path, 120);
         let stop = (self.hosting.worktrees.jobs.as_ref())
             .map_or(Stop::Ended, |jobs| jobs.stop_removal_confirmed(id));
         self.say_stop(stop, &shown);
@@ -79,15 +81,15 @@ impl App {
     }
 }
 
-/// `path` for a message, its end kept: two long worktree paths differ there.
-fn shown_end(path: &Path) -> String {
-    const KEEP: usize = 120;
+/// `path` for a message, at most `keep` characters with its end kept: two long worktree paths
+/// differ there.
+fn shown_end(path: &Path, keep: usize) -> String {
     let whole = path.display().to_string();
     let chars: Vec<char> = whole.chars().collect();
-    let kept = if chars.len() > KEEP {
+    let kept = if chars.len() > keep {
         format!(
             "…{}",
-            chars[chars.len() - KEEP..].iter().collect::<String>()
+            chars[chars.len() - keep..].iter().collect::<String>()
         )
     } else {
         whole
@@ -136,7 +138,7 @@ mod tests {
     #[test]
     fn a_long_path_keeps_its_end() {
         let long = format!("/r/{}/end-of-it", "x".repeat(300));
-        let shown = super::shown_end(Path::new(&long));
+        let shown = super::shown_end(Path::new(&long), 120);
         assert!(
             shown.starts_with('…') && shown.ends_with("/end-of-it"),
             "{shown}"
