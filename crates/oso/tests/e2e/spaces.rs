@@ -201,6 +201,63 @@ pub(super) fn trust_restricted(app: &mut crate::harness::App, name: &str) {
     app.send_keys(&format!("M-x {} RET y", keys("trust-project")));
 }
 
+/// Opens the space menu, waits until it is open, and runs its head `key`: a key sent before the
+/// menu opens would reach the buffer instead.
+pub(super) fn space_menu(app: &mut crate::harness::App, key: &str) {
+    app.send_keys("C-c a S");
+    app.wait_for("the space menu", |state| state["menu"] == "space");
+    app.send_keys(key);
+}
+
+/// Answers the prompt labelled `label` with `text` once its list offers `text`: the host gives
+/// a listed prompt its list as the spaces change, which may come after the prompt opens.
+fn answer_listed(app: &mut crate::harness::App, label: &str, text: &str) {
+    app.wait_for(&format!("{label} offering {text}"), |state| {
+        super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with(label))
+            && state["prompts"][0]["completion"]["rows"]
+                .as_array()
+                .is_some_and(|rows| rows.iter().any(|row| row.as_str() == Some(text)))
+    });
+    app.send_keys(&format!("{} RET", keys(text)));
+}
+
+/// Waits until the spaces record on disk holds what `holds` looks for, in whichever state
+/// directory the instance keeps it: the flow's own (`OSO_STATE_DIR`, ADR 0146), else its
+/// `HOME`'s. The sessions worker writes it after each change, and an exit does not wait for
+/// that write, so a flow that starts again checks the record first.
+fn wait_for_record(flow: &Flow, what: &str, holds: impl Fn(&[Value]) -> bool) {
+    let places = [
+        flow.repo.join("state").join("spaces"),
+        flow.home.join("Library/Application Support/oso/spaces"),
+        flow.home.join(".local/state/oso/spaces"),
+    ];
+    let started = Instant::now();
+    loop {
+        for place in &places {
+            let Ok(text) = fs::read_to_string(place) else {
+                continue;
+            };
+            let spaces: Vec<Value> = text
+                .lines()
+                .filter_map(|line| serde_json::from_str(line).ok())
+                .collect();
+            if holds(&spaces) {
+                return;
+            }
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "no {what} in the spaces record after 30s"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// The space named `name` in a record's spaces.
+fn stored<'a>(spaces: &'a [Value], name: &str) -> Option<&'a Value> {
+    spaces.iter().find(|space| space["name"] == name)
+}
+
 pub(super) fn answer(app: &mut crate::harness::App, label: &str, text: &str) {
     app.wait_for(label, |state| {
         super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with(label))
@@ -223,8 +280,7 @@ fn close_with_its_idle_session(app: &mut crate::harness::App) {
                 .any(|s| s["space"] == "fix-login-error" && s["state"] == "idle")
         })
     });
-    app.send_keys("C-c a S");
-    app.send_keys("c");
+    space_menu(app, "c");
     app.wait_for("the session stopped and the space closed", |state| {
         space(state, "fix-login-error").is_some_and(|s| s["archived"] == true)
             && state["sessions"]["sessions"]
@@ -260,8 +316,7 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
     assert_eq!(mode, 0o700);
 
     // Another repository, by its path.
-    app.send_keys("C-c a S");
-    app.send_keys("a");
+    space_menu(&mut app, "a");
     answer(&mut app, "Add repository:", other.to_str().unwrap());
     app.wait_for("the second repository", |state| {
         space(state, "fix-login-error")
@@ -277,29 +332,30 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
 
     // Closing the space in front enters the one entered last; reopening brings it back.
-    app.send_keys("C-c a S");
-    app.send_keys("c");
+    space_menu(&mut app, "c");
     app.wait_for("the space closed", |state| {
         space(state, "second").is_some_and(|s| s["archived"] == true)
             && state["sessions"]["space"] == "fix-login-error"
     });
-    app.send_keys("C-c a S");
-    app.send_keys("R");
-    answer(&mut app, "Reopen space:", "second");
+    space_menu(&mut app, "R");
+    answer_listed(&mut app, "Reopen space:", "second");
     app.wait_for("the space open again", |state| {
         space(state, "second").is_some_and(|s| s["archived"] == false)
             && state["sessions"]["space"] == "second"
     });
 
     // Renaming makes the name from the title.
-    app.send_keys("C-c a S");
-    app.send_keys("n");
+    space_menu(&mut app, "n");
     answer(&mut app, "Space title:", "Third title");
     app.wait_for("the new name", |state| {
         space(state, "third-title").is_some()
     });
 
     close_with_its_idle_session(&mut app);
+    wait_for_record(&flow, "the closed and renamed spaces", |spaces| {
+        stored(spaces, "fix-login-error").is_some_and(|s| s["archived"] == true)
+            && stored(spaces, "third-title").is_some_and(|s| s["archived"] == false)
+    });
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
 
@@ -364,8 +420,7 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     app.send_keys("C-c a O");
     answer(&mut app, "New space for issue:", "Fix login");
     app.wait_for("the space", |state| space(state, "fix-login").is_some());
-    app.send_keys("C-c a S");
-    app.send_keys("a");
+    space_menu(&mut app, "a");
     answer(&mut app, "Add repository:", other.to_str().unwrap());
     app.wait_for("its second repository", |state| {
         space(state, "fix-login")
@@ -422,8 +477,7 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     app.wait_for("the second space", |state| {
         state["sessions"]["space"] == "second"
     });
-    app.send_keys("C-c a S");
-    app.send_keys("c");
+    space_menu(&mut app, "c");
     app.wait_for("the closed space listed", |state| {
         line_starting(state, " ▸ Archived spaces ─").is_some()
     });
@@ -457,8 +511,7 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
     app.wait_for("the space's directory", |state| {
         space(state, "fix-login").is_some_and(|s| s["directory"].is_string())
     });
-    app.send_keys("C-c a S");
-    app.send_keys("a");
+    space_menu(&mut app, "a");
     answer(&mut app, "Add repository:", other.to_str().unwrap());
     app.wait_for("its second repository, not trusted", |state| {
         space(state, "fix-login")
@@ -466,8 +519,7 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
     });
 
     // `o` starts it in the space's directory, given the trusted repository alone.
-    app.send_keys("C-c a S");
-    app.send_keys("o");
+    space_menu(&mut app, "o");
     let runs = flow.wait_for_runs(1);
     let (cwd, args) = run_named(&runs, "fix-login").expect("the orchestrator's run");
     let directory = fs::canonicalize(spaces.0.join("fix-login")).unwrap();
