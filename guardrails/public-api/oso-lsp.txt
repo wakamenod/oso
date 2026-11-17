@@ -128,9 +128,11 @@ pub const oso_lsp::limits::LOCATIONS_MAX: usize
 pub const oso_lsp::limits::LOG_BYTES_MAX: usize
 pub const oso_lsp::limits::MESSAGE_BYTES_MAX: usize
 pub const oso_lsp::limits::METHOD_BYTES_MAX: usize
+pub const oso_lsp::limits::NEW_NAME_BYTES_MAX: usize
 pub const oso_lsp::limits::PROGRESS_TOKENS_MAX: usize
 pub const oso_lsp::limits::READER_QUEUE_BYTES_MAX: usize
 pub const oso_lsp::limits::READ_PIECE: usize
+pub const oso_lsp::limits::RENAME_WAIT: core::time::Duration
 pub const oso_lsp::limits::REPORT_INTERVAL: core::time::Duration
 pub const oso_lsp::limits::REPORT_LOG_BYTES_MAX: usize
 pub const oso_lsp::limits::REPORT_SHOWN_MAX: usize
@@ -444,6 +446,20 @@ pub fn oso_lsp::protocol::Published::eq(&self, &oso_lsp::protocol::Published) ->
 impl core::fmt::Debug for oso_lsp::protocol::Published
 pub fn oso_lsp::protocol::Published::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_lsp::protocol::Published
+pub struct oso_lsp::protocol::Renaming
+pub oso_lsp::protocol::Renaming::offers: bool
+pub oso_lsp::protocol::Renaming::prepares: bool
+impl core::clone::Clone for oso_lsp::protocol::Renaming
+pub fn oso_lsp::protocol::Renaming::clone(&self) -> oso_lsp::protocol::Renaming
+impl core::cmp::Eq for oso_lsp::protocol::Renaming
+impl core::cmp::PartialEq for oso_lsp::protocol::Renaming
+pub fn oso_lsp::protocol::Renaming::eq(&self, &oso_lsp::protocol::Renaming) -> bool
+impl core::default::Default for oso_lsp::protocol::Renaming
+pub fn oso_lsp::protocol::Renaming::default() -> oso_lsp::protocol::Renaming
+impl core::fmt::Debug for oso_lsp::protocol::Renaming
+pub fn oso_lsp::protocol::Renaming::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_lsp::protocol::Renaming
+impl core::marker::StructuralPartialEq for oso_lsp::protocol::Renaming
 pub struct oso_lsp::protocol::Reported
 pub oso_lsp::protocol::Reported::code: alloc::string::String
 pub oso_lsp::protocol::Reported::code_number: bool
@@ -520,9 +536,13 @@ pub fn oso_lsp::protocol::message(&serde_json::value::Value) -> core::option::Op
 pub fn oso_lsp::protocol::notification(&str, serde_json::value::Value) -> alloc::vec::Vec<u8>
 pub fn oso_lsp::protocol::plain(&str) -> alloc::string::String
 pub fn oso_lsp::protocol::position_params(&str, oso_lsp::position::Position) -> serde_json::value::Value
+pub fn oso_lsp::protocol::prepare_rename_params(&str, oso_lsp::position::Position) -> serde_json::value::Value
+pub fn oso_lsp::protocol::prepared(&serde_json::value::Value) -> core::option::Option<core::option::Option<(oso_lsp::position::Position, oso_lsp::position::Position, core::option::Option<alloc::string::String>)>>
 pub fn oso_lsp::protocol::progress(&serde_json::value::Value) -> core::option::Option<(oso_lsp::protocol::Token, oso_lsp::protocol::Progress)>
 pub fn oso_lsp::protocol::published(&serde_json::value::Value) -> core::option::Option<oso_lsp::protocol::Published>
 pub fn oso_lsp::protocol::references_params(&str, oso_lsp::position::Position) -> serde_json::value::Value
+pub fn oso_lsp::protocol::rename_params(&str, oso_lsp::position::Position, &str) -> serde_json::value::Value
+pub fn oso_lsp::protocol::renaming(&serde_json::value::Value) -> oso_lsp::protocol::Renaming
 pub fn oso_lsp::protocol::request(i64, &str, serde_json::value::Value) -> alloc::vec::Vec<u8>
 pub fn oso_lsp::protocol::resolved(&serde_json::value::Value) -> alloc::vec::Vec<oso_lsp::protocol::Extra>
 pub fn oso_lsp::protocol::resolved_action(&serde_json::value::Value) -> core::option::Option<oso_lsp::protocol::OfferedAction>
@@ -540,6 +560,8 @@ pub oso_lsp::server::Answered::Completion(oso_lsp::server::Completions)
 pub oso_lsp::server::Answered::Executed
 pub oso_lsp::server::Answered::Hover(core::option::Option<oso_lsp::protocol::Hover>)
 pub oso_lsp::server::Answered::Places(alloc::vec::Vec<oso_lsp::server::Location>)
+pub oso_lsp::server::Answered::Prepared(oso_lsp::server::Prepared)
+pub oso_lsp::server::Answered::Renamed(oso_lsp::server::ServerEdit)
 pub oso_lsp::server::Answered::Resolved(oso_lsp::server::Resolved)
 impl core::clone::Clone for oso_lsp::server::Answered
 pub fn oso_lsp::server::Answered::clone(&self) -> oso_lsp::server::Answered
@@ -586,7 +608,9 @@ pub oso_lsp::server::AskKind::Completion
 pub oso_lsp::server::AskKind::Definition
 pub oso_lsp::server::AskKind::ExecuteCommand
 pub oso_lsp::server::AskKind::Hover
+pub oso_lsp::server::AskKind::PrepareRename
 pub oso_lsp::server::AskKind::References
+pub oso_lsp::server::AskKind::Rename
 pub oso_lsp::server::AskKind::Resolve
 pub oso_lsp::server::AskKind::ResolveAction
 impl oso_lsp::server::AskKind
@@ -634,6 +658,21 @@ pub fn oso_lsp::server::Diagnosed::eq(&self, &oso_lsp::server::Diagnosed) -> boo
 impl core::fmt::Debug for oso_lsp::server::Diagnosed
 pub fn oso_lsp::server::Diagnosed::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_lsp::server::Diagnosed
+pub enum oso_lsp::server::Prepared
+pub oso_lsp::server::Prepared::At
+pub oso_lsp::server::Prepared::At::end: usize
+pub oso_lsp::server::Prepared::At::placeholder: core::option::Option<alloc::boxed::Box<str>>
+pub oso_lsp::server::Prepared::At::start: usize
+pub oso_lsp::server::Prepared::Nothing
+pub oso_lsp::server::Prepared::Unasked
+impl core::clone::Clone for oso_lsp::server::Prepared
+pub fn oso_lsp::server::Prepared::clone(&self) -> oso_lsp::server::Prepared
+impl core::cmp::Eq for oso_lsp::server::Prepared
+impl core::cmp::PartialEq for oso_lsp::server::Prepared
+pub fn oso_lsp::server::Prepared::eq(&self, &oso_lsp::server::Prepared) -> bool
+impl core::fmt::Debug for oso_lsp::server::Prepared
+pub fn oso_lsp::server::Prepared::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_lsp::server::Prepared
 pub enum oso_lsp::server::State
 pub oso_lsp::server::State::Ended
 pub oso_lsp::server::State::NotStarted
@@ -858,10 +897,12 @@ pub struct oso_lsp::server::Server
 impl oso_lsp::server::Server
 pub fn oso_lsp::server::Server::answer_apply_edit(&self, u64, core::result::Result<(), alloc::string::String>)
 pub fn oso_lsp::server::Server::ask(&self, oso_lsp::server::Ask)
+pub fn oso_lsp::server::Server::cancel(&self, u64, oso_lsp::server::AskKind)
 pub fn oso_lsp::server::Server::change(&self, oso_lsp::server::Change)
 pub fn oso_lsp::server::Server::close(&self, u64)
 pub fn oso_lsp::server::Server::open(&self, oso_lsp::server::Document)
 pub fn oso_lsp::server::Server::quit(&self)
+pub fn oso_lsp::server::Server::rename(&self, oso_lsp::server::Ask, alloc::boxed::Box<str>)
 pub fn oso_lsp::server::Server::restart(&self, oso_lsp::server::Start, oso_lsp::server::Gate)
 pub fn oso_lsp::server::Server::save(&self, u64)
 pub fn oso_lsp::server::Server::shut_down(&self)

@@ -13,7 +13,7 @@ use oso_core::key::KeySequence;
 use super::Dispatcher;
 
 /// A dispatcher and an editor whose buffer has errors at 4 and 10, and the mark `mark`.
-fn followed(mark: Option<ServerMark>) -> (Dispatcher, Editor) {
+pub(super) fn followed(mark: Option<ServerMark>) -> (Dispatcher, Editor) {
     let mut editor = Editor::with_buffer(Buffer::from_text("t.rs", &"x".repeat(20)));
     let id = editor.window().buffer();
     let buffer = editor.buffer_mut(id).unwrap();
@@ -32,7 +32,7 @@ fn followed(mark: Option<ServerMark>) -> (Dispatcher, Editor) {
     (Dispatcher::new(), editor)
 }
 
-fn send(dispatcher: &mut Dispatcher, editor: &mut Editor, keys: &str) {
+pub(super) fn send(dispatcher: &mut Dispatcher, editor: &mut Editor, keys: &str) {
     let keys: KeySequence = keys.parse().unwrap();
     dispatcher.handle_keys(editor, keys.0);
 }

@@ -87,14 +87,10 @@ pub fn map(
         (ArgSpec::Diagnostics { .. }, _) => Err(format!(
             "{name} reads a diagnostic, which only its prompt takes, from keys"
         )),
-        // A server's places are listed only in their list, which the host opens (step 8b).
-        (ArgSpec::Xref, _) => Err(format!(
-            "{name} reads a place of a server's answer, which only its list takes, from keys"
-        )),
-        // So are a server's code actions (step 13).
-        (ArgSpec::CodeAction, _) => Err(format!(
-            "{name} reads a server's code action, which only its list takes, from keys"
-        )),
+        // Only what the host opens once a server answered reads these (ADR 0138).
+        (spec @ (ArgSpec::Xref | ArgSpec::CodeAction | ArgSpec::NewName { .. }), _) => {
+            Err(host_reads(name, spec))
+        }
         (ArgSpec::KillEntry { .. }, _) => Err(format!(
             "{name} reads a kill, which only its prompt takes, from keys"
         )),
@@ -150,6 +146,18 @@ pub fn map(
 /// Why the command `name`, which reads a path in its prompt, takes none from keys.
 fn reads_a_path(name: &str) -> String {
     format!("{name} reads a path, which only its prompt takes, from keys")
+}
+
+/// Why `name`, whose `spec` only a list or prompt the host opens reads, takes nothing from
+/// keys: a place of a server's answer (step 8b), a code action (step 13), or a rename's new
+/// name, which its prompt reads once the server checked the place (step 14).
+fn host_reads(name: &str, spec: ArgSpec) -> String {
+    let what = match spec {
+        ArgSpec::Xref => "a place of a server's answer, which only its list takes",
+        ArgSpec::CodeAction => "a server's code action, which only its list takes",
+        _ => "a rename's new name, which only its prompt takes",
+    };
+    format!("{name} reads {what}, from keys")
 }
 
 #[cfg(test)]

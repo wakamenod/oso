@@ -193,6 +193,9 @@ pub struct Prompt {
     pub(crate) walk: Option<usize>,
     /// What was typed before the walk began, for `M-n` past the newest.
     pub(crate) typed: Option<String>,
+    /// What `M-n` gives from what was typed, the host's default (`Editor::offer_prompt_default`),
+    /// and whether it is shown.
+    pub(crate) default: Option<(Box<str>, bool)>,
     /// The agent channel caused it, and its label says so (ADR 0085).
     pub(crate) from_agent: bool,
     /// Its candidates, for a prompt that completes, and the revision of its buffer they

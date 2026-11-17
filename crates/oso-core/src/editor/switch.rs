@@ -8,7 +8,7 @@
 
 use super::Editor;
 use super::follow::clip_selections;
-use crate::buffer::{self, Buffer, BufferId};
+use crate::buffer::{self, Buffer, BufferId, Mode};
 use crate::display_map::DisplaySnapshot;
 use crate::selection::{MarkActive, SelectionSet};
 use crate::window::{Place, Walk, Window, WindowId};
@@ -583,8 +583,8 @@ impl Editor {
 }
 
 /// Whether `buffer`, though internal, is listed and killed as a person's buffer is: a
-/// directory's listing (ADR 0134) or a git status, log, graph or pull request (ADR 0127), as
-/// Emacs's dired and magit buffers are.
+/// directory's listing (ADR 0134), a git status, log, graph or pull request (ADR 0127), as
+/// Emacs's dired and magit buffers are, or a rename's preview (ADR 0138, step 14).
 fn kept_as_users(buffer: &Buffer) -> bool {
     super::listings::is_listing(buffer)
         || super::git::is_git_status(buffer)
@@ -592,7 +592,8 @@ fn kept_as_users(buffer: &Buffer) -> bool {
         || super::git::is_git_graph(buffer)
         || super::git::is_git_pr(buffer)
         || super::git::is_git_issue(buffer)
-        || (buffer.is_internal() && buffer.mode() == crate::buffer::Mode::GitDiscarded)
+        || (buffer.is_internal()
+            && matches!(buffer.mode(), Mode::GitDiscarded | Mode::RenamePreview))
 }
 
 #[cfg(test)]
