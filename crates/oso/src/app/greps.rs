@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
 use super::{App, Loop, UserEvent, Waker};
-use crate::grep::{Found, Grep, Previewed, Previewer};
+use crate::grep::{Found, FoundLines, Grep, LineSearcher, Previewed, Previewer};
 
 /// Where a root leads, as the loader resolves a path: a root nobody can resolve is none.
 pub(in crate::app) fn leads(root: &Path) -> Option<Vec<PathBuf>> {
@@ -19,14 +19,29 @@ pub(in crate::app) fn leads(root: &Path) -> Option<Vec<PathBuf>> {
     }
 }
 
-/// The searcher for the app, waking the event loop with [`UserEvent::Grepped`].
+/// The searcher for the app, waking the event loop with [`UserEvent::Grepped`], and with
+/// [`UserEvent::LinesFound`] for a buffer's lines.
 pub(super) fn grep(waker: &Waker) -> Grep {
+    let lines = line_searcher(waker);
     let waker = Mutex::new(waker.clone());
     Grep::new(super::home(), leads, move |found| {
         waker
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .send(UserEvent::Grepped(found))
+    })
+    .with_lines(lines)
+}
+
+/// The searcher of a buffer's lines for the app, waking the event loop with
+/// [`UserEvent::LinesFound`] (ADR 0154).
+fn line_searcher(waker: &Waker) -> LineSearcher {
+    let waker = Mutex::new(waker.clone());
+    LineSearcher::new(move |found| {
+        waker
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .send(UserEvent::LinesFound(found))
     })
 }
 
@@ -48,8 +63,21 @@ impl App {
         if let Some(request) = self.editor.take_search_request() {
             self.grep.search(request);
         }
+        // A search of a buffer's lines, in the same prompt (ADR 0154).
+        if let Some(request) = self.editor.take_line_search_request() {
+            self.grep.search_lines(request);
+        }
         // A search of conversations, in the same prompt (ADR 0145).
         self.start_conversation_search();
+    }
+
+    /// A search of a buffer's lines sent rows: the prompt takes them in, if the search is still
+    /// its newest.
+    pub(super) fn lines_found(&mut self, event_loop: &Loop<'_>, found: FoundLines) {
+        self.editor
+            .lines_found(found.generation, found.rows, found.end);
+        self.start_completions(event_loop);
+        self.request_redraw();
     }
 
     /// A search sent rows: the prompt takes them in, if the search is still its newest, and

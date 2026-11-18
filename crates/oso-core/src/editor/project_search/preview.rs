@@ -63,10 +63,12 @@ impl Editor {
 
     /// What the preview of the innermost prompt's selected row shows, if it searches a project.
     pub(in crate::editor) fn search_preview(&self) -> Option<Preview> {
-        if self.project_search.conversations.is_some() {
-            return self.conversation_preview();
+        match self.project_search.source {
+            super::Source::Files => self.file_row_preview(Lister::Search),
+            super::Source::Conversations(_) => self.conversation_preview(),
+            // A buffer's line search shows the buffer from memory (ADR 0154).
+            super::Source::Lines(_) => self.line_preview(),
         }
-        self.file_row_preview(Lister::Search)
     }
 
     /// The cells the matches in view take in a search's preview, as `screen` shows it

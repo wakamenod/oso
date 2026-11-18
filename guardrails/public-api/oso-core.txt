@@ -398,6 +398,8 @@ pub oso_core::command::ArgSpec::Buffer
 pub oso_core::command::ArgSpec::Buffer::history: &'static str
 pub oso_core::command::ArgSpec::Buffer::prompt: &'static str
 pub oso_core::command::ArgSpec::Buffer::purpose: oso_core::command::BufferPurpose
+pub oso_core::command::ArgSpec::BufferLines
+pub oso_core::command::ArgSpec::BufferLines::history: &'static str
 pub oso_core::command::ArgSpec::CodeAction
 pub oso_core::command::ArgSpec::Command
 pub oso_core::command::ArgSpec::Command::history: &'static str
@@ -1729,6 +1731,18 @@ impl core::fmt::Debug for oso_core::editor::KillRefused
 pub fn oso_core::editor::KillRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::KillRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::KillRefused
+pub enum oso_core::editor::LinesEnd
+pub oso_core::editor::LinesEnd::Ended(oso_core::editor::WalkEnd)
+pub oso_core::editor::LinesEnd::Stopped
+impl core::clone::Clone for oso_core::editor::LinesEnd
+pub fn oso_core::editor::LinesEnd::clone(&self) -> oso_core::editor::LinesEnd
+impl core::cmp::Eq for oso_core::editor::LinesEnd
+impl core::cmp::PartialEq for oso_core::editor::LinesEnd
+pub fn oso_core::editor::LinesEnd::eq(&self, &oso_core::editor::LinesEnd) -> bool
+impl core::fmt::Debug for oso_core::editor::LinesEnd
+pub fn oso_core::editor::LinesEnd::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::LinesEnd
+impl core::marker::StructuralPartialEq for oso_core::editor::LinesEnd
 pub enum oso_core::editor::ListedAt
 pub oso_core::editor::ListedAt::File
 pub oso_core::editor::ListedAt::File::column: oso_core::editor::VisitColumn
@@ -3169,6 +3183,11 @@ pub fn oso_core::editor::Editor::recent_files(&self) -> &[std::path::PathBuf]
 pub fn oso_core::editor::Editor::remember_recent_files(&mut self, impl core::iter::traits::collect::IntoIterator<Item = std::path::PathBuf>)
 pub fn oso_core::editor::Editor::take_recent_changes(&mut self) -> oso_core::editor::RecentChanges
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::go_to_line_hit(&mut self) -> bool
+pub fn oso_core::editor::Editor::lines_found(&mut self, u64, alloc::vec::Vec<oso_core::editor::LineRow>, core::option::Option<oso_core::editor::WalkEnd>)
+pub fn oso_core::editor::Editor::open_line_search(&mut self, &'static str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::take_line_search_request(&mut self) -> core::option::Option<oso_core::editor::LineSearchRequest>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::go_to_listed_mark(&mut self, &str) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::open_mark_list(&mut self, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 impl oso_core::editor::Editor
@@ -3502,6 +3521,15 @@ impl core::fmt::Debug for oso_core::editor::LabelCells
 pub fn oso_core::editor::LabelCells::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::LabelCells
 pub struct oso_core::editor::Leftover
+pub struct oso_core::editor::LineRow
+impl core::fmt::Debug for oso_core::editor::LineRow
+pub fn oso_core::editor::LineRow::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::LineSearchRequest
+pub oso_core::editor::LineSearchRequest::generation: u64
+impl oso_core::editor::LineSearchRequest
+pub fn oso_core::editor::LineSearchRequest::run(&self, &mut dyn core::ops::function::FnMut(core::option::Option<oso_core::editor::LineRow>) -> bool) -> oso_core::editor::LinesEnd
+impl core::fmt::Debug for oso_core::editor::LineSearchRequest
+pub fn oso_core::editor::LineSearchRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::ListedRow<'a>
 pub oso_core::editor::ListedRow::buffer: core::option::Option<oso_core::buffer::BufferId>
 pub oso_core::editor::ListedRow::line: usize

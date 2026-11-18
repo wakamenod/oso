@@ -1,6 +1,6 @@
 # 0117. Menus
 
-- Status: Accepted, amended by 0143
+- Status: Accepted, amended by 0143 and 0154
 - Date: 2026-11-13
 
 ## Context

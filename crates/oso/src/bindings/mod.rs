@@ -18,6 +18,7 @@ mod indent;
 mod isearch;
 mod jump;
 mod kill;
+mod lines;
 mod lsp;
 mod macros;
 mod mark;
@@ -66,6 +67,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     kill::BINDINGS,
     macros::BINDINGS,
     mark::BINDINGS,
+    lines::BINDINGS,
     buffers::BINDINGS,
     messages::BINDINGS,
     #[cfg(feature = "dev")]

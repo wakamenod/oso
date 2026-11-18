@@ -599,6 +599,8 @@ mod jump_tests;
 #[cfg(test)]
 mod kill_tests;
 #[cfg(test)]
+mod lines_tests;
+#[cfg(test)]
 mod listed_on_prefix_tests;
 #[cfg(test)]
 mod lsp_tests;

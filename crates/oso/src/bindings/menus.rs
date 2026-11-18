@@ -209,17 +209,21 @@ const JUMPS: BuiltInMenu = BuiltInMenu {
     describe: None,
 };
 
-/// Search: the project's files and their lines; the rest join as their commands come.
+/// Search: the buffer's lines (ADR 0154), and the project's files and their lines; the rest join
+/// as their commands come.
 const SEARCH: BuiltInMenu = BuiltInMenu {
     name: "search",
     title: "Search",
-    groups: &[(
-        "Project",
-        &[
-            exit("f", "project-find-file", "find"),
-            exit("r", "project-search", "grep"),
-        ],
-    )],
+    groups: &[
+        ("Buffer", &[exit("l", "consult-line", "line")]),
+        (
+            "Project",
+            &[
+                exit("f", "project-find-file", "find"),
+                exit("r", "project-search", "grep"),
+            ],
+        ),
+    ],
     describe: None,
 };
 

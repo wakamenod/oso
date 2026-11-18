@@ -14,7 +14,7 @@ impl Editor {
     /// if the innermost prompt searches conversations (ADR 0145), and not while the float has
     /// no room for a preview.
     pub fn take_conversation_preview_request(&mut self) -> Option<ConversationPreviewRequest> {
-        self.project_search.conversations.as_ref()?;
+        self.project_search.source.conversations()?;
         let key = self.selected_search_row()?;
         if self.project_search.preview.asked() == Some(key) {
             return None;

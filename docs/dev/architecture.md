@@ -607,6 +607,13 @@ The UI thread never blocks on I/O or parsing:
   narrows a whole search's input sends that search's generation, and `oso-grep` looks through
   the lines it kept, at most 16 MiB, instead of walking
   ([ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)).
+- `consult-line`'s search of a buffer's lines (`M-s l`) is a third source of that prompt
+  (`editor/project_search/lines.rs`): each changed input hands a snapshot of the buffer's text,
+  a rope's O(1) clone, with the query to `oso-lines` (`grep/lines.rs`, glue in `app/greps.rs`),
+  which runs `LineSearchRequest::run` over 256 KiB blocks with `LineQuery::find_in_block`, from
+  the cursor's line round to it, and sends the rows as `UserEvent::LinesFound`, the first at
+  once and then at most every 30 ms. Its preview is the buffer from memory; nothing is read
+  from disk ([ADR 0154](adr/0154-consult-line.md)).
 - The selected row's preview is read on `oso-preview` (`grep/preview.rs`): the editor asks once
   per row selected (`Editor::take_preview_request`), with the row's byte offset, or for a
   diagnostic of `M-g d` or a place of a server's answer its line, which the thread finds by
