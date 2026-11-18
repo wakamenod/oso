@@ -295,9 +295,9 @@ pub(super) struct SourceGate {
     told: Option<InputSource>,
 }
 
-/// Whether the input source should type ASCII, as while a prompt for a file's name is open,
-/// and whether oso has switched it so (ADR 0106). It is switched only while oso is in front:
-/// another app gets the person's own source back.
+/// Whether the input source should type ASCII, as while a prompt that reads text or completes
+/// one is open, and whether oso has switched it so (ADR 0106, ADR 0158). It is switched only
+/// while oso is in front: another app gets the person's own source back.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct AsciiInput {
     wanted: bool,

@@ -314,11 +314,13 @@ A panicking command is caught at the command boundary
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). oso keeps its own state of
   it, and turns it off where the next key is read as a key or cannot type: a pending
   prefix or prefix argument, a read-only buffer, one that may hold secrets, the list of
-  emergency copies and a prompt. The prompt for a file's name has the window choose an ASCII
-  input source while it is open (`Window::set_ascii_input`), and allows the IME once the person
-  chooses a Japanese input mode there, which oso's macOS layer hears from the system as
-  `Event::InputSource`, never while a buffer that may hold secrets is shown
-  ([ADR 0106](adr/0106-the-input-source-turns-japanese-on-in-a-file-name-prompt.md)). Turning
+  emergency copies and a prompt that takes no Japanese. A prompt that reads text or completes one has the window
+  choose an ASCII input source while it is open (`Window::set_ascii_input`), and allows the IME
+  once the person chooses a Japanese input mode there, which oso's macOS layer hears from the
+  system as `Event::InputSource`; a review comment's draft allows it at once, as a buffer does;
+  neither while a buffer that may hold secrets is shown
+  ([ADR 0106](adr/0106-the-input-source-turns-japanese-on-in-a-file-name-prompt.md),
+  [ADR 0158](adr/0158-japanese-in-prompts-and-review-drafts.md)). Turning
   off during a composition commits it first, where
   typing goes then, on oso's own layer if it would go in as typed there
   (`Dispatcher::types_text`), and otherwise waits for it to end, as always on winit, which

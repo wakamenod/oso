@@ -504,7 +504,11 @@ shown, boxed or escaped.
   copy is listed once over an hour old, and always withheld, as it may hold a secret buffer's text.
 - The OS input method is off in a buffer that may hold secrets, as in macOS password
   fields, and gets no cursor area there. A preedit is in no buffer, copy, handoff or log
-  ([ADR 0069](adr/0069-macos-input-method.md)).
+  ([ADR 0069](adr/0069-macos-input-method.md)). In a prompt it is on only in a review
+  comment's draft, at once, and in a prompt that reads text or completes one once the person
+  chooses a Japanese input mode there; never in a passphrase, a number or a question, nor while
+  the draft or any buffer shown may hold secrets, and it goes off at once when one comes into
+  view ([ADR 0158](adr/0158-japanese-in-prompts-and-review-drafts.md)).
 - On macOS, a buffer that may hold secrets gets secure input while it is selected and oso is
   in front with the keyboard, as a password field does: keystrokes stay with oso. The window
   layer holds one enable at a time and releases it when any of that stops, when the loop
@@ -525,10 +529,11 @@ shown, boxed or escaped.
 - On macOS, oso listens for the system's notice that the person chose another keyboard input
   source. Any local process can post that notice, unauthenticated, so oso ignores what it
   carries and reads the selected source from the Text Input Sources itself, only while it is
-  in front. It acts on it only in the prompt for a file's name, never while a buffer that may
-  hold secrets is shown, and never in a passphrase or any other prompt. The worst a forged
+  in front. It acts on it only in a prompt that reads text or completes one, never while a
+  buffer that may hold secrets is shown, and never in a passphrase, a number or a question
+  ([ADR 0158](adr/0158-japanese-in-prompts-and-review-drafts.md)). The worst a forged
   notice can do is make that prompt catch up with the source the person really has chosen.
-  While that prompt is open and oso is in front, oso also chooses an ASCII-capable input
+  While such a prompt is open and oso is in front, oso also chooses an ASCII-capable input
   source for the person, and gives theirs back when the prompt closes, oso goes behind or the
   app ends, unless they chose another meanwhile. It changes only which installed source is
   selected, and reads only a source's ID and its ASCII flag

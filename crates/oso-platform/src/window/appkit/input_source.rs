@@ -1,7 +1,7 @@
 //! The keyboard input source, through HIToolbox's Text Input Sources (Carbon), for ADR 0106:
 //! the kind the person has chosen, told to the handler through `gate::SourceGate` when the
 //! system says the choice changed, and an ASCII-capable source chosen while the app wants one,
-//! as while a prompt for a file's name is open, with the person's given back after
+//! as while a prompt that reads text or completes one is open (ADR 0158), with the person's given back after
 //! (`gate::AsciiInput`). The app delegate observes the change; `keys::input_source` says what
 //! kind a source is.
 //!
@@ -47,15 +47,20 @@ impl State {
     }
 
     /// The app wants ASCII or not (`wanted`), or oso went behind or ends (`None`, or `false`):
-    /// chooses an ASCII-capable source, or gives the person's back.
+    /// chooses an ASCII-capable source, or gives the person's back. Dev builds log how long
+    /// that took, as it runs on the key path of every prompt that reads text (ADR 0158).
     pub(super) fn update_ascii(&self, wanted: Option<bool>) {
         if MainThreadMarker::new().is_none() {
             return;
         }
+        #[cfg(feature = "dev")]
+        let start = std::time::Instant::now();
         let active = NSApplication::sharedApplication(self.mtm).isActive();
         self.input
             .borrow_mut()
             .ascii(&Tis(self.mtm), wanted, active);
+        #[cfg(feature = "dev")]
+        log::debug!("input source for ASCII {wanted:?}: {:?}", start.elapsed());
     }
 
     /// oso came to the front: ASCII again if the app still wants it, then the kind read.
