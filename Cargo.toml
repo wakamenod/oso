@@ -1,5 +1,8 @@
 [workspace]
 members = ["crates/*"]
+# Third-party crates oso builds from its own patched copy (`[patch.crates-io]`, below); not
+# members, so they keep their own manifests and are not linted, formatted or tested here.
+exclude = ["patches/tree-sitter-yaml"]
 resolver = "3"
 
 [workspace.package]
@@ -84,6 +87,9 @@ tree-sitter-html = "=0.23.2"
 tree-sitter-css = "=0.25.0"
 # ADR 0157. No external scanner.
 tree-sitter-json = "=0.24.8"
+# ADR 0157. Its external scanner keeps stacks of indentation. Built from oso's copy in
+# `patches/` (see `[patch.crates-io]`).
+tree-sitter-yaml = "=0.7.2"
 
 # Dev-only (the `dev` features, ADR 0016). Release builds never contain them.
 # Deflate for screenshot PNGs. Pure Rust, forbids `unsafe`.
@@ -123,3 +129,8 @@ debug = false
 [profile.release]
 lto = true
 codegen-units = 1
+
+# A crate oso builds from its own copy: the released crate unpacked, with oso's change on top
+# (ADR 0157, `patches/README.md`). Remove the entry once a release carries the change.
+[patch.crates-io]
+tree-sitter-yaml = { path = "patches/tree-sitter-yaml" }
