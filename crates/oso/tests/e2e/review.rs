@@ -2,8 +2,9 @@
 //! with `C-x v r w`, its review buffer read whole with each file's header, hunk and lines, `n`
 //! moving to the first hunk, `g` reading a file changed meanwhile, and `q` going back; and the
 //! person's comments: typed in a draft, kept as a card, edited, dropped to the kill ring,
-//! removed and yanked back, and asked about before the review closes; and its sides highlighted,
-//! as `global-font-lock-mode` allows.
+//! removed and yanked back, and asked about before the review closes; its sides highlighted,
+//! as `global-font-lock-mode` allows; and `RET` opening a line's file in another window, carried
+//! through unsaved edits, from a pane too, and `C-u RET` its old side read-only.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The sections'
 //! text, the rows and the keys have their own tests.
@@ -639,4 +640,69 @@ fn the_files_pane_lists_and_shows_files_and_the_filter_hides_them_across_a_resta
     new.wait_for("the pane gone", |state| {
         state["windows"].as_array().map_or(0, Vec::len) == 1
     });
+}
+
+/// The current buffer's read-only reason, if any.
+fn read_only(app: &mut App) -> Value {
+    app.state()["buffer"]["read_only"].clone()
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn ret_opens_the_line_carried_through_unsaved_edits_and_c_u_ret_the_old_side() {
+    let scratch = Scratch::new("review-visit");
+    set_mode(scratch.path(), 0o700);
+    let config = scratch.write("config.toml", b"[lsp]\nstart = \"manual\"\n");
+    set_mode(&config, 0o644);
+    let file = project(&scratch);
+    let mut app = App::start_with_config(Some(&file), scratch.path(), &config);
+    app.wait_until_ready();
+    app.wait_for("the project", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("  proj-review  restricted  "))
+    });
+    app.send_keys(&format!("M-x {} RET y", typing("trust-project")));
+    app.wait_for("the trust", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.starts_with("Trusted "))
+    });
+    // A line put in at a.rs's top in its buffer, not saved: the review reads the file.
+    app.send_keys(&format!("M-< {} RET", typing("zero")));
+    app.send_keys("C-x v r w");
+    app.wait_for("the review", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+    });
+    rows_until(&mut app, "+fn b() {}");
+
+    // `RET` on `+2`, new line 2: a.rs in another window, at line 3 of its buffer now.
+    app.send_keys("n C-n C-n RET");
+    let state = app.wait_for("a.rs", |state| state["buffer"]["name"] == "a.rs");
+    assert_eq!(cursor(&state), (2, 0));
+    assert_eq!(window_count(&mut app), 2);
+    let review = window_not_showing(&state, &state["buffer"]["id"]);
+    assert!(!review.is_null(), "the review stays in its window: {state}");
+
+    // `C-u RET` on `-two`: the old side, read-only, at its line 2.
+    app.send_keys("C-x o C-p C-u RET");
+    let state = app.wait_for("the old side", |state| {
+        state["buffer"]["name"] == "*old: a.rs \u{b7} uncommitted*"
+    });
+    assert_eq!(cursor(&state), (1, 0));
+    assert_eq!(rows(&mut app, 3), ["one", "two", "three"]);
+    assert!(!read_only(&mut app).is_null(), "{state}");
+    assert_eq!(window_count(&mut app), 2);
+
+    // In the panes, the cursor on `-two` is in the old one, whose `RET` goes to where the line
+    // was removed, carried as before, in a window outside the pair.
+    app.send_keys("C-x o |");
+    app.wait_for("the panes", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review \u{b7} old*"
+    });
+    assert_eq!(window_count(&mut app), 3);
+    app.send_keys("RET");
+    let state = app.wait_for("a.rs again", |state| state["buffer"]["name"] == "a.rs");
+    assert_eq!(cursor(&state), (2, 0));
+    assert_eq!(window_count(&mut app), 3, "the pair stays: {state}");
 }

@@ -135,6 +135,8 @@ fn running(id: ReviewId, project: ProjectId, scope: Scope, serial: u64) -> Runni
         saving: super::keep::Saving::default(),
         files: super::files::Told::default(),
         pr: None,
+        jumping: None,
+        sides: Vec::new(),
     }
 }
 

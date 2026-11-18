@@ -1,5 +1,6 @@
 //! The buffers that show emergency copies, and putting a copy's text in a buffer (ADR 0064);
-//! the text of the host's internal buffers, and `*Spaces*'` highlights (ADR 0131). The way
+//! the text of the host's internal buffers, a review's sides' built off the UI thread too
+//! (ADR 0122), and `*Spaces*'` highlights (ADR 0131). The way
 //! back from them is the one in `messages`, which all internal buffers share.
 //!
 //! Must not depend on: `command`, `keymap`, or the host's window, threads or I/O. The host
@@ -7,8 +8,9 @@
 //! a person answered, as it queues a save.
 
 use super::Editor;
+use super::ReviewLeftover;
 use crate::buffer::{Buffer, BufferId, EditError, Mode};
-use crate::load::LoadSnapshot;
+use crate::load::{Change, LoadSnapshot, Reloaded};
 use crate::selection::SelectionSet;
 use crate::syntax::Highlights;
 
@@ -102,6 +104,38 @@ impl Editor {
         if self.window().buffer() == id {
             self.follow_cursor();
         }
+    }
+
+    /// Puts `text`, built off the UI thread, in as the whole text of the internal buffer `id`,
+    /// at O(1) and with no undo record, as a review's side shown read-only is put in (ADR 0122,
+    /// step 3): whatever text it was compared with, the buffer's whole text is replaced, and its
+    /// windows' cursors and tops go where the change carries them. A review's buffers, whose
+    /// rows say what each line is, `*Messages*` and the list of copies take nothing. Returns
+    /// what is left over for the host to free off the UI thread: the text itself for a buffer
+    /// that takes nothing. The text it replaces the host keeps first, at O(1), to free it as
+    /// well, as for [`Editor::set_review_text`].
+    pub fn set_internal_reloaded(&mut self, id: BufferId, text: Reloaded) -> ReviewLeftover {
+        let takes = id != self.messages_buffer
+            && Some(id) != self.copies_buffer
+            && self.review_of(id).is_none();
+        let review = |buffer: &Buffer| matches!(buffer.mode(), Mode::Review | Mode::ReviewFiles);
+        let Some(old) = (self.buffer(id))
+            .filter(|buffer| takes && buffer.is_internal() && !review(buffer))
+            .map(|buffer| buffer.text().len())
+        else {
+            return ReviewLeftover::of_text(text);
+        };
+        let Reloaded { snapshot, .. } = text;
+        let whole = Reloaded {
+            change: Some(Change {
+                start: 0,
+                old_end: old,
+                new_end: snapshot.text.len(),
+            }),
+            snapshot,
+        };
+        let len = whole.snapshot.text.len();
+        self.put_generated_text(id, whole, Highlights::new(len))
     }
 
     /// Shows `highlights`, which the host built with the text it gave the internal buffer `id`

@@ -21,6 +21,7 @@ use oso_platform::file_meta::Directory;
 use super::batch::{Batch, Blob};
 use super::diff;
 use super::list::{Entry, MODE_SUBMODULE, Status};
+use super::refine;
 use super::scope::New;
 use super::side::{self, Found, Got};
 use super::{Content, Reading};
@@ -310,14 +311,25 @@ fn text(base: Base, old: Got, new: Got, room: usize, budget: Instant) -> Texted 
         return Texted::NotKept(too_large);
     }
     match Shape::new(base, hunks) {
-        Ok(shape) => Texted::Kept(
-            Content::Text {
-                shape: Arc::new(shape),
-                old: old.into(),
-                new: new.into(),
-            },
-            held,
-        ),
+        Ok(shape) => {
+            // Within the request's time too, which a file's refining counts against.
+            let until = budget.min(Instant::now() + refine::FILE_BUDGET);
+            let mut refined = refine::Refined::of(shape.hunks(), until);
+            // Past the room, the file shows plain.
+            if held + refined.bytes() > room {
+                refined = refine::Refined::default();
+            }
+            let held = held + refined.bytes();
+            Texted::Kept(
+                Content::Text {
+                    shape: Arc::new(shape),
+                    old: old.into(),
+                    new: new.into(),
+                    refined,
+                },
+                held,
+            )
+        }
         Err(_) => Texted::NotKept(Content::Unreadable("its diff did not hold together".into())),
     }
 }

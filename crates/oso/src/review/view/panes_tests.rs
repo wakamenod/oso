@@ -4,6 +4,8 @@
 //!
 //! Must not depend on: `app`, `dispatch` or winit; these lay out readings and comments made here.
 
+use std::sync::Arc;
+
 use oso_core::review::{Anchor, Author, Review, RowKind, Rows, Side};
 
 use super::*;
@@ -96,6 +98,22 @@ filler                       | label      ▍You  #2
 filler                       | card       ▍  on the hunk
 ";
     assert_eq!(side_by_side(&pair), expected);
+}
+
+#[test]
+fn each_pane_marks_the_words_that_changed_in_its_own_lines() {
+    let (review, reading) = model();
+    let cards = snapshot(&review, PATH);
+    let pair = render(&reading, usize::MAX, &shown(&cards));
+    let old = Rows::new(vec![Arc::clone(&pair.old.section)]);
+    let new = Rows::new(vec![Arc::clone(&pair.new.section)]);
+    // `-old two` beside `+new two`: the first word of each, after its sign.
+    assert_eq!(old.refined(2), std::slice::from_ref(&(1..4)));
+    assert_eq!(new.refined(2), std::slice::from_ref(&(1..4)));
+    // `-old three` beside `+new three`, after the cards; `+new four` has no pair.
+    assert_eq!(old.refined(6), std::slice::from_ref(&(1..4)));
+    assert_eq!(new.refined(6), std::slice::from_ref(&(1..4)));
+    assert!(new.refined(7).is_empty());
 }
 
 #[test]

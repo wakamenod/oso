@@ -148,6 +148,7 @@ fn reading_adding(added: usize) -> Reading {
             shape: Arc::new(Shape::new(Base::Unknown, vec![hunk]).unwrap()),
             old: Arc::from(&b""[..]),
             new: Arc::from(&b""[..]),
+            refined: Default::default(),
         },
     }
 }

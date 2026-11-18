@@ -22,7 +22,7 @@ use super::index::Scratch;
 use super::pr;
 use super::read::{self, Context, Kept};
 use super::scope::{self, Scope, ScopeError};
-use super::{Asked, Entry, Report, Request};
+use super::{Aside, Asked, Entry, Report, Request, jump};
 use crate::git::Id;
 use crate::git::trim_line;
 use crate::git::{Git, GitError, MAX_SHORT};
@@ -62,8 +62,8 @@ pub(super) struct Reader {
 
 type Out<'a> = dyn FnMut(Report) -> bool + 'a;
 
-/// Gives the next carry waiting, if any.
-pub(super) type Carries<'a> = dyn FnMut() -> Option<Carry> + 'a;
+/// Gives the next carry or jump waiting, if any.
+pub(super) type Asides<'a> = dyn FnMut() -> Option<Aside> + 'a;
 
 impl Reader {
     /// State for the project at `root`, with index copies under `state`, swept now.
@@ -97,12 +97,12 @@ impl Reader {
         fresh
     }
 
-    /// Answers `request`, taking each carry `carries` gives between its files.
+    /// Answers `request`, taking each carry and jump `carries` gives between its files.
     pub(super) fn answer(
         &mut self,
         request: Request,
         stop: &dyn Fn() -> bool,
-        carries: &mut Carries<'_>,
+        carries: &mut Asides<'_>,
         out: &mut Out<'_>,
     ) {
         let asked = super::asked(&request);
@@ -113,6 +113,10 @@ impl Reader {
             Request::Carry(carry) => self.carry(carry, out),
             Request::Stage(stage) => self.stage(stage, out),
             Request::Look => self.look(stop, out),
+            Request::Jump(jump) => {
+                out(self.jump(jump));
+                Ok(())
+            }
         };
         if let Err(e) = answered {
             out(match e {
@@ -210,7 +214,7 @@ impl Reader {
         &mut self,
         scope: &Scope,
         stop: &dyn Fn() -> bool,
-        carries: &mut Carries<'_>,
+        carries: &mut Asides<'_>,
         out: &mut Out<'_>,
     ) -> Result<(), ScopeError> {
         if self.scope.as_ref() != Some(scope) {
@@ -225,7 +229,7 @@ impl Reader {
         first: &[Box<[u8]>],
         person: bool,
         stop: &dyn Fn() -> bool,
-        carries: &mut Carries<'_>,
+        carries: &mut Asides<'_>,
         out: &mut Out<'_>,
     ) -> Result<(), ScopeError> {
         let Some(scope) = self.scope.clone() else {
@@ -284,7 +288,7 @@ impl Reader {
             // A file's comments are carried as they come, the running request going on. Their
             // time is not the request's: its budget moves on by what they took.
             let started = Instant::now();
-            if !carry_waiting(&git, cx.batch, carries, out) {
+            if !answer_asides(&git, cx.batch, carries, out) {
                 return Ok(());
             }
             cx.budget += started.elapsed();
@@ -322,7 +326,7 @@ impl Reader {
         scope: &Scope,
         person: bool,
         stop: &dyn Fn() -> bool,
-        carries: &mut Carries<'_>,
+        carries: &mut Asides<'_>,
         out: &mut Out<'_>,
     ) -> Result<scope::Sides, ScopeError> {
         let Scope::PullRequest { number } = scope else {
@@ -336,7 +340,7 @@ impl Reader {
         })?;
         let batch = &mut self.batch;
         let mut tell = |meanwhile: pr::Meanwhile<'_>| match meanwhile {
-            pr::Meanwhile::Idle => carry_waiting(git, batch, carries, out),
+            pr::Meanwhile::Idle => answer_asides(git, batch, carries, out),
             pr::Meanwhile::Fetching { number, remote } => out(Report::Fetching {
                 number,
                 remote: remote.to_owned(),
@@ -427,6 +431,12 @@ impl Reader {
         Ok(())
     }
 
+    /// Answers `jump`, reading the work tree's file from the repository's top, once found.
+    fn jump(&mut self, jump: jump::Jump) -> Report {
+        let top = (self.repository().ok()).map(|repository| repository.git.top().to_path_buf());
+        Report::Jumped(jump::answer_at(top.as_deref(), jump))
+    }
+
     fn carry(&mut self, carry: Carry, out: &mut Out<'_>) -> Result<(), ScopeError> {
         let git = self.repository()?.git.clone();
         out(carry_with(&git, &mut self.batch, carry));
@@ -434,15 +444,19 @@ impl Reader {
     }
 }
 
-/// Answers each carry waiting, as it comes; `false` once the host has gone.
-fn carry_waiting(
+/// Answers each carry and jump waiting, as it comes; `false` once the host has gone.
+fn answer_asides(
     git: &Git,
     batch: &mut Batch,
-    carries: &mut Carries<'_>,
+    carries: &mut Asides<'_>,
     out: &mut Out<'_>,
 ) -> bool {
-    while let Some(carry) = carries() {
-        if !out(carry_caught(git, batch, carry)) {
+    while let Some(aside) = carries() {
+        let report = match aside {
+            Aside::Carry(carry) => carry_caught(git, batch, carry),
+            Aside::Jump(jump) => Report::Jumped(jump::answer_at(Some(git.top()), jump)),
+        };
+        if !out(report) {
             return false;
         }
     }

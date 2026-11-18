@@ -49,7 +49,7 @@ impl State {
         }
         let mut sections: Vec<Arc<section::Rendered>> = Vec::with_capacity(self.order.len() + 2);
         sections.push(Arc::new(section::title(&self.title, &self.said_now())));
-        let mut size = sections[0].bytes.len();
+        let mut size = sections[0].held();
         let folded = self.folded;
         let mut paths: Vec<Option<&Box<[u8]>>> = vec![None];
         let filtered = self.filtering.on();
@@ -66,7 +66,7 @@ impl State {
             let mut kept = file.rendered.unified.take();
             let rendered = section_in(&mut kept, room, || file.render(room, folded));
             file.rendered.unified = kept;
-            size += rendered.bytes.len();
+            size += rendered.held();
             sections.push(rendered);
         }
         for (path, gone) in &mut self.gone {
@@ -78,7 +78,7 @@ impl State {
             let rendered = section_in(&mut gone.rendered.unified, room, || {
                 section::gone(path, cards, room, folded, withheld)
             });
-            size += rendered.bytes.len();
+            size += rendered.held();
             sections.push(rendered);
         }
         let paths: Vec<Option<Box<[u8]>>> = paths.into_iter().map(|path| path.cloned()).collect();

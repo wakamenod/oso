@@ -304,10 +304,11 @@ impl Editor {
         }
     }
 
-    /// Puts in the whole new text of `buffer_id`, a review buffer or a pane of one, with its
-    /// highlights, as [`Editor::set_review_text`] does, and returns what it replaced or did
-    /// not take but the rows, which the caller puts in.
-    fn put_generated_text(
+    /// Puts in the whole new text of `buffer_id`, a review buffer, a pane of one, or an internal
+    /// buffer showing a side ([`Editor::set_internal_reloaded`]), with its highlights, as
+    /// [`Editor::set_review_text`] does, and returns what it replaced or did not take but the
+    /// rows, which the caller puts in.
+    pub(super) fn put_generated_text(
         &mut self,
         buffer_id: BufferId,
         text: Reloaded,

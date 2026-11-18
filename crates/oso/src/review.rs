@@ -21,6 +21,8 @@
 //! - A file whose signature did not change since the last reading is not read again, and the
 //!   files the caller shows go first. Refreshes asked for meanwhile are answered as one, and a
 //!   newer request, or the reviewer's end, stops the one running between files.
+//! - A jump to the source (step 3, part three) waits with the carries, the latest alone, and is
+//!   answered as one is: where a line is in the file's text now, or a side built as a text.
 //! - Carrying comments is no newer request: carries wait in a queue of their own, answered
 //!   between the files of a running request and when nothing runs, so that a file's comments
 //!   never stop a refresh (ADR 0122, step 3b). Before each, the root is checked as before a
@@ -46,8 +48,10 @@
 
 mod batch;
 pub(crate) mod count;
+mod debug;
 mod diff;
 mod index;
+pub(crate) mod jump;
 mod list;
 #[cfg(test)]
 mod look_tests;
@@ -68,7 +72,6 @@ mod work;
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -108,6 +111,25 @@ pub(crate) enum Request {
     /// Look whether what the review shows is stale (step 4). It stops nothing; looks waiting
     /// are one, answered when nothing else waits.
     Look,
+    /// Find where a jump to the source lands (step 3, part three). It stops nothing, and waits
+    /// with the carries, answered between the files of a running request.
+    Jump(jump::Jump),
+}
+
+/// What waits aside, answered between the files of a running request: a carry or a jump, in
+/// the order asked.
+pub(crate) enum Aside {
+    Carry(Carry),
+    Jump(jump::Jump),
+}
+
+impl Aside {
+    fn into_request(self) -> Request {
+        match self {
+            Aside::Carry(carry) => Request::Carry(carry),
+            Aside::Jump(jump) => Request::Jump(jump),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -130,6 +152,7 @@ pub(crate) enum Asked {
     Carry,
     Stage,
     Look,
+    Jump,
 }
 
 /// What the review's thread found. Each listing, the readings after it and the `Read` that
@@ -171,73 +194,8 @@ pub(crate) enum Report {
     PrFound(pr::PrFound),
     /// A fetch of pull request `number`'s commits from `remote` starts (step 12b).
     Fetching { number: u64, remote: String },
-}
-
-impl fmt::Debug for Report {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Listed {
-                generation,
-                entries,
-                more,
-                cut,
-            } => f
-                .debug_struct("Listed")
-                .field("generation", generation)
-                .field("entries", &entries.len())
-                .field("more", more)
-                .field("cut", cut)
-                .finish(),
-            Self::File {
-                generation,
-                reading,
-            } => f
-                .debug_struct("File")
-                .field("generation", generation)
-                .field("reading", reading)
-                .finish(),
-            Self::Read {
-                generation,
-                stopped,
-            } => f
-                .debug_struct("Read")
-                .field("generation", generation)
-                .field("stopped", stopped)
-                .finish(),
-            Self::Baseline { tree, left_out } => f
-                .debug_struct("Baseline")
-                .field("tree", tree)
-                .field("left_out", left_out)
-                .finish(),
-            Self::BaselineGone => f.write_str("BaselineGone"),
-            Self::Stale => f.write_str("Stale"),
-            Self::Carried { cut_short, .. } => f
-                .debug_struct("Carried")
-                .field("cut_short", cut_short)
-                .finish_non_exhaustive(),
-            // A patch holds the file's text: only whether it went in.
-            Self::Staged { ticket, staged } => f
-                .debug_struct("Staged")
-                .field("ticket", ticket)
-                .field("applied", &staged.is_ok())
-                .finish_non_exhaustive(),
-            Self::Failed { asked, why } => f
-                .debug_struct("Failed")
-                .field("asked", asked)
-                .field("why", why)
-                .finish(),
-            // A title and a branch are anyone's words.
-            Self::PrFound(found) => f
-                .debug_struct("PrFound")
-                .field("number", &found.number)
-                .field("head_checked_out", &found.head_checked_out)
-                .finish_non_exhaustive(),
-            Self::Fetching { number, .. } => f
-                .debug_struct("Fetching")
-                .field("number", number)
-                .finish_non_exhaustive(),
-        }
-    }
+    /// Where the jump with the host's ticket landed, or why it could not.
+    Jumped(jump::Jumped),
 }
 
 /// `text` on one line, at most `max` characters, with no control character.
@@ -289,32 +247,14 @@ impl Reading {
     }
 }
 
-impl fmt::Debug for Reading {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let kind = match &self.content {
-            Content::Text { shape, .. } => format!("text, {} hunks", shape.hunks().len()),
-            Content::Binary { .. } => "binary".into(),
-            Content::TooLarge { .. } => "too large".into(),
-            Content::OutOfTime => "out of time".into(),
-            Content::Withheld => "withheld".into(),
-            Content::Conflicted => "conflicted".into(),
-            Content::Submodule => "submodule".into(),
-            Content::Unreadable(why) => format!("unreadable: {why}"),
-        };
-        f.debug_struct("Reading")
-            .field("path", &String::from_utf8_lossy(&self.entry.path))
-            .field("kind", &kind)
-            .finish()
-    }
-}
-
 /// What a reading holds of a file.
 pub(crate) enum Content {
-    /// Both sides, and the hunks between them.
+    /// Both sides, the hunks between them, and the words refinement marks in the hunks.
     Text {
         shape: Arc<Shape>,
         old: Arc<[u8]>,
         new: Arc<[u8]>,
+        refined: refine::Refined,
     },
     /// A side is binary: only the sizes are shown.
     Binary { old: u64, new: u64 },
@@ -345,11 +285,12 @@ pub(crate) struct Reviewer {
     live: Arc<AtomicBool>,
 }
 
-/// What waits for the thread, taken from the queue: carries and stages in order, and the
+/// What waits for the thread, taken from the queue: carries and jumps aside, and stages, each in
+/// order, and the
 /// first other request, which stops the one running.
 #[derive(Default)]
 struct Waiting {
-    carries: VecDeque<Carry>,
+    asides: VecDeque<Aside>,
     stages: VecDeque<stage::Stage>,
     /// Whether a look waits.
     look: bool,
@@ -396,13 +337,20 @@ impl Reviewer {
     }
 }
 
-/// Sends `request` on `requests`, counted in `waiting` unless it is a carry or a stage; `false`
+/// Whether `request` is counted as waiting, so that it stops the one running: not a carry, a
+/// stage, a look or a jump.
+fn counted(request: &Request) -> bool {
+    !matches!(
+        request,
+        Request::Carry(_) | Request::Stage(_) | Request::Look | Request::Jump(_)
+    )
+}
+
+/// Sends `request` on `requests`, counted in `waiting` unless it is a carry, a stage, a look or a
+/// jump; `false`
 /// if the thread has ended.
 fn send_request(requests: &Sender<Request>, waiting: &AtomicUsize, request: Request) -> bool {
-    let counted = !matches!(
-        request,
-        Request::Carry(_) | Request::Stage(_) | Request::Look
-    );
+    let counted = counted(&request);
     if counted {
         waiting.fetch_add(1, Ordering::SeqCst);
     }
@@ -440,16 +388,22 @@ fn serve(
             return;
         }
         let asked = asked(&request);
-        // A stage is answered by its ticket however it ends, so the host matches each.
+        // A stage and a jump are answered by their ticket however they end, so the host
+        // matches each.
         let ticket = match &request {
-            Request::Stage(stage) => Some(stage.ticket),
+            Request::Stage(stage) => Some((stage.ticket, true)),
+            Request::Jump(jump) => Some((jump.ticket, false)),
             _ => None,
         };
         let failed = |why: String| match ticket {
-            Some(ticket) => Report::Staged {
+            Some((ticket, true)) => Report::Staged {
                 ticket,
                 staged: Err(why),
             },
+            Some((ticket, false)) => Report::Jumped(jump::Jumped {
+                ticket,
+                landed: Err(why),
+            }),
             None => Report::Failed { asked, why },
         };
         if let Err(why) = root.check() {
@@ -466,16 +420,16 @@ fn serve(
         };
         // Each carry is checked as a request is, and a newer request stops the run of them: the
         // rest wait, to be answered between its files, or failed if the root was revoked.
-        let mut carries = || {
+        let mut asides = || {
             pull(queue, &held, waiting);
-            if held.borrow().carries.is_empty() || stop() || root.replaced() {
+            if held.borrow().asides.is_empty() || stop() || root.replaced() {
                 return None;
             }
-            held.borrow_mut().carries.pop_front()
+            held.borrow_mut().asides.pop_front()
         };
         let mut gone = false;
         let answered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            reader.answer(request, &stop, &mut carries, &mut |report| {
+            reader.answer(request, &stop, &mut asides, &mut |report| {
                 gone = gone || !send(report);
                 !gone
             });
@@ -492,13 +446,21 @@ fn serve(
     }
 }
 
-/// Takes what the queue holds now: carries aside, after those waiting, until another request
+/// Holds `jump` aside, dropping any jump waiting there: only the latest one counts, as the
+/// host takes the answer to its latest alone.
+fn hold_jump(asides: &mut VecDeque<Aside>, jump: jump::Jump) {
+    asides.retain(|aside| !matches!(aside, Aside::Jump(_)));
+    asides.push_back(Aside::Jump(jump));
+}
+
+/// Takes what the queue holds now: carries and jumps aside, after those waiting, until another request
 /// comes, which waits as the next.
 fn pull(queue: &Receiver<Request>, held: &RefCell<Waiting>, waiting: &AtomicUsize) {
     let mut held = held.borrow_mut();
     while held.next.is_none() {
         match queue.try_recv() {
-            Ok(Request::Carry(carry)) => held.carries.push_back(carry),
+            Ok(Request::Carry(carry)) => held.asides.push_back(Aside::Carry(carry)),
+            Ok(Request::Jump(jump)) => hold_jump(&mut held.asides, jump),
             Ok(Request::Stage(stage)) => held.stages.push_back(stage),
             Ok(Request::Look) => held.look = true,
             Ok(other) => {
@@ -527,9 +489,9 @@ fn next_request(
     }
     let next = held.borrow_mut().next.take();
     if next.is_none() {
-        let carry = held.borrow_mut().carries.pop_front();
-        if let Some(carry) = carry {
-            return Some(Request::Carry(carry));
+        let aside = held.borrow_mut().asides.pop_front();
+        if let Some(aside) = aside {
+            return Some(aside.into_request());
         }
         // A look last, when nothing else waits: a refresh coming reads what it would find.
         if std::mem::take(&mut held.borrow_mut().look) {
@@ -538,15 +500,14 @@ fn next_request(
     }
     let request = match next {
         Some(request) => request,
-        None => match queue.recv().ok()? {
-            request @ (Request::Carry(_) | Request::Stage(_) | Request::Look) => {
+        None => {
+            let request = queue.recv().ok()?;
+            if !counted(&request) {
                 return Some(request);
             }
-            request => {
-                waiting.fetch_sub(1, Ordering::SeqCst);
-                request
-            }
-        },
+            waiting.fetch_sub(1, Ordering::SeqCst);
+            request
+        }
     };
     let Request::Refresh {
         mut first,
@@ -557,7 +518,8 @@ fn next_request(
     };
     while let Ok(newer) = queue.try_recv() {
         match newer {
-            Request::Carry(carry) => held.borrow_mut().carries.push_back(carry),
+            Request::Carry(carry) => held.borrow_mut().asides.push_back(Aside::Carry(carry)),
+            Request::Jump(jump) => hold_jump(&mut held.borrow_mut().asides, jump),
             Request::Stage(stage) => held.borrow_mut().stages.push_back(stage),
             Request::Look => held.borrow_mut().look = true,
             Request::Refresh {
@@ -586,5 +548,6 @@ fn asked(request: &Request) -> Asked {
         Request::Carry(_) => Asked::Carry,
         Request::Stage(_) => Asked::Stage,
         Request::Look => Asked::Look,
+        Request::Jump(_) => Asked::Jump,
     }
 }

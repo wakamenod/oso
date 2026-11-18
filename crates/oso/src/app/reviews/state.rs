@@ -58,6 +58,10 @@ pub(super) struct Running {
     pub(super) saving: super::keep::Saving,
     /// What its view was told of its files pane and filter (step 6b).
     pub(super) files: super::files::Told,
+    /// The latest jump to the source asked of its thread (step 3, part three).
+    pub(super) jumping: Option<super::visit::Jumping>,
+    /// The buffers showing its sides read-only (step 3, part three).
+    pub(super) sides: Vec<oso_core::buffer::BufferId>,
 }
 
 /// What opening a review that is open already does.
@@ -101,6 +105,8 @@ impl Running {
             saving: super::keep::Saving::default(),
             files: super::files::Told::default(),
             pr: None,
+            jumping: None,
+            sides: Vec::new(),
         }
     }
 

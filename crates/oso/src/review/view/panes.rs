@@ -16,6 +16,7 @@
 //!   those changed, a paint of both lays out nothing.
 
 use std::collections::HashSet;
+use std::ops::Range;
 use std::sync::Arc;
 
 use oso_core::load::Reloaded;
@@ -29,6 +30,7 @@ use super::cards::{Cards, Placing, Plan};
 use super::file::{Laidout, section_in};
 use super::project::{self, Run};
 use super::section::{self, Rendered, Shown, Writer};
+use crate::review::refine::Refined;
 use crate::review::{Content, Entry, Reading};
 
 /// A pane's whole text, with what each of its lines is and its highlights.
@@ -61,7 +63,7 @@ impl Laidout for Sides {
     /// The bytes both panes hold, which the review's text limit counts together, so that the
     /// panes hold no more than the unified text does.
     fn len(&self) -> usize {
-        self.old.bytes.len() + self.new.bytes.len()
+        self.old.held() + self.new.held()
     }
 }
 
@@ -113,7 +115,7 @@ struct SideLines {
 }
 
 impl SideLines {
-    fn write(&mut self, writer: &mut Writer, number: u32, line: &[u8]) {
+    fn write(&mut self, writer: &mut Writer, number: u32, line: &[u8], refined: &[Range<u32>]) {
         if self.after != Some(writer.rows()) {
             self.first = number;
         }
@@ -127,7 +129,7 @@ impl SideLines {
             side: self.side,
             first: self.first,
         };
-        writer.side_line(kind, (self.side, number), sign, text, highlight);
+        writer.side_line(kind, (self.side, number), (sign, text), highlight, refined);
         self.after = Some(writer.rows());
     }
 }
@@ -138,7 +140,7 @@ fn hunk(
     (old, new): (&mut Writer, &mut Writer),
     plan: &mut Plan,
     (index, hunk): (usize, &Hunk),
-    said: &str,
+    (said, refined): (&str, &Refined),
 ) {
     let header = crate::review::hunk_header(hunk);
     for writer in [&mut *old, &mut *new] {
@@ -160,10 +162,12 @@ fn hunk(
     for at in 0..hunk.removed.len().max(hunk.added.len()) {
         let number = |start: u32| start.saturating_add(u32::try_from(at).unwrap_or(u32::MAX));
         if let Some(line) = hunk.removed.get(at) {
-            old_lines.write(old, number(hunk.old_start), line);
+            let spans = refined.line(index, Side::Old, at);
+            old_lines.write(old, number(hunk.old_start), line, spans);
         }
         if let Some(line) = hunk.added.get(at) {
-            new_lines.write(new, number(hunk.new_start), line);
+            let spans = refined.line(index, Side::New, at);
+            new_lines.write(new, number(hunk.new_start), line, spans);
         }
         pad(old, new);
         if at < hunk.removed.len() {
@@ -212,7 +216,7 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Sides {
         return Sides::of(old, new);
     }
     match (&reading.content, shape_of(reading)) {
-        (Content::Text { .. }, Some(shape)) => {
+        (Content::Text { refined, .. }, Some(shape)) => {
             for writer in [&mut old, &mut new] {
                 section::ending_notes(writer, shape.hunks());
             }
@@ -230,7 +234,12 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Sides {
             pad(&mut old, &mut new);
             for (index, at) in shape.hunks().iter().enumerate() {
                 let said = cards.decided(shape, index);
-                hunk((&mut old, &mut new), &mut plan, (index, at), &said);
+                hunk(
+                    (&mut old, &mut new),
+                    &mut plan,
+                    (index, at),
+                    (&said, refined),
+                );
             }
             plan.rest(&mut new);
         }

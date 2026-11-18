@@ -416,7 +416,10 @@ impl Highlighting {
         let Some(reading) = &file.reading else {
             return true;
         };
-        let Content::Text { shape, old, new } = &reading.content else {
+        let Content::Text {
+            shape, old, new, ..
+        } = &reading.content
+        else {
             return true;
         };
         let state = &mut file.sides[index(side)];

@@ -4,6 +4,7 @@
 //! Must not depend on: `app`, `dispatch` or winit; these lay out readings made here.
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use oso_core::review::{Base, Hunk, RowKind, Rows, Shape, Side};
 use oso_core::syntax::Highlight;
@@ -39,6 +40,7 @@ pub(crate) fn text_reading(path: &[u8], hunks: Vec<Hunk>) -> Reading {
     Reading {
         entry: entry(path, Status::Modified),
         content: Content::Text {
+            refined: Refined::of(&hunks, Instant::now() + Duration::from_secs(5)),
             shape: Arc::new(Shape::new(Base::Unknown, hunks).unwrap()),
             old: Arc::from(&b""[..]),
             new: Arc::from(&b""[..]),
@@ -112,6 +114,32 @@ fn a_text_reading_shows_its_header_hunks_and_lines() {
         rendered.runs[0],
         (lines[0].0.len(), Some(Highlight::DiffFileHeader))
     );
+}
+
+#[test]
+fn a_changed_word_is_marked_after_the_sign_by_the_bytes_the_buffer_holds() {
+    let reading = text_reading(
+        b"src/a.rs",
+        vec![
+            hunk(1, 1, &[b"let a = 1;\n"], &[b"let a = 2;\n"]),
+            // An invalid byte before the word is three bytes in the buffer, as U+FFFD.
+            hunk(5, 5, &[b"x \xff y\n"], &[b"x \xff z\n"]),
+            // Lines added alone are not refined.
+            hunk(9, 9, &[], &[b"more\n"]),
+        ],
+    );
+    let rendered = plain(&reading, true);
+    let rows = Rows::new(vec![Arc::clone(&rendered.section)]);
+    // The file's header, the hunk's, then `-let a = 1;` and `+let a = 2;`.
+    assert_eq!(rows.refined(2), std::slice::from_ref(&(9..10)));
+    assert_eq!(rows.refined(3), std::slice::from_ref(&(9..10)));
+    assert_eq!(rows.refined(5), std::slice::from_ref(&(7..8)));
+    assert_eq!(rows.refined(6), std::slice::from_ref(&(7..8)));
+    assert!(rows.refined(8).is_empty());
+    assert!(rows.refined(0).is_empty() && rows.refined(1).is_empty());
+    // Each span counts against the review's text limit with the text.
+    assert_eq!(rendered.marks, 4);
+    assert_eq!(rendered.held(), rendered.bytes.len() + 4 * MARK_COST);
 }
 
 #[test]

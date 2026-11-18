@@ -65,6 +65,11 @@ impl Decisions {
             .insert(reading.entry.path.clone(), Arc::clone(reading));
     }
 
+    /// The latest reading of the file at `path`.
+    pub(super) fn reading(&self, path: &[u8]) -> Option<&Arc<Reading>> {
+        self.readings.get(path)
+    }
+
     /// Whether a decision is under way: staging, or reverting.
     fn pending(&self) -> bool {
         !self.staging.is_empty() || !self.reverting.is_empty()

@@ -1,7 +1,7 @@
 //! The commands of a review (ADR 0122): opening one of a scope from the review menu or `M-x`,
 //! taking the session's baseline, and in a review buffer moving by hunk and file, reading the
 //! files again, burying it, listing its keys and killing it. Its comments' commands are in
-//! `comments`.
+//! `comments`, and jumping to the source in `visit`.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state.
 //! The review's keys are listed here, in [`KEYS`], which `bindings` binds, so that `?` says the
@@ -26,6 +26,7 @@ pub use menu::review_menu;
 /// The keys of a review buffer and their commands, which `bindings` binds in the review
 /// keymap and `review-keys` lists.
 pub const KEYS: &[(&str, &str)] = &[
+    ("RET", "review-visit"),
     ("n", "review-next-hunk"),
     ("p", "review-previous-hunk"),
     ("N", "review-next-file"),
@@ -89,6 +90,7 @@ mod files;
 mod keys;
 mod saved;
 mod send;
+mod visit;
 
 pub use comments::COMMANDS as COMMENT_COMMANDS;
 pub use decide::COMMANDS as DECISION_COMMANDS;
@@ -98,6 +100,7 @@ pub use files::{COMMANDS as FILES_COMMANDS, FILES_KEYS};
 pub use saved::COMMANDS as SAVED_COMMANDS;
 pub(crate) use saved::{SAVED_LIST, lost};
 pub use send::{COMMANDS as SEND_COMMANDS, MESSAGE_KEYS};
+pub use visit::COMMANDS as VISIT_COMMANDS;
 
 /// The commands of reviews.
 pub const COMMANDS: &[Command] = &[

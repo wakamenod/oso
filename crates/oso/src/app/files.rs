@@ -30,6 +30,12 @@ impl App {
     /// Starts what commands asked for files: the directories the prompt that reads a path needs
     /// listed, and the files to visit.
     pub(super) fn serve_files(&mut self) {
+        self.serve_files_of(None);
+    }
+
+    /// [`Self::serve_files`], a visit of `one_name` loaded as the agent channel loads one: a
+    /// file with a second name is refused (ADR 0085), as a review's jump to its source asks.
+    pub(super) fn serve_files_of(&mut self, one_name: Option<&std::path::Path>) {
         for directory in self.editor.take_file_requests() {
             // A generation is not needed: listings are kept by directory for the prompt's life.
             self.lister.list(directory, 0);
@@ -39,7 +45,10 @@ impl App {
             self.lister.look(directory, names, 0);
         }
         for asked in self.editor.take_asked_visits() {
-            if let Some(buffer) = self.visit(asked.path, asked.limit) {
+            let checked = one_name.is_some_and(|path| {
+                std::path::absolute(path).ok() == std::path::absolute(&asked.path).ok()
+            });
+            if let Some(buffer) = self.visit_with(asked.path, asked.limit, checked) {
                 self.editor.show(buffer);
                 // The person's visit goes in the recent files once loaded (ADR 0148).
                 if asked.by == oso_core::buffer::Acted::Person {
