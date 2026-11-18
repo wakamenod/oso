@@ -342,19 +342,31 @@ fn an_orchestrator_and_the_person_rename_the_sessions_of_a_space() {
     let flow = Flow::with_fake("space-rename", &config, FAKE);
     let (mut app, mut bridge, _) = orchestrated(&flow, &spaces);
     let (id, run) = worker(&flow, &mut bridge, "wa", None);
+    // As an agent does, it tries again while the person has just typed (ADR 0085).
     let rename = |bridge: &mut Bridge, session: &str, name: &str| {
-        bridge.tool(
-            "session_rename",
-            json!({ "session": session, "name": name }),
-        )
+        let deadline = Instant::now() + DEADLINE;
+        loop {
+            let call = json!({ "session": session, "name": name });
+            let (said, error) = bridge.tool("session_rename", call);
+            if !(error && said.to_string().contains("try again in a moment"))
+                || Instant::now() > deadline
+            {
+                return (said, error);
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
     };
 
     // Never the orchestrator, whose name is the space's; no name the space or another session
     // has, case aside; only a name as it is kept.
     let (said, error) = rename(&mut bridge, "fix-login", "lead");
     assert!(error && said.to_string().contains("orchestrator"), "{said}");
+    // The orchestrator holds the space's name too, so either refusal says it.
     let (said, error) = rename(&mut bridge, "wa", "Fix-Login");
-    assert!(error && said.to_string().contains("a space has"), "{said}");
+    assert!(
+        error && said.to_string().contains("has that name"),
+        "{said}"
+    );
     let (said, error) = rename(&mut bridge, "wa", "fix-login-was-1");
     assert!(error && said.to_string().contains("earlier"), "{said}");
     let (said, error) = rename(&mut bridge, "wa", "api v2");
