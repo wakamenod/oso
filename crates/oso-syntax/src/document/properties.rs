@@ -22,10 +22,11 @@ use crate::language::Language;
 /// Pieces that edits insert: tokens of each language, line breaks, text of several bytes a
 /// character, so that points count bytes, a capital, which makes a Rust name a type with the
 /// same tree, a fence and its languages, which change how its content is highlighted, a long
-/// one, so that an edit spans chunks, Go's fence and a token of it, and TSX's fence, a tag and
-/// a template's code. New pieces go at the end,
-/// as do new seeds, so that each keeps its index.
-const PIECES: [&str; 26] = [
+/// one, so that an edit spans chunks, Go's fence and a token of it, TSX's fence, a tag and a
+/// template's code, and HTML's elements of embedded code, a `type` that changes their language,
+/// YAML's item and key, and HTML's fence. New pieces go at the end, as do new seeds, so that
+/// each keeps its index.
+const PIECES: [&str; 33] = [
     "fn ",
     "{",
     "}",
@@ -52,6 +53,13 @@ const PIECES: [&str; 26] = [
     "tsx\n",
     "<a>",
     "${",
+    "<script>",
+    "</script>",
+    "<style>",
+    " type=\"importmap\"",
+    "- ",
+    ": ",
+    "html\n",
 ];
 
 /// One edit as drawn: where it starts, as a fraction of the text in ten-thousandths, how many
@@ -59,7 +67,7 @@ const PIECES: [&str; 26] = [
 pub(super) type Drawn = (u32, usize, Vec<usize>);
 
 /// Texts of a few kilobytes, so that the rope's chunks of 1008 bytes split them.
-pub(super) const SEEDS: [(Language, &str, usize); 9] = [
+pub(super) const SEEDS: [(Language, &str, usize); 14] = [
     (
         Language::Rust,
         "fn main() {\n    let s = \"日本\"; // note\n    if s.is_empty() { return; }\n}\n",
@@ -104,6 +112,31 @@ pub(super) const SEEDS: [(Language, &str, usize); 9] = [
         Language::Tsx,
         "export const C = ({ t }: { t: string }) => <p a={t}>日本 {t}</p>; /* c */\n",
         40,
+    ),
+    (
+        Language::Html,
+        "<p class=\"a\">日本 &amp; x</p><!-- c -->\n<script>let s = `x`; // c\n</script>\n<style>p { color: red; } /* c */</style>\n",
+        30,
+    ),
+    (
+        Language::Css,
+        "@media (min-width: 1px) {\n  a:hover, .x > #y::before { --c: #fff; color: var(--c) !important; } /* 日本 */\n}\n",
+        30,
+    ),
+    (
+        Language::Json,
+        "{\n  // c\n  \"a\": [1, -2.5e3, true, null, \"日本\\n\"],\n  \"b\": {\"c\": false}\n}\n",
+        40,
+    ),
+    (
+        Language::Yaml,
+        "# c\nkey: 日本\nlist:\n  - 1\n  - {x: \"y\", z: [a, b]}\nanchor: &a !!str s\nblock: |\n  text\n",
+        40,
+    ),
+    (
+        Language::Markdown,
+        "Text.\n\n```html\n<p a=\"b\">x</p><script>f()</script>\n```\n\n```yaml\nk: v\n```\n\n```json\n{\"a\": 1}\n```\n",
+        30,
     ),
 ];
 
@@ -244,7 +277,12 @@ proptest! {
         }
         prop_assert_eq!(document.parse(LONG), Parsed::Done);
         let tree = document.tree().unwrap();
-        prop_assert_eq!(tree.root_node().end_byte(), text.len());
+        // A tree ends where the text does, but YAML's may end at an error before it (ADR 0157):
+        // then it ends where a fresh parse's does.
+        let fresh = parsed(language, &text.to_string());
+        let end = fresh.tree().unwrap().root_node().end_byte();
+        prop_assert!(language == Language::Yaml || end == text.len(), "{end} of {}", text.len());
+        prop_assert_eq!(tree.root_node().end_byte(), end);
         matches_fresh_where_clean(language, tree, &text)?;
     }
 }

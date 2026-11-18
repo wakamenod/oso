@@ -749,9 +749,11 @@ The UI thread never blocks on I/O or parsing:
   reports replace it, mapped through the edits made since. Colour is applied when glyph
   instances are built, so a highlight never reshapes a row, and a report draws a frame only
   if a window shows runs it changed. Markdown's inline text and its fenced Rust, TOML, Go,
-  JavaScript, TypeScript and TSX are parsed again, with their own grammars, wherever the
-  worker highlights; a fence's grammar's query is compiled at the first fence of it
-  ([ADR 0147](adr/0147-highlighting-go-typescript-and-javascript.md)). Buffers that may
+  JavaScript, TypeScript, TSX, HTML, CSS, JSON and YAML, and HTML's `<script>` and `<style>`
+  as JavaScript, JSON or CSS, are parsed again, with their own grammars, wherever the worker
+  highlights; a fence's or an element's grammar's query is compiled at the first one of it
+  ([ADR 0147](adr/0147-highlighting-go-typescript-and-javascript.md),
+  [ADR 0157](adr/0157-highlighting-html-css-json-and-yaml.md)). Buffers that may
   hold secrets, files over 2 MiB ([ADR 0111](adr/0111-tree-sitter-highlighting.md)) and text
   with a line longer than 16 KiB (ADR 0147) are not parsed. The same schedule takes documents no
   buffer owns, texts that never change such as a review's sides, opened with the verdict of

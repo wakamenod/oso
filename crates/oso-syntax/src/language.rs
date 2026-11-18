@@ -24,11 +24,20 @@ pub enum Language {
     TypeScript,
     /// TypeScript with JSX, a grammar of its own (`tree-sitter-typescript`).
     Tsx,
+    /// HTML (`tree-sitter-html`); the code in its `<script>` and `<style>` elements is parsed
+    /// with JavaScript's, JSON's or CSS's grammar.
+    Html,
+    /// CSS (`tree-sitter-css`).
+    Css,
+    /// JSON, comments allowed (`tree-sitter-json`).
+    Json,
+    /// YAML (`tree-sitter-yaml`, built from oso's copy).
+    Yaml,
 }
 
 impl Language {
     /// Every grammar, once each.
-    pub(crate) const ALL: [Self; 8] = [
+    pub(crate) const ALL: [Self; 12] = [
         Self::Rust,
         Self::Markdown,
         Self::MarkdownInline,
@@ -37,6 +46,10 @@ impl Language {
         Self::JavaScript,
         Self::TypeScript,
         Self::Tsx,
+        Self::Html,
+        Self::Css,
+        Self::Json,
+        Self::Yaml,
     ];
 
     /// The grammar a buffer in `mode` is parsed with, if any. Markdown's inline grammar is never
@@ -50,6 +63,10 @@ impl Language {
             Mode::JavaScript => Some(Self::JavaScript),
             Mode::TypeScript => Some(Self::TypeScript),
             Mode::Tsx => Some(Self::Tsx),
+            Mode::Html => Some(Self::Html),
+            Mode::Css => Some(Self::Css),
+            Mode::Json => Some(Self::Json),
+            Mode::Yaml => Some(Self::Yaml),
             // These modes of ADR 0138 have no grammar yet.
             Mode::Fundamental
             | Mode::Latex
@@ -91,6 +108,10 @@ impl Language {
             Self::JavaScript => "javascript",
             Self::TypeScript => "typescript",
             Self::Tsx => "tsx",
+            Self::Html => "html",
+            Self::Css => "css",
+            Self::Json => "json",
+            Self::Yaml => "yaml",
         }
     }
 
@@ -105,6 +126,10 @@ impl Language {
             Self::JavaScript => tree_sitter_javascript::LANGUAGE.into(),
             Self::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
             Self::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
+            Self::Html => tree_sitter_html::LANGUAGE.into(),
+            Self::Css => tree_sitter_css::LANGUAGE.into(),
+            Self::Json => tree_sitter_json::LANGUAGE.into(),
+            Self::Yaml => tree_sitter_yaml::LANGUAGE.into(),
         }
     }
 }
@@ -136,6 +161,10 @@ mod tests {
         assert_eq!(Language::of(Mode::JavaScript), Some(Language::JavaScript));
         assert_eq!(Language::of(Mode::TypeScript), Some(Language::TypeScript));
         assert_eq!(Language::of(Mode::Tsx), Some(Language::Tsx));
+        assert_eq!(Language::of(Mode::Html), Some(Language::Html));
+        assert_eq!(Language::of(Mode::Css), Some(Language::Css));
+        assert_eq!(Language::of(Mode::Json), Some(Language::Json));
+        assert_eq!(Language::of(Mode::Yaml), Some(Language::Yaml));
         assert_eq!(Language::of(Mode::Latex), None);
         assert_eq!(Language::of(Mode::Swift), None);
         assert_eq!(Language::of(Mode::Fundamental), None);

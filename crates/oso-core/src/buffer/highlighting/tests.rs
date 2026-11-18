@@ -238,7 +238,8 @@ fn a_buffer_that_may_hold_secrets_shows_and_takes_none() {
     assert!(!buffer.keeps_highlighting(), "nor of its edits");
 }
 
-/// Go, TypeScript, TSX and JavaScript have a grammar (ADR 0147); LaTeX and Swift have none yet.
+/// Go, TypeScript, TSX and JavaScript have a grammar (ADR 0147), and HTML, CSS, JSON and YAML
+/// (ADR 0157); LaTeX and Swift have none yet.
 /// A buffer of theirs that may hold secrets is never highlighted, as any other is not.
 #[test]
 fn modes_with_a_grammar_can_be_highlighted_unless_secret() {
@@ -247,6 +248,10 @@ fn modes_with_a_grammar_can_be_highlighted_unless_secret() {
         (Mode::TypeScript, true),
         (Mode::Tsx, true),
         (Mode::JavaScript, true),
+        (Mode::Html, true),
+        (Mode::Css, true),
+        (Mode::Json, true),
+        (Mode::Yaml, true),
         (Mode::Latex, false),
         (Mode::Swift, false),
     ] {
@@ -254,7 +259,16 @@ fn modes_with_a_grammar_can_be_highlighted_unless_secret() {
         buffer.set_mode(mode);
         assert_eq!(buffer.can_highlight(), can, "{mode:?}");
     }
-    for mode in [Mode::Go, Mode::TypeScript, Mode::Tsx, Mode::JavaScript] {
+    for mode in [
+        Mode::Go,
+        Mode::TypeScript,
+        Mode::Tsx,
+        Mode::JavaScript,
+        Mode::Html,
+        Mode::Css,
+        Mode::Json,
+        Mode::Yaml,
+    ] {
         let mut buffer = Buffer::from_text("t", "package main\n");
         buffer.set_mode(mode);
         assert!(buffer.treat_as_secret());

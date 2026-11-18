@@ -104,11 +104,11 @@ pub struct Document {
     highlights: Highlights,
     /// What of the newest text is still to highlight.
     pending: Pending,
-    /// Markdown's parsers of nested text, each made at its grammar's first text: the inline
-    /// grammar's and fenced code's.
+    /// The parsers of nested text, each made at its grammar's first text: Markdown's inline
+    /// grammar's and fenced code's, and HTML's embedded code's.
     nested: Vec<(Language, Parser)>,
-    /// The blocks of the fences a fence's grammar painted last, mapped through edits since;
-    /// fences that follow each other stay apart.
+    /// The blocks of the fences, or HTML's `<script>` and `<style>` elements, another grammar
+    /// painted last, mapped through edits since; blocks that follow each other stay apart.
     fences: Pending,
     /// How many bytes a piece of highlighting may take; less after a piece outlasted a slice.
     max_piece: usize,
@@ -320,7 +320,11 @@ impl Document {
             | Language::Go
             | Language::JavaScript
             | Language::TypeScript
-            | Language::Tsx => MAX_BYTES,
+            | Language::Tsx
+            | Language::Html
+            | Language::Css
+            | Language::Json
+            | Language::Yaml => MAX_BYTES,
         }
     }
 
@@ -375,6 +379,7 @@ pub(super) fn reader<'text>(
     }
 }
 
+mod embedded;
 mod fence;
 mod highlight;
 mod inline;
@@ -393,3 +398,5 @@ mod highlight_tests;
 mod properties;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod web_tests;

@@ -1,6 +1,6 @@
 //! Measures highlighting on a large file: the first parse and highlight, in one call and in
-//! the worker's slices, and the same after one key typed in the middle (ADR 0111 and ADR 0147,
-//! as built).
+//! the worker's slices, and the same after one key typed in the middle (ADR 0111, ADR 0147 and
+//! ADR 0157, as built).
 //!
 //! Must not depend on: the editor; it calls a document directly.
 //!
@@ -25,20 +25,11 @@ const SLICE: Duration = Duration::from_millis(20);
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let (language, fenced) = match args.next().as_deref() {
-        Some("rust") => (Language::Rust, false),
-        Some("markdown") => (Language::Markdown, false),
-        Some("fenced") => (Language::Markdown, true),
-        Some("toml") => (Language::Toml, false),
-        Some("go") => (Language::Go, false),
-        Some("javascript") => (Language::JavaScript, false),
-        Some("typescript") => (Language::TypeScript, false),
-        Some("tsx") => (Language::Tsx, false),
-        _ => {
-            return eprintln!(
-                "usage: syntax_perf rust|markdown|fenced|toml|go|javascript|typescript|tsx FILE..."
-            );
-        }
+    let Some((language, fenced)) = args.next().as_deref().and_then(language) else {
+        return eprintln!(
+            "usage: syntax_perf \
+             rust|markdown|fenced|toml|go|javascript|typescript|tsx|html|css|json|yaml FILE..."
+        );
     };
     let mut text = String::new();
     let files: Vec<String> = args.collect();
@@ -106,6 +97,25 @@ fn main() {
     let done = document.highlight(&mut queries, &[shown], LONG);
     assert_eq!(done, Highlighted::Done);
     println!("after one key: {:.2?}", start.elapsed());
+}
+
+/// The grammar the first argument names, and whether its files go in Markdown's fences.
+fn language(name: &str) -> Option<(Language, bool)> {
+    Some(match name {
+        "rust" => (Language::Rust, false),
+        "markdown" => (Language::Markdown, false),
+        "fenced" => (Language::Markdown, true),
+        "toml" => (Language::Toml, false),
+        "go" => (Language::Go, false),
+        "javascript" => (Language::JavaScript, false),
+        "typescript" => (Language::TypeScript, false),
+        "tsx" => (Language::Tsx, false),
+        "html" => (Language::Html, false),
+        "css" => (Language::Css, false),
+        "json" => (Language::Json, false),
+        "yaml" => (Language::Yaml, false),
+        _ => return None,
+    })
 }
 
 /// `rust` as Markdown: every 40 of its lines in a fence, after a paragraph.

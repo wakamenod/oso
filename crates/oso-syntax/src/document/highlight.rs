@@ -27,11 +27,12 @@ use tree_sitter::{
     Node, Query, QueryCursor, QueryCursorOptions, QueryCursorState, StreamingIterator, Tree,
 };
 
+use super::embedded;
 use super::inline::{Nested, widen};
 use super::{Document, Failure, Parsed, until};
 use crate::language::Language;
 use crate::paint::{Capture, paint};
-use crate::queries::{Kind, Queries};
+use crate::queries::{Host, Kind, Queries};
 
 /// The most bytes one piece takes.
 pub(super) const PIECE: usize = 16 << 10;
@@ -217,9 +218,24 @@ impl Document {
     /// they compiled.
     fn prepare(&self, queries: &mut Queries) -> bool {
         let mut kinds = vec![Kind::Highlights(self.language)];
-        // Fences' grammars' queries wait for a fence of theirs (`highlight_piece`).
-        if self.language == Language::Markdown {
-            kinds.extend([Kind::Injections, Kind::Highlights(Language::MarkdownInline)]);
+        // Fences' grammars' queries, and those of HTML's embedded code, wait for a fence or an
+        // element of theirs (`highlight_piece`).
+        match self.language {
+            Language::Markdown => kinds.extend([
+                Kind::Injections(Host::Markdown),
+                Kind::Highlights(Language::MarkdownInline),
+            ]),
+            Language::Html => kinds.push(Kind::Injections(Host::Html)),
+            Language::Rust
+            | Language::MarkdownInline
+            | Language::Toml
+            | Language::Go
+            | Language::JavaScript
+            | Language::TypeScript
+            | Language::Tsx
+            | Language::Css
+            | Language::Json
+            | Language::Yaml => {}
         }
         kinds.into_iter().all(|kind| queries.prepare(kind))
     }
@@ -257,7 +273,8 @@ impl Document {
     }
 
     /// Runs the queries over `piece` until `deadline`, and says what range they ran over: in
-    /// Markdown, `piece` widened to whole inline nodes and fences.
+    /// Markdown, `piece` widened to whole inline nodes and fences, and in HTML to whole
+    /// `<script>` and `<style>` elements.
     pub(super) fn highlight_piece(
         &mut self,
         queries: &mut Queries,
@@ -268,38 +285,39 @@ impl Document {
         let Some(tree) = self.tree.clone() else {
             return (piece, Piece::Limit);
         };
-        let mut nested = Nested::default();
-        let piece = match self.language {
-            Language::Markdown => {
-                match widen(&self.text, queries, &tree, piece.clone(), deadline) {
-                    Ok((widened, found)) => {
-                        // A fence's grammar's query is compiled when a fence of it is first
-                        // met, not with Markdown's (ADR 0147), and the piece is done again.
-                        // One a call, so that a piece of many languages' fences runs past its
-                        // slice by one compile at most. A fence whose query cannot be compiled
-                        // stays plain (`highlight_nested`).
-                        let untried = found
-                            .fences
-                            .iter()
-                            .map(|&(_, language)| Kind::Highlights(language))
-                            .find(|&kind| !queries.tried(kind));
-                        if let Some(kind) = untried {
-                            queries.prepare(kind);
-                            return (piece, Piece::Compiled);
-                        }
-                        nested = found;
-                        widened
-                    }
-                    Err(outcome) => return (piece, outcome),
-                }
-            }
+        let found = match self.language {
+            Language::Markdown => widen(&self.text, queries, &tree, piece.clone(), deadline),
+            Language::Html => embedded::widen(&self.text, queries, &tree, piece.clone(), deadline),
             Language::Rust
             | Language::MarkdownInline
             | Language::Toml
             | Language::Go
             | Language::JavaScript
             | Language::TypeScript
-            | Language::Tsx => piece,
+            | Language::Tsx
+            | Language::Css
+            | Language::Json
+            | Language::Yaml => Ok((piece.clone(), Nested::default())),
+        };
+        let (piece, nested) = match found {
+            Ok((widened, found)) => {
+                // A fence's grammar's query, or an embedded element's, is compiled when one of
+                // it is first met, not with the document's (ADR 0147, ADR 0157), and the piece
+                // is done again. One a call, so that a piece of many languages' code runs past
+                // its slice by one compile at most. Code whose query cannot be compiled stays
+                // plain (`highlight_nested`).
+                let untried = found
+                    .fences
+                    .iter()
+                    .map(|&(_, language)| Kind::Highlights(language))
+                    .find(|&kind| !queries.tried(kind));
+                if let Some(kind) = untried {
+                    queries.prepare(kind);
+                    return (piece, Piece::Compiled);
+                }
+                (widened, found)
+            }
+            Err(outcome) => return (piece, outcome),
         };
         let outcome = self.highlight_range(queries, &tree, nested, piece.clone(), deadline);
         (piece, outcome)

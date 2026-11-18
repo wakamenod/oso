@@ -175,7 +175,7 @@ fn bad_values_are_reported_and_left_out() {
     for part in [
         "[lsp] start takes \"trusted\" or \"manual\", not \"always\"",
         "unknown name \"other\" in [lsp]",
-        "[lsp.servers.x] modes takes rust, markdown, toml, go, typescript, tsx, javascript, latex or swift, skipped",
+        "[lsp.servers.x] modes takes rust, markdown, toml, go, typescript, tsx, javascript, html, css, json, yaml, latex or swift, skipped",
         "[lsp.servers.x] needs a command and modes, skipped",
         "the program is a name on PATH or an absolute path",
         "from 1 to 64 words",

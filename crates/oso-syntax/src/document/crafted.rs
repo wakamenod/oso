@@ -24,7 +24,7 @@ use crate::language::Language;
 use crate::queries::Queries;
 
 /// What the texts are made of: openers and fillers of each grammar.
-const ATOMS: [&str; 24] = [
+const ATOMS: [&str; 28] = [
     "[",
     "a",
     "](",
@@ -49,6 +49,10 @@ const ATOMS: [&str; 24] = [
     "${`",
     "<a>",
     "=>(",
+    "<script>",
+    "<style>",
+    "k:\n ",
+    "[{",
 ];
 
 /// The stack of the thread the texts are highlighted on: an eighth of the 8 MiB step 4 gives

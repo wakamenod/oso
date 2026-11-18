@@ -244,6 +244,8 @@ alongside the steps above, after M2-16:
   or `toml` is highlighted with those grammars.
 - Highlighting Go, then JavaScript, TypeScript and TSX, with JSX, in their own files and in
   Markdown's fences ([ADR 0147](adr/0147-highlighting-go-typescript-and-javascript.md)).
+- Highlighting HTML, with its scripts and styles, CSS, JSON and YAML, in their own files and in
+  Markdown's fences ([ADR 0157](adr/0157-highlighting-html-css-json-and-yaml.md)).
 - Window splits ([ADR 0112](adr/0112-window-splits.md)), indentation
   ([ADR 0115](adr/0115-indentation.md)), project trust model.
 - Project file finding and asynchronous ripgrep-style search, in-process

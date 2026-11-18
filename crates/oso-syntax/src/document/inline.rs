@@ -26,7 +26,7 @@ use super::highlight::{Piece, run};
 use super::{Document, reader, until};
 use crate::language::Language;
 use crate::paint::Capture;
-use crate::queries::{Kind, Queries};
+use crate::queries::{Host, Kind, Queries};
 
 /// The longest inline node parsed, in bytes. A 16 KiB node of the worst nesting found needs
 /// about 512 KiB of stack, and step 4 gives the worker 8 MiB (ADR 0111, as built).
@@ -53,7 +53,7 @@ pub(super) fn widen<'tree>(
     piece: Range<usize>,
     deadline: Instant,
 ) -> Result<(Range<usize>, Nested<'tree>), Piece> {
-    let Some(injections) = queries.get(Kind::Injections) else {
+    let Some(injections) = queries.get(Kind::Injections(Host::Markdown)) else {
         return Err(Piece::Limit);
     };
     let mut widened = piece.clone();

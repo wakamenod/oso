@@ -31,7 +31,10 @@ fn every_query_compiles_once() {
 #[test]
 fn every_highlight_capture_names_a_class() {
     let mut queries = Queries::new();
-    for kind in ALL.into_iter().filter(|kind| *kind != Kind::Injections) {
+    for kind in ALL
+        .into_iter()
+        .filter(|kind| matches!(kind, Kind::Highlights(_)))
+    {
         assert!(queries.prepare(kind), "{kind:?}");
         let prepared = queries.get(kind).unwrap();
         for (name, class) in prepared.query.capture_names().iter().zip(&prepared.classes) {

@@ -18,7 +18,7 @@ use super::highlight_tests::{highlighted, runs};
 use super::tests::LONG;
 use super::{Document, Failure, Highlighted};
 use crate::language::Language;
-use crate::queries::{Kind, Queries};
+use crate::queries::{Host, Kind, Queries};
 
 type Runs = Vec<(Range<usize>, Option<Highlight>)>;
 
@@ -112,7 +112,7 @@ fn a_piece_that_compiles_a_query_is_done_again() {
     let mut queries = Queries::new();
     let mut document = Document::new(Language::Markdown, Rope::from(text));
     assert_eq!(document.parse(LONG), super::Parsed::Done);
-    assert!(queries.prepare(Kind::Injections));
+    assert!(queries.prepare(Kind::Injections(Host::Markdown)));
     assert!(queries.prepare(Kind::Highlights(Language::Markdown)));
     assert!(queries.prepare(Kind::Highlights(Language::MarkdownInline)));
     let deadline = Instant::now() + LONG;
