@@ -62,8 +62,10 @@ request, and Q10 as option B.
   diff read before a bump (T2), and listed in `deny.toml` as used only by `oso-syntax`.
 - **`Language` gains `Html`, `Css`, `Json` and `Yaml`, and `Mode` the modes of the same names,**
   by the file's name only: `.html` and `.htm` are HTML, `.css` CSS, `.json` and `.jsonc` JSON,
-  `.yaml` and `.yml` YAML, ignoring ASCII case. `.xhtml`, `.vue`, `.svelte`, `.scss` and `.less`
-  stay Fundamental: their languages are not these grammars'. `html-mode`, `css-mode`,
+  `.yaml` and `.yml` YAML, ignoring ASCII case. `.vue`, `.svelte`, `.scss` and `.less` stay
+  Fundamental: their languages are not these grammars'. Nor does `.xhtml`: such a file is XML,
+  with its declaration, namespaces and CDATA, while an `xhtml` fence (below) holds a snippet of
+  markup, which HTML's grammar reads well enough. `html-mode`, `css-mode`,
   `json-mode` and `yaml-mode` set them by hand, as the other mode commands do.
 - **No language server comes with them.** The configuration can name the modes (`html`, `css`,
   `json`, `yaml`), and a server set for one is told the protocol's language name (`html`,
@@ -76,9 +78,9 @@ request, and Q10 as option B.
   `application/ecmascript`, `text/jsx` or `text/babel` (JavaScript's grammar parses JSX); JSON
   with `importmap`, `speculationrules`, `application/json`, `application/ld+json` or
   `text/json`; plain with any other, such as a template's. **A `<style>` is CSS** without a
-  `type` or with `text/css`, and plain otherwise. The value is read with ASCII white space
-  trimmed and ignoring ASCII case, at most 32 bytes, and the first `type` counts, as in a
-  browser.
+  `type`, or with an empty one or `text/css`, and plain otherwise. The value is read with ASCII
+  white space trimmed and ignoring ASCII case, at most 64 bytes with that white space, and the
+  first `type` counts, as in a browser.
 - **Found and painted as a fence is:** an HTML piece widens to the whole of each such element it
   meets, its text is parsed with its grammar and painted over HTML's captures, and an element
   that no longer holds code (a `type` typed in, its size past the cap) is highlighted again to
@@ -137,8 +139,16 @@ By ADR 0147's rule (the info string's first word, ignoring ASCII case, at most 1
   `src/scanner.c` changed on the next, bounding what the scanner serializes so that it stays
   within tree-sitter's buffer. `patches/README.md` records the source and what to do at a bump:
   drop the copy once a release carries the change.
+- **The copy is guarded** (the author's choice after the architecture review): every file of it
+  is listed with its SHA-256 in `patches/tree-sitter-yaml.sha256`, and a guard test in
+  `crates/oso/tests/architecture` checks the list, and that the `[patch.crates-io]` entries, the
+  directories in `patches/` and the README's sections match one for one; so a change to the
+  copy's C or build script fails until its list is written again on a reviewed commit.
+  `patches/` is gated as dependencies are (AGENTS.md, `.claude/hooks/gated-paths.sh`), and
+  stored as bytes (`.gitattributes`), so that a Windows checkout builds the same C and hashes
+  the same.
 - **`cargo audit` does not look a patched crate up,** as it has no registry source in
-  `Cargo.lock`: RustSec is checked for it by hand at a bump.
+  `Cargo.lock`: RustSec is checked for it by hand, at a bump and when `just audit` runs.
 
 ### Tests and measuring (Q7 of ADR 0147)
 
@@ -165,6 +175,12 @@ gains `amended by 0157`.
   JavaScript's templates, regular expressions and JSDoc; HTML embeds JavaScript, as above.
 - ADR 0147, its dependencies "each an exact version", from crates.io: tree-sitter-yaml is built
   from oso's copy until a release carries oso's change (Q10).
+- [ADR 0115](0115-indentation.md), "`[modes.<mode>]` … for `rust`, `markdown`, `toml` and
+  `fundamental`", as ADR 0138 amended it: and for `html`, `css`, `json` and `yaml`, at the same
+  defaults.
+- [ADR 0138](0138-language-servers.md), step 5 as built, "`Editor::set_mode_indents` takes the
+  ten modes": it takes fourteen. Its list of a document's language names: `html`, `css`,
+  `json` (`jsonc` for a `.jsonc` file) and `yaml` too.
 
 ## Consequences
 
@@ -203,14 +219,24 @@ gains `amended by 0157`.
   snapshot), each highlightable by `Buffer::can_highlight` and named in the configuration's
   modes, so `Editor::set_mode_indents` takes 14 modes now. `Language::Html`, `Language::Css`,
   `Language::Json` and `Language::Yaml` (public).
-- **The injection queries:** `Kind::Injections` names its host now, Markdown or HTML
-  (crate-private). HTML's finds `script_element` and `style_element`; `document/embedded.rs`
-  reads the start tag's `type` with a `TreeCursor` and copies at most 64 bytes of a value, and
-  `widen` gives the same `Nested` texts Markdown's does, so the painting, the lazy compile and
-  the repainting of an element that no longer holds code are Markdown's.
-- **YAML's tree may end before its text** after an error, which no other grammar's does: the
-  property test that a parse ends in the newest text compares a YAML tree's end with a fresh
-  parse's. The text past it stays plain.
+- **The injection queries:** `Kind::Injections` names its host now, `Host::Markdown` or
+  `Host::Html` (crate-private), and `Host::of` says which language is one. HTML's finds
+  `script_element` and `style_element`.
+- **One module for nested text,** `document/nested.rs`: the review of this step moved Markdown's
+  widening, nested parsing, painting and the repainting of blocks that no longer hold code
+  there, out of `inline.rs` and `fence.rs`, so that Markdown and HTML share them. Each host keeps
+  its rule of which nodes hold what: `inline.rs` and `fence.rs` for Markdown, `embedded.rs` for
+  HTML. `Document`'s `fences` are `code_blocks` now, fences or elements.
+- **`embedded.rs`** walks an element and its start tag with a `TreeCursor` each, reads an
+  attribute's name only when it is four bytes long, and copies at most 64 bytes of a value,
+  with no allocation.
+- **A piece widened past the limit fails as before** when it outlasts a slice, now in HTML too:
+  ADR 0111's rule is unchanged, and real pages' pieces take about 1.5 ms.
+- **YAML's tree may end before its text** at an error, which no other grammar's does: the text
+  past it stays plain, and the property test that a parse ends in the newest text allows a
+  YAML tree with an error to end early. A unit test checks the text past it is plain. YAML's
+  scanner counts rows and columns in 16 bits: rows past 32,767 wrap, which can only parse
+  wrongly, and the long-line rule keeps columns in range.
 - **Measured** with `syntax_perf`, release, on the author's Mac. Inputs: 2 MiB of the Rust book's
   HTML; the same with a 1.7 KB script and a 2 KB style every 40 lines; the CSS, JSON and YAML
   files of installed tools and crates, YAML's joined as documents of one stream:
@@ -219,13 +245,23 @@ gains `amended by 0157`.
   |---|---|---|---|---|---|
   | HTML | 43–59 ms | 93–112 ms | 5, the longest 20.0 ms | 0.24–0.27 ms | 61 MB |
   | HTML with scripts and styles | 28 ms | 193 ms | 10, the longest 20.0 ms | 0.60 ms | 58 MB |
-  | CSS | 79 ms | 120 ms | 6, the longest 20.0 ms | 9.3 ms | 107 MB |
+  | CSS | 75–79 ms | 116–120 ms | 6, the longest 20.0 ms | 6.2–9.3 ms | 104–107 MB |
   | JSON | 48 ms | 88 ms | 5, the longest 20.0 ms | 1.4 ms | 100 MB |
   | YAML | 34 ms | 57 ms | 3, the longest 20.0 ms | 0.36–0.41 ms | 84 MB |
   | Rust (oso-core, for comparison) | 89 ms | 170 ms | 9, the longest 20.0 ms | | 167 MB |
 
   Peak memory is the process's highest resident set as `syntax_perf` runs, which holds two
-  documents of the text at once; Rust's is measured the same way. Crafted texts of 2 MB, a few
-  characters repeated (unclosed tags, an element of code a line, deep YAML nesting), are
-  highlighted, or reach a first parse's 5 s or the highlighting limits and stay plain, as the
-  same kinds of text do in Rust's grammar.
+  documents of the text at once; Rust's is measured the same way. "After one key" is in one
+  call; in 20 ms slices each took one. Crafted texts of 2 MB, a few characters repeated
+  (unclosed tags, an element of code a line, deep YAML nesting), are highlighted, or reach a
+  first parse's 5 s or the highlighting limits and stay plain, as the same kinds of text do in
+  Rust's grammar.
+- **A key in a flat document of many small elements** costs tree-sitter-html's parse, not the
+  embedded code's: 2 MiB of one `<style>a{b:c}</style>` a line takes 28 ms after one key (2
+  slices, the longest 27 ms), and the same of `<b>a{b:c}</b>`, with no code, 44 ms (3 slices,
+  the longest 22 ms). CSS's 6–9 ms is its long flat list of rules the same way.
+- **A key inside a 16 KiB element,** in 2 MiB of the Rust book's HTML: 3.3 ms inside a
+  `<script>` and 2.0 ms inside a `<style>`, one slice each.
+- **Compiling the queries,** release, fresh each time, 5 runs: HTML's two 0.02–0.42 ms, CSS's
+  0.5–1.2 ms, JSON's 0.01–0.03 ms, YAML's 2.2–4.3 ms, and JavaScript's at a page's first
+  `<script>` 7.2–10.6 ms (ADR 0147: 7.6–12 ms).

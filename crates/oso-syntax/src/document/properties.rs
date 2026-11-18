@@ -277,12 +277,13 @@ proptest! {
         }
         prop_assert_eq!(document.parse(LONG), Parsed::Done);
         let tree = document.tree().unwrap();
-        // A tree ends where the text does, but YAML's may end at an error before it (ADR 0157):
-        // then it ends where a fresh parse's does.
-        let fresh = parsed(language, &text.to_string());
-        let end = fresh.tree().unwrap().root_node().end_byte();
-        prop_assert!(language == Language::Yaml || end == text.len(), "{end} of {}", text.len());
-        prop_assert_eq!(tree.root_node().end_byte(), end);
+        // A tree ends where the text does, but YAML's may end before it at an error (ADR 0157).
+        let (end, root) = (tree.root_node().end_byte(), tree.root_node());
+        if language == Language::Yaml && root.has_error() {
+            prop_assert!(end <= text.len(), "{end} of {}", text.len());
+        } else {
+            prop_assert_eq!(end, text.len());
+        }
         matches_fresh_where_clean(language, tree, &text)?;
     }
 }

@@ -107,9 +107,9 @@ pub struct Document {
     /// The parsers of nested text, each made at its grammar's first text: Markdown's inline
     /// grammar's and fenced code's, and HTML's embedded code's.
     nested: Vec<(Language, Parser)>,
-    /// The blocks of the fences, or HTML's `<script>` and `<style>` elements, another grammar
-    /// painted last, mapped through edits since; blocks that follow each other stay apart.
-    fences: Pending,
+    /// The blocks of code another grammar painted last, fences or HTML's `<script>` and
+    /// `<style>` elements, mapped through edits since; blocks that follow each other stay apart.
+    code_blocks: Pending,
     /// How many bytes a piece of highlighting may take; less after a piece outlasted a slice.
     max_piece: usize,
 }
@@ -140,7 +140,7 @@ impl Document {
             changes: 0,
             pending: Pending::default(),
             nested: Vec::new(),
-            fences: Pending::apart(),
+            code_blocks: Pending::apart(),
             max_piece: highlight::PIECE,
         }
     }
@@ -179,13 +179,13 @@ impl Document {
         self.highlights.splice(splices);
         if self.highlights.len() == after.len() {
             self.pending.map(splices);
-            self.fences.map(splices);
+            self.code_blocks.map(splices);
             self.pending
                 .add(highlight::edited(after, splices, self.max_piece));
         } else {
             self.highlights = Highlights::new(after.len());
             self.pending.all(after.len());
-            self.fences.clear();
+            self.code_blocks.clear();
             // Splices that do not map say nothing of which lines changed.
             self.lines_checked = false;
         }
@@ -336,7 +336,7 @@ impl Document {
         self.running = None;
         self.parser.reset();
         self.nested.clear();
-        self.fences.clear();
+        self.code_blocks.clear();
         self.highlights = Highlights::new(self.highlights.len());
         self.changes += 1;
         self.pending.clear();
@@ -384,6 +384,7 @@ mod fence;
 mod highlight;
 mod inline;
 mod long_line;
+mod nested;
 
 pub use highlight::Highlighted;
 #[cfg(test)]

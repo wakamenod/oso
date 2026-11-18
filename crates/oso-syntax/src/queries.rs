@@ -92,6 +92,24 @@ pub(crate) enum Host {
 impl Host {
     /// Every host, once each.
     const ALL: [Self; 2] = [Self::Markdown, Self::Html];
+
+    /// The host `language` is, if its tree holds text other grammars parse.
+    pub(crate) fn of(language: Language) -> Option<Self> {
+        match language {
+            Language::Markdown => Some(Self::Markdown),
+            Language::Html => Some(Self::Html),
+            Language::Rust
+            | Language::MarkdownInline
+            | Language::Toml
+            | Language::Go
+            | Language::JavaScript
+            | Language::TypeScript
+            | Language::Tsx
+            | Language::Css
+            | Language::Json
+            | Language::Yaml => None,
+        }
+    }
 }
 
 impl Kind {

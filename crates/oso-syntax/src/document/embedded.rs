@@ -1,153 +1,34 @@
-//! HTML's embedded code: the text of `<script>` and `<style>` elements, parsed with JavaScript's,
-//! JSON's or CSS's grammar as their start tag says, and highlighted over HTML's captures (ADR
-//! 0157). It is found and painted as Markdown's fenced code is ([`super::fence`]), and the same
-//! bookkeeping marks an element that no longer holds code to highlight again.
+//! HTML's embedded code: which `<script>` and `<style>` elements hold text JavaScript's, JSON's
+//! or CSS's grammar parses, as their start tag says (ADR 0157); [`super::nested`] parses and
+//! paints it, as it does Markdown's fenced code.
 //!
 //! Must not depend on: buffers, windows or faces; it sees a rope and HTML's tree, and runs only
 //! on the worker.
 //!
 //! - A `<script>` is JavaScript without a `type`, or with an empty one, `module` or a JavaScript
 //!   MIME type; JSON with `importmap`, `speculationrules` or a JSON MIME type; and stays plain
-//!   with any other (a template's, say). A `<style>` is CSS without a `type`, or with `text/css`.
-//!   The value is read with ASCII white space trimmed and ignoring ASCII case, and only the first
-//!   `type` counts, as in a browser.
+//!   with any other (a template's, say). A `<style>` is CSS without a `type`, or with an empty
+//!   one or `text/css`. The value is read with ASCII white space trimmed and ignoring ASCII case,
+//!   and only the first `type` counts, as in a browser.
 //! - The text of an element longer than [`MAX_EMBEDDED_BYTES`] stays plain, as a fence's does,
 //!   so that the piece that holds it stays small: a piece widens to the whole of each element
 //!   it meets.
-//! - Children are walked with a `TreeCursor`, never by recursion.
-
-use std::ops::Range;
-use std::time::Instant;
+//! - Children are walked with a `TreeCursor`, never by recursion, one for an element and one
+//!   for its start tag's attributes, and an attribute's name is read only when it is as long as
+//!   `type`.
 
 use oso_core::rope::Rope;
-use tree_sitter::{Node, Tree};
+use tree_sitter::{Node, TreeCursor};
 
-use super::highlight::{Piece, run};
-use super::inline::Nested;
+use super::nested::{Found, short_text};
 use crate::language::Language;
-use crate::queries::{Host, Kind, Queries};
 
 /// The longest element whose text is highlighted with its language, in bytes, the tags too:
 /// a fence's limit ([`super::fence::MAX_FENCE_BYTES`]).
-pub(crate) const MAX_EMBEDDED_BYTES: usize = super::fence::MAX_FENCE_BYTES;
+pub(super) const MAX_EMBEDDED_BYTES: usize = super::fence::MAX_FENCE_BYTES;
 
-/// The longest attribute name or `type` value read: longer ones name nothing here.
-const MAX_WORD_BYTES: usize = 32;
-
-/// `piece` widened to the whole of each `<script>` and `<style>` element it meets whose text a
-/// grammar parses, with those texts and their languages; or how the piece went if the query to
-/// find them did not run to its end. Elements never overlap, so the ones the widened piece
-/// meets are those.
-pub(super) fn widen<'tree>(
-    text: &Rope,
-    queries: &Queries,
-    tree: &'tree Tree,
-    piece: Range<usize>,
-    deadline: Instant,
-) -> Result<(Range<usize>, Nested<'tree>), Piece> {
-    let Some(injections) = queries.get(Kind::Injections(Host::Html)) else {
-        return Err(Piece::Limit);
-    };
-    let mut widened = piece.clone();
-    let mut nested = Nested::default();
-    let outcome = run(
-        &injections.query,
-        tree,
-        text,
-        piece,
-        deadline,
-        |node, _, _| {
-            let Some(code) = injectable(text, node) else {
-                return;
-            };
-            if nested.fences.last() == Some(&code) {
-                return;
-            }
-            nested.fences.push(code);
-            nested.blocks.push(node.byte_range());
-            widened.start = widened.start.min(node.start_byte());
-            widened.end = widened.end.max(node.end_byte());
-        },
-    );
-    match outcome {
-        Some(outcome) => Err(outcome),
-        None => Ok((widened, nested)),
-    }
-}
-
-/// The text of `node`, a `<script>` or `<style>` element short enough, with the language its
-/// start tag gives it, if it holds text and oso parses that language.
-fn injectable<'tree>(text: &Rope, node: Node<'tree>) -> Option<(Node<'tree>, Language)> {
-    let script = match node.kind() {
-        "script_element" => true,
-        "style_element" => false,
-        _ => return None,
-    };
-    if node.byte_range().len() > MAX_EMBEDDED_BYTES {
-        return None;
-    }
-    let (mut language, mut content) = (None, None);
-    let mut cursor = node.walk();
-    if cursor.goto_first_child() {
-        loop {
-            let child = cursor.node();
-            match child.kind() {
-                "start_tag" => language = of_type(script, type_value(text, child)),
-                "raw_text" => content = Some(child),
-                _ => {}
-            }
-            if !cursor.goto_next_sibling() {
-                break;
-            }
-        }
-    }
-    Some((content?, language?))
-}
-
-/// What an element's first `type` attribute says, read from `start_tag`: `None` without one,
-/// `Some(None)` for a value too long to name anything, and the bytes otherwise, lowercased and
-/// trimmed. An attribute with no value is an empty one.
-fn type_value(text: &Rope, start_tag: Node) -> Option<Option<Word>> {
-    let mut cursor = start_tag.walk();
-    if !cursor.goto_first_child() {
-        return None;
-    }
-    loop {
-        let attribute = cursor.node();
-        if attribute.kind() == "attribute" {
-            let (mut name, mut value) = (None, None);
-            let mut inner = attribute.walk();
-            if inner.goto_first_child() {
-                loop {
-                    let part = inner.node();
-                    match part.kind() {
-                        "attribute_name" => name = Some(part),
-                        "attribute_value" => value = Some(Some(part)),
-                        // Its value is its only named child, between the quotes.
-                        "quoted_attribute_value" => value = Some(part.named_child(0)),
-                        _ => {}
-                    }
-                    if !inner.goto_next_sibling() {
-                        break;
-                    }
-                }
-            }
-            let is_type = name
-                .and_then(|name| word(text, name.byte_range()))
-                .is_some_and(|name| name.as_bytes() == b"type");
-            if is_type {
-                // `type=""` has a quoted value with no value inside it.
-                return Some(match value {
-                    None | Some(None) => Some(Word::default()),
-                    Some(Some(value)) => word(text, value.byte_range()),
-                });
-            }
-        }
-        if !cursor.goto_next_sibling() {
-            return None;
-        }
-    }
-}
+/// The longest `type` value read, white space around it too: a longer one names nothing here.
+const MAX_TYPE_BYTES: usize = 64;
 
 /// The `type` values of a `<script>` of JavaScript, JSX among it.
 const JAVASCRIPT_TYPES: [&[u8]; 8] = [
@@ -173,61 +54,149 @@ const JSON_TYPES: [&[u8]; 5] = [
 /// The `type` values of a `<style>` of CSS.
 const CSS_TYPES: [&[u8]; 2] = [b"", b"text/css"];
 
-/// The language of a `<script>` (`script`) or `<style>` with the `type` value `value` (as
-/// [`type_value`] gives it), if oso parses it.
-fn of_type(script: bool, value: Option<Option<Word>>) -> Option<Language> {
-    let value = match value {
-        // No `type`: an empty one.
-        None => Word::default(),
-        Some(None) => return None,
-        Some(Some(value)) => value,
+/// An element whose text may be code.
+#[derive(Clone, Copy)]
+enum Element {
+    Script,
+    Style,
+}
+
+/// What an element's start tag says of its `type`.
+enum Type<'value> {
+    /// No `type` attribute.
+    Absent,
+    /// A value too long to name anything.
+    Unread,
+    /// The value, trimmed and lowercased.
+    Value(&'value [u8]),
+}
+
+/// What another grammar parses of `node`, which HTML's injection query found: the text of a
+/// `<script>` or `<style>` element short enough, in the language its start tag gives it, or
+/// nothing.
+pub(super) fn found<'tree>(text: &Rope, node: Node<'tree>) -> Found<'tree> {
+    match injectable(text, node) {
+        Some((content, language)) => Found::Code(content, language),
+        None => Found::Skip,
+    }
+}
+
+/// The text of `node`, a `<script>` or `<style>` element short enough, with the language its
+/// start tag gives it, if it holds text and oso parses that language.
+fn injectable<'tree>(text: &Rope, node: Node<'tree>) -> Option<(Node<'tree>, Language)> {
+    let element = match node.kind() {
+        "script_element" => Element::Script,
+        "style_element" => Element::Style,
+        _ => return None,
     };
-    let value = value.as_bytes();
-    if !script {
-        CSS_TYPES.contains(&value).then_some(Language::Css)
-    } else if JAVASCRIPT_TYPES.contains(&value) {
-        Some(Language::JavaScript)
-    } else {
-        JSON_TYPES.contains(&value).then_some(Language::Json)
-    }
-}
-
-/// A short word read from the text, lowercased.
-#[derive(Default)]
-struct Word {
-    bytes: [u8; MAX_WORD_BYTES],
-    len: usize,
-}
-
-impl Word {
-    fn as_bytes(&self) -> &[u8] {
-        &self.bytes[..self.len]
-    }
-}
-
-/// The text of `range`, ASCII white space trimmed and ASCII-lowercased, if it is at most
-/// [`MAX_WORD_BYTES`] long once trimmed.
-fn word(text: &Rope, range: Range<usize>) -> Option<Word> {
-    // Read at most a little more than a word, then trim: a value padded with much white space
-    // names nothing, as no real one is.
-    let end = range
-        .end
-        .min(range.start.saturating_add(2 * MAX_WORD_BYTES));
-    if end < range.end {
+    if node.byte_range().len() > MAX_EMBEDDED_BYTES {
         return None;
     }
-    let mut read = [0; 2 * MAX_WORD_BYTES];
-    let mut len = 0;
-    for chunk in text.chunks_in_range(range.start..end) {
-        let slot = read.get_mut(len..len + chunk.len())?;
-        slot.copy_from_slice(chunk.as_bytes());
-        len += chunk.len();
+    let (mut language, mut content) = (None, None);
+    let mut buffer = [0; MAX_TYPE_BYTES];
+    let mut cursor = node.walk();
+    if cursor.goto_first_child() {
+        loop {
+            let child = cursor.node();
+            match child.kind() {
+                "start_tag" => language = of_type(element, type_value(text, child, &mut buffer)),
+                "raw_text" => content = Some(child),
+                _ => {}
+            }
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
     }
-    let trimmed = read.get(..len)?.trim_ascii();
-    let mut word = Word::default();
-    let slot = word.bytes.get_mut(..trimmed.len())?;
-    slot.copy_from_slice(trimmed);
-    slot.make_ascii_lowercase();
-    word.len = trimmed.len();
-    Some(word)
+    Some((content?, language?))
+}
+
+/// What the first `type` attribute of `start_tag` says, its value read into `buffer`. An
+/// attribute with no value is an empty one. One cursor walks all the attributes.
+fn type_value<'buffer>(
+    text: &Rope,
+    start_tag: Node,
+    buffer: &'buffer mut [u8; MAX_TYPE_BYTES],
+) -> Type<'buffer> {
+    let mut cursor = start_tag.walk();
+    let cursor = &mut cursor;
+    if !cursor.goto_first_child() {
+        return Type::Absent;
+    }
+    loop {
+        if cursor.node().kind() == "attribute" && cursor.goto_first_child() {
+            if is_type(text, cursor.node()) {
+                return value(text, cursor, buffer);
+            }
+            cursor.goto_parent();
+        }
+        if !cursor.goto_next_sibling() {
+            return Type::Absent;
+        }
+    }
+}
+
+/// Whether `name`, an attribute's first child, is the name `type`, in any ASCII case. A name
+/// holds no white space, so one of another length is read no further.
+fn is_type(text: &Rope, name: Node) -> bool {
+    let mut read = [0; 4];
+    name.kind() == "attribute_name"
+        && name.byte_range().len() == read.len()
+        && short_text(text, name.byte_range(), &mut read)
+            .is_some_and(|name| name.eq_ignore_ascii_case(b"type"))
+}
+
+/// The value of the attribute whose name `cursor` is at, read into `buffer`.
+fn value<'buffer>(
+    text: &Rope,
+    cursor: &mut TreeCursor,
+    buffer: &'buffer mut [u8; MAX_TYPE_BYTES],
+) -> Type<'buffer> {
+    let mut range = None;
+    while cursor.goto_next_sibling() {
+        let part = cursor.node();
+        match part.kind() {
+            "attribute_value" => range = Some(part.byte_range()),
+            // Its value is its only named child, between the quotes: `type=""` has none.
+            "quoted_attribute_value" => {
+                range = Some(part.named_child(0).map_or(0..0, |value| value.byte_range()));
+            }
+            _ => {}
+        }
+    }
+    let Some(range) = range else {
+        return Type::Value(&[]);
+    };
+    let Some(read) = short_text(text, range, buffer) else {
+        return Type::Unread;
+    };
+    let start = read
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .unwrap_or(read.len());
+    let end = read
+        .iter()
+        .rposition(|byte| !byte.is_ascii_whitespace())
+        .map_or(start, |last| last + 1);
+    match read.get_mut(start..end) {
+        Some(trimmed) => {
+            trimmed.make_ascii_lowercase();
+            Type::Value(trimmed)
+        }
+        None => Type::Unread,
+    }
+}
+
+/// The language of `element` whose start tag says `value` of its `type`, if oso parses it.
+fn of_type(element: Element, value: Type) -> Option<Language> {
+    let value = match value {
+        Type::Absent => &[][..],
+        Type::Unread => return None,
+        Type::Value(value) => value,
+    };
+    match element {
+        Element::Style => CSS_TYPES.contains(&value).then_some(Language::Css),
+        Element::Script if JAVASCRIPT_TYPES.contains(&value) => Some(Language::JavaScript),
+        Element::Script => JSON_TYPES.contains(&value).then_some(Language::Json),
+    }
 }

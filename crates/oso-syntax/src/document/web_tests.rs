@@ -1,6 +1,6 @@
 //! Tests of HTML, CSS, JSON and YAML (ADR 0157): each one's captures, HTML's embedded code and
-//! which `type` names it, its cap and edits that change it, their fences, and crafted YAML
-//! nesting.
+//! which `type` names it, its cap and edits that change it, their fences, and a YAML tree that
+//! ends before its text. Crafted nesting is `crafted`'s.
 //!
 //! Must not depend on: the worker; these call a document directly.
 
@@ -283,18 +283,18 @@ fn a_scripts_type_names_its_language() {
 #[test]
 fn an_element_past_the_cap_stays_plain() {
     let body = "let a = 1;\n".repeat(MAX_EMBEDDED_BYTES / 11 + 1);
-    let runs = runs(&highlighted(
+    let over = runs(&highlighted(
         Language::Html,
         &format!("<script>{body}</script>\n<p a=b>x</p>\n"),
     ));
-    assert_plain(&runs, "let");
-    assert_runs(&runs, &[("p", Function), ("a", Property)]);
+    assert_plain(&over, "let");
+    assert_runs(&over, &[("p", Function), ("a", Property)]);
     let under = "let a = 1;\n".repeat(MAX_EMBEDDED_BYTES / 11 - 2);
-    let runs = super::highlight_tests::runs(&highlighted(
+    let under = runs(&highlighted(
         Language::Html,
         &format!("<script>{under}</script>\n"),
     ));
-    assert_runs(&runs, &[("let", Keyword)]);
+    assert_runs(&under, &[("let", Keyword)]);
 }
 
 /// A `type` typed into a start tag takes the element's code away, to its end, though only the
@@ -386,21 +386,25 @@ fn fences_of_html_css_json_and_yaml() {
     assert_plain(&runs, "\"c\"");
 }
 
-/// Nesting deeper than the scanner's serialization buffer holds parses, and nothing aborts
-/// (ADR 0157, oso's copy of tree-sitter-yaml): keys nested a level a line, and items nested on
-/// one line, in a YAML file; the items in a YAML fence too, which keeps to a fence's cap.
+/// A YAML tree can end at an error before its text does (ADR 0157): what lies past it stays
+/// plain, and the document is still highlighted to its end.
 #[test]
-fn deeply_nested_yaml_parses_safely() {
-    let keys: std::string::String = (0..400)
-        .map(|depth| format!("{}k{depth}:\n", " ".repeat(depth)))
-        .collect();
-    let items = format!("{}x\n", "- ".repeat(600));
-    for text in [&keys, &items] {
-        let document = highlighted(Language::Yaml, text);
-        assert_eq!(document.highlights().len(), text.len());
-    }
-    let fenced = format!("```yaml\n{items}```\n");
-    assert!(fenced.len() < super::fence::MAX_FENCE_BYTES);
-    let runs = runs(&highlighted(Language::Markdown, &fenced));
-    assert_runs(&runs, &[("x", String)]);
+fn text_past_a_yaml_tree_stays_plain() {
+    // As the property test found it: an item's text cut so that the scanner gives up.
+    let unit = "# c\nkey: v\nlist:\n  - 1\n  - {x: \"y\", z: [a, b]}\nblock: |\n  text\n";
+    let whole = unit.repeat(8);
+    let cut = whole.find("  - {x").unwrap() + 2 * unit.len();
+    let text = format!("{}{}", &whole[..cut], &whole[cut + 7..]);
+    let document = highlighted(Language::Yaml, &text);
+    let tree = document.tree().unwrap();
+    let end = tree.root_node().end_byte();
+    assert!(
+        end < text.len() && tree.root_node().has_error(),
+        "{end} of {}",
+        text.len()
+    );
+    let highlights = document.highlights();
+    assert_eq!(highlights.len(), text.len());
+    assert!(highlights.runs(end..text.len()).all(|(_, h)| h.is_none()));
+    assert!(document.is_highlighted(std::slice::from_ref(&(0..text.len()))));
 }

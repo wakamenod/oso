@@ -5,13 +5,14 @@
 //! the worker.
 //!
 //! - A piece is whole lines of at most [`PIECE`] bytes; a longer line is cut at a character,
-//!   so a window on a long line waits only for the part it shows. In Markdown, a piece widens
-//!   to the inline nodes and the fences with a language it meets: an edit can change a
-//!   paragraph's inline text, or a fence's code, past its line.
+//!   so a window on a long line waits only for the part it shows. In Markdown and HTML, a piece
+//!   widens to the nodes of text another grammar parses it meets ([`super::nested`]): inline
+//!   text, fences with a language, `<script>` and `<style>` elements. An edit can change such
+//!   text's highlights past its line.
 //! - A query that passes its match limit leaves its piece plain. One stopped by the slice's
 //!   end stays to do, unless it had most of a slice: then pieces halve, back up to [`PIECE`]
 //!   after a few fit in a row. The document fails as too slow, as after a slow parse, if a
-//!   piece of [`MIN_PIECE`] bytes, or a Markdown piece widened past the limit, still does not
+//!   piece of [`MIN_PIECE`] bytes, or a piece widened past the limit, still does not
 //!   fit; if a piece runs far past its slice; or if highlighting takes [`HIGHLIGHT_LIMIT`] in
 //!   all before it is done.
 //! - Line breaks are never highlighted ([`crate::paint`]).
@@ -27,8 +28,7 @@ use tree_sitter::{
     Node, Query, QueryCursor, QueryCursorOptions, QueryCursorState, StreamingIterator, Tree,
 };
 
-use super::embedded;
-use super::inline::{Nested, widen};
+use super::nested::{Nested, widen};
 use super::{Document, Failure, Parsed, until};
 use crate::language::Language;
 use crate::paint::{Capture, paint};
@@ -73,14 +73,14 @@ pub enum Highlighted {
 
 /// How a piece went.
 pub(super) enum Piece {
-    /// Its runs, and the blocks of the fences a fence's grammar painted in it.
+    /// Its runs, and the blocks of code another grammar painted in it.
     Done(Vec<(usize, Option<Highlight>)>, Vec<Range<usize>>),
     /// A query passed its match limit: the piece stays plain.
     Limit,
     /// The slice ran out.
     Stopped,
-    /// It met a fence whose grammar's query was compiled for it: the piece is done again, and
-    /// not judged by the time the compiling took (ADR 0147).
+    /// It met code, a fence's or an HTML element's, whose grammar's query was compiled for it:
+    /// the piece is done again, and not judged by the time the compiling took (ADR 0147).
     Compiled,
 }
 
@@ -166,7 +166,8 @@ impl Document {
                     }
                 }
                 Piece::Limit => self.leave_plain(piece),
-                // A Markdown piece widened past the limit would not shrink with it.
+                // A piece widened past the limit, to a fence or an element, would not shrink
+                // with it.
                 Piece::Stopped
                     if had_a_slice
                         && self.max_piece > MIN_PIECE
@@ -218,24 +219,13 @@ impl Document {
     /// they compiled.
     fn prepare(&self, queries: &mut Queries) -> bool {
         let mut kinds = vec![Kind::Highlights(self.language)];
-        // Fences' grammars' queries, and those of HTML's embedded code, wait for a fence or an
-        // element of theirs (`highlight_piece`).
-        match self.language {
-            Language::Markdown => kinds.extend([
-                Kind::Injections(Host::Markdown),
-                Kind::Highlights(Language::MarkdownInline),
-            ]),
-            Language::Html => kinds.push(Kind::Injections(Host::Html)),
-            Language::Rust
-            | Language::MarkdownInline
-            | Language::Toml
-            | Language::Go
-            | Language::JavaScript
-            | Language::TypeScript
-            | Language::Tsx
-            | Language::Css
-            | Language::Json
-            | Language::Yaml => {}
+        // The queries of a host's code wait for code of theirs (`highlight_piece`): a fence's,
+        // or an HTML element's. Markdown's inline grammar is part of Markdown's.
+        if let Some(host) = Host::of(self.language) {
+            kinds.push(Kind::Injections(host));
+        }
+        if self.language == Language::Markdown {
+            kinds.push(Kind::Highlights(Language::MarkdownInline));
         }
         kinds.into_iter().all(|kind| queries.prepare(kind))
     }
@@ -285,19 +275,9 @@ impl Document {
         let Some(tree) = self.tree.clone() else {
             return (piece, Piece::Limit);
         };
-        let found = match self.language {
-            Language::Markdown => widen(&self.text, queries, &tree, piece.clone(), deadline),
-            Language::Html => embedded::widen(&self.text, queries, &tree, piece.clone(), deadline),
-            Language::Rust
-            | Language::MarkdownInline
-            | Language::Toml
-            | Language::Go
-            | Language::JavaScript
-            | Language::TypeScript
-            | Language::Tsx
-            | Language::Css
-            | Language::Json
-            | Language::Yaml => Ok((piece.clone(), Nested::default())),
+        let found = match Host::of(self.language) {
+            Some(host) => widen(&self.text, queries, &tree, (host, piece.clone()), deadline),
+            None => Ok((piece.clone(), Nested::default())),
         };
         let (piece, nested) = match found {
             Ok((widened, found)) => {
@@ -307,7 +287,7 @@ impl Document {
                 // its slice by one compile at most. Code whose query cannot be compiled stays
                 // plain (`highlight_nested`).
                 let untried = found
-                    .fences
+                    .code
                     .iter()
                     .map(|&(_, language)| Kind::Highlights(language))
                     .find(|&kind| !queries.tried(kind));
@@ -361,7 +341,7 @@ impl Document {
             .inlines
             .iter()
             .map(|&node| (node, Language::MarkdownInline));
-        let layers = [(1, inlines.collect()), (2, nested.fences)];
+        let layers = [(1, inlines.collect()), (2, nested.code)];
         for (layer, nodes) in layers {
             let at = (piece.clone(), layer);
             if let Some(outcome) =

@@ -327,14 +327,14 @@ fn fences_that_follow_each_other_stay_apart() {
     document.edit(&[splice], &Rope::from(after.as_str()));
     // Mapped through the edit, they still touch, and stay four.
     assert_eq!(
-        document.fences.ranges().len(),
+        document.code_blocks.ranges().len(),
         4,
         "{:?}",
-        document.fences.ranges()
+        document.code_blocks.ranges()
     );
     let done = document.highlight(&mut Queries::new(), &[], LONG);
     assert_eq!(done, Highlighted::Done);
-    let fences = document.fences.ranges().to_vec();
+    let fences = document.code_blocks.ranges().to_vec();
     assert_eq!(fences.len(), 4, "{fences:?}");
     document.repainted(&fences[1], &fences[1..2]);
     assert!(
@@ -365,7 +365,7 @@ fn a_key_among_fences_in_a_container_ends() {
         let at = text.len() / 2;
         let at = at + text[at..].find("let").unwrap();
         let mut document = highlighted(Language::Markdown, &text);
-        assert_eq!(document.fences.ranges().len(), 5, "{prefix:?}");
+        assert_eq!(document.code_blocks.ranges().len(), 5, "{prefix:?}");
         let after = format!("{}fn {}", &text[..at], &text[at + 3..]);
         let splice = Splice {
             start: at,
@@ -374,7 +374,7 @@ fn a_key_among_fences_in_a_container_ends() {
         };
         let started = Instant::now();
         document.edit(&[splice], &Rope::from(after.as_str()));
-        let fences = document.fences.ranges().len();
+        let fences = document.code_blocks.ranges().len();
         assert_eq!(fences, 5, "{prefix:?}: they touch, and stay apart");
         let done = document.highlight(&mut Queries::new(), &[], LONG);
         let took = started.elapsed();
