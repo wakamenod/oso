@@ -42,6 +42,7 @@ fn what(request: Option<Request>) -> String {
         Some(Request::Look) => "look".into(),
         Some(Request::Refresh { first, .. }) => format!("refresh {}", first.len()),
         Some(Request::Baseline) => "baseline".into(),
+        Some(Request::Jump(jump)) => format!("jump {}", jump.ticket),
     }
 }
 
@@ -77,9 +78,9 @@ impl Queue {
         what(
             self.held
                 .borrow_mut()
-                .carries
+                .asides
                 .pop_front()
-                .map(Request::Carry),
+                .map(crate::review::Aside::into_request),
         )
     }
 
@@ -183,4 +184,39 @@ fn queued_carries_are_answered_as_failed_in_order_once_the_root_is_revoked() {
     );
     drop(reviewer);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// A jump with the host's `ticket`, to a side of no text.
+fn jump(ticket: u64) -> Request {
+    Request::Jump(crate::review::jump::Jump {
+        ticket,
+        ask: crate::review::jump::Ask::Side {
+            bytes: Arc::from(&b""[..]),
+        },
+    })
+}
+
+#[test]
+fn a_jump_waits_with_the_carries_uncounted_and_only_the_latest_waiting_stays() {
+    let q = Queue::new();
+    q.ask(Request::Refresh {
+        first: Vec::new(),
+        person: true,
+    });
+    q.ask(carry(b"a"));
+    q.ask(jump(1));
+    q.ask(jump(2));
+    assert_eq!(q.waiting(), 1, "only the refresh");
+    assert_eq!(q.next(), "refresh 0");
+    // Between the refresh's files: the carry, then the latest jump alone.
+    assert_eq!(q.carry_between_files(), "carry a");
+    assert_eq!(q.carry_between_files(), "jump 2");
+    assert_eq!(q.carry_between_files(), "none");
+    // With nothing running, a jump is answered next, and a later one pulled drops the earlier.
+    q.ask(jump(3));
+    assert_eq!(q.next(), "jump 3");
+    q.ask(jump(4));
+    q.ask(jump(5));
+    assert_eq!(q.carry_between_files(), "jump 5");
+    assert_eq!(q.waiting(), 0);
 }

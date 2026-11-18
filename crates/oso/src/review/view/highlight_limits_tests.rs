@@ -31,6 +31,7 @@ fn added(path: &[u8], added: &[&[u8]], n: u8) -> Arc<Reading> {
             ),
             old: Arc::from(&b""[..]),
             new: Arc::from(new),
+            refined: Default::default(),
         },
     })
 }

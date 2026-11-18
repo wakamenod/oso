@@ -1,10 +1,11 @@
 //! Intra-line refinement (ADR 0122, "Intra-line refinement"; ADR 0127, step 1c): within a
 //! change block, removed and added lines are paired in order and diffed by words with
-//! `similar`, and the bytes that differ are what refinement marks. A git status uses it now,
-//! and a review's view will.
+//! `similar`, and the bytes that differ are what refinement marks. A git status uses it, and a
+//! review's thread refines each file's hunks as it reads them ([`Refined`], step 3), within
+//! [`FILE_BUDGET`] a file, so that laying a section out again refines nothing.
 //!
 //! Must not depend on: `app`, `dispatch` or anything that runs git; this works on bytes, on the
-//! thread that lays a text out.
+//! thread that reads a review's files or lays a git status out.
 //!
 //! - A word is a run of letters, digits, `_` and bytes past ASCII, so that a character of
 //!   several bytes stays whole; white space runs are words too, and any other byte is one.
@@ -15,6 +16,7 @@
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
+use oso_core::review::{Hunk, Side};
 use similar::{Algorithm, DiffOp, capture_diff_slices_deadline};
 
 /// The spans of bytes of one line that refinement marks, in order.
@@ -29,21 +31,117 @@ pub(crate) const DEADLINE: Duration = Duration::from_millis(5);
 /// The most spans a line may have refined; one with more stays plain, so that a frame draws
 /// few of them a row.
 pub(crate) const MAX_SPANS: usize = 64;
+/// How long refining one file's hunks may take in a review: hunks past it stay plain.
+pub(crate) const FILE_BUDGET: Duration = Duration::from_millis(50);
 
 /// The spans of each removed and each added line that refinement marks, by byte from the line's
 /// start, a line's line break left out; an empty list for a line left plain.
 pub(crate) fn refine(removed: &[&[u8]], added: &[&[u8]]) -> (Vec<Spans>, Vec<Spans>) {
+    refine_until(removed, added, None)
+}
+
+/// As [`refine`], the pairs met once `deadline` has passed left plain.
+fn refine_until(
+    removed: &[&[u8]],
+    added: &[&[u8]],
+    deadline: Option<Instant>,
+) -> (Vec<Spans>, Vec<Spans>) {
     let mut old = vec![Vec::new(); removed.len()];
     let mut new = vec![Vec::new(); added.len()];
     if removed.len() > MAX_SIDE || added.len() > MAX_SIDE {
         return (old, new);
     }
     for (at, (from, to)) in removed.iter().zip(added).enumerate() {
-        if let Some((a, b)) = pair(trim(from), trim(to)) {
+        let now = Instant::now();
+        if deadline.is_some_and(|deadline| now >= deadline) {
+            break;
+        }
+        let until = deadline.map_or(now + DEADLINE, |deadline| deadline.min(now + DEADLINE));
+        if let Some((a, b)) = pair(trim(from), trim(to), until) {
             (old[at], new[at]) = (a, b);
         }
     }
     (old, new)
+}
+
+/// What refinement marks in a reading's hunks, each hunk one change block, as a hunk with no
+/// context is: by hunk, side and line within the hunk's side, the spans of bytes from the line's
+/// start, its line break left out. Lines left plain take no room.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Refined {
+    /// Each line with spans, in order of hunk, side (old first) and line, and where its spans
+    /// start in `spans`; they end where the next line's start.
+    lines: Vec<(u32, bool, u32, u32)>,
+    spans: Vec<Range<u32>>,
+}
+
+impl Refined {
+    /// Refines each of `hunks` that both removes and adds lines, until `deadline`: the hunks
+    /// past it stay plain.
+    pub(crate) fn of(hunks: &[Hunk], deadline: Instant) -> Refined {
+        let mut out = Refined::default();
+        for (at, hunk) in hunks.iter().enumerate() {
+            if Instant::now() >= deadline {
+                break;
+            }
+            let Ok(at) = u32::try_from(at) else { break };
+            let sides = [hunk.removed.len(), hunk.added.len()];
+            if sides.contains(&0) || sides.iter().any(|&side| side > MAX_SIDE) {
+                continue;
+            }
+            let removed: Vec<&[u8]> = hunk.removed.iter().map(|line| &**line).collect();
+            let added: Vec<&[u8]> = hunk.added.iter().map(|line| &**line).collect();
+            let (old, new) = refine_until(&removed, &added, Some(deadline));
+            out.add(at, false, &old);
+            out.add(at, true, &new);
+        }
+        out
+    }
+
+    fn add(&mut self, hunk: u32, new: bool, lines: &[Spans]) {
+        for (line, spans) in lines.iter().enumerate() {
+            let Ok(line) = u32::try_from(line) else {
+                return;
+            };
+            if spans.is_empty() {
+                continue;
+            }
+            let start = u32::try_from(self.spans.len()).unwrap_or(u32::MAX);
+            self.lines.push((hunk, new, line, start));
+            // A line is at most `MAX_LINE` bytes, so each end fits.
+            self.spans.extend(spans.iter().map(|span| {
+                let at = |byte: usize| u32::try_from(byte).unwrap_or(u32::MAX);
+                at(span.start)..at(span.end)
+            }));
+        }
+    }
+
+    /// The spans refinement marks in line `line` of `side` of hunk `hunk`, counted from 0 in
+    /// the hunk's lines of that side. O(log lines refined).
+    pub(crate) fn line(&self, hunk: usize, side: Side, line: usize) -> &[Range<u32>] {
+        let (Ok(hunk), Ok(line)) = (u32::try_from(hunk), u32::try_from(line)) else {
+            return &[];
+        };
+        let key = (hunk, side == Side::New, line);
+        let Ok(at) = self
+            .lines
+            .binary_search_by_key(&key, |&(hunk, new, line, _)| (hunk, new, line))
+        else {
+            return &[];
+        };
+        let start = self.lines[at].3 as usize;
+        let end = self
+            .lines
+            .get(at + 1)
+            .map_or(self.spans.len(), |next| next.3 as usize);
+        self.spans.get(start..end).unwrap_or_default()
+    }
+
+    /// The bytes it holds, as a review counts what it keeps.
+    pub(crate) fn bytes(&self) -> usize {
+        self.lines.len() * std::mem::size_of::<(u32, bool, u32, u32)>()
+            + self.spans.len() * std::mem::size_of::<Range<u32>>()
+    }
 }
 
 /// A line without its line break.
@@ -53,12 +151,11 @@ fn trim(line: &[u8]) -> &[u8] {
 }
 
 /// The spans that differ between `old` and `new`, or `None` to leave them plain.
-fn pair(old: &[u8], new: &[u8]) -> Option<(Spans, Spans)> {
+fn pair(old: &[u8], new: &[u8], deadline: Instant) -> Option<(Spans, Spans)> {
     if old.len() > MAX_LINE || new.len() > MAX_LINE {
         return None;
     }
     let (a, b) = (words(old), words(new));
-    let deadline = Instant::now() + DEADLINE;
     let ta: Vec<&[u8]> = a.iter().map(|span| &old[span.clone()]).collect();
     let tb: Vec<&[u8]> = b.iter().map(|span| &new[span.clone()]).collect();
     let ops = capture_diff_slices_deadline(Algorithm::Myers, &ta, &tb, Some(deadline));
@@ -169,6 +266,41 @@ mod tests {
         let many: Vec<&[u8]> = vec![b"a b\n"; super::MAX_SIDE + 1];
         let (a, _) = refine(&many, &[b"a c\n"]);
         assert!(a.iter().all(Vec::is_empty));
+    }
+
+    #[test]
+    fn a_reading_s_hunks_are_refined_by_hunk_side_and_line_and_past_the_deadline_stay_plain() {
+        use std::time::{Duration, Instant};
+
+        use oso_core::review::{Hunk, Side};
+
+        use super::Refined;
+
+        let hunk = |removed: &[&[u8]], added: &[&[u8]]| Hunk {
+            old_start: 1,
+            new_start: 1,
+            removed: removed.iter().map(|line| (*line).into()).collect(),
+            added: added.iter().map(|line| (*line).into()).collect(),
+        };
+        let hunks = [
+            hunk(&[b"a b\n"], &[]),
+            hunk(&[b"one two\n", b"x y\n"], &[b"one 2\n", b"x z\n"]),
+        ];
+        let refined = Refined::of(&hunks, Instant::now() + Duration::from_secs(5));
+        assert!(
+            refined.line(0, Side::Old, 0).is_empty(),
+            "a hunk with no added line"
+        );
+        assert_eq!(refined.line(1, Side::Old, 0), std::slice::from_ref(&(4..7)));
+        assert_eq!(refined.line(1, Side::New, 0), std::slice::from_ref(&(4..5)));
+        assert_eq!(refined.line(1, Side::Old, 1), std::slice::from_ref(&(2..3)));
+        assert_eq!(refined.line(1, Side::New, 1), std::slice::from_ref(&(2..3)));
+        assert!(refined.line(1, Side::New, 2).is_empty());
+        assert!(refined.line(7, Side::New, 0).is_empty());
+        assert!(refined.bytes() > 0);
+        let late = Refined::of(&hunks, Instant::now());
+        assert_eq!(late, Refined::default());
+        assert_eq!(late.bytes(), 0);
     }
 
     proptest! {

@@ -582,7 +582,7 @@ fn a_carry_waiting_during_a_refresh_is_answered_between_files_and_stops_nothing(
     reader.answer(
         Request::person_refresh(Vec::new()),
         &|| false,
-        &mut || carry.take(),
+        &mut || carry.take().map(crate::review::Aside::Carry),
         &mut |report| {
             said.push(match report {
                 Report::Listed { .. } => "listed",

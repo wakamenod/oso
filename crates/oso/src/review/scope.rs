@@ -67,6 +67,24 @@ pub(crate) enum Scope {
     },
 }
 
+impl Scope {
+    /// Whether a jump to the source from a review of this scope opens the work tree's file
+    /// (ADR 0122, step 3): the work tree's scopes, the staged one, whose file is the work
+    /// tree's, and a pull request whose head is `checked_out` here (step 12b), as the table of
+    /// sides above has it.
+    pub(crate) fn new_side_on_disk(&self, checked_out: bool) -> bool {
+        match self {
+            Scope::Session { .. }
+            | Scope::Uncommitted
+            | Scope::Staged
+            | Scope::Unstaged
+            | Scope::Branch { .. } => true,
+            Scope::PullRequest { .. } => checked_out,
+            Scope::Commit { .. } | Scope::Range { .. } => false,
+        }
+    }
+}
+
 /// Where a scope's new side comes from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum New {

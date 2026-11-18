@@ -85,7 +85,8 @@ pub struct Section {
     lines: usize,
     /// The lines refined, from the section's start, in order, and beside them the spans of
     /// bytes from each line's start that refinement marks.
-    refined_lines: Vec<usize>,
+    /// A line is kept as a `u32`: a review's text, at most 64 MiB, has fewer lines.
+    refined_lines: Vec<u32>,
     refined: Vec<Range<u32>>,
 }
 
@@ -114,6 +115,9 @@ impl Section {
     /// Marks bytes `bytes` from the start of the section's line `line` as refined.
     pub fn refine(&mut self, line: usize, bytes: Range<u32>) {
         // Calls come in order; one that does not goes where it belongs.
+        let Ok(line) = u32::try_from(line) else {
+            return;
+        };
         let at = self.refined_lines.partition_point(|&other| other <= line);
         self.refined_lines.insert(at, line);
         self.refined.insert(at, bytes);
@@ -137,6 +141,9 @@ impl Section {
     }
 
     fn refined(&self, line: usize) -> &[Range<u32>] {
+        let Ok(line) = u32::try_from(line) else {
+            return &[];
+        };
         let from = self.refined_lines.partition_point(|&other| other < line);
         let to = self.refined_lines.partition_point(|&other| other <= line);
         &self.refined[from..to]

@@ -1,5 +1,6 @@
 ---
 source: crates/oso/src/dispatch/grid_tests.rs
+assertion_line: 495
 description: "text: "
 ---
 keys: none
@@ -31,9 +32,9 @@ keys: none
 │@@ -1 +1 @@                                                 │
 +hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
 │-@@ -1 +1 @@                                                │
-+rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
++rRRRRRRrRrRRrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
 │++++ b/x                                                    │
-+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
++aaAAaAAAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
 │                                                            │
 │                                                            │
 │                                                            │

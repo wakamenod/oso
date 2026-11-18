@@ -135,10 +135,13 @@ impl App {
             ReviewRequest::Resume(pick) => self.resume_review(&pick),
             ReviewRequest::Forget(pick) => self.forget_review(&pick),
             ReviewRequest::MessageTake { buffer } => self.take_review_message(buffer),
-            // Visits come with a later step of ADR 0122.
-            ReviewRequest::Visit { .. } => {
-                log::debug!("a review request this build does not carry out yet");
-            }
+            ReviewRequest::Visit {
+                review,
+                path,
+                side,
+                number,
+                old_side,
+            } => self.visit_review_line(review, &path, (side, number), old_side),
             decision => self.decision_request(decision),
         }
     }
@@ -309,6 +312,10 @@ impl App {
 
     /// Stops a closed review's threads, and frees the texts it left waiting.
     fn close_review(&mut self, id: ReviewId) {
+        // Its sides no window shows go with it; one shown stays until the person moves on.
+        if let Some(index) = self.reviews.index(id) {
+            self.drop_unshown_sides(index, None);
+        }
         match self.reviews.close(id) {
             Some(running) => {
                 // What it held is saved at once (step 6).
@@ -420,6 +427,7 @@ impl App {
                 self.editor.message(fetching_said(number, &remote));
                 return self.request_redraw();
             }
+            Report::Jumped(jumped) => return self.review_jumped(index, jumped),
         };
         self.reviews.open[index].view.tell(tell);
     }
@@ -554,4 +562,5 @@ mod store;
 #[cfg(test)]
 #[path = "reviews_tests.rs"]
 mod tests;
+mod visit;
 mod watch;

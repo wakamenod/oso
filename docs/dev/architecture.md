@@ -665,7 +665,7 @@ The UI thread never blocks on I/O or parsing:
   a process group of its own that `C-g` stops
   ([ADR 0127](adr/0127-source-control-and-github.md)). A region inside a hunk stages a patch cut
   to its lines (`vcs/cut.rs`), a hunk's words are refined there with `review/refine.rs`, which a
-  review's view shares, and `k` discards after keeping copies (`vcs/discard.rs` plans it,
+  review's thread shares as it reads each file, and `k` discards after keeping copies (`vcs/discard.rs` plans it,
   `vcs/keep.rs` runs it and writes copies back, `vcs/discarded.rs` is their record, glue in
   `app/vcs/discard.rs`; the record is read and copies written back on `oso-vcs-run`), step 1c.
 - A commit runs on its repository's thread, `oso-vcs-run` (`crates/oso/src/vcs/run.rs`, glue in
@@ -906,7 +906,11 @@ The UI thread never blocks on I/O or parsing:
   the top a directory at a time following no link, and diffs each file with `similar` into
   `oso_core::review`'s hunks. A file whose signature did not change is not read again, and
   shown files go first. Each listing, the readings after it and the `Read` that ends them
-  share a generation; refreshes asked for meanwhile are answered as one. Before each request
+  share a generation; refreshes asked for meanwhile are answered as one. Each file's hunks are
+  refined there as it is read, within 50 ms a file. `RET`'s jump to the source waits with the
+  comments' carries, the latest alone: it carries a line of the reviewed new side to the file's
+  text now, the open buffer's or the work tree's, or builds a side as a text for a read-only
+  buffer (`review/jump.rs`, glue in `app/reviews/visit.rs`). Before each request
   the root's device and inode are looked at again, and git never looks above the root
   ([ADR 0122](adr/0122-agent-review.md)).
 - Each review also has a view thread, `oso-review-view` (`crates/oso/src/review/view.rs`),

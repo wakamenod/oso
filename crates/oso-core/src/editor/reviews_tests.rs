@@ -374,3 +374,49 @@ fn the_modeline_says_how_far_a_reading_is_apart_from_the_encoding() {
     assert!(!status.state[..at - 2].ends_with(' '), "{:?}", status.state);
     assert!(status.state.ends_with("reading 1/3"), "{:?}", status.state);
 }
+
+#[test]
+fn a_side_built_off_the_ui_thread_replaces_an_internal_buffer_s_whole_text_alone() {
+    let mut editor = Editor::default();
+    let id = editor.add_internal_buffer("*old: a.rs \u{b7} uncommitted*", Mode::Fundamental);
+    editor.set_internal_text(id, "before\nmore\n");
+    let window = editor.window().id();
+    editor.show_in(window, id);
+    let at_end = editor.current().1.text().len();
+    editor.restore_positions(SelectionSet::new(at_end), Default::default());
+    // Compared with no text, as the review's thread builds a side: the whole text goes.
+    let side = decode_all(b"one\n\xff two\nthree\n", TabWidth::default())
+        .compared_with(&crate::rope::Rope::new());
+    let left = editor.set_internal_reloaded(id, side);
+    // The highlights a buffer not of generated text does not take.
+    assert_eq!(left.holds(), (false, true, false));
+    let buffer = editor.buffer(id).unwrap();
+    assert_eq!(buffer.text().to_string(), "one\n\u{fffd} two\nthree\n");
+    assert!(
+        !buffer.invalid_bytes().is_empty(),
+        "the invalid byte is kept"
+    );
+    assert!(!buffer.is_modified());
+    assert!(buffer.read_only().is_some());
+    let cursor = editor.current().0.selections.primary().cursor;
+    assert!(cursor <= editor.current().1.text().len());
+    // A buffer of the person's takes nothing: the text comes back.
+    let file = editor.add_buffer(crate::buffer::Buffer::new("notes"));
+    let side = decode_all(b"x\n", TabWidth::default()).compared_with(&crate::rope::Rope::new());
+    let left = editor.set_internal_reloaded(file, side);
+    assert_eq!(left.holds(), (false, false, true));
+    assert_eq!(editor.buffer(file).unwrap().text().to_string(), "");
+    // Nor do `*Messages*` and a review's buffer, whose rows say what each line is.
+    let messages = editor.buffer_named("*Messages*").unwrap();
+    let side = decode_all(b"x\n", TabWidth::default()).compared_with(&crate::rope::Rope::new());
+    assert_eq!(
+        editor.set_internal_reloaded(messages, side).holds(),
+        (false, false, true)
+    );
+    let (_, review) = editor.add_review(ProjectId(0), "*review*".into());
+    let side = decode_all(b"x\n", TabWidth::default()).compared_with(&crate::rope::Rope::new());
+    assert_eq!(
+        editor.set_internal_reloaded(review, side).holds(),
+        (false, false, true)
+    );
+}

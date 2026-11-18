@@ -436,7 +436,7 @@ fn reviews_start_from_the_shown_buffers_project_or_the_shown_reviews() {
 }
 
 /// [`TEXT`] as two panes: b's new line beside a filler row, as is a's second.
-fn put_panes(editor: &mut Editor, review: ReviewId) {
+pub(crate) fn put_panes(editor: &mut Editor, review: ReviewId) {
     let head = "Review\nmodified  a  +2 \u{2212}1\n@@ -1 +1,2 @@\n";
     let old = format!("{head}-x\n\nadded  b  +1 \u{2212}0\n@@ -0,0 +1 @@\n\n");
     let new = format!("{head}+y\n+z\nadded  b  +1 \u{2212}0\n@@ -0,0 +1 @@\n+w\n");

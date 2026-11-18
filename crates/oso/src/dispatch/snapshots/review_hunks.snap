@@ -1,5 +1,6 @@
 ---
 source: crates/oso/src/dispatch/grid_tests.rs
+assertion_line: 495
 description: "text: "
 ---
 keys: none
@@ -10,9 +11,9 @@ keys: none
 │@@ -2 +2 @@                             │
 +hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
 │-let a = 1;                             │
-+rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
++rrrrrrrrrRrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
 │+let a = 2;                             │
-+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
++aaaaaaaaaAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
 │@@ -8,0 +9 @@                           │
 +hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
 │+call();                                │
@@ -41,9 +42,9 @@ keys: n
 :^                                       :
 +hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
 │-let a = 1;                             │
-+rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
++rrrrrrrrrRrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
 │+let a = 2;                             │
-+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
++aaaaaaaaaAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
 │@@ -8,0 +9 @@                           │
 +hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
 │+call();                                │
@@ -71,9 +72,9 @@ keys: n
 │@@ -2 +2 @@                             │
 +hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
 │-let a = 1;                             │
-+rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
++rrrrrrrrrRrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
 │+let a = 2;                             │
-+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
++aaaaaaaaaAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
 │@@ -8,0 +9 @@                           │
 :^                                       :
 +hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
@@ -102,9 +103,9 @@ keys: N
 │@@ -2 +2 @@                             │
 +hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
 │-let a = 1;                             │
-+rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
++rrrrrrrrrRrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
 │+let a = 2;                             │
-+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
++aaaaaaaaaAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
 │@@ -8,0 +9 @@                           │
 +hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
 │+call();                                │
@@ -134,9 +135,9 @@ keys: P
 │@@ -2 +2 @@                             │
 +hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
 │-let a = 1;                             │
-+rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
++rrrrrrrrrRrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
 │+let a = 2;                             │
-+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
++aaaaaaaaaAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
 │@@ -8,0 +9 @@                           │
 +hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
 │+call();                                │
@@ -165,9 +166,9 @@ keys: p
 │@@ -2 +2 @@                             │
 +hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
 │-let a = 1;                             │
-+rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
++rrrrrrrrrRrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr+
 │+let a = 2;                             │
-+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
++aaaaaaaaaAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa+
 │@@ -8,0 +9 @@                           │
 +hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh+
 │+call();                                │

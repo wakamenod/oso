@@ -120,6 +120,7 @@ const TABLES: &[&[Command]] = &[
     review::COMMANDS,
     review::COMMENT_COMMANDS,
     review::DECISION_COMMANDS,
+    review::VISIT_COMMANDS,
     review::FILES_COMMANDS,
     review::SAVED_COMMANDS,
     review::SEND_COMMANDS,
@@ -320,6 +321,8 @@ mod tests {
         "review-reject",
         "review-undo",
         "review-viewed",
+        // Jumping to the source opens files and makes a buffer of a side (step 3).
+        "review-visit",
         // The person's comments are theirs alone to write (ADR 0122, Q11).
         "review-comment",
         "review-edit-comment",

@@ -32,6 +32,14 @@ impl ReviewLeftover {
         }
     }
 
+    /// A text that was not taken, alone.
+    pub(in crate::editor) fn of_text(text: Reloaded) -> ReviewLeftover {
+        ReviewLeftover {
+            text: Some(Box::new(text)),
+            ..ReviewLeftover::none()
+        }
+    }
+
     pub(super) fn of(rows: Rows, highlights: Highlights, text: Option<Reloaded>) -> ReviewLeftover {
         ReviewLeftover {
             rows: Some(rows),

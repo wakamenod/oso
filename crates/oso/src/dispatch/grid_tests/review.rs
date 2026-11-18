@@ -7,6 +7,7 @@
 //! view as its thread would build it, from readings made here.
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use oso_core::editor::Editor;
 use oso_core::review::{Anchor, Author, Base, Hunk, Review, Shape, Side};
@@ -14,6 +15,7 @@ use oso_core::review::{Anchor, Author, Base, Hunk, Review, Shape, Side};
 use super::check_editor;
 use crate::commands::review::tests::in_project;
 use crate::git::Id;
+use crate::review::refine::Refined;
 use crate::review::view::{Carrying, Tell, built};
 use crate::review::{Content, Entry, Reading, Status};
 
@@ -51,6 +53,7 @@ fn reading(path: &[u8], status: Status, content: Content) -> Tell {
 
 fn text(hunks: Vec<Hunk>) -> Content {
     Content::Text {
+        refined: Refined::of(&hunks, Instant::now() + Duration::from_secs(5)),
         shape: Arc::new(Shape::new(Base::Unknown, hunks).unwrap()),
         old: Arc::from(&b""[..]),
         new: Arc::from(&b""[..]),

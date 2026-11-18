@@ -118,6 +118,7 @@ pub(super) fn reading(path: &[u8], old: &[u8], new: &[u8], ids: (u8, u8)) -> Arc
             ),
             old: Arc::from(old),
             new: Arc::from(new),
+            refined: Default::default(),
         },
     })
 }
@@ -292,7 +293,10 @@ fn a_file_that_may_hold_secrets_too_large_or_in_no_language_is_never_opened() {
     let renamed = reading(b"src/b.rs", b"x\n", b"y\n", (3, 4));
     let mut entry = renamed.entry.clone();
     entry.old_path = Some(b".env.local".to_vec().into());
-    let Content::Text { shape, old, new } = &renamed.content else {
+    let Content::Text {
+        shape, old, new, ..
+    } = &renamed.content
+    else {
         unreachable!()
     };
     let renamed = Reading {
@@ -301,6 +305,7 @@ fn a_file_that_may_hold_secrets_too_large_or_in_no_language_is_never_opened() {
             shape: Arc::clone(shape),
             old: Arc::clone(old),
             new: Arc::clone(new),
+            refined: Default::default(),
         },
     };
     let readings = [

@@ -144,7 +144,7 @@ impl Laidout for section::Rendered {
     }
 
     fn len(&self) -> usize {
-        self.bytes.len()
+        self.held()
     }
 }
 

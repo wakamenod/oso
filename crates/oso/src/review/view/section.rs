@@ -16,6 +16,7 @@
 //!   secrets shows only how many it has.
 
 use std::fmt::Write as _;
+use std::ops::Range;
 use std::sync::Arc;
 
 use oso_core::review::{Anchor, CommentId, Hunk, RowKind, Section, Shape, Side};
@@ -23,6 +24,7 @@ use oso_core::syntax::Highlight;
 
 use super::cards::{self, Cards, Placing, Plan};
 use crate::review::list::Status;
+use crate::review::refine::Refined;
 use crate::review::{Content, Entry, Reading, hunk_header};
 
 /// What a newline in a path shows as.
@@ -43,6 +45,15 @@ pub(crate) struct Rendered {
     pub(crate) slots: Vec<Slot>,
     /// How many bytes it holds once decoded, which its runs cover.
     pub(crate) decoded: usize,
+    /// How many spans refinement marks in it.
+    pub(crate) marks: usize,
+}
+
+impl Rendered {
+    /// What it costs the review's text limit: its bytes, and the spans refinement marks.
+    pub(crate) fn held(&self) -> usize {
+        self.bytes.len() + self.marks * MARK_COST
+    }
 }
 
 /// Where a line of a side shows its text in a section: its side and number, and its text's
@@ -81,7 +92,13 @@ pub(super) struct Writer {
     /// How many bytes it holds once decoded.
     decoded: usize,
     slots: Vec<Slot>,
+    /// How many spans refinement marks in it.
+    marks: usize,
 }
+
+/// What one span refinement marks costs a section to hold, counted with its text against the
+/// review's text limit.
+pub(super) const MARK_COST: usize = 12;
 
 impl Writer {
     pub(super) fn new(path: &[u8]) -> Writer {
@@ -94,6 +111,7 @@ impl Writer {
             cards: false,
             decoded: 0,
             slots: Vec::new(),
+            marks: 0,
         }
     }
 
@@ -121,6 +139,7 @@ impl Writer {
             cards: self.cards,
             slots: self.slots,
             decoded: self.decoded,
+            marks: self.marks,
         }
     }
 
@@ -144,16 +163,39 @@ impl Writer {
     }
 
     /// Writes line `number` of `side`, its sign then its text, as a row of `kind`, keeping where
-    /// its text is for the side's highlights.
+    /// its text is for the side's highlights, and marking `refined`, spans of bytes of `text`,
+    /// as refinement marks them.
     pub(super) fn side_line(
         &mut self,
         kind: RowKind,
         (side, number): (Side, u32),
-        sign: &[u8],
-        text: &[u8],
+        (sign, text): (&[u8], &[u8]),
         highlight: Highlight,
+        refined: &[Range<u32>],
     ) {
-        let at = self.decoded + decoded_len(sign);
+        let row = self.rows();
+        let signed = decoded_len(sign);
+        // By the text's decoded bytes, as the buffer holds it, decoding each byte once: the spans
+        // are in order, and each edge is beside an ASCII byte, so the text splits there whole.
+        let valid = std::str::from_utf8(text).is_ok();
+        let (mut byte, mut decoded) = (0, signed);
+        let mut at = |edge: u32| {
+            let edge = (edge as usize).clamp(byte, text.len());
+            decoded += if valid {
+                edge - byte
+            } else {
+                decoded_len(&text[byte..edge])
+            };
+            byte = edge;
+            u32::try_from(decoded).unwrap_or(u32::MAX)
+        };
+        for span in refined {
+            let start = at(span.start);
+            let end = at(span.end);
+            self.section.refine(row, start..end);
+        }
+        self.marks += refined.len();
+        let at = self.decoded + signed;
         let len = decoded_len(text);
         self.slots.push(Slot {
             side,
@@ -353,7 +395,13 @@ pub(super) fn ending_notes(writer: &mut Writer, hunks: &[Hunk]) {
     }
 }
 
-fn lines(writer: &mut Writer, plan: &mut Plan, index: usize, hunk: &Hunk, side: Side) {
+fn lines(
+    writer: &mut Writer,
+    plan: &mut Plan,
+    (index, hunk): (usize, &Hunk),
+    side: Side,
+    refined: &Refined,
+) {
     let (lines, first, sign, highlight) = match side {
         Side::Old => (&hunk.removed, hunk.old_start, b"-", Highlight::DiffRemoved),
         Side::New => (&hunk.added, hunk.new_start, b"+", Highlight::DiffAdded),
@@ -361,14 +409,15 @@ fn lines(writer: &mut Writer, plan: &mut Plan, index: usize, hunk: &Hunk, side: 
     // A card after a line ends the run of lines, so the next run is numbered from its own
     // first line, as a row's line is its run's first plus how far into the run it is.
     let mut run_first = first;
-    for (number, line) in (first..).zip(lines) {
+    for (nth, (number, line)) in (first..).zip(lines).enumerate() {
         let (text, _) = without_ending(line);
         let kind = RowKind::Lines {
             hunk: index,
             side,
             first: run_first,
         };
-        writer.side_line(kind, (side, number), sign, text, highlight);
+        let spans = refined.line(index, side, nth);
+        writer.side_line(kind, (side, number), (sign, text), highlight, spans);
         let before = writer.rows();
         plan.after_line(writer, side, number);
         if writer.rows() != before {
@@ -434,7 +483,7 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Rendered 
         return writer.done();
     }
     match &reading.content {
-        Content::Text { shape, .. } => {
+        Content::Text { shape, refined, .. } => {
             ending_notes(&mut writer, shape.hunks());
             if let Some(note) = dropped_note(cards) {
                 writer.note(&note);
@@ -454,8 +503,8 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Rendered 
                         (said.as_bytes(), Some(Highlight::Decided)),
                     ],
                 );
-                lines(&mut writer, &mut plan, index, hunk, Side::Old);
-                lines(&mut writer, &mut plan, index, hunk, Side::New);
+                lines(&mut writer, &mut plan, (index, hunk), Side::Old, refined);
+                lines(&mut writer, &mut plan, (index, hunk), Side::New, refined);
                 plan.after_hunk(&mut writer, index);
             }
             // Every thread has its place by now; this keeps any that did not.

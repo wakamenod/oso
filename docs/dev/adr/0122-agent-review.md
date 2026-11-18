@@ -208,7 +208,8 @@ previous setup measured 25 ms for 206 files once the index's stat cache is copie
 - **Intra-line refinement:** within each change block of a hunk, removed and added lines are
   paired in order and diffed by words with `similar`, on the worker, on-screen first, drawn in
   `diff.refine-removed` and `diff.refine-added`. Only blocks of at most 100 lines a side and lines
-  of at most 1 KiB are refined.
+  of at most 1 KiB are refined. (As built in step 3, part three: always on, with no key, refined
+  on the review's thread as each file is read, within 50 ms a file.)
 - **Syntax highlighting (Q8):** each side of a file is highlighted whole by oso's tree-sitter
   workers, as a document no buffer owns, then its runs are projected onto the review's rows.
   When the file is open in a buffer whose text is the new side, that buffer's highlights are used.
@@ -227,7 +228,9 @@ previous setup measured 25 ms for 206 files once the index's stat cache is copie
   edits made since the reading: the line is shifted through the hunks between the review's new
   side and the file's current text (the open buffer's, or the file's), counted on a worker for a
   file over 1 MiB. An old-side line goes to where it was removed. A line inside a changed span
-  goes to the span's start. `C-u RET` opens the old side as a read-only buffer.
+  goes to the span's start. `C-u RET` opens the old side as a read-only buffer. (As built in
+  step 3, part three: always counted on the review's thread; a commit's new side opens
+  read-only too; nothing of a file that may hold secrets opens from the review.)
 - **Faces** join the theme table with their contrast rules ([ADR 0089](0089-built-in-themes-switched-at-run-time.md)):
   `diff.added`, `diff.removed`, `diff.refine-added`, `diff.refine-removed`, `diff.hunk-header`,
   `diff.file-header`, `review.comment-person`, `review.comment-agent`, `review.outdated`,
@@ -472,7 +475,8 @@ Limits for crafted input, each saying what it hides:
 
 In a review buffer (accept is `A`, as built in step 5): `n`/`p` hunk, `N`/`P` file, `{`/`}` comment, `c` comment, `e` edit, `k`
 remove, `r` resolve, `a` accept, `x` reject, `v` viewed, `u` undo a decision, `s` files pane, `/`
-filter, `|` two panes, `RET` source, `g` refresh now, `C-c C-c` send, `q` bury. `C-x v r` opens the
+filter, `|` two panes, `RET` source (`C-u RET` the old side, as built in step 3), `g` refresh
+now, `C-c C-c` send, `q` bury. `C-x v r` opens the
 menu. The exact keys are settled in step 3 with the author.
 
 ## Steps
@@ -1076,7 +1080,88 @@ on 2026-11-14, through the coordinator, and answered its questions Q-A to Q-F (a
   the text's room or in a resolved thread.
 - **Closing** counts an open draft as a comment of the person's not sent.
 - A withheld file has no line rows, so it takes no comment, and keeps its note (Q13); showing
-  it on `RET` comes with part three.
+  it on `RET` gets its own PR, as the author chose in part three (Q6).
+
+### Step 3: the unified view, part three
+
+The third PR adds jumping to the source and refinement. The author approved its plan on
+2026-11-18, through the coordinator, and answered its questions Q1 to Q7 (a): refinement always
+on with no key (Q1); the source in another window, as Emacs's `diff-goto-source`, split below
+when there is none (Q2); in the two panes, `RET` takes its pane's side (Q3); a commit's, a
+range's and a pull request's new side not checked out here open read-only (Q4); the line always
+counted on the review's thread (Q5); showing a withheld file in the review left to its own PR
+(Q6); and no public item but the request, which step 1 had added already (Q7). While building,
+the author approved one more item (Q-H (a)): `Editor::set_internal_reloaded`. What it built:
+
+- **Public items:** `Editor::set_internal_reloaded(&mut self, BufferId, Reloaded) ->
+  ReviewLeftover`, beside the other setters of internal buffers' text: a text built off the UI
+  thread put in at O(1), replacing the buffer's whole text whatever it was compared with, as a
+  side shown read-only is put in. A review's buffers, whose rows say what each line is,
+  `*Messages*` and the list of copies take nothing, the text handed back. `ReviewRequest::Visit` was there since step 1 and is now carried out. No agent
+  tool: `review-visit` is `Person`.
+- **`RET`** (`review-visit`, `Person`, as it opens files and makes a buffer of a side) asks the
+  host for the row at the primary cursor: a line of either side goes to itself, a hunk's header
+  to its first line, a file's header or note to the file's first line, a comment to the line or
+  hunk it is on and an outdated one to the file's first line. The title and a filler row go
+  nowhere: "Nothing to visit here". `?` lists it.
+- **Where it lands:** in a review of the work tree (session, uncommitted, unstaged, branch, and a
+  pull request checked out here) and of the index, whose file is the work tree's, the work
+  tree's file, at the line carried. An old side's line is first taken across the reading's
+  hunks to where it was removed. **The line is carried on the review's thread (Q5),** in place
+  of the Decision's "on a worker for a file over 1 MiB": it waits with the carries, answered
+  between the files of a running request, and diffs the reading's new side, which the reading
+  holds, against the text now, the open buffer's handed in at O(1) or the work tree's file read
+  as a reading reads it, from the top a directory at a time, following no link, and not read
+  with more than one name. Each side is at most 8 MiB and 200,000 lines, diffed within 1 s; past
+  either, the line is the one the review read, and the echo area says why. A line changed since
+  goes to the start of what replaced it, and says so. A link, or a file with more than one name,
+  opens nothing from the review. Only the latest jump waits: one asked while another waits takes
+  its place. **The file is then loaded as the agent channel loads one,** refused with a second
+  name, as a hard link swapped in after the thread looked gives, and a link swapped in is judged
+  by where it leads (ADR 0044).
+- **Read-only sides (Q4):** `C-u RET`, and `RET` in a review whose new side is a commit (a
+  commit's, a range's, or a pull request's whose head is not checked out here), show that side
+  as the review read it in an internal buffer `*old: <path> · <scope>*` or `*new: …*`, of the
+  path's mode and highlighted by no one, at the line, its name's bidirectional and invisible
+  characters escaped. Its text is built on the review's thread with the loader's decoder, so
+  invalid bytes show as `\xNN`, and put in with `set_internal_reloaded`; the text it replaces is
+  freed off the UI thread. A review keeps the side buffers a window shows and the one asked for:
+  the others go at each new side, and those no window shows go with the review.
+- **The window (Q2, Q3):** the next tiled window in the tree's order that shows none of the
+  review's buffers, its panes and its files pane included, else one split below the selected
+  window, which a pane's split puts outside its pair, so the panes stay.
+- **Only the latest jump counts,** and only while the window it was asked in is still selected,
+  shows the review and holds nothing that waits on the review, as a prompt or a search: an
+  answer that comes after the person moved on is dropped. Trust, and whether the file's open
+  buffer may hold secrets, are looked at again when the answer comes. A file read again whose text has not gone in yet waits, as a comment does: "This
+  file is being read again: try in a moment".
+- **Secrets (Q6):** a file whose name, or a name it had, may hold secrets opens nothing from the
+  review, its side nor its file: "This file may hold secrets, so the review opens nothing of
+  it: C-x C-f opens it". No side is shown either while the file's open buffer may hold secrets,
+  as the agent channel may read a buffer of oso's own.
+- **Other files:** one the review shows no text of, as too large or binary, opens at its first
+  line in a review of the work tree, as "too large to show: `RET` opens it" says, once the
+  review's thread found it a regular file of one name, reached through no link; a submodule
+  and a deleted file open nothing, and `C-u RET` on an added one says it has no old side.
+- **Refinement (Q1)** is always on. The review's thread refines each file's hunks as it reads
+  them, each hunk one change block, within 50 ms a file and the request's own budget, and the
+  reading holds the spans, counted in the 64 MiB a review holds of sides and hunks (a file past
+  it shows plain), so laying a section out again for its comments refines nothing. The unified
+  text and both panes mark them after the line's sign, by the bytes the buffer holds, decoding
+  each line once, and each span marked counts 12 bytes against the review's text limit with the
+  text. The frame draws them as part one built it.
+- **Tests:** refinement of a reading's hunks, its deadline, and the spans in a section and in each
+  pane, invalid bytes counted as the buffer holds them; text-grid snapshots now showing the
+  refined words; lines carried through texts put in, taken out and changed, the deadline and the
+  line limit, the open buffer's text and the work tree's file with no link followed nor a file of
+  two names, and a property that a line kept lands on its own text; lines taken across a
+  reading's hunks; which scopes open the file; side buffers' names; the window chosen, split or
+  taken; `RET` and `C-u RET` on each kind of row, in the unified text and in both panes, the
+  title and a filler row going nowhere; jumps waiting aside, the latest alone;
+  `set_internal_reloaded`, and the buffers it refuses; and an end-to-end flow in which `RET` on
+  a new line opens the file in another window at the line carried through an unsaved edit above
+  it, `C-u RET` on the removed line shows the old side read-only at its line, and `RET` in the
+  old pane goes to where the line was removed, in a window outside the pair.
 
 ### Step 4: refresh while the agent edits
 
