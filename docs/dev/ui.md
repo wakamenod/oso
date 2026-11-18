@@ -1143,7 +1143,12 @@ a switch made with its command stands until that setting changes in the file
 
   It then asks, naming what git ignores there and will delete with it, such as `target/`. `y`
   runs every check again before it removes the worktree. It never uses `--force`, and the branch
-  is kept. git has no time limit there, as a large `target/` takes time to delete.
+  is kept. git has no time limit there, as a large `target/` takes time to delete. Once git
+  removed it, the sessions that were in it are archived, of every space, and the echo area ends
+  "; N sessions in it archived": else each would show under the repository's main checkout,
+  which holds the gone path. As oso starts, a stopped session whose directory is gone from
+  under the main checkout of one of the spaces' repositories is archived too, and `*Messages*`
+  says how many.
 - `M-x worktree-remove-stop` stops a running removal: the row's at point in `*Worktrees*`,
   else the only one. Before git runs, nothing is removed. Once git may be deleting, it asks
   first, as the worktree is then left half removed for you to remove by hand.

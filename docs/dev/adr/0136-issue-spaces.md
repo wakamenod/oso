@@ -507,7 +507,9 @@ unchanged (P3 (a)); `space-new` completes over known repositories (P4 (a), for 1
   migration runs once.
 - **Worktree spaces are gone (P1):** a made worktree is held by the space of the session that
   asked for it when its repository is that space's, else by the space it joins; a removed one is
-  forgotten there, and no space closes. `RET` on a worktree row shows its session, in its
+  forgotten there, and no space closes. Its sessions are archived, of every space, so that
+  none shows under the repository's main checkout, which holds the gone path (ADR 0121,
+  "Removal archives its sessions, as amended", 2026-11-18). `RET` on a worktree row shows its session, in its
   space.
 - **After a restart that kept terminals (P3),** a carried session takes its space from the
   record once that is read, and the frame's tree is taken as the space of the session the

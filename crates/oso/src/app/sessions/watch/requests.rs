@@ -435,3 +435,10 @@ pub(super) fn tree_buffer(editor: &mut Editor) -> BufferId {
     }
     editor.tiled().0.buffer()
 }
+
+impl super::Watch {
+    /// Whether oso hung session `key` up, and its end has not come yet.
+    pub(in crate::app) fn is_hung_up(&self, key: SessionKey) -> bool {
+        self.hung_up.contains(&key)
+    }
+}

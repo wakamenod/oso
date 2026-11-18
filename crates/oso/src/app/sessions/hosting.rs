@@ -166,22 +166,27 @@ fn revoke_untrusted(
 
 impl App {
     /// The sessions an earlier oso remembered: each that is not archived comes back stopped,
-    /// with nothing started.
+    /// with nothing started. Those a worktree removal left behind are archived first.
     pub(in crate::app) fn sessions_recalled(
         &mut self,
-        remembered: Vec<crate::sessions::record::Remembered>,
-        spaces: Vec<crate::sessions::spaces::Stored>,
-        migrated: bool,
-        readable: bool,
-        fresh: Vec<crate::sessions::spaces::SpaceId>,
+        recalled: crate::sessions::worker::Recalled,
     ) {
+        let crate::sessions::worker::Recalled {
+            sessions: mut remembered,
+            spaces,
+            migrated,
+            readable,
+            fresh,
+            stranded,
+        } = recalled;
         // Spaces made from the sessions are kept at once, with the sessions' spaces, so that
         // they are made once; with none made, nothing is written.
         let made = migrated && !spaces.is_empty();
         self.watch.spaces_mut().recall(spaces, fresh, made);
         self.watch.spaces_mut().set_readable(readable);
+        let archived = self.archive_stranded(&mut remembered, &stranded);
         let back = self.hosting.table.recall(remembered);
-        self.hosting.unsaved |= made;
+        self.hosting.unsaved |= made || archived > 0;
         self.prune_sessions();
         for key in back {
             if self.hosting.table.get(key).is_some() {

@@ -373,12 +373,17 @@ fn an_allowed_worktree_session_starts_and_its_finished_worktree_is_removed() {
     assert!(!error, "{removed}");
     assert_eq!(removed["branch_kept"], true);
     assert_eq!(removed["deleted_ignored"], json!([".env"]));
+    // Its stopped session is archived with it (ADR 0121, "Removal archives its sessions").
+    assert_eq!(removed["archived"], 1, "{removed}");
     assert!(!place.exists(), "the worktree is still there");
     let listed = flow.git(&flow.repo, &["branch", "--list", "e2e-agent"]);
     assert!(listed.contains("e2e-agent"), "the branch went");
     let state = app.state();
     let echo = state["echo"].as_str().unwrap_or_default();
     assert!(echo.starts_with("Session repo removed worktree "), "{echo}");
+    assert!(echo.ends_with("; 1 session in it archived"), "{echo}");
+    let archived = super::worktrees::session_archived(&state, "e2e-agent");
+    assert_eq!(archived, Some(true), "{state}");
     flow.exit_with(0);
 }
 

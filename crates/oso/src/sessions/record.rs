@@ -14,6 +14,9 @@
 //! - A write replaces the file whole, through a `.part`, or leaves it as it was. It reads the
 //!   file first and keeps the sessions this instance never knew, so that two instances do not
 //!   drop each other's.
+//! - As oso starts, [`stranded`] finds the sessions a worktree removed left behind, in a
+//!   directory gone under a repository's main checkout, for the app to archive (ADR 0121,
+//!   "Removal archives its sessions"); the worker runs it on a thread of its own.
 
 use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
@@ -304,6 +307,89 @@ pub(crate) fn replace_file(
     fs::rename(&part, directory.path().join(name))
 }
 
+/// How many directories above a session's the repositories are looked for in.
+const STRANDED_DEPTH: usize = 64;
+
+/// A session that may have been left behind by a worktree removed: its id, its directory and
+/// the repository above it.
+pub type Candidate = (SessionId, PathBuf, PathBuf);
+
+/// The `sessions` that a worktree removed before oso archived on removal, or outside oso, may
+/// have left behind (ADR 0121, "Removal archives its sessions"): not archived, in a directory
+/// under one of the repositories `roots`, absolute, but not at it. Touches no disk; only the
+/// candidates' repositories are then looked at.
+pub fn stranded_candidates<'a>(
+    sessions: &[Remembered],
+    roots: impl IntoIterator<Item = &'a Path>,
+) -> Vec<Candidate> {
+    let roots: HashSet<&Path> = roots
+        .into_iter()
+        .filter(|root| root.is_absolute())
+        .collect();
+    if roots.is_empty() {
+        return Vec::new();
+    }
+    let under = |dir: &Path| -> Option<PathBuf> {
+        (dir.ancestors().skip(1).take(STRANDED_DEPTH))
+            .find(|above| roots.contains(above))
+            .map(Path::to_path_buf)
+    };
+    sessions
+        .iter()
+        .filter(|session| !session.archived)
+        .filter_map(|session| {
+            let root = under(&session.directory)?;
+            Some((
+                session.id.clone(),
+                session.directory.clone(),
+                root.to_path_buf(),
+            ))
+        })
+        .collect()
+}
+
+/// The ids of the `candidates` that are stranded: their directory is not found, and their
+/// repository's main checkout is there ([`holds_repository`]). A disk that is not mounted has
+/// no `.git` there, so nothing on it is taken; nor is a directory that cannot be looked at, or
+/// whose nearest directory above that is there is a link, as one to a disk not mounted is. Each
+/// repository is looked at once. Looks at the disk.
+///
+/// [`holds_repository`]: super::spaces::probe::holds_repository
+pub fn stranded(candidates: &[Candidate]) -> Vec<SessionId> {
+    let mut checkouts: std::collections::HashMap<&Path, bool> = std::collections::HashMap::new();
+    let mut found = Vec::new();
+    for (id, directory, root) in candidates {
+        let checkout = *checkouts
+            .entry(root.as_path())
+            .or_insert_with(|| super::spaces::probe::holds_repository(root));
+        if checkout && gone(directory) {
+            found.push(id.clone());
+        }
+    }
+    found
+}
+
+/// Whether `directory` is not found, and the nearest directory above it that is there is a
+/// directory, not a link: below a main checkout that is there, one is.
+fn gone(directory: &Path) -> bool {
+    let not_found = |e: &io::Error| e.kind() == io::ErrorKind::NotFound;
+    let mut places = directory.ancestors();
+    if !places
+        .next()
+        .is_some_and(|dir| fs::symlink_metadata(dir).is_err_and(|e| not_found(&e)))
+    {
+        return false;
+    }
+    for above in places.take(STRANDED_DEPTH) {
+        match fs::symlink_metadata(above) {
+            Ok(meta) => return meta.is_dir(),
+            Err(e) if not_found(&e) => {}
+            Err(_) => return false,
+        }
+    }
+    false
+}
+
 // Hosted sessions run on Unix only (ADR 0120): the scratch paths and the private state
 // directory these tests use are Unix ones.
 #[cfg(all(test, unix))]
@@ -363,6 +449,60 @@ mod tests {
 
     fn known(ids: &[u8]) -> HashSet<SessionId> {
         ids.iter().map(|n| id(*n)).collect()
+    }
+
+    #[test]
+    fn only_sessions_whose_directory_is_gone_under_a_main_checkout_that_is_there_are_stranded() {
+        use super::{stranded, stranded_candidates};
+        let scratch = Scratch::new("stranded");
+        let repo = scratch.0.join("repo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::create_dir_all(repo.join("crates/x")).unwrap();
+        // A linked worktree's `.git` is a file: it is no main checkout.
+        let linked = scratch.0.join("linked");
+        std::fs::create_dir_all(&linked).unwrap();
+        std::fs::write(linked.join(".git"), "gitdir: elsewhere\n").unwrap();
+        // Not mounted, say: nothing is there.
+        let unmounted = scratch.0.join("volume/repo");
+        // A link in the checkout to a disk not mounted.
+        std::os::unix::fs::symlink(scratch.0.join("unplugged"), repo.join("vendor")).unwrap();
+        // A main checkout whose `.git` is a link to a directory.
+        let linked_git = scratch.0.join("linked-git");
+        std::fs::create_dir_all(&linked_git).unwrap();
+        std::os::unix::fs::symlink(repo.join(".git"), linked_git.join(".git")).unwrap();
+        let at = |n: u8, dir: PathBuf, archived: bool| Remembered {
+            directory: dir,
+            archived,
+            ..session(n)
+        };
+        let sessions = [
+            at(1, repo.join(".claude/worktrees/gone"), false),
+            at(2, repo.join(".claude/worktrees/gone/sub"), false),
+            at(3, repo.join("crates/x"), false),
+            at(4, repo.clone(), false),
+            at(5, repo.join(".claude/worktrees/archived"), true),
+            at(6, unmounted.join(".claude/worktrees/gone"), false),
+            at(7, linked.join("gone"), false),
+            at(8, scratch.0.join("elsewhere/gone"), false),
+            at(9, repo.join("vendor/x"), false),
+            at(10, linked_git.join("gone"), false),
+        ];
+        let roots = [
+            repo.as_path(),
+            repo.as_path(),
+            &unmounted,
+            &linked,
+            &linked_git,
+        ];
+        let candidates = stranded_candidates(&sessions, roots);
+        let ids: Vec<SessionId> = candidates.iter().map(|(id, ..)| id.clone()).collect();
+        let under = vec![id(1), id(2), id(3), id(6), id(7), id(9), id(10)];
+        assert_eq!(ids, under, "only those under a root");
+        assert_eq!(stranded(&candidates), vec![id(1), id(2)]);
+        assert!(
+            stranded_candidates(&sessions, []).is_empty(),
+            "no repository, none"
+        );
     }
 
     #[test]

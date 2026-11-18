@@ -51,7 +51,11 @@ impl App {
         if caller.runs_in.starts_with(&path) {
             return pending.answer(Err("that worktree is your own session's".into()));
         }
-        // An orchestrator's removal would stop no session of another space (Q7).
+        // An orchestrator's removal would stop, or archive, no session of another space (Q7):
+        // so not before the sessions an earlier oso remembered are known.
+        if caller.scoped() && !self.hosting.adopting.recalled {
+            return pending.answer(Err("oso is still reading its sessions: try again".into()));
+        }
         if self.others_in(caller, &path) {
             return pending.answer(Err(
                 "a session outside your space is in that worktree".into()
@@ -96,6 +100,24 @@ impl App {
             }
             return;
         }
+        // Another space's session may have come in since the call: an orchestrator's removal
+        // archives none of them.
+        let caller = (self.hosting.tools.jobs.get(&token))
+            .and_then(|job| match job {
+                Job::Removing(removing) => self.hosting.table.by_connection(removing.connection),
+                _ => None,
+            })
+            .map(|session| self.caller_of(session));
+        if caller.is_some_and(|caller| self.others_in(&caller, path)) {
+            if let Some(Job::Removing(removing)) = self.hosting.tools.jobs.get_mut(&token)
+                && let Some(pending) = removing.pending.take()
+            {
+                pending.answer(Err(
+                    "a session outside your space is in that worktree".into()
+                ));
+            }
+            return;
+        }
         self.stop_idle_sessions_in(path);
         go.proceed();
     }
@@ -128,9 +150,10 @@ impl App {
             .map_or_else(|| "an agent".to_owned(), |s| printable(&s.name, 40));
         match result {
             Ok(ignored) => {
-                self.forget_removed_worktree(path);
+                let archived = self.forget_removed_worktree(path);
                 self.editor.message(format!(
-                    "Session {who} removed worktree {place}; its branch is kept"
+                    "Session {who} removed worktree {place}; its branch is kept{}",
+                    super::super::worktrees::archived_note(archived)
                 ));
                 self.agent_log("worktree_remove: removed");
                 let names: Vec<String> = ignored
@@ -143,6 +166,7 @@ impl App {
                     "branch_kept": true,
                     "deleted_ignored": names,
                     "deleted_ignored_count": ignored.len(),
+                    "archived": archived,
                 })));
             }
             Err(why) => {

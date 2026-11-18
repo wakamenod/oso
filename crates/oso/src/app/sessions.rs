@@ -193,14 +193,8 @@ impl App {
                     self.sessions_touched();
                 }
             }
-            Out::Recalled {
-                sessions,
-                spaces,
-                migrated,
-                readable,
-                fresh,
-            } => {
-                self.sessions_recalled(sessions, spaces, migrated, readable, fresh);
+            Out::Recalled(recalled) => {
+                self.sessions_recalled(recalled);
                 self.sessions_touched();
                 // Images past their week go once, as oso starts (ADR 0142).
                 self.sweep_images();

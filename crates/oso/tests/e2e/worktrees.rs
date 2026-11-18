@@ -285,6 +285,13 @@ pub(super) fn terminal<'a>(state: &'a Value, name: &str) -> Option<&'a Value> {
 }
 
 /// The names of the instance's buffers.
+/// Whether the session named `name` is archived, as the dev state lists sessions.
+pub(super) fn session_archived(state: &Value, name: &str) -> Option<bool> {
+    (state["sessions"]["sessions"].as_array()?.iter())
+        .find(|session| session["name"] == name)?["archived"]
+        .as_bool()
+}
+
 fn buffer_names(state: &Value) -> Vec<String> {
     state["buffers"]
         .as_array()
@@ -312,7 +319,11 @@ fn text(app: &mut App) -> Vec<String> {
 }
 
 /// The selected buffer's lines once `done` holds of them.
-fn text_until(app: &mut App, what: &str, done: impl Fn(&[String]) -> bool) -> Vec<String> {
+pub(super) fn text_until(
+    app: &mut App,
+    what: &str,
+    done: impl Fn(&[String]) -> bool,
+) -> Vec<String> {
     let deadline = Instant::now() + DEADLINE;
     loop {
         let lines = text(app);
@@ -497,12 +508,20 @@ fn a_worktree_is_kept_until_its_work_is_merged_then_removed_with_its_branch_kept
         "{question}"
     );
     app.send_keys("y");
-    app.wait_for("the removal", |state| {
+    let state = app.wait_for("the removal", |state| {
         !place.exists()
             && state["echo"]
                 .as_str()
                 .is_some_and(|echo| echo.starts_with("Removed worktree "))
     });
+    // Its stopped session is archived, so that it does not show under the main checkout,
+    // which holds the gone path now (ADR 0121, "Removal archives its sessions").
+    let echo = state["echo"].as_str().unwrap_or_default();
+    assert!(
+        echo.ends_with("; its branch is kept; 1 session in it archived"),
+        "{echo}"
+    );
+    assert_eq!(session_archived(&state, BRANCH), Some(true), "{state}");
     let listed = flow.git(&flow.repo, &["branch", "--list", BRANCH]);
     assert!(listed.contains(BRANCH), "the branch went");
     let lines = text_until(&mut app, "the empty list", |lines| {

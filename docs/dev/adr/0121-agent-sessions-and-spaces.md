@@ -1,7 +1,8 @@
 # 0121. Agent sessions and spaces
 
 - Status: Accepted, amended by 0126, 0128, 0131, 0132, 0135, 0136, 0138, 0140, 0141, 0143, 0145, 0151 and 0153;
-  "Merged work is not ready for review, as amended" (2026-11-17)
+  "Merged work is not ready for review, as amended" (2026-11-17); "Removal archives its
+  sessions, as amended" (2026-11-18)
 - Date: 2026-11-12
 
 ## Context
@@ -373,7 +374,8 @@ fetched.
      is not enough, refuses.
 
   Then it stops the idle sessions in it, closes its space, and runs `git worktree remove PATH`,
-  never `--force`. **It never deletes the branch.** The person's command asks first; the question
+  never `--force`; once git removed it, its sessions are archived ("Removal archives its
+  sessions, as amended"). **It never deletes the branch.** The person's command asks first; the question
   names what git ignores and will be deleted with it (`target/`, `node_modules/`,
   `.claude/settings.local.json`). An agent's `worktree_remove` does not ask (Q14), and its reply
   names the same.
@@ -1684,6 +1686,67 @@ or not, and only opening its review cleared the state.
   person's listing makes it idle, and after new work merged, an agent's of its space does; a turn that ends on merged work leaves it done, and the worktree is removed. In
   the second, a removal refuses work not merged, and once it is merged takes it with no listing
   and stops its session first.
+
+## Removal archives its sessions, as amended
+
+Amended on 2026-11-18, with the author's choices through the coordinator. Once
+`worktree_remove` had removed a finished session's worktree, the session's record stayed. Its
+directory, `<repo>/.claude/worktrees/<name>`, is inside the main checkout, and git no longer
+listed the worktree, so `*Spaces*` put the session under the deepest listed worktree that holds
+its directory: the repository's main checkout. Some twenty stopped sessions looked as if they
+had worked on main.
+
+- **A removal git finished archives the sessions that were in the worktree,** for the person's
+  `worktree-remove` and an agent's `worktree_remove` alike, and for a stop that finds the
+  directory not found, which counts as removed. A stop that cannot look at the directory no
+  longer counts it as removed: it may still be there. The sessions archived are every hosted
+  one whose directory is the removed path or under it, of any space, adopted ones included:
+  those that do not run, and those the removal itself hung up whose end has not come yet (the
+  author's choice). Each is archived as `A` archives one: its images go, its buffer stays, and
+  the list shows it under `Archived`, where `A` brings it back. A removal that keeps the
+  worktree archives nothing.
+- **Unchanged:** a session that works or needs input, and an external session in the worktree,
+  still refuse the removal (check 4). A session another oso instance remembered is not this
+  instance's to change: its record keeps it as it is.
+- **An orchestrator's removal archives no session of another space:** it is refused, as
+  before, when one is in the worktree, now also until the sessions an earlier oso remembered
+  are read ("oso is still reading its sessions"), and the refusal is checked again when the job
+  asks the app to clear the worktree, as a session may have come in since the call.
+- **The echo area says how many:** "Removed worktree PATH; its branch is kept; N sessions in it
+  archived", with nothing added for none. An agent's reply gains `"archived": N`. An agent's
+  `session_resume` of an archived session is refused with "that session is archived; only the
+  person resumes it", as oso, not only the person, archives now.
+- **As oso starts, the sessions worker finds the records already stranded** (the author chose
+  this over a command the person runs). A record is stranded when it is not archived, its
+  directory is not found, and it is under one of the spaces' repositories, but not at it, whose
+  main checkout is there: its `.git` a directory of the person's, the test ADR 0136's spaces
+  use (`spaces::probe::holds_repository`). A disk that is not mounted has no `.git` there, so
+  nothing on it is taken. Nor is a directory that cannot be looked at, or one whose nearest
+  directory above that is there is a link, as a link to a disk not mounted is. Only the
+  repositories a session is under are looked at, each once, on a thread of their own,
+  `oso-sessions-stranded`, that the worker waits for at most 250 ms: past it, none is taken
+  that start, so a mount that does not answer never holds the recall or the jobs after it.
+  The app archives them before they come back (`worker::Recalled`'s `stranded`), except one
+  carried over a restart, which runs. Their images stay, to go with the week's sweep (ADR
+  0142): a branch checked out may have taken a directory, and the archive is undone with `A`,
+  the images would not be. The record is written, and `*Messages*` says "Archived N sessions:
+  their directories are gone from under a repository". It runs at every start, so a worktree
+  removed outside oso, or by another instance, is caught at the next one.
+- **Not covered:** a session carried over a restart whose record the start archived before its
+  terminal came back stays archived while it runs; check 4 keeps a running session's
+  worktree, so this needs a directory deleted under a running session. The table's cap of 256
+  still drops archived sessions first, the oldest change first, so archiving many makes older
+  archived ones go sooner. A session in a directory a checkout or a pull took from the main
+  checkout is archived at the next start too, as its row would show under the main checkout.
+- **Built with** `Table::archive_under(path, hung_up)`, `sessions::record::{stranded_candidates,
+  stranded}`, the worker's `stranded_apart` and `worker::Recalled`, which `Out::Recalled` now
+  carries, all inside the `oso` binary crate; no public item of a library crate. The unit tests
+  cover the paths matched (a sibling with the same prefix and the main checkout stay), hung-up
+  and running sessions, and which records are stranded (a linked worktree's `.git` file, a
+  `.git` link, a link to a disk not mounted, a missing checkout, a directory under no
+  repository), and the look on its own thread. The end-to-end flows check the person's and an
+  agent's removal (the echo, the reply's `archived`, the session's mark) and a start with a
+  seeded stranded record, then a restart that keeps it archived and says nothing again.
 
 ## Consequences
 

@@ -2,7 +2,7 @@
 //! that names what git ignores there, and the removal, never with `--force`, which keeps the
 //! branch. The person's `y` runs every check again, in the job that removes it; once they hold,
 //! the worktree's idle sessions are stopped before git removes it, and once it has, the space
-//! that held it forgets it (ADR 0136).
+//! that held it forgets it (ADR 0136) and its sessions are archived.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
@@ -178,11 +178,24 @@ impl App {
     }
 
     /// Forgets the worktree at `path`, which git removed, in the space that held it (ADR
-    /// 0136): the space stays, with its tree.
-    pub(in crate::app) fn forget_removed_worktree(&mut self, path: &Path) {
+    /// 0136): the space stays, with its tree. Its sessions are archived, of every space, those
+    /// the removal hung up among them, so that none is shown under the repository's main
+    /// checkout, which holds the path now (ADR 0121, "Removal archives its sessions"); their
+    /// images go. Gives how many were archived.
+    pub(in crate::app) fn forget_removed_worktree(&mut self, path: &Path) -> usize {
         let now = crate::sessions::spaces::stored::now_ms();
         self.watch.spaces_mut().forget_worktree(path, now);
+        let watch = &self.watch;
+        let archived = (self.hosting.table).archive_under(path, |key| watch.is_hung_up(key));
+        let count = archived.len();
+        for id in archived {
+            self.drop_session_images(id);
+        }
+        if count > 0 {
+            self.remember_sessions();
+        }
         self.request_redraw();
+        count
     }
 
     /// Stops the [`settled`] hosted sessions in the worktree at `path`, which check 4 let through, as
@@ -222,9 +235,11 @@ impl App {
             // it removed is still forgotten, and how it ended said.
             match result {
                 Ok(_) => {
-                    self.forget_removed_worktree(path);
-                    self.editor
-                        .message(format!("Removed worktree {shown}; its branch is kept"));
+                    let archived = self.forget_removed_worktree(path);
+                    self.editor.message(format!(
+                        "Removed worktree {shown}; its branch is kept{}",
+                        archived_note(archived)
+                    ));
                 }
                 Err(why) => self.editor.message(format!("Worktree {shown} kept: {why}")),
             }
@@ -233,9 +248,11 @@ impl App {
         self.hosting.worktrees.removing = None;
         match result {
             Ok(_) => {
-                self.forget_removed_worktree(path);
-                self.editor
-                    .message(format!("Removed worktree {shown}; its branch is kept"));
+                let archived = self.forget_removed_worktree(path);
+                self.editor.message(format!(
+                    "Removed worktree {shown}; its branch is kept{}",
+                    archived_note(archived)
+                ));
             }
             Err(why) => self.editor.message(format!("Worktree {shown} kept: {why}")),
         }
@@ -249,6 +266,24 @@ impl App {
         if listing == Some(self.editor.window().buffer()) {
             self.list_worktrees();
         }
+    }
+}
+
+/// What a removal's echo adds for the `count` sessions it archived: nothing for none.
+pub(in crate::app) fn archived_note(count: usize) -> String {
+    if count == 0 {
+        return String::new();
+    }
+    let counted = sessions_counted(count);
+    format!("; {counted} in it archived")
+}
+
+/// `count` sessions, in words: "1 session", "3 sessions".
+pub(in crate::app) fn sessions_counted(count: usize) -> String {
+    if count == 1 {
+        "1 session".to_owned()
+    } else {
+        format!("{count} sessions")
     }
 }
 

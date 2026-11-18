@@ -343,7 +343,11 @@ removes the worktree at point. `M-x worktree-remove` removes a worktree only whe
   branch with no commit of its own does not.
 
 It asks first, naming the git-ignored files that go with the worktree. It stops the idle
-sessions there, never forces, and never deletes the branch. While a removal runs, its row in
+sessions there, never forces, and never deletes the branch. Once git has removed the worktree,
+the sessions that were in it are archived, and the echo area says how many: they wait under
+`Archived` in `*Spaces*`, where `A` brings one back. As oso starts, it also archives the stopped
+sessions whose directory is gone from inside one of your spaces' repositories, such as a
+worktree removed outside oso, and `*Messages*` says how many. While a removal runs, its row in
 `*Worktrees*` says `removing…`. `M-x worktree-remove-stop` stops it: before git runs, nothing is
 removed; once git may be deleting, it asks first, as the worktree is then left half removed.
 
