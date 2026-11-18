@@ -1,2 +1,4 @@
 # Text-grid snapshots read the same on every OS (ADR 0045).
 *.snap text eol=lf
+# oso's copies of third-party crates are byte for byte what their lists hash (ADR 0157).
+patches/** -text

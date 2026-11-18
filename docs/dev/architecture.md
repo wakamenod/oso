@@ -77,7 +77,11 @@ those two depends on another workspace crate. Only `oso-render` uses wgpu, only
 `oso-platform`, and only the tip crate uses it. It alone links libghostty-vt, which Zig 0.17
 builds from the release `crates/oso-term/ghostty-vt.lock` pins, with oso's patch in
 `crates/oso-term/patches/` applied and checked: run `just ghostty-vt` once to
-fetch and check its tarballs, with Zig 0.17, minisign and `patch` installed. All of its `unsafe` is in
+fetch and check its tarballs, with Zig 0.17, minisign and `patch` installed. One grammar,
+tree-sitter-yaml, is built from oso's copy in `patches/` through `[patch.crates-io]`: the
+published crate with one line changed, each file's SHA-256 listed beside it and checked by
+`crates/oso/tests/architecture`, and the directory gated as dependencies are
+([ADR 0157](adr/0157-highlighting-html-css-json-and-yaml.md)). All of its `unsafe` is in
 `engine/ghostty`'s `ffi` and `raw`. `oso-lsp` depends on `oso-core` and `oso-platform`, and only the
 tip crate uses it ([ADR 0138](adr/0138-language-servers.md)): `app/servers.rs` starts one
 server per project root and entry, and the fake server the tests run against is a binary of

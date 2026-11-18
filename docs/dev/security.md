@@ -892,7 +892,11 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 - Tree-sitter's grammars are the exception: generated and hand-written C that runs in the oso
   process on untrusted files ([ADR 0012](adr/0012-tree-sitter.md)). They are few, pinned to exact
   versions, with each `build.rs` and scanner read before a bump, and never run on a buffer that
-  may hold secrets. A memory error in one ends oso with no emergency save
+  may hold secrets. One, tree-sitter-yaml, is built from oso's copy in `patches/`, which bounds
+  what its scanner serializes; every file of the copy is hashed in a list a guard test checks,
+  the directory needs approval as dependencies do, and `cargo audit` does not look a patched
+  crate up, so RustSec is checked for it by hand
+  ([ADR 0157](adr/0157-highlighting-html-css-json-and-yaml.md)). A memory error in one ends oso with no emergency save
   ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
 - Fuzz targets (`cargo-fuzz`) cover file loading, decoding, highlighting and
   layout. What a language server sends is fuzzed through proptest targets in `oso-lsp`'s
