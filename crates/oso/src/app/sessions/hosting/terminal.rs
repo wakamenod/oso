@@ -25,7 +25,7 @@ pub(super) const STOPPED: &str = "stopped: session-resume to continue";
 const FORGOTTEN: &str = "forgotten: oso keeps the 256 sessions that changed last";
 
 /// A session buffer's name.
-fn buffer_name(name: &str) -> String {
+pub(in crate::app) fn buffer_name(name: &str) -> String {
     format!("*claude: {name}*")
 }
 
@@ -53,6 +53,10 @@ impl App {
             }
         };
         self.mark_session_buffer(key, buffer);
+        // Its `claude` is given the record's name now (ADR 0155).
+        if let Some(session) = self.hosting.table.get_mut(key) {
+            session.launched_as = None;
+        }
         // Running from now on, as a terminal is while its shell is found: an exit asks first.
         let size = self.prepare_terminal(buffer, shown);
         self.editor.set_mode_note(buffer, String::new());

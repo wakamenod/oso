@@ -76,6 +76,7 @@ impl App {
             SessionRequest::Refresh => self.relist_projects(),
             SessionRequest::Send { to, parts } => self.send_request(&to, &parts),
             SessionRequest::FollowMessage(buffer) => self.follow_message(buffer),
+            SessionRequest::RenameTo(name) => self.session_rename_answered(&name),
             other => return Some(other),
         }
         self.watch.stale = true;
@@ -274,6 +275,11 @@ impl App {
             return;
         };
         let key = match row {
+            _ if action == RowAction::Rename && !matches!(row, Line::Session(_)) => {
+                return self
+                    .editor
+                    .message("R renames a session; the space menu's n renames a space");
+            }
             Line::Header(_) if action == RowAction::Fold => {
                 return self.watch.list.fold(&row);
             }
@@ -355,6 +361,7 @@ impl App {
             },
             RowAction::Stop => self.stop_session(key),
             RowAction::Explain => self.explain_session(key),
+            RowAction::Rename => self.ask_session_rename(key),
         }
     }
 

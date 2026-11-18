@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 
 use super::{
     MAX_BRIEF_SESSIONS, MAX_INSTRUCTIONS, MAX_TAKEOVER, Repository, TEXT, check_before_start,
-    earlier_name, header, instructions_section, next_earlier, read_instructions, still_there,
-    takeover_brief,
+    earlier_name, header, instructions_section, is_earlier_name, next_earlier, read_instructions,
+    still_there, takeover_brief,
 };
 use crate::sessions::spaces::dir::{self, Refusal};
 use crate::sessions::spaces::{Member, SpaceId, Stored};
@@ -240,6 +240,25 @@ fn an_earlier_orchestrators_name_is_a_sessions_name_and_never_used_twice() {
     // A longer name cut to fit counts too.
     let cut = earlier_name(&long, 5);
     assert_eq!(next_earlier(&long, [cut.as_str()].into_iter()), 6);
+}
+
+/// A rename never takes an earlier orchestrator's name, in any case (ADR 0155).
+#[test]
+fn an_earlier_orchestrators_name_is_known_as_one() {
+    assert!(is_earlier_name("fix-login", "fix-login-was-1"));
+    assert!(is_earlier_name("fix-login", "Fix-Login-WAS-12"));
+    let long = "a".repeat(48);
+    assert!(is_earlier_name(&long, &earlier_name(&long, 3)));
+    for not in [
+        "fix-login",
+        "fix-login-was-",
+        "fix-login-was-x",
+        "fix-login-was-+1",
+        "other-was-1",
+        "fix-login-was-1-2",
+    ] {
+        assert!(!is_earlier_name("fix-login", not), "{not}");
+    }
 }
 
 #[test]

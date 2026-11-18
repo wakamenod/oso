@@ -46,6 +46,7 @@ pub const LIST: &[(&str, &str)] = &[
     ("A", "sessions-archive"),
     ("r", "sessions-resume"),
     ("k", "session-stop"),
+    ("R", "session-rename"),
     ("e", "sessions-explain"),
     ("?", "sessions-help"),
     ("c", "claude"),

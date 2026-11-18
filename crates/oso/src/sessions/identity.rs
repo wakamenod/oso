@@ -158,6 +158,35 @@ pub fn cleaned(raw: &str) -> Option<String> {
     (!name.is_empty()).then(|| name.to_owned())
 }
 
+/// The new name `raw` gives a session's rename (ADR 0155): cleaned as a typed name is, or, when
+/// `exact`, as an agent gives it, only a name cleaning leaves as it is, so that the agent knows
+/// the name it gave is the one kept.
+///
+/// # Errors
+///
+/// Why it is refused: nothing is left of it, or, `exact`, cleaning changes it.
+pub fn new_name(raw: &str, exact: bool) -> Result<String, String> {
+    let Some(name) = cleaned(raw) else {
+        return Err(
+            "a session's name needs an ASCII letter or digit, `.`, `_` or `-`; nothing is left of that one"
+                .to_owned(),
+        );
+    };
+    if exact && name != raw {
+        return Err(format!(
+            "a session's name is ASCII letters, digits, `.`, `_` and `-`, at most {MAX_NAME} bytes, \
+             not starting or ending with `-` or `.`: give \"{name}\", say"
+        ));
+    }
+    Ok(name)
+}
+
+/// Whether two names are the same name for a session's rename, ASCII case aside (ADR 0155):
+/// a name that differs only so would read as the other in a list or an address.
+pub fn same_name(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
+}
+
 /// `base`, cleaned, or with `-2`, `-3` and on after it, the first that `taken` does not hold.
 pub fn unique_name<'a>(base: &str, taken: impl Iterator<Item = &'a str> + Clone) -> String {
     let base = clean_name(base);
@@ -221,6 +250,26 @@ mod tests {
         assert_eq!(clean_name("v1.2_x"), "v1.2_x");
         assert_eq!(clean_name(""), "session");
         assert_eq!(clean_name(&"x".repeat(100)).len(), MAX_NAME);
+    }
+
+    #[test]
+    fn a_new_name_is_cleaned_for_the_person_and_exact_for_an_agent() {
+        use super::{new_name, same_name};
+        assert_eq!(new_name("fix login", false), Ok("fix-login".into()));
+        assert_eq!(new_name("fix-login", true), Ok("fix-login".into()));
+        let refused = new_name("fix login", true).unwrap_err();
+        assert!(refused.contains("\"fix-login\""), "{refused}");
+        for nothing in ["", "日本語", "--", "\u{202e}"] {
+            assert!(new_name(nothing, false).is_err(), "{nothing:?}");
+            assert!(new_name(nothing, true).is_err(), "{nothing:?}");
+        }
+        assert!(new_name(&"x".repeat(MAX_NAME + 1), true).is_err());
+        assert_eq!(
+            new_name(&"x".repeat(MAX_NAME + 1), false).unwrap().len(),
+            MAX_NAME
+        );
+        assert!(same_name("Api", "api"));
+        assert!(!same_name("api", "api-2"));
     }
 
     #[test]

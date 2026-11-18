@@ -417,6 +417,9 @@ mod tests {
         "sessions-pin",
         "session-archive",
         "session-pin",
+        // A session's name, which the person reads the list and its buffers by (ADR 0155).
+        "session-rename",
+        "session-rename-to",
         "sessions-show",
         "space-switch",
         "space-zoom",

@@ -80,6 +80,10 @@ pub struct Hosted {
     /// Whether it came over `oso dev`'s restart: its `claude` is no longer oso's child, so its
     /// id could be another's once it ends (ADR 0120, step 11).
     pub carried: bool,
+    /// The name its running `claude` was given with `--name`, once a rename changed the
+    /// record's since it started (ADR 0155): what Claude Code knows it by until its next start
+    /// or resume, where the registry does not say. `None`: the record's name.
+    pub launched_as: Option<String>,
     /// When that `claude` started, as the instance before read it: a bridge's parent must
     /// have started then too, and with no start known, no bridge is believed unasked.
     pub started: Option<std::time::SystemTime>,
@@ -187,6 +191,7 @@ impl Table {
             changed: new.changed,
             bridge: None,
             carried: false,
+            launched_as: None,
             started: None,
         });
         self.sessions.last_mut()
@@ -237,6 +242,7 @@ impl Table {
                 changed: session.changed,
                 bridge: None,
                 carried: false,
+                launched_as: None,
                 started: None,
             });
         }
@@ -314,6 +320,12 @@ impl Table {
             gone.push((session.id, session.buffer));
         }
         gone
+    }
+
+    /// The names held for sessions whose start thread runs, which a rename may not take
+    /// (ADR 0155).
+    pub fn held_names(&self) -> impl Iterator<Item = &str> {
+        self.pending.iter().map(|(.., name)| name.as_str())
     }
 
     /// Every hosted session.

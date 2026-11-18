@@ -8,9 +8,10 @@ use std::time::{Duration, Instant};
 use oso_core::command::Reach;
 
 use super::{
-    Asks, Branch, Guard, MAX_CALLS, REFUSED_FOR, Refusal, Resumable, StartLimit, TOOLS, Unasked,
-    quoted, resumable, resume_question, resume_started, start_question, start_started,
-    starts_without_asking, tool, worktree_question, worktree_started,
+    Asks, Branch, Guard, MAX_CALLS, REFUSED_FOR, Refusal, Renamable, Resumable, StartLimit, TOOLS,
+    Unasked, quoted, renamable, rename_clash, rename_note, renamed_said, resumable,
+    resume_question, resume_started, start_question, start_started, starts_without_asking, tool,
+    worktree_question, worktree_started,
 };
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
@@ -62,6 +63,8 @@ fn the_tools_and_their_reach() {
                 true,
                 false
             ),
+            // Metadata only, as ADR 0121's table has it (ADR 0155).
+            ("session_rename", Reach::Change, Asks::No, true, false),
         ]
     );
     let destructive: Vec<_> = TOOLS
@@ -417,4 +420,95 @@ fn a_resume_goes_without_asking_as_a_start_does() {
     };
     assert!(unasked(3));
     assert!(!unasked(4), "past the limit it asks");
+}
+
+/// The person renames any session but a current orchestrator; an agent renames itself, its
+/// children and, as a current orchestrator, its space's sessions, never an orchestrator
+/// (ADR 0155).
+#[test]
+fn who_renames_which_session() {
+    let person = Renamable::default();
+    assert_eq!(renamable(person), Ok(()));
+    assert_eq!(
+        renamable(Renamable {
+            former: true,
+            ..person
+        }),
+        Ok(())
+    );
+    assert!(
+        renamable(Renamable {
+            orchestrator: true,
+            ..person
+        })
+        .is_err()
+    );
+    let agent = Renamable {
+        agent: true,
+        ..Renamable::default()
+    };
+    assert!(renamable(agent).is_err(), "another's session");
+    for allowed in [
+        Renamable {
+            caller: true,
+            ..agent
+        },
+        Renamable {
+            callers_child: true,
+            ..agent
+        },
+        Renamable {
+            of_callers_space: true,
+            ..agent
+        },
+    ] {
+        assert_eq!(renamable(allowed), Ok(()), "{allowed:?}");
+        for orchestrator in [
+            Renamable {
+                orchestrator: true,
+                ..allowed
+            },
+            Renamable {
+                former: true,
+                ..allowed
+            },
+        ] {
+            assert!(renamable(orchestrator).is_err(), "{orchestrator:?}");
+        }
+    }
+}
+
+/// A rename takes no name another session, a space or a space's earlier orchestrator has,
+/// in any case (ADR 0155).
+#[test]
+fn a_rename_takes_no_name_held_or_answered_to() {
+    let sessions = ["api", "web-2"];
+    let spaces = ["fix-login"];
+    let clash = |name| rename_clash(name, sessions, spaces);
+    assert_eq!(clash("new"), None);
+    assert!(clash("API").unwrap().contains("another session"));
+    assert!(clash("Fix-Login").unwrap().contains("a space"));
+    assert!(clash("fix-login-was-2").unwrap().contains("earlier"));
+    assert_eq!(clash("fix-login-2"), None);
+}
+
+/// The rename's line names both names quoted, and its note what still answers to the old one.
+#[test]
+fn a_rename_says_what_still_answers_to_the_old_name() {
+    assert_eq!(
+        renamed_said(Some("lead"), "api", "a\u{202e}b"),
+        "session \"lead\" renamed session \"api\" to \"a\\u{202e}b\""
+    );
+    assert_eq!(
+        renamed_said(None, "api", "api-v2"),
+        "Session \"api\" is now \"api-v2\""
+    );
+    let note = rename_note("api", "api-v2", true, 0).unwrap();
+    assert!(note.contains("answers to \"api\""), "{note}");
+    assert!(note.contains("/rename api-v2"), "{note}");
+    assert_eq!(rename_note("api", "api-v2", false, 0), None);
+    // Claude Code took the name already.
+    assert_eq!(rename_note("api-v2", "api-v2", true, 0), None);
+    let children = rename_note("api", "api-v2", false, 2).unwrap();
+    assert_eq!(children, "2 sessions it started report to \"api\"");
 }

@@ -72,6 +72,21 @@ pub fn next_earlier<'a>(space: &str, names: impl Iterator<Item = &'a str>) -> us
     taken.max().unwrap_or(0) + 1
 }
 
+/// Whether `name` is a name a replaced orchestrator of space `space` keeps, `<space>-was-<n>`,
+/// ASCII case aside: a session's rename never takes one (ADR 0155).
+pub fn is_earlier_name(space: &str, name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let Some((_, n)) = lower.rsplit_once("-was-") else {
+        return false;
+    };
+    // Only digits, as `earlier_name` writes them: `parse` would take a sign.
+    if !n.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    n.parse::<usize>()
+        .is_ok_and(|n| earlier_name(space, n).eq_ignore_ascii_case(name))
+}
+
 /// The first prompt of the orchestrator that takes over space `space` from session `old_name`
 /// (id `old_id`), with `old`'s transcript where it was found and the space's `sessions` by
 /// name, state and directory: at most [`MAX_BRIEF_SESSIONS`] of them, and [`MAX_TAKEOVER`]

@@ -1,6 +1,6 @@
 # 0143. Agent keys on `C-c a` and an Agents menu
 
-- Status: Accepted, amended by 0138 and 0145
+- Status: Accepted, amended by 0138, 0145 and 0155
 - Date: 2026-11-16
 
 ## Context

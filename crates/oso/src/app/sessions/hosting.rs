@@ -1,6 +1,7 @@
 //! Hosted sessions in the app (ADR 0121): starting, resuming and forking them at the person's
 //! command, or at an agent's tool's (ADR 0153), the start thread's reports and the remembered
-//! set; `bridge`: the connections that hold a session. The work that touches files and processes is on the start thread and the
+//! set; `bridge`: the connections that hold a session; `naming`: a rename the person was asked
+//! about, and what Claude Code's registry calls oso's running sessions (ADR 0155). The work that touches files and processes is on the start thread and the
 //! sessions worker; this only decides and carries out.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
@@ -27,9 +28,11 @@ mod bridge;
 mod carried;
 mod fork;
 mod moving;
+mod naming;
 mod record;
 mod resume;
 mod terminal;
+pub(in crate::app) use terminal::buffer_name;
 
 use fork::ForkFrom;
 
@@ -78,6 +81,8 @@ pub(in crate::app) struct Hosting {
     pub(in crate::app) tools: super::tools::Tools,
     /// Sessions started outside oso that move into a space (ADR 0151).
     pub(in crate::app) moves: Moves,
+    /// A rename asked, and what Claude Code calls oso's running sessions (ADR 0155).
+    pub(in crate::app) naming: naming::Naming,
 }
 
 impl Hosting {
@@ -122,6 +127,7 @@ impl Hosting {
             trusts: HashMap::new(),
             tools: super::tools::Tools::default(),
             moves: Moves::default(),
+            naming: naming::Naming::default(),
         }
     }
 }

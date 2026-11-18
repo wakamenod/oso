@@ -194,6 +194,16 @@ impl App {
         }
     }
 
+    /// The name Claude Code knows hosted `session` by (ADR 0155): while it runs, its
+    /// registry's, as the poll last saw it from its own `claude`, else the name it was started
+    /// with; else the `--name` its next start or resume passes, the record's.
+    pub(in crate::app) fn messaging_name(&self, session: &Hosted) -> String {
+        let running = session.runs().then(|| {
+            (self.hosting.naming.messaging_name(session.key)).or(session.launched_as.as_deref())
+        });
+        running.flatten().unwrap_or(&session.name).to_owned()
+    }
+
     /// A reply for a session, as `session_list` and `session_state` give it, with its state as
     /// `*Spaces*` and `*Worktrees*` have it: the taxonomy's, or `starting` or `running` while
     /// its live state is not known. `now` is the time as an instant and in ms since the epoch.
@@ -217,9 +227,10 @@ impl App {
         json!({
             "id": session.id.as_str(),
             "name": session.name,
-            // The `--name` oso gave its claude, which Claude Code's SendMessage and ListAgents
-            // know it by; the CLI may suffix a duplicate.
-            "messaging_name": session.name,
+            // What Claude Code's SendMessage and ListAgents know its claude by: the registry's
+            // name while it runs, else the `--name` its next start or resume gives it, which a
+            // rename changes at once (ADR 0155); the CLI may suffix a duplicate.
+            "messaging_name": self.messaging_name(session),
             "directory": shown(&session.directory),
             "project": session.root.as_deref().map(shown),
             "space": self.watch.space_name(session.key),

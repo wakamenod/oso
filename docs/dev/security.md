@@ -695,6 +695,14 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     as a start does, or goes without asking under ADR 0135's rules, counted toward the limit
     while it runs. A conversation a live process runs is refused, and the agent never forks
     one.
+  - `session_rename` ([ADR 0155](adr/0155-renaming-sessions.md)) asks nothing, as it changes
+    metadata only, and counts toward the loop guard before the name is looked up. An agent
+    renames itself, the sessions it started and, as a current orchestrator, its space's
+    sessions; never an orchestrator, whose name is the address its workers message. A rename
+    takes no name another session, a space or an earlier orchestrator has, nor one another
+    running session was started with or Claude Code's registry gives it, ASCII case aside.
+    A registry name counts only from the entry of the session's own `claude`, and only a clean
+    one.
   - An agent's `worktree_remove` asks nothing once every check holds (the author's choice), and
     `worktree_list` runs git and `gh` without a question; both need a trusted project.
   - Each session may make 20 calls that change or ask until the person types in its terminal,

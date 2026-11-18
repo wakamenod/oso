@@ -143,6 +143,9 @@ pub enum SessionRequest {
     /// Act on the session whose terminal is this buffer, as on its row (`C-c K`, `C-c P`,
     /// `C-c A` in session mode, ADR 0132).
     OnBuffer(BufferId, RowAction),
+    /// Give the session whose rename the host asked about last this name (`session-rename-to`,
+    /// the answer to `session-rename`'s prompt, ADR 0155).
+    RenameTo(String),
     /// Group `*Spaces*` by state, or by space.
     Regroup,
     /// Fold `*Spaces*` to its spaces, then open it down to its worktrees, then everything, in
@@ -276,6 +279,9 @@ pub enum RowAction {
     Stop,
     /// Explain the last look at the session's screen.
     Explain,
+    /// Read a new name for the session, its current one in the prompt (`session-rename`,
+    /// ADR 0155).
+    Rename,
 }
 
 impl Editor {

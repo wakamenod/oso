@@ -133,6 +133,7 @@ through `oso mcp`.
 | `K` | `session-stop` | Stop this session. It asks first while the session works or needs input. |
 | `P` | `session-pin` | Pin or unpin this session; dim outside a session's buffer. |
 | `A` | `session-archive` | Archive this session, or bring it back; dim outside a session's buffer. |
+| `R` | `session-rename` | Rename this session, or the one on the `*Spaces*` row: the prompt holds its name. |
 | `v` | `review-session` | Review what changed in this project since its baseline. |
 | `V` | the review menu | The same menu as `C-x v r`. |
 
@@ -159,8 +160,8 @@ the head's letter with Control, `C-c C-n` for `n`:
 | `C-c ?` | Say these keys in the echo area. |
 
 The other heads have no such key, as the terminal or Emacs keeps theirs: `C-c a c` starts another
-session, `C-c a m` sends, `C-c a j` switches spaces, and `C-c a K`, `C-c a P` and `C-c a A` stop,
-pin and archive this session.
+session, `C-c a m` sends, `C-c a j` switches spaces, and `C-c a K`, `C-c a P`, `C-c a A` and `C-c a R` stop,
+pin, archive and rename this session.
 
 `C-c C-c` sends Claude Code a `Ctrl-C`, and `C-c C-k` switches char mode, where every key goes to
 Claude Code. Any other `C-c` key that is not listed here sends nothing. To change these keys, see
@@ -243,11 +244,17 @@ In `*Spaces*`:
 | `A` | Archive, or bring an archived session back. |
 | `r` | Resume a stopped session. |
 | `k` | Stop the session. It asks first while the session works or needs input. |
+| `R` | Rename the session: the prompt holds its name, `M-p` empties it. |
 | `e` | Explain its state. |
 | `?` | Say what the marks mean, and these keys. |
 
 `C-c a c` and `C-c a w` in the list work as `c` and `w`. `C-x o` skips the list. `C-x k` in a
 session's buffer stops and archives the session.
+
+`R` renames a session in oso and its buffer at once, to a name no other session or space has. A
+running Claude Code keeps the name other sessions message it by until you resume it; type
+`/rename NEW` in its terminal to change that now. A space's orchestrator keeps the space's name:
+rename the space instead.
 
 ### Spaces
 
@@ -494,6 +501,7 @@ tools besides oso's editing ones:
 | `session_start` | Start a session in the repository or one of its worktrees. Asks you first. |
 | `start_worktree_session` | Start a session in a new worktree, with a brief. Asks you first. |
 | `session_resume` | For a space's orchestrator: resume a stopped session of its space with its conversation, as `C-c a r` does. Asks you first. |
+| `session_rename` | Rename its own session or one it started; a space's orchestrator also its space's sessions. Asks nothing, and the echo area says it. |
 | `worktree_list` | List the repository's worktrees, as `M-x worktree-list` does. |
 | `worktree_remove` | Remove a finished worktree, under the same rules as `M-x worktree-remove`. |
 | `space_status` | Read the session's issue space: its repositories, their trust, the orchestrator's name, its sessions. |

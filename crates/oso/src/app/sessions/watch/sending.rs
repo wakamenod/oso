@@ -42,6 +42,20 @@ pub(in crate::app) struct Sending {
     pub(super) keeper: crate::sessions::images::Keeper,
 }
 
+impl super::Watch {
+    /// The names of other programs' sessions, as `*Spaces*` lists them, which a rename may not
+    /// take (ADR 0155).
+    pub(in crate::app) fn external_names(&self) -> impl Iterator<Item = &str> {
+        self.externals.iter().map(|entry| entry.name.as_str())
+    }
+
+    /// Whether the worker was asked to look at Claude Code's registry: a look it made after it
+    /// was told to stop is dropped.
+    pub(in crate::app) fn polls(&self) -> bool {
+        self.polling
+    }
+}
+
 impl App {
     /// `session-send` or `session-mention` asked to paste `parts` into the session `to`.
     pub(in crate::app) fn send_request(&mut self, to: &SendTo, parts: &[SendPart]) {
@@ -195,7 +209,8 @@ impl App {
             .table()
             .iter()
             .filter(|session| !session.archived && session.buffer.is_some())
-            .find(|session| session.name == from)
+            // A renamed one still running sends under the name Claude Code knows it by (ADR 0155).
+            .find(|session| session.name == from || self.messaging_name(session) == from)
             .map(|session| session.key);
         match hosted {
             Some(key) => self.show_session(key),

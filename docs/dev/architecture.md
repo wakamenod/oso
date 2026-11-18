@@ -888,7 +888,13 @@ The UI thread never blocks on I/O or parsing:
   orchestrator's `session_resume` ([ADR 0153](adr/0153-agents-resume-sessions.md)) is
   `app/sessions/tools/resume.rs`: `sessions::tools::resumable` says which session it takes, and
   `App::resume_hosted` (`app/sessions/hosting/resume.rs`), the body of `session-resume`, resumes it; the start thread's live check
-  refuses it, with no fork offered (`App::session_tool_live`).
+  refuses it, with no fork offered (`App::session_tool_live`). `session_rename` and the
+  person's `session-rename` ([ADR 0155](adr/0155-renaming-sessions.md)) are
+  `app/sessions/tools/rename.rs`: `sessions::tools::renamable` and `rename_clash` say who may
+  rename which session and to what, and the rename changes the record's name and the buffer's
+  (`Editor::rename_terminal_buffer`); a running `claude` keeps its own until it is resumed,
+  kept as `Hosted::launched_as` and carried over a restart. What Claude Code's registry calls
+  oso's running sessions, from each one's own `claude`, is `app/sessions/hosting/naming.rs`'.
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.
