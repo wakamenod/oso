@@ -33,6 +33,7 @@ impl App {
             baseline: session.baseline.clone(),
             pinned: session.pinned,
             changed: session.changed,
+            launched_as: session.launched_as.clone(),
         })
     }
 
@@ -96,6 +97,7 @@ impl App {
             };
             hosted.carried = true;
             hosted.started = terminal.started;
+            hosted.launched_as.clone_from(&session.launched_as);
         }
         // The worker judges only the sessions it was told of, as a start tells it: without
         // this, every screen of a carried session is dropped and its state never judged.

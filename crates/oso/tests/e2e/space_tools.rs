@@ -10,6 +10,10 @@
 //! the configuration allows, the resumed one counted toward the limit; past it, it asks and `n`
 //! refuses it for a minute; a conversation that runs in another process is refused, not forked,
 //! and the caller, an unknown name and a running session are refused (ADR 0153).
+//! `session_rename` renames a worker of the space in oso's record and its buffer, never the
+//! orchestrator, and takes no name another session or the space has; its next resume passes
+//! the new name; the person's `C-c a R` opens holding the name and renames it again, and is
+//! refused on the orchestrator (ADR 0155).
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test: which repository
 //! `repo` names and the scope have their own tests.
@@ -24,7 +28,7 @@ use serde_json::{Value, json};
 use super::session_tools::{Bridge, FAKE, Run, answer, run_in, runs};
 use super::sessions::live_elsewhere;
 use super::spaces::{PrivateRoot, answer as reply_with, space, trust_restricted};
-use super::worktrees::{DEADLINE, Flow, asks, terminal};
+use super::worktrees::{DEADLINE, Flow, asks, keys, terminal};
 
 /// A space of the flow's repository and an untrusted `other` one, made with `C-c a O`, and its
 /// orchestrator started with `o`: the instance, the orchestrator's bridge and `other`.
@@ -312,4 +316,127 @@ fn an_orchestrator_resumes_the_stopped_sessions_of_its_space() {
     let _ = other.kill();
     let _ = other.wait();
     flow.exit_with(0);
+}
+
+/// The name of the session whose id is `id`, and the one Claude Code knows it by, as
+/// `session_state` gives them.
+fn names_of(bridge: &mut Bridge, id: &str) -> (String, String) {
+    let (state, error) = bridge.tool("session_state", json!({ "session": id }));
+    assert!(!error, "{state}");
+    let text = |field: &str| state[field].as_str().unwrap_or_default().to_owned();
+    (text("name"), text("messaging_name"))
+}
+
+fn name_of(bridge: &mut Bridge, id: &str) -> String {
+    names_of(bridge, id).0
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_orchestrator_and_the_person_rename_the_sessions_of_a_space() {
+    let spaces = PrivateRoot::new("space-rename");
+    let config = format!(
+        "agents_start_without_asking = true\nagents_start_limit = 2\n\n[spaces]\nroot = \"{}\"\n",
+        spaces.0.display()
+    );
+    let flow = Flow::with_fake("space-rename", &config, FAKE);
+    let (mut app, mut bridge, _) = orchestrated(&flow, &spaces);
+    let (id, run) = worker(&flow, &mut bridge, "wa", None);
+    let rename = |bridge: &mut Bridge, session: &str, name: &str| {
+        bridge.tool(
+            "session_rename",
+            json!({ "session": session, "name": name }),
+        )
+    };
+
+    // Never the orchestrator, whose name is the space's; no name the space or another session
+    // has, case aside; only a name as it is kept.
+    let (said, error) = rename(&mut bridge, "fix-login", "lead");
+    assert!(error && said.to_string().contains("orchestrator"), "{said}");
+    let (said, error) = rename(&mut bridge, "wa", "Fix-Login");
+    assert!(error && said.to_string().contains("a space has"), "{said}");
+    let (said, error) = rename(&mut bridge, "wa", "fix-login-was-1");
+    assert!(error && said.to_string().contains("earlier"), "{said}");
+    let (said, error) = rename(&mut bridge, "wa", "api v2");
+    assert!(
+        error && said.to_string().contains("\\\"api-v2\\\""),
+        "{said}"
+    );
+    assert_eq!(name_of(&mut bridge, &id), "wa");
+
+    // Renamed: the record and the buffer at once, nobody asked; its claude keeps its name until
+    // it is resumed, which the reply and the echo area say.
+    let (renamed, error) = rename(&mut bridge, "wa", "api-v2");
+    assert!(!error, "{renamed}");
+    assert_eq!(renamed["was"], "wa");
+    assert_eq!(renamed["messaging_name"], "wa", "{renamed}");
+    let note = renamed["note"].as_str().unwrap_or_default();
+    assert!(note.contains("/rename api-v2"), "{renamed}");
+    let state = app.wait_for("its buffer renamed", |state| {
+        terminal(state, "*claude: api-v2*").is_some()
+    });
+    assert!(terminal(&state, "*claude: wa*").is_none());
+    assert_eq!(state["prompts"], json!([]), "nobody was asked");
+    assert!(
+        (state["echo"].as_str().unwrap_or_default()).contains("renamed session \"wa\""),
+        "{}",
+        state["echo"]
+    );
+    // Its claude still answers to the name it was started with, which no other session takes.
+    assert_eq!(names_of(&mut bridge, &id), ("api-v2".into(), "wa".into()));
+    let _ = worker(&flow, &mut bridge, "wb", None);
+    let (said, error) = rename(&mut bridge, "wb", "WA");
+    assert!(
+        error && said.to_string().contains("another session"),
+        "{said}"
+    );
+    let (said, error) = rename(&mut bridge, &id, "api-v2");
+    assert!(error && said.to_string().contains("already"), "{said}");
+
+    // Its next resume passes the new name.
+    stop(&flow, &mut bridge, &run, "api-v2");
+    let (resumed, error) = bridge.tool("session_resume", json!({ "session": "api-v2" }));
+    assert!(!error, "{resumed}");
+    let run = resumed_run(&flow, &id);
+    assert!(
+        run.args.contains(&"--name=api-v2".to_owned()),
+        "{:?}",
+        run.args
+    );
+    assert_eq!(
+        names_of(&mut bridge, &id),
+        ("api-v2".into(), "api-v2".into())
+    );
+
+    the_person_renames(&mut app, &mut bridge, &id);
+    flow.exit_with(0);
+}
+
+/// The person's `C-c a R` in session `id`'s buffer, `*claude: api-v2*`, opens holding its name
+/// and renames it again; on the orchestrator it is refused, with no prompt.
+fn the_person_renames(app: &mut crate::harness::App, bridge: &mut Bridge, id: &str) {
+    // The person's `C-c a R` in its buffer opens holding its name, and renames it again.
+    app.send_keys(&format!("C-x b {} RET", keys("*claude: api-v2*")));
+    app.send_keys("C-c a R");
+    let state = app.wait_for("the rename's prompt", |state| {
+        asks(state).is_some_and(|prompt| prompt.starts_with("Rename session to:"))
+    });
+    assert_eq!(
+        state["prompts"][0]["text"], "api-v2",
+        "{}",
+        state["prompts"]
+    );
+    app.send_keys(&format!("C-a C-k {} RET", keys("api v3")));
+    app.wait_for("its buffer renamed by the person", |state| {
+        terminal(state, "*claude: api-v3*").is_some()
+    });
+    assert_eq!(name_of(bridge, id), "api-v3");
+
+    // On the orchestrator, the person's rename is refused, with no prompt.
+    app.send_keys(&format!("C-x b {} RET", keys("*claude: fix-login*")));
+    app.send_keys("C-c a R");
+    let state = app.wait_for("the refusal", |state| {
+        (state["echo"].as_str().unwrap_or_default()).contains("orchestrator")
+    });
+    assert_eq!(state["prompts"], json!([]));
 }

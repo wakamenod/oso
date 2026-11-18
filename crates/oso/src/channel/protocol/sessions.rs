@@ -23,6 +23,8 @@
 //!   moves into (ADR 0151).
 //! - `session_resume`: `{"session": "ID or name"}`, a stopped session of the caller's space
 //!   (ADR 0153).
+//! - `session_rename`: `{"session": "ID or name", "name": "api-v2"}`, the session's new name
+//!   (ADR 0155).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -32,7 +34,7 @@ use serde_json::{Map, Value};
 use super::{MAX_PATH, only, short};
 
 /// The methods of this module, as the tools that call them are named.
-pub const METHODS: [&str; 10] = [
+pub const METHODS: [&str; 11] = [
     "session_list",
     "session_state",
     "worktree_list",
@@ -43,6 +45,7 @@ pub const METHODS: [&str; 10] = [
     "draft_set",
     "move_to_space",
     "session_resume",
+    "session_rename",
 ];
 
 /// The longest brief a session takes, in bytes, as the person's `*Brief*` (ADR 0121).
@@ -110,6 +113,11 @@ pub enum Call {
     Resume {
         session: String,
     },
+    /// A session to rename, by its id or its name, and its new name (ADR 0155).
+    Rename {
+        session: String,
+        name: String,
+    },
 }
 
 /// How long the server holds a call's reply for the UI.
@@ -138,15 +146,18 @@ impl Call {
             Self::DraftSet { .. } => "draft_set",
             Self::MoveToSpace { .. } => "move_to_space",
             Self::Resume { .. } => "session_resume",
+            Self::Rename { .. } => "session_rename",
         }
     }
 
     /// How long the server holds its reply.
     pub fn hold(&self) -> Hold {
         match self {
-            Self::List { .. } | Self::State { .. } | Self::SpaceStatus | Self::DraftSet { .. } => {
-                Hold::Usual
-            }
+            Self::List { .. }
+            | Self::State { .. }
+            | Self::SpaceStatus
+            | Self::DraftSet { .. }
+            | Self::Rename { .. } => Hold::Usual,
             Self::WorktreeList { .. } | Self::WorktreeRemove { .. } => Hold::Job(JOB_REPLY_WITHIN),
             Self::StartWorktree { .. }
             | Self::Start { .. }
@@ -203,6 +214,12 @@ pub fn parse(method: &str, params: &Map<String, Value>) -> Option<Result<Call, S
         "session_resume" => only(params, method, &["session"])
             .and_then(|()| text(params, method, "session", MAX_NAME))
             .map(|session| Call::Resume { session }),
+        "session_rename" => only(params, method, &["session", "name"]).and_then(|()| {
+            Ok(Call::Rename {
+                session: text(params, method, "session", MAX_NAME)?,
+                name: text(params, method, "name", MAX_NAME)?,
+            })
+        }),
         _ => return None,
     })
 }
@@ -390,6 +407,10 @@ mod tests {
             ),
             call("move_to_space", json!({ "space": "fix-login" })),
             call("session_resume", json!({ "session": "api" })),
+            call(
+                "session_rename",
+                json!({ "session": "api", "name": "api-v2" }),
+            ),
         ];
         assert_eq!(calls.len(), METHODS.len());
         for (call, method) in calls.into_iter().zip(METHODS) {
@@ -478,6 +499,20 @@ mod tests {
     }
 
     #[test]
+    fn a_rename_names_a_session_and_a_name_each_within_bounds() {
+        let rename = |value: Value| call("session_rename", value);
+        let name = "n".repeat(MAX_NAME);
+        let long = "n".repeat(MAX_NAME + 1);
+        assert!(rename(json!({ "session": "x", "name": name })).is_ok());
+        assert!(rename(json!({ "session": "x", "name": long })).is_err());
+        assert!(rename(json!({ "session": long, "name": "y" })).is_err());
+        assert!(rename(json!({ "session": "x" })).is_err());
+        assert!(rename(json!({ "name": "y" })).is_err());
+        assert!(rename(json!({ "session": "x", "name": "" })).is_err());
+        assert!(rename(json!({ "session": "x", "name": "y", "z": 1 })).is_err());
+    }
+
+    #[test]
     fn arguments_are_checked_at_their_bounds() {
         let long = "b".repeat(MAX_NAME + 1);
         assert!(call("session_state", json!({ "session": long })).is_err());
@@ -538,6 +573,8 @@ mod tests {
         let resume = call("session_resume", json!({ "session": "api" })).unwrap();
         assert_eq!(resume.hold(), Hold::Person);
         assert_eq!(call("session_list", json!({})).unwrap().hold(), Hold::Usual);
+        let rename = call("session_rename", json!({ "session": "a", "name": "b" })).unwrap();
+        assert_eq!(rename.hold(), Hold::Usual, "it asks nothing");
         let moving = call("move_to_space", json!({ "space": "x" })).unwrap();
         assert_eq!(moving.hold(), Hold::Person);
         assert!(matches!(

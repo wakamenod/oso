@@ -7,7 +7,8 @@
 //! Moving, by row or by heading, folding, regrouping, the pane's width and explaining are
 //! `Look`. Showing a session puts its terminal
 //! in front of the person's keys, pinning and archiving change which sessions ask for them,
-//! and resuming and stopping run or end a process: those are `Person`.
+//! resuming and stopping run or end a process, and renaming changes a name the person reads
+//! the list by (ADR 0155): those are `Person`.
 
 use oso_core::buffer::Mode;
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
@@ -24,7 +25,7 @@ pub const ROW_MARKS: &str = "▾▸⚠✗▶◆●○■⠋⠙⠹⠸⠼⠴⠦⠧
 pub const GUIDES: &str = "│├└";
 
 /// What `?` says in `*Spaces*` (ADR 0131, ADR 0140): the marks, then the keys.
-pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  M-n/M-p headings  TAB fold  S-TAB fold all  ←/→ close/open  q back  c new  w worktree  a add repo  / switch  s group  </> width  k stop  e explain";
+pub const LEGEND: &str = "⚠ needs input  ✗ failed  ▶ working  ◆ ready for review  ● done  ○ idle  ■ stopped · RET show  n/p move  M-n/M-p headings  TAB fold  S-TAB fold all  ←/→ close/open  q back  c new  w worktree  a add repo  / switch  s group  </> width  k stop  R rename  e explain";
 
 /// How many columns `<` and `>` take from or give to the pane, once each (ADR 0131).
 pub const PANE_STEP: isize = 4;
@@ -167,6 +168,23 @@ pub const COMMANDS: &[Command] = &[
         Reach::Person,
         stop,
     ),
+    row(
+        "session-rename",
+        "Rename the session on this row of `*Spaces*`, or the session whose terminal is this buffer: its name in oso and its buffer's, `*claude: NAME*`.\n\nThe prompt holds its name now, and `M-p` empties it. The name is cleaned as `C-u claude` cleans one, and no other session's or space's. A space's orchestrator is not renamed: its name is the space's, which the space's sessions message. A running claude keeps the name Claude Code's SendMessage knows it by until it is resumed; `/rename` in its terminal changes that at once.",
+        Reach::Person,
+        rename,
+    ),
+    Command {
+        name: RENAME_TO,
+        doc: "Give the session `session-rename` asked about the name read in its prompt.",
+        args: ArgSpec::Text {
+            prompt: "Rename session to: ",
+            history: "session-name",
+        },
+        reach: Reach::Person,
+        run: rename_to,
+        state: None,
+    },
     Command {
         name: "sessions-help",
         doc: "Say what the marks of `*Spaces*` mean, and its keys, in the echo area.",
@@ -182,6 +200,10 @@ pub const COMMANDS: &[Command] = &[
         explain,
     ),
 ];
+
+/// The command whose prompt reads a session's new name, which the host opens for
+/// `session-rename` with the session's name in it (ADR 0155).
+pub const RENAME_TO: &str = "session-rename-to";
 
 /// A command of a row, with no argument.
 const fn row(
@@ -246,6 +268,29 @@ fn stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         .map_err(|_| CommandError::new("Not in *Spaces* or a session's buffer"))?;
     ctx.editor
         .request_session(SessionRequest::OnBuffer(buffer, RowAction::Stop));
+    Ok(())
+}
+
+/// On a row of `*Spaces*`, or in a session's own terminal (`C-c a R`, ADR 0155): the host
+/// opens the prompt of [`RENAME_TO`] for it.
+fn rename(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    if ctx.editor.current().1.mode() == Mode::Sessions {
+        return on_row(ctx, RowAction::Rename);
+    }
+    let buffer = super::mode::session_buffer(ctx)
+        .map_err(|_| CommandError::new("Not in *Spaces* or a session's buffer"))?;
+    ctx.editor
+        .request_session(SessionRequest::OnBuffer(buffer, RowAction::Rename));
+    Ok(())
+}
+
+fn rename_to(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::super::not_in_prompt(ctx)?;
+    let name = match ctx.answer().map(str::trim) {
+        Some(name) if !name.is_empty() => name.to_owned(),
+        _ => return Err(CommandError::new("No name")),
+    };
+    ctx.editor.request_session(SessionRequest::RenameTo(name));
     Ok(())
 }
 

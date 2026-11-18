@@ -29,6 +29,7 @@ fn each_row_command_names_the_line_and_its_action() {
         ("sessions-resume", RowAction::Resume),
         ("session-stop", RowAction::Stop),
         ("sessions-explain", RowAction::Explain),
+        ("session-rename", RowAction::Rename),
     ];
     for (name, action) in cases {
         assert_eq!(run(&mut editor, name, Args::NONE).0, Ok(()), "{name}");
@@ -70,13 +71,54 @@ fn outside_the_list_they_refuse_and_ask_nothing() {
         assert_eq!(result, Err("Not in *Spaces*".to_owned()), "{name}");
         assert!(!effects.redraw, "{name}");
     }
-    // `session-stop` acts on a session's own terminal too (ADR 0132).
-    let (result, _) = run(&mut editor, "session-stop", Args::NONE);
-    assert_eq!(
-        result,
-        Err("Not in *Spaces* or a session's buffer".to_owned())
-    );
+    // `session-stop` acts on a session's own terminal too (ADR 0132), and so does
+    // `session-rename` (ADR 0155).
+    for name in ["session-stop", "session-rename"] {
+        let (result, _) = run(&mut editor, name, Args::NONE);
+        assert_eq!(
+            result,
+            Err("Not in *Spaces* or a session's buffer".to_owned()),
+            "{name}"
+        );
+    }
     assert!(editor.take_session_requests().is_empty());
+}
+
+/// In a session's terminal, `session-rename` asks about that buffer's session (ADR 0155).
+#[test]
+fn a_rename_in_a_sessions_buffer_names_the_buffer() {
+    let mut editor = editor("");
+    let session = editor.add_terminal_buffer("*claude: api*");
+    editor.set_hosts_session(session, true);
+    editor.show(session);
+    assert_eq!(run(&mut editor, "session-rename", Args::NONE).0, Ok(()));
+    assert_eq!(
+        editor.take_session_requests(),
+        [SessionRequest::OnBuffer(session, RowAction::Rename)]
+    );
+}
+
+/// The prompt's answer goes to the host as typed, trimmed; an empty one asks nothing.
+#[test]
+fn the_new_name_goes_to_the_host() {
+    use oso_core::command::{Ctx, Invocation};
+    let registry = crate::commands::registry();
+    let id = registry.lookup(super::RENAME_TO).unwrap();
+    let answered = |answer| {
+        let mut editor = editor("");
+        let invocation = Invocation {
+            answer: Some(answer),
+            ..Invocation::default()
+        };
+        let mut ctx = Ctx::invoked(&mut editor, invocation);
+        let result = registry.execute(id, &mut ctx, Args::NONE);
+        (result.is_ok(), editor.take_session_requests())
+    };
+    assert_eq!(
+        answered(" api v2 "),
+        (true, vec![SessionRequest::RenameTo("api v2".into())])
+    );
+    assert_eq!(answered("  "), (false, vec![]));
 }
 
 #[test]

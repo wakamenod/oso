@@ -23,6 +23,7 @@ pub(super) fn method(name: &str) -> Option<(&'static str, &'static [&'static str
         "draft_set" => &["kind", "id", "text"],
         "move_to_space" => &["space"],
         "session_resume" => &["session"],
+        "session_rename" => &["session", "name"],
         _ => return None,
     };
     let method = METHODS.into_iter().find(|method| *method == name)?;
@@ -34,7 +35,7 @@ pub(super) fn reading() -> Vec<Value> {
     vec![
         tool(
             "session_list",
-            "The agent sessions oso hosts, with each one's id, name, directory, state and age, the session that started it, and which one is you. Use it to follow the sessions you started. messaging_name is the name oso gave the session's claude; Claude Code may add a suffix when two sessions share a name, so check ListAgents before SendMessage.",
+            "The agent sessions oso hosts, with each one's id, name, directory, state and age, the session that started it, and which one is you. Use it to follow the sessions you started. messaging_name is the name Claude Code knows the session's claude by: its registry's while it runs, else the one oso gives it at its next start or resume, which differs from name after a rename until then; Claude Code may add a suffix when two sessions share a name, so check ListAgents before SendMessage.",
             json!({
                 "offset": { "type": "integer", "minimum": 0, "description": "Where the list starts, when it holds more than one reply." },
             }),
@@ -85,7 +86,7 @@ fn with_dirs() -> Value {
 
 /// The session tools that act.
 pub(super) fn acting() -> Vec<Value> {
-    vec![
+    let mut tools = vec![
         tool(
             "worktree_remove",
             "Remove a finished linked worktree of your session's repository: only when it has no uncommitted or untracked files, nothing unsaved in oso, no busy session, and its branch is merged. It never forces and never deletes the branch. The files git ignores there, such as build output, are deleted with it. A refusal names the check that failed: report it, and do not remove the worktree another way.",
@@ -157,5 +158,22 @@ pub(super) fn acting() -> Vec<Value> {
             false,
             false,
         ),
-    ]
+    ];
+    tools.push(rename());
+    tools
+}
+
+/// `session_rename`, which acts on a session's name only (ADR 0155).
+fn rename() -> Value {
+    tool(
+        "session_rename",
+        "Rename an agent session in oso: its name in session_list and *Spaces*, and its buffer, *claude: NAME*. You may rename your own session and the sessions you started; a space's orchestrator also its space's sessions. A space's orchestrator, current or earlier, is never renamed, as the space's sessions message it by the space's name. The name is ASCII letters, digits, `.`, `_` and `-`, at most 48 bytes, and no other session's or space's, case aside. A running session's claude keeps the name SendMessage knows it by (messaging_name) until it is resumed; the reply says so. Nothing is asked and nothing runs.",
+        json!({
+            "session": { "type": "string", "description": "A session's id or name, from session_list." },
+            "name": { "type": "string", "description": "Its new name." },
+        }),
+        &["session", "name"],
+        false,
+        false,
+    )
 }

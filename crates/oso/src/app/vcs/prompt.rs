@@ -16,7 +16,7 @@ const MAX_QUESTION: usize = 400;
 
 impl App {
     /// Opens `command`'s prompt as its keys would; the prompt it opened, if one did.
-    pub(super) fn open_host_prompt(&mut self, command: &str) -> Option<PromptId> {
+    pub(in crate::app) fn open_host_prompt(&mut self, command: &str) -> Option<PromptId> {
         let before = self.editor.prompt().map(oso_core::minibuffer::Prompt::id);
         let effects = self.dispatcher.run_from_host(&mut self.editor, command);
         if effects.redraw {

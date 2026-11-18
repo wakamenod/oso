@@ -21,7 +21,7 @@ mod send;
 mod spaces;
 
 pub use list::COMMANDS as LIST_COMMANDS;
-pub use list::{FOLDS, GUIDES, ROW_MARKS, row_mark};
+pub use list::{FOLDS, GUIDES, RENAME_TO, ROW_MARKS, row_mark};
 pub use mode::{ARCHIVE_LABEL, COMMANDS as MODE_COMMANDS, PIN_LABEL, SESSION_HELP, agents_menu};
 pub use search::COMMANDS as SEARCH_COMMANDS;
 pub use send::{

@@ -313,6 +313,7 @@ impl App {
             self.watch.polling = runs;
             if !runs {
                 self.watch.externals.clear();
+                self.hosting.naming.forget_registry();
             }
         }
     }

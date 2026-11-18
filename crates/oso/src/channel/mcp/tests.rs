@@ -134,6 +134,7 @@ fn initializes_without_connecting_and_lists_its_tools() {
             "draft_set",
             "move_to_space",
             "session_resume",
+            "session_rename",
         ]
     );
     let hint = |name: &str, hint: &str| {

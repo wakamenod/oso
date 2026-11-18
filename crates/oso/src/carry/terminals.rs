@@ -59,6 +59,9 @@ pub struct SessionState {
     pub baseline: Option<String>,
     pub pinned: bool,
     pub changed: u64,
+    /// The name its `claude` was started with, where a rename changed the record's since
+    /// (ADR 0155).
+    pub launched_as: Option<String>,
 }
 
 /// What an entry says of `terminal`, beside its item. An error if a path is not UTF-8.
@@ -75,6 +78,7 @@ pub fn entry(terminal: &TerminalState) -> Result<Value, String> {
             "baseline": session.baseline,
             "pinned": session.pinned,
             "changed": session.changed,
+            "launched_as": session.launched_as,
         }),
     };
     Ok(json!({
@@ -199,6 +203,7 @@ fn parse_session(session: &Map<String, Value>) -> Result<SessionState, String> {
         baseline: text(session, "baseline")?,
         pinned: switch(session, "pinned")?,
         changed: session.get("changed").and_then(Value::as_u64).unwrap_or(0),
+        launched_as: text(session, "launched_as")?,
     })
 }
 
@@ -316,6 +321,7 @@ mod tests {
                 baseline: Some("abc".into()),
                 pinned: true,
                 changed: 7,
+                launched_as: Some("wa".into()),
             }),
         }
     }

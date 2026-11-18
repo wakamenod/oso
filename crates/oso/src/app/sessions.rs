@@ -117,6 +117,7 @@ impl App {
         // After the requests, so that a `session-stop` that a question's yes ran finds its
         // stop still asked.
         self.drop_unasked_stop();
+        self.drop_unanswered_rename();
         self.forget_unanswered_space();
         // A space entered gives `session-search` its scope (ADR 0145).
         self.keep_space_scope(false);
@@ -215,7 +216,13 @@ impl App {
             }
             // Its text is the screen's: never logged.
             Out::Recap(key, recap) => self.session_recapped(key, recap),
-            Out::Externals(live) => self.externals_found(live),
+            Out::Externals(live) => {
+                // What Claude Code calls oso's own running sessions (ADR 0155).
+                if self.watch.polls() {
+                    (self.hosting.naming).read_registry(&live, &self.hosting.table);
+                }
+                self.externals_found(live);
+            }
             // Its text is the screen's too: never logged.
             Out::Message(key, from) => self.message_from(key, from),
             Out::Judged(key, held) => self.session_judged(key, held),

@@ -43,6 +43,7 @@ mod moving;
 mod question;
 mod reads;
 mod remove;
+mod rename;
 mod resume;
 mod space;
 mod starting;
@@ -255,6 +256,9 @@ impl App {
             (Call::SpaceStatus, caller) => pending.answer(self.space_status(caller.as_ref())),
             (Call::Resume { session }, Some(caller)) => {
                 self.tool_session_resume(pending, &tool, &caller, &session);
+            }
+            (Call::Rename { session, name }, Some(caller)) => {
+                self.tool_session_rename(pending, &tool, &caller, (&session, &name));
             }
             (Call::DraftSet { id, text }, Some(caller)) => {
                 let set = self.admit_tool(&tool, &caller, &id).and_then(|()| {

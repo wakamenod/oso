@@ -19,7 +19,10 @@ use std::time::{Duration, Instant};
 
 use oso_core::command::Reach;
 
+mod rename;
 pub mod repo;
+
+pub use rename::{Renamable, renamable, rename_clash, rename_note, renamed_said};
 
 use super::identity::Origin;
 use super::identity::SessionId;
@@ -74,7 +77,7 @@ const fn reads(name: &'static str) -> Tool {
 
 /// The tools, the reading ones first. A change here is a change of what an agent may do: the
 /// test below spells the table out, so that review sees it.
-pub const TOOLS: [Tool; 10] = [
+pub const TOOLS: [Tool; 11] = [
     reads("session_list"),
     reads("session_state"),
     // It runs git and `gh` with no question, as the author chose (ADR 0121, step 4).
@@ -129,6 +132,15 @@ pub const TOOLS: [Tool; 10] = [
         name: "session_resume",
         reach: Reach::Change,
         asks: Asks::UnlessAllowed,
+        destructive: false,
+        outside: false,
+    },
+    // A session's name in oso's record and its buffer's, no more: metadata only, as ADR 0121's
+    // table has it (ADR 0155).
+    Tool {
+        name: "session_rename",
+        reach: Reach::Change,
+        asks: Asks::No,
         destructive: false,
         outside: false,
     },

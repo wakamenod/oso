@@ -36,14 +36,25 @@ impl Editor {
     /// `base<3>` and on when that is taken. It visits no file, holds no text, is never saved,
     /// carried or counted at an exit, and is withheld from agents.
     pub fn add_terminal_buffer(&mut self, base: &str) -> BufferId {
-        let taken = |name: &str| self.buffers().any(|(_, buffer)| buffer.name() == name);
+        let name = self.free_terminal_name(base, None);
+        self.add_buffer(Buffer::terminal(name))
+    }
+
+    /// `base`, or `base<2>`, `base<3>` and on, the first no buffer but `own` has: the names
+    /// that start with `base` gathered in one pass, so a run of taken numbers costs one look
+    /// at each buffer.
+    fn free_terminal_name(&self, base: &str, own: Option<BufferId>) -> String {
+        let taken: std::collections::HashSet<&str> = (self.buffers())
+            .filter(|(id, buffer)| Some(*id) != own && buffer.name().starts_with(base))
+            .map(|(_, buffer)| buffer.name())
+            .collect();
         let mut name = base.to_owned();
         let mut number = 2_u64;
-        while taken(&name) {
+        while taken.contains(name.as_str()) {
             name = format!("{base}<{number}>");
             number += 1;
         }
-        self.add_buffer(Buffer::terminal(name))
+        name
     }
 
     /// Notes whether a program runs in the terminal buffer `id`: killing it asks while one
@@ -128,6 +139,17 @@ impl Editor {
         }
     }
 
+    /// Renames the terminal buffer `id` to `base`, or `base<2>`, `base<3>` and on when another
+    /// buffer has that name, as [`Editor::add_terminal_buffer`] names a new one: a hosted
+    /// session's buffer after its session's rename (ADR 0155). Gives the name it took, or
+    /// `None` for a buffer that is not a terminal's, which keeps its name.
+    pub fn rename_terminal_buffer(&mut self, id: BufferId, base: &str) -> Option<String> {
+        self.buffer(id).filter(|buffer| buffer.is_terminal())?;
+        let name = self.free_terminal_name(base, Some(id));
+        self.buffer_mut(id)?.set_name(name.clone());
+        Some(name)
+    }
+
     /// A command asks the host for `request`.
     pub fn request_terminal(&mut self, request: TerminalRequest) {
         self.terminal_requests.push(request);
@@ -158,6 +180,28 @@ mod tests {
         let buffer = editor.buffer(first).unwrap();
         assert_eq!(buffer.mode(), Mode::Terminal);
         assert_eq!(buffer.read_only(), Some(ReadOnly::Terminal));
+    }
+
+    #[test]
+    fn a_terminal_is_renamed_apart_from_the_others() {
+        let mut editor = Editor::default();
+        let first = editor.add_terminal_buffer("*claude: api*");
+        let second = editor.add_terminal_buffer("*claude: web*");
+        let name = |editor: &Editor, id| editor.buffer(id).map(|b| b.name().to_owned()).unwrap();
+        assert_eq!(
+            editor.rename_terminal_buffer(second, "*claude: api*"),
+            Some("*claude: api*<2>".into())
+        );
+        assert_eq!(name(&editor, second), "*claude: api*<2>");
+        // Its own name is no clash.
+        assert_eq!(
+            editor.rename_terminal_buffer(first, "*claude: api*"),
+            Some("*claude: api*".into())
+        );
+        let scratch = editor.window().buffer();
+        let before = name(&editor, scratch);
+        assert_eq!(editor.rename_terminal_buffer(scratch, "*claude: x*"), None);
+        assert_eq!(name(&editor, scratch), before);
     }
 
     #[test]
