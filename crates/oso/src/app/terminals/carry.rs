@@ -376,6 +376,12 @@ impl App {
             char_mode: self.dispatcher.terminal_input(buffer)
                 == crate::terminal::route::Input::Char,
             session: self.carried_session_state(buffer),
+            shell: Some(
+                self.terminals
+                    .map
+                    .get(buffer)
+                    .is_some_and(|hosted| hosted.person_shell),
+            ),
         }
     }
 

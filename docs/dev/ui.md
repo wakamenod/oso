@@ -970,10 +970,12 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 
 [ADR 0120](adr/0120-the-terminal.md); step 4a so far.
 
-- `M-x terminal` switches to the terminal still running that was selected last, or starts one;
-  with `C-u`, it always starts one. Buffers are `*terminal*`, `*terminal*<2>` and on. `char`
-  in char mode, `exited N` once the program ends, and then the program's title in quotes
-  follow `Terminal` in the modeline. An ended terminal keeps its last screen.
+- `M-x terminal` switches to the shell terminal still running that was selected last, or starts
+  one; with `C-u`, it always starts one. A session's `*claude: NAME*` buffer is never the one it
+  switches to, so from a session it gives a shell
+  ([ADR 0156](adr/0156-terminal-switches-only-to-shells.md)). Buffers are `*terminal*`, `*terminal*<2>`
+  and on. `char` in char mode, `exited N` once the program ends, and then the program's title
+  in quotes follow `Terminal` in the modeline. An ended terminal keeps its last screen.
 - It starts `[terminal] shell` (an absolute path), else `$SHELL` if absolute, else the account's
   shell, else `/bin/sh`, in the selected buffer's project root, else the directory it stands in
   (from a terminal, the one that terminal started in), else the home directory. A restricted project opens one too: what runs in it is the person's.

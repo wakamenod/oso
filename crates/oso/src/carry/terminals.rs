@@ -43,6 +43,19 @@ pub struct TerminalState {
     pub char_mode: bool,
     /// The hosted session it runs, if any (ADR 0121).
     pub session: Option<SessionState>,
+    /// Whether it runs the person's shell, which `terminal` may switch to (ADR 0156); `None`
+    /// in a state from before, which says only whether it ran a session.
+    pub shell: Option<bool>,
+}
+
+impl TerminalState {
+    /// Whether it comes back as the person's shell, which `terminal` may switch to (ADR 0156):
+    /// never one that carried a session, even one that does not come back as a session, and
+    /// never one the state says is no shell, such as a `claude` whose session did not come
+    /// back at an earlier restart.
+    pub fn is_shell(&self) -> bool {
+        self.session.is_none() && self.shell.unwrap_or(true)
+    }
 }
 
 /// What the state says of a hosted session, so the new instance hosts it as it was.
@@ -92,6 +105,7 @@ pub fn entry(terminal: &TerminalState) -> Result<Value, String> {
         "agent_reads": terminal.agent_reads,
         "char_mode": terminal.char_mode,
         "session": session,
+        "shell": terminal.shell,
     }))
 }
 
@@ -172,6 +186,11 @@ fn parse_entry(entry: &Map<String, Value>, items: &mut Items) -> Result<Terminal
             None | Some(Value::Null) => None,
             Some(Value::Object(session)) => Some(parse_session(session)?),
             Some(_) => return Err("a terminal's session is not an object".into()),
+        },
+        shell: match entry.get("shell") {
+            None | Some(Value::Null) => None,
+            Some(Value::Bool(shell)) => Some(*shell),
+            Some(_) => return Err("a terminal's shell is not a boolean".into()),
         },
     })
 }
@@ -301,6 +320,10 @@ mod tests {
     use crate::carry::tests::absolute;
 
     fn terminal(session: bool) -> TerminalState {
+        terminal_with(session, Some(!session))
+    }
+
+    fn terminal_with(session: bool, shell: Option<bool>) -> TerminalState {
         TerminalState {
             item: 0,
             snapshot: true,
@@ -323,6 +346,7 @@ mod tests {
                 changed: 7,
                 launched_as: Some("wa".into()),
             }),
+            shell,
         }
     }
 
@@ -336,10 +360,28 @@ mod tests {
     #[test]
     fn an_entry_reads_back_as_it_was_written() {
         for session in [false, true] {
-            let written = terminal(session);
-            let entry = entry(&written).unwrap();
-            assert_eq!(parsed(json!([entry])).unwrap(), vec![written]);
+            for shell in [None, Some(false), Some(true)] {
+                let written = terminal_with(session, shell);
+                let entry = entry(&written).unwrap();
+                assert_eq!(parsed(json!([entry])).unwrap(), vec![written]);
+            }
         }
+    }
+
+    /// Only a terminal that carried no session and is not said to be no shell comes back as
+    /// the person's shell (ADR 0156): a `claude` whose session did not come back at one restart
+    /// stays no shell at the next, where it carries no session.
+    #[test]
+    fn only_a_shell_comes_back_as_one() {
+        assert!(terminal_with(false, Some(true)).is_shell());
+        assert!(!terminal_with(false, Some(false)).is_shell());
+        assert!(!terminal_with(true, Some(true)).is_shell());
+        assert!(!terminal_with(true, None).is_shell());
+        // A state from before says only whether it ran a session.
+        assert!(terminal_with(false, None).is_shell());
+        let mut before = entry(&terminal_with(false, Some(false))).unwrap();
+        before.as_object_mut().unwrap().remove("shell");
+        assert_eq!(parsed(json!([before])).unwrap()[0].shell, None);
     }
 
     #[test]
@@ -366,6 +408,7 @@ mod tests {
         assert!(with("item", json!(1)).is_err(), "no such item");
         assert!(with("name", json!("x".repeat(5000))).is_err());
         assert!(with("agent_reads", json!("yes")).is_err());
+        assert!(with("shell", json!("yes")).is_err());
         let mut session = good.clone();
         session["session"]["directory"] = json!("relative/dir");
         assert!(parsed(json!([session])).is_err());
