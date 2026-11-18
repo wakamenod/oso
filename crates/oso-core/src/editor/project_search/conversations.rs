@@ -28,6 +28,7 @@ use crate::project::{LineQuery, MAX_ROWS};
 pub(super) enum Request {
     Files(ProjectSearchRequest),
     Conversations(ConversationSearchRequest),
+    Lines(super::LineSearchRequest),
 }
 
 /// Which conversations a search looks through (ADR 0145), and what its label calls them.
@@ -224,13 +225,17 @@ impl Editor {
         };
         let id =
             self.open_completion_as(label(conversations.scope()), history, Arc::from([]), style)?;
-        self.start_search_prompt(id, PathBuf::new(), Some(conversations));
+        self.start_search_prompt(
+            id,
+            PathBuf::new(),
+            super::Source::Conversations(conversations),
+        );
         Ok(id)
     }
 
     /// Whether the innermost prompt searches conversations.
     pub fn searches_conversations(&self) -> bool {
-        self.searches_project() && self.project_search.conversations.is_some()
+        self.searches_project() && self.project_search.source.conversations().is_some()
     }
 
     /// The search of conversations the host should start, once.
@@ -250,7 +255,7 @@ impl Editor {
         if !self.searches_conversations() {
             return false;
         }
-        let Some(conversations) = self.project_search.conversations.as_mut() else {
+        let super::Source::Conversations(conversations) = &mut self.project_search.source else {
             return false;
         };
         // With one scope, there is no other to search.
@@ -281,7 +286,7 @@ impl Editor {
         let Some(room) = search
             .prompt
             .filter(|_| generation == search.generation && search.running)
-            .filter(|_| search.conversations.is_some())
+            .filter(|_| search.source.conversations().is_some())
             .map(|_| MAX_ROWS.saturating_sub(search.places.len()))
         else {
             if rows.len() > WORKER_PAST {
@@ -349,7 +354,7 @@ impl Editor {
                 session: session.clone(),
                 message: *message,
             }),
-            To::File { .. } => None,
+            To::File { .. } | To::Line { .. } => None,
         }
     }
 

@@ -166,6 +166,12 @@ pub enum ArgSpec {
     /// whole path with [`Ctx::answer`](super::Ctx::answer) and the line with
     /// [`Editor::take_search_hit`](crate::editor::Editor::take_search_hit).
     ProjectSearch { history: &'static str },
+    /// A line of the buffer the selected window shows, read in a prompt whose input is searched
+    /// for in its lines, as `ProjectSearch` searches a project's, the rows coming as they are
+    /// found from the cursor's line on, and kept in the history named `history` (ADR 0154).
+    /// Only keys give it: the agent channel never runs such a command. The command goes to the
+    /// line with [`Editor::go_to_line_hit`](crate::editor::Editor::go_to_line_hit).
+    BufferLines { history: &'static str },
     /// A message of Claude Code's past conversations, read in a prompt whose input is searched
     /// for in them, the rows coming as they are found, and kept in the history named `history`
     /// (ADR 0145). It searches every conversation; with `C-u`, it starts in the space in

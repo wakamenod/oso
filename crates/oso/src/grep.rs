@@ -1,6 +1,7 @@
 //! Searching a project's files for `project-search` (ADR 0114): a thread of its own, `oso-grep`,
 //! walks the files `project-find-file` lists and hands each to searching threads, which read it
-//! and match its lines. The selected row's preview is read in `grep/preview.rs`.
+//! and match its lines. The selected row's preview is read in `grep/preview.rs`, and a buffer's
+//! lines are searched for `consult-line` on `oso-lines`, in `grep/lines.rs` (ADR 0154).
 //!
 //! Must not depend on: `app`, winit or the UI thread; this reads the file system, and the caller
 //! supplies the wake-up.
@@ -34,7 +35,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use oso_core::buffer::Buffer;
-use oso_core::editor::{ProjectSearchRequest, ProjectSearchRow, WalkEnd};
+use oso_core::editor::{LineSearchRequest, ProjectSearchRequest, ProjectSearchRow, WalkEnd};
 
 use oso_platform::file_meta::Directory;
 
@@ -42,8 +43,11 @@ use crate::walk::{self, Ended, File, Limits, Visit};
 use files::{Kept, Search, Searcher, Task, filter, searchers};
 
 mod files;
+mod lines;
 mod preview;
 mod read;
+
+pub use lines::{FoundLines, LineSearcher};
 
 pub(crate) use preview::lines::{LINE_KEPT, RowLines, part_buffer, read_lines};
 pub use preview::{Previewed, Previewer};
@@ -163,9 +167,11 @@ pub(crate) fn opened_as_judged(_: &Directory, _: Option<&[PathBuf]>) -> bool {
     true
 }
 
-/// The searching thread and its searchers, started with the first request.
+/// The searching thread and its searchers, started with the first request, and the thread that
+/// searches a buffer's lines (ADR 0154).
 pub struct Grep {
     requests: Option<Sender<ProjectSearchRequest>>,
+    lines: LineSearcher,
     send: SendRows,
     leads: Leads,
     /// The home directory as the person's environment spells it, which the thread finds the
@@ -184,10 +190,22 @@ impl Grep {
     ) -> Self {
         Self {
             requests: None,
+            // The app gives one that wakes it; this one's rows go nowhere.
+            lines: LineSearcher::new(|_| true),
             send: Arc::new(send),
             leads,
             home,
         }
+    }
+
+    /// The same, with `lines` to search a buffer's lines.
+    pub fn with_lines(self, lines: LineSearcher) -> Self {
+        Self { lines, ..self }
+    }
+
+    /// Searches a buffer's lines as `request` asks, on `oso-lines` (ADR 0154).
+    pub fn search_lines(&mut self, request: LineSearchRequest) {
+        self.lines.search(request);
     }
 
     /// Searches as `request` asks, on `oso-grep`, after any search before it, which a newer

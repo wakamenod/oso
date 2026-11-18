@@ -26,6 +26,7 @@ pub(super) fn reads_listed(spec: ArgSpec) -> bool {
             | ArgSpec::Target { .. }
             | ArgSpec::ProjectFile { .. }
             | ArgSpec::ProjectSearch { .. }
+            | ArgSpec::BufferLines { .. }
             | ArgSpec::ConversationSearch { .. }
     )
 }
@@ -76,6 +77,7 @@ impl Dispatcher {
             ArgSpec::ConversationSearch { history } => {
                 self.read_conversations(editor, id, prefix, history)
             }
+            ArgSpec::BufferLines { history } => self.read_buffer_lines(editor, id, prefix, history),
             _ => self.execute(
                 editor,
                 id,
@@ -303,6 +305,31 @@ impl Dispatcher {
         let at = usize::from(matches!(prefix, Some(Prefix::Universal(_))) && scopes.len() > 1);
         match editor.open_conversation_search(scopes, at, history) {
             Ok(prompt) => self.reading.push(Reading::run(id, None, prompt)),
+            Err(PromptError::Invalid) => editor.message("A search is open already"),
+            Err(error) => editor.prompt_says(error.to_string()),
+        }
+        (redraw(), Ok(()))
+    }
+
+    /// Opens the search of the lines of the buffer the selected window shows for the command
+    /// `id`, unless a prompt is selected (ADR 0154). A terminal's lines are its screen's, which
+    /// copy mode freezes into a buffer to search.
+    fn read_buffer_lines(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+        history: &'static str,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        if let Some(refused) = refused_in_a_prompt(editor) {
+            return refused;
+        }
+        if editor.tiled().1.is_terminal() {
+            editor.message("A terminal's lines are searched in copy mode, C-c C-j");
+            return (redraw(), Ok(()));
+        }
+        match editor.open_line_search(history) {
+            Ok(prompt) => self.reading.push(Reading::run(id, prefix, prompt)),
             Err(PromptError::Invalid) => editor.message("A search is open already"),
             Err(error) => editor.prompt_says(error.to_string()),
         }

@@ -167,7 +167,9 @@ often, so it must rebuild within 2 s.
   `sessions/worktree/include.rs`, which matches `.worktreeinclude` (ADR 0121), use `ignore`,
   which review keeps: no guard test checks it. `src/grep.rs` searches them on `oso-grep` over the same
   walk, and `src/grep/preview.rs` reads a row's file for the preview on `oso-preview`, for the
-  search, for `M-g d` and for the list of a server's places (ADR 0138).
+  search, for `M-g d` and for the list of a server's places (ADR 0138). `src/grep/lines.rs`
+  runs `consult-line`'s search of a buffer's lines, a snapshot of its text, on `oso-lines`
+  (ADR 0154), and reads no file.
 - Keep logic that can be tested without a window in `oso-core`. This crate
   translates events and wires things together.
 - Dev-only code (the control socket, `oso ctl`, `oso dev`, timings) stays

@@ -108,14 +108,21 @@ impl Editor {
             .next()
             .and_then(|part| part.parse().ok())
             .ok_or(PromptError::Invalid)?;
-        let (window, buffer) = self.current_mut();
-        let text = buffer.text();
+        let text = self.current().1.text();
         let row = line.checked_sub(1).ok_or(PromptError::Invalid)?;
         if row > text.offset_to_point(text.len()).row {
             return Err(PromptError::Invalid);
         }
-        let start = text.line_start(row);
-        let offset = (start + column).min(text.line_end(row));
+        let offset = (text.line_start(row) + column).min(text.line_end(row));
+        self.go_to_keeping_mark(offset);
+        Ok(())
+    }
+
+    /// Leaves one cursor at `offset` of the current buffer, at the start of its cluster, with
+    /// the region hidden, and sets the mark where the cursor was, which puts the old mark in the
+    /// ring, as `C-.` and `consult-line` go (ADR 0088, ADR 0154).
+    pub(super) fn go_to_keeping_mark(&mut self, offset: usize) {
+        let (window, buffer) = self.current_mut();
         let display = buffer.display();
         let offset = crate::motion::cluster_start(&display, offset);
         let selections = &mut window.selections;
@@ -125,7 +132,6 @@ impl Editor {
         selections.move_primary(offset);
         selections.set_mark_active(crate::selection::MarkActive::Inactive);
         self.follow_cursor();
-        Ok(())
     }
 
     /// Forgets a `C-.` list whose prompt `closed`.

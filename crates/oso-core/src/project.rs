@@ -16,6 +16,7 @@ use std::path::{Component, Path, PathBuf};
 mod search;
 mod trust;
 
+pub(crate) use search::row_shown;
 pub use search::{BLOCK, LineHit, LineQuery, MAX_LINE, MAX_ROW_BYTES, MAX_ROWS, row_text};
 pub(crate) use search::{CUT, cut_bounds, decoded_len, push_cut};
 pub use trust::{NotRecordable, TrustChange, TrustList};

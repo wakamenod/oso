@@ -91,6 +91,12 @@ network features.
   cannot be resolved counts as one that may hold secrets, and the root opened
   must be, by device and inode, the place judged, reached again from `/` a name
   at a time following no link, or nothing under it is read.
+  `M-s l` (`consult-line`) searches only the text of the buffer shown, in
+  memory, on `oso-lines`, and reads no file; it is `Person`. Its rows are
+  that buffer's text even when it may hold secrets, which the person sees
+  already, but then nothing of the prompt reaches `get-state` or the
+  history, and its preview never shows
+  ([ADR 0154](adr/0154-consult-line.md)).
   A preview reads a row's file on `oso-preview` as the search reached it: the
   root by its path with the same home checks, then each directory and the file
   from the one before, following no link and waiting for nothing, a regular

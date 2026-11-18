@@ -24,6 +24,7 @@ mod indent;
 mod isearch;
 mod jump;
 mod kill;
+mod lines;
 mod lsp;
 mod macros;
 mod mark;
@@ -99,6 +100,7 @@ const TABLES: &[&[Command]] = &[
     isearch::COMMANDS,
     jump::COMMANDS,
     kill::COMMANDS,
+    lines::COMMANDS,
     lsp::COMMANDS,
     popup::COMMANDS,
     macros::COMMANDS,
@@ -341,6 +343,8 @@ mod tests {
         "review-filter",
         // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
         "consult-mark",
+        // Picking a line in a list of the buffer's, whose rows are its text (ADR 0154).
+        "consult-line",
         // The completion popup is a float for the keyboard (ADR 0138, step 9).
         "completion-at-point",
         "completion-popup-insert",

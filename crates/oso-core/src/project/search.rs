@@ -44,7 +44,8 @@ pub const MAX_ROWS: usize = 10_000;
 /// The most bytes of a line a row shows, around its first match.
 pub const MAX_ROW_BYTES: usize = 512;
 
-/// The longest line a search reads; past it the rest of its file is skipped.
+/// The longest line a search reads; past it the rest of its file is skipped. A search of a
+/// buffer's lines matches a longer one in pieces of this size (ADR 0154).
 pub const MAX_LINE: usize = 16 * 1024 * 1024;
 
 /// The bytes a search reads of a file at once, cut at a line's end.
@@ -324,6 +325,31 @@ impl LineQuery {
         first
     }
 
+    /// Whether it lists every line that holds no excluded component, as it has no other: a
+    /// buffer's line search with no input, or only `!` ones, lists its lines (ADR 0154).
+    pub(crate) fn lists_every_line(&self) -> bool {
+        !self.too_long && self.components.iter().all(|component| component.not)
+    }
+
+    /// Whether it is an input too long to search for, which nothing matches.
+    pub(crate) fn is_too_long(&self) -> bool {
+        self.too_long
+    }
+
+    /// As [`LineQuery::matches_line`], but a query that lists every line
+    /// ([`LineQuery::lists_every_line`]) matches a line that is not empty and holds no excluded
+    /// component, at its start.
+    pub(crate) fn matches_listed(&self, line: &[u8]) -> Option<Range<usize>> {
+        if !self.lists_every_line() {
+            return self.matches_line(line);
+        }
+        let excluded = self
+            .components
+            .iter()
+            .any(|component| component.regex.is_match(line));
+        (!line.is_empty() && !excluded).then_some(0..0)
+    }
+
     /// Where the first match of `text`, a whole message of several lines, is, if it matches:
     /// every component that is not excluded matches somewhere in it, and no excluded one
     /// does, in any order (ADR 0145). `^` and `$` are a line's start and end in it, as in a
@@ -543,6 +569,13 @@ pub fn row_text(line: &[u8], first: Range<usize>) -> (Box<str>, usize) {
         .utf8_chunks()
         .map(|chunk| chunk.valid().chars().count() + chunk.invalid().len())
         .sum();
+    (row_shown(line, first), column)
+}
+
+/// The text a row shows of `line`, as [`row_text`] gives it, without the column, which costs
+/// time linear in how far into the line the match is.
+pub(crate) fn row_shown(line: &[u8], first: Range<usize>) -> Box<str> {
+    let first_start = first.start.min(line.len());
     let start = if first.end.min(line.len()) <= MAX_ROW_BYTES {
         0
     } else {
@@ -551,7 +584,7 @@ pub fn row_text(line: &[u8], first: Range<usize>) -> (Box<str>, usize) {
     let (start, end) = cut_bounds(line, start, (start + MAX_ROW_BYTES).min(line.len()));
     let mut text = String::with_capacity(end - start + 2 * CUT.len_utf8());
     push_cut(&mut text, line, (start, end));
-    (text.into(), column)
+    text.into()
 }
 
 #[cfg(test)]

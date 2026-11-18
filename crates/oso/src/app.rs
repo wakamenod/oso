@@ -119,6 +119,8 @@ pub enum UserEvent {
     Walked(crate::walk::Walked),
     /// A project's search found rows, or ended (ADR 0114).
     Grepped(crate::grep::Found),
+    /// A search of a buffer's lines found rows, or ended (ADR 0154).
+    LinesFound(crate::grep::FoundLines),
     /// A search of conversations found rows, or ended, or the preview's text came (ADR 0145).
     Conversations(crate::sessions::history::Report),
     /// The lines around a search's row were read for its preview, or could not be (ADR 0114).
@@ -279,6 +281,7 @@ pub struct App {
     /// When the rows a walk sent are added if it sends nothing more.
     quiet_walk: walks::Quiet,
     /// The threads that search a project's files for `project-search` (ADR 0114).
+    /// And the thread that searches a buffer's lines for `consult-line` (ADR 0154).
     grep: crate::grep::Grep,
     /// The thread that reads a search's row's file for its preview (ADR 0114).
     previewer: crate::grep::Previewer,

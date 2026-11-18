@@ -287,6 +287,37 @@ are rounded.
 - The history, `project-search`, keeps what was typed, not the row, and a search beside a buffer
   that may hold secrets keeps none.
 
+### Searching the buffer's lines (`M-s l`)
+
+[ADR 0154](adr/0154-consult-line.md), as consult's `consult-line`:
+
+```
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ 3/3 Go to line: need█                                      ┃
+┃▌ 40: let needle = 1; ▐│  fn main() {                        ┃
+┃  97: needle()         │      let ▯eedle = 1;                 ┃
+┃   2: // needle        │      println!("{}", needle);        ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
+
+- `consult-line`, on `M-s l` and the `search` menu's `l`, opens the centred float, `Go to line:`,
+  over the buffer the window shows. In a terminal it says to search in copy mode, `C-c C-j`.
+- What is typed is read as `project-search` reads it: parts in any order, `=` and `!`, an
+  expression where one reads, smart case, and romaji also matching its kana. Every key searches,
+  one character too; with nothing typed, or only `!` parts, every line that is not empty is
+  listed.
+- The rows start at the cursor's line and go to the end, then round from the first line to the
+  one before the cursor's, so the first row, which is selected, is the nearest match at or after
+  the cursor. Each is the line's number, padded to the widest, in the annotation's face, then the
+  line around its first match, as `M-s r` shows one. They come while the search runs and never
+  move; past 10,000 the count says `+`.
+- The preview shows the buffer around the selected row's match, from memory, as `C-.` does, with
+  a hollow cursor at the match and the other matches in view highlighted.
+- `RET` leaves one cursor at the match, with the place before as the mark and the old mark on the
+  ring. `C-g` closes the float; the cursor never moved.
+- A buffer that may hold secrets lists its lines, but its preview says `may hold secrets`, and
+  the history, `consult-line`, keeps nothing of what was typed.
+
 ### Buffers (`C-x b`, `C-x k`, `M-,`, `M-/`, `C-.`)
 
 [ADR 0088](adr/0088-switching-and-killing-buffers.md), [ADR 0148](adr/0148-recent-files.md):
