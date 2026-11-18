@@ -15,8 +15,11 @@
 use std::time::Duration;
 
 use oso_core::rope::Rope;
+use oso_core::syntax::Highlight;
 use proptest::prelude::*;
 
+use super::fence::MAX_FENCE_BYTES;
+use super::highlight_tests::highlighted;
 use super::inline::MAX_INLINE_BYTES;
 use super::tests::{LONG, cases};
 use super::{Document, Failure, Highlighted};
@@ -24,7 +27,7 @@ use crate::language::Language;
 use crate::queries::Queries;
 
 /// What the texts are made of: openers and fillers of each grammar.
-const ATOMS: [&str; 24] = [
+const ATOMS: [&str; 28] = [
     "[",
     "a",
     "](",
@@ -49,6 +52,10 @@ const ATOMS: [&str; 24] = [
     "${`",
     "<a>",
     "=>(",
+    "<script>",
+    "<style>",
+    "k:\n ",
+    "[{",
 ];
 
 /// The stack of the thread the texts are highlighted on: an eighth of the 8 MiB step 4 gives
@@ -187,6 +194,25 @@ fn a_text_too_slow_for_a_slice_fails_in_a_few_slices() {
             .runs(0..text.len())
             .all(|(_, highlight)| highlight.is_none())
     );
+}
+
+/// Deep YAML nesting parses and nothing aborts (ADR 0157, oso's copy of tree-sitter-yaml):
+/// keys nested a level a line, and items nested on one line, in a YAML file, on a small stack;
+/// the items in a YAML fence too, which keeps to a fence's cap.
+#[test]
+fn deeply_nested_yaml_parses_safely() {
+    let keys: String = (0..400)
+        .map(|depth| format!("{}k{depth}:\n", " ".repeat(depth)))
+        .collect();
+    let items = format!("{}x\n", "- ".repeat(600));
+    for text in [keys, items.clone()] {
+        highlight_on_a_small_stack(Language::Yaml, text, LONG).unwrap();
+    }
+    let fenced = format!("```yaml\n{items}```\n");
+    assert!(fenced.len() < MAX_FENCE_BYTES);
+    let document = highlighted(Language::Markdown, &fenced);
+    let x = fenced.rfind('x').unwrap();
+    assert_eq!(document.highlights().at(x), Some(Highlight::String));
 }
 
 proptest! {

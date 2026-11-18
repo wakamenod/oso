@@ -29,14 +29,21 @@ pub(super) struct Open {
 }
 
 /// The language a buffer of `mode` visiting `path` holds, as the protocol names it: JSX is
-/// JavaScript's mode, and named by its file. A match with no wildcard, so that a new mode says.
+/// JavaScript's mode, and JSON with comments JSON's, each named by its file. A match with no
+/// wildcard, so that a new mode says.
 fn language_id(mode: Mode, path: &std::path::Path) -> &'static str {
-    let jsx = path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("jsx"));
+    let is = |known: &str| {
+        path.extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case(known))
+    };
     match mode {
-        Mode::JavaScript if jsx => "javascriptreact",
+        Mode::JavaScript if is("jsx") => "javascriptreact",
         Mode::JavaScript => "javascript",
+        Mode::Json if is("jsonc") => "jsonc",
+        Mode::Json => "json",
+        Mode::Html => "html",
+        Mode::Css => "css",
+        Mode::Yaml => "yaml",
         Mode::Rust => "rust",
         Mode::Markdown => "markdown",
         Mode::Toml => "toml",

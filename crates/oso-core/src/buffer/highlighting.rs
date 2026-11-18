@@ -247,6 +247,10 @@ impl Buffer {
             | Mode::TypeScript
             | Mode::Tsx
             | Mode::JavaScript
+            | Mode::Html
+            | Mode::Css
+            | Mode::Json
+            | Mode::Yaml
             | Mode::GitCommit => true,
             // These modes of ADR 0138 have no grammar yet.
             Mode::Fundamental

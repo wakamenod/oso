@@ -104,12 +104,12 @@ pub struct Document {
     highlights: Highlights,
     /// What of the newest text is still to highlight.
     pending: Pending,
-    /// Markdown's parsers of nested text, each made at its grammar's first text: the inline
-    /// grammar's and fenced code's.
+    /// The parsers of nested text, each made at its grammar's first text: Markdown's inline
+    /// grammar's and fenced code's, and HTML's embedded code's.
     nested: Vec<(Language, Parser)>,
-    /// The blocks of the fences a fence's grammar painted last, mapped through edits since;
-    /// fences that follow each other stay apart.
-    fences: Pending,
+    /// The blocks of code another grammar painted last, fences or HTML's `<script>` and
+    /// `<style>` elements, mapped through edits since; blocks that follow each other stay apart.
+    code_blocks: Pending,
     /// How many bytes a piece of highlighting may take; less after a piece outlasted a slice.
     max_piece: usize,
 }
@@ -140,7 +140,7 @@ impl Document {
             changes: 0,
             pending: Pending::default(),
             nested: Vec::new(),
-            fences: Pending::apart(),
+            code_blocks: Pending::apart(),
             max_piece: highlight::PIECE,
         }
     }
@@ -179,13 +179,13 @@ impl Document {
         self.highlights.splice(splices);
         if self.highlights.len() == after.len() {
             self.pending.map(splices);
-            self.fences.map(splices);
+            self.code_blocks.map(splices);
             self.pending
                 .add(highlight::edited(after, splices, self.max_piece));
         } else {
             self.highlights = Highlights::new(after.len());
             self.pending.all(after.len());
-            self.fences.clear();
+            self.code_blocks.clear();
             // Splices that do not map say nothing of which lines changed.
             self.lines_checked = false;
         }
@@ -320,7 +320,11 @@ impl Document {
             | Language::Go
             | Language::JavaScript
             | Language::TypeScript
-            | Language::Tsx => MAX_BYTES,
+            | Language::Tsx
+            | Language::Html
+            | Language::Css
+            | Language::Json
+            | Language::Yaml => MAX_BYTES,
         }
     }
 
@@ -332,7 +336,7 @@ impl Document {
         self.running = None;
         self.parser.reset();
         self.nested.clear();
-        self.fences.clear();
+        self.code_blocks.clear();
         self.highlights = Highlights::new(self.highlights.len());
         self.changes += 1;
         self.pending.clear();
@@ -375,10 +379,12 @@ pub(super) fn reader<'text>(
     }
 }
 
+mod embedded;
 mod fence;
 mod highlight;
 mod inline;
 mod long_line;
+mod nested;
 
 pub use highlight::Highlighted;
 #[cfg(test)]
@@ -393,3 +399,5 @@ mod highlight_tests;
 mod properties;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod web_tests;

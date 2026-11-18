@@ -1,6 +1,7 @@
 //! Commands that set a buffer's major mode, which names its language, and turn highlighting on
 //! and off for every buffer (ADR 0111). Of the modes of ADR 0138, Go, TypeScript, TSX and
-//! JavaScript have a grammar (ADR 0147); LaTeX and Swift have none yet.
+//! JavaScript have a grammar (ADR 0147); LaTeX and Swift have none yet. HTML, CSS, JSON and YAML
+//! have theirs (ADR 0157).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -73,6 +74,38 @@ pub const COMMANDS: &[Command] = &[
         state: None,
     },
     Command {
+        name: "html-mode",
+        doc: "Set the current buffer's major mode to HTML.\n\nIts text is highlighted as HTML, and the code in its `<script>` and `<style>` elements as JavaScript, JSON or CSS. Setting it again in a buffer whose highlighting stopped tries again.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: html_mode,
+        state: None,
+    },
+    Command {
+        name: "css-mode",
+        doc: "Set the current buffer's major mode to CSS.\n\nIts text is highlighted as CSS. Setting it again in a buffer whose highlighting stopped tries again.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: css_mode,
+        state: None,
+    },
+    Command {
+        name: "json-mode",
+        doc: "Set the current buffer's major mode to JSON.\n\nIts text is highlighted as JSON, comments too. Setting it again in a buffer whose highlighting stopped tries again.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: json_mode,
+        state: None,
+    },
+    Command {
+        name: "yaml-mode",
+        doc: "Set the current buffer's major mode to YAML.\n\nIts text is highlighted as YAML. Setting it again in a buffer whose highlighting stopped tries again.",
+        args: ArgSpec::None,
+        reach: Reach::Look,
+        run: yaml_mode,
+        state: None,
+    },
+    Command {
         name: "latex-mode",
         doc: "Set the current buffer's major mode to LaTeX.\n\nIt has no highlighting yet. In a trusted project its language server follows it once the buffer is visited again or `lsp-start` runs.",
         args: ArgSpec::None,
@@ -132,6 +165,22 @@ fn tsx_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn javascript_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     set_mode(ctx, Mode::JavaScript)
+}
+
+fn html_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    set_mode(ctx, Mode::Html)
+}
+
+fn css_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    set_mode(ctx, Mode::Css)
+}
+
+fn json_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    set_mode(ctx, Mode::Json)
+}
+
+fn yaml_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    set_mode(ctx, Mode::Yaml)
 }
 
 fn latex_mode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

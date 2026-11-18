@@ -1073,9 +1073,12 @@ in the text's colour. The colours are provisional, until the author's own syntax
 Dusk's are pale tints or the text's own, so it looks nearly plain. Off, it drops every buffer's
 highlights. A buffer's language is its major mode, from the file's name
 on a visit and on `C-x C-w`, and set by hand with `rust-mode`, `markdown-mode`, `toml-mode`,
-`go-mode`, `typescript-mode`, `tsx-mode`, `javascript-mode`, `latex-mode`, `swift-mode` and
-`fundamental-mode` (`M-x`, no keys), which refuse an internal buffer. Go, TypeScript, TSX and
-JavaScript are highlighted too (ADR 0147); LaTeX and Swift have no highlighting yet: they are
+`go-mode`, `typescript-mode`, `tsx-mode`, `javascript-mode`, `html-mode`, `css-mode`,
+`json-mode`, `yaml-mode`, `latex-mode`, `swift-mode` and `fundamental-mode` (`M-x`, no keys),
+which refuse an internal buffer. Go, TypeScript, TSX and JavaScript are highlighted too (ADR
+0147), and HTML, CSS, JSON and YAML (ADR 0157): an HTML page's `<script>` is JavaScript, or
+JSON when its `type` says so, and its `<style>` CSS, up to 16 KiB an element. LaTeX and Swift
+have no highlighting yet: they are
 there for their language servers (ADR 0138). Setting a mode again, the same one too, gives a
 buffer whose highlighting stopped another try. A file over 2 MiB, or with a line longer than
 16 KiB (minified or generated code), stays plain (ADR 0147). The modeline names

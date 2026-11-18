@@ -29,7 +29,8 @@ one. Open topics are in `docs/dev/open-questions.md`.
   define the checks (`Justfile`, `clippy.toml`, `rust-toolchain.toml`,
   `.cargo/`, `.github/`, `guardrails/`, the guard tests in
   `crates/oso/tests/`, the benchmark thresholds in
-  `crates/oso/examples/perf/{compare,bench}.rs`, gitleaks config). In auto
+  `crates/oso/examples/perf/{compare,bench}.rs`, gitleaks config), or
+  oso's copies of third-party crates in `patches/` (ADR 0157). In auto
   mode, do not ask before editing files; ask only about design changes and new
   dependencies (ADR 0043).
 - Dev-only code (control socket, hot reload) stays behind dev cargo features.

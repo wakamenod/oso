@@ -373,8 +373,10 @@ item notes when it must be settled.
   the lowest layer that still sees buffer offsets, or to `DisplayMap`.
   Its API (`DisplayMap::invalid_bytes`) does not change.
 - Tree-sitter grammars beyond Rust, Markdown, TOML, Go, JavaScript, TypeScript and TSX
-  ([ADR 0147](adr/0147-highlighting-go-typescript-and-javascript.md)): LaTeX and Swift have
-  modes and no grammar.
+  ([ADR 0147](adr/0147-highlighting-go-typescript-and-javascript.md)), and HTML, CSS, JSON and
+  YAML ([ADR 0157](adr/0157-highlighting-html-css-json-and-yaml.md)): LaTeX and Swift have
+  modes and no grammar. The four of ADR 0157 have no indentation rules of their own yet (its
+  Q9).
 - After window splits ([ADR 0112](adr/0112-window-splits.md)):
   - `C-x 4`: `switch-to-buffer-other-window`, `find-file-other-window` and
     `kill-buffer-and-window`, with rules for where a buffer is shown, as Emacs's

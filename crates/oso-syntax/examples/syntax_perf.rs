@@ -1,6 +1,6 @@
 //! Measures highlighting on a large file: the first parse and highlight, in one call and in
-//! the worker's slices, and the same after one key typed in the middle (ADR 0111 and ADR 0147,
-//! as built).
+//! the worker's slices, and the same after one key typed in the middle (ADR 0111, ADR 0147 and
+//! ADR 0157, as built).
 //!
 //! Must not depend on: the editor; it calls a document directly.
 //!
@@ -25,20 +25,11 @@ const SLICE: Duration = Duration::from_millis(20);
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let (language, fenced) = match args.next().as_deref() {
-        Some("rust") => (Language::Rust, false),
-        Some("markdown") => (Language::Markdown, false),
-        Some("fenced") => (Language::Markdown, true),
-        Some("toml") => (Language::Toml, false),
-        Some("go") => (Language::Go, false),
-        Some("javascript") => (Language::JavaScript, false),
-        Some("typescript") => (Language::TypeScript, false),
-        Some("tsx") => (Language::Tsx, false),
-        _ => {
-            return eprintln!(
-                "usage: syntax_perf rust|markdown|fenced|toml|go|javascript|typescript|tsx FILE..."
-            );
-        }
+    let Some((language, fenced)) = args.next().as_deref().and_then(language) else {
+        return eprintln!(
+            "usage: syntax_perf \
+             rust|markdown|fenced|toml|go|javascript|typescript|tsx|html|css|json|yaml FILE..."
+        );
     };
     let mut text = String::new();
     let files: Vec<String> = args.collect();
@@ -91,9 +82,26 @@ fn main() {
         .runs(0..text.len())
         .eq(document.highlights().runs(0..text.len()));
     println!("in slices of {SLICE:?}: {slices}, the longest {longest:.1?}, same runs: {same}");
-    // One key in the middle, highlighted as the worker will: the shown lines first.
+    // One key in the middle, highlighted as the worker will: the shown lines first, in one
+    // call, then in the worker's slices.
+    let (took, ..) = after_one_key(&mut document, &mut queries, &text, LONG);
+    let (_, slices, longest) = after_one_key(&mut sliced, &mut queries, &text, SLICE);
+    println!(
+        "after one key: {took:.2?}; in slices of {SLICE:?}: {slices}, the longest {longest:.1?}"
+    );
+}
+
+/// Types one key at the start of the middle line of `text`, which `document` holds highlighted,
+/// and highlights it again in slices of `slice`, the shown lines first: how long it took in all,
+/// in how many slices, and the longest.
+fn after_one_key(
+    document: &mut Document,
+    queries: &mut Queries,
+    text: &str,
+    slice: Duration,
+) -> (Duration, u32, Duration) {
     let middle = text[..text.len() / 2].rfind('\n').map_or(0, |at| at + 1);
-    let mut after = Rope::from(text.as_str());
+    let mut after = Rope::from(text);
     after.insert(middle, "x");
     let shown = middle..middle + 4000;
     let start = Instant::now();
@@ -103,9 +111,37 @@ fn main() {
         new_len: 1,
     };
     document.edit(&[splice], &after);
-    let done = document.highlight(&mut queries, &[shown], LONG);
-    assert_eq!(done, Highlighted::Done);
-    println!("after one key: {:.2?}", start.elapsed());
+    let (mut slices, mut longest) = (0, Duration::ZERO);
+    loop {
+        let begun = Instant::now();
+        let done = document.highlight(queries, std::slice::from_ref(&shown), slice);
+        longest = longest.max(begun.elapsed());
+        slices += 1;
+        if done != Highlighted::Paused {
+            assert_eq!(done, Highlighted::Done);
+            break;
+        }
+    }
+    (start.elapsed(), slices, longest)
+}
+
+/// The grammar the first argument names, and whether its files go in Markdown's fences.
+fn language(name: &str) -> Option<(Language, bool)> {
+    Some(match name {
+        "rust" => (Language::Rust, false),
+        "markdown" => (Language::Markdown, false),
+        "fenced" => (Language::Markdown, true),
+        "toml" => (Language::Toml, false),
+        "go" => (Language::Go, false),
+        "javascript" => (Language::JavaScript, false),
+        "typescript" => (Language::TypeScript, false),
+        "tsx" => (Language::Tsx, false),
+        "html" => (Language::Html, false),
+        "css" => (Language::Css, false),
+        "json" => (Language::Json, false),
+        "yaml" => (Language::Yaml, false),
+        _ => return None,
+    })
 }
 
 /// `rust` as Markdown: every 40 of its lines in a fence, after a paragraph.

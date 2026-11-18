@@ -1,6 +1,6 @@
 # 0147. Highlighting Go, TypeScript and JavaScript
 
-- Status: Accepted
+- Status: Accepted, amended by 0157
 - Date: 2026-11-17
 
 ## Context

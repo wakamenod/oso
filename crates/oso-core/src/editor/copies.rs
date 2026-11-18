@@ -209,6 +209,10 @@ impl Editor {
             | Mode::TypeScript
             | Mode::Tsx
             | Mode::JavaScript
+            | Mode::Html
+            | Mode::Css
+            | Mode::Json
+            | Mode::Yaml
             | Mode::Latex
             | Mode::Swift
             | Mode::Brief

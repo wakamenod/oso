@@ -36,10 +36,20 @@ const TSX: &str = concat!(
     include_str!("../queries/ecma/highlights.scm"),
 );
 
+const HTML: &str = include_str!("../queries/html/highlights.scm");
+const CSS: &str = include_str!("../queries/css/highlights.scm");
+const JSON: &str = include_str!("../queries/json/highlights.scm");
+const YAML: &str = include_str!("../queries/yaml/highlights.scm");
+
 /// Finds, in Markdown's block tree, the text another grammar parses, as the grammar's own
 /// injection query does: the inline grammar's text, and fenced code blocks, whose info string
 /// may name a language.
-const INJECTIONS: &str = "[(inline) (pipe_table_cell)] @inline\n(fenced_code_block) @fence";
+const MARKDOWN_INJECTIONS: &str =
+    "[(inline) (pipe_table_cell)] @inline\n(fenced_code_block) @fence";
+
+/// Finds, in HTML's tree, the elements whose text another grammar parses (ADR 0157); which one,
+/// if any, their start tag says.
+const HTML_INJECTIONS: &str = "[(script_element) (style_element)] @embedded";
 
 /// A query once compiled, with the class each of its captures names; or the note that it
 /// could not be.
@@ -63,20 +73,56 @@ pub struct Queries {
 }
 
 /// Which query of a language: its highlights, or the one that finds the text other grammars
-/// parse in Markdown.
+/// parse in a host's tree.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
     Highlights(Language),
-    Injections,
+    Injections(Host),
+}
+
+/// A language whose tree holds text other grammars parse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Host {
+    /// Inline text and fenced code (ADR 0111).
+    Markdown,
+    /// `<script>` and `<style>` elements (ADR 0157).
+    Html,
+}
+
+impl Host {
+    /// Every host, once each.
+    const ALL: [Self; 2] = [Self::Markdown, Self::Html];
+
+    /// The host `language` is, if its tree holds text other grammars parse.
+    pub(crate) fn of(language: Language) -> Option<Self> {
+        match language {
+            Language::Markdown => Some(Self::Markdown),
+            Language::Html => Some(Self::Html),
+            Language::Rust
+            | Language::MarkdownInline
+            | Language::Toml
+            | Language::Go
+            | Language::JavaScript
+            | Language::TypeScript
+            | Language::Tsx
+            | Language::Css
+            | Language::Json
+            | Language::Yaml => None,
+        }
+    }
 }
 
 impl Kind {
-    /// Every query, once each: each language's highlights, and Markdown's injections.
-    pub(crate) const ALL: [Self; Language::ALL.len() + 1] = {
-        let mut all = [Self::Injections; Language::ALL.len() + 1];
+    /// Every query, once each: each language's highlights, then each host's injections.
+    pub(crate) const ALL: [Self; Language::ALL.len() + Host::ALL.len()] = {
+        let mut all = [Self::Injections(Host::Markdown); Language::ALL.len() + Host::ALL.len()];
         let mut at = 0;
         while at < Language::ALL.len() {
             all[at] = Self::Highlights(Language::ALL[at]);
+            at += 1;
+        }
+        while at < all.len() {
+            all[at] = Self::Injections(Host::ALL[at - Language::ALL.len()]);
             at += 1;
         }
         all
@@ -131,11 +177,16 @@ fn slot(kind: Kind) -> usize {
         Kind::Highlights(Language::Markdown) => 1,
         Kind::Highlights(Language::MarkdownInline) => 2,
         Kind::Highlights(Language::Toml) => 3,
-        Kind::Injections => 4,
+        Kind::Injections(Host::Markdown) => 4,
         Kind::Highlights(Language::Go) => 5,
         Kind::Highlights(Language::JavaScript) => 6,
         Kind::Highlights(Language::TypeScript) => 7,
         Kind::Highlights(Language::Tsx) => 8,
+        Kind::Highlights(Language::Html) => 9,
+        Kind::Highlights(Language::Css) => 10,
+        Kind::Highlights(Language::Json) => 11,
+        Kind::Highlights(Language::Yaml) => 12,
+        Kind::Injections(Host::Html) => 13,
     }
 }
 
@@ -146,11 +197,16 @@ fn source(kind: Kind) -> (Language, &'static str) {
         Kind::Highlights(Language::Markdown) => (Language::Markdown, MARKDOWN),
         Kind::Highlights(Language::MarkdownInline) => (Language::MarkdownInline, MARKDOWN_INLINE),
         Kind::Highlights(Language::Toml) => (Language::Toml, TOML),
-        Kind::Injections => (Language::Markdown, INJECTIONS),
+        Kind::Injections(Host::Markdown) => (Language::Markdown, MARKDOWN_INJECTIONS),
         Kind::Highlights(Language::Go) => (Language::Go, GO),
         Kind::Highlights(Language::JavaScript) => (Language::JavaScript, JAVASCRIPT),
         Kind::Highlights(Language::TypeScript) => (Language::TypeScript, TYPESCRIPT),
         Kind::Highlights(Language::Tsx) => (Language::Tsx, TSX),
+        Kind::Highlights(Language::Html) => (Language::Html, HTML),
+        Kind::Highlights(Language::Css) => (Language::Css, CSS),
+        Kind::Highlights(Language::Json) => (Language::Json, JSON),
+        Kind::Highlights(Language::Yaml) => (Language::Yaml, YAML),
+        Kind::Injections(Host::Html) => (Language::Html, HTML_INJECTIONS),
     }
 }
 

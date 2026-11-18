@@ -1,6 +1,6 @@
 # 0115. Indentation
 
-- Status: Accepted, amended by 0138
+- Status: Accepted, amended by 0138 and 0157
 - Date: 2026-11-12
 
 ## Context

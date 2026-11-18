@@ -35,6 +35,14 @@ pub enum Mode {
     Tsx,
     /// JavaScript, JSX among it (ADR 0138), highlighted (ADR 0147).
     JavaScript,
+    /// HTML, its `<script>` and `<style>` highlighted as the code they hold (ADR 0157).
+    Html,
+    /// CSS (ADR 0157).
+    Css,
+    /// JSON, comments allowed (ADR 0157).
+    Json,
+    /// YAML (ADR 0157).
+    Yaml,
     /// LaTeX.
     Latex,
     /// Swift.
@@ -116,6 +124,14 @@ impl Mode {
             Self::Tsx
         } else if is("js") || is("mjs") || is("cjs") || is("jsx") {
             Self::JavaScript
+        } else if is("html") || is("htm") {
+            Self::Html
+        } else if is("css") {
+            Self::Css
+        } else if is("json") || is("jsonc") {
+            Self::Json
+        } else if is("yaml") || is("yml") {
+            Self::Yaml
         } else if is("tex") || is("sty") || is("cls") || is("ltx") {
             Self::Latex
         } else if is("swift") {
@@ -139,6 +155,10 @@ impl Mode {
             Self::TypeScript => "TypeScript",
             Self::Tsx => "TSX",
             Self::JavaScript => "JavaScript",
+            Self::Html => "HTML",
+            Self::Css => "CSS",
+            Self::Json => "JSON",
+            Self::Yaml => "YAML",
             Self::Latex => "LaTeX",
             Self::Swift => "Swift",
             Self::Brief => "Brief",
@@ -181,7 +201,8 @@ impl Mode {
             Self::Rust => Some(indent::rust),
             Self::Toml => Some(indent::toml),
             Self::Markdown => Some(indent::markdown),
-            // The modes of ADR 0138 have no rules of their own yet: lines keep the one before's.
+            // The modes of ADR 0138 and ADR 0157 have no rules of their own yet: lines keep the
+            // one before's.
             Self::Fundamental
             | Self::Brief
             | Self::GitCommit
@@ -191,6 +212,10 @@ impl Mode {
             | Self::TypeScript
             | Self::Tsx
             | Self::JavaScript
+            | Self::Html
+            | Self::Css
+            | Self::Json
+            | Self::Yaml
             | Self::Latex
             | Self::Swift => Some(indent::fundamental),
             Self::CopyList
@@ -240,12 +265,23 @@ mod tests {
             ("/p/a.cls", Mode::Latex),
             ("/p/a.ltx", Mode::Latex),
             ("/p/App.swift", Mode::Swift),
+            ("/p/index.html", Mode::Html),
+            ("/p/OLD.HTM", Mode::Html),
+            ("/p/site.css", Mode::Css),
+            ("/p/package.json", Mode::Json),
+            ("/p/tsconfig.jsonc", Mode::Json),
+            ("/p/ci.yml", Mode::Yaml),
+            ("/p/compose.yaml", Mode::Yaml),
+            ("/p/page.xhtml", Mode::Fundamental),
+            ("/p/a.scss", Mode::Fundamental),
             ("/p/go", Mode::Fundamental),
         ] {
             assert_eq!(mode(path), expected, "{path}");
         }
         assert_eq!(Mode::Latex.name(), "LaTeX");
         assert_eq!(Mode::Tsx.name(), "TSX");
+        assert_eq!(Mode::Html.name(), "HTML");
+        assert_eq!(Mode::Yaml.name(), "YAML");
     }
 
     #[test]

@@ -10,11 +10,11 @@ use crate::editorconfig::{Applied, Properties};
 use crate::indent::{self, Origin, Origins, Settings};
 
 /// Each mode's indentation, as the configuration gives it, and where each property came from.
-pub(in crate::editor) type ModeIndents = [(Mode, Settings, Origins); 10];
+pub(in crate::editor) type ModeIndents = [(Mode, Settings, Origins); 14];
 
 /// The modes with an indentation of their own, in the configuration's order.
 #[cfg(test)]
-pub(in crate::editor) fn compiled_modes() -> [Mode; 10] {
+pub(in crate::editor) fn compiled_modes() -> [Mode; 14] {
     compiled_mode_indents().map(|(mode, ..)| mode)
 }
 
@@ -28,6 +28,10 @@ pub(in crate::editor) fn compiled_mode_indents() -> ModeIndents {
         Mode::TypeScript,
         Mode::Tsx,
         Mode::JavaScript,
+        Mode::Html,
+        Mode::Css,
+        Mode::Json,
+        Mode::Yaml,
         Mode::Latex,
         Mode::Swift,
         Mode::Fundamental,
@@ -40,7 +44,7 @@ impl Editor {
     /// came from, and gives every buffer of the person's its mode's indent size and style under
     /// what EditorConfig gives it. A buffer's tab width stays the one it was visited with,
     /// which its display map is built with.
-    pub fn set_mode_indents(&mut self, indents: [(Mode, Settings, Origins); 10]) {
+    pub fn set_mode_indents(&mut self, indents: [(Mode, Settings, Origins); 14]) {
         self.mode_indents = indents;
         let ids: Vec<BufferId> = self.buffers().map(|(id, _)| id).collect();
         for id in ids {

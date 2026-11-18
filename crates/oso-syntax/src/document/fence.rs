@@ -1,6 +1,5 @@
-//! Markdown's fenced code: which fenced code blocks another grammar parses, and the fences a
-//! grammar was last painted over, so that one that no longer is such a fence is highlighted
-//! again (ADR 0111).
+//! Markdown's fenced code: which fenced code blocks another grammar parses, and in which
+//! language (ADR 0111); [`super::nested`] parses and paints them.
 //!
 //! Must not depend on: buffers, windows or faces; it sees a rope and the block tree, and runs
 //! only on the worker.
@@ -8,9 +7,11 @@
 //! - A fence's language is the first word of its info string, the grammar's `language` node:
 //!   `rust` and `rs` are Rust's, `toml` TOML's, `go` and `golang` Go's, `js`, `javascript`,
 //!   `jsx`, `mjs` and `cjs` JavaScript's, `ts`, `typescript`, `mts` and `cts` TypeScript's, and
-//!   `tsx` TSX's, ignoring ASCII case (ADR 0147). Any other, and a fence with none, stays plain,
-//!   as does an indented code block. A fence only picks one of the compiled-in grammars, and
-//!   nothing reads its content to guess one.
+//!   `tsx` TSX's (ADR 0147); `html`, `htm` and `xhtml` HTML's, `css` CSS's, `json` and `jsonc`
+//!   JSON's, and `yaml` and `yml` YAML's (ADR 0157); ignoring ASCII case. An HTML fence's
+//!   `<script>` and `<style>` stay plain: code embedded in a fence's code is not parsed again.
+//!   Any other, and a fence with none, stays plain, as does an indented code block. A fence only
+//!   picks one of the compiled-in grammars, and nothing reads its content to guess one.
 //! - The content of a fence longer than [`MAX_FENCE_BYTES`], its delimiter lines too, stays
 //!   plain (its delimiters and info string are still markup), so that the
 //!   piece that holds it stays small: a piece widens to the whole of each fence it meets, as typing
@@ -18,13 +19,10 @@
 //!   block tree changes only that line.
 //! - Children are walked with a `TreeCursor`, never by recursion.
 
-use std::ops::Range;
-
 use oso_core::rope::Rope;
 use tree_sitter::Node;
 
-use super::Document;
-use super::highlight::lines;
+use super::nested::short_text;
 use crate::language::Language;
 
 /// The block grammar's node for a fenced code block.
@@ -68,13 +66,7 @@ fn named(text: &Rope, node: Node) -> Option<Language> {
         return None;
     }
     let mut name = [0; MAX_NAME_BYTES];
-    let mut len = 0;
-    for chunk in text.chunks_in_range(range) {
-        let slot = name.get_mut(len..len + chunk.len())?;
-        slot.copy_from_slice(chunk.as_bytes());
-        len += chunk.len();
-    }
-    let name = name.get_mut(..len)?;
+    let name = short_text(text, range, &mut name)?;
     name.make_ascii_lowercase();
     match &*name {
         b"rust" | b"rs" => Some(Language::Rust),
@@ -83,29 +75,10 @@ fn named(text: &Rope, node: Node) -> Option<Language> {
         b"js" | b"javascript" | b"jsx" | b"mjs" | b"cjs" => Some(Language::JavaScript),
         b"ts" | b"typescript" | b"mts" | b"cts" => Some(Language::TypeScript),
         b"tsx" => Some(Language::Tsx),
+        b"html" | b"htm" | b"xhtml" => Some(Language::Html),
+        b"css" => Some(Language::Css),
+        b"json" | b"jsonc" => Some(Language::Json),
+        b"yaml" | b"yml" => Some(Language::Yaml),
         _ => None,
-    }
-}
-
-impl Document {
-    /// Notes that `piece` was painted again, with fences' grammars over the fences `blocks`:
-    /// what such a grammar painted before past the piece's ends was not a fence the piece met
-    /// whole, so it is one no longer, and is to highlight again.
-    pub(super) fn repainted(&mut self, piece: &Range<usize>, blocks: &[Range<usize>]) {
-        if blocks.is_empty() && self.fences.ranges().is_empty() {
-            return;
-        }
-        // The blocks lie inside the piece, as it widened to each whole.
-        let span = self.fences.swap(piece.clone(), blocks);
-        let stale = [span.start..piece.start, piece.end..span.end];
-        let max_piece = self.max_piece;
-        let stale: Vec<_> = stale
-            .into_iter()
-            .filter(|range| range.start < range.end)
-            .map(|range| lines(&self.text, range, max_piece))
-            .collect();
-        if !stale.is_empty() {
-            self.pending.add(stale);
-        }
     }
 }

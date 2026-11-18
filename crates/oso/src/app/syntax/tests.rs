@@ -66,6 +66,10 @@ fn a_file_mode_has_a_grammar_exactly_when_its_buffer_can_be_highlighted() {
         Mode::TypeScript,
         Mode::Tsx,
         Mode::JavaScript,
+        Mode::Html,
+        Mode::Css,
+        Mode::Json,
+        Mode::Yaml,
         Mode::Latex,
         Mode::Swift,
     ] {

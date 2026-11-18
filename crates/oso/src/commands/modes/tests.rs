@@ -16,6 +16,16 @@ fn each_mode_command_sets_the_current_buffers_mode_and_says_so() {
         ("rust-mode", Mode::Rust),
         ("markdown-mode", Mode::Markdown),
         ("toml-mode", Mode::Toml),
+        ("go-mode", Mode::Go),
+        ("typescript-mode", Mode::TypeScript),
+        ("tsx-mode", Mode::Tsx),
+        ("javascript-mode", Mode::JavaScript),
+        ("html-mode", Mode::Html),
+        ("css-mode", Mode::Css),
+        ("json-mode", Mode::Json),
+        ("yaml-mode", Mode::Yaml),
+        ("latex-mode", Mode::Latex),
+        ("swift-mode", Mode::Swift),
         ("fundamental-mode", Mode::Fundamental),
     ] {
         let (result, effects) = run(&mut editor, name, Args::NONE);

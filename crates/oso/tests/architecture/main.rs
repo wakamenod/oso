@@ -3,7 +3,7 @@
 //! owner, the file-size ratchet, the ban on `static` items, the ban on
 //! spawning outside one module, where foreign code may be reached, where the control
 //! directory may be used, the module
-//! headers and conflict markers in any file. The rules live in `guardrails/`; the format is described at the top of
+//! headers, conflict markers in any file, and oso's copies of third-party crates in `patches/`. The rules live in `guardrails/`; the format is described at the top of
 //! each file there.
 //!
 //! Must not depend on: any crate outside `std`, spawned processes or the
@@ -21,8 +21,10 @@ mod listening;
 mod manifests;
 mod markers;
 mod modules;
+mod patches;
 mod report;
 mod rules;
+mod sha256;
 mod size;
 mod spawning;
 mod statics;
@@ -211,6 +213,18 @@ fn every_file_states_its_responsibility_and_boundary() {
         "the header check sees too few files: {checked}"
     );
     assert_none(&problems);
+}
+
+#[test]
+fn the_copies_in_patches_are_as_listed() {
+    let workspace = Workspace::current();
+    let manifest = read(&workspace.path("Cargo.toml"));
+    let files = workspace.patch_files();
+    assert!(
+        !patches::patched(&manifest).unwrap_or_default().is_empty(),
+        "no [patch.crates-io] entry: the check sees nothing"
+    );
+    assert_none(&patches::problems(&manifest, &files));
 }
 
 #[test]

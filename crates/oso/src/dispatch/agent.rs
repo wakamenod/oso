@@ -361,6 +361,10 @@ fn has_own_keys(mode: Mode) -> bool {
         | Mode::TypeScript
         | Mode::Tsx
         | Mode::JavaScript
+        | Mode::Html
+        | Mode::Css
+        | Mode::Json
+        | Mode::Yaml
         | Mode::Latex
         | Mode::Swift => false,
     }

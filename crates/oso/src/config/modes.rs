@@ -7,7 +7,7 @@
 use oso_core::buffer::Mode;
 
 /// The modes the configuration names, by name, Fundamental last.
-pub const MODES: [(&str, Mode); 10] = [
+pub const MODES: [(&str, Mode); 14] = [
     ("rust", Mode::Rust),
     ("markdown", Mode::Markdown),
     ("toml", Mode::Toml),
@@ -15,6 +15,10 @@ pub const MODES: [(&str, Mode); 10] = [
     ("typescript", Mode::TypeScript),
     ("tsx", Mode::Tsx),
     ("javascript", Mode::JavaScript),
+    ("html", Mode::Html),
+    ("css", Mode::Css),
+    ("json", Mode::Json),
+    ("yaml", Mode::Yaml),
     ("latex", Mode::Latex),
     ("swift", Mode::Swift),
     ("fundamental", Mode::Fundamental),

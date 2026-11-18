@@ -101,6 +101,18 @@ fn each_language_parses_its_text() {
             "program",
         ),
         (Language::Tsx, "const a: string = <p>日本</p>;\n", "program"),
+        (
+            Language::Html,
+            "<!DOCTYPE html>\n<p class=\"a\">日本 &amp;</p>\n<script>f()</script>\n",
+            "document",
+        ),
+        (
+            Language::Css,
+            "a.b > #c:hover { color: red; }\n",
+            "stylesheet",
+        ),
+        (Language::Json, "{\"a\": [1, true, \"日本\"]}\n", "document"),
+        (Language::Yaml, "a: 日本\nb:\n  - 1\n", "stream"),
     ];
     for (language, text, root) in cases {
         let document = parsed(language, text);

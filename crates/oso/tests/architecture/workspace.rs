@@ -172,6 +172,25 @@ impl Workspace {
             .collect()
     }
 
+    /// Every file under `patches/`, hidden ones too, as its path from there with `/`
+    /// separators and its bytes. Symbolic links are not followed.
+    pub fn patch_files(&self) -> Vec<(String, Vec<u8>)> {
+        let dir = self.path("patches");
+        files_under(&dir, |_| false)
+            .into_iter()
+            .map(|file| {
+                let relative = file.strip_prefix(&dir).unwrap_or(&file);
+                let at = relative
+                    .components()
+                    .map(|part| part.as_os_str().to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                let bytes = fs::read(&file).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+                (at, bytes)
+            })
+            .collect()
+    }
+
     /// `path` relative to the workspace root, with `/` separators.
     pub fn relative_path(&self, path: &Path) -> String {
         let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
