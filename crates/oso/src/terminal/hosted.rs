@@ -47,6 +47,11 @@ pub(crate) struct Hosted {
     pub ready: bool,
     /// When it was last selected, by the app's count, for `terminal`'s "last".
     pub selected: u64,
+    /// It runs the person's shell, started by `terminal` or carried from one by a restart,
+    /// which `terminal` may switch to: never a hosted session's `claude` (ADR 0156). Not
+    /// `Buffer::hosts_session`'s opposite: a carried `claude` whose session did not come back
+    /// is neither.
+    pub person_shell: bool,
     /// Whether the program was last told it has the focus (mode 1004).
     pub focused: Option<bool>,
     /// An agent session's state, reason and age, for its modeline (ADR 0121 step 3).
@@ -74,6 +79,7 @@ impl Hosted {
             pending_paste: None,
             ready: false,
             selected: 0,
+            person_shell: false,
             focused: None,
             session_note: String::new(),
             note: String::new(),
@@ -174,8 +180,17 @@ impl Terminals {
         hosted
     }
 
+    /// Adds a terminal for `buffer` that runs the person's shell, which `terminal` may switch
+    /// to (ADR 0156).
+    pub(crate) fn add_shell(&mut self, buffer: BufferId) -> &mut Hosted {
+        let hosted = self.add(buffer);
+        hosted.person_shell = true;
+        hosted
+    }
+
     /// Starts `buffer`'s terminal over, with an empty screen and no program yet, keeping the
-    /// window whose size it takes: a stopped session resumed in its buffer (ADR 0121).
+    /// window whose size it takes: a stopped session resumed in its buffer (ADR 0121), so no
+    /// shell of the person's.
     pub(crate) fn restart(&mut self, buffer: BufferId) -> &mut Hosted {
         let owner = self.map.get(&buffer).and_then(|hosted| hosted.owner);
         self.map.insert(buffer, Hosted::new());
@@ -214,7 +229,7 @@ impl Terminals {
     }
 
     /// Notes that no window selected `buffer`'s terminal yet: it started behind what the person
-    /// is doing, so `terminal` does not take it for the one selected last (ADR 0144).
+    /// is doing, so no window owns its size, and it is not the one selected last (ADR 0144).
     pub(crate) fn behind(&mut self, buffer: BufferId) {
         if let Some(hosted) = self.map.get_mut(&buffer) {
             hosted.selected = 0;
@@ -222,11 +237,13 @@ impl Terminals {
         }
     }
 
-    /// The terminal still running that was selected last, for `terminal` (ADR 0120, Q2).
-    pub(crate) fn last_running(&self) -> Option<BufferId> {
+    /// The person's shell terminal still running that was selected last, for `terminal`
+    /// (ADR 0120, Q2; ADR 0156): a hosted session's buffer is never one, however recently
+    /// selected.
+    pub(crate) fn last_shell(&self) -> Option<BufferId> {
         self.map
             .iter()
-            .filter(|(_, hosted)| hosted.running())
+            .filter(|(_, hosted)| hosted.person_shell && hosted.running())
             .max_by_key(|(_, hosted)| hosted.selected)
             .map(|(id, _)| *id)
     }
@@ -401,21 +418,22 @@ mod tests {
         assert!(hosted.title.is_empty());
         assert!(hosted.terminal.is_none());
         assert_eq!(hosted.owner, Some(window));
-        assert_eq!(terminals.last_running(), Some(a));
+        // Only a session is started over in its buffer: never `terminal`'s to switch to.
+        assert_eq!(terminals.last_shell(), None);
     }
 
     #[test]
-    fn the_last_running_is_the_one_selected_last() {
+    fn the_last_shell_is_the_one_selected_last() {
         let (a, b) = ids();
         let mut terminals = Terminals::default();
-        terminals.add(a);
-        terminals.add(b);
-        assert_eq!(terminals.last_running(), Some(b));
+        terminals.add_shell(a);
+        terminals.add_shell(b);
+        assert_eq!(terminals.last_shell(), Some(b));
         let window = Editor::default().window().id();
         terminals.selected(a, window);
-        assert_eq!(terminals.last_running(), Some(a));
+        assert_eq!(terminals.last_shell(), Some(a));
         terminals.get_mut(a).unwrap().ended = Some("exited 0".into());
-        assert_eq!(terminals.last_running(), Some(b));
+        assert_eq!(terminals.last_shell(), Some(b));
     }
 
     #[test]
@@ -423,16 +441,39 @@ mod tests {
         let (a, b) = ids();
         let window = Editor::default().window().id();
         let mut terminals = Terminals::default();
-        terminals.add(a);
+        terminals.add_shell(a);
         terminals.selected(a, window);
-        // An agent's session, started after it without being shown (ADR 0144).
-        terminals.add(b);
+        // Were a shell ever started behind, as an agent's session is (ADR 0144), it would not
+        // be the one selected last either.
+        terminals.add_shell(b);
         terminals.behind(b);
-        assert_eq!(terminals.last_running(), Some(a));
+        assert_eq!(terminals.last_shell(), Some(a));
         assert_eq!(terminals.get(b).unwrap().owner, None);
         // Once a window is selected on it, it is.
         terminals.selected(b, window);
-        assert_eq!(terminals.last_running(), Some(b));
+        assert_eq!(terminals.last_shell(), Some(b));
+    }
+
+    /// `terminal` from a session's buffer, the one selected last, never stays in it or goes to
+    /// another session: with no shell it starts one, else it switches to the shell.
+    #[test]
+    fn a_session_s_buffer_is_never_the_last_shell() {
+        let (shell, session) = ids();
+        let window = Editor::default().window().id();
+        let mut terminals = Terminals::default();
+        terminals.add(session);
+        terminals.selected(session, window);
+        assert_eq!(terminals.last_shell(), None);
+        terminals.add_shell(shell);
+        terminals.selected(shell, window);
+        // The session's buffer is selected after the shell, as `M-x terminal` typed in it is.
+        terminals.selected(session, window);
+        assert_eq!(terminals.last_shell(), Some(shell));
+        // A session resumed in its buffer is still no shell.
+        terminals.restart(session);
+        assert_eq!(terminals.last_shell(), Some(shell));
+        terminals.get_mut(shell).unwrap().ended = Some("exited 0".into());
+        assert_eq!(terminals.last_shell(), None);
     }
 
     #[test]

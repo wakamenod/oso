@@ -1,5 +1,5 @@
-//! Starting a terminal (ADR 0120): `terminal`'s choice between the last one running and a new
-//! one, where it starts, and what the start thread found, carried out on the UI thread.
+//! Starting a terminal (ADR 0120): `terminal`'s choice between the last shell running and a
+//! new one, where it starts, and what the start thread found, carried out on the UI thread.
 //!
 //! Must not depend on: how a frame is drawn, beyond the size of a cell.
 
@@ -14,9 +14,10 @@ use crate::terminal::hosted::{self, Request, Started};
 use crate::terminal::shell;
 
 impl App {
-    /// `terminal`: the last terminal still running, or a new one (ADR 0120, Q2).
+    /// `terminal`: the last shell terminal still running, or a new one (ADR 0120, Q2). A
+    /// hosted session's buffer is never the one it switches to (ADR 0156).
     pub(super) fn open_terminal(&mut self, new: bool) {
-        if !new && let Some(last) = self.terminals.map.last_running() {
+        if !new && let Some(last) = self.terminals.map.last_shell() {
             self.editor.show(last);
             self.request_redraw();
             return;
@@ -24,7 +25,7 @@ impl App {
         let cwd = self.terminal_directory();
         let project = self.terminal_project();
         let id = self.editor.add_terminal_buffer(NAME);
-        self.terminals.map.add(id);
+        self.terminals.map.add_shell(id);
         // It stands where it starts until its program says otherwise (ADR 0141).
         if let Some(cwd) = &cwd {
             self.editor.set_buffer_directory(id, cwd.clone());
@@ -59,8 +60,8 @@ impl App {
     /// Shows the terminal buffer `id`, already in the map, in the selected window unless not
     /// `shown`, says it runs, and gives the size its terminal starts at: the selected tiled
     /// window's, also beneath a prompt. One not shown starts behind what the person is doing
-    /// (ADR 0144): no window owns its size, and `terminal` does not take it for the one
-    /// selected last, until a window is selected on it.
+    /// (ADR 0144): no window owns its size, and it is not the one selected last, until a window
+    /// is selected on it.
     pub(in crate::app) fn prepare_terminal(&mut self, id: BufferId, shown: bool) -> Size {
         let window = self.editor.tiled().0.id();
         if shown {

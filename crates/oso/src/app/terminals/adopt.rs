@@ -100,7 +100,13 @@ impl App {
             return buffer;
         }
         let buffer = self.editor.add_terminal_buffer(&terminal.name);
-        self.terminals.map.add(buffer);
+        // One whose session did not come back still runs its `claude`: `terminal` never
+        // switches to it (ADR 0156).
+        if terminal.is_shell() {
+            self.terminals.map.add_shell(buffer);
+        } else {
+            self.terminals.map.add(buffer);
+        }
         buffer
     }
 

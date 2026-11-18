@@ -523,3 +523,19 @@ fn a_held_c_c_c_y_from_the_socket_is_noted_as_the_socket_s() {
     );
     assert!(dispatcher.take_image_yank_origin(), "the socket's");
 }
+
+/// `M-x terminal` typed in a session's buffer runs `terminal` and asks the host for the last
+/// shell or a new one, as from any buffer: nothing of it reaches the session's program, and
+/// the host never takes a session's buffer for the shell (ADR 0120, Q2).
+#[test]
+fn m_x_terminal_in_a_session_asks_the_host_for_a_shell() {
+    use oso_core::editor::TerminalRequest;
+    let (mut dispatcher, mut editor) = in_session();
+    send(&mut dispatcher, &mut editor, "M-x t e r m i n a l RET");
+    assert!(editor.prompt().is_none());
+    assert_eq!(
+        editor.take_terminal_requests(),
+        [TerminalRequest::Open { new: false }]
+    );
+    assert!(sent(&mut dispatcher, &mut editor).is_empty());
+}

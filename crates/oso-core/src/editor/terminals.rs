@@ -13,8 +13,8 @@ use super::Editor;
 /// What a command asks of the host about the selected terminal, or about every terminal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TerminalRequest {
-    /// `terminal`: switch to the last terminal still running, or start one; with `new`,
-    /// always start one.
+    /// `terminal`: switch to the last shell terminal still running, never a session's, or
+    /// start one; with `new`, always start one.
     Open { new: bool },
     /// Send these keys to the selected terminal's program, encoded on its thread.
     Keys(Vec<KeyPress>),
