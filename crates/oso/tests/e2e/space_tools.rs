@@ -42,7 +42,10 @@ pub(super) fn orchestrated(
     let (mut app, _) = flow.start();
     app.send_keys("C-c a O");
     reply_with(&mut app, "Describe the space:", "Fix login");
-    // `space-new` starts its orchestrator (ADR 0159).
+    // `space-new` starts its orchestrator (ADR 0159) once its directory is made.
+    app.wait_for("the space's directory", |state| {
+        space(state, "fix-login").is_some_and(|s| s["directory"].is_string())
+    });
     let run = run_in(flow, &spaces.0.join("fix-login"));
     app.send_keys("C-c a S");
     app.send_keys("a");

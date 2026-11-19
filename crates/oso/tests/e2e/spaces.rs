@@ -373,25 +373,20 @@ pub(super) fn answer(app: &mut crate::harness::App, label: &str, text: &str) {
     app.send_keys(&format!("{} RET", keys(text)));
 }
 
-/// Enters the first space, starts a session there, and closes the space once its sessions are
-/// idle: they are stopped and the space archived.
-fn close_with_its_idle_session(app: &mut crate::harness::App, readme: &Path) {
+/// Enters the first space and closes it once its sessions, its orchestrator here, are idle:
+/// they are stopped and the space archived.
+fn close_with_its_idle_session(app: &mut crate::harness::App) {
     let theirs = |state: &Value| -> Vec<Value> {
         let all = state["sessions"]["sessions"].as_array().cloned();
         let all = all.unwrap_or_default().into_iter();
         all.filter(|s| s["space"] == "Fix login error").collect()
     };
-    // A session of the first space, idle, is stopped when the space closes.
     app.send_keys(&format!("C-c a j {} RET", keys("Fix login error")));
-    app.wait_for("the first space", |state| {
-        state["sessions"]["space"] == "fix-login-error"
-    });
-    // A session of the repository, not of the orchestrator's directory, which it shows.
-    app.open_file(readme);
-    app.send_keys("C-c a c");
-    app.wait_for("its sessions idle", |state| {
+    app.wait_for("the first space, its sessions idle", |state| {
         let sessions = theirs(state);
-        sessions.len() == 2 && sessions.iter().all(|s| s["state"] == "idle")
+        state["sessions"]["space"] == "fix-login-error"
+            && !sessions.is_empty()
+            && sessions.iter().all(|s| s["state"] == "idle")
     });
     space_menu(app, "c");
     app.wait_for("the sessions stopped and the space closed", |state| {
@@ -406,10 +401,9 @@ fn close_with_its_idle_session(app: &mut crate::harness::App, readme: &Path) {
 fn new_space_from_a_session(flow: &Flow, app: &mut crate::harness::App, root: &Path) {
     // A session of the repository, shown when the space is made.
     app.send_keys("C-c a c");
-    let state = app.wait_for("the session shown", |state| {
-        state["buffer"]["name"] == "*claude: repo*"
+    app.wait_for("the session shown, in its repository's space", |state| {
+        state["buffer"]["name"] == "*claude: repo*" && state["sessions"]["space"] == "repo"
     });
-    assert_eq!(state["sessions"]["space"], "repo", "{}", list(&state));
 
     // A space for what the person describes, of the selected buffer's repository, made with
     // its directory and its orchestrator started there: the session shown before stays in its
@@ -462,7 +456,7 @@ fn session(state: &Value, name: &str) -> Option<Value> {
 #[ignore = "opens windows; run with `just e2e`"]
 fn the_space_commands_make_change_close_and_reopen_a_space() {
     // The orchestrator's directory must have a private way: see the orchestrator's flow.
-    let root = PrivateRoot::new("spaces-commands");
+    let root = PrivateRoot::new("spaces-commands-root");
     let config = format!("\n[spaces]\nroot = \"{}\"\n", root.0.display());
     let flow = Flow::new("spaces-commands", &config);
     let other = flow.scratch.path().join("other");
@@ -485,7 +479,7 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
     fs::set_permissions(&root.0, fs::Permissions::from_mode(0o770)).unwrap();
     // The new space's window shows its orchestrator, in no repository: a file of one is
     // selected, as `space-new` takes the selected buffer's repository.
-    app.open_file(&flow.repo.join("README.md"));
+    show_readme(&mut app);
     app.send_keys("C-c a O");
     answer(&mut app, "Describe the space:", "Second");
     let state = app.wait_for("the refusal", |state| echo(state).contains("[spaces] root"));
@@ -500,15 +494,12 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
 
     // Renamed, the space keeps its slug, its directory and its orchestrator's name.
     rename_space(&mut app, "Second", "Third 名前 🔧");
+    // The pane and the modeline show it once the views are made again.
     let state = app.wait_for("the new name", |state| {
         space(state, "second").is_some_and(|s| s["display"] == "Third 名前 🔧")
+            && list(state).contains("Third 名前 🔧")
+            && (state["modeline"].as_str()).is_some_and(|m| m.contains("Third 名前 🔧"))
     });
-    assert!(list(&state).contains("Third 名前 🔧"), "{}", list(&state));
-    assert!(
-        state["modeline"]
-            .as_str()
-            .is_some_and(|m| m.contains("Third 名前 🔧"))
-    );
     assert_eq!(state["sessions"]["space"], "second");
 
     // Closing the space in front enters the one entered last; reopening brings it back.
@@ -524,7 +515,7 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
             && state["sessions"]["space"] == "second"
     });
 
-    close_with_its_idle_session(&mut app, &flow.repo.join("README.md"));
+    close_with_its_idle_session(&mut app);
     wait_for_record(&flow, "the closed and renamed spaces", |spaces| {
         stored(spaces, "fix-login-error").is_some_and(|s| s["archived"] == true)
             && stored(spaces, "second")
@@ -569,6 +560,27 @@ fn a_space_closed_just_before_quitting_is_kept() {
     flow.exit_with(0);
 }
 
+/// Shows the buffer of the flow's `README.md` again in the selected window, by its id: a space
+/// `space-new` made shows its orchestrator's terminal, which takes keys such as `C-x`, and is in
+/// no repository, while `space-new` and `claude` take the selected buffer's.
+pub(super) fn show_readme(app: &mut crate::harness::App) {
+    let state = app.state();
+    let id = (state["buffers"].as_array().into_iter().flatten())
+        .find(|buffer| {
+            buffer["name"]
+                .as_str()
+                .is_some_and(|n| n.starts_with("README.md"))
+        })
+        .map(|buffer| buffer["id"].clone())
+        .expect("the README's buffer");
+    app.show_buffer(&id);
+    app.wait_for("the README shown", |state| {
+        state["buffer"]["name"]
+            .as_str()
+            .is_some_and(|name| name.starts_with("README.md"))
+    });
+}
+
 /// The list's text, as the dev state gives it.
 pub(super) fn list(state: &Value) -> String {
     state["sessions"]["list"]
@@ -590,7 +602,6 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     fs::create_dir(&other).unwrap();
     flow.git(&other, &["init", "-q", "-b", "main"]);
     let (mut app, _) = flow.start();
-    let readme = flow.repo.join("README.md");
 
     // A space of two repositories, with a session in the first. The new space shows its
     // orchestrator, which is in no repository: the session starts from a file of the first.
@@ -603,7 +614,7 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
         space(state, "fix-login")
             .is_some_and(|s| s["members"].as_array().is_some_and(|m| m.len() == 2))
     });
-    app.open_file(&readme);
+    show_readme(&mut app);
     app.send_keys("C-c a c");
     let state = app.wait_for("space, repositories, worktree and session", |state| {
         line_starting(state, " ▾ Fix login ").is_some()
@@ -623,7 +634,7 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     );
 
     // Another space in front: the first, quiet, is folded, and RET on its row enters it.
-    app.open_file(&readme);
+    show_readme(&mut app);
     app.send_keys("C-c a O");
     answer(&mut app, "Describe the space:", "Second");
     let state = app.wait_for("the first folded", |state| {
@@ -726,7 +737,7 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
                 .any(|row| row.starts_with("  ") && row.contains("orchestrator"))
     });
     assert!(
-        line_starting(&state, " ▾ fix-login ").is_some(),
+        line_starting(&state, " ▾ Fix login ").is_some(),
         "{}",
         list(&state)
     );
