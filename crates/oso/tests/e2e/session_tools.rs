@@ -34,6 +34,7 @@ use super::worktrees::{DEADLINE, Flow, asks, keys, terminal};
 /// prints each `screen.PID` the flow writes, cleared first, as the TUI would. It
 /// exits with the status the flow writes to `go.PID`, or to `go` for every run, and ends once
 /// the flow's directory is gone. `DIR` is the flow's scratch directory.
+/// Asked to name a space, it does as every fake does (`worktrees::NAMING`).
 pub(super) const FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 printf '%s\0' "$(pwd -P)" "$@" > "$dir/tmp.$$"

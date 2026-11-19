@@ -103,18 +103,23 @@ the slug's fallback as written, and the split into two steps.
 - **Step 2 (a summary by Claude):** oso asks the person's own `claude` for a short display name
   and a slug, and the fallback stays for when that fails:
   - the person's `claude`, found as a hosted session's is (`[sessions] claude`, else the login
-    shell's `PATH`), run through `oso_platform::process` on a thread of its own: `-p
-    --safe-mode --tools= --strict-mcp-config --disable-slash-commands --no-session-persistence
-    --model=haiku --output-format=json --json-schema=SCHEMA --system-prompt=FIXED`, the
-    description on stdin, in an empty private directory under oso's state directory; at most
-    64 KiB read, killed after 20 s and when oso quits. No permission flag is given (ADR 0121):
-    with no tool, nothing is asked. `--bare` is not used: it reads no OAuth login or keychain;
+    shell's `PATH`), run through `oso_platform::process` on a thread of its own: `--print
+    --safe-mode --tools= --strict-mcp-config --setting-sources=user --disable-slash-commands
+    --no-session-persistence --model=haiku --output-format=json --json-schema=SCHEMA
+    --system-prompt=FIXED`, the description on stdin, in a new private directory of its own
+    under oso's state directory, removed after it; at most 64 KiB read, and its whole session
+    killed after 20 s, when the space is closed, and when oso quits or restarts. One run at a
+    time: a space made while one is out takes oso's own names at once. No permission flag is
+    given (ADR 0121): with no tool, nothing is asked. `--bare` is not used: it reads no OAuth
+    login or keychain;
   - the space is made and entered at once, named when the answer comes; nothing that needs the
     slug (the directory, the orchestrator) happens before. A quit before it keeps the fallback;
   - what comes back is untrusted: a display name cleaned and made unique, a slug taken only
     when it is a slug as `slug()` leaves it with a letter, and made unique as above; each field
     that fails takes the fallback's, and the echo area says why;
-  - `[spaces] naming = "claude" | "local"` in `config.toml`, `claude` by default;
+  - `[spaces] naming = "claude" | "local"` in `config.toml`, `claude` by default; any other
+    value is said and taken as `local`, as one written to keep descriptions from a model should
+    fail closed;
   - no confirmation: the echo area names the space, and `n` renames it.
 
 ### Where each name is shown
@@ -156,6 +161,51 @@ the slug's fallback as written, and the split into two steps.
   approval, 2026-11-19); `SpaceRequest::AskRename` for `space-rename`'s prompt;
   `SpaceRequest::New` and `SpaceRequest::Rename` carry a description and a display name.
 - No new crate, crate edge, dependency, public trait or module, and no new agent tool.
+
+## Step 2, as built
+
+- **The answer's shape,** read from `claude` 2.1.327 with one call on a made-up description (the
+  author's leave, 2026-11-19): `--output-format=json` with `--json-schema` gives a JSON object
+  whose `structured_output` holds the two names and whose `result` holds them again as JSON text,
+  `is_error` false; the run left its directory empty. oso reads `structured_output`, else
+  `result`, and refuses an answer with `is_error` true.
+- **The run** is `sessions/spaces/summary.rs`: the command line and the answer's reading are
+  plain functions with tests. The run finds the person's shell and launches `claude` as a
+  session's launch does (`sessions::launch`, which now also holds which `claude` and which
+  variables), with the names a session's terminal passes on but `SSH_AUTH_SOCK` and
+  `XDG_RUNTIME_DIR`, as it has no tool and no MCP server, and sets none. It runs in a session
+  with no controlling terminal, its error output thrown away, in `space-naming/<space id>` under
+  the state directory, made new and private for it and removed after it: a directory already
+  there is not used. It waits for `claude` itself, polling, and kills its whole session, so
+  that nothing it started outlives it. The run is a `SpaceJob::Summarize`, which the worker runs
+  on an `oso-space-naming` thread of its own; `Out::SpaceSummarized` brings the names back, also
+  when the thread cannot start or the run panics, with a reason.
+- **Its `Child` is shared** (`summary::Running`) with the app, which stops the run when the
+  space is closed, and at an exit or a restart's handoff, before the records are written.
+- **The registry:** a naming run in the state directory is left out of the external sessions,
+  should `claude` enter itself in Claude Code's registry.
+- **The space is made at once** with oso's own names and entered, and the echo area says
+  `claude` names it. The answer gives the space its slug only while it has no directory and
+  none is being made: `o` pressed meanwhile starts the orchestrator under oso's own slug. Its
+  display name is taken only if the space is still called what it was when `claude` was asked,
+  so a name the person gave meanwhile stays. A quit before the answer keeps oso's names, and `o`
+  starts the orchestrator later.
+- **What the echo area says:** `Space NAME (SLUG) named`, or `claude did not name the space
+  (WHY): it is NAME (SLUG); n in the space menu renames it`, where WHY is a short fixed reason
+  that holds no path and none of the description, such as no answer in 20 s, claude did not
+  start or did not answer, its answer was too long, not JSON or held no names, or its directory
+  is there already.
+- **In the end-to-end flows,** every stand-in `claude` answers `--print` with the flow's
+  `naming-answer`, or fails, and keeps what it was given apart from the session runs.
+- **Checked against the real `claude`** (2.1.327, a second call with a made-up description, the
+  author's leave, 2026-11-19), with the run's own command line in a directory planted for it: a
+  `.claude/settings.json` and a `.claude/settings.local.json` whose `SessionStart`,
+  `UserPromptSubmit` and `Stop` hooks would each leave a file, a `CLAUDE.md` there and another in
+  the directory above, each telling it to answer with a name of its own. No hook ran, both names
+  came from the description alone, nothing was written in the directory, and no transcript was
+  kept for it. Hooks of the person's own settings are left out by `--safe-mode` as its help says;
+  the call did not change the person's settings to check that.
+- **An invalid `[spaces] naming`** counts as `local` (the author's choice, 2026-11-19).
 
 ## Changes to accepted ADRs
 

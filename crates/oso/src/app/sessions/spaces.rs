@@ -6,6 +6,7 @@
 //! Must not depend on: key presses or how a frame is drawn.
 
 mod handover;
+mod lists;
 mod members;
 mod naming;
 mod new_space;
@@ -13,13 +14,10 @@ mod orchestrator;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use oso_core::complete::Candidate;
 use oso_core::editor::{ListingRequest, SpaceRequest};
 
 use crate::app::App;
-use crate::commands::agent_sessions::{ARCHIVED_LIST, MEMBERS_LIST, REPOSITORIES_LIST};
 use crate::sessions::spaces::edit::{NotAdded, sessions_to_stop};
 use crate::sessions::spaces::probe::Made;
 use crate::sessions::spaces::probe::RepoCheck;
@@ -56,6 +54,12 @@ pub(in crate::app) struct SpaceWork {
     /// The `*scratch*` each new space shows until its orchestrator: shown in its place only if
     /// the selected window still shows it (ADR 0159).
     pub(in crate::app) placeholders: HashMap<SpaceId, oso_core::buffer::BufferId>,
+    /// The spaces the person's `claude` is naming, with what each was called when it was asked,
+    /// so that a name the person gave meanwhile stays (ADR 0159, step 2).
+    pub(in crate::app) asked_names: HashMap<SpaceId, String>,
+    /// The run of the person's `claude` that names a space, while one is out: at most one,
+    /// which an exit or a restart stops.
+    pub(in crate::app) summary_run: Option<crate::sessions::spaces::summary::Running>,
     /// The spaces whose directory is being made: one job a space at a time.
     pub(in crate::app) making: HashSet<SpaceId>,
     /// The spaces whose directory is shown once it is made.
@@ -527,66 +531,10 @@ impl App {
             self.hosting.spaces.renaming = None;
         }
     }
-
-    /// Gives the space prompts their lists: the repositories oso knows, the space in front's,
-    /// and the closed spaces.
-    pub(in crate::app) fn space_lists(&mut self) {
-        let spaces = self.watch.spaces();
-        let members = spaces.member_candidates();
-        let archived = spaces.archived_candidates();
-        let known = self.known_repositories();
-        self.editor.set_listed(REPOSITORIES_LIST, known);
-        self.editor.set_listed(MEMBERS_LIST, members);
-        self.editor.set_listed(ARCHIVED_LIST, archived);
-        self.keep_space_scope(true);
-    }
-
-    /// The repositories oso knows, by path, with their names: the open spaces', the
-    /// remembered sessions', and the projects of buffers that are no worktree git listed. A
-    /// path with a control or invisible character is left out, as a candidate's text is the
-    /// answer and is shown as it is. Each root is looked at once, and the listed worktrees
-    /// through one index of them.
-    fn known_repositories(&self) -> Arc<[Candidate]> {
-        let listed = self.listed_worktrees();
-        let worktree = |root: &Path| listed.contains(&spelled(root));
-        let mut seen: HashSet<PathBuf> = HashSet::new();
-        let mut roots: Vec<PathBuf> = Vec::new();
-        for root in self.watch.spaces().members() {
-            if seen.insert(spelled(&root)) {
-                roots.push(root);
-            }
-        }
-        let projects: HashSet<_> = self
-            .editor
-            .buffers()
-            .filter_map(|(_, buffer)| buffer.project())
-            .collect();
-        let project_roots = projects
-            .into_iter()
-            .filter_map(|id| self.editor.project(id))
-            .map(|project| project.root().to_path_buf());
-        let session_roots = self.hosting.table().iter().filter_map(|s| s.root.clone());
-        for root in session_roots.chain(project_roots) {
-            if !worktree(&root) && seen.insert(spelled(&root)) {
-                roots.push(root);
-            }
-        }
-        roots
-            .into_iter()
-            .filter_map(|root| {
-                let text = root.to_str()?.to_owned();
-                if !text.chars().all(is_plain) {
-                    return None;
-                }
-                let name = crate::sessions::spaces::stored::last_component(&root);
-                Some(Candidate::new(text.as_str(), "", name))
-            })
-            .collect()
-    }
 }
 
 /// `path` as its components spell it, for comparing paths through a set.
-fn spelled(path: &Path) -> PathBuf {
+pub(in crate::app) fn spelled(path: &Path) -> PathBuf {
     path.components().collect()
 }
 

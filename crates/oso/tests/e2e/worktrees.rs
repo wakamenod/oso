@@ -26,7 +26,8 @@ use super::config::set_mode;
 use super::harness::{App, Scratch};
 
 /// The fake: where it runs and what it was given, then the exit the flow writes to `go`. It
-/// also ends once the flow's directory is gone. `DIR` is the flow's scratch directory.
+/// also ends once the flow's directory is gone. `DIR` is the flow's scratch directory. Every
+/// fake gets [`NAMING`] first.
 const FAKE: &str = r#"#!/bin/sh
 dir='DIR'
 printf '%s\0' "$(pwd -P)" "$@" > "$dir/tmp.$$"
@@ -37,6 +38,21 @@ while [ ! -f "$dir/go" ]; do
   sleep 0.1
 done
 exit "$(cat "$dir/go")"
+"#;
+
+/// What every fake does first, right after `dir='DIR'`: asked to name a space (`--print`, ADR
+/// 0159), it keeps what it was given apart from the runs, and answers with `naming-answer` if
+/// the flow wrote one, else fails, as a `claude` that cannot answer does.
+const NAMING: &str = r#"for arg in "$@"; do
+  if [ "$arg" = --print ]; then
+    printf '%s\n' "$@" > "$dir/naming-args"
+    cat > "$dir/naming-in"
+    pwd -P > "$dir/naming-cwd"
+    [ -f "$dir/naming-answer" ] || exit 1
+    cat "$dir/naming-answer"
+    exit 0
+  fi
+done
 "#;
 
 /// The text of the repository's `.env`, which git ignores and `.worktreeinclude` names.
@@ -86,7 +102,8 @@ impl Flow {
         scratch.write("repo/.env", ENV.as_bytes());
         let fake = scratch.write(
             "fake-claude",
-            fake.replace("DIR", &scratch.path().display().to_string())
+            fake.replacen("dir='DIR'\n", &format!("dir='DIR'\n{NAMING}"), 1)
+                .replace("DIR", &scratch.path().display().to_string())
                 .as_bytes(),
         );
         fs::set_permissions(&fake, fs::Permissions::from_mode(0o700)).unwrap();

@@ -58,8 +58,13 @@ impl App {
     /// Hands the sessions and spaces to the worker to remember, if they changed, and waits at
     /// most [`FLUSH_WAIT`] until it has written them: before the process goes, or a restart's new
     /// instance reads them (ADR 0121, "The record at an exit, as built"). Past the wait it goes
-    /// on, and says so in the log.
+    /// on, and says so in the log. A space's naming run is stopped first.
     pub(in crate::app) fn flush_sessions(&mut self) {
+        // A space's naming does not outlive this instance: its run is stopped, and the space
+        // keeps oso's own names (ADR 0159).
+        if let Some(running) = self.hosting.spaces.summary_run.take() {
+            crate::sessions::spaces::summary::stop(&running);
+        }
         self.save_sessions();
         let Some(worker) = &self.sessions else {
             return;

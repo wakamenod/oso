@@ -55,18 +55,11 @@ impl Spaces {
         let name = unique(&base, &|name| {
             taken(name) || self.slug_taken(name, Some(at))
         });
-        let display = clean_display(&naming.display);
-        let display = if display.is_empty() || display == name {
-            String::new()
-        } else {
-            unique_display(&display, &|label| {
-                label == name || self.label_taken(label, Some(at))
-            })
-        };
+        let display = self.display_for(at, &naming.display, &name);
         let stored = &mut self.spaces[at].stored;
         stored.description = clean_description(&naming.description);
         stored.name = name;
-        stored.display = display;
+        stored.display = display.unwrap_or_default();
         Some(at)
     }
 
@@ -240,14 +233,65 @@ impl Spaces {
     }
 
     /// Whether `name` is the slug of a space other than `at`, or a name one of its earlier
-    /// orchestrators keeps, `<slug>-was-<n>`, so that no two spaces answer to one name.
+    /// orchestrators keeps, `<slug>-was-<n>`, or a slug whose earlier orchestrators would take
+    /// another space's slug, so that no two sessions answer to one name.
     pub fn slug_taken(&self, name: &str, at: Option<usize>) -> bool {
         // Only a name with `-was-` in it can be an earlier orchestrator's.
         let earlier = name.to_ascii_lowercase().contains("-was-");
         (self.spaces.iter().enumerate()).any(|(other, space)| {
             let slug = &space.stored.name;
-            (Some(other) != at && slug == name) || (earlier && is_earlier_name(slug, name))
+            (Some(other) != at && slug == name)
+                || (earlier && is_earlier_name(slug, name))
+                // A slug another space has may be `name`'s earlier orchestrator's.
+                || (slug.contains("-was-") && is_earlier_name(name, slug))
         })
+    }
+
+    /// Gives space `at` the names a summary of its description gave (ADR 0159, step 2): `slug`
+    /// as its slug, made unique as a new space's is, while it has no directory; `display` as
+    /// its display name, made unique, if given. Returns the space's slug and what the person
+    /// sees it called now.
+    pub fn take_names(
+        &mut self,
+        at: usize,
+        (slug, display): (Option<&str>, Option<&str>),
+        taken: &dyn Fn(&str) -> bool,
+        now: u64,
+    ) -> Option<(String, String)> {
+        let space = self.spaces.get(at)?;
+        let mut name = space.stored.name.clone();
+        if let Some(base) = slug.filter(|_| space.stored.directory.is_none()) {
+            name = unique(base, &|candidate| {
+                taken(candidate) || self.slug_taken(candidate, Some(at))
+            });
+        }
+        let display = display.and_then(|display| self.display_for(at, display, &name));
+        let stored = &mut self.spaces[at].stored;
+        if name != stored.name || display.is_some() {
+            stored.name = name;
+            if let Some(display) = display {
+                stored.display = display;
+            }
+            stored.changed = now;
+            self.unsaved = true;
+        }
+        Some((stored.name.clone(), stored.label().to_owned()))
+    }
+
+    /// What space `at`, whose slug is `slug`, keeps as its display name for `raw`, cleaned:
+    /// empty where it reads as its slug, else unique among the spaces; `None` where nothing of
+    /// it is left.
+    fn display_for(&self, at: usize, raw: &str, slug: &str) -> Option<String> {
+        let display = clean_display(raw);
+        if display.is_empty() {
+            return None;
+        }
+        if display == slug {
+            return Some(String::new());
+        }
+        Some(unique_display(&display, &|label| {
+            label == slug || self.label_taken(label, Some(at))
+        }))
     }
 
     /// Gives space `at`, which has no directory yet, a slug no session answers to, as `taken`

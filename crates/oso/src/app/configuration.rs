@@ -100,6 +100,11 @@ impl Configuration {
         self.in_force.spaces.root()
     }
 
+    /// `[spaces] naming` in force: how a new space is named (ADR 0159).
+    pub(super) fn spaces_naming(&self) -> crate::config::SpacesNaming {
+        self.in_force.spaces.naming
+    }
+
     /// `[sessions] env` in force: the variables a hosted session takes from oso's environment.
     pub(super) fn session_env(&self) -> &[String] {
         &self.in_force.sessions.env

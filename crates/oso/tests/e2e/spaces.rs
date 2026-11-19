@@ -373,6 +373,80 @@ pub(super) fn answer(app: &mut crate::harness::App, label: &str, text: &str) {
     app.send_keys(&format!("{} RET", keys(text)));
 }
 
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn claude_names_a_new_space_and_a_name_that_does_not_hold_gives_way() {
+    let root = PrivateRoot::new("spaces-naming-root");
+    let config = format!("\n[spaces]\nroot = \"{}\"\n", root.0.display());
+    let flow = Flow::new("spaces-naming", &config);
+    let answer_with = |display: &str, slug: &str| {
+        let names = serde_json::json!({ "display_name": display, "slug": slug });
+        let text = serde_json::json!({ "is_error": false, "structured_output": names });
+        flow.scratch
+            .write("naming-answer", text.to_string().as_bytes());
+    };
+    let (mut app, _) = flow.start();
+
+    // Named by `claude` from the description, given on its input, never as an argument, run
+    // with no tool in an empty directory of oso's state; then the directory and the
+    // orchestrator take the slug.
+    answer_with("ログイン 🔧", "login-fix");
+    app.send_keys("C-c a O");
+    answer(
+        &mut app,
+        "Describe the space:",
+        "Fix the login when the SSO token expires",
+    );
+    app.wait_for(
+        "the space named, its directory made and its orchestrator started",
+        |state| {
+            space(state, "login-fix").is_some_and(|s| {
+                s["display"] == "ログイン 🔧"
+                    && s["directory"].is_string()
+                    && s["orchestrator"].is_string()
+            })
+        },
+    );
+    let runs = flow.wait_for_runs(1);
+    let (cwd, _) = run_named(&runs, "login-fix").expect("the orchestrator's run");
+    assert_eq!(
+        PathBuf::from(cwd),
+        fs::canonicalize(root.0.join("login-fix")).unwrap()
+    );
+    let read = |name: &str| fs::read_to_string(flow.scratch.path().join(name)).unwrap();
+    let args = read("naming-args");
+    for wanted in [
+        "--print",
+        "--safe-mode",
+        "--tools=",
+        "--no-session-persistence",
+    ] {
+        assert!(args.lines().any(|arg| arg == wanted), "{wanted}: {args}");
+    }
+    assert!(!args.contains("SSO token"), "{args}");
+    assert!(read("naming-in").contains("Fix the login when the SSO token expires"));
+    // A directory of its own, named after the space, under oso's state directory's own.
+    let cwd = PathBuf::from(read("naming-cwd").trim_end());
+    let parent = cwd.parent().and_then(Path::file_name);
+    assert_eq!(
+        parent.and_then(|name| name.to_str()),
+        Some("space-naming"),
+        "{cwd:?}"
+    );
+
+    // A slug that is none and a display name with a bidi control: oso's own slug, and the
+    // name cleaned.
+    show_readme(&mut app);
+    answer_with("a\u{202e}b", "../../x");
+    app.send_keys("C-c a O");
+    answer(&mut app, "Describe the space:", "Second try");
+    app.wait_for("the fallback slug and the cleaned name", |state| {
+        space(state, "second-try")
+            .is_some_and(|s| s["display"] == "ab" && s["directory"].is_string())
+    });
+    flow.exit_with(0);
+}
+
 /// Enters the first space and closes it once its sessions, its orchestrator here, are idle:
 /// they are stopped and the space archived.
 fn close_with_its_idle_session(app: &mut crate::harness::App) {
