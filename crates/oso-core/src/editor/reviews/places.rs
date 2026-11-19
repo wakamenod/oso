@@ -9,6 +9,8 @@
 //! - A line of a side follows the host's map: to the line it is now, or the nearest line that
 //!   stayed. One the new text does not show, or one with nothing near, goes to the nearest row
 //!   its side shows; a row the new text no longer holds goes to its file's header.
+//! - A gap's row stays on the gap that still hides any of its lines, as the context keys show
+//!   some of them; once none is hidden, it goes to the first line it hid.
 //! - A cursor keeps its column. The selections are made again from their places, so that two
 //!   the text change put on one offset are not paired with each other's places.
 //! - A selection whose place the new text no longer shows, a filler row's or a file's no
@@ -95,6 +97,10 @@ impl Editor {
                     let found =
                         now.and_then(|now| rows.find(path, Place::Line { side, number: now }));
                     found.or_else(|| rows.nearest(path, side, now.unwrap_or(number)))
+                }
+                // A gap opened whole goes to the first line it hid.
+                Place::Gap { old, .. } => {
+                    (rows.find(path, *place)).or_else(|| rows.nearest(path, Side::Old, old))
                 }
                 row => rows.find(path, row),
             };

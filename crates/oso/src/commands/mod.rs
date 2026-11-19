@@ -119,6 +119,7 @@ const TABLES: &[&[Command]] = &[
     restart::COMMANDS,
     review::COMMANDS,
     review::COMMENT_COMMANDS,
+    review::CONTEXT_COMMANDS,
     review::DECISION_COMMANDS,
     review::VISIT_COMMANDS,
     review::FILES_COMMANDS,

@@ -12,6 +12,9 @@
 //! - What a line is goes in its [`Section`], never read back from its text.
 //! - Highlights are counted in the decoded text's bytes, where each invalid byte is a U+FFFD
 //!   of three, as the loader decodes it.
+//! - Each hunk has the unchanged lines around it ([`context`](super::context)) before its
+//!   header and after its lines; its header stays where hunks join, as it holds the hunk's
+//!   decision and is where the keys on a hunk act.
 //! - Comments go in as cards ([`cards`](super::cards)) among the lines; a file that may hold
 //!   secrets shows only how many it has.
 
@@ -23,6 +26,7 @@ use oso_core::review::{Anchor, CommentId, Hunk, RowKind, Section, Shape, Side};
 use oso_core::syntax::Highlight;
 
 use super::cards::{self, Cards, Placing, Plan};
+use super::context::{self, Around};
 use crate::review::list::Status;
 use crate::review::refine::Refined;
 use crate::review::{Content, Entry, Reading, hunk_header};
@@ -75,6 +79,8 @@ pub(crate) struct Shown<'a> {
     pub(crate) cut_short: bool,
     /// Whether agent cards fold to their first line.
     pub(crate) folded: bool,
+    /// The unchanged lines to show around the hunks (step 13); none shows none.
+    pub(crate) context: Option<Around<'a>>,
 }
 
 /// Builds a section line by line, keeping its rows and runs with its text.
@@ -170,7 +176,7 @@ impl Writer {
         kind: RowKind,
         (side, number): (Side, u32),
         (sign, text): (&[u8], &[u8]),
-        highlight: Highlight,
+        highlight: Option<Highlight>,
         refined: &[Range<u32>],
     ) {
         let row = self.rows();
@@ -203,7 +209,7 @@ impl Writer {
             at,
             len,
         });
-        self.line(kind, &[(sign, Some(highlight)), (text, Some(highlight))]);
+        self.line(kind, &[(sign, highlight), (text, highlight)]);
     }
 
     fn run(&mut self, len: usize, highlight: Option<Highlight>) {
@@ -417,7 +423,7 @@ fn lines(
             first: run_first,
         };
         let spans = refined.line(index, side, nth);
-        writer.side_line(kind, (side, number), (sign, text), highlight, spans);
+        writer.side_line(kind, (side, number), (sign, text), Some(highlight), spans);
         let before = writer.rows();
         plan.after_line(writer, side, number);
         if writer.rows() != before {
@@ -492,7 +498,11 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Rendered 
                 writer.note("comments not carried in time: some show as outdated");
             }
             plan.outdated(&mut writer);
-            for (index, hunk) in shape.hunks().iter().enumerate() {
+            let hunks = shape.hunks();
+            for (index, hunk) in hunks.iter().enumerate() {
+                if let Some(around) = &shown.context {
+                    context::write(&mut writer, (hunks, index), around, Side::New);
+                }
                 let text = hunk_header(hunk);
                 let said = cards.decided(shape, index);
                 let highlight = Some(Highlight::DiffHunkHeader);
@@ -506,6 +516,9 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Rendered 
                 lines(&mut writer, &mut plan, (index, hunk), Side::Old, refined);
                 lines(&mut writer, &mut plan, (index, hunk), Side::New, refined);
                 plan.after_hunk(&mut writer, index);
+            }
+            if let Some(around) = &shown.context {
+                context::write(&mut writer, (hunks, hunks.len()), around, Side::New);
             }
             // Every thread has its place by now; this keeps any that did not.
             plan.rest(&mut writer);

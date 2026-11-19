@@ -63,6 +63,7 @@ fn plain(reading: &Reading, whole: bool) -> Rendered {
         placed: None,
         cut_short: false,
         folded: false,
+        context: None,
     };
     render(reading, if whole { usize::MAX } else { 0 }, &shown)
 }
@@ -310,6 +311,7 @@ fn decided_shown(reading: &Reading, review: &oso_core::review::Review) -> Render
         placed: None,
         cut_short: false,
         folded: false,
+        context: None,
     };
     render(reading, usize::MAX, &shown)
 }

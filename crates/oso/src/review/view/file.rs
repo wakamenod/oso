@@ -10,6 +10,7 @@ use std::sync::Arc;
 use oso_core::review::{Anchor, CommentId};
 
 use super::cards::Cards;
+use super::context::{Around, Lines, Revealed};
 use super::panes;
 use super::section;
 use crate::review::{Content, Entry, Reading};
@@ -33,6 +34,10 @@ pub(super) struct File {
     /// Whether the filter hides it, and its row in the files pane (step 6b).
     pub(super) judged: super::filter::Judged,
     pub(super) pane_row: Option<super::files::PaneRow>,
+    /// Where each line of the shown reading's new side starts, for its context (step 13).
+    lines: Option<Lines>,
+    /// The unchanged lines the person asked to see.
+    pub(super) revealed: Revealed,
 }
 
 /// A file's section and its two panes as last laid out, each kept while laying it out again
@@ -61,12 +66,18 @@ impl File {
             rendered: Laid::default(),
             judged: super::filter::Judged::default(),
             pane_row: None,
+            lines: None,
+            revealed: Revealed::default(),
         }
     }
 
     /// Shows `reading`, its comments placed by `placed`, and drops a carry it waited for.
     pub(super) fn show(&mut self, reading: Arc<Reading>, placed: Option<Placed>, cut_short: bool) {
         self.entry = reading.entry.clone();
+        self.lines = match &reading.content {
+            Content::Text { new, .. } => Some(Lines::of(new)),
+            _ => None,
+        };
         self.reading = Some(reading);
         self.pending = None;
         self.placed = placed;
@@ -89,11 +100,26 @@ impl File {
 
     /// How its comments show beside its reading.
     fn shown(&self, folded: bool) -> section::Shown<'_> {
+        let context = match (self.reading.as_deref(), &self.lines) {
+            (
+                Some(Reading {
+                    content: Content::Text { shape, new, .. },
+                    ..
+                }),
+                Some(lines),
+            ) if lines.holds(shape.hunks()) => Some(Around {
+                new,
+                lines,
+                revealed: self.revealed.against(shape.base()),
+            }),
+            _ => None,
+        };
         section::Shown {
             cards: &self.cards,
             placed: self.placed.as_deref(),
             cut_short: self.cut_short,
             folded,
+            context,
         }
     }
 

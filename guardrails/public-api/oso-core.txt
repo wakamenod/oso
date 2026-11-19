@@ -2138,6 +2138,10 @@ pub oso_core::editor::ReviewRequest::Accept::review: oso_core::editor::ReviewId
 pub oso_core::editor::ReviewRequest::Baseline
 pub oso_core::editor::ReviewRequest::Baseline::project: oso_core::project::ProjectId
 pub oso_core::editor::ReviewRequest::Close(oso_core::editor::ReviewId)
+pub oso_core::editor::ReviewRequest::Context
+pub oso_core::editor::ReviewRequest::Context::path: alloc::boxed::Box<[u8]>
+pub oso_core::editor::ReviewRequest::Context::review: oso_core::editor::ReviewId
+pub oso_core::editor::ReviewRequest::Context::show: core::option::Option<core::ops::range::Range<u32>>
 pub oso_core::editor::ReviewRequest::Forget(alloc::string::String)
 pub oso_core::editor::ReviewRequest::MessageDrop
 pub oso_core::editor::ReviewRequest::MessageDrop::buffer: oso_core::buffer::BufferId
@@ -5673,8 +5677,15 @@ impl core::marker::StructuralPartialEq for oso_core::review::RestoreError
 pub enum oso_core::review::RowKind
 pub oso_core::review::RowKind::Card
 pub oso_core::review::RowKind::Card::comment: oso_core::review::CommentId
+pub oso_core::review::RowKind::Context
+pub oso_core::review::RowKind::Context::new: u32
+pub oso_core::review::RowKind::Context::old: u32
 pub oso_core::review::RowKind::File
 pub oso_core::review::RowKind::Filler
+pub oso_core::review::RowKind::Gap
+pub oso_core::review::RowKind::Gap::lines: u32
+pub oso_core::review::RowKind::Gap::new: u32
+pub oso_core::review::RowKind::Gap::old: u32
 pub oso_core::review::RowKind::Hunk
 pub oso_core::review::RowKind::Hunk::hunk: usize
 pub oso_core::review::RowKind::Label
@@ -5696,6 +5707,7 @@ impl core::marker::StructuralPartialEq for oso_core::review::RowKind
 pub enum oso_core::review::Seek
 pub oso_core::review::Seek::Comment
 pub oso_core::review::Seek::File
+pub oso_core::review::Seek::Gap
 pub oso_core::review::Seek::Hunk
 impl core::clone::Clone for oso_core::review::Seek
 pub fn oso_core::review::Seek::clone(&self) -> oso_core::review::Seek
@@ -5895,6 +5907,7 @@ pub oso_core::review::Row::kind: oso_core::review::RowKind
 pub oso_core::review::Row::offset: usize
 pub oso_core::review::Row::path: &'a [u8]
 impl oso_core::review::Row<'_>
+pub fn oso_core::review::Row<'_>::context(&self) -> core::option::Option<(u32, u32)>
 pub fn oso_core::review::Row<'_>::line(&self) -> core::option::Option<(oso_core::review::Side, u32)>
 impl<'a> core::clone::Clone for oso_core::review::Row<'a>
 pub fn oso_core::review::Row<'a>::clone(&self) -> oso_core::review::Row<'a>

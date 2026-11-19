@@ -12,6 +12,8 @@
 //!   new pane: the other pane holds filler rows as tall, so that the panes stay in step.
 //! - The text is cut at the same file in both panes, by both panes' bytes together, so that the
 //!   two hold about what the unified text does.
+//! - Unchanged lines around the hunks (step 13) go in both panes row for row, each pane's
+//!   numbered and highlighted by its own side.
 //! - Each pane's lines take their sides' runs as the unified text's do (step 9), and when only
 //!   those changed, a paint of both lays out nothing.
 
@@ -27,6 +29,7 @@ use oso_core::syntax::{Highlight, Highlights};
 use super::State;
 use super::assemble::assemble;
 use super::cards::{Cards, Placing, Plan};
+use super::context::{self, Around};
 use super::file::{Laidout, section_in};
 use super::project::{self, Run};
 use super::section::{self, Rendered, Shown, Writer};
@@ -129,7 +132,13 @@ impl SideLines {
             side: self.side,
             first: self.first,
         };
-        writer.side_line(kind, (self.side, number), (sign, text), highlight, refined);
+        writer.side_line(
+            kind,
+            (self.side, number),
+            (sign, text),
+            Some(highlight),
+            refined,
+        );
         self.after = Some(writer.rows());
     }
 }
@@ -179,6 +188,14 @@ fn hunk(
         pad(old, new);
     }
     plan.after_hunk(new, index);
+    pad(old, new);
+}
+
+/// The unchanged lines before hunk `index`, or after the last, in both panes: each pane's
+/// numbered and highlighted by its own side, row for row.
+fn context_in_both((old, new): (&mut Writer, &mut Writer), at: (&[Hunk], usize), around: &Around) {
+    context::write(old, at, around, Side::Old);
+    context::write(new, at, around, Side::New);
     pad(old, new);
 }
 
@@ -232,7 +249,11 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Sides {
             }
             plan.outdated(&mut new);
             pad(&mut old, &mut new);
-            for (index, at) in shape.hunks().iter().enumerate() {
+            let hunks = shape.hunks();
+            for (index, at) in hunks.iter().enumerate() {
+                if let Some(around) = &shown.context {
+                    context_in_both((&mut old, &mut new), (hunks, index), around);
+                }
                 let said = cards.decided(shape, index);
                 hunk(
                     (&mut old, &mut new),
@@ -240,6 +261,9 @@ pub(crate) fn render(reading: &Reading, room: usize, shown: &Shown) -> Sides {
                     (index, at),
                     (&said, refined),
                 );
+            }
+            if let Some(around) = &shown.context {
+                context_in_both((&mut old, &mut new), (hunks, hunks.len()), around);
             }
             plan.rest(&mut new);
         }

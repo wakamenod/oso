@@ -158,9 +158,11 @@ fn a_review_of_uncommitted_changes_reads_its_files_moves_refreshes_and_quits() {
     let expected = [
         "Review \u{b7} uncommitted \u{b7} proj-review",
         "modified  a.rs  +1 \u{2212}1",
+        " one",
         "@@ -2 +2 @@",
         "-two",
         "+2",
+        " three",
         "added  b.rs  +1 \u{2212}0",
         "@@ -0,0 +1 @@",
         "+fn b() {}",
@@ -171,9 +173,9 @@ fn a_review_of_uncommitted_changes_reads_its_files_moves_refreshes_and_quits() {
         "{shown:?}"
     );
 
-    // `n` goes to the first hunk's header.
+    // `n` goes to the first hunk's header, under its line of context.
     app.send_keys("n");
-    assert_eq!(cursor(&app.state()), (2, 0));
+    assert_eq!(cursor(&app.state()), (3, 0));
 
     // A file changed meanwhile is read again with `g`.
     std::fs::write(&file, b"one\n2\nthree\nfour\n").unwrap();
@@ -233,7 +235,7 @@ fn a_comment_is_drafted_kept_edited_removed_and_yanked_back() {
     let mut app = open_review(&scratch);
     // On `+2`, the hunk's added line.
     app.send_keys("n C-n C-n");
-    assert_eq!(cursor(&app.state()), (4, 0));
+    assert_eq!(cursor(&app.state()), (5, 0));
     app.send_keys("c");
     assert_eq!(
         prompt_label(&mut app).as_deref(),
@@ -275,7 +277,7 @@ fn a_comment_is_drafted_kept_edited_removed_and_yanked_back() {
 
     // `e` on its label: the draft holds its text; `C-g` drops it into the kill ring.
     app.send_keys("C-n");
-    assert_eq!(cursor(&app.state()), (5, 0));
+    assert_eq!(cursor(&app.state()), (6, 0));
     app.send_keys("e");
     assert_eq!(prompt_label(&mut app).as_deref(), Some("Edit #0"));
     assert_eq!(app.state()["prompts"][0]["text"], "first\nsecond");
@@ -299,7 +301,7 @@ fn a_comment_is_drafted_kept_edited_removed_and_yanked_back() {
     let at = shown.iter().position(|row| row == "+2").expect("the line");
     assert_eq!(&shown[at..at + 4], &card[..], "back on its line: {shown:?}");
     app.send_keys("M-< n C-n C-n C-n");
-    assert_eq!(cursor(&app.state()), (5, 0));
+    assert_eq!(cursor(&app.state()), (6, 0));
 
     // `k` removes it at once, and `C-y` yanks it back as text elsewhere.
     app.send_keys("k");
@@ -396,17 +398,17 @@ fn bar_shows_the_two_panes_in_step_and_the_one_stream_again() {
     let mut app = open_review(&scratch);
     // On `+2`, the hunk's added line.
     app.send_keys("n C-n C-n");
-    assert_eq!(cursor(&app.state()), (4, 0));
+    assert_eq!(cursor(&app.state()), (5, 0));
 
     // `|`: the new side's pane holds the cursor, beside `-two` in the old one.
     app.send_keys("|");
     let state = app.wait_for("the panes", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj-review \u{b7} new*"
     });
-    assert_eq!(cursor(&state), (3, 0));
+    assert_eq!(cursor(&state), (4, 0));
     assert_eq!(window_count(&mut app), 2);
     let new = rows_until(&mut app, "+fn b() {}");
-    assert_eq!(new[3], "+2", "{new:?}");
+    assert_eq!(new[4], "+2", "{new:?}");
     app.send_keys("C-x o");
     assert_eq!(
         app.state()["buffer"]["name"],
@@ -418,7 +420,10 @@ fn bar_shows_the_two_panes_in_step_and_the_one_stream_again() {
         new.len(),
         "the panes are in step: {old:?} {new:?}"
     );
-    assert_eq!(old[3], "-two", "{old:?}");
+    assert_eq!(old[4], "-two", "{old:?}");
+    // Context goes in both panes, row for row.
+    assert_eq!((old[2].as_str(), new[2].as_str()), (" one", " one"));
+    assert_eq!((old[5].as_str(), new[5].as_str()), (" three", " three"));
     // b.rs is new: its added line stands beside a filler row.
     let at = new.iter().position(|row| row == "+fn b() {}").unwrap();
     assert_eq!(old[at], "", "{old:?}");
@@ -436,7 +441,7 @@ fn bar_shows_the_two_panes_in_step_and_the_one_stream_again() {
     let state = app.wait_for("the one stream", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj-review*"
     });
-    assert_eq!(cursor(&state), (4, 0));
+    assert_eq!(cursor(&state), (5, 0));
     assert_eq!(window_count(&mut app), 1);
 
     // Two panes again, then `C-u |`: as the width has it, and this window is under 150 columns.
@@ -574,7 +579,7 @@ fn an_edit_made_under_an_open_review_shows_with_the_cursor_kept_on_its_line() {
     seen(&mut app, "+2");
     // On `+2`, a.rs's new line 2.
     app.send_keys("n C-n C-n");
-    assert_eq!(cursor(&app.state()), (4, 0));
+    assert_eq!(cursor(&app.state()), (5, 0));
     // The agent puts a line in at the top, and no key is pressed: the review shows it.
     std::fs::write(&file, b"zero\none\n2\nthree\n").unwrap();
     seen(&mut app, "+zero");
@@ -767,4 +772,113 @@ fn ret_opens_the_line_carried_through_unsaved_edits_and_c_u_ret_the_old_side() {
     let state = app.wait_for("a.rs again", |state| state["buffer"]["name"] == "a.rs");
     assert_eq!(cursor(&state), (2, 0));
     assert_eq!(window_count(&mut app), 3, "the pair stays: {state}");
+}
+
+/// A review of `proj-review`'s uncommitted changes, its `a.txt` of 30 lines with line 15
+/// changed, open, with the project trusted.
+fn open_context_review(scratch: &Scratch) -> App {
+    set_mode(scratch.path(), 0o700);
+    let config = scratch.write("config.toml", b"[lsp]\nstart = \"manual\"\n");
+    set_mode(&config, 0o644);
+    let numbered = |changed: u32| -> String {
+        (1..=30)
+            .map(|n| match n == changed {
+                true => format!("L{n}\n"),
+                false => format!("l{n}\n"),
+            })
+            .collect()
+    };
+    let file = scratch.write("proj-review/a.txt", numbered(0).as_bytes());
+    let root = scratch.path().join("proj-review");
+    git(&root, &["init", "-q"]);
+    git(&root, &["add", "-A"]);
+    git(
+        &root,
+        &[
+            "-c",
+            "user.name=e2e",
+            "-c",
+            "user.email=e2e@example.invalid",
+            "commit",
+            "-q",
+            "--no-gpg-sign",
+            "-m",
+            "base",
+        ],
+    );
+    std::fs::write(&file, numbered(15)).unwrap();
+    let mut app = App::start_with_config(Some(&file), scratch.path(), &config);
+    app.wait_until_ready();
+    app.send_keys(&format!("M-x {} RET y", typing("trust-project")));
+    app.wait_for("the trust", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.starts_with("Trusted "))
+    });
+    app.send_keys("C-x v r w");
+    app.wait_for("the review", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+    });
+    app
+}
+
+/// Unchanged lines around a hunk (step 13): three each side, gaps' rows for the rest, `[` and
+/// `]` showing a gap's lines, `review-reset-context` hiding them again, `RET` on a context line
+/// visiting it, and `c` refusing it.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn context_lines_show_around_a_hunk_and_the_context_keys_show_more() {
+    let scratch = Scratch::new("review-context");
+    let mut app = open_context_review(&scratch);
+    let shown = rows_until(&mut app, "\u{22ef} 12 unchanged lines");
+    let expected = [
+        "Review \u{b7} uncommitted \u{b7} proj-review",
+        "modified  a.txt  +1 \u{2212}1",
+        "\u{22ef} 11 unchanged lines",
+        " l12",
+        " l13",
+        " l14",
+        "@@ -15 +15 @@",
+        "-l15",
+        "+L15",
+        " l16",
+        " l17",
+        " l18",
+        "\u{22ef} 12 unchanged lines",
+    ];
+    assert_eq!(
+        &shown[..expected.len().min(shown.len())],
+        &expected[..],
+        "{shown:?}"
+    );
+
+    // `c` on a context line refuses; `RET` visits it.
+    app.send_keys("n C-p c");
+    assert_eq!(
+        app.state()["echo"],
+        "Comments go on a changed line or a hunk's header"
+    );
+    assert_eq!(prompt_label(&mut app), None);
+    app.send_keys("RET");
+    let state = app.wait_for("a.txt", |state| state["buffer"]["name"] == "a.txt");
+    assert_eq!(cursor(&state), (13, 0), "on line 14");
+
+    // `[` above the hunk shows the 11 hidden lines, the gap being no more than 20; `]` the 12
+    // below. The cursor stays on the hunk's header.
+    app.send_keys("C-x o n [");
+    seen(&mut app, " l1");
+    app.send_keys("]");
+    let shown = rows_until(&mut app, " l30");
+    assert!(
+        !shown.iter().any(|row| row.starts_with('\u{22ef}')),
+        "{shown:?}"
+    );
+    let header = shown.iter().position(|row| row == "@@ -15 +15 @@").unwrap();
+    assert_eq!(cursor(&app.state()).0, header as u64);
+
+    // A refresh keeps them; `review-reset-context` hides them again.
+    app.send_keys("g");
+    assert_eq!(rows_until(&mut app, " l30")[2], " l1");
+    app.send_keys(&format!("M-x {} RET", typing("review-reset-context")));
+    seen(&mut app, "\u{22ef} 11 unchanged lines");
 }

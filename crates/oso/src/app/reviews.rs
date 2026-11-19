@@ -129,6 +129,11 @@ impl App {
             ReviewRequest::Refresh(id) => self.refresh_review(id, true),
             ReviewRequest::Close(id) => self.close_review(id),
             ReviewRequest::Redraw { review, path } => self.redraw_comments(review, &path),
+            ReviewRequest::Context { review, path, show } => {
+                if let Some(index) = self.reviews.index(review) {
+                    (self.reviews.open[index].view).tell(Tell::Context { path, show });
+                }
+            }
             ReviewRequest::Send(id) => self.send_review(id),
             ReviewRequest::MessageSend { buffer, to } => self.send_review_message(buffer, to),
             ReviewRequest::MessageDrop { buffer } => self.drop_review_message(buffer),

@@ -169,7 +169,8 @@ previous setup measured 25 ms for 206 files once the index's stat cache is copie
   directory at a time, no link followed, regular files only, no wait), or the blob for a commit,
   the index or a PR. The diff runs on a worker, per file, with `similar`'s Myers diff and a
   deadline, and groups into hunks with no context lines (as the previous setup's `-U0`); context
-  is shown from the sides on demand.
+  is shown from the sides: three unchanged lines before and after each hunk, as GitHub shows
+  them, and more on demand (step 13, amended on 2026-11-19).
 - Why in-process: each file is diffed on its own, so a refresh re-diffs only files whose signature
   changed and on-screen files go first; the same sides feed intra-line refinement, highlighting
   and re-anchoring without a second read; and no patch text from git is parsed. Hunks need not be
@@ -476,7 +477,8 @@ Limits for crafted input, each saying what it hides:
 In a review buffer (accept is `A`, as built in step 5): `n`/`p` hunk, `N`/`P` file, `{`/`}` comment, `c` comment, `e` edit, `k`
 remove, `r` resolve, `a` accept, `x` reject, `v` viewed, `u` undo a decision, `s` files pane, `/`
 filter, `|` two panes, `RET` source (`C-u RET` the old side, as built in step 3), `g` refresh
-now, `C-c C-c` send, `q` bury. `C-x v r` opens the
+now, `C-c C-c` send, `q` bury, and `[`/`]` more unchanged lines above or below, `=` a whole gap
+(step 13). `C-x v r` opens the
 menu. The exact keys are settled in step 3 with the author.
 
 ## Steps
@@ -513,6 +515,8 @@ One PR per step; each passes `just ci` and, where it touches the window, `just e
     rules, judging the width only on a change of it, and `|`.
 12. **Sending:** the message and its preview, and the Deliver seam's terminal implementation once
    ADR 0120 lands. PRs through `gh` come here too.
+13. **Context lines** (amended on 2026-11-19): three unchanged lines around each hunk, gaps that
+    show more on demand, and hunks whose context meets shown together (see "As built").
 
 ## Questions
 
@@ -2124,3 +2128,64 @@ the plan said, with `ScopeKind::PullRequest`, which step 3 had left refused.
   the echo area's words, escaped; the number's checks in the commands and the scope; where
   comments go; and an end-to-end flow, `review_pr`, that reviews a listed pull request with
   `r` and shows it again through the menu's `p`.
+
+### Step 13: context lines
+
+The author found hunks with no context hard to read: the "context on demand" of "Diffing" had
+not been built. The author chose, on 2026-11-19 through the coordinator, three lines before and
+after each hunk, as GitHub shows them, and more on demand, and answered the plan's six questions
+(a). This amends "Diffing" and "Keys"; the model is unchanged, its hunks having no context.
+
+- **Where the lines come from:** the reading's new side, which the view thread holds already;
+  each unchanged line is the same on both sides, its old number following from the hunks around
+  it. Where each line starts is kept per reading on the view thread, at most 4 bytes a line of a
+  side of at most 200,000 lines. A side with fewer lines than its hunks say shows no context.
+- **How they look:** a space for the sign and the line's text with no diff face, no band; the
+  step 9 highlights of its side (the new side in the unified text, each pane's own side in the
+  two panes); no refinement, which marks words changed between lines and none is. Each stretch
+  of unchanged lines not shown is one row, `⋯ N unchanged lines`, in the hunk header's face and
+  band; a stretch of one line shows the line instead, as the row would take its room.
+- **Hunks whose context meets (Q1):** the lines between them show once and no gap's row is
+  between them, but each hunk keeps its own header, right above its changed lines: it holds the
+  hunk's decision and is where `n`/`p`, `A`/`x`/`v` and `c` on a hunk act. Context before a hunk
+  comes above its header; a hunk's cards stay under its changed lines, before the context after
+  them.
+- **Rows:** two row kinds in `oso_core::review`: `RowKind::Context { old, new }`, whose
+  `Row::line()` is the new side's line and `Row::context()` both sides', and `RowKind::Gap { old,
+  new, lines }`; a `Seek::Gap`. A context row's place is its new side's line, found by either
+  side's number, so the unified text and the panes map it as they map a changed line; a gap's is
+  `Place::Gap`, the old lines it hid, found again while it hides any of them, else at the first
+  of them. No motion stops on them; decisions say "Not on a hunk" there.
+- **Keys (Q3):** `[` (`review-context-up`) shows 20 more lines above every cursor: off a gap's
+  row, the last lines of the nearest gap above, next to what is shown; on a gap's row, its first
+  lines, above the row. `]` (`review-context-down`) the same below. `=` (`review-context-gap`)
+  shows the whole gap at the cursor, or the nearest below. A prefix argument sets the count, at
+  most 10,000 a press, which `=` keeps too; a gap of no more shows whole. `M-x
+  review-reset-context` (Q5) shows only the three lines again, in each cursor's file. They are
+  `Change`: they show lines of a file the review read, as scrolling would. Each asks the host
+  (`ReviewRequest::Context`), which tells the view thread (`Tell::Context`); the view lays out
+  that file alone.
+- **What was asked, kept (Q4):** on the view thread, by the old side's numbers, sorted and
+  joined, at most 256 stretches a file: a refresh (step 4) against the same old side keeps them
+  with no mapping, and a reading against another drops them. Not written in the saved review
+  (step 6a): a resumed review shows three lines again.
+- **Comments (Q2):** none goes on a context line or a gap's row; `c` there says "Comments go on
+  a changed line or a hunk's header". Line comments on context are left for later, as carrying
+  and sending them need the line's text, which only a hunk's lines keep. `RET` (step 3) visits a
+  context line's new side, `C-u RET` its old, and a gap's first hidden line.
+- **Unaffected:** staging builds its own patch with its own three lines (`stage.rs`), and
+  comments, decisions, viewed marks, sending and the agent tools go by hunks and changed lines,
+  never by these rows. A file that may hold secrets, a binary or too large one, a conflicted one
+  and a file with no hunks show no context and no gap's row.
+- **Cost:** about six rows more a hunk, laid out on the view thread and counted with the text
+  against its limit; finding a line costs O(1) from the kept starts. The UI's swap is still one
+  section's.
+- **Public items:** `RowKind::Context`, `RowKind::Gap`, `Row::context`, `Seek::Gap` and
+  `ReviewRequest::Context`.
+- **Tests:** the layout (three lines, gaps at the file's edges and between hunks, hunks that
+  join, a stretch of one line, line endings, invalid bytes, both panes row for row, a side that
+  does not match its hunks), a property test that every unchanged line is shown or hidden once
+  and in order, what was asked kept across a reading against the same old side and dropped
+  against another, the view told and told to forget, the rows' places, the keys' gaps and
+  counts on every cursor, `c` refused, the files with no context, and a grid snapshot; an
+  end-to-end flow, `review_context`, that shows more lines with `]` and visits a context line.

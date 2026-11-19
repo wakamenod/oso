@@ -36,6 +36,7 @@
 mod assemble;
 mod build;
 mod cards;
+mod context;
 mod file;
 mod files;
 mod filter;
@@ -136,6 +137,12 @@ pub(crate) enum Tell {
     Filter(Option<oso_core::review::Filter>),
     /// Whether to build the files pane's text, and how many columns it has.
     Files(Option<usize>),
+    /// The unchanged lines of the file at `path` to show too, by its old side's numbers, or
+    /// only the hunks' own context again (step 13).
+    Context {
+        path: Box<[u8]>,
+        show: Option<Range<u32>>,
+    },
 }
 
 /// How a file's comments are carried to its new reading.
@@ -350,6 +357,7 @@ impl State {
             Tell::Panes(on) => self.show_panes(on),
             Tell::Filter(filter) => self.filter(filter),
             Tell::Files(width) => self.show_files(width),
+            Tell::Context { path, show } => self.reveal(&path, show),
             Tell::Highlighter { highlighter, top } => {
                 self.highlighting.set(highlighter, top);
                 self.shown_now();
