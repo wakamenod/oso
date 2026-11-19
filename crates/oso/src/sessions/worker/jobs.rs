@@ -103,16 +103,19 @@ pub(super) fn space_job(job: SpaceJob) -> Vec<Out> {
             check,
             path,
             as_named,
+            known,
         } => {
             let member = if as_named {
                 probe::main_checkout_as_named(&path)
             } else {
                 probe::main_checkout(&path)
             };
+            let known = (member.as_ref()).is_ok_and(|member| probe::known(member, &known));
             Out::RepositoryChecked {
                 check,
                 path,
                 member,
+                known,
             }
         }
         SpaceJob::Instructions { id, state } => {

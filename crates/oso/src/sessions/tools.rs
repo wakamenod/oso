@@ -19,9 +19,11 @@ use std::time::{Duration, Instant};
 
 use oso_core::command::Reach;
 
+mod add_repo;
 mod rename;
 pub mod repo;
 
+pub use add_repo::{add_dir, add_repo_question, add_repo_said, addable};
 pub use rename::{Renamable, renamable, rename_clash, rename_note, renamed_said};
 
 use super::identity::Origin;
@@ -51,6 +53,9 @@ pub struct Tool {
     /// choice, step 6): the reading tools, within the selected window's project, and
     /// `move_to_space`, which asks each time (ADR 0151).
     pub outside: bool,
+    /// Whether it starts a session, so that one started without asking counts toward the
+    /// caller's `agents_start_limit` (ADR 0135); `space_add_repo` starts none (ADR 0161, Q4).
+    pub starts: bool,
 }
 
 impl Tool {
@@ -72,6 +77,7 @@ const fn reads(name: &'static str) -> Tool {
         asks: Asks::No,
         destructive: false,
         outside: true,
+        starts: false,
     }
 }
 
@@ -94,6 +100,7 @@ pub const TOOLS: [Tool; 12] = [
         asks: Asks::No,
         destructive: true,
         outside: false,
+        starts: false,
     },
     Tool {
         name: "start_worktree_session",
@@ -101,6 +108,7 @@ pub const TOOLS: [Tool; 12] = [
         asks: Asks::UnlessAllowed,
         destructive: false,
         outside: false,
+        starts: true,
     },
     Tool {
         name: "session_start",
@@ -108,6 +116,7 @@ pub const TOOLS: [Tool; 12] = [
         asks: Asks::UnlessAllowed,
         destructive: false,
         outside: false,
+        starts: true,
     },
     // It writes only the person's message buffer of the caller's worktree, for oso's newest
     // request there, and commits nothing (ADR 0127, step 6a).
@@ -117,6 +126,7 @@ pub const TOOLS: [Tool; 12] = [
         asks: Asks::No,
         destructive: false,
         outside: false,
+        starts: false,
     },
     // Only an outside session's, which moves into a space on the person's `y` (ADR 0151).
     Tool {
@@ -125,6 +135,7 @@ pub const TOOLS: [Tool; 12] = [
         asks: Asks::Each,
         destructive: false,
         outside: true,
+        starts: false,
     },
     // A space's orchestrator resumes a stopped session of its space, as `session-resume` does,
     // and as ADR 0135 lets a start go without asking (ADR 0153).
@@ -134,6 +145,7 @@ pub const TOOLS: [Tool; 12] = [
         asks: Asks::UnlessAllowed,
         destructive: false,
         outside: false,
+        starts: true,
     },
     // A session's name in oso's record and its buffer's, no more: metadata only, as ADR 0121's
     // table has it (ADR 0155).
@@ -143,20 +155,19 @@ pub const TOOLS: [Tool; 12] = [
         asks: Asks::No,
         destructive: false,
         outside: false,
+        starts: false,
     },
     // A space's orchestrator adds a repository to its space, as `space-add-repo` does; one oso
     // does not trust always asks (ADR 0161).
     Tool {
-        name: ADD_REPO,
+        name: "space_add_repo",
         reach: Reach::Change,
         asks: Asks::UnlessAllowed,
         destructive: false,
         outside: false,
+        starts: false,
     },
 ];
-
-/// The tool that adds a repository to the caller's space (ADR 0161).
-pub const ADD_REPO: &str = "space_add_repo";
 
 /// The tool named `name`.
 pub fn tool(name: &str) -> Option<&'static Tool> {
@@ -418,12 +429,6 @@ impl StartLimit {
     }
 }
 
-/// Whether an unasked call of `tool` counts toward the caller's `agents_start_limit`: every one
-/// that starts a session, so not `space_add_repo`, which starts none (ADR 0161, Q4).
-pub fn counts_toward_limit(tool: &str) -> bool {
-    tool != ADD_REPO
-}
-
 /// Whether a call that would ask starts without asking: only as the person's configuration
 /// allows, from a session the person started, so that it reaches one level, in a trusted
 /// project, and below the caller's limit, if it has one; else it asks as before (ADR 0135).
@@ -489,33 +494,6 @@ pub fn resume_started(caller: &str, name: &str, directory: &str) -> String {
         quoted(caller),
         quoted(name),
         quoted(directory)
-    )
-}
-
-/// The question of `space_add_repo`: `caller` adds the repository at `path` to space `space`;
-/// one oso does not trust says it joins restricted (ADR 0161).
-pub fn add_repo_question(caller: &str, path: &str, space: &str, trusted: bool) -> String {
-    let restricted = if trusted {
-        ""
-    } else {
-        " oso does not trust it: it joins restricted, with no worktrees, workers or --add-dir \
-         until you trust it."
-    };
-    format!(
-        "let session {} add repository {} to space {}?{restricted}",
-        quoted(caller),
-        quoted(path),
-        quoted(space)
-    )
-}
-
-/// What the echo area says of a `space_add_repo` that went ahead with no question (ADR 0161).
-pub fn add_repo_said(caller: &str, path: &str, space: &str) -> String {
-    format!(
-        "session {} added repository {} to space {}, without asking",
-        quoted(caller),
-        quoted(path),
-        quoted(space)
     )
 }
 

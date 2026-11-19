@@ -6,7 +6,8 @@
 //! person's act; on `n` or `C-g` the same call from the same session is refused for a minute.
 //! When the person's configuration lets the caller start sessions without asking, no question
 //! opens and `starting` runs the plan at once (ADR 0135). `session_resume`'s plan is asked and
-//! carried out the same way (ADR 0153). The question itself is `question`'s.
+//! carried out the same way (ADR 0153), and so is `space_add_repo`'s (ADR 0161). The question
+//! itself is `question`'s.
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 

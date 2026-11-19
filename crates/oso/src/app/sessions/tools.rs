@@ -23,7 +23,6 @@ use std::sync::mpsc::Sender;
 use std::time::Instant;
 
 use oso_core::buffer::BufferId;
-use serde_json::json;
 
 use super::super::App;
 use crate::channel::protocol::sessions::Call;
@@ -474,69 +473,6 @@ impl App {
         self.hosting.tools.question.is_some() || self.agent_asks()
     }
 
-    /// Whether the configuration and the commands let sessions the person started start
-    /// sessions without asking now (ADR 0135).
-    fn agent_starts_allowed(&self) -> bool {
-        let tools = &self.hosting.tools;
-        tools.agent_starts.on && !tools.agent_starts_held
-    }
-
-    /// `agent-starts-ask` when `held`, `agent-starts-allow` when not: whether sessions the person
-    /// started may start sessions without asking, as the configuration said at oso's start
-    /// (ADR 0135).
-    pub(in crate::app) fn hold_agent_starts(&mut self, held: bool) {
-        let tools = &mut self.hosting.tools;
-        tools.agent_starts_held = held;
-        let said = match (held, tools.agent_starts.on) {
-            (true, _) => "Sessions started by agents ask you first, until oso restarts",
-            (false, true) => {
-                "Sessions started by agents start without asking again, as the configuration says"
-            }
-            (false, false) => {
-                "Sessions started by agents ask you first: the configuration does not set \
-                 [sessions] agents_start_without_asking"
-            }
-        };
-        self.editor.message(said);
-    }
-
-    /// The session `key` that a tool's call asked for started, or did not.
-    pub(in crate::app) fn session_tool_started(
-        &mut self,
-        key: SessionKey,
-        started: Result<(), String>,
-    ) {
-        let Some(pending) = self.hosting.tools.starts.remove(&key) else {
-            return;
-        };
-        let session = self.hosting.table.get(key);
-        let reply = match (started, session) {
-            (Ok(()), Some(session)) if pending.unasked => Ok(json!({
-                "session": { "id": session.id.as_str(), "name": session.name },
-                "directory": session.directory.display().to_string(),
-                "asked": false,
-                "note": "started without asking, as the person's config.toml allows",
-            })),
-            (Ok(()), Some(session)) => Ok(json!({
-                "session": { "id": session.id.as_str(), "name": session.name },
-                "directory": session.directory.display().to_string(),
-                "asked": true,
-            })),
-            (Ok(()), None) => Err("the session started, and ended at once".into()),
-            (Err(why), _) => Err(format!("the session did not start: {why}")),
-        };
-        self.agent_log(&format!(
-            "{}: {}",
-            pending.tool,
-            if reply.is_ok() {
-                "started"
-            } else {
-                "not started"
-            }
-        ));
-        pending.answer(reply);
-    }
-
     /// The connection `connection` went, or every one did when it is `None`: its calls get no
     /// reply, its question closes, and nothing it asked for and the person has not allowed
     /// runs. What the person's `y` started goes on, as the person's.
@@ -565,7 +501,7 @@ impl App {
             }
         }
         // An add's look the person has not allowed yet (ADR 0161).
-        self.drop_agent_looks(|look| look.before_question() && ours(look.connection()));
+        self.abandon_agent_looks(|look| ours(look.connection()));
         let tools = &mut self.hosting.tools;
         tools
             .listings

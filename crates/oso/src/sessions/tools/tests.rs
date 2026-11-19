@@ -7,12 +7,12 @@ use std::time::{Duration, Instant};
 
 use oso_core::command::Reach;
 
+use super::add_repo::AddDir;
 use super::{
-    ADD_REPO, Asks, Branch, Guard, MAX_CALLS, REFUSED_FOR, Refusal, Renamable, Resumable,
-    StartLimit, TOOLS, Unasked, add_repo_question, add_repo_said, counts_toward_limit, quoted,
-    renamable, rename_clash, rename_note, renamed_said, resumable, resume_question, resume_started,
-    start_question, start_started, starts_without_asking, tool, worktree_question,
-    worktree_started,
+    Asks, Branch, Guard, MAX_CALLS, REFUSED_FOR, Refusal, Renamable, Resumable, StartLimit, TOOLS,
+    Unasked, add_dir, add_repo_question, add_repo_said, addable, quoted, renamable, rename_clash,
+    rename_note, renamed_said, resumable, resume_question, resume_started, start_question,
+    start_started, starts_without_asking, tool, worktree_question, worktree_started,
 };
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
@@ -534,15 +534,17 @@ fn an_add_names_the_repository_quoted_and_says_when_it_is_restricted() {
     let restricted = add_repo_question("fix-login", "/r/w\u{202e}eb", "fix-login", false);
     assert!(restricted.contains("\\u{202e}"), "{restricted}");
     assert!(restricted.contains("joins restricted"), "{restricted}");
-    let said = add_repo_said("fix-login", "/r/web", "fix-login");
+    let said = add_repo_said("fix-login", "/r/web", "fix-login", true);
     assert!(said.ends_with(", without asking"), "{said}");
+    let said = add_repo_said("fix-login", "/r/web", "fix-login", false);
+    assert!(said.ends_with("to space \"fix-login\""), "{said}");
 }
 
 /// An add goes without asking only as a start would, trusted, and counts toward no limit, as
 /// it starts no session (ADR 0161, Q2, Q4).
 #[test]
 fn an_add_goes_without_asking_only_when_trusted_and_past_no_limit() {
-    let add = tool(ADD_REPO).unwrap();
+    let add = tool("space_add_repo").unwrap();
     let unasked = |trusted, caller| {
         starts_without_asking(Unasked {
             tool: add.asks,
@@ -556,7 +558,40 @@ fn an_add_goes_without_asking_only_when_trusted_and_past_no_limit() {
     assert!(unasked(true, Origin::Person));
     assert!(!unasked(false, Origin::Person), "untrusted, it always asks");
     assert!(!unasked(true, Origin::Unasked), "one level only");
-    assert!(!counts_toward_limit(ADD_REPO));
-    assert!(counts_toward_limit("session_start"));
-    assert!(counts_toward_limit("session_resume"));
+    let starting: Vec<_> = TOOLS.iter().filter(|t| t.starts).map(|t| t.name).collect();
+    assert_eq!(
+        starting,
+        ["start_worktree_session", "session_start", "session_resume"],
+        "only these count toward agents_start_limit"
+    );
+}
+
+/// A space takes a repository only while open, once, and up to 16 (ADR 0161).
+#[test]
+fn a_space_takes_a_repository_open_once_and_up_to_sixteen() {
+    assert!(addable(true, false, 15).is_ok());
+    assert!(addable(false, false, 0).unwrap_err().contains("closed"));
+    assert!(addable(true, true, 1).unwrap_err().contains("already"));
+    assert!(addable(true, false, 16).unwrap_err().contains("at most 16"));
+}
+
+/// The reply says the agent cannot read a repository until the person's paste, and a
+/// restricted one until their trust (ADR 0161, Q5).
+#[test]
+fn the_reply_says_what_reads_the_added_repository() {
+    assert_eq!(add_dir(false, true, true), AddDir::WaitsForTrust);
+    assert_eq!(add_dir(true, true, false), AddDir::Given);
+    assert_eq!(add_dir(true, false, true), AddDir::Offered);
+    assert_eq!(add_dir(true, false, false), AddDir::NotOffered);
+    let note = AddDir::Offered.note("/r/web");
+    assert!(
+        note.contains("/add-dir /r/web") && note.contains("ask them"),
+        "{note}"
+    );
+    assert!(
+        AddDir::WaitsForTrust
+            .note("/r/web")
+            .contains("trust-project")
+    );
+    assert_eq!(AddDir::NotOffered.word(), "not offered");
 }

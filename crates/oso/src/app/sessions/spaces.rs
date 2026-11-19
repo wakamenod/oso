@@ -1,10 +1,12 @@
 //! The issue space commands in the app (ADR 0136, step 1b): what `space-new`, `space-add-repo`
 //! and the others ask, carried out on the UI thread, with the disk work (a space's directory,
 //! whether a path is a repository, the instructions' directory) on the sessions worker, and
-//! the lists their prompts complete over.
+//! the lists their prompts complete over. An orchestrator's `space_add_repo` looks at its
+//! repository through the same checks (ADR 0161, `agent`).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
+mod agent;
 mod handover;
 mod lists;
 mod members;
@@ -137,7 +139,7 @@ impl App {
                     .spaces
                     .pending
                     .insert(token, Pending::New { description });
-                self.check_repository(token, repo);
+                self.check_repository(token, repo, None);
             }
             None => {
                 self.hosting.spaces.description = Some(description);
@@ -169,40 +171,20 @@ impl App {
         };
         let token = self.hosting.spaces.check();
         self.hosting.spaces.pending.insert(token, pending);
-        self.check_repository(token, path);
+        self.check_repository(token, path, None);
     }
 
-    /// Looks at `path` for an agent's `space_add_repo`, as for `space-add-repo`, `path` also
-    /// naming it with no link on the way (ADR 0161).
-    pub(in crate::app) fn check_repository_for_agent(&mut self, look: super::tools::AddLook) {
-        let token = self.hosting.spaces.check();
-        let path = look.path().to_owned();
-        let pending = Pending::Agent(Box::new(look));
-        self.hosting.spaces.pending.insert(token, pending);
-        self.check_repository(token, path);
-    }
-
-    /// Drops the agents' looks that `gone` says are of a connection that went, before the
-    /// person allowed them: nothing they asked for is added.
-    pub(in crate::app) fn drop_agent_looks(
-        &mut self,
-        gone: impl Fn(&super::tools::AddLook) -> bool,
-    ) {
-        (self.hosting.spaces.pending)
-            .retain(|_, pending| !matches!(pending, Pending::Agent(look) if gone(look)));
-    }
-
-    /// Asks the worker whether `path` is a repository's main checkout, for `token`.
-    fn check_repository(&mut self, token: RepoCheck, path: PathBuf) {
-        let as_named = matches!(
-            self.hosting.spaces.pending.get(&token),
-            Some(Pending::Agent(_))
-        );
+    /// Asks the worker whether `path` is a repository's main checkout, for `token`; for an
+    /// agent's path, `known` the repositories oso knows, and the path must name it with no link
+    /// on the way.
+    fn check_repository(&mut self, token: RepoCheck, path: PathBuf, known: Option<Vec<PathBuf>>) {
+        let as_named = known.is_some();
         match &self.sessions {
             Some(worker) => worker.send(Job::Space(SpaceJob::CheckRepository {
                 check: token,
                 path,
                 as_named,
+                known: known.unwrap_or_default(),
             })),
             None => {
                 self.hosting.spaces.pending.remove(&token);
@@ -218,9 +200,12 @@ impl App {
         token: RepoCheck,
         path: &Path,
         member: Result<Member, String>,
+        known: bool,
     ) {
         let pending = match self.hosting.spaces.pending.remove(&token) {
-            Some(Pending::Agent(look)) => return self.agent_repository_checked(*look, member),
+            Some(Pending::Agent(look)) => {
+                return self.agent_repository_checked(*look, member, known);
+            }
             Some(pending) => pending,
             None => return,
         };

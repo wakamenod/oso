@@ -28,7 +28,8 @@ What holds now:
 ## Decision
 
 The author answered each question below on 2026-11-19, through the space's orchestrator: (a)
-for each but Q3, where they chose (c).
+for each but Q3, where they chose (c). After the security review they narrowed Q2 too: an add
+goes without asking only for a repository oso knew before the call (Q9).
 
 ### The tool (Q1)
 
@@ -44,11 +45,15 @@ for each but Q3, where they chose (c).
 - **Any repository's main checkout (Q3 (c)),** as the person's prompt takes, under every check
   `space-add-repo` makes. The look runs on a thread of its own, as the person's does.
 - **The path must name the repository as it is:** no `.` or `..`, and no symbolic link at any
-  directory on the way. So the person's question shows the place the agent named, and a link
-  cannot point it somewhere else. Otherwise it is refused, and the reply says to name the real
-  path.
+  directory on the way, at most 128 directories deep, and on this machine: no share, device
+  path, `/net` or `/Network`. Otherwise it is refused before anyone is asked, and the reply says
+  to name the real path. The question shows the real path the look found, which is then the
+  agent's own but for case and repeated separators.
+- **Its real path must be plain text,** with no control or invisible character, and it must
+  not be the home directory or one above it by its device and inode, whatever path names it.
 - **A worktree is refused (Q7),** with a word on its repository's main checkout, as
-  `space-add-repo` does. A member of the space already, or a space of 16, is refused.
+  `space-add-repo` does. A member of the space already, by its path or its device and inode,
+  or a space of 16, is refused.
 - **At the person's `y`** the repository is looked at again: its real path, device and inode
   must be those the first look found, or nothing is added.
 
@@ -56,7 +61,10 @@ for each but Q3, where they chose (c).
 
 - **ADR 0135's rule decides whether it asks:** the setting, `agent-starts-ask`, a caller the
   person started, and the repository trusted now, by its path and identity
-  (`TrustedRoot::of_member`). Otherwise it asks: `Agent: let session "fix-login" add repository
+  (`TrustedRoot::of_member`). It must also be one oso knew when the call came (Q9): one of the
+  repositories `space-add-repo` completes over (the open spaces', the hosted sessions' and the
+  open buffers' projects), matched by its device and inode on the look's thread. Where the
+  system has no device and inode, it always asks. Otherwise it asks: `Agent: let session "fix-login" add repository
   "/src/web" to space "fix-login"?`. `?` says what adding gives the space's sessions.
 - **A repository oso does not trust always asks (Q2),** whatever the configuration says. Trust
   is the person's, and a `y` adds it only restricted. The question says "oso does not trust it:
@@ -64,38 +72,52 @@ for each but Q3, where they chose (c).
 - **No limit beyond the loop guard and 16 members (Q4).** An add starts no process, so it does
   not count toward `agents_start_limit`.
 - **The loop guard and the 60 s refusal** count it as any call that changes. The refusal is
-  kept for the repository's real path, so it holds for another spelling of the same path.
+  kept for the repository's device and inode, else its real path, so it holds for another path
+  to the same repository.
+- **One look a caller:** while a look at a repository the orchestrator named is out, its next
+  call is refused with "try again". A look whose connection went before the person was asked
+  stays until its thread answers, and then adds nothing.
 
 ### After adding (Q5, Q6)
 
 - **The `/add-dir` offer is the one oso already makes (Q6):** once the repository is a trusted
   member and the orchestrator runs without it, oso asks the person, as a separate `y` or `n`,
-  whether to paste `/add-dir PATH` into the orchestrator's input, not sent. A restricted one is
-  offered once the person trusts it.
+  whether to paste `/add-dir PATH` into the orchestrator's input, not sent. For an agent's add
+  it is asked right away (`App::offer_added`), so that the reply can say whether it was. A
+  restricted one is offered once the person trusts it.
 - **The reply says what the agent can do next (Q5):** the repository's name, path and trust,
-  `asked`, and `add_dir`:
+  `asked`, a `note` in words, and `add_dir`:
   - `offered`: the person is asked about the paste. The agent cannot read the repository until
     they accept it and send it, so the agent should ask them to. Workers it starts with `repo`
     can use it at once.
   - `waits for trust`: the repository is restricted until the person trusts it with
     `trust-project`. oso then offers them the paste.
   - `given`: the orchestrator was given it with `--add-dir` already.
+  - `not offered`: oso could not ask the person now; the agent asks them to type
+    `/add-dir PATH`.
 - **What the person sees:** an unasked add says `Agent: session "fix-login" added repository
   "/src/web" to space "fix-login", without asking` in the echo area and `*Messages*`. The
-  `*Agent*` log has the call. An add after a `y` says the same, without "without asking".
+  `*Agent*` log has the call. An add after a `y` says the same, without "without asking". `?`
+  on the question shows the whole path, which the question cuts past 80 characters.
 
 ### Code
 
 - `channel::protocol::sessions`: `Call::SpaceAddRepo { path }`, which waits for the person as a
   start does. `oso mcp` describes it.
-- `sessions::tools`: the table's twelfth tool, `ADD_REPO`, `add_repo_question`,
-  `add_repo_said` and `counts_toward_limit`, with tests.
-- `sessions::spaces::probe::main_checkout_as_named`: `main_checkout`, the path also naming it
-  with no link on the way, on the repository check's thread (`SpaceJob::CheckRepository`'s
-  `as_named`).
-- `app/sessions/tools/add_repo.rs`: the call, the two looks, `Plan::AddRepo`, and the add. The
-  looks go through the space commands' pending checks (`App::check_repository_for_agent`). A
-  first look whose connection goes is dropped, so nothing it asked for is added.
+- `sessions::tools`: the table's twelfth tool, and a `starts` field for every tool, so that
+  only the three that start a session count toward `agents_start_limit`.
+  `sessions/tools/add_repo.rs` holds the add's rules: `addable`, `add_repo_question`,
+  `add_repo_said` and `add_dir` with `AddDir`, with tests.
+- `sessions::spaces::probe`: `main_checkout_as_named`, `main_checkout` with the path's own
+  checks above, and `known`, which matches a repository to the known roots by device and inode.
+  Both run on the repository check's thread (`SpaceJob::CheckRepository`'s `as_named` and
+  `known`); a check whose thread cannot start is answered.
+- `app/sessions/tools/add_repo.rs`: the call, the two looks, `Plan::AddRepo`, and the add.
+  `app/sessions/spaces/agent.rs` keeps the looks with the space commands' pending checks
+  (`App::check_repository_for_agent`), one a caller. `App::known_roots`
+  (`app/sessions/spaces/lists.rs`) is the list `space-add-repo` completes over. The check that
+  a caller is still its space's orchestrator, `App::still_orchestrates`, is shared with
+  `session_resume`.
 - e2e: `space_tools::an_orchestrator_adds_a_repository_to_its_space`.
 
 ## Questions
@@ -126,6 +148,10 @@ for each but Q3, where they chose (c).
 8. **Where it is recorded.**
    (a) A new ADR that amends 0121, 0135 and 0136.
    (b) An amendment inside ADR 0136.
+9. **Which trusted repository goes without asking** (asked after the security review).
+   (a) Only one oso knew before the call, by device and inode; any other asks.
+   (b) Any trusted one, as built first.
+   (c) None: the tool always asks.
 
 ## Changes to accepted ADRs
 
@@ -135,8 +161,8 @@ Each passage stays in its ADR as written; what holds now follows it.
   Change, asks unless allowed | a repository's main checkout for the orchestrator's own space,
   as `space-add-repo`.
 - [ADR 0135](0135-agents-start-sessions-without-asking.md), "What it covers": and
-  `space_add_repo`, under this ADR's rules: one oso does not trust always asks, and an unasked
-  add counts toward no limit.
+  `space_add_repo`, under this ADR's rules: only a trusted repository oso already knew goes
+  without asking, and an unasked add counts toward no limit.
 - [ADR 0136](0136-issue-spaces.md), "Session tools in a space": "No tool … adds … a
   repository": an orchestrator adds one to its own space with `space_add_repo`. No tool makes,
   closes or reopens a space, removes a repository or replaces an orchestrator.
@@ -150,8 +176,9 @@ Each passage stays in its ADR as written; what holds now follows it.
 - An orchestrator can bring the repositories its task needs into its space, and say what the
   person still has to do: trust a restricted one, or accept the `/add-dir` paste.
 - With the configuration on, a prompt injection in an orchestrator can add a trusted repository
-  to its space without asking, then start workers there without asking, up to the limit. Its
-  reach grows from its space's repositories to every repository oso trusts. The echo line,
+  oso knows to its space without asking, then start workers there without asking, up to the
+  limit. Its reach grows from its space's repositories to every trusted repository oso knows;
+  any other needs the person's `y`. The echo line,
   `*Messages*` and `agent-starts-ask` let the person see it and stop it, and its own `claude`
   reads the new repository only after the person's paste.
 - An untrusted repository never joins without the person's `y`, and joins restricted: no git

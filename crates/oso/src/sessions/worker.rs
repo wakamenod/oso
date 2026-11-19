@@ -152,6 +152,9 @@ pub enum SpaceJob {
         /// An agent's path (`space_add_repo`), which must name the repository with no link
         /// on the way (ADR 0161).
         as_named: bool,
+        /// The repositories oso knew when the agent called, to tell whether this is one of
+        /// them by its device and inode; none for the person's.
+        known: Vec<PathBuf>,
     },
     /// The file of space `id`'s instructions in the state directory `state`, its directory
     /// made private (`space-instructions`).
@@ -218,6 +221,8 @@ pub enum Out {
         check: super::spaces::probe::RepoCheck,
         path: PathBuf,
         member: Result<super::spaces::Member, String>,
+        /// It is one of the check's `known` repositories, by its device and inode.
+        known: bool,
     },
     /// Space `id`'s instructions' file, or why its directory may not be used.
     InstructionsReady {
@@ -354,6 +359,11 @@ fn probe_apart(probe: SpaceJob, out: &Arc<dyn Fn(Out) + Send + Sync>) {
         SpaceJob::Summarize { id, .. } => Some(id.clone()),
         _ => None,
     };
+    // So does a repository's check, so that the call waiting for it is answered (ADR 0161).
+    let check = match &probe {
+        SpaceJob::CheckRepository { check, path, .. } => Some((*check, path.clone())),
+        _ => None,
+    };
     let name = if naming.is_some() {
         "oso-space-naming"
     } else {
@@ -371,6 +381,14 @@ fn probe_apart(probe: SpaceJob, out: &Arc<dyn Fn(Out) + Send + Sync>) {
             out(Out::SpaceSummarized {
                 id,
                 named: Err("its thread did not start".to_owned()),
+            });
+        }
+        if let Some((check, path)) = check {
+            out(Out::RepositoryChecked {
+                check,
+                path,
+                member: Err("the look at the repository did not start".to_owned()),
+                known: false,
             });
         }
     }

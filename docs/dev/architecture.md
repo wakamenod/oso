@@ -908,8 +908,9 @@ The UI thread never blocks on I/O or parsing:
   oso's running sessions, from each one's own `claude`, is `app/sessions/hosting/naming.rs`'.
   An orchestrator's `space_add_repo`
   ([ADR 0161](adr/0161-an-orchestrator-adds-a-repository-to-its-space.md)) is
-  `app/sessions/tools/add_repo.rs`: its looks are `space-add-repo`'s repository check, with
-  `probe::main_checkout_as_named`, through the space commands' pending checks.
+  `app/sessions/tools/add_repo.rs`, its rules `sessions/tools/add_repo.rs`': its looks are
+  `space-add-repo`'s repository check, with `probe::main_checkout_as_named` and
+  `probe::known`, kept with the space commands' pending checks (`app/sessions/spaces/agent.rs`).
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.
