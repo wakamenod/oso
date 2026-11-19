@@ -308,6 +308,9 @@ mod tests {
         "review-branch",
         "review-commit",
         "review-kill",
+        // The review layout takes the person's whole window tree out, and shows a review,
+        // whose looks run git (ADR 0160).
+        "review-layout",
         "review-mark-baseline",
         "review-pull-request",
         "review-range",

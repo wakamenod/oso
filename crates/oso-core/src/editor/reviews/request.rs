@@ -46,6 +46,13 @@ pub enum ReviewRequest {
     },
     /// The review was closed: stop its threads.
     Close(ReviewId),
+    /// `review-layout` (ADR 0160): with `menu`, or with no review open, open the review menu;
+    /// else show the review layout, go back from its slot to the review, or restore the
+    /// layout from before it, as where the person is says.
+    Layout { menu: bool },
+    /// `q` buried a review: put back the windows from before the review layout, if the frame's
+    /// tree is one (ADR 0160).
+    Quit,
     /// Accept hunks `hunks` of the file at `path`, by their index in the model's reading:
     /// stage them, or unstage them in the staged scope (ADR 0122, step 5).
     Accept {

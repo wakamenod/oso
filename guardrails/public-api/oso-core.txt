@@ -2143,6 +2143,8 @@ pub oso_core::editor::ReviewRequest::Context::path: alloc::boxed::Box<[u8]>
 pub oso_core::editor::ReviewRequest::Context::review: oso_core::editor::ReviewId
 pub oso_core::editor::ReviewRequest::Context::show: core::option::Option<core::ops::range::Range<u32>>
 pub oso_core::editor::ReviewRequest::Forget(alloc::string::String)
+pub oso_core::editor::ReviewRequest::Layout
+pub oso_core::editor::ReviewRequest::Layout::menu: bool
 pub oso_core::editor::ReviewRequest::MessageDrop
 pub oso_core::editor::ReviewRequest::MessageDrop::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::ReviewRequest::MessageSend
@@ -2154,6 +2156,7 @@ pub oso_core::editor::ReviewRequest::Open
 pub oso_core::editor::ReviewRequest::Open::project: oso_core::project::ProjectId
 pub oso_core::editor::ReviewRequest::Open::revision: core::option::Option<alloc::string::String>
 pub oso_core::editor::ReviewRequest::Open::scope: oso_core::editor::ScopeKind
+pub oso_core::editor::ReviewRequest::Quit
 pub oso_core::editor::ReviewRequest::Redraw
 pub oso_core::editor::ReviewRequest::Redraw::path: alloc::boxed::Box<[u8]>
 pub oso_core::editor::ReviewRequest::Redraw::review: oso_core::editor::ReviewId

@@ -91,7 +91,7 @@ impl App {
         if TrustedRoot::of(&self.editor, project).is_none() {
             return self.editor.message(RESTRICTED);
         }
-        self.open_scope(project, header.scope);
+        self.open_scope(project, header.scope, true);
     }
 
     /// `review-forget` picked `pick`: the saved review is removed now.

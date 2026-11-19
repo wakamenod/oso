@@ -118,7 +118,7 @@ pub(super) fn review_here(ctx: &Ctx<'_>) -> Result<ReviewId, CommandError> {
 }
 
 /// The review `buffer` shows, or whose files pane it is.
-fn review_shown(editor: &Editor, buffer: BufferId) -> Option<ReviewId> {
+pub(crate) fn review_shown(editor: &Editor, buffer: BufferId) -> Option<ReviewId> {
     (editor.review_of(buffer)).or_else(|| files_review(editor, buffer))
 }
 

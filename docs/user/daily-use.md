@@ -135,7 +135,7 @@ through `oso mcp`.
 | `A` | `session-archive` | Archive this session, or bring it back; dim outside a session's buffer. |
 | `R` | `session-rename` | Rename this session, or the one on the `*Spaces*` row: the prompt holds its name. |
 | `v` | `review-session` | Review what changed in this project since its baseline. |
-| `V` | the review menu | The same menu as `C-x v r`. |
+| `V` | the review menu | The review menu, as `C-x v r` opens it with no review open. |
 
 So `C-c a r` resumes a session, and `C-c a S` opens the space menu.
 
@@ -369,7 +369,8 @@ removed; once git may be deleting, it asks first, as the worktree is then left h
 
 ## Review changes
 
-`C-x v r` opens the review menu for the current file's project:
+`C-x v r` opens the review menu for the current file's project while no review is open, and
+`C-u C-x v r` always:
 
 | Key | Reviews |
 |---|---|
@@ -387,6 +388,18 @@ Each is a command too, such as `M-x review-uncommitted`. Reviews run git, so the
 be trusted. `C-c a c` takes a baseline when it starts a session at the root of a trusted
 project, so `D` shows what that session changed.
 
+A review opens in the review layout: the review at the left, and one window at the right, the
+slot, which shows one thing at a time. `RET` shows the source there, `C-u RET` the old side,
+and `C-c C-c` the message of your comments, each in place of the last, so windows do not pile
+up. `C-x v r` is the one key for the rest:
+
+- in the slot, it goes back to the review, where you were;
+- in the review, it puts back the windows you had before the review, exactly, as `q` does;
+- with a review open and no layout, it shows the layout again.
+
+The slot is two fifths of the frame; `C-x }` and `C-x {` resize it. Each space keeps its own
+layout, and `C-c a z` zooms inside it. `|` shows the two panes at the layout's left.
+
 In a review buffer:
 
 | Key | What it does |
@@ -403,6 +416,11 @@ In a review buffer:
 | `x` | Reject it: put its old lines back in the file and save it (in the staged review, unstage it) |
 | `v` | Mark it viewed, or clear the mark |
 | `u` | Undo the last decision |
+| `\|` | Two panes, the old side and the new side lined up, or one stream again |
+| `g` | Read the files again now |
+| `C-c C-c` | Gather your comments not sent yet into a message to the session |
+| `q` | Put back the windows from before the review layout, or bury the review |
+| `?` | List these keys |
 
 `A` and `x` work in a review of your work tree or index, not of a commit, branch or range, and
 on a modified file's hunks, not a new, deleted, renamed, binary or linked file's. `x` asks first
@@ -414,14 +432,10 @@ A review shown reads its files again by itself when they change: when the agent 
 turn, or edits from a shell, and when you save. Your cursor stays on its line. A hunk new since
 the last reading, or of a file new to the review, says `· changed` until your cursor has been
 in it. `g` reads now.
-| `\|` | Two panes, the old side and the new side lined up, or one stream again |
-| `g` | Read the files again now |
-| `C-c C-c` | Gather your comments not sent yet into a message to the session |
-| `q` | Bury the review |
-| `?` | List these keys |
 
 A comment opens as a draft at the top: `RET` breaks a line, `C-c C-c` keeps it, and `C-g` drops
-it into the kill ring. `C-x k` closes the review.
+it into the kill ring. `C-x k` closes the review, and in the review layout puts back the windows
+from before it.
 
 A review is saved as it changes: its comments, decisions, viewed marks, layout and cursor come
 back when you open the same review of the project again, after closing it or restarting oso,
