@@ -9,13 +9,14 @@ use oso_core::buffer::{Buffer, BufferId};
 use oso_core::editor::{Editor, SCRATCH};
 
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::app::App;
 use crate::app::sessions::spaces::printable;
 use crate::config::SpacesNaming;
 use crate::sessions::spaces::edit::Naming;
-use crate::sessions::spaces::naming::Ask;
 use crate::sessions::spaces::stored::{fallback_names, now_ms};
+use crate::sessions::spaces::summary::{Ask, Running};
 use crate::sessions::spaces::{Member, SpaceId};
 use crate::sessions::worker::{Job, SpaceJob};
 
@@ -75,31 +76,50 @@ impl App {
     /// naming` says, on the worker's thread for it. Whether it was asked: not with `local`, nor
     /// with no state directory or worker.
     fn ask_for_names(&mut self, id: &SpaceId, description: &str) -> bool {
-        if self.configuration.spaces_naming() != SpacesNaming::Claude {
+        // One run at a time: each is a whole `claude`, and a space made meanwhile takes oso's
+        // own names at once.
+        if self.configuration.spaces_naming() != SpacesNaming::Claude
+            || !self.hosting.spaces.asked_names.is_empty()
+        {
             return false;
         }
         let (Some(state), Some(worker)) = (self.hosting.state_directory(), &self.sessions) else {
             return false;
         };
-        let terminal = self.terminal_settings();
-        let inherit =
-            crate::sessions::start::inherit(&terminal.env, self.configuration.session_env());
+        let running = Running::default();
         let ask = Ask {
             description: description.to_owned(),
-            terminal,
+            terminal: self.terminal_settings(),
             claude: self.configuration.session_claude().map(Path::to_path_buf),
-            inherit,
+            session_env: self.configuration.session_env().to_vec(),
             state,
+            space: id.as_str().to_owned(),
+            running: Arc::clone(&running),
         };
-        worker.send(Job::Space(SpaceJob::Name {
+        worker.send(Job::Space(SpaceJob::Summarize {
             id: id.clone(),
             ask: Box::new(ask),
         }));
         let fallback = (self.watch.spaces().find(id))
             .map(|at| self.space_label(at))
             .unwrap_or_default();
-        self.hosting.spaces.naming.insert(id.clone(), fallback);
+        self.hosting.spaces.asked_names.insert(id.clone(), fallback);
+        self.hosting.spaces.summary_run = Some(running);
         true
+    }
+
+    /// Leaves a space's naming run out of the registry's `live` sessions: it is oso's own, in
+    /// its state directory, and no session of the person's (ADR 0159).
+    pub(in crate::app) fn leave_out_naming_runs(
+        &self,
+        live: &mut Vec<crate::sessions::worker::externals::External>,
+    ) {
+        if let Some(state) = self.hosting.state_directory() {
+            let naming = state.join(crate::sessions::spaces::summary::DIRECTORY);
+            live.retain(|external| {
+                !(external.directory.as_deref()).is_some_and(|dir| dir.starts_with(&naming))
+            });
+        }
     }
 
     /// The person's `claude` named space `id`, or said why not: the space takes the names that
@@ -109,11 +129,12 @@ impl App {
     pub(in crate::app::sessions) fn space_named(
         &mut self,
         id: &SpaceId,
-        named: Result<crate::sessions::spaces::naming::Named, String>,
+        named: Result<crate::sessions::spaces::summary::Named, String>,
     ) {
-        let Some(fallback) = self.hosting.spaces.naming.remove(id) else {
+        let Some(fallback) = self.hosting.spaces.asked_names.remove(id) else {
             return;
         };
+        self.hosting.spaces.summary_run = None;
         let Some(at) = self.watch.spaces().find(id) else {
             return;
         };

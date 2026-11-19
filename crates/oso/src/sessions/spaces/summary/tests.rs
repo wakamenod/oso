@@ -127,11 +127,13 @@ mod runs {
                     ..Default::default()
                 },
                 claude: Some(claude),
-                inherit: Vec::new(),
+                session_env: Vec::new(),
                 state: oso_platform::privacy::PrivateDir::open(state)
                     .unwrap()
                     .path()
                     .to_path_buf(),
+                space: "0123456789abcdef0123456789abcdef".into(),
+                running: Default::default(),
             }
         }
     }
@@ -158,8 +160,12 @@ mod runs {
         let args = std::fs::read_to_string(scratch.0.join("args")).unwrap();
         assert!(!args.contains("Fix the login"), "{args}");
         let cwd = std::fs::read_to_string(scratch.0.join("cwd")).unwrap();
-        let expected = std::fs::canonicalize(ask.state.join(DIRECTORY)).unwrap();
-        assert_eq!(Path::new(cwd.trim()), expected);
+        let parent = std::fs::canonicalize(ask.state.join(DIRECTORY)).unwrap();
+        assert_eq!(Path::new(cwd.trim()), parent.join(&ask.space));
+        assert!(
+            !parent.join(&ask.space).exists(),
+            "it goes once the run ended"
+        );
     }
 
     #[test]
@@ -175,7 +181,7 @@ mod runs {
             run_within(&long, Duration::from_secs(10)),
             Err("its answer was too long".into())
         );
-        let slow = scratch.ask(scratch.claude("cat > /dev/null; sleep 30"));
+        let slow = scratch.ask(scratch.claude("cat > /dev/null; sleep 30 & wait"));
         let started = Instant::now();
         assert_eq!(
             run_within(&slow, Duration::from_secs(1)),
@@ -185,11 +191,70 @@ mod runs {
             started.elapsed() < Duration::from_secs(10),
             "killed at its limit"
         );
-        // A file in its directory, which `claude` could read as a setting: it is not run there.
-        std::fs::write(slow.state.join(DIRECTORY).join("CLAUDE.md"), "x").unwrap();
+        // A directory there already, where a file could be a setting `claude` reads: not used.
+        let there = slow.state.join(DIRECTORY).join(&slow.space);
+        std::fs::create_dir(&there).unwrap();
+        std::fs::write(there.join("CLAUDE.md"), "x").unwrap();
         assert_eq!(
             run_within(&slow, Duration::from_secs(1)),
-            Err("its directory is not empty".into())
+            Err("its directory is there already".into())
         );
+    }
+
+    /// Whether process `pid` is still there, by `kill -0`.
+    fn alive(pid: &str) -> bool {
+        use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
+        let kill = Executable::absolute("/bin/kill").unwrap();
+        let args = ["-0".into(), pid.into()];
+        let mut child = spawn(&Spawn {
+            executable: &kill,
+            args: &args,
+            cwd: None,
+            project: None,
+            inherit: &[],
+            stdin: Source::Closed,
+            stdout: Sink::Null,
+            stderr: Sink::Null,
+            own_process_group: false,
+            own_session: false,
+            set: &[],
+            terminal: None,
+            pass_fd: None,
+            args_logged: true,
+        })
+        .unwrap();
+        child.wait().unwrap().success()
+    }
+
+    #[test]
+    fn what_claude_started_is_killed_with_it_and_an_exit_stops_it_at_once() {
+        let scratch = Scratch::new("group");
+        let body = format!(
+            "cat > /dev/null; sleep 30 & echo $! > '{}/pid'; wait",
+            scratch.0.display()
+        );
+        let ask = scratch.ask(scratch.claude(&body));
+        assert_eq!(
+            run_within(&ask, Duration::from_secs(1)),
+            Err("no answer in 1 s".into())
+        );
+        let pid = std::fs::read_to_string(scratch.0.join("pid")).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while alive(pid.trim()) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!alive(pid.trim()), "its child outlived it");
+
+        // An exit stops a run at once, whatever its limit.
+        let ask = scratch.ask(scratch.claude("cat > /dev/null; exec sleep 30"));
+        let running = std::sync::Arc::clone(&ask.running);
+        let started = Instant::now();
+        let run = std::thread::spawn(move || run_within(&ask, Duration::from_secs(20)));
+        while running.lock().unwrap().is_none() {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        super::super::stop(&running);
+        assert_eq!(run.join().unwrap(), Err("oso stopped it".into()));
+        assert!(started.elapsed() < Duration::from_secs(5));
     }
 }

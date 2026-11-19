@@ -68,8 +68,8 @@ fn a_root_under_home_needs_a_home() {
 }
 
 #[test]
-fn naming_is_claude_unless_local_and_anything_else_is_said() {
-    use super::spaces::Naming;
+fn naming_is_claude_unless_local_and_anything_else_is_said_and_taken_as_local() {
+    use super::spaces::SpacesNaming as Naming;
     let f = Fixture::new();
     assert_eq!(f.parse("[spaces]\n").settings.spaces.naming, Naming::Claude);
     let local = f.parse("[spaces]\nnaming = \"local\"\n");
@@ -84,6 +84,6 @@ fn naming_is_claude_unless_local_and_anything_else_is_said() {
             "{}",
             messages[0]
         );
-        assert_eq!(loaded.settings.spaces.naming, Naming::Claude);
+        assert_eq!(loaded.settings.spaces.naming, Naming::Local, "fails closed");
     }
 }

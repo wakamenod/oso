@@ -15,11 +15,11 @@
 pub mod dir;
 pub mod edit;
 pub mod migrate;
-pub mod naming;
 pub mod orchestrator;
 pub mod probe;
 pub mod record;
 pub mod stored;
+pub mod summary;
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;

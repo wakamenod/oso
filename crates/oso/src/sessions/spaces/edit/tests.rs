@@ -427,7 +427,15 @@ fn a_summarys_names_are_taken_unique_the_slug_only_while_there_is_no_directory()
         Some(("login-fix-2".to_owned(), "ログイン 🔧".to_owned())),
         "a session answers to login-fix"
     );
+    // A display name that reads as its slug is none: the slug is shown, no ` 2` after it.
+    let names = spaces.take_names(b, (None, Some("login-fix-2")), &no_session, 2);
+    assert_eq!(
+        names,
+        Some(("login-fix-2".to_owned(), "login-fix-2".to_owned()))
+    );
+    assert_eq!(spaces.stored(b).unwrap().display, "");
     // With a directory, the slug stays; a display name another space has is told apart.
+    spaces.rename(b, "ログイン 🔧", 3).unwrap();
     let path = PathBuf::from("/s/oso");
     spaces.set_directory(a, path, None, ("oso", "oso"), &no_session, 3);
     let names = spaces.take_names(a, (Some("other"), Some("ログイン 🔧")), &no_session, 4);

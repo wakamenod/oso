@@ -158,9 +158,9 @@ pub enum SpaceJob {
     },
     /// Space `id`'s names, as the person's `claude` summarizes its description (ADR 0159,
     /// step 2), on a thread of its own, which the run holds up to its limit.
-    Name {
+    Summarize {
         id: super::spaces::SpaceId,
-        ask: Box<super::spaces::naming::Ask>,
+        ask: Box<super::spaces::summary::Ask>,
     },
     /// Whether space `id`'s `handoff` file is there, and where session `from`'s transcript is,
     /// for its orchestrator's replacement (ADR 0136, step 5).
@@ -230,9 +230,9 @@ pub enum Out {
         transcript: Option<PathBuf>,
     },
     /// Space `id`'s names from its description, or why none came (ADR 0159, step 2).
-    SpaceNamed {
+    SpaceSummarized {
         id: super::spaces::SpaceId,
-        named: Result<super::spaces::naming::Named, String>,
+        named: Result<super::spaces::summary::Named, String>,
     },
     /// This local rule was the slowest of [`DROP_AFTER`] late looks in a row, so it is no
     /// longer used until the rules load again.
@@ -327,7 +327,7 @@ fn run(jobs: &Receiver<Job>, screens: &Slot, out: &Arc<dyn Fn(Out) + Send + Sync
             {
                 match job {
                     Job::Screens => take_screens(&mut core, screens, now),
-                    Job::Space(probe) if jobs::looks_at_the_disk(&probe) => {
+                    Job::Space(probe) if jobs::runs_apart(&probe) => {
                         probe_apart(probe, out);
                     }
                     job => found.extend(core.handle(job, now)),
@@ -343,18 +343,33 @@ fn run(jobs: &Receiver<Job>, screens: &Slot, out: &Arc<dyn Fn(Out) + Send + Sync
 }
 
 /// Does what a space command asked to look up on the disk on a thread of its own, so that a
-/// path on a mount that does not answer never holds the judging of screens (ADR 0136, step 3).
+/// path on a mount that does not answer never holds the judging of screens (ADR 0136, step 3),
+/// and a space's naming by `claude` on one of its own (ADR 0159).
 fn probe_apart(probe: SpaceJob, out: &Arc<dyn Fn(Out) + Send + Sync>) {
-    let out = Arc::clone(out);
-    let spawned = thread::Builder::new()
-        .name("oso-space-probe".into())
-        .spawn(move || {
-            jobs::space_job(probe)
-                .into_iter()
-                .for_each(|found| out(found))
-        });
+    // A naming that cannot start still answers, so that its space takes oso's own names.
+    let naming = match &probe {
+        SpaceJob::Summarize { id, .. } => Some(id.clone()),
+        _ => None,
+    };
+    let name = if naming.is_some() {
+        "oso-space-naming"
+    } else {
+        "oso-space-probe"
+    };
+    let given = Arc::clone(out);
+    let spawned = thread::Builder::new().name(name.into()).spawn(move || {
+        jobs::space_job(probe)
+            .into_iter()
+            .for_each(|found| given(found))
+    });
     if let Err(e) = spawned {
-        log::warn!("a space's look at the disk cannot start: {e}");
+        log::warn!("a space's job apart cannot start: {e}");
+        if let Some(id) = naming {
+            out(Out::SpaceSummarized {
+                id,
+                named: Err("its thread did not start".to_owned()),
+            });
+        }
     }
 }
 

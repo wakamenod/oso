@@ -228,7 +228,7 @@ fn prepare(order: Order, send: &(dyn Fn(Report) + Sync)) {
         args: launch.args,
         cwd: Some(directory.clone()),
         project: project.clone(),
-        inherit: inherit(&given.settings.env, &given.env),
+        inherit: launch::inherit(&given.settings.env, &given.env),
         set: set(&found.path, &id),
         size: given.size,
         scrollback: given.settings.scrollback,
@@ -284,27 +284,6 @@ fn held_back(order: &Order) -> Option<Report> {
             (order.check_shared && runs_in(&order.directory)).then_some(Report::Shared { token })
         }
     }
-}
-
-/// Where oso's sockets are on Linux (`oso-platform::control`): a session's `oso mcp` needs it
-/// to find the channel, and a terminal does not pass it on.
-const CONTROL_VARIABLE: &str = "XDG_RUNTIME_DIR";
-
-/// The names a session's terminal passes on: a terminal's, `[sessions] env`'s,
-/// `CLAUDE_CONFIG_DIR`, so that the session's registry is the one oso reads, and
-/// [`CONTROL_VARIABLE`], so that its bridge reaches this oso.
-pub(crate) fn inherit(terminal: &[String], sessions: &[String]) -> Vec<String> {
-    let mut names = shell::inherit(terminal);
-    for name in sessions
-        .iter()
-        .map(String::as_str)
-        .chain([registry::CONFIG_VARIABLE, CONTROL_VARIABLE])
-    {
-        if !names.iter().any(|known| known == name) {
-            names.push(name.to_owned());
-        }
-    }
-    names
 }
 
 /// The variables a session's terminal sets: a terminal's, and [`SESSION_VARIABLE`].
@@ -417,13 +396,7 @@ fn launch_of(
     shell: &Executable,
     extra: &Extra,
 ) -> Result<Launch, String> {
-    let claude = match &order.claude {
-        Some(path) => Some(
-            Executable::absolute(path)
-                .map_err(|_| "[sessions] claude is not an executable file".to_owned())?,
-        ),
-        None => None,
-    };
+    let claude = launch::configured(order.claude.as_deref())?;
     let oso = std::env::current_exe()
         .map_err(|e| format!("The session did not start: oso cannot find itself: {e}"))?;
     let start = match &order.kind {
@@ -534,7 +507,8 @@ impl Baseline {
 mod tests {
     use std::path::Path;
 
-    use super::{SESSION_VARIABLE, inherit, set};
+    use super::launch::inherit;
+    use super::{SESSION_VARIABLE, set};
     use crate::sessions::identity::SessionId;
 
     #[test]

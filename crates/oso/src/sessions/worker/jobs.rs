@@ -58,16 +58,16 @@ fn recall(directory: Option<&Path>) -> Out {
     })
 }
 
-/// Whether `job` looks at the disk for a space command, or names a space with `claude`, which
-/// a thread of its own does (step 3): not keeping the spaces or reading ids, which the worker
-/// does in turn.
-pub(super) fn looks_at_the_disk(job: &SpaceJob) -> bool {
+/// Whether `job` runs apart from the worker, on a thread of its own: a space command's look at
+/// the disk (step 3), or a space's naming by `claude`, which can take up to its limit (ADR
+/// 0159); not keeping the spaces or reading ids, which the worker does in turn.
+pub(super) fn runs_apart(job: &SpaceJob) -> bool {
     matches!(
         job,
         SpaceJob::MakeDirectory { .. }
             | SpaceJob::CheckRepository { .. }
             | SpaceJob::Instructions { .. }
-            | SpaceJob::Name { .. }
+            | SpaceJob::Summarize { .. }
             | SpaceJob::Handover { .. }
     )
 }
@@ -111,10 +111,16 @@ pub(super) fn space_job(job: SpaceJob) -> Vec<Out> {
             let file = probe::instructions_file(&state, id.as_str());
             Out::InstructionsReady { id, file }
         }
-        SpaceJob::Name { id, ask } => Out::SpaceNamed {
-            id,
-            named: spaces::naming::run(&ask),
-        },
+        SpaceJob::Summarize { id, ask } => {
+            // A panic in the run still answers, so that the space takes oso's own names.
+            let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                spaces::summary::run(&ask)
+            }));
+            Out::SpaceSummarized {
+                id,
+                named: run.unwrap_or_else(|_| Err("its run failed".to_owned())),
+            }
+        }
         SpaceJob::Handover { id, handoff, from } => {
             let file = std::fs::symlink_metadata(&handoff).is_ok_and(|meta| meta.is_file());
             let config = crate::sessions::worktree::transcript::config_dir();

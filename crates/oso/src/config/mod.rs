@@ -60,7 +60,7 @@ pub use settings::Settings;
 #[cfg(test)]
 pub use source::FILE_NAME;
 pub use source::Source;
-pub use spaces::{Naming as SpacesNaming, Spaces};
+pub use spaces::{Spaces, SpacesNaming};
 pub use terminal::Terminal;
 pub use trust::{Record, TRUST_FILE_NAME, TrustFile};
 pub use watch::{Reader, Report};

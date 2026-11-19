@@ -7,8 +7,8 @@ use toml::Spanned;
 use toml::de::DeValue;
 
 use super::paths::user_path;
-use super::problems::Found;
-use super::{table, unknown};
+use super::problems::{Found, cut, quoted};
+use super::{table, type_name, unknown};
 
 /// The longest `[spaces] root`, in bytes.
 pub(super) const MAX_ROOT: usize = 1024;
@@ -18,7 +18,7 @@ pub const DEFAULT_ROOT: &str = "~/spaces";
 
 /// How a new space is named (ADR 0159).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Naming {
+pub enum SpacesNaming {
     /// The person's `claude` summarizes the description, oso's own names standing in where
     /// it gives none.
     #[default]
@@ -34,7 +34,7 @@ pub struct Spaces {
     /// absolute path, or one starting with `~/`. Else [`DEFAULT_ROOT`].
     pub root: Option<String>,
     /// `naming`: `"claude"`, the default, or `"local"`.
-    pub naming: Naming,
+    pub naming: SpacesNaming,
 }
 
 impl Spaces {
@@ -71,12 +71,20 @@ pub(super) fn spaces(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Spaces 
                 };
             }
             "naming" => match value.get_ref() {
-                DeValue::String(text) if text == "claude" => spaces.naming = Naming::Claude,
-                DeValue::String(text) if text == "local" => spaces.naming = Naming::Local,
-                _ => found.at(
-                    value.span().start,
-                    format_args!("[spaces] naming takes \"claude\" or \"local\""),
-                ),
+                DeValue::String(text) if text == "claude" => spaces.naming = SpacesNaming::Claude,
+                DeValue::String(text) if text == "local" => spaces.naming = SpacesNaming::Local,
+                other => {
+                    let what = match other {
+                        DeValue::String(text) => quoted(cut(text.as_ref())).to_string(),
+                        other => type_name(other).to_owned(),
+                    };
+                    found.at(
+                        value.span().start,
+                        format_args!("[spaces] naming takes \"claude\" or \"local\", not {what}"),
+                    );
+                    // Written to keep descriptions from a model, most likely: fail closed.
+                    spaces.naming = SpacesNaming::Local;
+                }
             },
             other => unknown(found, name.span().start, other, "[spaces]"),
         }

@@ -5,7 +5,8 @@
 //! (`hooks`); runs with no time limit, which the person stops (`long`); `gh`, about the
 //! repository a remote names, and which remote pull requests are asked about (`gh`); the
 //! worktrees git lists (`worktrees`); and text from a run made safe to show (`said`). A review (ADR
-//! 0122), the worktree jobs (ADR 0121), and a git status and its commits (ADR 0127) use it.
+//! 0122), the worktree jobs (ADR 0121), and a git status and its commits (ADR 0127) use it; a
+//! space's naming run reads `claude`'s answer with `read_at_most` too (ADR 0159).
 //!
 //! Must not depend on: `app`, `dispatch`, winit or the UI thread, nor on what uses it; this
 //! runs on the threads that run git, and waits for git. Its ids and its name check, which do no
