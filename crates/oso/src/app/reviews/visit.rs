@@ -7,9 +7,10 @@
 //! Must not depend on: key presses or how a frame is drawn. Nothing here reads a file, diffs or
 //! builds a text: the review's thread does, and its answer comes by the jump's ticket.
 //!
-//! - The file or side goes to another window, as Emacs's `diff-goto-source` does (Q2): the next
-//!   tiled window that shows none of the review's buffers, its panes and files pane too, else
-//!   one split below the selected, outside its pair, so the panes stay (Q3).
+//! - The file or side goes to the review layout's slot (ADR 0160, `slot`). Outside the layout,
+//!   it goes to another window, as Emacs's `diff-goto-source` does (Q2): the next tiled window
+//!   that shows none of the review's buffers, its panes and files pane too, else one split below
+//!   the selected, outside its pair, so the panes stay (Q3).
 //! - Only the latest jump asked counts, and only while the window it was asked in is still
 //!   selected, shows the review and holds nothing that waits on it, as a prompt or a search: an
 //!   answer that comes after the person moved on is dropped. Trust and a secret open buffer are
@@ -221,7 +222,10 @@ impl App {
             self.freer.free(landed);
             return self.editor.message(WITHHELD);
         }
-        if let Err(why) = select_source_window(&mut self.editor, review) {
+        // The review layout's slot, else another window or one split below (Q2, Q3).
+        if !self.select_jump_slot()
+            && let Err(why) = select_source_window(&mut self.editor, review)
+        {
             self.freer.free(landed);
             return self.editor.message(why);
         }

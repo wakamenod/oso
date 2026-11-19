@@ -1,6 +1,6 @@
 //! The reviews a restart opens again (ADR 0122, step 6, Q-H): each review a window showed, by
 //! its project's root and its scope, with the windows that showed it, by their place among the
-//! state's windows. What a review held is not in the state: the new instance reads it from
+//! state's windows, and the review layout's slot while the frame is its layout (ADR 0160). What a review held is not in the state: the new instance reads it from
 //! the saved review the old one wrote before it went.
 //!
 //! Must not depend on: `app`; the state's writer finds which windows show each review.
@@ -14,7 +14,7 @@
 use std::path::PathBuf;
 
 use oso_core::editor::{Editor, ReviewId};
-use oso_core::window::Window;
+use oso_core::window::{Window, WindowId};
 use serde_json::{Map, Value, json};
 
 use crate::review::Scope;
@@ -30,6 +30,8 @@ pub struct Shown {
     pub root: PathBuf,
     pub scope: Scope,
     pub review: ReviewId,
+    /// The review layout's slot, while the frame is the layout of this review.
+    pub slot: Option<WindowId>,
 }
 
 /// The entries of `shown` that `tiled`, the state's windows in its order, show, at most
@@ -55,10 +57,14 @@ pub(super) fn entries(editor: &Editor, tiled: &[&Window], shown: &[Shown]) -> Ve
             if !windows.first().is_some_and(|at| shows(at, false)) {
                 return None;
             }
+            let slot = (review.slot)
+                .and_then(|slot| tiled.iter().position(|window| window.id() == slot))
+                .filter(|at| !windows.contains(at));
             Some(ReviewEntry {
                 root: review.root.clone(),
                 scope: review.scope.clone(),
                 windows,
+                slot,
             })
         })
         .take(MAX_REVIEWS)
@@ -72,6 +78,9 @@ pub struct ReviewEntry {
     pub root: PathBuf,
     pub scope: Scope,
     pub windows: Vec<usize>,
+    /// The review layout's slot among the state's windows, a reader before ADR 0160 leaving it
+    /// out.
+    pub slot: Option<usize>,
 }
 
 /// `entries` as the state keeps them.
@@ -80,11 +89,15 @@ pub fn state(entries: &[ReviewEntry]) -> Value {
         entries
             .iter()
             .filter_map(|entry| {
-                Some(json!({
+                let mut value = json!({
                     "root": entry.root.to_str()?,
                     "scope": scope_value(&entry.scope),
                     "windows": entry.windows,
-                }))
+                });
+                if let (Some(slot), Some(map)) = (entry.slot, value.as_object_mut()) {
+                    map.insert("slot".into(), json!(slot));
+                }
+                Some(value)
             })
             .collect(),
     )
@@ -108,10 +121,15 @@ pub(super) fn parse(state: &Map<String, Value>, windows: usize) -> Vec<ReviewEnt
                         .filter(|at| *at < windows)
                 })
                 .collect::<Option<_>>()?;
+            // A slot that names no window, or one of the review's, is left out.
+            let slot = (entry.get("slot").and_then(Value::as_u64))
+                .and_then(|at| usize::try_from(at).ok())
+                .filter(|at| *at < windows && !shown.contains(at));
             (root.is_absolute() && !shown.is_empty()).then_some(ReviewEntry {
                 root,
                 scope: scope_from_value(entry.get("scope")?)?,
                 windows: shown,
+                slot,
             })
         })
         .collect()
@@ -140,6 +158,7 @@ mod tests {
                 base: "main".into(),
             },
             windows: vec![0, 2],
+            slot: Some(1),
         };
         let state = json!({ "reviews": state(std::slice::from_ref(&entry)) });
         assert_eq!(
@@ -157,6 +176,17 @@ mod tests {
             "no",
         ] });
         assert!(parse(odd.as_object().unwrap(), 3).is_empty());
+        // A slot that names no window, or one of the review's, is left out, the rest kept; a
+        // state with none, as before the layout, has none.
+        let slots = json!({ "reviews": [
+            { "root": root(), "scope": { "kind": "staged" }, "windows": [0], "slot": 7 },
+            { "root": root(), "scope": { "kind": "staged" }, "windows": [0], "slot": 0 },
+            { "root": root(), "scope": { "kind": "staged" }, "windows": [0], "slot": "1" },
+            { "root": root(), "scope": { "kind": "staged" }, "windows": [0] },
+        ] });
+        let parsed = parse(slots.as_object().unwrap(), 3);
+        assert_eq!(parsed.len(), 4);
+        assert!(parsed.iter().all(|entry| entry.slot.is_none()));
         assert!(parse(json!({}).as_object().unwrap(), 3).is_empty());
     }
 }

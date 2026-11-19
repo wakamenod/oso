@@ -1,6 +1,6 @@
 # 0122. Agent review
 
-- Status: Accepted, amended by 0121 and 0127
+- Status: Accepted, amended by 0121, 0127 and 0160
 - Date: 2026-11-12
 
 ## Context

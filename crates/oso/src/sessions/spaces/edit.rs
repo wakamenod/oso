@@ -201,7 +201,7 @@ impl Spaces {
                     // The frame keeps the tree, which is no space's now: entered again, the
                     // space shows its last buffers.
                     self.current = None;
-                    self.zoom = self.spaces[at].zoom.take();
+                    self.kept = std::mem::take(&mut self.spaces[at].kept);
                     self.spaces[at].entered = false;
                 }
             }

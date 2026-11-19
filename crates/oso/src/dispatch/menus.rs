@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use oso_core::command::{Args, Effects, Invocation, Prefix};
-use oso_core::editor::Editor;
+use oso_core::editor::{Editor, ReviewRequest};
 use oso_core::key::KeyPress;
 use oso_core::keymap::{Binding, Layers, is_cancel};
 use oso_core::menu::{
@@ -91,8 +91,26 @@ impl Dispatcher {
         self.open_menu(editor, &set, menu)
     }
 
-    /// Opens the menu `name` names in the set in force, as `open-menu`'s answer asks.
-    pub(super) fn open_menu_named(&mut self, editor: &mut Editor, name: &str) -> Effects {
+    /// Opens the review menu `review-layout` asked for as it ended (ADR 0160), at once, as a
+    /// menu key opens one, so that a macro's next key goes to it. The other review requests
+    /// stay for the host.
+    pub(super) fn open_asked_review_menu(&mut self, editor: &mut Editor) -> Effects {
+        const ASKED: ReviewRequest = ReviewRequest::Layout { menu: true };
+        let requests = editor.take_review_requests();
+        let asked = requests.contains(&ASKED);
+        for request in requests.into_iter().filter(|request| *request != ASKED) {
+            editor.request_review(request);
+        }
+        if asked {
+            self.open_menu_named(editor, "review")
+        } else {
+            Effects::default()
+        }
+    }
+
+    /// Opens the menu `name` names in the set in force, as `open-menu`'s answer asks, and as
+    /// the host asks when no review is left to lay out (ADR 0160).
+    pub(crate) fn open_menu_named(&mut self, editor: &mut Editor, name: &str) -> Effects {
         let set = Arc::clone(&self.menus.menus);
         match set.lookup(name) {
             Some(id) => self.open_menu(editor, &set, id),

@@ -1,6 +1,7 @@
 //! Issue spaces (ADR 0136): each the workplace of one issue, holding several repositories, the
 //! worktrees it made, and its own window tree, swapped whole into the frame as a tab would be,
-//! with its zoom, and the session and the file buffer it showed last, for its first entry.
+//! with the trees kept behind it (its zoom and its review layout, [`kept`]), and the session and
+//! the file buffer it showed last, for its first entry.
 //! What a space keeps across starts is [`Stored`], in the `spaces` file ([`record`]).
 //!
 //! Must not depend on: `app`, `dispatch` or `config`; it acts on the editor through oso-core's
@@ -14,6 +15,7 @@
 
 pub mod dir;
 pub mod edit;
+pub mod kept;
 pub mod migrate;
 pub mod orchestrator;
 pub mod probe;
@@ -30,6 +32,7 @@ use oso_core::buffer::BufferId;
 use oso_core::complete::Candidate;
 use oso_core::editor::{Editor, WindowTree};
 
+use kept::Kept;
 pub use stored::{Member, SpaceId, Stored};
 use stored::{same, skeleton, slug, unique, unique_display};
 
@@ -44,8 +47,8 @@ pub struct Space {
     pub stored: Stored,
     /// Its window tree while another space's is in the frame.
     tree: Option<WindowTree>,
-    /// Its tree from before `space-zoom`, while zoomed.
-    zoom: Option<WindowTree>,
+    /// The trees kept behind its tree: from before `space-zoom` and the review layout.
+    kept: Vec<Kept>,
     /// Whether it has had a tree: a space never entered gets one from its last buffers.
     entered: bool,
     /// When it was entered last, as a count of entries: the latest is the highest.
@@ -59,7 +62,7 @@ impl Space {
         Self {
             stored,
             tree: None,
-            zoom: None,
+            kept: Vec::new(),
             entered: false,
             stamp: 0,
             last_session: None,
@@ -120,8 +123,8 @@ pub enum Zoom {
 pub struct Spaces {
     spaces: Vec<Space>,
     current: Option<usize>,
-    /// The tree from before `space-zoom` while no space is current.
-    zoom: Option<WindowTree>,
+    /// The trees kept behind the frame's while no space is current.
+    kept: Vec<Kept>,
     /// The count of entries, for each space's stamp.
     entries: u64,
     /// Ids read off the UI thread, for spaces made on it.
@@ -442,15 +445,16 @@ impl Spaces {
         (0..self.spaces.len()).filter(|&at| self.spaces[at].is_open())
     }
 
-    /// Space `at` is the one whose tree is in the frame, as it is: oso's first space. A zoom
-    /// made before there was a space is the space's.
+    /// Space `at` is the one whose tree is in the frame, as it is: oso's first space. The trees
+    /// kept behind the frame's before there was a space, a zoom's and the review layout's, are
+    /// the space's.
     pub fn adopt(&mut self, at: usize) {
         if let Some(space) = self.spaces.get_mut(at) {
             space.entered = true;
             self.entries += 1;
             space.stamp = self.entries;
-            if self.current.is_none() && space.zoom.is_none() {
-                space.zoom = self.zoom.take();
+            if self.current.is_none() && space.kept.is_empty() {
+                space.kept = std::mem::take(&mut self.kept);
             }
             self.current = Some(at);
         }
@@ -458,7 +462,8 @@ impl Spaces {
 
     /// Shows space `at`'s tree, keeping the frame's in the space it leaves. A space entered for
     /// the first time shows its last file buffer and its last session side by side, or the one
-    /// of them it has; with neither, the frame's tree becomes its own, with its zoom, and the
+    /// of them it has; with neither, the frame's tree becomes its own, with the trees kept behind
+    /// it (its zoom and its review layout), and the
     /// space left gets one from its last buffers when it is entered again. With no space yet,
     /// the frame's tree becomes `at`'s.
     ///
@@ -503,8 +508,8 @@ impl Spaces {
             None => {
                 let from = &mut self.spaces[from];
                 from.entered = false;
-                let zoom = from.zoom.take();
-                self.spaces[at].zoom = zoom;
+                let kept = std::mem::take(&mut from.kept);
+                self.spaces[at].kept = kept;
             }
         }
         self.entries += 1;
@@ -515,6 +520,23 @@ impl Spaces {
         Ok(())
     }
 
+    /// The trees kept behind the frame's: the current space's, or the frame's own while no
+    /// space is current.
+    pub fn kept(&self) -> &[Kept] {
+        match self.current.and_then(|at| self.spaces.get(at)) {
+            Some(space) => &space.kept,
+            None => &self.kept,
+        }
+    }
+
+    /// The trees kept behind the frame's, to change.
+    pub fn kept_mut(&mut self) -> &mut Vec<Kept> {
+        match self.current {
+            Some(at) if at < self.spaces.len() => &mut self.spaces[at].kept,
+            _ => &mut self.kept,
+        }
+    }
+
     /// `space-zoom`: the tree's selected window alone, and back, with that window's buffer and
     /// places put in the tree's window it was zoomed from. With the side window selected, the
     /// tree's window is selected first.
@@ -522,35 +544,8 @@ impl Spaces {
     /// # Errors
     ///
     /// [`Refused`] while a prompt is open.
-    pub fn zoom(&mut self, editor: &mut Editor) -> Result<Zoom, Refused> {
-        if editor.prompt().is_some() {
-            return Err(Refused);
-        }
-        let side = editor.side_window();
-        if side == Some(editor.window().id()) {
-            editor.other_window(1);
-        }
-        let slot = match self.current {
-            Some(at) => &mut self.spaces[at].zoom,
-            None => &mut self.zoom,
-        };
-        let Some(saved) = slot.take() else {
-            let lone = editor.lone_window_tree();
-            let saved = editor.swap_window_tree(lone).map_err(|_| Refused)?;
-            *slot = Some(saved);
-            return Ok(Zoom::In);
-        };
-        let window = editor.window();
-        let (buffer, selections, scroll) =
-            (window.buffer(), window.selections.clone(), window.scroll());
-        if let Err(saved) = editor.swap_window_tree(saved) {
-            *slot = Some(saved);
-            return Err(Refused);
-        }
-        let back = editor.window().id();
-        editor.show_in(back, buffer);
-        editor.restore_positions_in(back, selections, scroll);
-        Ok(Zoom::Out)
+    pub fn zoom(&mut self, editor: &mut Editor) -> Result<(Zoom, Option<WindowTree>), Refused> {
+        kept::zoom(editor, self.kept_mut())
     }
 
     /// The candidates of `space-switch`: each open space as the person sees it called, the one

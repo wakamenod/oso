@@ -32,6 +32,8 @@ pub(super) struct Handed {
     root: PathBuf,
     scope: Scope,
     windows: Vec<WindowId>,
+    /// The review layout's slot, when the frame was its layout (ADR 0160).
+    slot: Option<WindowId>,
     until: Instant,
 }
 
@@ -45,6 +47,7 @@ impl App {
                 root: running.root.path().to_owned(),
                 scope: running.scope.clone(),
                 review: running.id,
+                slot: self.review_layout_slot(running.id),
             })
             .collect()
     }
@@ -64,6 +67,7 @@ impl App {
                     root: entry.root,
                     scope: entry.scope,
                     windows: shown,
+                    slot: entry.slot.and_then(|at| windows.get(at).copied()),
                     until,
                 });
             }
@@ -100,7 +104,12 @@ impl App {
 
     /// Opens `handed` in `project` in the first window that showed it, and closes the others.
     fn reopen_handed(&mut self, project: oso_core::project::ProjectId, handed: Handed) {
-        let Handed { scope, windows, .. } = handed;
+        let Handed {
+            scope,
+            windows,
+            slot,
+            ..
+        } = handed;
         let selected = self.editor.tiled().0.id();
         let Some(&first) = (windows.iter()).find(|id| self.editor.window_by_id(**id).is_some())
         else {
@@ -108,7 +117,7 @@ impl App {
         };
         self.editor.select_window(first);
         // A session review compares with the baseline it had (step 6).
-        self.open_scope(project, scope);
+        self.open_scope(project, scope, false);
         for window in windows.into_iter().filter(|id| *id != first) {
             if self.editor.window_by_id(window).is_some() {
                 self.editor.select_window(window);
@@ -116,6 +125,12 @@ impl App {
                     let _ = self.editor.delete_window();
                 }
             }
+        }
+        // The frame was the review layout: it is again, with nothing to restore (ADR 0160).
+        let review = (self.editor.window_by_id(first))
+            .and_then(|w| super::slot::owner(&self.editor, w.buffer()));
+        if let (Some(review), Some(slot)) = (review, slot) {
+            self.carried_review_layout(review, first, slot);
         }
         let back = if self.editor.window_by_id(selected).is_some() {
             selected

@@ -126,7 +126,7 @@ fn a_prompt_open_refuses_and_changes_nothing() {
         .unwrap();
     let before = ids(&editor);
     assert_eq!(spaces.enter(&mut editor, two), Err(Refused));
-    assert_eq!(spaces.zoom(&mut editor), Err(Refused));
+    assert_eq!(spaces.zoom(&mut editor).map(|(zoom, _)| zoom), Err(Refused));
     assert_eq!((ids(&editor), spaces.current()), (before, Some(one)));
 }
 
@@ -140,7 +140,7 @@ fn zoom_is_kept_per_space_and_back_keeps_the_zoomed_windows_place() {
     editor.split_window(Way::Down, false).unwrap();
     let tree = ids(&editor);
     let from = editor.window().id();
-    assert_eq!(spaces.zoom(&mut editor), Ok(Zoom::In));
+    assert_eq!(spaces.zoom(&mut editor).map(|(zoom, _)| zoom), Ok(Zoom::In));
     assert_eq!(ids(&editor).len(), 1);
     editor.current_mut().0.selections = SelectionSet::new(700);
     editor.follow_cursor();
@@ -150,7 +150,10 @@ fn zoom_is_kept_per_space_and_back_keeps_the_zoomed_windows_place() {
     spaces.enter(&mut editor, two).unwrap();
     spaces.enter(&mut editor, one).unwrap();
     assert_eq!(ids(&editor).len(), 1);
-    assert_eq!(spaces.zoom(&mut editor), Ok(Zoom::Out));
+    assert_eq!(
+        spaces.zoom(&mut editor).map(|(zoom, _)| zoom),
+        Ok(Zoom::Out)
+    );
     assert_eq!(ids(&editor), tree);
     assert_eq!(editor.window().id(), from);
     assert_eq!(editor.window().selections.primary().cursor, 700);
@@ -163,10 +166,13 @@ fn zoom_from_the_side_window_acts_on_the_tree() {
     let side = editor.show_side_window(list, 32);
     editor.select_window(side);
     let mut spaces = Spaces::default();
-    assert_eq!(spaces.zoom(&mut editor), Ok(Zoom::In));
+    assert_eq!(spaces.zoom(&mut editor).map(|(zoom, _)| zoom), Ok(Zoom::In));
     assert_ne!(editor.window().id(), side);
     assert_eq!(editor.side_window(), Some(side), "the side window stays");
-    assert_eq!(spaces.zoom(&mut editor), Ok(Zoom::Out));
+    assert_eq!(
+        spaces.zoom(&mut editor).map(|(zoom, _)| zoom),
+        Ok(Zoom::Out)
+    );
 }
 
 #[test]
@@ -176,7 +182,7 @@ fn a_zoom_goes_with_the_frames_tree() {
     editor.split_window(Way::Down, false).unwrap();
     let tree = ids(&editor);
     // Before the first session: no space yet.
-    assert_eq!(spaces.zoom(&mut editor), Ok(Zoom::In));
+    assert_eq!(spaces.zoom(&mut editor).map(|(zoom, _)| zoom), Ok(Zoom::In));
     let one = add(&mut spaces, "/src/one");
     spaces.enter(&mut editor, one).unwrap();
     assert_eq!(ids(&editor).len(), 1);
@@ -184,7 +190,10 @@ fn a_zoom_goes_with_the_frames_tree() {
     let empty = add(&mut spaces, "/src/empty");
     spaces.enter(&mut editor, empty).unwrap();
     assert_eq!(ids(&editor).len(), 1);
-    assert_eq!(spaces.zoom(&mut editor), Ok(Zoom::Out));
+    assert_eq!(
+        spaces.zoom(&mut editor).map(|(zoom, _)| zoom),
+        Ok(Zoom::Out)
+    );
     assert_eq!(ids(&editor), tree);
 }
 
