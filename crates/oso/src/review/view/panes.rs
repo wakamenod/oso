@@ -323,7 +323,19 @@ impl State {
                 *kept = None;
             }
         }
+        let was = self.panes.on;
         self.panes.on = on;
+        // The old pane shows the old side's context, whose runs are wanted only while it shows.
+        if was != on {
+            for path in self.order.clone() {
+                self.context_shown(&path);
+            }
+        }
+    }
+
+    /// Whether the panes are built.
+    pub(super) fn panes_on(&self) -> bool {
+        self.panes.on
     }
 
     /// Both panes' rows and highlights with the runs of the files in `changed` laid over them

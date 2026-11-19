@@ -75,8 +75,9 @@ pub struct Row<'a> {
 }
 
 impl Row<'_> {
-    /// The side and number of the file's line this row shows, for lines of a side, and the new
-    /// side's for an unchanged line around them.
+    /// The side and number of the file's line this row shows: for lines of a side, a changed
+    /// line, and for context, an unchanged line around them, by its new side's number. Use
+    /// [`Row::context`] or the row's kind to tell the two apart.
     pub fn line(&self) -> Option<(Side, u32)> {
         match self.kind {
             RowKind::Lines { side, first, .. } => {
@@ -203,7 +204,8 @@ pub enum Seek {
     File,
     /// A comment's label.
     Comment,
-    /// A gap's row, standing for unchanged lines not shown.
+    /// A gap's row, standing for unchanged lines not shown, in the line's own file only: a gap
+    /// is its file's, so no seek for one walks the files after it.
     Gap,
 }
 
@@ -449,7 +451,12 @@ impl Rows {
     pub fn seek(&self, line: usize, to: Seek, forward: bool) -> Option<usize> {
         if forward {
             let (first, local) = self.section(line)?;
-            (first..self.sections.len()).find_map(|index| {
+            let end = if to == Seek::Gap {
+                first + 1
+            } else {
+                self.sections.len()
+            };
+            (first..end).find_map(|index| {
                 let runs = &self.sections[index].runs;
                 // Only the current section has runs at or before `line`.
                 let from = if index == first {
@@ -468,7 +475,8 @@ impl Rows {
                 Some(found) => found,
                 None => (self.sections.len().checked_sub(1)?, usize::MAX),
             };
-            (0..=last).rev().find_map(|index| {
+            let low = if to == Seek::Gap { last } else { 0 };
+            (low..=last).rev().find_map(|index| {
                 let runs = &self.sections[index].runs;
                 let to_end = if index == last {
                     runs.partition_point(|run| run.start < local)
@@ -719,6 +727,12 @@ mod tests {
             (0..3u64).prop_map(|id| RowKind::Card {
                 comment: CommentId(id)
             }),
+            (1..50u32).prop_map(|old| RowKind::Context { old, new: old + 1 }),
+            (1..50u32, 1..9u32).prop_map(|(old, lines)| RowKind::Gap {
+                old,
+                new: old,
+                lines
+            }),
         ]
     }
 
@@ -831,8 +845,13 @@ mod tests {
                     .filter(|&line| flat[line].2 == 0 && to.takes(flat[line].1))
                     .collect();
                 for line in 0..=flat.len() {
-                    let next = starts.iter().copied().find(|&start| start > line);
-                    let previous = starts.iter().copied().rev().find(|&start| start < line);
+                    // A gap is looked for in the line's own file alone, the last section for
+                    // a line past the end.
+                    let file = flat.get(line).map(|at| at.0).or(given.len().checked_sub(1));
+                    let same = |start: &usize| to != Seek::Gap || Some(flat[*start].0) == file;
+                    let next = starts.iter().copied().filter(same).find(|&start| start > line);
+                    let previous =
+                        starts.iter().copied().filter(same).rev().find(|&start| start < line);
                     if line < flat.len() {
                         prop_assert_eq!(rows.seek(line, to, true), next);
                     }

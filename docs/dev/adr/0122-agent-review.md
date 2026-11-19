@@ -449,6 +449,8 @@ Limits for crafted input, each saying what it hides:
   comment keeps 4 KiB of its text and a hash.
 - **The review's text** is at most 64 MiB; past that, files collapse to their headers and open one
   at a time.
+- **Context (step 13):** at most 10,000 unchanged lines shown a press and 256 stretches asked a
+  file; a side's line starts are kept every 32 lines.
 - **Comments:** at most 10,000 a review and 64 KiB each. **Agent input:** as the channel's, 1 MiB a
   request.
 - **`gh` output** is at most 1 MiB, parsed with `serde_json`.
@@ -2138,13 +2140,18 @@ after each hunk, as GitHub shows them, and more on demand, and answered the plan
 
 - **Where the lines come from:** the reading's new side, which the view thread holds already;
   each unchanged line is the same on both sides, its old number following from the hunks around
-  it. Where each line starts is kept per reading on the view thread, at most 4 bytes a line of a
-  side of at most 200,000 lines. A side with fewer lines than its hunks say shows no context.
-- **How they look:** a space for the sign and the line's text with no diff face, no band; the
-  step 9 highlights of its side (the new side in the unified text, each pane's own side in the
-  two panes); no refinement, which marks words changed between lines and none is. Each stretch
-  of unchanged lines not shown is one row, `⋯ N unchanged lines`, in the hunk header's face and
-  band; a stretch of one line shows the line instead, as the row would take its room.
+  it. Where every 32nd line starts is kept per reading on the view thread, 4 bytes each, and a
+  stretch's lines are read on from there. A side with fewer lines than its hunks say shows no
+  context.
+- **How they look:** a space for the sign and the line's text with no diff face, no band; no
+  refinement, which marks words changed between lines and none is. Each stretch of unchanged
+  lines not shown is one row, `⋯ N unchanged lines`, in the hunk header's face and band; a
+  stretch of one line shows the line instead, as the row would take its room.
+- **Highlighting (step 9):** the view tells the sides' highlighting which unchanged lines each
+  file shows, and their runs are projected with the hunks' lines: the new side's in the unified
+  text and the new pane, the old side's only while the panes are built, so that a file that only
+  adds lines opens no old side for the unified text. A side whose runs are whole but lack a line
+  shown since is opened again, as one lacking a line of a new reading is.
 - **Hunks whose context meets (Q1):** the lines between them show once and no gap's row is
   between them, but each hunk keeps its own header, right above its changed lines: it holds the
   hunk's decision and is where `n`/`p`, `A`/`x`/`v` and `c` on a hunk act. Context before a hunk
@@ -2152,40 +2159,54 @@ after each hunk, as GitHub shows them, and more on demand, and answered the plan
   them.
 - **Rows:** two row kinds in `oso_core::review`: `RowKind::Context { old, new }`, whose
   `Row::line()` is the new side's line and `Row::context()` both sides', and `RowKind::Gap { old,
-  new, lines }`; a `Seek::Gap`. A context row's place is its new side's line, found by either
-  side's number, so the unified text and the panes map it as they map a changed line; a gap's is
-  `Place::Gap`, the old lines it hid, found again while it hides any of them, else at the first
-  of them. No motion stops on them; decisions say "Not on a hunk" there.
+  new, lines }`; and `Seek::Gap`, which looks in the line's own file alone, so that a key in a
+  file with no gap that way walks no other file. A context row's place is its new side's line,
+  found by either side's number, so the unified text and the panes map it as they map a changed
+  line; a gap's is `Place::Gap`, the old lines it hid, found again while it hides any of them,
+  else at the first of them. No motion stops on them; decisions say "Not on a hunk" there.
 - **Keys (Q3):** `[` (`review-context-up`) shows 20 more lines above every cursor: off a gap's
-  row, the last lines of the nearest gap above, next to what is shown; on a gap's row, its first
-  lines, above the row. `]` (`review-context-down`) the same below. `=` (`review-context-gap`)
-  shows the whole gap at the cursor, or the nearest below. A prefix argument sets the count, at
-  most 10,000 a press, which `=` keeps too; a gap of no more shows whole. `M-x
-  review-reset-context` (Q5) shows only the three lines again, in each cursor's file. They are
-  `Change`: they show lines of a file the review read, as scrolling would. Each asks the host
-  (`ReviewRequest::Context`), which tells the view thread (`Tell::Context`); the view lays out
-  that file alone.
+  row, the last lines of the nearest gap above in its file, next to what is shown; on a gap's
+  row, its first lines, above the row. `]` (`review-context-down`) the same below. `=`
+  (`review-context-gap`) shows the whole gap at the cursor, or the nearest below. A number sets
+  the count, its sign dropped; each `C-u` alone shows four times more; at most 10,000 a press,
+  which `=` keeps too; a gap of no more shows whole. `M-x review-reset-context` (Q5) shows only
+  the three lines again, in each cursor's file. They are `Change`: they show lines of a file the
+  review read, as scrolling would. Each asks the host (`ReviewRequest::Context`) once a file and
+  stretch, which tells the view thread (`Tell::Context`); the view lays out that file alone, and
+  nothing when what it shows did not change.
 - **What was asked, kept (Q4):** on the view thread, by the old side's numbers, sorted and
-  joined, at most 256 stretches a file: a refresh (step 4) against the same old side keeps them
-  with no mapping, and a reading against another drops them. Not written in the saved review
-  (step 6a): a resumed review shows three lines again.
+  joined, at most 256 stretches a file (past it, the topmost other than the one just asked
+  goes): a refresh (step 4) against the same old side keeps them with no mapping, and a reading
+  against another drops them. Not written in the saved review (step 6a): a resumed review shows
+  three lines again. Unlike the filter and agent cards' fold, which the host holds (Q1), only the
+  view keeps them: a key asks for the stretch the rows on screen give, so a key pressed again
+  before the text it asked for is put in asks for the same lines and shows nothing more.
+- **Secrets:** a file that may hold secrets by its name, or whose reading was withheld, shows no
+  context, as before; nor does a file whose open buffer may hold secrets or is withheld from
+  agents. The host tells each view those buffers' files when they change (`Tell::HeldBuffers`,
+  the rule sending and saving use), and the view drops such a file's context and gaps at once.
 - **Comments (Q2):** none goes on a context line or a gap's row; `c` there says "Comments go on
   a changed line or a hunk's header". Line comments on context are left for later, as carrying
   and sending them need the line's text, which only a hunk's lines keep. `RET` (step 3) visits a
   context line's new side, `C-u RET` its old, and a gap's first hidden line.
 - **Unaffected:** staging builds its own patch with its own three lines (`stage.rs`), and
   comments, decisions, viewed marks, sending and the agent tools go by hunks and changed lines,
-  never by these rows. A file that may hold secrets, a binary or too large one, a conflicted one
-  and a file with no hunks show no context and no gap's row.
+  never by these rows. A binary or too large file, a conflicted one and a file with no hunks
+  show no context and no gap's row.
 - **Cost:** about six rows more a hunk, laid out on the view thread and counted with the text
-  against its limit; finding a line costs O(1) from the kept starts. The UI's swap is still one
-  section's.
+  against its limit. A key costs the UI thread its cursors and the runs of each cursor's file;
+  what it shows comes with the next text, which lays out that file again and assembles the
+  review's text as any change does.
 - **Public items:** `RowKind::Context`, `RowKind::Gap`, `Row::context`, `Seek::Gap` and
   `ReviewRequest::Context`.
 - **Tests:** the layout (three lines, gaps at the file's edges and between hunks, hunks that
-  join, a stretch of one line, line endings, invalid bytes, both panes row for row, a side that
-  does not match its hunks), a property test that every unchanged line is shown or hidden once
-  and in order, what was asked kept across a reading against the same old side and dropped
-  against another, the view told and told to forget, the rows' places, the keys' gaps and
-  counts on every cursor, `c` refused, the files with no context, and a grid snapshot; an
-  end-to-end flow, `review_context`, that shows more lines with `]` and visits a context line.
+  join, a stretch of one line, line endings, invalid bytes, unchanged lines that read like a
+  review's rows, both panes row for row, a side with fewer lines than its hunks), property tests
+  that every unchanged line is shown or hidden once and in order and that any stretch asked is
+  taken, the kept starts finding every line, what was asked kept across a reading against the
+  same old side and dropped against another, the view told and told to forget, a file whose
+  open buffer may hold secrets, context lines highlighted and lines shown later highlighted
+  again, the rows' places and the file-bound gap seek, the keys' gaps and counts on every
+  cursor, `c` refused, the files with no context, and a grid snapshot; and an end-to-end flow,
+  `context_lines_show_around_a_hunk_and_the_context_keys_show_more`, that shows more lines with
+  `[` and `]`, keeps them across `g`, hides them again and visits a context line.

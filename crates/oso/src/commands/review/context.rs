@@ -8,29 +8,30 @@
 //! - Off a gap's row, `[` takes the nearest gap above the point and shows its last lines, those
 //!   next to what is shown; `]` the nearest below and its first lines. On a gap's row, `[` shows
 //!   its first lines, above the row, and `]` its last, below it.
-//! - Each shows [`STEP`] lines, or as many as a prefix argument says, at most [`MOST`]; a gap
-//!   of no more shows whole.
+//! - Each shows [`STEP`] lines, four times more for each `C-u` alone, or as many as a number
+//!   given says, at most [`MOST`]; a gap of no more shows whole. A negative number shows as many,
+//!   the same way: the key says which way.
 //! - They work on every cursor, and are `Change`: they show only lines of a file the review
 //!   read, as the person could scroll to; a file that may hold secrets has no gaps.
 
 use std::ops::Range;
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix, Reach};
 use oso_core::editor::{ReviewId, ReviewRequest};
 use oso_core::review::{RowKind, Rows, Seek};
 
 use super::current_review;
 
 /// How many hidden lines a context key shows with no prefix argument.
-pub(crate) const STEP: u32 = 20;
+const STEP: u32 = 20;
 /// The most hidden lines one press shows.
-pub(crate) const MOST: u32 = 10_000;
+const MOST: u32 = 10_000;
 
 /// The commands that show unchanged lines around the hunks.
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "review-context-up",
-        doc: "Show 20 more unchanged lines above every cursor: the last lines of the nearest gap above it, or on a gap's row its first lines.\n\nWith a prefix argument N, show N lines, at most 10000. A gap of no more shows whole.",
+        doc: "Show 20 more unchanged lines above every cursor: the last lines of the nearest gap above it, or on a gap's row its first lines.\n\nWith a numeric argument N, show N lines; each `C-u` alone shows four times more. At most 10000 lines show at once. A gap of no more shows whole.",
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: review_context_up,
@@ -38,7 +39,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "review-context-down",
-        doc: "Show 20 more unchanged lines below every cursor: the first lines of the nearest gap below it, or on a gap's row its last lines.\n\nWith a prefix argument N, show N lines, at most 10000. A gap of no more shows whole.",
+        doc: "Show 20 more unchanged lines below every cursor: the first lines of the nearest gap below it, or on a gap's row its last lines.\n\nWith a numeric argument N, show N lines; each `C-u` alone shows four times more. At most 10000 lines show at once. A gap of no more shows whole.",
         args: ArgSpec::Count,
         reach: Reach::Change,
         run: review_context_down,
@@ -64,7 +65,7 @@ pub const COMMANDS: &[Command] = &[
 
 /// Which hidden lines a key shows.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Toward {
+enum Toward {
     Up,
     Down,
     Whole,
@@ -72,7 +73,7 @@ pub(crate) enum Toward {
 
 /// The old side's lines the key `toward` shows at line `line` of `rows`, `count` of them, and
 /// the file they are in: `None` where no gap of that file is that way.
-pub(crate) fn shown_by(
+fn shown_by(
     rows: &Rows,
     line: usize,
     toward: Toward,
@@ -110,24 +111,29 @@ pub(crate) fn shown_by(
     Some((gap.path.into(), range))
 }
 
-/// How many lines a context key shows: the prefix argument's, else [`STEP`].
+/// How many lines a context key shows: [`STEP`], times 4 for each `C-u` alone, or a number
+/// given, its sign dropped; at most [`MOST`].
 fn count_of(args: Args) -> u32 {
-    args.prefix()
-        .map_or(STEP, |n| u32::try_from(n.unsigned_abs()).unwrap_or(MOST))
+    let count = match args.raw() {
+        None => STEP,
+        Some(Prefix::Universal(times)) => {
+            STEP.saturating_mul(u32::try_from(times.unsigned_abs()).unwrap_or(u32::MAX))
+        }
+        Some(prefix) => u32::try_from(prefix.value().unsigned_abs()).unwrap_or(u32::MAX),
+    };
+    count.min(MOST)
 }
 
 /// Asks the host to show, for every cursor, the lines `toward` shows there.
 fn show(ctx: &mut Ctx<'_>, toward: Toward, count: u32) -> Result<(), CommandError> {
     let review = current_review(ctx)?;
     let (rows, lines) = rows_and_lines(ctx)?;
-    let mut asked: Vec<(Box<[u8]>, Range<u32>)> = Vec::new();
-    for line in lines {
-        if let Some(shown) = shown_by(&rows, line, toward, count)
-            && !asked.contains(&shown)
-        {
-            asked.push(shown);
-        }
-    }
+    let mut asked: Vec<(Box<[u8]>, Range<u32>)> = (lines.into_iter())
+        .filter_map(|line| shown_by(&rows, line, toward, count))
+        .collect();
+    // In the text's order, each once.
+    asked.sort_by(|a, b| (&a.0, a.1.start, a.1.end).cmp(&(&b.0, b.1.start, b.1.end)));
+    asked.dedup();
     if asked.is_empty() {
         return Err(CommandError::new(match toward {
             Toward::Up => "No hidden lines above",
@@ -175,14 +181,12 @@ fn review_context_gap(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 fn review_reset_context(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let review = current_review(ctx)?;
     let (rows, lines) = rows_and_lines(ctx)?;
-    let mut paths: Vec<Box<[u8]>> = Vec::new();
-    for line in lines {
-        if let Some(row) = rows.at(line).filter(|row| !row.path.is_empty())
-            && !paths.iter().any(|path| **path == *row.path)
-        {
-            paths.push(row.path.into());
-        }
-    }
+    let mut paths: Vec<Box<[u8]>> = (lines.into_iter())
+        .filter_map(|line| rows.at(line).filter(|row| !row.path.is_empty()))
+        .map(|row| row.path.into())
+        .collect();
+    paths.sort();
+    paths.dedup();
     if paths.is_empty() {
         return Err(CommandError::new("Not on a file"));
     }

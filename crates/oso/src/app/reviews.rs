@@ -112,6 +112,7 @@ impl App {
         // The files pane's width and the filter (step 6b).
         self.sync_review_files();
         self.sync_review_sides();
+        self.sync_review_held();
         self.sync_review_watches();
         self.sync_review_comments();
         self.sync_review_message();

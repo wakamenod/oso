@@ -133,6 +133,12 @@ fn a_prefix_argument_sets_the_count() {
     assert_eq!(count_of(Args::NONE), STEP);
     assert_eq!(count_of(Args::numeric(5)), 5);
     assert_eq!(count_of(Args::numeric(-5)), 5);
+    assert_eq!(count_of(Args::with_prefix(Some(Prefix::Universal(4)))), 80);
+    assert_eq!(
+        count_of(Args::with_prefix(Some(Prefix::Universal(16)))),
+        320
+    );
+    assert_eq!(count_of(Args::numeric(isize::MAX)), MOST);
 }
 
 /// A review in the selected window whose text has a line for each row of [`rows`].

@@ -137,6 +137,7 @@ fn running(id: ReviewId, project: ProjectId, scope: Scope, serial: u64) -> Runni
         pr: None,
         jumping: None,
         sides: Vec::new(),
+        held: std::sync::Arc::default(),
     }
 }
 

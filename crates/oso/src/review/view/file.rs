@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use oso_core::review::{Anchor, CommentId};
+use oso_core::review::{Anchor, CommentId, Hunk};
 
 use super::cards::Cards;
 use super::context::{Around, Lines, Revealed};
@@ -38,6 +38,9 @@ pub(super) struct File {
     lines: Option<Lines>,
     /// The unchanged lines the person asked to see.
     pub(super) revealed: Revealed,
+    /// Whether an open buffer of it may hold secrets or is withheld from agents: it shows no
+    /// unchanged line (step 13).
+    pub(super) held: bool,
 }
 
 /// A file's section and its two panes as last laid out, each kept while laying it out again
@@ -68,6 +71,7 @@ impl File {
             pane_row: None,
             lines: None,
             revealed: Revealed::default(),
+            held: false,
         }
     }
 
@@ -98,22 +102,27 @@ impl File {
             .any(|reading| matches!(reading.content, Content::Withheld))
     }
 
+    /// The hunks of its text reading and what it shows of the unchanged lines around them:
+    /// none for a file whose open buffer may hold secrets, or whose new side has fewer lines
+    /// than its hunks.
+    pub(super) fn around(&self) -> Option<(&[Hunk], Around<'_>)> {
+        let (Some(reading), Some(lines)) = (self.reading.as_deref(), &self.lines) else {
+            return None;
+        };
+        let Content::Text { shape, new, .. } = &reading.content else {
+            return None;
+        };
+        let around = Around {
+            new,
+            lines,
+            revealed: self.revealed.against(shape.base()),
+        };
+        (!self.held && lines.holds(shape.hunks())).then_some((shape.hunks(), around))
+    }
+
     /// How its comments show beside its reading.
     fn shown(&self, folded: bool) -> section::Shown<'_> {
-        let context = match (self.reading.as_deref(), &self.lines) {
-            (
-                Some(Reading {
-                    content: Content::Text { shape, new, .. },
-                    ..
-                }),
-                Some(lines),
-            ) if lines.holds(shape.hunks()) => Some(Around {
-                new,
-                lines,
-                revealed: self.revealed.against(shape.base()),
-            }),
-            _ => None,
-        };
+        let context = self.around().map(|(_, around)| around);
         section::Shown {
             cards: &self.cards,
             placed: self.placed.as_deref(),

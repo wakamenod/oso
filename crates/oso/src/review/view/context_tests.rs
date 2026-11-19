@@ -275,7 +275,7 @@ fn both_panes_show_context_row_for_row_by_their_own_side() {
 }
 
 fn side() -> impl Strategy<Value = Vec<u8>> {
-    prop::collection::vec(prop::sample::select(&b"ab\n"[..]), 0..80)
+    prop::collection::vec(prop::sample::select(&b"ab\n"[..]), 0..300)
 }
 
 proptest! {
@@ -356,4 +356,205 @@ fn the_view_shows_what_it_is_told_to_and_forgets_it_when_told_so() {
         built_lines(vec![listed(), file(), other]),
         built_lines(vec![listed(), file()])
     );
+}
+
+/// A reading of `a.rs` changing its first line, then `let k2` to `let k<count>` unchanged.
+fn rust_reading(count: u32) -> Arc<Reading> {
+    use super::super::highlight_tests::id;
+    let rest: String = (2..=count).map(|n| format!("let k{n}\n")).collect();
+    let (old, new) = (format!("fn a\n{rest}"), format!("fn b\n{rest}"));
+    let mut reading = reading_of(old, new, b"a");
+    reading.entry = entry(b"a.rs", Status::Modified);
+    reading.entry.old_id = id(1);
+    reading.entry.new_id = id(2);
+    Arc::new(reading)
+}
+
+/// The highlights of `text` with each `let` a keyword.
+fn lets(text: &str) -> oso_core::syntax::Highlights {
+    let mut highlights = oso_core::syntax::Highlights::new(text.len());
+    for (at, _) in text.match_indices("let") {
+        highlights.replace(
+            at..at + 3,
+            [(3, Some(oso_core::syntax::Highlight::Keyword))],
+        );
+    }
+    highlights
+}
+
+#[test]
+fn context_lines_take_their_sides_highlights_and_lines_shown_later_are_highlighted_again() {
+    use super::super::highlight_tests::{Call, Recorder, at, report, state_with};
+    use oso_core::syntax::Highlight;
+    use oso_syntax::Outcome;
+
+    let recorder = Recorder::default();
+    let reading = rust_reading(12);
+    let mut state = state_with(&recorder, &[Arc::clone(&reading)]);
+    let Content::Text { new, .. } = &reading.content else {
+        unreachable!()
+    };
+    let new_text = String::from_utf8(new.to_vec()).unwrap();
+    let opened = |recorder: &Recorder| -> Vec<u64> {
+        (recorder.calls().into_iter())
+            .filter_map(|call| match call {
+                Call::Open { key, text, .. } if text == new_text => Some(key),
+                _ => None,
+            })
+            .collect()
+    };
+    let first = opened(&recorder)[0];
+    state.take(Tell::Syntax(report(
+        first,
+        Outcome::Highlights(lets(&new_text)),
+        true,
+    )));
+    let text = state.build();
+    // Line 2, context after the hunk, is coloured; line 9 is hidden.
+    assert_eq!(at(&state, &text, " let k2", 1), Some(Highlight::Keyword));
+    assert!(!state.text.to_string().contains("let k9"));
+    // Shown now, the new side opens again, and its runs colour it too.
+    state.take(Tell::Context {
+        path: b"a.rs"[..].into(),
+        show: Some(5..12),
+    });
+    state.build();
+    state.schedule();
+    let again = opened(&recorder);
+    assert_eq!(again.len(), 2, "{:?}", recorder.calls());
+    state.take(Tell::Syntax(report(
+        again[1],
+        Outcome::Highlights(lets(&new_text)),
+        true,
+    )));
+    let text = state.build();
+    assert_eq!(at(&state, &text, " let k9", 1), Some(Highlight::Keyword));
+}
+
+#[test]
+fn a_file_whose_open_buffer_may_hold_secrets_shows_no_context() {
+    let reading = Arc::new(reading_of(numbered(30, &[]), numbered(30, &[15]), b"a"));
+    let listed = || Tell::Listed {
+        entries: vec![reading.entry.clone()].into(),
+        more: 0,
+        cut: false,
+    };
+    let file = || Tell::File {
+        reading: Arc::clone(&reading),
+        carry: Carrying::Nothing,
+    };
+    // With no highlighter told, the work tree's top is empty: a path is its own.
+    let held = || {
+        Tell::HeldBuffers(Arc::new(
+            [std::path::PathBuf::from("a.txt")].into_iter().collect(),
+        ))
+    };
+    let shows_context = |lines: Vec<String>| lines.iter().any(|line| line == " l14");
+    assert!(shows_context(built_lines(vec![listed(), file()])));
+    // Told before the reading or after, and after asking to see more.
+    assert!(!shows_context(built_lines(vec![listed(), held(), file()])));
+    let after = built_lines(vec![
+        listed(),
+        file(),
+        held(),
+        Tell::Context {
+            path: b"a.txt"[..].into(),
+            show: Some(1..30),
+        },
+    ]);
+    assert!(!shows_context(after.clone()));
+    assert!(!after.iter().any(|line| line.starts_with('\u{22ef}')));
+    // Gone from the set, the file shows them again.
+    let back = Tell::HeldBuffers(Arc::default());
+    assert!(shows_context(built_lines(vec![
+        listed(),
+        file(),
+        held(),
+        back
+    ])));
+}
+
+#[test]
+fn a_side_with_fewer_lines_than_its_hunks_shows_no_context() {
+    let mut reading = reading_of(numbered(30, &[]), numbered(30, &[15]), b"a");
+    if let Content::Text { new, .. } = &mut reading.content {
+        *new = Arc::from(&b"l1\nl2\n"[..]);
+    }
+    let file = file_of(reading);
+    let kinds = lines_of(&file.render(usize::MAX, false));
+    assert!(
+        (kinds.iter())
+            .all(|(_, kind)| !matches!(kind, RowKind::Context { .. } | RowKind::Gap { .. })),
+        "{kinds:?}"
+    );
+}
+
+#[test]
+fn unchanged_lines_that_read_like_rows_of_the_review_stay_context_rows() {
+    let crafted = [
+        "\u{22ef} 3 unchanged lines\n",
+        "@@ -1 +1 @@\n",
+        "modified  b.rs  +1 \u{2212}1\n",
+        "a\rb\n",
+        "c\u{7}d\n",
+    ]
+    .concat();
+    // Between two hunks, five lines apart: all of them show.
+    let (old, new) = (format!("x\n{crafted}z\n"), format!("y\n{crafted}w\n"));
+    let file = file_of(reading_of(old, new, b"a"));
+    let rendered = file.render(usize::MAX, false);
+    let kinds = lines_of(&rendered);
+    // The header, the hunk's header and its two lines, then one row each.
+    let context: Vec<_> = kinds[4..9].iter().map(|(_, kind)| *kind).collect();
+    assert_eq!(context.len(), 5, "{kinds:?}");
+    assert!(
+        context
+            .iter()
+            .all(|kind| matches!(kind, RowKind::Context { .. }))
+    );
+    let rows = Rows::new(vec![Arc::clone(&rendered.section)]);
+    assert_eq!(rows.lines(), text_lines(&rendered));
+}
+
+/// How many lines a section's text has, by its line breaks.
+fn text_lines(rendered: &Rendered) -> usize {
+    rendered.bytes.iter().filter(|byte| **byte == b'\n').count()
+}
+
+proptest! {
+    /// Each line found through the kept starts is the side's line of that number.
+    #[test]
+    fn a_line_is_found_from_the_start_kept_before_it(text in side()) {
+        let lines = Lines::of(&text);
+        let all = diff::lines(&text);
+        prop_assert_eq!(lines.count as usize, all.len());
+        for (number, line) in (1u32..).zip(&all) {
+            prop_assert_eq!(lines.from(&text, number).next(), Some(*line));
+        }
+        prop_assert_eq!(lines.from(&text, lines.count + 1).next(), None);
+        let rest: Vec<&[u8]> = lines.from(&text, 1).collect();
+        prop_assert_eq!(rest, all);
+    }
+
+    /// Whatever stretches are asked, even past the side or empty, nothing panics and every
+    /// unchanged line still shows or hides once.
+    #[test]
+    fn any_stretch_asked_is_taken(
+        asked in prop::collection::vec((any::<u32>(), any::<u32>()), 0..6),
+    ) {
+        let reading = Arc::new(reading_of(numbered(50, &[]), numbered(50, &[10, 40]), b"a"));
+        let mut told = vec![
+            Tell::Listed { entries: vec![reading.entry.clone()].into(), more: 0, cut: false },
+            Tell::File { reading: Arc::clone(&reading), carry: Carrying::Nothing },
+        ];
+        for (start, end) in asked {
+            told.push(Tell::Context { path: b"a.txt"[..].into(), show: Some(start..end) });
+        }
+        let lines = built_lines(told);
+        for n in (1..=50).filter(|n| *n != 10 && *n != 40) {
+            let wanted = format!(" l{n}");
+            let shown = lines.iter().filter(|line| **line == wanted).count();
+            prop_assert!(shown <= 1);
+        }
+    }
 }

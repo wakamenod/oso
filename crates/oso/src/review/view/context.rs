@@ -12,12 +12,17 @@
 //!   across readings against one old side: a refresh keeps it with no mapping, and a reading
 //!   against another old side drops it.
 //! - Context is shown only between and around the hunks of a text reading: a file that may
-//!   hold secrets, a binary or too large one, a file with no hunks, and one whose new side has
-//!   fewer lines than its hunks show none.
+//!   hold secrets, by its name or as an open buffer of it may, a binary or too large one, a file
+//!   with no hunks, and one whose new side has fewer lines than its hunks show none.
+//! - The lines shown are told to the sides' highlighting, which projects their runs too; the old
+//!   side's only while the panes are built.
 //! - Context rows are for showing only: staging builds its own patch, and comments, decisions
 //!   and sending go by hunks and changed lines, never by these rows.
 
+use std::collections::HashSet;
 use std::ops::Range;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use oso_core::review::{Base, Hunk, RowKind, Side};
 use oso_core::syntax::Highlight;
@@ -27,10 +32,14 @@ use super::section::{Writer, without_ending};
 use crate::review::Content;
 
 /// How many unchanged lines are shown before and after each hunk.
-pub(crate) const CONTEXT: u32 = 3;
+const CONTEXT: u32 = 3;
 
-/// The most stretches of lines asked for a file that are kept; past it, the first asked go.
+/// The most stretches of lines asked for a file that are kept; past it, the topmost other
+/// than the one just asked goes.
 const MAX_REVEALED: usize = 256;
+
+/// How many lines apart [`Lines`] keeps where a line starts.
+const EVERY: usize = 32;
 
 /// The unchanged lines the person asked to see of a file, by the old side's numbers, sorted
 /// and apart, and the old side they were asked against.
@@ -42,17 +51,16 @@ pub(super) struct Revealed {
 
 impl Revealed {
     /// Shows `old`'s lines too, asked against the old side `base`: what was asked against
-    /// another goes.
-    pub(super) fn add(&mut self, old: Range<u32>, base: &Base) {
+    /// another goes. Whether what shows changed.
+    pub(super) fn add(&mut self, old: Range<u32>, base: &Base) -> bool {
+        let mut changed = false;
         if self.base.as_ref() != Some(base) {
+            changed = !self.ranges.is_empty();
             self.ranges.clear();
             self.base = Some(base.clone());
         }
         if old.is_empty() {
-            return;
-        }
-        if self.ranges.len() >= MAX_REVEALED {
-            self.ranges.remove(0);
+            return changed;
         }
         // Every range that meets or touches it joins it.
         let from = self.ranges.partition_point(|range| range.end < old.start);
@@ -61,13 +69,22 @@ impl Revealed {
         if from < to {
             joined.start = joined.start.min(self.ranges[from].start);
             joined.end = joined.end.max(self.ranges[to - 1].end);
+            if to - from == 1 && self.ranges[from] == joined {
+                return changed;
+            }
         }
         self.ranges.splice(from..to, [joined]);
+        if self.ranges.len() > MAX_REVEALED {
+            self.ranges.remove(usize::from(from == 0));
+        }
+        true
     }
 
-    /// Back to the hunks' own context.
-    pub(super) fn clear(&mut self) {
+    /// Back to the hunks' own context; whether anything was asked.
+    pub(super) fn clear(&mut self) -> bool {
+        let changed = !self.ranges.is_empty();
         *self = Revealed::default();
+        changed
     }
 
     /// What was asked against `base`, or nothing if it was asked against another.
@@ -80,52 +97,57 @@ impl Revealed {
     }
 }
 
-/// Where each line of a side starts, for its lines to be shown by number. A side is at most
-/// [`MAX_BLOB`](crate::review::MAX_BLOB) bytes, so an offset fits a `u32`.
+/// Where every [`EVERY`]th line of a side starts, and how many lines it has, for its lines to
+/// be shown by number: a line is found from the nearest start kept before it. A side is at most
+/// [`MAX_BLOB`](crate::review::MAX_BLOB) bytes, so an offset fits a `u32`, and this holds at
+/// most 4 bytes for each 32 lines.
 #[derive(Debug)]
 pub(super) struct Lines {
     starts: Vec<u32>,
+    count: u32,
 }
 
 impl Lines {
     pub(super) fn of(text: &[u8]) -> Lines {
-        let mut starts = Vec::with_capacity(text.len() / 32 + 1);
-        if !text.is_empty() {
+        let count = crate::review::diff::line_count(text);
+        let mut starts = Vec::with_capacity(count.div_ceil(EVERY));
+        let breaks = (text.iter().enumerate()).filter(|(_, byte)| **byte == b'\n');
+        let mut nth = 0;
+        if count > 0 {
             starts.push(0);
         }
-        for (at, &byte) in text.iter().enumerate() {
-            if byte == b'\n' && at + 1 < text.len() {
+        for (at, _) in breaks {
+            nth += 1;
+            if nth % EVERY == 0 && nth < count {
                 starts.push(u32::try_from(at + 1).unwrap_or(u32::MAX));
             }
         }
-        Lines { starts }
+        let count = u32::try_from(count).unwrap_or(u32::MAX);
+        Lines { starts, count }
     }
 
     /// Whether the side has every line `hunks` put in, as the side they were diffed to has:
     /// context is shown only from such a side.
     pub(super) fn holds(&self, hunks: &[Hunk]) -> bool {
         (hunks.last())
-            .is_none_or(|hunk| end(hunk.new_start, &hunk.added) <= self.count().saturating_add(1))
+            .is_none_or(|hunk| end(hunk.new_start, &hunk.added) <= self.count.saturating_add(1))
     }
 
-    /// How many lines the side has.
-    fn count(&self) -> u32 {
-        u32::try_from(self.starts.len()).unwrap_or(u32::MAX)
-    }
-
-    /// Line `number` of `text`, counted from 1, with its line break: empty past the last.
-    fn line<'a>(&self, text: &'a [u8], number: u32) -> &'a [u8] {
-        let Some(index) = (number as usize).checked_sub(1) else {
-            return &[];
-        };
-        let Some(&start) = self.starts.get(index) else {
-            return &[];
-        };
-        let end = self
+    /// The lines of `text` from number `first`, counted from 1, each with its line break, as
+    /// many as it has from there.
+    fn from<'a>(&self, text: &'a [u8], first: u32) -> impl Iterator<Item = &'a [u8]> {
+        let index = (first as usize).saturating_sub(1);
+        let kept = self
             .starts
-            .get(index + 1)
-            .map_or(text.len(), |&end| end as usize);
-        text.get(start as usize..end).unwrap_or_default()
+            .get(index / EVERY)
+            .map_or(text.len(), |&at| at as usize);
+        let rest = text.get(kept..).unwrap_or_default();
+        let skip = if first == 0 {
+            usize::MAX
+        } else {
+            index % EVERY
+        };
+        rest.split_inclusive(|&byte| byte == b'\n').skip(skip)
     }
 }
 
@@ -160,9 +182,7 @@ pub(super) fn pieces(hunks: &[Hunk], index: usize, around: &Around) -> Vec<Piece
     };
     let until = hunks
         .get(index)
-        .map_or(around.lines.count().saturating_add(1), |hunk| {
-            hunk.new_start
-        });
+        .map_or(around.lines.count.saturating_add(1), |hunk| hunk.new_start);
     let lines = until.saturating_sub(new);
     if lines == 0 {
         return Vec::new();
@@ -231,13 +251,13 @@ pub(super) fn write(
         match piece {
             Piece::Shown { old, new, lines } => {
                 let kind = RowKind::Context { old, new };
-                for at in 0..lines {
-                    let (old, new) = (old + at, new + at);
-                    let (text, _) = without_ending(around.lines.line(around.new, new));
-                    let number = match side {
-                        Side::Old => old,
-                        Side::New => new,
-                    };
+                let first = match side {
+                    Side::Old => old,
+                    Side::New => new,
+                };
+                let texts = around.lines.from(around.new, new).take(lines as usize);
+                for (number, line) in (first..).zip(texts) {
+                    let (text, _) = without_ending(line);
                     writer.side_line(kind, (side, number), (b" ", text), None, &[]);
                 }
             }
@@ -255,7 +275,63 @@ pub(super) fn write(
     }
 }
 
+/// The unchanged lines `pieces` shows around every hunk of `hunks`, as ranges of each side's
+/// numbers, old then new; none of the old side unless `old`, as only the old pane shows them.
+fn shown_lines(hunks: &[Hunk], around: &Around, old: bool) -> [Vec<Range<u32>>; 2] {
+    let mut lines = [Vec::new(), Vec::new()];
+    for index in 0..=hunks.len() {
+        for piece in pieces(hunks, index, around) {
+            if let Piece::Shown {
+                old: from_old,
+                new,
+                lines: count,
+            } = piece
+            {
+                if old {
+                    lines[0].push(from_old..from_old + count);
+                }
+                lines[1].push(new..new + count);
+            }
+        }
+    }
+    lines
+}
+
+/// Whether the file at `path`, as git gives it under `top`, is one of `held`.
+fn is_held(held: &HashSet<PathBuf>, top: &Path, path: &[u8]) -> bool {
+    !held.is_empty() && crate::git::os_path(path).is_ok_and(|path| held.contains(&top.join(path)))
+}
+
 impl State {
+    /// After the file at `path` shows a reading, or what it shows around its hunks changed:
+    /// whether an open buffer of it may hold secrets, and the unchanged lines its sides'
+    /// highlighting covers.
+    pub(super) fn context_shown(&mut self, path: &[u8]) {
+        let held = is_held(&self.held_buffers, self.highlighting.top(), path);
+        let old = self.panes_on();
+        let Some(file) = self.files.get_mut(path) else {
+            return;
+        };
+        if file.held != held {
+            file.held = held;
+            file.rendered.clear();
+            self.dirty = true;
+        }
+        let lines = (file.around()).map_or_else(Default::default, |(hunks, around)| {
+            shown_lines(hunks, &around, old)
+        });
+        self.highlighting.context(path, lines);
+    }
+
+    /// Takes the files of the open buffers that may hold secrets: those that change show their
+    /// unchanged lines, or no more.
+    pub(super) fn held_buffers(&mut self, held: Arc<HashSet<PathBuf>>) {
+        self.held_buffers = held;
+        for path in self.order.clone() {
+            self.context_shown(&path);
+        }
+    }
+
     /// Shows the old side's lines `show` of the file at `path` too, or only its hunks' own
     /// context again, laying out that file alone. What its reading does not show as text is
     /// left as it is.
@@ -267,12 +343,15 @@ impl State {
         else {
             return;
         };
-        match show {
+        let changed = match show {
             Some(old) => file.revealed.add(old, shape.base()),
             None => file.revealed.clear(),
+        };
+        if changed {
+            file.rendered.clear();
+            self.dirty = true;
+            self.context_shown(path);
         }
-        file.rendered.clear();
-        self.dirty = true;
     }
 }
 
