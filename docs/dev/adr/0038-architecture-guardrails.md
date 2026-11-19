@@ -1,6 +1,6 @@
 # 0038. Architecture guardrails
 
-- Status: Accepted, amended by 0111
+- Status: Accepted, amended by 0111; "A shared device in the GPU tests" note (2026-11-19)
 - Date: 2026-11-03
 
 ## Context
@@ -63,6 +63,9 @@ shrink, so nothing has to be fixed at once and nothing gets worse.
      Exceptions need an `#[expect]` with a reason. This enforces "commands
      hold no global state"
      ([ADR 0002](0002-dev-hot-reload.md), [ADR 0034](0034-command-registry-and-keymaps.md)).
+     In tests, oso-render's GPU tests share one device through a
+     `OnceLock`, as a device per test thread crashed the Vulkan loader on
+     Ubuntu 26.04.
    - `oso-core` denies `unwrap_used` and `expect_used` outside tests.
    - `println!`, `eprintln!`, `dbg!`, `todo!` and `unimplemented!` are
      banned. Use `log` and real errors instead.

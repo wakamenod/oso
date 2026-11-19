@@ -232,6 +232,33 @@ mod tests {
         render(panes, &mut Blocks(coverage), theme, target)
     }
 
+    /// The one device every test draws on, made by the first test that asks.
+    ///
+    /// The tests run on threads of their own. Were each to make its own instance, the
+    /// Vulkan loader (1.4.341, as on Ubuntu 26.04) would load every installed driver for
+    /// each and unload those without a device in `vkEnumeratePhysicalDevices`, while the
+    /// other tests call into it: that crashed the test binary now and then.
+    fn gpu() -> &'static (wgpu::Device, wgpu::Queue) {
+        #[expect(
+            clippy::disallowed_types,
+            reason = "one device for the whole test binary: a device per test thread crashes the Vulkan loader (ADR 0038)"
+        )]
+        static GPU: std::sync::OnceLock<(wgpu::Device, wgpu::Queue)> = std::sync::OnceLock::new();
+        GPU.get_or_init(|| {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all(),
+                flags: wgpu::InstanceFlags::default(),
+                memory_budget_thresholds: Default::default(),
+                backend_options: Default::default(),
+                display: None,
+            });
+            let adapter =
+                block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+                    .expect("this test needs a GPU");
+            block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap()
+        })
+    }
+
     /// Draws `panes` in `theme` with the glyphs of `system`, on a real device, into a texture
     /// of `width` by `height` in `format`, and gives back its RGBA pixels.
     pub(super) fn render(
@@ -240,22 +267,12 @@ mod tests {
         theme: Theme,
         (width, height, format): (u32, u32, wgpu::TextureFormat),
     ) -> Vec<u8> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            flags: wgpu::InstanceFlags::default(),
-            memory_budget_thresholds: Default::default(),
-            backend_options: Default::default(),
-            display: None,
-        });
-        let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .expect("this test needs a GPU");
-        let (device, queue) =
-            block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
-        let mut painter = Painter::new(&device, format, width as f32, height as f32, theme);
+        let (device, queue) = gpu();
+        let mut painter = Painter::new(device, format, width as f32, height as f32, theme);
         // Frames until every glyph is rasterized, as the app draws them.
         for _ in 0..64 {
             let mut budget = RasterBudget::new(64);
-            painter.prepare(&device, &queue, system, panes, &mut budget);
+            painter.prepare(device, queue, system, panes, &mut budget);
             if !budget.exhausted {
                 break;
             }
