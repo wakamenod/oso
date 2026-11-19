@@ -28,6 +28,12 @@ pub enum RowKind {
     Hunk { hunk: usize },
     /// Lines of a side in a hunk, numbered from `first` there.
     Lines { hunk: usize, side: Side, first: u32 },
+    /// Unchanged lines shown around the hunks, the same on both sides: numbered from `old` on
+    /// the old side and from `new` on the new.
+    Context { old: u32, new: u32 },
+    /// One row that stands for `lines` unchanged lines not shown, from `old` on the old side
+    /// and from `new` on the new; the context keys show them.
+    Gap { old: u32, new: u32, lines: u32 },
     /// The label of a comment: who wrote it and its number.
     Label { comment: CommentId },
     /// The text of a comment.
@@ -38,12 +44,25 @@ pub enum RowKind {
 }
 
 /// Where a row is in a file's section, so that the same row is found in another layout of the
-/// same review, the unified text or a pane: a line of a side, or the row of a kind that comes
-/// `nth` among the section's rows of that kind.
+/// same review, the unified text or a pane: a line of a side (a changed line, or an unchanged
+/// one around the hunks by its new side's number), a gap's row, or the row of a kind that
+/// comes `nth` among the section's rows of that kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Place {
-    Line { side: Side, number: u32 },
-    Row { kind: RowKind, nth: usize },
+    Line {
+        side: Side,
+        number: u32,
+    },
+    /// A gap's row, by the old side's lines it hid: found again as the gap that still hides
+    /// any of them.
+    Gap {
+        old: u32,
+        lines: u32,
+    },
+    Row {
+        kind: RowKind,
+        nth: usize,
+    },
 }
 
 /// One line of a review buffer: the file it is in, what it is, and how far into its run of
@@ -56,15 +75,41 @@ pub struct Row<'a> {
 }
 
 impl Row<'_> {
-    /// The side and number of the file's line this row shows, for lines of a side.
+    /// The side and number of the file's line this row shows: for lines of a side, a changed
+    /// line, and for context, an unchanged line around them, by its new side's number. Use
+    /// [`Row::context`] or the row's kind to tell the two apart.
     pub fn line(&self) -> Option<(Side, u32)> {
         match self.kind {
             RowKind::Lines { side, first, .. } => {
                 let offset = u32::try_from(self.offset).ok()?;
                 Some((side, first.checked_add(offset)?))
             }
+            RowKind::Context { .. } => Some((Side::New, self.context()?.1)),
             _ => None,
         }
+    }
+
+    /// The old and new sides' numbers of the unchanged line this row shows, for context.
+    pub fn context(&self) -> Option<(u32, u32)> {
+        let RowKind::Context { old, new } = self.kind else {
+            return None;
+        };
+        let offset = u32::try_from(self.offset).ok()?;
+        Some((old.checked_add(offset)?, new.checked_add(offset)?))
+    }
+}
+
+/// The first number of `side` a run of `kind` shows, if it shows lines of that side.
+fn first_of(kind: RowKind, side: Side) -> Option<u32> {
+    match kind {
+        RowKind::Lines {
+            side: at, first, ..
+        } if at == side => Some(first),
+        RowKind::Context { old, new } => Some(match side {
+            Side::Old => old,
+            Side::New => new,
+        }),
+        _ => None,
     }
 }
 
@@ -159,6 +204,9 @@ pub enum Seek {
     File,
     /// A comment's label.
     Comment,
+    /// A gap's row, standing for unchanged lines not shown, in the line's own file only: a gap
+    /// is its file's, so no seek for one walks the files after it.
+    Gap,
 }
 
 impl Seek {
@@ -167,6 +215,7 @@ impl Seek {
             Seek::Hunk => matches!(kind, RowKind::Hunk { .. }),
             Seek::File => kind == RowKind::File,
             Seek::Comment => matches!(kind, RowKind::Label { .. }),
+            Seek::Gap => matches!(kind, RowKind::Gap { .. }),
         }
     }
 }
@@ -257,10 +306,11 @@ impl Rows {
         let row = self.at(line)?;
         let place = match row.kind {
             RowKind::Filler => return None,
-            RowKind::Lines { .. } => {
+            RowKind::Lines { .. } | RowKind::Context { .. } => {
                 let (side, number) = row.line()?;
                 Place::Line { side, number }
             }
+            RowKind::Gap { old, lines, .. } => Place::Gap { old, lines },
             kind => {
                 let (index, local) = self.section(line)?;
                 let before: usize = self.sections[index]
@@ -288,13 +338,23 @@ impl Rows {
         let mut nth = 0;
         for run in &self.sections[index].runs {
             match (place, run.kind) {
+                (Place::Line { side, number }, kind) => {
+                    let Some(first) = first_of(kind, side) else {
+                        continue;
+                    };
+                    if number >= first && ((number - first) as usize) < run.lines {
+                        return Some(start + run.start + (number - first) as usize);
+                    }
+                }
                 (
-                    Place::Line { side, number },
-                    RowKind::Lines {
-                        side: at, first, ..
+                    Place::Gap { old, lines },
+                    RowKind::Gap {
+                        old: at,
+                        lines: hid,
+                        ..
                     },
-                ) if side == at && number >= first && ((number - first) as usize) < run.lines => {
-                    return Some(start + run.start + (number - first) as usize);
+                ) if old < at.saturating_add(hid) && at < old.saturating_add(lines) => {
+                    return Some(start + run.start);
                 }
                 (Place::Row { kind, nth: wanted }, at) if kind == at => {
                     if wanted < nth + run.lines {
@@ -320,15 +380,9 @@ impl Rows {
         };
         let mut after: Option<(u32, usize)> = None;
         for run in &self.sections[index].runs {
-            let RowKind::Lines {
-                side: at, first, ..
-            } = run.kind
-            else {
+            let Some(first) = first_of(run.kind, side) else {
                 continue;
             };
-            if at != side {
-                continue;
-            }
             if number >= first && ((number - first) as usize) < run.lines {
                 return Some(start + run.start + (number - first) as usize);
             }
@@ -352,15 +406,9 @@ impl Rows {
         let start = self.starts[index];
         let mut best: Option<(u32, usize)> = None;
         for run in &self.sections[index].runs {
-            let RowKind::Lines {
-                side: at, first, ..
-            } = run.kind
-            else {
+            let Some(first) = first_of(run.kind, side) else {
                 continue;
             };
-            if at != side {
-                continue;
-            }
             let last = first.saturating_add(u32::try_from(run.lines - 1).unwrap_or(u32::MAX));
             let (away, line) = if number < first {
                 (first - number, run.start)
@@ -403,7 +451,12 @@ impl Rows {
     pub fn seek(&self, line: usize, to: Seek, forward: bool) -> Option<usize> {
         if forward {
             let (first, local) = self.section(line)?;
-            (first..self.sections.len()).find_map(|index| {
+            let end = if to == Seek::Gap {
+                first + 1
+            } else {
+                self.sections.len()
+            };
+            (first..end).find_map(|index| {
                 let runs = &self.sections[index].runs;
                 // Only the current section has runs at or before `line`.
                 let from = if index == first {
@@ -422,7 +475,8 @@ impl Rows {
                 Some(found) => found,
                 None => (self.sections.len().checked_sub(1)?, usize::MAX),
             };
-            (0..=last).rev().find_map(|index| {
+            let low = if to == Seek::Gap { last } else { 0 };
+            (low..=last).rev().find_map(|index| {
                 let runs = &self.sections[index].runs;
                 let to_end = if index == last {
                     runs.partition_point(|run| run.start < local)
@@ -673,7 +727,80 @@ mod tests {
             (0..3u64).prop_map(|id| RowKind::Card {
                 comment: CommentId(id)
             }),
+            (1..50u32).prop_map(|old| RowKind::Context { old, new: old + 1 }),
+            (1..50u32, 1..9u32).prop_map(|(old, lines)| RowKind::Gap {
+                old,
+                new: old,
+                lines
+            }),
         ]
+    }
+
+    /// A file with a gap of 10 lines, 3 of context, a hunk at old line 14 that puts a line
+    /// in, and 3 more of context.
+    fn with_context() -> Rows {
+        Rows::new(vec![section(
+            "a",
+            &[
+                (RowKind::File, 1),
+                (
+                    RowKind::Gap {
+                        old: 1,
+                        new: 1,
+                        lines: 10,
+                    },
+                    1,
+                ),
+                (RowKind::Context { old: 11, new: 11 }, 3),
+                (RowKind::Hunk { hunk: 0 }, 1),
+                (lines(0, Side::New, 14), 1),
+                (RowKind::Context { old: 14, new: 15 }, 3),
+            ],
+        )])
+    }
+
+    #[test]
+    fn a_context_row_is_a_line_of_both_sides_found_by_either() {
+        let rows = with_context();
+        let row = rows.at(7).unwrap();
+        assert_eq!(row.context(), Some((14, 15)));
+        assert_eq!(row.line(), Some((Side::New, 15)));
+        assert_eq!(rows.at(6).unwrap().context(), None);
+        let place = |side, number| Place::Line { side, number };
+        assert_eq!(rows.place(7), Some((&b"a"[..], place(Side::New, 15))));
+        assert_eq!(rows.find(b"a", place(Side::Old, 14)), Some(7));
+        assert_eq!(rows.find(b"a", place(Side::New, 15)), Some(7));
+        assert_eq!(rows.line_of(b"a", Some((Side::Old, 12))), Some(3));
+        assert_eq!(rows.nearest(b"a", Side::Old, 2), Some(2));
+        // A hidden line is under no row of a side.
+        assert_eq!(rows.find(b"a", place(Side::Old, 5)), None);
+        assert_eq!(rows.seek(5, Seek::Gap, false), Some(1));
+        assert_eq!(rows.seek(1, Seek::Gap, true), None);
+    }
+
+    #[test]
+    fn a_gap_row_is_found_while_it_hides_any_of_its_lines() {
+        let place = with_context().place(1).unwrap().1;
+        assert_eq!(place, Place::Gap { old: 1, lines: 10 });
+        let shown_some = |old, lines| {
+            Rows::new(vec![section(
+                "a",
+                &[
+                    (RowKind::File, 1),
+                    (RowKind::Context { old: 1, new: 1 }, 4),
+                    (
+                        RowKind::Gap {
+                            old,
+                            new: old,
+                            lines,
+                        },
+                        1,
+                    ),
+                ],
+            )])
+        };
+        assert_eq!(shown_some(5, 6).find(b"a", place), Some(5));
+        assert_eq!(shown_some(11, 6).find(b"a", place), None);
     }
 
     proptest! {
@@ -713,13 +840,18 @@ mod tests {
                 prop_assert_eq!(row.offset, offset);
             }
             prop_assert!(rows.at(flat.len()).is_none());
-            for to in [Seek::Hunk, Seek::File, Seek::Comment] {
+            for to in [Seek::Hunk, Seek::File, Seek::Comment, Seek::Gap] {
                 let starts: Vec<usize> = (0..flat.len())
                     .filter(|&line| flat[line].2 == 0 && to.takes(flat[line].1))
                     .collect();
                 for line in 0..=flat.len() {
-                    let next = starts.iter().copied().find(|&start| start > line);
-                    let previous = starts.iter().copied().rev().find(|&start| start < line);
+                    // A gap is looked for in the line's own file alone, the last section for
+                    // a line past the end.
+                    let file = flat.get(line).map(|at| at.0).or(given.len().checked_sub(1));
+                    let same = |start: &usize| to != Seek::Gap || Some(flat[*start].0) == file;
+                    let next = starts.iter().copied().filter(same).find(|&start| start > line);
+                    let previous =
+                        starts.iter().copied().filter(same).rev().find(|&start| start < line);
                     if line < flat.len() {
                         prop_assert_eq!(rows.seek(line, to, true), next);
                     }

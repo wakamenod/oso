@@ -97,7 +97,12 @@ enum Point {
     Other,
     /// A pane's filler row, which holds nothing (ADR 0122, step 11).
     Filler,
+    /// An unchanged line around the hunks, or a gap's row (step 13).
+    Context,
 }
+
+/// What `c` says on an unchanged line around the hunks, or a gap's row (step 13).
+const CONTEXT: &str = "Comments go on a changed line or a hunk's header";
 
 /// What the comment keys say on a pane's filler row.
 const FILLER: &str = "Nothing to comment on here";
@@ -132,6 +137,7 @@ fn point(ctx: &Ctx<'_>) -> Result<(ReviewId, Point), CommandError> {
         },
         RowKind::Label { comment } | RowKind::Card { comment } => Point::Comment(comment),
         RowKind::File | RowKind::Note => Point::Other,
+        RowKind::Context { .. } | RowKind::Gap { .. } => Point::Context,
         RowKind::Filler => Point::Filler,
     };
     Ok((review, point))
@@ -203,6 +209,7 @@ fn review_comment(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         // A reply to the comment at point (ADR 0122, Q15).
         Point::Comment(to) => DraftFor::Reply { to },
         Point::Other => return Err(CommandError::new("Comment on a line or a hunk's header")),
+        Point::Context => return Err(CommandError::new(CONTEXT)),
         Point::Filler => return Err(CommandError::new(FILLER)),
     };
     if behind(ctx, review, &draft) {

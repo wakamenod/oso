@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 7f5d4933c37f347d3b47d5a83bb7d61592bef99bc06208c4b4269e26d81d4c3b # shrinks to given = [[(Gap { old: 1, new: 1, lines: 1 }, 1)], []]

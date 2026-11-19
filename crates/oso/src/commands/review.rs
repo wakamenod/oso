@@ -33,6 +33,9 @@ pub const KEYS: &[(&str, &str)] = &[
     ("P", "review-previous-file"),
     ("}", "review-next-comment"),
     ("{", "review-previous-comment"),
+    ("[", "review-context-up"),
+    ("]", "review-context-down"),
+    ("=", "review-context-gap"),
     ("c", "review-comment"),
     ("e", "review-edit-comment"),
     ("k", "review-remove-comment"),
@@ -85,6 +88,7 @@ macro_rules! person_command {
 }
 
 mod comments;
+mod context;
 mod decide;
 mod files;
 mod keys;
@@ -93,6 +97,7 @@ mod send;
 mod visit;
 
 pub use comments::COMMANDS as COMMENT_COMMANDS;
+pub use context::COMMANDS as CONTEXT_COMMANDS;
 pub use decide::COMMANDS as DECISION_COMMANDS;
 pub(crate) use decide::{open_buffer_of, place_of};
 pub(crate) use files::prompt_text;

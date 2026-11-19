@@ -114,6 +114,54 @@ fn a_review_shows_headers_hunks_and_lines_with_their_bands_and_moves_between_the
 }
 
 #[test]
+fn context_lines_show_plain_around_each_hunk_with_a_gap_row_between() {
+    // Lines 1 to 30, with 5 and 25 changed: the hunks' context does not meet.
+    let line = |n: u32, changed: bool| {
+        if changed {
+            format!("let x{n} = 0;\n")
+        } else {
+            format!("let v{n} = {n};\n")
+        }
+    };
+    let old: String = (1..=30).map(|n| line(n, false)).collect();
+    let new: String = (1..=30).map(|n| line(n, n == 5 || n == 25)).collect();
+    let hunks = vec![
+        hunk(
+            5,
+            5,
+            &[line(5, false).as_bytes()],
+            &[line(5, true).as_bytes()],
+        ),
+        hunk(
+            25,
+            25,
+            &[line(25, false).as_bytes()],
+            &[line(25, true).as_bytes()],
+        ),
+    ];
+    let content = Content::Text {
+        refined: Refined::of(&hunks, Instant::now() + Duration::from_secs(5)),
+        shape: Arc::new(Shape::new(Base::Blob(b"a"[..].into()), hunks).unwrap()),
+        old: Arc::from(old.as_bytes()),
+        new: Arc::from(new.as_bytes()),
+    };
+    let told = vec![
+        Tell::Listed {
+            entries: vec![entry(b"src/a.rs", Status::Modified)].into(),
+            more: 0,
+            cut: false,
+        },
+        reading(b"src/a.rs", Status::Modified, content),
+    ];
+    check_editor(
+        "review_context",
+        b"",
+        review(told, (24, 40)),
+        &["", "n", "n"],
+    );
+}
+
+#[test]
 fn every_note_a_file_can_have_is_one_line_under_its_header() {
     let told = vec![
         Tell::Listed {

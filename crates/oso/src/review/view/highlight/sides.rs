@@ -66,16 +66,57 @@ pub(super) fn source(reading: &Arc<Reading>, side: Side) -> Option<Source> {
     })
 }
 
-/// The numbers of the lines of `side` that `hunks` show, rising.
-pub(super) fn lines_of(hunks: &[Hunk], side: Side) -> impl Iterator<Item = u32> + Clone + '_ {
-    hunks.iter().flat_map(move |hunk| {
+/// The numbers of the lines of `side` that `hunks` show, and the unchanged lines `context`
+/// around them, rising.
+pub(super) fn lines_of(hunks: &[Hunk], context: &[Range<u32>], side: Side) -> Vec<u32> {
+    let changed = hunks.iter().flat_map(move |hunk| {
         let (start, lines) = match side {
             Side::Old => (hunk.old_start, hunk.removed.len()),
             Side::New => (hunk.new_start, hunk.added.len()),
         };
         let lines = u32::try_from(lines).unwrap_or(u32::MAX);
         (0..lines).map(move |offset| start.saturating_add(offset))
-    })
+    });
+    let mut lines: Vec<u32> = changed.chain(context.iter().cloned().flatten()).collect();
+    lines.sort_unstable();
+    lines.dedup();
+    lines
+}
+
+/// Whether the review shows any line of `side`, as [`lines_of`] says, without listing them.
+pub(super) fn has_lines(hunks: &[Hunk], context: &[Range<u32>], side: Side) -> bool {
+    context.iter().any(|range| !range.is_empty())
+        || hunks.iter().any(|hunk| match side {
+            Side::Old => !hunk.removed.is_empty(),
+            Side::New => !hunk.added.is_empty(),
+        })
+}
+
+impl super::Highlighting {
+    /// The file at `path` shows the unchanged lines `context` of each side, old then new,
+    /// around its hunks (step 13): a side whose runs are whole but lack one is opened again.
+    pub(in crate::review::view) fn context(&mut self, path: &[u8], context: [Vec<Range<u32>>; 2]) {
+        let Some(file) = self.files.get_mut(path) else {
+            return;
+        };
+        if file.context == context {
+            return;
+        }
+        file.context = context;
+        self.settled = false;
+        let Some(Content::Text { shape, .. }) = file.reading.as_deref().map(|it| &it.content)
+        else {
+            return;
+        };
+        for side in [Side::Old, Side::New] {
+            let state = &mut file.sides[index(side)];
+            if state.complete {
+                let lines = lines_of(shape.hunks(), &file.context[index(side)], side);
+                state.complete = (state.projected.as_ref())
+                    .is_some_and(|projected| projected.holds_all(lines.into_iter()));
+            }
+        }
+    }
 }
 
 /// The lines of each side on screen, old then new, as runs of numbers, first and last.

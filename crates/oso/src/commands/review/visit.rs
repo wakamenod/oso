@@ -58,6 +58,24 @@ fn review_visit(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
         RowKind::Lines { .. } => row
             .line()
             .ok_or_else(|| CommandError::new("Nothing to visit here"))?,
+        RowKind::Context { .. } => {
+            let (old, new) = row
+                .context()
+                .ok_or_else(|| CommandError::new("Nothing to visit here"))?;
+            if old_side {
+                (Side::Old, old)
+            } else {
+                (Side::New, new)
+            }
+        }
+        // A gap goes to the first line it hides.
+        RowKind::Gap { old, new, .. } => {
+            if old_side {
+                (Side::Old, old)
+            } else {
+                (Side::New, new)
+            }
+        }
         RowKind::Hunk { hunk } => hunk_start(hunk).unwrap_or(first),
         RowKind::File | RowKind::Note => first,
         RowKind::Label { comment } | RowKind::Card { comment } => {

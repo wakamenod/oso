@@ -20,7 +20,8 @@
 //!   its text is replaced or its file leaves, and all of them when highlighting stops or the
 //!   view ends. A full schedule stops the opening until a document closes.
 //! - Until a side is highlighted whole, only its lines on screen are projected; once it is,
-//!   every line the review shows of it.
+//!   every line the review shows of it: its hunks' and the unchanged lines around them the view
+//!   says it shows (step 13), a side holding runs for fewer opened again.
 //! - An open buffer whose text is a file's new side gives that side's runs: once its are whole,
 //!   the side's document closes or never opens. Its text is compared once a revision, and
 //!   again for each new reading.
@@ -46,7 +47,7 @@ use oso_syntax::{Failure, Language, MAX_BYTES, Outcome, Refused, Report};
 pub(crate) use budget::MAX_RUNS;
 pub(crate) use buffers::BufferSide;
 pub(super) use sides::{SideRuns, add_shown, index};
-use sides::{Source, lines_of, on_screen, shown_ranges, source};
+use sides::{Source, has_lines, lines_of, on_screen, shown_ranges, source};
 
 use super::project::{self, Projected};
 use crate::review::{Content, Reading};
@@ -127,6 +128,8 @@ impl SideState {
 struct Sides {
     reading: Option<Arc<Reading>>,
     sides: [SideState; 2],
+    /// The unchanged lines of each side the review shows around the hunks (step 13).
+    context: [Vec<Range<u32>>; 2],
 }
 
 /// A view's highlighting of its sides.
@@ -306,7 +309,8 @@ impl Highlighting {
                 // The same text: its runs may lack a line this reading shows.
                 if let Content::Text { shape, .. } = &reading.content {
                     state.complete = state.projected.as_ref().is_some_and(|projected| {
-                        projected.done && projected.holds_all(lines_of(shape.hunks(), side))
+                        let lines = lines_of(shape.hunks(), &file.context[index(side)], side);
+                        projected.done && projected.holds_all(lines.into_iter())
                     });
                 }
                 continue;
@@ -425,7 +429,7 @@ impl Highlighting {
         let state = &mut file.sides[index(side)];
         let wanted = state.open.is_none()
             && state.wants(screen, on_screen.is_some())
-            && lines_of(shape.hunks(), side).next().is_some();
+            && has_lines(shape.hunks(), &file.context[index(side)], side);
         if !wanted {
             return true;
         }
@@ -506,7 +510,7 @@ impl Highlighting {
                 let Content::Text { shape, .. } = &reading.content else {
                     return false;
                 };
-                let numbers = lines_of(shape.hunks(), side);
+                let numbers = lines_of(shape.hunks(), &file.context[index(side)], side);
                 if report.done {
                     Some(project::project(
                         &open.text, open.bom, highlights, numbers, true,
@@ -514,7 +518,7 @@ impl Highlighting {
                 } else {
                     // Partly done: the lines on screen only, the rest once it is whole.
                     let shown = shown.unwrap_or_default();
-                    let numbers = numbers.filter(|number| on_screen(&shown, *number));
+                    let numbers = (numbers.into_iter()).filter(|number| on_screen(&shown, *number));
                     let projected =
                         project::project(&open.text, open.bom, highlights, numbers, false);
                     (projected.lines() > 0).then_some(projected)
@@ -559,7 +563,7 @@ impl Highlighting {
                     done = true;
                     done_shown |= shown;
                 } else if state.wants(self.screen, shown)
-                    && lines_of(shape.hunks(), side).next().is_some()
+                    && has_lines(shape.hunks(), &file.context[index(side)], side)
                 {
                     left = true;
                     left_shown |= shown;
