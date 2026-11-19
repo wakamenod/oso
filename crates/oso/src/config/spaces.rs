@@ -1,4 +1,5 @@
-//! `[spaces]`: where the directories of issue spaces go (ADR 0136, Q1).
+//! `[spaces]`: where the directories of issue spaces go (ADR 0136, Q1), and how a new space is
+//! named (ADR 0159).
 //!
 //! Must not depend on: `app` or the file system; the app makes and checks the directories.
 
@@ -15,12 +16,25 @@ pub(super) const MAX_ROOT: usize = 1024;
 /// What a space's directory goes under when `[spaces] root` says nothing.
 pub const DEFAULT_ROOT: &str = "~/spaces";
 
+/// How a new space is named (ADR 0159).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Naming {
+    /// The person's `claude` summarizes the description, oso's own names standing in where
+    /// it gives none.
+    #[default]
+    Claude,
+    /// oso's own names: the description's first ASCII words, else the repository's name.
+    Local,
+}
+
 /// `[spaces]`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Spaces {
     /// `root`: the directory each new space's own directory is made in, as written: an
     /// absolute path, or one starting with `~/`. Else [`DEFAULT_ROOT`].
     pub root: Option<String>,
+    /// `naming`: `"claude"`, the default, or `"local"`.
+    pub naming: Naming,
 }
 
 impl Spaces {
@@ -56,6 +70,14 @@ pub(super) fn spaces(value: &Spanned<DeValue<'_>>, found: &mut Found) -> Spaces 
                     root => root,
                 };
             }
+            "naming" => match value.get_ref() {
+                DeValue::String(text) if text == "claude" => spaces.naming = Naming::Claude,
+                DeValue::String(text) if text == "local" => spaces.naming = Naming::Local,
+                _ => found.at(
+                    value.span().start,
+                    format_args!("[spaces] naming takes \"claude\" or \"local\""),
+                ),
+            },
             other => unknown(found, name.span().start, other, "[spaces]"),
         }
     }

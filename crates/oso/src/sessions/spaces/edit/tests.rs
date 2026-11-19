@@ -410,3 +410,26 @@ fn a_recalled_space_with_a_directory_keeps_its_slug() {
     let names: Vec<&str> = spaces.iter().map(|s| s.name()).collect();
     assert_eq!(names, ["fix", "fix", "fix-2"]);
 }
+
+#[test]
+fn a_summarys_names_are_taken_unique_the_slug_only_while_there_is_no_directory() {
+    let mut spaces = recalled(2);
+    let a = spaces
+        .new_space(&named("oso"), Member::at(Path::new("/a")), 1, &no_session)
+        .unwrap();
+    let worker = |name: &str| name == "login-fix";
+    let b = spaces
+        .new_space(&named("space"), Member::at(Path::new("/b")), 1, &no_session)
+        .unwrap();
+    let names = spaces.take_names(b, (Some("login-fix"), Some("ログイン 🔧")), &worker, 2);
+    assert_eq!(
+        names,
+        Some(("login-fix-2".to_owned(), "ログイン 🔧".to_owned())),
+        "a session answers to login-fix"
+    );
+    // With a directory, the slug stays; a display name another space has is told apart.
+    let path = PathBuf::from("/s/oso");
+    spaces.set_directory(a, path, None, ("oso", "oso"), &no_session, 3);
+    let names = spaces.take_names(a, (Some("other"), Some("ログイン 🔧")), &no_session, 4);
+    assert_eq!(names, Some(("oso".to_owned(), "ログイン 🔧 2".to_owned())));
+}

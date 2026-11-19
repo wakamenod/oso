@@ -250,6 +250,44 @@ impl Spaces {
         })
     }
 
+    /// Gives space `at` the names a summary of its description gave (ADR 0159, step 2): `slug`
+    /// as its slug, made unique as a new space's is, while it has no directory; `display` as
+    /// its display name, made unique, if given. Returns the space's slug and what the person
+    /// sees it called now.
+    pub fn take_names(
+        &mut self,
+        at: usize,
+        (slug, display): (Option<&str>, Option<&str>),
+        taken: &dyn Fn(&str) -> bool,
+        now: u64,
+    ) -> Option<(String, String)> {
+        let space = self.spaces.get(at)?;
+        let mut name = space.stored.name.clone();
+        if let Some(base) = slug.filter(|_| space.stored.directory.is_none()) {
+            name = unique(base, &|candidate| {
+                taken(candidate) || self.slug_taken(candidate, Some(at))
+            });
+        }
+        let display = display.map(clean_display).filter(|d| !d.is_empty());
+        let display = display.map(|display| {
+            unique_display(&display, &|label| {
+                label == name || self.label_taken(label, Some(at))
+            })
+        });
+        let stored = &mut self.spaces[at].stored;
+        stored.name = name;
+        if let Some(display) = display {
+            stored.display = if display == stored.name {
+                String::new()
+            } else {
+                display
+            };
+        }
+        stored.changed = now;
+        self.unsaved = true;
+        Some((stored.name.clone(), stored.label().to_owned()))
+    }
+
     /// Gives space `at`, which has no directory yet, a slug no session answers to, as `taken`
     /// says, when its own is one: a space made by a session's joining is named after its
     /// repository, as that session often is, and its orchestrator would answer to that name

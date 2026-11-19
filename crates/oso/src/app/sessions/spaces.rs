@@ -56,6 +56,9 @@ pub(in crate::app) struct SpaceWork {
     /// The `*scratch*` each new space shows until its orchestrator: shown in its place only if
     /// the selected window still shows it (ADR 0159).
     pub(in crate::app) placeholders: HashMap<SpaceId, oso_core::buffer::BufferId>,
+    /// The spaces the person's `claude` is naming, with what each was called when it was asked,
+    /// so that a name the person gave meanwhile stays (ADR 0159, step 2).
+    pub(in crate::app) naming: HashMap<SpaceId, String>,
     /// The spaces whose directory is being made: one job a space at a time.
     pub(in crate::app) making: HashSet<SpaceId>,
     /// The spaces whose directory is shown once it is made.

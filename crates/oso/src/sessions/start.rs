@@ -293,7 +293,7 @@ const CONTROL_VARIABLE: &str = "XDG_RUNTIME_DIR";
 /// The names a session's terminal passes on: a terminal's, `[sessions] env`'s,
 /// `CLAUDE_CONFIG_DIR`, so that the session's registry is the one oso reads, and
 /// [`CONTROL_VARIABLE`], so that its bridge reaches this oso.
-fn inherit(terminal: &[String], sessions: &[String]) -> Vec<String> {
+pub(crate) fn inherit(terminal: &[String], sessions: &[String]) -> Vec<String> {
     let mut names = shell::inherit(terminal);
     for name in sessions
         .iter()

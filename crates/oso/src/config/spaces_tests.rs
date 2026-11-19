@@ -1,4 +1,4 @@
-//! The tests of `[spaces]` in [`parse`](super::parse): `root`, its default, and what is said of a
+//! The tests of `[spaces]` in [`parse`](super::parse): `root`, its default, `naming`, and what is said of a
 //! bad one (ADR 0136).
 //!
 //! Must not depend on: `app`, `dispatch` or the file system; these run on strings alone.
@@ -65,4 +65,25 @@ fn a_root_under_home_needs_a_home() {
     assert_eq!(expand("~/spaces", Some(Path::new("relative"))), None);
     let written = format!("{ABSOLUTE}w/s");
     assert_eq!(expand(&written, None), Some(PathBuf::from(&written)));
+}
+
+#[test]
+fn naming_is_claude_unless_local_and_anything_else_is_said() {
+    use super::spaces::Naming;
+    let f = Fixture::new();
+    assert_eq!(f.parse("[spaces]\n").settings.spaces.naming, Naming::Claude);
+    let local = f.parse("[spaces]\nnaming = \"local\"\n");
+    assert_eq!(messages(&local), Vec::<String>::new());
+    assert_eq!(local.settings.spaces.naming, Naming::Local);
+    for value in ["\"gpt\"", "true"] {
+        let loaded = f.parse(&format!("[spaces]\nnaming = {value}\n"));
+        let messages = messages(&loaded);
+        assert_eq!(messages.len(), 1, "{value}");
+        assert!(
+            messages[0].contains("\"claude\" or \"local\""),
+            "{}",
+            messages[0]
+        );
+        assert_eq!(loaded.settings.spaces.naming, Naming::Claude);
+    }
 }

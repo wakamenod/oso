@@ -58,14 +58,16 @@ fn recall(directory: Option<&Path>) -> Out {
     })
 }
 
-/// Whether `job` looks at the disk for a space command, which a thread of its own does
-/// (step 3): not keeping the spaces or reading ids, which the worker does in turn.
+/// Whether `job` looks at the disk for a space command, or names a space with `claude`, which
+/// a thread of its own does (step 3): not keeping the spaces or reading ids, which the worker
+/// does in turn.
 pub(super) fn looks_at_the_disk(job: &SpaceJob) -> bool {
     matches!(
         job,
         SpaceJob::MakeDirectory { .. }
             | SpaceJob::CheckRepository { .. }
             | SpaceJob::Instructions { .. }
+            | SpaceJob::Name { .. }
             | SpaceJob::Handover { .. }
     )
 }
@@ -109,6 +111,10 @@ pub(super) fn space_job(job: SpaceJob) -> Vec<Out> {
             let file = probe::instructions_file(&state, id.as_str());
             Out::InstructionsReady { id, file }
         }
+        SpaceJob::Name { id, ask } => Out::SpaceNamed {
+            id,
+            named: spaces::naming::run(&ask),
+        },
         SpaceJob::Handover { id, handoff, from } => {
             let file = std::fs::symlink_metadata(&handoff).is_ok_and(|meta| meta.is_file());
             let config = crate::sessions::worktree::transcript::config_dir();

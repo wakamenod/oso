@@ -157,6 +157,33 @@ the slug's fallback as written, and the split into two steps.
   `SpaceRequest::New` and `SpaceRequest::Rename` carry a description and a display name.
 - No new crate, crate edge, dependency, public trait or module, and no new agent tool.
 
+## Step 2, as built
+
+- **The answer's shape,** read from `claude` 2.1.327 with one call on a made-up description (the
+  author's leave, 2026-11-19): `--output-format=json` with `--json-schema` gives a JSON object
+  whose `structured_output` holds the two names and whose `result` holds them again as JSON text,
+  `is_error` false; the run left its directory empty. oso reads `structured_output`, else
+  `result`, and refuses an answer with `is_error` true.
+- **The run** is `sessions/spaces/naming.rs`: the command line and the answer's reading are plain
+  functions with tests; the run finds the person's shell, launches `claude` as a session's
+  launch does (`sessions::launch`), with the variables a session's terminal passes on, in a
+  session with no controlling terminal, and reads its output with git's bounded `collect`. It
+  is a `SpaceJob::Name`, which the worker runs on a thread of its own, as the space commands'
+  looks at the disk; `Out::SpaceNamed` brings the names back.
+- **The space is made at once** with oso's own names and entered, and the echo area
+  says `claude` names it. The answer gives the space its slug only while it has no directory and
+  none is being made: `o` pressed meanwhile starts the orchestrator under oso's own slug. Its
+  display name is taken only if the space is still called what it was when `claude` was asked,
+  so a name the person gave meanwhile stays. A closed space forgets the ask; a quit before the
+  answer keeps oso's names, and `o` starts the orchestrator later.
+- **What the echo area says:** `Space NAME (SLUG) named`, or `claude did not name the space
+  (WHY): it is NAME (SLUG)`, where WHY is short and holds no path and none of the description:
+  no answer in 20 s, it did not answer, its answer was too long, not JSON, or held no names.
+- **`[spaces] naming`:** `"claude"` (the default) or `"local"`; anything else is said, and
+  `claude` stays.
+- **In the end-to-end flows,** the stand-in `claude` answers `--print` with the flow's
+  `naming-answer`, or fails, and keeps what it was given apart from the session runs.
+
 ## Changes to accepted ADRs
 
 Each passage stays in its ADR as written; what holds now follows it.

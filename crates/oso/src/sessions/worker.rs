@@ -156,6 +156,12 @@ pub enum SpaceJob {
         id: super::spaces::SpaceId,
         state: PathBuf,
     },
+    /// Space `id`'s names, as the person's `claude` summarizes its description (ADR 0159,
+    /// step 2), on a thread of its own, which the run holds up to its limit.
+    Name {
+        id: super::spaces::SpaceId,
+        ask: Box<super::spaces::naming::Ask>,
+    },
     /// Whether space `id`'s `handoff` file is there, and where session `from`'s transcript is,
     /// for its orchestrator's replacement (ADR 0136, step 5).
     Handover {
@@ -222,6 +228,11 @@ pub enum Out {
         from: super::identity::SessionId,
         handoff: bool,
         transcript: Option<PathBuf>,
+    },
+    /// Space `id`'s names from its description, or why none came (ADR 0159, step 2).
+    SpaceNamed {
+        id: super::spaces::SpaceId,
+        named: Result<super::spaces::naming::Named, String>,
     },
     /// This local rule was the slowest of [`DROP_AFTER`] late looks in a row, so it is no
     /// longer used until the rules load again.

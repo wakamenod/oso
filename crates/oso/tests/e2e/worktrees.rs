@@ -26,9 +26,22 @@ use super::config::set_mode;
 use super::harness::{App, Scratch};
 
 /// The fake: where it runs and what it was given, then the exit the flow writes to `go`. It
-/// also ends once the flow's directory is gone. `DIR` is the flow's scratch directory.
+/// also ends once the flow's directory is gone. `DIR` is the flow's scratch directory. Asked to
+/// name a space (`--print`, ADR 0159), it keeps what it was given apart from the runs, and
+/// answers with `naming-answer` if the flow wrote one, else fails, as a `claude` that cannot
+/// answer does.
 const FAKE: &str = r#"#!/bin/sh
 dir='DIR'
+for arg in "$@"; do
+  if [ "$arg" = --print ]; then
+    printf '%s\n' "$@" > "$dir/naming-args"
+    cat > "$dir/naming-in"
+    pwd -P > "$dir/naming-cwd"
+    [ -f "$dir/naming-answer" ] || exit 1
+    cat "$dir/naming-answer"
+    exit 0
+  fi
+done
 printf '%s\0' "$(pwd -P)" "$@" > "$dir/tmp.$$"
 mv "$dir/tmp.$$" "$dir/run.$$"
 printf 'fake claude\n'

@@ -235,6 +235,7 @@ impl App {
         };
         let spaces = &mut self.hosting.spaces;
         spaces.placeholders.remove(&id);
+        spaces.naming.remove(&id);
         spaces.replacing.retain(|_, next| next.space != id);
         spaces.start_after.remove(&id);
         spaces.probing.remove(&id);

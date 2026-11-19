@@ -274,8 +274,10 @@ the buffer you were in stays in its own space. A space has two names: a display 
 characters and emoji too; and a slug, lower-case ASCII, which never changes. The slug names the
 space's directory, `~/spaces/<slug>` (set `[spaces] root` in `config.toml` to put them
 elsewhere), its orchestrator, which other sessions message by that name, and the space as agents
-name it. Both are made from the description: the slug from its first English words, else the
-repository's name; the display name from its start. oso makes the directory readable by you
+name it. Both are made from the description: your own `claude` summarizes it into the two names, with no
+tool and nothing kept, in a few seconds; where it cannot, the slug comes from the
+description's first English words, else the repository's name, and the display name from its
+start. Set `[spaces] naming = "local"` in `config.toml` to skip `claude`. oso makes the directory readable by you
 alone, and refuses a root that other users can write. When the directory or the start is
 refused, the space stays, and `o` in the space menu starts its orchestrator once you fixed what
 the echo area said.

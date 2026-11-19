@@ -627,6 +627,20 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
 
 - Claude Code runs as its official TUI in a terminal view (M4,
   [ADR 0031](adr/0031-claude-code-integration.md)).
+- Naming a space is the one run of `claude` with no terminal
+  ([ADR 0159](adr/0159-space-new-starts-the-orchestrator-and-display-names.md), step 2): only
+  on the person's `space-new`, unless `[spaces] naming = "local"`. The person's own `claude`,
+  found as a session's is, runs `--print --safe-mode --tools= --strict-mcp-config
+  --disable-slash-commands --no-session-persistence --model=haiku` with a fixed system prompt
+  and JSON schema, through `oso_platform::process` on a thread of its own, in a session with no
+  controlling terminal, in `space-naming` under the state directory, which is private and must
+  be empty, as a file there could be a setting it reads. It gets the variables a session gets;
+  its arguments are not logged. The description, which a buffer that may hold secrets cannot
+  give, goes on its standard input, never in an argument; at most 64 KiB of its answer are
+  read, and it is killed past 20 s. The answer is untrusted text: its display name is cleaned
+  as a display name, its slug taken only if it is a slug as oso makes them, both made unique,
+  and anything else gives way to oso's own names. A description that steers it can only pick
+  the two names. No permission option is given: with no tool, nothing is asked.
 - Its MCP tools reach oso only through the `oso mcp` stdio bridge and the agent channel, a Unix
   socket with a peer user check; no TCP port is opened. There is no code-execution tool, and
   no way to write a file that could run code later without the person's yes: the channel opens
