@@ -319,10 +319,10 @@ fn a_draft_takes_no_japanese_once_it_or_a_buffer_shown_may_hold_secrets() {
     let scratch = Scratch::new("review-draft-secret");
     let mut app = open_review(&scratch);
     let review = app.state()["buffer"]["name"].clone();
-    // A buffer that may hold secrets, outside the project, in the other window, where a line of
-    // it is killed.
+    // A buffer that may hold secrets, outside the project, in the review layout's slot, where a
+    // line of it is killed.
     let env = scratch.write(".env", format!("{FAKE_SECRET}\n").as_bytes());
-    app.send_keys("C-x 2 C-x o");
+    app.send_keys("C-x o");
     app.open_file(&env);
     assert_eq!(app.wait_until_ready()["buffer"]["secret"], true);
     app.send_keys("C-k C-x o");
@@ -398,16 +398,18 @@ fn bar_shows_the_two_panes_in_step_and_the_one_stream_again() {
     app.send_keys("n C-n C-n");
     assert_eq!(cursor(&app.state()), (4, 0));
 
-    // `|`: the new side's pane holds the cursor, beside `-two` in the old one.
+    // `|`: the new side's pane holds the cursor, beside `-two` in the old one. The pair takes
+    // the review layout's left, the slot staying at its right (ADR 0160, Q5).
     app.send_keys("|");
     let state = app.wait_for("the panes", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj-review \u{b7} new*"
     });
     assert_eq!(cursor(&state), (3, 0));
-    assert_eq!(window_count(&mut app), 2);
+    assert_eq!(window_count(&mut app), 3);
     let new = rows_until(&mut app, "+fn b() {}");
     assert_eq!(new[3], "+2", "{new:?}");
-    app.send_keys("C-x o");
+    // Past the slot, to the old pane.
+    app.send_keys("C-x o C-x o");
     assert_eq!(
         app.state()["buffer"]["name"],
         "*review: uncommitted proj-review \u{b7} old*"
@@ -437,7 +439,7 @@ fn bar_shows_the_two_panes_in_step_and_the_one_stream_again() {
         state["buffer"]["name"] == "*review: uncommitted proj-review*"
     });
     assert_eq!(cursor(&state), (4, 0));
-    assert_eq!(window_count(&mut app), 1);
+    assert_eq!(window_count(&mut app), 2);
 
     // Two panes again, then `C-u |`: as the width has it, and this window is under 150 columns.
     app.send_keys("|");
@@ -449,7 +451,7 @@ fn bar_shows_the_two_panes_in_step_and_the_one_stream_again() {
         state["buffer"]["name"] == "*review: uncommitted proj-review*"
     });
     assert_eq!(state["echo"], "Two panes or one by the width");
-    assert_eq!(window_count(&mut app), 1);
+    assert_eq!(window_count(&mut app), 2);
 }
 
 /// The echo area's text once it is `said`, or what it said last after 5 s.
@@ -533,8 +535,9 @@ fn a_hunk_is_viewed_accepted_rejected_and_each_undone() {
                 .as_array()
                 .is_some_and(|rows| rows.iter().any(|row| row == "xxx"))
     });
-    // A review buffer is no C-x b default: the menu shows the open review again.
-    app.send_keys("C-x v r w");
+    // A review buffer is no C-x b default: the menu shows the open review again, which
+    // `C-u C-x v r` opens while a review is open (ADR 0160).
+    app.send_keys("C-u C-x v r w");
     app.wait_for("the review again", |state| {
         state["buffer"]["name"] == "*review: uncommitted proj-review*"
     });
@@ -640,10 +643,11 @@ fn the_files_pane_lists_and_shows_files_and_the_filter_hides_them_across_a_resta
     const PANE: &str = "*review: uncommitted proj-review \u{b7} files*";
     const HIDDEN: &str = "1 of 2 files hidden by \"b.rs\" \u{b7} / to change";
 
-    // `s`: the pane at the review's left, selected, a row a file under its title.
+    // `s`: the pane at the review's left, selected, a row a file under its title; the review
+    // layout's slot stays at the right (ADR 0160, Q6).
     app.send_keys("s");
     app.wait_for("the pane", |state| state["buffer"]["name"] == PANE);
-    assert_eq!(window_count(&mut app), 2);
+    assert_eq!(window_count(&mut app), 3);
     let pane = app.state()["buffer"]["id"].clone();
     let listed = rows_until(&mut app, "2 files \u{b7} / to filter");
     assert!(
@@ -688,7 +692,7 @@ fn the_files_pane_lists_and_shows_files_and_the_filter_hides_them_across_a_resta
     let shown = rows_until(&mut new, HIDDEN);
     assert!(shown.iter().any(|row| row == HIDDEN), "{shown:?}");
     new.wait_for("the pane again", |state| {
-        state["windows"].as_array().map_or(0, Vec::len) == 2
+        state["windows"].as_array().map_or(0, Vec::len) == 3
     });
     new.send_keys("s");
     new.wait_for("the pane selected", |state| state["buffer"]["name"] == PANE);
@@ -700,7 +704,7 @@ fn the_files_pane_lists_and_shows_files_and_the_filter_hides_them_across_a_resta
     // `q`: the pane goes, its columns back to the review.
     new.send_keys("q");
     new.wait_for("the pane gone", |state| {
-        state["windows"].as_array().map_or(0, Vec::len) == 1
+        state["windows"].as_array().map_or(0, Vec::len) == 2
     });
 }
 
@@ -767,4 +771,93 @@ fn ret_opens_the_line_carried_through_unsaved_edits_and_c_u_ret_the_old_side() {
     let state = app.wait_for("a.rs again", |state| state["buffer"]["name"] == "a.rs");
     assert_eq!(cursor(&state), (2, 0));
     assert_eq!(window_count(&mut app), 3, "the pair stays: {state}");
+}
+
+/// Each window of `state` as the review layout's restore must give it back: its name, its
+/// buffer, its area and its cursors.
+fn window_places(state: &Value) -> Vec<Value> {
+    let windows = state["windows"].as_array().cloned().unwrap_or_default();
+    (windows.into_iter())
+        .map(|window| {
+            json!([
+                window["id"],
+                window["buffer"],
+                window["area"],
+                window["selections"]
+            ])
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_review_layout_keeps_one_slot_goes_back_to_the_review_and_restores_the_windows() {
+    let scratch = Scratch::new("review-layout");
+    set_mode(scratch.path(), 0o700);
+    let config = scratch.write("config.toml", b"[lsp]\nstart = \"manual\"\n");
+    set_mode(&config, 0o644);
+    let file = project(&scratch);
+    let mut app = App::start_with_config(Some(&file), scratch.path(), &config);
+    app.wait_until_ready();
+    app.wait_for("the project", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("  proj-review  restricted  "))
+    });
+    app.send_keys(&format!("M-x {} RET y", typing("trust-project")));
+    app.wait_for("the trust", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.starts_with("Trusted "))
+    });
+    // The person's windows: a.rs twice, stacked, the lower one at its end.
+    app.send_keys("C-x 2 C-x o M-> C-x o");
+    let before = window_places(&app.state());
+    assert_eq!(before.len(), 2);
+
+    // `C-x v r` with no review open opens the menu; `w` opens the review in the layout: the
+    // review at the left, the slot at the right showing a.rs.
+    app.send_keys("C-x v r");
+    assert_eq!(app.state()["menu"], "review");
+    app.send_keys("w");
+    let state = app.wait_for("the review", |state| {
+        state["buffer"]["name"] == "*review: uncommitted proj-review*"
+    });
+    let review = state["buffer"]["id"].clone();
+    assert_eq!(window_count(&mut app), 2);
+    rows_until(&mut app, "+fn b() {}");
+
+    // `RET` on `+2`: a.rs in the slot, still two windows.
+    app.send_keys("n C-n C-n RET");
+    app.wait_for("a.rs", |state| state["buffer"]["name"] == "a.rs");
+    assert_eq!(window_count(&mut app), 2);
+    // `C-x v r` in the slot: back to the review, on `+2`.
+    app.send_keys("C-x v r");
+    let state = app.state();
+    assert_eq!(state["buffer"]["id"], review);
+    assert_eq!(cursor(&state), (4, 0));
+
+    // `C-u RET` on `-two`: the old side in the slot, in place of a.rs.
+    app.send_keys("C-p C-u RET");
+    app.wait_for("the old side", |state| {
+        state["buffer"]["name"] == "*old: a.rs \u{b7} uncommitted*"
+    });
+    assert_eq!(window_count(&mut app), 2);
+    app.send_keys("C-x v r");
+    let state = app.state();
+    assert_eq!(state["buffer"]["id"], review);
+    assert_eq!(cursor(&state), (3, 0));
+
+    // `C-x v r` in the review: the windows from before, exactly.
+    app.send_keys("C-x v r");
+    let state = app.state();
+    assert_eq!(window_places(&state), before);
+    assert_eq!(state["buffer"]["name"], "a.rs");
+
+    // Again, and `q` restores too.
+    app.send_keys("C-x v r");
+    app.wait_for("the layout again", |state| state["buffer"]["id"] == review);
+    assert_eq!(window_count(&mut app), 2);
+    app.send_keys("q");
+    assert_eq!(window_places(&app.state()), before);
 }

@@ -455,6 +455,10 @@ item notes when it must be settled.
 
 ## Later
 
+- The review layout's toggle: another ratio, or the slot below the review so that two panes
+  side by side get the frame's width; and carrying the trees kept behind a frame's (a space's
+  other trees, a zoom and the review layout's tree from before) across a restart, all together
+  ([ADR 0160](adr/0160-the-review-layout.md)).
 - Search tests that read a result before isearch's worker runs: 16 in `oso-core`'s
   `isearch_regexp_tests`, `isearch_migemo_tests` and `cursors/isearch_tests` assert right after
   `isearch_repeat` or `isearch_mark`, which search a few bytes with a pattern already built, so

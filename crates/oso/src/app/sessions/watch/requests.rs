@@ -52,7 +52,8 @@ impl App {
                 None => self.editor.message(format!("No space {name}")),
             },
             SessionRequest::Zoom => match self.watch.spaces.zoom(&mut self.editor) {
-                Ok(Zoom::In | Zoom::Out) => {}
+                // The zoomed tree, which may hold large wraps, is freed off the UI thread.
+                Ok((Zoom::In | Zoom::Out, zoomed)) => self.freer.free(zoomed),
                 Err(Refused) => self.editor.message(PROMPT_OPEN),
             },
             SessionRequest::Explain(buffer) => match self.hosting.table().by_buffer(buffer) {

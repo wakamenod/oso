@@ -127,7 +127,12 @@ impl App {
             } => self.open_review(project, scope, revision),
             ReviewRequest::Baseline { project } => self.take_baseline(project),
             ReviewRequest::Refresh(id) => self.refresh_review(id, true),
-            ReviewRequest::Close(id) => self.close_review(id),
+            ReviewRequest::Close(id) => {
+                self.close_review(id);
+                self.review_closed_layout(id);
+            }
+            ReviewRequest::Layout { menu } => self.review_layout_key(menu),
+            ReviewRequest::Quit => self.review_quit_layout(),
             ReviewRequest::Redraw { review, path } => self.redraw_comments(review, &path),
             ReviewRequest::Send(id) => self.send_review(id),
             ReviewRequest::MessageSend { buffer, to } => self.send_review_message(buffer, to),
@@ -163,13 +168,14 @@ impl App {
             Err(why) => return self.editor.message(why),
         };
         self.editor.set_last_scope(project, kind);
-        self.open_scope(project, scope);
+        self.open_scope(project, scope, true);
     }
 
     /// Opens a review of `scope` in `project`, or shows the one open and reads it again: as a
     /// request names it, or as a saved review or a restart kept it, a session review with its
-    /// own baseline (step 6).
-    pub(super) fn open_scope(&mut self, project: ProjectId, scope: Scope) {
+    /// own baseline (step 6). With `laid`, as a person's open, it shows in the review layout
+    /// (ADR 0160, Q2); else, as a restart opens it again, in the selected window.
+    pub(super) fn open_scope(&mut self, project: ProjectId, scope: Scope, laid: bool) {
         let Some(root) = TrustedRoot::of(&self.editor, project) else {
             return self.editor.message(RESTRICTED);
         };
@@ -183,7 +189,9 @@ impl App {
             });
         if let Some(index) = open {
             let id = self.reviews.open[index].id;
-            if let Some(buffer) = self.editor.review_buffer(id) {
+            if !(laid && self.show_review_laid(id))
+                && let Some(buffer) = self.editor.review_buffer(id)
+            {
                 self.editor.show_in(window, buffer);
             }
             let running = &mut self.reviews.open[index];
@@ -228,9 +236,11 @@ impl App {
             highlighter: None,
             top,
         });
-        self.editor.show_in(window, buffer);
         let running = Running::new(id, project, scope.clone(), root, view);
         self.reviews.open.push(running);
+        if !(laid && self.show_review_laid(id)) {
+            self.editor.show_in(window, buffer);
+        }
         let index = self.reviews.open.len() - 1;
         self.start_reviewer(index);
         // What was saved of it is read meanwhile, and what its thread reports waits for it
@@ -557,6 +567,7 @@ mod menu;
 mod scope;
 mod secrets;
 mod send;
+mod slot;
 mod state;
 mod store;
 #[cfg(test)]

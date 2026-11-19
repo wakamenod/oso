@@ -381,6 +381,10 @@ impl Dispatcher {
         // in the word the popup completes (ADR 0138).
         editor.match_completion();
         self.after_command(editor, id, result.is_ok());
+        // `review-layout`'s menu opens as it ends, as a menu key's (ADR 0160).
+        if result.is_ok() {
+            effects = effects.union(self.open_asked_review_menu(editor));
+        }
         if let Err(error @ ExecuteError::Panicked { .. }) = &result {
             // This names the command and nothing else (ADR 0028).
             editor.message(error.to_string());

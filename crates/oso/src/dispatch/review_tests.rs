@@ -135,3 +135,70 @@ fn a_long_branch_base_or_project_name_is_cut_in_the_notes() {
     assert!(!text.contains('\n'));
     assert!(text.chars().count() < 120, "{text}");
 }
+
+#[test]
+fn c_x_v_r_opens_the_menu_at_once_with_no_review_or_c_u_and_else_asks_for_the_layout() {
+    use oso_core::editor::ReviewRequest;
+
+    let (mut editor, project) = in_project(true);
+    let mut d = super::Dispatcher::new();
+    // No review open: the menu, as the command ends, so a macro's next key goes to it.
+    super::motion_tests::send(&mut d, &mut editor, "C-x v r");
+    assert_eq!(d.menu_name(), Some("review"));
+    assert!(editor.take_review_requests().is_empty());
+    super::motion_tests::send(&mut d, &mut editor, "C-g");
+    assert_eq!(d.menu_name(), None);
+    // A review open: the host lays it out; `C-u` opens the menu.
+    editor.add_review(project, "*review: uncommitted oso*".into());
+    super::motion_tests::send(&mut d, &mut editor, "C-x v r");
+    assert_eq!(d.menu_name(), None);
+    assert_eq!(
+        editor.take_review_requests(),
+        [ReviewRequest::Layout { menu: false }]
+    );
+    super::motion_tests::send(&mut d, &mut editor, "C-u C-x v r");
+    assert_eq!(d.menu_name(), Some("review"));
+    assert!(editor.take_review_requests().is_empty());
+}
+
+#[test]
+fn q_in_a_review_buries_it_and_asks_the_host_to_restore_the_layout() {
+    use oso_core::editor::ReviewRequest;
+
+    let (mut editor, project) = in_project(true);
+    let (_, buffer) = editor.add_review(project, "*review: uncommitted oso*".into());
+    editor.show(buffer);
+    let mut d = super::Dispatcher::new();
+    super::motion_tests::send(&mut d, &mut editor, "q");
+    assert_ne!(editor.tiled().0.buffer(), buffer);
+    assert_eq!(editor.take_review_requests(), [ReviewRequest::Quit]);
+}
+
+#[test]
+fn an_agents_q_buries_the_review_and_asks_for_no_restore() {
+    use oso_core::command::Reach;
+    use oso_core::editor::ReviewRequest;
+
+    let (mut editor, project) = in_project(true);
+    let (_, buffer) = editor.add_review(project, "*review: uncommitted oso*".into());
+    editor.show(buffer);
+    let mut d = super::Dispatcher::new();
+    let ran = d.run_for_agent(
+        &mut editor,
+        "review-quit",
+        super::args::Given::Nothing,
+        Reach::Change,
+    );
+    assert_eq!(ran.unwrap().1, Ok(()));
+    assert_ne!(editor.tiled().0.buffer(), buffer);
+    // The restore would choose where the person's next keys land: the person's `q` only.
+    assert!(!editor.take_review_requests().contains(&ReviewRequest::Quit));
+    // `review-layout` is the person's alone.
+    let refused = d.run_for_agent(
+        &mut editor,
+        "review-layout",
+        super::args::Given::Nothing,
+        Reach::Change,
+    );
+    assert!(refused.is_err());
+}

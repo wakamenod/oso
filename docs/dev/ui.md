@@ -387,8 +387,9 @@ planned.
   - `jumps`: `t` the timed character jump, `l` and `h` a line, `e` a line's end, `n` a line by
     number.
   - `search`: `f` a project's file, `r` the project's lines.
-  - `review` on `C-x v r` (ADR 0122): a review of each scope and the session's baseline, with
-    each scope's count of files; see [Reviews](#reviews).
+  - `review`, which `review-layout` on `C-x v r` opens with no review open or with `C-u`
+    (ADR 0122, ADR 0160): a review of each scope and the session's baseline, with each scope's
+    count of files; see [Reviews](#reviews).
   - `space` on `S` in the Agents menu (ADR 0136): the space in front's repositories,
     instructions, directory and name, and closing and reopening.
   - `commit` on `c` in a git status (ADR 0127): its switches and kinds; see
@@ -442,7 +443,8 @@ planned.
 ## Reviews
 
 An agent's changes are reviewed in a review buffer ([ADR 0122](adr/0122-agent-review.md)),
-`*review: <scope> <project>*`, opened from the `review` menu on `C-x v r`: `D` since the session's
+`*review: <scope> <project>*`, opened from the `review` menu (`C-x v r` with no review open, or
+`C-u C-x v r`) in the review layout (below): `D` since the session's
 baseline, `w` uncommitted, `u` unstaged, `s` staged, `b` the branch against its base (`C-u b`
 names it), `c` a commit, `r` a range `FROM..TO`, `p` a pull request by its number (step 12b),
 and `B` takes a baseline, keeping the menu open.
@@ -479,6 +481,15 @@ project and how long ago the baseline was taken. Only a trusted project runs git
   held are drawn dimmed, but any changed meanwhile; one message waits at a time.
 - `C-x k` closes the review, asking first while comments of yours that were not sent, or a draft,
   would be lost; a review not shown is shown before the question.
+- **The review layout** ([ADR 0160](adr/0160-the-review-layout.md)): a review a person opens
+  takes the frame as the review at the left, three fifths, and the slot at the right, two
+  fifths. The slot shows one thing at a time: the source `RET` goes to, the side `C-u RET` shows
+  and the message `C-c C-c` makes, each in place of the last. `C-x v r` (`review-layout`) goes
+  back from the slot to the review where the person left it, and in the review puts back the
+  windows from before the layout, exactly, as `q` and closing the review do. The two panes take
+  the layout's left, the files pane the review's left. The windows are found by name, so a slot
+  deleted by hand comes back with the next jump; each space keeps its own layout, and a zoom
+  nests inside it. A restart keeps the layout but not the windows from before it.
 - In a restricted project the commands and the menu's heads say "Reviewing runs git, which this
   project is not trusted to run: M-x trust-project".
 

@@ -90,7 +90,8 @@ often, so it must rebuild within 2 s.
   runner, `TrustedRoot` and secret-name check. `review/refine.rs` refines a change block's words,
   for a git status and, as each file is read, for a review; `review/jump.rs` carries a line of
   the review to the file's text now, on the review's thread, for `RET`, which
-  `app/reviews/visit.rs` opens (step 3); `review/message.rs`'s fence rule
+  `app/reviews/visit.rs` opens (step 3), in the review layout's slot that `app/reviews/slot.rs` keeps with
+  the spaces' kept trees (`sessions/spaces/kept.rs`, ADR 0160); `review/message.rs`'s fence rule
   (`backticks`) serves `vcs/pr/send` too. `review/view.rs`
   lays out a review buffer's whole text on `oso-review-view`, one thread per review, and
   `review/view/panes.rs` its two panes, which `app/reviews/layout.rs` switches areas to;

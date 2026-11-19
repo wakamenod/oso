@@ -120,7 +120,10 @@ impl App {
         let mut buffer = Buffer::from_text(name, &composed.text);
         buffer.set_mode(Mode::ReviewMessage);
         let buffer = self.editor.add_buffer(buffer);
-        self.editor.show(buffer);
+        // In the review layout, the slot shows it and the review stays (ADR 0160, Q7).
+        if !self.show_in_review_slot(buffer, true) {
+            self.editor.show(buffer);
+        }
         let count = taken.len();
         let hidden = self.hidden_comments(review, &taken, |path| {
             super::secrets::withheld(&root, &held, path)
@@ -192,7 +195,9 @@ impl App {
         else {
             return false;
         };
-        self.editor.show(buffer);
+        if !self.show_in_review_slot(buffer, true) {
+            self.editor.show(buffer);
+        }
         self.editor
             .message("A message waits: C-c C-c there sends it, C-c C-k drops it");
         true
@@ -239,7 +244,11 @@ impl App {
         let Some(message) = self.reviews.sending.message.take() else {
             return;
         };
+        let in_slot = self.in_review_slot() && self.editor.window().buffer() == buffer;
         self.editor.kill_buffer(buffer);
+        if in_slot {
+            self.back_from_review_slot();
+        }
         let review = match origin {
             Origin::Review(review) => review,
             Origin::Pull(from) => {
@@ -320,12 +329,19 @@ impl App {
             Some(Origin::Pull(from)) => self.pr_buffer_of(from.project, from.number),
             None => None,
         };
+        // In the layout's slot, the slot goes back to what it showed, and the review is
+        // selected again (ADR 0160).
+        let in_slot = self.in_review_slot() && self.editor.window().buffer() == buffer;
         if let Some(shown) = from
             && self.editor.window().buffer() == buffer
+            && !in_slot
         {
             self.editor.show(shown);
         }
         self.editor.kill_buffer(buffer);
+        if in_slot {
+            self.back_from_review_slot();
+        }
         let left = match origin {
             Some(Origin::Pull(_)) => "nothing was sent",
             _ => "its comments stay unsent",

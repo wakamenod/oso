@@ -1,6 +1,6 @@
 //! The commands of a review (ADR 0122): opening one of a scope from the review menu or `M-x`,
 //! taking the session's baseline, and in a review buffer moving by hunk and file, reading the
-//! files again, burying it, listing its keys and killing it. Its comments' commands are in
+//! files again, burying it, the review layout's key (ADR 0160), listing its keys and killing it. Its comments' commands are in
 //! `comments`, and jumping to the source in `visit`.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state.
@@ -95,8 +95,8 @@ mod visit;
 pub use comments::COMMANDS as COMMENT_COMMANDS;
 pub use decide::COMMANDS as DECISION_COMMANDS;
 pub(crate) use decide::{open_buffer_of, place_of};
-pub(crate) use files::prompt_text;
 pub use files::{COMMANDS as FILES_COMMANDS, FILES_KEYS};
+pub(crate) use files::{prompt_text, review_shown};
 pub use saved::COMMANDS as SAVED_COMMANDS;
 pub(crate) use saved::{SAVED_LIST, lost};
 pub use send::{COMMANDS as SEND_COMMANDS, MESSAGE_KEYS};
@@ -211,8 +211,16 @@ pub const COMMANDS: &[Command] = &[
         review_refresh
     ),
     Command {
+        name: "review-layout",
+        doc: "Show the review layout, go back to the review from its slot, or restore the windows from before it.\n\nWith no review open, it opens the review menu, whose reviews open in the layout: the review at the left and one window at the right, the slot, where `RET` shows the source and `C-u RET` the old side, each in place of the last. In the slot, it selects the review again where it was. In the review, it restores the windows as they were before the layout, as `q` does. With a prefix argument, it opens the review menu.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: review_layout,
+        state: None,
+    },
+    Command {
         name: "review-quit",
-        doc: "Bury the review buffer: show the buffer shown before it in this window.\n\nThe review stays open; `C-x k` closes it.",
+        doc: "Bury the review buffer: show the buffer shown before it in this window.\n\nIn the review layout, it restores the windows as they were before it. The review stays open; `C-x k` closes it.",
         args: ArgSpec::None,
         reach: Reach::Change,
         run: review_quit,
@@ -505,6 +513,20 @@ fn review_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let window = ctx.editor.window().id();
     ctx.editor.show_review_unified(window);
     ctx.editor.walk_buffers(1).map_err(CommandError::new)?;
+    // The windows from before the layout come back for the person's `q` only (ADR 0160).
+    if !ctx.editor.runs_for_agent() {
+        ctx.editor.request_review(ReviewRequest::Quit);
+    }
+    ctx.request_redraw();
+    Ok(())
+}
+
+/// `review-layout` (ADR 0160): the review menu, which the dispatcher opens as it ends, with a
+/// prefix or no review open; else the host, which keeps the layout, says what it does.
+fn review_layout(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
+    let menu = args.raw().is_some() || ctx.editor.reviews().next().is_none();
+    ctx.editor.request_review(ReviewRequest::Layout { menu });
     ctx.request_redraw();
     Ok(())
 }

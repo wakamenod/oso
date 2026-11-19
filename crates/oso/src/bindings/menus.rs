@@ -17,13 +17,10 @@ use crate::commands::agent_sessions::{ARCHIVE_LABEL, PIN_LABEL, agents_menu};
 mod vcs;
 
 /// The keys bound to built-in menus in the default global keymap, as `(keys, menu)`: the
-/// toggles (ADR 0117, Q25), the review menu (ADR 0122) and the Agents menu (ADR 0143); the rest
-/// are reached from another menu, with `M-x open-menu` or a key in `config.toml`.
-pub const MENU_KEYS: &[(&str, &str)] = &[
-    ("C-c t", "toggles"),
-    ("C-x v r", "review"),
-    ("C-c a", "agents"),
-];
+/// toggles (ADR 0117, Q25) and the Agents menu (ADR 0143); the rest are reached from another
+/// menu, with `M-x open-menu` or a key in `config.toml`. The review menu opens from
+/// `review-layout` on `C-x v r` while no review is open, or with `C-u` (ADR 0160).
+pub const MENU_KEYS: &[(&str, &str)] = &[("C-c t", "toggles"), ("C-c a", "agents")];
 
 /// One head of a built-in menu: its keys, command (or switch's or menu's name), label, whether
 /// it stays, a fixed count, and whether it flips a switch or opens a menu rather than run a
