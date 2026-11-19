@@ -63,6 +63,9 @@ goes through the windows.
   as before; restoring the whole tree would choose where the person's next keys land, as
   `review-layout` and `space-zoom` would, which are `Person`. So an agent's `q` asks for no
   restore (`Editor::runs_for_agent`), and the layout stays.
+- **The restore comes after the key:** the host carries out the request once the dispatcher
+  ends, as it does `space-zoom`'s, so keys sent with `q` in one batch, or after it in a keyboard
+  macro's replay, run in the window `q` buried before the windows come back.
 - **The menu's prefix argument:** `C-u` before `C-x v r` now means the menu, so it goes to no
   head; a prefix typed inside the menu still builds one for the next head (ADR 0117, Q15).
 

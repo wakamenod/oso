@@ -306,7 +306,11 @@ fn a_comment_is_drafted_kept_edited_removed_and_yanked_back() {
     assert_eq!(app.state()["echo"], "Removed #0: C-y yanks it");
     let seen = rows_until(&mut app, "+fn b() {}");
     assert!(!seen.iter().any(|row| row.contains("You  #0")), "{seen:?}");
-    app.send_keys("q M-> C-y");
+    // `q` puts back the windows from before the review layout once the key ends, so the next
+    // keys are sent as the person types them, after it (ADR 0160).
+    app.send_keys("q");
+    app.wait_for("a.rs", |state| state["buffer"]["name"] == "a.rs");
+    app.send_keys("M-> C-y");
     let state = app.state();
     assert_eq!(state["buffer"]["name"], "a.rs");
     let text = rows(&mut app, 20).join("\n");
