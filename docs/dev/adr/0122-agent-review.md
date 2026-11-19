@@ -2180,7 +2180,11 @@ after each hunk, as GitHub shows them, and more on demand, and answered the plan
   against another drops them. Not written in the saved review (step 6a): a resumed review shows
   three lines again. Unlike the filter and agent cards' fold, which the host holds (Q1), only the
   view keeps them: a key asks for the stretch the rows on screen give, so a key pressed again
-  before the text it asked for is put in asks for the same lines and shows nothing more.
+  before the text it asked for is put in asks for lines all shown already. The view takes such
+  a stretch as the next lines that way (amended on 2026-11-19, the author's choice): as many,
+  next to the stretch shown that holds it, on its side where lines are still hidden, after it
+  when both are and it ends that stretch or lies inside it. So every press shows more, as fast
+  as the keys come.
 - **Secrets:** a file that may hold secrets by its name, or whose reading was withheld, shows no
   context, as before; nor does a file whose open buffer may hold secrets or is withheld from
   agents. The host tells each view those buffers' files when they change (`Tell::HeldBuffers`,
@@ -2203,7 +2207,8 @@ after each hunk, as GitHub shows them, and more on demand, and answered the plan
   join, a stretch of one line, line endings, invalid bytes, unchanged lines that read like a
   review's rows, both panes row for row, a side with fewer lines than its hunks), property tests
   that every unchanged line is shown or hidden once and in order and that any stretch asked is
-  taken, the kept starts finding every line, what was asked kept across a reading against the
+  taken, each twice, the kept starts finding every line, a stretch asked again showing the
+  next lines below, above and of a whole gap, and none where nothing beside it hides, what was asked kept across a reading against the
   same old side and dropped against another, the view told and told to forget, a file whose
   open buffer may hold secrets, context lines highlighted and lines shown later highlighted
   again, the rows' places and the file-bound gap seek, the keys' gaps and counts on every

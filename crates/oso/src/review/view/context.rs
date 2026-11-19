@@ -16,6 +16,8 @@
 //!   with no hunks, and one whose new side has fewer lines than its hunks show none.
 //! - The lines shown are told to the sides' highlighting, which projects their runs too; the old
 //!   side's only while the panes are built.
+//! - A key's lines come from the rows on screen; asked for again before the text the last press
+//!   asked for went in, lines all shown already, they are taken as the next ones that way.
 //! - Context rows are for showing only: staging builds its own patch, and comments, decisions
 //!   and sending go by hunks and changed lines, never by these rows.
 
@@ -297,6 +299,49 @@ fn shown_lines(hunks: &[Hunk], around: &Around, old: bool) -> [Vec<Range<u32>>; 
     lines
 }
 
+/// The old side's lines to show for a key that asked for `asked`: those, unless every one of
+/// them shows already, as a key pressed again before the text the last press asked for went in
+/// reads the rows that text replaces. Then as many lines as it asked for, next to the stretch
+/// shown that holds them, on its side where lines are still hidden: after it when only that
+/// side is, or both are and `asked` ends it; before it when only that side is, or both are and
+/// `asked` starts it; else none.
+fn asked_now(hunks: &[Hunk], around: &Around, asked: Range<u32>) -> Range<u32> {
+    if asked.is_empty() {
+        return asked;
+    }
+    // The gap that holds its first line: the one before the first hunk that starts after it.
+    let index = hunks.partition_point(|hunk| hunk.old_start <= asked.start);
+    let pieces = pieces(hunks, index, around);
+    let shown_at = pieces.iter().position(|piece| {
+        matches!(*piece, Piece::Shown { old, lines, .. }
+            if old <= asked.start && asked.end <= old.saturating_add(lines))
+    });
+    let Some(at) = shown_at else {
+        // Some of it is hidden, or it is no gap's: as asked.
+        return asked;
+    };
+    let Piece::Shown { old, lines, .. } = pieces[at] else {
+        return asked;
+    };
+    let end = old.saturating_add(lines);
+    let hidden = |piece: Option<&Piece>| matches!(piece, Some(Piece::Hidden { .. }));
+    let (before, after) = (
+        hidden(at.checked_sub(1).and_then(|it| pieces.get(it))),
+        hidden(pieces.get(at + 1)),
+    );
+    let count = asked.end - asked.start;
+    let forward = match (before, after) {
+        (_, true) if !before || asked.end == end || asked.start != old => true,
+        (true, _) => false,
+        _ => return asked.start..asked.start,
+    };
+    if forward {
+        end..end.saturating_add(count)
+    } else {
+        old.saturating_sub(count).max(1)..old
+    }
+}
+
 /// Whether the file at `path`, as git gives it under `top`, is one of `held`.
 fn is_held(held: &HashSet<PathBuf>, top: &Path, path: &[u8]) -> bool {
     !held.is_empty() && crate::git::os_path(path).is_ok_and(|path| held.contains(&top.join(path)))
@@ -344,7 +389,13 @@ impl State {
             return;
         };
         let changed = match show {
-            Some(old) => file.revealed.add(old, shape.base()),
+            Some(old) => {
+                let old = match file.around() {
+                    Some((hunks, around)) => asked_now(hunks, &around, old),
+                    None => old,
+                };
+                file.revealed.add(old, shape.base())
+            }
             None => file.revealed.clear(),
         };
         if changed {
@@ -355,6 +406,9 @@ impl State {
     }
 }
 
+#[cfg(test)]
+#[path = "context_repeat_tests.rs"]
+mod repeat_tests;
 #[cfg(test)]
 #[path = "context_tests.rs"]
 mod tests;
