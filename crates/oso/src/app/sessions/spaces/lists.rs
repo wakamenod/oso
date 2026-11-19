@@ -34,6 +34,22 @@ impl App {
     /// answer and is shown as it is. Each root is looked at once, and the listed worktrees
     /// through one index of them.
     fn known_repositories(&self) -> Arc<[Candidate]> {
+        self.known_roots()
+            .into_iter()
+            .filter_map(|root| {
+                let text = root.to_str()?.to_owned();
+                if !text.chars().all(is_plain) {
+                    return None;
+                }
+                let name = crate::sessions::spaces::stored::last_component(&root);
+                Some(Candidate::new(text.as_str(), "", name))
+            })
+            .collect()
+    }
+
+    /// The roots of the repositories oso knows, each once: what `space-add-repo` completes
+    /// over, and what an agent's `space_add_repo` may add without asking (ADR 0161).
+    pub(in crate::app) fn known_roots(&self) -> Vec<PathBuf> {
         let listed = self.listed_worktrees();
         let worktree = |root: &Path| listed.contains(&spelled(root));
         let mut seen: HashSet<PathBuf> = HashSet::new();
@@ -59,15 +75,5 @@ impl App {
             }
         }
         roots
-            .into_iter()
-            .filter_map(|root| {
-                let text = root.to_str()?.to_owned();
-                if !text.chars().all(is_plain) {
-                    return None;
-                }
-                let name = crate::sessions::spaces::stored::last_component(&root);
-                Some(Candidate::new(text.as_str(), "", name))
-            })
-            .collect()
     }
 }

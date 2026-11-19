@@ -79,6 +79,25 @@ impl App {
         caller
     }
 
+    /// The caller `key` as it is now, if it is still `space`'s orchestrator: what an answer
+    /// the person gave later checks again (ADR 0153, ADR 0161).
+    ///
+    /// # Errors
+    ///
+    /// That it is not, for the agent.
+    pub(super) fn still_orchestrates(
+        &self,
+        key: crate::sessions::worker::SessionKey,
+        space: &SpaceId,
+    ) -> Result<Caller, &'static str> {
+        let caller = (self.hosting.table.get(key)).map(|session| self.caller_of(session));
+        caller
+            .filter(|caller| {
+                caller.orchestrator() && (caller.space.as_ref()).is_some_and(|at| at.id == *space)
+            })
+            .ok_or("your session is no longer its space's orchestrator")
+    }
+
     /// `caller` as a call naming `repo` reaches: an orchestrator at the space's repository it
     /// names; another caller as it is, `repo` naming its own repository if given. A connection
     /// that is no hosted session names none.

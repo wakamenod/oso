@@ -25,6 +25,8 @@
 //!   (ADR 0153).
 //! - `session_rename`: `{"session": "ID or name", "name": "api-v2"}`, the session's new name
 //!   (ADR 0155).
+//! - `space_add_repo`: `{"path": "/abs/web"}`, a repository's main checkout for the caller's
+//!   space (ADR 0161).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -34,7 +36,7 @@ use serde_json::{Map, Value};
 use super::{MAX_PATH, only, short};
 
 /// The methods of this module, as the tools that call them are named.
-pub const METHODS: [&str; 11] = [
+pub const METHODS: [&str; 12] = [
     "session_list",
     "session_state",
     "worktree_list",
@@ -46,6 +48,7 @@ pub const METHODS: [&str; 11] = [
     "move_to_space",
     "session_resume",
     "session_rename",
+    "space_add_repo",
 ];
 
 /// The longest brief a session takes, in bytes, as the person's `*Brief*` (ADR 0121).
@@ -118,6 +121,11 @@ pub enum Call {
         session: String,
         name: String,
     },
+    /// A repository's main checkout, by its absolute path, to add to the caller's space
+    /// (ADR 0161).
+    SpaceAddRepo {
+        path: PathBuf,
+    },
 }
 
 /// How long the server holds a call's reply for the UI.
@@ -147,6 +155,7 @@ impl Call {
             Self::MoveToSpace { .. } => "move_to_space",
             Self::Resume { .. } => "session_resume",
             Self::Rename { .. } => "session_rename",
+            Self::SpaceAddRepo { .. } => "space_add_repo",
         }
     }
 
@@ -162,7 +171,8 @@ impl Call {
             Self::StartWorktree { .. }
             | Self::Start { .. }
             | Self::MoveToSpace { .. }
-            | Self::Resume { .. } => Hold::Person,
+            | Self::Resume { .. }
+            | Self::SpaceAddRepo { .. } => Hold::Person,
         }
     }
 }
@@ -220,6 +230,10 @@ pub fn parse(method: &str, params: &Map<String, Value>) -> Option<Result<Call, S
                 name: text(params, method, "name", MAX_NAME)?,
             })
         }),
+        "space_add_repo" => only(params, method, &["path"])
+            .and_then(|()| path(params, method, "path"))
+            .and_then(|path| path.ok_or_else(|| format!("{method} needs a \"path\"")))
+            .map(|path| Call::SpaceAddRepo { path }),
         _ => return None,
     })
 }
@@ -411,6 +425,10 @@ mod tests {
                 "session_rename",
                 json!({ "session": "api", "name": "api-v2" }),
             ),
+            call(
+                "space_add_repo",
+                json!({ "path": std::env::temp_dir().join("web").display().to_string() }),
+            ),
         ];
         assert_eq!(calls.len(), METHODS.len());
         for (call, method) in calls.into_iter().zip(METHODS) {
@@ -562,6 +580,18 @@ mod tests {
     }
 
     #[test]
+    fn an_added_repository_is_one_absolute_path_within_bounds() {
+        let abs = std::env::temp_dir().join("web").display().to_string();
+        assert!(call("space_add_repo", json!({ "path": abs })).is_ok());
+        assert!(call("space_add_repo", json!({ "path": "web" })).is_err());
+        assert!(call("space_add_repo", json!({})).is_err());
+        assert!(call("space_add_repo", json!({ "path": "" })).is_err());
+        assert!(call("space_add_repo", json!({ "path": abs, "repo": "x" })).is_err());
+        let long = format!("/{}", "p".repeat(super::MAX_PATH));
+        assert!(call("space_add_repo", json!({ "path": long })).is_err());
+    }
+
+    #[test]
     fn only_asking_calls_wait_for_the_person_and_briefs_never_show() {
         let start = call(
             "start_worktree_session",
@@ -577,6 +607,9 @@ mod tests {
         assert_eq!(rename.hold(), Hold::Usual, "it asks nothing");
         let moving = call("move_to_space", json!({ "space": "x" })).unwrap();
         assert_eq!(moving.hold(), Hold::Person);
+        let abs = std::env::temp_dir().join("web").display().to_string();
+        let adding = call("space_add_repo", json!({ "path": abs })).unwrap();
+        assert_eq!(adding.hold(), Hold::Person, "it may ask");
         assert!(matches!(
             call("worktree_list", json!({})).unwrap().hold(),
             Hold::Job(_)

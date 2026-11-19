@@ -1,10 +1,12 @@
 //! The issue space commands in the app (ADR 0136, step 1b): what `space-new`, `space-add-repo`
 //! and the others ask, carried out on the UI thread, with the disk work (a space's directory,
 //! whether a path is a repository, the instructions' directory) on the sessions worker, and
-//! the lists their prompts complete over.
+//! the lists their prompts complete over. An orchestrator's `space_add_repo` looks at its
+//! repository through the same checks (ADR 0161, `agent`).
 //!
 //! Must not depend on: key presses or how a frame is drawn.
 
+mod agent;
 mod handover;
 mod lists;
 mod members;
@@ -36,6 +38,8 @@ enum Pending {
     New { description: String },
     /// One more repository of this space.
     Add { space: SpaceId },
+    /// The repository an agent's `space_add_repo` names (ADR 0161).
+    Agent(Box<super::tools::AddLook>),
 }
 
 /// What the space commands wait for.
@@ -135,7 +139,7 @@ impl App {
                     .spaces
                     .pending
                     .insert(token, Pending::New { description });
-                self.check_repository(token, repo);
+                self.check_repository(token, repo, None);
             }
             None => {
                 self.hosting.spaces.description = Some(description);
@@ -167,15 +171,21 @@ impl App {
         };
         let token = self.hosting.spaces.check();
         self.hosting.spaces.pending.insert(token, pending);
-        self.check_repository(token, path);
+        self.check_repository(token, path, None);
     }
 
-    /// Asks the worker whether `path` is a repository's main checkout, for `token`.
-    fn check_repository(&mut self, token: RepoCheck, path: PathBuf) {
+    /// Asks the worker whether `path` is a repository's main checkout, for `token`; for an
+    /// agent's path, `known` the repositories oso knows, and the path must name it with no link
+    /// on the way.
+    fn check_repository(&mut self, token: RepoCheck, path: PathBuf, known: Option<Vec<PathBuf>>) {
+        let as_named = known.is_some();
         match &self.sessions {
-            Some(worker) => {
-                worker.send(Job::Space(SpaceJob::CheckRepository { check: token, path }))
-            }
+            Some(worker) => worker.send(Job::Space(SpaceJob::CheckRepository {
+                check: token,
+                path,
+                as_named,
+                known: known.unwrap_or_default(),
+            })),
             None => {
                 self.hosting.spaces.pending.remove(&token);
                 self.editor
@@ -190,9 +200,14 @@ impl App {
         token: RepoCheck,
         path: &Path,
         member: Result<Member, String>,
+        known: bool,
     ) {
-        let Some(pending) = self.hosting.spaces.pending.remove(&token) else {
-            return;
+        let pending = match self.hosting.spaces.pending.remove(&token) {
+            Some(Pending::Agent(look)) => {
+                return self.agent_repository_checked(*look, member, known);
+            }
+            Some(pending) => pending,
+            None => return,
         };
         let member = match member {
             Ok(member) => member,
@@ -201,6 +216,7 @@ impl App {
         let now = now_ms();
         match pending {
             Pending::New { description } => self.make_new_space(&description, member, now),
+            Pending::Agent(_) => {}
             Pending::Add { space } => {
                 let spaces = self.watch.spaces_mut();
                 let Some(at) = spaces.find(&space) else {

@@ -6,9 +6,9 @@
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use super::{instructions_file, main_checkout, make_directory};
+use super::{instructions_file, main_checkout, main_checkout_as_named, make_directory};
 
 struct Scratch(PathBuf);
 
@@ -112,4 +112,41 @@ fn an_instructions_file_that_is_a_link_is_refused() {
     fs::write(&elsewhere, "x").unwrap();
     std::os::unix::fs::symlink(&elsewhere, &file).unwrap();
     assert!(instructions_file(&state, "abc").is_err());
+}
+
+#[test]
+fn an_agent_names_a_repository_by_its_real_path_only() {
+    let scratch = Scratch::new("named");
+    let repo = scratch.0.join("repo");
+    fs::create_dir_all(repo.join(".git")).unwrap();
+    let member = main_checkout_as_named(&repo).unwrap();
+    assert_eq!(member.root, repo);
+    let link = scratch.0.join("link");
+    std::os::unix::fs::symlink(&repo, &link).unwrap();
+    let why = main_checkout_as_named(&link).unwrap_err();
+    assert!(why.contains("goes through the link"), "{why}");
+    assert!(
+        main_checkout(&link).is_ok(),
+        "the person's prompt follows it"
+    );
+    // A link above the repository is one on the way too.
+    let above = scratch.0.join("above");
+    std::os::unix::fs::symlink(&scratch.0, &above).unwrap();
+    assert!(main_checkout_as_named(&above.join("repo")).is_err());
+    let dotted = scratch.0.join("x").join("..").join("repo");
+    fs::create_dir(scratch.0.join("x")).unwrap();
+    assert!(main_checkout_as_named(&dotted).unwrap_err().contains(".."));
+    assert!(main_checkout_as_named(&scratch.0.join("gone")).is_err());
+    let deep: PathBuf = std::iter::repeat_n("a", super::MAX_NAMED_DEPTH).collect();
+    let why = main_checkout_as_named(&scratch.0.join(deep)).unwrap_err();
+    assert!(why.contains("directories deep"), "{why}");
+    let why = main_checkout_as_named(Path::new("/net/host/repo")).unwrap_err();
+    assert!(why.contains("local repositories only"), "{why}");
+    let odd = scratch.0.join("we\u{200b}b");
+    fs::create_dir_all(odd.join(".git")).unwrap();
+    assert!(
+        main_checkout_as_named(&odd)
+            .unwrap_err()
+            .contains("does not show")
+    );
 }

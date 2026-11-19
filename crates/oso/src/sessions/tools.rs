@@ -19,9 +19,11 @@ use std::time::{Duration, Instant};
 
 use oso_core::command::Reach;
 
+mod add_repo;
 mod rename;
 pub mod repo;
 
+pub use add_repo::{add_dir, add_repo_question, add_repo_said, addable};
 pub use rename::{Renamable, renamable, rename_clash, rename_note, renamed_said};
 
 use super::identity::Origin;
@@ -51,6 +53,9 @@ pub struct Tool {
     /// choice, step 6): the reading tools, within the selected window's project, and
     /// `move_to_space`, which asks each time (ADR 0151).
     pub outside: bool,
+    /// Whether it starts a session, so that one started without asking counts toward the
+    /// caller's `agents_start_limit` (ADR 0135); `space_add_repo` starts none (ADR 0161, Q4).
+    pub starts: bool,
 }
 
 impl Tool {
@@ -72,12 +77,13 @@ const fn reads(name: &'static str) -> Tool {
         asks: Asks::No,
         destructive: false,
         outside: true,
+        starts: false,
     }
 }
 
 /// The tools, the reading ones first. A change here is a change of what an agent may do: the
 /// test below spells the table out, so that review sees it.
-pub const TOOLS: [Tool; 11] = [
+pub const TOOLS: [Tool; 12] = [
     reads("session_list"),
     reads("session_state"),
     // It runs git and `gh` with no question, as the author chose (ADR 0121, step 4).
@@ -94,6 +100,7 @@ pub const TOOLS: [Tool; 11] = [
         asks: Asks::No,
         destructive: true,
         outside: false,
+        starts: false,
     },
     Tool {
         name: "start_worktree_session",
@@ -101,6 +108,7 @@ pub const TOOLS: [Tool; 11] = [
         asks: Asks::UnlessAllowed,
         destructive: false,
         outside: false,
+        starts: true,
     },
     Tool {
         name: "session_start",
@@ -108,6 +116,7 @@ pub const TOOLS: [Tool; 11] = [
         asks: Asks::UnlessAllowed,
         destructive: false,
         outside: false,
+        starts: true,
     },
     // It writes only the person's message buffer of the caller's worktree, for oso's newest
     // request there, and commits nothing (ADR 0127, step 6a).
@@ -117,6 +126,7 @@ pub const TOOLS: [Tool; 11] = [
         asks: Asks::No,
         destructive: false,
         outside: false,
+        starts: false,
     },
     // Only an outside session's, which moves into a space on the person's `y` (ADR 0151).
     Tool {
@@ -125,6 +135,7 @@ pub const TOOLS: [Tool; 11] = [
         asks: Asks::Each,
         destructive: false,
         outside: true,
+        starts: false,
     },
     // A space's orchestrator resumes a stopped session of its space, as `session-resume` does,
     // and as ADR 0135 lets a start go without asking (ADR 0153).
@@ -134,6 +145,7 @@ pub const TOOLS: [Tool; 11] = [
         asks: Asks::UnlessAllowed,
         destructive: false,
         outside: false,
+        starts: true,
     },
     // A session's name in oso's record and its buffer's, no more: metadata only, as ADR 0121's
     // table has it (ADR 0155).
@@ -143,6 +155,17 @@ pub const TOOLS: [Tool; 11] = [
         asks: Asks::No,
         destructive: false,
         outside: false,
+        starts: false,
+    },
+    // A space's orchestrator adds a repository to its space, as `space-add-repo` does; one oso
+    // does not trust always asks (ADR 0161).
+    Tool {
+        name: "space_add_repo",
+        reach: Reach::Change,
+        asks: Asks::UnlessAllowed,
+        destructive: false,
+        outside: false,
+        starts: false,
     },
 ];
 
