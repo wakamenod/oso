@@ -1,6 +1,6 @@
 # 0026. M2 UI layout
 
-- Status: Accepted
+- Status: Accepted, amended by 0158
 - Date: 2026-11-03
 
 ## Context

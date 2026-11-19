@@ -27,7 +27,8 @@ use super::shell::{ANSWERS_INPUT_METHOD, COMMITS_WHEN_TURNED_OFF, Loop};
 
 /// Whether oso wants the IME on in `buffer`: unless the next letter is a key, which
 /// `reads_keys` says, an open menu included (ADR 0117), or cannot type (ADR 0069), or a
-/// prompt is selected (ADR 0072) or isearch is on (ADR 0082), which `reads_input` says.
+/// prompt that takes no Japanese now is selected (ADR 0072, ADR 0158) or isearch is on
+/// (ADR 0082), which `reads_input` says.
 fn wants_ime(buffer: &Buffer, reads_keys: bool, reads_input: bool) -> bool {
     // Letters answer among the copies (ADR 0064).
     let answers = buffer.mode().shows_copies();
@@ -39,25 +40,25 @@ fn wants_ime(buffer: &Buffer, reads_keys: bool, reads_input: bool) -> bool {
     !(answers || refuses || secret || reads_keys || reads_input)
 }
 
-/// Whether the selected `prompt` takes Japanese now: the person chose a Japanese input mode
-/// while this very prompt was selected (`noted`), it is the prompt for a file's name, and no
-/// window shows a buffer that may hold secrets (ADR 0106). A passphrase or a question never
-/// does, and the next prompt starts without.
-fn japanese_names<I: PartialEq>(prompt: Option<(I, Kind)>, noted: Option<I>, secret: bool) -> bool {
-    !secret && prompt.is_some_and(|(id, kind)| names_a_file(kind) && noted == Some(id))
+/// Whether the selected `prompt` takes Japanese now, when no window shows a buffer that may
+/// hold secrets (`secret`, ADR 0106): a review comment's draft always, as a buffer does, and
+/// a prompt that follows the input source once the person chose a Japanese input mode while
+/// this very prompt was selected (`noted`) (ADR 0158). A number, a passphrase or a question
+/// never does, and the next prompt starts without.
+fn takes_japanese<I: PartialEq>(prompt: Option<(I, Kind)>, noted: Option<I>, secret: bool) -> bool {
+    !secret
+        && prompt.is_some_and(|(id, kind)| {
+            kind == Kind::Draft || (follows_input_source(kind) && noted == Some(id))
+        })
 }
 
-/// Whether `kind` is the prompt for a file's name, which takes Japanese once the person
-/// chooses it, and has the input source type ASCII while it is open (ADR 0106). So are
-/// query-replace's two prompts (ADR 0113).
-fn names_a_file(kind: Kind) -> bool {
-    matches!(
-        kind,
-        Kind::Complete { history: "file" }
-            | Kind::Text {
-                history: Some("query-replace" | "query-replace-regexp")
-            }
-    )
+/// Whether a prompt of `kind` follows the input source (ADR 0106, ADR 0158): it has the input
+/// source type ASCII while it is open, and takes Japanese once the person chooses it. Every
+/// prompt that reads text or completes one does: C-x C-f's, query-replace's (ADR 0113), M-x's
+/// and the others. A review comment's draft keeps the person's source and takes Japanese at
+/// once ([`takes_japanese`]).
+fn follows_input_source(kind: Kind) -> bool {
+    matches!(kind, Kind::Complete { .. } | Kind::Text { .. })
 }
 
 /// The prompt a choice of `source` marks as taking Japanese: the selected one, for a
@@ -98,10 +99,11 @@ pub(super) struct ImeState {
     /// What the excerpt last given was worked out from ([`Editor::excerpt_stamp`]), or none
     /// while the IME is off.
     excerpt_for: Option<(BufferId, u64, usize)>,
-    /// The prompt for a file's name in which the person chose a Japanese input mode, which
-    /// then takes Japanese until it closes or the person chooses another (ADR 0106).
+    /// The prompt following the input source in which the person chose a Japanese input
+    /// mode, which then takes Japanese until it closes or the person chooses another
+    /// (ADR 0106, ADR 0158).
     japanese_prompt: Option<PromptId>,
-    /// Whether the window was last asked for an ASCII input source (ADR 0106).
+    /// Whether the window was last asked for an ASCII input source (ADR 0106, ADR 0158).
     ascii: bool,
     /// The tiled window selected after the last event, or the one beneath the prompts, so
     /// that a composition ends when another is selected, as keys go only there (ADR 0112).
@@ -179,13 +181,21 @@ impl App {
     /// A terminal's program began or stopped reading a password between events (ADR 0120,
     /// Q17): what follows a buffer that may hold secrets follows it at once, as after an event
     /// that selected one. A composition in it ends, the log is gated, no excerpt is held and
-    /// secure input is asked for while it is selected.
+    /// secure input is asked for while it is selected. A prompt that took Japanese, as a
+    /// review comment's draft does, takes none once it is shown anywhere (ADR 0106, ADR 0158):
+    /// the IME goes off at once, its composition dropped.
     pub(super) fn secret_changed(&mut self) {
-        if self.composing() && self.editor.current().1.is_secret() {
+        let shown = self.editor.shows_secret() && self.ime.allowed && !self.ime_wanted();
+        if self.composing() && (shown || self.editor.current().1.is_secret()) {
             self.end_composition();
             if let Some(view) = &self.view {
                 view.window.discard_composition();
             }
+        }
+        if shown && let Some(view) = &self.view {
+            view.window.set_ime_allowed(false);
+            self.ime.allowed = false;
+            log::debug!("IME allowed: false");
         }
         self.note_logging();
         self.give_excerpt();
@@ -203,13 +213,14 @@ impl App {
         }
     }
 
-    /// Asks the window for an ASCII input source while a prompt for a file's name is
-    /// selected, and for the person's own once none is, when that changes (ADR 0106).
+    /// Asks the window for an ASCII input source while a prompt that follows the input source
+    /// is selected, and for the person's own once none is, when that changes (ADR 0106,
+    /// ADR 0158).
     fn sync_ascii_input(&mut self) {
         let wanted = self
             .editor
             .prompt()
-            .is_some_and(|prompt| names_a_file(prompt.kind()));
+            .is_some_and(|prompt| follows_input_source(prompt.kind()));
         if let Some(view) = self.view.as_ref().filter(|_| wanted != self.ime.ascii) {
             view.window.set_ascii_input(wanted);
             self.ime.ascii = wanted;
@@ -244,8 +255,9 @@ impl App {
     }
 
     /// The person chose another kind of input source while oso was in front (ADR 0106). A
-    /// Japanese input mode marks the selected prompt as taking Japanese, if it is the prompt
-    /// for a file's name; anything else unmarks it. `after_event` then allows the IME or not.
+    /// Japanese input mode marks the selected prompt as taking Japanese, if it follows the
+    /// input source (ADR 0158); anything else unmarks it. `after_event` then allows the IME or
+    /// not.
     pub(super) fn input_source_chosen(&mut self, source: InputSource) {
         self.ime.japanese_prompt = marked(source, self.editor.prompt().map(Prompt::id));
     }
@@ -256,7 +268,7 @@ impl App {
             .editor
             .prompt()
             .map(|prompt| (prompt.id(), prompt.kind()));
-        if japanese_names(prompt, self.ime.japanese_prompt, self.editor.shows_secret()) {
+        if takes_japanese(prompt, self.ime.japanese_prompt, self.editor.shows_secret()) {
             return wants_ime(self.editor.current().1, self.dispatcher.reads_keys(), false);
         }
         let reads_input = self.editor.prompt().is_some()
@@ -425,33 +437,67 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{japanese_names, marked, names_a_file, next_allowed, wants_ime};
+    use super::{follows_input_source, marked, next_allowed, takes_japanese, wants_ime};
     use oso_core::buffer::Buffer;
     use oso_core::minibuffer::Kind;
     use oso_platform::window::InputSource;
 
     const FILE: Kind = Kind::Complete { history: "file" };
+    const QUESTION: Kind = Kind::Question {
+        yes: "exit",
+        verbs: ["exit", "stay"],
+        third: None,
+    };
 
     #[test]
-    fn only_the_file_name_prompt_it_was_chosen_in_takes_japanese() {
-        assert!(japanese_names(Some((1, FILE)), Some(1), false));
-        assert!(!japanese_names(Some((1, FILE)), None, false), "not chosen");
-        assert!(
-            !japanese_names(Some((1, FILE)), Some(1), true),
-            "a secret buffer is shown"
-        );
-        let buffer = Kind::Complete { history: "buffer" };
-        assert!(
-            !japanese_names(Some((1, buffer)), Some(1), false),
-            "another prompt"
-        );
-        assert!(!japanese_names(Some((1, Kind::Passphrase)), Some(1), false));
-        let question = Kind::Question {
-            yes: "exit",
-            verbs: ["exit", "stay"],
-            third: None,
+    fn only_the_prompt_it_was_chosen_in_takes_japanese() {
+        let command = Kind::Complete { history: "command" };
+        let note = Kind::Text {
+            history: Some("session-note"),
         };
-        assert!(!japanese_names(Some((1, question)), Some(1), false));
+        for kind in [FILE, command, note] {
+            assert!(takes_japanese(Some((1, kind)), Some(1), false), "{kind:?}");
+            assert!(
+                !takes_japanese(Some((1, kind)), None, false),
+                "not chosen: {kind:?}"
+            );
+            assert!(
+                !takes_japanese(Some((1, kind)), Some(1), true),
+                "a secret buffer is shown: {kind:?}"
+            );
+        }
+        for kind in [Kind::Passphrase, QUESTION, Kind::Number { history: None }] {
+            assert!(!takes_japanese(Some((1, kind)), Some(1), false), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn a_draft_takes_japanese_at_once_unless_a_secret_buffer_is_shown() {
+        assert!(takes_japanese(Some((1, Kind::Draft)), None::<u32>, false));
+        assert!(takes_japanese(Some((1, Kind::Draft)), Some(2), false));
+        assert!(!takes_japanese(Some((1, Kind::Draft)), None::<u32>, true));
+    }
+
+    #[test]
+    fn prompts_that_read_text_follow_the_input_source_and_no_other_does() {
+        for kind in [
+            FILE,
+            Kind::Complete { history: "command" },
+            Kind::Text { history: None },
+            Kind::Text {
+                history: Some("query-replace"),
+            },
+        ] {
+            assert!(follows_input_source(kind), "{kind:?}");
+        }
+        for kind in [
+            Kind::Draft,
+            Kind::Passphrase,
+            QUESTION,
+            Kind::Number { history: None },
+        ] {
+            assert!(!follows_input_source(kind), "{kind:?}");
+        }
     }
 
     #[test]
@@ -462,19 +508,14 @@ mod tests {
         assert_eq!(marked(InputSource::Japanese, None::<u32>), None);
         // The person chose Japanese in the prompt.
         assert_eq!(marked(InputSource::Japanese, Some(1)), Some(1));
-        assert!(names_a_file(FILE));
-        assert!(
-            !names_a_file(Kind::Passphrase),
-            "a passphrase has no switching"
-        );
     }
 
     #[test]
     fn the_mark_goes_with_its_prompt() {
         // C-x C-f's prompt closed: nothing is selected, then the next prompt is another one,
         // even another prompt for a file's name.
-        assert!(!japanese_names(None::<(u32, Kind)>, Some(1), false));
-        assert!(!japanese_names(Some((2, FILE)), Some(1), false));
+        assert!(!takes_japanese(None::<(u32, Kind)>, Some(1), false));
+        assert!(!takes_japanese(Some((2, FILE)), Some(1), false));
     }
 
     #[test]

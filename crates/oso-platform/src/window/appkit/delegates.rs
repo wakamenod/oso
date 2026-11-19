@@ -66,8 +66,8 @@ define_class!(
         #[unsafe(method(applicationDidBecomeActive:))]
         fn did_become_active(&self, _notification: &NSNotification) {
             self.ivars().state.read_focus_for_secure_input();
-            // A prompt for a file's name still open has ASCII again, and then a choice made
-            // while another app was in front counts.
+            // A prompt that reads text or completes one still open has ASCII again, and then
+            // a choice made while another app was in front counts.
             self.ivars().state.input_source_in_front();
         }
 

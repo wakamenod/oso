@@ -1,10 +1,11 @@
 //! Reviews in a running instance (ADR 0122): a trusted project's uncommitted changes reviewed
 //! with `C-x v r w`, its review buffer read whole with each file's header, hunk and lines, `n`
 //! moving to the first hunk, `g` reading a file changed meanwhile, and `q` going back; and the
-//! person's comments: typed in a draft, kept as a card, edited, dropped to the kill ring,
-//! removed and yanked back, and asked about before the review closes; its sides highlighted,
-//! as `global-font-lock-mode` allows; and `RET` opening a line's file in another window, carried
-//! through unsaved edits, from a pane too, and `C-u RET` its old side read-only.
+//! person's comments: typed in a draft, which takes the input method's text, kept as a card,
+//! edited, dropped to the kill ring, removed and yanked back, and asked about before the review
+//! closes; its sides highlighted, as `global-font-lock-mode` allows; and `RET` opening a line's
+//! file in another window, carried through unsaved edits, from a pane too, and `C-u RET` its old
+//! side read-only.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The sections'
 //! text, the rows and the keys have their own tests.
@@ -15,7 +16,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use super::config::set_mode;
-use super::harness::{App, Scratch};
+use super::harness::{App, FAKE_SECRET, Scratch};
 use super::{cursor, typing};
 use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 
@@ -239,12 +240,25 @@ fn a_comment_is_drafted_kept_edited_removed_and_yanked_back() {
         Some("Comment on a.rs L2 (new)")
     );
     assert_eq!(app.state()["prompts"][0]["kind"], "draft");
+    // The draft takes Japanese at once, as a buffer does, from a review that takes none
+    // (ADR 0158): the input method's commit goes into it.
+    let state = app.state();
+    assert_eq!(state["ime"]["allowed"], true, "on in the draft");
+    app.call("ime", Some(json!({ "commit": "日本" })));
+    assert_eq!(app.state()["prompts"][0]["text"], "日本");
+    app.send_keys("DEL DEL");
+    assert_eq!(app.state()["prompts"][0]["text"], "");
     app.send_keys(&format!(
         "{} RET {} C-c C-c",
         typing("first"),
         typing("second")
     ));
     assert_eq!(prompt_label(&mut app), None, "the draft is kept and closed");
+    assert_eq!(
+        app.state()["ime"]["allowed"],
+        false,
+        "off in the review again"
+    );
     let shown = rows_until(&mut app, "    \u{258d}  second");
     let card = [
         "+2",
@@ -297,6 +311,54 @@ fn a_comment_is_drafted_kept_edited_removed_and_yanked_back() {
     assert_eq!(state["buffer"]["name"], "a.rs");
     let text = rows(&mut app, 20).join("\n");
     assert!(text.ends_with("You  #0\nfirst\nsecond"), "{text:?}");
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_draft_takes_no_japanese_once_it_or_a_buffer_shown_may_hold_secrets() {
+    let scratch = Scratch::new("review-draft-secret");
+    let mut app = open_review(&scratch);
+    let review = app.state()["buffer"]["name"].clone();
+    // A buffer that may hold secrets, outside the project, in the other window, where a line of
+    // it is killed.
+    let env = scratch.write(".env", format!("{FAKE_SECRET}\n").as_bytes());
+    app.send_keys("C-x 2 C-x o");
+    app.open_file(&env);
+    assert_eq!(app.wait_until_ready()["buffer"]["secret"], true);
+    app.send_keys("C-k C-x o");
+    assert_eq!(app.state()["buffer"]["name"], review);
+
+    // Shown in another window, it keeps the IME off in a draft (ADR 0158).
+    app.send_keys("M-< n C-n C-n c");
+    let state = app.state();
+    assert_eq!(state["prompts"][0]["kind"], "draft");
+    assert_eq!(state["ime"]["allowed"], false, "a secret buffer is shown");
+    app.send_keys("C-g");
+    assert_eq!(prompt_label(&mut app), None);
+
+    // With it gone, the draft takes Japanese; its kill yanked in turns the draft secret, and
+    // the IME goes off, and oso's own layer gives no input context, so no text service reads
+    // the view; winit none.
+    app.send_keys("C-x 1");
+    assert_eq!(app.state()["buffer"]["name"], review);
+    app.send_keys("c");
+    assert_eq!(app.state()["prompts"][0]["kind"], "draft");
+    assert_eq!(app.state()["ime"]["allowed"], true, "on in the draft");
+    app.send_keys("C-y");
+    assert_eq!(
+        app.state()["ime"]["allowed"],
+        false,
+        "off in a secret draft"
+    );
+    let none = if cfg!(target_os = "macos") {
+        json!(false)
+    } else {
+        Value::Null
+    };
+    app.wait_for("no input context", |state| {
+        state["ime"]["input_context"] == none
+    });
+    app.send_keys("C-g");
 }
 
 #[test]

@@ -27,7 +27,10 @@ fn m_x_lists_the_commands_narrows_and_runs_the_one_taken() {
     let completion = &prompt["completion"];
     assert_eq!(completion["count"], completion["total"], "all listed");
     assert_eq!(completion["selected"], 0);
-    assert_eq!(state["ime"]["wanted"], false, "a prompt reads keys");
+    assert_eq!(
+        state["ime"]["wanted"], false,
+        "off until Japanese is chosen"
+    );
 
     app.send_keys(&format!("{} SPC {}", typing("char"), typing("forward")));
     let completion = app.state()["prompts"][0]["completion"].clone();

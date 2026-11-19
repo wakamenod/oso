@@ -74,7 +74,7 @@ pub fn run<T: 'static, H: Handler<T> + 'static>(start: impl FnOnce(Waker<T>) -> 
     app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     app.run();
     // The delegate goes when this returns, and the system's notifications must not reach it.
-    // A panic leaves the person on ASCII otherwise, if a prompt for a file's name was open.
+    // A panic leaves the person on ASCII otherwise, if a prompt that reads text was open.
     delegate.stop_observing();
     state.update_ascii(Some(false));
 

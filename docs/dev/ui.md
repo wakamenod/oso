@@ -465,7 +465,7 @@ project and how long ago the baseline was taken. Only a trusted project runs git
   `no longer changed  <path>`.
 - A comment is typed in a draft in the top float, which grows with its text to 10 rows and
   wraps: `RET` breaks a line, `C-c C-c` keeps it, `C-g` drops it into oso's kill ring, off the
-  clipboard. A draft that holds secret text, or whose line or comment is gone, is not kept: it
+  clipboard. It takes Japanese at once, as a buffer does. A draft that holds secret text, or whose line or comment is gone, is not kept: it
   stays open, and `C-g` keeps its text.
 - An agent's comment counts as read once you have had it whole on screen, unfolded, after a key
   of yours.
@@ -1031,12 +1031,16 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   preedit, on the text it pushed.
 - The OS candidate window is placed just below the cursor, as in other macOS apps.
 - Each commit undoes as one step.
-- The IME is switched off automatically when entering the minibuffer,
-  isearch, a menu or the list of emergency copies, since those use single keys. In the
-  prompt for a file's name (`C-x C-f`, `C-x C-w`), the input source switches to ASCII when it
-  opens and back when it closes, and choosing a Japanese input mode there, by `かな` or the
-  menu bar, turns the IME on for that prompt; `英数` turns it off again
-  ([ADR 0106](adr/0106-the-input-source-turns-japanese-on-in-a-file-name-prompt.md)). It is
+- The IME is switched off automatically in isearch, a jump, query-replace's answers, a menu,
+  the list of emergency copies and a question, since those use single keys, and in the prompts
+  that read a number or a passphrase. In
+  a prompt that reads text or completes one (`C-x C-f`, `M-x`, a session's note, a stash's
+  message and the others), the input source switches to ASCII when it opens and back when it
+  closes, and choosing a Japanese input mode there, by `かな` or the menu bar, turns the IME on
+  for that prompt; `英数` turns it off again
+  ([ADR 0106](adr/0106-the-input-source-turns-japanese-on-in-a-file-name-prompt.md),
+  [ADR 0158](adr/0158-japanese-in-prompts-and-review-drafts.md)). A review comment's draft has
+  the IME on as a buffer does, with the input source left as it was. It is
   also off while a prefix key (`C-x`) or a prefix argument (`C-u`, `M-5`) waits for the
   next key, in read-only buffers and in buffers that may hold secrets. It goes off only
   once a composition has ended.

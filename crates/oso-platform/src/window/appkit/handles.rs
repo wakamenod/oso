@@ -211,8 +211,9 @@ impl Window {
             .push(Request::DiscardComposition);
     }
 
-    /// Whether oso wants the input source to type ASCII, as while a prompt for a file's
-    /// name is open (ADR 0106). Applied once the handler returns, as the other requests are.
+    /// Whether oso wants the input source to type ASCII, as while a prompt that reads text or
+    /// completes one is open (ADR 0106, ADR 0158). Applied once the handler returns, as the
+    /// other requests are.
     pub fn set_ascii_input(&self, wanted: bool) {
         self.state
             .requests
