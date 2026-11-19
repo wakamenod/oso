@@ -197,10 +197,15 @@ the slug's fallback as written, and the split into two steps.
   is there already.
 - **In the end-to-end flows,** every stand-in `claude` answers `--print` with the flow's
   `naming-answer`, or fails, and keeps what it was given apart from the session runs.
-- **Not yet checked against the real `claude`:** that `--safe-mode` with `--setting-sources=user`
-  runs no hook of the person's and reads no `CLAUDE.md` above the run's directory. The run's
-  directory being new and empty, and the flags the CLI's help documents, are what this rests
-  on; a check with the person's own setup is a follow-up.
+- **Checked against the real `claude`** (2.1.327, a second call with a made-up description, the
+  author's leave, 2026-11-19), with the run's own command line in a directory planted for it: a
+  `.claude/settings.json` and a `.claude/settings.local.json` whose `SessionStart`,
+  `UserPromptSubmit` and `Stop` hooks would each leave a file, a `CLAUDE.md` there and another in
+  the directory above, each telling it to answer with a name of its own. No hook ran, both names
+  came from the description alone, nothing was written in the directory, and no transcript was
+  kept for it. Hooks of the person's own settings are left out by `--safe-mode` as its help says;
+  the call did not change the person's settings to check that.
+- **An invalid `[spaces] naming`** counts as `local` (the author's choice, 2026-11-19).
 
 ## Changes to accepted ADRs
 

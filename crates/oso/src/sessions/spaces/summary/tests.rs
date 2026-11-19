@@ -230,13 +230,14 @@ mod runs {
     fn what_claude_started_is_killed_with_it_and_an_exit_stops_it_at_once() {
         let scratch = Scratch::new("group");
         let body = format!(
-            "cat > /dev/null; sleep 30 & echo $! > '{}/pid'; wait",
+            "sleep 30 & echo $! > '{}/pid'; cat > /dev/null; wait",
             scratch.0.display()
         );
         let ask = scratch.ask(scratch.claude(&body));
+        // Long enough for a loaded machine to start the shell and its child.
         assert_eq!(
-            run_within(&ask, Duration::from_secs(1)),
-            Err("no answer in 1 s".into())
+            run_within(&ask, Duration::from_secs(3)),
+            Err("no answer in 3 s".into())
         );
         let pid = std::fs::read_to_string(scratch.0.join("pid")).unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);

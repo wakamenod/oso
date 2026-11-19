@@ -425,7 +425,14 @@ fn claude_names_a_new_space_and_a_name_that_does_not_hold_gives_way() {
     }
     assert!(!args.contains("SSO token"), "{args}");
     assert!(read("naming-in").contains("Fix the login when the SSO token expires"));
-    assert!(read("naming-cwd").trim_end().ends_with("/space-naming"));
+    // A directory of its own, named after the space, under oso's state directory's own.
+    let cwd = PathBuf::from(read("naming-cwd").trim_end());
+    let parent = cwd.parent().and_then(Path::file_name);
+    assert_eq!(
+        parent.and_then(|name| name.to_str()),
+        Some("space-naming"),
+        "{cwd:?}"
+    );
 
     // A slug that is none and a display name with a bidi control: oso's own slug, and the
     // name cleaned.
