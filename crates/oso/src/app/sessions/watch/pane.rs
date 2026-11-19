@@ -74,8 +74,8 @@ impl App {
             .filter(|space| !space.is_open())
             .map(|space| ClosedSpace {
                 id: space.id().clone(),
-                name: space.name().to_owned(),
-                title: space.stored.title.clone(),
+                name: space.label().to_owned(),
+                title: space.stored.description.clone(),
             })
             .collect();
         let front_space = (self.watch.spaces.current())
@@ -113,7 +113,7 @@ impl App {
         for (at, space) in self.watch.spaces.iter().enumerate() {
             let input = SpaceInput {
                 id: space.id(),
-                name: space.name(),
+                name: space.label(),
                 members: (space.stored.members.iter())
                     .map(|member| member.root.as_path())
                     .collect(),

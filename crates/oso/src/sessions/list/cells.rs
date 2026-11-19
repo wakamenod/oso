@@ -3,14 +3,20 @@
 //!
 //! Must not depend on: anything but oso-core's cell classes; plain text in, text out.
 
-use oso_core::display_map::cell::classify;
+use oso_core::display_map::cell::{Clusters, classify};
 
 use super::{GUIDES, MARKS};
 
-/// How many cells `text` takes, each character as oso draws it alone: a cluster of several
-/// characters takes at most this, so that a line cut by it never runs past its width.
+/// How many cells `text` takes as oso draws it, cluster by cluster, so that an emoji sequence
+/// counts as the one glyph it is drawn as (ADR 0159). Clusters of two pieces joined in a row
+/// take at most what the pieces take apart, so a line cut by it never runs past its width.
 pub(super) fn cells(text: &str) -> usize {
-    text.chars().map(char_cells).sum()
+    Clusters::new(text).map(|(.., cells)| cells).sum()
+}
+
+/// `text`'s clusters as oso draws them, each with its cells.
+fn clusters(text: &str) -> impl Iterator<Item = (&str, usize)> {
+    Clusters::new(text).map(|(_, cluster, _, cells)| (cluster, cells))
 }
 
 fn char_cells(c: char) -> usize {
@@ -27,7 +33,7 @@ pub fn unmarked(text: &str) -> &str {
     })
 }
 
-/// `text` cut to `width` cells, ending in `…` if cut; a line break ends it.
+/// `text` cut to `width` cells between clusters, ending in `…` if cut; a line break ends it.
 pub fn cut(text: &str, width: usize) -> String {
     let text = text.lines().next().unwrap_or_default();
     if cells(text) <= width {
@@ -35,12 +41,11 @@ pub fn cut(text: &str, width: usize) -> String {
     }
     let mut out = String::new();
     let mut used = 0;
-    for c in text.chars() {
-        let n = char_cells(c);
+    for (cluster, n) in clusters(text) {
         if used + n + 1 > width {
             break;
         }
-        out.push(c);
+        out.push_str(cluster);
         used += n;
     }
     if width > 0 {
@@ -51,6 +56,7 @@ pub fn cut(text: &str, width: usize) -> String {
 
 /// `text` cut to `width` cells in the middle, keeping its last third (ADR 0131), so that names
 /// that share a long start still differ: `chore-survey-r…lifecycle-hook`. A line break ends it.
+/// It is cut between clusters.
 pub fn cut_middle(text: &str, width: usize) -> String {
     let text = text.lines().next().unwrap_or_default();
     if cells(text) <= width || width < 6 {
@@ -59,23 +65,23 @@ pub fn cut_middle(text: &str, width: usize) -> String {
     let tail_room = (width - 1) / 3;
     let mut tail = Vec::new();
     let mut used = 0;
-    for c in text.chars().rev() {
-        let n = char_cells(c);
+    // Only a cut row's tail is gathered: most rows are not cut.
+    let all: Vec<(&str, usize)> = clusters(text).collect();
+    for &(cluster, n) in all.iter().rev() {
         if used + n > tail_room {
             break;
         }
-        tail.push(c);
+        tail.push(cluster);
         used += n;
     }
     let head_room = width - 1 - used;
     let mut out = String::new();
     let mut used = 0;
-    for c in text.chars() {
-        let n = char_cells(c);
+    for (cluster, n) in clusters(text) {
         if used + n > head_room {
             break;
         }
-        out.push(c);
+        out.push_str(cluster);
         used += n;
     }
     out.push('…');

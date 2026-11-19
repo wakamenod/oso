@@ -73,7 +73,8 @@ fn what_is_written_is_read_back_and_no_file_is_none() {
         "no file: made from the sessions"
     );
     let mut full = space(1);
-    full.title = "Login error message".into();
+    full.description = "Login error message, ".repeat(20);
+    full.display = "ログイン 👨\u{200D}👩\u{200D}👧".into();
     full.issue = "#123".into();
     full.members.push(Member {
         root: PathBuf::from("/src/front"),
@@ -101,7 +102,7 @@ fn another_instances_spaces_are_kept_and_ours_replace_theirs() {
     let scratch = Scratch::new("theirs");
     write(&scratch.oso(), &[space(1), space(2)], &known(&[1, 2])).unwrap();
     let mut changed = space(2);
-    changed.title = "renamed".into();
+    changed.display = "renamed".into();
     // This instance knows 2 and 3, not 1.
     write(
         &scratch.oso(),
@@ -114,6 +115,37 @@ fn another_instances_spaces_are_kept_and_ours_replace_theirs() {
     // A space this instance knew and no longer has goes.
     write(&scratch.oso(), &[space(3)], &known(&[1, 2, 3])).unwrap();
     assert_eq!(held(&scratch), [space(3)]);
+}
+
+#[test]
+fn a_description_is_also_written_as_a_title_an_older_build_reads() {
+    let mut long = space(1);
+    long.description = "é".repeat(300);
+    let written = line(&long).unwrap();
+    let value: serde_json::Value = serde_json::from_str(&written).unwrap();
+    let title = value["title"].as_str().unwrap();
+    assert_eq!(
+        title.len(),
+        200,
+        "within what a build before ADR 0159 reads"
+    );
+    assert_eq!(parse_line(written.as_bytes()), Some(long));
+    // A line an older build wrote: its title is the description, and it has no display name.
+    let old = format!(
+        r#"{{"id":"{}","name":"fix","title":"Fix it","created":1,"changed":2}}"#,
+        id(2).as_str()
+    );
+    let parsed = parse_line(old.as_bytes()).unwrap();
+    assert_eq!(
+        (parsed.description.as_str(), parsed.label()),
+        ("Fix it", "fix")
+    );
+    // A display name that was not cleaned is refused, as a description is.
+    let forged = format!(
+        r#"{{"id":"{}","name":"fix","display":"a\u202eb","created":1,"changed":2}}"#,
+        id(3).as_str()
+    );
+    assert_eq!(parse_line(forged.as_bytes()), None);
 }
 
 #[test]
@@ -148,7 +180,7 @@ fn a_bad_line_is_left_out_and_the_rest_read() {
     }
     let parsed = parse_line(good.as_bytes()).unwrap();
     assert_eq!(parsed.members, [Member::at(Path::new("/r"))]);
-    assert_eq!((parsed.title.as_str(), parsed.archived), ("", false));
+    assert_eq!((parsed.description.as_str(), parsed.archived), ("", false));
     let scratch = Scratch::new("bad");
     let dir = oso_platform::privacy::PrivateDir::open(scratch.oso()).unwrap();
     let text = format!("{}\n{good}\n", bad.join("\n"));
@@ -181,14 +213,14 @@ fn a_file_that_may_not_be_read_is_not_replaced() {
     let scratch = Scratch::new("refused");
     let dir = oso_platform::privacy::PrivateDir::open(scratch.oso()).unwrap();
     let file = dir.path().join(FILE);
-    std::fs::write(&file, "x".repeat(300 * 1024)).unwrap();
+    std::fs::write(&file, "x".repeat(600 * 1024)).unwrap();
     assert_eq!(
         read(&scratch.oso()),
         Kept::Refused,
         "refused, and not made again"
     );
     assert!(write(&scratch.oso(), &[space(1)], &known(&[1])).is_err());
-    assert_eq!(std::fs::metadata(&file).unwrap().len(), 300 * 1024);
+    assert_eq!(std::fs::metadata(&file).unwrap().len(), 600 * 1024);
 }
 
 /// A value the format might hold, or not: strings of every kind, numbers, paths, ids.
@@ -213,6 +245,8 @@ fn made_line() -> impl Strategy<Value = String> {
         "id",
         "name",
         "title",
+        "description",
+        "display",
         "issue",
         "members",
         "directory",
@@ -240,9 +274,13 @@ fn check_parsed(bytes: &[u8]) -> Result<(), TestCaseError> {
         prop_assert!(space.name.len() <= crate::sessions::spaces::stored::MAX_NAME);
         prop_assert!(
             space
-                .title
+                .description
                 .chars()
                 .all(crate::sessions::spaces::stored::is_plain)
+        );
+        prop_assert_eq!(
+            crate::sessions::spaces::stored::clean_display(&space.display),
+            space.display.clone()
         );
         let written = line(space).expect("a parsed space is written");
         let back = parse_line(written.as_bytes());
@@ -268,14 +306,14 @@ fn of_a_space_both_instances_have_the_one_changed_last_is_kept() {
     let scratch = Scratch::new("newer");
     let mut theirs = space(1);
     theirs.changed += 10;
-    theirs.title = "theirs".into();
+    theirs.display = "theirs".into();
     write(&scratch.oso(), &[theirs.clone()], &known(&[1])).unwrap();
     // A stale copy does not bring back what the other changed.
     write(&scratch.oso(), &[space(1)], &known(&[1])).unwrap();
     assert_eq!(held(&scratch), [theirs.clone()]);
     let mut ours = theirs;
     ours.changed += 1;
-    ours.title = "ours".into();
+    ours.display = "ours".into();
     write(&scratch.oso(), &[ours.clone()], &known(&[1])).unwrap();
     assert_eq!(held(&scratch), [ours]);
 }
@@ -285,7 +323,7 @@ fn a_space_too_large_for_the_file_is_left_out_and_the_rest_kept() {
     let scratch = Scratch::new("large");
     let mut large = space(1);
     let long = format!("/{}", "w".repeat(4000));
-    large.worktrees = (0..100)
+    large.worktrees = (0..150)
         .map(|n| PathBuf::from(format!("{long}{n}")))
         .collect();
     write(&scratch.oso(), &[large, space(2)], &known(&[1, 2])).unwrap();

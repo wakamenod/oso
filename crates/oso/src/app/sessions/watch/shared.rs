@@ -27,6 +27,16 @@ impl Watch {
         self.placed.get(&key).map(String::as_str)
     }
 
+    /// What the selected window's modeline calls the space in front, cleaned as the list's
+    /// fields are (ADR 0159); empty with none.
+    pub(in crate::app) fn front_label(&self) -> String {
+        (self.spaces.current())
+            .and_then(|at| self.spaces.get(at))
+            .map_or_else(String::new, |space| {
+                crate::sessions::recap::clean(space.label())
+            })
+    }
+
     /// The spaces.
     pub(in crate::app) fn spaces(&self) -> &Spaces {
         &self.spaces

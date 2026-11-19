@@ -31,6 +31,9 @@ pub(in crate::app) struct Begin {
     pub trusted: Option<TrustedRoot>,
     /// An issue space's orchestrator: what it starts with (ADR 0136, step 3).
     pub space: Option<crate::sessions::start::SpaceStart>,
+    /// Its terminal is not shown though the person started it: an orchestrator `space-new`
+    /// started once the person had left its space (ADR 0159).
+    pub behind: bool,
 }
 
 impl Default for Begin {
@@ -44,6 +47,7 @@ impl Default for Begin {
             check_shared: false,
             trusted: None,
             space: None,
+            behind: false,
         }
     }
 }

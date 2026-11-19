@@ -334,7 +334,7 @@ impl App {
                     .filter(|session| session.space.as_ref() == Some(&stored.id))
                     .map(|session| session.id.as_str().into()),
             );
-            let label = format!("space {}", shown(&stored.name, NAME));
+            let label = format!("space {}", shown(stored.label(), NAME));
             ConversationScope::within(label, roots, sessions)
         });
         self.editor.set_space_scope(scope);

@@ -157,22 +157,36 @@ impl App {
                 rules::quoted(name)
             ));
         }
-        let others = || table.iter().filter(|session| session.key != key);
+        let sessions = self.session_names(Some(key));
+        let spaces: Vec<&str> = self.watch.spaces().iter().map(|s| s.name()).collect();
+        match rules::rename_clash(name, sessions, spaces.iter().copied()) {
+            Some(why) => Err(format!("{}: {why}", rules::quoted(name))),
+            None => Ok(()),
+        }
+    }
+
+    /// Every name a session oso knows of answers to, but session `except`'s: each hosted
+    /// one's, being started or not, the name each running one was started with or the
+    /// registry gives it, and other programs' (ADR 0155). A new space's slug is none of them
+    /// either (ADR 0159).
+    pub(in crate::app) fn session_names(&self, except: Option<SessionKey>) -> Vec<&str> {
+        let table = self.hosting.table();
+        let others = || {
+            table
+                .iter()
+                .filter(move |session| Some(session.key) != except)
+        };
         let answered = others()
             .filter(|session| session.runs())
             .flat_map(|session| {
                 let registry = self.hosting.naming.messaging_name(session.key);
                 registry.into_iter().chain(session.launched_as.as_deref())
             });
-        let sessions = (others().map(|session| session.name.as_str()))
+        (others().map(|session| session.name.as_str()))
             .chain(answered)
             .chain(table.held_names())
-            .chain(self.watch.external_names());
-        let spaces: Vec<&str> = self.watch.spaces().iter().map(|s| s.name()).collect();
-        match rules::rename_clash(name, sessions, spaces.iter().copied()) {
-            Some(why) => Err(format!("{}: {why}", rules::quoted(name))),
-            None => Ok(()),
-        }
+            .chain(self.watch.external_names())
+            .collect()
     }
 
     /// Renames session `key` to `name`, checked already, in the record and its buffer, and

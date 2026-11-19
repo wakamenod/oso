@@ -212,6 +212,7 @@ impl App {
             check_shared: false,
             trusted: Some(trusted),
             space: None,
+            behind: false,
         });
     }
 }

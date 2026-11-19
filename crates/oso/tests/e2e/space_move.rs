@@ -149,7 +149,7 @@ fn moving(test: &str) -> Moving {
     app.open_file(&other.join("README.md"));
     wait_for_other_project(&mut app);
     app.send_keys("C-c a O");
-    answer(&mut app, "New space for issue:", "Fix login error");
+    answer(&mut app, "Describe the space:", "Fix login error");
     let other_root = fs::canonicalize(&other).unwrap().display().to_string();
     app.wait_for("the space", |state| {
         space(state, "fix-login-error").is_some_and(|s| s["members"] == json!([other_root]))

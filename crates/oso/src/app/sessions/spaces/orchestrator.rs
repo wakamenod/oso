@@ -102,11 +102,14 @@ impl App {
             stored.name.clone(),
             stored.directory.clone(),
         );
+        // Shown in its space: one `space-new` started after the person left it starts behind.
+        let behind = self.watch.spaces().current() != Some(at);
         let begin = Begin {
             name: Some(name),
             directory,
             brief,
             space: Some(space),
+            behind,
             ..Begin::default()
         };
         if let Some(key) = self.begin_session(begin) {

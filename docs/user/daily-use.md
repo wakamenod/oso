@@ -128,7 +128,7 @@ through `oso mcp`.
 | `e` | `session-explain` | Explain why this session has the state it shows. |
 | `j` | `space-switch` | Switch to another space. |
 | `z` | `space-zoom` | Show the selected window alone, and back. |
-| `O` | `space-new` | Make a space for an issue, of the selected buffer's repository. |
+| `O` | `space-new` | Make a space for what you describe, of the selected buffer's repository, and start its orchestrator. |
 | `S` | the space menu | Add or remove a repository, instructions, directory, rename, close, reopen. |
 | `K` | `session-stop` | Stop this session. It asks first while the session works or needs input. |
 | `P` | `session-pin` | Pin or unpin this session; dim outside a session's buffer. |
@@ -253,8 +253,8 @@ session's buffer stops and archives the session.
 
 `R` renames a session in oso and its buffer at once, to a name no other session or space has. A
 running Claude Code keeps the name other sessions message it by until you resume it; type
-`/rename NEW` in its terminal to change that now. A space's orchestrator keeps the space's name:
-rename the space instead.
+`/rename NEW` in its terminal to change that now. A space's orchestrator keeps the space's slug,
+which never changes; `space-rename` changes the name you see.
 
 ### Spaces
 
@@ -264,14 +264,21 @@ spaces, and the windows of the space you leave are kept for when you come back. 
 session of another space switches to that space. A worktree made in a space stays in it. A
 session started in a repository joins the space in front when that space has the repository,
 else the space you were in last that has it, else a new space of that repository. Each
-repository you used before spaces came becomes a space of its own. The modeline names the
-space.
+repository you used before spaces came becomes a space of its own. The selected window's
+modeline names the space in front.
 
-`C-c a O` makes a space for an issue: type its title, and the space is named after it, with the
-selected buffer's repository; with none, it asks for one. Each space gets a directory of its
-own, `~/spaces/<name>` (set `[spaces] root` in `config.toml` to put them elsewhere), where its
-orchestrator will work. oso makes it readable by you alone, and refuses a root that other users
-can write.
+`C-c a O` makes a space: describe what it is for, and the space is made with the selected
+buffer's repository (with none, it asks for one), entered, and its orchestrator started there;
+the buffer you were in stays in its own space. A space has two names: a display name, which
+`*Spaces*`, the modeline and `C-c a j` show and you can change at any time to any text, wide
+characters and emoji too; and a slug, lower-case ASCII, which never changes. The slug names the
+space's directory, `~/spaces/<slug>` (set `[spaces] root` in `config.toml` to put them
+elsewhere), its orchestrator, which other sessions message by that name, and the space as agents
+name it. Both are made from the description: the slug from its first English words, else the
+repository's name; the display name from its start. oso makes the directory readable by you
+alone, and refuses a root that other users can write. When the directory or the start is
+refused, the space stays, and `o` in the space menu starts its orchestrator once you fixed what
+the echo area said.
 
 `C-c a S` opens the space menu for the space in front:
 
@@ -282,13 +289,13 @@ can write.
 | `u` | `space-use-repo` | Choose the repository that `session-worktree`, `worktree-list` and `worktree-remove` use from the orchestrator's buffer, when the space has several trusted ones. |
 | `i` | `space-instructions` | Edit the goal the space's orchestrator is given. |
 | `d` | `space-directory` | List the space's directory. |
-| `n` | `space-rename` | Give the space a new title, and a name made from it. |
+| `n` | `space-rename` | Give the space a new display name, unlike every other space's. Its slug, directory and orchestrator's name stay. |
 | `c` | `space-close` | Archive the space; refused while one of its sessions works or needs input. |
 | `R` | `space-reopen` | Open a closed space again. |
-| `o` | `space-orchestrator-start` | Start the space's orchestrator, the session you talk to about the issue, in the space's directory, with each trusted repository as a working directory. `C-u` makes a space directory that is gone again at its place. |
+| `o` | `space-orchestrator-start` | Start the space's orchestrator again, the session you talk to about the work, in the space's directory, with each trusted repository as a working directory. `C-u` makes a space directory that is gone again at its place. |
 | `O` | `space-orchestrator-replace` | Replace the orchestrator by a new one that takes over from it, once it is idle: the old one is stopped and kept as `NAME-was-N`, and the new one is told to read `handoff.md` first. Asks first when there is no `handoff.md`. |
 
-The orchestrator is told the space's repositories, its title and its instructions, and to
+The orchestrator is told the space's repositories, its description and its instructions, and to
 keep a `handoff.md` in its directory for whoever takes over. Its row is right under its
 space's, and `RET` on the space's row shows it. A repository added to the space, or trusted,
 while it runs is offered to it: `y` pastes `/add-dir PATH` into its prompt, not sent. In

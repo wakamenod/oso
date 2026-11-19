@@ -30,7 +30,7 @@ use oso_core::complete::Candidate;
 use oso_core::editor::{Editor, WindowTree};
 
 pub use stored::{Member, SpaceId, Stored};
-use stored::{same, slug, unique};
+use stored::{same, slug, unique, unique_display};
 
 use super::identity::SessionId;
 
@@ -66,8 +66,14 @@ impl Space {
         }
     }
 
+    /// Its slug: its directory, its orchestrator's name and address.
     pub fn name(&self) -> &str {
         &self.stored.name
+    }
+
+    /// What the person sees it called: its display name, else its slug (ADR 0159).
+    pub fn label(&self) -> &str {
+        self.stored.label()
     }
 
     pub fn id(&self) -> &SpaceId {
@@ -140,8 +146,13 @@ impl Spaces {
             if self.known.insert(space.id.clone()) {
                 // Two instances that made a space of one name each keep both: the later gets
                 // another name, so that every space can be named.
-                if self.named(&space.name).is_some() {
-                    space.name = unique(&space.name, &|name| self.named(name).is_some());
+                if self.with_slug(&space.name).is_some() {
+                    space.name = unique(&space.name, &|name| self.with_slug(name).is_some());
+                    self.unsaved = true;
+                }
+                if !space.display.is_empty() && self.label_taken(&space.display, None) {
+                    space.display =
+                        unique_display(&space.display, &|label| self.label_taken(label, None));
                     self.unsaved = true;
                 }
                 self.spaces.push(Space::new(space));
@@ -220,11 +231,26 @@ impl Spaces {
         self.spaces.iter().position(|space| space.stored.id == *id)
     }
 
-    /// The space a `space-switch` answer names.
+    /// The space a `space-switch` answer names: the one the person sees called so, which one
+    /// space is at most (ADR 0159), else the one of that slug.
     pub fn named(&self, name: &str) -> Option<usize> {
+        (self.spaces.iter())
+            .position(|space| space.label() == name)
+            .or_else(|| self.with_slug(name))
+    }
+
+    /// The space whose slug is `slug`, as an agent names a space.
+    pub fn with_slug(&self, slug: &str) -> Option<usize> {
         self.spaces
             .iter()
-            .position(|space| space.stored.name == name)
+            .position(|space| space.stored.name == slug)
+    }
+
+    /// Whether a space other than `at` is called `label` where the person sees it, ASCII case
+    /// aside, so that no two read alike in a list.
+    pub fn label_taken(&self, label: &str, at: Option<usize>) -> bool {
+        (self.spaces.iter().enumerate())
+            .any(|(other, space)| Some(other) != at && space.label().eq_ignore_ascii_case(label))
     }
 
     /// The open space that holds the worktree at `path`, which one space does at most; else
@@ -316,7 +342,9 @@ impl Spaces {
             return None;
         }
         let id = self.fresh.pop()?;
-        let name = unique(&slug(&member.name()), &|name| self.named(name).is_some());
+        let name = unique(&slug(&member.name()), &|name| {
+            self.with_slug(name).is_some()
+        });
         self.known.insert(id.clone());
         self.spaces
             .push(Space::new(Stored::of_repository(id, name, member, now)));
@@ -503,8 +531,9 @@ impl Spaces {
         Ok(Zoom::Out)
     }
 
-    /// The candidates of `space-switch`: each open space's name, the one in front last, with
-    /// its title, else its repositories' names, as the annotation.
+    /// The candidates of `space-switch`: each open space as the person sees it called, the one
+    /// in front last, with its slug where that differs, and its description, else its
+    /// repositories' names, as the annotation.
     pub fn candidates(&self) -> Arc<[Candidate]> {
         let front = self
             .current
@@ -513,23 +542,29 @@ impl Spaces {
         let mut order: Vec<&Space> = self.spaces.iter().filter(|s| s.is_open()).collect();
         order.sort_by(|a, b| {
             let last = |space: &Space| Some(space.id()) == front;
-            (last(a), &a.stored.name).cmp(&(last(b), &b.stored.name))
+            (last(a), a.label()).cmp(&(last(b), b.label()))
         });
-        order
-            .into_iter()
-            .map(|space| {
-                let stored = &space.stored;
-                // Directory names are any text: cleaned as the list's untrusted fields are.
-                let about = if stored.title.is_empty() {
-                    let names: Vec<String> = stored.members.iter().map(Member::name).collect();
-                    crate::sessions::recap::clean(&names.join(", "))
-                } else {
-                    crate::sessions::recap::clean(&stored.title)
-                };
-                Candidate::new(stored.name.as_str(), "", about)
-            })
-            .collect()
+        order.into_iter().map(candidate).collect()
     }
+}
+
+/// `space` as a candidate of a prompt over spaces: as the person sees it called, with its slug
+/// where that differs, and its description, else its repositories' names.
+pub fn candidate(space: &Space) -> Candidate {
+    let stored = &space.stored;
+    // Directory names are any text: cleaned as the list's untrusted fields are.
+    let about = if stored.description.is_empty() {
+        let names: Vec<String> = stored.members.iter().map(Member::name).collect();
+        crate::sessions::recap::clean(&names.join(", "))
+    } else {
+        crate::sessions::recap::clean(&stored.description)
+    };
+    let about = if stored.display.is_empty() {
+        about
+    } else {
+        format!("{} · {about}", stored.name)
+    };
+    Candidate::new(space.label(), "", about)
 }
 
 #[cfg(test)]

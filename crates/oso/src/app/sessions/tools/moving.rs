@@ -107,11 +107,12 @@ impl App {
         Ok(())
     }
 
-    /// The open space named `name`, by its place and its id.
+    /// The open space named `name`, its slug, by its place and its id: an agent names a space
+    /// by its slug alone, which never changes (ADR 0159).
     fn open_space(&self, name: &str) -> Result<(usize, SpaceId), String> {
         let spaces = self.watch.spaces();
         let found = spaces
-            .named(name)
+            .with_slug(name)
             .and_then(|at| Some((at, spaces.get(at)?)));
         match found {
             Some((at, space)) if space.is_open() => Ok((at, space.id().clone())),
@@ -176,7 +177,7 @@ impl App {
             .and_then(|worktree| spaces.holding(worktree))
             .filter(|&other| other != at)
             .and_then(|other| spaces.get(other))
-            .map(|other| other.name().to_owned());
+            .map(|other| other.label().to_owned());
         (self.hosting.tools.guard)
             .admit(&asker.id, TOOL, space, Instant::now())
             .map_err(|refusal| refusal.why().to_owned())?;
@@ -184,8 +185,13 @@ impl App {
             return Err(QUESTION_WAITS.into());
         }
         let added = adds.then_some(asker.main.root.as_path());
-        let label = moving::question(&name, &asker, space, added);
-        let details = moving::details(&label, &asker, space, held_by.as_deref());
+        // The person reads the space as they call it, beside the slug the agent gave.
+        let shown = match stored.display.as_str() {
+            "" => space.to_owned(),
+            display => format!("{space} ({display})"),
+        };
+        let label = moving::question(&name, &asker, &shown, added);
+        let details = moving::details(&label, &asker, &shown, held_by.as_deref());
         let caller = asker.id.clone();
         let plan = Plan::Move(Box::new(Moving {
             asker,

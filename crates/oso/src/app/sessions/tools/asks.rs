@@ -204,6 +204,7 @@ impl App {
             check_shared: false,
             trusted: self.caller_root(caller),
             space: None,
+            behind: false,
         };
         // Without asking only in a project an open buffer has trusted now: the trust the session
         // began with may have been taken back since (ADR 0135, Q4).
@@ -323,9 +324,9 @@ impl App {
                     brief,
                     parent: Some(caller.id.clone()),
                     origin: Origin::Answered,
-                    check_shared: false,
                     trusted,
                     space: App::worker_reads(with),
+                    ..Begin::default()
                 };
                 // Its job, as a worktree's, looked at trust against the record as it is now.
                 let now = (target, begin.trusted.is_some());

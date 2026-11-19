@@ -7,7 +7,7 @@
 //! and asks the host.
 //!
 //! Every one is `Person`: a space's repositories become an orchestrator's `--add-dir` (step 3),
-//! its title and name are the person's words that orchestrator is given, closing a space stops
+//! its description is the person's words that orchestrator is given, closing a space stops
 //! its idle sessions, and showing its directory makes it and puts a listing in front of the
 //! person's keys after the command, where the agent channel's guards no longer see it.
 
@@ -33,12 +33,12 @@ pub fn listed_takes_input(list: &str) -> bool {
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "space-new",
-        doc: "Make a space for an issue, read as its title, and enter it.
+        doc: "Make a space for what you describe, enter it, and start its orchestrator.
 
-A space is the workplace of one issue: its repositories, their worktrees and sessions, and its own windows and directory. The space's name is made from the title. Its first repository is the selected buffer's; with none, its path is read. `space-add-repo` adds more.",
+A space is the workplace of one piece of work: its repositories, their worktrees and sessions, and its own windows and directory. Its first repository is the selected buffer's; with none, its path is read. The space gets a display name you can change with `space-rename`, and a slug that never changes: its directory and its orchestrator's name. Its orchestrator is told the description; with no trusted repository it starts with none, and `space-orchestrator-start` starts it again if its start fails. `space-add-repo` adds more repositories.",
         args: ArgSpec::Text {
-            prompt: "New space for issue:",
-            history: "space-title",
+            prompt: "Describe the space:",
+            history: "space-description",
         },
         reach: Reach::Person,
         run: space_new,
@@ -110,10 +110,12 @@ It is refused while a session of the space is working or needs input. Its idle s
     },
     Command {
         name: "space-rename",
-        doc: "Give the space in front a new title, and a name made from it. Its directory stays where it is.",
+        doc: "Give the space in front a new display name: any text, wide characters and emoji too, unlike every other space's.
+
+Its slug stays: its directory, its orchestrator's name, and what agents call it.",
         args: ArgSpec::Text {
-            prompt: "Space title:",
-            history: "space-title",
+            prompt: "Rename space to:",
+            history: "space-name",
         },
         reach: Reach::Person,
         run: space_rename,
@@ -133,7 +135,7 @@ They are kept in oso's state directory, never in the space's own directory or a 
         name: "space-orchestrator-start",
         doc: "Start the orchestrator of the space in front, in the space's own directory: the session you talk to about the issue, which works through sessions in worktrees of the space's repositories.
 
-It is told the space's repositories, title and instructions, and given each trusted repository as a working directory. With a prefix argument, a space directory that is gone is made again, empty, at its place.",
+It is told the space's repositories, description and instructions, and given each trusted repository as a working directory. With a prefix argument, a space directory that is gone is made again, empty, at its place.",
         args: ArgSpec::Count,
         reach: Reach::Person,
         run: space_orchestrator_start,
@@ -184,8 +186,14 @@ fn answer(ctx: &Ctx<'_>, none: &str) -> Result<String, CommandError> {
 }
 
 fn space_new(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    let title = answer(ctx, "No title")?;
-    ask(ctx, SpaceRequest::New(title))
+    let description = answer(ctx, "No description")?;
+    // Its orchestrator is given it, and agents read it (ADR 0159).
+    if ctx.answer_secret() {
+        return Err(CommandError::new(
+            "A description holding what may be secret is not kept".to_owned(),
+        ));
+    }
+    ask(ctx, SpaceRequest::New(description))
 }
 
 fn space_add_repo(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -213,8 +221,13 @@ fn space_reopen(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 }
 
 fn space_rename(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    let title = answer(ctx, "No title")?;
-    ask(ctx, SpaceRequest::Rename(title))
+    let display = answer(ctx, "No name")?;
+    if ctx.answer_secret() {
+        return Err(CommandError::new(
+            "A name holding what may be secret is not kept".to_owned(),
+        ));
+    }
+    ask(ctx, SpaceRequest::Rename(display))
 }
 
 fn space_instructions(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

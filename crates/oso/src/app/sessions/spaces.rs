@@ -7,6 +7,7 @@
 
 mod handover;
 mod members;
+mod naming;
 mod orchestrator;
 
 use std::collections::{HashMap, HashSet};
@@ -32,8 +33,8 @@ const PROMPT_OPEN: &str = "Close the prompt first";
 /// A repository looked at on the worker, and what it is for.
 #[derive(Debug)]
 enum Pending {
-    /// The first repository of a new space for the issue with this title.
-    New { title: String },
+    /// The first repository of a new space for what this description says.
+    New { description: String },
     /// One more repository of this space.
     Add { space: SpaceId },
 }
@@ -45,9 +46,9 @@ pub(in crate::app) struct SpaceWork {
     pending: HashMap<RepoCheck, Pending>,
     /// The checks asked for so far.
     checks: u64,
-    /// A title `space-new` read with no repository to start from: the next `space-add-repo`
-    /// answer makes its space.
-    title: Option<String>,
+    /// A description `space-new` read with no repository to start from: the next
+    /// `space-add-repo` answer makes its space.
+    description: Option<String>,
     /// The spaces whose directory is shown once it is made.
     show_directory: HashSet<SpaceId>,
     /// The spaces whose orchestrator starts once their directory is made (step 3).
@@ -88,13 +89,13 @@ impl App {
     /// Carries out a space command's request.
     pub(in crate::app) fn space_request(&mut self, request: SpaceRequest) {
         match request {
-            SpaceRequest::New(title) => self.new_space(title),
+            SpaceRequest::New(description) => self.new_space(description),
             SpaceRequest::AddRepo(text) => self.add_repository(&text),
             SpaceRequest::RemoveRepo(name) => self.remove_repository(&name),
             SpaceRequest::UseRepo(name) => self.use_repository(&name),
             SpaceRequest::Close => self.close_space(),
             SpaceRequest::Reopen(name) => self.reopen_space(&name),
-            SpaceRequest::Rename(title) => self.rename_space(&title),
+            SpaceRequest::Rename(display) => self.rename_space(&display),
             SpaceRequest::Instructions => self.space_instructions(),
             SpaceRequest::Directory => self.space_directory(),
             SpaceRequest::StartOrchestrator { remake_directory } => {
@@ -107,9 +108,9 @@ impl App {
         self.request_redraw();
     }
 
-    /// `space-new`: the selected buffer's repository is looked at, then the space is made; with
-    /// none, `space-add-repo`'s prompt reads one (P1).
-    fn new_space(&mut self, title: String) {
+    /// `space-new`: the selected buffer's repository is looked at, then the space is made and
+    /// its orchestrator started; with none, `space-add-repo`'s prompt reads one (P1).
+    fn new_space(&mut self, description: String) {
         if self.watch.spaces().full() {
             return self.editor.message("No more spaces can be kept".to_owned());
         }
@@ -119,11 +120,11 @@ impl App {
                 self.hosting
                     .spaces
                     .pending
-                    .insert(token, Pending::New { title });
+                    .insert(token, Pending::New { description });
                 self.check_repository(token, repo);
             }
             None => {
-                self.hosting.spaces.title = Some(title);
+                self.hosting.spaces.description = Some(description);
                 let effects = self
                     .dispatcher
                     .run_from_host(&mut self.editor, "space-add-repo");
@@ -143,8 +144,8 @@ impl App {
                 .editor
                 .message("A repository's path must be absolute".to_owned());
         }
-        let pending = match self.hosting.spaces.title.take() {
-            Some(title) => Pending::New { title },
+        let pending = match self.hosting.spaces.description.take() {
+            Some(description) => Pending::New { description },
             None => match self.front_space() {
                 Some(space) => Pending::Add { space },
                 None => return self.editor.message("No space in front".to_owned()),
@@ -185,21 +186,7 @@ impl App {
         };
         let now = now_ms();
         match pending {
-            Pending::New { title } => {
-                let shown = self.editor.window().buffer();
-                let spaces = self.watch.spaces_mut();
-                let Some(at) = spaces.new_space(&title, member, now) else {
-                    return self
-                        .editor
-                        .message("No id for a new space yet; try again".to_owned());
-                };
-                // Entered for the first time, it shows the buffer shown now, alone.
-                spaces.showed(at, None, Some(shown));
-                self.enter_space(at);
-                self.make_space_directory(at, false);
-                let name = self.space_name(at);
-                self.editor.message(format!("Space {name} made"));
-            }
+            Pending::New { description } => self.make_new_space(&description, member, now),
             Pending::Add { space } => {
                 let spaces = self.watch.spaces_mut();
                 let Some(at) = spaces.find(&space) else {
@@ -279,6 +266,7 @@ impl App {
     ) {
         let show = self.hosting.spaces.show_directory.remove(id);
         let start = self.hosting.spaces.start_after.remove(id);
+        let taken = self.session_name_taken();
         let spaces = self.watch.spaces_mut();
         let Some(at) = spaces.find(id) else {
             return;
@@ -293,7 +281,8 @@ impl App {
                 name,
                 asked,
             }) => {
-                spaces.set_directory(at, path.clone(), identity, &name, &asked, now_ms());
+                let names = (name.as_str(), asked.as_str());
+                spaces.set_directory(at, path.clone(), identity, names, &taken, now_ms());
                 if show {
                     self.show_listing(path);
                 }
@@ -388,14 +377,15 @@ impl App {
         self.editor.message(format!("Space {name} open again"));
     }
 
-    /// `space-rename`.
-    fn rename_space(&mut self, title: &str) {
+    /// `space-rename`: the display name alone (ADR 0159).
+    fn rename_space(&mut self, display: &str) {
         let Some(at) = self.watch.spaces().current() else {
             return self.editor.message("No space in front".to_owned());
         };
-        self.watch.spaces_mut().rename(at, title, now_ms());
-        let name = self.space_name(at);
-        self.editor.message(format!("The space is now {name}"));
+        match self.watch.spaces_mut().rename(at, display, now_ms()) {
+            Ok(shown) => self.editor.message(format!("The space is now {shown}")),
+            Err(why) => self.editor.message(why),
+        }
     }
 
     /// `space-instructions`: the file is found, its directory made, on the worker.
@@ -496,19 +486,19 @@ impl App {
             .map(|space| space.id().clone())
     }
 
-    /// Space `at`'s name.
+    /// Space `at` as the person sees it called (ADR 0159).
     fn space_name(&self, at: usize) -> String {
         self.watch
             .spaces()
             .get(at)
-            .map_or_else(String::new, |space| space.name().to_owned())
+            .map_or_else(String::new, |space| space.label().to_owned())
     }
 
-    /// After the space requests of an event: a title `space-new` waited with is dropped once
-    /// no prompt is open, as `space-add-repo`'s was closed without an answer.
+    /// After the space requests of an event: a description `space-new` waited with is dropped
+    /// once no prompt is open, as `space-add-repo`'s was closed without an answer.
     pub(in crate::app) fn forget_unanswered_space(&mut self) {
-        if self.hosting.spaces.title.is_some() && self.editor.prompt().is_none() {
-            self.hosting.spaces.title = None;
+        if self.hosting.spaces.description.is_some() && self.editor.prompt().is_none() {
+            self.hosting.spaces.description = None;
         }
     }
 

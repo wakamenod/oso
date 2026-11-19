@@ -4,6 +4,9 @@
 //! Must not depend on: threads, the UI or `app`; the sessions worker reads and writes it,
 //! never the UI thread.
 //!
+//! - A space's description is written as `description` and, cut to what a build before ADR
+//!   0159 reads, as `title`, which such a build keeps; its display name as `display`, which
+//!   such a build leaves out.
 //! - It is read as `sessions` is: only if the directory is private and the file a regular one
 //!   of this user's with one name, at most [`MAX_BYTES`] and [`MAX_SPACES`] spaces. A line that
 //!   does not hold a whole, valid space is left out, and only how many were is logged.
@@ -18,7 +21,8 @@ use oso_platform::privacy::PrivateDir;
 use serde_json::{Map, Value, json};
 
 use super::stored::{
-    MAX_EARLIER, MAX_ISSUE, MAX_MEMBERS, MAX_TITLE, MAX_WORKTREES, Member, SpaceId, Stored, slug,
+    MAX_DESCRIPTION, MAX_DISPLAY, MAX_EARLIER, MAX_ISSUE, MAX_MEMBERS, MAX_OLD_TITLE,
+    MAX_WORKTREES, Member, SpaceId, Stored, clean_display, cut_bytes, slug,
 };
 use crate::sessions::identity::SessionId;
 use crate::sessions::record::{read_file, replace_file};
@@ -27,8 +31,9 @@ use crate::sessions::record::{read_file, replace_file};
 const FILE: &str = "spaces";
 /// Where a write goes first, so that the file is whole or not there.
 const PART: &str = "spaces.part";
-/// The most bytes read of the file; a larger one is not read.
-pub const MAX_BYTES: u64 = 256 * 1024;
+/// The most bytes read of the file; a larger one is not read. Room for as many spaces as it
+/// keeps, each with a whole description (ADR 0159).
+pub const MAX_BYTES: u64 = 512 * 1024;
 /// The most spaces read or written.
 pub const MAX_SPACES: usize = 256;
 /// The longest path kept, in bytes.
@@ -131,7 +136,19 @@ fn parse_line(line: &[u8]) -> Option<Stored> {
     Some(Stored {
         id: SpaceId::parse(object.get("id")?.as_str()?)?,
         name,
-        title: text("title", MAX_TITLE)?,
+        display: match object.get("display") {
+            None => String::new(),
+            Some(Value::String(display))
+                if display.len() <= MAX_DISPLAY && clean_display(display) == *display =>
+            {
+                display.clone()
+            }
+            Some(_) => return None,
+        },
+        description: match object.get("description") {
+            Some(_) => text("description", MAX_DESCRIPTION)?,
+            None => text("title", MAX_DESCRIPTION)?,
+        },
         issue: text("issue", MAX_ISSUE)?,
         members,
         directory,
@@ -184,7 +201,7 @@ fn path(text: &str) -> Option<PathBuf> {
     (text.len() <= MAX_PATH && path.is_absolute() && !text.contains('\0')).then_some(path)
 }
 
-/// Whether `text` has no control or invisible character, so that a title or an issue never
+/// Whether `text` has no control or invisible character, so that a description or an issue never
 /// moves a row or reads otherwise than it is (ADR 0136, step 1b, P5).
 fn all_plain(text: &str) -> bool {
     text.chars().all(super::stored::is_plain)
@@ -203,7 +220,12 @@ fn line(space: &Stored) -> Option<String> {
     let mut object = Map::new();
     object.insert("id".into(), json!(space.id.as_str()));
     object.insert("name".into(), json!(space.name));
-    object.insert("title".into(), json!(space.title));
+    if !space.display.is_empty() {
+        object.insert("display".into(), json!(space.display));
+    }
+    object.insert("description".into(), json!(space.description));
+    let title = cut_bytes(&space.description, MAX_OLD_TITLE).trim_end();
+    object.insert("title".into(), json!(title));
     object.insert("issue".into(), json!(space.issue));
     object.insert("members".into(), Value::Array(members));
     if let Some(directory) = &space.directory {

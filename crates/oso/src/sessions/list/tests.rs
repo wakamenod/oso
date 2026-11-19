@@ -235,6 +235,28 @@ fn marks_take_their_states_face_and_a_working_one_spins() {
 }
 
 #[test]
+fn an_emoji_sequence_takes_the_cells_it_is_drawn_in_and_is_never_cut_inside() {
+    let family = "👨\u{200D}👩\u{200D}👧";
+    assert_eq!(cells(family), 2, "one glyph, not three");
+    assert_eq!(cells(&format!("ログイン {family}")), 11);
+    let name = format!("{family}{family}{family}");
+    assert_eq!(cut(&name, 5), format!("{family}{family}…"));
+    assert_eq!(
+        cut_middle(&format!("{name}{name}"), 8),
+        format!("{family}{family}…{family}")
+    );
+    for width in 0..14 {
+        for cut in [cut(&name, width), cut_middle(&name, width)] {
+            assert!(cells(&cut) <= width, "{width}: {cut}");
+            assert!(
+                !cut.contains("\u{200D}…") && !cut.starts_with('\u{200D}'),
+                "{cut}"
+            );
+        }
+    }
+}
+
+#[test]
 fn ages_and_cuts() {
     let t = Instant::now();
     let after = |s| age(t, t + Duration::from_secs(s));

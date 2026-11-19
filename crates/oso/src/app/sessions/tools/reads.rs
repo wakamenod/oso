@@ -150,7 +150,10 @@ impl App {
         });
         Ok(json!({
             "space": stored.name,
-            "title": stored.title,
+            // What the person sees it called, and what it is for: the person's words, in a
+            // record agents in oso can write too, cleaned of controls (ADR 0159).
+            "display_name": stored.label(),
+            "description": stored.description,
             // The workers' address: SendMessage (to: this name).
             "orchestrator": orchestrator.map(|name| name.unwrap_or_else(|| stored.name.clone())),
             "you_orchestrate": caller.orchestrator(),
