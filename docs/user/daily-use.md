@@ -310,6 +310,15 @@ session of the space the space, its repositories with their trust, and its sessi
 `with_dirs`, the orchestrator lets a worker also read another trusted repository of the space or
 one of its worktrees; the question you answer lists them.
 
+Reviews go through the orchestrator too. Ask it to review a worker's change, and say how: the
+viewpoints (security, design, performance, spec, tests). It starts each reviewer with
+`session_start` in the worker's worktree, with no "Start here anyway?" question (when oso asks
+you about the start at all, the question says another session runs there), and told not to
+edit, commit or push; that is its brief, not something oso enforces. It checks their reports
+against the code, merges and ranks them, and tells you what holds and what it dropped. When you
+ask it about code under review, it reads the code first and cites `file:line`, and says when an
+answer is the implementer's.
+
 ### Send work to a session
 
 Select a region and press `C-c a m`, then pick the session. The region goes as its path, its
