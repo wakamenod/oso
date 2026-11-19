@@ -77,7 +77,7 @@ const fn reads(name: &'static str) -> Tool {
 
 /// The tools, the reading ones first. A change here is a change of what an agent may do: the
 /// test below spells the table out, so that review sees it.
-pub const TOOLS: [Tool; 11] = [
+pub const TOOLS: [Tool; 12] = [
     reads("session_list"),
     reads("session_state"),
     // It runs git and `gh` with no question, as the author chose (ADR 0121, step 4).
@@ -144,7 +144,19 @@ pub const TOOLS: [Tool; 11] = [
         destructive: false,
         outside: false,
     },
+    // A space's orchestrator adds a repository to its space, as `space-add-repo` does; one oso
+    // does not trust always asks (ADR 0161).
+    Tool {
+        name: ADD_REPO,
+        reach: Reach::Change,
+        asks: Asks::UnlessAllowed,
+        destructive: false,
+        outside: false,
+    },
 ];
+
+/// The tool that adds a repository to the caller's space (ADR 0161).
+pub const ADD_REPO: &str = "space_add_repo";
 
 /// The tool named `name`.
 pub fn tool(name: &str) -> Option<&'static Tool> {
@@ -406,6 +418,12 @@ impl StartLimit {
     }
 }
 
+/// Whether an unasked call of `tool` counts toward the caller's `agents_start_limit`: every one
+/// that starts a session, so not `space_add_repo`, which starts none (ADR 0161, Q4).
+pub fn counts_toward_limit(tool: &str) -> bool {
+    tool != ADD_REPO
+}
+
 /// Whether a call that would ask starts without asking: only as the person's configuration
 /// allows, from a session the person started, so that it reaches one level, in a trusted
 /// project, and below the caller's limit, if it has one; else it asks as before (ADR 0135).
@@ -471,6 +489,33 @@ pub fn resume_started(caller: &str, name: &str, directory: &str) -> String {
         quoted(caller),
         quoted(name),
         quoted(directory)
+    )
+}
+
+/// The question of `space_add_repo`: `caller` adds the repository at `path` to space `space`;
+/// one oso does not trust says it joins restricted (ADR 0161).
+pub fn add_repo_question(caller: &str, path: &str, space: &str, trusted: bool) -> String {
+    let restricted = if trusted {
+        ""
+    } else {
+        " oso does not trust it: it joins restricted, with no worktrees, workers or --add-dir \
+         until you trust it."
+    };
+    format!(
+        "let session {} add repository {} to space {}?{restricted}",
+        quoted(caller),
+        quoted(path),
+        quoted(space)
+    )
+}
+
+/// What the echo area says of a `space_add_repo` that went ahead with no question (ADR 0161).
+pub fn add_repo_said(caller: &str, path: &str, space: &str) -> String {
+    format!(
+        "session {} added repository {} to space {}, without asking",
+        quoted(caller),
+        quoted(path),
+        quoted(space)
     )
 }
 

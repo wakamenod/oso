@@ -20,13 +20,19 @@ impl App {
     /// goes ahead without the question, by [`rules::starts_without_asking`].
     pub(super) fn starts_without_asking(&self, caller: &Caller, tool: &str, trusted: bool) -> bool {
         let tools = &self.hosting.tools;
+        // An add starts no session, so it counts toward no limit (ADR 0161, Q4).
+        let (live_unasked, limit) = if rules::counts_toward_limit(tool) {
+            (self.unasked_children(&caller.id), tools.agent_starts.limit)
+        } else {
+            (0, rules::StartLimit::Unlimited)
+        };
         rules::starts_without_asking(rules::Unasked {
             tool: rules::tool(tool).map_or(rules::Asks::Each, |tool| tool.asks),
             allowed: self.agent_starts_allowed(),
             caller: caller.origin,
             trusted,
-            live_unasked: self.unasked_children(&caller.id),
-            limit: tools.agent_starts.limit,
+            live_unasked,
+            limit,
         })
     }
 
@@ -88,6 +94,7 @@ impl App {
             }
             Plan::Move(moving) => self.start_move(pending, *moving),
             Plan::Resume(resuming) => self.carry_out_resume(pending, resuming, said),
+            Plan::AddRepo(adding) => self.carry_out_add(pending, *adding, said),
             Plan::Start(mut begin, _) => {
                 // As the directories to read stand at the person's `y`.
                 begin.space = self.space_now(begin.space.take());

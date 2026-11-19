@@ -99,8 +99,16 @@ pub(super) fn space_job(job: SpaceJob) -> Vec<Out> {
                 identities,
             }
         }
-        SpaceJob::CheckRepository { check, path } => {
-            let member = probe::main_checkout(&path);
+        SpaceJob::CheckRepository {
+            check,
+            path,
+            as_named,
+        } => {
+            let member = if as_named {
+                probe::main_checkout_as_named(&path)
+            } else {
+                probe::main_checkout(&path)
+            };
             Out::RepositoryChecked {
                 check,
                 path,

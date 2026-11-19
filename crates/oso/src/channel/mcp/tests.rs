@@ -135,6 +135,7 @@ fn initializes_without_connecting_and_lists_its_tools() {
             "move_to_space",
             "session_resume",
             "session_rename",
+            "space_add_repo",
         ]
     );
     let hint = |name: &str, hint: &str| {

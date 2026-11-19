@@ -38,6 +38,7 @@ use crate::sessions::tools::{self as rules, Asks, Guard, Tool};
 use crate::sessions::worker::SessionKey;
 use crate::sessions::worktree::jobs::{Report, Trust};
 
+mod add_repo;
 mod asks;
 mod moving;
 mod question;
@@ -48,6 +49,7 @@ mod resume;
 mod space;
 mod starting;
 
+pub(in crate::app) use add_repo::AddLook;
 pub(in crate::app) use question::Question;
 use reads::Listing;
 
@@ -257,14 +259,14 @@ impl App {
             (Call::Resume { session }, Some(caller)) => {
                 self.tool_session_resume(pending, &tool, &caller, &session);
             }
+            (Call::SpaceAddRepo { path }, Some(caller)) => {
+                self.tool_space_add_repo(pending, &tool, &caller, path);
+            }
             (Call::Rename { session, name }, Some(caller)) => {
                 self.tool_session_rename(pending, &tool, &caller, (&session, &name));
             }
             (Call::DraftSet { id, text }, Some(caller)) => {
-                let set = self.admit_tool(&tool, &caller, &id).and_then(|()| {
-                    self.draft_set(caller.key, &caller.runs_in, &caller.name, &id, &text)
-                });
-                pending.answer(set);
+                pending.answer(self.tool_draft_set(&tool, &caller, &id, &text));
             }
             (
                 Call::StartWorktree {
@@ -317,6 +319,12 @@ impl App {
                 pending.answer(Err("this tool is only for a session oso started".into()));
             }
         }
+    }
+
+    /// `draft_set` of `text` for request `id` from `caller`, once admitted.
+    fn tool_draft_set(&mut self, tool: &Tool, caller: &Caller, id: &str, text: &str) -> Reply {
+        self.admit_tool(tool, caller, id)?;
+        self.draft_set(caller.key, &caller.runs_in, &caller.name, id, text)
     }
 
     /// Counts a call of `tool` on `target` from `caller` toward the loop guard, or says why
@@ -556,6 +564,8 @@ impl App {
                 removing.pending = None;
             }
         }
+        // An add's look the person has not allowed yet (ADR 0161).
+        self.drop_agent_looks(|look| look.before_question() && ours(look.connection()));
         let tools = &mut self.hosting.tools;
         tools
             .listings

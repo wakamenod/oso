@@ -8,10 +8,11 @@ use std::time::{Duration, Instant};
 use oso_core::command::Reach;
 
 use super::{
-    Asks, Branch, Guard, MAX_CALLS, REFUSED_FOR, Refusal, Renamable, Resumable, StartLimit, TOOLS,
-    Unasked, quoted, renamable, rename_clash, rename_note, renamed_said, resumable,
-    resume_question, resume_started, start_question, start_started, starts_without_asking, tool,
-    worktree_question, worktree_started,
+    ADD_REPO, Asks, Branch, Guard, MAX_CALLS, REFUSED_FOR, Refusal, Renamable, Resumable,
+    StartLimit, TOOLS, Unasked, add_repo_question, add_repo_said, counts_toward_limit, quoted,
+    renamable, rename_clash, rename_note, renamed_said, resumable, resume_question, resume_started,
+    start_question, start_started, starts_without_asking, tool, worktree_question,
+    worktree_started,
 };
 use crate::sessions::identity::Origin;
 use crate::sessions::identity::SessionId;
@@ -65,6 +66,14 @@ fn the_tools_and_their_reach() {
             ),
             // Metadata only, as ADR 0121's table has it (ADR 0155).
             ("session_rename", Reach::Change, Asks::No, true, false),
+            // As a start, by ADR 0135's rules, past no limit; untrusted, it asks (ADR 0161).
+            (
+                "space_add_repo",
+                Reach::Change,
+                Asks::UnlessAllowed,
+                true,
+                false
+            ),
         ]
     );
     let destructive: Vec<_> = TOOLS
@@ -511,4 +520,43 @@ fn a_rename_says_what_still_answers_to_the_old_name() {
     assert_eq!(rename_note("api-v2", "api-v2", true, 0), None);
     let children = rename_note("api", "api-v2", false, 2).unwrap();
     assert_eq!(children, "2 sessions it started report to \"api\"");
+}
+
+/// The add's question quotes the path and the space, and says when the repository joins
+/// restricted; its line says it went without asking (ADR 0161).
+#[test]
+fn an_add_names_the_repository_quoted_and_says_when_it_is_restricted() {
+    let trusted = add_repo_question("fix-login", "/r/web", "fix-login", true);
+    assert_eq!(
+        trusted,
+        "let session \"fix-login\" add repository \"/r/web\" to space \"fix-login\"?"
+    );
+    let restricted = add_repo_question("fix-login", "/r/w\u{202e}eb", "fix-login", false);
+    assert!(restricted.contains("\\u{202e}"), "{restricted}");
+    assert!(restricted.contains("joins restricted"), "{restricted}");
+    let said = add_repo_said("fix-login", "/r/web", "fix-login");
+    assert!(said.ends_with(", without asking"), "{said}");
+}
+
+/// An add goes without asking only as a start would, trusted, and counts toward no limit, as
+/// it starts no session (ADR 0161, Q2, Q4).
+#[test]
+fn an_add_goes_without_asking_only_when_trusted_and_past_no_limit() {
+    let add = tool(ADD_REPO).unwrap();
+    let unasked = |trusted, caller| {
+        starts_without_asking(Unasked {
+            tool: add.asks,
+            allowed: true,
+            caller,
+            trusted,
+            live_unasked: 0,
+            limit: StartLimit::Unlimited,
+        })
+    };
+    assert!(unasked(true, Origin::Person));
+    assert!(!unasked(false, Origin::Person), "untrusted, it always asks");
+    assert!(!unasked(true, Origin::Unasked), "one level only");
+    assert!(!counts_toward_limit(ADD_REPO));
+    assert!(counts_toward_limit("session_start"));
+    assert!(counts_toward_limit("session_resume"));
 }

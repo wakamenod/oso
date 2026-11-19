@@ -718,6 +718,12 @@ Terminal output is untrusted input: a file `cat`ed, a page fetched, a remote hos
     as a start does, or goes without asking under ADR 0135's rules, counted toward the limit
     while it runs. A conversation a live process runs is refused, and the agent never forks
     one.
+  - A space's orchestrator's `space_add_repo`
+    ([ADR 0161](adr/0161-an-orchestrator-adds-a-repository-to-its-space.md)) adds a
+    repository's main checkout to its own space, under every check of `space-add-repo`, the
+    path also naming it with no link or `..` on the way, and looked at again at the person's
+    `y`. It asks as a start does, past no limit; one oso does not trust always asks and joins
+    restricted. A running orchestrator reads it only after the person's `/add-dir` paste.
   - `session_rename` ([ADR 0155](adr/0155-renaming-sessions.md)) asks nothing, as it changes
     metadata only, and counts toward the loop guard before the name is looked up. An agent
     renames itself, the sessions it started and, as a current orchestrator, its space's

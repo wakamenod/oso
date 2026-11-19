@@ -24,6 +24,7 @@ pub(super) fn method(name: &str) -> Option<(&'static str, &'static [&'static str
         "move_to_space" => &["space"],
         "session_resume" => &["session"],
         "session_rename" => &["session", "name"],
+        "space_add_repo" => &["path"],
         _ => return None,
     };
     let method = METHODS.into_iter().find(|method| *method == name)?;
@@ -160,7 +161,22 @@ pub(super) fn acting() -> Vec<Value> {
         ),
     ];
     tools.push(rename());
+    tools.push(add_repo());
     tools
+}
+
+/// `space_add_repo`, which adds a repository to the caller's space (ADR 0161).
+fn add_repo() -> Value {
+    tool(
+        "space_add_repo",
+        "For a space's orchestrator: add a git repository to your space, by the absolute real path of its main checkout (no link, no worktree). The person is asked first, unless their configuration lets your session start sessions without asking and oso trusts the repository; a repository oso does not trust always asks, and joins restricted: no worktrees, workers or --add-dir until the person trusts it. The call returns once it is added, and its `asked` says which happened. Your running claude cannot read the new repository until /add-dir: the reply's `add_dir` says whether oso offered the person to paste it into your input. If it did, ask the person to accept the paste in oso and send it.",
+        json!({
+            "path": { "type": "string", "description": "The repository's main checkout, an absolute path with no link in it." },
+        }),
+        &["path"],
+        false,
+        false,
+    )
 }
 
 /// `session_rename`, which acts on a session's name only (ADR 0155).

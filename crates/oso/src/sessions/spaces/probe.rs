@@ -140,6 +140,33 @@ pub fn main_checkout(path: &Path) -> Result<Member, String> {
     }
 }
 
+/// The repository whose main checkout is at `path` as [`main_checkout`] finds it, for an
+/// agent's `space_add_repo` (ADR 0161): `path` must also name it with no link and no `.` or
+/// `..` on the way, so that the person's question shows the place the agent named.
+///
+/// # Errors
+///
+/// Why not, for the agent.
+pub fn main_checkout_as_named(path: &Path) -> Result<Member, String> {
+    use std::path::Component;
+    let shown = path.display();
+    if (path.components()).any(|part| matches!(part, Component::CurDir | Component::ParentDir)) {
+        return Err(format!(
+            "{shown} holds . or ..: name the repository's real path"
+        ));
+    }
+    for at in path.ancestors() {
+        let meta = fs::symlink_metadata(at).map_err(|e| format!("{}: {e}", at.display()))?;
+        if meta.file_type().is_symlink() {
+            return Err(format!(
+                "{shown} goes through the link {}: name the repository's real path",
+                at.display()
+            ));
+        }
+    }
+    main_checkout(path)
+}
+
 /// Whether the directory at `path`, by its real path, is the root or holds the home directory,
 /// which are no project's (ADR 0114): a space's orchestrator would reach all of them through
 /// `--add-dir`. One whose real path is unknown is taken as holding it.

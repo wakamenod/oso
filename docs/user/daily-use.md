@@ -511,6 +511,7 @@ tools besides oso's editing ones:
 | `start_worktree_session` | Start a session in a new worktree, with a brief. Asks you first. |
 | `session_resume` | For a space's orchestrator: resume a stopped session of its space with its conversation, as `C-c a r` does. Asks you first. |
 | `session_rename` | Rename its own session or one it started; a space's orchestrator also its space's sessions. Asks nothing, and the echo area says it. |
+| `space_add_repo` | For a space's orchestrator: add a repository's main checkout to its space, as the space menu's `a` does. Asks you first; one oso does not trust always asks, and joins restricted. Once it is trusted, oso offers to paste `/add-dir PATH` into the orchestrator. |
 | `worktree_list` | List the repository's worktrees, as `M-x worktree-list` does. |
 | `worktree_remove` | Remove a finished worktree, under the same rules as `M-x worktree-remove`. |
 | `space_status` | Read the session's issue space: its repositories, their trust, the orchestrator's name, its sessions. |

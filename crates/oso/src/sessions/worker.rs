@@ -149,6 +149,9 @@ pub enum SpaceJob {
     CheckRepository {
         check: super::spaces::probe::RepoCheck,
         path: PathBuf,
+        /// An agent's path (`space_add_repo`), which must name the repository with no link
+        /// on the way (ADR 0161).
+        as_named: bool,
     },
     /// The file of space `id`'s instructions in the state directory `state`, its directory
     /// made private (`space-instructions`).

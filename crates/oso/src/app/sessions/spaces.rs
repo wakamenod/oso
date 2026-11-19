@@ -36,6 +36,8 @@ enum Pending {
     New { description: String },
     /// One more repository of this space.
     Add { space: SpaceId },
+    /// The repository an agent's `space_add_repo` names (ADR 0161).
+    Agent(Box<super::tools::AddLook>),
 }
 
 /// What the space commands wait for.
@@ -170,12 +172,38 @@ impl App {
         self.check_repository(token, path);
     }
 
+    /// Looks at `path` for an agent's `space_add_repo`, as for `space-add-repo`, `path` also
+    /// naming it with no link on the way (ADR 0161).
+    pub(in crate::app) fn check_repository_for_agent(&mut self, look: super::tools::AddLook) {
+        let token = self.hosting.spaces.check();
+        let path = look.path().to_owned();
+        let pending = Pending::Agent(Box::new(look));
+        self.hosting.spaces.pending.insert(token, pending);
+        self.check_repository(token, path);
+    }
+
+    /// Drops the agents' looks that `gone` says are of a connection that went, before the
+    /// person allowed them: nothing they asked for is added.
+    pub(in crate::app) fn drop_agent_looks(
+        &mut self,
+        gone: impl Fn(&super::tools::AddLook) -> bool,
+    ) {
+        (self.hosting.spaces.pending)
+            .retain(|_, pending| !matches!(pending, Pending::Agent(look) if gone(look)));
+    }
+
     /// Asks the worker whether `path` is a repository's main checkout, for `token`.
     fn check_repository(&mut self, token: RepoCheck, path: PathBuf) {
+        let as_named = matches!(
+            self.hosting.spaces.pending.get(&token),
+            Some(Pending::Agent(_))
+        );
         match &self.sessions {
-            Some(worker) => {
-                worker.send(Job::Space(SpaceJob::CheckRepository { check: token, path }))
-            }
+            Some(worker) => worker.send(Job::Space(SpaceJob::CheckRepository {
+                check: token,
+                path,
+                as_named,
+            })),
             None => {
                 self.hosting.spaces.pending.remove(&token);
                 self.editor
@@ -191,8 +219,10 @@ impl App {
         path: &Path,
         member: Result<Member, String>,
     ) {
-        let Some(pending) = self.hosting.spaces.pending.remove(&token) else {
-            return;
+        let pending = match self.hosting.spaces.pending.remove(&token) {
+            Some(Pending::Agent(look)) => return self.agent_repository_checked(*look, member),
+            Some(pending) => pending,
+            None => return,
         };
         let member = match member {
             Ok(member) => member,
@@ -201,6 +231,7 @@ impl App {
         let now = now_ms();
         match pending {
             Pending::New { description } => self.make_new_space(&description, member, now),
+            Pending::Agent(_) => {}
             Pending::Add { space } => {
                 let spaces = self.watch.spaces_mut();
                 let Some(at) = spaces.find(&space) else {

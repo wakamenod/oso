@@ -44,6 +44,8 @@ pub(super) enum Plan {
     Move(Box<super::super::hosting::Moving>),
     /// A stopped session of the caller's space to resume (ADR 0153).
     Resume(super::resume::Resuming),
+    /// A repository to add to the caller's space (ADR 0161).
+    AddRepo(Box<super::add_repo::Adding>),
 }
 
 impl Plan {
@@ -54,8 +56,9 @@ impl Plan {
             Self::Start(begin, _) => begin.origin = now,
             // It always asks.
             Self::Move(_) => {}
-            // Its call's `unasked` says it: a resume keeps the session's origin (ADR 0153).
-            Self::Resume(_) => {}
+            // Its call's `unasked` says it: a resume keeps the session's origin (ADR 0153),
+            // and an add starts no session (ADR 0161).
+            Self::Resume(_) | Self::AddRepo(_) => {}
         }
     }
 }
