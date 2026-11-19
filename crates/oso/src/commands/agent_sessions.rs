@@ -21,14 +21,15 @@ mod send;
 mod spaces;
 
 pub use list::COMMANDS as LIST_COMMANDS;
-pub use list::{FOLDS, GUIDES, RENAME_TO, ROW_MARKS, row_mark};
+pub use list::{FOLDS, GUIDES, ROW_MARKS, SESSION_RENAME_TO, row_mark};
 pub use mode::{ARCHIVE_LABEL, COMMANDS as MODE_COMMANDS, PIN_LABEL, SESSION_HELP, agents_menu};
 pub use search::COMMANDS as SEARCH_COMMANDS;
 pub use send::{
     COMMANDS as SEND_COMMANDS, MAX_SEND_BYTES, MENTION_LIST, SEND_LIST, YANK_IMAGE, too_large,
 };
 pub use spaces::{
-    ARCHIVED_LIST, COMMANDS as SPACE_COMMANDS, MEMBERS_LIST, REPOSITORIES_LIST, listed_takes_input,
+    ARCHIVED_LIST, COMMANDS as SPACE_COMMANDS, MEMBERS_LIST, REPOSITORIES_LIST, SPACE_RENAME_TO,
+    listed_takes_input,
 };
 
 use std::path::PathBuf;

@@ -2377,6 +2377,7 @@ impl core::marker::Copy for oso_core::editor::Shift
 impl core::marker::StructuralPartialEq for oso_core::editor::Shift
 pub enum oso_core::editor::SpaceRequest
 pub oso_core::editor::SpaceRequest::AddRepo(alloc::string::String)
+pub oso_core::editor::SpaceRequest::AskRename
 pub oso_core::editor::SpaceRequest::Close
 pub oso_core::editor::SpaceRequest::Confirmed
 pub oso_core::editor::SpaceRequest::Directory
@@ -3274,6 +3275,7 @@ pub fn oso_core::editor::Editor::replace_may_begin(&self) -> core::result::Resul
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::listed_candidates(&self, &str) -> alloc::sync::Arc<[oso_core::complete::Candidate]>
 pub fn oso_core::editor::Editor::request_session(&mut self, oso_core::editor::SessionRequest)
+pub fn oso_core::editor::Editor::set_front_space(&mut self, &str)
 pub fn oso_core::editor::Editor::set_listed(&mut self, &'static str, alloc::sync::Arc<[oso_core::complete::Candidate]>)
 pub fn oso_core::editor::Editor::set_session_marks(&mut self, oso_core::editor::SessionMarks)
 pub fn oso_core::editor::Editor::take_session_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::SessionRequest>
@@ -3911,6 +3913,7 @@ pub oso_core::editor::Status::project: alloc::string::String
 pub oso_core::editor::Status::restricted: &'static str
 pub oso_core::editor::Status::selected: bool
 pub oso_core::editor::Status::sessions: alloc::string::String
+pub oso_core::editor::Status::space: alloc::string::String
 pub oso_core::editor::Status::state: alloc::string::String
 pub oso_core::editor::Status::waits: alloc::string::String
 pub oso_core::editor::Status::warnings: alloc::string::String

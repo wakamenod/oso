@@ -2,9 +2,13 @@
 //! repositories and a worktree of one, become two spaces of one repository each, the worktree
 //! held by its repository's, with nothing started and no space directory made; the `spaces`
 //! file keeps them, so that the next start reads the same spaces and makes none again; and
-//! `space-switch` goes from one to the other. Step 1b: `space-new` makes a space and its
-//! private directory, the space menu adds a repository by its path, renames, closes (stopping
-//! an idle session) and reopens, a shared root is refused, and a restart keeps it all. Step 2:
+//! `space-switch` goes from one to the other. Step 1b and ADR 0159: `space-new`, from a
+//! session's buffer, makes a space and its private directory and starts its orchestrator, the
+//! session staying in its own space and in no window of the new one; the space menu adds a
+//! repository by its path, renames the display name alone, closes (stopping an idle session)
+//! and reopens; a shared root is refused, the space stays, and `o` starts its orchestrator
+//! once the root is fixed; the modeline names the space in front; and a restart keeps it all.
+//! Step 2:
 //! the pane shows a space, its two repositories, their worktrees and its session; a quiet
 //! space folds while another is in front, `RET` on its row enters it, `a` reads a repository,
 //! and a closed space goes in `Archived spaces`.
@@ -351,6 +355,17 @@ fn stored<'a>(spaces: &'a [Value], name: &str) -> Option<&'a Value> {
     spaces.iter().find(|space| space["name"] == name)
 }
 
+/// `space-rename` from the space menu: its prompt holds `from`, the space's name now, which
+/// the person replaces with `to` (ADR 0159).
+pub(super) fn rename_space(app: &mut crate::harness::App, from: &str, to: &str) {
+    space_menu(app, "n");
+    let state = app.wait_for("the rename's prompt", |state| {
+        super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with("Rename space to:"))
+    });
+    assert_eq!(state["prompts"][0]["text"], from, "{}", state["prompts"]);
+    app.send_keys(&format!("C-a C-k {} RET", keys(to)));
+}
+
 pub(super) fn answer(app: &mut crate::harness::App, label: &str, text: &str) {
     app.wait_for(label, |state| {
         super::worktrees::asks(state).is_some_and(|prompt| prompt.starts_with(label))
@@ -358,55 +373,98 @@ pub(super) fn answer(app: &mut crate::harness::App, label: &str, text: &str) {
     app.send_keys(&format!("{} RET", keys(text)));
 }
 
-/// Enters the first space, starts a session there, and closes the space once the session is
-/// idle: the session is stopped and the space archived.
+/// Enters the first space and closes it once its sessions, its orchestrator here, are idle:
+/// they are stopped and the space archived.
 fn close_with_its_idle_session(app: &mut crate::harness::App) {
-    // A session of the first space, idle, is stopped when the space closes.
-    app.send_keys(&format!("C-c a j {} RET", keys("fix-login-error")));
-    app.wait_for("the first space", |state| {
+    let theirs = |state: &Value| -> Vec<Value> {
+        let all = state["sessions"]["sessions"].as_array().cloned();
+        let all = all.unwrap_or_default().into_iter();
+        all.filter(|s| s["space"] == "Fix login error").collect()
+    };
+    app.send_keys(&format!("C-c a j {} RET", keys("Fix login error")));
+    app.wait_for("the first space, its sessions idle", |state| {
+        let sessions = theirs(state);
         state["sessions"]["space"] == "fix-login-error"
-    });
-    app.send_keys("C-c a c");
-    app.wait_for("its session", |state| {
-        state["sessions"]["sessions"].as_array().is_some_and(|s| {
-            s.iter()
-                .any(|s| s["space"] == "fix-login-error" && s["state"] == "idle")
-        })
+            && !sessions.is_empty()
+            && sessions.iter().all(|s| s["state"] == "idle")
     });
     space_menu(app, "c");
-    app.wait_for("the session stopped and the space closed", |state| {
+    app.wait_for("the sessions stopped and the space closed", |state| {
         space(state, "fix-login-error").is_some_and(|s| s["archived"] == true)
-            && state["sessions"]["sessions"]
-                .as_array()
-                .is_some_and(|s| s.iter().all(|s| s["state"] == "stopped"))
+            && theirs(state).iter().all(|s| s["state"] == "stopped")
     });
+}
+
+/// From a session's buffer, `space-new` makes a space for "Fix login error" of the flow's
+/// repository, with its directory under `root`, and starts its orchestrator there: the session
+/// stays in its own space and in no window of the new one, and the modeline names the new one.
+fn new_space_from_a_session(flow: &Flow, app: &mut crate::harness::App, root: &Path) {
+    // A session of the repository, shown when the space is made.
+    app.send_keys("C-c a c");
+    app.wait_for("the session shown, in its repository's space", |state| {
+        state["buffer"]["name"] == "*claude: repo*" && state["sessions"]["space"] == "repo"
+    });
+
+    // A space for what the person describes, of the selected buffer's repository, made with
+    // its directory and its orchestrator started there: the session shown before stays in its
+    // own space, and in no window of the new one.
+    app.send_keys("C-c a O");
+    answer(app, "Describe the space:", "Fix login error");
+    let state = app.wait_for(
+        "the new space, its directory and its orchestrator",
+        |state| {
+            space(state, "fix-login-error")
+                .is_some_and(|s| s["directory"].is_string() && s["orchestrator"].is_string())
+                && state["sessions"]["space"] == "fix-login-error"
+                && state["buffer"]["name"] == "*claude: fix-login-error*"
+        },
+    );
+    let made = space(&state, "fix-login-error").unwrap();
+    let repo = fs::canonicalize(&flow.repo).unwrap().display().to_string();
+    assert_eq!(made["members"], serde_json::json!([repo]));
+    assert_eq!(made["description"], "Fix login error");
+    assert_eq!(made["display"], "Fix login error");
+    let directory = root.join("fix-login-error");
+    assert_eq!(made["directory"], directory.display().to_string());
+    let mode = fs::metadata(&directory).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o700);
+    assert_eq!(
+        session(&state, "repo").map(|s| s["space"].clone()),
+        Some(Value::from("repo")),
+        "the session stays in its space: {}",
+        list(&state)
+    );
+    let runs = flow.wait_for_runs(2);
+    let (cwd, _) = run_named(&runs, "fix-login-error").expect("the orchestrator's run");
+    assert_eq!(PathBuf::from(cwd), fs::canonicalize(&directory).unwrap());
+    assert!(
+        state["modeline"]
+            .as_str()
+            .is_some_and(|m| m.contains("Fix login error  ")),
+        "{}",
+        state["modeline"]
+    );
+}
+
+/// The session of the list named `name`, as the dev state gives it.
+fn session(state: &Value, name: &str) -> Option<Value> {
+    let sessions = state["sessions"]["sessions"].as_array()?;
+    sessions.iter().find(|s| s["name"] == name).cloned()
 }
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn the_space_commands_make_change_close_and_reopen_a_space() {
-    let flow = Flow::new("spaces-commands", "");
+    // The orchestrator's directory must have a private way: see the orchestrator's flow.
+    let root = PrivateRoot::new("spaces-commands-root");
+    let config = format!("\n[spaces]\nroot = \"{}\"\n", root.0.display());
+    let flow = Flow::new("spaces-commands", &config);
     let other = flow.scratch.path().join("other");
     fs::create_dir(&other).unwrap();
     flow.git(&other, &["init", "-q", "-b", "main"]);
     let (mut app, _) = flow.start();
-    let root = flow.home.join("spaces");
 
-    // A space for an issue, of the selected buffer's repository, made with its directory.
-    app.send_keys("C-c a O");
-    answer(&mut app, "New space for issue:", "Fix login error");
-    let state = app.wait_for("the new space and its directory", |state| {
-        space(state, "fix-login-error").is_some_and(|s| s["directory"].is_string())
-            && state["sessions"]["space"] == "fix-login-error"
-    });
-    let made = space(&state, "fix-login-error").unwrap();
-    let repo = fs::canonicalize(&flow.repo).unwrap().display().to_string();
-    assert_eq!(made["members"], serde_json::json!([repo]));
-    assert_eq!(made["title"], "Fix login error");
-    let directory = root.join("fix-login-error");
-    assert_eq!(made["directory"], directory.display().to_string());
-    let mode = fs::metadata(&directory).unwrap().permissions().mode() & 0o777;
-    assert_eq!(mode, 0o700);
+    new_space_from_a_session(&flow, &mut app, &root.0);
 
     // Another repository, by its path.
     space_menu(&mut app, "a");
@@ -416,13 +474,33 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
             .is_some_and(|s| s["members"].as_array().is_some_and(|m| m.len() == 2))
     });
 
-    // A root others can write: the space is made, its directory refused and said why.
-    fs::set_permissions(&root, fs::Permissions::from_mode(0o770)).unwrap();
+    // A root others can write: the space is made, its directory refused and said why, and no
+    // orchestrator starts; `o` starts it once the root is fixed.
+    fs::set_permissions(&root.0, fs::Permissions::from_mode(0o770)).unwrap();
+    // The new space's window shows its orchestrator, in no repository: a file of one is
+    // selected, as `space-new` takes the selected buffer's repository.
+    show_readme(&mut app);
     app.send_keys("C-c a O");
-    answer(&mut app, "New space for issue:", "Second");
+    answer(&mut app, "Describe the space:", "Second");
     let state = app.wait_for("the refusal", |state| echo(state).contains("[spaces] root"));
-    assert!(space(&state, "second").is_some_and(|s| s["directory"].is_null()));
-    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    let second = space(&state, "second").unwrap();
+    assert!(second["directory"].is_null() && second["orchestrator"].is_null());
+    fs::set_permissions(&root.0, fs::Permissions::from_mode(0o700)).unwrap();
+    space_menu(&mut app, "o");
+    app.wait_for("the orchestrator started", |state| {
+        space(state, "second").is_some_and(|s| s["orchestrator"].is_string())
+            && session(state, "second").is_some_and(|s| s["state"] == "idle")
+    });
+
+    // Renamed, the space keeps its slug, its directory and its orchestrator's name.
+    rename_space(&mut app, "Second", "Third 名前 🔧");
+    // The pane and the modeline show it once the views are made again.
+    let state = app.wait_for("the new name", |state| {
+        space(state, "second").is_some_and(|s| s["display"] == "Third 名前 🔧")
+            && list(state).contains("Third 名前 🔧")
+            && (state["modeline"].as_str()).is_some_and(|m| m.contains("Third 名前 🔧"))
+    });
+    assert_eq!(state["sessions"]["space"], "second");
 
     // Closing the space in front enters the one entered last; reopening brings it back.
     space_menu(&mut app, "c");
@@ -431,23 +509,17 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
             && state["sessions"]["space"] == "fix-login-error"
     });
     space_menu(&mut app, "R");
-    answer_listed(&mut app, "Reopen space:", "second");
+    answer_listed(&mut app, "Reopen space:", "Third 名前 🔧");
     app.wait_for("the space open again", |state| {
         space(state, "second").is_some_and(|s| s["archived"] == false)
             && state["sessions"]["space"] == "second"
     });
 
-    // Renaming makes the name from the title.
-    space_menu(&mut app, "n");
-    answer(&mut app, "Space title:", "Third title");
-    app.wait_for("the new name", |state| {
-        space(state, "third-title").is_some()
-    });
-
     close_with_its_idle_session(&mut app);
     wait_for_record(&flow, "the closed and renamed spaces", |spaces| {
         stored(spaces, "fix-login-error").is_some_and(|s| s["archived"] == true)
-            && stored(spaces, "third-title").is_some_and(|s| s["archived"] == false)
+            && stored(spaces, "second")
+                .is_some_and(|s| s["archived"] == false && s["display"] == "Third 名前 🔧")
     });
     let _ = app.exchange("exit", None);
     app.wait_for_exit();
@@ -456,7 +528,8 @@ fn the_space_commands_make_change_close_and_reopen_a_space() {
     let mut again = flow.start_again();
     again.wait_for("the kept spaces", |state| {
         space(state, "fix-login-error").is_some_and(|s| s["archived"] == true)
-            && space(state, "third-title").is_some_and(|s| s["archived"] == false)
+            && space(state, "second")
+                .is_some_and(|s| s["archived"] == false && s["display"] == "Third 名前 🔧")
     });
     flow.exit_with(0);
 }
@@ -467,7 +540,7 @@ fn a_space_closed_just_before_quitting_is_kept() {
     let flow = Flow::new("spaces-quit", "");
     let (mut app, _) = flow.start();
     app.send_keys("C-c a O");
-    answer(&mut app, "New space for issue:", "Close then quit");
+    answer(&mut app, "Describe the space:", "Close then quit");
     app.wait_for("the space", |state| {
         space(state, "close-then-quit").is_some()
     });
@@ -485,6 +558,27 @@ fn a_space_closed_just_before_quitting_is_kept() {
         space(state, "close-then-quit").is_some_and(|s| s["archived"] == true)
     });
     flow.exit_with(0);
+}
+
+/// Shows the buffer of the flow's `README.md` again in the selected window, by its id: a space
+/// `space-new` made shows its orchestrator's terminal, which takes keys such as `C-x`, and is in
+/// no repository, while `space-new` and `claude` take the selected buffer's.
+pub(super) fn show_readme(app: &mut crate::harness::App) {
+    let state = app.state();
+    let id = (state["buffers"].as_array().into_iter().flatten())
+        .find(|buffer| {
+            buffer["name"]
+                .as_str()
+                .is_some_and(|n| n.starts_with("README.md"))
+        })
+        .map(|buffer| buffer["id"].clone())
+        .expect("the README's buffer");
+    app.show_buffer(&id);
+    app.wait_for("the README shown", |state| {
+        state["buffer"]["name"]
+            .as_str()
+            .is_some_and(|name| name.starts_with("README.md"))
+    });
 }
 
 /// The list's text, as the dev state gives it.
@@ -509,9 +603,10 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     flow.git(&other, &["init", "-q", "-b", "main"]);
     let (mut app, _) = flow.start();
 
-    // A space of two repositories, with a session in the first.
+    // A space of two repositories, with a session in the first. The new space shows its
+    // orchestrator, which is in no repository: the session starts from a file of the first.
     app.send_keys("C-c a O");
-    answer(&mut app, "New space for issue:", "Fix login");
+    answer(&mut app, "Describe the space:", "Fix login");
     app.wait_for("the space", |state| space(state, "fix-login").is_some());
     space_menu(&mut app, "a");
     answer(&mut app, "Add repository:", other.to_str().unwrap());
@@ -519,9 +614,10 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
         space(state, "fix-login")
             .is_some_and(|s| s["members"].as_array().is_some_and(|m| m.len() == 2))
     });
+    show_readme(&mut app);
     app.send_keys("C-c a c");
     let state = app.wait_for("space, repositories, worktree and session", |state| {
-        line_starting(state, " ▾ fix-login ").is_some()
+        line_starting(state, " ▾ Fix login ").is_some()
             && line_starting(state, "   ▾ repo/").is_some()
             && line_starting(state, "   ▾ other/").is_some()
             && list(state)
@@ -538,16 +634,17 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     );
 
     // Another space in front: the first, quiet, is folded, and RET on its row enters it.
+    show_readme(&mut app);
     app.send_keys("C-c a O");
-    answer(&mut app, "New space for issue:", "Second");
+    answer(&mut app, "Describe the space:", "Second");
     let state = app.wait_for("the first folded", |state| {
-        state["sessions"]["space"] == "second" && line_starting(state, " ▸ fix-login ").is_some()
+        state["sessions"]["space"] == "second" && line_starting(state, " ▸ Fix login ").is_some()
     });
     app.send_keys("C-c a s");
     app.wait_for("the list selected", |state| {
         state["buffer"]["name"] == "*Spaces*"
     });
-    let row = line_starting(&state, " ▸ fix-login ").unwrap();
+    let row = line_starting(&state, " ▸ Fix login ").unwrap();
     super::sessions_tree::point_at(&mut app, row);
     app.send_keys("RET");
     app.wait_for("the first space entered", |state| {
@@ -566,7 +663,7 @@ fn the_pane_shows_spaces_their_repositories_worktrees_and_sessions() {
     app.send_keys("C-g");
 
     // A closed space goes in `Archived spaces`.
-    app.send_keys(&format!("C-c a j {} RET", keys("second")));
+    app.send_keys(&format!("C-c a j {} RET", keys("Second")));
     app.wait_for("the second space", |state| {
         state["sessions"]["space"] == "second"
     });
@@ -600,19 +697,10 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
     fs::write(other.join("notes.md"), "# other\n").unwrap();
     let (mut app, _) = flow.start();
     app.send_keys("C-c a O");
-    answer(&mut app, "New space for issue:", "Fix login");
-    app.wait_for("the space's directory", |state| {
-        space(state, "fix-login").is_some_and(|s| s["directory"].is_string())
-    });
-    space_menu(&mut app, "a");
-    answer(&mut app, "Add repository:", other.to_str().unwrap());
-    app.wait_for("its second repository, not trusted", |state| {
-        space(state, "fix-login")
-            .is_some_and(|s| s["members"].as_array().is_some_and(|m| m.len() == 2))
-    });
+    answer(&mut app, "Describe the space:", "Fix login");
 
-    // `o` starts it in the space's directory, given the trusted repository alone.
-    space_menu(&mut app, "o");
+    // `space-new` starts it in the space's directory, given the trusted repository, and told
+    // what the space is for.
     let runs = flow.wait_for_runs(1);
     let (cwd, args) = run_named(&runs, "fix-login").expect("the orchestrator's run");
     let directory = fs::canonicalize(spaces.0.join("fix-login")).unwrap();
@@ -621,14 +709,27 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
     let other_real = fs::canonicalize(&other).unwrap();
     let add = |path: &Path| format!("--add-dir={}", path.display());
     assert!(args.contains(&add(&repo)), "{args:?}");
-    assert!(!args.contains(&add(&other_real)), "{args:?}");
     let prompt = args
         .iter()
         .find(|arg| arg.starts_with("--append-system-prompt="))
         .expect("the orchestrator's text");
     assert!(prompt.contains("You are the orchestrator of an issue space"));
     assert!(prompt.contains("# This space: fix-login"));
-    assert!(prompt.contains("not trusted in oso yet"), "{prompt}");
+    assert!(prompt.contains("can edit too): Fix login\n"), "{prompt}");
+
+    // A repository oso does not trust yet, added while it runs, is not given.
+    space_menu(&mut app, "a");
+    answer(&mut app, "Add repository:", other.to_str().unwrap());
+    app.wait_for("its second repository, not trusted", |state| {
+        space(state, "fix-login")
+            .is_some_and(|s| s["members"].as_array().is_some_and(|m| m.len() == 2))
+    });
+    // `o` shows the one that runs, and starts no other.
+    space_menu(&mut app, "o");
+    app.wait_for("the one that runs", |state| {
+        echo(state).starts_with("The space's orchestrator runs")
+    });
+    assert_eq!(flow.wait_for_runs(1).len(), 1, "no second start");
     let state = app.wait_for("the orchestrator recorded and listed", |state| {
         space(state, "fix-login").is_some_and(|s| s["orchestrator"].is_string())
             && list(state)
@@ -636,7 +737,7 @@ fn the_orchestrator_starts_in_the_spaces_directory_with_its_trusted_repositories
                 .any(|row| row.starts_with("  ") && row.contains("orchestrator"))
     });
     assert!(
-        line_starting(&state, " ▾ fix-login ").is_some(),
+        line_starting(&state, " ▾ Fix login ").is_some(),
         "{}",
         list(&state)
     );

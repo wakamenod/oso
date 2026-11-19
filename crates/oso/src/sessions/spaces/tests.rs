@@ -288,11 +288,12 @@ fn a_worktree_is_held_by_one_space_and_forgotten_when_removed() {
 }
 
 #[test]
-fn space_switch_lists_open_spaces_with_their_title_or_repositories() {
+fn space_switch_lists_open_spaces_by_display_name_with_slug_and_description() {
     let mut spaces = recalled(0);
     let mut titled =
         Stored::of_repository(id(1), "fix-login".into(), Member::at(Path::new("/b")), 1);
-    titled.title = "Login error".into();
+    titled.description = "Login error".into();
+    titled.display = "ログイン 🔧".into();
     titled.members.push(Member::at(Path::new("/f")));
     let mut closed = Stored::of_repository(id(2), "old".into(), Member::at(Path::new("/o")), 1);
     closed.archived = true;
@@ -307,8 +308,17 @@ fn space_switch_lists_open_spaces_with_their_title_or_repositories() {
         listed,
         [
             ("app".to_owned(), "app".to_owned()),
-            ("fix-login".to_owned(), "Login error".to_owned())
+            (
+                "ログイン 🔧".to_owned(),
+                "fix-login · Login error".to_owned()
+            )
         ]
+    );
+    assert_eq!(spaces.named("ログイン 🔧"), spaces.named("fix-login"));
+    assert_eq!(
+        spaces.with_slug("ログイン 🔧"),
+        None,
+        "an agent names the slug"
     );
     assert!(
         spaces.take_unsaved().is_some(),
@@ -412,21 +422,6 @@ fn the_spaces_of_300_other_programs_sessions_are_found_well_within_the_budget() 
 }
 
 #[test]
-fn names_are_never_a_device_and_titles_hold_no_invisible_characters() {
-    use super::stored::{clean_title, slug};
-    assert_eq!(slug("CON"), "con-space");
-    assert_eq!(slug("com1"), "com1-space");
-    assert_eq!(slug("console"), "console");
-    assert_eq!(slug("../.."), "space");
-    assert_eq!(clean_title("a\u{202E}b\u{2066}c\td"), "abc d");
-    assert_eq!(
-        clean_title(&"é".repeat(150)).len(),
-        200,
-        "cut at a character's end"
-    );
-}
-
-#[test]
 fn an_orchestrator_is_its_spaces_closed_or_not() {
     let mut spaces = recalled(0);
     let at = add(&mut spaces, "/src/api");
@@ -494,10 +489,18 @@ fn a_renamed_space_keeps_its_orchestrator_in_the_directory_it_was_made_with() {
     let mut spaces = Spaces::default();
     let at = add(&mut spaces, "/src/oso-2");
     let place = root.join("oso-2");
-    spaces.set_directory(at, place.clone(), Some((1, 2)), "oso-2", "oso-2", 2);
-    spaces.rename(at, "oso dev", 3);
+    let none = |_: &str| false;
+    spaces.set_directory(
+        at,
+        place.clone(),
+        Some((1, 2)),
+        ("oso-2", "oso-2"),
+        &none,
+        2,
+    );
+    spaces.rename(at, "oso dev", 3).unwrap();
     let stored = spaces.stored(at).unwrap();
-    assert_eq!(stored.name, "oso-dev");
+    assert_eq!((stored.name.as_str(), stored.label()), ("oso-2", "oso dev"));
     assert_eq!(stored.directory.as_deref(), Some(place.as_path()));
     assert!(
         stored.orchestrated_from(root, &place),

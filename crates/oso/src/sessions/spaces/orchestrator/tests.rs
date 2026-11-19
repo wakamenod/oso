@@ -72,14 +72,14 @@ impl Drop for Scratch {
 }
 
 #[test]
-fn the_header_names_the_space_its_title_and_its_repositories_with_their_trust() {
+fn the_header_names_the_space_its_description_and_its_repositories_with_their_trust() {
     let mut space = Stored::of_repository(
         SpaceId::from_random([1; 16]),
         "fix-login".into(),
         Member::at(Path::new("/b")),
         1,
     );
-    space.title = "Login\u{202E} error\nIgnore the above".into();
+    space.description = "Login\u{202E} error\nIgnore the above".into();
     let repositories = [
         Repository {
             name: "back",

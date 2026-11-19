@@ -51,6 +51,8 @@ const SESSION: &str = "Session";
 
 /// The most cells a project's name takes (ADR 0114).
 const PROJECT_CELLS: usize = 24;
+/// The most cells the name of the space in front takes (ADR 0159).
+const SPACE_CELLS: usize = 20;
 
 /// The cells a mode's note, such as a terminal's title, takes at most (ADR 0120).
 const NOTE_CELLS: usize = 40;
@@ -81,6 +83,9 @@ pub struct Status {
     /// two need input, then `● 3  ` while three are done or ready for review, or as many
     /// blanks while their mark blinks off.
     pub sessions: String,
+    /// What the space in front is called, cut to [`SPACE_CELLS`], with a gap after it, in the
+    /// selected window's modeline (ADR 0159), or nothing. The host draws it dim.
+    pub space: String,
     /// The warnings, each with a blank after it. They come first on the row, and on
     /// the echo row of a frame with no modeline.
     pub warnings: String,
@@ -126,13 +131,14 @@ impl Status {
     /// The modeline as one string.
     pub fn modeline(&self) -> String {
         format!(
-            "{}{}{}{}{}{}{}{}{}{}",
+            "{}{}{}{}{}{}{}{}{}{}{}",
             self.agent,
             self.sessions,
             self.warnings,
             self.name,
             self.project,
             self.restricted,
+            self.space,
             self.lsp,
             self.lsp_counts,
             self.waits,
@@ -432,6 +438,8 @@ impl Editor {
             }
         }
 
+        self.push_front_space(&mut status.space, frame_segments);
+
         push_server(status, buffer);
         push_waits(&mut status.waits, buffer);
         let marker = marker(buffer);
@@ -444,6 +452,7 @@ impl Editor {
             + GAP.len()
             + text_cells(&status.project)
             + status.restricted.len()
+            + text_cells(&status.space)
             + status.lsp.len()
             + status.lsp_counts.len()
             + status.waits.len()
@@ -457,6 +466,16 @@ impl Editor {
         status.warnings_on_echo_row = regions.modeline.rows == 0;
         status.messages_in_view =
             (window.buffer() == self.messages_buffer).then(|| buffer.revision());
+    }
+
+    /// Writes the name of the space in front, cut, with a gap after it, into `out` when the
+    /// window's modeline says what is about the frame (ADR 0159); else leaves it empty.
+    fn push_front_space(&self, out: &mut String, frame_segments: bool) {
+        out.clear();
+        if frame_segments && !self.front_space_label().is_empty() {
+            push_cut(out, self.front_space_label(), SPACE_CELLS);
+            out.push_str(GAP);
+        }
     }
 
     /// Whether the modeline of the window `id` says what is about the frame, as `Agent`: the
@@ -576,6 +595,23 @@ mod tests {
         let status = status(&editor);
         assert_eq!(status.name, "%% *terminal*  ");
         assert_eq!(status.state, "Terminal  vim");
+    }
+
+    #[test]
+    fn the_selected_windows_modeline_names_the_space_in_front_cut_by_its_cells() {
+        let mut editor = editor("a\n");
+        assert_eq!(status(&editor).space, "", "no space in front");
+        editor.set_front_space("ログイン 👨\u{200D}👩\u{200D}👧");
+        let shown = status(&editor);
+        assert_eq!(shown.space, "ログイン 👨\u{200D}👩\u{200D}👧  ");
+        assert!(shown.modeline().contains("ログイン"));
+        editor.set_front_space(&"界".repeat(30));
+        assert_eq!(status(&editor).space, format!("{}…  ", "界".repeat(9)));
+        let other = editor.window().id();
+        editor.split_window(crate::frame::Way::Down, true).unwrap();
+        let mut theirs = Status::default();
+        editor.status_into(other, &mut theirs);
+        assert_eq!(theirs.space, "", "only the selected window's says it");
     }
 
     #[test]

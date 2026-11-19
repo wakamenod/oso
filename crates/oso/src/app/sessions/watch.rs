@@ -267,6 +267,7 @@ impl App {
         let entries = self.session_entries(now);
         let marks = marks(&entries, self.watch.attention.dark(now));
         let mut visible = marks != self.watch.marks;
+        self.editor.set_front_space(&self.watch.front_label());
         if visible {
             self.watch.marks = marks;
             self.editor.set_session_marks(marks);
@@ -361,7 +362,7 @@ impl App {
             let space_id = found.map(|space| space.id().clone());
             let space = found.map_or_else(
                 || external.directory_name(),
-                |space| space.name().to_owned(),
+                |space| space.label().to_owned(),
             );
             let state = if external.working {
                 State::Working
@@ -425,20 +426,16 @@ impl App {
             .iter()
             .map(|session| {
                 let (state, since) = self.state_of(session, now);
-                let space = self
-                    .watch
-                    .placed
-                    .get(&session.key)
-                    .cloned()
-                    .unwrap_or_default();
                 let parent = session
                     .parent
                     .as_ref()
                     .and_then(|id| by_id.get(id))
                     .map(|key| Key::Hosted(*key));
-                let space_id = (self.space_of_session(session))
-                    .and_then(|at| self.watch.spaces.get(at))
-                    .map(|space| space.id().clone());
+                let found =
+                    (self.space_of_session(session)).and_then(|at| self.watch.spaces.get(at));
+                let space_id = found.map(|space| space.id().clone());
+                // As the person sees the space called (ADR 0159).
+                let space = found.map_or_else(String::new, |space| space.label().to_owned());
                 Entry {
                     key: Key::Hosted(session.key),
                     name: session.name.clone(),

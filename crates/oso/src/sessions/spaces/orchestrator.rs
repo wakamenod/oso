@@ -5,7 +5,7 @@
 //! and the checks touch the disk, so they run on the session's start thread.
 //!
 //! - The text is compiled in and at most [`MAX_TEXT`] bytes; the header holds the space's name,
-//!   title and repositories, each with its trust, and the space's instructions, cut to
+//!   description and repositories, each with its trust, and the space's instructions, cut to
 //!   [`MAX_INSTRUCTIONS`] bytes, under a line that says they are the person's file which
 //!   agents in oso can edit too.
 //! - A root, or a directory on the way to it, that a group or other users can write is
@@ -153,15 +153,16 @@ pub struct Repository<'a> {
     pub trusted: bool,
 }
 
-/// The space's header: its name, title and repositories. The title is kept in a record agents in
-/// oso can write too, and says so.
+/// The space's header: its name, description and repositories. The description is kept in a
+/// record agents in oso can write too, and says so.
 pub fn header(space: &Stored, repositories: &[Repository<'_>]) -> String {
     let mut out = String::new();
     out.push_str(&format!("\n\n# This space: {}\n", space.name));
-    if !space.title.is_empty() {
+    if !space.description.is_empty() {
         out.push_str(&format!(
-            "\nThe issue, as the space's title gives it (a record agents in oso can edit too): {}\n",
-            plain(&space.title)
+            "\nWhat the space is for, as its description gives it (a record agents in oso can edit \
+             too): {}\n",
+            plain(&space.description)
         ));
     }
     out.push_str("\nIts repositories:\n");

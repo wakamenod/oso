@@ -30,8 +30,8 @@ use super::sessions::live_elsewhere;
 use super::spaces::{PrivateRoot, answer as reply_with, space, trust_restricted};
 use super::worktrees::{DEADLINE, Flow, asks, keys, terminal};
 
-/// A space of the flow's repository and an untrusted `other` one, made with `C-c a O`, and its
-/// orchestrator started with `o`: the instance, the orchestrator's bridge and `other`.
+/// A space of the flow's repository and an untrusted `other` one, made with `C-c a O`, which
+/// starts its orchestrator: the instance, the orchestrator's bridge and `other`.
 pub(super) fn orchestrated(
     flow: &Flow,
     spaces: &PrivateRoot,
@@ -41,10 +41,12 @@ pub(super) fn orchestrated(
     flow.git(&other, &["init", "-q", "-b", "main"]);
     let (mut app, _) = flow.start();
     app.send_keys("C-c a O");
-    reply_with(&mut app, "New space for issue:", "Fix login");
+    reply_with(&mut app, "Describe the space:", "Fix login");
+    // `space-new` starts its orchestrator (ADR 0159) once its directory is made.
     app.wait_for("the space's directory", |state| {
         space(state, "fix-login").is_some_and(|s| s["directory"].is_string())
     });
+    let run = run_in(flow, &spaces.0.join("fix-login"));
     app.send_keys("C-c a S");
     app.send_keys("a");
     reply_with(&mut app, "Add repository:", other.to_str().unwrap());
@@ -52,9 +54,6 @@ pub(super) fn orchestrated(
         space(state, "fix-login")
             .is_some_and(|s| s["members"].as_array().is_some_and(|m| m.len() == 2))
     });
-    app.send_keys("C-c a S");
-    app.send_keys("o");
-    let run = run_in(flow, &spaces.0.join("fix-login"));
     let bridge = Bridge::start(flow, &run);
     (app, bridge, other)
 }
@@ -159,14 +158,18 @@ fn an_orchestrator_works_through_the_repositories_of_its_space() {
     let sessions = status["sessions"].as_array().unwrap();
     assert_eq!(sessions.len(), 2, "the worker is the space's: {status}");
 
-    // Renamed, the space keeps its directory, and the orchestrator there its role.
-    app.send_keys("C-c a S");
-    app.send_keys("n");
-    reply_with(&mut app, "Space title:", "Login fix");
-    app.wait_for("the new name", |state| space(state, "login-fix").is_some());
+    // Renamed, the space keeps its slug and its directory, and the orchestrator there its
+    // role; agents see the new display name (ADR 0159).
+    super::spaces::rename_space(&mut app, "Fix login", "Login fix");
+    app.wait_for("the new name", |state| {
+        space(state, "fix-login").is_some_and(|s| s["display"] == "Login fix")
+    });
     let (status, error) = bridge.tool("space_status", json!({}));
     assert!(!error, "{status}");
-    assert_eq!(status["space"], "login-fix");
+    assert_eq!(status["space"], "fix-login");
+    assert_eq!(status["display_name"], "Login fix");
+    assert_eq!(status["description"], "Fix login");
+    assert_eq!(status["orchestrator"], "fix-login");
     assert_eq!(status["you_orchestrate"], true, "{status}");
 }
 

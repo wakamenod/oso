@@ -1,6 +1,7 @@
-//! What oso keeps of an issue space (ADR 0136): its id, name, title, issue, member
-//! repositories, directory, orchestrators and worktrees, which the `spaces` file (`record`)
-//! reads and writes; and how a name and a title are made from what the person typed.
+//! What oso keeps of an issue space (ADR 0136, ADR 0159): its id, its slug, its display name,
+//! its description, issue, member repositories, directory, orchestrators and worktrees, which
+//! the `spaces` file (`record`) reads and writes; and how a slug, a display name and a
+//! description are made from what the person typed.
 //!
 //! Must not depend on: threads, the UI or `app`; the caller reads the random bytes, off the UI
 //! thread, and gives them here.
@@ -10,10 +11,20 @@ use std::path::{Path, PathBuf};
 
 use crate::sessions::identity::SessionId;
 
-/// The longest name of a space, in bytes.
+/// The longest name of a space, its slug, in bytes.
 pub const MAX_NAME: usize = 48;
-/// The longest title, in bytes.
-pub const MAX_TITLE: usize = 200;
+/// The longest description, in bytes (ADR 0159).
+pub const MAX_DESCRIPTION: usize = 1024;
+/// The longest description a build before ADR 0159 reads, as its title, in bytes.
+pub const MAX_OLD_TITLE: usize = 200;
+/// The longest display name, in bytes (ADR 0159).
+pub const MAX_DISPLAY: usize = 100;
+/// The most bytes of the person's text a display name is made from.
+const MAX_DISPLAY_READ: usize = 4096;
+/// The most cells of a display name made from a description, when no summary gives one.
+const FALLBACK_DISPLAY_CELLS: usize = 24;
+/// The most ASCII words of a description a fallback slug is made of.
+const FALLBACK_WORDS: usize = 4;
 /// The longest issue reference, in bytes.
 pub const MAX_ISSUE: usize = 200;
 /// The most repositories a space holds.
@@ -87,10 +98,16 @@ impl Member {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Stored {
     pub id: SpaceId,
-    /// A slug, as [`slug`] leaves it, unique among the spaces oso keeps.
+    /// A slug, as [`slug`] leaves it, unique among the spaces oso keeps: the space's
+    /// directory, its orchestrator's name and address. It never changes once the directory is
+    /// made (ADR 0159).
     pub name: String,
-    /// The issue in the person's words, cleaned; at most [`MAX_TITLE`] bytes.
-    pub title: String,
+    /// What the person sees the space called, as [`clean_display`] leaves it, unique among the
+    /// spaces oso keeps; empty for the slug. `space-rename` changes it (ADR 0159).
+    pub display: String,
+    /// What the space is for, in the person's words, cleaned; at most [`MAX_DESCRIPTION`]
+    /// bytes. Its orchestrator is given it.
+    pub description: String,
     /// The issue's reference, such as `#123`, shown and never fetched.
     pub issue: String,
     pub members: Vec<Member>,
@@ -117,7 +134,8 @@ impl Stored {
         Self {
             id,
             name,
-            title: String::new(),
+            display: String::new(),
+            description: String::new(),
             issue: String::new(),
             members: vec![member],
             directory: None,
@@ -128,6 +146,15 @@ impl Stored {
             worktrees: Vec::new(),
             created: now,
             changed: now,
+        }
+    }
+
+    /// What the person sees it called: its display name, else its slug (ADR 0159).
+    pub fn label(&self) -> &str {
+        if self.display.is_empty() {
+            &self.name
+        } else {
+            &self.display
         }
     }
 
@@ -221,25 +248,200 @@ fn is_device_name(name: &str) -> bool {
     matches!(name, "con" | "prn" | "aux" | "nul") || numbered("com") || numbered("lpt")
 }
 
-/// `raw`, the person's words for an issue, as a title: control and invisible characters
-/// dropped, as they could make a row read otherwise than it is, runs of white space made one,
-/// trimmed, and cut to [`MAX_TITLE`] bytes (ADR 0136, step 1b).
-pub fn clean_title(raw: &str) -> String {
+/// `raw`, the person's words for what a space is for, as its description: control and
+/// invisible characters dropped, as they could make a row read otherwise than it is, runs of
+/// white space made one, trimmed, and cut to [`MAX_DESCRIPTION`] bytes (ADR 0136, step 1b; ADR
+/// 0159).
+pub fn clean_description(raw: &str) -> String {
     let words: Vec<String> = raw
         .split(|c: char| c.is_whitespace() || c.is_control())
         .map(|word| word.chars().filter(|&c| is_plain(c)).collect::<String>())
         .filter(|word| !word.is_empty())
         .collect();
-    let mut title = words.join(" ");
-    let mut end = title.len().min(MAX_TITLE);
-    while !title.is_char_boundary(end) {
-        end -= 1;
-    }
-    title.truncate(end);
-    title.trim_end().to_owned()
+    let description = words.join(" ");
+    cut_bytes(&description, MAX_DESCRIPTION)
+        .trim_end()
+        .to_owned()
 }
 
-/// Whether `c` may stand in a title or an issue reference: no control character, and nothing
+/// `text` cut to at most `most` bytes, on a character's boundary.
+pub fn cut_bytes(text: &str, most: usize) -> &str {
+    let mut end = text.len().min(most);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// `raw` as a display name (ADR 0159): the clusters oso draws as text, as oso-core's cell grid
+/// splits them, so that an emoji sequence keeps its joiners and selectors; every control,
+/// bidi control and other invisible character dropped, each run of white space one blank,
+/// none at either end; cut to [`MAX_DISPLAY`] bytes between clusters. Cleaning what it gives
+/// changes nothing, so that the record's reader can refuse a name that was not cleaned.
+pub fn clean_display(raw: &str) -> String {
+    let mut text = clean_display_once(raw);
+    // Dropping a character can join its neighbours into one cluster, which a second pass may
+    // read otherwise: a few passes reach the text that stays.
+    for _ in 0..4 {
+        let again = clean_display_once(&text);
+        if again == text {
+            break;
+        }
+        text = again;
+    }
+    text
+}
+
+/// One pass of [`clean_display`].
+fn clean_display_once(raw: &str) -> String {
+    use oso_core::display_map::cell::{CellKind, Clusters};
+    // A prompt's answer can be long: past this, no more of a name can be kept.
+    let raw = cut_bytes(raw, MAX_DISPLAY_READ);
+    let mut out = String::with_capacity(raw.len().min(MAX_DISPLAY));
+    let mut gap = false;
+    for (_, cluster, kind, _) in Clusters::new(raw) {
+        let blank = cluster.chars().all(char::is_whitespace);
+        match kind {
+            CellKind::Text if !blank => {
+                let cluster = drawn(cluster);
+                let space = gap && !out.is_empty();
+                if out.len() + usize::from(space) + cluster.len() > MAX_DISPLAY {
+                    break;
+                }
+                if space {
+                    out.push(' ');
+                }
+                out.push_str(&cluster);
+                gap = false;
+            }
+            CellKind::Text | CellKind::Tab | CellKind::LineBreak | CellKind::Control(_) => {
+                gap = true;
+            }
+            CellKind::Invisible(_) | CellKind::PastLimit(_) | CellKind::InvalidByte(_) => {}
+        }
+    }
+    out
+}
+
+/// A text cluster of a display name with the invisible characters it may keep (ADR 0159): a
+/// joiner and the emoji and text selectors inside an emoji, and the tag characters of the
+/// three subdivision flags that are emoji; every other one is dropped, as each could carry
+/// text the person does not see.
+fn drawn(cluster: &str) -> std::borrow::Cow<'_, str> {
+    use oso_core::display_map::cell::is_invisible;
+    if !cluster.chars().any(is_invisible) {
+        return cluster.into();
+    }
+    if SUBDIVISION_FLAGS.contains(&cluster) {
+        return cluster.into();
+    }
+    let emoji = cluster.chars().next().is_some_and(is_emoji_base);
+    cluster
+        .chars()
+        .filter(|&c| {
+            !is_invisible(c) || (emoji && matches!(u32::from(c), 0x200d | 0xfe0e | 0xfe0f))
+        })
+        .collect::<String>()
+        .into()
+}
+
+/// The subdivision flags that are emoji: England, Scotland and Wales, the only tag sequences a
+/// display name keeps.
+const SUBDIVISION_FLAGS: [&str; 3] = [
+    "🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}",
+    "🏴\u{e0067}\u{e0062}\u{e0073}\u{e0063}\u{e0074}\u{e007f}",
+    "🏴\u{e0067}\u{e0062}\u{e0077}\u{e006c}\u{e0073}\u{e007f}",
+];
+
+/// Whether `c` starts an emoji a joiner or a selector may follow: the pictographs, symbols and
+/// dingbats emoji are drawn from, and a keycap's base.
+fn is_emoji_base(c: char) -> bool {
+    matches!(
+        u32::from(c),
+        0x23 | 0x2a | 0x30..=0x39
+            | 0xa9
+            | 0xae
+            | 0x203c
+            | 0x2049
+            | 0x2122
+            | 0x2139
+            | 0x2194..=0x21aa
+            | 0x231a..=0x23ff
+            | 0x24c2
+            | 0x25aa..=0x27bf
+            | 0x2934..=0x2935
+            | 0x2b05..=0x2b55
+            | 0x3030
+            | 0x303d
+            | 0x3297
+            | 0x3299
+            | 0x1f000..=0x1faff
+    )
+}
+
+/// `name` as names are compared for being taken (ADR 0159): every invisible character dropped,
+/// as it draws as nothing in a name, and ASCII letters lower-case.
+pub fn skeleton(name: &str) -> String {
+    name.chars()
+        .filter(|&c| !oso_core::display_map::cell::is_invisible(c))
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
+/// `text` cut to `cells` cells between clusters, ending in `…` if cut.
+fn cut_cells(text: &str, cells: usize) -> String {
+    let (kept, more) = oso_core::minibuffer::cut_to(text, cells);
+    format!("{}{more}", kept.trim_end())
+}
+
+/// The base of a slug and the display name of a space made for `description`, with
+/// `repository` its first repository's name, when no summary names it (ADR 0159): the slug
+/// from the description's first ASCII words, else from the repository's name; the display
+/// name the description cut to a few cells. The caller makes both unique.
+pub fn fallback_names(description: &str, repository: &str) -> (String, String) {
+    let words: Vec<&str> = description
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .take(FALLBACK_WORDS)
+        .collect();
+    let base = if words.is_empty() {
+        slug(repository)
+    } else {
+        slug(&words.join("-"))
+    };
+    let display = cut_cells(&clean_display(description), FALLBACK_DISPLAY_CELLS);
+    (base, clean_display(&display))
+}
+
+/// `base`, a display name, or `base 2`, `base 3` and on, the first that `taken` does not hold,
+/// within [`MAX_DISPLAY`] bytes, cut between clusters.
+pub fn unique_display(base: &str, taken: &dyn Fn(&str) -> bool) -> String {
+    if !taken(base) {
+        return base.to_owned();
+    }
+    (2u32..)
+        .map(|n| {
+            let suffix = format!(" {n}");
+            let room = MAX_DISPLAY.saturating_sub(suffix.len());
+            let kept = if base.len() <= room {
+                base
+            } else {
+                let mut end = 0;
+                for (at, cluster, ..) in oso_core::display_map::cell::Clusters::new(base) {
+                    if at + cluster.len() > room {
+                        break;
+                    }
+                    end = at + cluster.len();
+                }
+                &base[..end]
+            };
+            format!("{}{suffix}", kept.trim_end())
+        })
+        .find(|name| !taken(name))
+        .unwrap_or_else(|| base.to_owned())
+}
+
+/// Whether `c` may stand in a description or an issue reference: no control character, and nothing
 /// drawn as a boxed code point (oso-core's `is_invisible`).
 pub fn is_plain(c: char) -> bool {
     !c.is_control() && !oso_core::display_map::cell::is_invisible(c)
@@ -280,3 +482,6 @@ pub fn now_ms() -> u64 {
             u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
         })
 }
+
+#[cfg(test)]
+mod tests;

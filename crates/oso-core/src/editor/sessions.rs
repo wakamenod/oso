@@ -26,6 +26,9 @@ pub(super) struct Sessions {
     /// The side window, while it is shown.
     pub(super) side: Option<SideWindow>,
     marks: SessionMarks,
+    /// What the space in front is called, as the person sees it, for the selected window's
+    /// modeline (ADR 0159); empty with none.
+    space: String,
     /// What the host gave for each list an [`ArgSpec::Listed`](crate::command::ArgSpec)
     /// completes over.
     listed: Vec<(&'static str, Arc<[Candidate]>)>,
@@ -174,8 +177,8 @@ pub enum SessionRequest {
 /// front, but for a new one and one reopened.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SpaceRequest {
-    /// Make a space for the issue with this title, of the selected buffer's repository, and
-    /// enter it (`space-new`).
+    /// Make a space for what this description says, of the selected buffer's repository, enter
+    /// it and start its orchestrator (`space-new`, ADR 0159).
     New(String),
     /// Add this repository, a path or a listed one's text (`space-add-repo`).
     AddRepo(String),
@@ -191,7 +194,11 @@ pub enum SpaceRequest {
     Close,
     /// Open the archived space of this name again, and enter it (`space-reopen`).
     Reopen(String),
-    /// Give the space this title, and a name made from it (`space-rename`).
+    /// Open `space-rename-to`'s prompt holding the display name of the space in front
+    /// (`space-rename`, ADR 0159).
+    AskRename,
+    /// Give the space `space-rename` asked about this display name; its slug stays
+    /// (`space-rename-to`, the answer to that prompt, ADR 0159).
     Rename(String),
     /// Edit the space's instructions (`space-instructions`).
     Instructions,
@@ -299,6 +306,19 @@ impl Editor {
     /// What the selected window's modeline says of the sessions that need the person.
     pub(crate) fn session_marks(&self) -> SessionMarks {
         self.sessions.marks
+    }
+
+    /// Sets what the selected window's modeline calls the space in front (ADR 0159): its
+    /// display name, cleaned by the host; empty for none. The host asks for a frame itself.
+    pub fn set_front_space(&mut self, label: &str) {
+        if self.sessions.space != label {
+            label.clone_into(&mut self.sessions.space);
+        }
+    }
+
+    /// What the selected window's modeline calls the space in front.
+    pub(crate) fn front_space_label(&self) -> &str {
+        &self.sessions.space
     }
 
     /// Sets the candidates of `list`, which an
