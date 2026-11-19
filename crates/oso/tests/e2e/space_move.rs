@@ -25,7 +25,7 @@ use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 use serde_json::{Value, json};
 
 use super::session_tools::{FAKE, run_in, runs};
-use super::spaces::answer;
+use super::spaces::{PrivateRoot, answer};
 use super::worktrees::{DEADLINE, Flow, asks};
 
 /// The conversation the outside session runs.
@@ -133,13 +133,19 @@ struct Moving {
     app: crate::harness::App,
     outside: oso_platform::process::Child,
     repo: std::path::PathBuf,
+    /// The spaces' root, kept while the flow runs.
+    _root: PrivateRoot,
 }
 
 /// Makes a space of another repository, starts the outside session in the flow's trusted
 /// repository, lets it in and answers `y` to its move, then waits for oso's waiting buffer.
 /// It also checks the refusal of a space that is none, the question's words and the reply.
 fn moving(test: &str) -> Moving {
-    let flow = Flow::with_fake(test, "", FAKE);
+    // The space's directory must have a private way for its orchestrator to start, which
+    // `space-new` does: the system's temporary directory is shared on Linux.
+    let root = PrivateRoot::new(&format!("{test}-root"));
+    let config = format!("\n[spaces]\nroot = \"{}\"\n", root.0.display());
+    let flow = Flow::with_fake(test, &config, FAKE);
     // The space's repository, which oso need not trust, and the outside session's, trusted.
     let other = flow.scratch.path().join("other");
     fs::create_dir(&other).unwrap();
@@ -212,6 +218,7 @@ fn moving(test: &str) -> Moving {
         app,
         outside,
         repo,
+        _root: root,
     }
 }
 
