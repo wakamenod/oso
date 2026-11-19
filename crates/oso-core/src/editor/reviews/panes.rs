@@ -530,7 +530,7 @@ impl Editor {
 fn pane_line(panes: &Panes, path: &[u8], place: Place) -> Option<(usize, usize)> {
     let order = match place {
         Place::Line { side, .. } => [side_index(side), side_index(side)],
-        Place::Row { .. } => [NEW, OLD],
+        Place::Gap { .. } | Place::Row { .. } => [NEW, OLD],
     };
     for side in order {
         if let Some(line) = panes.rows[side].find(path, place) {

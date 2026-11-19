@@ -22,9 +22,19 @@ impl Watch {
         self.known.get(&key).map(|known| known.since)
     }
 
-    /// The name of the space session `key` is in, as `*Spaces*` shows it.
-    pub(in crate::app) fn space_name(&self, key: SessionKey) -> Option<&str> {
+    /// The slug of the space session `key` is in, as agents name it (ADR 0159).
+    pub(in crate::app) fn space_slug(&self, key: SessionKey) -> Option<&str> {
         self.placed.get(&key).map(String::as_str)
+    }
+
+    /// What the selected window's modeline calls the space in front, cleaned as the list's
+    /// fields are (ADR 0159); empty with none.
+    pub(in crate::app) fn front_label(&self) -> String {
+        (self.spaces.current())
+            .and_then(|at| self.spaces.get(at))
+            .map_or_else(String::new, |space| {
+                crate::sessions::recap::clean(space.label())
+            })
     }
 
     /// The spaces.

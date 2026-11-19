@@ -4,6 +4,8 @@
 //! Must not depend on: `command` or `keymap`, or the host's threads; the editor queues them, and
 //! the host takes them after each command.
 
+use std::ops::Range;
+
 use super::{ReviewId, ScopeKind};
 use crate::buffer::BufferId;
 use crate::project::ProjectId;
@@ -26,6 +28,13 @@ pub enum ReviewRequest {
     Refresh(ReviewId),
     /// Build the file's section again, as its comments changed.
     Redraw { review: ReviewId, path: Box<[u8]> },
+    /// Show the unchanged lines `show` of the file's old side too, by number, besides the three
+    /// around each hunk; with `None`, only those three again (ADR 0122, step 13).
+    Context {
+        review: ReviewId,
+        path: Box<[u8]>,
+        show: Option<Range<u32>>,
+    },
     /// Go to line `number` of `side` of the file in its source, or in its old side when
     /// `old_side`.
     Visit {

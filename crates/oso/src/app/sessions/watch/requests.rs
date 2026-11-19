@@ -214,6 +214,8 @@ impl App {
         if self.watch.spaces.enter(&mut self.editor, at) == Err(Refused) {
             self.editor.message(PROMPT_OPEN);
         }
+        // The modeline names the space in front (ADR 0159).
+        self.watch.stale = true;
     }
 
     /// `RET` on the row of the worktree at `path` (ADR 0131, step 2b): the session there, in

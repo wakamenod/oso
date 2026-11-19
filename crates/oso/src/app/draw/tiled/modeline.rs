@@ -9,7 +9,8 @@ use oso_render::{Face, Span};
 
 /// A modeline's spans: warnings first, so that nothing can push them off the row, after
 /// `Agent` while the agent channel is on, dim, and bright while an agent is connected
-/// (ADR 0085), which only the selected window's says, then the sessions' marks, `⚠ N` and
+/// (ADR 0085), which only the selected window's says, as it does the space in front's name
+/// after the project (ADR 0159), then the sessions' marks, `⚠ N` and
 /// `● N` in their states' faces, as `*Spaces*` draws them (ADR 0121, ADR 0131), and the
 /// server's counts in their severities' faces (ADR 0138). A name and the rest are shaped apart,
 /// so that neither changes how the other reads. A window that is not selected has its modeline
@@ -37,6 +38,8 @@ pub(super) fn modeline_spans(status: &Status) -> [Span<'_>; MODELINE_SPANS] {
         span(&status.project[..], face),
         // Dim, as `Agent` is: what the trust record says, never a name (ADR 0114).
         span(status.restricted, Face::Prompt),
+        // Dim too: what the space in front is called, in the selected window's (ADR 0159).
+        span(&status.space[..], Face::Prompt),
         // The language server's state (ADR 0138), then its counts in their severities' faces.
         span(
             &status.lsp[..],
@@ -56,7 +59,7 @@ pub(super) fn modeline_spans(status: &Status) -> [Span<'_>; MODELINE_SPANS] {
 }
 
 /// How many spans a modeline is drawn in.
-pub(super) const MODELINE_SPANS: usize = 13;
+pub(super) const MODELINE_SPANS: usize = 14;
 
 /// The face of a modeline and its text: the selected window's, or that of one not selected
 /// (ADR 0112).

@@ -103,7 +103,7 @@ fn a_rename_in_a_sessions_buffer_names_the_buffer() {
 fn the_new_name_goes_to_the_host() {
     use oso_core::command::{Ctx, Invocation};
     let registry = crate::commands::registry();
-    let id = registry.lookup(super::RENAME_TO).unwrap();
+    let id = registry.lookup(super::SESSION_RENAME_TO).unwrap();
     let answered = |answer| {
         let mut editor = editor("");
         let invocation = Invocation {

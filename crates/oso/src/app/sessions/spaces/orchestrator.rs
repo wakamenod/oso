@@ -54,14 +54,8 @@ impl App {
         };
         let id = stored.id.clone();
         match stored.directory.clone() {
-            None => {
-                self.hosting.spaces.start_after.insert(id);
-                self.make_space_directory(at, false);
-            }
-            Some(directory) if remake => {
-                self.hosting.spaces.start_after.insert(id.clone());
-                self.remake_space_directory(at, &id, &directory);
-            }
+            None => self.make_space_directory(at, false, true),
+            Some(directory) if remake => self.remake_space_directory(at, &id, &directory),
             Some(_) => self.launch_orchestrator(at, None),
         }
     }
@@ -83,8 +77,15 @@ impl App {
             taken: Vec::new(),
             exact: true,
         };
+        if self.hosting.spaces.making.contains(id) {
+            return self
+                .editor
+                .message("The space's directory is being made".to_owned());
+        }
         if let Some(worker) = &self.sessions {
             worker.send(Job::Space(job));
+            self.hosting.spaces.start_after.insert(id.clone());
+            self.hosting.spaces.making.insert(id.clone());
         }
     }
 
@@ -102,11 +103,18 @@ impl App {
             stored.name.clone(),
             stored.directory.clone(),
         );
+        // Shown in its space: one whose start comes after the person left it starts behind, as
+        // a successor's may (ADR 0159), and so does `space-new`'s once the person put something
+        // else where its `*scratch*` was, as it would take the keys they type there.
+        let placeholder = self.hosting.spaces.placeholders.remove(&id);
+        let behind = self.watch.spaces().current() != Some(at)
+            || placeholder.is_some_and(|scratch| self.editor.window().buffer() != scratch);
         let begin = Begin {
             name: Some(name),
             directory,
             brief,
             space: Some(space),
+            behind,
             ..Begin::default()
         };
         if let Some(key) = self.begin_session(begin) {
@@ -285,7 +293,8 @@ impl App {
         let Some(text) = root.to_str().map(|root| format!("/add-dir {root}")) else {
             return false;
         };
-        let name = self.space_name(at);
+        // The orchestrator answers to the space's slug.
+        let name = stored.name.clone();
         let question = format!(
             "Paste {} into orchestrator {name}'s prompt, not sent? (y or n)",
             super::printable(&text)

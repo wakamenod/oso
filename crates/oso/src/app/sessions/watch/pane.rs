@@ -74,8 +74,13 @@ impl App {
             .filter(|space| !space.is_open())
             .map(|space| ClosedSpace {
                 id: space.id().clone(),
-                name: space.name().to_owned(),
-                title: space.stored.title.clone(),
+                name: space.label().to_owned(),
+                // Its start alone: a closed space's row shows a few cells of it, on every frame.
+                title: crate::sessions::spaces::stored::cut_bytes(
+                    &space.stored.description,
+                    crate::sessions::spaces::stored::MAX_OLD_TITLE,
+                )
+                .to_owned(),
             })
             .collect();
         let front_space = (self.watch.spaces.current())
@@ -113,7 +118,7 @@ impl App {
         for (at, space) in self.watch.spaces.iter().enumerate() {
             let input = SpaceInput {
                 id: space.id(),
-                name: space.name(),
+                name: space.label(),
                 members: (space.stored.members.iter())
                     .map(|member| member.root.as_path())
                     .collect(),

@@ -22,6 +22,7 @@ fn shown(cards: &Cards) -> Shown<'_> {
         placed: None,
         cut_short: false,
         folded: false,
+        context: None,
     }
 }
 
@@ -64,6 +65,8 @@ fn side_by_side(pair: &Sides) -> String {
         RowKind::Note => "note",
         RowKind::Hunk { .. } => "hunk",
         RowKind::Lines { .. } => "line",
+        RowKind::Context { .. } => "ctx",
+        RowKind::Gap { .. } => "gap",
         RowKind::Label { .. } => "label",
         RowKind::Card { .. } => "card",
         RowKind::Filler => "filler",

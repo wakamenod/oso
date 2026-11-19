@@ -2138,6 +2138,10 @@ pub oso_core::editor::ReviewRequest::Accept::review: oso_core::editor::ReviewId
 pub oso_core::editor::ReviewRequest::Baseline
 pub oso_core::editor::ReviewRequest::Baseline::project: oso_core::project::ProjectId
 pub oso_core::editor::ReviewRequest::Close(oso_core::editor::ReviewId)
+pub oso_core::editor::ReviewRequest::Context
+pub oso_core::editor::ReviewRequest::Context::path: alloc::boxed::Box<[u8]>
+pub oso_core::editor::ReviewRequest::Context::review: oso_core::editor::ReviewId
+pub oso_core::editor::ReviewRequest::Context::show: core::option::Option<core::ops::range::Range<u32>>
 pub oso_core::editor::ReviewRequest::Forget(alloc::string::String)
 pub oso_core::editor::ReviewRequest::Layout
 pub oso_core::editor::ReviewRequest::Layout::menu: bool
@@ -2380,6 +2384,7 @@ impl core::marker::Copy for oso_core::editor::Shift
 impl core::marker::StructuralPartialEq for oso_core::editor::Shift
 pub enum oso_core::editor::SpaceRequest
 pub oso_core::editor::SpaceRequest::AddRepo(alloc::string::String)
+pub oso_core::editor::SpaceRequest::AskRename
 pub oso_core::editor::SpaceRequest::Close
 pub oso_core::editor::SpaceRequest::Confirmed
 pub oso_core::editor::SpaceRequest::Directory
@@ -3277,6 +3282,7 @@ pub fn oso_core::editor::Editor::replace_may_begin(&self) -> core::result::Resul
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::listed_candidates(&self, &str) -> alloc::sync::Arc<[oso_core::complete::Candidate]>
 pub fn oso_core::editor::Editor::request_session(&mut self, oso_core::editor::SessionRequest)
+pub fn oso_core::editor::Editor::set_front_space(&mut self, &str)
 pub fn oso_core::editor::Editor::set_listed(&mut self, &'static str, alloc::sync::Arc<[oso_core::complete::Candidate]>)
 pub fn oso_core::editor::Editor::set_session_marks(&mut self, oso_core::editor::SessionMarks)
 pub fn oso_core::editor::Editor::take_session_requests(&mut self) -> alloc::vec::Vec<oso_core::editor::SessionRequest>
@@ -3914,6 +3920,7 @@ pub oso_core::editor::Status::project: alloc::string::String
 pub oso_core::editor::Status::restricted: &'static str
 pub oso_core::editor::Status::selected: bool
 pub oso_core::editor::Status::sessions: alloc::string::String
+pub oso_core::editor::Status::space: alloc::string::String
 pub oso_core::editor::Status::state: alloc::string::String
 pub oso_core::editor::Status::waits: alloc::string::String
 pub oso_core::editor::Status::warnings: alloc::string::String
@@ -5676,8 +5683,15 @@ impl core::marker::StructuralPartialEq for oso_core::review::RestoreError
 pub enum oso_core::review::RowKind
 pub oso_core::review::RowKind::Card
 pub oso_core::review::RowKind::Card::comment: oso_core::review::CommentId
+pub oso_core::review::RowKind::Context
+pub oso_core::review::RowKind::Context::new: u32
+pub oso_core::review::RowKind::Context::old: u32
 pub oso_core::review::RowKind::File
 pub oso_core::review::RowKind::Filler
+pub oso_core::review::RowKind::Gap
+pub oso_core::review::RowKind::Gap::lines: u32
+pub oso_core::review::RowKind::Gap::new: u32
+pub oso_core::review::RowKind::Gap::old: u32
 pub oso_core::review::RowKind::Hunk
 pub oso_core::review::RowKind::Hunk::hunk: usize
 pub oso_core::review::RowKind::Label
@@ -5699,6 +5713,7 @@ impl core::marker::StructuralPartialEq for oso_core::review::RowKind
 pub enum oso_core::review::Seek
 pub oso_core::review::Seek::Comment
 pub oso_core::review::Seek::File
+pub oso_core::review::Seek::Gap
 pub oso_core::review::Seek::Hunk
 impl core::clone::Clone for oso_core::review::Seek
 pub fn oso_core::review::Seek::clone(&self) -> oso_core::review::Seek
@@ -5898,6 +5913,7 @@ pub oso_core::review::Row::kind: oso_core::review::RowKind
 pub oso_core::review::Row::offset: usize
 pub oso_core::review::Row::path: &'a [u8]
 impl oso_core::review::Row<'_>
+pub fn oso_core::review::Row<'_>::context(&self) -> core::option::Option<(u32, u32)>
 pub fn oso_core::review::Row<'_>::line(&self) -> core::option::Option<(oso_core::review::Side, u32)>
 impl<'a> core::clone::Clone for oso_core::review::Row<'a>
 pub fn oso_core::review::Row<'a>::clone(&self) -> oso_core::review::Row<'a>

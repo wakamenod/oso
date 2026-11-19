@@ -140,6 +140,7 @@ impl App {
                     check_shared: false,
                     trusted: Some(trusted),
                     space: App::worker_reads(reads),
+                    behind: false,
                 });
                 match key {
                     Some(key) => {

@@ -33,6 +33,9 @@ pub const KEYS: &[(&str, &str)] = &[
     ("P", "review-previous-file"),
     ("}", "review-next-comment"),
     ("{", "review-previous-comment"),
+    ("[", "review-context-up"),
+    ("]", "review-context-down"),
+    ("=", "review-context-gap"),
     ("c", "review-comment"),
     ("e", "review-edit-comment"),
     ("k", "review-remove-comment"),
@@ -85,14 +88,17 @@ macro_rules! person_command {
 }
 
 mod comments;
+mod context;
 mod decide;
 mod files;
 mod keys;
+mod quit;
 mod saved;
 mod send;
 mod visit;
 
 pub use comments::COMMANDS as COMMENT_COMMANDS;
+pub use context::COMMANDS as CONTEXT_COMMANDS;
 pub use decide::COMMANDS as DECISION_COMMANDS;
 pub(crate) use decide::{open_buffer_of, place_of};
 pub use files::{COMMANDS as FILES_COMMANDS, FILES_KEYS};
@@ -215,7 +221,7 @@ pub const COMMANDS: &[Command] = &[
         doc: "Show the review layout, go back to the review from its slot, or restore the windows from before it.\n\nWith no review open, it opens the review menu, whose reviews open in the layout: the review at the left and one window at the right, the slot, where `RET` shows the source and `C-u RET` the old side, each in place of the last. In the slot, it selects the review again where it was. In the review, it restores the windows as they were before the layout, as `q` does. With a prefix argument, it opens the review menu.",
         args: ArgSpec::None,
         reach: Reach::Person,
-        run: review_layout,
+        run: quit::review_layout,
         state: None,
     },
     Command {
@@ -223,7 +229,7 @@ pub const COMMANDS: &[Command] = &[
         doc: "Bury the review buffer: show the buffer shown before it in this window.\n\nIn the review layout, it restores the windows as they were before it. The review stays open; `C-x k` closes it.",
         args: ArgSpec::None,
         reach: Reach::Change,
-        run: review_quit,
+        run: quit::review_quit,
         state: None,
     },
     Command {
@@ -503,30 +509,6 @@ fn review_toggle_panes(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError
         ReviewChoice::Auto => ReviewChoice::Panes,
     };
     ctx.editor.choose_review_layout(review, choice);
-    ctx.request_redraw();
-    Ok(())
-}
-
-fn review_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    current_review(ctx)?;
-    // A pane buries its pair: the review's one window goes back, as the review's buffer would.
-    let window = ctx.editor.window().id();
-    ctx.editor.show_review_unified(window);
-    ctx.editor.walk_buffers(1).map_err(CommandError::new)?;
-    // The windows from before the layout come back for the person's `q` only (ADR 0160).
-    if !ctx.editor.runs_for_agent() {
-        ctx.editor.request_review(ReviewRequest::Quit);
-    }
-    ctx.request_redraw();
-    Ok(())
-}
-
-/// `review-layout` (ADR 0160): the review menu, which the dispatcher opens as it ends, with a
-/// prefix or no review open; else the host, which keeps the layout, says what it does.
-fn review_layout(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    super::not_in_prompt(ctx)?;
-    let menu = args.raw().is_some() || ctx.editor.reviews().next().is_none();
-    ctx.editor.request_review(ReviewRequest::Layout { menu });
     ctx.request_redraw();
     Ok(())
 }

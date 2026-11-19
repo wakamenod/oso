@@ -1,5 +1,5 @@
 //! What the person's space commands change (ADR 0136, step 1b): a new space for an issue, its
-//! repositories, its title and name, its directory once made, and archiving and reopening it.
+//! repositories, its display name, its directory once made, and archiving and reopening it.
 //!
 //! Must not depend on: `app`, `dispatch` or `config`; plain changes to the spaces, with the
 //! frame's tree changed only through [`Spaces::enter`], as a switch does.
@@ -10,9 +10,23 @@ use std::sync::Arc;
 use oso_core::complete::Candidate;
 use oso_core::editor::Editor;
 
-use super::stored::{MAX_MEMBERS, Member, Stored, clean_title, same, slug, unique};
+use super::orchestrator::is_earlier_name;
+use super::stored::{
+    MAX_MEMBERS, Member, Stored, clean_description, clean_display, same, slug, unique,
+    unique_display,
+};
 use super::{Refused, Space, Spaces, record};
 use crate::sessions::state::State;
+
+/// What a new space is called and what it is for (ADR 0159): its description, and the display
+/// name and the slug a summary of it, or the fallback, gave.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Naming {
+    pub description: String,
+    pub display: String,
+    /// The base of its slug, made a slug and unique when the space is made.
+    pub slug: String,
+}
 
 /// Why a repository was not added to a space.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,26 +38,28 @@ pub enum NotAdded {
 }
 
 impl Spaces {
-    /// A new open space for the issue `title`, cleaned, of repository `member`, named after
-    /// the title, as of `now`; it is not entered. `None` while no id is at hand, or with as
-    /// many spaces as the file keeps.
-    pub fn new_space(&mut self, title: &str, member: Member, now: u64) -> Option<usize> {
+    /// A new open space of repository `member`, named as `naming` says, as of `now`; it is
+    /// not entered. Its slug is unlike every space's, every earlier orchestrator's
+    /// `<space>-was-<n>`, and every name `taken` holds, a session's, so that its orchestrator
+    /// answers to its name alone (ADR 0159); its display name is unlike every space's. `None`
+    /// while no id is at hand, or with as many spaces as the file keeps.
+    pub fn new_space(
+        &mut self,
+        naming: &Naming,
+        member: Member,
+        now: u64,
+        taken: &dyn Fn(&str) -> bool,
+    ) -> Option<usize> {
         let at = self.make(member, now)?;
-        let title = clean_title(title);
-        let base = if title.is_empty() {
-            slug(&self.spaces[at].stored.members[0].name())
-        } else {
-            slug(&title)
-        };
+        let base = slug(&naming.slug);
         let name = unique(&base, &|name| {
-            self.spaces
-                .iter()
-                .enumerate()
-                .any(|(other, space)| other != at && space.stored.name == name)
+            taken(name) || self.slug_taken(name, Some(at))
         });
+        let display = self.display_for(at, &naming.display, &name);
         let stored = &mut self.spaces[at].stored;
-        stored.title = title;
+        stored.description = clean_description(&naming.description);
         stored.name = name;
+        stored.display = display.unwrap_or_default();
         Some(at)
     }
 
@@ -104,26 +120,29 @@ impl Spaces {
     }
 
     /// Notes the directory made for space `at`, and the name it was made under, which the
-    /// space then takes when no other space has it and it was not renamed since it was asked
-    /// for under `asked` (ADR 0136, step 1b, P3).
+    /// space then takes as its slug when no other space, nor a name `sessions` holds, has it,
+    /// and it was asked for under `asked` (ADR 0136, step 1b, P3). From then on its slug never
+    /// changes (ADR 0159).
     pub fn set_directory(
         &mut self,
         at: usize,
         path: PathBuf,
         identity: Option<(u64, u64)>,
-        name: &str,
-        asked: &str,
+        (name, asked): (&str, &str),
+        sessions: &dyn Fn(&str) -> bool,
         now: u64,
     ) {
-        let taken = self
-            .spaces
-            .iter()
-            .enumerate()
-            .any(|(other, space)| other != at && space.stored.name == name);
+        let taken = sessions(name) || self.slug_taken(name, Some(at));
         let Some(space) = self.spaces.get_mut(at) else {
             return;
         };
         let stored = &mut space.stored;
+        // A space has one directory: a later job's, made elsewhere, changes neither it nor its
+        // slug, which its orchestrator may answer to already.
+        if (stored.directory.as_deref()).is_some_and(|kept| !same(kept, &path)) {
+            log::warn!("a second directory was made for a space; it keeps its first");
+            return;
+        }
         stored.directory = Some(path);
         stored.directory_identity = identity;
         if !taken && slug(name) == name && stored.name == asked {
@@ -133,23 +152,33 @@ impl Spaces {
         self.unsaved = true;
     }
 
-    /// Gives space `at` the title `title`, cleaned, and a name made from it.
-    pub fn rename(&mut self, at: usize, title: &str, now: u64) {
-        let title = clean_title(title);
-        if title.is_empty() || at >= self.spaces.len() {
-            return;
+    /// Gives space `at` the display name `display`, cleaned; its slug, directory and
+    /// orchestrator's name stay as they are (ADR 0159).
+    ///
+    /// # Errors
+    ///
+    /// Why it is refused, for the echo area: nothing is left of it, or another space is
+    /// called so.
+    pub fn rename(&mut self, at: usize, display: &str, now: u64) -> Result<String, String> {
+        let display = clean_display(display);
+        if display.is_empty() {
+            return Err("A space's name needs a character oso shows".to_owned());
         }
-        let name = unique(&slug(&title), &|name| {
-            self.spaces
-                .iter()
-                .enumerate()
-                .any(|(other, space)| other != at && space.stored.name == name)
-        });
+        if at >= self.spaces.len() {
+            return Err("No such space".to_owned());
+        }
+        if self.label_taken(&display, Some(at)) {
+            return Err(format!("Another space is called {display}"));
+        }
         let stored = &mut self.spaces[at].stored;
-        stored.title = title;
-        stored.name = name;
+        stored.display = if display == stored.name {
+            String::new()
+        } else {
+            display.clone()
+        };
         stored.changed = now;
         self.unsaved = true;
+        Ok(display)
     }
 
     /// Archives space `at`. If its tree is in the frame, the other open space entered last is
@@ -184,18 +213,18 @@ impl Spaces {
         Ok(())
     }
 
-    /// Opens archived space `at` again; it is not entered. A name another open space took
-    /// meanwhile is told apart.
+    /// Opens archived space `at` again; it is not entered. A slug another space took meanwhile
+    /// is told apart while the space has no directory; once it has one, its slug never changes
+    /// (ADR 0159).
     pub fn reopen(&mut self, at: usize, now: u64) {
         let Some(space) = self.spaces.get(at).filter(|space| !space.is_open()) else {
             return;
         };
-        let name = unique(&space.stored.name, &|name| {
-            self.spaces
-                .iter()
-                .enumerate()
-                .any(|(other, space)| other != at && space.is_open() && space.stored.name == name)
-        });
+        let name = if space.stored.directory.is_some() {
+            space.stored.name.clone()
+        } else {
+            unique(&space.stored.name, &|name| self.slug_taken(name, Some(at)))
+        };
         let stored = &mut self.spaces[at].stored;
         stored.name = name;
         stored.archived = false;
@@ -203,16 +232,104 @@ impl Spaces {
         self.unsaved = true;
     }
 
+    /// Whether `name` is the slug of a space other than `at`, or a name one of its earlier
+    /// orchestrators keeps, `<slug>-was-<n>`, or a slug whose earlier orchestrators would take
+    /// another space's slug, so that no two sessions answer to one name.
+    pub fn slug_taken(&self, name: &str, at: Option<usize>) -> bool {
+        // Only a name with `-was-` in it can be an earlier orchestrator's.
+        let earlier = name.to_ascii_lowercase().contains("-was-");
+        (self.spaces.iter().enumerate()).any(|(other, space)| {
+            let slug = &space.stored.name;
+            (Some(other) != at && slug == name)
+                || (earlier && is_earlier_name(slug, name))
+                // A slug another space has may be `name`'s earlier orchestrator's.
+                || (slug.contains("-was-") && is_earlier_name(name, slug))
+        })
+    }
+
+    /// Gives space `at` the names a summary of its description gave (ADR 0159, step 2): `slug`
+    /// as its slug, made unique as a new space's is, while it has no directory; `display` as
+    /// its display name, made unique, if given. Returns the space's slug and what the person
+    /// sees it called now.
+    pub fn take_names(
+        &mut self,
+        at: usize,
+        (slug, display): (Option<&str>, Option<&str>),
+        taken: &dyn Fn(&str) -> bool,
+        now: u64,
+    ) -> Option<(String, String)> {
+        let space = self.spaces.get(at)?;
+        let mut name = space.stored.name.clone();
+        if let Some(base) = slug.filter(|_| space.stored.directory.is_none()) {
+            name = unique(base, &|candidate| {
+                taken(candidate) || self.slug_taken(candidate, Some(at))
+            });
+        }
+        let display = display.and_then(|display| self.display_for(at, display, &name));
+        let stored = &mut self.spaces[at].stored;
+        if name != stored.name || display.is_some() {
+            stored.name = name;
+            if let Some(display) = display {
+                stored.display = display;
+            }
+            stored.changed = now;
+            self.unsaved = true;
+        }
+        Some((stored.name.clone(), stored.label().to_owned()))
+    }
+
+    /// What space `at`, whose slug is `slug`, keeps as its display name for `raw`, cleaned:
+    /// empty where it reads as its slug, else unique among the spaces; `None` where nothing of
+    /// it is left.
+    fn display_for(&self, at: usize, raw: &str, slug: &str) -> Option<String> {
+        let display = clean_display(raw);
+        if display.is_empty() {
+            return None;
+        }
+        if display == slug {
+            return Some(String::new());
+        }
+        Some(unique_display(&display, &|label| {
+            label == slug || self.label_taken(label, Some(at))
+        }))
+    }
+
+    /// Gives space `at`, which has no directory yet, a slug no session answers to, as `taken`
+    /// says, when its own is one: a space made by a session's joining is named after its
+    /// repository, as that session often is, and its orchestrator would answer to that name
+    /// too (ADR 0159). Whether it changed.
+    pub fn free_slug(&mut self, at: usize, taken: &dyn Fn(&str) -> bool, now: u64) -> bool {
+        let Some(space) = self.spaces.get(at) else {
+            return false;
+        };
+        if space.stored.directory.is_some() || !taken(&space.stored.name) {
+            return false;
+        }
+        let name = unique(&space.stored.name, &|name| {
+            taken(name) || self.slug_taken(name, Some(at))
+        });
+        let stored = &mut self.spaces[at].stored;
+        stored.name = name;
+        stored.changed = now;
+        self.unsaved = true;
+        true
+    }
+
     /// Space `at`'s own stored data.
     pub fn stored(&self, at: usize) -> Option<&Stored> {
         self.spaces.get(at).map(|space| &space.stored)
     }
 
-    /// The archived space named `name`.
+    /// The archived space the person sees called `name`, else of that slug.
     pub fn archived_named(&self, name: &str) -> Option<usize> {
-        self.spaces
-            .iter()
-            .position(|space| !space.is_open() && space.stored.name == name)
+        let archived = (0..self.spaces.len()).filter(|&at| !self.spaces[at].is_open());
+        (archived.clone())
+            .find(|&at| self.spaces[at].label() == name)
+            .or_else(|| {
+                archived
+                    .clone()
+                    .find(|&at| self.spaces[at].stored.name == name)
+            })
     }
 
     /// Whether as many spaces as the file keeps are made.
@@ -220,17 +337,12 @@ impl Spaces {
         self.spaces.len() >= record::MAX_SPACES
     }
 
-    /// The candidates of `space-reopen`: each archived space's name, with its title.
+    /// The candidates of `space-reopen`: each archived space as the person sees it called,
+    /// as `space-switch` lists the open ones.
     pub fn archived_candidates(&self) -> Arc<[Candidate]> {
         let mut order: Vec<&Space> = self.spaces.iter().filter(|s| !s.is_open()).collect();
         order.sort_by_key(|space| std::cmp::Reverse(space.stored.changed));
-        order
-            .into_iter()
-            .map(|space| {
-                let about = crate::sessions::recap::clean(&space.stored.title);
-                Candidate::new(space.stored.name.as_str(), "", about)
-            })
-            .collect()
+        order.into_iter().map(super::candidate).collect()
     }
 
     /// Notes the orchestrator `id` of space `at`, the one before it kept as an earlier one,

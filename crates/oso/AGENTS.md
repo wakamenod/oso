@@ -79,7 +79,7 @@ often, so it must rebuild within 2 s.
   `oso-session-adopt-list` thread (`adopt`). A session started outside oso that asks to move
   into a space (`moving`, ADR 0151) is found from the registry on `oso-session-move`, and its
   process and its registry entry are watched on `oso-session-move-wait`; once its turn
-  ended, its bridge stops its own parent (`channel/mcp/moving.rs`, step 2). `session-search` alone reads what was said in
+  ended, its bridge stops its own parent (`channel/mcp/moving.rs`, step 2). A new space's names are asked of the person's `claude`, with no tool, on `oso-space-naming` (`spaces/summary`, ADR 0159). `session-search` alone reads what was said in
   them, prompts and replies only, held in memory on `oso-history` (`history`, ADR 0145); no
   agent gets it, and none of it is logged. The clipboard's images a session is given
   (`images`, ADR 0142) are written, converted by `sips` and removed on one `oso-images` thread,
@@ -98,7 +98,8 @@ often, so it must rebuild within 2 s.
   `review/view/highlight.rs` opens each side as a document no buffer owns on the syntax threads,
   through the handle `app/reviews/highlight.rs` gives it, which also offers it the open
   buffers whose text a new side may be (`review/view/highlight/buffers.rs`), and
-  `review/view/project.rs` lays the runs over the review's lines (step 9); `review/view/filter.rs`
+  `review/view/project.rs` lays the runs over the review's lines (step 9); `review/view/context.rs` lays out the unchanged lines around each hunk and keeps what the
+  context keys (`commands/review/context.rs`) asked to see (step 13); `review/view/filter.rs`
   judges which files a review's filter hides and `review/view/files.rs` lays out its files pane,
   which `app/reviews/files.rs` puts in and `commands/review/files.rs` drives (step 6b); and
   `review/count.rs` counts the review menu's scopes on `oso-review-count`. `review/message.rs`

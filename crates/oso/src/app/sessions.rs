@@ -183,6 +183,7 @@ impl App {
                 member,
             } => self.repository_checked(check, &path, member),
             Out::InstructionsReady { id, file } => self.instructions_ready(&id, file),
+            Out::SpaceSummarized { id, named } => self.space_named(&id, named),
             Out::HandoverLooked {
                 id,
                 from,

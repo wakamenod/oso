@@ -75,6 +75,7 @@ fn shown(reading: &Reading, cards: &Cards, folded: bool, room: usize) -> Rendere
         placed: None,
         cut_short: false,
         folded,
+        context: None,
     };
     render(reading, room, &shown)
 }
@@ -97,6 +98,8 @@ fn grid(rendered: &Rendered) -> String {
             RowKind::Note => "note".to_owned(),
             RowKind::Hunk { .. } => "hunk".to_owned(),
             RowKind::Lines { .. } => "line".to_owned(),
+            RowKind::Context { .. } => "context".to_owned(),
+            RowKind::Gap { .. } => "gap".to_owned(),
             RowKind::Label { comment } => format!("label {}", comment.get()),
             RowKind::Card { comment } => format!("card {}", comment.get()),
             RowKind::Filler => "filler".to_owned(),
@@ -452,6 +455,7 @@ fn a_carry_the_model_has_not_seen_places_the_cards() {
             placed: Some(&placed),
             cut_short: true,
             folded: false,
+            context: None,
         };
         let lines = lines_of(&render(&newer, usize::MAX, &shown));
         let labels: Vec<(usize, CommentId)> = lines
@@ -482,6 +486,7 @@ fn a_carry_the_model_has_not_seen_places_the_cards() {
         placed: None,
         cut_short: false,
         folded: false,
+        context: None,
     };
     let lines = lines_of(&render(&newer, usize::MAX, &shown));
     let outdated = lines

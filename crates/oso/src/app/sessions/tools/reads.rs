@@ -150,7 +150,10 @@ impl App {
         });
         Ok(json!({
             "space": stored.name,
-            "title": stored.title,
+            // What the person sees it called, and what it is for: the person's words, in a
+            // record agents in oso can write too, with no invisible character (ADR 0159).
+            "display_name": crate::sessions::spaces::orchestrator::plain(stored.label()),
+            "description": stored.description,
             // The workers' address: SendMessage (to: this name).
             "orchestrator": orchestrator.map(|name| name.unwrap_or_else(|| stored.name.clone())),
             "you_orchestrate": caller.orchestrator(),
@@ -233,7 +236,7 @@ impl App {
             "messaging_name": self.messaging_name(session),
             "directory": shown(&session.directory),
             "project": session.root.as_deref().map(shown),
-            "space": self.watch.space_name(session.key),
+            "space": self.watch.space_slug(session.key),
             "state": state,
             "age_s": age_s,
             "pinned": session.pinned,

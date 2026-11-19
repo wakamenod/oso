@@ -257,7 +257,7 @@ impl App {
         }
         self.turn_agent_channel_on_for_a_session();
         // An agent's tool's start stays behind what the person is doing (ADR 0144).
-        let shown = begin.origin == Origin::Person;
+        let shown = begin.origin == Origin::Person && !begin.behind;
         let terminal = self.session_terminal(key, &name, None, shown);
         let (trusted, root) = match begin.trusted.clone() {
             // A worktree just made, which no buffer opened yet: its own root and trust.

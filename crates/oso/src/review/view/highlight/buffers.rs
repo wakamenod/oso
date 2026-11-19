@@ -104,13 +104,13 @@ impl Highlighting {
         if !same {
             return false;
         }
-        let numbers = lines_of(shape.hunks(), Side::New);
+        let numbers = lines_of(shape.hunks(), &file.context[index(Side::New)], Side::New);
         let bom = sides::has_bom(new);
         let projected = if buffer.whole {
             project::project(&buffer.text, bom, &buffer.highlights, numbers, true)
         } else {
             let shown = shown.map_or(&[][..], Vec::as_slice);
-            let numbers = numbers.filter(|number| on_screen(shown, *number));
+            let numbers = (numbers.into_iter()).filter(|number| on_screen(shown, *number));
             project::project(&buffer.text, bom, &buffer.highlights, numbers, false)
         };
         if projected.lines() == 0 {

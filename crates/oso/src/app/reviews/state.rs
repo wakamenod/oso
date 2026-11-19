@@ -62,6 +62,8 @@ pub(super) struct Running {
     pub(super) jumping: Option<super::visit::Jumping>,
     /// The buffers showing its sides read-only (step 3, part three).
     pub(super) sides: Vec<oso_core::buffer::BufferId>,
+    /// The files of the open buffers that may hold secrets its view was last told of (step 13).
+    pub(super) held: Arc<std::collections::HashSet<std::path::PathBuf>>,
 }
 
 /// What opening a review that is open already does.
@@ -107,6 +109,7 @@ impl Running {
             pr: None,
             jumping: None,
             sides: Vec::new(),
+            held: Arc::default(),
         }
     }
 

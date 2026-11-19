@@ -1,8 +1,9 @@
-//! How a hosted session's `claude` starts (ADR 0121, Q22): as the person's login shell would
-//! run it, so that their `PATH`, version managers and proxies apply.
+//! How a hosted session's `claude` starts (ADR 0121, Q22), and a space's naming run (ADR 0159):
+//! as the person's login shell would run it, so that their `PATH`, version managers and
+//! proxies apply; which `claude`; and which variables it takes.
 //!
 //! Must not depend on: `app` or the UI thread; [`launch`] may look on `PATH`, which stats
-//! files, so it runs on the session's start thread.
+//! files, so it runs on the session's start thread, or the naming run's.
 //!
 //! - For `sh`, `bash`, `zsh`, `dash` and `ksh`, by the shell's file name, the program is
 //!   `SHELL -l -c SCRIPT PROJECT CLAUDE ARGS…`. The arguments are positional parameters, never
@@ -46,6 +47,47 @@ exit 127"#;
 
 /// The program's name when the login shell finds it on its own `PATH`.
 const CLAUDE: &str = "claude";
+
+/// Where oso's sockets are on Linux (`oso-platform::control`): a session's `oso mcp` needs it
+/// to find the channel, and a terminal does not pass it on.
+const CONTROL_VARIABLE: &str = "XDG_RUNTIME_DIR";
+
+/// `[sessions] claude`, if set, as the executable it names.
+///
+/// # Errors
+///
+/// It names no executable file.
+pub fn configured(claude: Option<&Path>) -> Result<Option<Executable>, String> {
+    claude
+        .map(|path| {
+            Executable::absolute(path)
+                .map_err(|_| "[sessions] claude is not an executable file".to_owned())
+        })
+        .transpose()
+}
+
+/// The names a run of `claude` takes from oso's environment: a terminal's, `[sessions] env`'s,
+/// and `CLAUDE_CONFIG_DIR`, so that its login and registry are the person's, as oso reads them.
+/// A space's naming takes these alone (ADR 0159).
+pub fn claude_inherit(terminal: &[String], sessions: &[String]) -> Vec<String> {
+    let mut names = crate::terminal::shell::inherit(terminal);
+    for name in (sessions.iter().map(String::as_str)).chain([super::registry::CONFIG_VARIABLE]) {
+        if !names.iter().any(|known| known == name) {
+            names.push(name.to_owned());
+        }
+    }
+    names
+}
+
+/// The names a session's terminal passes on: [`claude_inherit`]'s, and [`CONTROL_VARIABLE`],
+/// so that its bridge reaches this oso.
+pub fn inherit(terminal: &[String], sessions: &[String]) -> Vec<String> {
+    let mut names = claude_inherit(terminal, sessions);
+    if !names.iter().any(|known| known == CONTROL_VARIABLE) {
+        names.push(CONTROL_VARIABLE.to_owned());
+    }
+    names
+}
 
 /// What starts a session: a program and its arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -112,6 +112,7 @@ impl App {
         // The files pane's width and the filter (step 6b).
         self.sync_review_files();
         self.sync_review_sides();
+        self.sync_review_held();
         self.sync_review_watches();
         self.sync_review_comments();
         self.sync_review_message();
@@ -134,6 +135,11 @@ impl App {
             ReviewRequest::Layout { menu } => self.review_layout_key(menu),
             ReviewRequest::Quit => self.review_quit_layout(),
             ReviewRequest::Redraw { review, path } => self.redraw_comments(review, &path),
+            ReviewRequest::Context { review, path, show } => {
+                if let Some(index) = self.reviews.index(review) {
+                    (self.reviews.open[index].view).tell(Tell::Context { path, show });
+                }
+            }
             ReviewRequest::Send(id) => self.send_review(id),
             ReviewRequest::MessageSend { buffer, to } => self.send_review_message(buffer, to),
             ReviewRequest::MessageDrop { buffer } => self.drop_review_message(buffer),

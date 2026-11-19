@@ -36,6 +36,7 @@
 mod assemble;
 mod build;
 mod cards;
+mod context;
 mod file;
 mod files;
 mod filter;
@@ -136,6 +137,15 @@ pub(crate) enum Tell {
     Filter(Option<oso_core::review::Filter>),
     /// Whether to build the files pane's text, and how many columns it has.
     Files(Option<usize>),
+    /// The unchanged lines of the file at `path` to show too, by its old side's numbers, or
+    /// only the hunks' own context again (step 13).
+    Context {
+        path: Box<[u8]>,
+        show: Option<Range<u32>>,
+    },
+    /// The files of the open buffers that may hold secrets or are withheld from agents: they
+    /// show no unchanged line (step 13).
+    HeldBuffers(Arc<std::collections::HashSet<PathBuf>>),
 }
 
 /// How a file's comments are carried to its new reading.
@@ -261,6 +271,8 @@ struct State {
     /// The files the filter hides, and the files pane's text (step 6b).
     filtering: filter::Filtering,
     files_pane: files::FilesPane,
+    /// The files of the open buffers that may hold secrets, as last told (step 13).
+    held_buffers: Arc<std::collections::HashSet<PathBuf>>,
 }
 
 impl State {
@@ -288,6 +300,7 @@ impl State {
             shown: Vec::new(),
             filtering: filter::Filtering::default(),
             files_pane: files::FilesPane::default(),
+            held_buffers: Arc::default(),
         }
     }
 
@@ -350,6 +363,8 @@ impl State {
             Tell::Panes(on) => self.show_panes(on),
             Tell::Filter(filter) => self.filter(filter),
             Tell::Files(width) => self.show_files(width),
+            Tell::Context { path, show } => self.reveal(&path, show),
+            Tell::HeldBuffers(held) => self.held_buffers(held),
             Tell::Highlighter { highlighter, top } => {
                 self.highlighting.set(highlighter, top);
                 self.shown_now();
@@ -417,6 +432,7 @@ impl State {
                 let carried = carry_here(carry);
                 file.show(Arc::clone(&reading), Some(carried.placed().into()), false);
                 self.highlighting.reading(&reading.entry.path, &reading);
+                self.context_shown(&reading.entry.path);
                 self.carried.push((reading, carried));
                 self.dirty = true;
             }
@@ -425,6 +441,7 @@ impl State {
             Carrying::Nothing => {
                 file.show(Arc::clone(&reading), None, false);
                 self.highlighting.reading(&reading.entry.path, &reading);
+                self.context_shown(&reading.entry.path);
                 self.dirty = true;
             }
         }
@@ -467,6 +484,7 @@ impl State {
                 cut_short,
             );
             self.highlighting.reading(&reading.entry.path, &reading);
+            self.context_shown(&reading.entry.path);
             self.carried.push((reading, carried));
             self.dirty = true;
         }

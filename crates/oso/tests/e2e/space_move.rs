@@ -25,7 +25,7 @@ use oso_platform::process::{Executable, Sink, Source, Spawn, spawn};
 use serde_json::{Value, json};
 
 use super::session_tools::{FAKE, run_in, runs};
-use super::spaces::answer;
+use super::spaces::{PrivateRoot, answer};
 use super::worktrees::{DEADLINE, Flow, asks};
 
 /// The conversation the outside session runs.
@@ -133,13 +133,19 @@ struct Moving {
     app: crate::harness::App,
     outside: oso_platform::process::Child,
     repo: std::path::PathBuf,
+    /// The spaces' root, kept while the flow runs.
+    _root: PrivateRoot,
 }
 
 /// Makes a space of another repository, starts the outside session in the flow's trusted
 /// repository, lets it in and answers `y` to its move, then waits for oso's waiting buffer.
 /// It also checks the refusal of a space that is none, the question's words and the reply.
 fn moving(test: &str) -> Moving {
-    let flow = Flow::with_fake(test, "", FAKE);
+    // The space's directory must have a private way for its orchestrator to start, which
+    // `space-new` does: the system's temporary directory is shared on Linux.
+    let root = PrivateRoot::new(&format!("{test}-root"));
+    let config = format!("\n[spaces]\nroot = \"{}\"\n", root.0.display());
+    let flow = Flow::with_fake(test, &config, FAKE);
     // The space's repository, which oso need not trust, and the outside session's, trusted.
     let other = flow.scratch.path().join("other");
     fs::create_dir(&other).unwrap();
@@ -149,11 +155,17 @@ fn moving(test: &str) -> Moving {
     app.open_file(&other.join("README.md"));
     wait_for_other_project(&mut app);
     app.send_keys("C-c a O");
-    answer(&mut app, "New space for issue:", "Fix login error");
+    answer(&mut app, "Describe the space:", "Fix login error");
     let other_root = fs::canonicalize(&other).unwrap().display().to_string();
     app.wait_for("the space", |state| {
         space(state, "fix-login-error").is_some_and(|s| s["members"] == json!([other_root]))
     });
+    // The new space shows its orchestrator, a terminal that takes `C-x`: the file again, so
+    // that the flow's keys reach oso.
+    app.wait_for("its orchestrator shown", |state| {
+        state["buffer"]["name"] == "*claude: fix-login-error*"
+    });
+    super::spaces::show_readme(&mut app);
 
     // The person turns the channel on, as an outside session reaches oso only then.
     app.run_command("agent-channel-start", None).unwrap();
@@ -196,11 +208,17 @@ fn moving(test: &str) -> Moving {
     });
     let members = &space(&state, "fix-login-error").unwrap()["members"];
     assert_eq!(members.as_array().map(Vec::len), Some(2), "{members}");
+    // The space's running orchestrator is offered the trusted repository it just took: no.
+    app.wait_for("the offer", |state| {
+        asks(state).is_some_and(|prompt| prompt.starts_with("Paste /add-dir"))
+    });
+    app.send_keys("n");
     Moving {
         flow,
         app,
         outside,
         repo,
+        _root: root,
     }
 }
 
@@ -231,7 +249,7 @@ fn a_session_started_outside_oso_moves_into_a_space_once_it_stopped_there() {
     // It waits while the outside process runs, and resumes nothing.
     thread::sleep(Duration::from_millis(1500));
     assert!(
-        runs(&moving.flow).is_empty(),
+        resumes(&moving.flow) == 0,
         "a resume ran while the outside process ran"
     );
 
@@ -246,7 +264,7 @@ fn a_session_started_outside_oso_moves_into_a_space_once_it_stopped_there() {
     moving
         .app
         .wait_for("the moved session in its space", |state| {
-            session(state, "outside-fix").is_some_and(|s| s["space"] == "fix-login-error")
+            session(state, "outside-fix").is_some_and(|s| s["space"] == "Fix login error")
                 && echo(state) == "Moved \"outside-fix\" into space \"fix-login-error\""
         });
     moving.flow.scratch.write("go", b"0");
@@ -259,7 +277,7 @@ fn the_bridge_stops_its_session_once_its_turn_ended() {
     // The entry's time is whole seconds: one from a second after the reply is after it.
     thread::sleep(Duration::from_millis(1100));
     assert!(
-        runs(&moving.flow).is_empty(),
+        resumes(&moving.flow) == 0,
         "a resume ran while the outside process ran"
     );
     // Its turn ends: the bridge sends its own parent `SIGTERM`, and nothing else stops it.
@@ -290,7 +308,7 @@ fn the_bridge_stops_its_session_once_its_turn_ended() {
     moving
         .app
         .wait_for("the moved session in its space", |state| {
-            session(state, "outside-fix").is_some_and(|s| s["space"] == "fix-login-error")
+            session(state, "outside-fix").is_some_and(|s| s["space"] == "Fix login error")
         });
     moving.flow.scratch.write("go", b"0");
 }
@@ -299,7 +317,9 @@ fn the_bridge_stops_its_session_once_its_turn_ended() {
 #[ignore = "opens windows; run with `just e2e`"]
 fn killing_the_waiting_buffer_cancels_the_move() {
     let mut moving = moving("space-move-cancel");
-    // The waiting buffer is internal, and `C-x b` and `C-x k` take it as a person's.
+    // The waiting buffer is internal, and `C-x b` and `C-x k` take it as a person's: from a
+    // file, as the space's window may show its orchestrator's terminal, which takes `C-x`.
+    super::spaces::show_readme(&mut moving.app);
     moving.app.send_keys("C-x b");
     answer(
         &mut moving.app,
@@ -323,7 +343,16 @@ fn killing_the_waiting_buffer_cancels_the_move() {
     // The outside session ends, and nothing resumes it.
     exit_outside(&mut moving);
     thread::sleep(Duration::from_millis(1500));
-    assert!(runs(&moving.flow).is_empty(), "a cancelled move resumed");
+    assert_eq!(resumes(&moving.flow), 0, "a cancelled move resumed");
+}
+
+/// How many runs of the fake there were but the space's orchestrator's, which `space-new`
+/// starts (ADR 0159).
+fn resumes(flow: &Flow) -> usize {
+    let orchestrator = "--name=fix-login-error";
+    (runs(flow).iter())
+        .filter(|run| !run.args.iter().any(|arg| arg == orchestrator))
+        .count()
 }
 
 /// Waits until the project of the buffer just opened is found, so that `space-new` takes it.

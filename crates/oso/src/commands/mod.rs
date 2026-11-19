@@ -119,6 +119,7 @@ const TABLES: &[&[Command]] = &[
     restart::COMMANDS,
     review::COMMANDS,
     review::COMMENT_COMMANDS,
+    review::CONTEXT_COMMANDS,
     review::DECISION_COMMANDS,
     review::VISIT_COMMANDS,
     review::FILES_COMMANDS,
@@ -441,6 +442,7 @@ mod tests {
         "space-orchestrator-replace",
         "space-remove-repo",
         "space-rename",
+        "space-rename-to",
         "space-use-repo",
         "space-reopen",
         // Worktree sessions, which run git, gh and a session (ADR 0121).

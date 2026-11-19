@@ -235,6 +235,28 @@ fn marks_take_their_states_face_and_a_working_one_spins() {
 }
 
 #[test]
+fn an_emoji_sequence_takes_the_cells_it_is_drawn_in_and_is_never_cut_inside() {
+    let family = "👨\u{200D}👩\u{200D}👧";
+    assert_eq!(cells(family), 2, "one glyph, not three");
+    assert_eq!(cells(&format!("ログイン {family}")), 11);
+    let name = format!("{family}{family}{family}");
+    assert_eq!(cut(&name, 5), format!("{family}{family}…"));
+    assert_eq!(
+        cut_middle(&format!("{name}{name}"), 8),
+        format!("{family}{family}…{family}")
+    );
+    for width in 0..14 {
+        for cut in [cut(&name, width), cut_middle(&name, width)] {
+            assert!(cells(&cut) <= width, "{width}: {cut}");
+            assert!(
+                !cut.contains("\u{200D}…") && !cut.starts_with('\u{200D}'),
+                "{cut}"
+            );
+        }
+    }
+}
+
+#[test]
 fn ages_and_cuts() {
     let t = Instant::now();
     let after = |s| age(t, t + Duration::from_secs(s));
@@ -282,6 +304,31 @@ fn two_hundred_fifty_six_sessions_render_within_the_budget() {
         assert!(shown.lines.len() > 256);
     }
     // A debug build is several times slower; the budget is a release build's (ADR 0121).
+    assert!(cfg!(debug_assertions) || best.as_micros() < 500, "{best:?}");
+}
+
+#[test]
+fn two_hundred_fifty_six_sessions_of_wide_text_and_emoji_render_within_the_budget() {
+    let t = Instant::now();
+    let entries: Vec<Entry> = (0..256)
+        .map(|n| {
+            let state = [ASK, State::Working, State::Done, State::Idle][n % 4];
+            let mut entry = entry(n as u64, &format!("ログイン画面の修正-{n}"), state, t);
+            entry.parent = (n % 5 == 1).then(|| Key::Hosted(n as u64 - 1));
+            entry.recap = "ログイン画面のエラー表示を直して、テストを追加しました。".repeat(2);
+            entry.space = "ログイン 👨\u{200D}👩\u{200D}👧".to_owned();
+            entry
+        })
+        .collect();
+    let list = List::by_state();
+    let mut best = Duration::MAX;
+    for _ in 0..10 {
+        let start = Instant::now();
+        let shown = list.render(&entries, 32, t);
+        best = best.min(start.elapsed());
+        assert!(shown.lines.len() > 256);
+    }
+    // The budget of the ASCII case above: wide text and emoji may not cost more (ADR 0159).
     assert!(cfg!(debug_assertions) || best.as_micros() < 500, "{best:?}");
 }
 

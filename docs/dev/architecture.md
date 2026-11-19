@@ -785,13 +785,16 @@ The UI thread never blocks on I/O or parsing:
 - What follows a session's change is made once after the event that brought it
   (`app/sessions/watch.rs`, ADR 0121 step 3): `*Spaces*` (`sessions/list.rs`, rendered only
   while shown) in the side window, which oso-core keeps outside the window tree
-  (`editor/sessions/side.rs`); the modeline's `SessionMarks`; the lists `ArgSpec::Listed`
+  (`editor/sessions/side.rs`); the modeline's `SessionMarks` and the space in front's name
+  (`Editor::set_front_space`, ADR 0159); the lists `ArgSpec::Listed`
   completes over (`Editor::set_listed`); the session buffers' modeline notes; and the
   notices (`sessions/attention.rs`, pure), which ask for attention through
   `oso_platform::notify` on macOS and the window's urgency elsewhere. Issue spaces
   (`sessions/spaces.rs`, ADR 0136) swap oso-core's opaque `WindowTree` whole; the worker
   keeps them in the `spaces` file beside `sessions` (`sessions/spaces/record.rs`), and
-  `app/sessions/watch/placing.rs` puts each session in one. A turn's end takes a
+  `app/sessions/watch/placing.rs` puts each session in one; a new space's names come from the
+  person's `claude`, run on an `oso-space-naming` thread (`sessions/spaces/summary.rs`, ADR
+  0159). A turn's end takes a
   fresh tree on a review's thread (ADR 0122) to find changes. The worker looks at Claude
   Code's registry once a second for other programs' sessions (`sessions/worker/externals.rs`).
 - A hosted session (`claude`, ADR 0121 step 1) gets ready on a short `oso-session-start`

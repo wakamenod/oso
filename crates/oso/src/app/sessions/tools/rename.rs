@@ -19,7 +19,7 @@ use serde_json::json;
 
 use super::super::super::App;
 use super::{Caller, Pending};
-use crate::commands::agent_sessions::RENAME_TO;
+use crate::commands::agent_sessions::SESSION_RENAME_TO;
 use crate::sessions::identity::new_name;
 use crate::sessions::tools::{self as rules, Renamable, Tool};
 use crate::sessions::worker::SessionKey;
@@ -41,7 +41,7 @@ impl App {
         let Some(name) = self.hosting.table().get(key).map(|s| s.name.clone()) else {
             return;
         };
-        let Some(prompt) = self.open_host_prompt(RENAME_TO) else {
+        let Some(prompt) = self.open_host_prompt(SESSION_RENAME_TO) else {
             return self.editor.message("Cannot ask for the name now");
         };
         self.editor.offer_prompt_default(prompt, name);
@@ -157,17 +157,7 @@ impl App {
                 rules::quoted(name)
             ));
         }
-        let others = || table.iter().filter(|session| session.key != key);
-        let answered = others()
-            .filter(|session| session.runs())
-            .flat_map(|session| {
-                let registry = self.hosting.naming.messaging_name(session.key);
-                registry.into_iter().chain(session.launched_as.as_deref())
-            });
-        let sessions = (others().map(|session| session.name.as_str()))
-            .chain(answered)
-            .chain(table.held_names())
-            .chain(self.watch.external_names());
+        let sessions = self.session_names(Some(key));
         let spaces: Vec<&str> = self.watch.spaces().iter().map(|s| s.name()).collect();
         match rules::rename_clash(name, sessions, spaces.iter().copied()) {
             Some(why) => Err(format!("{}: {why}", rules::quoted(name))),
